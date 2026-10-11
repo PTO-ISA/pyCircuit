@@ -8,35 +8,43 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "817ad26540d254423e3f6cda05ce3a1ced4f2ea0ddd28e50ca393c0a6bdcb76c",
+      "source/CMakeLists.txt": "f3fb69d61d4ff42df6eeb1b27cdc389649c51ae1070a4e62e631e85c4f4eeadf",
+      "source/bench.py": "c0d6815a287cf71c45bd66a7537b3d17dc07d1a9516862b25dc7e0c64ce49188",
       "source/config.json": "4236b13287aa69791ceec9bd072100dc425dcdabd4ebb450b6185026bd65ae2f",
       "source/driver.cpp": "67269c100c513ae8fa37143cf5deb6b569aa1ebbf112585f3cc992b327a5091e",
       "source/four_state.py": "607b013de601cdd93c8c8d72b8c5611c879cade755dc680f2de0cab45292193e",
-      "source/popcount_pipeline.py": "d752af149275072f18fd9ef3ee244d8f704d3d515fc05c209766a280133fd0af",
+      "source/popcount_pipeline.py": "c68c96612afefb213fa11f28ac1a6f16fd42594c06d76c2fd0220861da3f5b4f",
       "source/rtl_tb.sv": "416a67a6bc187542595c4f4fa757f27a76a96cd862e37752fd26b283bfda1ee6",
       "build/cpp/generated.json": "3869e40e2f443e550b0853c8440d0ed510b454f9360851fe04234bd7cf84f92f",
       "build/cpp/CMakeLists.txt": "bd22bdac4a6aa0db2334080d981a32efbe65ad48c4add4989f93690b19622208",
-      "build/cpp/pycircuit_support.hpp": "0bf0716cf3a5d5e3b51ec18521d4d2fef0f72d9ce40066167e96e3dc385d3346",
+      "build/cpp/pycircuit_support.hpp": "3d2a9a00a7e1e8e685c063ad9d5e9adc685a7e58ea1100959e10bf3cfbca2653",
       "build/cpp/pycircuit_system.hpp": "451f36f51637da0577e7374eba51f98dc42741afb8b6be89e5122bb9ebaa8df6",
       "build/cpp/sources/example_popcount_pipeline/popcount_pipeline.cpp": "62e4b466d94e2d6d82bec47c6bed445e52767f0839a4ad68243600de4b34cbc5",
-      "build/cpp/sources/example_popcount_pipeline/popcount_pipeline.hpp": "dba8853be8eedc6d8d198723a80e651fa0e2f421be5fcf7dc7e6946478e1e789",
-      "build/cpp/sources/example_popcount_pipeline/popcount_pipeline.source-map.json": "638f9995c5c78345f7191ca0b7101fcc263f6cec3585c61cdeec928dcb6feeec",
+      "build/cpp/sources/example_popcount_pipeline/popcount_pipeline.hpp": "3dd8d625338d1f3f607215842d2836340d855a7d54d98927a3f2a7165a43e0ab",
+      "build/cpp/sources/example_popcount_pipeline/popcount_pipeline.source-map.json": "0cb7028dd4a9d5b7dce4c6d50fa0bde4f8accac0d7e96dbd5677f853bfafeb4a",
       "build/verilog/generated.json": "340d85058db4c9140fd1553d4088e7c4dda83dc57a281e0aa1033ea392ee9817",
       "build/verilog/CMakeLists.txt": "e599e5b50548037d1c2732aeaaae027f27f43def06036f8da9794d3954910983",
       "build/verilog/design_top.sv": "42975087d3740b3f0fd3392308f08135c3b5edef0200aeba5b5a339413320eec",
-      "build/verilog/sources/example_popcount_pipeline/popcount_pipeline.source-map.json": "834c49b88b728006451ecfdd9e12e6aba431a2acbce87dc869255af84f4c39eb",
+      "build/verilog/sources/example_popcount_pipeline/popcount_pipeline.source-map.json": "095855b035d981e519126ef382a11c959897ddee24b6fc65625f1398ba00a44f",
       "build/verilog/sources/example_popcount_pipeline/popcount_pipeline.v": "e6f19b1f99a70c6c7580798010ae3509c277f84a5393ee9a5fc35f4382b1f499",
-      "build/popcount_pipeline.ac": "1b32b2dc48e83a481d4be2440a41c4c1c68e0177d6170559572ffea07b6871fb",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "043613401bcb2c863149d26dc12590ad874747f489ee9bbc3a4b0a92dc1992ac"
+      "build/popcount_pipeline.ac": "6a3df713ed84c2d81fa5c27794a85d100b4674708f423ee99769ca4843e31faa",
+      "build/units/.popcount_pipeline.pycircuit-publication/owner.json": "01344c72fd533ce5a23e3ad7b23322a4177aa76595b4162c3b88cdac0c08d529",
+      "build/units/popcount_pipeline/popcount_pipeline.ac": "a5d63aae4dc3285f202f5fd61d085fbb7238b8881d1643623a34e520bc0a5bd0",
+      "build/units/popcount_pipeline/popcount_pipeline.d": "ef61b025615deef347f226f70d0265ed1997d91576515c88642b58d75b7d8480",
+      "build/units/popcount_pipeline/popcount_pipeline.interface.ac": "7a98600fb3f86aa4c7128b2b9d1b27fa17c461131f640e6a22ff8f7c71d97716",
+      "build/units/popcount_pipeline/unit.json": "c8f66ced9b727970a83482501cf89c6c0a9b89dbace5f9699e5744c87cccc21d",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "cb2bc9be3d0ef2b7e8f25f6df25c4e1eacb0a9253ad55c15661b56a8c14fe7f9"
     },
-    "execution_sha256": "cd350eba2dc7763d224a5d6a2a4327c4c0b5c19daf4cede66f62b09dde0b6eba",
+    "execution_sha256": "5c7d1cdb5f022739fe7fdd832648e5a143f857e6641f2b781dea3d7d97d54827",
     "work_samples": 16585,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -48,12 +56,12 @@
     {
       "path": "popcount_pipeline.ac",
       "line": 6,
-      "sha256": "1b32b2dc48e83a481d4be2440a41c4c1c68e0177d6170559572ffea07b6871fb"
+      "sha256": "6a3df713ed84c2d81fa5c27794a85d100b4674708f423ee99769ca4843e31faa"
     },
     {
       "path": "cpp/sources/example_popcount_pipeline/popcount_pipeline.hpp",
-      "line": 38,
-      "sha256": "dba8853be8eedc6d8d198723a80e651fa0e2f421be5fcf7dc7e6946478e1e789"
+      "line": 40,
+      "sha256": "3dd8d625338d1f3f607215842d2836340d855a7d54d98927a3f2a7165a43e0ab"
     },
     {
       "path": "verilog/sources/example_popcount_pipeline/popcount_pipeline.v",

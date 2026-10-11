@@ -43,23 +43,23 @@ python3 tools/example_catalog.py generated --example rule_pair_pipeline \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_rule_pair_pipeline/rule_pair_pipeline.hpp`, from line 63:
+`cpp/sources/example_rule_pair_pipeline/rule_pair_pipeline.hpp`, from line 65:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_rule_pair_pipeline::rule_pair_pipeline::PairResult, (pyc_count * (1))>> pyc_value_0;
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_ready.element(pyc_pin) = this->left_take.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f31_in_ready.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f31_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_ready.element(pyc_lane));
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_ready.element(pyc_pin) = this->pyc_queue_pyc_5f5f7079635f71756575655f31_in_ready.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f30_in_ready.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f30_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_ready.element(pyc_lane));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<64>>::width) + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<64>>::width), this->pyc_queue_pyc_5f5f7079635f71756575655f30_in_ready.element(pyc_lane * (1) + pyc_field).packed());
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_valid.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readValid(this->pyc_queue_pyc_5f5f7079635f71756575655f31_state->current(pyc_lane));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<64>>::width) + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<64>>::width), this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_valid.element(pyc_lane * (1) + pyc_field).packed());
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f31_output_tokens[pyc_lane] = gfsim::fifo_kernel<gfsim::Bits<64>, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readData(this->pyc_queue_pyc_5f5f7079635f71756575655f31_state->current(pyc_lane));
     for (std::size_t pyc_queue_lane = 0; pyc_queue_lane < pyc_count; ++pyc_queue_lane) {
       this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_data.element(pyc_queue_lane) = this->pyc_queue_pyc_5f5f7079635f71756575655f31_output_tokens[pyc_queue_lane];
-    }
-    for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f33_out_ready.element(pyc_pin) = this->right_take.element(pyc_pin);
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f33_in_ready.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f33_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f33_out_ready.element(pyc_lane));
 ```
 
 ## Source-owned Verilog

@@ -39,7 +39,7 @@ ctest --test-dir /absolute/build/rule_pair_pipeline --output-on-failure --no-tes
 
 The public example helper compiles the source independently, links its explicit
 unit closure and emits both targets from one verified final artifact. Keep
-build artifacts outside the source tree. Both gates also run through the aggregate examples build.
+build artifacts outside the source tree. The module and four-state gates also run through the aggregate examples build.
 
 ## Verification
 
@@ -61,9 +61,76 @@ Independent stalls, missing peers, full replacements, occupied resets, held
 clocks with changed offers and E0/E1/E2 are checked. Limits are finite at
 12,000 ticks. Final IR contains exactly four D1/L1 queues and no extra instances
 or collections.
-The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
 
-```bash
-pycircuit run examples/rule_pair_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/rule_pair_pipeline/system-cpp
-pycircuit run examples/rule_pair_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/rule_pair_pipeline/system-verilog
+## Scenario bench
+
+`bench.py` stores all 158 original scenarios in an immutable typed Table. Its
+12-field, 264-bit `Stimulus` preserves the original schema, field order and all
+input/expected payloads. Row 158 is all zero, retaining the helper fallback
+for every known u16 phase from 158 through 65,535. This fallback is distinct
+from the system counter, which holds at 157. The run retains 158 cycles.
+
+The original if/elif priority chain becomes literal rows without merging either
+stream. All six ordered valid/data/take arguments remain distinct, including
+25 rows with different input-valid bits, 24 with different takes and 10 with
+different output-valid flags. All four u64 columns remain exact. Left increment
+and right multiplication stay in the DUT; the bench neither recomputes expected
+results nor replaces multiplication by a shift.
+
+The complete advance and system bodies are unchanged, including unconditional
+assertions, observation order and advance-before-check/exercise registration.
+Independent source checks compare all 786,432 field values across the known-u16
+helper domain. Twenty complete native and RTL traces match all 2,212 observations
+and the terminal result after excluding only changed source-position metadata,
+including native workers 1 and 2. Baseline and compact versions each pass all
+three standalone tests. See the module [excerpts and receipt](GENERATED.md).
+
+Original physical tests retain 531 known and 1,201 four-state Work samples,
+with the reset, held-clock and conservation checks described above. The
+registered four-state test already executes Icarus. Regular-clock systems do not
+replace physical histories, and known-u16 source proof does not establish
+arbitrary X/Z-phase equivalence.
+
+## Local cost comparison
+
+The source shrinks from 1,815 lines / 54,254 bytes to
+247 lines / 39,553 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 4.416 s | 0.922 s |
+| Link system | 7.545 s | 1.687 s |
+| Emit C++ | 5.642 s | 1.590 s |
+| Emit Verilog | 5.073 s | 1.265 s |
+| Build C++ | 1.328 s | 1.127 s |
+| Build Verilog | 1.567 s | 1.507 s |
+| First measured full C++ run | 3.357 s | 2.135 s |
+| First measured full Verilog run | 0.124 s | 3.145 s |
+| Warm C++ median, one worker | 0.220987 s | 0.024754 s |
+| Warm Verilog median | 0.024415 s | 0.022983 s |
+| Warm native peak RSS median | 3.98 MiB | 2.88 MiB |
+
+| Artifact size | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 36,886,278 bytes | 6,776,159 bytes |
+| Generated C++ total | 2,279,011 bytes | 1,910,858 bytes |
+| Generated Verilog total | 506,003 bytes | 374,180 bytes |
+
+The first measured RTL run increases from 0.124 to 3.145 s despite the lower
+warm median. That regression is retained separately; one observation does not
+identify its cause or establish steady-state behavior.
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/rule_pair_pipeline --target cpp --cycles 158
+pycircuit run examples/rule_pair_pipeline --target verilog --cycles 158
 ```
