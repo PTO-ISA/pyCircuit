@@ -8,34 +8,42 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "b92b3f144bd3c920a4f14aab18f7da728e14d587d9b8a8ee01c1babe5f7536dd",
+      "source/CMakeLists.txt": "f4b944f177ebe798990ed3d67bc27533b812b97d51d9987225ee82414862f53f",
+      "source/bench.py": "c593dd4ab99c76d69522f09e50c7f88afd0c82aa3d7fe96b4a2a55af077fe82b",
       "source/config.json": "2c83cf4c931dcd103a18a690763d485d39012eaac121873450c7ae77e107d553",
       "source/driver.cpp": "9dc815e8fc39f92bfdd5edd5adcb4b3a15e460483ffab72ccb0658da0a5bae8f",
       "source/net_resolution_depth_smoke.py": "b6dc3c7bd998c8879d419fec63e666be312513a9db380263622926ec1d5d7114",
       "source/rtl_tb.sv": "c3ae598e0370bfb2a1fda5284ef88496f4593f75b7ca03d8b5333f79e98a24b3",
       "build/cpp/generated.json": "167d808bccdcd64e3ab00ec1406ad268f9366bf3a4d2fb2268a9ff054d885c70",
       "build/cpp/CMakeLists.txt": "3b90e0e522ea45c8c5330572cd2b24838cede6e31a489f7bcb1230eaf0d48de5",
-      "build/cpp/pycircuit_support.hpp": "39d9af4f11b79dec281ad785b35c73ab4cd7afb7d41612c3430d51a9ff2002aa",
+      "build/cpp/pycircuit_support.hpp": "74a90d21411122543e9378619925e07a0dc893c462a658bf2e29bbc03e7d6339",
       "build/cpp/pycircuit_system.hpp": "1f78dd5d8362095bf232f0d46b10013ded94559d49f037c133affa54a74fad14",
       "build/cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.cpp": "50326445393471e98fca48fdb22ef6d6b5a2ea07ae778f936f7daa98295e1ed7",
-      "build/cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.hpp": "926c22421946481de3673e7c0174271ecefea26dfd78ea08e080429765e80663",
+      "build/cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.hpp": "f528db33a2d92b27c9714a05b1b924b8692203e908925ed1c036684a37c25001",
       "build/cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.source-map.json": "dc0585d6f35cda81ed072944551c6514fbc47d3aaf9ceb292e5bad749525d306",
       "build/verilog/generated.json": "e22717988b63925aa61951c581bae21cd53db4dfe7b712afeb5e5a0dceeb10c1",
       "build/verilog/CMakeLists.txt": "4a9228f5c90a0925101c27266400a66d04174734587549e2b208f3c11726e690",
       "build/verilog/design_top.sv": "0629c831331088ce84e0f14e128675bfb231b593453ffb8a2d5aa3ffeab73998",
       "build/verilog/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.source-map.json": "9bbdaa853184e6e68ef78a9bedf1684f492ceacb5510f41aac788be612c11178",
       "build/verilog/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.v": "6cd8f5f6c1f1f55cd005b2d20a7d63a68f4f3c8aa7d123f477b692a406ee6888",
-      "build/net_resolution_depth_smoke.ac": "ad9e7e8f0e649a5f2a6961101339da73f90f954d4c8e7c515f18579382eefcc5",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "e4a1f945fedc3ec5a1d11b81c62948f74035c0fc96a8c235567e4bbd9ced39d1"
+      "build/net_resolution_depth_smoke.ac": "99ee4e36cf64b64176e71b574889f0b500b94c403aeb7a1e89eb6e02c0513034",
+      "build/units/.net_resolution_depth_smoke.pycircuit-publication/owner.json": "7f9d83a048b52034b20df3d9441d655744a41f0bc4d9e45f8f70ba8c50abf40c",
+      "build/units/net_resolution_depth_smoke/net_resolution_depth_smoke.ac": "b3ce6adebf16bfdea2a715b526284f7203323033df4d6bb401d2f4ca98dc34ff",
+      "build/units/net_resolution_depth_smoke/net_resolution_depth_smoke.d": "ac85b757af8dc9bf460fac851afde4041ba75a656b40f6b860813442a8a1fa0d",
+      "build/units/net_resolution_depth_smoke/net_resolution_depth_smoke.interface.ac": "f57af0a0053ce579bea46fbf8e2af02133fbb97cdde024b2968df7e9701d1c9b",
+      "build/units/net_resolution_depth_smoke/unit.json": "5d17b6df5b8c99c8ff10bffc721a1e94373f1dac7e949922395c35dbe8379d7e",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "d9650417b281e5cff51cc315b9c3e0bf1c8adb55aa01f36d811c3aea6f44a487"
     },
-    "execution_sha256": "e7631757db5f17680b2ac5d5aabffd06c4e6a1cec3f7bf64087d7865fe0a8728",
+    "execution_sha256": "159b0de735e98af41df8ce5d30f0311229025fc95fb7e93a0b09afbcf5d2d5eb",
     "work_samples": 532,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -47,12 +55,12 @@
     {
       "path": "net_resolution_depth_smoke.ac",
       "line": 6,
-      "sha256": "ad9e7e8f0e649a5f2a6961101339da73f90f954d4c8e7c515f18579382eefcc5"
+      "sha256": "99ee4e36cf64b64176e71b574889f0b500b94c403aeb7a1e89eb6e02c0513034"
     },
     {
       "path": "cpp/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.hpp",
-      "line": 21,
-      "sha256": "926c22421946481de3673e7c0174271ecefea26dfd78ea08e080429765e80663"
+      "line": 23,
+      "sha256": "f528db33a2d92b27c9714a05b1b924b8692203e908925ed1c036684a37c25001"
     },
     {
       "path": "verilog/sources/example_net_resolution_depth_smoke/net_resolution_depth_smoke.v",
