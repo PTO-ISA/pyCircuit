@@ -1,0 +1,2036 @@
+{
+  "format_version": 6,
+  "contracts": [
+    {
+      "guards": {
+        "push": [
+          "query.full"
+        ]
+      },
+      "id": "Queue",
+      "methods": [
+        "read",
+        "revise",
+        "pop",
+        "push",
+        "query.empty",
+        "query.full",
+        "query.size"
+      ],
+      "relations": [
+        {
+          "after": "revise",
+          "before": "read",
+          "origin": "Pipeline FIFO",
+          "relation": "SB",
+          "source": "default"
+        },
+        {
+          "after": "pop",
+          "before": "revise",
+          "origin": "Pipeline FIFO",
+          "relation": "SB",
+          "source": "default"
+        }
+      ],
+      "views": {
+        "full": {
+          "stages": [
+            "pop",
+            "query.full"
+          ],
+          "visibility": "ehr"
+        }
+      },
+      "closure": [
+        {
+          "before": "pop",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "pop",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
+        {
+          "before": "query.full",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "revise",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EHR",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Signal",
+      "methods": [
+        "set",
+        "get"
+      ],
+      "relations": [
+        {
+          "after": "get",
+          "before": "set",
+          "origin": "Signal current value",
+          "relation": "SB",
+          "source": "default"
+        }
+      ],
+      "closure": [
+        {
+          "before": "set",
+          "after": "get",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "get",
+              "before": "set",
+              "origin": "Signal current value",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Cell",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:producer",
+      "methods": [
+        "configure",
+        "peek"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:reader",
+      "methods": [],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:top",
+      "methods": [],
+      "relations": [],
+      "closure": []
+    }
+  ],
+  "method_summaries": [
+    {
+      "id": "summary:Module:producer:configure",
+      "transaction": "summary:Module:producer:configure",
+      "component": "producer",
+      "contract": "Module:producer",
+      "interface": "configure",
+      "identity": "Module:producer:configure",
+      "operation": "configure",
+      "condition": true,
+      "guard": true,
+      "loc": {},
+      "ancestors": [],
+      "function": "ac_summary_producer.configure.0.call.1.1",
+      "arguments": [],
+      "accesses": [
+        {
+          "id": "9d68cf56a069ff89",
+          "transaction": "summary:Module:producer:configure",
+          "function": "ac_summary_producer.configure.0.call.1.1",
+          "resource": "producer.offset",
+          "operation": "write",
+          "condition": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 13
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v3",
+          "methods": [
+            "summary:Module:producer:configure"
+          ],
+          "phase": "Module:producer:configure",
+          "phase_context": [
+            {
+              "contract": "Module:producer",
+              "interface": "configure"
+            }
+          ],
+          "sequence": 0,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "ac_summary_producer.configure.0.call.1.1"
+          ],
+          "local_condition": true,
+          "ready": "true",
+          "value": {
+            "atom": "config:ac_summary_producer.configure.0.call.1.1:0"
+          },
+          "value_constant": null
+        }
+      ]
+    },
+    {
+      "id": "summary:Module:producer:peek",
+      "transaction": "summary:Module:producer:peek",
+      "component": "producer",
+      "contract": "Module:producer",
+      "interface": "peek",
+      "identity": "Module:producer:peek",
+      "operation": "peek",
+      "condition": true,
+      "guard": true,
+      "loc": {},
+      "ancestors": [],
+      "function": "ac_summary_producer.peek.0.call.2.0",
+      "arguments": [],
+      "accesses": [
+        {
+          "id": "ca6bb786bf665895",
+          "transaction": "summary:Module:producer:peek",
+          "function": "ac_summary_producer.peek.0.call.2.0",
+          "resource": "producer.result",
+          "operation": "read",
+          "condition": true,
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 17
+          },
+          "role": "observe",
+          "view": "current",
+          "aspect": "value",
+          "identity": "v2",
+          "methods": [
+            "summary:Module:producer:peek"
+          ],
+          "phase": "Module:producer:peek",
+          "phase_context": [
+            {
+              "contract": "Module:producer",
+              "interface": "peek"
+            }
+          ],
+          "sequence": 1,
+          "contract": "Signal",
+          "interface": "get",
+          "binding": "exact",
+          "call_chain": [
+            "ac_summary_producer.peek.0.call.2.0"
+          ],
+          "local_condition": true,
+          "ready": "true"
+        }
+      ]
+    }
+  ],
+  "top": "SignalLink",
+  "instances": [
+    {
+      "contract": "Module:producer",
+      "definition": "src_signal_link_6cc8a7a9.Producer",
+      "inputs": {
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        }
+      },
+      "interfaces": {
+        "configure": "Module:producer:configure",
+        "peek": "Module:producer:peek"
+      },
+      "members": {
+        "count": {
+          "resources": [
+            "producer.count"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        },
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "offset": {
+          "resources": [
+            "producer.offset"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        },
+        "result": {
+          "resources": [
+            "producer.result"
+          ],
+          "type": "signal<u32>",
+          "value": null
+        }
+      },
+      "methods": [
+        "configure",
+        "peek"
+      ],
+      "name": "producer",
+      "outputs": {
+        "resources": [
+          "producer.result"
+        ],
+        "type": "signal<u32>",
+        "value": null
+      },
+      "parent": "top"
+    },
+    {
+      "contract": "Module:reader",
+      "definition": "src_signal_link_6cc8a7a9.Reader",
+      "inputs": {
+        "source": {
+          "resources": [
+            "producer.result"
+          ],
+          "type": "signal<u32>",
+          "value": null
+        }
+      },
+      "interfaces": {},
+      "members": {
+        "last": {
+          "resources": [
+            "reader.last"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        },
+        "source": {
+          "resources": [
+            "producer.result"
+          ],
+          "type": "signal<u32>",
+          "value": null
+        }
+      },
+      "methods": [],
+      "name": "reader",
+      "outputs": {
+        "resources": [
+          "reader.last"
+        ],
+        "type": "cell<u32>",
+        "value": null
+      },
+      "parent": "top"
+    },
+    {
+      "contract": "Module:top",
+      "definition": "src_signal_link_6cc8a7a9.SignalLink",
+      "inputs": {
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        }
+      },
+      "interfaces": {},
+      "members": {
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "producer": {
+          "instance": "producer"
+        },
+        "reader": {
+          "instance": "reader"
+        }
+      },
+      "methods": [],
+      "name": "top",
+      "outputs": [
+        {
+          "resources": [
+            "producer.result"
+          ],
+          "type": "signal<u32>",
+          "value": null
+        },
+        {
+          "resources": [
+            "reader.last"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        }
+      ],
+      "parent": null
+    }
+  ],
+  "resources": [
+    {
+      "contract": "Cell",
+      "initial_fn": "ac_init_producer.offset",
+      "kind": "cell",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 7
+      },
+      "name": "producer.offset",
+      "type": "u32",
+      "visibility": "old"
+    },
+    {
+      "contract": "Cell",
+      "initial_fn": "ac_init_producer.count",
+      "kind": "cell",
+      "loc": {
+        "column": 12,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 8
+      },
+      "name": "producer.count",
+      "type": "u32",
+      "visibility": "old"
+    },
+    {
+      "contract": "Signal",
+      "initial_fn": "ac_init_producer.result",
+      "kind": "signal",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 9
+      },
+      "name": "producer.result",
+      "type": "u32",
+      "visibility": "current"
+    },
+    {
+      "contract": "Cell",
+      "initial_fn": "ac_init_reader.last",
+      "kind": "cell",
+      "loc": {
+        "column": 11,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 31
+      },
+      "name": "reader.last",
+      "type": "u32",
+      "visibility": "old"
+    }
+  ],
+  "ehr": [],
+  "ehr_bindings": [],
+  "nodes": [
+    {
+      "id": "producer.advance",
+      "module": "producer",
+      "rule": "advance",
+      "function": "producer.advance",
+      "selection": {
+        "and": [
+          {
+            "atom": "config:enabled"
+          },
+          {
+            "atom": "ssa:ea6acee9bbf45227"
+          }
+        ]
+      },
+      "locations": [
+        {
+          "column": 9,
+          "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+          "line": 25
+        }
+      ],
+      "calls": [
+        {
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "location": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 25
+          },
+          "arguments": []
+        }
+      ],
+      "completion_conditions": [
+        {
+          "and": [
+            {
+              "atom": "config:enabled"
+            },
+            {
+              "atom": "ssa:ea6acee9bbf45227"
+            }
+          ]
+        }
+      ],
+      "guards": [],
+      "methods": [],
+      "preparations": [
+        "29a3d700148e6c6e",
+        "bc7d34a11882ac9f",
+        "ce15156a047c76c7",
+        "d9807351d235c3bb",
+        "f5c2a6a7c18ee190",
+        "fdb2bf3d6bc71a9b"
+      ],
+      "preparation_bindings": [
+        {
+          "preparation": "29a3d700148e6c6e",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        },
+        {
+          "preparation": "bc7d34a11882ac9f",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        },
+        {
+          "preparation": "ce15156a047c76c7",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        },
+        {
+          "preparation": "d9807351d235c3bb",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        },
+        {
+          "preparation": "f5c2a6a7c18ee190",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        },
+        {
+          "preparation": "fdb2bf3d6bc71a9b",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        }
+      ],
+      "accesses": [
+        {
+          "id": "3dafad905fea49c2",
+          "transaction": "producer.advance",
+          "function": "producer.advance",
+          "resource": "producer.count",
+          "operation": "read",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "loc": {
+            "column": 18,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 21
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v2",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 2,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "producer_Work",
+            "producer.advance"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "ready": "true"
+        },
+        {
+          "id": "6904d494a55f0b28",
+          "transaction": "producer.advance",
+          "function": "producer.advance",
+          "resource": "producer.count",
+          "operation": "read",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "loc": {
+            "column": 23,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 22
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v8",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 5,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "producer_Work",
+            "producer.advance"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "ready": "true"
+        },
+        {
+          "id": "a1a8ad1b37389524",
+          "transaction": "producer.advance",
+          "function": "producer_Work",
+          "resource": "producer.count",
+          "operation": "read",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "loc": {
+            "column": 20,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 24
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v4",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 0,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "producer_Work"
+          ],
+          "local_condition": {
+            "atom": "config:enabled"
+          },
+          "ready": "true",
+          "via": "selection or argument computation",
+          "source_access": "53e36372e2c9d6a9",
+          "source_methods": [],
+          "vias": [
+            "selection or argument computation"
+          ]
+        },
+        {
+          "id": "7bd0c1a46cc14a2f",
+          "transaction": "producer.advance",
+          "function": "producer.advance",
+          "resource": "producer.count",
+          "operation": "write",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 22
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v11",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 6,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "producer_Work",
+            "producer.advance"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "ready": "true",
+          "value": {
+            "atom": "ssa:30bc533349a977f5"
+          },
+          "value_constant": null
+        },
+        {
+          "id": "154a1acae6d3f418",
+          "transaction": "producer.advance",
+          "function": "producer.advance",
+          "resource": "producer.offset",
+          "operation": "read",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "loc": {
+            "column": 32,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 21
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v4",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 3,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "producer_Work",
+            "producer.advance"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "ready": "true"
+        },
+        {
+          "id": "07407f245601c7cc",
+          "transaction": "producer.advance",
+          "function": "producer.advance",
+          "resource": "producer.result",
+          "operation": "write",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 21
+          },
+          "role": "observe",
+          "view": "current",
+          "aspect": "value",
+          "identity": "v7",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 4,
+          "contract": "Signal",
+          "interface": "set",
+          "binding": "exact",
+          "call_chain": [
+            "producer_Work",
+            "producer.advance"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          },
+          "ready": "true",
+          "value": {
+            "atom": "ssa:72d807c9ccb3bc21"
+          },
+          "value_constant": null
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "reader.observe",
+      "module": "reader",
+      "rule": "observe",
+      "function": "reader.observe",
+      "selection": true,
+      "locations": [
+        {
+          "column": 5,
+          "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+          "line": 40
+        }
+      ],
+      "calls": [
+        {
+          "condition": true,
+          "location": {
+            "column": 5,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 40
+          },
+          "arguments": [
+            {
+              "value": {
+                "atom": "ssa:2f1ea04954991b82"
+              },
+              "resources": []
+            },
+            {
+              "value": {
+                "atom": "ssa:90d8ff076407d840"
+              },
+              "resources": []
+            }
+          ]
+        }
+      ],
+      "completion_conditions": [
+        {
+          "atom": "ssa:90d8ff076407d840"
+        }
+      ],
+      "guards": [
+        {
+          "condition": {
+            "atom": "ssa:90d8ff076407d840"
+          },
+          "path": true,
+          "loc": {
+            "column": 20,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 36
+          },
+          "function": "reader.observe",
+          "name": "ready",
+          "source": "variable",
+          "implicit": false
+        }
+      ],
+      "methods": [],
+      "preparations": [
+        "36971686544c8f73",
+        "5fd16c2740d389c6",
+        "bdcf4615b6e493f1",
+        "c9c39ee927c3244d",
+        "db80ad0438ea7e7d",
+        "e431e36faeb4e41f"
+      ],
+      "preparation_bindings": [
+        {
+          "preparation": "36971686544c8f73",
+          "condition": true
+        },
+        {
+          "preparation": "5fd16c2740d389c6",
+          "condition": true
+        },
+        {
+          "preparation": "bdcf4615b6e493f1",
+          "condition": true
+        },
+        {
+          "preparation": "c9c39ee927c3244d",
+          "condition": true
+        },
+        {
+          "preparation": "db80ad0438ea7e7d",
+          "condition": true
+        },
+        {
+          "preparation": "e431e36faeb4e41f",
+          "condition": true
+        }
+      ],
+      "accesses": [
+        {
+          "id": "a34198997cb3ea99",
+          "transaction": "reader.observe",
+          "function": "reader_Work",
+          "resource": "producer.result",
+          "operation": "read",
+          "condition": true,
+          "loc": {
+            "column": 13,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 32
+          },
+          "role": "observe",
+          "view": "current",
+          "aspect": "value",
+          "identity": "v2",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 7,
+          "contract": "Signal",
+          "interface": "get",
+          "binding": "exact",
+          "call_chain": [
+            "reader_Work"
+          ],
+          "local_condition": true,
+          "ready": "true",
+          "via": "selection or argument computation",
+          "source_access": "0316157c78c226c3",
+          "source_methods": [],
+          "vias": [
+            "effect payload",
+            "explicit guard",
+            "selection or argument computation"
+          ],
+          "bypass": {
+            "selection": "last_local_else_granted_set",
+            "sources": [
+              {
+                "access": "07407f245601c7cc",
+                "transaction": "producer.advance",
+                "eligibility": {
+                  "and": [
+                    {
+                      "atom": "config:enabled"
+                    },
+                    {
+                      "atom": "granted(producer.advance)"
+                    },
+                    {
+                      "atom": "ssa:ea6acee9bbf45227"
+                    }
+                  ]
+                },
+                "visibility": "granted_transaction",
+                "value": {
+                  "atom": "ssa:72d807c9ccb3bc21"
+                },
+                "value_constant": null,
+                "sequence": 4
+              }
+            ],
+            "fallback": "retained",
+            "commit": "transaction",
+            "arbitration": "unspecified"
+          }
+        },
+        {
+          "id": "93889fc2da77b831",
+          "transaction": "reader.observe",
+          "function": "reader.observe",
+          "resource": "reader.last",
+          "operation": "write",
+          "condition": {
+            "atom": "ssa:90d8ff076407d840"
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 38
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v5",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 9,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "reader_Work",
+            "reader.observe"
+          ],
+          "local_condition": {
+            "atom": "ssa:90d8ff076407d840"
+          },
+          "ready": "true",
+          "value": {
+            "atom": "ssa:2f1ea04954991b82"
+          },
+          "value_constant": null
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "top.configure",
+      "module": "top",
+      "rule": "configure",
+      "function": "top.configure",
+      "selection": true,
+      "locations": [
+        {
+          "column": 5,
+          "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+          "line": 52
+        }
+      ],
+      "calls": [
+        {
+          "condition": true,
+          "location": {
+            "column": 5,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 52
+          },
+          "arguments": []
+        }
+      ],
+      "completion_conditions": [
+        true
+      ],
+      "guards": [],
+      "methods": [
+        {
+          "id": "ec209d89ff085cd2",
+          "transaction": "top.configure",
+          "component": "producer",
+          "contract": "Module:producer",
+          "interface": "configure",
+          "identity": "Module:producer:configure",
+          "operation": "configure",
+          "condition": true,
+          "guard": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 50
+          },
+          "ancestors": [],
+          "function": "top.configure.0.call.0.1",
+          "arguments": [
+            {
+              "resources": [],
+              "value": {
+                "atom": "const:4"
+              }
+            }
+          ],
+          "accesses": [
+            "f51497a73eccb36f"
+          ]
+        }
+      ],
+      "preparations": [],
+      "preparation_bindings": [],
+      "accesses": [
+        {
+          "id": "f51497a73eccb36f",
+          "transaction": "top.configure",
+          "function": "top.configure.0.call.0.1",
+          "resource": "producer.offset",
+          "operation": "write",
+          "condition": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+            "line": 13
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v3",
+          "methods": [
+            "ec209d89ff085cd2"
+          ],
+          "phase": "Module:producer:configure",
+          "phase_context": [
+            {
+              "contract": "Module:producer",
+              "interface": "configure"
+            }
+          ],
+          "sequence": 10,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "top_Work",
+            "top.configure",
+            "top.configure.0.call.0.1"
+          ],
+          "local_condition": true,
+          "ready": "true",
+          "value": {
+            "atom": "const:4"
+          },
+          "value_constant": 4
+        }
+      ],
+      "requirements": []
+    }
+  ],
+  "edges": [
+    {
+      "source": "producer.advance",
+      "target": "reader.observe",
+      "kind": "method.order",
+      "resource": "producer.result",
+      "condition": {
+        "and": [
+          {
+            "atom": "config:enabled"
+          },
+          {
+            "atom": "ssa:ea6acee9bbf45227"
+          }
+        ]
+      },
+      "operations": [
+        "write",
+        "read"
+      ],
+      "locations": [
+        {
+          "column": 9,
+          "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+          "line": 21
+        },
+        {
+          "column": 13,
+          "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+          "line": 32
+        }
+      ],
+      "via": "selection or argument computation",
+      "source_access": "07407f245601c7cc",
+      "target_access": "a34198997cb3ea99",
+      "relation": "SB",
+      "contract": "Signal",
+      "interfaces": [
+        "set",
+        "get"
+      ],
+      "provenance": [
+        {
+          "after": "get",
+          "before": "set",
+          "origin": "Signal current value",
+          "relation": "SB",
+          "source": "default"
+        }
+      ]
+    }
+  ],
+  "computations": [
+    {
+      "id": "53e36372e2c9d6a9",
+      "transaction": null,
+      "function": "producer_Work",
+      "resource": "producer.count",
+      "operation": "read",
+      "condition": {
+        "atom": "config:enabled"
+      },
+      "loc": {
+        "column": 20,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 24
+      },
+      "role": "observe",
+      "view": "old",
+      "aspect": "value",
+      "identity": "v4",
+      "methods": [],
+      "phase": "$direct",
+      "phase_context": [],
+      "sequence": 0,
+      "contract": "Cell",
+      "interface": "read",
+      "binding": "exact",
+      "call_chain": [
+        "producer_Work"
+      ],
+      "local_condition": {
+        "atom": "config:enabled"
+      },
+      "ready": "true"
+    },
+    {
+      "id": "0316157c78c226c3",
+      "transaction": null,
+      "function": "reader_Work",
+      "resource": "producer.result",
+      "operation": "read",
+      "condition": true,
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 32
+      },
+      "role": "observe",
+      "view": "current",
+      "aspect": "value",
+      "identity": "v2",
+      "methods": [],
+      "phase": "$direct",
+      "phase_context": [],
+      "sequence": 7,
+      "contract": "Signal",
+      "interface": "get",
+      "binding": "exact",
+      "call_chain": [
+        "reader_Work"
+      ],
+      "local_condition": true,
+      "ready": "true",
+      "bypass": {
+        "selection": "last_local_else_granted_set",
+        "sources": [
+          {
+            "access": "07407f245601c7cc",
+            "transaction": "producer.advance",
+            "eligibility": {
+              "and": [
+                {
+                  "atom": "config:enabled"
+                },
+                {
+                  "atom": "granted(producer.advance)"
+                },
+                {
+                  "atom": "ssa:ea6acee9bbf45227"
+                }
+              ]
+            },
+            "visibility": "granted_transaction",
+            "value": {
+              "atom": "ssa:72d807c9ccb3bc21"
+            },
+            "value_constant": null,
+            "sequence": 4
+          }
+        ],
+        "fallback": "retained",
+        "commit": "transaction",
+        "arbitration": "unspecified"
+      }
+    }
+  ],
+  "preparations": [
+    {
+      "id": "29a3d700148e6c6e",
+      "function": "producer_Work",
+      "context": "producer_Work",
+      "block": "b1",
+      "identity": "v4",
+      "operation": "read",
+      "dialect": "acir",
+      "loc": {
+        "column": 20,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 24
+      },
+      "inputs": [
+        "v3"
+      ],
+      "outputs": [
+        {
+          "id": "v4",
+          "type": "u32"
+        }
+      ],
+      "condition": {
+        "atom": "config:enabled"
+      },
+      "output_validity": {
+        "atom": "config:enabled"
+      },
+      "boundary": "block",
+      "control_dependencies": [
+        "ce15156a047c76c7"
+      ],
+      "state_dependencies": [
+        "53e36372e2c9d6a9"
+      ],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "producer.advance",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "36971686544c8f73",
+      "function": "reader_Work",
+      "context": "reader_Work",
+      "block": "b0",
+      "identity": "v1",
+      "operation": "get",
+      "dialect": "acir",
+      "loc": {
+        "column": 12,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 26
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v2",
+          "type": "signal<u32>"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "reader.observe",
+          "condition": true
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "5fd16c2740d389c6",
+      "function": "reader_Work",
+      "context": "reader_Work",
+      "block": "b0",
+      "identity": "v2",
+      "operation": "read",
+      "dialect": "acir",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 32
+      },
+      "inputs": [
+        "v2"
+      ],
+      "outputs": [
+        {
+          "id": "v3",
+          "type": "u32"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [
+        "0316157c78c226c3"
+      ],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "reader.observe",
+          "condition": true
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "bc7d34a11882ac9f",
+      "function": "producer_Work",
+      "context": "producer_Work",
+      "block": "b0",
+      "identity": null,
+      "operation": "constant",
+      "dialect": "arith",
+      "loc": {},
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v1",
+          "type": "u32"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "producer.advance",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "bdcf4615b6e493f1",
+      "function": "reader_Work",
+      "context": "reader_Work",
+      "block": "b0",
+      "identity": null,
+      "operation": "constant",
+      "dialect": "arith",
+      "loc": {
+        "column": 25,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 34
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v0",
+          "type": "u32"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "reader.observe",
+          "condition": true
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "c9c39ee927c3244d",
+      "function": "reader_Work",
+      "context": "reader_Work",
+      "block": "b0",
+      "identity": "v4",
+      "operation": "addi",
+      "dialect": "arith",
+      "loc": {
+        "column": 16,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 33
+      },
+      "inputs": [
+        "v3",
+        "v1"
+      ],
+      "outputs": [
+        {
+          "id": "v4",
+          "type": "u32"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [
+        "0316157c78c226c3"
+      ],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "reader.observe",
+          "condition": true
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "ce15156a047c76c7",
+      "function": "producer_Work",
+      "context": "producer_Work",
+      "block": "b0",
+      "identity": "v1",
+      "operation": "config",
+      "dialect": "acir",
+      "loc": {
+        "column": 16,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 45
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v2",
+          "type": "bool"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "producer.advance",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "d9807351d235c3bb",
+      "function": "producer_Work",
+      "context": "producer_Work",
+      "block": "b1",
+      "identity": "v6",
+      "operation": "cmpi",
+      "dialect": "arith",
+      "loc": {
+        "column": 20,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 24
+      },
+      "inputs": [
+        "v4",
+        "v1"
+      ],
+      "outputs": [
+        {
+          "id": "v5",
+          "type": "bool"
+        }
+      ],
+      "condition": {
+        "atom": "config:enabled"
+      },
+      "output_validity": {
+        "atom": "config:enabled"
+      },
+      "boundary": "block",
+      "control_dependencies": [
+        "ce15156a047c76c7"
+      ],
+      "state_dependencies": [
+        "53e36372e2c9d6a9"
+      ],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "producer.advance",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "db80ad0438ea7e7d",
+      "function": "reader_Work",
+      "context": "reader_Work",
+      "block": "b0",
+      "identity": null,
+      "operation": "constant",
+      "dialect": "arith",
+      "loc": {
+        "column": 24,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 33
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v1",
+          "type": "u32"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "reader.observe",
+          "condition": true
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "e431e36faeb4e41f",
+      "function": "reader_Work",
+      "context": "reader_Work",
+      "block": "b0",
+      "identity": "v6",
+      "operation": "cmpi",
+      "dialect": "arith",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 34
+      },
+      "inputs": [
+        "v4",
+        "v0"
+      ],
+      "outputs": [
+        {
+          "id": "v5",
+          "type": "bool"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [
+        "0316157c78c226c3"
+      ],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "reader.observe",
+          "condition": true
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "f5c2a6a7c18ee190",
+      "function": "producer_Work",
+      "context": "producer_Work",
+      "block": "b0",
+      "identity": null,
+      "operation": "constant",
+      "dialect": "arith",
+      "loc": {},
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v0",
+          "type": "bool"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "producer.advance",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "fdb2bf3d6bc71a9b",
+      "function": "producer_Work",
+      "context": "producer_Work",
+      "block": "b0",
+      "identity": "v3",
+      "operation": "get",
+      "dialect": "acir",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/signal_link.py",
+        "line": 8
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v3",
+          "type": "cell<u32>"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "producer.advance",
+          "condition": {
+            "and": [
+              {
+                "atom": "config:enabled"
+              },
+              {
+                "atom": "ssa:ea6acee9bbf45227"
+              }
+            ]
+          }
+        }
+      ],
+      "requirements": []
+    }
+  ],
+  "preparation_methods": [],
+  "diagnostics": []
+}

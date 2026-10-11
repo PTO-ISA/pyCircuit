@@ -1,0 +1,595 @@
+{
+  "format_version": 6,
+  "contracts": [
+    {
+      "guards": {
+        "push": [
+          "query.full"
+        ]
+      },
+      "id": "Queue",
+      "methods": [
+        "read",
+        "revise",
+        "pop",
+        "push",
+        "query.empty",
+        "query.full",
+        "query.size"
+      ],
+      "relations": [
+        {
+          "after": "revise",
+          "before": "read",
+          "origin": "Pipeline FIFO",
+          "relation": "SB",
+          "source": "default"
+        },
+        {
+          "after": "pop",
+          "before": "revise",
+          "origin": "Pipeline FIFO",
+          "relation": "SB",
+          "source": "default"
+        }
+      ],
+      "views": {
+        "full": {
+          "stages": [
+            "pop",
+            "query.full"
+          ],
+          "visibility": "ehr"
+        }
+      },
+      "closure": [
+        {
+          "before": "pop",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "pop",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
+        {
+          "before": "query.full",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "revise",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EHR",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Signal",
+      "methods": [
+        "set",
+        "get"
+      ],
+      "relations": [
+        {
+          "after": "get",
+          "before": "set",
+          "origin": "Signal current value",
+          "relation": "SB",
+          "source": "default"
+        }
+      ],
+      "closure": [
+        {
+          "before": "set",
+          "after": "get",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "get",
+              "before": "set",
+              "origin": "Signal current value",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Cell",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:top",
+      "methods": [],
+      "relations": [],
+      "closure": []
+    }
+  ],
+  "method_summaries": [],
+  "top": "CellFeedback",
+  "instances": [
+    {
+      "contract": "Module:top",
+      "definition": "src_dependency_cycles_63d6eeaf.CellFeedback",
+      "inputs": {},
+      "interfaces": {},
+      "members": {
+        "a": {
+          "resources": [
+            "a"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        },
+        "b": {
+          "resources": [
+            "b"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        }
+      },
+      "methods": [],
+      "name": "top",
+      "outputs": [
+        {
+          "resources": [
+            "a"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        },
+        {
+          "resources": [
+            "b"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        }
+      ],
+      "parent": null
+    }
+  ],
+  "resources": [
+    {
+      "contract": "Cell",
+      "initial_fn": "ac_init_a",
+      "kind": "cell",
+      "loc": {
+        "column": 8,
+        "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+        "line": 7
+      },
+      "name": "a",
+      "type": "u32",
+      "visibility": "old"
+    },
+    {
+      "contract": "Cell",
+      "initial_fn": "ac_init_b",
+      "kind": "cell",
+      "loc": {
+        "column": 8,
+        "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+        "line": 8
+      },
+      "name": "b",
+      "type": "u32",
+      "visibility": "old"
+    }
+  ],
+  "ehr": [],
+  "ehr_bindings": [],
+  "nodes": [
+    {
+      "id": "top.update_a",
+      "module": "top",
+      "rule": "update_a",
+      "function": "top.update_a",
+      "selection": true,
+      "locations": [
+        {
+          "column": 5,
+          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+          "line": 18
+        }
+      ],
+      "calls": [
+        {
+          "condition": true,
+          "location": {
+            "column": 5,
+            "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+            "line": 18
+          },
+          "arguments": []
+        }
+      ],
+      "completion_conditions": [
+        true
+      ],
+      "guards": [],
+      "methods": [],
+      "preparations": [],
+      "preparation_bindings": [],
+      "accesses": [
+        {
+          "id": "800f688a858f250f",
+          "transaction": "top.update_a",
+          "function": "top.update_a",
+          "resource": "a",
+          "operation": "write",
+          "condition": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+            "line": 12
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v6",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 1,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "top_Work",
+            "top.update_a"
+          ],
+          "local_condition": true,
+          "ready": "true",
+          "value": {
+            "atom": "ssa:6aad447ac181620c"
+          },
+          "value_constant": null
+        },
+        {
+          "id": "c5d11d6fc5f2f4fe",
+          "transaction": "top.update_a",
+          "function": "top.update_a",
+          "resource": "b",
+          "operation": "read",
+          "condition": true,
+          "loc": {
+            "column": 19,
+            "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+            "line": 12
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v3",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 0,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "top_Work",
+            "top.update_a"
+          ],
+          "local_condition": true,
+          "ready": "true"
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "top.update_b",
+      "module": "top",
+      "rule": "update_b",
+      "function": "top.update_b",
+      "selection": true,
+      "locations": [
+        {
+          "column": 5,
+          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+          "line": 19
+        }
+      ],
+      "calls": [
+        {
+          "condition": true,
+          "location": {
+            "column": 5,
+            "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+            "line": 19
+          },
+          "arguments": []
+        }
+      ],
+      "completion_conditions": [
+        true
+      ],
+      "guards": [],
+      "methods": [],
+      "preparations": [],
+      "preparation_bindings": [],
+      "accesses": [
+        {
+          "id": "e38d5f434cb2ac1f",
+          "transaction": "top.update_b",
+          "function": "top.update_b",
+          "resource": "a",
+          "operation": "read",
+          "condition": true,
+          "loc": {
+            "column": 19,
+            "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+            "line": 16
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v3",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 2,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "top_Work",
+            "top.update_b"
+          ],
+          "local_condition": true,
+          "ready": "true"
+        },
+        {
+          "id": "9d84b9279c8b1517",
+          "transaction": "top.update_b",
+          "function": "top.update_b",
+          "resource": "b",
+          "operation": "write",
+          "condition": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+            "line": 16
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v6",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 3,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "top_Work",
+            "top.update_b"
+          ],
+          "local_condition": true,
+          "ready": "true",
+          "value": {
+            "atom": "ssa:817dca307ef00533"
+          },
+          "value_constant": null
+        }
+      ],
+      "requirements": []
+    }
+  ],
+  "edges": [],
+  "computations": [],
+  "preparations": [],
+  "preparation_methods": [],
+  "diagnostics": []
+}

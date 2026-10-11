@@ -1,20 +1,12 @@
 cmake_minimum_required(VERSION 3.20)
-project(acpy_gfsim LANGUAGES C CXX)
+project(acpy_rule_graph LANGUAGES C CXX)
 add_subdirectory(mlir)
 include(CTest)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 get_filename_component(REPO "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
-add_subdirectory("${REPO}/gfsim/cpp" gfsim)
-file(GLOB COMPILER_INPUTS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.py" "${CMAKE_CURRENT_SOURCE_DIR}/*.hpp")
 if(BUILD_TESTING)
-  set(ACPY_TEST_CXX "${CMAKE_CXX_COMPILER} ${CMAKE_CXX_FLAGS}")
-  if(GFSIM_SANITIZERS)
-    string(APPEND ACPY_TEST_CXX " -fsanitize=address,undefined -fno-omit-frame-pointer")
-  endif()
-  add_test(NAME acpy-language-and-circuits COMMAND ${CMAKE_COMMAND} -E env "ACPY_CXX=${ACPY_TEST_CXX}" "ACPY_MLIR_OPT=$<TARGET_FILE:acir-opt>" "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>"
+  add_test(NAME acpy-rule-graph COMMAND ${CMAKE_COMMAND} -E env
+    "ACPY_MLIR_OPT=$<TARGET_FILE:acir-opt>" "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>"
     ${Python3_EXECUTABLE} -m unittest discover -s pycircuit/tests -v)
-  set_tests_properties(acpy-language-and-circuits PROPERTIES WORKING_DIRECTORY "${REPO}" TIMEOUT 300)
+  set_tests_properties(acpy-rule-graph PROPERTIES WORKING_DIRECTORY "${REPO}" TIMEOUT 300)
 endif()
-
-include(examples/ripes5/tools/build.cmake)
-add_subdirectory(examples/skyzh_ooo/tools examples/skyzh_ooo)

@@ -1,0 +1,7 @@
+digraph rules {
+  rankdir=LR;
+  "observer.sample" [label="observer.sample"];
+  "router.route" [label="router.route\nEHR: router.accepted.full p1 query.full\nsource.full p0 write"];
+  "router.route" -> "observer.sample" [label="method.order: router.result\\nconfig:enabled\\nset SB get [default]"];
+  "router.route" -> "observer.sample" [label="method.order: router.result\\n!config:enabled\\nset SB get [default]"];
+}

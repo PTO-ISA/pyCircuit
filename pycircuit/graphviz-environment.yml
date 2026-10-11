@@ -1,0 +1,6 @@
+name: pycircuit-graphs
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - graphviz=14.1.2

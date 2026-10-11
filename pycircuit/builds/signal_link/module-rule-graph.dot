@@ -1,0 +1,23 @@
+digraph rules {
+  rankdir=LR;
+  graph [fontname="DejaVu Sans", bgcolor="white", pad=0.25, nodesep=0.35, ranksep=0.65, labelloc=t];
+  node [shape=box, style="rounded,filled", fillcolor="#eff6ff", color="#3b82f6", fontname="DejaVu Sans", fontsize=12];
+  edge [fontname="DejaVu Sans", fontsize=10, arrowsize=0.8];
+  label="SignalLink — Module / rule order\nSolid: SB order\nRed: confirmed cycle | Orange: unproven order\nConditional edges retain path/guard details in tooltips";
+  subgraph cluster_m2 {
+    label="Module: top";
+    color="#94a3b8"; style="rounded"; labeljust=l;
+    r2 [label="rule: configure", tooltip="top.configure"];
+    subgraph cluster_m0 {
+      label="Module: producer";
+      color="#94a3b8"; style="rounded"; labeljust=l;
+      r0 [label="rule: advance", tooltip="producer.advance"];
+    }
+    subgraph cluster_m1 {
+      label="Module: reader";
+      color="#94a3b8"; style="rounded"; labeljust=l;
+      r1 [label="rule: observe", tooltip="reader.observe"];
+    }
+  }
+  r0 -> r1 [label="producer.result\nset SB get\n[default]\n(conditional)", color="#475569", style="solid", penwidth=1.2, tooltip="[{\"source\": \"producer.advance\", \"target\": \"reader.observe\", \"kind\": \"method.order\", \"resource\": \"producer.result\", \"condition\": {\"and\": [{\"atom\": \"config:enabled\"}, {\"atom\": \"ssa:ea6acee9bbf45227\"}]}, \"operations\": [\"write\", \"read\"], \"locations\": [{\"column\": 9, \"file\": \"/home/lc/tmp/pycircuit/examples/signal_link.py\", \"line\": 21}, {\"column\": 13, \"file\": \"/home/lc/tmp/pycircuit/examples/signal_link.py\", \"line\": 32}], \"via\": \"selection or argument computation\", \"source_access\": \"07407f245601c7cc\", \"target_access\": \"a34198997cb3ea99\", \"relation\": \"SB\", \"contract\": \"Signal\", \"interfaces\": [\"set\", \"get\"], \"provenance\": [{\"after\": \"get\", \"before\": \"set\", \"origin\": \"Signal current value\", \"relation\": \"SB\", \"source\": \"default\"}]}]"];
+}

@@ -13,8 +13,6 @@ mlir_tablegen(ACIRTypes.h.inc -gen-typedef-decls -typedefs-dialect=acir)
 mlir_tablegen(ACIRTypes.cpp.inc -gen-typedef-defs -typedefs-dialect=acir)
 mlir_tablegen(ACIROps.h.inc -gen-op-decls)
 mlir_tablegen(ACIROps.cpp.inc -gen-op-defs)
-set(LLVM_TARGET_DEFINITIONS Passes.td)
-mlir_tablegen(ACIRPasses.h.inc -gen-pass-decls -name ACIR)
 add_public_tablegen_target(ACIRIncGen)
 add_library(ACIRCompiler STATIC Dialect.cpp Compiler.cpp)
 add_dependencies(ACIRCompiler ACIRIncGen)
@@ -23,8 +21,8 @@ target_include_directories(ACIRCompiler SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} ${ML
 target_compile_definitions(ACIRCompiler PRIVATE ${LLVM_DEFINITIONS})
 target_compile_features(ACIRCompiler PRIVATE cxx_std_20)
 target_link_libraries(ACIRCompiler PUBLIC MLIRParser MLIRIR MLIRPass MLIRTransforms
-  MLIRFuncDialect MLIRArithDialect MLIRControlFlowDialect MLIREmitCDialect MLIRSCFDialect
-  MLIRTargetCpp MLIRSupport)
+  MLIRFuncDialect MLIRArithDialect MLIRControlFlowDialect
+  MLIRSupport)
 if(NOT LLVM_ENABLE_RTTI)
   target_compile_options(ACIRCompiler PRIVATE -fno-rtti)
 endif()

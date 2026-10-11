@@ -1,0 +1,6 @@
+digraph rules {
+  rankdir=LR;
+  "independent.transfer" [label="independent.transfer\nEHR: independent.out.full p1 query.full\nthird.full p0 write"];
+  "left.transfer" [label="left.transfer\nEHR: first.full p0 write\nleft.out.full p1 query.full"];
+  "right.transfer" [label="right.transfer\nEHR: right.out.full p1 query.full\nsecond.full p0 write"];
+}

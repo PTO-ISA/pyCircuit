@@ -1,3 +1,8 @@
 # Local upstream checkouts, benchmark builds and measurements.
 /reference/
 __pycache__/
+
+# Local compiler builds and new measurements; keep reviewable example artifacts.
+/pycircuit/builds/compiler/
+/pycircuit/builds/rule-graphviz/
+/pycircuit/builds/benchmarks/

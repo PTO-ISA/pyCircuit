@@ -1,27 +1,48 @@
-"""Invoke the registered C++ ACIR/EmitC compiler using only saved MLIR."""
+"""Reload MLIR, rebuild conditional rule relations, and save reviewable artifacts."""
+import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
+import tempfile
+from .analysis import analyze_program, dot
 from .ir import CompileError, save
 
 
 def compiler():
     tool = os.environ.get('ACPY_MLIR_COMPILER') or shutil.which('acir-compile')
     if not tool:
-        raise CompileError('acir-compile not found; build pycircuit/mlir and set ACPY_MLIR_COMPILER to the built executable')
+        raise CompileError('acir-compile not found; build pycircuit and set ACPY_MLIR_COMPILER')
     return tool
 
 
-def emit(model, directory, optimize=True):
+def analyze(model, directory, optimize=True):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
-    source = directory / 'model.acir.mlir'
-    save(model, source)
-    command = [compiler(), str(source), str(directory)]
-    if not optimize:
-        command.append('--no-opt')
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode:
-        raise CompileError(result.stderr or result.stdout or 'ACIR lowering failed')
-    (directory / 'ac_support.hpp').write_text(Path(__file__).with_name('support.hpp').read_text())
+    with tempfile.TemporaryDirectory(prefix='.analysis-', dir=directory) as temporary:
+        source = Path(temporary) / 'input.mlir'
+        save(model, source)
+        command = [compiler(), str(source), temporary]
+        if optimize: command.append('--opt')
+        result = subprocess.run(command, capture_output=True, text=True)
+        if result.returncode:
+            raise CompileError(result.stderr or result.stdout or 'MLIR verification failed')
+        program = json.loads((Path(temporary) / 'program.json').read_text())
+        graph = analyze_program(program)
+        functions = {}
+        for record in graph['ehr_bindings']:
+            if not record['identity']: continue
+            entries = functions.setdefault(record['function'], {}).setdefault(record['identity'], [])
+            binding = dict(resource=record['resource'], aspect=record['aspect'], port=record['port'])
+            if binding not in entries: entries.append(binding)
+        bindings = Path(temporary) / 'bindings.json'
+        bindings.write_text(json.dumps(dict(views=graph['ehr'], functions=functions)))
+        annotated = Path(temporary) / 'annotated'
+        result = subprocess.run([compiler(), str(Path(temporary) / 'model.acir.mlir'), str(annotated), '--bindings', str(bindings)], capture_output=True, text=True)
+        if result.returncode: raise CompileError(result.stderr or 'EHR annotation failed')
+        text = (annotated / 'model.acir.mlir').read_text()
+        save(text, directory / 'model.acir.mlir')
+        save((annotated / 'model.readable.mlir').read_text(), directory / 'model.readable.mlir')
+        (directory / 'rule-graph.json').write_text(json.dumps(graph, indent=2, ensure_ascii=False) + '\n')
+        (directory / 'rule-graph.dot').write_text(dot(graph))
+    return graph

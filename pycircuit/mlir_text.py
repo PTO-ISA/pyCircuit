@@ -1,10 +1,15 @@
 """Textual MLIR serialization. No generated C++ or serialized Python AST."""
-import json
-from .ir import SCALARS, element
+from .ir import SCALARS, VERSION, element
 
 
 def quote(s):
-    return json.dumps(s, ensure_ascii=True)
+    # MLIR uses two-digit byte escapes, not JSON's Unicode escape syntax.
+    encoded = []
+    for byte in s.encode('utf-8'):
+        if byte in (34, 92): encoded.append(chr(92) + chr(byte))
+        elif byte < 32 or byte >= 127: encoded.append(chr(92) + format(byte, '02X'))
+        else: encoded.append(chr(byte))
+    return '"' + ''.join(encoded) + '"'
 
 
 def attr(value):
@@ -26,9 +31,16 @@ def typ(t):
         return 'i1'
     if t in SCALARS:
         return 'i' + t[1:]
-    if t.startswith(('queue<', 'signal<', 'qarray<', 'vector<', 'array<')):
+    if t.startswith(('queue<', 'cell<', 'signal<', 'qarray<', 'vector<', 'array<', 'tuple<')):
         kind, rest = t.split('<', 1)
         payload = rest[:-1]
+        if kind == 'tuple':
+            parts, start, depth = [], 0, 0
+            for i, char in enumerate(payload):
+                depth += (char == '<') - (char == '>')
+                if char == ',' and depth == 0: parts.append(payload[start:i]); start = i + 1
+            parts.append(payload[start:])
+            return 'tuple<' + ', '.join(typ(x) for x in parts) + '>'
         if kind == 'array':
             payload, count = payload.rsplit(',', 1)
             return '!acir.array<' + typ(payload) + ', ' + count + '>'
@@ -73,9 +85,10 @@ def serialize(model):
         name = r['name']
         if r['kind'] in ('queue', 'qarray'):
             r['capacity_fn'] = initializer('ac_init_' + name + '_cap', 'u32', [r.pop('capacity')])
-        if r['kind'] == 'queue':
+        if r['kind'] in ('queue', 'cell', 'signal'):
+            if r['kind'] in ('cell', 'signal'): r.pop('capacity', None)
             ids, sequence = r.pop('initial'), r.pop('sequence')
-            result = construction[ids[0]]['type'] if sequence else 'vector<' + r['type'] + '>'
+            result = r['type'] if r['kind'] in ('cell', 'signal') else construction[ids[0]]['type'] if sequence else 'vector<' + r['type'] + '>'
             r['initial_fn'] = initializer('ac_init_' + name, result, ids, sequence)
         elif r['kind'] == 'qarray':
             i = r.pop('iterable')
@@ -85,18 +98,14 @@ def serialize(model):
             functions.append(fn)
             r['initializer_fn'] = fn['name']
         else:
-            fn = r.pop('function')
-            fn['result'] = r['type']
-            fn['owner'] = name
-            functions.append(fn)
-            r['evaluate_fn'] = fn['name']
+            raise ValueError('unknown resource kind: ' + r['kind'])
         resources.append(r)
     functions.extend(model['functions'])
     modules = []
     for m in model['modules']:
         rules = []
         for r in m['rules']:
-            fn = dict(r['function'], owner=m['name'], rule=r['name'])
+            fn = dict(r['function'], owner=m['name'], rule=r['name'], outputs=[{k:v for k,v in o.items() if k not in ('reference', 'capacity', 'initial', 'sequence')} if o else None for o in r['outputs']])
             rules.append(dict(name=r['name'], function=fn['name']))
             functions.append(fn)
         functions.append(dict(m['work'], owner=m['name']))
@@ -109,14 +118,14 @@ def serialize(model):
                     name = {'<<':'shl', '>>':'shr', '//':'div', '%':'mod'}[op['operator']]
                     symbol = 'ac_builtin_' + name + '_' + op['type']
                     intrinsics[symbol] = (name, op['type'])
-    header = dict(format_version=2, exports=model['exports'], top=model['top'], config=config, types=model['types'], type_order=list(model['types']), constants=model.get('constants',{}), modules=modules)
+    header = dict(format_version=VERSION, contracts=model['contracts'], instances=model.get('instances', []), exports=model['exports'], top=model['top'], config=config, types=model['types'], type_order=list(model['types']), constants=model.get('constants',{}), modules=modules)
     lines = ['module attributes {acir.model = ' + attr(header) + '} {']
     for r in resources:
-        lines.append('  "acir.resource"() ' + attr(r) + ' : () -> ()')
+        lines.append('  "acir.resource"() ' + attr(r) + ' : () -> () loc(unknown)')
     for symbol, (name, t) in sorted(intrinsics.items()):
         meta = dict(name=symbol, kind='intrinsic', intrinsic=name, result=t,
                     params=[dict(name='a',type=t),dict(name='b',type=t)])
-        lines.append('  func.func private @' + symbol + '(' + typ(t) + ', ' + typ(t) + ') -> ' + typ(t) + ' attributes {acir.function = ' + attr(meta) + '}')
+        lines.append('  func.func private @' + symbol + '(' + typ(t) + ', ' + typ(t) + ') -> ' + typ(t) + ' attributes {acir.function = ' + attr(meta) + '} loc(unknown)')
     for fn in functions:
         lines.extend(function(fn))
     lines.append('}')
@@ -133,7 +142,7 @@ def function(fn):
     result = fn['result']
     # A missing helper return is a diagnostic trap with a typed fallback return.
     meta = {k: v for k, v in fn.items() if k != 'blocks'}
-    signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) for p in params)
+    signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(unknown)' for p in params)
     ret = '' if result == 'void' else ' -> ' + typ(result)
     out = ['  func.func @' + fn['name'] + '(' + signature + ')' + ret + ' attributes {acir.function = ' + attr(meta) + '} {']
     def emit(o):
@@ -143,7 +152,8 @@ def function(fn):
         lhs = '' if t == 'void' else '%' + o['id'] + ' = '
         attrs = {k: v for k, v in o.items() if k not in ('op','id','type','args','loc')}
         attrs['acir.source_type'] = t
-        custom = {'resource': 'get', 'queue.read': 'read', 'signal.read': 'read', 'queue.pop': 'pop', 'queue.push': 'push', 'queue.revise': 'revise', 'rule.call': 'invoke', 'field': 'extract', 'index': 'extract', 'length': 'length', 'aggregate': 'aggregate', 'update': 'update', 'array.update': 'update', 'zero':'aggregate'}
+        if o.get('loc', {}).get('line') or kind == 'export': attrs['acir.id'] = o['id']
+        custom = {'resource': 'get', 'signal.read': 'read', 'signal.write': 'write', 'cell.read': 'read', 'cell.write': 'write', 'queue.read': 'read', 'queue.pop': 'pop', 'queue.push': 'push', 'queue.revise': 'revise', 'rule.call': 'invoke', 'field': 'extract', 'index': 'extract', 'length': 'length', 'aggregate': 'aggregate', 'update': 'update', 'array.update': 'update', 'zero':'aggregate'}
         if kind == 'param':
             return
         if kind == 'br':
@@ -152,7 +162,7 @@ def function(fn):
             stmt = f'cf.cond_br {args}, ^{o["yes"]}, ^{o["no"]}'
         elif kind == 'return':
             if not ids and result != 'void':
-                out.append('    %fallback_' + o['id'] + ' = "acir.aggregate"() {acir.source_type = ' + quote(result) + '} : () -> ' + typ(result))
+                out.append('    %fallback_' + o['id'] + ' = "acir.aggregate"() {acir.source_type = ' + quote(result) + '} : () -> ' + typ(result) + ' loc(unknown)')
                 stmt = 'return %fallback_' + o['id'] + ' : ' + typ(result)
             else:
                 stmt = 'return' + (f' {args} : {ts}' if ids else '')
@@ -168,21 +178,22 @@ def function(fn):
             cmp = {'==':'eq','!=':'ne','<':'slt' if signed else 'ult','<=':'sle' if signed else 'ule','>':'sgt' if signed else 'ugt','>=':'sge' if signed else 'uge'}
             if operator in ('<<', '>>', '//', '%'):
                 helper = {'<<':'shl', '>>':'shr', '//':'div', '%':'mod'}[operator]
-                stmt = lhs + 'func.call @ac_builtin_' + helper + '_' + t + f'({args}) ' + '{acir.source_type = ' + quote(t) + f'}} : ({ts}) -> {typ(t)}'
+                stmt = lhs + 'func.call @ac_builtin_' + helper + '_' + t + f'({args}) ' + attr(attrs) + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
             elif types[ids[0]] in SCALARS:
                 name = 'arith.' + (binary[operator] if operator in binary else 'cmpi')
                 if operator in cmp:
                     attrs['predicate'] = {'eq':0,'ne':1,'slt':2,'sle':3,'sgt':4,'sge':5,'ult':6,'ule':7,'ugt':8,'uge':9}[cmp[operator]]
                 attrs.pop('operator')
                 if name == 'arith.cmpi':
-                    extra = '{predicate = ' + str(attrs.pop('predicate')) + ' : i64, acir.source_type = "bool"}'
+                    extra = attr(attrs)
                 else: extra = attr(attrs)
                 stmt = lhs + '"' + name + f'"({args}) ' + extra + f' : ({ts}) -> {typ(t)}'
             else:
                 attrs['operator_name'] = attrs.pop('operator')
                 stmt = lhs + f'"acir.compare"({args}) ' + attr(attrs) + f' : ({ts}) -> {typ(t)}'
         elif kind == 'call':
-            stmt = lhs + 'func.call @' + o['name'] + f'({args}) ' + '{acir.source_type = ' + quote(t) + f'}} : ({ts}) -> {typ(t)}'
+            attrs.pop('name', None)
+            stmt = lhs + 'func.call @' + o['name'] + f'({args}) ' + attr(attrs) + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
         else:
             if kind == 'unary': attrs['operator_name'] = attrs.pop('operator')
             if kind in ('queue.empty', 'queue.full', 'queue.size'):
@@ -193,12 +204,14 @@ def function(fn):
         loc = o.get('loc',{})
         if loc.get('line'):
             stmt += ' loc(' + quote(loc['file']) + f':{loc["line"]}:{loc.get("column",0) + 1})'
+        else:
+            stmt += ' loc(unknown)'
         out.append('    ' + stmt)
     for index, b in enumerate(blocks):
         if index:
-            args = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(' + quote('acir.type:' + p['type']) + ')' for p in b['params'])
+            args = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(unknown)' for p in b['params'])
             out.append('  ^' + b['label'] + ('(' + args + ')' if args else '') + ':')
         for o in b['ops']:
             emit(o)
-    out.append('  }')
+    out.append('  } loc(unknown)')
     return out

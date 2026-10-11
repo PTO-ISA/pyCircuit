@@ -1,0 +1,7 @@
+digraph rules {
+  rankdir=LR;
+  "producer.advance" [label="producer.advance"];
+  "reader.observe" [label="reader.observe"];
+  "top.configure" [label="top.configure"];
+  "producer.advance" -> "reader.observe" [label="method.order: producer.result\\n(config:enabled && ssa:ea6acee9bbf45227)\\nset SB get [default]"];
+}

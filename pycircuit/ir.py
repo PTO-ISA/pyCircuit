@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = 2
+VERSION = 6
 SCALARS = {'bool', 'u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64'}
 
 
@@ -16,7 +16,25 @@ def element(typ):
 
 
 def resource(typ):
-    return typ.startswith(('queue<', 'qarray<', 'signal<'))
+    return isinstance(typ, str) and typ.startswith(('queue<', 'cell<', 'signal<', 'qarray<'))
+
+
+@dataclass
+class Instance:
+    name: str
+    env: dict
+    methods: dict
+    outputs: object = None
+    definitions: dict = field(default_factory=dict)
+    parent: str | None = None
+    source_name: str = ''
+    inputs: dict = field(default_factory=dict)
+
+
+@dataclass
+class Method:
+    instance: Instance
+    definition: object
 
 
 @dataclass

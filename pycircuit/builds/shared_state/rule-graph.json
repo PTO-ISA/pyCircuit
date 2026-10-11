@@ -1,0 +1,2967 @@
+{
+  "format_version": 6,
+  "contracts": [
+    {
+      "guards": {
+        "push": [
+          "query.full"
+        ]
+      },
+      "id": "Queue",
+      "methods": [
+        "read",
+        "revise",
+        "pop",
+        "push",
+        "query.empty",
+        "query.full",
+        "query.size"
+      ],
+      "relations": [
+        {
+          "after": "revise",
+          "before": "read",
+          "origin": "Pipeline FIFO",
+          "relation": "SB",
+          "source": "default"
+        },
+        {
+          "after": "pop",
+          "before": "revise",
+          "origin": "Pipeline FIFO",
+          "relation": "SB",
+          "source": "default"
+        }
+      ],
+      "views": {
+        "full": {
+          "stages": [
+            "pop",
+            "query.full"
+          ],
+          "visibility": "ehr"
+        }
+      },
+      "closure": [
+        {
+          "before": "pop",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "pop",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
+        {
+          "before": "query.full",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
+        {
+          "before": "read",
+          "after": "revise",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "revise",
+              "before": "read",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "revise",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "revise",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "EHR",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Signal",
+      "methods": [
+        "set",
+        "get"
+      ],
+      "relations": [
+        {
+          "after": "get",
+          "before": "set",
+          "origin": "Signal current value",
+          "relation": "SB",
+          "source": "default"
+        }
+      ],
+      "closure": [
+        {
+          "before": "set",
+          "after": "get",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "get",
+              "before": "set",
+              "origin": "Signal current value",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "Cell",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:shared",
+      "methods": [
+        "add"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:separate",
+      "methods": [
+        "add"
+      ],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:left",
+      "methods": [],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:right",
+      "methods": [],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:independent",
+      "methods": [],
+      "relations": [],
+      "closure": []
+    },
+    {
+      "id": "Module:top",
+      "methods": [],
+      "relations": [],
+      "closure": []
+    }
+  ],
+  "method_summaries": [],
+  "top": "SharedState",
+  "instances": [
+    {
+      "contract": "Module:shared",
+      "definition": "src_shared_state_16f7c6b8.Accumulator",
+      "inputs": {},
+      "interfaces": {
+        "add": "Module:shared:add"
+      },
+      "members": {
+        "total": {
+          "resources": [
+            "shared.total"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        }
+      },
+      "methods": [
+        "add"
+      ],
+      "name": "shared",
+      "outputs": {
+        "resources": [
+          "shared.total"
+        ],
+        "type": "cell<u32>",
+        "value": null
+      },
+      "parent": "top"
+    },
+    {
+      "contract": "Module:separate",
+      "definition": "src_shared_state_16f7c6b8.Accumulator",
+      "inputs": {},
+      "interfaces": {
+        "add": "Module:separate:add"
+      },
+      "members": {
+        "total": {
+          "resources": [
+            "separate.total"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        }
+      },
+      "methods": [
+        "add"
+      ],
+      "name": "separate",
+      "outputs": {
+        "resources": [
+          "separate.total"
+        ],
+        "type": "cell<u32>",
+        "value": null
+      },
+      "parent": "top"
+    },
+    {
+      "contract": "Module:left",
+      "definition": "src_shared_state_16f7c6b8.Client",
+      "inputs": {
+        "accumulator": {
+          "instance": "shared"
+        },
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "source": {
+          "resources": [
+            "first"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      },
+      "interfaces": {},
+      "members": {
+        "accumulator": {
+          "instance": "shared"
+        },
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "out": {
+          "resources": [
+            "left.out"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        },
+        "source": {
+          "resources": [
+            "first"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      },
+      "methods": [],
+      "name": "left",
+      "outputs": {
+        "resources": [
+          "left.out"
+        ],
+        "type": "queue<u32>",
+        "value": null
+      },
+      "parent": "top"
+    },
+    {
+      "contract": "Module:right",
+      "definition": "src_shared_state_16f7c6b8.Client",
+      "inputs": {
+        "accumulator": {
+          "instance": "shared"
+        },
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "source": {
+          "resources": [
+            "second"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      },
+      "interfaces": {},
+      "members": {
+        "accumulator": {
+          "instance": "shared"
+        },
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "out": {
+          "resources": [
+            "right.out"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        },
+        "source": {
+          "resources": [
+            "second"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      },
+      "methods": [],
+      "name": "right",
+      "outputs": {
+        "resources": [
+          "right.out"
+        ],
+        "type": "queue<u32>",
+        "value": null
+      },
+      "parent": "top"
+    },
+    {
+      "contract": "Module:independent",
+      "definition": "src_shared_state_16f7c6b8.Client",
+      "inputs": {
+        "accumulator": {
+          "instance": "separate"
+        },
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "source": {
+          "resources": [
+            "third"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      },
+      "interfaces": {},
+      "members": {
+        "accumulator": {
+          "instance": "separate"
+        },
+        "enabled": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "out": {
+          "resources": [
+            "independent.out"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        },
+        "source": {
+          "resources": [
+            "third"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      },
+      "methods": [],
+      "name": "independent",
+      "outputs": {
+        "resources": [
+          "independent.out"
+        ],
+        "type": "queue<u32>",
+        "value": null
+      },
+      "parent": "top"
+    },
+    {
+      "contract": "Module:top",
+      "definition": "src_shared_state_16f7c6b8.SharedState",
+      "inputs": {
+        "choose_left": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        }
+      },
+      "interfaces": {},
+      "members": {
+        "choose_left": {
+          "resources": [],
+          "type": "bool",
+          "value": null
+        },
+        "first": {
+          "resources": [
+            "first"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        },
+        "independent": {
+          "instance": "independent"
+        },
+        "left": {
+          "instance": "left"
+        },
+        "right": {
+          "instance": "right"
+        },
+        "second": {
+          "resources": [
+            "second"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        },
+        "separate": {
+          "instance": "separate"
+        },
+        "shared": {
+          "instance": "shared"
+        },
+        "third": {
+          "resources": [
+            "third"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      },
+      "methods": [],
+      "name": "top",
+      "outputs": [
+        {
+          "resources": [
+            "shared.total"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        },
+        {
+          "resources": [
+            "separate.total"
+          ],
+          "type": "cell<u32>",
+          "value": null
+        },
+        {
+          "resources": [
+            "left.out"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        },
+        {
+          "resources": [
+            "right.out"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        },
+        {
+          "resources": [
+            "independent.out"
+          ],
+          "type": "queue<u32>",
+          "value": null
+        }
+      ],
+      "parent": null
+    }
+  ],
+  "resources": [
+    {
+      "capacity_fn": "ac_init_first_cap",
+      "contract": "Queue",
+      "initial_fn": "ac_init_first",
+      "kind": "queue",
+      "loc": {
+        "column": 12,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 32
+      },
+      "name": "first",
+      "type": "u32",
+      "views": [
+        {
+          "commit": "queue.effects",
+          "initial": "old_count == capacity",
+          "name": "full",
+          "visibility": "ehr"
+        }
+      ],
+      "visibility": "old"
+    },
+    {
+      "capacity_fn": "ac_init_second_cap",
+      "contract": "Queue",
+      "initial_fn": "ac_init_second",
+      "kind": "queue",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 33
+      },
+      "name": "second",
+      "type": "u32",
+      "views": [
+        {
+          "commit": "queue.effects",
+          "initial": "old_count == capacity",
+          "name": "full",
+          "visibility": "ehr"
+        }
+      ],
+      "visibility": "old"
+    },
+    {
+      "capacity_fn": "ac_init_third_cap",
+      "contract": "Queue",
+      "initial_fn": "ac_init_third",
+      "kind": "queue",
+      "loc": {
+        "column": 12,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 34
+      },
+      "name": "third",
+      "type": "u32",
+      "views": [
+        {
+          "commit": "queue.effects",
+          "initial": "old_count == capacity",
+          "name": "full",
+          "visibility": "ehr"
+        }
+      ],
+      "visibility": "old"
+    },
+    {
+      "contract": "Cell",
+      "initial_fn": "ac_init_shared.total",
+      "kind": "cell",
+      "loc": {
+        "column": 12,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 7
+      },
+      "name": "shared.total",
+      "type": "u32",
+      "visibility": "old"
+    },
+    {
+      "contract": "Cell",
+      "initial_fn": "ac_init_separate.total",
+      "kind": "cell",
+      "loc": {
+        "column": 12,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 7
+      },
+      "name": "separate.total",
+      "type": "u32",
+      "visibility": "old"
+    },
+    {
+      "capacity_fn": "ac_init_left.out_cap",
+      "contract": "Queue",
+      "initial_fn": "ac_init_left.out",
+      "kind": "queue",
+      "loc": {
+        "column": 10,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 19
+      },
+      "name": "left.out",
+      "type": "u32",
+      "views": [
+        {
+          "commit": "queue.effects",
+          "initial": "old_count == capacity",
+          "name": "full",
+          "visibility": "ehr"
+        }
+      ],
+      "visibility": "old"
+    },
+    {
+      "capacity_fn": "ac_init_right.out_cap",
+      "contract": "Queue",
+      "initial_fn": "ac_init_right.out",
+      "kind": "queue",
+      "loc": {
+        "column": 10,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 19
+      },
+      "name": "right.out",
+      "type": "u32",
+      "views": [
+        {
+          "commit": "queue.effects",
+          "initial": "old_count == capacity",
+          "name": "full",
+          "visibility": "ehr"
+        }
+      ],
+      "visibility": "old"
+    },
+    {
+      "capacity_fn": "ac_init_independent.out_cap",
+      "contract": "Queue",
+      "initial_fn": "ac_init_independent.out",
+      "kind": "queue",
+      "loc": {
+        "column": 10,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 19
+      },
+      "name": "independent.out",
+      "type": "u32",
+      "views": [
+        {
+          "commit": "queue.effects",
+          "initial": "old_count == capacity",
+          "name": "full",
+          "visibility": "ehr"
+        }
+      ],
+      "visibility": "old"
+    }
+  ],
+  "ehr": [
+    {
+      "resource": "first",
+      "aspect": "full",
+      "port_count": 2,
+      "bindings": [
+        {
+          "method": "Queue:pop",
+          "port": 0
+        },
+        {
+          "method": "Queue:query.full",
+          "port": 1
+        }
+      ],
+      "semantics": "last_effective_prior_port",
+      "fallback": "old",
+      "same_port": "invisible",
+      "commit": "queue.effects"
+    },
+    {
+      "resource": "independent.out",
+      "aspect": "full",
+      "port_count": 2,
+      "bindings": [
+        {
+          "method": "Queue:pop",
+          "port": 0
+        },
+        {
+          "method": "Queue:query.full",
+          "port": 1
+        }
+      ],
+      "semantics": "last_effective_prior_port",
+      "fallback": "old",
+      "same_port": "invisible",
+      "commit": "queue.effects"
+    },
+    {
+      "resource": "left.out",
+      "aspect": "full",
+      "port_count": 2,
+      "bindings": [
+        {
+          "method": "Queue:pop",
+          "port": 0
+        },
+        {
+          "method": "Queue:query.full",
+          "port": 1
+        }
+      ],
+      "semantics": "last_effective_prior_port",
+      "fallback": "old",
+      "same_port": "invisible",
+      "commit": "queue.effects"
+    },
+    {
+      "resource": "right.out",
+      "aspect": "full",
+      "port_count": 2,
+      "bindings": [
+        {
+          "method": "Queue:pop",
+          "port": 0
+        },
+        {
+          "method": "Queue:query.full",
+          "port": 1
+        }
+      ],
+      "semantics": "last_effective_prior_port",
+      "fallback": "old",
+      "same_port": "invisible",
+      "commit": "queue.effects"
+    },
+    {
+      "resource": "second",
+      "aspect": "full",
+      "port_count": 2,
+      "bindings": [
+        {
+          "method": "Queue:pop",
+          "port": 0
+        },
+        {
+          "method": "Queue:query.full",
+          "port": 1
+        }
+      ],
+      "semantics": "last_effective_prior_port",
+      "fallback": "old",
+      "same_port": "invisible",
+      "commit": "queue.effects"
+    },
+    {
+      "resource": "third",
+      "aspect": "full",
+      "port_count": 2,
+      "bindings": [
+        {
+          "method": "Queue:pop",
+          "port": 0
+        },
+        {
+          "method": "Queue:query.full",
+          "port": 1
+        }
+      ],
+      "semantics": "last_effective_prior_port",
+      "fallback": "old",
+      "same_port": "invisible",
+      "commit": "queue.effects"
+    }
+  ],
+  "ehr_bindings": [
+    {
+      "function": "independent.transfer",
+      "identity": "v4",
+      "resource": "independent.out",
+      "aspect": "full",
+      "phase": "Queue:query.full",
+      "port": 1
+    },
+    {
+      "function": "independent.transfer.0.call.2.1",
+      "identity": "v13",
+      "resource": "third",
+      "aspect": "full",
+      "phase": "Queue:pop",
+      "port": 0
+    },
+    {
+      "function": "independent.transfer.0.call.2.1",
+      "identity": "v7",
+      "resource": "third",
+      "aspect": "full",
+      "phase": "Queue:pop",
+      "port": 0
+    },
+    {
+      "function": "left.transfer",
+      "identity": "v4",
+      "resource": "left.out",
+      "aspect": "full",
+      "phase": "Queue:query.full",
+      "port": 1
+    },
+    {
+      "function": "left.transfer.0.call.0.1",
+      "identity": "v13",
+      "resource": "first",
+      "aspect": "full",
+      "phase": "Queue:pop",
+      "port": 0
+    },
+    {
+      "function": "left.transfer.0.call.0.1",
+      "identity": "v7",
+      "resource": "first",
+      "aspect": "full",
+      "phase": "Queue:pop",
+      "port": 0
+    },
+    {
+      "function": "right.transfer",
+      "identity": "v4",
+      "resource": "right.out",
+      "aspect": "full",
+      "phase": "Queue:query.full",
+      "port": 1
+    },
+    {
+      "function": "right.transfer.0.call.1.1",
+      "identity": "v13",
+      "resource": "second",
+      "aspect": "full",
+      "phase": "Queue:pop",
+      "port": 0
+    },
+    {
+      "function": "right.transfer.0.call.1.1",
+      "identity": "v7",
+      "resource": "second",
+      "aspect": "full",
+      "phase": "Queue:pop",
+      "port": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "independent.transfer",
+      "module": "independent",
+      "rule": "transfer",
+      "function": "independent.transfer",
+      "selection": true,
+      "locations": [
+        {
+          "column": 15,
+          "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+          "line": 26
+        }
+      ],
+      "calls": [
+        {
+          "condition": true,
+          "location": {
+            "column": 15,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 26
+          },
+          "arguments": [
+            {
+              "value": {
+                "atom": "resource:third"
+              },
+              "resources": [
+                "third"
+              ]
+            }
+          ]
+        }
+      ],
+      "completion_conditions": [
+        true
+      ],
+      "guards": [
+        {
+          "condition": {
+            "not": {
+              "atom": "ehr.full(independent.out,1)@independent.transfer"
+            }
+          },
+          "path": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "function": "independent.transfer",
+          "name": "Queue.push capacity",
+          "source": "implicit",
+          "implicit": true
+        }
+      ],
+      "methods": [
+        {
+          "id": "c3964f233e814fb3",
+          "transaction": "independent.transfer",
+          "component": "separate",
+          "contract": "Module:separate",
+          "interface": "add",
+          "identity": "Module:separate:add",
+          "operation": "add",
+          "condition": true,
+          "guard": true,
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "ancestors": [],
+          "function": "independent.transfer.0.call.2.1",
+          "arguments": [
+            {
+              "resources": [
+                "third"
+              ],
+              "value": {
+                "atom": "resource:third"
+              }
+            }
+          ],
+          "accesses": [
+            "f972307aa6d762a1",
+            "c927a15b6095a6d1",
+            "a399cee7f2cf3a3b",
+            "d6d1512d15e135ab",
+            "57add73e1feec364",
+            "bd937580b3fbd92b",
+            "4d369b93fd82fc80",
+            "ef714bd0edc16fb6"
+          ]
+        }
+      ],
+      "preparations": [
+        "7af0e4e964dd7d4c"
+      ],
+      "preparation_bindings": [
+        {
+          "preparation": "7af0e4e964dd7d4c",
+          "condition": true
+        }
+      ],
+      "accesses": [
+        {
+          "id": "98d19faeaab99a6c",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer",
+          "resource": "independent.out",
+          "operation": "push",
+          "condition": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v7",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 29,
+          "contract": "Queue",
+          "interface": "push",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer"
+          ],
+          "local_condition": true,
+          "ready": "!ehr.full(independent.out,1)",
+          "value": {
+            "atom": "ssa:253a7c392f70e9c1"
+          },
+          "value_constant": null
+        },
+        {
+          "id": "a00b3987be7310fe",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer",
+          "resource": "independent.out",
+          "operation": "query.full",
+          "condition": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v4",
+          "methods": [],
+          "phase": "Queue:query.full",
+          "phase_context": [],
+          "sequence": 28,
+          "contract": "Queue",
+          "interface": "query.full",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer"
+          ],
+          "local_condition": true,
+          "port": 1,
+          "ready": "true",
+          "bypass": {
+            "selection": "last_effective_prior_port",
+            "sources": [],
+            "fallback": "old",
+            "same_port_visible": false
+          }
+        },
+        {
+          "id": "f972307aa6d762a1",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer.0.call.2.1",
+          "resource": "separate.total",
+          "operation": "read",
+          "condition": true,
+          "loc": {
+            "column": 23,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v3",
+          "methods": [
+            "c3964f233e814fb3"
+          ],
+          "phase": "Module:separate:add",
+          "phase_context": [
+            {
+              "contract": "Module:separate",
+              "interface": "add"
+            }
+          ],
+          "sequence": 20,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer",
+            "independent.transfer.0.call.2.1"
+          ],
+          "local_condition": true,
+          "ready": "true"
+        },
+        {
+          "id": "57add73e1feec364",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer.0.call.2.1",
+          "resource": "separate.total",
+          "operation": "write",
+          "condition": true,
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v9",
+          "methods": [
+            "c3964f233e814fb3"
+          ],
+          "phase": "Module:separate:add",
+          "phase_context": [
+            {
+              "contract": "Module:separate",
+              "interface": "add"
+            }
+          ],
+          "sequence": 24,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer",
+            "independent.transfer.0.call.2.1"
+          ],
+          "local_condition": true,
+          "ready": "true",
+          "value": {
+            "atom": "ssa:785877f22ea5bcf4"
+          },
+          "value_constant": null
+        },
+        {
+          "id": "a399cee7f2cf3a3b",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer.0.call.2.1",
+          "resource": "third",
+          "operation": "pop",
+          "condition": true,
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v5",
+          "methods": [
+            "c3964f233e814fb3"
+          ],
+          "phase": "Module:separate:add",
+          "phase_context": [
+            {
+              "contract": "Module:separate",
+              "interface": "add"
+            }
+          ],
+          "sequence": 22,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer",
+            "independent.transfer.0.call.2.1"
+          ],
+          "local_condition": true,
+          "ready": "!empty(third)",
+          "value": null,
+          "value_constant": null,
+          "locations": [
+            {
+              "column": 37,
+              "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+              "line": 11
+            },
+            {
+              "column": 16,
+              "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+              "line": 12
+            }
+          ]
+        },
+        {
+          "id": "bd937580b3fbd92b",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer.0.call.2.1",
+          "resource": "third",
+          "operation": "read",
+          "condition": true,
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 12
+          },
+          "role": "consume",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v10",
+          "methods": [
+            "c3964f233e814fb3"
+          ],
+          "phase": "Module:separate:add",
+          "phase_context": [
+            {
+              "contract": "Module:separate",
+              "interface": "add"
+            }
+          ],
+          "sequence": 25,
+          "contract": "Queue",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer",
+            "independent.transfer.0.call.2.1"
+          ],
+          "local_condition": true,
+          "ready": "!empty(third)"
+        },
+        {
+          "id": "c927a15b6095a6d1",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer.0.call.2.1",
+          "resource": "third",
+          "operation": "read",
+          "condition": true,
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "consume",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v4",
+          "methods": [
+            "c3964f233e814fb3"
+          ],
+          "phase": "Module:separate:add",
+          "phase_context": [
+            {
+              "contract": "Module:separate",
+              "interface": "add"
+            }
+          ],
+          "sequence": 21,
+          "contract": "Queue",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer",
+            "independent.transfer.0.call.2.1"
+          ],
+          "local_condition": true,
+          "ready": "!empty(third)"
+        },
+        {
+          "id": "d6d1512d15e135ab",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer.0.call.2.1",
+          "resource": "third",
+          "operation": "write",
+          "condition": true,
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v7",
+          "methods": [
+            "c3964f233e814fb3"
+          ],
+          "phase": "Queue:pop",
+          "phase_context": [
+            {
+              "contract": "Module:separate",
+              "interface": "add"
+            }
+          ],
+          "sequence": 23,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer",
+            "independent.transfer.0.call.2.1"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "empty(third)"
+            }
+          },
+          "port": 0,
+          "ready": "true",
+          "value": false,
+          "value_constant": false
+        },
+        {
+          "id": "ef714bd0edc16fb6",
+          "transaction": "independent.transfer",
+          "function": "independent.transfer.0.call.2.1",
+          "resource": "third",
+          "operation": "write",
+          "condition": true,
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 12
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v13",
+          "methods": [
+            "c3964f233e814fb3"
+          ],
+          "phase": "Queue:pop",
+          "phase_context": [
+            {
+              "contract": "Module:separate",
+              "interface": "add"
+            }
+          ],
+          "sequence": 27,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "independent_Work",
+            "independent.transfer",
+            "independent.transfer.0.call.2.1"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "empty(third)"
+            }
+          },
+          "port": 0,
+          "ready": "true",
+          "value": false,
+          "value_constant": false
+        }
+      ],
+      "requirements": [
+        {
+          "condition": true,
+          "ready": "!empty(third)",
+          "access": "c927a15b6095a6d1"
+        },
+        {
+          "condition": true,
+          "ready": "!empty(third)",
+          "access": "bd937580b3fbd92b"
+        },
+        {
+          "condition": true,
+          "ready": "!ehr.full(independent.out,1)",
+          "access": "98d19faeaab99a6c"
+        },
+        {
+          "condition": true,
+          "ready": "!empty(third)",
+          "access": "a399cee7f2cf3a3b"
+        }
+      ]
+    },
+    {
+      "id": "left.transfer",
+      "module": "left",
+      "rule": "transfer",
+      "function": "left.transfer",
+      "selection": {
+        "atom": "config:choose_left"
+      },
+      "locations": [
+        {
+          "column": 15,
+          "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+          "line": 26
+        }
+      ],
+      "calls": [
+        {
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "location": {
+            "column": 15,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 26
+          },
+          "arguments": [
+            {
+              "value": {
+                "atom": "resource:first"
+              },
+              "resources": [
+                "first"
+              ]
+            }
+          ]
+        }
+      ],
+      "completion_conditions": [
+        {
+          "atom": "config:choose_left"
+        }
+      ],
+      "guards": [
+        {
+          "condition": {
+            "not": {
+              "atom": "ehr.full(left.out,1)@left.transfer"
+            }
+          },
+          "path": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "function": "left.transfer",
+          "name": "Queue.push capacity",
+          "source": "implicit",
+          "implicit": true
+        }
+      ],
+      "methods": [
+        {
+          "id": "26a9591bf21bba04",
+          "transaction": "left.transfer",
+          "component": "shared",
+          "contract": "Module:shared",
+          "interface": "add",
+          "identity": "Module:shared:add",
+          "operation": "add",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "guard": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "ancestors": [],
+          "function": "left.transfer.0.call.0.1",
+          "arguments": [
+            {
+              "resources": [
+                "first"
+              ],
+              "value": {
+                "atom": "resource:first"
+              }
+            }
+          ],
+          "accesses": [
+            "13575a1f968079d6",
+            "b834e61714e9ffd2",
+            "e5697de72b2897ec",
+            "25f6994709dfd703",
+            "9c086ad8f48fe9a1",
+            "f2281a8941a38f69",
+            "42eba072bb2b2206",
+            "dd08a29e79392b6f"
+          ]
+        }
+      ],
+      "preparations": [
+        "1c5e6b36e556a8e0",
+        "549b2c2f9d8dc633"
+      ],
+      "preparation_bindings": [
+        {
+          "preparation": "1c5e6b36e556a8e0",
+          "condition": {
+            "atom": "config:choose_left"
+          }
+        },
+        {
+          "preparation": "549b2c2f9d8dc633",
+          "condition": {
+            "atom": "config:choose_left"
+          }
+        }
+      ],
+      "accesses": [
+        {
+          "id": "e5697de72b2897ec",
+          "transaction": "left.transfer",
+          "function": "left.transfer.0.call.0.1",
+          "resource": "first",
+          "operation": "pop",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v5",
+          "methods": [
+            "26a9591bf21bba04"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 2,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer",
+            "left.transfer.0.call.0.1"
+          ],
+          "local_condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!empty(first)",
+          "value": null,
+          "value_constant": null,
+          "locations": [
+            {
+              "column": 37,
+              "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+              "line": 11
+            },
+            {
+              "column": 16,
+              "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+              "line": 12
+            }
+          ]
+        },
+        {
+          "id": "b834e61714e9ffd2",
+          "transaction": "left.transfer",
+          "function": "left.transfer.0.call.0.1",
+          "resource": "first",
+          "operation": "read",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "consume",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v4",
+          "methods": [
+            "26a9591bf21bba04"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 1,
+          "contract": "Queue",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer",
+            "left.transfer.0.call.0.1"
+          ],
+          "local_condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!empty(first)"
+        },
+        {
+          "id": "f2281a8941a38f69",
+          "transaction": "left.transfer",
+          "function": "left.transfer.0.call.0.1",
+          "resource": "first",
+          "operation": "read",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 12
+          },
+          "role": "consume",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v10",
+          "methods": [
+            "26a9591bf21bba04"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 5,
+          "contract": "Queue",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer",
+            "left.transfer.0.call.0.1"
+          ],
+          "local_condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!empty(first)"
+        },
+        {
+          "id": "25f6994709dfd703",
+          "transaction": "left.transfer",
+          "function": "left.transfer.0.call.0.1",
+          "resource": "first",
+          "operation": "write",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v7",
+          "methods": [
+            "26a9591bf21bba04"
+          ],
+          "phase": "Queue:pop",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 3,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer",
+            "left.transfer.0.call.0.1"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "atom": "config:choose_left"
+              },
+              {
+                "not": {
+                  "atom": "empty(first)"
+                }
+              }
+            ]
+          },
+          "port": 0,
+          "ready": "true",
+          "value": false,
+          "value_constant": false
+        },
+        {
+          "id": "dd08a29e79392b6f",
+          "transaction": "left.transfer",
+          "function": "left.transfer.0.call.0.1",
+          "resource": "first",
+          "operation": "write",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 12
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v13",
+          "methods": [
+            "26a9591bf21bba04"
+          ],
+          "phase": "Queue:pop",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 7,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer",
+            "left.transfer.0.call.0.1"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "atom": "config:choose_left"
+              },
+              {
+                "not": {
+                  "atom": "empty(first)"
+                }
+              }
+            ]
+          },
+          "port": 0,
+          "ready": "true",
+          "value": false,
+          "value_constant": false
+        },
+        {
+          "id": "ccbdbafa1165cbc1",
+          "transaction": "left.transfer",
+          "function": "left.transfer",
+          "resource": "left.out",
+          "operation": "push",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v7",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 9,
+          "contract": "Queue",
+          "interface": "push",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer"
+          ],
+          "local_condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!ehr.full(left.out,1)",
+          "value": {
+            "atom": "ssa:f14517ce7aeb68b8"
+          },
+          "value_constant": null
+        },
+        {
+          "id": "d593d9152cf3b6c2",
+          "transaction": "left.transfer",
+          "function": "left.transfer",
+          "resource": "left.out",
+          "operation": "query.full",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v4",
+          "methods": [],
+          "phase": "Queue:query.full",
+          "phase_context": [],
+          "sequence": 8,
+          "contract": "Queue",
+          "interface": "query.full",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer"
+          ],
+          "local_condition": {
+            "atom": "config:choose_left"
+          },
+          "port": 1,
+          "ready": "true",
+          "bypass": {
+            "selection": "last_effective_prior_port",
+            "sources": [],
+            "fallback": "old",
+            "same_port_visible": false
+          }
+        },
+        {
+          "id": "13575a1f968079d6",
+          "transaction": "left.transfer",
+          "function": "left.transfer.0.call.0.1",
+          "resource": "shared.total",
+          "operation": "read",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 23,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v3",
+          "methods": [
+            "26a9591bf21bba04"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 0,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer",
+            "left.transfer.0.call.0.1"
+          ],
+          "local_condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "true"
+        },
+        {
+          "id": "9c086ad8f48fe9a1",
+          "transaction": "left.transfer",
+          "function": "left.transfer.0.call.0.1",
+          "resource": "shared.total",
+          "operation": "write",
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v9",
+          "methods": [
+            "26a9591bf21bba04"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 4,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "left_Work",
+            "left.transfer",
+            "left.transfer.0.call.0.1"
+          ],
+          "local_condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "true",
+          "value": {
+            "atom": "ssa:a26664d83468fc0f"
+          },
+          "value_constant": null
+        }
+      ],
+      "requirements": [
+        {
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!empty(first)",
+          "access": "b834e61714e9ffd2"
+        },
+        {
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!empty(first)",
+          "access": "f2281a8941a38f69"
+        },
+        {
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!ehr.full(left.out,1)",
+          "access": "ccbdbafa1165cbc1"
+        },
+        {
+          "condition": {
+            "atom": "config:choose_left"
+          },
+          "ready": "!empty(first)",
+          "access": "e5697de72b2897ec"
+        }
+      ]
+    },
+    {
+      "id": "right.transfer",
+      "module": "right",
+      "rule": "transfer",
+      "function": "right.transfer",
+      "selection": {
+        "not": {
+          "atom": "config:choose_left"
+        }
+      },
+      "locations": [
+        {
+          "column": 15,
+          "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+          "line": 26
+        }
+      ],
+      "calls": [
+        {
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "location": {
+            "column": 15,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 26
+          },
+          "arguments": [
+            {
+              "value": {
+                "atom": "resource:second"
+              },
+              "resources": [
+                "second"
+              ]
+            }
+          ]
+        }
+      ],
+      "completion_conditions": [
+        {
+          "not": {
+            "atom": "config:choose_left"
+          }
+        }
+      ],
+      "guards": [
+        {
+          "condition": {
+            "not": {
+              "atom": "ehr.full(right.out,1)@right.transfer"
+            }
+          },
+          "path": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "function": "right.transfer",
+          "name": "Queue.push capacity",
+          "source": "implicit",
+          "implicit": true
+        }
+      ],
+      "methods": [
+        {
+          "id": "b0b2850d1e35fe0c",
+          "transaction": "right.transfer",
+          "component": "shared",
+          "contract": "Module:shared",
+          "interface": "add",
+          "identity": "Module:shared:add",
+          "operation": "add",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "guard": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "ancestors": [],
+          "function": "right.transfer.0.call.1.1",
+          "arguments": [
+            {
+              "resources": [
+                "second"
+              ],
+              "value": {
+                "atom": "resource:second"
+              }
+            }
+          ],
+          "accesses": [
+            "17c362ed621cd940",
+            "2765e2f4d910d3c3",
+            "0717e3e573dfbcd4",
+            "f0f658aa37d97afb",
+            "925c414030aea033",
+            "c01091a93a38b8f2",
+            "1367790f0777c702",
+            "f3096a7bff6f14b9"
+          ]
+        }
+      ],
+      "preparations": [
+        "5049e6f1a43eab17",
+        "7663fe4251b1365d",
+        "81ff781da58340e8"
+      ],
+      "preparation_bindings": [
+        {
+          "preparation": "5049e6f1a43eab17",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          }
+        },
+        {
+          "preparation": "7663fe4251b1365d",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          }
+        },
+        {
+          "preparation": "81ff781da58340e8",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          }
+        }
+      ],
+      "accesses": [
+        {
+          "id": "898133f85b2b86e2",
+          "transaction": "right.transfer",
+          "function": "right.transfer",
+          "resource": "right.out",
+          "operation": "push",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v7",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 19,
+          "contract": "Queue",
+          "interface": "push",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!ehr.full(right.out,1)",
+          "value": {
+            "atom": "ssa:19712a603ae3d9cf"
+          },
+          "value_constant": null
+        },
+        {
+          "id": "c23b7a7b267e0a97",
+          "transaction": "right.transfer",
+          "function": "right.transfer",
+          "resource": "right.out",
+          "operation": "query.full",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 23
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v4",
+          "methods": [],
+          "phase": "Queue:query.full",
+          "phase_context": [],
+          "sequence": 18,
+          "contract": "Queue",
+          "interface": "query.full",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "port": 1,
+          "ready": "true",
+          "bypass": {
+            "selection": "last_effective_prior_port",
+            "sources": [],
+            "fallback": "old",
+            "same_port_visible": false
+          }
+        },
+        {
+          "id": "0717e3e573dfbcd4",
+          "transaction": "right.transfer",
+          "function": "right.transfer.0.call.1.1",
+          "resource": "second",
+          "operation": "pop",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v5",
+          "methods": [
+            "b0b2850d1e35fe0c"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 12,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer",
+            "right.transfer.0.call.1.1"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!empty(second)",
+          "value": null,
+          "value_constant": null,
+          "locations": [
+            {
+              "column": 37,
+              "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+              "line": 11
+            },
+            {
+              "column": 16,
+              "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+              "line": 12
+            }
+          ]
+        },
+        {
+          "id": "2765e2f4d910d3c3",
+          "transaction": "right.transfer",
+          "function": "right.transfer.0.call.1.1",
+          "resource": "second",
+          "operation": "read",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "consume",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v4",
+          "methods": [
+            "b0b2850d1e35fe0c"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 11,
+          "contract": "Queue",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer",
+            "right.transfer.0.call.1.1"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!empty(second)"
+        },
+        {
+          "id": "c01091a93a38b8f2",
+          "transaction": "right.transfer",
+          "function": "right.transfer.0.call.1.1",
+          "resource": "second",
+          "operation": "read",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 12
+          },
+          "role": "consume",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v10",
+          "methods": [
+            "b0b2850d1e35fe0c"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 15,
+          "contract": "Queue",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer",
+            "right.transfer.0.call.1.1"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!empty(second)"
+        },
+        {
+          "id": "f0f658aa37d97afb",
+          "transaction": "right.transfer",
+          "function": "right.transfer.0.call.1.1",
+          "resource": "second",
+          "operation": "write",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 37,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v7",
+          "methods": [
+            "b0b2850d1e35fe0c"
+          ],
+          "phase": "Queue:pop",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 13,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer",
+            "right.transfer.0.call.1.1"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "not": {
+                  "atom": "config:choose_left"
+                }
+              },
+              {
+                "not": {
+                  "atom": "empty(second)"
+                }
+              }
+            ]
+          },
+          "port": 0,
+          "ready": "true",
+          "value": false,
+          "value_constant": false
+        },
+        {
+          "id": "f3096a7bff6f14b9",
+          "transaction": "right.transfer",
+          "function": "right.transfer.0.call.1.1",
+          "resource": "second",
+          "operation": "write",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 16,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 12
+          },
+          "role": "observe",
+          "view": "ehr",
+          "aspect": "full",
+          "identity": "v13",
+          "methods": [
+            "b0b2850d1e35fe0c"
+          ],
+          "phase": "Queue:pop",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 17,
+          "contract": "Queue",
+          "interface": "pop",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer",
+            "right.transfer.0.call.1.1"
+          ],
+          "local_condition": {
+            "and": [
+              {
+                "not": {
+                  "atom": "config:choose_left"
+                }
+              },
+              {
+                "not": {
+                  "atom": "empty(second)"
+                }
+              }
+            ]
+          },
+          "port": 0,
+          "ready": "true",
+          "value": false,
+          "value_constant": false
+        },
+        {
+          "id": "17c362ed621cd940",
+          "transaction": "right.transfer",
+          "function": "right.transfer.0.call.1.1",
+          "resource": "shared.total",
+          "operation": "read",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 23,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v3",
+          "methods": [
+            "b0b2850d1e35fe0c"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 10,
+          "contract": "Cell",
+          "interface": "read",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer",
+            "right.transfer.0.call.1.1"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "true"
+        },
+        {
+          "id": "925c414030aea033",
+          "transaction": "right.transfer",
+          "function": "right.transfer.0.call.1.1",
+          "resource": "shared.total",
+          "operation": "write",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "loc": {
+            "column": 9,
+            "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+            "line": 11
+          },
+          "role": "observe",
+          "view": "old",
+          "aspect": "value",
+          "identity": "v9",
+          "methods": [
+            "b0b2850d1e35fe0c"
+          ],
+          "phase": "Module:shared:add",
+          "phase_context": [
+            {
+              "contract": "Module:shared",
+              "interface": "add"
+            }
+          ],
+          "sequence": 14,
+          "contract": "Cell",
+          "interface": "write",
+          "binding": "exact",
+          "call_chain": [
+            "right_Work",
+            "right.transfer",
+            "right.transfer.0.call.1.1"
+          ],
+          "local_condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "true",
+          "value": {
+            "atom": "ssa:3cbaebe6b51a0a58"
+          },
+          "value_constant": null
+        }
+      ],
+      "requirements": [
+        {
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!empty(second)",
+          "access": "2765e2f4d910d3c3"
+        },
+        {
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!empty(second)",
+          "access": "c01091a93a38b8f2"
+        },
+        {
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!ehr.full(right.out,1)",
+          "access": "898133f85b2b86e2"
+        },
+        {
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          },
+          "ready": "!empty(second)",
+          "access": "0717e3e573dfbcd4"
+        }
+      ]
+    }
+  ],
+  "edges": [],
+  "computations": [],
+  "preparations": [
+    {
+      "id": "1c5e6b36e556a8e0",
+      "function": "left_Work",
+      "context": "left_Work",
+      "block": "b0",
+      "identity": "v1",
+      "operation": "config",
+      "dialect": "acir",
+      "loc": {
+        "column": 17,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 31
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v0",
+          "type": "bool"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "left.transfer",
+          "condition": {
+            "atom": "config:choose_left"
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "5049e6f1a43eab17",
+      "function": "right_Work",
+      "context": "right_Work",
+      "block": "b0",
+      "identity": "v2",
+      "operation": "unary",
+      "dialect": "acir",
+      "loc": {
+        "column": 36,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 38
+      },
+      "inputs": [
+        "v0"
+      ],
+      "outputs": [
+        {
+          "id": "v1",
+          "type": "bool"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "right.transfer",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "549b2c2f9d8dc633",
+      "function": "left_Work",
+      "context": "left_Work",
+      "block": "b0",
+      "identity": "v3",
+      "operation": "get",
+      "dialect": "acir",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 32
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v1",
+          "type": "queue<u32>"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "left.transfer",
+          "condition": {
+            "atom": "config:choose_left"
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "7663fe4251b1365d",
+      "function": "right_Work",
+      "context": "right_Work",
+      "block": "b0",
+      "identity": "v4",
+      "operation": "get",
+      "dialect": "acir",
+      "loc": {
+        "column": 14,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 33
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v2",
+          "type": "queue<u32>"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "right.transfer",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          }
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "7af0e4e964dd7d4c",
+      "function": "independent_Work",
+      "context": "independent_Work",
+      "block": "b0",
+      "identity": "v3",
+      "operation": "get",
+      "dialect": "acir",
+      "loc": {
+        "column": 13,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 34
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v0",
+          "type": "queue<u32>"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "independent.transfer",
+          "condition": true
+        }
+      ],
+      "requirements": []
+    },
+    {
+      "id": "81ff781da58340e8",
+      "function": "right_Work",
+      "context": "right_Work",
+      "block": "b0",
+      "identity": "v1",
+      "operation": "config",
+      "dialect": "acir",
+      "loc": {
+        "column": 17,
+        "file": "/home/lc/tmp/pycircuit/examples/shared_state.py",
+        "line": 31
+      },
+      "inputs": [],
+      "outputs": [
+        {
+          "id": "v0",
+          "type": "bool"
+        }
+      ],
+      "condition": true,
+      "output_validity": true,
+      "boundary": "block",
+      "control_dependencies": [],
+      "state_dependencies": [],
+      "method_dependencies": [],
+      "users": [
+        {
+          "rule": "right.transfer",
+          "condition": {
+            "not": {
+              "atom": "config:choose_left"
+            }
+          }
+        }
+      ],
+      "requirements": []
+    }
+  ],
+  "preparation_methods": [],
+  "diagnostics": []
+}

@@ -4,8 +4,9 @@ Construction is symbolic: host configuration values are constructor arguments,
 never evaluated by Python. Only literal construction loops are expanded here.
 """
 import ast
+import hashlib
 from pathlib import Path
-from .ir import CompileError, SCALARS, VERSION, Value, element, resource, wrapped
+from .ir import CompileError, SCALARS, VERSION, Value, Instance, Method, element, resource, wrapped
 
 
 def spelling(node):
@@ -33,9 +34,46 @@ class Frontend:
         self.model = dict(version=VERSION, top='', types=self.types, config=[], resources=[],
                           modules=[], functions=[], construction=[], exports={})
         self.helpers = {}
+        self.globals = {}
+        self.global_values = {}
+        self.constructing = set()
+        self.call_stack = []
+        self.instances = []
+        self.instance_stack = []
+        self.file_names = {}
+        self.entry_names = {}
+        self.closures = {}
+        self.variable_guards = {}
+        self.work_values = {}
 
     def error(self, node, message):
         raise CompileError(f'{getattr(node, "source", "<source>")}:{getattr(node, "lineno", 0)}: {message}')
+
+    def capture_names(self, fn, definitions, instance, seen=None):
+        seen = set(seen or ())
+        if id(fn) in seen: return set()
+        seen.add(id(fn))
+        names = {x.id for stmt in fn.body for x in ast.walk(stmt) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
+        assigned = {x.id for stmt in fn.body for x in ast.walk(stmt) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)}
+        scope = self.closures.get((instance, id(fn)), ({},))[0]
+        signals = {n for n in assigned if isinstance(scope.get(n), Value) and scope[n].type.startswith('signal<')}
+        names -= {p.arg for p in fn.args.args} | (assigned - signals)
+        names |= signals
+        dependencies = set(names)
+        for dec in fn.decorator_list:
+            if not isinstance(dec, ast.Call): continue
+            for kw in dec.keywords:
+                if kw.arg == 'guard':
+                    guard = spelling(kw.value)
+                    if guard in definitions or guard in self.defs: dependencies.add(guard)
+                    else:
+                        key = self.variable_guards.get((instance, id(fn)))
+                        if key: names.add(key)
+        for name in dependencies:
+            helper = definitions.get(name, self.defs.get(name))
+            if helper and decorator(helper) in ('helper', 'method'):
+                names |= self.capture_names(helper, definitions, instance, seen)
+        return names
 
     def read(self, path):
         path = Path(path).resolve()
@@ -45,47 +83,92 @@ class Frontend:
         tree = ast.parse(path.read_text(), filename=str(path))
         for node in ast.walk(tree):
             node.source = str(path)
+        # Resolve file-local symbols before lowering. No imported module is executed.
+        namespace = 'src_' + path.stem + '_' + hashlib.sha256(str(path).encode()).hexdigest()[:8]
+        self.file_names[path] = namespace
+        bindings = {}
+        imports = []
         for node in tree.body:
-            if isinstance(node, ast.Import):
-                if any(a.name not in ('pycircuit', 'pycircuit.ac') for a in node.names):
-                    self.error(node, 'only ACPy or local from-imports are supported')
-            elif isinstance(node, ast.ImportFrom):
-                if node.module in ('pycircuit', '__future__'):
+            if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+                bindings[node.name] = namespace + '.' + node.name
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
+                for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                    if not isinstance(target, ast.Name): self.error(node, 'top-level bindings require names')
+                    bindings[target.id] = namespace + '.' + target.id
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                imports.append(node)
+        self.entry_names[path] = bindings
+        for node in imports:
+            for alias in node.names:
+                if alias.name == '*': self.error(node, 'wildcard imports are unsupported')
+                imported = alias.name if isinstance(node, ast.Import) else node.module or ''
+                if imported in ('pycircuit', 'pycircuit.ac', '__future__'):
+                    if imported != '__future__': bindings[alias.asname or alias.name] = 'ac'
                     continue
                 base = path.parent
-                for _ in range(max(0, node.level - 1)):
-                    base = base.parent
-                target = base.joinpath(*(node.module or '').split('.')).with_suffix('.py')
-                if not target.is_file():
-                    self.error(node, f'local dependency not found: {target}')
+                for _ in range(max(0, getattr(node, 'level', 0) - 1)): base = base.parent
+                target = base.joinpath(*imported.split('.')).with_suffix('.py')
+                if not target.is_file(): self.error(node, f'local dependency not found: {target}')
                 self.read(target)
-                for alias in node.names:
-                    if alias.asname:
-                        table = self.defs if alias.name in self.defs else self.constants
-                        table[alias.asname] = table[alias.name]
-            elif isinstance(node, ast.FunctionDef):
+                imported_namespace = self.file_names[target.resolve()]
+                if isinstance(node, ast.Import):
+                    bindings[alias.asname or alias.name] = imported_namespace
+                else:
+                    bindings[alias.asname or alias.name] = self.entry_names[target.resolve()].get(alias.name, imported_namespace + '.' + alias.name)
+        self.entry_names[path] = bindings
+        class Qualify(ast.NodeTransformer):
+            def __init__(self): self.locals = []
+            def visit_FunctionDef(self, fn):
+                for d in fn.decorator_list: self.visit(d)
+                if fn.returns: fn.returns = self.visit(fn.returns)
+                for arg in fn.args.args:
+                    if arg.annotation: arg.annotation = self.visit(arg.annotation)
+                fn.args.defaults = [self.visit(d) for d in fn.args.defaults]
+                if not self.locals: fn.name = bindings[fn.name]
+                bound = {a.arg for a in fn.args.args}
+                for stmt in fn.body:
+                    for n in ast.walk(stmt):
+                        if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Store): bound.add(n.id)
+                    if isinstance(stmt, ast.FunctionDef): bound.add(stmt.name)
+                self.locals.append(bound)
+                fn.body = [self.visit(n) for n in fn.body]
+                self.locals.pop()
+                return fn
+            def visit_Name(self, n):
+                if not any(n.id in scope for scope in self.locals): n.id = bindings.get(n.id, n.id)
+                return n
+        tree = Qualify().visit(tree)
+        for node in tree.body:
+            if isinstance(node, (ast.Import, ast.ImportFrom)): continue
+            if isinstance(node, ast.FunctionDef):
                 self.validate_function(node)
                 self.defs[node.name] = node
             elif isinstance(node, ast.ClassDef):
-                if node.bases or node.keywords or node.decorator_list:
-                    self.error(node, 'struct inheritance and class decorators are unsupported')
+                original = node.name
+                node.name = bindings[original]
+                if node.bases or node.keywords or node.decorator_list: self.error(node, 'struct inheritance and decorators are unsupported')
                 fields = []
                 for f in node.body:
-                    if not isinstance(f, ast.AnnAssign) or not isinstance(f.target, ast.Name):
-                        self.error(f, 'structs contain annotated fields only')
-                    fields.append(dict(name=f.target.id, type=self.annotation(f.annotation),
-                                       default=self.literal(f.value) if f.value else None))
+                    if not isinstance(f, ast.AnnAssign) or not isinstance(f.target, ast.Name): self.error(f, 'structs contain annotated fields only')
+                    fields.append(dict(name=f.target.id, type=self.annotation(f.annotation), default=self.literal(f.value) if f.value else None))
                 self.types[node.name] = fields
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
-                targets = node.targets if isinstance(node, ast.Assign) else [node.target]
-                for target in targets:
-                    if not isinstance(target, ast.Name):
-                        self.error(node, 'top-level constants require names')
-                    self.constants[target.id] = self.literal(node.value)
-            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str):
-                pass
-            else:
-                self.error(node, 'unsupported top-level syntax')
+                for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                    if isinstance(node.value, (ast.Call, ast.Attribute)) or isinstance(node.value, ast.Name) and node.value.id not in self.constants: self.globals[target.id] = node.value
+                    else: self.constants[target.id] = self.literal(node.value)
+            elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str): pass
+            else: self.error(node, 'unsupported top-level syntax')
+
+    def global_value(self, name, builder, node):
+        if name not in self.global_values:
+            if name in self.constructing: self.error(node, 'recursive static instance construction')
+            self.constructing.add(name)
+            previous_stack = self.instance_stack
+            self.instance_stack = []
+            self.global_values[name] = self.construct_value(self.globals[name], '.global.' + name, builder, {})
+            self.instance_stack = previous_stack
+            self.constructing.remove(name)
+        return self.global_values[name]
 
     def validate_function(self, node):
         for fn in (n for n in ast.walk(node) if isinstance(n, ast.FunctionDef)):
@@ -93,14 +176,17 @@ class Frontend:
                 self.error(fn, 'variadic, keyword-only and positional-only signatures are unsupported')
             for dec in fn.decorator_list:
                 kind = spelling(dec.func if isinstance(dec, ast.Call) else dec)
-                if kind not in ('ac.module', 'ac.rule', 'ac.signal'):
+                if kind not in ('ac.module', 'ac.rule', 'ac.method'):
                     self.error(dec, 'unsupported decorator')
-                if isinstance(dec, ast.Call) and (dec.args or any(k.arg != 'capacity' or kind != 'ac.rule' for k in dec.keywords)):
-                    self.error(dec, 'only Rule output capacity is configurable')
+                allowed = {'guard'} | ({'capacity'} if kind == 'ac.rule' else {'After'} if kind == 'ac.method' else set())
+                if isinstance(dec, ast.Call) and (dec.args or any(k.arg not in allowed for k in dec.keywords) or len({k.arg for k in dec.keywords}) != len(dec.keywords)):
+                    self.error(dec, 'decorator accepts guard=, rule capacity= and method After= only')
+                if fn is node and kind == 'ac.method' and isinstance(dec, ast.Call) and any(k.arg == 'After' for k in dec.keywords):
+                    self.error(dec, 'After requires a public method defined inside a component')
 
     def literal(self, node):
-        if isinstance(node, ast.Name) and node.id in self.constants:
-            return self.constants[node.id]
+        if spelling(node) in self.constants:
+            return self.constants[spelling(node)]
         try:
             return ast.literal_eval(node)
         except (ValueError, TypeError):
@@ -118,36 +204,88 @@ class Frontend:
             kind = spelling(node.value).removeprefix('ac.')
             if kind == 'var':
                 return self.annotation(node.slice)
-            if kind in ('queue', 'ref', 'signal', 'vector', 'qarray'):
-                return wrapped('queue' if kind == 'ref' else kind, self.annotation(node.slice))
+            if kind == 'tuple':
+                return [self.annotation(x) for x in node.slice.elts]
+            if kind in ('queue', 'cell', 'ehr', 'signal', 'ref', 'vector', 'qarray'):
+                return wrapped('queue' if kind == 'ref' else 'cell' if kind == 'ehr' else kind, self.annotation(node.slice))
             if kind == 'array' and isinstance(node.slice, ast.Tuple):
                 return f'array<{self.annotation(node.slice.elts[0])},{self.literal(node.slice.elts[1])}>'
         self.error(node, f'unsupported type: {ast.unparse(node)}')
 
     def compile(self, path, top):
         self.read(path)
-        if top not in self.defs or decorator(self.defs[top]) != 'module':
+        top_key = self.entry_names[Path(path).resolve()].get(top, top)
+        if top_key not in self.defs or decorator(self.defs[top_key]) != 'module':
             raise CompileError(f'top Module not found: {top}')
         self.model['top'] = top
         self.model['constants'] = self.constants
         builder = Lower(self, 'construction', 'construct')
         args = []
-        for arg in self.defs[top].args.args:
+        for arg in self.defs[top_key].args.args:
             typ = self.annotation(arg.annotation)
             if resource(typ):
                 self.error(arg, 'top parameters must be constructor values')
             self.model['config'].append(dict(name=arg.arg, type=typ))
             args.append(builder.op('config', typ, name=arg.arg, node=arg))
-        self.instantiate(self.defs[top], args, '', builder)
+        self.instantiate(self.defs[top_key], args, '', builder)
+        # Keep scalar-parameter interfaces even when no rule calls them. Their
+        # bound bodies can contribute an intermediate necessary order to closure.
+        # Resource-parameter methods require concrete call-site bindings instead.
+        for inst in list(self.instances):
+            for name, fn in inst.methods.items():
+                if any(p.annotation is None or resource(self.annotation(p.annotation)) for p in fn.args.args): continue
+                scope = self.closures[inst.name, id(fn)][0]
+                used = self.capture_names(fn, inst.definitions, inst.name)
+                if any(id(v) in self.work_values for key,v in scope.items() if key in used): continue
+                summary = Lower(self, 'helper', 'ac_summary_' + inst.name + '.' + name, inst.env,
+                                builder=builder, defs=inst.definitions)
+                values = [summary.param(p.arg, self.annotation(p.annotation)) for p in fn.args.args]
+                self.closures[inst.name, id(fn)] = (inst.env, inst.definitions, inst.name)
+                summary.behavior_call(fn, values, fn, inst.env, 'method', inst.definitions, inst.name)
+                target = next(f for f in self.model['functions'] if f['name'] == summary.ops[-1]['name'])
+                target['summary'] = True
         self.model['construction'] = builder.ops
         # All call sites have now contributed possible resource identities.
         for mod in self.model['modules']:
             for rule in mod['rules']:
-                rule.pop('_lower')
+                rule.pop('_lower', None)
             mod['resources'] = sorted(set(mod.pop('_resources')))
             mod.pop('_outputs', None)
             mod.pop('_pending_outputs', None)
-            mod.pop('_vars', None)
+        def connection(value):
+            if isinstance(value, Instance): return dict(instance=value.name)
+            if isinstance(value, Value): return dict(type=value.type, resources=sorted(value.targets), value=value.id if value.id.startswith('external:') else None)
+            if isinstance(value, list): return [connection(v) for v in value]
+            return None
+        self.model['instances'] = [dict(name=i.name, parent=i.parent, definition=i.source_name,
+            members={k: connection(v) for k, v in i.env.items() if isinstance(v, (Value, Instance))},
+            inputs={k: connection(v) for k, v in i.inputs.items()}, outputs=connection(i.outputs), methods=sorted(i.methods)) for i in self.instances]
+        from .contracts import defaults
+        self.model['contracts'] = defaults()
+        for inst in self.instances:
+            relations = []
+            for name, fn in inst.methods.items():
+                for dec in fn.decorator_list:
+                    if not isinstance(dec, ast.Call): continue
+                    for kw in dec.keywords:
+                        if kw.arg != 'After': continue
+                        names = self.literal(kw.value)
+                        if isinstance(names, str): names = [names]
+                        if not isinstance(names, (tuple, list)) or any(not isinstance(n, str) for n in names):
+                            self.error(kw.value, 'After requires a method name or tuple/list of method names')
+                        for before in names:
+                            if before not in inst.methods: self.error(kw.value, 'After must reference a public method of the same component: ' + before)
+                            relations.append(dict(before=before, after=name, relation='SB', source='user',
+                                                  origin=inst.name + '.' + name, loc=builder.loc(kw.value)))
+            contract = 'Module:' + inst.name
+            self.model['contracts'].append(dict(id=contract, methods=sorted(inst.methods), relations=relations))
+            entry = next(i for i in self.model['instances'] if i['name'] == inst.name)
+            entry['contract'] = contract
+            entry['interfaces'] = {name: contract + ':' + name for name in inst.methods}
+        for res in self.model['resources']:
+            res['contract'] = 'Signal' if res['kind'] == 'signal' else (('EHR' if res.get('visibility') == 'ehr' else 'Cell') if res['kind'] == 'cell' else 'Queue')
+            if res['kind'] in ('queue', 'qarray'):
+                res['views'] = [dict(name='full', visibility='ehr', initial='old_count == capacity', commit='queue.effects')]
         return self.model
 
     def expand_loops(self, body):
@@ -175,6 +313,7 @@ class Frontend:
 
     def bind_args(self, node, values, keywords, defaults=True):
         names = [p.arg for p in node.args.args]
+        if set(names[:len(values)]) & keywords.keys(): self.error(node, 'argument supplied more than once')
         result = dict(zip(names, values))
         result.update(keywords)
         if len(values) > len(names) or set(result) - set(names):
@@ -187,23 +326,25 @@ class Frontend:
         return [result[n] for n in names]
 
     def instantiate(self, node, args, prefix, builder):
+        parent = self.instance_stack[-1] if self.instance_stack else None
+        self.instance_stack.append(prefix or 'top')
         env = dict(zip((a.arg for a in node.args.args), args))
-        var_inputs = {}
-        for parameter, value in zip(node.args.args, args):
-            if isinstance(parameter.annotation, ast.Subscript) and spelling(parameter.annotation.value) == 'ac.var':
-                expected = self.annotation(parameter.annotation)
-                if not isinstance(value, Value) or value.type != wrapped('signal', expected):
-                    self.error(parameter, 'Module var inputs must bind a Signal of the annotated type')
-                var_inputs[parameter.arg] = expected
-        mod = dict(name=prefix or 'top', source_name=node.name, rules=[], resources=[], _resources=set(), _vars=var_inputs)
-        local_defs = {s.name: s for s in node.body if isinstance(s, ast.FunctionDef)}
+        input_env = dict(env)
+        mod = dict(name=prefix or 'top', source_name=node.name, rules=[], resources=[], _resources=set())
+        local_defs = {}
+        def definitions(statements):
+            for stmt in statements:
+                if isinstance(stmt, ast.FunctionDef): local_defs[stmt.name] = stmt
+                elif isinstance(stmt, (ast.If, ast.For)):
+                    definitions(stmt.body); definitions(stmt.orelse)
+        definitions(node.body)
         def function(call):
             return local_defs.get(spelling(call.func), self.defs.get(spelling(call.func))) if isinstance(call, ast.Call) else None
         def resource_declaration(n):
-            return isinstance(n, ast.Call) and (isinstance(n.func, ast.Subscript) and spelling(n.func.value) == 'ac.queue' or spelling(n.func) == 'ac.array')
+            return isinstance(n, ast.Call) and (isinstance(n.func, ast.Subscript) and spelling(n.func.value) in ('ac.queue', 'ac.cell', 'ac.ehr', 'ac.signal') or spelling(n.func) == 'ac.array')
         def static_instance(n):
             fn = function(n)
-            return resource_declaration(n) or fn is not None and decorator(fn) in ('module', 'signal')
+            return resource_declaration(n) or fn is not None and decorator(fn) == 'module'
         body = []
         for stmt in node.body:
             if isinstance(stmt, ast.For) and any(static_instance(n) for n in ast.walk(stmt)):
@@ -213,15 +354,25 @@ class Frontend:
         runtime, pending = [], []
         return_node = None
         runtime_names = set()
-        def runtime_expr(value):
+        signal_names = {n for n,v in env.items() if isinstance(v, Value) and v.type.startswith('signal<')}
+        signal_names |= {t.id for stmt in body if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and isinstance(stmt.value, ast.Call) and isinstance(stmt.value.func, ast.Subscript) and spelling(stmt.value.func.value) == 'ac.signal' for t in (stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]) if isinstance(t, ast.Name)}
+        def runtime_expr(value, seen=None):
+            seen = set(seen or ())
             for n in ast.walk(value):
                 if isinstance(n, ast.Name) and n.id in runtime_names: return True
+                if isinstance(n, ast.Name) and isinstance(env.get(n.id), Value) and env[n.id].type.startswith('signal<'): return True
                 if isinstance(n, ast.Attribute) and n.attr in ('value', 'empty', 'full', 'size'): return True
                 fn = function(n)
-                if fn and decorator(fn) == 'rule': return True
+                if fn and decorator(fn) in ('rule', 'method'): return True
+                if fn and decorator(fn) == 'helper':
+                    if id(fn) in seen: return True
+                    if any(runtime_expr(s, seen | {id(fn)}) for s in fn.body): return True
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute) and not spelling(n.func).startswith('ac.') and fn is None: return True
             return False
         for stmt in body:
             if isinstance(stmt, ast.FunctionDef):
+                if any(isinstance(d, ast.Call) and any(k.arg == 'guard' and spelling(k.value) not in local_defs and spelling(k.value) not in self.defs for k in d.keywords) for d in stmt.decorator_list):
+                    runtime.append(stmt)
                 continue
             if isinstance(stmt, ast.Return) and stmt.value is not None:
                 return_node = stmt
@@ -233,10 +384,10 @@ class Frontend:
                 if static_instance(value) or isinstance(value, (ast.ListComp, ast.List)) and any(resource_declaration(n) for n in ast.walk(value)):
                     pending.append(stmt)
                     continue
-                if not runtime_expr(value) and not isinstance(stmt, ast.Expr):
+                if not runtime_expr(value) and not isinstance(stmt, ast.Expr) and not any(isinstance(t, ast.Name) and t.id in signal_names for t in (stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target])):
                     # Pure bindings whose inputs are already static are constructor values.
                     names = {n.id for n in ast.walk(value) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
-                    if names <= env.keys() | self.defs.keys() | self.types.keys() | self.constants.keys() | {'ac', 'range', 'len', 'bool'}:
+                    if names <= env.keys() | self.defs.keys() | self.types.keys() | self.constants.keys() | self.globals.keys() | {'ac', 'range', 'len', 'bool'}:
                         pending.append(stmt)
                         continue
             runtime.append(stmt)
@@ -253,12 +404,13 @@ class Frontend:
             for stmt in pending[:]:
                 value = stmt.value
                 loaded = {n.id for n in ast.walk(value) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
-                provided = env.keys() | self.defs.keys() | local_defs.keys() | self.types.keys() | self.constants.keys() | {'ac', 'range', 'len', 'bool'}
+                provided = {k.split('.')[0] for k in self.defs.keys() | self.globals.keys()} | env.keys() | self.defs.keys() | local_defs.keys() | self.types.keys() | self.constants.keys() | self.globals.keys() | {'ac', 'range', 'len', 'bool'}
                 if isinstance(value, ast.ListComp): provided |= {g.target.id for g in value.generators}
-                if loaded - provided: continue
+                if any(n not in provided and not any(n.startswith(k + '.') for k in self.defs.keys() | self.globals.keys()) for n in loaded): continue
                 target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target if isinstance(stmt, ast.AnnAssign) else None
                 name = target.id if isinstance(target, ast.Name) else 'connection' + str(len(self.model['resources']))
-                key = (prefix + '_' if prefix else '') + name if target else f'{prefix}_m{len(self.model["modules"])}'
+                key = (prefix + '.' if prefix else '') + name if target else f'{prefix}.m{len(self.model["modules"])}'
+                if key == 'top': key = '.top'
                 builder.env = env
                 val = self.construct_value(value, key, builder, local_defs)
                 builder.env = env
@@ -267,27 +419,31 @@ class Frontend:
                 pending.remove(stmt); progress = True
             self.predeclare_outputs(runtime, env, local_defs, mod, builder)
             if not progress and pending:
-                if any((fn := function(stmt.value)) and decorator(fn) == 'signal' for stmt in pending):
-                    self.error(pending[0], 'unresolved static Signal connection; check for a Signal dependency cycle or undefined input')
                 self.error(pending[0], 'static connection/type cycle; add a Queue or Rule return type annotation')
         self.predeclare_outputs(runtime, env, local_defs, mod, builder)
         for name, val in env.items():
             if not prefix and isinstance(val, Value) and val.targets:
                 self.model['exports'][name] = sorted(val.targets)[0]
         outputs = None
+        instance = Instance(mod['name'], env, {k: v for k, v in local_defs.items() if decorator(v) == 'method'}, definitions=local_defs, parent=parent, source_name=node.name, inputs=input_env)
+        self.instances.append(instance)
+        for fn in local_defs.values(): self.closures[instance.name, id(fn)] = (env, local_defs, instance.name)
         if runtime:
             self.model['modules'].append(mod)
             lower = Lower(self, 'work', mod['name'] + '_Work', env, builder=builder, module=mod, defs=local_defs)
+            for fn in local_defs.values(): self.closures[instance.name, id(fn)] = (lower.env, local_defs, instance.name)
             lower.statements(runtime)
             # Module return exports static connections independently of Work paths.
             if return_node:
                 def connection(n):
                     if isinstance(n, (ast.Tuple, ast.List)): return [connection(x) for x in n.elts]
                     if isinstance(n, ast.Constant) and n.value is None: return None
-                    if not isinstance(n, ast.Name): self.error(n, 'Module returns fixed resource connections')
-                    v = lower.env.get(n.id, env.get(n.id))
+                    v = lower.expr(n, reference=True)
                     if isinstance(v, list): return v
                     if v is None: return None
+                    if not resource(v.type):
+                        exported = lower.op('export', v.type, [v], node=n)
+                        return Value('external:' + lower.name + ':' + exported.id, v.type)
                     if len(v.targets) != 1: self.error(n, 'Module returns fixed resource connections')
                     key = next(iter(v.targets))
                     return builder.op('resource', v.type, name=key, targets={key}, node=n)
@@ -295,11 +451,15 @@ class Frontend:
             mod['work'] = lower.function()
         elif return_node:
             builder.env = env
-            outputs = builder.expr(return_node.value)
-        return outputs
+            outputs = builder.expr(return_node.value, reference=True)
+        instance.outputs = outputs
+        self.instance_stack.pop()
+        return instance
 
     def output_shape(self, fn):
-        if fn.returns and self.annotation(fn.returns) != 'void': return 0
+        if fn.returns and self.annotation(fn.returns) != 'void':
+            t = self.annotation(fn.returns)
+            return list(range(len(t))) if isinstance(t, list) else 0
         def shape(node, counter):
             if isinstance(node, (ast.Tuple, ast.List)):
                 return [shape(x, counter) for x in node.elts]
@@ -331,7 +491,8 @@ class Frontend:
             if isinstance(n, ast.Name):
                 if n.id in self.constants:
                     return 'bool' if isinstance(self.constants[n.id], bool) else 'u32'
-                return scope[n.id]
+                t = scope[n.id]
+                return element(t) if isinstance(t, str) and t.startswith('signal<') else t
             if isinstance(n, ast.Constant):
                 return 'bool' if isinstance(n.value, bool) else 'u32'
             if isinstance(n, ast.Tuple):
@@ -343,6 +504,9 @@ class Frontend:
                 t = expression(n.value, scope)
                 if n.attr == 'value' and resource(t):
                     return element(t)
+                if isinstance(t, Instance):
+                    v = t.outputs if n.attr == 'outputs' else t.env[n.attr]
+                    return v.type if isinstance(v, Value) else v
                 return next(f['type'] for f in self.types[t] if f['name'] == n.attr)
             if isinstance(n, ast.Subscript):
                 t = expression(n.value, scope)
@@ -370,7 +534,8 @@ class Frontend:
                     return self.annotation(helper.returns)
             raise KeyError(ast.unparse(n))
         def assign(target, t, scope):
-            if isinstance(target, ast.Name): scope[target.id] = t
+            if isinstance(target, ast.Name):
+                if not isinstance(scope.get(target.id), str) or not scope[target.id].startswith('signal<'): scope[target.id] = t
             elif isinstance(target, (ast.Tuple, ast.List)) and isinstance(t, list):
                 for a, b in zip(target.elts, t): assign(a, b, scope)
         def visit(body, scope):
@@ -400,7 +565,7 @@ class Frontend:
                             outputs[i] = t
         if fn.returns:
             t = self.annotation(fn.returns)
-            if t != 'void': return [t]
+            if t != 'void': return t if isinstance(t, list) else [t]
         visit(fn.body, env)
         return outputs
 
@@ -421,7 +586,7 @@ class Frontend:
                 target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target if isinstance(stmt, ast.AnnAssign) else None
                 calls.append((fn, value, target))
         mod.setdefault('_outputs', {})
-        def type_of(v): return [type_of(x) for x in v] if isinstance(v, list) else v.type if isinstance(v, Value) else None
+        def type_of(v): return [type_of(x) for x in v] if isinstance(v, list) else v.type if isinstance(v, Value) else v if isinstance(v, Instance) else None
         pending = list(calls)
         while pending:
             progress = False
@@ -448,16 +613,20 @@ class Frontend:
                         return [x for child in t.elts for x in leaves(child)] if isinstance(t, (ast.Tuple, ast.List)) else [t]
                     targets = leaves(target)
                     for i, t in enumerate(types):
+                        if fn.returns and t and not t.startswith(('queue<', 'cell<', 'signal<')): self.error(call, 'Rule outputs require Queue, Cell or Signal annotations; ordinary var outputs are removed')
+                        kind = t.split('<', 1)[0] if t and t.startswith(('queue<', 'cell<', 'signal<')) else 'queue'
+                        t = element(t) if kind in ('queue', 'cell', 'signal') and t and t.startswith(('queue<', 'cell<', 'signal<')) else t
                         binding = targets[i] if i < len(targets) else None
                         old = env.get(binding.id) if isinstance(binding, ast.Name) else None
-                        if t is None and isinstance(old, Value) and old.type.startswith('queue<'): t = element(old.type)
+                        if kind in ('cell', 'signal') and (not isinstance(old, Value) or old.type != wrapped(kind, t)): self.error(call, kind.title() + ' output must bind an explicitly initialized ' + kind.title())
+                        if t is None and isinstance(old, Value) and old.type.startswith(('queue<', 'cell<', 'signal<')): t = element(old.type)
                         if t is None:
                             outputs.append(None); continue
-                        if isinstance(old, Value) and old.type.startswith('queue<'):
+                        if isinstance(old, Value) and old.type.startswith(('queue<', 'cell<', 'signal<')):
                             if element(old.type) != t: self.error(call, 'output payload does not match explicit Queue type')
-                            out = dict(name=next(iter(old.targets)), type=t, reference=old.id, targets=sorted(old.targets))
+                            out = dict(name=next(iter(old.targets)), kind=kind, type=t, reference=old.id, targets=sorted(old.targets))
                         else:
-                            name = mod['name'] + '_' + fn.name + '_out' + str(i)
+                            name = mod['name'] + '.' + fn.name + '.out' + str(i)
                             cap = 1
                             for dec in fn.decorator_list:
                                 if isinstance(dec, ast.Call):
@@ -467,7 +636,7 @@ class Frontend:
                             self.model['resources'].append(out)
                         outputs.append(out)
                     mod['_outputs'][fn.name] = outputs
-                vals = [Value(r['reference'], wrapped('queue', r['type']), set(r['targets'])) if r and 'reference' in r else builder.op('resource', wrapped('queue', r['type']), name=r['name'], targets={r['name']}, node=call) if r else None for r in outputs]
+                vals = [Value(r['reference'], wrapped(r.get('kind', 'queue'), r['type']), set(r['targets'])) if r and 'reference' in r else builder.op('resource', wrapped(r.get('kind', 'queue'), r['type']), name=r['name'], targets={r['name']}, node=call) if r else None for r in outputs]
                 def bind(target, value):
                     if isinstance(target, ast.Name): env[target.id] = value
                     elif isinstance(target, (ast.Tuple, ast.List)):
@@ -511,21 +680,27 @@ class Frontend:
             self.model['resources'].append(dict(name=name, kind='qarray', type=typ, iterable=iterable.id,
                                                capacity=cap.id, initializer=init.function(), empty_initial=initial is None))
             return builder.op('resource', wrapped('qarray', typ), name=name, targets={name}, node=node)
-        if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript) and spelling(node.func.value) == 'ac.queue':
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript) and spelling(node.func.value) in ('ac.queue', 'ac.cell', 'ac.ehr', 'ac.signal'):
+            declared = spelling(node.func.value)[3:]
+            kind = 'cell' if declared == 'ehr' else declared
             typ = self.annotation(node.func.slice)
             kw = {x.arg: x.value for x in node.keywords}
             if node.args or set(kw) - {'capacity', 'initial'}:
                 self.error(node, 'Queue accepts capacity= and initial= only')
-            capacity = builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)
+            if kind in ('cell', 'signal') and ('initial' not in kw or 'capacity' in kw): self.error(node, kind.title() + ' requires initial= and has no capacity')
+            capacity = (builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)) if kind == 'queue' else None
             initial = builder.expr(kw['initial'], typ) if 'initial' in kw else None
+            if kind in ('cell', 'signal'):
+                if initial is None: self.error(node, kind.title() + ' initial must be a payload value')
+                initial = builder.cast(initial, typ, node)
             # scalar initial is one element; a list is a FIFO initialization sequence.
             values = [] if initial is None else [initial.id]
             sequence = initial is not None and initial.type != typ and initial.type.startswith(('vector<', 'array<'))
-            self.model['resources'].append(dict(name=name, kind='queue', type=typ, capacity=capacity.id,
-                                                initial=values, sequence=sequence))
-            return builder.op('resource', wrapped('queue', typ), name=name, targets={name}, node=node)
+            self.model['resources'].append(dict(name=name, kind=kind, type=typ, loc=builder.loc(node), **({'capacity': capacity.id} if capacity else {}),
+                                                initial=values, sequence=sequence, visibility='ehr' if declared == 'ehr' else 'current' if kind == 'signal' else 'old'))
+            return builder.op('resource', wrapped(kind, typ), name=name, targets={name}, node=node)
         if isinstance(node, ast.List) and any(isinstance(x, ast.Call) and isinstance(x.func, ast.Subscript) and spelling(x.func.value) == 'ac.queue' for x in node.elts):
-            vals = [self.construct_value(x, name + '_' + str(i), builder, defs) for i, x in enumerate(node.elts)]
+            vals = [self.construct_value(x, name + '.' + str(i), builder, defs) for i, x in enumerate(node.elts)]
             if not vals or any(v.type != vals[0].type for v in vals):
                 self.error(node, 'Queue list elements must have one type')
             return builder.op('aggregate', wrapped('qarray', element(vals[0].type)), vals, targets=set().union(*(v.targets for v in vals)), node=node)
@@ -553,24 +728,15 @@ class Frontend:
             return builder.op('resource', wrapped('qarray', typ), name=name, targets={name}, node=node)
         if isinstance(node, ast.Call):
             fn = defs.get(spelling(node.func), self.defs.get(spelling(node.func)))
-            if fn and decorator(fn) in ('module', 'signal'):
-                vals = [builder.expr(x) for x in node.args]
-                kw = {k.arg: builder.expr(k.value) for k in node.keywords}
-                args = self.bind_args(fn, vals, kw)
-                args = [builder.expr(x) if isinstance(x, ast.AST) else x for x in args]
+            if fn and decorator(fn) == 'module':
+                supplied = self.bind_args(fn, node.args, {k.arg: k.value for k in node.keywords})
+                args = [builder.expr(x, self.annotation(p.annotation) if p.annotation else None) for p, x in zip(fn.args.args, supplied)]
                 if decorator(fn) == 'module':
-                    return self.instantiate(fn, args, name, builder)
-                if any(not isinstance(v, Value) or not v.type.startswith(('queue<', 'qarray<', 'signal<')) for v in args):
-                    self.error(node, 'Signal arguments must be Queues or Signals; capture configuration in the enclosing Module')
-                lower = Lower(self, 'signal', name + '_evaluate', {**builder.env, **dict(zip((a.arg for a in fn.args.args), args))}, builder=builder)
-                if fn.returns:
-                    lower.expected_return = self.annotation(fn.returns)
-                lower.statements(fn.body)
-                typ = self.annotation(fn.returns) if fn.returns else lower.return_type
-                inputs = lower.accesses | set().union(*(v.targets for v in args))
-                self.model['resources'].append(dict(name=name, kind='signal', type=typ,
-                                                    function=lower.function(), inputs=sorted(inputs)))
-                return builder.op('resource', wrapped('signal', typ), name=name, targets={name}, node=node)
+                    if fn.name in self.constructing: self.error(node, 'recursive Module construction')
+                    self.constructing.add(fn.name)
+                    result = self.instantiate(fn, args, name, builder)
+                    self.constructing.remove(fn.name)
+                    return result
         return builder.expr(node)
 
     def helper(self, node):
@@ -603,16 +769,31 @@ class Lower:
         self.imports = {}
         self.effects = []
         self.rule = None
+        self.guard_context = kind == 'guard'
+        self.lexical_instance = module['name'] if module else None
 
     def loc(self, node):
         return dict(file=getattr(node, 'source', ''), line=getattr(node, 'lineno', 0), column=getattr(node, 'col_offset', 0))
 
     def op(self, op, typ, args=(), node=None, targets=(), consume=False, **attrs):
+        if op in ('cell.read', 'cell.write') and not attrs.get('aspect'):
+            if any(r['name'] in args[0].targets and r.get('visibility') == 'ehr' for r in self.f.model['resources']):
+                attrs['view'] = 'ehr'
+        if op == 'queue.full':
+            return self.op('cell.read', 'bool', args, node=node, view='ehr', aspect='full', interface='query.full')
+        if op == 'queue.push':
+            full = self.op('queue.full', 'bool', args[:1], node=node, role='guard')
+            ready = self.op('unary', 'bool', [full], node=node, operator='not')
+            self.op('guard', 'void', [ready], node=node, name='Queue.push capacity', implicit=True)
         self.serial += 1
         value = Value(f'v{self.serial}', typ, set(targets), consume)
+        if self.guard_context and op in ('queue.pop', 'queue.push', 'queue.revise', 'cell.write', 'signal.write', 'rule.call'): self.f.error(node, 'guard must only observe state')
         operation = dict(op=op, id=value.id, type=typ, args=[a.id for a in args], loc=self.loc(node), **attrs)
         self.block['ops'].append(operation)
         self.ops.append(operation)
+        if op == 'queue.pop':
+            available = self.op('const', 'bool', node=node, value=False)
+            self.op('cell.write', 'void', [args[0], available], node=node, view='ehr', aspect='full', interface='pop')
         return value
 
     def terminated(self):
@@ -634,7 +815,7 @@ class Lower:
 
     def function(self, result=None):
         if self.kind != 'construction' and not self.terminated():
-            if self.kind in ('helper', 'signal', 'initializer'):
+            if self.kind in ('helper', 'method', 'guard', 'initializer') and (getattr(self, 'expected_return', None) not in (None, 'void') or self.return_type != 'void'):
                 self.op('unreachable', 'void')
             self.op('return', 'void')
         return dict(name=self.name, kind=self.kind, params=self.params,
@@ -656,9 +837,18 @@ class Lower:
             return [self.imported(v) for v in val]
         if not isinstance(val, Value) or self.builder is None:
             return val
+        entry = self.f.work_values.get(id(val))
+        origin = entry[1] if entry else None
+        if origin and origin is not self:
+            exported = origin.export_value(val)
+            return self.op('external', val.type, source=origin.name, identity=exported.id)
+        if val.id.startswith('external:'):
+            _, source, identity = val.id.split(':')
+            return self.op('external', val.type, source=source, identity=identity)
         if val.id not in self.imports:
             # Import the pure construction DAG by value; resources preserve identity.
-            source = next(x for x in self.builder.ops if x['id'] == val.id)
+            source = next((x for x in self.builder.ops if x['id'] == val.id), None)
+            if source is None: self.f.error(None, 'SSA value must have a dominating definition before use')
             inputs = []
             for aid in source['args']:
                 a = next(x for x in self.builder.ops if x['id'] == aid)
@@ -668,6 +858,7 @@ class Lower:
             self.block = self.blocks[0]
             tail = self.block['ops'].pop() if self.terminated() else None
             self.imports[val.id] = self.op(source['op'], val.type, inputs, targets=val.targets, **attrs)
+            self.ops[-1]['loc'] = source.get('loc', {})
             if tail:
                 self.block['ops'].append(tail)
             self.block = current
@@ -679,10 +870,9 @@ class Lower:
             # Imported construction bindings are replaced once in this environment.
             if self.builder and name not in getattr(self, 'locals', set()):
                 val = self.imported(val)
-            if self.kind == 'work' and name in self.module.get('_vars', {}):
-                self.accesses.update(val.targets)
-                return self.op('signal.read', element(val.type), [val], node=node)
             return val
+        if name in self.f.globals:
+            return self.f.global_value(name, self.builder or self, node)
         if name in self.f.constants:
             return self.const(self.f.constants[name], node=node)
         if self.module:
@@ -696,6 +886,21 @@ class Lower:
             self.locals = set()
         self.locals.add(name)
         self.env[name] = val
+        if self.kind == 'work' and isinstance(val, Value): self.f.work_values[id(val)] = (val, self)
+
+    def export_value(self, val):
+        if not hasattr(self, 'exports'): self.exports = {}
+        if val.id not in self.exports:
+            current = self.block
+            block = next(b for b in self.blocks if any(o['id'] == val.id for o in b['ops']) or any(p.id == val.id for p in b['params']))
+            position = next((i + 1 for i, o in enumerate(block['ops']) if o['id'] == val.id), 0)
+            self.block = block
+            exported = self.op('export', val.type, [val])
+            block['ops'].insert(position, block['ops'].pop())
+            self.block = current
+            self.exports[val.id] = exported
+            if self.module and 'work' in self.module: self.module['work'] = self.function()
+        return self.exports[val.id]
 
     def cast(self, value, typ, node=None):
         if value.type == typ:
@@ -725,7 +930,17 @@ class Lower:
         self.block = join
         return join['params'][0]
 
-    def expr(self, node, expected=None):
+    def signal_value(self, value, node=None):
+        if isinstance(value, Value) and value.type.startswith('signal<'):
+            self.accesses.update(value.targets)
+            return self.op('signal.read', element(value.type), [value], node=node, view='current', interface='get', role='observe')
+        return value
+
+    def expr(self, node, expected=None, reference=False):
+        value = self._expr(node, expected, reference)
+        return value if reference or expected and expected.startswith('signal<') else self.signal_value(value, node)
+
+    def _expr(self, node, expected=None, reference=False):
         if node is None:
             return None
         if isinstance(node, ast.Name):
@@ -737,7 +952,7 @@ class Lower:
                 self.f.error(node, 'only integer and bool values are supported')
             return self.const(node.value, expected, node)
         if isinstance(node, ast.Tuple):
-            return [self.expr(x) for x in node.elts]
+            return [self.expr(x, reference=reference) for x in node.elts]
         if isinstance(node, ast.List):
             et = element(expected) if expected and expected.startswith(('array<', 'vector<')) else expected
             vals = [self.expr(x, et) for x in node.elts]
@@ -748,15 +963,26 @@ class Lower:
                 typ = wrapped('qarray', element(et))
             return self.op('aggregate', typ, vals, node=node, targets=targets)
         if isinstance(node, ast.Attribute):
-            val = self.expr(node.value)
+            qualified = spelling(node)
+            if qualified in self.f.globals: return self.lookup(qualified, node)
+            if qualified in self.f.constants: return self.const(self.f.constants[qualified], node=node)
+            val = self.expr(node.value, reference=True)
+            if isinstance(val, Instance):
+                if node.attr == 'outputs': return self.imported(val.outputs)
+                if node.attr in val.methods: return Method(val, val.methods[node.attr])
+                if node.attr not in val.env: self.f.error(node, f'unknown instance member: {node.attr}')
+                return self.imported(val.env[node.attr])
+            if isinstance(val, Value) and val.type.startswith('signal<'): val = self.signal_value(val, node)
             if node.attr == 'value' and resource(val.type):
                 self.accesses.update(val.targets)
-                if val.type.startswith('signal<'):
-                    return self.op('signal.read', element(val.type), [val], node=node)
+                if val.type.startswith('cell<'): return self.op('cell.read', element(val.type), [val], node=node, view='old', role='observe')
                 if not val.type.startswith('queue<'):
                     self.f.error(node, 'index Queue arrays before reading')
-                out = self.op('queue.read', element(val.type), [val], node=node)
-                if self.kind == 'rule' and val.consume:
+                consuming = val.consume and not self.guard_context
+                out = self.op('queue.read', element(val.type), [val], node=node,
+                              view='old',
+                              role='consume' if consuming else 'observe')
+                if self.kind in ('rule', 'method', 'helper') and val.consume and not self.guard_context:
                     self.op('queue.pop', 'void', [val], node=node)
                     self.effects.append((val, 'Pop'))
                 return out
@@ -767,6 +993,10 @@ class Lower:
             return self.op('field', field['type'], [val], field=node.attr, node=node)
         if isinstance(node, ast.Subscript):
             val = self.expr(node.value)
+            if isinstance(val, list):
+                index = self.f.literal(node.slice)
+                if not isinstance(index, int) or not 0 <= index < len(val): self.f.error(node, 'fixed output tuple index out of range')
+                return self.imported(val[index])
             idx = self.expr(node.slice)
             if not val.type.startswith(('array<', 'vector<', 'qarray<')):
                 self.f.error(node, f'cannot index {val.type}')
@@ -849,13 +1079,6 @@ class Lower:
             if len(vals) != 1:
                 self.f.error(node, 'construction range currently takes one bound')
             return self.op('range', 'vector<u32>', vals, node=node)
-        if name in ('ac.wakeup', 'ac.requestWakeup'):
-            if self.kind != 'rule':
-                self.f.error(node, 'wakeup is a Rule effect')
-            if len(node.args) != 1:
-                self.f.error(node, 'wakeup(delay) targets the owning Module')
-            delay = self.expr(node.args[0], 'u64')
-            return self.op('event', 'void', [delay], node=node)
         if isinstance(node.func, ast.Attribute) and node.func.attr in ('empty', 'full', 'size'):
             q = self.expr(node.func.value)
             self.accesses.update(q.targets)
@@ -875,22 +1098,86 @@ class Lower:
                 else:
                     vals.append(self.op('zero', f['type'], node=node))
             return self.op('aggregate', name, vals, node=node)
+        bound = None
         fn = self.defs.get(name, self.f.defs.get(name))
+        if not fn and isinstance(node.func, ast.Attribute):
+            bound = self.expr(node.func)
+            if isinstance(bound, Method): fn = bound.definition
         if not fn:
             self.f.error(node, f'unsupported call: {name}')
-        args = [self.expr(x) for x in node.args]
-        kw = {k.arg: self.expr(k.value) for k in node.keywords}
-        args = self.f.bind_args(fn, args, kw)
-        args = [self.expr(x) if isinstance(x, ast.AST) else x for x in args]
+        supplied = self.f.bind_args(fn, node.args, {k.arg: k.value for k in node.keywords})
+        args = [self.expr(x, self.f.annotation(p.annotation) if p.annotation else None) for p, x in zip(fn.args.args, supplied)]
         if decorator(fn) == 'rule':
             if self.kind != 'work':
                 self.f.error(node, 'Rules can only be selected by Module Work')
             return self.rule_call(fn, args, node)
-        if decorator(fn) != 'helper':
-            self.f.error(node, 'resource and Module declarations belong to construction')
-        typ = self.f.helper(fn)
-        vals = [self.cast(v, self.f.annotation(p.annotation), node) for p, v in zip(fn.args.args, args)]
-        return self.op('call', typ, vals, name=fn.name, node=node)
+        if decorator(fn) not in ('helper', 'method'):
+            self.f.error(node, 'Module declarations belong to construction')
+        captured, definitions, instance = self.f.closures.get((self.lexical_instance, id(fn)), ({}, self.f.defs, None))
+        if isinstance(bound, Method):
+            captured, definitions, instance = self.f.closures.get((bound.instance.name, id(fn)),
+                (bound.instance.env, bound.instance.definitions, bound.instance.name))
+        return self.behavior_call(fn, args, node, captured, 'guard' if self.guard_context else decorator(fn), definitions, instance)
+
+    def apply_guard(self, fn, args, node):
+        for dec in fn.decorator_list:
+            if isinstance(dec, ast.Call):
+                guard = next((k.value for k in dec.keywords if k.arg == 'guard'), None)
+                if guard is None: continue
+                guard_fn = self.defs.get(spelling(guard), self.f.defs.get(spelling(guard)))
+                if guard_fn is None:
+                    key = self.f.variable_guards.get((self.lexical_instance, id(fn)))
+                    if key is None and spelling(guard) not in self.f.constants: self.f.error(guard, 'variable guard must be defined in its declaration scope')
+                    value = self.lookup(key or spelling(guard), guard)
+                else:
+                    scope, definitions, instance = self.f.closures.get((self.lexical_instance, id(guard_fn)), ({}, self.f.defs, None))
+                    value = self.behavior_call(guard_fn, args, node, scope, 'guard', definitions, instance)
+                if value.type != 'bool': self.f.error(guard, 'guard must return bool')
+                self.op('guard', 'void', [value], node=guard, name=guard_fn.name if guard_fn else spelling(guard), source='function' if guard_fn else 'variable')
+
+    def behavior_call(self, fn, args, node, captured, kind, definitions=None, instance=None):
+        if id(fn) in self.f.call_stack: self.f.error(node, 'recursive helper/method/guard call is unsupported')
+        if len(args) != len(fn.args.args): self.f.error(node, 'guard/method argument arity mismatch')
+        self.f.call_stack.append(id(fn))
+        name = self.name + '.0.call.' + str(len(self.f.model['functions'])) + '.' + str(self.serial)
+        # Every dynamic closure value is passed as SSA, preserving shared reads.
+        scope = dict(captured)
+        lower = Lower(self.f, kind, name, scope, builder=self.builder, module=self.module, defs=definitions or self.defs)
+        lower.lexical_instance = instance
+        lower.guard_context = self.guard_context or kind == 'guard'
+        vals = []
+        for parameter, value in zip(fn.args.args, args):
+            typ = self.f.annotation(parameter.annotation) if parameter.annotation else value.type
+            value = self.cast(value, typ, node)
+            role = value.consume and not lower.guard_context
+            lower.bind(parameter.arg, lower.param(parameter.arg, typ, value.targets, role))
+            vals.append(value)
+        used = self.f.capture_names(fn, definitions or self.defs, instance)
+        for key, value in scope.items():
+            if key in {p.arg for p in fn.args.args} or not isinstance(value, Value): continue
+            # Construction captures are imported once as resource/config identities.
+            if key in used and value is self.env.get(key) and key in getattr(self, 'locals', set()):
+                value = self.lookup(key, node)
+                lower.bind(key, lower.param(key, value.type, value.targets, value.consume and not lower.guard_context))
+                vals.append(value)
+        result = self.f.annotation(fn.returns) if fn.returns else None
+        if isinstance(result, list): self.f.error(fn, 'method/helper returns one ordinary value')
+        if result and resource(result): self.f.error(fn, 'method/helper returns a payload var, not a state port')
+        lower.expected_return = result
+        lower.apply_guard(fn, [lower.env[p.arg] for p in fn.args.args], node)
+        lower.statements(fn.body)
+        result = result or lower.return_type
+        function = lower.function(result=result)
+        function['definition'] = fn.name
+        if instance: function['instance'] = instance
+        if decorator(fn) == 'method' and instance:
+            function['interface'] = 'Module:' + instance + ':' + fn.name
+            function['method'] = fn.name
+            function['contract'] = 'Module:' + instance
+        self.f.model['functions'].append(function)
+        self.f.call_stack.pop()
+        binding = {k: function[k] for k in ('instance', 'interface', 'method', 'contract') if k in function}
+        return self.op('call', result, vals, name=name, node=node, role=kind, **binding)
 
     def rule_call(self, fn, args, node):
         rule = next((r for r in self.module['rules'] if r['name'] == fn.name), None)
@@ -898,22 +1185,26 @@ class Lower:
             rule = dict(name=fn.name, shape=self.f.output_shape(fn), outputs=self.module.get('_outputs', {}).get(fn.name, []), bindings={}, _lower=None)
             self.module['rules'].append(rule)
             captured = {k: v for k, v in self.env.items() if k not in getattr(self, 'locals', set())}
-            lower = Lower(self.f, 'rule', self.module['name'] + '_' + fn.name, captured,
+            lower = Lower(self.f, 'rule', self.module['name'] + '.' + fn.name, captured,
                           builder=self.builder, module=self.module, defs=self.defs)
             lower.rule = rule
             for p, v in zip(fn.args.args, args):
                 typ = self.f.annotation(p.annotation) if p.annotation else v.type
-                consume = resource(typ) and not (p.annotation and spelling(p.annotation.value if isinstance(p.annotation, ast.Subscript) else p.annotation) == 'ac.ref')
+                consume = typ.startswith(('queue<', 'qarray<')) and not (p.annotation and spelling(p.annotation.value if isinstance(p.annotation, ast.Subscript) else p.annotation) == 'ac.ref')
                 pv = lower.param(p.arg, typ, v.targets, consume)
                 lower.bind(p.arg, pv)
             # Work locals used by closure become explicit value/resource arguments.
-            used = {x.id for x in ast.walk(fn) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Load)}
+            used = self.f.capture_names(fn, self.defs, self.lexical_instance)
             assigned = {x.id for x in ast.walk(fn) if isinstance(x, ast.Name) and isinstance(x.ctx, ast.Store)}
-            captures = sorted((used & (getattr(self, 'locals', set()) | self.module.get('_vars', {}).keys())) - {p.arg for p in fn.args.args} - assigned)
+            assigned -= {n for n,v in self.env.items() if isinstance(v, Value) and v.type.startswith('signal<')}
+            captures = sorted((used & getattr(self, 'locals', set())) - {p.arg for p in fn.args.args} - assigned)
+            guard_key = self.f.variable_guards.get((self.lexical_instance, id(fn)))
+            if guard_key: captures = sorted(set(captures) | {guard_key})
             rule['captures'] = captures
             for name in captures:
                 v = self.lookup(name, node)
                 lower.bind(name, lower.param(name, v.type, v.targets, False))
+            lower.apply_guard(fn, [lower.env[p.arg] for p in fn.args.args], node)
             lower.statements(fn.body)
             rule['function'] = lower.function()
             rule['_lower'] = lower
@@ -923,16 +1214,28 @@ class Lower:
             p['targets'] = sorted(set(p['targets']) | v.targets)
             lower.env[p['name']].targets.update(v.targets)
         vals = [self.cast(v, p['type'], node) for p, v in zip(lower.params, vals)]
-        self.op('rule.call', 'void', vals, name=fn.name, node=node)
-        outs = [self.imported(Value(r['reference'], wrapped('queue', r['type']), set(r['targets']))) if r and 'reference' in r else self.op('resource', wrapped('queue', r['type']), name=r['name'], targets={r['name']}, node=node) if r else None for r in rule['outputs']]
+        rule['function']['result'] = 'void'
+        self.op('rule.call', 'void', vals, name=fn.name, node=node, callee=rule['function']['name'])
+        outs = []
+        for r in rule['outputs']:
+            if r is None: outs.append(None)
+            elif 'reference' in r:
+                outs.append(self.imported(Value(r['reference'], wrapped(r.get('kind', 'queue'), r['type']), set(r['targets']))))
+            else:
+                outs.append(self.op('resource', wrapped('queue', r['type']), name=r['name'], targets={r['name']}, node=node))
         return self.f.reshape_outputs(outs, rule['shape'])
 
     def target_type(self, target):
         if isinstance(target, ast.Name):
             return self.lookup(target.id, target).type
+        if isinstance(target, ast.Attribute) and target.attr != 'value':
+            try:
+                v = self.expr(target, reference=True)
+                if isinstance(v, Value): return element(v.type) if v.type.startswith('signal<') else v.type
+            except CompileError: pass
         if isinstance(target, ast.Attribute):
             typ = self.target_type(target.value)
-            if target.attr == 'value' and typ.startswith('queue<'):
+            if target.attr == 'value' and typ.startswith(('queue<', 'cell<')):
                 return element(typ)
             fields = self.f.types.get(typ, [])
             field = next((f for f in fields if f['name'] == target.attr), None)
@@ -943,7 +1246,16 @@ class Lower:
             return wrapped('queue', element(typ)) if typ.startswith('qarray<') else element(typ)
         self.f.error(target, 'unsupported assignment type')
 
-    def assignment(self, target, value, node):
+    def assignment(self, target, value, node, connection=False):
+        if not connection:
+            existing = self.env.get(target.id) if isinstance(target, ast.Name) else self.expr(target, reference=True) if isinstance(target, ast.Attribute) and isinstance(self.expr(target.value, reference=True), Instance) else None
+            if isinstance(existing, Value) and existing.type.startswith('signal<'):
+                if self.kind not in ('rule', 'method', 'helper', 'guard'): self.f.error(node, 'Signal writes require a Rule transaction')
+                existing = self.imported(existing) if isinstance(target, ast.Name) and target.id not in getattr(self, 'locals', set()) else existing
+                value = self.cast(self.signal_value(value, node), element(existing.type), node)
+                self.accesses.update(existing.targets)
+                self.op('signal.write', 'void', [existing, value], node=node, view='current', interface='set')
+                return
         if isinstance(target, ast.Name):
             self.bind(target.id, value)
             return
@@ -951,16 +1263,22 @@ class Lower:
             if not isinstance(value, list) or len(value) != len(target.elts):
                 self.f.error(node, 'tuple assignment arity mismatch')
             for t, v in zip(target.elts, value):
-                self.assignment(t, v, node)
+                self.assignment(t, v, node, connection=connection)
             return
         if isinstance(target, (ast.Attribute, ast.Subscript)):
             path, indices, base = [], [], target
             while isinstance(base, (ast.Attribute, ast.Subscript)):
                 if isinstance(base, ast.Attribute):
-                    if base.attr == 'value' and self.target_type(base.value).startswith('queue<'):
+                    if base.attr == 'value' and self.target_type(base.value).startswith(('queue<', 'cell<')):
                         q = self.expr(base.value)
-                        if self.kind != 'rule': self.f.error(node, 'Queue updates are Rule effects')
+                        if self.kind not in ('rule', 'method', 'helper'): self.f.error(node, 'state updates require a transaction')
                         indices = [self.expr(n) for n in indices]
+                        if q.type.startswith('cell<'):
+                            if path:
+                                old = self.op('cell.read', element(q.type), [q], node=node, view='old', role='observe')
+                                value = self.op('update', old.type, [old, value, *indices], path=path, node=node)
+                            self.op('cell.write', 'void', [q, value], node=node)
+                            return
                         self.op('queue.revise', 'void', [q, value, *indices], path=path, node=node)
                         return
                     path.insert(0, base.attr)
@@ -981,16 +1299,30 @@ class Lower:
         for node in statements:
             if self.terminated():
                 break
-            if isinstance(node, (ast.Assign, ast.AnnAssign)):
+            if isinstance(node, ast.FunctionDef):
+                for dec in node.decorator_list:
+                    if not isinstance(dec, ast.Call): continue
+                    for kw in dec.keywords:
+                        if kw.arg != 'guard' or spelling(kw.value) in self.defs or spelling(kw.value) in self.f.defs: continue
+                        value = self.expr(kw.value)
+                        if not isinstance(value, Value) or value.type != 'bool': self.f.error(kw.value, 'variable guard must be bool')
+                        key = '$guard_' + node.name
+                        self.bind(key, value)
+                        self.f.variable_guards[self.lexical_instance, id(node)] = key
+                        scope = self.f.closures.get((self.lexical_instance, id(node)))
+                        if scope: scope[0][key] = value
+            elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
                 typ = self.f.annotation(node.annotation) if isinstance(node, ast.AnnAssign) else None
                 if typ is None and isinstance(targets[0], (ast.Attribute, ast.Subscript)):
                     typ = self.target_type(targets[0])
-                val = self.expr(node.value, typ)
+                fn = self.defs.get(spelling(node.value.func), self.f.defs.get(spelling(node.value.func))) if isinstance(node.value, ast.Call) else None
+                connection = fn is not None and decorator(fn) == 'rule'
+                val = self.expr(node.value, typ, reference=connection)
                 if typ:
                     val = self.cast(val, typ, node)
                 for t in targets:
-                    self.assignment(t, val, node)
+                    self.assignment(t, val, node, connection=connection)
             elif isinstance(node, ast.AugAssign):
                 old = self.expr(node.target)
                 rhs = self.expr(node.value, old.type)
@@ -1050,7 +1382,7 @@ class Lower:
                             root = root.value
                         if isinstance(root, ast.Name) and isinstance(self.env.get(root.id), Value) and not resource(self.env[root.id].type):
                             assigned.add(root.id)
-                names = sorted((assigned & self.env.keys()) - {node.target.id})
+                names = sorted(n for n in (assigned & self.env.keys()) - {node.target.id} if not isinstance(self.env[n], Value) or not self.env[n].type.startswith('signal<'))
                 initial = [self.lookup(n, node) for n in names] + [start]
                 names.append(node.target.id)
                 head = self.new_block(initial)
@@ -1077,36 +1409,33 @@ class Lower:
                     def flatten(n):
                         return [x for child in n.elts for x in flatten(child)] if isinstance(n, (ast.Tuple, ast.List)) else [n]
                     leaves = flatten(node.value) if isinstance(self.rule['shape'], list) else [node.value]
-                    def push(expr, index):
-                        if expr is None or isinstance(expr, ast.Constant) and expr.value is None: return
+                    outputs = self.rule['outputs']
+                    if len(leaves) != len(outputs) and outputs: self.f.error(node, 'Rule output arity mismatch')
+                    def produce(expr, index):
+                        out = outputs[index] if index < len(outputs) else None
+                        if expr is None or isinstance(expr, ast.Constant) and expr.value is None:
+                            return
                         if isinstance(expr, ast.IfExp):
                             cond = self.cast(self.expr(expr.test), 'bool', expr)
                             yes, no, end = self.new_block(), self.new_block(), self.new_block()
                             self.conditional(cond, yes, no)
-                            self.block = yes
-                            push(expr.body, index)
-                            self.jump(end)
-                            self.block = no
-                            push(expr.orelse, index)
-                            self.jump(end)
+                            self.block = yes; produce(expr.body, index); self.jump(end)
+                            self.block = no; produce(expr.orelse, index); self.jump(end)
                             self.block = end
                             return
-                        expected = self.rule['outputs'][index]['type'] if index < len(self.rule['outputs']) and self.rule['outputs'][index] else None
-                        v = self.expr(expr, expected)
-                        while len(self.rule['outputs']) <= index: self.rule['outputs'].append(None)
-                        out = self.rule['outputs'][index]
-                        if out is None:
-                            name = self.name + f'_out{index}'
-                            out = dict(name=name, kind='queue', type=v.type, capacity=self.builder.const(1).id, initial=[], sequence=False)
-                            self.f.model['resources'].append(out)
-                            self.rule['outputs'][index] = out
-                        q = self.imported(Value(out['reference'], wrapped('queue', out['type']), set(out['targets']))) if 'reference' in out else self.op('resource', wrapped('queue', v.type), name=out['name'], targets={out['name']}, node=node)
-                        self.op('queue.push', 'void', [q, self.cast(v, out['type'])], node=node)
-                    for index, expr in enumerate(leaves): push(expr, index)
+                        value = self.expr(expr, out['type'] if out else None)
+                        if out is None: self.f.error(node, 'cannot infer output; add a return type annotation')
+                        value = self.cast(value, out['type'], node)
+                        kind = out.get('kind', 'queue')
+                        q = self.imported(Value(out['reference'], wrapped(kind, out['type']), set(out['targets']))) if 'reference' in out else self.op('resource', wrapped(kind, out['type']), name=out['name'], targets={out['name']}, node=node)
+                        self.op('signal.write' if kind == 'signal' else 'cell.write' if kind == 'cell' else 'queue.push', 'void', [q, value], node=node, **({'view': 'current', 'interface': 'set'} if kind == 'signal' else {}))
+                    for index, expr in enumerate(leaves): produce(expr, index)
                     self.op('return', 'void', node=node)
                 else:
                     val = self.expr(node.value)
-                    if val is None or isinstance(val, list): self.f.error(node, 'helpers and Signals return one typed value')
+                    if val is None and getattr(self, 'expected_return', None) in (None, 'void'):
+                        self.op('return', 'void', node=node); continue
+                    if val is None or isinstance(val, list): self.f.error(node, 'method/helper returns one typed value')
                     if getattr(self, 'expected_return', None): val = self.cast(val, self.expected_return, node)
                     self.return_type = val.type
                     self.op('return', 'void', [val], node=node)

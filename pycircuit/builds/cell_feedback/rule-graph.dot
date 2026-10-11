@@ -1,0 +1,5 @@
+digraph rules {
+  rankdir=LR;
+  "top.update_a" [label="top.update_a"];
+  "top.update_b" [label="top.update_b"];
+}

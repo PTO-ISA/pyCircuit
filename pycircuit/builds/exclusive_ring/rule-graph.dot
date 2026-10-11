@@ -1,0 +1,5 @@
+digraph rules {
+  rankdir=LR;
+  "top.backward" [label="top.backward\nEHR: left.full p1 query.full\nright.full p0 write"];
+  "top.forward" [label="top.forward\nEHR: left.full p0 write\nright.full p1 query.full"];
+}
