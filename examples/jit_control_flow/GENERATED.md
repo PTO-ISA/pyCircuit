@@ -43,10 +43,11 @@ python3 tools/example_catalog.py generated --example jit_control_flow \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_jit_control_flow/jit_control_flow.hpp`, from line 14:
+`cpp/sources/example_jit_control_flow/jit_control_flow.hpp`, from line 16:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_jit_control_flow::jit_control_flow::JitResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_1;
@@ -56,10 +57,9 @@ python3 tools/example_catalog.py generated --example jit_control_flow \
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_5;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_6;
     gfsim::wire<gfsim::table<gfsim::Bits<2>, (pyc_count * (1))>> pyc_value_7;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_7.element(pyc_lane) = gfsim::wire<gfsim::Bits<2>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<2>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<2>>::width>{0ULL}));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_6.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::compare<gfsim::ComparePredicate::EQ>(this->op.element(pyc_lane).packed(), pyc_value_7.element(pyc_lane).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_7.element(pyc_lane) = gfsim::wire<gfsim::Bits<2>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<2>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<2>>::width>{0ULL}));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_6.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::compare<gfsim::ComparePredicate::EQ>(this->op.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), pyc_value_7.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_8;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_8.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::add(this->a.element(pyc_lane).packed(), this->b.element(pyc_lane).packed()));
 ```
 
 ## Source-owned Verilog

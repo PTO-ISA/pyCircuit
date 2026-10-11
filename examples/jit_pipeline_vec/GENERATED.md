@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **153**. Final artifact SHA-256: `6f34cb6c940122d8683aa1a2f5e78c7fde542889cbdc98eca5d56d1b01b8083c`.
+Verified WORK trace rows: **153**. Final artifact SHA-256: `c2023e978603f699318b286a617eb8e8c3ef0382971364b2adc62dbb560c6910`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -43,23 +43,23 @@ python3 tools/example_catalog.py generated --example jit_pipeline_vec \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_jit_pipeline_vec/jit_pipeline_vec.hpp`, from line 37:
+`cpp/sources/example_jit_pipeline_vec/jit_pipeline_vec.hpp`, from line 39:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_jit_pipeline_vec::jit_pipeline_vec::PipelineResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_1;
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<1>>::width>(this->pyc_instance_third_q.element(pyc_lane).packed(), 0 + gfsim::hardware_traits<gfsim::Bits<16>>::width));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<1>>::width>(this->pyc_instance_third_q.element((pyc_lane / (1))).packed(), 0 + (gfsim::hardware_traits<gfsim::Bits<16>>::width)));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<16>>::width) + (gfsim::hardware_traits<gfsim::Bits<8>>::width), pyc_value_1.element(pyc_lane * (1) + pyc_field).packed());
     gfsim::wire<gfsim::table<gfsim::Bits<16>, (pyc_count * (1))>> pyc_value_2;
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<16>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<16>>::width>(this->pyc_instance_third_q.element(pyc_lane).packed(), 0));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<16>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<16>>::width>(this->pyc_instance_third_q.element((pyc_lane / (1))).packed(), 0));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<8>>::width), pyc_value_2.element(pyc_lane * (1) + pyc_field).packed());
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_3;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<8>>::width>(pyc_value_2.element(pyc_lane).packed(), 0));
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_0.element(pyc_lane) = gfsim::wire<::example_jit_pipeline_vec::jit_pipeline_vec::PipelineResult>::fromPacked(gfsim::concat(gfsim::concat(pyc_value_1.element(pyc_lane).packed(), pyc_value_2.element(pyc_lane).packed()), pyc_value_3.element(pyc_lane).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<8>>::width>(pyc_value_2.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), 0));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0, pyc_value_3.element(pyc_lane * (1) + pyc_field).packed());
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->result.element(pyc_pin) = pyc_value_0.element(pyc_pin);
-    for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_instance_first_clk.element(pyc_pin) = this->pyc_7079635f636c6b.element(pyc_pin);
-    for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_instance_first_rst.element(pyc_pin) = this->pyc_7079635f727374.element(pyc_pin);
-    gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_4;
 ```
 
 ## Source-owned Verilog
