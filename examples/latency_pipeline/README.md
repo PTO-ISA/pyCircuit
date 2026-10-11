@@ -36,7 +36,7 @@ ctest --test-dir /absolute/build/latency_pipeline --output-on-failure --no-tests
 
 The installed shared helper uses independent source compile, explicit link and
 both emissions from one verified final artifact. Build products stay outside
-the source tree. The same two gates also run in the aggregate examples build.
+the source tree. The module and four-state gates also run in the aggregate examples build.
 
 ## Verification
 
@@ -53,9 +53,71 @@ packed-zero data are checked. Normal and raw runners have finite2000-tick limits
 A separate public-owner probe discards E3 maturity and retries the same edge;
 a distinct SimExecutor failure probe checks unchanged epoch, invalid resumption,
 and mandatory Reset before recovery. It does not claim failed-system retry.
-The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
 
-```bash
-pycircuit run examples/latency_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/latency_pipeline/system-cpp
-pycircuit run examples/latency_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/latency_pipeline/system-verilog
+## Scenario bench
+
+`bench.py` stores all 158 original scenarios in an immutable typed Table. Its
+6-field, 132-bit `Stimulus` preserves field order, exact values and complete
+input/expected payloads. Row 158 is all zero, retaining the helper fallback
+for every known u16 phase from 158 through 65,535. That fallback is distinct
+from the system counter, which holds at 157. The run still lasts 158 cycles.
+
+The D2/L1 input and D4/L3 result retain six total slots and E4 earliest retirement.
+Waiting tokens reserve existing result slots. The bench preserves unavailable-head
+zeros, maturity and drain observations rather than adding capacity or using E2.
+
+The complete advance and system bodies remain unchanged, including ordered
+arguments, all unmasked assertions/messages, log order and advance-before-check
+registration. Independent source checks compare all 393,216 field values across
+the known-u16 domain. Twenty complete native and RTL traces match all 1,264
+observations and the terminal result after excluding only changed source-position
+metadata, including native workers 1 and 2. Baseline and compact versions each
+pass all 3 standalone tests. See the module [excerpts and receipt](GENERATED.md).
+
+The original physical tests retain 555 known Work samples and 679 four-state Work samples.
+These are complete run counts, not just minimum assertions. Registered four-state
+helpers already execute the existing Icarus paths, including their original
+histories and negative probes where present.
+
+Regular-clock systems do not replace physical reset/held-clock histories, and
+known-u16 source proof does not establish arbitrary X/Z-phase equivalence.
+
+## Local cost comparison
+
+The source shrinks from 1,024 lines / 25,195 bytes to
+220 lines / 17,798 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 2.345 s | 0.502 s |
+| Link system | 4.043 s | 0.903 s |
+| Emit C++ | 3.048 s | 0.831 s |
+| Emit Verilog | 2.754 s | 0.690 s |
+| Build C++ | 0.970 s | 0.820 s |
+| Build Verilog | 1.540 s | 1.399 s |
+| First measured full C++ run | 1.015 s | 0.559 s |
+| First measured full Verilog run | 0.728 s | 0.681 s |
+| Warm C++ median, one worker | 0.122365 s | 0.015493 s |
+| Warm Verilog median | 0.014887 s | 0.014436 s |
+| Warm native peak RSS median | 2.97 MiB | 2.39 MiB |
+
+| Artifact size | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 19,918,413 bytes | 3,466,217 bytes |
+| Generated C++ total | 1,240,866 bytes | 981,451 bytes |
+| Generated Verilog total | 276,346 bytes | 209,341 bytes |
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/latency_pipeline --target cpp --cycles 158
+pycircuit run examples/latency_pipeline --target verilog --cycles 158
 ```

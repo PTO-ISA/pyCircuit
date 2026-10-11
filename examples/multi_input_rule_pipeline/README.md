@@ -49,7 +49,7 @@ ctest --test-dir /absolute/build/multi_input_rule_pipeline --output-on-failure -
 
 The public example helper compiles this source independently, links the complete
 explicit unit closure and emits both targets from one verified final artifact.
-Keep outputs outside the source tree. Both gates also run through the aggregate examples build.
+Keep outputs outside the source tree. The module and four-state gates also run through the aggregate examples build.
 
 ## Verification
 
@@ -71,9 +71,75 @@ slots and six contributors, and checks independent per-stream conservation.
 Limits are finite at 12,000 ticks. Final IR checks exactly the original
 D2/D2/D1 owners and complete 64/67-bit interfaces, without extra instances or
 collections. No framework change was needed.
-The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
 
-```bash
-pycircuit run examples/multi_input_rule_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/multi_input_rule_pipeline/system-cpp
-pycircuit run examples/multi_input_rule_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/multi_input_rule_pipeline/system-verilog
+## Scenario bench
+
+`bench.py` stores all 158 original scenarios in an immutable typed Table. Its
+9-field, 198-bit `Stimulus` preserves field order, exact values and complete
+input/expected payloads. Row 158 is all zero, retaining the helper fallback
+for every known u16 phase from 158 through 65,535. That fallback is distinct
+from the system counter, which holds at 157. The run still lasts 158 cycles.
+
+Both input valid/data channels and their separate readiness expectations remain
+independent. The bench does not replace the atomic old-head join with current
+input arithmetic or consume a missing peer. The original two D2 input queues
+and D1 result retain five physical slots and their contributor accounting.
+
+The complete advance and system bodies remain unchanged, including ordered
+arguments, all unmasked assertions/messages, log order and advance-before-check
+registration. Independent source checks compare all 589,824 field values across
+the known-u16 domain. Twenty complete native and RTL traces match all 1,580
+observations and the terminal result after excluding only changed source-position
+metadata, including native workers 1 and 2. Baseline and compact versions each
+pass all 3 standalone tests. See the module [excerpts and receipt](GENERATED.md).
+
+The original physical tests retain 8,751 known Work samples and 1,173 four-state Work samples.
+These are complete run counts, not just minimum assertions. Registered four-state
+helpers already execute the existing Icarus paths, including their original
+histories and negative probes where present.
+
+Regular-clock systems do not replace physical reset/held-clock histories, and
+known-u16 source proof does not establish arbitrary X/Z-phase equivalence.
+
+## Local cost comparison
+
+The source shrinks from 1,435 lines / 39,893 bytes to
+237 lines / 28,748 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 3.342 s | 0.681 s |
+| Link system | 5.771 s | 1.221 s |
+| Emit C++ | 4.827 s | 1.138 s |
+| Emit Verilog | 3.909 s | 0.936 s |
+| Build C++ | 1.245 s | 0.932 s |
+| Build Verilog | 1.662 s | 1.372 s |
+| First measured full C++ run | 0.897 s | 2.732 s |
+| First measured full Verilog run | 0.672 s | 0.850 s |
+| Warm C++ median, one worker | 0.171031 s | 0.019263 s |
+| Warm Verilog median | 0.018091 s | 0.017607 s |
+| Warm native peak RSS median | 3.55 MiB | 2.66 MiB |
+
+| Artifact size | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 28,849,810 bytes | 5,226,167 bytes |
+| Generated C++ total | 1,771,892 bytes | 1,449,771 bytes |
+| Generated Verilog total | 393,759 bytes | 293,839 bytes |
+
+Recorded first-run regressions: native 0.897 → 2.732 s, RTL 0.672 → 0.850 s.
+They remain separate from warm medians; one observation does not identify a cause.
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/multi_input_rule_pipeline --target cpp --cycles 158
+pycircuit run examples/multi_input_rule_pipeline --target verilog --cycles 158
 ```

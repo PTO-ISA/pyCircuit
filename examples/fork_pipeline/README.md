@@ -62,9 +62,75 @@ proof combines this lifecycle test, the direct-owner test that prepares and
 discards all three queues plus two flag owners, the emitted common discard
 path, and unchanged accepted Q6 late-parent/sibling failure tests. It does not
 resume a failed system to inspect state or claim a new late-sibling execution.
-The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
 
-```bash
-pycircuit run examples/fork_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/fork_pipeline/system-cpp
-pycircuit run examples/fork_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/fork_pipeline/system-verilog
+## Scenario bench
+
+`bench.py` stores all 158 original scenarios in an immutable typed Table. Its
+9-field, 198-bit `Stimulus` preserves field order, exact values and complete
+input/expected payloads. Row 158 is all zero, retaining the helper fallback
+for every known u16 phase from 158 through 65,535. That fallback is distinct
+from the system counter, which holds at 157. The run still lasts 158 cycles.
+
+Left/right takes, valids and payload expectations remain independent. Partial
+delivery and asymmetric drain scenarios are retained; the bench neither duplicates
+a fast branch's delivery nor turns the design into atomic broadcast. The five
+physical slots and two delivery flags remain unchanged.
+
+The complete advance and system bodies remain unchanged, including ordered
+arguments, all unmasked assertions/messages, log order and advance-before-check
+registration. Independent source checks compare all 589,824 field values across
+the known-u16 domain. Twenty complete native and RTL traces match all 1,896
+observations and the terminal result after excluding only changed source-position
+metadata, including native workers 1 and 2. Baseline and compact versions each
+pass all 3 standalone tests. See the module [excerpts and receipt](GENERATED.md).
+
+The original physical tests retain 395 known Work samples and 659 four-state Work samples.
+These are complete run counts, not just minimum assertions. Registered four-state
+helpers already execute the existing Icarus paths, including their original
+histories and negative probes where present.
+
+Regular-clock systems do not replace physical reset/held-clock histories, and
+known-u16 source proof does not establish arbitrary X/Z-phase equivalence.
+
+## Local cost comparison
+
+The source shrinks from 1,298 lines / 36,223 bytes to
+231 lines / 26,233 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 3.190 s | 0.651 s |
+| Link system | 5.532 s | 1.204 s |
+| Emit C++ | 4.371 s | 1.154 s |
+| Emit Verilog | 3.756 s | 0.920 s |
+| Build C++ | 1.154 s | 0.927 s |
+| Build Verilog | 1.515 s | 1.424 s |
+| First measured full C++ run | 0.692 s | 0.426 s |
+| First measured full Verilog run | 0.613 s | 0.736 s |
+| Warm C++ median, one worker | 0.164069 s | 0.023131 s |
+| Warm Verilog median | 0.020243 s | 0.019685 s |
+| Warm native peak RSS median | 3.45 MiB | 2.64 MiB |
+
+| Artifact size | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 27,247,326 bytes | 4,924,280 bytes |
+| Generated C++ total | 1,714,087 bytes | 1,450,694 bytes |
+| Generated Verilog total | 376,010 bytes | 286,320 bytes |
+
+Recorded first-run regressions: RTL 0.613 → 0.736 s.
+They remain separate from warm medians; one observation does not identify a cause.
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/fork_pipeline --target cpp --cycles 158
+pycircuit run examples/fork_pipeline --target verilog --cycles 158
 ```

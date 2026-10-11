@@ -51,9 +51,70 @@ bounded; no exhaustive or four-state claim is made.
 
 See [actual generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
 
-The separate `bench.py` system checks a finite regular-clock known-state scenario, including queue saturation, stalls, replacement, boundary values and final drain. This is partial system migration: the original independent drivers retain their full physical-clock, midstream-reset and four-state scenarios.
+## Scenario bench
 
-```bash
-pycircuit run examples/recursive_pipeline --target cpp --cycles 158 --build-dir .pycircuit_out/recursive_pipeline/system-cpp
-pycircuit run examples/recursive_pipeline --target verilog --cycles 158 --build-dir .pycircuit_out/recursive_pipeline/system-verilog
+`bench.py` stores all 158 original scenarios in an immutable typed Table. Its
+6-field, 132-bit `Stimulus` preserves field order, exact values and complete
+input/expected payloads. Row 158 is all zero, retaining the helper fallback
+for every known u16 phase from 158 through 65,535. That fallback is distinct
+from the system counter, which holds at 157. The run still lasts 158 cycles.
+
+This is a feed-forward chain of four D2 queues and three separate increments,
+with capacity eight and E4 earliest retirement. The helper preserves that
+trajectory; it does not substitute a feedback loop or single +3 stage.
+
+The complete advance and system bodies remain unchanged, including ordered
+arguments, all unmasked assertions/messages, log order and advance-before-check
+registration. Independent source checks compare all 393,216 field values across
+the known-u16 domain. Twenty complete native and RTL traces match all 1,264
+observations and the terminal result after excluding only changed source-position
+metadata, including native workers 1 and 2. Baseline and compact versions each
+pass all 2 standalone tests. See the module [excerpts and receipt](GENERATED.md).
+
+The unchanged physical driver checks 235 known Work samples. This example
+has no registered four-state helper or RTL four-state macro; its acceptance stays
+focused on known values. The arithmetic contract described above is not evidence
+of a new four-state execution result for this example.
+
+Regular-clock systems do not replace physical reset/held-clock histories, and
+known-u16 source proof does not establish arbitrary X/Z-phase equivalence.
+
+## Local cost comparison
+
+The source shrinks from 1,034 lines / 25,423 bytes to
+222 lines / 17,954 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 2.390 s | 0.499 s |
+| Link system | 4.112 s | 0.912 s |
+| Emit C++ | 3.056 s | 0.846 s |
+| Emit Verilog | 2.807 s | 0.703 s |
+| Build C++ | 0.960 s | 0.809 s |
+| Build Verilog | 1.625 s | 1.390 s |
+| First measured full C++ run | 0.683 s | 0.473 s |
+| First measured full Verilog run | 0.562 s | 0.499 s |
+| Warm C++ median, one worker | 0.124137 s | 0.016177 s |
+| Warm Verilog median | 0.015221 s | 0.014681 s |
+| Warm native peak RSS median | 2.97 MiB | 2.38 MiB |
+
+| Artifact size | Expanded cases | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 20,135,711 bytes | 3,517,440 bytes |
+| Generated C++ total | 1,277,143 bytes | 1,012,787 bytes |
+| Generated Verilog total | 280,657 bytes | 212,935 bytes |
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/recursive_pipeline --target cpp --cycles 158
+pycircuit run examples/recursive_pipeline --target verilog --cycles 158
 ```

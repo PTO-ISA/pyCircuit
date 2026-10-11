@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "bitfield_scalar_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_bitfield_scalar_pipeline.bitfield_scalar_pipeline.BitfieldScalarPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "9140361679b7444d34da7f5ca3abb599a60931422499acdda479358f14f8dcc2",
+      "source/bench.py": "3d054468c2a2a5787650886224ee626cc44affe2b1abd9103ebfeb0443629932",
+      "source/bitfield_scalar_pipeline.py": "0704d61e79b936b549fe514aa1857c6fd3f9d3727af80c0b37c06bba48d0a021",
+      "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
+      "source/driver.cpp": "23802a8dc394ff0d75f6c492797804e89c98ef6b15cb3a4024e07d6385b199e6",
+      "source/four_state.py": "70a4ab289dfd25e5f199d5bcf43bbf423bec78615b582594c5d66e9e2d2a870f",
+      "source/rtl_tb.sv": "3223c1279527c52367123a3596101406ca0b931f5b94bf228b63e7f1c0332277",
+      "build/cpp/generated.json": "e1972c2d357446ac6cbc127ca9eb61d56a618ebf57ed55b2a0a6ff48a172bd1c",
+      "build/cpp/CMakeLists.txt": "d5b49dbdbdf57e231bbaa0d5cd0b86be71fd9956fa4e338ed470462436345e2d",
+      "build/cpp/pycircuit_support.hpp": "468236eed6a487f5172d15424a0c64b2c947c6330e4f98c0cde82153875e68ff",
+      "build/cpp/pycircuit_system.hpp": "b9f587b0908599f3d20def7b768dfe855fdc5bb252f3481d359811d28d18dc4c",
+      "build/cpp/sources/example_bitfield_scalar_pipeline/bitfield_scalar_pipeline.cpp": "16fb4d7fd7e4d3843a22e11f20d33440f011da28fcaf408c47263b057ddcae8c",
+      "build/cpp/sources/example_bitfield_scalar_pipeline/bitfield_scalar_pipeline.hpp": "4b3b663c4592c7a60f0bc98b5b06a3047cd1e7955986749d907fb706e01f3cb3",
+      "build/cpp/sources/example_bitfield_scalar_pipeline/bitfield_scalar_pipeline.source-map.json": "3250280b0d49211120efe9d07e77229d51f35de8fc5f93fca1b7e5afa0be1e95",
+      "build/verilog/generated.json": "893270e71b16cd0e273887c66b08242a3d58fefaf42adddee678e99129ecf2df",
+      "build/verilog/CMakeLists.txt": "4e546cea5402ff5d67e1c1da995dae10231b952cc0f8e521b43d014407bf46ec",
+      "build/verilog/design_top.sv": "3fd5edc47f534c0b6a7d685b4b5b3947cda6a15e35ef3e541a374f47f1961f0b",
+      "build/verilog/sources/example_bitfield_scalar_pipeline/bitfield_scalar_pipeline.source-map.json": "a26f36268eb6d30968f6a9bb76521216e551b23ced1592c2f2d5eaa9d334905d",
+      "build/verilog/sources/example_bitfield_scalar_pipeline/bitfield_scalar_pipeline.v": "bc10f5b9d003ceeff32a49c07362214ddedbe556ab63d5d232568032e7fa7135",
+      "build/bitfield_scalar_pipeline.ac": "15ae7a164ed241e1b584bb4c117c4aeebd1b6eab032514db158ac0e31a3c3f40",
+      "build/units/.bitfield_scalar_pipeline.pycircuit-publication/owner.json": "c406f96c676aaada3157cef513d1d06496cb5ebbd568acf7af103b705a509589",
+      "build/units/bitfield_scalar_pipeline/bitfield_scalar_pipeline.ac": "5abc19da69e0b74bb0452089f22d1dfb4d114c9e284218cdf740fa0c11aeb0b1",
+      "build/units/bitfield_scalar_pipeline/bitfield_scalar_pipeline.d": "3f0520c75d6d55c8bfa43eb328017b079d0ad392db26a63503683f107df48184",
+      "build/units/bitfield_scalar_pipeline/bitfield_scalar_pipeline.interface.ac": "2cc2725d1b055d8dafc73155859784846c67a4247c3a17fa2eb0cfe618575740",
+      "build/units/bitfield_scalar_pipeline/unit.json": "3f4fa9c49b237f3f63a22ae1bde85ab3603b5d8b970b410adabb1d08771a1a05",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "1ffd85626dfd13d152f5002756785ee5c75c7036c40ae32dae9fcf995fda8fb7"
+    },
+    "execution_sha256": "c4b10b68128975d478d14b10f6b2b5c7cbbc53d018b031c692095ec6504a46c0",
+    "work_samples": 107,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "2f3a0e6ac8c4602ea5878b774ce92e8fc8dfd2bd0e7de94f7160764f5069ba70"
+  },
+  "excerpts": [
+    {
+      "path": "bitfield_scalar_pipeline.ac",
+      "line": 4,
+      "sha256": "15ae7a164ed241e1b584bb4c117c4aeebd1b6eab032514db158ac0e31a3c3f40"
+    },
+    {
+      "path": "cpp/sources/example_bitfield_scalar_pipeline/bitfield_scalar_pipeline.hpp",
+      "line": 40,
+      "sha256": "4b3b663c4592c7a60f0bc98b5b06a3047cd1e7955986749d907fb706e01f3cb3"
+    },
+    {
+      "path": "verilog/sources/example_bitfield_scalar_pipeline/bitfield_scalar_pipeline.v",
+      "line": 1,
+      "sha256": "bc10f5b9d003ceeff32a49c07362214ddedbe556ab63d5d232568032e7fa7135"
+    }
+  ]
+}

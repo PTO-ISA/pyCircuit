@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **395**. Final artifact SHA-256: `114945e3342f0025f9db71fa51ac8b9a07b0caf115fc2126b1487dd993dbe248`.
+Verified WORK trace rows: **395**. Final artifact SHA-256: `1f0fd8caf108e1959a12d285594d6d5376b3e398d7a3f89c98dad84be5cbc366`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -43,10 +43,11 @@ python3 tools/example_catalog.py generated --example fork_pipeline \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_fork_pipeline/fork_pipeline.hpp`, from line 64:
+`cpp/sources/example_fork_pipeline/fork_pipeline.hpp`, from line 66:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_fork_pipeline::fork_pipeline::ForkResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_1;
@@ -55,11 +56,10 @@ python3 tools/example_catalog.py generated --example fork_pipeline \
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_ready.element(pyc_pin) = this->left_take.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f31_in_ready.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 2, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f31_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_ready.element(pyc_lane));
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_4;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_4.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_not(this->pyc_instance_left_done_q.element(pyc_lane).packed()));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f31_in_ready.element(pyc_lane).packed(), pyc_value_4.element(pyc_lane).packed()));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_or(this->pyc_instance_left_done_q.element(pyc_lane).packed(), pyc_value_3.element(pyc_lane).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_4.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_not(this->pyc_instance_left_done_q.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f31_in_ready.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), pyc_value_4.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_or(this->pyc_instance_left_done_q.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), pyc_value_3.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_5;
-    gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_6;
 ```
 
 ## Source-owned Verilog

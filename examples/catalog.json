@@ -278,6 +278,7 @@
       "name": "bitfield_scalar_pipeline",
       "folder": "examples/bitfield_scalar_pipeline",
       "source": "bitfield_scalar_pipeline.py",
+      "generated": "GENERATED.json",
       "system": "BitfieldScalarPipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 158,

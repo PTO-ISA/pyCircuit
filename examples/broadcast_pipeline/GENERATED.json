@@ -8,35 +8,43 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "7479f21594b829128632041aaa80e6ee75379cd9476387d4c750ab6ab85b516b",
-      "source/broadcast_pipeline.py": "58d6fac4ae412b25b3393edd0ff319fd2f54a61f6dab59a6df5a9c988a4f228e",
+      "source/CMakeLists.txt": "af713086d1577058bae7b8ea155f1c985769b0e1f60c5d4c6583959613fc5ba4",
+      "source/bench.py": "847052b436a5dbe426d727d90826debbff46255f284cfde2be34262be200088e",
+      "source/broadcast_pipeline.py": "7ee83a029718031a80cf15a18f3f20239073883eeffe4685fbaa17767d35ffce",
       "source/config.json": "e12c7c04c0ff7db6e0641b52783076954fec63d87eda1b9569dadc5d99a42383",
       "source/driver.cpp": "d93d97f2b2e3c371d092ab309a7b1beca604a9af80c12bce8aef322d660276dc",
-      "source/four_state.py": "e2e099c88c65c1503e7c14ff7a775c4daaf034d72b23210d111acf8d25b5583c",
+      "source/four_state.py": "f02205064741f63d2cd6fe068b391211163edf397650adc8dfb59c3dc6873d3b",
       "source/rtl_tb.sv": "7a4abe63e7e725114910d796f999c5ec1717b954cf7c21db783fe9b070f66d9b",
       "build/cpp/generated.json": "abe458420755540893fc46ad89bf6aadc2dcbf23c2a4baa6509b9967526f3d46",
       "build/cpp/CMakeLists.txt": "191c2114710ecb3770790e5c11b03c56f75d0a4a5c8e992bef87adaf4fde53ea",
-      "build/cpp/pycircuit_support.hpp": "af9f9bd7cec44e2bdf5a0ab04adca14c20a94d2ea43973c6c545492823f685da",
+      "build/cpp/pycircuit_support.hpp": "37ac7de61bdcb5bf748fc55258464ad8fc67fa53f0fc5f1a163f91d9594b271b",
       "build/cpp/pycircuit_system.hpp": "c081db89c0de54c460776b649d3ca2b0cbdc73dae400e8fbdf75a31988fffe40",
       "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.cpp": "28497e692ed37a9cca0b693075c4acc78f8a480af81a8227e9fce9b6714a346e",
-      "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.hpp": "4e86d01716f48cf98137eaa31fec46930778bb48c2a15b957173f7eafa7eba71",
-      "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.source-map.json": "d8d61f0dd672b26d2169ac2600c54b550dfcdedab143d9cfb7bdebe577abcbfc",
+      "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.hpp": "4995376abc55569d9949427fa200888d29fdd6e57e0c878d43109847c74371de",
+      "build/cpp/sources/example_broadcast_pipeline/broadcast_pipeline.source-map.json": "3442e51305c5809660c2a70b8e2393d746f26115b2cbae04559c3154b9e1c13a",
       "build/verilog/generated.json": "148d425a03e4afd132f7bda2e56154890eee01f7ba3efabeb5e7cb6ef7e213e9",
       "build/verilog/CMakeLists.txt": "9ae8bc0782cf03e3b44fad2e4161cb5c669e0e0abf295b679c7a150254db744e",
       "build/verilog/design_top.sv": "6be72b3e5364c7917236c395b0431de0351a4835e01d1de2cd21be1e8ff2c6ea",
-      "build/verilog/sources/example_broadcast_pipeline/broadcast_pipeline.source-map.json": "51019c186ec3a2528124574e217e1a0a07be3e77f553da6264f61ddfd0986583",
+      "build/verilog/sources/example_broadcast_pipeline/broadcast_pipeline.source-map.json": "fae90320f22d2691915c073753342f23d3402b055490984b3575fc98966120e2",
       "build/verilog/sources/example_broadcast_pipeline/broadcast_pipeline.v": "11e2dd58646064589b5c47977b32553761016c13650d01895daf31b8de8e0408",
-      "build/broadcast_pipeline.ac": "bf09bfdde4f7c6728125716d528d5c79b60ca3dbd9a56fc8f6dd6082a02401a9",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "6cbccafe88c74bac1d31a82eae1005f00c4ac42fbcfa484b838414f0a9dd75b2"
+      "build/broadcast_pipeline.ac": "7246b22c41924abb7363f374aa4980a635f5afeb555c134df24cba61196c9dba",
+      "build/units/.broadcast_pipeline.pycircuit-publication/owner.json": "66052471d50d599943996f26fc9cc96c138a43a12b79af37898d4572506da784",
+      "build/units/broadcast_pipeline/broadcast_pipeline.ac": "c6d51505ff819ef58a7bb16e2b20637fa8a8c9a806dc10200795a4581f41f2fa",
+      "build/units/broadcast_pipeline/broadcast_pipeline.d": "7ccb45bf2b510bf4628d0f18fa253827e0fcef6f4b7e5213223c8ea83a8fa219",
+      "build/units/broadcast_pipeline/broadcast_pipeline.interface.ac": "ab8175977ca35ad8f9173fac6df02486d3bb015b316916fdac2860f2aadc2c41",
+      "build/units/broadcast_pipeline/unit.json": "7db7ac9c8a06f3dbaaf9a41dd63b30c7faef6fccbc1b47729e026fe3bb27bfaf",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "30664a04339ccf123a361f80d4041e189bd0844871d8cabe24d619d9745dd06d"
     },
-    "execution_sha256": "f37b0008c6aa92744e1151c380e05bb9fb9b38b09844e9b0de65d1d894e35a44",
+    "execution_sha256": "48abef62639437f4d0bcafb3a03ac58214f4c07730a1f91f70086083b4cb69e5",
     "work_samples": 1885,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -48,12 +56,12 @@
     {
       "path": "broadcast_pipeline.ac",
       "line": 4,
-      "sha256": "bf09bfdde4f7c6728125716d528d5c79b60ca3dbd9a56fc8f6dd6082a02401a9"
+      "sha256": "7246b22c41924abb7363f374aa4980a635f5afeb555c134df24cba61196c9dba"
     },
     {
       "path": "cpp/sources/example_broadcast_pipeline/broadcast_pipeline.hpp",
-      "line": 82,
-      "sha256": "4e86d01716f48cf98137eaa31fec46930778bb48c2a15b957173f7eafa7eba71"
+      "line": 84,
+      "sha256": "4995376abc55569d9949427fa200888d29fdd6e57e0c878d43109847c74371de"
     },
     {
       "path": "verilog/sources/example_broadcast_pipeline/broadcast_pipeline.v",

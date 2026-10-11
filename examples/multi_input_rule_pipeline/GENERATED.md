@@ -43,23 +43,23 @@ python3 tools/example_catalog.py generated --example multi_input_rule_pipeline \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.hpp`, from line 51:
+`cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.hpp`, from line 53:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_multi_input_rule_pipeline::multi_input_rule_pipeline::JoinResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_1;
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_valid.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 2, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readValid(this->pyc_queue_pyc_5f5f7079635f71756575655f31_state->current(pyc_lane));
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f32_out_ready.element(pyc_pin) = this->take.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f32_in_ready.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 1, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f32_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f32_out_ready.element(pyc_lane));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_valid.element(pyc_lane).packed(), this->pyc_queue_pyc_5f5f7079635f71756575655f32_in_ready.element(pyc_lane).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_valid.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), this->pyc_queue_pyc_5f5f7079635f71756575655f32_in_ready.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_ready.element(pyc_pin) = pyc_value_1.element(pyc_pin);
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f30_in_ready.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 2, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readReady(this->pyc_queue_pyc_5f5f7079635f71756575655f30_state->current(pyc_lane), this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_ready.element(pyc_lane));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<1>>::width) + (gfsim::hardware_traits<gfsim::Bits<64>>::width), this->pyc_queue_pyc_5f5f7079635f71756575655f30_in_ready.element(pyc_lane * (1) + pyc_field).packed());
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_2;
     for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_valid.element(pyc_lane) = gfsim::fifo_kernel<gfsim::Bits<64>, 2, gfsim::QueueReadyPolicy::DownstreamPop, 1ULL>::readValid(this->pyc_queue_pyc_5f5f7079635f71756575655f30_state->current(pyc_lane));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::bit_and(this->pyc_queue_pyc_5f5f7079635f71756575655f30_out_valid.element(pyc_lane).packed(), this->pyc_queue_pyc_5f5f7079635f71756575655f32_in_ready.element(pyc_lane).packed()));
-    for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->pyc_queue_pyc_5f5f7079635f71756575655f31_out_ready.element(pyc_pin) = pyc_value_2.element(pyc_pin);
 ```
 
 ## Source-owned Verilog
