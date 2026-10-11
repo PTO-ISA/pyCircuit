@@ -597,6 +597,7 @@
       "name": "calculator",
       "folder": "examples/calculator",
       "source": "calculator.py",
+      "generated": "GENERATED.json",
       "system": "ExerciseCalculator",
       "system_source": "bench.py",
       "system_cycles": 237,

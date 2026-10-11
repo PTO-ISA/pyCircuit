@@ -76,8 +76,8 @@ the DUT gate network: 52 arithmetic cases, 10 literal anchors and 169 Work frame
 It checks four register boundaries, valid holes, output hold, repeated clock levels,
 reset with three in-flight inputs and drain. Native workers 1/2 and RTL agree: 56 inputs are accepted, 53 retire and three
 are dropped by reset. These unchanged testbenches remain the regression for the
-refactor. The existing `bf16_fmac` driver additionally runs 32 cases in each worker mode
-covering partial X/Z data, unknown-enable failure, hold and reset recovery. The shared verifier also compares its `FRAME`/`FAILURE`/`CASES` records between
+refactor. The existing `bf16_fmac` driver additionally runs 32 cases in each worker mode: four known anchors,
+24 partial-X/Z operand cases and four unknown-enable failure/reset-recovery cases. The shared verifier also compares its `FRAME`/`FAILURE`/`CASES` records between
 workers. This partial-X/Z coverage remains bounded; it is not an exhaustive
 four-state or IEEE arithmetic claim.
 
@@ -90,37 +90,84 @@ cmake --build /absolute/build/bf16_fmac --parallel 2
 ctest --test-dir /absolute/build/bf16_fmac --output-on-failure --no-tests=error
 ```
 
-The source is 356 lines rather than 437, with nine writer arguments rather than
-34. One CSA, ripple and right-barrel definition is reused six, three and three
-times respectively. Final IR shrinks from 1,514,827 to 1,372,784 bytes and the
-generated C++ header from 374,315 to 296,062 bytes. RTL increases from 71,993
-to 76,088 bytes; smaller output is not claimed for every backend.
+## Scenario bench
 
-A recorded one-worker benchmark of 200,000 sampling epochs, after 4,096 warmup
-epochs, has median 0.145491 seconds before and 0.0953922 seconds after across
-five runs, with matching checksums. That is approximately 34.4% less time for
-this workload, not a general simulator performance guarantee. Final installed
-DUT code and wrappers are byte-identical to the measured refactor artifacts.
-Compilation-speed or hardware area/timing improvements are not claimed.
+`bench.py` exports `example_bf16_fmac.bench.ExerciseBF16Fmac`. Its immutable Table contains
+86 original rows of a 6-field, 98-bit `Scenario`.
+All 86 rows remain, with the complete 64-bit index clamped to row 85:
+`(a_in=0, b_in=0, acc_in=0, valid_in=0, expected_result=3308764270,
+expected_result_valid=0)`. The seven identical final rows 79–85 remain present.
+The finite-bit goldens preserve four-register latency, nonzero invalid operands,
+high result bits and held data; they are not replaced with host floating-point FMA.
 
-## Generated system usage
+The phase remains a wrapping `bits[64]` counter initialized to zero. Only Table
+selection clamps. The original DUT call, input/expected bindings, unmasked
+assertions, messages, logs and check-before-advance registration remain intact.
+The generated system still runs 86 cycles with identical low/high sampling inputs.
 
-`bench.py` exports `example_bf16_fmac.bench.ExerciseBF16Fmac`. The explicit source
-closure is `bf16_fmac.py`, then `bench.py`; link the system root and emit either
-backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
-`pycircuit run examples/bf16_fmac --target cpp --cycles 86` or select
-`--target verilog`. Each managed cycle uses the same stimulus in its low/high
-sampling pair and advances fixture state on the generated edge.
+Independent source proof preserves all 516 active field values and the complete
+known-u64 domain by splitting original constant comparison cells across candidate
+row selections and checking the tail. Original partitions need not have one cell
+per Table row; repeated rows remain distinct. High-phase probes supplement this
+proof rather than replacing it. No arbitrary X/Z internal-phase equivalence is
+claimed; initialization and the unchanged increment keep this closed phase known.
 
-The complete 52-operand corpus and all original rising-edge valid/bubble
-inputs run for 86 regular cycles, including four final drain observations.
-Literal goldens use the retained independent highest-set-bit arithmetic oracle
-and a three-token scoreboard, preserving all finite-bit anchors and result
-holds. The original midstream reset/drop, held-level and four-state oracle
-matrices remain separate; regular-clock reset inputs are data cycles here.
+Baseline and compact versions each pass both existing standalone tests. Twenty
+complete native/RTL system traces preserve all 344 observations and the terminal
+result, including native workers 1/2, after excluding only changed source-position
+metadata. Regular-clock systems do not replace physical clock/reset histories.
 
-The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
-models remain unchanged. Known held-level and physical-reset scenarios remain
-with those module-boundary drivers. Where present, their four-state and
-failure/discard matrices remain separate coverage. This regular-clock system
-does not claim complete equivalence to those physical scenarios.
+The unchanged physical driver retains 169 known Work samples. In each native
+worker mode, its 32 additional cases comprise four known anchors, 24 partial-X/Z
+operand cases and four unknown-enable failure/reset-recovery cases. Complete raw
+records match: 496 FRAME records, four FAILURE records and CASES 32. Native and
+known RTL runs retain HISTORY 56 53 3: 56 accepted, 53 retired and three reset-dropped.
+
+FRAME/FAILURE/CASES are native-only records. The shared verifier compares them
+between workers, then filters them and HISTORY from its cross-backend WORK
+comparison. This review therefore also compares complete raw baseline/candidate
+records and exact HISTORY on both backends. There is no existing BF16 Icarus
+macro or RTL four-state run. Native failure probes do not establish every owner's
+internal zero-commit state, and this is not IEEE FMA or exhaustive four-state coverage.
+
+See [generated excerpts and verification inputs](GENERATED.md).
+
+## Local cost comparison
+
+The source shrinks from 1,170 lines / 41,875 bytes to
+144 lines / 10,299 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded expressions | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 0.874 s | 0.376 s |
+| Link system | 1.630 s | 1.033 s |
+| Emit C++ | 1.579 s | 0.931 s |
+| Emit Verilog | 1.253 s | 0.702 s |
+| Build C++ | 1.100 s | 1.019 s |
+| Build Verilog | 1.427 s | 1.409 s |
+| First measured full C++ run | 0.418 s | 0.328 s |
+| First measured full Verilog run | 0.329 s | 0.278 s |
+| Warm C++ median, one worker | 0.093077 s | 0.029155 s |
+| Warm Verilog median | 0.006656 s | 0.006545 s |
+| Warm native peak RSS median | 3.33 MiB | 2.53 MiB |
+
+| Artifact size | Expanded expressions | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 6,491,879 bytes | 3,175,505 bytes |
+| Generated C++ total | 1,793,919 bytes | 1,274,638 bytes |
+| Generated Verilog total | 319,319 bytes | 203,699 bytes |
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/bf16_fmac --target cpp --cycles 86
+pycircuit run examples/bf16_fmac --target verilog --cycles 86
+```

@@ -1,4 +1,4 @@
-# calculator
+# Unsigned 64-bit calculator
 
 A u64 integer calculator driven by a 5-bit keypad, one key press per epoch.
 
@@ -89,41 +89,85 @@ It prints one `WORK <epoch> <display> <op_pending>` record per sampled epoch (47
 records), then a `PASS` line. Serial and parallel `WORK` output is identical.
 `config.json` supplies the finite `max_ticks` bound.
 
-## Current validation status
+## Validation
 
-The complete, division-bearing source now passes compile/link and C++/Verilog
-emission with the current combinational runtime divider. The generated C++ plus
-driver pass syntax checking, and the RTL/testbench pass Verilator lint.
-The earlier one-epoch discrepancy came from testbench observation/callback
-indices; neither backend's Work/Xfer or hardware state timing was changed.
+The standalone module and system tests use the public compile/link/emit route,
+native workers 1/2 and Verilator. The consumer target uses the existing Runtime
+and is registered in examples nightly; it is not an installed SDK target.
+See [generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
+The no-division source variant is historical diagnostic evidence. Current
+acceptance covers the complete division-bearing source and its known-value oracles.
 
-The consumer `pycircuit_calculator` target is approved and registered in examples
-nightly. It combines this driver and generated module sources with the existing
-Runtime through `PycircuitExamples.cmake`; it is not installed/exported in the
-framework SDK. See `GENERATED.json` for the current native workers 1/2 and RTL
-verification receipt, and `GENERATED.md` for actual generated artifacts.
+## Scenario bench
 
-The original no-division variant is historical diagnostic evidence, not acceptance
-of this source. Four-state and failure/zero-commit example coverage remain
-unverified; the generic arithmetic/runtime tests cover those contracts separately.
+`bench.py` exports `example_calculator.bench.ExerciseCalculator`. Its immutable Table contains
+237 original rows of a 4-field, 72-bit `Scenario`.
+All 237 rows remain, with the complete 64-bit index clamped to row 236:
+`(key=0, key_press=0, expected_display=18446744073709551606,
+expected_op_pending=0)`. The key stays five bits. Integer values retain every
+u64 bit, including UINT64_MAX; no floating-point conversion or recomputed golden
+is used. Decimal overflow, AC, pending operations and divisor-zero substitution
+retain their original stimulus and expected values.
 
-## Generated system usage
+The phase remains a wrapping `bits[64]` counter initialized to zero. Only Table
+selection clamps. The original DUT call, input/expected bindings, unmasked
+assertions, messages, logs and check-before-advance registration remain intact.
+The generated system still runs 237 cycles with identical low/high sampling inputs.
 
-`bench.py` exports `example_calculator.bench.ExerciseCalculator`. The explicit source
-closure is `calculator.py`, then `bench.py`; link the system root and emit either
-backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
-`pycircuit run examples/calculator --target cpp --cycles 237` or select
-`--target verilog`. Each managed cycle uses the same stimulus in its low/high
-sampling pair and advances fixture state on the generated edge.
+Independent source proof preserves all 948 active field values and the complete
+known-u64 domain by splitting original constant comparison cells across candidate
+row selections and checking the tail. Original partitions need not have one cell
+per Table row; repeated rows remain distinct. High-phase probes supplement this
+proof rather than replacing it. No arbitrary X/Z internal-phase equivalence is
+claimed; initialization and the unchanged increment keep this closed phase known.
 
-All 237 original keypad cycles are represented, including 64 idle cycles,
-decimal entry, all four operations, equals, clear, zero-divisor behavior and
-the complete u64 overflow sequence. Fixed display/pending vectors come from
-the original independent host model. The initial reset-window inputs are idle;
-initial generated host Reset supplies the same starting state.
+Baseline and compact versions each pass both existing standalone tests. Twenty
+complete native/RTL system traces preserve all 948 observations and the terminal
+result, including native workers 1/2, after excluding only changed source-position
+metadata. Regular-clock systems do not replace physical clock/reset histories.
 
-The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
-models remain unchanged. Known held-level and physical-reset scenarios remain
-with those module-boundary drivers. Where present, their four-state and
-failure/discard matrices remain separate coverage. This regular-clock system
-does not claim complete equivalence to those physical scenarios.
+The unchanged physical driver retains 474 known Work samples. This example
+has no existing RTL four-state macro or dedicated X/Z oracle; no new four-state
+or example-wide failure/zero-commit coverage is claimed.
+
+See [generated excerpts and verification inputs](GENERATED.md).
+
+## Local cost comparison
+
+The source shrinks from 1,660 lines / 65,769 bytes to
+291 lines / 13,524 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded expressions | Typed Table |
+| --- | ---: | ---: |
+| Compile bench | 1.282 s | 0.410 s |
+| Link system | 1.774 s | 0.747 s |
+| Emit C++ | 1.621 s | 0.702 s |
+| Emit Verilog | 1.351 s | 0.583 s |
+| Build C++ | 1.083 s | 0.815 s |
+| Build Verilog | 1.428 s | 2.004 s |
+| First measured full C++ run | 0.730 s | 0.349 s |
+| First measured full Verilog run | 0.355 s | 0.289 s |
+| Warm C++ median, one worker | 0.252963 s | 0.022297 s |
+| Warm Verilog median | 0.012300 s | 0.012039 s |
+| Warm native peak RSS median | 3.23 MiB | 2.34 MiB |
+
+| Artifact size | Expanded expressions | Typed Table |
+| --- | ---: | ---: |
+| Final IR | 7,495,932 bytes | 2,747,867 bytes |
+| Generated C++ total | 1,518,755 bytes | 902,154 bytes |
+| Generated Verilog total | 315,560 bytes | 187,686 bytes |
+
+Three warm pairs do not establish statistical significance for small RTL changes.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/calculator --target cpp --cycles 237
+pycircuit run examples/calculator --target verilog --cycles 237
+```

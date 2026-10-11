@@ -1,0 +1,71 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "calculator",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_calculator.calculator.Calculator\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "a6e89449d84632ac3364d41ed47e50310db9d24e9e16f0a963fdc9320a65db10",
+      "source/bench.py": "b3dfe5c60f6d1b3819dfb24e57c899d0f105032b55fd2aa21735b1bd0a674b84",
+      "source/calculator.py": "5d99dcd8bfca177a933cd3f242c77e3609805d812d00d449ad8315dff54b2637",
+      "source/config.json": "9cf1afc7e50b138013304e2857f407acfb08b62643d945c52794a43e8e7a9027",
+      "source/driver.cpp": "203455b467b1feecb85a89a8eff01b8c369ad40e6ef2d5a619a7c1b6bc803e78",
+      "source/rtl_tb.sv": "1357d54847585e4f85521445e8a73bb088aa02260f7f1d91435ea6a1fa6f6f34",
+      "build/cpp/generated.json": "ca567a40da3f95cb3a18ca0e98681bce7479cd708a291f6815374d9e4fd5be21",
+      "build/cpp/CMakeLists.txt": "34f12c0acf4423d321abe0b8e2806d6a356620207de03dc28dc88131df5ecdcb",
+      "build/cpp/pycircuit_support.hpp": "f4f53784b490d60e2106a0298c31a643cb30f8f4aa1e13f18747224838dba68b",
+      "build/cpp/pycircuit_system.hpp": "7ee996cb0fd9f0a7d21ae127455a964926ad96ec7ad0a4058d28f87528004aea",
+      "build/cpp/sources/example_calculator/calculator.cpp": "99f4213d9bf90afca83e3b53be217c2d1d12ff4321bda30fb9d3631d936d3e8c",
+      "build/cpp/sources/example_calculator/calculator.hpp": "0f9711a008b3dad34a05e07d7fcd8d2cb309370e09d7cbe8667a3959e08a4095",
+      "build/cpp/sources/example_calculator/calculator.source-map.json": "5173aeb155b6441798c92fc5c8eae04a8706e0dc15a65aeaa9bccdd2d30247bd",
+      "build/verilog/generated.json": "f2956547a711f915971cc647b5030835dec120dfa5d5ddcd97df41ac48fdda00",
+      "build/verilog/CMakeLists.txt": "53ac39b3bd9af39801864787a5428eb84bb8e1cb2507b65439be5efec4e34e1f",
+      "build/verilog/design_top.sv": "1ff2992985253445699f563fb84640bfa7bc35cd805929fa5e068b14fe9b13a1",
+      "build/verilog/sources/example_calculator/calculator.source-map.json": "ab93ff2be48d1bde96e4477fa2827a0d73c7286b606ad4d79b3f79f89acb2753",
+      "build/verilog/sources/example_calculator/calculator.v": "abd5452c6bd010d638264bd1cecbaa4b69f4f4f42427fba528d92774195e0b35",
+      "build/calculator.ac": "5d2922c3d0338bb3aac5cef3ae798e974a13ae2dc1d2ce0760866eddc66445d2",
+      "build/units/.calculator.pycircuit-publication/owner.json": "0bf4f1b0d9833fcea360451e7c1e834c92c73669ce5ea63536fd941cae9557b8",
+      "build/units/calculator/calculator.ac": "d5dfc68167063e74447b35d40c35a6e36b33fe7ee5c65920f3d3293c19b1c56c",
+      "build/units/calculator/calculator.d": "a57dce9e50b607563ab59b4af771a10f3508fcf525f0b5a6a94415030cdaeecf",
+      "build/units/calculator/calculator.interface.ac": "cf28c418840b4524bc8f09db29fb72741b698884557bf5dc435b35f37ebfb568",
+      "build/units/calculator/unit.json": "fc520dceb9e7dbff8d5b50bacc876ac4e1e21c00c523a317298c0b5489f5252c",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "a7fe65cd8230025facdef8c8ecd0e76ed64e584041eba44d12497a9a08fbe7ad"
+    },
+    "execution_sha256": "82f96e8d8d3336bab1c1b332a1d1ec483a4d6e774b5dcf72e27c04db8487a884",
+    "work_samples": 474,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "a1ca938088d26ef43a9e47a0fc04f92de800ba01d5c842794ca82498803f1615"
+  },
+  "excerpts": [
+    {
+      "path": "calculator.ac",
+      "line": 6,
+      "sha256": "5d2922c3d0338bb3aac5cef3ae798e974a13ae2dc1d2ce0760866eddc66445d2"
+    },
+    {
+      "path": "cpp/sources/example_calculator/calculator.hpp",
+      "line": 52,
+      "sha256": "0f9711a008b3dad34a05e07d7fcd8d2cb309370e09d7cbe8667a3959e08a4095"
+    },
+    {
+      "path": "verilog/sources/example_calculator/calculator.v",
+      "line": 1,
+      "sha256": "abd5452c6bd010d638264bd1cecbaa4b69f4f4f42427fba528d92774195e0b35"
+    }
+  ]
+}

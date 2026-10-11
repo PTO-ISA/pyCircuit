@@ -1,7 +1,20 @@
 """Regular-clock digital_filter scenario; original physical-control oracles remain."""
 
 from example_digital_filter.digital_filter import DigitalFilter
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, struct, table
+
+
+@struct
+class Scenario:
+    x_in: bits[16]
+    x_valid: bits[1]
+    expected_y_out: bits[34]
+    expected_y_valid: bits[1]
+
+
+@struct
+class Scenarios:
+    rows: table[177, Scenario]
 
 
 @rule
@@ -12,1190 +25,198 @@ def advance(phase):
 @system
 def ExerciseDigitalFilter():  # noqa: N802
     phase: bits[64] = 0
-    x_in = (
-        (
-            (
-                (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 999)
-                                if phase < 1
-                                else ((phase[:16] & 0) | 1)
-                            )
-                            if phase < 2
-                            else (
-                                ((phase[:16] & 0) | 0)
-                                if phase < 9
-                                else ((phase[:16] & 0) | 999)
-                            )
-                        )
-                        if phase < 10
-                        else (
-                            (
-                                ((phase[:16] & 0) | 65535)
-                                if phase < 11
-                                else ((phase[:16] & 0) | 0)
-                            )
-                            if phase < 18
-                            else (
-                                ((phase[:16] & 0) | 999)
-                                if phase < 19
-                                else ((phase[:16] & 0) | 1)
-                            )
-                        )
-                    )
-                    if phase < 27
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 999)
-                                if phase < 28
-                                else ((phase[:16] & 0) | 0)
-                            )
-                            if phase < 29
-                            else (
-                                ((phase[:16] & 0) | 1)
-                                if phase < 30
-                                else ((phase[:16] & 0) | 2)
-                            )
-                        )
-                        if phase < 31
-                        else (
-                            (
-                                ((phase[:16] & 0) | 3)
-                                if phase < 32
-                                else ((phase[:16] & 0) | 4)
-                            )
-                            if phase < 33
-                            else (
-                                ((phase[:16] & 0) | 5)
-                                if phase < 34
-                                else (
-                                    ((phase[:16] & 0) | 6)
-                                    if phase < 35
-                                    else ((phase[:16] & 0) | 7)
-                                )
-                            )
-                        )
-                    )
-                )
-                if phase < 36
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 999)
-                                if phase < 37
-                                else ((phase[:16] & 0) | 100)
-                            )
-                            if phase < 38
-                            else (
-                                ((phase[:16] & 0) | 65436)
-                                if phase < 39
-                                else ((phase[:16] & 0) | 100)
-                            )
-                        )
-                        if phase < 40
-                        else (
-                            (
-                                ((phase[:16] & 0) | 65436)
-                                if phase < 41
-                                else ((phase[:16] & 0) | 100)
-                            )
-                            if phase < 42
-                            else (
-                                ((phase[:16] & 0) | 65436)
-                                if phase < 43
-                                else ((phase[:16] & 0) | 100)
-                            )
-                        )
-                    )
-                    if phase < 44
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 65436)
-                                if phase < 45
-                                else ((phase[:16] & 0) | 999)
-                            )
-                            if phase < 46
-                            else (
-                                ((phase[:16] & 0) | 10000)
-                                if phase < 50
-                                else ((phase[:16] & 0) | 0)
-                            )
-                        )
-                        if phase < 54
-                        else (
-                            (
-                                ((phase[:16] & 0) | 999)
-                                if phase < 55
-                                else ((phase[:16] & 0) | 32767)
-                            )
-                            if phase < 59
-                            else (
-                                ((phase[:16] & 0) | 0)
-                                if phase < 63
-                                else (
-                                    ((phase[:16] & 0) | 999)
-                                    if phase < 64
-                                    else ((phase[:16] & 0) | 32768)
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-            if phase < 68
-            else (
-                (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 0)
-                                if phase < 72
-                                else ((phase[:16] & 0) | 999)
-                            )
-                            if phase < 73
-                            else (
-                                ((phase[:16] & 0) | 3)
-                                if phase < 74
-                                else ((phase[:16] & 0) | 65529)
-                            )
-                        )
-                        if phase < 75
-                        else (
-                            (
-                                ((phase[:16] & 0) | 11)
-                                if phase < 76
-                                else ((phase[:16] & 0) | 65535)
-                            )
-                            if phase < 77
-                            else (
-                                ((phase[:16] & 0) | 61964)
-                                if phase < 78
-                                else ((phase[:16] & 0) | 58393)
-                            )
-                        )
-                    )
-                    if phase < 79
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 54822)
-                                if phase < 80
-                                else ((phase[:16] & 0) | 51251)
-                            )
-                            if phase < 81
-                            else (
-                                ((phase[:16] & 0) | 47680)
-                                if phase < 82
-                                else ((phase[:16] & 0) | 44109)
-                            )
-                        )
-                        if phase < 83
-                        else (
-                            (
-                                ((phase[:16] & 0) | 40538)
-                                if phase < 84
-                                else ((phase[:16] & 0) | 36967)
-                            )
-                            if phase < 85
-                            else (
-                                ((phase[:16] & 0) | 33396)
-                                if phase < 86
-                                else (
-                                    ((phase[:16] & 0) | 29825)
-                                    if phase < 87
-                                    else ((phase[:16] & 0) | 26254)
-                                )
-                            )
-                        )
-                    )
-                )
-                if phase < 88
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 22683)
-                                if phase < 89
-                                else ((phase[:16] & 0) | 19112)
-                            )
-                            if phase < 90
-                            else (
-                                ((phase[:16] & 0) | 15541)
-                                if phase < 91
-                                else ((phase[:16] & 0) | 11970)
-                            )
-                        )
-                        if phase < 92
-                        else (
-                            (
-                                ((phase[:16] & 0) | 8399)
-                                if phase < 93
-                                else ((phase[:16] & 0) | 4828)
-                            )
-                            if phase < 94
-                            else (
-                                ((phase[:16] & 0) | 1257)
-                                if phase < 95
-                                else (
-                                    ((phase[:16] & 0) | 63222)
-                                    if phase < 96
-                                    else ((phase[:16] & 0) | 59651)
-                                )
-                            )
-                        )
-                    )
-                    if phase < 97
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 56080)
-                                if phase < 98
-                                else ((phase[:16] & 0) | 52509)
-                            )
-                            if phase < 99
-                            else (
-                                ((phase[:16] & 0) | 48938)
-                                if phase < 100
-                                else ((phase[:16] & 0) | 45367)
-                            )
-                        )
-                        if phase < 101
-                        else (
-                            (
-                                ((phase[:16] & 0) | 41796)
-                                if phase < 102
-                                else ((phase[:16] & 0) | 38225)
-                            )
-                            if phase < 103
-                            else (
-                                ((phase[:16] & 0) | 34654)
-                                if phase < 104
-                                else (
-                                    ((phase[:16] & 0) | 31083)
-                                    if phase < 105
-                                    else ((phase[:16] & 0) | 27512)
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-        if phase < 106
-        else (
-            (
-                (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 23941)
-                                if phase < 107
-                                else ((phase[:16] & 0) | 20370)
-                            )
-                            if phase < 108
-                            else (
-                                ((phase[:16] & 0) | 65519)
-                                if phase < 109
-                                else ((phase[:16] & 0) | 4567)
-                            )
-                        )
-                        if phase < 110
-                        else (
-                            (
-                                ((phase[:16] & 0) | 65413)
-                                if phase < 111
-                                else ((phase[:16] & 0) | 999)
-                            )
-                            if phase < 112
-                            else (
-                                ((phase[:16] & 0) | 63826)
-                                if phase < 113
-                                else ((phase[:16] & 0) | 30387)
-                            )
-                        )
-                    )
-                    if phase < 114
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 50398)
-                                if phase < 115
-                                else ((phase[:16] & 0) | 33299)
-                            )
-                            if phase < 116
-                            else (
-                                ((phase[:16] & 0) | 10334)
-                                if phase < 117
-                                else ((phase[:16] & 0) | 10719)
-                            )
-                        )
-                        if phase < 118
-                        else (
-                            (
-                                ((phase[:16] & 0) | 48105)
-                                if phase < 119
-                                else ((phase[:16] & 0) | 60486)
-                            )
-                            if phase < 120
-                            else (
-                                ((phase[:16] & 0) | 6946)
-                                if phase < 121
-                                else (
-                                    ((phase[:16] & 0) | 54147)
-                                    if phase < 122
-                                    else ((phase[:16] & 0) | 37803)
-                                )
-                            )
-                        )
-                    )
-                )
-                if phase < 123
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 7304)
-                                if phase < 124
-                                else ((phase[:16] & 0) | 26616)
-                            )
-                            if phase < 125
-                            else (
-                                ((phase[:16] & 0) | 29807)
-                                if phase < 126
-                                else ((phase[:16] & 0) | 28553)
-                            )
-                        )
-                        if phase < 127
-                        else (
-                            (
-                                ((phase[:16] & 0) | 12806)
-                                if phase < 128
-                                else ((phase[:16] & 0) | 43721)
-                            )
-                            if phase < 129
-                            else (
-                                ((phase[:16] & 0) | 56608)
-                                if phase < 130
-                                else (
-                                    ((phase[:16] & 0) | 57386)
-                                    if phase < 131
-                                    else ((phase[:16] & 0) | 19363)
-                                )
-                            )
-                        )
-                    )
-                    if phase < 132
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 22844)
-                                if phase < 133
-                                else ((phase[:16] & 0) | 11362)
-                            )
-                            if phase < 134
-                            else (
-                                ((phase[:16] & 0) | 43463)
-                                if phase < 135
-                                else ((phase[:16] & 0) | 4671)
-                            )
-                        )
-                        if phase < 136
-                        else (
-                            (
-                                ((phase[:16] & 0) | 57393)
-                                if phase < 137
-                                else ((phase[:16] & 0) | 34357)
-                            )
-                            if phase < 138
-                            else (
-                                ((phase[:16] & 0) | 58816)
-                                if phase < 139
-                                else (
-                                    ((phase[:16] & 0) | 25908)
-                                    if phase < 140
-                                    else ((phase[:16] & 0) | 65135)
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-            if phase < 141
-            else (
-                (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 26355)
-                                if phase < 142
-                                else ((phase[:16] & 0) | 37745)
-                            )
-                            if phase < 143
-                            else (
-                                ((phase[:16] & 0) | 11555)
-                                if phase < 144
-                                else ((phase[:16] & 0) | 37019)
-                            )
-                        )
-                        if phase < 145
-                        else (
-                            (
-                                ((phase[:16] & 0) | 14000)
-                                if phase < 146
-                                else ((phase[:16] & 0) | 60485)
-                            )
-                            if phase < 147
-                            else (
-                                ((phase[:16] & 0) | 39150)
-                                if phase < 148
-                                else ((phase[:16] & 0) | 17002)
-                            )
-                        )
-                    )
-                    if phase < 149
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 226)
-                                if phase < 150
-                                else ((phase[:16] & 0) | 3849)
-                            )
-                            if phase < 151
-                            else (
-                                ((phase[:16] & 0) | 18694)
-                                if phase < 152
-                                else ((phase[:16] & 0) | 55575)
-                            )
-                        )
-                        if phase < 153
-                        else (
-                            (
-                                ((phase[:16] & 0) | 29762)
-                                if phase < 154
-                                else ((phase[:16] & 0) | 54915)
-                            )
-                            if phase < 155
-                            else (
-                                ((phase[:16] & 0) | 11496)
-                                if phase < 156
-                                else (
-                                    ((phase[:16] & 0) | 2840)
-                                    if phase < 157
-                                    else ((phase[:16] & 0) | 36595)
-                                )
-                            )
-                        )
-                    )
-                )
-                if phase < 158
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:16] & 0) | 61252)
-                                if phase < 159
-                                else ((phase[:16] & 0) | 5859)
-                            )
-                            if phase < 160
-                            else (
-                                ((phase[:16] & 0) | 6414)
-                                if phase < 161
-                                else ((phase[:16] & 0) | 39650)
-                            )
-                        )
-                        if phase < 162
-                        else (
-                            (
-                                ((phase[:16] & 0) | 32956)
-                                if phase < 163
-                                else ((phase[:16] & 0) | 18972)
-                            )
-                            if phase < 164
-                            else (
-                                ((phase[:16] & 0) | 39931)
-                                if phase < 165
-                                else (
-                                    ((phase[:16] & 0) | 24174)
-                                    if phase < 166
-                                    else ((phase[:16] & 0) | 64908)
-                                )
-                            )
-                        )
-                    )
-                    if phase < 167
-                    else (
-                        (
-                            (
-                                ((phase[:16] & 0) | 34517)
-                                if phase < 168
-                                else ((phase[:16] & 0) | 15545)
-                            )
-                            if phase < 169
-                            else (
-                                ((phase[:16] & 0) | 42314)
-                                if phase < 170
-                                else ((phase[:16] & 0) | 61217)
-                            )
-                        )
-                        if phase < 171
-                        else (
-                            (
-                                ((phase[:16] & 0) | 22763)
-                                if phase < 172
-                                else ((phase[:16] & 0) | 18600)
-                            )
-                            if phase < 173
-                            else (
-                                ((phase[:16] & 0) | 34208)
-                                if phase < 174
-                                else (
-                                    ((phase[:16] & 0) | 53375)
-                                    if phase < 175
-                                    else ((phase[:16] & 0) | 44191)
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
+
+    # fmt: off
+    scenarios = Scenarios(
+        rows=(
+            Scenario(x_in=999, x_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=999, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=1999, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=2999, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=3999, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=4, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_valid=1),
+            Scenario(x_in=65535, x_valid=1, expected_y_out=999, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=1997, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=2995, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=3993, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=17179869180, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=999, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=1999, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=3000, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=4002, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=10, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=10, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=10, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=10, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_out=10, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=1008, expected_y_valid=1),
+            Scenario(x_in=1, x_valid=1, expected_y_out=2005, expected_y_valid=1),
+            Scenario(x_in=2, x_valid=1, expected_y_out=3002, expected_y_valid=1),
+            Scenario(x_in=3, x_valid=1, expected_y_out=4000, expected_y_valid=1),
+            Scenario(x_in=4, x_valid=1, expected_y_out=10, expected_y_valid=1),
+            Scenario(x_in=5, x_valid=1, expected_y_out=20, expected_y_valid=1),
+            Scenario(x_in=6, x_valid=1, expected_y_out=30, expected_y_valid=1),
+            Scenario(x_in=7, x_valid=1, expected_y_out=40, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_out=50, expected_y_valid=1),
+            Scenario(x_in=100, x_valid=1, expected_y_out=1051, expected_y_valid=1),
+            Scenario(x_in=65436, x_valid=1, expected_y_out=2143, expected_y_valid=1),
+            Scenario(x_in=100, x_valid=1, expected_y_out=3125, expected_y_valid=1),
+            Scenario(x_in=65436, x_valid=1, expected_y_out=4196, expected_y_valid=1),
+            Scenario(x_in=100, x_valid=1, expected_y_out=200, expected_y_valid=1),
+            Scenario(x_in=65436, x_valid=1, expected_y_out=17179868984, expected_y_valid=1),
+            Scenario(x_in=100, x_valid=1, expected_y_out=200, expected_y_valid=1),
+            Scenario(x_in=65436, x_valid=1, expected_y_out=17179868984, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_out=200, expected_y_valid=1),
+            Scenario(x_in=10000, x_valid=1, expected_y_out=699, expected_y_valid=1),
+            Scenario(x_in=10000, x_valid=1, expected_y_out=12098, expected_y_valid=1),
+            Scenario(x_in=10000, x_valid=1, expected_y_out=32597, expected_y_valid=1),
+            Scenario(x_in=10000, x_valid=1, expected_y_out=63996, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=100000, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=90000, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=70000, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=40000, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_valid=1),
+            Scenario(x_in=32767, x_valid=1, expected_y_out=999, expected_y_valid=1),
+            Scenario(x_in=32767, x_valid=1, expected_y_out=34765, expected_y_valid=1),
+            Scenario(x_in=32767, x_valid=1, expected_y_out=101298, expected_y_valid=1),
+            Scenario(x_in=32767, x_valid=1, expected_y_out=200598, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=327670, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=294903, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=229369, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=131068, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_valid=1),
+            Scenario(x_in=32768, x_valid=1, expected_y_out=999, expected_y_valid=1),
+            Scenario(x_in=32768, x_valid=1, expected_y_out=17179838414, expected_y_valid=1),
+            Scenario(x_in=32768, x_valid=1, expected_y_out=17179773877, expected_y_valid=1),
+            Scenario(x_in=32768, x_valid=1, expected_y_out=17179676572, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=17179541504, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=17179574272, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=17179639808, expected_y_valid=1),
+            Scenario(x_valid=1, expected_y_out=17179738112, expected_y_valid=1),
+            Scenario(x_in=999, x_valid=1, expected_y_valid=1),
+            Scenario(x_in=3, x_valid=1, expected_y_out=999, expected_y_valid=1),
+            Scenario(x_in=65529, x_valid=1, expected_y_out=2001, expected_y_valid=1),
+            Scenario(x_in=11, x_valid=1, expected_y_out=2996, expected_y_valid=1),
+            Scenario(x_in=65535, expected_y_out=4002, expected_y_valid=1),
+            Scenario(x_in=61964, expected_y_out=4002),
+            Scenario(x_in=58393, expected_y_out=4002),
+            Scenario(x_in=54822, expected_y_out=4002),
+            Scenario(x_in=51251, expected_y_out=4002),
+            Scenario(x_in=47680, expected_y_out=4002),
+            Scenario(x_in=44109, expected_y_out=4002),
+            Scenario(x_in=40538, expected_y_out=4002),
+            Scenario(x_in=36967, expected_y_out=4002),
+            Scenario(x_in=33396, expected_y_out=4002),
+            Scenario(x_in=29825, expected_y_out=4002),
+            Scenario(x_in=26254, expected_y_out=4002),
+            Scenario(x_in=22683, expected_y_out=4002),
+            Scenario(x_in=19112, expected_y_out=4002),
+            Scenario(x_in=15541, expected_y_out=4002),
+            Scenario(x_in=11970, expected_y_out=4002),
+            Scenario(x_in=8399, expected_y_out=4002),
+            Scenario(x_in=4828, expected_y_out=4002),
+            Scenario(x_in=1257, expected_y_out=4002),
+            Scenario(x_in=63222, expected_y_out=4002),
+            Scenario(x_in=59651, expected_y_out=4002),
+            Scenario(x_in=56080, expected_y_out=4002),
+            Scenario(x_in=52509, expected_y_out=4002),
+            Scenario(x_in=48938, expected_y_out=4002),
+            Scenario(x_in=45367, expected_y_out=4002),
+            Scenario(x_in=41796, expected_y_out=4002),
+            Scenario(x_in=38225, expected_y_out=4002),
+            Scenario(x_in=34654, expected_y_out=4002),
+            Scenario(x_in=31083, expected_y_out=4002),
+            Scenario(x_in=27512, expected_y_out=4002),
+            Scenario(x_in=23941, expected_y_out=4002),
+            Scenario(x_in=20370, expected_y_out=4002),
+            Scenario(x_in=65519, x_valid=1, expected_y_out=4002),
+            Scenario(x_in=4567, x_valid=1, expected_y_out=17179869180, expected_y_valid=1),
+            Scenario(x_in=65413, x_valid=1, expected_y_out=4538, expected_y_valid=1),
+            Scenario(x_in=999, expected_y_out=9004, expected_y_valid=1),
+            Scenario(x_in=63826, expected_y_out=9004),
+            Scenario(x_in=30387, x_valid=1, expected_y_out=9004),
+            Scenario(x_in=50398, x_valid=1, expected_y_out=43774, expected_y_valid=1),
+            Scenario(x_in=33299, x_valid=1, expected_y_out=63535, expected_y_valid=1),
+            Scenario(x_in=10334, x_valid=1, expected_y_out=28156, expected_y_valid=1),
+            Scenario(x_in=10719, x_valid=1, expected_y_out=21994, expected_y_valid=1),
+            Scenario(x_in=48105, x_valid=1, expected_y_out=17179743308, expected_y_valid=1),
+            Scenario(x_in=60486, expected_y_out=17179775245, expected_y_valid=1),
+            Scenario(x_in=6946, x_valid=1, expected_y_out=17179775245),
+            Scenario(x_in=54147, x_valid=1, expected_y_out=45577, expected_y_valid=1),
+            Scenario(x_in=37803, x_valid=1, expected_y_out=17179862270, expected_y_valid=1),
+            Scenario(x_in=7304, x_valid=1, expected_y_out=17179769787, expected_y_valid=1),
+            Scenario(x_in=26616, x_valid=1, expected_y_out=17179814639, expected_y_valid=1),
+            Scenario(x_in=29807, x_valid=1, expected_y_out=17179781653, expected_y_valid=1),
+            Scenario(x_in=28553, expected_y_out=17179863203, expected_y_valid=1),
+            Scenario(x_in=12806, x_valid=1, expected_y_out=17179863203),
+            Scenario(x_in=43721, x_valid=1, expected_y_out=181484, expected_y_valid=1),
+            Scenario(x_in=56608, x_valid=1, expected_y_out=199682, expected_y_valid=1),
+            Scenario(x_in=57386, x_valid=1, expected_y_out=105088, expected_y_valid=1),
+            Scenario(x_in=19363, x_valid=1, expected_y_out=17179828957, expected_y_valid=1),
+            Scenario(x_in=22844, x_valid=1, expected_y_out=17179758203, expected_y_valid=1),
+            Scenario(x_in=11362, expected_y_out=1408, expected_y_valid=1),
+            Scenario(x_in=43463, x_valid=1, expected_y_out=1408),
+            Scenario(x_in=4671, x_valid=1, expected_y_out=49104, expected_y_valid=1),
+            Scenario(x_in=57393, x_valid=1, expected_y_out=106509, expected_y_valid=1),
+            Scenario(x_in=34357, x_valid=1, expected_y_out=26356, expected_y_valid=1),
+            Scenario(x_in=58816, x_valid=1, expected_y_out=17179747440, expected_y_valid=1),
+            Scenario(x_in=25908, x_valid=1, expected_y_out=17179794361, expected_y_valid=1),
+            Scenario(x_in=65135, expected_y_out=17179755543, expected_y_valid=1),
+            Scenario(x_in=26355, x_valid=1, expected_y_out=17179755543),
+            Scenario(x_in=37745, x_valid=1, expected_y_out=17179802479, expected_y_valid=1),
+            Scenario(x_in=11555, x_valid=1, expected_y_out=75763, expected_y_valid=1),
+            Scenario(x_in=37019, x_valid=1, expected_y_out=138670, expected_y_valid=1),
+            Scenario(x_in=14000, x_valid=1, expected_y_out=16640, expected_y_valid=1),
+            Scenario(x_in=60485, x_valid=1, expected_y_out=17179749651, expected_y_valid=1),
+            Scenario(x_in=39150, expected_y_out=17179852802, expected_y_valid=1),
+            Scenario(x_in=17002, x_valid=1, expected_y_out=17179852802),
+            Scenario(x_in=226, x_valid=1, expected_y_out=17179804016, expected_y_valid=1),
+            Scenario(x_in=3849, x_valid=1, expected_y_out=75077, expected_y_valid=1),
+            Scenario(x_in=18694, x_valid=1, expected_y_out=35103, expected_y_valid=1),
+            Scenario(x_in=55575, x_valid=1, expected_y_out=95078, expected_y_valid=1),
+            Scenario(x_in=29762, x_valid=1, expected_y_out=39878, expected_y_valid=1),
+            Scenario(x_in=54915, expected_y_out=81318, expected_y_valid=1),
+            Scenario(x_in=11496, x_valid=1, expected_y_out=81318),
+            Scenario(x_in=2840, x_valid=1, expected_y_out=115913, expected_y_valid=1),
+            Scenario(x_in=36595, x_valid=1, expected_y_out=75274, expected_y_valid=1),
+            Scenario(x_in=61252, x_valid=1, expected_y_out=130275, expected_y_valid=1),
+            Scenario(x_in=5859, x_valid=1, expected_y_out=17179861522, expected_y_valid=1),
+            Scenario(x_in=6414, x_valid=1, expected_y_out=17179791012, expected_y_valid=1),
+            Scenario(x_in=39650, expected_y_out=17179758700, expected_y_valid=1),
+            Scenario(x_in=32956, x_valid=1, expected_y_out=17179758700),
+            Scenario(x_in=18972, x_valid=1, expected_y_out=17179849873, expected_y_valid=1),
+            Scenario(x_in=39931, x_valid=1, expected_y_out=17179865674, expected_y_valid=1),
+            Scenario(x_in=24174, x_valid=1, expected_y_out=17179809439, expected_y_valid=1),
+            Scenario(x_in=64908, x_valid=1, expected_y_out=17179768744, expected_y_valid=1),
+            Scenario(x_in=34517, x_valid=1, expected_y_out=46793, expected_y_valid=1),
+            Scenario(x_in=15545, expected_y_out=17179807011, expected_y_valid=1),
+            Scenario(x_in=42314, x_valid=1, expected_y_out=17179807011),
+            Scenario(x_in=61217, x_valid=1, expected_y_out=9552, expected_y_valid=1),
+            Scenario(x_in=22763, x_valid=1, expected_y_out=17179722852, expected_y_valid=1),
+            Scenario(x_in=18600, x_valid=1, expected_y_out=17179689567, expected_y_valid=1),
+            Scenario(x_in=34208, x_valid=1, expected_y_out=17179827465, expected_y_valid=1),
+            Scenario(x_in=53375, x_valid=1, expected_y_out=56885, expected_y_valid=1),
+            Scenario(x_in=44191, expected_y_out=72035, expected_y_valid=1),
+            Scenario(x_in=44191, expected_y_out=72035),
+        ),
     )
-    x_valid = (
-        (
-            (
-                (((phase[:1] & 0) | 1) if phase < 76 else ((phase[:1] & 0) | 0))
-                if phase < 108
-                else (
-                    ((phase[:1] & 0) | 1)
-                    if phase < 111
-                    else (
-                        ((phase[:1] & 0) | 0) if phase < 113 else ((phase[:1] & 0) | 1)
-                    )
-                )
-            )
-            if phase < 119
-            else (
-                (
-                    ((phase[:1] & 0) | 0)
-                    if phase < 120
-                    else (
-                        ((phase[:1] & 0) | 1) if phase < 126 else ((phase[:1] & 0) | 0)
-                    )
-                )
-                if phase < 127
-                else (
-                    ((phase[:1] & 0) | 1)
-                    if phase < 133
-                    else (
-                        ((phase[:1] & 0) | 0) if phase < 134 else ((phase[:1] & 0) | 1)
-                    )
-                )
-            )
-        )
-        if phase < 140
-        else (
-            (
-                (((phase[:1] & 0) | 0) if phase < 141 else ((phase[:1] & 0) | 1))
-                if phase < 147
-                else (
-                    ((phase[:1] & 0) | 0)
-                    if phase < 148
-                    else (
-                        ((phase[:1] & 0) | 1) if phase < 154 else ((phase[:1] & 0) | 0)
-                    )
-                )
-            )
-            if phase < 155
-            else (
-                (
-                    ((phase[:1] & 0) | 1)
-                    if phase < 161
-                    else (
-                        ((phase[:1] & 0) | 0) if phase < 162 else ((phase[:1] & 0) | 1)
-                    )
-                )
-                if phase < 168
-                else (
-                    ((phase[:1] & 0) | 0)
-                    if phase < 169
-                    else (
-                        ((phase[:1] & 0) | 1) if phase < 175 else ((phase[:1] & 0) | 0)
-                    )
-                )
-            )
-        )
-    )
+    # fmt: on
+    position = phase if phase < 177 else 176
+    scenario = scenarios.rows[position]
+    x_in = scenario.x_in
+    x_valid = scenario.x_valid
     dut = DigitalFilter(x_in, x_valid)
 
-    expected_y_out = (
-        (
-            (
-                (
-                    (
-                        (
-                            ((phase[:34] & 0) | 0)
-                            if phase < 1
-                            else (
-                                ((phase[:34] & 0) | 999)
-                                if phase < 2
-                                else ((phase[:34] & 0) | 1999)
-                            )
-                        )
-                        if phase < 3
-                        else (
-                            (
-                                ((phase[:34] & 0) | 2999)
-                                if phase < 4
-                                else ((phase[:34] & 0) | 3999)
-                            )
-                            if phase < 5
-                            else (
-                                ((phase[:34] & 0) | 4)
-                                if phase < 6
-                                else ((phase[:34] & 0) | 0)
-                            )
-                        )
-                    )
-                    if phase < 10
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 999)
-                                if phase < 11
-                                else ((phase[:34] & 0) | 1997)
-                            )
-                            if phase < 12
-                            else (
-                                ((phase[:34] & 0) | 2995)
-                                if phase < 13
-                                else ((phase[:34] & 0) | 3993)
-                            )
-                        )
-                        if phase < 14
-                        else (
-                            (
-                                ((phase[:34] & 0) | 17179869180)
-                                if phase < 15
-                                else ((phase[:34] & 0) | 0)
-                            )
-                            if phase < 19
-                            else (
-                                ((phase[:34] & 0) | 999)
-                                if phase < 20
-                                else ((phase[:34] & 0) | 1999)
-                            )
-                        )
-                    )
-                )
-                if phase < 21
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:34] & 0) | 3000)
-                                if phase < 22
-                                else ((phase[:34] & 0) | 4002)
-                            )
-                            if phase < 23
-                            else (
-                                ((phase[:34] & 0) | 10)
-                                if phase < 28
-                                else ((phase[:34] & 0) | 1008)
-                            )
-                        )
-                        if phase < 29
-                        else (
-                            (
-                                ((phase[:34] & 0) | 2005)
-                                if phase < 30
-                                else ((phase[:34] & 0) | 3002)
-                            )
-                            if phase < 31
-                            else (
-                                ((phase[:34] & 0) | 4000)
-                                if phase < 32
-                                else ((phase[:34] & 0) | 10)
-                            )
-                        )
-                    )
-                    if phase < 33
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 20)
-                                if phase < 34
-                                else ((phase[:34] & 0) | 30)
-                            )
-                            if phase < 35
-                            else (
-                                ((phase[:34] & 0) | 40)
-                                if phase < 36
-                                else ((phase[:34] & 0) | 50)
-                            )
-                        )
-                        if phase < 37
-                        else (
-                            (
-                                ((phase[:34] & 0) | 1051)
-                                if phase < 38
-                                else ((phase[:34] & 0) | 2143)
-                            )
-                            if phase < 39
-                            else (
-                                ((phase[:34] & 0) | 3125)
-                                if phase < 40
-                                else ((phase[:34] & 0) | 4196)
-                            )
-                        )
-                    )
-                )
-            )
-            if phase < 41
-            else (
-                (
-                    (
-                        (
-                            ((phase[:34] & 0) | 200)
-                            if phase < 42
-                            else (
-                                ((phase[:34] & 0) | 17179868984)
-                                if phase < 43
-                                else ((phase[:34] & 0) | 200)
-                            )
-                        )
-                        if phase < 44
-                        else (
-                            (
-                                ((phase[:34] & 0) | 17179868984)
-                                if phase < 45
-                                else ((phase[:34] & 0) | 200)
-                            )
-                            if phase < 46
-                            else (
-                                ((phase[:34] & 0) | 699)
-                                if phase < 47
-                                else ((phase[:34] & 0) | 12098)
-                            )
-                        )
-                    )
-                    if phase < 48
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 32597)
-                                if phase < 49
-                                else ((phase[:34] & 0) | 63996)
-                            )
-                            if phase < 50
-                            else (
-                                ((phase[:34] & 0) | 100000)
-                                if phase < 51
-                                else ((phase[:34] & 0) | 90000)
-                            )
-                        )
-                        if phase < 52
-                        else (
-                            (
-                                ((phase[:34] & 0) | 70000)
-                                if phase < 53
-                                else ((phase[:34] & 0) | 40000)
-                            )
-                            if phase < 54
-                            else (
-                                ((phase[:34] & 0) | 0)
-                                if phase < 55
-                                else ((phase[:34] & 0) | 999)
-                            )
-                        )
-                    )
-                )
-                if phase < 56
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:34] & 0) | 34765)
-                                if phase < 57
-                                else ((phase[:34] & 0) | 101298)
-                            )
-                            if phase < 58
-                            else (
-                                ((phase[:34] & 0) | 200598)
-                                if phase < 59
-                                else ((phase[:34] & 0) | 327670)
-                            )
-                        )
-                        if phase < 60
-                        else (
-                            (
-                                ((phase[:34] & 0) | 294903)
-                                if phase < 61
-                                else ((phase[:34] & 0) | 229369)
-                            )
-                            if phase < 62
-                            else (
-                                ((phase[:34] & 0) | 131068)
-                                if phase < 63
-                                else ((phase[:34] & 0) | 0)
-                            )
-                        )
-                    )
-                    if phase < 64
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 999)
-                                if phase < 65
-                                else ((phase[:34] & 0) | 17179838414)
-                            )
-                            if phase < 66
-                            else (
-                                ((phase[:34] & 0) | 17179773877)
-                                if phase < 67
-                                else ((phase[:34] & 0) | 17179676572)
-                            )
-                        )
-                        if phase < 68
-                        else (
-                            (
-                                ((phase[:34] & 0) | 17179541504)
-                                if phase < 69
-                                else ((phase[:34] & 0) | 17179574272)
-                            )
-                            if phase < 70
-                            else (
-                                ((phase[:34] & 0) | 17179639808)
-                                if phase < 71
-                                else ((phase[:34] & 0) | 17179738112)
-                            )
-                        )
-                    )
-                )
-            )
-        )
-        if phase < 72
-        else (
-            (
-                (
-                    (
-                        (
-                            ((phase[:34] & 0) | 0)
-                            if phase < 73
-                            else (
-                                ((phase[:34] & 0) | 999)
-                                if phase < 74
-                                else ((phase[:34] & 0) | 2001)
-                            )
-                        )
-                        if phase < 75
-                        else (
-                            (
-                                ((phase[:34] & 0) | 2996)
-                                if phase < 76
-                                else ((phase[:34] & 0) | 4002)
-                            )
-                            if phase < 109
-                            else (
-                                ((phase[:34] & 0) | 17179869180)
-                                if phase < 110
-                                else ((phase[:34] & 0) | 4538)
-                            )
-                        )
-                    )
-                    if phase < 111
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 9004)
-                                if phase < 114
-                                else ((phase[:34] & 0) | 43774)
-                            )
-                            if phase < 115
-                            else (
-                                ((phase[:34] & 0) | 63535)
-                                if phase < 116
-                                else ((phase[:34] & 0) | 28156)
-                            )
-                        )
-                        if phase < 117
-                        else (
-                            (
-                                ((phase[:34] & 0) | 21994)
-                                if phase < 118
-                                else ((phase[:34] & 0) | 17179743308)
-                            )
-                            if phase < 119
-                            else (
-                                ((phase[:34] & 0) | 17179775245)
-                                if phase < 121
-                                else ((phase[:34] & 0) | 45577)
-                            )
-                        )
-                    )
-                )
-                if phase < 122
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:34] & 0) | 17179862270)
-                                if phase < 123
-                                else ((phase[:34] & 0) | 17179769787)
-                            )
-                            if phase < 124
-                            else (
-                                ((phase[:34] & 0) | 17179814639)
-                                if phase < 125
-                                else ((phase[:34] & 0) | 17179781653)
-                            )
-                        )
-                        if phase < 126
-                        else (
-                            (
-                                ((phase[:34] & 0) | 17179863203)
-                                if phase < 128
-                                else ((phase[:34] & 0) | 181484)
-                            )
-                            if phase < 129
-                            else (
-                                ((phase[:34] & 0) | 199682)
-                                if phase < 130
-                                else ((phase[:34] & 0) | 105088)
-                            )
-                        )
-                    )
-                    if phase < 131
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 17179828957)
-                                if phase < 132
-                                else ((phase[:34] & 0) | 17179758203)
-                            )
-                            if phase < 133
-                            else (
-                                ((phase[:34] & 0) | 1408)
-                                if phase < 135
-                                else ((phase[:34] & 0) | 49104)
-                            )
-                        )
-                        if phase < 136
-                        else (
-                            (
-                                ((phase[:34] & 0) | 106509)
-                                if phase < 137
-                                else ((phase[:34] & 0) | 26356)
-                            )
-                            if phase < 138
-                            else (
-                                ((phase[:34] & 0) | 17179747440)
-                                if phase < 139
-                                else ((phase[:34] & 0) | 17179794361)
-                            )
-                        )
-                    )
-                )
-            )
-            if phase < 140
-            else (
-                (
-                    (
-                        (
-                            ((phase[:34] & 0) | 17179755543)
-                            if phase < 142
-                            else (
-                                ((phase[:34] & 0) | 17179802479)
-                                if phase < 143
-                                else ((phase[:34] & 0) | 75763)
-                            )
-                        )
-                        if phase < 144
-                        else (
-                            (
-                                ((phase[:34] & 0) | 138670)
-                                if phase < 145
-                                else ((phase[:34] & 0) | 16640)
-                            )
-                            if phase < 146
-                            else (
-                                ((phase[:34] & 0) | 17179749651)
-                                if phase < 147
-                                else ((phase[:34] & 0) | 17179852802)
-                            )
-                        )
-                    )
-                    if phase < 149
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 17179804016)
-                                if phase < 150
-                                else ((phase[:34] & 0) | 75077)
-                            )
-                            if phase < 151
-                            else (
-                                ((phase[:34] & 0) | 35103)
-                                if phase < 152
-                                else ((phase[:34] & 0) | 95078)
-                            )
-                        )
-                        if phase < 153
-                        else (
-                            (
-                                ((phase[:34] & 0) | 39878)
-                                if phase < 154
-                                else ((phase[:34] & 0) | 81318)
-                            )
-                            if phase < 156
-                            else (
-                                ((phase[:34] & 0) | 115913)
-                                if phase < 157
-                                else ((phase[:34] & 0) | 75274)
-                            )
-                        )
-                    )
-                )
-                if phase < 158
-                else (
-                    (
-                        (
-                            (
-                                ((phase[:34] & 0) | 130275)
-                                if phase < 159
-                                else ((phase[:34] & 0) | 17179861522)
-                            )
-                            if phase < 160
-                            else (
-                                ((phase[:34] & 0) | 17179791012)
-                                if phase < 161
-                                else ((phase[:34] & 0) | 17179758700)
-                            )
-                        )
-                        if phase < 163
-                        else (
-                            (
-                                ((phase[:34] & 0) | 17179849873)
-                                if phase < 164
-                                else ((phase[:34] & 0) | 17179865674)
-                            )
-                            if phase < 165
-                            else (
-                                ((phase[:34] & 0) | 17179809439)
-                                if phase < 166
-                                else ((phase[:34] & 0) | 17179768744)
-                            )
-                        )
-                    )
-                    if phase < 167
-                    else (
-                        (
-                            (
-                                ((phase[:34] & 0) | 46793)
-                                if phase < 168
-                                else ((phase[:34] & 0) | 17179807011)
-                            )
-                            if phase < 170
-                            else (
-                                ((phase[:34] & 0) | 9552)
-                                if phase < 171
-                                else ((phase[:34] & 0) | 17179722852)
-                            )
-                        )
-                        if phase < 172
-                        else (
-                            (
-                                ((phase[:34] & 0) | 17179689567)
-                                if phase < 173
-                                else ((phase[:34] & 0) | 17179827465)
-                            )
-                            if phase < 174
-                            else (
-                                ((phase[:34] & 0) | 56885)
-                                if phase < 175
-                                else ((phase[:34] & 0) | 72035)
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
-    expected_y_valid = (
-        (
-            (
-                (((phase[:1] & 0) | 0) if phase < 1 else ((phase[:1] & 0) | 1))
-                if phase < 77
-                else (
-                    ((phase[:1] & 0) | 0)
-                    if phase < 109
-                    else (
-                        ((phase[:1] & 0) | 1) if phase < 112 else ((phase[:1] & 0) | 0)
-                    )
-                )
-            )
-            if phase < 114
-            else (
-                (
-                    ((phase[:1] & 0) | 1)
-                    if phase < 120
-                    else (
-                        ((phase[:1] & 0) | 0) if phase < 121 else ((phase[:1] & 0) | 1)
-                    )
-                )
-                if phase < 127
-                else (
-                    ((phase[:1] & 0) | 0)
-                    if phase < 128
-                    else (
-                        ((phase[:1] & 0) | 1) if phase < 134 else ((phase[:1] & 0) | 0)
-                    )
-                )
-            )
-        )
-        if phase < 135
-        else (
-            (
-                (
-                    ((phase[:1] & 0) | 1)
-                    if phase < 141
-                    else (
-                        ((phase[:1] & 0) | 0) if phase < 142 else ((phase[:1] & 0) | 1)
-                    )
-                )
-                if phase < 148
-                else (
-                    ((phase[:1] & 0) | 0)
-                    if phase < 149
-                    else (
-                        ((phase[:1] & 0) | 1) if phase < 155 else ((phase[:1] & 0) | 0)
-                    )
-                )
-            )
-            if phase < 156
-            else (
-                (
-                    ((phase[:1] & 0) | 1)
-                    if phase < 162
-                    else (
-                        ((phase[:1] & 0) | 0) if phase < 163 else ((phase[:1] & 0) | 1)
-                    )
-                )
-                if phase < 169
-                else (
-                    ((phase[:1] & 0) | 0)
-                    if phase < 170
-                    else (
-                        ((phase[:1] & 0) | 1) if phase < 176 else ((phase[:1] & 0) | 0)
-                    )
-                )
-            )
-        )
-    )
+    expected_y_out = scenario.expected_y_out
+    expected_y_valid = scenario.expected_y_valid
 
     @rule
     def check_and_advance():
