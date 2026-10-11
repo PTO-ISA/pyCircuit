@@ -1,7 +1,27 @@
 """Regular-clock traffic_lights_ce_pyc scenario; original physical-control oracles remain."""
 
 from example_traffic_lights_ce_pyc.traffic_lights_ce_pyc import TopTrafficLights
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, struct, table
+
+
+@struct
+class Scenario:
+    end: bits[64]
+    go: bits[1]
+    emergency: bits[1]
+    expected_ew_bcd: bits[8]
+    expected_ns_bcd: bits[8]
+    expected_ew_red: bits[1]
+    expected_ew_yellow: bits[1]
+    expected_ew_green: bits[1]
+    expected_ns_red: bits[1]
+    expected_ns_yellow: bits[1]
+    expected_ns_green: bits[1]
+
+
+@struct
+class Scenarios:
+    rows: table[55, Scenario]
 
 
 @rule
@@ -12,478 +32,82 @@ def advance(phase):
 @system
 def ExerciseTopTrafficLights():  # noqa: N802
     phase: bits[64] = 0
-    go = (
-        (
-            (
-                (((phase[:1] & 0) | 1) if phase < 91 else ((phase[:1] & 0) | 0))
-                if phase < 96
-                else (((phase[:1] & 0) | 1) if phase < 117 else ((phase[:1] & 0) | 0))
-            )
-            if phase < 122
-            else (
-                (((phase[:1] & 0) | 1) if phase < 126 else ((phase[:1] & 0) | 0))
-                if phase < 131
-                else (((phase[:1] & 0) | 1) if phase < 155 else ((phase[:1] & 0) | 0))
-            )
-        )
-        if phase < 160
-        else (
-            (
-                (((phase[:1] & 0) | 1) if phase < 164 else ((phase[:1] & 0) | 0))
-                if phase < 169
-                else (((phase[:1] & 0) | 1) if phase < 178 else ((phase[:1] & 0) | 0))
-            )
-            if phase < 179
-            else (
-                (((phase[:1] & 0) | 1) if phase < 184 else ((phase[:1] & 0) | 0))
-                if phase < 185
-                else (((phase[:1] & 0) | 1) if phase < 207 else ((phase[:1] & 0) | 0))
-            )
-        )
+
+    # fmt: off
+    scenarios = Scenarios(
+        rows=(
+            Scenario(end=3, go=1, expected_ew_bcd=89, expected_ns_bcd=90, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=7, go=1, expected_ew_bcd=88, expected_ns_bcd=89, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=11, go=1, expected_ew_bcd=73, expected_ns_bcd=88, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=15, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=19, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ns_red=1),
+            Scenario(end=23, go=1, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_yellow=1, expected_ns_red=1),
+            Scenario(end=27, go=1, expected_ew_bcd=89, expected_ns_bcd=88, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=31, go=1, expected_ew_bcd=88, expected_ns_bcd=73, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=35, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=39, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_red=1),
+            Scenario(end=43, go=1, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_red=1, expected_ns_yellow=1),
+            Scenario(end=47, go=1, expected_ew_bcd=89, expected_ns_bcd=90, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=51, go=1, expected_ew_bcd=88, expected_ns_bcd=89, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=55, go=1, expected_ew_bcd=73, expected_ns_bcd=88, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=59, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=63, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ns_red=1),
+            Scenario(end=67, go=1, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_yellow=1, expected_ns_red=1),
+            Scenario(end=71, go=1, expected_ew_bcd=89, expected_ns_bcd=88, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=75, go=1, expected_ew_bcd=88, expected_ns_bcd=73, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=79, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=83, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_red=1),
+            Scenario(end=87, go=1, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_red=1, expected_ns_yellow=1),
+            Scenario(end=90, go=1, expected_ew_bcd=89, expected_ns_bcd=90, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=95, expected_ew_bcd=89, expected_ns_bcd=90, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=96, go=1, expected_ew_bcd=89, expected_ns_bcd=90, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=100, go=1, expected_ew_bcd=88, expected_ns_bcd=89, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=104, go=1, expected_ew_bcd=73, expected_ns_bcd=88, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=108, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=112, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ns_red=1),
+            Scenario(end=116, go=1, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_yellow=1, expected_ns_red=1),
+            Scenario(end=121, expected_ew_bcd=89, expected_ns_bcd=88, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=125, go=1, expected_ew_bcd=89, expected_ns_bcd=88, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=130, expected_ew_bcd=88, expected_ns_bcd=73, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=138, go=1, emergency=1, expected_ew_bcd=136, expected_ns_bcd=136, expected_ew_red=1, expected_ns_red=1),
+            Scenario(end=142, go=1, expected_ew_bcd=88, expected_ns_bcd=73, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=146, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=150, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_red=1),
+            Scenario(end=154, go=1, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_red=1, expected_ns_yellow=1),
+            Scenario(end=159, expected_ew_bcd=89, expected_ns_bcd=90, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=163, go=1, expected_ew_bcd=89, expected_ns_bcd=90, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=168, expected_ew_bcd=88, expected_ns_bcd=89, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=172, go=1, expected_ew_bcd=88, expected_ns_bcd=89, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=176, go=1, expected_ew_bcd=73, expected_ns_bcd=88, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=177, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=178, emergency=1, expected_ew_bcd=136, expected_ns_bcd=136, expected_ew_red=1, expected_ns_red=1),
+            Scenario(end=181, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_green=1, expected_ns_red=1),
+            Scenario(end=183, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ns_red=1),
+            Scenario(end=184, expected_ew_bcd=73, expected_ns_bcd=72, expected_ns_red=1),
+            Scenario(end=186, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ns_red=1),
+            Scenario(end=190, go=1, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_yellow=1, expected_ns_red=1),
+            Scenario(end=194, go=1, expected_ew_bcd=89, expected_ns_bcd=88, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=198, go=1, expected_ew_bcd=88, expected_ns_bcd=73, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=202, go=1, expected_ew_bcd=73, expected_ns_bcd=72, expected_ew_red=1, expected_ns_green=1),
+            Scenario(end=206, go=1, expected_ew_bcd=72, expected_ns_bcd=73, expected_ew_red=1),
+            Scenario(end=18446744073709551615, expected_ew_bcd=72, expected_ns_bcd=72, expected_ew_red=1, expected_ns_yellow=1),
+        ),
     )
-    emergency = (
-        (((phase[:1] & 0) | 0) if phase < 131 else ((phase[:1] & 0) | 1))
-        if phase < 139
-        else (
-            ((phase[:1] & 0) | 0)
-            if phase < 178
-            else (((phase[:1] & 0) | 1) if phase < 179 else ((phase[:1] & 0) | 0))
-        )
-    )
+    # fmt: on
+    position, found = scenarios.rows.first(where=lambda row: phase <= row.end)
+    scenario = scenarios.rows[position]
+    go = scenario.go
+    emergency = scenario.emergency
     dut = TopTrafficLights(go, emergency)
 
-    expected_ew_bcd = (
-        (
-            (
-                (
-                    (((phase[:8] & 0) | 89) if phase < 4 else ((phase[:8] & 0) | 88))
-                    if phase < 8
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 12
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 16
-                            else ((phase[:8] & 0) | 73)
-                        )
-                    )
-                )
-                if phase < 20
-                else (
-                    (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 24
-                        else (
-                            ((phase[:8] & 0) | 89)
-                            if phase < 28
-                            else ((phase[:8] & 0) | 88)
-                        )
-                    )
-                    if phase < 32
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 36
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 44
-                            else ((phase[:8] & 0) | 89)
-                        )
-                    )
-                )
-            )
-            if phase < 48
-            else (
-                (
-                    (((phase[:8] & 0) | 88) if phase < 52 else ((phase[:8] & 0) | 73))
-                    if phase < 56
-                    else (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 60
-                        else (
-                            ((phase[:8] & 0) | 73)
-                            if phase < 64
-                            else ((phase[:8] & 0) | 72)
-                        )
-                    )
-                )
-                if phase < 68
-                else (
-                    (
-                        ((phase[:8] & 0) | 89)
-                        if phase < 72
-                        else (
-                            ((phase[:8] & 0) | 88)
-                            if phase < 76
-                            else ((phase[:8] & 0) | 73)
-                        )
-                    )
-                    if phase < 80
-                    else (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 88
-                        else (
-                            ((phase[:8] & 0) | 89)
-                            if phase < 97
-                            else ((phase[:8] & 0) | 88)
-                        )
-                    )
-                )
-            )
-        )
-        if phase < 101
-        else (
-            (
-                (
-                    (((phase[:8] & 0) | 73) if phase < 105 else ((phase[:8] & 0) | 72))
-                    if phase < 109
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 113
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 117
-                            else ((phase[:8] & 0) | 89)
-                        )
-                    )
-                )
-                if phase < 126
-                else (
-                    (
-                        ((phase[:8] & 0) | 88)
-                        if phase < 131
-                        else (
-                            ((phase[:8] & 0) | 136)
-                            if phase < 139
-                            else ((phase[:8] & 0) | 88)
-                        )
-                    )
-                    if phase < 143
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 147
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 155
-                            else ((phase[:8] & 0) | 89)
-                        )
-                    )
-                )
-            )
-            if phase < 164
-            else (
-                (
-                    (((phase[:8] & 0) | 88) if phase < 173 else ((phase[:8] & 0) | 73))
-                    if phase < 177
-                    else (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 178
-                        else (
-                            ((phase[:8] & 0) | 136)
-                            if phase < 179
-                            else ((phase[:8] & 0) | 72)
-                        )
-                    )
-                )
-                if phase < 182
-                else (
-                    (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 187
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 191
-                            else ((phase[:8] & 0) | 89)
-                        )
-                    )
-                    if phase < 195
-                    else (
-                        ((phase[:8] & 0) | 88)
-                        if phase < 199
-                        else (
-                            ((phase[:8] & 0) | 73)
-                            if phase < 203
-                            else ((phase[:8] & 0) | 72)
-                        )
-                    )
-                )
-            )
-        )
-    )
-    expected_ns_bcd = (
-        (
-            (
-                (
-                    (((phase[:8] & 0) | 90) if phase < 4 else ((phase[:8] & 0) | 89))
-                    if phase < 8
-                    else (
-                        ((phase[:8] & 0) | 88)
-                        if phase < 12
-                        else (
-                            ((phase[:8] & 0) | 73)
-                            if phase < 16
-                            else ((phase[:8] & 0) | 72)
-                        )
-                    )
-                )
-                if phase < 24
-                else (
-                    (
-                        ((phase[:8] & 0) | 88)
-                        if phase < 28
-                        else (
-                            ((phase[:8] & 0) | 73)
-                            if phase < 32
-                            else ((phase[:8] & 0) | 72)
-                        )
-                    )
-                    if phase < 36
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 40
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 44
-                            else ((phase[:8] & 0) | 90)
-                        )
-                    )
-                )
-            )
-            if phase < 48
-            else (
-                (
-                    (((phase[:8] & 0) | 89) if phase < 52 else ((phase[:8] & 0) | 88))
-                    if phase < 56
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 60
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 68
-                            else ((phase[:8] & 0) | 88)
-                        )
-                    )
-                )
-                if phase < 72
-                else (
-                    (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 76
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 80
-                            else ((phase[:8] & 0) | 73)
-                        )
-                    )
-                    if phase < 84
-                    else (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 88
-                        else (
-                            ((phase[:8] & 0) | 90)
-                            if phase < 97
-                            else ((phase[:8] & 0) | 89)
-                        )
-                    )
-                )
-            )
-        )
-        if phase < 101
-        else (
-            (
-                (
-                    (((phase[:8] & 0) | 88) if phase < 105 else ((phase[:8] & 0) | 73))
-                    if phase < 109
-                    else (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 117
-                        else (
-                            ((phase[:8] & 0) | 88)
-                            if phase < 126
-                            else ((phase[:8] & 0) | 73)
-                        )
-                    )
-                )
-                if phase < 131
-                else (
-                    (
-                        ((phase[:8] & 0) | 136)
-                        if phase < 139
-                        else (
-                            ((phase[:8] & 0) | 73)
-                            if phase < 143
-                            else ((phase[:8] & 0) | 72)
-                        )
-                    )
-                    if phase < 147
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 151
-                        else (
-                            ((phase[:8] & 0) | 72)
-                            if phase < 155
-                            else ((phase[:8] & 0) | 90)
-                        )
-                    )
-                )
-            )
-            if phase < 164
-            else (
-                (
-                    (((phase[:8] & 0) | 89) if phase < 173 else ((phase[:8] & 0) | 88))
-                    if phase < 177
-                    else (
-                        ((phase[:8] & 0) | 73)
-                        if phase < 178
-                        else (
-                            ((phase[:8] & 0) | 136)
-                            if phase < 179
-                            else ((phase[:8] & 0) | 73)
-                        )
-                    )
-                )
-                if phase < 182
-                else (
-                    (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 191
-                        else (
-                            ((phase[:8] & 0) | 88)
-                            if phase < 195
-                            else ((phase[:8] & 0) | 73)
-                        )
-                    )
-                    if phase < 199
-                    else (
-                        ((phase[:8] & 0) | 72)
-                        if phase < 203
-                        else (
-                            ((phase[:8] & 0) | 73)
-                            if phase < 207
-                            else ((phase[:8] & 0) | 72)
-                        )
-                    )
-                )
-            )
-        )
-    )
-    expected_ew_red = (
-        (
-            (((phase[:1] & 0) | 0) if phase < 24 else ((phase[:1] & 0) | 1))
-            if phase < 44
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 68
-                else (((phase[:1] & 0) | 1) if phase < 88 else ((phase[:1] & 0) | 0))
-            )
-        )
-        if phase < 117
-        else (
-            (((phase[:1] & 0) | 1) if phase < 155 else ((phase[:1] & 0) | 0))
-            if phase < 178
-            else (
-                ((phase[:1] & 0) | 1)
-                if phase < 179
-                else (((phase[:1] & 0) | 0) if phase < 191 else ((phase[:1] & 0) | 1))
-            )
-        )
-    )
-    expected_ew_yellow = (
-        (
-            (((phase[:1] & 0) | 0) if phase < 20 else ((phase[:1] & 0) | 1))
-            if phase < 24
-            else (((phase[:1] & 0) | 0) if phase < 64 else ((phase[:1] & 0) | 1))
-        )
-        if phase < 68
-        else (
-            (((phase[:1] & 0) | 0) if phase < 113 else ((phase[:1] & 0) | 1))
-            if phase < 117
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 187
-                else (((phase[:1] & 0) | 1) if phase < 191 else ((phase[:1] & 0) | 0))
-            )
-        )
-    )
-    expected_ew_green = (
-        (
-            (((phase[:1] & 0) | 1) if phase < 16 else ((phase[:1] & 0) | 0))
-            if phase < 44
-            else (
-                ((phase[:1] & 0) | 1)
-                if phase < 60
-                else (((phase[:1] & 0) | 0) if phase < 88 else ((phase[:1] & 0) | 1))
-            )
-        )
-        if phase < 109
-        else (
-            (((phase[:1] & 0) | 0) if phase < 155 else ((phase[:1] & 0) | 1))
-            if phase < 178
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 179
-                else (((phase[:1] & 0) | 1) if phase < 182 else ((phase[:1] & 0) | 0))
-            )
-        )
-    )
-    expected_ns_red = (
-        (
-            (((phase[:1] & 0) | 1) if phase < 24 else ((phase[:1] & 0) | 0))
-            if phase < 44
-            else (
-                ((phase[:1] & 0) | 1)
-                if phase < 68
-                else (((phase[:1] & 0) | 0) if phase < 88 else ((phase[:1] & 0) | 1))
-            )
-        )
-        if phase < 117
-        else (
-            (((phase[:1] & 0) | 0) if phase < 131 else ((phase[:1] & 0) | 1))
-            if phase < 139
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 155
-                else (((phase[:1] & 0) | 1) if phase < 191 else ((phase[:1] & 0) | 0))
-            )
-        )
-    )
-    expected_ns_yellow = (
-        (
-            (((phase[:1] & 0) | 0) if phase < 40 else ((phase[:1] & 0) | 1))
-            if phase < 44
-            else (((phase[:1] & 0) | 0) if phase < 84 else ((phase[:1] & 0) | 1))
-        )
-        if phase < 88
-        else (
-            (((phase[:1] & 0) | 0) if phase < 151 else ((phase[:1] & 0) | 1))
-            if phase < 155
-            else (((phase[:1] & 0) | 0) if phase < 207 else ((phase[:1] & 0) | 1))
-        )
-    )
-    expected_ns_green = (
-        (
-            (((phase[:1] & 0) | 0) if phase < 24 else ((phase[:1] & 0) | 1))
-            if phase < 36
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 68
-                else (((phase[:1] & 0) | 1) if phase < 80 else ((phase[:1] & 0) | 0))
-            )
-        )
-        if phase < 117
-        else (
-            (
-                ((phase[:1] & 0) | 1)
-                if phase < 131
-                else (((phase[:1] & 0) | 0) if phase < 139 else ((phase[:1] & 0) | 1))
-            )
-            if phase < 147
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 191
-                else (((phase[:1] & 0) | 1) if phase < 203 else ((phase[:1] & 0) | 0))
-            )
-        )
-    )
+    expected_ew_bcd = scenario.expected_ew_bcd
+    expected_ns_bcd = scenario.expected_ns_bcd
+    expected_ew_red = scenario.expected_ew_red
+    expected_ew_yellow = scenario.expected_ew_yellow
+    expected_ew_green = scenario.expected_ew_green
+    expected_ns_red = scenario.expected_ns_red
+    expected_ns_yellow = scenario.expected_ns_yellow
+    expected_ns_green = scenario.expected_ns_green
 
     @rule
     def check_and_advance():

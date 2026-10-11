@@ -1,6 +1,6 @@
 # Dodgeball game
 
-`DodgeballGame(RST_BTN, START, left, right)` uses four `ac.u1` inputs and returns
+`DodgeballGame(RST_BTN, START, left, right)` uses four `bits[1]` inputs and returns
 one 50-bit `GameResult`. Field order and types match the original output order:
 
 | Field | Type |
@@ -59,7 +59,7 @@ unit closure with `DodgeballGame` selected, then emit C++ or Verilog from the sa
 verified final artifact. Host testbenches drive physical clock/reset levels
 through the typed DUT and shared SystemRunner with a finite runner limit.
 This fixed source unrolls three declared objects; it establishes no general
-object collection, source system, recursive elaboration or VGA display adapter.
+object collection, recursive elaboration or VGA display adapter.
 
 ## Verified implementation
 
@@ -67,24 +67,92 @@ The full public flow passed 8005 Work frames with native workers 1 and 2 and Ver
 
 See [actual generated excerpts](GENERATED.md) and [verification inputs](GENERATED.json).
 
-## Generated system usage
+## Scenario bench
 
-`bench.py` exports `example_dodgeball_game.bench.ExerciseDodgeballGame`. The explicit source
-closure is `dodgeball_game.py`, then `bench.py`; link the system root and emit either
-backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
-`pycircuit run examples/dodgeball_game --target cpp --cycles 4001` or select
-`--target verilog`. Each managed cycle uses the same stimulus in its low/high
-sampling pair and advances fixture state on the generated edge.
+`bench.py` exports `example_dodgeball_game.bench.ExerciseDodgeballGame` and still runs
+4,001 complete cycles. Interval data reduces source repetition; it does not skip
+simulation epochs, add an interval counter or change the u64 phase update.
 
-All 4000 original active data edges plus the final committed-state observation
-run for 4001 cycles. Every VGA and debug field is checked, using the original
-independent pixel-count formula and closed-form object-history oracle. The
-initial generated Reset supplies the original initial state. The two later
-physical reset assertions were at held clock levels and remain verified by
-the original driver; their absence creates no extra data/reset edge here.
+Only five expanded debug expectations change: `j`, player x and the three
+object y fields. They share 123 maximal constant intervals with inclusive
+`end: bits[64]` endpoints, selected by the existing `Table.first` operation.
+The first interval covers phases 0–47; the final interval covers 3984 through
+UINT64_MAX. All other thirteen input/expected expressions remain unchanged.
 
-The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
-models remain unchanged. Known held-level and physical-reset scenarios remain
-with those module-boundary drivers. Where present, their four-state and
-failure/discard matrices remain separate coverage. This regular-clock system
-does not claim complete equivalence to those physical scenarios.
+All 20,005 changed field values are preserved; the independent reader also
+compares the complete 72,018-field original scenario. Long intervals ending at
+911, 975 and 1039 retain their actual data instead of assuming a uniform period.
+The reset-button sequences still advance j from 27 to 28 and 28 to 29 while
+retaining object y, exactly as the original write ordering requires. Player
+boundaries, both-held buttons, five-/four-bit wrapping, HS transitions and the
+blue pixel at phase 3849 retain their original checks.
+
+The source retains its original DUT calls, guards, assertions, messages, logs
+and check-before-advance registration. Independent source proof verifies exact
+interval endpoints, typed payloads, complete known-u64 coverage and the remaining
+AST. Arbitrary X/Z phase equivalence is not claimed; the closed phase retains
+its known initialization and increment. `found` uses the existing query binding
+and adds no control or logging.
+
+Twenty complete native/RTL system traces preserve all 112,028 observations and the
+terminal result, including native workers 1/2, after excluding only changed
+source-position metadata. Regular-clock system tests remain distinct from the
+original physical clock/reset histories.
+
+Both versions pass the two existing module/system CTests. The unchanged physical
+driver and RTL retain 8,005 known Work samples and exact HISTORY 125 122 15 2.
+Collision/game-over and the full vertical raster remain outside exhaustive
+coverage, and this example has no existing RTL four-state macro. No new
+four-state result is claimed.
+
+See [generated excerpts and verification inputs](GENERATED.md).
+
+## Local cost comparison
+
+The source shrinks from 1,268 lines / 45,943 bytes to
+271 lines / 21,706 bytes. Measurements use the same checkout-built
+compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
+build and first-run values are single serial observations; warm medians use
+three alternating full-length pairs. Every fresh process includes initialization.
+These local results do not guarantee performance on other platforms or
+optimization levels.
+
+| Measurement | Expanded expressions | Interval Table |
+| --- | ---: | ---: |
+| Compile bench | 0.973 s | 0.588 s |
+| Link system | 1.618 s | 1.136 s |
+| Emit C++ | 1.495 s | 1.045 s |
+| Emit Verilog | 1.242 s | 0.882 s |
+| Build C++ | 1.065 s | 0.969 s |
+| Build Verilog | 1.451 s | 1.604 s |
+| First measured full C++ run | 4.823 s | 3.256 s |
+| First measured full Verilog run | 1.341 s | 1.393 s |
+| Warm C++ median, one worker | 4.644236 s | 2.936177 s |
+| Warm Verilog median | 1.069004 s | 1.087912 s |
+| Warm native peak RSS median | 3.36 MiB | 2.81 MiB |
+
+| Artifact size | Expanded expressions | Interval Table |
+| --- | ---: | ---: |
+| Final IR | 6,826,447 bytes | 4,612,128 bytes |
+| Generated C++ total | 1,619,153 bytes | 1,394,184 bytes |
+| Generated Verilog total | 316,383 bytes | 265,103 bytes |
+
+Recorded first-run regressions: RTL 1.341 → 1.393 s.
+They remain separate from warm medians; one observation does not identify a cause.
+
+Warm RTL median increases from 1.069004 to 1.087912 s (1.77%, about 18.91 ms).
+Two paired runs are slower and one faster. RTL build also increases from 1.451
+to 1.604 s; the first RTL run increases from 1.341 to 1.393 s. These observed costs
+remain explicit alongside smaller source/artifacts and improved native runs.
+They do not establish a cause or a universal regression.
+
+Three warm pairs describe these local runs; they do not establish causes or
+performance across platforms.
+Complete source-import/transformed artifacts reproduce the published units, and
+the public and measured builds share identical final IR and generated outputs.
+DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
+
+```sh
+pycircuit run examples/dodgeball_game --target cpp --cycles 4001
+pycircuit run examples/dodgeball_game --target verilog --cycles 4001
+```
