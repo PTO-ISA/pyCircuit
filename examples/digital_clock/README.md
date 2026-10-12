@@ -1,7 +1,6 @@
 # Digital clock
 
-This example implements the `applications/digital_clock` design's
-fixed 50,000,000-edge divider, 24-hour time and raw setting buttons. Its generated native and RTL models execute the original divider timing;
+This clock uses a fixed 50,000,000-edge divider, 24-hour time and raw setting buttons. Its generated native and RTL models execute the original divider timing;
 a short performance pilot alone does not establish historical-root acceptance.
 
 `DigitalClock(btn_set: ac.u1, btn_plus: ac.u1, btn_minus: ac.u1)` owns six
@@ -52,70 +51,153 @@ checkpoints count printed samples; the full checker must separately assert
 every executed epoch and its exact final rising-edge count. Generated artifacts
 and execution receipts are maintained separately from this source description.
 
-## Verified execution
+## Scenario systems
 
-The full native worker1, native worker2 and Verilator runs each check
-200,000,333epochs and100,000,000real rising edges: two original50M-edge periods.
-They verify midnight rollover, setting-mode tick suppression and blink toggling,
-including leaving setting mode on the second tick. Each trace contains545numbered
-checkpoints and one final count summary(546WORK rows), not merely546checkedepochs.
-Recorded full command durations are33.86s,32.78s and26.93s on this machine.
+`bench.py` contains two closed systems:
 
-The same published source unit supplies the independent encoder gate:64known
-values and4,032X/Z patterns plus4,032known recoveries in native and Icarus;
-Verilator checks64known values. The main short Icarus test checks332known epochs
-and10X/Z cases. Native checks include discard/retry, failure without sample and
-clock/reset recovery. The historical design has no debug state injection.
+| Root | Purpose | Complete run |
+| --- | --- | --- |
+| `ExerciseDigitalClockSettings` | Raw button editing, wrapping and simultaneous-button priority | 160 cycles / 320 sampling epochs |
+| `ExerciseDigitalClock` | Two full divider periods, midnight rollover and a tick held in setting mode | 100,000,001 cycles / 200,000,002 sampling epochs |
 
-Build Runtime/toolchain and this DUT in Release. The original module verifier
-retains its 626-second command budget. The closed system uses
-`SYSTEM_TIMEOUT_SECONDS 1800`, because its five checks execute at every epoch;
-the full worker-2 run exceeds the module budget. The shared helper defaults the
-system budget to `TIMEOUT_SECONDS` when no separate budget is supplied.
+The minute and second checks share one immutable 64-element `bits[8]` Table.
+The original minute expectations at phases 30–93 and second expectations at
+phases 94–157 are identical literal sequences. Each window has a zero prefix
+and a constant tail of 88 (`0x58`). The table stores those original raw BCD
+patterns directly; it does not recompute the expected values from the DUT.
+
+Full-width phase guards select each prefix, active window and tail. The two
+indices, `(phase - 30)[:6]` and `(phase - 94)[:6]`, stay within the 64-element
+Table even when unsigned subtraction wraps. Guards use the complete u64 phase,
+so higher phase values cannot alias the active windows. This preserves the full
+known-u64 behavior; arbitrary X/Z phase equivalence is not claimed.
+
+All eight fields across the original 160 settings scenarios remain identical.
+The button, hour, mode and blink expressions keep their original form, as do
+the DUT calls, five assertions, five unconditional logs and check-before-advance
+order. The long root and shared advance rule retain their exact source bytes.
+Regular low/high system sampling remains separate from the physical drivers'
+held-level, reset, failure/discard and four-state scenarios.
+
+## Verification
+
+Both the expanded and Table versions pass all three existing CTests with the
+same checkout-built tools and Release configuration:
+
+| Test | Preserved coverage |
+| --- | --- |
+| `digital_clock` | Native workers 1/2 and Verilator each check 200,000,333 epochs and 100,000,000 real rising edges; two ticks, midnight rollover, a tick held while setting, and no pilot mode. The 546 printed WORK rows are sparse checkpoints plus a summary. |
+| `digital_clock_system` | Native workers 1/2 and Verilator each finish 200,000,002 epochs with all five original source checks. This root has no log observations; successful termination and bound executable inputs establish the full duration. |
+| `digital_clock_encoder` | Native and Icarus check 64 known values, 4,032 X/Z patterns and 4,032 known recoveries; Verilator checks the 64 known values. The same gate runs the original main-clock Icarus test with 332 known epochs and ten X/Z cases. |
+
+The settings root is linked separately and produces 1,600 observations plus a
+successful terminal result on native workers 1/2 and RTL. All 24 complete
+first/warm setting traces agree across the two source versions after removing
+only changed source-position metadata. Independent source proof checks every
+field, the full known-u64 tail, protected source bytes and mutation rejection.
+Complete source-import and transformed artifacts reproduce the published units;
+both roots retain final IR and complete C++/Verilog outputs. These results do
+not establish full-catalog, nightly or cross-platform acceptance.
+
+Set the existing CMake environment variable before configuring **and running**
+the tests. The public runner creates nested build trees, which do not inherit
+the outer CMake cache. Fresh nested caches must therefore receive the same explicit Release setting.
 
 ```sh
-cmake -S examples/digital_clock -B /absolute/build/digital_clock -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
-cmake --build /absolute/build/digital_clock --parallel 4
-ctest --test-dir /absolute/build/digital_clock --output-on-failure --no-tests=error
+export PYC_TOOLCHAIN_ROOT=/absolute/pycircuit/install
+export PATH="$PYC_TOOLCHAIN_ROOT/bin:$PATH"
+export CMAKE_BUILD_TYPE=Release
+cmake -S examples/digital_clock -B .pycircuit_out/digital-clock -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PYC_TOOLCHAIN_ROOT"
+cmake --build .pycircuit_out/digital-clock --parallel 4
+ctest --test-dir .pycircuit_out/digital-clock --output-on-failure --no-tests=error
 ```
 
-See [generated output](GENERATED.md) for excerpts from the generated artifacts.
+Use a fresh build directory when setting the environment variable: CMake uses
+it only to initialize a new cache. The module command budget remains 626 seconds,
+the long-system budget 1,800 seconds and the encoder command budget 240 seconds.
+DUT sources, independent oracles, clock divisor, scenario values, cycle counts
+and timeouts remain unchanged.
+See [generated excerpts and verification inputs](GENERATED.md) for the module.
 
-## Generated system usage
+## Run either system
 
-`bench.py` exports the long root `example_digital_clock.bench.ExerciseDigitalClock`
-and the button-editing root `example_digital_clock.bench.ExerciseDigitalClockSettings`. The explicit source
-closure is `digital_clock.py`, then `bench.py`; link the system root and emit either
-backend with the public `pycircuit compile`, `link`, and `emit` flow. Run
-`pycircuit run examples/digital_clock --target cpp --cycles 100000001` or select
-`--target verilog`. Each managed cycle uses the same stimulus in its low/high
-sampling pair and advances fixture state on the generated edge.
+The catalog selects the long root. With the environment above, run it with:
 
-`ExerciseDigitalClockSettings` retains all 159 original short-stream data
-rising-edge button triples and checks 160 regular cycles, including a
-final observation. Fixed expectations come from the independent calendar oracle
-along the resetless trajectory; this covers all hour/minute/second editing
-values and simultaneous-button priority. The separate exhaustive BCD encoder
-oracle remains intact.
+```sh
+pycircuit run examples/digital_clock --target cpp --cycles 100000001
+pycircuit run examples/digital_clock --target verilog --cycles 100000001
+```
 
-The original `driver.cpp`, `rtl_tb.sv`, `config.json`, and independent oracle
-models remain unchanged. Known held-level and physical-reset scenarios remain
-with those module-boundary drivers. Where present, their four-state and
-failure/discard matrices remain separate coverage. This regular-clock system
-does not claim complete equivalence to those physical scenarios.
+Changing that command to `--cycles 160` still selects the long root. To run the
+settings root, use the existing public source-unit commands and generated build:
 
-The selected long system checks all 100,000,000 edges in two complete 50 MHz
-divider periods plus a final observation cycle (`--cycles 100000001`). Its
-closed-form calendar checks initial 23:59:59 entry, midnight rollover, a tick
-held while setting, mode return and colon blink. This is full-duration authored
-coverage. Full native runs with workers 1 and 2 both completed
-200,000,002 epochs with identical executable, runtime and generated-input
-hashes before and after execution. Their receipts are recorded in
-`docs/gates/logs/20261008-pr271-digital-clock-full/receipt.json`.
-The full Verilator system run also completed 200,000,002 epochs with all five
-source checks and 12 unchanged execution inputs, in 50.567 seconds of simulation.
-The original module RTL result above remains separate physical-scenario evidence.
-The additional settings root
-needs 160 cycles when selected as the explicit link top. Long execution remains
-in nightly; a short generated run must not be reported as this full-duration result.
+```sh
+out="$PWD/.pycircuit_out/clock-settings"
+pycircuit compile -c examples/digital_clock/digital_clock.py \
+  --source-root examples/digital_clock --package-prefix example_digital_clock \
+  -o "$out/units/digital_clock"
+pycircuit compile -c examples/digital_clock/bench.py \
+  --source-root examples/digital_clock --package-prefix example_digital_clock \
+  -I "$out/units/digital_clock" -o "$out/units/bench"
+pycircuit link "$out/units/digital_clock" "$out/units/bench" \
+  --top example_digital_clock.bench.ExerciseDigitalClockSettings -o "$out/settings.ac"
+for target in cpp verilog; do
+  pycircuit emit "$out/settings.ac" --target "$target" -o "$out/$target"
+  cmake -S "$out/$target" -B "$out/build-$target" -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PYC_TOOLCHAIN_ROOT"
+  cmake --build "$out/build-$target" --target pycircuit_sim --parallel 4
+done
+"$out/build-cpp/bin/pycircuit_sim" --cycles 160 --workers 1
+"$out/build-cpp/bin/pycircuit_sim" --cycles 160 --workers 2
+"$out/build-verilog/bin/pycircuit_sim" +cycles=160
+```
+
+## Local cost comparison
+
+The bench shrinks from 727 lines / 25,564 bytes to 253 lines / 8,665 bytes.
+Measurements below use the same compiler and Release settings on one machine.
+Bench compilation includes both system definitions; link, emit, build and runtime
+rows select the settings root. Stage and first-run costs are single serial
+observations. Warm values are medians of three alternating complete 160-cycle
+runs per version, each in a fresh process. These brief runs do not establish
+performance across workloads or platforms.
+
+| Measurement | Expanded expressions | Shared sequence |
+| --- | ---: | ---: |
+| Compile whole bench unit | 0.600656 s | 0.338999 s |
+| Link settings | 1.005927 s | 0.575888 s |
+| Emit C++ | 0.920965 s | 0.541200 s |
+| Emit Verilog | 0.770153 s | 0.444084 s |
+| Build C++ | 1.617890 s | 1.198993 s |
+| Build Verilog | 1.734965 s | 1.639034 s |
+| First native run, one worker | 0.389150 s | 0.738522 s |
+| First native run, two workers | 0.013732 s | 0.013228 s |
+| First RTL run | 0.265943 s | 0.280843 s |
+| Warm native, one worker median | 0.013359 s | 0.013674 s |
+| Warm native, one worker peak RSS median | 1.73 MiB | 1.70 MiB |
+| Warm native, two workers median | 0.013566 s | 0.013547 s |
+| Warm native, two workers peak RSS median | 1.80 MiB | 1.77 MiB |
+| Warm RTL median | 0.005440 s | 0.005306 s |
+| Warm RTL peak RSS median | 1.67 MiB | 1.62 MiB |
+
+| Artifact size | Expanded expressions | Shared sequence |
+| --- | ---: | ---: |
+| Settings final IR | 3,883,066 bytes | 2,030,342 bytes |
+| Settings generated C++ total | 1,044,939 bytes | 705,989 bytes |
+| Settings generated Verilog total | 187,480 bytes | 117,867 bytes |
+| Settings bench.hpp code | 908,076 bytes | 568,483 bytes |
+| Settings bench.v code | 146,693 bytes | 76,681 bytes |
+| Long root final IR | 3,883,061 bytes | 2,030,336 bytes |
+| Long root generated C++ total | 1,034,007 bytes | 695,072 bytes |
+| Long root generated Verilog total | 178,586 bytes | 109,013 bytes |
+| Long root bench.hpp code | 901,843 bytes | 562,265 bytes |
+| Long root bench.v code | 144,154 bytes | 74,182 bytes |
+
+The first one-worker native run is 89.78% slower and the first RTL run is
+5.60% slower in these single observations. The warm one-worker native median
+increases by 2.36%; all three paired runs are slower. The measurements do not
+identify the causes. Smaller source, IR and generated code therefore do not
+establish a runtime speedup.
+
+The long-root runs above are full acceptance checks, not a repeated performance matrix. No shortened long-root result is used.
