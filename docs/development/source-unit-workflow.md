@@ -52,6 +52,20 @@ dependencies. They do not admit imported Methods or change publication/final
 hardware verification. See the [summary contract](../rfcs/serial-rule-method/publication-summary.md)
 for fields, scopes and the remaining header-closure obligations.
 
+Native module imports require an explicit `semantic_kind`. Hardware imports
+carry `dependency_summary`; transaction imports carry `transaction_summary`.
+The two summaries are mutually exclusive, and transaction imports cannot claim
+primitive behavior. Untagged imports are rejected. Hardware dependency analysis
+rejects transaction imports throughout the actual instance closure, including
+result-free children; final package checking also rejects unused transaction
+imports. Native transaction declaration verification does not yet enable
+independent Method source publication or execution.
+
+Importer-local signatures are ordinary declaration attributes. They are not
+temporary published imports and do not acquire dependency authority. The
+completed real module is still verified before replacing the captured source
+or publishing outputs.
+
 Record simplification preserves the declared result type of every projection.
 If an equivalent aggregate carries different source provenance and no exactly
 typed replacement exists, the pass retains the verified projection. Fixed-bit

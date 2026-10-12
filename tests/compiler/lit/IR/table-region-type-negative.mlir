@@ -315,7 +315,7 @@ module {
 #other_w = #ac.static_expr<{kind = "reference", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @other, name = "W"}}>
 !formal_table = !ac.table<[#w3], !ac.bits<#top_w>>
 module {
-  "ac.module.import"() {sym_name = "other", source_owner = {package = "", path = "other.py"}, parameters = [{name = "W", type = !ac.math_int}], type_parameters = [], function_type = () -> (), input_names = [], output_names = [], dependency_summary = []} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "other", source_owner = {package = "", path = "other.py"}, parameters = [{name = "W", type = !ac.math_int}], type_parameters = [], function_type = () -> (), input_names = [], output_names = [], dependency_summary = []} : () -> ()
   "ac.module"() ({
   ^bb0(%a: !formal_table):
     // expected-error @+1 {{requires isolated single block with matching scalar arguments and ac.yield}}

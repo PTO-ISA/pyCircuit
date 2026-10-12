@@ -205,7 +205,8 @@ TEST_F(HardwareSourceChecksTest, DefinitionValidationNeedsNoProviderBody) {
   build();
   builder.setInsertionPointToEnd(package->getBody());
   op(ac::ModuleImportOp::getOperationName(), {}, {},
-     {field("sym_name", builder.getStringAttr("Provider")),
+     {field("semantic_kind", builder.getStringAttr("hardware")),
+      field("sym_name", builder.getStringAttr("Provider")),
       field("source_owner",
             dict({field("package", builder.getStringAttr("")),
                   field("path", builder.getStringAttr("provider.py"))})),

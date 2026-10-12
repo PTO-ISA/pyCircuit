@@ -23,7 +23,7 @@
 !addr = !ac.bits<#addr_width>
 !strb = !ac.bits<#lanes>
 module {
-  "ac.module.import"() {sym_name = "memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !addr, !b1, !addr, !ac.type_param<@memory, "T">, !strb) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !addr, !b1, !addr, !ac.type_param<@memory, "T">, !strb) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %raddr: !b4, %wvalid: !b1, %waddr: !b4, %wstrb: !b1):
     // expected-error @+1 {{byte_mem feedback requires multiple Work samples}}

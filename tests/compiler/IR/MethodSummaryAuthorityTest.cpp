@@ -6,6 +6,7 @@
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/raw_ostream.h"
@@ -308,6 +309,84 @@ protected:
     return builder.getDictionaryAttr(
         {builder.getNamedAttr("site", site),
          builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
+  }
+
+  // Obtain a bodyless transaction declaration from real verified native IR,
+  // then remove the provider. The summary never comes from a hand-built oracle.
+  mlir::OwningOpRef<mlir::ModuleOp> importFixture(bool zeroOutputs = false) {
+    auto file = parse();
+    if (!file)
+      return {};
+    module(*file, "Root")->erase();
+    auto child = module(*file, "Child");
+    if (zeroOutputs) {
+      auto type = child.getFunctionType();
+      child->setAttr("function_type",
+                     mlir::TypeAttr::get(mlir::FunctionType::get(
+                         &context, type.getInputs(), {})));
+      child->setAttr("output_names", builder.getArrayAttr({}));
+      child.getBody().front().getTerminator()->setOperands({});
+    }
+    SourceMethodSummariesAnalysis analysis(file->getOperation());
+    EXPECT_TRUE(analysis.isValid());
+    auto published = summary(analysis, child);
+    if (!published)
+      return {};
+    mlir::OperationState declaration(child.getLoc(),
+                                     ModuleImportOp::getOperationName());
+    declaration.addAttributes(child->getAttrs());
+    declaration.addAttribute("semantic_kind",
+                             builder.getStringAttr("transactions"));
+    declaration.addAttribute("transaction_summary", published);
+    builder.setInsertionPoint(child);
+    builder.create(declaration);
+    child->erase();
+    return file;
+  }
+
+  ModuleImportOp imported(mlir::ModuleOp file) {
+    return *file.getOps<ModuleImportOp>().begin();
+  }
+
+  ModuleOp emptyDefinition(mlir::ModuleOp file, llvm::StringRef name,
+                           mlir::FunctionType type,
+                           mlir::ArrayAttr inputNames) {
+    auto declaration = imported(file);
+    mlir::OperationState state(declaration.getLoc(),
+                               ModuleOp::getOperationName());
+    state.addAttributes(declaration->getAttrs());
+    state.attributes.erase("semantic_kind");
+    state.attributes.erase("transaction_summary");
+    state.attributes.erase("dependency_summary");
+    state.attributes.set("sym_name", builder.getStringAttr(name));
+    state.attributes.set("function_type", mlir::TypeAttr::get(type));
+    state.attributes.set("input_names", inputNames);
+    state.attributes.set("output_names", builder.getArrayAttr({}));
+    state.addRegion();
+    builder.setInsertionPointToEnd(file.getBody());
+    auto definition = mlir::cast<ModuleOp>(builder.create(state));
+    auto *block = new mlir::Block;
+    definition.getBody().push_back(block);
+    for (auto input : type.getInputs())
+      block->addArgument(input, definition.getLoc());
+    builder.setInsertionPointToEnd(block);
+    mlir::OperationState yield(definition.getLoc(),
+                               YieldOp::getOperationName());
+    builder.create(yield);
+    return definition;
+  }
+
+  void instance(ModuleOp owner, llvm::StringRef callee) {
+    builder.setInsertionPoint(owner.getBody().front().getTerminator());
+    mlir::OperationState state(owner.getLoc(), InstanceOp::getOperationName());
+    state.addOperands(owner.getBody().front().getArguments());
+    state.addAttribute("callee",
+                       mlir::FlatSymbolRefAttr::get(&context, callee));
+    state.addAttribute("instance_name", builder.getStringAttr("child"));
+    state.addAttribute("parameters", builder.getArrayAttr({}));
+    state.addAttribute("type_arguments", builder.getArrayAttr({}));
+    state.addAttribute("occurrence", occurrence(owner.getSymName(), 0));
+    builder.create(state);
   }
 };
 
@@ -612,12 +691,11 @@ TEST_F(MethodSummaryAuthorityTest,
   mlir::OperationState declaration(child.getLoc(),
                                    ModuleImportOp::getOperationName());
   declaration.addAttributes(child->getAttrs());
+  declaration.addAttribute("semantic_kind",
+                           builder.getStringAttr("transactions"));
+  declaration.addAttribute("transaction_summary", published);
   // A bodyless declaration is a real native IR operation, not an importer or
   // a substitute for body authority. It need not provide closure proofs here.
-  declaration.addAttribute(
-      "dependency_summary",
-      mlir::parseAttribute(
-          "[{output = {port = 0 : i64, path = []}, inputs = []}]", &context));
   builder.setInsertionPoint(child);
   auto *imported = builder.create(declaration);
   child->remove();
@@ -1312,6 +1390,265 @@ TEST_F(MethodSummaryAuthorityTest,
                                        {std::string("methods"), 1u,
                                         std::string("ac.return_form")},
                                        builder.getStringAttr("single"))));
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       TransactionImportsVerifyTheirDerivedSchemaWithoutAProvider) {
+  for (bool zeroOutputs : {false, true}) {
+    auto file = importFixture(zeroOutputs);
+    ASSERT_TRUE(file);
+    auto declaration = imported(*file);
+    EXPECT_TRUE(file->getOps<ModuleOp>().empty());
+    EXPECT_EQ(declaration->getAttr("semantic_kind"),
+              builder.getStringAttr("transactions"));
+    EXPECT_FALSE(declaration->hasAttr("dependency_summary"));
+    ASSERT_TRUE(declaration->getAttrOfType<mlir::DictionaryAttr>(
+        "transaction_summary"));
+    EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    structureAccepts(declaration,
+                     declaration->getAttrOfType<mlir::DictionaryAttr>(
+                         "transaction_summary"));
+    auto malformed = changed(
+        declaration->getAttrOfType<mlir::DictionaryAttr>("transaction_summary"),
+        "unexpected", builder.getUnitAttr());
+    declaration->setAttr("transaction_summary", malformed);
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ImportTagsAndSummaryKindsHaveNoDefaultsOrMixedEncoding) {
+  for (bool transactions : {false, true}) {
+    for (unsigned mutation = 0; mutation != 10; ++mutation) {
+      SCOPED_TRACE(transactions);
+      SCOPED_TRACE(mutation);
+      auto file = importFixture(/*zeroOutputs=*/true);
+      ASSERT_TRUE(file);
+      auto declaration = imported(*file);
+      auto native = declaration->getAttr("transaction_summary");
+      auto summaryName =
+          transactions ? "transaction_summary" : "dependency_summary";
+      if (!transactions) {
+        declaration->setAttr("semantic_kind",
+                             builder.getStringAttr("hardware"));
+        declaration->removeAttr("transaction_summary");
+        declaration->setAttr("dependency_summary", builder.getArrayAttr({}));
+      }
+      ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+          << diagnostics;
+      switch (mutation) {
+      case 0:
+        declaration->removeAttr("semantic_kind");
+        break;
+      case 1:
+        declaration->setAttr("semantic_kind", builder.getStringAttr("unknown"));
+        break;
+      case 2:
+        declaration->setAttr("semantic_kind", builder.getUnitAttr());
+        break;
+      case 3:
+        declaration->removeAttr(summaryName);
+        break;
+      case 4:
+        declaration->setAttr(summaryName, builder.getUnitAttr());
+        break;
+      case 5:
+        // Both summaries are forbidden even when the other is otherwise valid.
+        declaration->setAttr(
+            transactions ? "dependency_summary" : "transaction_summary",
+            transactions ? mlir::Attribute(builder.getArrayAttr({})) : native);
+        break;
+      case 6:
+        declaration->removeAttr(summaryName);
+        declaration->setAttr(
+            transactions ? "dependency_summary" : "transaction_summary",
+            transactions ? mlir::Attribute(builder.getArrayAttr({})) : native);
+        break;
+      case 7:
+        declaration->setAttr(
+            summaryName, transactions
+                             ? mlir::Attribute(builder.getArrayAttr({}))
+                             : mlir::Attribute(builder.getDictionaryAttr({})));
+        break;
+      case 8:
+        declaration->setAttr(
+            "semantic_kind",
+            builder.getStringAttr(transactions ? "hardware" : "transactions"));
+        break;
+      case 9:
+        declaration->removeAttr("semantic_kind");
+        declaration->removeAttr(summaryName);
+        break;
+      }
+      EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+      EXPECT_FALSE(diagnostics.empty());
+    }
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       TransactionImportsCannotClaimTrustedPrimitiveAuthority) {
+  for (auto kind : {"dff", "dffe", "sync_mem", "sync_mem_dp", "byte_mem"}) {
+    SCOPED_TRACE(kind);
+    auto file = importFixture();
+    ASSERT_TRUE(file);
+    auto declaration = imported(*file);
+    declaration->setAttr("primitive_kind", builder.getStringAttr(kind));
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_NE(llvm::StringRef(diagnostics).lower().find("transaction"),
+              std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       LegitimateEmptyHardwareDependenciesRemainExplicit) {
+  for (bool zeroOutputs : {false, true}) {
+    auto file = importFixture(zeroOutputs);
+    ASSERT_TRUE(file);
+    auto declaration = imported(*file);
+    declaration->setAttr("semantic_kind", builder.getStringAttr("hardware"));
+    declaration->removeAttr("transaction_summary");
+    auto rows =
+        zeroOutputs
+            ? mlir::Attribute(builder.getArrayAttr({}))
+            : mlir::parseAttribute(
+                  "[{output = {port = 0 : i64, path = []}, inputs = []}]",
+                  &context);
+    declaration->setAttr("dependency_summary", rows);
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    HardwareAnalysis hardware(*file);
+    auto dependencies =
+        capture([&] { return hardware.getImportDependencies(declaration); });
+    ASSERT_TRUE(mlir::succeeded(dependencies)) << diagnostics;
+    ASSERT_EQ(dependencies->size(), zeroOutputs ? 0u : 1u);
+    if (!zeroOutputs)
+      EXPECT_TRUE((*dependencies)[0].inputs.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       TransactionSummariesNeverActAsHardwareDependencies) {
+  for (bool zeroOutputs : {false, true}) {
+    SCOPED_TRACE(zeroOutputs);
+    auto file = importFixture(zeroOutputs);
+    ASSERT_TRUE(file);
+    auto declaration = imported(*file);
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    HardwareAnalysis hardware(*file);
+    EXPECT_TRUE(mlir::failed(
+        capture([&] { return hardware.getImportDependencies(declaration); })));
+    EXPECT_NE(llvm::StringRef(diagnostics).lower().find("transaction"),
+              std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       NestedZeroOutputTransactionInstancesCannotEvadeHardwareAnalysis) {
+  auto file = importFixture(/*zeroOutputs=*/true);
+  ASSERT_TRUE(file);
+  auto declaration = imported(*file);
+  auto signature = declaration.getFunctionType();
+  auto direct =
+      emptyDefinition(*file, "Direct", signature, declaration.getInputNames());
+  instance(direct, declaration.getSymName());
+  auto nested =
+      emptyDefinition(*file, "Nested", signature, declaration.getInputNames());
+  instance(nested, direct.getSymName());
+  auto unrelated =
+      emptyDefinition(*file, "Unrelated", builder.getFunctionType({}, {}),
+                      builder.getArrayAttr({}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  HardwareAnalysis hardware(*file);
+  for (auto definition : {direct, nested}) {
+    auto result = capture([&] { return hardware.analyzeModule(definition); });
+    EXPECT_TRUE(mlir::failed(result));
+    EXPECT_NE(llvm::StringRef(diagnostics).lower().find("transaction"),
+              std::string::npos)
+        << diagnostics;
+  }
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return hardware.analyzeModule(unrelated);
+  }))) << diagnostics;
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FinalHardwareRejectsEvenUnusedTransactionDeclarations) {
+  auto file = importFixture(/*zeroOutputs=*/true);
+  ASSERT_TRUE(file);
+  auto unrelated =
+      emptyDefinition(*file, "Unrelated", builder.getFunctionType({}, {}),
+                      builder.getArrayAttr({}));
+  ASSERT_TRUE(imported(*file)->use_empty());
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  HardwareAnalysis hardware(*file);
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return hardware.analyzeModule(unrelated);
+  }))) << diagnostics;
+  EXPECT_TRUE(
+      mlir::failed(capture([&] { return verifyHardwarePackage(*file); })));
+  EXPECT_NE(llvm::StringRef(diagnostics).lower().find("transaction"),
+            std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ZeroOutputCollectionsCannotHideTransactionDescendants) {
+  for (bool throughModule : {false, true}) {
+    SCOPED_TRACE(throughModule);
+    auto file = importFixture(/*zeroOutputs=*/true);
+    ASSERT_TRUE(file);
+    auto declaration = imported(*file);
+    auto direct =
+        emptyDefinition(*file, "Direct", declaration.getFunctionType(),
+                        declaration.getInputNames());
+    instance(direct, declaration.getSymName());
+    auto packet = *file->getOps<StructOp>().begin();
+    auto field = mlir::cast<mlir::DictionaryAttr>(packet.getFields()[0]);
+    auto lanes =
+        mlir::cast<TableType>(field.getAs<mlir::TypeAttr>("type").getValue());
+    auto shape = lanes.getShape();
+    llvm::SmallVector<mlir::Type> inputTypes;
+    for (auto input : declaration.getFunctionType().getInputs())
+      inputTypes.push_back(TableType::get(&context, shape, input));
+    auto signature = builder.getFunctionType(inputTypes, {});
+    auto grouped = emptyDefinition(*file, "Grouped", signature,
+                                   declaration.getInputNames());
+    builder.setInsertionPoint(grouped.getBody().front().getTerminator());
+    mlir::OperationState collection(grouped.getLoc(),
+                                    CollectionOp::getOperationName());
+    collection.addOperands(grouped.getBody().front().getArguments());
+    collection.addAttribute(
+        "callee", mlir::FlatSymbolRefAttr::get(
+                      &context, throughModule ? direct.getSymName()
+                                              : declaration.getSymName()));
+    collection.addAttribute("instance_name", builder.getStringAttr("children"));
+    collection.addAttribute("parameters", builder.getArrayAttr({}));
+    collection.addAttribute("type_arguments", builder.getArrayAttr({}));
+    collection.addAttribute("shape", shape);
+    collection.addAttribute("occurrence", occurrence("Grouped", 0));
+    builder.create(collection);
+    auto nested = emptyDefinition(*file, "Nested", signature,
+                                  declaration.getInputNames());
+    instance(nested, grouped.getSymName());
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    HardwareAnalysis hardware(*file);
+    for (auto definition : {grouped, nested}) {
+      EXPECT_TRUE(mlir::failed(
+          capture([&] { return hardware.analyzeModule(definition); })));
+      EXPECT_NE(llvm::StringRef(diagnostics).lower().find("transaction"),
+                std::string::npos)
+          << diagnostics;
+    }
+  }
 }
 
 } // namespace

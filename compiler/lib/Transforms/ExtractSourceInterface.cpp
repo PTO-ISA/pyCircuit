@@ -57,6 +57,7 @@ public:
       OperationState state(definition.getLoc(),
                            ac::ModuleImportOp::getOperationName());
       NamedAttrList attributes(definition->getAttrs());
+      attributes.set("semantic_kind", builder.getStringAttr("hardware"));
       attributes.set("dependency_summary",
                      summaries.lookup(definition.getSymName()));
       state.addAttributes(attributes);

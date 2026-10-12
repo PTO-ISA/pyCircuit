@@ -168,6 +168,7 @@ createBuiltin(OpBuilder &builder, StringRef kind,
   state.addAttribute("input_names", builder.getArrayAttr(inputNames));
   state.addAttribute("output_names", builder.getArrayAttr(outputNames));
   state.addAttribute("dependency_summary", builder.getArrayAttr(summary));
+  state.addAttribute("semantic_kind", builder.getStringAttr("hardware"));
   state.addAttribute("primitive_kind", builder.getStringAttr(kind));
   state.addAttribute("ac.declaration_role",
                      builder.getStringAttr("import_snapshot"));
@@ -578,7 +579,9 @@ SourceHeaderRegistry::lookupModule(FlatSymbolRefAttr canonical) const {
           declaration.getTypeParameters(),
           declaration.getInputNames(),
           declaration.getOutputNames(),
-          declaration.getDependencySummary(),
+          declaration.getSemanticKindAttr(),
+          declaration.getDependencySummaryAttr(),
+          declaration.getTransactionSummaryAttr(),
           declaration.getPrimitiveKindAttr(),
           declaration->getAttrOfType<StringAttr>("ac.return_form"),
           declaration->getAttrOfType<ArrayAttr>("ac.parameters"),
@@ -603,7 +606,9 @@ ModuleInterfaceView SourceHeaderRegistry::lookupBuiltin(StringRef kind) const {
           declaration.getTypeParameters(),
           declaration.getInputNames(),
           declaration.getOutputNames(),
-          declaration.getDependencySummary(),
+          declaration.getSemanticKindAttr(),
+          declaration.getDependencySummaryAttr(),
+          declaration.getTransactionSummaryAttr(),
           declaration.getPrimitiveKindAttr(),
           declaration->getAttrOfType<StringAttr>("ac.return_form"),
           declaration->getAttrOfType<ArrayAttr>("ac.parameters"),

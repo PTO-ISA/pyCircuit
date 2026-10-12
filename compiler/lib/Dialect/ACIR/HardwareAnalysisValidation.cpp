@@ -107,6 +107,11 @@ LogicalResult primitiveSchema(const HardwareAnalysis &analysis,
 }
 } // namespace
 LogicalResult HardwareAnalysis::verifyImport(ModuleImportOp imported) const {
+  if (failed(detail::verifyModuleImportSummarySelection(imported)))
+    return failure();
+  if (imported.getSemanticKind() != "hardware")
+    return imported.emitOpError()
+           << "hardware analysis cannot consume a transactions import";
   if (failed(primitiveSchema(*this, imported)))
     return failure();
   return success(succeeded(getImportDependencies(imported, {})));
@@ -136,9 +141,7 @@ detail::verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis) {
                                     enumeration)))
       return failure();
   for (auto imported : package.getOps<ModuleImportOp>()) {
-    if (failed(primitiveSchema(analysis, imported)))
-      return failure();
-    if (failed(analysis.getImportDependencies(imported, {})))
+    if (failed(analysis.verifyImport(imported)))
       return failure();
     if (analysis.getPrimitiveKind(imported).empty())
       return imported.emitOpError() << "executable hardware package has "

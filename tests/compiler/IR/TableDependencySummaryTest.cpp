@@ -59,7 +59,7 @@ protected:
   }
   std::string declaration(StringRef signature,
                           StringRef typeParameters = "[]") {
-    return "\"ac.module.import\"() {sym_name = \"unit.Declared\", "
+    return "\"ac.module.import\"() {semantic_kind = \"hardware\", sym_name = \"unit.Declared\", "
            "source_owner = {package = \"\", path = \"unit.py\"}, "
            "parameters = [], type_parameters = " +
            typeParameters.str() + ", function_type = " + signature.str() +

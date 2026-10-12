@@ -31,6 +31,28 @@ DictionaryAttr getOutputDependencyAttr(Builder &builder, unsigned output,
 } // namespace acir::ac
 
 namespace acir::ac::detail {
+LogicalResult verifyModuleImportSummarySelection(ModuleImportOp imported) {
+  auto kind = imported->getAttrOfType<StringAttr>("semantic_kind");
+  if (!kind || (kind.getValue() != "hardware" &&
+                kind.getValue() != "transactions"))
+    return imported.emitOpError()
+           << "semantic_kind must be hardware or transactions";
+  if (kind.getValue() == "hardware") {
+    if (!imported->getAttrOfType<ArrayAttr>("dependency_summary") ||
+        imported->hasAttr("transaction_summary"))
+      return imported.emitOpError()
+             << "hardware import requires dependency_summary and forbids "
+                "transaction_summary";
+  } else if (!imported->getAttrOfType<DictionaryAttr>("transaction_summary") ||
+             imported->hasAttr("dependency_summary") ||
+             imported->hasAttr("primitive_kind")) {
+    return imported.emitOpError()
+           << "transactions import requires transaction_summary and forbids "
+              "dependency_summary and primitive_kind";
+  }
+  return success();
+}
+
 LogicalResult verifySourceCallHardwareConstraint(
     Attribute raw, Type physical, const HardwareAnalysis &analysis,
     Operation *lexicalModule, Operation *diagnosticOperation,

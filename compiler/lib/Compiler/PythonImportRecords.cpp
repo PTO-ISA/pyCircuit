@@ -1252,15 +1252,16 @@ private:
                                    OpBuilder &at, FlatSymbolRefAttr owner,
                                    StringRef name);
   LogicalResult emitModule(ModuleDecl &decl);
-  FailureOr<SmallVector<Attribute>> bindParameters(Operation *callee,
-                                                   const AstNode &call,
-                                                   FlatSymbolRefAttr parent);
-  FailureOr<SmallVector<Attribute>> bindTypeArguments(Operation *callee,
-                                                      const AstNode &call,
-                                                      FlatSymbolRefAttr parent);
-  FailureOr<Type> substitute(Type type, Operation *callee,
-                             ArrayRef<Attribute> actuals,
-                             ArrayRef<Attribute> typeActuals);
+  FailureOr<DictionaryAttr> moduleSignatureAttrs(const ModuleDecl &target);
+  FailureOr<SmallVector<Attribute>> bindParameters(DictionaryAttr calleeAttrs,
+                                                 const AstNode &call,
+                                                 FlatSymbolRefAttr parent);
+  FailureOr<SmallVector<Attribute>>
+  bindTypeArguments(DictionaryAttr calleeAttrs, const AstNode &call,
+                    FlatSymbolRefAttr parent);
+  FailureOr<Type> substitute(Type type, DictionaryAttr calleeAttrs,
+                            ArrayRef<Attribute> actuals,
+                            ArrayRef<Attribute> typeActuals);
   FailureOr<Value>
   expression(const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
              llvm::StringMap<Value> &values,
@@ -1297,9 +1298,6 @@ private:
                             FlatSymbolRefAttr ownerSymbol);
   std::string qualify(StringRef name) const {
     return prefix.empty() ? name.str() : (Twine(prefix) + "." + name).str();
-  }
-  ArrayAttr parameters(Operation *op) const {
-    return op ? op->getAttrOfType<ArrayAttr>("parameters") : ArrayAttr();
   }
 
   CapturedSource source;
@@ -2589,17 +2587,43 @@ ArrayAttr portNames(OpBuilder &b, ArrayRef<Port> ports) {
   return b.getArrayAttr(result);
 }
 
+FailureOr<DictionaryAttr>
+Importer::moduleSignatureAttrs(const ModuleDecl &target) {
+  SmallVector<Attribute> parameters;
+  for (const Parameter &parameter : target.parameters) {
+    ac::StaticExprAttr defaultValue;
+    if (parameter.value) {
+      auto value = staticExpr(*parameter.value, target.symbol);
+      if (failed(value))
+        return failure();
+      defaultValue = *value;
+    }
+    parameters.push_back(
+        ac::getStaticParameterAttr(b, parameter.name, defaultValue));
+  }
+  SmallVector<NamedAttribute> attrs{
+      b.getNamedAttr("parameters", b.getArrayAttr(parameters)),
+      b.getNamedAttr("type_parameters", b.getArrayAttr({})),
+      b.getNamedAttr("function_type", TypeAttr::get(target.type)),
+      b.getNamedAttr("input_names", portNames(b, target.inputs)),
+      b.getNamedAttr("output_names", portNames(b, target.outputs))};
+  llvm::append_range(attrs, target.sourceCallAttrs);
+  if (target.system)
+    attrs.push_back(b.getNamedAttr("ac.root_kind", b.getStringAttr("system")));
+  return b.getDictionaryAttr(attrs);
+}
+
 FailureOr<SmallVector<Attribute>>
-Importer::bindParameters(Operation *callee, const AstNode &call,
+Importer::bindParameters(DictionaryAttr calleeAttrs, const AstNode &call,
                          FlatSymbolRefAttr parent) {
-  ArrayAttr formals = parameters(callee);
+  ArrayAttr formals = calleeAttrs.getAs<ArrayAttr>("parameters");
   SmallVector<std::optional<Attribute>> values(formals.size());
   if (!call.array("args").empty())
     return error() << "instance parameters are keyword-only";
   for (size_t i = 0; i < call.array("keywords").size(); ++i) {
     AstNode kw = call.item("keywords", i);
     auto name = dyn_cast_or_null<StringAttr>(kw.get("arg"));
-    auto typeFormals = callee->getAttrOfType<ArrayAttr>("type_parameters");
+    auto typeFormals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
     if (name && typeFormals && llvm::is_contained(typeFormals, name))
       continue;
     size_t ordinal = formals.size();
@@ -2631,9 +2655,9 @@ Importer::bindParameters(Operation *callee, const AstNode &call,
 }
 
 FailureOr<SmallVector<Attribute>>
-Importer::bindTypeArguments(Operation *callee, const AstNode &call,
+Importer::bindTypeArguments(DictionaryAttr calleeAttrs, const AstNode &call,
                             FlatSymbolRefAttr parent) {
-  auto formals = callee->getAttrOfType<ArrayAttr>("type_parameters");
+  auto formals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
   if (!formals)
     return error() << "callee has no type parameter declaration";
   SmallVector<Attribute> values(formals.size());
@@ -2657,11 +2681,11 @@ Importer::bindTypeArguments(Operation *callee, const AstNode &call,
   return values;
 }
 
-FailureOr<Type> Importer::substitute(Type type, Operation *callee,
-                                     ArrayRef<Attribute> actuals,
-                                     ArrayRef<Attribute> typeActuals) {
+FailureOr<Type> Importer::substitute(Type type, DictionaryAttr calleeAttrs,
+                                   ArrayRef<Attribute> actuals,
+                                   ArrayRef<Attribute> typeActuals) {
   if (auto parameter = dyn_cast<ac::TypeParamType>(type)) {
-    auto formals = callee->getAttrOfType<ArrayAttr>("type_parameters");
+    auto formals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
     for (auto [index, formal] : llvm::enumerate(formals))
       if (formal == parameter.getName() && index < typeActuals.size())
         return cast<TypeAttr>(typeActuals[index]).getValue();
@@ -2670,7 +2694,7 @@ FailureOr<Type> Importer::substitute(Type type, Operation *callee,
   auto bits = dyn_cast<ac::BitsType>(type);
   if (!bits)
     return type;
-  ArrayAttr formals = parameters(callee);
+  ArrayAttr formals = calleeAttrs.getAs<ArrayAttr>("parameters");
   llvm::StringMap<ac::StaticExprAttr> replacements;
   for (size_t i = 0; i < formals.size(); ++i)
     replacements[cast<DictionaryAttr>(formals[i])
@@ -2698,7 +2722,7 @@ FailureOr<Type> Importer::substitute(Type type, Operation *callee,
     }
     if (auto typeAttr = dyn_cast<TypeAttr>(value)) {
       if (auto parameter = dyn_cast<ac::TypeParamType>(typeAttr.getValue())) {
-        auto formals = callee->getAttrOfType<ArrayAttr>("type_parameters");
+        auto formals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
         for (auto [index, formal] : llvm::enumerate(formals))
           if (formal == parameter.getName() && index < typeActuals.size())
             return typeActuals[index];
@@ -4974,49 +4998,28 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
                << "'";
       if (instances.contains(instanceName))
         return error() << "unknown callee or duplicate instance";
-      Operation *callee = binding->second.declaration;
+      DictionaryAttr calleeAttrs =
+          binding->second.declaration
+              ? binding->second.declaration->getAttrDictionary()
+              : DictionaryAttr();
       bool systemCallee =
-          callee ? bool(callee->getAttrOfType<StringAttr>("ac.root_kind"))
-                 : modules[local[calleeName]].system;
+          calleeAttrs ? bool(calleeAttrs.getAs<StringAttr>("ac.root_kind"))
+                      : modules[local[calleeName]].system;
       if (systemCallee)
         return declarationError()
                << "@system is root-only and cannot be instantiated as a child";
-      std::unique_ptr<Operation, void (*)(Operation *)> temporary(
-          nullptr, [](Operation *op) {
-            if (op)
-              op->destroy();
-          });
-      if (!callee) {
+      if (!calleeAttrs) {
         ModuleDecl &target = modules[local[calleeName]];
         if (target.persistent || target.behavioral)
           return error() << "persistent child instantiation is unsupported";
-        OperationState state(module->getLoc(),
-                             ac::ModuleImportOp::getOperationName());
-        SmallVector<Attribute> targetParams;
-        for (const Parameter &p : target.parameters) {
-          ac::StaticExprAttr defaultValue;
-          if (p.value) {
-            auto value = staticExpr(*p.value, target.symbol);
-            if (failed(value))
-              return failure();
-            defaultValue = *value;
-          }
-          targetParams.push_back(
-              ac::getStaticParameterAttr(b, p.name, defaultValue));
-        }
-        state.addAttribute("parameters", b.getArrayAttr(targetParams));
-        state.addAttribute("type_parameters", b.getArrayAttr({}));
-        state.addAttribute("input_names", portNames(b, target.inputs));
-        state.addAttribute("output_names", portNames(b, target.outputs));
-        state.addAttribute("function_type", TypeAttr::get(target.type));
-        for (NamedAttribute attr : target.sourceCallAttrs)
-          state.addAttribute(attr.getName(), attr.getValue());
-        callee = Operation::create(state);
-        temporary.reset(callee);
+        auto attrs = moduleSignatureAttrs(target);
+        if (failed(attrs))
+          return failure();
+        calleeAttrs = *attrs;
       }
-      auto actuals = bindParameters(callee, stmt.child("value"), decl.symbol);
+      auto actuals = bindParameters(calleeAttrs, stmt.child("value"), decl.symbol);
       auto typeActuals =
-          bindTypeArguments(callee, stmt.child("value"), decl.symbol);
+          bindTypeArguments(calleeAttrs, stmt.child("value"), decl.symbol);
       if (failed(actuals) || failed(typeActuals))
         return failure();
       Instance instance;
@@ -5027,7 +5030,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       instance.parameters = std::move(*actuals);
       instance.typeArguments = std::move(*typeActuals);
       if (auto domain =
-              callee->getAttrOfType<DictionaryAttr>("ac.domain_inputs")) {
+              calleeAttrs.getAs<DictionaryAttr>("ac.domain_inputs")) {
         auto clock = domain.getAs<IntegerAttr>("clock");
         auto reset = domain.getAs<IntegerAttr>("reset");
         if (!clock || !reset || clock.getValue().isNegative() ||
@@ -5039,15 +5042,15 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
         instance.resetInput = reset.getValue().getZExtValue();
       }
       auto signature = cast<FunctionType>(
-          callee->getAttrOfType<TypeAttr>("function_type").getValue());
+          calleeAttrs.getAs<TypeAttr>("function_type").getValue());
       auto appendPorts = [&](StringRef namesAttribute, TypeRange types,
                              SmallVectorImpl<Port> &ports) -> LogicalResult {
-        auto names = callee->getAttrOfType<ArrayAttr>(namesAttribute);
+        auto names = calleeAttrs.getAs<ArrayAttr>(namesAttribute);
         if (!names || names.size() != types.size())
           return error() << "callee port names do not match signature";
         for (auto [index, pair] : llvm::enumerate(llvm::zip(names, types))) {
           auto [name, formalType] = pair;
-          auto type = substitute(formalType, callee, instance.parameters,
+          auto type = substitute(formalType, calleeAttrs, instance.parameters,
                                  instance.typeArguments);
           if (failed(type))
             return failure();

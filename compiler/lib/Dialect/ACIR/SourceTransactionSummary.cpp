@@ -582,13 +582,15 @@ public:
     if (failed(preflight(summary, 0)))
       return failure();
     if (auto module = dyn_cast<ModuleOp>(declaration)) {
-      if (failed(module.verifyInvariantsImpl()) || failed(module.verify()))
+      if (failed(module.verifyInvariantsImpl()))
         return failure();
     } else if (auto imported = dyn_cast<ModuleImportOp>(declaration)) {
-      if (failed(imported.verifyInvariantsImpl()) || failed(imported.verify()))
+      if (failed(imported.verifyInvariantsImpl()))
         return failure();
     } else
       return error("summary owner must be ac.module or ac.module.import");
+    if (failed(detail::verifyModuleSignature(declaration)))
+      return failure();
     signature = cast<FunctionType>(
         declaration->getAttrOfType<TypeAttr>("function_type").getValue());
     moduleScope.arguments.assign(signature.getInputs().begin(),

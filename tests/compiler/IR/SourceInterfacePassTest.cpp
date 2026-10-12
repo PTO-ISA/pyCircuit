@@ -285,7 +285,7 @@ TEST_F(SourceInterfacePassTest,
 
 TEST_F(SourceInterfacePassTest, CollectionOldQFeedbackRemainsATemporalCut) {
   const char *storage = R"mlir(
-  "ac.module.import"() {sym_name = "gfsim.dff.Dff", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@gfsim.dff.Dff, "T">, !ac.type_param<@gfsim.dff.Dff, "T">) -> !ac.type_param<@gfsim.dff.Dff, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "gfsim.dff.Dff", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@gfsim.dff.Dff, "T">, !ac.type_param<@gfsim.dff.Dff, "T">) -> !ac.type_param<@gfsim.dff.Dff, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   )mlir";
   auto unit =
       parse(std::string(storage) +
@@ -407,7 +407,7 @@ TEST_F(SourceInterfacePassTest,
       &context, {*provider}, [&] { return provider->emitError(); });
   ASSERT_TRUE(succeeded(registry));
   const char *snapshot = R"mlir(
-  "ac.module.import"() {sym_name = "provider.Child", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!b8) -> !b8, input_names = ["x"], output_names = ["y"], dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "provider.Child", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!b8) -> !b8, input_names = ["x"], output_names = ["y"], dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   )mlir";
   auto consumerBody = module("Consumer", R"mlir(^bb0(%x: !b8):
     %y = "ac.instance"(%x) {instance_name = "child", callee = @provider.Child, parameters = [], type_arguments = [], occurrence = {site = {definition = @unit.Consumer, ast_path = []}, expansion = []}} : (!b8) -> !b8
@@ -428,7 +428,7 @@ TEST_F(SourceInterfacePassTest,
 TEST_F(SourceInterfacePassTest,
        PrimitiveLookingSnapshotNeverEstablishesCatalogTrust) {
   const char *snapshot = R"mlir(
-  "ac.module.import"() {sym_name = "spoof.dff.Dff", source_owner = {package = "spoof", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@spoof.dff.Dff, "T">, !ac.type_param<@spoof.dff.Dff, "T">) -> !ac.type_param<@spoof.dff.Dff, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "spoof.dff.Dff", source_owner = {package = "spoof", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@spoof.dff.Dff, "T">, !ac.type_param<@spoof.dff.Dff, "T">) -> !ac.type_param<@spoof.dff.Dff, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   )mlir";
   auto unit = parse(std::string(snapshot) + child());
   ASSERT_TRUE(unit);
@@ -465,7 +465,10 @@ TEST_F(SourceInterfacePassTest,
   // may trust an interface's structurally valid summary over actual SSA.
   Builder b(&context);
   auto declaration = lookup(*header, "unit.Child");
-  auto rows = declaration.getDependencySummary();
+  EXPECT_EQ(declaration->getAttr("semantic_kind"), b.getStringAttr("hardware"));
+  EXPECT_FALSE(declaration->hasAttr("transaction_summary"));
+  auto rows = declaration.getDependencySummaryAttr();
+  ASSERT_TRUE(rows);
   ASSERT_TRUE(llvm::hasSingleElement(rows));
   NamedAttrList row(cast<DictionaryAttr>(rows[0]));
   row.set("inputs", b.getArrayAttr({}));
@@ -525,7 +528,8 @@ TEST_F(SourceInterfacePassTest,
           "[\"a\", \"b\"]", "[\"joined\", \"extra\"]"));
   ASSERT_TRUE(unit);
   ASSERT_TRUE(succeeded(extract(*unit))) << diagnostics;
-  auto rows = lookup(*unit, "unit.Fields").getDependencySummary();
+  auto rows = lookup(*unit, "unit.Fields").getDependencySummaryAttr();
+  ASSERT_TRUE(rows);
   // joined.first <- a.second; joined.second <- b.first; extra <- a.first.
   struct Expected {
     unsigned output, input;

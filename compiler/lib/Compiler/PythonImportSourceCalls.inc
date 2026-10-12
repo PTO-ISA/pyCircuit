@@ -94,28 +94,7 @@ LogicalResult Importer::serializeSourceCall(ModuleDecl &decl) {
          b.getNamedAttr("ac.parameters", b.getArrayAttr(parameters)),
          b.getNamedAttr("ac.result_constraints", b.getArrayAttr({result}))});
   }
-  // Reuse the common declaration validator before any call is predeclared.
-  // The transient import uses the finalized physical signature and disappears
-  // before source body emission; it carries no alternate semantics or owner.
-  OpBuilder::InsertionGuard insertion(b);
-  b.setInsertionPointToEnd(body->getBody());
-  SmallVector<NamedAttribute> attrs{
-      b.getNamedAttr("sym_name", b.getStringAttr(decl.symbol.getValue())),
-      b.getNamedAttr("source_owner", owner),
-      b.getNamedAttr("parameters", b.getArrayAttr({})),
-      b.getNamedAttr("type_parameters", b.getArrayAttr({})),
-      b.getNamedAttr("function_type", TypeAttr::get(decl.type)),
-      b.getNamedAttr("input_names", portNames(b, decl.inputs)),
-      b.getNamedAttr("output_names", portNames(b, decl.outputs))};
-  if (decl.system)
-    attrs.push_back(b.getNamedAttr("ac.root_kind", b.getStringAttr("system")));
-  llvm::append_range(attrs, decl.sourceCallAttrs);
-  auto signature =
-      createOp(b, decl.node.location(b.getContext(), source.path),
-               ac::ModuleImportOp::getOperationName(), {}, {}, attrs);
-  auto valid = ac::detail::verifyModuleSourceCallContract(signature);
-  signature->erase();
-  return valid;
+  return success();
 }
 FailureOr<CallableDecl> Importer::callable(const AstNode &function) {
   auto binding = lookupBinding(function);

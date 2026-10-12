@@ -4,10 +4,10 @@
 原生摘要、结构验证、body 重验、公共独立发布和硬件执行分别验收；不得将前一层通过当成后一层完成。
 接口格式以精确的英文标识列出，字段、作用域、失败边界和保守未知值均是合同的一部分。
 
-后续 import 硬切要求 `semantic_kind` 必填：`hardware` 必须有 `dependency_summary`
+Import 硬切要求 `semantic_kind` 必填：`hardware` 必须有 `dependency_summary`
 且禁止 `transaction_summary`；`transactions` 相反。所有 canonical builtins 都是 hardware。
 不得给未知依赖补 `[]`。硬切必须同时更新 producer、accessor、临时签名载体及全部 fixture。
-本轮原生接口不提前改变 import 或 source-unit 发布许可。
+原生 tagged import 验证不提前开放 Method source-unit 发布或执行许可。
 
 ## Exact API in existing SourceMethodAnalysis.h/.cpp
 

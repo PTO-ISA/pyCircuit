@@ -14,6 +14,7 @@
 
 namespace acir::ac {
 class HardwareAnalysis;
+class ModuleImportOp;
 }
 
 namespace acir::ac::detail {
@@ -26,6 +27,9 @@ bool isCombinationalHardwareOperation(mlir::Operation *operation);
 
 // Optional source-call authority on existing hardware module declarations.
 mlir::LogicalResult verifyModuleSourceCallContract(mlir::Operation *owner);
+mlir::LogicalResult verifyModuleSignature(mlir::Operation *declaration);
+mlir::LogicalResult verifyModuleImportSummarySelection(
+    ModuleImportOp imported);
 
 // Callable constraints resolve hardware in the lexical module; diagnostics
 // belong to the module or Method whose source contract is being checked.

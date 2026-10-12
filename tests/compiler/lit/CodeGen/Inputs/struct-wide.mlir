@@ -8,7 +8,7 @@
 !b70 = !ac.bits<#w70>
 module {
   ac.struct "Packet" fields [{name = "tag", type = !b5}, {name = "data", type = !b70}]
-  "ac.module.import"() {sym_name = "storage", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %d: !ac.struct<"Packet">, %init: !ac.struct<"Packet">):
     %q = "ac.instance"(%clk, %rst, %d, %init) {instance_name = "state", callee = @storage, parameters = [], type_arguments = [!ac.struct<"Packet">], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !ac.struct<"Packet">, !ac.struct<"Packet">) -> !ac.struct<"Packet">

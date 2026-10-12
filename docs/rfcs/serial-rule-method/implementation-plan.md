@@ -36,14 +36,15 @@ PM 独占公共接线：`compiler/lib/Compiler/SourceUnit.cpp`、`compiler/inclu
 
 **独占现有文件：** `compiler/lib/Compiler/SourceRuleWrites.{h,cpp}`、`compiler/lib/Transforms/ExtractSourceInterface.cpp`、`compiler/lib/Compiler/SourceHeaderRegistry.cpp`、`compiler/lib/Compiler/SourceBodySnapshots.cpp`、`compiler/lib/Dialect/ACIR/SourceUnitValidation.cpp`、`compiler/lib/Dialect/ACIR/SourceEffects.cpp`。
 
-**共同分析入口：** `compiler/include/pycircuit/Dialect/ACIR/SourceMethodAnalysis.h`、`compiler/lib/Dialect/ACIR/SourceMethodAnalysis.cpp`；pass 位于 `compiler/lib/Transforms/AnalyzeSourceMethods.cpp`。当前接入调用图/totality 与独立请求的原生直接摘要；import 分类、完整 header 闭包和公共独立发布仍待完成。Compiler 层不保留另一份算法或 forwarding header。
+**共同分析入口：** `compiler/include/pycircuit/Dialect/ACIR/SourceMethodAnalysis.h`、`compiler/lib/Dialect/ACIR/SourceMethodAnalysis.cpp`；pass 位于 `compiler/lib/Transforms/AnalyzeSourceMethods.cpp`。当前接入调用图/totality、独立请求的原生直接摘要及 tagged import 原生分类；完整 header 闭包和公共独立发布仍待完成。Compiler 层不保留另一份算法或 forwarding header。
 
 原生发布摘要的有界实现使用同一公共 analysis API，并将较大的闭合 schema 验证／派生
 放在 Dialect 层 `SourceTransactionSummary.cpp`；内部 `SourceTransactionSummary.h`
 仅共享派生入口与既有 literal fact helper，不暴露另一套语义或编译路线。精确字段见
 [事务接口摘要合同](publication-summary.md)。独立测试使用下表已预留的
 `MethodSummaryAuthorityTest.cpp`，接入既有 transaction native target。这个出口只证明
-native derivation／结构验证／body 重验，import 标签硬切与真实 provider/consumer 发布另行闭环。
+native derivation／结构验证／body 重验。Import 标签硬切覆盖全部 producer、getter 和 fixture，
+并删除三个不完整的临时 import carrier；真实 provider/consumer 发布仍须另行闭环。
 
 **产出与不变量：** 条件读写 footprint、guard、普通返回、端口／域／顺序需求在每个调用处绑定实际 owner，不克隆状态。发布保留完整闭包才能解决的 obligations；consumer 不重新读取 provider Python。相关变换后摘要重算。link 的 body 重验不能只检查哈希或信任 caller 提供的摘要。
 

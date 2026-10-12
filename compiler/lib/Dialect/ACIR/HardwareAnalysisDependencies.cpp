@@ -1,3 +1,4 @@
+#include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "HardwareSourceChecks.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -180,9 +181,14 @@ struct Engine {
   }
   FailureOr<SmallVector<OutputDependency>>
   summary(ModuleImportOp imported, const HardwareBindings &bindings) {
+    if (failed(detail::verifyModuleImportSummarySelection(imported)))
+      return failure();
+    if (imported.getSemanticKind() != "hardware")
+      return imported.emitOpError()
+             << "hardware dependencies cannot consume a transactions import";
     auto sig = imported.getFunctionType();
     SmallVector<OutputDependency> out;
-    for (Attribute raw : imported.getDependencySummary()) {
+    for (Attribute raw : imported.getDependencySummaryAttr()) {
       if (failed(
               charge(detail::SourceCheckBudget::bytes(sizeof(OutputDependency)),
                      imported)))
@@ -703,6 +709,16 @@ struct Engine {
                 : analysis.bindInstance(cast<CollectionOp>(op), bindings);
         if (failed(binding))
           return failure();
+        // Result-free instances still carry their complete semantic closure.
+        // Reuse this engine's cache and recursion budget instead of relying on
+        // output wire traversal to discover a transaction import below them.
+        if (auto child = dyn_cast<ModuleOp>(binding->owner)) {
+          if (failed(analyze(child, *binding)))
+            return failure();
+        } else if (auto imported = dyn_cast<ModuleImportOp>(binding->owner)) {
+          if (failed(summary(imported, *binding)))
+            return failure();
+        }
         if (failed(isa<InstanceOp>(op)
                        ? analysis.verifyInstance(cast<InstanceOp>(op), bindings)
                        : analysis.verifyInstance(cast<CollectionOp>(op),

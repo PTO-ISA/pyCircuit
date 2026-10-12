@@ -2303,48 +2303,25 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       if (!call.array("args").empty() || !call.array("keywords").empty())
         return error() << "structural module declaration requires an empty "
                           "constructor; bind authored inputs in a rule";
-      Operation *callee = binding->declaration;
-      std::unique_ptr<Operation, void (*)(Operation *)> temporary(
-          nullptr, [](Operation *op) {
-            if (op)
-              op->destroy();
-          });
-      if (!callee) {
+      DictionaryAttr calleeAttrs = binding->declaration
+                                       ? binding->declaration->getAttrDictionary()
+                                       : DictionaryAttr();
+      if (!calleeAttrs) {
         auto found = local.find(call.child("func").string("id"));
         if (found == local.end())
           return error() << "structural module declaration has no provider";
-        ModuleDecl &target = modules[found->second];
-        OperationState state(module->getLoc(),
-                             ac::ModuleImportOp::getOperationName());
-        SmallVector<Attribute> targetParams;
-        for (const Parameter &parameter : target.parameters) {
-          ac::StaticExprAttr defaultValue;
-          if (parameter.value) {
-            auto value = staticExpr(*parameter.value, target.symbol);
-            if (failed(value))
-              return failure();
-            defaultValue = *value;
-          }
-          targetParams.push_back(
-              ac::getStaticParameterAttr(b, parameter.name, defaultValue));
-        }
-        state.addAttribute("parameters", b.getArrayAttr(targetParams));
-        state.addAttribute("type_parameters", b.getArrayAttr({}));
-        state.addAttribute("input_names", portNames(b, target.inputs));
-        state.addAttribute("output_names", portNames(b, target.outputs));
-        state.addAttribute("function_type", TypeAttr::get(target.type));
-        for (NamedAttribute attr : target.sourceCallAttrs)
-          state.addAttribute(attr.getName(), attr.getValue());
-        callee = Operation::create(state);
-        temporary.reset(callee);
+        auto attrs = moduleSignatureAttrs(modules[found->second]);
+        if (failed(attrs))
+          return failure();
+        calleeAttrs = *attrs;
       }
-      if (callee->getAttrOfType<StringAttr>("ac.root_kind"))
+      if (calleeAttrs.getAs<StringAttr>("ac.root_kind"))
         return error() << "@system is root-only and cannot be instantiated as "
                           "a child";
       auto signature = dyn_cast<FunctionType>(
-          callee->getAttrOfType<TypeAttr>("function_type").getValue());
-      auto inputNames = callee->getAttrOfType<ArrayAttr>("input_names");
-      auto outputNames = callee->getAttrOfType<ArrayAttr>("output_names");
+          calleeAttrs.getAs<TypeAttr>("function_type").getValue());
+      auto inputNames = calleeAttrs.getAs<ArrayAttr>("input_names");
+      auto outputNames = calleeAttrs.getAs<ArrayAttr>("output_names");
       if (!signature || !inputNames || !outputNames ||
           inputNames.size() != signature.getNumInputs() ||
           outputNames.size() != signature.getNumResults())
@@ -2354,15 +2331,15 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       instance.node = stmt;
       instance.callee = binding->symbol;
       instance.declaration = binding->declaration;
-      auto parameters = bindParameters(callee, call, decl.symbol);
-      auto typeArguments = bindTypeArguments(callee, call, decl.symbol);
+      auto parameters = bindParameters(calleeAttrs, call, decl.symbol);
+      auto typeArguments = bindTypeArguments(calleeAttrs, call, decl.symbol);
       if (failed(parameters) || failed(typeArguments))
         return failure();
       instance.parameters = std::move(*parameters);
       instance.typeArguments = std::move(*typeArguments);
       for (auto [name, formalType] :
            llvm::zip(inputNames, signature.getInputs())) {
-        auto type = substitute(formalType, callee, instance.parameters,
+        auto type = substitute(formalType, calleeAttrs, instance.parameters,
                                instance.typeArguments);
         if (failed(type))
           return failure();
@@ -2371,7 +2348,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       }
       for (auto [name, formalType] :
            llvm::zip(outputNames, signature.getResults())) {
-        auto type = substitute(formalType, callee, instance.parameters,
+        auto type = substitute(formalType, calleeAttrs, instance.parameters,
                                instance.typeArguments);
         if (failed(type))
           return failure();
@@ -2379,7 +2356,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
             {cast<StringAttr>(name).getValue().str(), *type, stmt});
       }
       if (auto domain =
-              callee->getAttrOfType<DictionaryAttr>("ac.domain_inputs")) {
+              calleeAttrs.getAs<DictionaryAttr>("ac.domain_inputs")) {
         instance.clockInput =
             domain.getAs<IntegerAttr>("clock").getValue().getZExtValue();
         instance.resetInput =

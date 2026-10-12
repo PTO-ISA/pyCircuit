@@ -2,6 +2,7 @@
 #include "HardwareSourceChecks.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/StringSet.h"
 using namespace mlir;
 namespace acir::ac {
@@ -85,8 +86,8 @@ LogicalResult verifyHardwareTypeScope(Type type, Operation *owner) {
   return success();
 }
 } // namespace detail
-namespace {
-LogicalResult signature(Operation *op) {
+namespace detail {
+LogicalResult verifyModuleSignature(Operation *op) {
   if (!isa<mlir::ModuleOp>(op->getParentOp()))
     return op->emitOpError() << "module declaration requires package placement";
   auto error = [&] { return op->emitOpError(); };
@@ -161,6 +162,8 @@ LogicalResult signature(Operation *op) {
       return error() << "output must have hardware payload type";
   return detail::verifyModuleSourceCallContract(op);
 }
+} // namespace detail
+namespace {
 LogicalResult body(Operation *op, TypeRange inputs, TypeRange outputs) {
   auto &region = op->getRegion(0);
   if (!region.hasOneBlock())
@@ -186,7 +189,7 @@ LogicalResult ModuleOp::verify() {
   if ((*this)->hasAttr("primitive_kind"))
     return emitOpError()
            << "primitive_kind belongs only to trusted leaf imports";
-  return signature(*this);
+  return detail::verifyModuleSignature(*this);
 }
 LogicalResult ModuleOp::verifyRegions() {
   if (failed(body(*this, getFunctionType().getInputs(),
@@ -254,7 +257,8 @@ LogicalResult YieldOp::verify() {
   return success();
 }
 LogicalResult ModuleImportOp::verify() {
-  if (failed(signature(*this)))
+  if (failed(detail::verifyModuleSignature(*this)) ||
+      failed(detail::verifyModuleImportSummarySelection(*this)))
     return failure();
   if ((*this)->hasAttr("cpp_binding") || (*this)->hasAttr("rtl_binding"))
     return emitOpError()
@@ -265,6 +269,8 @@ LogicalResult ModuleImportOp::verify() {
                                               "sync_mem_dp", "byte_mem"},
                           primitive.getValue()))
     return emitOpError() << "unknown trusted primitive kind";
+  if (getSemanticKind() == "transactions")
+    return verifySourceTransactionSummary(*this, getTransactionSummaryAttr());
   return HardwareAnalysis((*this)->getParentOfType<mlir::ModuleOp>())
       .verifyImport(*this);
 }

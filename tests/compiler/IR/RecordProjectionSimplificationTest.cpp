@@ -532,7 +532,7 @@ TEST_F(RecordProjectionSimplificationTest,
 
 TEST_F(RecordProjectionSimplificationTest, OldQFeedbackIsATemporalCutAndInstanceIsRetained) {
   const char *storage = R"mlir(
-  "ac.module.import"() {sym_name = "gfsim.dff.Dff", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@gfsim.dff.Dff, "T">, !ac.type_param<@gfsim.dff.Dff, "T">) -> !ac.type_param<@gfsim.dff.Dff, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "gfsim.dff.Dff", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@gfsim.dff.Dff, "T">, !ac.type_param<@gfsim.dff.Dff, "T">) -> !ac.type_param<@gfsim.dff.Dff, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   )mlir";
   auto unit = parse(std::string(storage) + parcel() + module("Feedback", R"mlir(^bb0(%clk: !b1, %rst: !b1, %init: !b8, %tag: !b3):
     %record = ac.struct.create(%tag, %q, %clk) : (!b3, !b8, !b1) -> !ac.struct<"unit.Parcel">

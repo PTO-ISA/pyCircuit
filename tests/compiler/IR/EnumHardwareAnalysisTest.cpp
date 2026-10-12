@@ -216,7 +216,7 @@ TEST_F(EnumHardwareAnalysisTest, ConversionsHaveSeparateScalarDependencies) {
 
 TEST_F(EnumHardwareAnalysisTest, ImportedScalarSummariesCrossExplicitConversions) {
   auto unit = parse(R"mlir(
-  "ac.module.import"() {sym_name = "provider", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!a, !b65) -> (!b65, !b, !b1, !b), input_names = ["state", "raw"], output_names = ["bits", "converted", "member", "reinterpreted"], dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 0 : i64, path = []}]}, {output = {port = 1 : i64, path = []}, inputs = [{port = 1 : i64, path = []}]}, {output = {port = 2 : i64, path = []}, inputs = [{port = 1 : i64, path = []}]}, {output = {port = 3 : i64, path = []}, inputs = [{port = 0 : i64, path = []}]}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "provider", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!a, !b65) -> (!b65, !b, !b1, !b), input_names = ["state", "raw"], output_names = ["bits", "converted", "member", "reinterpreted"], dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 0 : i64, path = []}]}, {output = {port = 1 : i64, path = []}, inputs = [{port = 1 : i64, path = []}]}, {output = {port = 2 : i64, path = []}, inputs = [{port = 1 : i64, path = []}]}, {output = {port = 3 : i64, path = []}, inputs = [{port = 0 : i64, path = []}]}]} : () -> ()
 )mlir"); ASSERT_TRUE(unit);
   ac::HardwareAnalysis analysis(*unit);
   auto provider = cast<ac::ModuleImportOp>(analysis.lookupDefinition("provider"));

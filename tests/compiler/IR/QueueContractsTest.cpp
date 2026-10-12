@@ -422,7 +422,7 @@ module {
     auto forged = clone(original);
     Builder b(&context);
     auto imported = declaration(*forged);
-    auto summary = imported.getDependencySummary();
+    auto summary = imported.getDependencySummaryAttr();
     SmallVector<Attribute> rows(summary.begin(), summary.end());
     NamedAttrList ready(cast<DictionaryAttr>(rows[0]));
     ready.set("inputs", b.getArrayAttr({}));
@@ -632,7 +632,10 @@ TEST_F(QueueContractsTest, ActualUnchangedProviderRejectsReadyHeaderTamper) {
   auto forgedHeader = clone(*actualHeader);
   auto imported = declaration(*forgedHeader);
   Builder b(&context);
-  auto old = imported.getDependencySummary();
+  auto old = imported.getDependencySummaryAttr();
+  ASSERT_TRUE(old);
+  EXPECT_EQ(imported->getAttr("semantic_kind"), b.getStringAttr("hardware"));
+  EXPECT_FALSE(imported->hasAttr("transaction_summary"));
   SmallVector<Attribute> rows(old.begin(), old.end());
   NamedAttrList ready(cast<DictionaryAttr>(rows[0]));
   ready.set("inputs", b.getArrayAttr({}));

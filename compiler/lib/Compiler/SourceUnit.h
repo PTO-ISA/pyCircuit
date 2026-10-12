@@ -36,7 +36,9 @@ struct ModuleInterfaceView {
   mlir::ArrayAttr typeParameters;
   mlir::ArrayAttr inputNames;
   mlir::ArrayAttr outputNames;
+  mlir::StringAttr semanticKind;
   mlir::ArrayAttr outputDependencies;
+  mlir::DictionaryAttr transactionSummary;
   mlir::StringAttr builtinKind;
   mlir::StringAttr sourceReturnForm;
   mlir::ArrayAttr sourceParameters;

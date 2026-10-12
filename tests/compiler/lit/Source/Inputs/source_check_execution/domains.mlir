@@ -5,7 +5,7 @@
 !result = !ac.struct<"execution.domains.Flag">
 module {
   ac.struct "execution.domains.Flag" fields [{name = "value", type = !b1}] {ac.source_owner = {package = "execution", path = "domains.py"}}
-  "ac.module.import"() {sym_name = "native.dffe", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}], function_type = (!b1, !b1, !b1, !ac.type_param<@native.dffe, "T">, !ac.type_param<@native.dffe, "T">) -> !ac.type_param<@native.dffe, "T">} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "native.dffe", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}], function_type = (!b1, !b1, !b1, !ac.type_param<@native.dffe, "T">, !ac.type_param<@native.dffe, "T">) -> !ac.type_param<@native.dffe, "T">} : () -> ()
   "ac.module"() ({
   ^bb0(%allow: !b1):
     %one = "ac.bits.constant"() {value = #w1} : () -> !b1

@@ -131,7 +131,7 @@ protected:
 !address = !ac.bits<#aw>
 !strobe = !ac.bits<#lanes>
 module {
-  "ac.module.import"() {sym_name = "Memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !address, !b1, !address, !ac.type_param<@Memory, "T">, !strobe) -> !ac.type_param<@Memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "Memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !address, !b1, !address, !ac.type_param<@Memory, "T">, !strobe) -> !ac.type_param<@Memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %addr_a: !b4, %addr_b: !b4, %valid: !b1, %strobe: !b1, %seed: !b8):
 )mlir";

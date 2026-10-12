@@ -44,7 +44,7 @@ literal = "".join(
     for value in [0, 1, 2, 3, 5, 8, 9, 32, 63, 65536, 9223372036854775807]
 )
 types = "!b1 = !ac.bits<#w1>\n!b8 = !ac.bits<#w8>\n"
-leaf = """  "ac.module.import"() {sym_name = "storage", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+leaf = """  "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dff.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "d", "init"], output_names = ["q"], primitive_kind = "dff", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
 """
 occurrence = "{site = {definition = @Root, ast_path = []}, expansion = []}"
 
@@ -81,7 +81,7 @@ module {
         + types
         + memory_reference
         + f"""module {{
-  "ac.module.import"() {{sym_name = "memory", source_owner = {{package = "gfsim", path = "sync_mem.py"}}, parameters = [{{name = "ADDR_WIDTH", type = !ac.math_int}}, {{name = "DEPTH", type = !ac.math_int}}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.bits<#aw>, !b1, !ac.bits<#aw>, !ac.type_param<@memory, "T">, !b1) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "sync_mem", dependency_summary = [{{output = {{port = 0 : i64, path = []}}, inputs = []}}]}} : () -> ()
+  "ac.module.import"() {{semantic_kind = "hardware", sym_name = "memory", source_owner = {{package = "gfsim", path = "sync_mem.py"}}, parameters = [{{name = "ADDR_WIDTH", type = !ac.math_int}}, {{name = "DEPTH", type = !ac.math_int}}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.bits<#aw>, !b1, !ac.bits<#aw>, !ac.type_param<@memory, "T">, !b1) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "sync_mem", dependency_summary = [{{output = {{port = 0 : i64, path = []}}, inputs = []}}]}} : () -> ()
   "ac.module"() ({{
     %zero = "ac.bits.constant"() {{value = #w0}} : () -> !b1
     %one = "ac.bits.constant"() {{value = #w1}} : () -> !b1

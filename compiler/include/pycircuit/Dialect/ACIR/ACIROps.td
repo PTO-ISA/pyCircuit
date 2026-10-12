@@ -160,6 +160,12 @@ def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
     output_names name those positions. Integer parameters and type_parameters
     are compile-time formals, with the same binding rules as ac.module.
 
+    semantic_kind is mandatory: hardware requires dependency_summary and
+    forbids transaction_summary; transactions requires transaction_summary and
+    forbids dependency_summary and primitive_kind. There is no default kind.
+    Transaction summaries are conservative source contracts, not executable
+    wire dependencies. Hardware analysis must reject transaction imports.
+
     dependency_summary is derived from actual combinational dataflow. Each
     entry is {output = {port, path}, inputs = [{port, path}, ...]}, where port
     is an ordinal within its direction and path is an ordered array of struct
@@ -199,7 +205,9 @@ def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let arguments = (ins StrAttr:$sym_name, DictionaryAttr:$source_owner,
       DictArrayAttr:$parameters, StrArrayAttr:$type_parameters,
       TypeAttrOf<FunctionType>:$function_type, StrArrayAttr:$input_names,
-      StrArrayAttr:$output_names, DictArrayAttr:$dependency_summary,
+      StrArrayAttr:$output_names, StrAttr:$semantic_kind,
+      OptionalAttr<DictArrayAttr>:$dependency_summary,
+      OptionalAttr<DictionaryAttr>:$transaction_summary,
       OptionalAttr<StrAttr>:$primitive_kind);
   let hasVerifier = 1;
 }

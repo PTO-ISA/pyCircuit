@@ -254,7 +254,8 @@ protected:
         params.push_back(ac::getStaticParameterAttr(b, name));
     return cast<ac::ModuleImportOp>(op(
         ac::ModuleImportOp::getOperationName(), {}, {},
-        {f("sym_name", b.getStringAttr(symbol)),
+        {f("semantic_kind", b.getStringAttr("hardware")),
+         f("sym_name", b.getStringAttr(symbol)),
          f("source_owner", d({f("package", b.getStringAttr("gfsim")),
                               f("path", b.getStringAttr(kind.str() + ".py"))})),
          f("parameters", b.getArrayAttr(params)),

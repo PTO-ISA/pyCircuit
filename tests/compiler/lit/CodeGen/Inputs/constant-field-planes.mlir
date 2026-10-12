@@ -45,7 +45,7 @@
 module {
   "ac.enum"() {sym_name = "ConstantMode", width = #ac.math_int<3>, encoding = "explicit", members = [{name = "IDLE", code = #ac.math_int<1>}, {name = "RUN", code = #ac.math_int<4>}, {name = "DONE", code = #ac.math_int<7>}]} : () -> ()
   ac.struct "ConstantRow" fields [{name = "flag", type = !b1}, {name = "wide", type = !b130}, {name = "nested", type = !inner}, {name = "dynamic", type = !b8}]
-  "ac.module.import"() {sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %en: !b1, %dynamic: !b8, %index: !b70):
     %zero = "ac.bits.constant"() {value = #n0} : () -> !b1
