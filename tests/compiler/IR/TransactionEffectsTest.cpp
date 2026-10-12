@@ -2,6 +2,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
 #include "mlir/Parser/Parser.h"
@@ -32,6 +33,8 @@ const char *counterAndTwoInstances = R"ir(
 #left_instance = {site = {definition = @Root, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}
 #right_instance = {site = {definition = @Root, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
+#span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
+#byte_constraint = {kind = "hardware", type = !b8, source_kind = "fixed_bits"}
 module {
   ac.struct "Packet" fields [{name = "lanes", type = !lanes}]
   "ac.module"() ({
@@ -59,7 +62,7 @@ module {
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.state.write"(%path, %lane, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b8, !b1) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
     "ac.method"(%rst) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
@@ -67,7 +70,7 @@ module {
     ^bb0(%delta: !b8, %path: !b1):
       %result = "ac.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
       "ac.yield"(%result) : (!b8) -> ()
-    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8, input_names = ["clk", "rst", "seed", "packet"], output_names = ["count"]} : () -> ()
   "ac.module"() ({
@@ -127,6 +130,26 @@ protected:
   void reject(mlir::ModuleOp file, llvm::StringRef reason) {
     EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(file); })));
     EXPECT_NE(diagnostics.find(reason.str()), std::string::npos) << diagnostics;
+  }
+  mlir::DictionaryAttr changed(mlir::DictionaryAttr dictionary,
+                               llvm::StringRef name, mlir::Attribute value) {
+    mlir::NamedAttrList fields(dictionary);
+    if (value)
+      fields.set(name, value);
+    else
+      fields.erase(name);
+    return fields.getDictionary(&context);
+  }
+  mlir::DictionaryAttr parameter(mlir::Operation *method) {
+    return mlir::cast<mlir::DictionaryAttr>(
+        method->getAttrOfType<mlir::ArrayAttr>("ac.parameters")[0]);
+  }
+  void setParameter(mlir::Operation *method, mlir::DictionaryAttr value) {
+    method->setAttr("ac.parameters", builder.getArrayAttr({value}));
+  }
+  void rejectsContract(mlir::ModuleOp file) {
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(file); })));
+    EXPECT_FALSE(diagnostics.empty());
   }
   template <typename Effect>
   bool hasEffect(mlir::Operation *op, llvm::StringRef resource) {
@@ -648,6 +671,184 @@ TEST_F(TransactionEffectsTest,
     }
     EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
     EXPECT_FALSE(diagnostics.empty()) << mutation;
+  }
+}
+
+TEST_F(TransactionEffectsTest, MethodCallAuthorityIsMandatoryAndTyped) {
+  for (llvm::StringRef name :
+       {"ac.parameters", "ac.result_constraints", "ac.return_form"}) {
+    for (bool missing : {false, true}) {
+      SCOPED_TRACE(name.str() + (missing ? " missing" : " wrong type"));
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto *method = find(*file, "ac.method");
+      if (missing)
+        method->removeAttr(name);
+      else
+        method->setAttr(name, builder.getI64IntegerAttr(0));
+      rejectsContract(*file);
+    }
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *method = find(*file, "ac.method");
+  method->removeAttr("ac.parameters");
+  method->removeAttr("ac.result_constraints");
+  method->removeAttr("ac.return_form");
+  rejectsContract(*file);
+}
+
+TEST_F(TransactionEffectsTest, MethodParameterRowsHaveAnExactClosedSchema) {
+  for (llvm::StringRef name :
+       {"name", "binding", "constraint", "default", "origin", "location"}) {
+    for (bool missing : {false, true}) {
+      SCOPED_TRACE(name.str() + (missing ? " missing" : " wrong type"));
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto *method = find(*file, "ac.method");
+      setParameter(method, changed(parameter(method), name,
+                                   missing ? mlir::Attribute()
+                                           : builder.getI64IntegerAttr(0)));
+      rejectsContract(*file);
+    }
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *method = find(*file, "ac.method");
+  setParameter(method,
+               changed(parameter(method), "extra", builder.getUnitAttr()));
+  rejectsContract(*file);
+}
+
+TEST_F(TransactionEffectsTest,
+       MethodParameterIdentityBindingAndDefaultAreChecked) {
+  const std::pair<const char *, const char *> mutations[] = {
+      {"name", R"attr("other")attr"},
+      {"binding", R"attr("keyword_only")attr"},
+      {"default",
+       R"attr({present = true, value = {kind = "integer", value = #ac.math_int<0>}})attr"},
+      {"default", R"attr({present = false, extra = true})attr"},
+      {"origin",
+       R"attr({site = {definition = @Root, ast_path = []}, expansion = []})attr"},
+      {"origin",
+       R"attr({site = {definition = @Counter::@add, ast_path = []}, expansion = []})attr"},
+      {"location",
+       R"attr({path = "foreign.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64})attr"},
+      {"location",
+       R"attr({path = "transactions.py", line = 0 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64})attr"}};
+  for (auto [name, spelling] : mutations) {
+    SCOPED_TRACE(spelling);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *method = find(*file, "ac.method");
+    auto value = mlir::parseAttribute(spelling, &context);
+    ASSERT_TRUE(value);
+    setParameter(method, changed(parameter(method), name, value));
+    rejectsContract(*file);
+  }
+}
+
+TEST_F(TransactionEffectsTest, MethodMetadataArityAndReturnFormAreExact) {
+  for (unsigned mutation = 0; mutation != 7; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *method = find(*file, "ac.method");
+    auto row = parameter(method);
+    switch (mutation) {
+    case 0:
+      method->setAttr("ac.parameters", builder.getArrayAttr({}));
+      break;
+    case 1:
+      method->setAttr("ac.parameters", builder.getArrayAttr({row, row}));
+      break;
+    case 2:
+      method->setAttr("ac.parameters",
+                      builder.getArrayAttr({builder.getUnitAttr()}));
+      break;
+    case 3:
+      method->setAttr("ac.result_constraints", builder.getArrayAttr({}));
+      break;
+    case 4: {
+      auto results =
+          method->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints");
+      method->setAttr("ac.result_constraints",
+                      builder.getArrayAttr({results[0], results[0]}));
+      break;
+    }
+    case 5:
+      method->setAttr("ac.return_form", builder.getStringAttr("none"));
+      break;
+    case 6:
+      method->setAttr("ac.return_form", builder.getStringAttr("tuple"));
+      break;
+    }
+    rejectsContract(*file);
+  }
+}
+
+TEST_F(TransactionEffectsTest, MethodConstraintsCannotInventLogicalAuthority) {
+  const char *mutations[] = {
+      R"attr({kind = "logical", type = TYPE, source_kind = "fixed_bits"})attr",
+      R"attr({kind = "hardware", type = i8, source_kind = "fixed_bits"})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "nominal"})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "table"})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "unknown"})attr",
+      R"attr({kind = "hardware", type = TYPE})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "fixed_bits", domain = #ac.source_domain<{kind = "bool"}>})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "fixed_bits", extra = true})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "boolean", domain = #ac.source_domain<{kind = "bool"}>})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "integer"})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "integer", domain = #ac.source_domain<{kind = "bool"}>})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "integer", domain = #ac.source_domain<{kind = "integer", lower = #ac.math_int<1>, upper = #ac.math_int<256>}>})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "integer", domain = #ac.source_domain<{kind = "integer", lower = #ac.math_int<0>, upper = #ac.math_int<128>}>})attr",
+      R"attr({kind = "hardware", type = TYPE, source_kind = "integer", domain = #ac.source_domain<{kind = "integer", lower = #ac.math_int<0>, upper = #ac.math_int<255>}>})attr"};
+  for (bool result : {false, true}) {
+    for (const char *mutation : mutations) {
+      SCOPED_TRACE(mutation);
+      SCOPED_TRACE(result ? "result" : "parameter");
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto *method = find(*file, "ac.method");
+      std::string type;
+      llvm::raw_string_ostream stream(type);
+      mlir::cast<mlir::FunctionType>(
+          mlir::cast<mlir::TypeAttr>(method->getAttr("function_type"))
+              .getValue())
+          .getInput(0)
+          .print(stream);
+      std::string spelling(mutation);
+      if (auto offset = spelling.find("TYPE"); offset != std::string::npos)
+        spelling.replace(offset, 4, type);
+      auto value = mlir::parseAttribute(spelling, &context);
+      ASSERT_TRUE(value);
+      if (result)
+        method->setAttr("ac.result_constraints", builder.getArrayAttr({value}));
+      else
+        setParameter(method, changed(parameter(method), "constraint", value));
+      rejectsContract(*file);
+    }
+  }
+}
+
+TEST_F(TransactionEffectsTest, MalformedCalleeMetadataRejectsDuringSymbolUse) {
+  for (llvm::StringRef name :
+       {"ac.parameters", "ac.result_constraints", "ac.return_form"}) {
+    for (bool missing : {false, true}) {
+      SCOPED_TRACE(name.str());
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto *method = find(*file, "ac.method");
+      if (missing)
+        method->removeAttr(name);
+      else
+        method->setAttr(name, builder.getUnitAttr());
+      mlir::SymbolTableCollection symbols;
+      auto call = mlir::cast<SourceMethodCallOp>(find(*file, "ac.method.call"));
+      EXPECT_TRUE(mlir::failed(
+          capture([&] { return call.verifySymbolUses(symbols); })));
+      EXPECT_FALSE(diagnostics.empty());
+    }
   }
 }
 

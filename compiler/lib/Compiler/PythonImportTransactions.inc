@@ -580,15 +580,41 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       captureNames.push_back(value.first);
       captures.push_back(value.second);
     }
-    SmallVector<Attribute> argumentNames;
-    for (const Port &port : callable.inputs)
+    SmallVector<Attribute> argumentNames, parameters, resultConstraints;
+    for (const Port &port : callable.inputs) {
       argumentNames.push_back(at.getStringAttr(port.name));
+      auto constraint = sourceConstraint(port);
+      if (failed(constraint))
+        return failure();
+      parameters.push_back(at.getDictionaryAttr(
+          {at.getNamedAttr("name", at.getStringAttr(port.name)),
+           at.getNamedAttr("binding",
+                           at.getStringAttr("positional_or_keyword")),
+           at.getNamedAttr("constraint", *constraint),
+           at.getNamedAttr("default", absentDefault(at)),
+           at.getNamedAttr("origin",
+                           sourceOccurrence(at, decl.symbol, port.node)),
+           at.getNamedAttr("location",
+                           sourceSpan(at, source.path, port.node))}));
+    }
+    for (const Port &port : callable.resultContracts) {
+      auto constraint = sourceConstraint(port);
+      if (failed(constraint))
+        return failure();
+      resultConstraints.push_back(*constraint);
+    }
     Operation *method = createOp(
         at, callable.declaration.location(b.getContext(), source.path),
         ac::SourceMethodOp::getOperationName(), captures, TypeRange{},
         {at.getNamedAttr("sym_name", at.getStringAttr(entry.first())),
          at.getNamedAttr("function_type", TypeAttr::get(callable.type)),
          at.getNamedAttr("argument_names", at.getArrayAttr(argumentNames)),
+         at.getNamedAttr("ac.parameters", at.getArrayAttr(parameters)),
+         at.getNamedAttr("ac.result_constraints",
+                         at.getArrayAttr(resultConstraints)),
+         at.getNamedAttr(
+             "ac.return_form",
+             at.getStringAttr(callable.results.empty() ? "none" : "single")),
          at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol,
                                                         callable.declaration))},
         2);

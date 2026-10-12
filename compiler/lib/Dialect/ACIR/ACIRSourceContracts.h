@@ -12,6 +12,10 @@
 
 #include <cstdint>
 
+namespace acir::ac {
+class HardwareAnalysis;
+}
+
 namespace acir::ac::detail {
 
 using EmitError = llvm::function_ref<mlir::InFlightDiagnostic()>;
@@ -22,6 +26,17 @@ bool isCombinationalHardwareOperation(mlir::Operation *operation);
 
 // Optional source-call authority on existing hardware module declarations.
 mlir::LogicalResult verifyModuleSourceCallContract(mlir::Operation *owner);
+
+// Callable constraints resolve hardware in the lexical module; diagnostics
+// belong to the module or Method whose source contract is being checked.
+mlir::LogicalResult verifySourceCallHardwareConstraint(
+    mlir::Attribute raw, mlir::Type physical, const HardwareAnalysis &analysis,
+    mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation,
+    llvm::StringRef description);
+mlir::LogicalResult verifyRequiredSourceParameter(
+    mlir::Attribute raw, mlir::StringAttr expectedName,
+    mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation,
+    llvm::StringRef description);
 
 // Validate original hardware syntax against its lexical module inventories.
 // Bound forwarded actuals are resolved separately by HardwareAnalysis.

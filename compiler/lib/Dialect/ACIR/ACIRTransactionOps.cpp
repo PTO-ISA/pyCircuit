@@ -389,14 +389,47 @@ LogicalResult SourceMethodOp::verify() {
     if (!names.insert(name.getValue()).second)
       return emitOpError() << "method argument names must be unique";
   }
+  auto form = (*this)->getAttrOfType<StringAttr>("ac.return_form");
+  auto parameters = (*this)->getAttrOfType<ArrayAttr>("ac.parameters");
+  auto results = (*this)->getAttrOfType<ArrayAttr>("ac.result_constraints");
+  if (!form || !parameters || !results ||
+      parameters.size() != signature.getNumInputs() ||
+      results.size() != signature.getNumResults() ||
+      signature.getNumResults() > 1 ||
+      form.getValue() != (signature.getNumResults() == 0 ? "none" : "single"))
+    return emitOpError()
+           << "method source contract requires ac.parameters, "
+              "ac.result_constraints and matching none/single ac.return_form";
+  auto lexicalModule = (*this)->getParentOp();
+  auto error = [&] { return emitOpError(); };
+  if (failed(detail::verifySourceOwner(
+          lexicalModule->getAttrOfType<DictionaryAttr>("source_owner"), error)))
+    return failure();
   for (TypeRange types : {signature.getInputs(), signature.getResults()})
     for (Type type : types) {
       if (!isa<BitsType, StructType, EnumType, TypeParamType, TableType>(type))
         return emitOpError()
                << "method signature requires hardware payload types";
-      if (failed(detail::verifyHardwareTypeScope(type, (*this)->getParentOp())))
+      if (failed(detail::verifyHardwareTypeScope(type, lexicalModule)))
         return failure();
     }
+  HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
+  for (auto [index, raw] : llvm::enumerate(parameters)) {
+    if (failed(detail::verifyRequiredSourceParameter(
+            raw, cast<StringAttr>(getArgumentNames()[index]), lexicalModule,
+            *this, "source method")))
+      return failure();
+    auto parameter = cast<DictionaryAttr>(raw);
+    if (failed(detail::verifySourceCallHardwareConstraint(
+            parameter.get("constraint"), signature.getInput(index), analysis,
+            lexicalModule, *this, "source method")))
+      return failure();
+  }
+  for (auto [index, raw] : llvm::enumerate(results))
+    if (failed(detail::verifySourceCallHardwareConstraint(
+            raw, signature.getResult(index), analysis, lexicalModule, *this,
+            "source method")))
+      return failure();
   return success();
 }
 

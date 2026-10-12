@@ -56,6 +56,18 @@ MLIR Symbol 不能携带 SSA 结果，因而 state/transaction 复用既有 Queu
 Method 两区的 block 参数为显式形参之后接 captures；transaction 两区的 block 参数为
 captures。guard yield 一个一位四态条件，body yield 对应普通结果。
 
+Method 的逻辑类型权威必须复用现有 source-call metadata：`ac.parameters`、
+`ac.result_constraints` 和 `ac.return_form` 三项必填，即使参数或返回为空。
+`ac.parameters` 按 `argument_names` 排列，沿用 `name/binding/constraint/default/origin/location`
+六字段行；首批只接纳 `positional_or_keyword` 且无默认值。`constraint` 复用已有
+hardware/source_kind/type/domain 编码，不以物理 Bits 位宽推断 Boolean、Integer 或
+fixed bits。零返回的 return form 为 `none`，单返回为 `single`；多返回不属于首批。
+参数 occurrence 的 definition 仍为所属 module 的 FlatSymbolRef，location 路径必须
+匹配其 SourceOwner；Method occurrence 与所属 module 共同确定声明身份。captures 不计入
+显式参数契约，也不另建 guard 签名。原生验证与 module 接口共享类型／域校验，module
+专属的 nominal Struct 返回限制保留在 module 验证入口。缺失契约必须拒绝，不提供旧 IR
+默认值。此要求是独立发布的前置条件，不表示发布、调用效果摘要或执行已经完成。
+
 path、clock、reset 都用现有 width-one Bits，不用 builtin i1 丢掉四态信息。
 `selectors` 为 `{field = "field_name"}` 或 `{index = N : i64}` 的序列；后者按顺序引用
 索引 operands，不能将动态索引塞入静态 owner identity。所有投影须验证实际名义类型。

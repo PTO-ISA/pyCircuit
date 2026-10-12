@@ -13,6 +13,8 @@
 #left_instance = {site = {definition = @Root, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}
 #right_instance = {site = {definition = @Root, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}
 #root = {site = {definition = @Root, ast_path = []}, expansion = []}
+#span = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
+#byte_constraint = {kind = "hardware", type = !b8, source_kind = "fixed_bits"}
 module {
   ac.struct "Packet" fields [{name = "lanes", type = !lanes}]
   "ac.module"() ({
@@ -40,7 +42,7 @@ module {
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.state.write"(%path, %lane, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b8, !b1) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
     "ac.method"(%rst) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
@@ -48,7 +50,7 @@ module {
     ^bb0(%delta: !b8, %path: !b1):
       %result = "ac.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
       "ac.yield"(%result) : (!b8) -> ()
-    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8, input_names = ["clk", "rst", "seed", "packet"], output_names = ["count"]} : () -> ()
   "ac.module"() ({

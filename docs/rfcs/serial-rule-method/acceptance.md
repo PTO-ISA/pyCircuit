@@ -22,6 +22,7 @@ Method owner 是直接包含嵌套公开 `@method` 的 `@module`，首批没有�
 | --- | --- | --- | --- |
 | `METHOD-INSTANCE-IDENTITY` | 同一实例重复调用共享一个 owner；两次结构实例化保有独立状态，名称变化不改变行为 | 无法解析的 owner、动态实例化、跨域事务：所有权／实例／域不支持 | typed effects、公共双目标 |
 | `METHOD-SOURCE-OWNER` | 零 authored runtime 参数、无普通返回的 owner 模块提供静态句柄和公开嵌套 Method；捕获更新直接作用于候选 owner | owner 模块 runtime 参数／普通返回、局部 shadow owner、`nonlocal`、事务外只读 Method：源接口／绑定不合法 | capture 到 typed effects、公共 compile |
+| `METHOD-SOURCE-TYPE-AUTHORITY` | Boolean、同宽 Integer 和 fixed bits 经真实 capture、typed IR 打印重读及独立接口传递后保持各自类型约束；captures 不改变显式参数数量 | 缺失必填契约、错误形状／arity／return form、非法 type/domain、foreign origin 或 SourceOwner 路径：类型／来源契约不合法；不得按位宽补默认值 | 原生 verifier、真实 capture；独立发布完成后补公共跨源 compile/link |
 | `METHOD-GUARD-ENTRY` | 同一 Method 多次调用的 guard 分别读取调用入口候选，后续 body 写不反向改 guard；普通自由值保持词法快照 | guard 参数名／顺序不符、任意函数 guard、有 Method/Rule／资源／观测效果：guard 签名／效果不合法 | state SSA、admission、公共双目标 |
 | `METHOD-RESULT` | total Rule 可返回普通值；可能不发射的 Rule 仅 `-> None`；Method 普通返回在有效路径内使用 | guarded Rule 普通 payload 逃逸或制造隐藏 valid 寄存器：结果有效性／首批不支持 | typed validity、公共 compile/link 负例 |
 | `METHOD-REGISTRATION` | 每个静态模块实例恰好注册一次其 Rule；不同实例事务身份独立 | 重复、运行时、循环注册，Rule 内嵌套调用自主 Rule：注册／事务入口不合法 | typed identity、公共负例与发布保护 |

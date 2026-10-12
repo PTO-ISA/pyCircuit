@@ -658,7 +658,7 @@ from typing import Annotated
 def Owner():
     count: ac.u8 = 0
     @ac.method
-    def value() -> Annotated[int, range(2)]:
+    def value() -> Annotated[int, range(1 << 1)]:
         return 1
 @ac.module
 def Parent():
@@ -673,7 +673,9 @@ def Parent():
     ASSERT_TRUE(captured);
     diagnostics.clear();
     EXPECT_TRUE(failed(lower(*captured, "integer.py")));
-    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_NE(diagnostics.find("Boolean source condition, not Integer"),
+              std::string::npos)
+        << diagnostics;
     EXPECT_EQ(diagnostics.find("unexpected operation"), std::string::npos);
   }
 }
@@ -1004,7 +1006,7 @@ TEST_F(SourceTransactionCaptureTest,
 from typing import Annotated
 @ac.module
 def Owner():
-    ready: Annotated[int, range(2)] = 1
+    ready: Annotated[int, range(1 << 1)] = 1
     @ac.method(guard=lambda: ready)
     def read() -> ac.u1:
         return 1
@@ -1019,11 +1021,12 @@ def Parent():
   auto wrapping =
       replaceOnce(integer, "@ac.method(guard=lambda: ready)", "@ac.method");
   wrapping = replaceOnce(wrapping, "def read() -> ac.u1:",
-                         "def read() -> Annotated[int, range(2)]:");
+                         "def read() -> Annotated[int, range(1 << 1)]:");
   wrapping = replaceOnce(wrapping, "        return 1",
                          "        ready = ready + 1\n        return ready");
-  auto boolean = replaceOnce(integer, "ready: Annotated[int, range(2)] = 1",
-                             "ready: bool = True");
+  auto boolean =
+      replaceOnce(integer, "ready: Annotated[int, range(1 << 1)] = 1",
+                  "ready: bool = True");
   boolean =
       replaceOnce(boolean, "@ac.method(guard=lambda: ready)", "@ac.method");
   boolean = replaceOnce(boolean, "        return 1",
@@ -1035,7 +1038,9 @@ def Parent():
     // This bounded producer may reject non-fixed state outright. It may not
     // reinterpret Integer/Boolean owners as wrapping fixed Bits or predicates.
     EXPECT_TRUE(failed(lower(*captured, "authority.py")));
-    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_NE(diagnostics.find("requires explicitly fixed Bits annotation"),
+              std::string::npos)
+        << diagnostics;
     EXPECT_EQ(diagnostics.find("unexpected operation"), std::string::npos);
   }
 }
@@ -1156,6 +1161,186 @@ def Parent)py");
                                    " = delta\n        return child.add(delta)");
     reject(methodHandle, "shadow");
   }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       MethodSourceCallAuthoritySurvivesPrintAndReparse) {
+  auto file = typed(R"py(import pycircuit as ac
+from typing import Annotated
+@ac.struct
+class Packet:
+    value: ac.u1
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def noop() -> None:
+        pass
+    allowed = True
+    @ac.method
+    def boolean(value: bool) -> bool:
+        return value
+    @ac.method
+    def integer(value: Annotated[int, range(1 << 1)]) -> Annotated[int, range(1 << 1)]:
+        return value
+    @ac.method
+    def fixed(value: ac.u1) -> ac.u1:
+        return value
+    @ac.method
+    def packet(value: Packet) -> Packet:
+        return value
+    @ac.method(guard=lambda: allowed)
+    def captured() -> None:
+        pass
+)py",
+                    "method_authority.py");
+  ASSERT_TRUE(file);
+  auto original = operations<ac::SourceMethodOp>(*file);
+  ASSERT_EQ(original.size(), 6u);
+  std::string text;
+  llvm::raw_string_ostream stream(text);
+  file->print(stream);
+  auto reparsed = parseSourceString<ModuleOp>(text, &context);
+  ASSERT_TRUE(reparsed) << diagnostics;
+  ASSERT_TRUE(succeeded(mlir::verify(*reparsed))) << diagnostics;
+  auto methods = operations<ac::SourceMethodOp>(*reparsed);
+  ASSERT_EQ(methods.size(), original.size());
+  for (auto [before, after] : llvm::zip(original, methods)) {
+    for (StringRef name :
+         {"ac.parameters", "ac.result_constraints", "ac.return_form"}) {
+      ASSERT_TRUE(before->hasAttr(name));
+      EXPECT_EQ(before->getAttr(name), after->getAttr(name));
+    }
+    auto parameters = after->getAttrOfType<ArrayAttr>("ac.parameters");
+    auto results = after->getAttrOfType<ArrayAttr>("ac.result_constraints");
+    auto form = after->getAttrOfType<StringAttr>("ac.return_form");
+    ASSERT_TRUE(parameters);
+    ASSERT_TRUE(results);
+    ASSERT_TRUE(form);
+    EXPECT_EQ(parameters.size(), after.getFunctionType().getNumInputs());
+    EXPECT_EQ(results.size(), after.getFunctionType().getNumResults());
+    EXPECT_EQ(form.getValue(), results.empty() ? "none" : "single");
+    auto owner = after->getParentOfType<ac::ModuleOp>();
+    auto sourceOwner = owner.getSourceOwner();
+    for (auto [index, raw] : llvm::enumerate(parameters)) {
+      auto row = dyn_cast<DictionaryAttr>(raw);
+      ASSERT_TRUE(row);
+      EXPECT_EQ(row.size(), 6u);
+      EXPECT_EQ(row.getAs<StringAttr>("name"), after.getArgumentNames()[index]);
+      ASSERT_TRUE(row.getAs<StringAttr>("binding"));
+      EXPECT_EQ(row.getAs<StringAttr>("binding").getValue(),
+                "positional_or_keyword");
+      auto defaultValue = row.getAs<DictionaryAttr>("default");
+      ASSERT_TRUE(defaultValue);
+      ASSERT_TRUE(defaultValue.getAs<BoolAttr>("present"));
+      EXPECT_FALSE(defaultValue.getAs<BoolAttr>("present").getValue());
+      EXPECT_EQ(defaultValue.size(), 1u);
+      auto origin = row.getAs<DictionaryAttr>("origin");
+      ASSERT_TRUE(origin);
+      auto site = origin.getAs<DictionaryAttr>("site");
+      ASSERT_TRUE(site);
+      EXPECT_EQ(site.getAs<FlatSymbolRefAttr>("definition"),
+                FlatSymbolRefAttr::get(&context, owner.getSymName()));
+      auto location = row.getAs<DictionaryAttr>("location");
+      ASSERT_TRUE(location);
+      EXPECT_EQ(location.getAs<StringAttr>("path"),
+                sourceOwner.getAs<StringAttr>("path"));
+    }
+    StringRef name = after.getSymName();
+    if (name == "noop" || name == "captured") {
+      EXPECT_TRUE(parameters.empty());
+      EXPECT_TRUE(results.empty());
+      EXPECT_EQ(before.getCaptures().size(), after.getCaptures().size());
+      if (name == "captured")
+        EXPECT_GT(after.getCaptures().size(), 0u);
+      else
+        EXPECT_TRUE(after.getCaptures().empty());
+      continue;
+    }
+    ASSERT_EQ(parameters.size(), 1u);
+    ASSERT_EQ(results.size(), 1u);
+    auto parameterConstraint =
+        cast<DictionaryAttr>(parameters[0]).getAs<DictionaryAttr>("constraint");
+    auto resultConstraint = dyn_cast<DictionaryAttr>(results[0]);
+    ASSERT_TRUE(parameterConstraint);
+    ASSERT_TRUE(resultConstraint);
+    EXPECT_EQ(parameterConstraint.get("source_kind"),
+              resultConstraint.get("source_kind"));
+    EXPECT_EQ(parameterConstraint.get("domain"),
+              resultConstraint.get("domain"));
+    EXPECT_EQ(resultConstraint.getAs<TypeAttr>("type").getValue(),
+              after.getFunctionType().getResult(0));
+    EXPECT_EQ(parameterConstraint.getAs<StringAttr>("kind").getValue(),
+              "hardware");
+    EXPECT_EQ(parameterConstraint.getAs<TypeAttr>("type").getValue(),
+              after.getFunctionType().getInput(0));
+    auto sourceKind = parameterConstraint.getAs<StringAttr>("source_kind");
+    ASSERT_TRUE(sourceKind);
+    if (name == "packet") {
+      EXPECT_EQ(sourceKind.getValue(), "nominal");
+      EXPECT_TRUE(isa<ac::StructType>(after.getFunctionType().getInput(0)));
+      EXPECT_FALSE(parameterConstraint.get("domain"));
+      continue;
+    }
+    ac::HardwareAnalysis analysis(*reparsed);
+    ac::HardwareBindings bindings;
+    bindings.owner = owner;
+    auto width = analysis.getPackedWidth(after.getFunctionType().getInput(0),
+                                         bindings, after);
+    ASSERT_TRUE(succeeded(width));
+    EXPECT_EQ(*width, 1u);
+    if (name == "fixed") {
+      EXPECT_EQ(sourceKind.getValue(), "fixed_bits");
+      EXPECT_FALSE(parameterConstraint.get("domain"));
+    } else {
+      auto domain = parameterConstraint.getAs<ac::SourceDomainAttr>("domain");
+      ASSERT_TRUE(domain);
+      auto fields = domain.getValue();
+      if (name == "boolean") {
+        EXPECT_EQ(sourceKind.getValue(), "boolean");
+        EXPECT_EQ(fields.getAs<StringAttr>("kind").getValue(), "bool");
+      } else {
+        EXPECT_EQ(name, "integer");
+        EXPECT_EQ(sourceKind.getValue(), "integer");
+        EXPECT_EQ(fields.getAs<StringAttr>("kind").getValue(), "integer");
+        EXPECT_EQ(fields.getAs<ac::MathIntAttr>("lower").getCanonicalValue(),
+                  "0");
+        EXPECT_EQ(fields.getAs<ac::MathIntAttr>("upper").getCanonicalValue(),
+                  "2");
+      }
+    }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       VoidMethodContractRejectsPhantomParametersAndResults) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def noop() -> None:
+        pass
+)py");
+  ASSERT_TRUE(file);
+  auto methods = operations<ac::SourceMethodOp>(*file);
+  ASSERT_EQ(methods.size(), 1u);
+  Builder builder(&context);
+  for (StringRef attribute :
+       {"ac.parameters", "ac.result_constraints", "ac.return_form"}) {
+    auto saved = methods[0]->getAttr(attribute);
+    ASSERT_TRUE(saved);
+    methods[0]->setAttr(
+        attribute,
+        attribute == "ac.return_form"
+            ? Attribute(builder.getStringAttr("single"))
+            : Attribute(builder.getArrayAttr({builder.getUnitAttr()})));
+    diagnostics.clear();
+    EXPECT_TRUE(failed(mlir::verify(*file))) << attribute.str();
+    EXPECT_FALSE(diagnostics.empty());
+    methods[0]->setAttr(attribute, saved);
+  }
+  ASSERT_TRUE(succeeded(mlir::verify(*file))) << diagnostics;
 }
 
 } // namespace

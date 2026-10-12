@@ -40,6 +40,14 @@ PM 独占公共接线：`compiler/lib/Compiler/SourceUnit.cpp`、`compiler/inclu
 
 **产出与不变量：** 条件读写 footprint、guard、普通返回、端口／域／顺序需求在每个调用处绑定实际 owner，不克隆状态。发布保留完整闭包才能解决的 obligations；consumer 不重新读取 provider Python。相关变换后摘要重算。link 的 body 重验不能只检查哈希或信任 caller 提供的摘要。
 
+独立发布前先完成 Method 逻辑类型权威前置切片：producer 用既有 `sourceConstraint`
+编码显式参数与返回，Dialect 从 module contract 提取共用验证，不建立另一套类型系统。
+每个 Method 的三个必填 `ac.*` 属性及其 exact shape 见 [IR 契约](mlir-pipeline.md#类型化效果操作)。
+独立验收必须覆盖同一物理一位表示下 Boolean／Integer／fixed bits 的打印重读区分，
+参数来源与 owner 路径、返回形状、类型／域和字段篡改拒绝，以及调用方先于 callee 子节点
+验证时的安全诊断。这个前置切片不修改 source grammar、source-unit 发布或 final admission；
+缺少 metadata 的旧手写 IR 一次性更新，不保留兼容默认值。
+
 **移除范围：** 仅移除已经有 body 派生摘要替代的私有 call metadata；保留包括身份写在内的源写意图。
 
 保留的纯 `@rule` helper 调用者由 PM 列出精确清单、逐文件冻结改写权，显式迁移为纯 `def`，不扩大 examples/catalog 的支持范围。纯函数不得隐含 owner 读取或 effect。最终切换不得并存旧 helper fallback，也不得把 nested autonomous Rule 调用静默当成 Method。

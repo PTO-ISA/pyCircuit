@@ -305,6 +305,9 @@ def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
     The guard yields one four-state predicate. The body yields the ordinary
     function results. State access remains explicit and belongs to the calling
     transaction; this definition does not introduce a commit boundary.
+    Required ac.parameters, ac.result_constraints and ac.return_form metadata
+    preserve source-call type authority independently of physical payload types.
+    Captures are not explicit source parameters.
   }];
   let arguments = (ins Variadic<ACIR_HardwareType>:$captures,
       StrAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type,
