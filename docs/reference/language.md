@@ -996,12 +996,21 @@ not a clocked reset pulse or a promise to clear memory.
 
 ## Remaining source capabilities
 
-The compiler can capture a bounded subset of the proposed `@method` and nested
-transaction syntax into verified intermediate ACIR. Shared IR analysis checks
-its call graph and whether returned transaction values have statically total
-guards. This is not executable Method support: publication still rejects
-unlowered effects, and transaction state SSA, admission, imported Method
-contracts and dual-target lowering remain unfinished. See the
+The compiler independently publishes a bounded subset of `@method` and nested
+transaction syntax as verified source units. Consumers use published interfaces
+without provider Python or method bodies. Shared IR analysis resolves receiver
+identities, checks the complete call/instance closure and proves conservative
+totality for valued Rules. Logical Boolean, Integer and fixed-bit contracts
+remain distinct across interfaces; ordinary typed-result modules retain their
+value-call behavior.
+
+This source-compilation subset retains fixed scalar state, sequential local
+assignments/calls, typed scalar/Struct results, lambda guards and static
+zero-argument Method-owner construction. It does not expand effectful branch,
+loop, aggregate-state or general static-parameter admission. Final link still
+rejects these transactions: candidate state SSA, admission, resource checks and
+dual-target lowering remain unfinished. This is not executable Method support.
+See the
 [extension specification](../rfcs/serial-rule-method/README.md) for its target
 semantics and explicit implementation boundaries.
 

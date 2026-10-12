@@ -36,6 +36,14 @@ LogicalResult Importer::inferModuleGraph() {
           auto view = headers.lookupModule(binding->symbol);
           if (view && view.domainInputs)
             decl.queueDomain |= !view.domainInputs.empty();
+          if (view && view.semanticKind &&
+              view.semanticKind.getValue() == "transactions") {
+            decl.transactionEffects = true;
+            decl.behavioral = true;
+            if (methodOwner(function) && controlled)
+              return error() << "Method owner construction under runtime "
+                                "control is unsupported";
+          }
           if (view && view.hasSourceCallContract()) {
             if (controlled)
               return error() << "direct module calls under runtime control are "
@@ -94,6 +102,8 @@ LogicalResult Importer::inferModuleGraph() {
       if (failed(self(self, child)))
         return failure();
       domain |= modules[child].needsDomain;
+      modules[index].transactionEffects |= modules[child].transactionEffects;
+      modules[index].behavioral |= modules[child].transactionEffects;
     }
     modules[index].needsDomain = domain;
     marks[index] = 2;
@@ -225,7 +235,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
       if (failed(
               declareQueue(found->second, decl, at, nextName("__pyc_queue_"))))
         return failure();
-    } else if (moduleCall(node) &&
+    } else if (moduleCall(node) && !methodOwner(node.child("func")) &&
                !structuralCallSites.contains(
                    sourceOccurrence(at, decl.symbol, node))) {
       auto callee = callable(node.child("func"));

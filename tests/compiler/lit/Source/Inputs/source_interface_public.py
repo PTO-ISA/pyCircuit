@@ -17,6 +17,7 @@ for name in ("repo", "source-compiler", "linker", "emitter", "optimizer", "scrat
     parser.add_argument("--" + name, required=True)
 parser.add_argument("--invalid", action="store_true")
 parser.add_argument("--query-checks", choices=("syntax", "admission", "resources"))
+parser.add_argument("--method-checks", choices=("publication", "admission"))
 args = parser.parse_args()
 repo = Path(args.repo).resolve()
 scratch = Path(args.scratch).resolve()
@@ -133,6 +134,328 @@ for unit in (child, parent):
     assert actual == expected, (actual, expected)
     assert '"ac.module"' not in actual and '"ac.system"' not in actual
     assert 'ac.unit_kind = "interface"' in actual
+
+if args.method_checks:
+    provider_text = """import pycircuit as ac
+from typing import Annotated
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.module
+def Counter():
+    count: ac.u8 = 0
+    @ac.method
+    def read() -> ac.u8:
+        return count
+    @ac.method
+    def add(delta: ac.u8) -> ac.u8:
+        count = count + delta
+        return count
+    @ac.method
+    def chain(delta: ac.u8) -> ac.u8:
+        saved = add(delta)
+        return add(saved)
+    @ac.method
+    def boolean(value: bool) -> bool:
+        return value
+    @ac.method
+    def integer(value: Annotated[int, range(1 << 1)]) -> Annotated[int, range(1 << 1)]:
+        return value
+    @ac.method
+    def fixed(value: ac.u1) -> ac.u1:
+        return value
+    @ac.method
+    def packet(value: Packet) -> Packet:
+        return value
+    @ac.method(guard=lambda allow: allow)
+    def guarded(allow: bool) -> None:
+        count = count
+    @ac.rule
+    def inspect() -> None:
+        saved = count
+    inspect()
+"""
+    relay_text = """import pycircuit as ac
+from typing import Annotated
+from interfaces.method_provider import Counter, Packet
+@ac.module
+def Relay():
+    left = Counter()
+    alias = left
+    right = Counter()
+    @ac.method
+    def chain(delta: ac.u8) -> ac.u8:
+        before = alias.read()
+        saved = left.chain(delta)
+        return right.add(saved)
+    @ac.method
+    def boolean(value: bool) -> bool:
+        return left.boolean(value)
+    @ac.method
+    def integer(value: Annotated[int, range(1 << 1)]) -> Annotated[int, range(1 << 1)]:
+        return left.integer(value)
+    @ac.method
+    def fixed(value: ac.u1) -> ac.u1:
+        return left.fixed(value)
+    @ac.method
+    def packet(value: Packet) -> Packet:
+        return left.packet(value)
+    @ac.method
+    def guarded(allow: bool) -> None:
+        alias.guarded(allow)
+"""
+    consumer_text = """import pycircuit as ac
+from typing import Annotated
+from interfaces.method_provider import Counter, Packet
+from interfaces.method_relay import Relay
+@ac.struct
+class Result:
+    before: ac.u8
+    after: ac.u8
+    fixed: ac.u1
+    packet: Packet
+@ac.module
+def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1)], fixed: ac.u1, payload: Packet) -> Result:
+    owner = Relay()
+    other = Counter()
+    alias = owner
+    @ac.rule
+    def probe() -> None:
+        owner.guarded(permitted)
+    @ac.rule
+    def work() -> Result:
+        owner.guarded(True)
+        before = alias.chain(delta)
+        after = owner.chain(before)
+        unused = other.add(delta)
+        flag = owner.boolean(permitted)
+        number = owner.integer(logical)
+        bit = owner.fixed(fixed)
+        packet = owner.packet(payload)
+        return Result(before=before, after=after, fixed=bit, packet=packet)
+    probe()
+    return work()
+"""
+    archive = root / "method-publication"
+    archive.mkdir()
+    retained = scratch / ("method-" + args.method_checks + "-artifacts")
+    retained.mkdir(exist_ok=True)
+    source_snapshots = retained / "sources"
+    source_snapshots.mkdir(exist_ok=True)
+    provider_source = source / "method_provider.py"
+    relay_source = source / "method_relay.py"
+    consumer_source = source / "method_consumer.py"
+    for path, text in (
+        (provider_source, provider_text),
+        (relay_source, relay_text),
+        (consumer_source, consumer_text),
+    ):
+        path.write_text(text)
+        # This evidence copy is outside the declared --source-root. It cannot
+        # satisfy a provider Python read after the active source is removed.
+        (source_snapshots / path.name).write_text(text)
+    for name in ("source_interface_child.py", "source_interface_parent.py"):
+        shutil.copyfile(source / name, source_snapshots / name)
+    provider_unit, relay_unit, consumer_unit = (
+        archive / "provider",
+        archive / "relay",
+        archive / "consumer",
+    )
+    compile_unit(provider_source.name, provider_unit)
+    provider_source.unlink()
+    compile_unit(relay_source.name, relay_unit, [provider_unit])
+    relay_source.unlink()
+    compile_unit(consumer_source.name, consumer_unit, [provider_unit, relay_unit])
+    assert not provider_source.exists() and not relay_source.exists()
+    for unit in (provider_unit, relay_unit, consumer_unit):
+        extracted = archive / (unit.name + "-extracted.ac")
+        extract(payload(unit, "body"), extracted)
+        actual = normalize(extracted, archive / (unit.name + "-actual.ac"))
+        expected = normalize(
+            payload(unit, "interface"), archive / (unit.name + "-expected.ac")
+        )
+        assert actual == expected, unit
+        assert 'semantic_kind = "transactions"' in expected, expected
+        assert "transaction_summary =" in expected, expected
+        assert '"ac.method"(' not in expected and '"ac.transaction"(' not in expected
+    provider_header = payload(provider_unit, "interface").read_text()
+    for kind in ("boolean", "integer", "fixed_bits", "nominal"):
+        assert f'source_kind = "{kind}"' in provider_header, provider_header
+    consumer_body = payload(consumer_unit, "body").read_text()
+    relay_body = payload(relay_unit, "body").read_text()
+    assert consumer_body.count('"ac.instance"(') == 2, consumer_body
+    assert relay_body.count('"ac.instance"(') == 2, relay_body
+    assert '"ac.method.call"(' in consumer_body and '"ac.transaction"(' in consumer_body
+
+    # Protect actual hardware artifacts when the admitted Method units reach
+    # the separate, deliberately unfinished transaction lowering boundary.
+    final = archive / "protected.ac"
+    cli(
+        "link",
+        child,
+        parent,
+        "--top",
+        "interfaces.source_interface_parent.Parent",
+        "-o",
+        final,
+    )
+    before_final = final.read_bytes()
+    emitted = {}
+    for target in ("cpp", "verilog"):
+        output = archive / target
+        cli("emit", final, "--target", target, "-o", output)
+        emitted[target] = snapshot(output)
+    rejected = cli(
+        "link",
+        provider_unit,
+        relay_unit,
+        consumer_unit,
+        "--top",
+        "interfaces.method_consumer.Consumer",
+        "-o",
+        final,
+        accepted=False,
+    )
+    diagnostic = rejected.stderr.lower()
+    assert "lower" in diagnostic and (
+        "method" in diagnostic or "transaction" in diagnostic
+    ), rejected.stderr
+    assert (
+        "unresolved" not in diagnostic and "missing" not in diagnostic
+    ), rejected.stderr
+    assert final.read_bytes() == before_final
+    assert all(
+        snapshot(archive / target) == expected for target, expected in emitted.items()
+    )
+
+    if args.method_checks == "admission":
+        before_unit = snapshot(consumer_unit)
+        missing = compile_unit(
+            consumer_source.name,
+            archive / "missing-provider",
+            [relay_unit],
+            accepted=False,
+        )
+        assert any(
+            word in missing.stderr.lower()
+            for word in ("dependency", "provider", "interface")
+        ), missing.stderr
+        assert not (archive / "missing-provider").exists()
+        cases = {
+            "unknown-method": consumer_text.replace(
+                "alias.chain(delta)", "alias.missing(delta)"
+            ),
+            "arity": consumer_text.replace(
+                "alias.chain(delta)", "alias.chain(delta, delta)"
+            ),
+            "integer-is-not-boolean": consumer_text.replace(
+                "owner.boolean(permitted)", "owner.boolean(logical)"
+            ),
+            "boolean-is-not-integer": consumer_text.replace(
+                "owner.integer(logical)", "owner.integer(permitted)"
+            ),
+            "boolean-result-is-not-integer": consumer_text.replace(
+                "owner.integer(logical)", "owner.integer(owner.boolean(permitted))"
+            ),
+            "integer-result-is-not-boolean": consumer_text.replace(
+                "owner.boolean(permitted)", "owner.boolean(owner.integer(logical))"
+            ),
+            "fixed-width": consumer_text.replace(
+                "owner.fixed(fixed)", "owner.fixed(delta)"
+            ),
+            "nominal": consumer_text.replace(
+                "@ac.module\ndef Consumer",
+                "@ac.struct\nclass Other:\n    value: ac.u8\n@ac.module\ndef Consumer",
+            ).replace("owner.packet(payload)", "owner.packet(Other(value=delta))"),
+            "guarded-valued-rule": consumer_text.replace(
+                "        before = alias.chain(delta)",
+                "        owner.guarded(permitted)\n        before = alias.chain(delta)",
+            ),
+        }
+        for name, text in cases.items():
+            assert text != consumer_text, name
+            consumer_source.write_text(text)
+            absent = archive / ("invalid-" + name)
+            fresh = compile_unit(
+                consumer_source.name,
+                absent,
+                [provider_unit, relay_unit],
+                accepted=False,
+            )
+            assert not absent.exists(), name
+            replacement = compile_unit(
+                consumer_source.name,
+                consumer_unit,
+                [provider_unit, relay_unit],
+                replace=True,
+                accepted=False,
+            )
+            if name in (
+                "boolean-result-is-not-integer",
+                "integer-result-is-not-boolean",
+            ):
+                diagnostic = "Boolean and Integer kinds cannot be implicitly converted"
+                assert diagnostic in fresh.stderr, fresh.stderr
+                assert diagnostic in replacement.stderr, replacement.stderr
+            assert snapshot(consumer_unit) == before_unit, name
+            assert final.read_bytes() == before_final, name
+            assert all(
+                snapshot(archive / target) == expected
+                for target, expected in emitted.items()
+            ), name
+        consumer_source.write_text(consumer_text)
+    # Keep complete actual publication and extraction artifacts beyond the
+    # TemporaryDirectory lifetime. Tests do not read these evidence copies.
+    stages = retained / "stages"
+    if stages.exists():
+        shutil.rmtree(stages)
+    shutil.copytree(archive, stages)
+    controls = retained / "controls"
+    if controls.exists():
+        shutil.rmtree(controls)
+    controls.mkdir()
+    for unit in (child, parent):
+        shutil.copytree(unit, controls / unit.name)
+    (scratch / ("method-" + args.method_checks + "-receipt.json")).write_text(
+        json.dumps(
+            {
+                "scope": "source publication and header authority; final transaction lowering remains rejected",
+                "provider_python_unavailable": not provider_source.exists(),
+                "relay_python_unavailable": not relay_source.exists(),
+                "units": {
+                    unit.name: hashlib.sha256(
+                        payload(unit, "interface").read_bytes()
+                    ).hexdigest()
+                    for unit in (provider_unit, relay_unit, consumer_unit)
+                },
+                "managed_hardware_outputs_preserved": True,
+                "mode": args.method_checks,
+                "artifacts": str(retained),
+                "artifact_sha256": {
+                    path.relative_to(retained)
+                    .as_posix(): hashlib.sha256(path.read_bytes())
+                    .hexdigest()
+                    for path in sorted(retained.rglob("*"))
+                    if path.is_file()
+                },
+                "tools": {
+                    str(Path(tool).resolve()): hashlib.sha256(
+                        Path(tool).read_bytes()
+                    ).hexdigest()
+                    for tool in (
+                        args.source_compiler,
+                        args.linker,
+                        args.emitter,
+                        args.optimizer,
+                    )
+                },
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    print("Method " + args.method_checks + " checks passed")
+    sys.exit(0)
 
 if args.query_checks:
     sys.path.insert(0, str(repo / "python"))

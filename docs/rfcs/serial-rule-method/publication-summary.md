@@ -7,7 +7,30 @@
 Import 硬切要求 `semantic_kind` 必填：`hardware` 必须有 `dependency_summary`
 且禁止 `transaction_summary`；`transactions` 相反。所有 canonical builtins 都是 hardware。
 不得给未知依赖补 `[]`。硬切必须同时更新 producer、accessor、临时签名载体及全部 fixture。
-原生 tagged import 验证不提前开放 Method source-unit 发布或执行许可。
+原生 tagged import 验证本身不构成独立发布或执行验收。
+
+## 定义与接口的共同解析
+
+`SourceMethodView` 借用实际 Module 及 Method definition 或已验证 row，两者互斥；
+签名、参数、结果约束和 declaration identity 使用同一只读接口。
+`ResolvedSourceMethod` 携带该 view、实际 receiver bindings 及 occurrence-based OwnerRef。
+`lookupSourceMethod` 和两个 `resolveSourceMethodCall` 入口共用 receiver walker；
+实际实例和摘要实例 row 都经既有 `HardwareAnalysis::bindCallee` 绑定，不制造临时 IR。
+
+Package analysis 使用本包声明；header closure constructor 同步消费 canonical declarations
+及 `SourceModuleLookup`，不保存借用 callback。Registry 在 primitive catalog、snapshot、
+namespace 和显式 interface closure 权威验证之后调用它。普通 provider 必须属于调用源的
+`ac.interfaces`，不能靠另一个碰巧提供的 header 补足未声明依赖。
+
+所有 Method／实例边都检查，包括未使用和 false-path 调用。实际调用验证完整 SSA 类型；
+摘要调用验证 receiver、arity 和已知 predicate fact 对应的 bound formal width。
+摘要没有 opaque actual 的完整来源类型，不能伪造该项证明；provider body 重推导负责关闭
+剩余权威。Method 与实例递归、超预算闭包及缺失 provider 必须诊断。
+
+发布分类来自实际 typed operations 和实例图，而不是返回值个数。普通 typed-result
+transaction module 保留值调用接口；Method owner 才提供符合当前构造合同的静态句柄。
+提取先完成所有定义的分类／摘要，再 staged 替换；pair 验证重算分类和摘要，且反向要求
+每个 header 模块声明都有实际 owning body。未完成 lowering 前，link 不得赋予事务 final 身份。
 
 ## Exact API in existing SourceMethodAnalysis.h/.cpp
 

@@ -234,30 +234,6 @@ TEST_F(TransactionEffectsTest,
   EXPECT_NE(diagnostics.find("unlowered"), std::string::npos) << diagnostics;
 }
 
-TEST_F(TransactionEffectsTest, UnloweredEffectsCannotPublishAsSourceBody) {
-  auto file = parse();
-  ASSERT_TRUE(file);
-  // A well-formed source-unit envelope still cannot admit this intermediate IR.
-  file->getOperation()->setAttr(
-      "ac.source_owner",
-      builder.getDictionaryAttr(
-          {builder.getNamedAttr("package", builder.getStringAttr("")),
-           builder.getNamedAttr("path",
-                                builder.getStringAttr("transactions.py"))}));
-  file->getOperation()->setAttr("ac.unit_kind",
-                                builder.getStringAttr("implementation"));
-  file->getOperation()->setAttr("ac.stage", builder.getStringAttr("source"));
-  file->getOperation()->setAttr(
-      "ac.interfaces",
-      builder.getArrayAttr({file->getOperation()->getAttr("ac.source_owner")}));
-  file->getOperation()->setAttr("ac.import_bindings", builder.getArrayAttr({}));
-  file->getOperation()->setAttr("ac.exports", builder.getArrayAttr({}));
-  EXPECT_TRUE(mlir::failed(capture([&] {
-    return verifySourceBodyStructure(*file, [&] { return file->emitError(); });
-  })));
-  EXPECT_NE(diagnostics.find("unlowered"), std::string::npos) << diagnostics;
-}
-
 TEST_F(TransactionEffectsTest, MissingAndForeignStateReferencesFailClosed) {
   for (llvm::StringRef symbol : {"missing", "foreign"}) {
     auto file = parse();

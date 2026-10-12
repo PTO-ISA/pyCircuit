@@ -388,6 +388,19 @@ protected:
     state.addAttribute("occurrence", occurrence(owner.getSymName(), 0));
     builder.create(state);
   }
+
+  ModuleImportOp replaceDefinition(ModuleOp definition,
+                                   mlir::DictionaryAttr published) {
+    mlir::OperationState state(definition.getLoc(),
+                               ModuleImportOp::getOperationName());
+    state.addAttributes(definition->getAttrs());
+    state.addAttribute("semantic_kind", builder.getStringAttr("transactions"));
+    state.addAttribute("transaction_summary", published);
+    builder.setInsertionPoint(definition);
+    auto declaration = mlir::cast<ModuleImportOp>(builder.create(state));
+    definition->erase();
+    return declaration;
+  }
 };
 
 TEST_F(MethodSummaryAuthorityTest, CanonicalDirectOwnersAndChildComposition) {
@@ -1075,6 +1088,7 @@ TEST_F(MethodSummaryAuthorityTest,
   ASSERT_TRUE(file);
   SourceMethodSummariesAnalysis analysis(file->getOperation());
   ASSERT_TRUE(analysis.isValid());
+  EXPECT_EQ(analysis.lookup(SourceMethodOp{}), nullptr);
   auto published = summary(analysis, module(*file, "Child"));
   ASSERT_TRUE(published);
   EXPECT_TRUE(mlir::failed(
@@ -1143,17 +1157,19 @@ TEST_F(MethodSummaryAuthorityTest,
       child.getBody().front().getTerminator()->getIterator(), recursive);
   ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
       << diagnostics;
-  SourceMethodSummariesAnalysis analysis(file->getOperation());
-  ASSERT_TRUE(analysis.isValid());
-  EXPECT_TRUE(mlir::failed(
-      capture([&] { return analysis.getPublicationSummary(root); })));
+  auto analysis = capture([&] {
+    return std::make_unique<SourceMethodSummariesAnalysis>(
+        file->getOperation());
+  });
+  EXPECT_FALSE(analysis->isValid());
   EXPECT_NE(llvm::StringRef(diagnostics).lower().find("recursive"),
             std::string::npos)
       << diagnostics;
   EXPECT_EQ(llvm::StringRef(diagnostics).lower().find("budget"),
             std::string::npos)
       << diagnostics;
-  EXPECT_TRUE(analysis.isTotal(named<SourceTransactionOp>(root, "run")));
+  EXPECT_TRUE(mlir::failed(
+      capture([&] { return analysis->getPublicationSummary(root); })));
 }
 
 TEST_F(MethodSummaryAuthorityTest,
@@ -1230,20 +1246,25 @@ TEST_F(MethodSummaryAuthorityTest,
     }
     ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
         << diagnostics;
-    SourceMethodSummariesAnalysis analysis(file->getOperation());
-    ASSERT_TRUE(analysis.isValid());
-    auto result =
-        capture([&] { return analysis.getPublicationSummary(levels[0]); });
+    auto analysis = capture([&] {
+      return std::make_unique<SourceMethodSummariesAnalysis>(
+          file->getOperation());
+    });
     if (edges == 128) {
+      ASSERT_TRUE(analysis->isValid()) << diagnostics;
+      auto result =
+          capture([&] { return analysis->getPublicationSummary(levels[0]); });
       ASSERT_TRUE(mlir::succeeded(result)) << diagnostics;
       ASSERT_EQ(array(*result, "owners").size(), 1u);
       EXPECT_TRUE(array(*result, "methods").empty());
       EXPECT_TRUE(array(*result, "autonomous").empty());
     } else {
-      EXPECT_TRUE(mlir::failed(result));
+      EXPECT_FALSE(analysis->isValid());
       EXPECT_NE(llvm::StringRef(diagnostics).lower().find("depth"),
                 std::string::npos)
           << diagnostics;
+      EXPECT_TRUE(mlir::failed(
+          capture([&] { return analysis->getPublicationSummary(levels[0]); })));
     }
   }
 }
@@ -1649,6 +1670,233 @@ TEST_F(MethodSummaryAuthorityTest,
           << diagnostics;
     }
   }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       HeaderOnlyMethodResolutionPreservesRealReceiversAndContracts) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child"), root = module(*file, "Root");
+  SourceMethodSummariesAnalysis original(file->getOperation());
+  ASSERT_TRUE(original.isValid());
+  auto published = summary(original, child);
+  ASSERT_TRUE(published);
+  auto declaration = replaceDefinition(child, published);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto view =
+      capture([&] { return lookupSourceMethod(declaration, "act", root); });
+  ASSERT_TRUE(mlir::succeeded(view)) << diagnostics;
+  EXPECT_FALSE(view->definition);
+  EXPECT_EQ(view->row, namedRow(published, "methods", "act"));
+  EXPECT_EQ(view->getParameters(), array(view->row, "ac.parameters"));
+  EXPECT_EQ(view->getResultConstraints(),
+            array(view->row, "ac.result_constraints"));
+  EXPECT_EQ(view->getReturnForm(), builder.getStringAttr("single"));
+  auto run = named<SourceTransactionOp>(root, "run");
+  llvm::SmallVector<ResolvedSourceMethod> resolved;
+  for (auto call : run.getBody().front().getOps<SourceMethodCallOp>()) {
+    auto result = capture([&] { return resolveSourceMethodCall(call); });
+    ASSERT_TRUE(mlir::succeeded(result)) << diagnostics;
+    EXPECT_FALSE(result->method.definition);
+    EXPECT_EQ(result->method.module, declaration.getOperation());
+    resolved.push_back(*result);
+  }
+  ASSERT_EQ(resolved.size(), 3u);
+  EXPECT_EQ(resolved[0].receiver, resolved[1].receiver);
+  EXPECT_NE(resolved[0].receiver, resolved[2].receiver);
+  EXPECT_EQ(array(resolved[0].receiver, "instance_path")[0],
+            occurrence("Root", 1));
+  EXPECT_EQ(array(resolved[2].receiver, "instance_path")[0],
+            occurrence("Root", 2));
+  SourceMethodSummariesAnalysis current(file->getOperation());
+  ASSERT_TRUE(current.isValid());
+  EXPECT_TRUE(current.isTotal(run));
+  auto proof = current.lookup(view->getSymbol());
+  ASSERT_NE(proof, nullptr);
+  EXPECT_FALSE(proof->mayBlock);
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       HeaderClosureChecksReceiversSignaturesAndAllCalls) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child"), root = module(*file, "Root");
+  SourceMethodSummariesAnalysis original(file->getOperation());
+  ASSERT_TRUE(original.isValid());
+  auto childSummary = summary(original, child),
+       rootSummary = summary(original, root);
+  ASSERT_TRUE(childSummary);
+  ASSERT_TRUE(rootSummary);
+  auto declaration = replaceDefinition(child, childSummary);
+  auto lookup = [&](mlir::FlatSymbolRefAttr symbol) -> mlir::Operation * {
+    if (symbol.getValue() == "Child")
+      return declaration;
+    if (symbol.getValue() == "Root")
+      return root;
+    return nullptr;
+  };
+  llvm::SmallVector<mlir::Operation *> modules{declaration, root};
+  SourceMethodSummariesAnalysis canonical(modules, lookup);
+  ASSERT_TRUE(canonical.isValid());
+  auto call = row(namedRow(rootSummary, "autonomous", "run"), "body_effects");
+  HardwareBindings parent;
+  parent.owner = root;
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return resolveSourceMethodCall(root, call, parent, lookup, root);
+  }))) << diagnostics;
+  auto actuals = array(call, "arguments");
+  llvm::SmallVector<mlir::Attribute> tooFew(actuals.begin(), actuals.end());
+  tooFew.pop_back();
+  auto widePredicate = changed(dict(actuals[1]), "fact", constantFact(true));
+  llvm::SmallVector<mlir::Attribute> typedActuals(actuals.begin(),
+                                                  actuals.end());
+  typedActuals[1] = widePredicate;
+  auto receiver = dict(call.get("receiver"));
+  const mlir::DictionaryAttr badCalls[] = {
+      changed(call, "arguments", builder.getArrayAttr(tooFew)),
+      changed(call, "arguments", builder.getArrayAttr(typedActuals)),
+      changed(call, "callee",
+              mlir::SymbolRefAttr::get(
+                  &context, "Child",
+                  {mlir::FlatSymbolRefAttr::get(&context, "missing")})),
+      changed(call, "receiver",
+              changed(receiver, "instance_path",
+                      builder.getArrayAttr({occurrence("Root", 20)}))),
+      changed(call, "receiver",
+              changed(receiver, "instance_path",
+                      builder.getArrayAttr(
+                          {occurrence("Root", 1), occurrence("Child", 20)}))),
+      changed(call, "receiver",
+              changed(receiver, "instance_path", builder.getArrayAttr({}))),
+  };
+  for (auto invalid : badCalls) {
+    EXPECT_TRUE(mlir::failed(capture([&] {
+      return resolveSourceMethodCall(root, invalid, parent, lookup, root);
+    })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+  auto missing = [&](mlir::FlatSymbolRefAttr symbol) -> mlir::Operation * {
+    return symbol.getValue() == "Root" ? root.getOperation() : nullptr;
+  };
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return resolveSourceMethodCall(root, call, parent, missing, root);
+  })));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(MethodSummaryAuthorityTest, HeaderRecursionRemainsIllegalOnFalsePaths) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child"), root = module(*file, "Root");
+  SourceMethodSummariesAnalysis original(file->getOperation());
+  ASSERT_TRUE(original.isValid());
+  auto published = summary(original, child);
+  ASSERT_TRUE(published);
+  auto act = namedRow(published, "methods", "act");
+  auto falseCall = row(act, "body_effects", 5);
+  ASSERT_EQ(dict(falseCall.get("path")), constantFact(false));
+  auto recursive = dict(replace(
+      published, {std::string("methods"), 1u, std::string("body_effects")},
+      builder.getArrayAttr({falseCall})));
+  auto declaration = replaceDefinition(child, recursive);
+  structureAccepts(declaration, recursive);
+  auto analysis = capture([&] {
+    return std::make_unique<SourceMethodSummariesAnalysis>(
+        file->getOperation());
+  });
+  EXPECT_FALSE(analysis->isValid());
+  EXPECT_NE(llvm::StringRef(diagnostics).lower().find("recursive"),
+            std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       MalformedMethodHeadersDiagnoseBeforeTypedCallResolution) {
+  for (unsigned mutation = 0; mutation != 4; ++mutation) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    auto method = named<SourceMethodOp>(child, "act");
+    auto root = module(*file, "Root");
+    auto call = *named<SourceTransactionOp>(root, "run")
+                     .getBody()
+                     .front()
+                     .getOps<SourceMethodCallOp>()
+                     .begin();
+    if (mutation == 0)
+      method->setAttr("sym_name", builder.getUnitAttr());
+    if (mutation == 1)
+      method->removeAttr("sym_name");
+    if (mutation == 2)
+      method.getGuard().getBlocks().clear();
+    if (mutation == 3)
+      method.getBody().getBlocks().clear();
+    EXPECT_TRUE(
+        mlir::failed(capture([&] { return resolveSourceMethodCall(call); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ImportedNativeCallsEnforceBoundSSAArityAndTypes) {
+  for (unsigned mutation = 0; mutation != 3; ++mutation) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child"), root = module(*file, "Root");
+    SourceMethodSummariesAnalysis original(file->getOperation());
+    ASSERT_TRUE(original.isValid());
+    auto published = summary(original, child);
+    ASSERT_TRUE(published);
+    replaceDefinition(child, published);
+    auto call = *named<SourceTransactionOp>(root, "run")
+                     .getBody()
+                     .front()
+                     .getOps<SourceMethodCallOp>()
+                     .begin();
+    if (mutation == 0) {
+      llvm::SmallVector<mlir::Value> operands(call->getOperands());
+      operands.pop_back();
+      call->setOperands(operands);
+    }
+    if (mutation == 1)
+      call->setOperand(2, call->getOperand(1));
+    if (mutation == 2)
+      call->getResult(0).setType(call->getOperand(0).getType());
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       HeaderInstanceCyclesAreRejectedEvenWithoutCallResults) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child"), root = module(*file, "Root");
+  SourceMethodSummariesAnalysis original(file->getOperation());
+  ASSERT_TRUE(original.isValid());
+  auto childSummary = summary(original, child),
+       rootSummary = summary(original, root);
+  ASSERT_TRUE(childSummary);
+  ASSERT_TRUE(rootSummary);
+  auto cycle = dict(replace(rootSummary,
+                            {std::string("owners"), 1u, std::string("callee")},
+                            mlir::FlatSymbolRefAttr::get(&context, "Root")));
+  cycle = dict(replace(
+      cycle, {std::string("autonomous"), 0u, std::string("body_effects")},
+      builder.getArrayAttr({})));
+  auto childDeclaration = replaceDefinition(child, childSummary);
+  auto rootDeclaration = replaceDefinition(root, cycle);
+  structureAccepts(childDeclaration, childSummary);
+  structureAccepts(rootDeclaration, cycle);
+  auto analysis = capture([&] {
+    return std::make_unique<SourceMethodSummariesAnalysis>(
+        file->getOperation());
+  });
+  EXPECT_FALSE(analysis->isValid());
+  EXPECT_NE(llvm::StringRef(diagnostics).lower().find("recursive"),
+            std::string::npos)
+      << diagnostics;
 }
 
 } // namespace

@@ -566,43 +566,53 @@ HardwareAnalysis::bindOccurrence(Operation *instance,
       instance->getAttrOfType<FlatSymbolRefAttr>("callee").getValue());
   auto actualParameters = instance->getAttrOfType<ArrayAttr>("parameters");
   auto actualTypes = instance->getAttrOfType<ArrayAttr>("type_arguments");
+  return bindCallee(callee, actualParameters, actualTypes, parent, instance);
+}
+FailureOr<HardwareBindings> HardwareAnalysis::bindCallee(
+    Operation *callee, ArrayAttr actualParameters, ArrayAttr actualTypes,
+    const HardwareBindings &parent, Operation *site) const {
   if (!isa_and_nonnull<ModuleOp, ModuleImportOp>(callee))
-    return instance->emitOpError() << "callee must resolve to hardware module";
+    return site->emitOpError() << "callee must resolve to hardware module";
   if (callee->getAttrOfType<StringAttr>("ac.root_kind"))
-    return instance->emitOpError()
+    return site->emitOpError()
            << "source system is root-only and cannot be an instance callee";
   auto parameters = callee->getAttrOfType<ArrayAttr>("parameters");
   auto names = callee->getAttrOfType<ArrayAttr>("type_parameters");
-  if (actualParameters.size() > parameters.size() ||
+  if (!actualParameters || !actualTypes || !parameters || !names ||
+      actualParameters.size() > parameters.size() ||
       actualTypes.size() != names.size())
-    return instance->emitOpError() << "instance parameter arity mismatch";
+    return site->emitOpError() << "instance parameter arity mismatch";
   HardwareBindings result;
   result.owner = callee;
   for (auto [name, raw] : llvm::zip(names, actualTypes)) {
-    auto resolved =
-        resolveType(cast<TypeAttr>(raw).getValue(), parent, instance);
+    auto actual = dyn_cast<TypeAttr>(raw);
+    if (!actual || !isa<StringAttr>(name))
+      return site->emitOpError() << "invalid instance type arguments";
+    auto resolved = resolveType(actual.getValue(), parent, site);
     if (failed(resolved))
       return failure();
     result.types[cast<StringAttr>(name).getValue()] = *resolved;
   }
   for (auto [index, raw] : llvm::enumerate(parameters)) {
-    auto parameter = cast<DictionaryAttr>(raw);
+    auto parameter = dyn_cast<DictionaryAttr>(raw);
+    if (!parameter || !parameter.getAs<StringAttr>("name"))
+      return site->emitOpError() << "invalid instance static parameter declaration";
     StaticExprAttr expr;
     bool supplied = index < actualParameters.size();
-    expr = supplied ? cast<StaticExprAttr>(actualParameters[index])
+    expr = supplied ? dyn_cast<StaticExprAttr>(actualParameters[index])
                     : parameter.getAs<StaticExprAttr>("default");
     if (!expr)
-      return instance->emitOpError() << "missing required static parameter";
+      return site->emitOpError() << "missing required static parameter";
     auto substituted =
         cast<StaticExprAttr>(substitute(expr, supplied ? parent : result));
     Attribute value = substituted;
     if (evaluable(substituted, supplied ? parent : result, this)) {
       auto evaluated =
-          evaluateStatic(substituted, supplied ? parent : result, instance);
+          evaluateStatic(substituted, supplied ? parent : result, site);
       if (failed(evaluated))
         return failure();
       if (!isa<MathIntAttr>(*evaluated))
-        return instance->emitOpError()
+        return site->emitOpError()
                << "integer formal requires mathematical integer";
       value = *evaluated;
     }

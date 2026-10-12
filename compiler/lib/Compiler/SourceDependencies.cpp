@@ -1,5 +1,6 @@
 #include "SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 
 using namespace mlir;
 
@@ -8,6 +9,20 @@ LogicalResult verifyPublishedDependencies(ac::ModuleOp definition,
                                           ac::ModuleImportOp declaration,
                                           ac::detail::EmitError emitError) {
   auto unit = definition->getParentOfType<mlir::ModuleOp>();
+  ac::SourceMethodSummariesAnalysis methods(unit);
+  if (!methods.isValid())
+    return failure();
+  auto transactions = methods.requiresTransactionPublication(definition);
+  if (failed(transactions))
+    return failure();
+  StringRef expected = *transactions ? "transactions" : "hardware";
+  if (declaration.getSemanticKind() != expected)
+    return emitError()
+           << "published semantic kind differs from module SSA: @"
+           << definition.getSymName();
+  if (*transactions)
+    return ac::verifyPublishedTransactionSummary(
+        definition, declaration.getTransactionSummaryAttr(), methods);
   ac::HardwareAnalysis analysis(unit);
   ac::HardwareBindings bindings;
   bindings.owner = definition;

@@ -17,6 +17,7 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -980,6 +981,7 @@ private:
                                        bool mapAggregates = false);
   bool queueCall(const AstNode &node) const;
   bool moduleCall(const AstNode &node) const;
+  bool methodOwner(const AstNode &function) const;
   FailureOr<SmallVector<StringRef, 3>>
   queueTargets(const AstNode &assignment) const;
   LogicalResult declareQueue(const AstNode &assignment, ModuleDecl &decl,
@@ -990,6 +992,8 @@ private:
                                    llvm::StringMap<Instance *> &instances);
   FailureOr<CallableDecl> callable(const AstNode &function);
   FailureOr<DictionaryAttr> sourceConstraint(const Port &port);
+  Port sourceCallPort(DictionaryAttr constraint, StringRef name,
+                      const AstNode &callSite) const;
   LogicalResult serializeSourceCall(ModuleDecl &decl);
   LogicalResult inferModuleGraph();
   StringRef memoryReference(const AstNode &node) const;

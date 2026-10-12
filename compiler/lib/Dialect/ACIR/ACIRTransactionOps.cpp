@@ -3,6 +3,7 @@
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
 
@@ -37,41 +38,6 @@ LogicalResult occurrence(Operation *operation) {
   return moduleOccurrence(
       operation, operation->getAttrOfType<DictionaryAttr>("occurrence"),
       "typed source operation");
-}
-
-LogicalResult receiverHeader(ModuleOp module) {
-  // Symbol uses run during the enclosing SymbolTable trait, before child
-  // custom verifiers. Check only this header, never recurse through calls.
-  if (module->getNumRegions() != 1 || !module.getBody().hasOneBlock())
-    return module.emitOpError()
-           << "method receiver requires one module body block";
-  if (failed(module.verifyInvariantsImpl()))
-    return failure();
-  if (module.getSymName().empty())
-    return module.emitOpError() << "method receiver requires a named module";
-  return module.verify();
-}
-
-LogicalResult receiverInstance(InstanceOp instance, ModuleOp owner) {
-  if (instance->getNumRegions() != 0 ||
-      failed(instance.verifyInvariantsImpl()) || failed(instance.verify()))
-    return failure();
-  if (failed(moduleOccurrence(instance, instance.getOccurrence(),
-                              "method receiver instance")))
-    return failure();
-  for (auto other : owner.getBody().front().getOps<InstanceOp>()) {
-    if (other == instance)
-      continue;
-    auto identity = other->getAttrOfType<DictionaryAttr>("occurrence");
-    if (failed(moduleOccurrence(other, identity, "method receiver instance")))
-      return failure();
-    if (detail::compareClosedSourceStructure(instance.getOccurrence(),
-                                             identity) == 0)
-      return instance.emitOpError()
-             << "method receiver instances require distinct occurrence "
-                "identities within their module";
-  }
-  return success();
 }
 
 LogicalResult namedDeclaration(Operation *operation, StringAttr name) {
@@ -465,67 +431,11 @@ LogicalResult SourceMethodCallOp::verifySymbolUses(SymbolTableCollection &) {
   if (failed(verifyInvariantsImpl()))
     return failure();
   HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
-  auto receiver = (*this)->getParentOfType<ModuleOp>();
-  if (!receiver)
-    return emitOpError() << "method receiver requires an enclosing module body";
-  if (failed(receiverHeader(receiver)))
+  auto resolved = resolveSourceMethodCall(*this);
+  if (failed(resolved))
     return failure();
-  auto bindings = scope(*this);
-  for (Attribute raw : getInstancePath()) {
-    InstanceOp selected;
-    for (auto instance : receiver.getBody().front().getOps<InstanceOp>()) {
-      if (instance->getNumRegions() != 0)
-        return instance.emitOpError() << "method receiver instance cannot have "
-                                         "regions";
-      if (failed(instance.verifyInvariantsImpl()))
-        return failure();
-      if (instance.getInstanceNameAttr() == cast<StringAttr>(raw)) {
-        if (selected)
-          return emitOpError() << "method receiver instance is ambiguous";
-        selected = instance;
-      }
-    }
-    if (!selected)
-      return emitOpError() << "method instance path does not name a direct "
-                              "child instance";
-    if (failed(receiverInstance(selected, receiver)))
-      return failure();
-    auto target = dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(selected));
-    if (!target)
-      return emitOpError()
-             << "method receiver requires a resolved module body; "
-                "unresolved imported methods are unsupported";
-    if (failed(receiverHeader(target)))
-      return failure();
-    auto bound = analysis.bindInstance(selected, bindings);
-    if (failed(bound))
-      return failure();
-    bindings = *bound;
-    receiver = target;
-  }
-  auto callee = getCalleeAttr();
-  if (callee.getNestedReferences().size() != 1 ||
-      callee.getRootReference() != receiver.getSymNameAttr())
-    return emitOpError() << "callee module must match resolved receiver module";
-  SourceMethodOp method;
-  for (auto candidate : receiver.getBody().front().getOps<SourceMethodOp>()) {
-    if (candidate->getNumRegions() != 2)
-      return candidate.emitOpError()
-             << "method requires guard and body regions";
-    if (failed(candidate.verifyInvariantsImpl()))
-      return failure();
-    if (candidate.getSymNameAttr() ==
-        callee.getNestedReferences().front().getAttr()) {
-      if (method)
-        return emitOpError() << "callee receiver method is ambiguous";
-      method = candidate;
-    }
-  }
-  if (!method)
-    return emitOpError() << "callee must resolve to a direct receiver method";
-  if (failed(method.verify()))
-    return failure();
-  auto signature = method.getFunctionType();
+  auto bindings = resolved->bindings;
+  auto signature = resolved->method.getFunctionType();
   if (getArguments().size() != signature.getNumInputs() ||
       getResults().size() != signature.getNumResults())
     return emitOpError() << "method call arity must match signature";

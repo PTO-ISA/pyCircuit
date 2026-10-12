@@ -206,6 +206,11 @@ public:
   mlir::FailureOr<HardwareBindings>
   bindInstance(CollectionOp collection,
                const HardwareBindings &parent = {}) const;
+  mlir::FailureOr<HardwareBindings>
+  bindCallee(mlir::Operation *callee, mlir::ArrayAttr actualParameters,
+             mlir::ArrayAttr actualTypeArguments,
+             const HardwareBindings &parent,
+             mlir::Operation *diagnosticSite) const;
   mlir::FailureOr<ModuleAnalysis>
   analyzeModule(ModuleOp definition,
                 const HardwareBindings &bindings = {}) const;

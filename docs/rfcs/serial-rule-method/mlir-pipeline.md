@@ -97,11 +97,12 @@ state old-Q 输出可以被显式捕获为普通快照；候选 owner 访问必�
 
 ### 跨过程效果摘要
 
-已接入的首个分析子集是公共 Dialect 层的 `SourceMethodSummariesAnalysis`
+公共 Dialect 层的 `SourceMethodSummariesAnalysis`
 （`SourceMethodAnalysis.h/.cpp`），由 Transforms 层的 `AnalyzeSourceMethods.cpp`
-接入 `ac-analyze-source-method-summaries`。它检查实际调用图、递归及有值事务的保守
-totality；不发布通过标签，也不构成完整条件效果/端口/接口摘要。
-源 compiler 和未来 interface extraction 必须复用这个 IR-only owner，不能反向形成
+接入 `ac-analyze-source-method-summaries`。它对真实定义和已验证接口 row 共用调用图、
+实例闭包、递归及有值事务的保守 totality。`SourceMethodResolution.cpp` 提供唯一的
+Method／receiver 解析，`SourceTransactionSummary.cpp` 派生有序直接摘要；资源、端口及
+最终执行调度仍需后续分析。源 compiler 和 interface extraction 必须复用这些 IR-only owners，不能反向形成
 Transforms → SourceCompiler 的库依赖或复制证明算法。
 
 当前恒真事实只来自已验证的一位常量和普通 capture/formal 传递；状态初始化不是证明。

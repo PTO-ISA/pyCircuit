@@ -2,3 +2,4 @@
 # Query syntax/scope and source-wide resource checks share this publication owner.
 # RUN: %python %S/Inputs/source_interface_public.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --optimizer %pycircuit_opt --query-checks syntax --scratch %t.query-syntax.dir
 # RUN: %python %S/Inputs/source_interface_public.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --optimizer %pycircuit_opt --query-checks resources --scratch %t.query-resources.dir
+# RUN: %python %S/Inputs/source_interface_public.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --optimizer %pycircuit_opt --method-checks publication --scratch %t.methods.dir

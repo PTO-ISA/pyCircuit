@@ -2,6 +2,7 @@
 #include "SourceNamespace.h"
 #include "SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/OperationSupport.h"
@@ -518,6 +519,19 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
   for (ModuleOp header : registry.headers_)
     if (failed(detail::verifyNamespaceImports(header, registry, emitError)))
       return failure();
+  SmallVector<Operation *> moduleDeclarations;
+  for (const auto &entry : registry.modules_)
+    moduleDeclarations.push_back(entry.second);
+  llvm::sort(moduleDeclarations, [](Operation *left, Operation *right) {
+    return symbolName(left) < symbolName(right);
+  });
+  auto lookupModule = [&](FlatSymbolRefAttr symbol) -> Operation * {
+    return registry.lookupDeclaration(symbol);
+  };
+  ac::SourceMethodSummariesAnalysis methodClosure(moduleDeclarations,
+                                                 lookupModule);
+  if (!methodClosure.isValid())
+    return emitError() << "source Method interface closure is invalid";
   return registry;
 }
 

@@ -41,16 +41,19 @@ The [serial Rule/Method extension](../rfcs/serial-rule-method/README.md) now has
 a bounded source-to-typed-effects producer and an IR call-summary analysis.
 These stages retain explicit state reads/writes and Method calls; they do not
 yet solve candidate state, generate admission or emit executable transactions.
-Current source-unit publication and final-hardware verification reject their
-unlowered operations. A successful intermediate pass test is not a public
-compile/link/emit or simulation result.
+Source units can publish these typed operations and their declaration-only
+interfaces. Consumer compilation reads the interfaces, without loading provider
+Python or Method bodies. Final link and emission still reject unlowered effects.
 
 The same Dialect analysis exposes a separately fallible direct transaction
 summary and structural/body comparison APIs. They retain ordered effects,
 source type constraints and direct instance references, with explicit unknown
-dependencies. They do not admit imported Methods or change publication/final
-hardware verification. See the [summary contract](../rfcs/serial-rule-method/publication-summary.md)
-for fields, scopes and the remaining header-closure obligations.
+dependencies. Body definitions and imported rows share one receiver resolver and
+one call/instance closure and totality analysis. Registry admission validates
+canonical providers and explicit dependencies; pair validation rederives every
+published module and rejects missing provider bodies. See the
+[summary contract](../rfcs/serial-rule-method/publication-summary.md) for fields,
+scopes and authority obligations.
 
 Native module imports require an explicit `semantic_kind`. Hardware imports
 carry `dependency_summary`; transaction imports carry `transaction_summary`.
@@ -58,8 +61,13 @@ The two summaries are mutually exclusive, and transaction imports cannot claim
 primitive behavior. Untagged imports are rejected. Hardware dependency analysis
 rejects transaction imports throughout the actual instance closure, including
 result-free children; final package checking also rejects unused transaction
-imports. Native transaction declaration verification does not yet enable
-independent Method source publication or execution.
+imports. Transaction publication does not enable hardware execution.
+
+Source compilation defers the hardware-only record simplifier for packages
+retaining transaction semantics. The existing `--source-import-out` diagnostic
+still denotes lowered hardware and rejects these packages; published source
+bodies retain their actual typed IR. Link checks complete source-unit authority,
+then rejects remaining transactions before marking any candidate final.
 
 Importer-local signatures are ordinary declaration attributes. They are not
 temporary published imports and do not acquire dependency authority. The

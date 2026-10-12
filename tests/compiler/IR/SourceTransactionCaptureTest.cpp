@@ -5,6 +5,8 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Verifier.h"
+#include "mlir/IR/SymbolTable.h"
+#include "mlir/AsmParser/AsmParser.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -34,8 +36,8 @@ namespace compiler = acir::compiler;
 namespace source = acir::compiler::detail;
 namespace ac = acir::ac;
 
-// These tests stop at verified typed effects. They do not execute a design or
-// establish transaction lowering, publication, C++, or Verilog support.
+// These tests cover capture, typed effects, and source publication authority.
+// They do not execute a design or establish final transaction lowering.
 class SourceTransactionCaptureTest : public ::testing::Test {
 protected:
   MLIRContext context;
@@ -194,6 +196,26 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     EXPECT_NE(StringRef(diagnostics).lower().find(category.lower()),
               std::string::npos)
         << diagnostics;
+  }
+  DictionaryAttr changed(DictionaryAttr dictionary, StringRef field, Attribute value) {
+    NamedAttrList fields(dictionary);
+    if (value) fields.set(field, value);
+    else fields.erase(field);
+    return fields.getDictionary(&context);
+  }
+  DictionaryAttr changedRow(DictionaryAttr dictionary, StringRef field,
+                            unsigned ordinal, DictionaryAttr value) {
+    auto array = dictionary.getAs<ArrayAttr>(field);
+    SmallVector<Attribute> rows(array.begin(), array.end());
+    rows[ordinal] = value;
+    return changed(dictionary, field, Builder(&context).getArrayAttr(rows));
+  }
+  unsigned rowIndex(DictionaryAttr dictionary, StringRef section, StringRef name) {
+    for (auto [i, raw] : llvm::enumerate(dictionary.getAs<ArrayAttr>(section)))
+      if (cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() == name)
+        return i;
+    ADD_FAILURE() << "missing summary row " << name.str();
+    return 0;
   }
 };
 
@@ -410,7 +432,7 @@ def Driver(amount: ac.u8):
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       UnitCompilationRejectsWithoutMutatingCapture) {
+       UnitCompilationPublishesTypedEffectsWithoutMutatingCapture) {
   auto captured = capture("design.py", counterSource());
   ASSERT_TRUE(captured);
   auto print = [&] {
@@ -425,10 +447,184 @@ TEST_F(SourceTransactionCaptureTest,
   diagnostics.clear();
   auto result = compiler::compilePythonSourceUnit(*captured, owner("design.py"),
                                                   *headers, error());
-  EXPECT_TRUE(failed(result));
-  EXPECT_NE(diagnostics.find("unlowered"), std::string::npos) << diagnostics;
+  ASSERT_TRUE(succeeded(result)) << diagnostics;
   EXPECT_EQ(print(), before);
   EXPECT_TRUE(succeeded(mlir::verify(*captured)));
+  EXPECT_FALSE(operations<ac::SourceMethodOp>(*result->body).empty());
+  EXPECT_FALSE(operations<ac::SourceTransactionOp>(*result->body).empty());
+  EXPECT_TRUE(operations<ac::SourceMethodOp>(*result->interface).empty());
+  EXPECT_TRUE(operations<ac::SourceTransactionOp>(*result->interface).empty());
+  unsigned transactionProviders = 0;
+  for (auto declaration : result->interface->getOps<ac::ModuleImportOp>()) {
+    if (declaration.getSymName().ends_with("Counter") ||
+        declaration.getSymName().ends_with("Parent")) {
+      ++transactionProviders;
+      EXPECT_EQ(declaration.getSemanticKind(), "transactions");
+      EXPECT_TRUE(declaration.getTransactionSummaryAttr());
+      EXPECT_FALSE(declaration.getDependencySummaryAttr());
+    } else {
+      EXPECT_EQ(declaration.getSemanticKind(), "hardware");
+      EXPECT_TRUE(declaration.getDependencySummaryAttr());
+      EXPECT_FALSE(declaration.getTransactionSummaryAttr());
+      EXPECT_TRUE(headers->isTrustedBuiltin(declaration));
+    }
+  }
+  EXPECT_EQ(transactionProviders, 2u);
+  EXPECT_TRUE(succeeded(compiler::verifyIntrinsicSourceUnitPair(
+      *result->body, *result->interface, error()))) << diagnostics;
+  diagnostics.clear();
+  EXPECT_TRUE(failed(ac::verifyHardwarePackage(*result->body)));
+  EXPECT_NE(StringRef(diagnostics).lower().find("unlowered"), std::string::npos) << diagnostics;
+}
+
+TEST_F(SourceTransactionCaptureTest, TypedPublicationDoesNotRelabelSourceImportAsHardware) {
+  auto captured = capture("design.py", counterSource());
+  ASSERT_TRUE(captured);
+  std::string before;
+  llvm::raw_string_ostream stream(before);
+  captured->print(stream);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  diagnostics.clear();
+  auto result = compiler::compilePythonSourceUnit(*captured, owner("design.py"),
+                                                *headers, error(), /*retainSourceImport=*/true);
+  EXPECT_TRUE(failed(result));
+  EXPECT_NE(StringRef(diagnostics).lower().find("hardware"), std::string::npos) << diagnostics;
+  std::string after;
+  llvm::raw_string_ostream output(after);
+  captured->print(output);
+  EXPECT_EQ(before, after);
+}
+
+TEST_F(SourceTransactionCaptureTest, NativePairRederivesEveryPublishedMethodProviderFact) {
+  auto captured = capture("design.py", counterSource());
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(*captured, owner("design.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  Builder b(&context);
+  for (unsigned mutation = 0; mutation != 8; ++mutation) {
+    SCOPED_TRACE(mutation);
+    OwningOpRef<ModuleOp> header(cast<ModuleOp>((*compiled->interface)->clone()));
+    ac::ModuleImportOp provider;
+    for (auto declaration : header->getOps<ac::ModuleImportOp>())
+      if (declaration.getSymName().ends_with("Counter")) provider = declaration;
+    ASSERT_TRUE(provider);
+    auto summary = provider.getTransactionSummaryAttr();
+    ASSERT_TRUE(summary);
+    auto states = summary.getAs<ArrayAttr>("owners");
+    ASSERT_FALSE(states.empty());
+    auto state = cast<DictionaryAttr>(states[0]);
+    auto methods = summary.getAs<ArrayAttr>("methods");
+    unsigned addIndex = rowIndex(summary, "methods", "add");
+    unsigned relayIndex = rowIndex(summary, "methods", "relay");
+    auto add = cast<DictionaryAttr>(methods[addIndex]);
+    auto relay = cast<DictionaryAttr>(methods[relayIndex]);
+    switch (mutation) {
+    case 0:
+      summary = changedRow(summary, "owners", 0, changed(state, "name", b.getStringAttr("different")));
+      break;
+    case 1: {
+      auto domain = state.getAs<DictionaryAttr>("domain");
+      auto endpoint = b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("constant")),
+                                           b.getNamedAttr("value", b.getBoolAttr(true))});
+      auto changedDomain = changed(domain, "clock", endpoint);
+      if (changedDomain == domain) changedDomain = changed(domain, "reset", endpoint);
+      ASSERT_NE(changedDomain, domain);
+      summary = changedRow(summary, "owners", 0, changed(state, "domain", changedDomain));
+      break;
+    }
+    case 2: {
+      auto effects = add.getAs<ArrayAttr>("body_effects");
+      ASSERT_GT(effects.size(), 1u);
+      SmallVector<Attribute> reordered(effects.begin(), effects.end());
+      std::swap(reordered[0], reordered[1]);
+      summary = changedRow(summary, "methods", addIndex, changed(add, "body_effects", b.getArrayAttr(reordered)));
+      break;
+    }
+    case 3: {
+      auto effect = cast<DictionaryAttr>(add.getAs<ArrayAttr>("body_effects")[0]);
+      auto path = b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("constant")),
+                                       b.getNamedAttr("value", b.getBoolAttr(false))});
+      add = changedRow(add, "body_effects", 0, changed(effect, "path", path));
+      summary = changedRow(summary, "methods", addIndex, add);
+      break;
+    }
+    case 4: {
+      auto guard = add.getAs<DictionaryAttr>("guard");
+      auto fact = b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("unknown"))});
+      summary = changedRow(summary, "methods", addIndex, changed(add, "guard", changed(guard, "fact", fact)));
+      break;
+    }
+    case 5: {
+      auto result = cast<DictionaryAttr>(add.getAs<ArrayAttr>("results")[0]);
+      auto dependencies = b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("known")),
+                                               b.getNamedAttr("arguments", b.getArrayAttr({})),
+                                               b.getNamedAttr("captures", b.getArrayAttr({}))});
+      add = changedRow(add, "results", 0, changed(result, "dependencies", dependencies));
+      summary = changedRow(summary, "methods", addIndex, add);
+      break;
+    }
+    case 6: {
+      auto call = cast<DictionaryAttr>(relay.getAs<ArrayAttr>("body_effects")[0]);
+      call = changed(call, "callee", SymbolRefAttr::get(&context, provider.getSymName(), {FlatSymbolRefAttr::get(&context, "read")}));
+      call = changed(call, "arguments", b.getArrayAttr({}));
+      relay = changedRow(relay, "body_effects", 0, call);
+      summary = changedRow(summary, "methods", relayIndex, relay);
+      break;
+    }
+    case 7: {
+      auto parameter = cast<DictionaryAttr>(add.getAs<ArrayAttr>("ac.parameters")[0]);
+      auto constraint = parameter.getAs<DictionaryAttr>("constraint");
+      constraint = changed(constraint, "source_kind", b.getStringAttr("integer"));
+      constraint = changed(constraint, "domain", parseAttribute("#ac.source_domain<{kind = \"integer\", lower = #ac.math_int<0>, upper = #ac.math_int<256>}>", &context));
+      parameter = changed(parameter, "constraint", constraint);
+      add = changedRow(add, "ac.parameters", 0, parameter);
+      summary = changedRow(summary, "methods", addIndex, add);
+      break;
+    }
+    }
+    ASSERT_NE(summary, provider.getTransactionSummaryAttr());
+    provider->setAttr("transaction_summary", summary);
+    diagnostics.clear();
+    ASSERT_TRUE(succeeded(mlir::verify(*header))) << diagnostics;
+    // There is no receipt/hash wrapper here: invoke the actual native pair
+    // entry with the unchanged provider body and the forged declaration.
+    EXPECT_TRUE(failed(compiler::verifyIntrinsicSourceUnitPair(*compiled->body, *header, error())));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest, OwningTransactionDeclarationsCannotReplaceTheirProviderBodies) {
+  auto captured = capture("design.py", counterSource());
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(*captured, owner("design.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  auto registry = compiler::SourceHeaderRegistry::create(&context, {*compiled->interface}, error());
+  ASSERT_TRUE(succeeded(registry)) << diagnostics;
+  for (bool snapshots : {false, true}) {
+    SCOPED_TRACE(snapshots);
+    OwningOpRef<ModuleOp> missing(cast<ModuleOp>((*compiled->body)->clone()));
+    for (auto definition : llvm::make_early_inc_range(missing->getOps<ac::ModuleOp>())) {
+      if (snapshots) {
+        auto declaration = cast<ac::ModuleImportOp>(SymbolTable::lookupSymbolIn(*compiled->interface, definition.getSymName()));
+        auto *copy = declaration->clone();
+        copy->setAttr("ac.declaration_role", Builder(&context).getStringAttr("import_snapshot"));
+        definition->getBlock()->getOperations().insert(definition->getIterator(), copy);
+      }
+      definition->erase();
+    }
+    (*missing)->setAttr("ac.unit_kind", Builder(&context).getStringAttr("declarations"));
+    diagnostics.clear();
+    EXPECT_TRUE(failed(compiler::verifyIntrinsicSourceUnitPair(*missing, *compiled->interface, error())));
+    EXPECT_FALSE(diagnostics.empty());
+    diagnostics.clear();
+    EXPECT_TRUE(failed(registry->verifyBodySnapshots(*missing, *compiled->interface, error())));
+    EXPECT_FALSE(diagnostics.empty());
+  }
 }
 
 std::string replaceOnce(std::string text, StringRef before, StringRef after) {

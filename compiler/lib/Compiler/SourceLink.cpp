@@ -100,7 +100,6 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   MLIRContext *context = units.front().body->getContext();
   OwningOpRef<ModuleOp> linked(ModuleOp::create(UnknownLoc::get(context)));
   Builder builder(context);
-  (*linked)->setAttr("ac.stage", builder.getStringAttr("final"));
   SmallVector<Attribute> owners;
   for (SourceLinkUnit unit : units)
     owners.push_back(unit.header->getAttr("ac.source_owner"));
@@ -172,6 +171,10 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
       builder.getNamedAttr("type_arguments", builder.getArrayAttr({}))}));
   state.addAttribute("domain", builder.getStringAttr("default"));
   (*linked).getBody()->push_back(Operation::create(state));
+  if (failed(ac::detail::verifyNoUnloweredTransactions(*linked)))
+    return emitError() << "transaction lowering is not yet available for final "
+                         "hardware publication";
+  (*linked)->setAttr("ac.stage", builder.getStringAttr("final"));
   if (failed(ac::verifyHardwarePackage(*linked)))
     return failure();
   return std::move(linked);

@@ -33,24 +33,69 @@ LogicalResult Importer::scanSourceCallables() {
         methodOwnerNames.insert(moduleName);
     }
   }
-  // Select the typed staging route from declaration identity and direct
-  // construction, independent of source order and fixture spelling.
+  // Classify the actual static module-call graph before reading callable
+  // contracts. This includes imported transaction value modules and propagates
+  // their publication route through local parents without making them handles.
+  llvm::StringMap<SmallVector<std::string, 0>> edges;
+  llvm::StringSet<> moduleNames;
   for (size_t i = 0; i < source.module.array("body").size(); ++i) {
     AstNode module = source.module.item("body", i);
-    if (module.kind() != "FunctionDef")
+    if (module.kind() == "FunctionDef" &&
+        (hasDecorator(module, "module") || hasDecorator(module, "system")))
+      moduleNames.insert(module.string("name"));
+  }
+  for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+    AstNode module = source.module.item("body", i);
+    if (module.kind() != "FunctionDef" ||
+        !moduleNames.contains(module.string("name")))
       continue;
     StringRef moduleName = module.string("name");
     if (methodOwnerNames.contains(moduleName))
       transactionModuleNames.insert(moduleName);
-    for (size_t j = 0; j < module.array("body").size(); ++j) {
-      AstNode statement = module.item("body", j);
-      AstNode value =
-          statement.kind() == "Assign" ? statement.child("value") : AstNode();
-      if (value.kind() == "Call" && value.child("func").kind() == "Name" &&
-          methodOwnerNames.contains(value.child("func").string("id")))
-        transactionModuleNames.insert(moduleName);
-    }
+    auto walk = [&](auto &&self, const AstNode &node) -> void {
+      if (node.kind() == "FunctionDef" || node.kind() == "Lambda")
+        return;
+      if (node.kind() == "Call") {
+        AstNode function = node.child("func");
+        if (function.kind() == "Name" &&
+            moduleNames.contains(function.string("id")) &&
+            !lexicallyShadowed(function, function.string("id")))
+          edges[moduleName].push_back(function.string("id").str());
+        auto binding = lookupBinding(function);
+        if (binding && binding->category == BindingCategory::Module) {
+          auto view = headers.lookupModule(binding->symbol);
+          if (view && view.semanticKind &&
+              view.semanticKind.getValue() == "transactions")
+            transactionModuleNames.insert(moduleName);
+        }
+      }
+      for (NamedAttribute field : node.fields()) {
+        if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+          if (child.getAs<StringAttr>("kind"))
+            self(self, node.child(field.getName().getValue()));
+        } else if (auto children = dyn_cast<ArrayAttr>(field.getValue())) {
+          for (size_t j = 0; j < children.size(); ++j)
+            if (auto child = dyn_cast<DictionaryAttr>(children[j]);
+                child && child.getAs<StringAttr>("kind"))
+              self(self, node.item(field.getName().getValue(), j));
+        }
+      }
+    };
+    for (size_t j = 0; j < module.array("body").size(); ++j)
+      walk(walk, module.item("body", j));
   }
+  bool changed;
+  do {
+    changed = false;
+    for (auto &entry : edges)
+      if (!transactionModuleNames.contains(entry.first()))
+        for (const std::string &child : entry.second)
+          if (transactionModuleNames.contains(child)) {
+            transactionModuleNames.insert(entry.first());
+            changed = true;
+            break;
+          }
+  } while (changed);
   // Existing nested Rule syntax outside the selected typed closure remains on
   // its established structural/behavioral route during this staged cutover.
   for (auto &moduleEntry : staged) {
@@ -60,52 +105,6 @@ LogicalResult Importer::scanSourceCallables() {
         if (entry.second.marker == MarkerKind::Rule && entry.second.guard)
           return error()
                  << "guarded nested Rule cannot use the legacy Rule path";
-      llvm::StringSet<> importedHandles;
-      AstNode module;
-      for (size_t i = 0; i < source.module.array("body").size(); ++i)
-        if (source.module.item("body", i).kind() == "FunctionDef" &&
-            source.module.item("body", i).string("name") == moduleName)
-          module = source.module.item("body", i);
-      for (size_t i = 0; module && i < module.array("body").size(); ++i) {
-        AstNode statement = module.item("body", i);
-        AstNode value =
-            statement.kind() == "Assign" ? statement.child("value") : AstNode();
-        if (statement.kind() == "Assign" &&
-            statement.array("targets").size() == 1 &&
-            statement.item("targets", 0).kind() == "Name" &&
-            value.kind() == "Call") {
-          auto binding = lookupBinding(value.child("func"));
-          if (binding && binding->category == BindingCategory::Module &&
-              !local.contains(value.child("func").string("id")))
-            importedHandles.insert(statement.item("targets", 0).string("id"));
-        }
-      }
-      for (const auto &entry : moduleEntry.second) {
-        if (entry.second.marker != MarkerKind::Rule)
-          continue;
-        bool importedMethod = false;
-        auto walk = [&](auto &&self, const AstNode &node) -> void {
-          if (node.kind() == "Call" &&
-              node.child("func").kind() == "Attribute" &&
-              node.child("func").child("value").kind() == "Name" &&
-              importedHandles.contains(
-                  node.child("func").child("value").string("id")))
-            importedMethod = true;
-          for (NamedAttribute field : node.fields()) {
-            if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
-              if (child.getAs<StringAttr>("kind"))
-                self(self, node.child(field.getName().getValue()));
-            } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
-              for (size_t j = 0; j < children.size(); ++j)
-                if (auto child = dyn_cast<DictionaryAttr>(children[j]);
-                    child && child.getAs<StringAttr>("kind"))
-                  self(self, node.item(field.getName().getValue(), j));
-          }
-        };
-        walk(walk, entry.first);
-        if (importedMethod)
-          return error() << "imported Method calls are unsupported";
-      }
       continue;
     }
     for (auto &entry : moduleEntry.second) {
@@ -235,6 +234,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     return error() << "typed transactions require inferred clock and reset";
   OpBuilder at = OpBuilder::atBlockEnd(graph);
   llvm::StringMap<StateOwner> states;
+  auto *previousBehavioralDecl = activeBehavioralDecl;
+  activeBehavioralDecl = &decl;
+  auto restoreBehavioralDecl = llvm::scope_exit(
+      [&] { activeBehavioralDecl = previousBehavioralDecl; });
+  if (failed(predeclareDirectCalls(decl, at)))
+    return failure();
+
   SmallVector<Instance, 0> instanceStorage;
   llvm::StringMap<Instance *> instances;
   auto &methods = sourceMethods[decl.node.string("name")];
@@ -343,32 +349,50 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           value.child("func").child("value").kind() == "Name" &&
           instances.contains(value.child("func").child("value").string("id")))
         return error() << "Method call requires a Rule transaction scope";
-      auto target =
-          value.kind() == "Call" && value.child("func").kind() == "Name"
-              ? local.find(value.child("func").string("id"))
-              : local.end();
-      if (target != local.end() && modules[target->second].methodOwner) {
+      if (value.kind() == "Call" && methodOwner(value.child("func"))) {
         if (moduleValues.contains(name))
           return error() << "instance handle cannot be rebound and requires a "
                             "fresh immutable name";
-        ModuleDecl &callee = modules[target->second];
         if (!value.array("args").empty() || !value.array("keywords").empty())
           return error()
                  << "Method owner construction takes no authored parameters";
+        AstNode function = value.child("func");
+        FlatSymbolRefAttr callee;
+        Operation *declaration = nullptr;
+        unsigned clockInput = 0, resetInput = 1;
+        auto target = function.kind() == "Name"
+                          ? local.find(function.string("id"))
+                          : local.end();
+        if (target != local.end()) {
+          if (modules[target->second].system)
+            return error() << "@system is root-only and cannot be called as a child";
+          callee = modules[target->second].symbol;
+        } else {
+          auto binding = lookupBinding(function);
+          auto view = headers.lookupModule(binding->symbol);
+          if (view.declaration->hasAttr("ac.root_kind"))
+            return error() << "@system is root-only and cannot be called as a child";
+          callee = view.symbol;
+          declaration = view.declaration;
+          clockInput = view.domainInputs.getAs<IntegerAttr>("clock").getInt();
+          resetInput = view.domainInputs.getAs<IntegerAttr>("reset").getInt();
+        }
+        SmallVector<Value> inputs(2);
+        inputs[clockInput] = clock->second;
+        inputs[resetInput] = reset->second;
         Operation *instance = createOp(
             at, statement.location(b.getContext(), source.path),
-            ac::InstanceOp::getOperationName(),
-            ValueRange{clock->second, reset->second}, TypeRange{},
+            ac::InstanceOp::getOperationName(), inputs, TypeRange{},
             {at.getNamedAttr("instance_name", at.getStringAttr(name)),
-             at.getNamedAttr("callee", callee.symbol),
+             at.getNamedAttr("callee", callee),
              at.getNamedAttr("parameters", at.getArrayAttr({})),
              at.getNamedAttr("type_arguments", at.getArrayAttr({})),
              at.getNamedAttr("occurrence",
                              sourceOccurrence(at, decl.symbol, statement))});
-        instanceStorage.push_back({name.str(), statement, callee.symbol});
+        instanceStorage.push_back({name.str(), statement, callee, declaration});
         instanceStorage.back().op = instance;
-        instanceStorage.back().clockInput = 0;
-        instanceStorage.back().resetInput = 1;
+        instanceStorage.back().clockInput = clockInput;
+        instanceStorage.back().resetInput = resetInput;
         instances[name] = &instanceStorage.back();
         continue;
       }
@@ -643,15 +667,34 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
 
   llvm::StringMap<unsigned> registrationCounts;
   SmallVector<Value> moduleOutputs;
+  llvm::DenseSet<DictionaryAttr> ordinaryModuleReturns;
+  bool returned = false;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
     AstNode call = statement.kind() == "Expr"     ? statement.child("value")
                    : statement.kind() == "Return" ? statement.child("value")
                    : statement.kind() == "Assign" ? statement.child("value")
                                                   : AstNode();
-    if (call.kind() != "Call" || call.child("func").kind() != "Name" ||
-        !rules.contains(call.child("func").string("id")))
+    bool registration = call.kind() == "Call" &&
+                        call.child("func").kind() == "Name" &&
+                        rules.contains(call.child("func").string("id"));
+    if (statement.kind() == "Return") {
+      if (decl.methodOwner)
+        return error() << "Method owner cannot return an ordinary module value";
+      if (returned)
+        return error() << "module requires one final return";
+      returned = true;
+    }
+    if (!registration) {
+      if (statement.kind() != "Return")
+        continue;
+      auto outputs = lowerReturn(decl, call, at, moduleValues, instances);
+      if (failed(outputs))
+        return failure();
+      llvm::append_range(moduleOutputs, *outputs);
+      ordinaryModuleReturns.insert(sourceOccurrence(at, decl.symbol, statement));
       continue;
+    }
     StringRef name = call.child("func").string("id");
     if (++registrationCounts[name] != 1)
       return error() << "Rule declaration must be registered exactly once";
@@ -711,14 +754,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                         rules.contains(value.child("func").string("id"));
     bool construction =
         statement.kind() == "Assign" && value.kind() == "Call" &&
-        value.child("func").kind() == "Name" &&
-        local.contains(value.child("func").string("id")) &&
-        modules[local[value.child("func").string("id")]].methodOwner;
+        methodOwner(value.child("func"));
     bool alias = statement.kind() == "Assign" && value.kind() == "Name" &&
                  instances.contains(value.string("id"));
     bool ordinary = ordinaryModuleAssignments.contains(
         sourceOccurrence(at, decl.symbol, statement));
-    if (registration || construction || alias || ordinary)
+    if (registration || construction || alias || ordinary ||
+        ordinaryModuleReturns.contains(
+            sourceOccurrence(at, decl.symbol, statement)))
       continue;
     if (decl.methodOwner && statement.kind() == "Return")
       return error() << "Method owner cannot return an ordinary module value";
@@ -741,6 +784,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     return failure();
   AstNode function = node.child("func");
   SourceCallableDecl *target = nullptr;
+  std::optional<ac::SourceMethodView> imported;
   Instance *receiver = nullptr;
   bool recognizedReceiver = false;
   StringRef methodName;
@@ -761,8 +805,10 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       recognizedReceiver = true;
       receiver = found->second;
       methodName = function.string("attr");
+      bool localReceiver = false;
       for (auto &candidate : modules)
         if (candidate.symbol == receiver->callee) {
+          localReceiver = true;
           auto methods = sourceMethods.find(candidate.node.string("name"));
           if (methods != sourceMethods.end()) {
             auto method = methods->second.find(methodName);
@@ -771,21 +817,55 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
           }
           break;
         }
+      if (!localReceiver) {
+        auto view = headers.lookupModule(receiver->callee);
+        if (!view)
+          return error() << "Method receiver lacks a validated module contract";
+        auto method = ac::lookupSourceMethod(view.declaration, methodName,
+                                             body->getOperation());
+        if (failed(method))
+          return failure();
+        imported = *method;
+      }
       moduleSymbol = receiver->callee;
+      // Aliases retain the actual instance identity, not their local spelling.
       path.push_back(at.getStringAttr(receiver->name));
     }
   }
-  if (!target && recognizedReceiver)
+  if (!target && !imported && recognizedReceiver)
     return error() << "unknown Method on statically identified instance";
-  if (!target)
+  if (!target && !imported)
     return failure();
   if (activeSourceEffects->guard)
     return error() << "guard cannot call a Method";
+
+  SmallVector<Port> importedInputs, importedResults;
+  SmallVector<Type> importedResultTypes;
+  if (imported) {
+    for (Attribute raw : imported->getParameters()) {
+      auto parameter = cast<DictionaryAttr>(raw);
+      importedInputs.push_back(sourceCallPort(
+          parameter.getAs<DictionaryAttr>("constraint"),
+          parameter.getAs<StringAttr>("name").getValue(), node));
+    }
+    for (Attribute raw : imported->getResultConstraints())
+      importedResults.push_back(
+          sourceCallPort(cast<DictionaryAttr>(raw), "result", node));
+    llvm::append_range(importedResultTypes,
+                       imported->getFunctionType().getResults());
+  }
+  ArrayRef<Port> inputs = target ? ArrayRef<Port>(target->inputs)
+                                 : ArrayRef<Port>(importedInputs);
+  ArrayRef<Port> resultContracts = target
+                                      ? ArrayRef<Port>(target->resultContracts)
+                                      : ArrayRef<Port>(importedResults);
+  ArrayRef<Type> results = target ? ArrayRef<Type>(target->results)
+                                  : ArrayRef<Type>(importedResultTypes);
   if (!node.array("keywords").empty() ||
-      node.array("args").size() != target->inputs.size())
+      node.array("args").size() != inputs.size())
     return error() << "Method call arguments must match its typed signature";
   SmallVector<Value> arguments;
-  for (auto [index, port] : llvm::enumerate(target->inputs)) {
+  for (auto [index, port] : llvm::enumerate(inputs)) {
     AstNode actual = node.item("args", index);
     auto value = expression(actual, at, owner, values, instances, port.type);
     if (failed(value))
@@ -804,13 +884,13 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   auto operation = createOp(
       at, node.location(b.getContext(), source.path),
       ac::SourceMethodCallOp::getOperationName(), SmallVector<Value>{*enabled},
-      target->results,
+      results,
       {at.getNamedAttr("callee", callee),
        at.getNamedAttr("instance_path", at.getArrayAttr(path)),
        at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node))});
   operation->insertOperands(1, arguments);
   for (auto [result, contract] :
-       llvm::zip(operation->getResults(), target->resultContracts)) {
+       llvm::zip(operation->getResults(), resultContracts)) {
     remember(result, contract.sourceKind);
     if (contract.fixedBits)
       fixedValues.insert(result);

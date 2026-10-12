@@ -429,37 +429,10 @@ private:
     return array(result);
   }
   FailureOr<DictionaryAttr> receiver(SourceMethodCallOp call) {
-    ModuleOp owner = definition;
-    SmallVector<Attribute> path;
-    HardwareBindings bindings;
-    bindings.owner = owner;
-    for (Attribute raw : call.getInstancePath()) {
-      if (!budget.depth(path.size()))
-        return failure();
-      InstanceOp selected;
-      for (Operation &operation : owner.getBody().front()) {
-        if (!budget.charge())
-          return failure();
-        auto instance = dyn_cast<InstanceOp>(operation);
-        if (instance && instance.getInstanceNameAttr() == cast<StringAttr>(raw))
-          selected = instance;
-      }
-      if (!selected)
-        return call.emitOpError()
-               << "publication receiver requires an actual direct instance";
-      if (failed(hardware.verifyInstance(selected, bindings)))
-        return failure();
-      auto bound = hardware.bindInstance(selected, bindings);
-      if (failed(bound))
-        return failure();
-      bindings = *bound;
-      path.push_back(selected.getOccurrence());
-      owner = dyn_cast_or_null<ModuleOp>(hardware.resolveCallee(selected));
-      if (!owner)
-        return call.emitOpError()
-               << "publication Method receiver requires a resolved definition";
-    }
-    return dict({{"instance_path", array(path)}});
+    auto resolved = resolveSourceMethodCall(call);
+    if (failed(resolved))
+      return failure();
+    return resolved->receiver;
   }
   FailureOr<ArrayAttr> effects(Region &region, Operation *scope) {
     SmallVector<Attribute> result;
