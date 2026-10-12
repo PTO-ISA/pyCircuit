@@ -103,6 +103,13 @@ nav:
       - Review and Merge: development/review-and-merge.md
       - Known Limitations: development/known-limitations.md
       - Project Governance: development/project-governance.md
+      - Extension Specifications:
+          - Serial Rule and Method: rfcs/serial-rule-method/README.md
+          - Source Semantics: rfcs/serial-rule-method/source-semantics.md
+          - MLIR Pipeline: rfcs/serial-rule-method/mlir-pipeline.md
+          - Resource Extensions: rfcs/serial-rule-method/extensions.md
+          - Acceptance Checklist: rfcs/serial-rule-method/acceptance.md
+          - Implementation Plan: rfcs/serial-rule-method/implementation-plan.md
       - Repository Management: development/repository-management.md
       - Repository Layout: development/repository-layout.md
       - Verification Evidence: gates/README.md

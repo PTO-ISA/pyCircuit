@@ -36,6 +36,13 @@ independent review and validation. Use descriptive responsibility names in
 active code and docs. Local migration packets and logs are ignored. Frozen
 approval proposals remain records of contract authority, not runtime evidence.
 
+## Extension specifications
+
+- [Serial Rule/Method and MLIR transaction lowering](../rfcs/serial-rule-method/README.md):
+  target source semantics, pass responsibilities, bounded implementation tasks
+  and acceptance checklists. This is an extension specification, not current
+  feature support or passing verification evidence.
+
 ## Historical records
 
 Retired frontend implementations and their user guides remain in Git history.
