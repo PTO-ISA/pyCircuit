@@ -25,6 +25,7 @@ add_acir_library(ACIRDialect SOURCES
   SourceValueSemantics.cpp
   SourceEffects.cpp
   SourceMethodAnalysis.cpp
+  SourceTransactionSummary.cpp
   SourceSyntaxSiteContracts.cpp
   SourceUnitValidation.cpp
   FinalSourceUnitValidation.cpp

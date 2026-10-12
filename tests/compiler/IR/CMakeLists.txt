@@ -43,7 +43,8 @@ add_acir_api_test(ACIRRecordProjectionSimplificationTests RecordProjectionSimpli
 target_link_libraries(ACIRRecordProjectionSimplificationTests PRIVATE
   ACIRTransforms MLIRPass)
 add_acir_api_test(ACIRQueueContractsTests QueueContractsTest.cpp)
-add_acir_api_test(ACIRTransactionEffectsTests TransactionEffectsTest.cpp)
+add_acir_api_test(ACIRTransactionEffectsTests TransactionEffectsTest.cpp
+  MethodSummaryAuthorityTest.cpp)
 target_link_libraries(ACIRQueueContractsTests PRIVATE
   ACIRSourceCompiler ACIRCodegen ACIRTransforms MLIRPass MLIRTransforms)
 target_compile_definitions(ACIRQueueContractsTests PRIVATE

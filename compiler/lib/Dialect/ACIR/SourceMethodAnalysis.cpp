@@ -1,4 +1,5 @@
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "SourceTransactionSummary.h"
 
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
@@ -177,32 +178,13 @@ private:
         return fact(transaction.getCaptures()[index], nullptr, {}, depth + 1);
       return PredicateFact::Unknown;
     }
-    auto literal = value.getDefiningOp<BitsConstantOp>();
-    if (!literal)
-      return PredicateFact::Unknown;
-    HardwareBindings bindings;
-    bindings.owner = literal->getParentOfType<ModuleOp>();
-    if (!hardware.isStaticEvaluable(cast<BitsType>(value.getType()).getWidth(),
-                                    bindings) ||
-        !hardware.isStaticEvaluable(literal.getValue(), bindings))
-      return PredicateFact::Unknown;
-    auto width = hardware.getPackedWidth(value.getType(), bindings, literal);
-    if (failed(width) || *width != 1)
-      return PredicateFact::Unknown;
-    auto evaluated =
-        hardware.evaluateStatic(literal.getValue(), bindings, literal);
-    if (failed(evaluated)) {
+    auto literal = detail::getSourceLiteralPredicate(value, hardware);
+    if (failed(literal)) {
       exhausted = true;
       return PredicateFact::Unknown;
     }
-    if (auto boolean = dyn_cast<BoolAttr>(*evaluated))
-      return boolean.getValue() ? PredicateFact::True : PredicateFact::False;
-    if (auto integer = dyn_cast<MathIntAttr>(*evaluated)) {
-      if (integer.getCanonicalValue() == "0")
-        return PredicateFact::False;
-      if (integer.getCanonicalValue() == "1")
-        return PredicateFact::True;
-    }
+    if (*literal)
+      return literal->getValue() ? PredicateFact::True : PredicateFact::False;
     return PredicateFact::Unknown;
   }
 
@@ -256,10 +238,12 @@ private:
 } // namespace
 
 SourceMethodSummariesAnalysis::SourceMethodSummariesAnalysis(
-    Operation *operation) {
-  auto package = dyn_cast<mlir::ModuleOp>(operation);
+    Operation *operation)
+    : package(operation) {
+  auto package = dyn_cast_or_null<mlir::ModuleOp>(operation);
   if (!package) {
-    operation->emitOpError() << "source Method summaries require a package";
+    if (operation)
+      operation->emitOpError() << "source Method summaries require a package";
     return;
   }
   valid = succeeded(SummaryBuilder(package, methods, transactions).run());
@@ -274,6 +258,46 @@ SourceMethodSummariesAnalysis::lookup(SourceMethodOp method) const {
 bool SourceMethodSummariesAnalysis::isTotal(
     SourceTransactionOp transaction) const {
   return valid && transactions.lookup(transaction);
+}
+
+FailureOr<DictionaryAttr>
+SourceMethodSummariesAnalysis::getPublicationSummary(ModuleOp definition) {
+  if (!definition) {
+    if (package)
+      package->emitOpError()
+          << "publication summary requires a module definition";
+    return failure();
+  }
+  auto found = publicationSummaries.find(definition);
+  if (found != publicationSummaries.end())
+    return found->second ? FailureOr<DictionaryAttr>(found->second)
+                         : FailureOr<DictionaryAttr>(failure());
+  DictionaryAttr summary;
+  if (!valid || definition->getParentOp() != package) {
+    definition.emitOpError()
+        << "publication summary requires a valid current package analysis";
+  } else {
+    auto derived = detail::deriveSourceTransactionSummary(definition);
+    if (succeeded(derived))
+      summary = *derived;
+  }
+  publicationSummaries[definition] = summary;
+  return summary ? FailureOr<DictionaryAttr>(summary)
+                 : FailureOr<DictionaryAttr>(failure());
+}
+
+LogicalResult
+verifyPublishedTransactionSummary(ModuleOp definition, DictionaryAttr published,
+                                  SourceMethodSummariesAnalysis &analysis) {
+  if (failed(verifySourceTransactionSummary(definition, published)))
+    return failure();
+  auto derived = analysis.getPublicationSummary(definition);
+  if (failed(derived))
+    return failure();
+  if (*derived != published)
+    return definition.emitOpError()
+           << "published transaction summary disagrees with provider body";
+  return success();
 }
 
 } // namespace acir::ac

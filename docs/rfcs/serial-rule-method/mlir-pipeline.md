@@ -205,6 +205,9 @@ Struct/Table 表示。不得将每个数组元素、每次 Method 调用都提�
 要求。只发布一个“有副作用”位或值端口列表不够。link 必须用 provider body 重新核对
 摘要及其绑定；摘要不能作为未验证的用户声明直接获得权威。
 
+精确字段、value/capture 作用域、直接实例组合及原生 API 见[事务接口摘要合同](publication-summary.md)。
+原生派生与 body 重验是独立发布的前置出口，不提前开放 source-unit 或 final hardware admission。
+
 消费方 compile 不得读取 provider Python 或 implementation body 代替接口；link 使用
 显式提供的 body/interface closure。变换改变摘要事实时，必须在发布前重新提取/验证，
 不能沿用旧哈希、旧依赖或旧 source owner。

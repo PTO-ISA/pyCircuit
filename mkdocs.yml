@@ -107,6 +107,7 @@ nav:
           - Serial Rule and Method: rfcs/serial-rule-method/README.md
           - Source Semantics: rfcs/serial-rule-method/source-semantics.md
           - MLIR Pipeline: rfcs/serial-rule-method/mlir-pipeline.md
+          - Transaction Publication Summary: rfcs/serial-rule-method/publication-summary.md
           - Resource Extensions: rfcs/serial-rule-method/extensions.md
           - Acceptance Checklist: rfcs/serial-rule-method/acceptance.md
           - Implementation Plan: rfcs/serial-rule-method/implementation-plan.md

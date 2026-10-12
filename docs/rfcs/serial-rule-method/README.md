@@ -14,6 +14,7 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 | --- | --- |
 | [源语言语义](source-semantics.md) | 构造、注册、Method 调用、状态顺序、guard、返回值、错误与迁移 |
 | [MLIR 分析与变换](mlir-pipeline.md) | 中间表示、分析输入输出、变换前后条件、逐源发布与链接 |
+| [事务接口摘要](publication-summary.md) | 闭合字段、类型与依赖作用域、直接实例组合、body 重验及预算 |
 | [资源和后续扩展](extensions.md) | Queue 准入、端口、跨事务前递及明确未开放的接口 |
 | [验收标准与 checklist](acceptance.md) | 独立 oracle、正反例、产物、性能证据和合入条件 |
 | [实现分解与 agent 交接](implementation-plan.md) | 有界任务、依赖、独占文件、角色分离和退出条件 |

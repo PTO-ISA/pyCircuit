@@ -12,7 +12,8 @@ struct SourceMethodSummary {
 };
 
 /// Facts derived from the current typed operations, never imported proof flags.
-/// This first summary slice covers call closure, recursion and result totality.
+/// Totality covers call closure and recursion; native publication is a separate
+/// fallible request and does not enable imported Method admission.
 class SourceMethodSummariesAnalysis {
 public:
   explicit SourceMethodSummariesAnalysis(mlir::Operation *package);
@@ -20,11 +21,29 @@ public:
   const SourceMethodSummary *lookup(SourceMethodOp method) const;
   bool isTotal(SourceTransactionOp transaction) const;
 
+  /// Fallible direct publication facts; independent of totality admission.
+  /// The cache, including failures, belongs to this analysis of the current IR.
+  mlir::FailureOr<mlir::DictionaryAttr>
+  getPublicationSummary(ModuleOp definition);
+
 private:
   llvm::DenseMap<mlir::Operation *, SourceMethodSummary> methods;
   llvm::DenseMap<mlir::Operation *, bool> transactions;
+  llvm::DenseMap<mlir::Operation *, mlir::DictionaryAttr> publicationSummaries;
+  mlir::Operation *package = nullptr;
   bool valid = false;
 };
+
+/// Check closed schema and local scope without consulting provider bodies.
+mlir::LogicalResult
+verifySourceTransactionSummary(mlir::Operation *moduleDeclaration,
+                               mlir::DictionaryAttr summary);
+
+/// Require the exact canonical summary rederived from the current provider.
+mlir::LogicalResult
+verifyPublishedTransactionSummary(ModuleOp definition,
+                                  mlir::DictionaryAttr published,
+                                  SourceMethodSummariesAnalysis &analysis);
 
 } // namespace acir::ac
 

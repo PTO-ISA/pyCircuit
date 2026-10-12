@@ -45,6 +45,13 @@ Current source-unit publication and final-hardware verification reject their
 unlowered operations. A successful intermediate pass test is not a public
 compile/link/emit or simulation result.
 
+The same Dialect analysis exposes a separately fallible direct transaction
+summary and structural/body comparison APIs. They retain ordered effects,
+source type constraints and direct instance references, with explicit unknown
+dependencies. They do not admit imported Methods or change publication/final
+hardware verification. See the [summary contract](../rfcs/serial-rule-method/publication-summary.md)
+for fields, scopes and the remaining header-closure obligations.
+
 Record simplification preserves the declared result type of every projection.
 If an equivalent aggregate carries different source provenance and no exactly
 typed replacement exists, the pass retains the verified projection. Fixed-bit
