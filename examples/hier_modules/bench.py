@@ -1,7 +1,18 @@
 """Complete known-input table from the retained independent hier_modules oracle."""
 
 from example_hier_modules.hier_modules import HierModules
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, struct, table
+
+
+@struct
+class Scenario:
+    x: bits[8]
+    expected_y: bits[8]
+
+
+@struct
+class Scenarios:
+    rows: table[13, Scenario]
 
 
 @rule
@@ -12,106 +23,32 @@ def advance(phase):
 @system
 def ExerciseHierModules():  # noqa: N802
     phase: bits[64] = 0
-    x = (
-        1
-        if phase == 0
-        else (
-            0
-            if phase == 1
-            else (
-                252
-                if phase == 2
-                else (
-                    253
-                    if phase == 3
-                    else (
-                        254
-                        if phase == 4
-                        else (
-                            255
-                            if phase == 5
-                            else (
-                                2
-                                if phase == 6
-                                else (
-                                    127
-                                    if phase == 7
-                                    else (
-                                        128
-                                        if phase == 8
-                                        else (
-                                            250
-                                            if phase == 9
-                                            else (
-                                                5
-                                                if phase == 10
-                                                else (
-                                                    17
-                                                    if phase == 11
-                                                    else (phase[:8] & 0)
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
+
+    # fmt: off
+    scenarios = Scenarios(
+        rows=(
+            Scenario(x=1, expected_y=4),
+            Scenario(expected_y=3),
+            Scenario(x=252, expected_y=255),
+            Scenario(x=253),
+            Scenario(x=254, expected_y=1),
+            Scenario(x=255, expected_y=2),
+            Scenario(x=2, expected_y=5),
+            Scenario(x=127, expected_y=130),
+            Scenario(x=128, expected_y=131),
+            Scenario(x=250, expected_y=253),
+            Scenario(x=5, expected_y=8),
+            Scenario(x=17, expected_y=20),
+            Scenario(),
+        ),
     )
+    # fmt: on
+    position = phase if phase < 12 else 12
+    scenario = scenarios.rows[position]
+    x = scenario.x
     dut = HierModules(x)
 
-    expected_y = (
-        4
-        if phase == 0
-        else (
-            3
-            if phase == 1
-            else (
-                255
-                if phase == 2
-                else (
-                    0
-                    if phase == 3
-                    else (
-                        1
-                        if phase == 4
-                        else (
-                            2
-                            if phase == 5
-                            else (
-                                5
-                                if phase == 6
-                                else (
-                                    130
-                                    if phase == 7
-                                    else (
-                                        131
-                                        if phase == 8
-                                        else (
-                                            253
-                                            if phase == 9
-                                            else (
-                                                8
-                                                if phase == 10
-                                                else (
-                                                    20
-                                                    if phase == 11
-                                                    else (phase[:8] & 0)
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
+    expected_y = scenario.expected_y
 
     @rule
     def check_and_advance():

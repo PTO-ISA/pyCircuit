@@ -1,7 +1,19 @@
 """Complete known-input table from the retained independent arith oracle."""
 
 from example_arith.arith import Arith
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, struct, table
+
+
+@struct
+class Scenario:
+    a: bits[19]
+    b: bits[19]
+    expected_sum: bits[19]
+
+
+@struct
+class Scenarios:
+    rows: table[11, Scenario]
 
 
 @rule
@@ -12,119 +24,31 @@ def advance(phase):
 @system
 def ExerciseArith():  # noqa: N802
     phase: bits[64] = 0
-    a = (
-        1
-        if phase == 0
-        else (
-            0
-            if phase == 1
-            else (
-                524287
-                if phase == 2
-                else (
-                    524287
-                    if phase == 3
-                    else (
-                        524287
-                        if phase == 4
-                        else (
-                            262144
-                            if phase == 5
-                            else (
-                                262143
-                                if phase == 6
-                                else (
-                                    524286
-                                    if phase == 7
-                                    else (
-                                        273067
-                                        if phase == 8
-                                        else (12345 if phase == 9 else (phase[:19] & 0))
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
+
+    # fmt: off
+    scenarios = Scenarios(
+        rows=(
+            Scenario(a=1, b=2, expected_sum=3),
+            Scenario(),
+            Scenario(a=524287, expected_sum=524287),
+            Scenario(a=524287, b=1),
+            Scenario(a=524287, b=524287, expected_sum=524286),
+            Scenario(a=262144, b=262144),
+            Scenario(a=262143, b=1, expected_sum=262144),
+            Scenario(a=524286, b=3, expected_sum=1),
+            Scenario(a=273067, b=174762, expected_sum=447829),
+            Scenario(a=12345, b=54321, expected_sum=66666),
+            Scenario(),
+        ),
     )
-    b = (
-        2
-        if phase == 0
-        else (
-            0
-            if phase == 1
-            else (
-                0
-                if phase == 2
-                else (
-                    1
-                    if phase == 3
-                    else (
-                        524287
-                        if phase == 4
-                        else (
-                            262144
-                            if phase == 5
-                            else (
-                                1
-                                if phase == 6
-                                else (
-                                    3
-                                    if phase == 7
-                                    else (
-                                        174762
-                                        if phase == 8
-                                        else (54321 if phase == 9 else (phase[:19] & 0))
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
+    # fmt: on
+    position = phase if phase < 10 else 10
+    scenario = scenarios.rows[position]
+    a = scenario.a
+    b = scenario.b
     dut = Arith(a, b)
 
-    expected_sum = (
-        3
-        if phase == 0
-        else (
-            0
-            if phase == 1
-            else (
-                524287
-                if phase == 2
-                else (
-                    0
-                    if phase == 3
-                    else (
-                        524286
-                        if phase == 4
-                        else (
-                            0
-                            if phase == 5
-                            else (
-                                262144
-                                if phase == 6
-                                else (
-                                    1
-                                    if phase == 7
-                                    else (
-                                        447829
-                                        if phase == 8
-                                        else (66666 if phase == 9 else (phase[:19] & 0))
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
+    expected_sum = scenario.expected_sum
 
     @rule
     def check_and_advance():

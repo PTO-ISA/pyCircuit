@@ -1,7 +1,18 @@
 """Complete known-input table from the retained independent boundary_value_ports oracle."""
 
 from example_boundary_value_ports.boundary_value_ports import BoundaryValuePorts
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, struct, table
+
+
+@struct
+class Scenario:
+    seed: bits[32]
+    expected_acc: bits[32]
+
+
+@struct
+class Scenarios:
+    rows: table[17, Scenario]
 
 
 @rule
@@ -12,142 +23,36 @@ def advance(phase):
 @system
 def ExerciseBoundaryValuePorts():  # noqa: N802
     phase: bits[64] = 0
-    seed = (
-        10
-        if phase == 0
-        else (
-            0
-            if phase == 1
-            else (
-                1
-                if phase == 2
-                else (
-                    4294967283
-                    if phase == 3
-                    else (
-                        4294967284
-                        if phase == 4
-                        else (
-                            4294967289
-                            if phase == 5
-                            else (
-                                4294967290
-                                if phase == 6
-                                else (
-                                    4294967291
-                                    if phase == 7
-                                    else (
-                                        4294967294
-                                        if phase == 8
-                                        else (
-                                            4294967295
-                                            if phase == 9
-                                            else (
-                                                2147483648
-                                                if phase == 10
-                                                else (
-                                                    2147483647
-                                                    if phase == 11
-                                                    else (
-                                                        1073741824
-                                                        if phase == 12
-                                                        else (
-                                                            1431655765
-                                                            if phase == 13
-                                                            else (
-                                                                2863311530
-                                                                if phase == 14
-                                                                else (
-                                                                    17
-                                                                    if phase == 15
-                                                                    else (
-                                                                        phase[:32] & 0
-                                                                    )
-                                                                )
-                                                            )
-                                                        )
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
+
+    # fmt: off
+    scenarios = Scenarios(
+        rows=(
+            Scenario(seed=10, expected_acc=48),
+            Scenario(expected_acc=18),
+            Scenario(seed=1, expected_acc=21),
+            Scenario(seed=4294967283, expected_acc=4294967275),
+            Scenario(seed=4294967284, expected_acc=4294967278),
+            Scenario(seed=4294967289, expected_acc=4294967293),
+            Scenario(seed=4294967290),
+            Scenario(seed=4294967291, expected_acc=3),
+            Scenario(seed=4294967294, expected_acc=12),
+            Scenario(seed=4294967295, expected_acc=15),
+            Scenario(seed=2147483648, expected_acc=2147483666),
+            Scenario(seed=2147483647, expected_acc=2147483663),
+            Scenario(seed=1073741824, expected_acc=3221225490),
+            Scenario(seed=1431655765, expected_acc=17),
+            Scenario(seed=2863311530, expected_acc=16),
+            Scenario(seed=17, expected_acc=69),
+            Scenario(),
+        ),
     )
+    # fmt: on
+    position = phase if phase < 16 else 16
+    scenario = scenarios.rows[position]
+    seed = scenario.seed
     dut = BoundaryValuePorts(seed)
 
-    expected_acc = (
-        48
-        if phase == 0
-        else (
-            18
-            if phase == 1
-            else (
-                21
-                if phase == 2
-                else (
-                    4294967275
-                    if phase == 3
-                    else (
-                        4294967278
-                        if phase == 4
-                        else (
-                            4294967293
-                            if phase == 5
-                            else (
-                                0
-                                if phase == 6
-                                else (
-                                    3
-                                    if phase == 7
-                                    else (
-                                        12
-                                        if phase == 8
-                                        else (
-                                            15
-                                            if phase == 9
-                                            else (
-                                                2147483666
-                                                if phase == 10
-                                                else (
-                                                    2147483663
-                                                    if phase == 11
-                                                    else (
-                                                        3221225490
-                                                        if phase == 12
-                                                        else (
-                                                            17
-                                                            if phase == 13
-                                                            else (
-                                                                16
-                                                                if phase == 14
-                                                                else (
-                                                                    69
-                                                                    if phase == 15
-                                                                    else (
-                                                                        phase[:32] & 0
-                                                                    )
-                                                                )
-                                                            )
-                                                        )
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
+    expected_acc = scenario.expected_acc
 
     @rule
     def check_and_advance():

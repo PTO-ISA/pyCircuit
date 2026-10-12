@@ -43,23 +43,23 @@ python3 tools/example_catalog.py generated --example hier_modules \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_hier_modules/hier_modules.hpp`, from line 12:
+`cpp/sources/example_hier_modules/hier_modules.hpp`, from line 14:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_hier_modules::hier_modules::IncrementResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_1;
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_2;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<8>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<8>>::width>{1ULL}));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::add(this->x.element(pyc_lane).packed(), pyc_value_2.element(pyc_lane).packed()));
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_0.element(pyc_lane) = gfsim::wire<::example_hier_modules::hier_modules::IncrementResult>::fromPacked(pyc_value_1.element(pyc_lane).packed());
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<8>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<8>>::width>{1ULL}));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::add(this->x.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), pyc_value_2.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0, pyc_value_1.element(pyc_lane * (1) + pyc_field).packed());
     for (std::size_t pyc_pin = 0; pyc_pin < (pyc_count * (1)); ++pyc_pin) this->result.element(pyc_pin) = pyc_value_0.element(pyc_pin);
     } catch (...) { DiscardNext(); throw; }
   }
   void Xfer() noexcept {
-  }
-  void DiscardNext() noexcept {
+    __pyc_clear_check_snapshots();
 ```
 
 ## Source-owned Verilog

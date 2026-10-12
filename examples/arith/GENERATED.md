@@ -43,23 +43,23 @@ python3 tools/example_catalog.py generated --example arith \
 
 ## Source-owned C++ Work
 
-`cpp/sources/example_arith/arith.hpp`, from line 13:
+`cpp/sources/example_arith/arith.hpp`, from line 15:
 
 ```cpp
   void Work() {
+    __pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_arith::arith::ArithResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<19>, (pyc_count * (1))>> pyc_value_1;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<19>>::fromPacked(gfsim::add(this->a.element(pyc_lane).packed(), this->b.element(pyc_lane).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_1.element(pyc_lane) = gfsim::wire<gfsim::Bits<19>>::fromPacked(gfsim::add(this->a.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), this->b.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<16>>::width) + (gfsim::hardware_traits<gfsim::Bits<8>>::width), pyc_value_1.element(pyc_lane * (1) + pyc_field).packed());
     gfsim::wire<gfsim::table<gfsim::Bits<16>, (pyc_count * (1))>> pyc_value_2;
     gfsim::wire<gfsim::table<gfsim::Bits<16>, (pyc_count * (1))>> pyc_value_3;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<16>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<16>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<16>>::width>{65535ULL}));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<16>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<16>>::width>(pyc_value_3.element(pyc_lane).packed(), 0));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_3.element(pyc_lane) = gfsim::wire<gfsim::Bits<16>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<16>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<16>>::width>{65535ULL}));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_2.element(pyc_lane) = gfsim::wire<gfsim::Bits<16>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<16>>::width>(pyc_value_3.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), 0));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<8>>::width), pyc_value_2.element(pyc_lane * (1) + pyc_field).packed());
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_4;
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_5;
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_5.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<8>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<8>>::width>{19ULL}));
-    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; ++pyc_lane) pyc_value_4.element(pyc_lane) = gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<8>>::width>(pyc_value_5.element(pyc_lane).packed(), 0));
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_0.element(pyc_lane) = gfsim::wire<::example_arith::arith::ArithResult>::fromPacked(gfsim::concat(gfsim::concat(pyc_value_1.element(pyc_lane).packed(), pyc_value_2.element(pyc_lane).packed()), pyc_value_4.element(pyc_lane).packed()));
 ```
 
 ## Source-owned Verilog

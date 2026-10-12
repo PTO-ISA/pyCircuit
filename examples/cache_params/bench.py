@@ -1,7 +1,18 @@
 """Complete known-input table from the retained independent cache_params oracle."""
 
 from example_cache_params.cache_params import CacheParams
-from pycircuit import bits, log, rule, system
+from pycircuit import bits, log, rule, system, struct, table
+
+
+@struct
+class Scenario:
+    addr: bits[40]
+    expected_tag: bits[28]
+
+
+@struct
+class Scenarios:
+    rows: table[14, Scenario]
 
 
 @rule
@@ -12,122 +23,33 @@ def advance(phase):
 @system
 def ExerciseCacheParams():  # noqa: N802
     phase: bits[64] = 0
-    addr = (
-        0
-        if phase == 0
-        else (
-            2048
-            if phase == 1
-            else (
-                4095
-                if phase == 2
-                else (
-                    4096
-                    if phase == 3
-                    else (
-                        4097
-                        if phase == 4
-                        else (
-                            8191
-                            if phase == 5
-                            else (
-                                8192
-                                if phase == 6
-                                else (
-                                    549755813888
-                                    if phase == 7
-                                    else (
-                                        1099511627775
-                                        if phase == 8
-                                        else (
-                                            78187493530
-                                            if phase == 9
-                                            else (
-                                                737894400291
-                                                if phase == 10
-                                                else (
-                                                    178954240
-                                                    if phase == 11
-                                                    else (
-                                                        89477120
-                                                        if phase == 12
-                                                        else (
-                                                            0
-                                                            if phase == 13
-                                                            else (phase[:40] & 0)
-                                                        )
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
+
+    # fmt: off
+    scenarios = Scenarios(
+        rows=(
+            Scenario(),
+            Scenario(addr=2048),
+            Scenario(addr=4095),
+            Scenario(addr=4096, expected_tag=1),
+            Scenario(addr=4097, expected_tag=1),
+            Scenario(addr=8191, expected_tag=1),
+            Scenario(addr=8192, expected_tag=2),
+            Scenario(addr=549755813888, expected_tag=134217728),
+            Scenario(addr=1099511627775, expected_tag=268435455),
+            Scenario(addr=78187493530, expected_tag=19088743),
+            Scenario(addr=737894400291, expected_tag=180150000),
+            Scenario(addr=178954240, expected_tag=43690),
+            Scenario(addr=89477120, expected_tag=21845),
+            Scenario(),
+        ),
     )
+    # fmt: on
+    position = phase if phase < 14 else 13
+    scenario = scenarios.rows[position]
+    addr = scenario.addr
     dut = CacheParams(addr)
 
-    expected_tag = (
-        0
-        if phase == 0
-        else (
-            0
-            if phase == 1
-            else (
-                0
-                if phase == 2
-                else (
-                    1
-                    if phase == 3
-                    else (
-                        1
-                        if phase == 4
-                        else (
-                            1
-                            if phase == 5
-                            else (
-                                2
-                                if phase == 6
-                                else (
-                                    134217728
-                                    if phase == 7
-                                    else (
-                                        268435455
-                                        if phase == 8
-                                        else (
-                                            19088743
-                                            if phase == 9
-                                            else (
-                                                180150000
-                                                if phase == 10
-                                                else (
-                                                    43690
-                                                    if phase == 11
-                                                    else (
-                                                        21845
-                                                        if phase == 12
-                                                        else (
-                                                            0
-                                                            if phase == 13
-                                                            else (phase[:28] & 0)
-                                                        )
-                                                    )
-                                                )
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
+    expected_tag = scenario.expected_tag
 
     @rule
     def check_and_advance():

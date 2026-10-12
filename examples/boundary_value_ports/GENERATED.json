@@ -8,34 +8,42 @@
   "verification": {
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
-      "source/CMakeLists.txt": "8739db5ea3bddf27f071fb1055e5aa352a405d19e1ff16c04390878432b5b03d",
-      "source/boundary_value_ports.py": "221b4b0c688d287a8f39279623e02646da62a5bb1db107eb3c3676b1e88d6bd9",
+      "source/CMakeLists.txt": "6967cd8dd13385c738a9efac6ad157b61c4c0f51a2e2a5b67f33c7a89cf7d4e6",
+      "source/bench.py": "fecabe14ef26a65f069b3e4c3dca6d8cf7dc88d80ba1f82ae27762a5d6ab5e32",
+      "source/boundary_value_ports.py": "645081a5c20c919a5ecb311dd2037d1a670535692e4d448bf77d24a2946e3f4b",
       "source/config.json": "a681bec2e456382359adfd5b5eb8e6f11ae0e5b21a0237463ae246caecbe1e3d",
       "source/driver.cpp": "60e6a11ee7ec2492f15a110cadb2b92b0921344a4a9cc36886bf3130219e1f2b",
       "source/rtl_tb.sv": "1c377076a9709f88545bee63e1461386b0ae0179205992317b53a49f8f7398f3",
       "build/cpp/generated.json": "6b1a234889423ecef70cfafae3383badf20affab21da985e6e64e53fac63e02a",
       "build/cpp/CMakeLists.txt": "51dc4968ad38e60736ad293b4033101724948dc9268c0c1b5a8ea29874383a14",
-      "build/cpp/pycircuit_support.hpp": "cd2c312f664f671f8ca744f7cb6d9e31bef79a885c8b7199182ab6b08647e22e",
+      "build/cpp/pycircuit_support.hpp": "467c0a481c5b277a266722c6a480ce4099059c282d57e4505fb4aadcbddaaae0",
       "build/cpp/pycircuit_system.hpp": "502c7f96fab0ae090232996d10892f9ec74e387e9029da228baab1d81fcd925f",
       "build/cpp/sources/example_boundary_value_ports/boundary_value_ports.cpp": "671de88634806442510a4e12e18d0de4b0bc087ccd00e78fcb4fa92b3725cd94",
-      "build/cpp/sources/example_boundary_value_ports/boundary_value_ports.hpp": "5c9a586c4f21f3536742d75e1e84934a072f04f816886ddee8833dfaa57db9bd",
-      "build/cpp/sources/example_boundary_value_ports/boundary_value_ports.source-map.json": "680fd8b64622e8a397f0765c54008f7a2136ca0bb679575c89698d7d3e9f85b5",
+      "build/cpp/sources/example_boundary_value_ports/boundary_value_ports.hpp": "e907ce3aa663ac97e53a9cab7e652e7c7b9a9dd6dd588dfa316f512deba3bb62",
+      "build/cpp/sources/example_boundary_value_ports/boundary_value_ports.source-map.json": "ea4058125870b455252747881b87c4dc830c42b2061f08275708a902895c2614",
       "build/verilog/generated.json": "2187288b6e21ba195b5f54853105632e123b556ebef652e600eead3951dcd8cd",
       "build/verilog/CMakeLists.txt": "97063eb9dd044387ce46fc693d1900e2e6848805180df8b275252e6994b73c35",
       "build/verilog/design_top.sv": "9cafa1eeda7b614e92453c3e3d75f0913d632da0e1e731d9850e80cf921682dd",
-      "build/verilog/sources/example_boundary_value_ports/boundary_value_ports.source-map.json": "3f8b0859e1909e046860534a68a1820307cc31fd38db7c4e80d57079cc9cceee",
+      "build/verilog/sources/example_boundary_value_ports/boundary_value_ports.source-map.json": "09b26777ba1cd59ddcffe37993fec7b1c674fcf703c6e81925c0ac5cae24752d",
       "build/verilog/sources/example_boundary_value_ports/boundary_value_ports.v": "675b2bc36bbe9d4ca3f8c51a84db8637acbf7d6cecd7f2a9ca4438f49cf45892",
-      "build/boundary_value_ports.ac": "cbcaa84a2708100a922e191b93468383f6b2cf6a68a945893b05d20c631c7ab6",
-      "runtime-rtl/byte_mem.v": "33bd9f73dd7cd17f3531cfd8c321762c214ad5df23b5376add212dadd38c47c2",
-      "runtime-rtl/dff.v": "e4f604bd03b9f1651ddbcd71e9ebb1cd8af45018caeab341728b35c14ec0f553",
-      "runtime-rtl/dffe.v": "9ae323530b72d152d10628de94923eaefa411b29e13c647de21bed8b0d73833b",
-      "runtime-rtl/fifo.v": "2dc4086ad3085bd67504caaac0565a3e676f87ce5411cc019fe8ef3a3bc43b23",
-      "runtime-rtl/sync_mem.v": "207b0fe22f029828ac90b50d2ce0aabbb01763231cd153883f31b581d03d68b7",
-      "runtime-rtl/sync_mem_dp.v": "44672a092661f3c218f71534d0d656a2d7d0bfdb03bc6b7a3394e2f13eea86d4",
-      "runner": "6c18f603062c9685000404e35f808361511b53a1ed14251ddbdcfd596586983e"
+      "build/boundary_value_ports.ac": "f0bc44f14a84958a450ab3de4053bac9aa42292961a367077fe762f45d33cd6a",
+      "build/units/.boundary_value_ports.pycircuit-publication/owner.json": "f96ca38108cd0e53f07fe2e80ee13224b2b68f8db33bd3d996aedb629c0e8571",
+      "build/units/boundary_value_ports/boundary_value_ports.ac": "a6a39d2b8d10fa0cf1c26c40787c279a5b4b3f5dd7293fab50d08245d3392396",
+      "build/units/boundary_value_ports/boundary_value_ports.d": "9d0d6ce5edc5394f1891ff4e57e9d84ea28f935b950b8f2b1e43bfb2cc5e36af",
+      "build/units/boundary_value_ports/boundary_value_ports.interface.ac": "0cce110635b6ddf119fe16a0039d6141a5b3a2ed65eaa00693d6843fb8021bb7",
+      "build/units/boundary_value_ports/unit.json": "762b642d997c042145a7e6b269ff945545fb2df2a3b9ef5f1b21395bad24a99e",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "26ca8fc9c9833825e41870dfc0ddb48f11fe0ee61d392ac48b00af75a3d1022e"
     },
-    "execution_sha256": "72ef9aa88eb158edd16e387a4c3c9e6b20adf007197552053000f1b67e553b2c",
+    "execution_sha256": "055942c8bd79564916b9cdc05ae883b2d80d0ca3794292163bc43b46ed012694",
     "work_samples": 16,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
     "workers": [
       1,
       2
@@ -47,12 +55,12 @@
     {
       "path": "boundary_value_ports.ac",
       "line": 7,
-      "sha256": "cbcaa84a2708100a922e191b93468383f6b2cf6a68a945893b05d20c631c7ab6"
+      "sha256": "f0bc44f14a84958a450ab3de4053bac9aa42292961a367077fe762f45d33cd6a"
     },
     {
       "path": "cpp/sources/example_boundary_value_ports/boundary_value_ports.hpp",
-      "line": 15,
-      "sha256": "5c9a586c4f21f3536742d75e1e84934a072f04f816886ddee8833dfaa57db9bd"
+      "line": 17,
+      "sha256": "e907ce3aa663ac97e53a9cab7e652e7c7b9a9dd6dd588dfa316f512deba3bb62"
     },
     {
       "path": "verilog/sources/example_boundary_value_ports/boundary_value_ports.v",
