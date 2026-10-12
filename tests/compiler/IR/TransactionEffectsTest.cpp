@@ -1,0 +1,655 @@
+#include "mlir/AsmParser/AsmParser.h"
+#include "mlir/IR/Builders.h"
+#include "mlir/IR/BuiltinOps.h"
+#include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Verifier.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/Parser/Parser.h"
+#include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/raw_ostream.h"
+#include "gtest/gtest.h"
+
+#include <string>
+
+namespace acir::ac {
+namespace {
+
+// Native intermediate-IR contracts only: no source support or execution claim.
+const char *counterAndTwoInstances = R"ir(
+#w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+#w2 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<2>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+#w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "transactions.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+!b1 = !ac.bits<#w1>
+!b8 = !ac.bits<#w8>
+!lanes = !ac.table<[#w2], !b8>
+#count_state = {site = {definition = @Counter, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}
+#packet_state = {site = {definition = @Counter, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}
+#counter = {site = {definition = @Counter, ast_path = []}, expansion = []}
+#left_instance = {site = {definition = @Root, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}
+#right_instance = {site = {definition = @Root, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}
+#root = {site = {definition = @Root, ast_path = []}, expansion = []}
+module {
+  ac.struct "Packet" fields [{name = "lanes", type = !lanes}]
+  "ac.module"() ({
+  ^bb0(%clk: !b1, %rst: !b1, %seed: !b8, %packet: !ac.struct<"Packet">):
+    %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
+    %initial_lanes = "ac.table.splat"(%initial) {shape = [#w2]} : (!b8) -> !lanes
+    %initial_packet = "ac.struct.create"(%initial_lanes) : (!lanes) -> !ac.struct<"Packet">
+    %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #count_state} : (!b1, !b1, !b8) -> !b8
+    %packet_q = "ac.state"(%clk, %rst, %initial_packet) {instance_name = "packet", occurrence = #packet_state} : (!b1, !b1, !ac.struct<"Packet">) -> !ac.struct<"Packet">
+    "ac.method"(%rst) ({
+    ^bb0(%delta: !b8, %path: !b1):
+      %current = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
+      "ac.yield"(%path) : (!b1) -> ()
+    }, {
+    ^bb0(%delta: !b8, %path: !b1):
+      %old = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
+      %lane = "ac.state.read"(%path, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b1) -> !b8
+      %next = "ac.bits.binary"(%old, %delta) {opcode = "add"} : (!b8, !b8) -> !b8
+      %pair = "ac.table.splat"(%next) {shape = [#w2]} : (!b8) -> !lanes
+      %mapped = "ac.table.map"(%pair) ({
+      ^bb0(%ordinal: !b1, %entry: !b8):
+        %twice = "ac.bits.binary"(%entry, %entry) {opcode = "add"} : (!b8, !b8) -> !b8
+        "ac.yield"(%twice) : (!b8) -> ()
+      }) {shape = [#w2], operandSegmentSizes = array<i32: 1, 0>} : (!lanes) -> !lanes
+      "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
+      "ac.state.write"(%path, %lane, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b8, !b1) -> ()
+      "ac.yield"(%old) : (!b8) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], occurrence = #counter} : (!b1) -> ()
+    "ac.method"(%rst) ({
+    ^bb0(%delta: !b8, %path: !b1):
+      "ac.yield"(%path) : (!b1) -> ()
+    }, {
+    ^bb0(%delta: !b8, %path: !b1):
+      %result = "ac.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
+      "ac.yield"(%result) : (!b8) -> ()
+    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], occurrence = #counter} : (!b1) -> ()
+    "ac.yield"(%q) : (!b8) -> ()
+  }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8, input_names = ["clk", "rst", "seed", "packet"], output_names = ["count"]} : () -> ()
+  "ac.module"() ({
+  ^bb0(%clk: !b1, %rst: !b1, %seed: !b8, %packet: !ac.struct<"Packet">):
+    %left = "ac.instance"(%clk, %rst, %seed, %packet) {instance_name = "left", callee = @Counter, parameters = [], type_arguments = [], occurrence = #left_instance} : (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8
+    %right = "ac.instance"(%clk, %rst, %seed, %packet) {instance_name = "right", callee = @Counter, parameters = [], type_arguments = [], occurrence = #right_instance} : (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8
+    %answer = "ac.transaction"(%clk, %rst, %rst, %seed) ({
+    ^bb0(%path: !b1, %value: !b8):
+      "ac.yield"(%path) : (!b1) -> ()
+    }, {
+    ^bb0(%path: !b1, %value: !b8):
+      %a = "ac.method.call"(%path, %value) {callee = @Counter::@relay, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
+      %again = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
+      %b = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["right"], occurrence = #root} : (!b1, !b8) -> !b8
+      "ac.yield"(%b) : (!b8) -> ()
+    }) {name = "step", declaration = #root, occurrence = #root} : (!b1, !b1, !b1, !b8) -> !b8
+    "ac.yield"(%answer) : (!b8) -> ()
+  }) {sym_name = "Root", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8, input_names = ["clk", "rst", "seed", "packet"], output_names = ["answer"]} : () -> ()
+  "ac.system"() {entry = {callee = @Root, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+}
+)ir";
+
+class TransactionEffectsTest : public ::testing::Test {
+protected:
+  mlir::MLIRContext context;
+  mlir::OpBuilder builder{&context};
+  std::string diagnostics;
+
+  void SetUp() override { context.loadDialect<ACIRDialect>(); }
+  mlir::OwningOpRef<mlir::ModuleOp> parse() {
+    auto file = mlir::parseSourceString<mlir::ModuleOp>(
+        counterAndTwoInstances,
+        mlir::ParserConfig(&context, /*verifyAfterParse=*/false));
+    EXPECT_TRUE(file);
+    return file;
+  }
+  template <typename Function> auto capture(Function function) {
+    diagnostics.clear();
+    mlir::ScopedDiagnosticHandler handler(
+        &context, [&](mlir::Diagnostic &error) {
+          llvm::raw_string_ostream stream(diagnostics);
+          error.print(stream);
+          return mlir::success();
+        });
+    return function();
+  }
+  mlir::Operation *find(mlir::ModuleOp file, llvm::StringRef name,
+                        unsigned ordinal = 0) {
+    mlir::Operation *result = nullptr;
+    file.walk([&](mlir::Operation *op) {
+      if (op->getName().getStringRef() == name && !ordinal-- && !result)
+        result = op;
+    });
+    EXPECT_NE(result, nullptr) << name.str();
+    return result;
+  }
+  void reject(mlir::ModuleOp file, llvm::StringRef reason) {
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(file); })));
+    EXPECT_NE(diagnostics.find(reason.str()), std::string::npos) << diagnostics;
+  }
+  template <typename Effect>
+  bool hasEffect(mlir::Operation *op, llvm::StringRef resource) {
+    auto effects = mlir::getEffectsRecursively(op);
+    EXPECT_TRUE(effects.has_value());
+    return effects && llvm::any_of(*effects, [&](const auto &effect) {
+             return mlir::isa<Effect>(effect.getEffect()) &&
+                    effect.getResource()->getName() == resource;
+           });
+  }
+  void retained(mlir::Operation *op) {
+    EXPECT_FALSE(mlir::isMemoryEffectFree(op));
+    EXPECT_FALSE(mlir::isSpeculatable(op));
+    EXPECT_FALSE(mlir::isOpTriviallyDead(op));
+  }
+};
+
+TEST_F(TransactionEffectsTest,
+       NativeTypesResolveLocalAndDistinctInstanceOwners) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto local = find(*file, "ac.method.call");
+  EXPECT_TRUE(local->getAttrOfType<mlir::ArrayAttr>("instance_path").empty());
+  auto left = find(*file, "ac.method.call", 1);
+  auto again = find(*file, "ac.method.call", 2);
+  EXPECT_EQ(left->getAttr("instance_path"), again->getAttr("instance_path"));
+  auto right = find(*file, "ac.method.call", 3);
+  EXPECT_NE(left->getAttr("instance_path"), right->getAttr("instance_path"));
+  EXPECT_EQ(left->getOperand(1).getType(), right->getOperand(1).getType());
+  EXPECT_NE(find(*file, "ac.instance")->getAttr("occurrence"),
+            find(*file, "ac.instance", 1)->getAttr("occurrence"));
+}
+
+TEST_F(TransactionEffectsTest, StateEffectsAreDistinctFromCheckEffects) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto state = find(*file, "ac.state");
+  auto read = find(*file, "ac.state.read");
+  auto write = find(*file, "ac.state.write");
+  EXPECT_TRUE(
+      (hasEffect<mlir::MemoryEffects::Allocate>(state, "source.state")));
+  EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Read>(state, "source.state")));
+  EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Read>(read, "source.state")));
+  EXPECT_FALSE((hasEffect<mlir::MemoryEffects::Write>(read, "source.state")));
+  EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(read, "source.check")));
+  EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(write, "source.state")));
+  EXPECT_FALSE((hasEffect<mlir::MemoryEffects::Write>(write, "source.check")));
+  for (auto *op : {state, read, write}) {
+    EXPECT_FALSE(mlir::isMemoryEffectFree(op));
+    EXPECT_FALSE(mlir::isSpeculatable(op));
+  }
+  retained(read);
+  retained(write);
+}
+
+TEST_F(TransactionEffectsTest, CallsAndTransactionsRetainConservativeEffects) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  for (llvm::StringRef name : {"ac.method.call", "ac.transaction"}) {
+    auto *op = find(*file, name);
+    EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Read>(op, "source.state")));
+    EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(op, "source.state")));
+    EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(op, "source.check")));
+    retained(op);
+  }
+  auto *call = find(*file, "ac.method.call", 1);
+  ASSERT_TRUE(call->use_empty());
+  retained(call);
+  retained(find(*file, "ac.method"));
+}
+
+TEST_F(TransactionEffectsTest,
+       NativeVerificationDoesNotAuthorizeFinalHardware) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  EXPECT_TRUE(
+      mlir::failed(capture([&] { return verifyHardwarePackage(*file); })));
+  EXPECT_NE(diagnostics.find("unlowered"), std::string::npos) << diagnostics;
+}
+
+TEST_F(TransactionEffectsTest, UnloweredEffectsCannotPublishAsSourceBody) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  // A well-formed source-unit envelope still cannot admit this intermediate IR.
+  file->getOperation()->setAttr(
+      "ac.source_owner",
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("package", builder.getStringAttr("")),
+           builder.getNamedAttr("path",
+                                builder.getStringAttr("transactions.py"))}));
+  file->getOperation()->setAttr("ac.unit_kind",
+                                builder.getStringAttr("implementation"));
+  file->getOperation()->setAttr("ac.stage", builder.getStringAttr("source"));
+  file->getOperation()->setAttr(
+      "ac.interfaces",
+      builder.getArrayAttr({file->getOperation()->getAttr("ac.source_owner")}));
+  file->getOperation()->setAttr("ac.import_bindings", builder.getArrayAttr({}));
+  file->getOperation()->setAttr("ac.exports", builder.getArrayAttr({}));
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return verifySourceBodyStructure(*file, [&] { return file->emitError(); });
+  })));
+  EXPECT_NE(diagnostics.find("unlowered"), std::string::npos) << diagnostics;
+}
+
+TEST_F(TransactionEffectsTest, MissingAndForeignStateReferencesFailClosed) {
+  for (llvm::StringRef symbol : {"missing", "foreign"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    if (symbol == "foreign") {
+      auto *state = find(*file, "ac.state");
+      auto &root = find(*file, "ac.module", 1)->getRegion(0).front();
+      auto *initial = state->getOperand(2).getDefiningOp()->clone();
+      root.getOperations().insert(root.begin(), initial);
+      auto *foreign = state->clone();
+      foreign->setAttr("instance_name", builder.getStringAttr("foreign"));
+      foreign->setAttr("occurrence",
+                       find(*file, "ac.instance")->getAttr("occurrence"));
+      foreign->setOperand(0, root.getArgument(0));
+      foreign->setOperand(1, root.getArgument(1));
+      foreign->setOperand(2, initial->getResult(0));
+      root.getOperations().insert(std::next(root.begin()), foreign);
+    }
+    find(*file, "ac.state.read")
+        ->setAttr("state", builder.getStringAttr(symbol));
+    reject(*file, "state");
+  }
+}
+
+TEST_F(TransactionEffectsTest, ReceiverMustResolveToTheDeclaredMethodOwner) {
+  for (llvm::StringRef path : {"missing", "left", "left/missing"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *call = find(*file, "ac.method.call");
+    call->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr(path)}));
+    reject(*file, "instance");
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  find(*file, "ac.method.call")
+      ->setAttr("callee",
+                mlir::SymbolRefAttr::get(
+                    &context, "Root",
+                    {mlir::FlatSymbolRefAttr::get(&context, "step")}));
+  reject(*file, "callee");
+}
+
+TEST_F(TransactionEffectsTest,
+       SelectorProjectionUsesExactNominalAndTableTypes) {
+  for (llvm::StringRef selectors :
+       {"[{field = \"absent\"}, {index = 0 : i64}]",
+        "[{field = \"lanes\"}, {index = 1 : i64}]",
+        "[{field = \"lanes\"}, {index = 0 : i32}]",
+        "[{field = \"lanes\", index = 0 : i64}]", "[{field = \"lanes\"}]"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *read = find(*file, "ac.state.read", 2);
+    read->setAttr("selectors", mlir::parseAttribute(selectors, &context));
+    reject(*file, "state");
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *write = find(*file, "ac.state.write");
+  write->setOperand(1, write->getOperand(0));
+  reject(*file, "type");
+}
+
+TEST_F(TransactionEffectsTest, RegionsRespectCaptureAndReturnTypes) {
+  for (unsigned region : {0u, 1u}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *method = find(*file, "ac.method");
+    method->getRegion(region).front().addArgument(
+        method->getOperand(0).getType(), method->getLoc());
+    reject(*file, "argument");
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *transaction = find(*file, "ac.transaction");
+  auto *yield = transaction->getRegion(0).front().getTerminator();
+  yield->setOperand(0, transaction->getRegion(0).front().getArgument(1));
+  reject(*file, "guard");
+}
+
+TEST_F(TransactionEffectsTest, GuardCannotPerformWritesOrMethodCalls) {
+  for (llvm::StringRef effect : {"ac.state.write", "ac.method.call"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *method = find(*file, "ac.method", effect == "ac.method.call" ? 1 : 0);
+    auto *op = find(*file, effect);
+    auto *copy = op->clone();
+    copy->setOperand(0, method->getRegion(0).front().getArgument(1));
+    copy->setOperand(1, method->getRegion(0).front().getArgument(0));
+    method->getRegion(0).front().getOperations().insert(
+        method->getRegion(0).front().getTerminator()->getIterator(), copy);
+    reject(*file, "guard");
+  }
+}
+
+TEST_F(TransactionEffectsTest, DeclarationAndOccurrenceMetadataAreVerified) {
+  for (llvm::StringRef name :
+       {"ac.state", "ac.state.read", "ac.state.write", "ac.method",
+        "ac.method.call", "ac.transaction"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    find(*file, name)->setAttr("occurrence", builder.getDictionaryAttr({}));
+    reject(*file, "Occurrence");
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  find(*file, "ac.transaction")
+      ->setAttr("declaration", builder.getDictionaryAttr({}));
+  reject(*file, "Occurrence");
+}
+
+TEST_F(TransactionEffectsTest,
+       DuplicateRegistrationCannotHideBehindAnotherName) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *transaction = find(*file, "ac.transaction");
+  auto *copy = transaction->clone();
+  copy->setAttr("name", builder.getStringAttr("second_registration"));
+  transaction->getBlock()->getOperations().insert(transaction->getIterator(),
+                                                  copy);
+  reject(*file, "declaration");
+}
+
+TEST_F(TransactionEffectsTest, PureFinalRuleRejectsTypedStateAccess) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *method = find(*file, "ac.method");
+  mlir::OperationState rule(method->getLoc(), RuleOp::getOperationName());
+  rule.addOperands(method->getOperands());
+  rule.addTypes(method->getOperand(0).getType());
+  rule.addAttribute("name", builder.getStringAttr("pure"));
+  rule.addAttribute("occurrence", method->getAttr("occurrence"));
+  rule.addRegion();
+  builder.setInsertionPoint(method);
+  auto *pure = builder.create(rule);
+  auto *block = new mlir::Block;
+  pure->getRegion(0).push_back(block);
+  auto path =
+      block->addArgument(method->getOperand(0).getType(), method->getLoc());
+  auto *read = find(*file, "ac.state.read")->clone();
+  read->setOperand(0, path);
+  block->push_back(read);
+  builder.setInsertionPointToEnd(block);
+  mlir::OperationState yield(method->getLoc(), YieldOp::getOperationName());
+  yield.addOperands(path);
+  builder.create(yield);
+  reject(*file, "placement");
+}
+
+TEST_F(TransactionEffectsTest, InitializersRequireStaticAcyclicConstructors) {
+  auto runtime = parse();
+  ASSERT_TRUE(runtime);
+  auto *state = find(*runtime, "ac.state");
+  state->setOperand(2, state->getBlock()->getArgument(2));
+  reject(*runtime, "closed static literal/constructor DAG");
+
+  {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *owner = find(*file, "ac.state");
+    auto initial = owner->getOperand(2);
+    builder.setInsertionPoint(owner);
+    mlir::OperationState computation(owner->getLoc(), "ac.bits.binary");
+    computation.addOperands({initial, initial});
+    computation.addTypes(initial.getType());
+    computation.addAttribute("opcode", builder.getStringAttr("add"));
+    auto *op = builder.create(computation);
+    owner->setOperand(2, op->getResult(0));
+    reject(*file, "closed static literal/constructor DAG");
+  }
+  auto cycle = parse();
+  ASSERT_TRUE(cycle);
+  auto *packet = find(*cycle, "ac.state", 1);
+  auto *constructor = packet->getOperand(2).getDefiningOp();
+  builder.setInsertionPoint(packet);
+  mlir::OperationState get(packet->getLoc(), "ac.struct.get");
+  get.addOperands(constructor->getResult(0));
+  get.addTypes(constructor->getOperand(0).getType());
+  get.addAttribute("field", builder.getStringAttr("lanes"));
+  auto *projection = builder.create(get);
+  constructor->setOperand(0, projection->getResult(0));
+  reject(*cycle, "cyclic");
+}
+
+TEST_F(TransactionEffectsTest, ControlWidthsAndStatePayloadCannotBeInferred) {
+  for (llvm::StringRef name : {"ac.state", "ac.state.read", "ac.state.write",
+                               "ac.method.call", "ac.transaction"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *op = find(*file, name);
+    auto replacement = name == "ac.state" || name == "ac.transaction"
+                           ? op->getBlock()->getArgument(2)
+                           : op->getBlock()->getArgument(0);
+    op->setOperand(0, replacement);
+    reject(*file, "width-one Bits");
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *state = find(*file, "ac.state");
+  state->setOperand(2, state->getOperand(1));
+  reject(*file, "initial value and old-Q payload types must match");
+}
+
+TEST_F(TransactionEffectsTest, CallsAndOrdinaryReturnsKeepExactSignature) {
+  for (bool arity : {false, true}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *call = find(*file, "ac.method.call");
+    if (arity)
+      call->eraseOperand(1);
+    else
+      call->setOperand(1, call->getOperand(0));
+    reject(*file, arity ? "arity" : "payload type");
+  }
+  for (llvm::StringRef name : {"ac.method", "ac.transaction"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto &body = find(*file, name)->getRegion(1).front();
+    auto path = body.getArgument(name == "ac.method" ? 1 : 0);
+    body.getTerminator()->setOperand(0, path);
+    reject(*file, "body yield types");
+  }
+}
+
+TEST_F(TransactionEffectsTest,
+       EffectsAndUnknownOperationsCannotHideInPayloads) {
+  for (llvm::StringRef name : {"ac.expect", "ac.observe", "test.unknown"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    context.allowUnregisteredDialects();
+    auto *method = find(*file, "ac.method");
+    auto &body = method->getRegion(1).front();
+    builder.setInsertionPoint(body.getTerminator());
+    mlir::OperationState effect(method->getLoc(), name);
+    if (name == "ac.expect") {
+      effect.addOperands({body.getArgument(1), body.getArgument(1)});
+      effect.addAttribute("kind", builder.getStringAttr("assert"));
+      effect.addAttribute("location", builder.getDictionaryAttr({}));
+    } else if (name == "ac.observe") {
+      effect.addOperands(body.getArgument(1));
+      effect.addAttribute("kind", builder.getStringAttr("report"));
+      effect.addAttribute("spec", builder.getDictionaryAttr({}));
+    }
+    builder.create(effect);
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(TransactionEffectsTest,
+       NestedDeclarationsCannotCreateAnotherOwnerScope) {
+  for (llvm::StringRef name : {"ac.state", "ac.method", "ac.transaction"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *nested = find(*file, name)->clone();
+    auto *method = find(*file, "ac.method");
+    auto &body = method->getRegion(1).front();
+    if (name == "ac.state") {
+      nested->setOperand(0, body.getArgument(1));
+      nested->setOperand(1, body.getArgument(1));
+      nested->setOperand(2, body.getArgument(0));
+    } else if (name == "ac.method") {
+      nested->setOperand(0, body.getArgument(1));
+    } else {
+      nested->setOperand(0, body.getArgument(1));
+      nested->setOperand(1, body.getArgument(1));
+      nested->setOperand(2, body.getArgument(1));
+      nested->setOperand(3, body.getArgument(0));
+    }
+    body.getOperations().insert(body.getTerminator()->getIterator(), nested);
+    reject(*file,
+           name == "ac.method" ? "SymbolTable" : "direct module placement");
+  }
+}
+
+TEST_F(TransactionEffectsTest, PureCollectionRegionsDoNotAdmitHiddenEffects) {
+  for (bool stateRead : {false, true}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto &map = find(*file, "ac.table.map")->getRegion(0).front();
+    if (stateRead) {
+      auto *read = find(*file, "ac.state.read")->clone();
+      read->setOperand(0, map.getArgument(0));
+      map.getOperations().insert(map.getTerminator()->getIterator(), read);
+      reject(*file, "placement");
+    } else {
+      context.allowUnregisteredDialects();
+      builder.setInsertionPoint(map.getTerminator());
+      mlir::OperationState unknown(map.getTerminator()->getLoc(),
+                                   "test.unknown");
+      builder.create(unknown);
+      reject(*file, "region");
+    }
+  }
+}
+
+TEST_F(TransactionEffectsTest,
+       StateIdentityAndNamesCannotCollapseDistinctOwners) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *first = find(*file, "ac.state");
+  auto *second = find(*file, "ac.state", 1);
+  second->setAttr("occurrence", first->getAttr("occurrence"));
+  reject(*file, "occurrence");
+
+  auto collision = parse();
+  ASSERT_TRUE(collision);
+  auto *state = find(*collision, "ac.state");
+  auto &owner = state->getParentOp()->getRegion(0).front();
+  auto *child = find(*collision, "ac.instance")->clone();
+  child->setAttr("instance_name", state->getAttr("instance_name"));
+  child->setAttr("occurrence", state->getAttr("occurrence"));
+  child->setOperands(owner.getArguments());
+  owner.getOperations().insert(state->getIterator(), child);
+  reject(*collision, "instance_name");
+}
+
+TEST_F(TransactionEffectsTest,
+       ReceiverIdentityCannotCollapseDistinctInstances) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  find(*file, "ac.instance", 1)
+      ->setAttr("occurrence",
+                find(*file, "ac.instance")->getAttr("occurrence"));
+  reject(*file, "occurrence");
+}
+
+TEST_F(TransactionEffectsTest, ReceiverOccurrenceMustNameItsActualParent) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  find(*file, "ac.instance")
+      ->setAttr("occurrence", find(*file, "ac.state")->getAttr("occurrence"));
+  reject(*file, "definition");
+}
+
+TEST_F(TransactionEffectsTest, SourceIdentityMustNameItsActualModuleOwner) {
+  for (llvm::StringRef name : {"ac.state", "ac.method", "ac.transaction"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *op = find(*file, name);
+    auto *foreign =
+        find(*file, name == "ac.transaction" ? "ac.state" : "ac.transaction");
+    op->setAttr("occurrence", foreign->getAttr("occurrence"));
+    reject(*file, "definition");
+  }
+  auto file = parse();
+  ASSERT_TRUE(file);
+  find(*file, "ac.transaction")
+      ->setAttr("declaration", find(*file, "ac.state")->getAttr("occurrence"));
+  reject(*file, "definition");
+}
+
+TEST_F(TransactionEffectsTest,
+       MalformedAttributesDiagnoseBeforeTypedAccessors) {
+  for (unsigned mutation = 0; mutation != 12; ++mutation) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *call = find(*file, "ac.method.call", 1);
+    auto *method = find(*file, "ac.method", 1);
+    auto *instance = find(*file, "ac.instance");
+    switch (mutation) {
+    case 0:
+      call->setAttr("instance_path",
+                    builder.getArrayAttr({builder.getI64IntegerAttr(1)}));
+      break;
+    case 1:
+      call->removeAttr("callee");
+      break;
+    case 2:
+      method->removeAttr("function_type");
+      break;
+    case 3:
+      method->setAttr("function_type",
+                      mlir::TypeAttr::get(builder.getI64Type()));
+      break;
+    case 4:
+      instance->removeAttr("callee");
+      break;
+    case 5:
+      instance->removeAttr("instance_name");
+      break;
+    case 6:
+      instance->setAttr("parameters", builder.getStringAttr("invalid"));
+      break;
+    case 7: {
+      auto *state = find(*file, "ac.state");
+      state->setAttr("sym_name", builder.getStringAttr("count"));
+      break;
+    }
+    case 8:
+      find(*file, "ac.state.read")
+          ->setAttr("state", mlir::FlatSymbolRefAttr::get(&context, "count"));
+      break;
+    case 9: {
+      auto *transaction = find(*file, "ac.transaction");
+      transaction->setAttr("sym_name", builder.getStringAttr("step"));
+      break;
+    }
+    case 10: {
+      auto *state = find(*file, "ac.state");
+      state->removeAttr("instance_name");
+      state->setAttr("sym_name", builder.getStringAttr("count"));
+      break;
+    }
+    case 11: {
+      auto *transaction = find(*file, "ac.transaction");
+      transaction->removeAttr("name");
+      transaction->setAttr("sym_name", builder.getStringAttr("step"));
+      break;
+    }
+    }
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_FALSE(diagnostics.empty()) << mutation;
+  }
+}
+
+} // namespace
+} // namespace acir::ac

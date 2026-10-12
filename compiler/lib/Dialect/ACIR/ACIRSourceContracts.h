@@ -16,6 +16,10 @@ namespace acir::ac::detail {
 
 using EmitError = llvm::function_ref<mlir::InFlightDiagnostic()>;
 
+// Typed effects are verified intermediate IR, not published or final hardware.
+mlir::LogicalResult verifyNoUnloweredTransactions(mlir::Operation *root);
+bool isCombinationalHardwareOperation(mlir::Operation *operation);
+
 // Optional source-call authority on existing hardware module declarations.
 mlir::LogicalResult verifyModuleSourceCallContract(mlir::Operation *owner);
 

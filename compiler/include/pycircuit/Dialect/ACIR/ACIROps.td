@@ -266,6 +266,84 @@ def ACIR_RuleOp : ACIR_Op<"rule", [IsolatedFromAbove, SingleBlock, Pure]> {
   let hasRegionVerifier = 1;
 }
 
+// Typed source effects remain explicit until transaction lowering. These
+// operations are not executable final hardware and are never marked Pure.
+def ACIR_SourceStateOp : ACIR_Op<"state", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Declare one source-owned state and its old-Q value";
+  let arguments = (ins ACIR_BitsType:$clk, ACIR_BitsType:$rst,
+      ACIR_HardwareType:$initial, StrAttr:$instance_name,
+      DictionaryAttr:$occurrence);
+  let results = (outs ACIR_HardwareType:$q);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourceStateReadOp : ACIR_Op<"state.read", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Read a selected transaction-local owner candidate";
+  let arguments = (ins ACIR_BitsType:$path, Variadic<ACIR_BitsType>:$indices,
+      StrAttr:$state, ArrayAttr:$selectors,
+      DictionaryAttr:$occurrence);
+  let results = (outs ACIR_HardwareType:$value);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourceStateWriteOp : ACIR_Op<"state.write", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Propose a selected transaction-local owner update";
+  let arguments = (ins ACIR_BitsType:$path, ACIR_HardwareType:$value,
+      Variadic<ACIR_BitsType>:$indices, StrAttr:$state,
+      ArrayAttr:$selectors, DictionaryAttr:$occurrence);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
+    SingleBlock, RecursiveMemoryEffects]> {
+  let summary = "Define an instance operation with entry guard and ordered body";
+  let description = [{
+    Both regions take the explicit function inputs followed by captures.
+    The guard yields one four-state predicate. The body yields the ordinary
+    function results. State access remains explicit and belongs to the calling
+    transaction; this definition does not introduce a commit boundary.
+  }];
+  let arguments = (ins Variadic<ACIR_HardwareType>:$captures,
+      StrAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type,
+      StrArrayAttr:$argument_names, DictionaryAttr:$occurrence);
+  let regions = (region AnyRegion:$guard, AnyRegion:$body);
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
+def ACIR_SourceMethodCallOp : ACIR_Op<"method.call", [
+    DeclareOpInterfaceMethods<SymbolUserOpInterface>,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Invoke a Method on a statically identified instance path";
+  let arguments = (ins ACIR_BitsType:$path,
+      Variadic<ACIR_HardwareType>:$arguments, SymbolRefAttr:$callee,
+      StrArrayAttr:$instance_path, DictionaryAttr:$occurrence);
+  let results = (outs Variadic<ACIR_HardwareType>:$results);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourceTransactionOp : ACIR_Op<"transaction", [
+    IsolatedFromAbove, SingleBlock,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Register a source Rule with explicit guard and ordered effects";
+  let description = [{
+    Both regions take captures. The guard yields one four-state predicate and
+    the body yields ordinary results. declaration identifies the source Rule;
+    occurrence identifies its unique registration in the owning module.
+    Admission and state SSA must be resolved before lowering to pure ac.rule.
+  }];
+  let arguments = (ins ACIR_BitsType:$clk, ACIR_BitsType:$rst,
+      Variadic<ACIR_HardwareType>:$captures, StrAttr:$name,
+      DictionaryAttr:$declaration, DictionaryAttr:$occurrence);
+  let results = (outs Variadic<ACIR_HardwareType>:$results);
+  let regions = (region AnyRegion:$guard, AnyRegion:$body);
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+
 def ACIR_SourceObserveOp : ACIR_Op<"observe", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Record one source observation without runtime side effects";

@@ -5,6 +5,12 @@
 
 namespace acir::ac {
 
+class SourceStateResource
+    : public mlir::SideEffects::Resource::Base<SourceStateResource> {
+public:
+  llvm::StringRef getName() override { return "source.state"; }
+};
+
 class SourceCheckResource
     : public mlir::SideEffects::Resource::Base<SourceCheckResource> {
 public:

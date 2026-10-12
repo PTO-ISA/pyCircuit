@@ -19,6 +19,15 @@ bool equivalentTypes(TypeRange lhs, TypeRange rhs) {
 }
 } // namespace
 namespace detail {
+bool isCombinationalHardwareOperation(Operation *operation) {
+  return isa<BitsConstantOp, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
+             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
+             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
+             EnumFromBitsOp, TableCreateOp, TableSplatOp, TableMapOp,
+             TableViewOp, TableIndexOp, TableGetOp, TableMatchOp,
+             TableChooseOp, TableFoldOp, ValueMergeOp>(operation);
+}
+
 LogicalResult verifyHardwareTypeScope(Type type, Operation *owner);
 LogicalResult verifyHardwareAttributeScope(Attribute attr, Operation *owner) {
   if (auto expr = dyn_cast_or_null<StaticExprAttr>(attr)) {
@@ -166,13 +175,7 @@ LogicalResult body(Operation *op, TypeRange inputs, TypeRange outputs) {
   for (Operation &nested : block.without_terminator()) {
     if (isa<YieldOp>(nested))
       return op->emitOpError() << "early yield is invalid";
-    if (isa<RuleOp>(op) &&
-        !isa<BitsConstantOp, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
-             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
-             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
-             EnumFromBitsOp, TableCreateOp, TableSplatOp,
-             TableMapOp, TableViewOp, TableIndexOp, TableGetOp, TableMatchOp,
-             TableChooseOp, TableFoldOp, ValueMergeOp>(nested))
+    if (isa<RuleOp>(op) && !detail::isCombinationalHardwareOperation(&nested))
       return nested.emitOpError()
              << "rule accepts only closed combinational hardware operations";
   }
@@ -243,9 +246,11 @@ LogicalResult InstanceOp::verifySymbolUses(SymbolTableCollection &) {
   return a.verifyInstance(*this, b);
 }
 LogicalResult YieldOp::verify() {
-  if (!isa_and_nonnull<ModuleOp, RuleOp, TableMapOp, TableMatchOp>(
+  if (!isa_and_nonnull<ModuleOp, RuleOp, TableMapOp, TableMatchOp,
+                      SourceMethodOp, SourceTransactionOp>(
           (*this)->getParentOp()))
-    return emitOpError() << "must terminate module or rule";
+    return emitOpError() << "must terminate a module, rule, table region, "
+                           "Method or transaction";
   return success();
 }
 LogicalResult ModuleImportOp::verify() {

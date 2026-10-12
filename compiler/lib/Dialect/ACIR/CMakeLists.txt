@@ -13,6 +13,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRPacketOps.cpp
   ACIRPacketTypes.cpp
   ACIRSystemOps.cpp
+  ACIRTransactionOps.cpp
   ACIRRegistration.cpp
   ACIRSourceContracts.cpp
   ACIRStaticContracts.cpp

@@ -1,3 +1,4 @@
+#include "ACIRSourceContracts.h"
 #include "HardwareSourceChecks.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
@@ -114,6 +115,8 @@ LogicalResult
 detail::verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis) {
   auto package = analysis.getPackage();
   if (!package)
+    return failure();
+  if (failed(verifyNoUnloweredTransactions(package)))
     return failure();
   if (failed(collectFinalSourceUnits(package,
                                      [&] { return package.emitOpError(); })))

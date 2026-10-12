@@ -129,6 +129,8 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
     return emitError() << "source unit is required";
   if (failed(mlir::verify(unit)))
     return failure();
+  if (failed(detail::verifyNoUnloweredTransactions(unit)))
+    return failure();
   auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
   if (body && (!kind || (kind.getValue() != "implementation" &&
                          kind.getValue() != "declarations")))
