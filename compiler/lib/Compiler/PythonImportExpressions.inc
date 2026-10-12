@@ -1,3 +1,11 @@
+if (activeSourceEffects &&
+    (node.kind() == "Name" || node.kind() == "Call")) {
+  auto effect = sourceEffectExpression(node, at, ownerSymbol, values, instances);
+  if (failed(effect))
+    return failure();
+  if (*effect)
+    return **effect;
+}
 if (node.kind() == "Call" && node.child("func").kind() == "Attribute" &&
     llvm::is_contained(
         ArrayRef<StringRef>{"map", "fold", "all", "any", "count"},

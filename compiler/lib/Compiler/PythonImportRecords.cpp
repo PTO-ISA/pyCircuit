@@ -58,8 +58,18 @@ struct ModuleDecl {
   bool behavioral = false;
   bool needsDomain = false;
   bool system = false;
+  bool methodOwner = false;
+  bool transactionEffects = false;
   size_t sourceInputCount = 0;
   ReturnShape returnShape = ReturnShape::Mapping;
+};
+struct SourceCallableDecl {
+  AstNode declaration;
+  CapturedCallableSyntax syntax;
+  SmallVector<Port> inputs;
+  SmallVector<Type> results;
+  SmallVector<Port> resultContracts;
+  FunctionType type;
 };
 struct CallableDecl {
   FlatSymbolRefAttr symbol;
@@ -96,6 +106,14 @@ struct Instance {
   Operation *op = nullptr;
   bool bound = false;
   std::optional<unsigned> clockInput, resetInput;
+};
+struct SourceEffectContext {
+  ModuleDecl *module = nullptr;
+  SourceCallableDecl *callable = nullptr;
+  llvm::StringMap<StateOwner> *states = nullptr;
+  llvm::StringMap<Instance *> *instances = nullptr;
+  llvm::StringMap<SourceCallableDecl> *methods = nullptr;
+  bool guard = false;
 };
 struct SliceShape {
   Type type;
@@ -915,6 +933,7 @@ private:
                llvm::StringMap<Instance *> &instances,
                llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   LogicalResult scanModules();
+  LogicalResult scanSourceCallables();
   bool intrinsic(const AstNode &node, StringRef name) const;
   bool fixedAnnotation(const AstNode &node) const;
   bool hasDecorator(const AstNode &node, StringRef name) const;
@@ -1063,6 +1082,14 @@ private:
   void bindState(const StateOwner &state, Value next, Value en, OpBuilder &at,
                  llvm::StringMap<Value> &values);
   LogicalResult emitBehavioral(ModuleDecl &decl);
+  LogicalResult emitSourceTransactions(ModuleDecl &decl);
+  FailureOr<std::optional<Value>> sourceEffectExpression(
+      const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
+      llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances);
+  FailureOr<SmallVector<Value>> sourceMethodCall(
+      const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
+      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances);
   ac::StaticExprAttr literal(uint64_t value, const AstNode &node,
                              FlatSymbolRefAttr owner);
   Type bits(unsigned width, const AstNode &node, FlatSymbolRefAttr owner);
@@ -1286,6 +1313,10 @@ private:
   OwningOpRef<ModuleOp> body;
   llvm::StringMap<Import> names;
   llvm::StringMap<AstNode> structs, behavioralRules;
+  llvm::StringMap<llvm::StringMap<SourceCallableDecl>> sourceMethods;
+  llvm::StringMap<llvm::StringMap<SourceCallableDecl>> sourceRules;
+  llvm::StringSet<> methodOwnerNames;
+  llvm::StringSet<> transactionModuleNames;
   llvm::StringMap<CapturedEnumSyntax> enums;
   llvm::StringMap<ArrayAttr> structFields;
   llvm::StringMap<SmallVector<AstNode>> structDefaults;
@@ -1313,6 +1344,7 @@ private:
   ModuleDecl *activeBehavioralDecl = nullptr;
   SmallVector<StateOwner> *activeStates = nullptr;
   RuleEvaluation *activeRule = nullptr;
+  SourceEffectContext *activeSourceEffects = nullptr;
   llvm::StringMap<size_t> local;
   SmallVector<ModuleDecl, 0> modules;
   SmallVector<DictionaryAttr> dependencies;
@@ -1332,6 +1364,7 @@ ArrayAttr portNames(OpBuilder &b, ArrayRef<Port> ports);
 #include "PythonImportQueues.inc"
 #include "PythonImportRuleCall.inc"
 #include "PythonImportSourceCalls.inc"
+#include "PythonImportTransactions.inc"
 
 std::optional<ac::detail::ValueKind>
 Importer::annotationKind(const AstNode &node) {
@@ -2381,6 +2414,9 @@ FailureOr<Type> Importer::portType(const AstNode &node,
 FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   ModuleDecl result;
   result.system = hasDecorator(node, "system");
+  result.methodOwner = methodOwnerNames.contains(node.string("name"));
+  result.transactionEffects =
+      result.methodOwner || transactionModuleNames.contains(node.string("name"));
   result.node = node;
   result.symbol =
       FlatSymbolRefAttr::get(b.getContext(), qualify(node.string("name")));
@@ -2431,12 +2467,14 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   AstNode returns = node.child("returns");
   if (result.system && returns)
     return error() << "@system cannot declare a result";
-  if (!result.system && !returns)
+  if (!result.system && !returns && !result.transactionEffects)
     return error() << "module requires a return annotation";
   std::optional<Import> returnBinding;
   if (returns)
     returnBinding = lookupBinding(returns);
   if (result.system) {
+    result.returnShape = ReturnShape::Mapping;
+  } else if (!returns) {
     result.returnShape = ReturnShape::Mapping;
   } else if (returnBinding &&
              returnBinding->category == BindingCategory::Struct) {
@@ -2481,7 +2519,8 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   }
   result.sourceInputCount = result.inputs.size();
   result.behavioral =
-      result.persistent || result.returnShape == ReturnShape::Struct;
+      result.persistent || result.returnShape == ReturnShape::Struct ||
+      result.methodOwner;
   for (size_t i = 0; i < node.array("body").size(); ++i) {
     auto stmt = node.item("body", i);
     auto call = stmt.child("value");
@@ -2500,6 +2539,8 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
 }
 
 LogicalResult Importer::scanModules() {
+  if (failed(scanSourceCallables()))
+    return failure();
   for (size_t i = 0; i < source.module.array("body").size(); ++i) {
     auto stmt = source.module.item("body", i);
     if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule")) {
@@ -4775,6 +4816,8 @@ LogicalResult Importer::emitInstrumentation(
 }
 
 LogicalResult Importer::emitModule(ModuleDecl &decl) {
+  if (decl.transactionEffects)
+    return emitSourceTransactions(decl);
   if (decl.behavioral)
     return emitBehavioral(decl);
   SmallVector<Attribute> params;

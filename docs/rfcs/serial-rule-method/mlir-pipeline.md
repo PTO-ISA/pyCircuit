@@ -85,6 +85,17 @@ state old-Q 输出可以被显式捕获为普通快照；候选 owner 访问必�
 
 ### 跨过程效果摘要
 
+已接入的首个分析子集是公共 Dialect 层的 `SourceMethodSummariesAnalysis`
+（`SourceMethodAnalysis.h/.cpp`），由 Transforms 层的 `AnalyzeSourceMethods.cpp`
+接入 `ac-analyze-source-method-summaries`。它检查实际调用图、递归及有值事务的保守
+totality；不发布通过标签，也不构成完整条件效果/端口/接口摘要。
+源 compiler 和未来 interface extraction 必须复用这个 IR-only owner，不能反向形成
+Transforms → SourceCompiler 的库依赖或复制证明算法。
+
+当前恒真事实只来自已验证的一位常量和普通 capture/formal 传递；状态初始化不是证明。
+通用 Method 摘要对显式形参取 Unknown；调用实例的常量事实单独证明，不污染通用缓存。
+未调用的 guarded Method 不影响一个 total Rule；所有声明中的递归仍拒绝，包括死路径。
+
 按调用图推导并实例化条件性读写、返回依赖、required guard、资源请求、顺序、端口和
 时钟域摘要。声明摘要可先建立，涉及具体 SSA 的写域及条件事实在状态版本明确后精化。
 递归调用拒绝；调用深度、摘要大小、访问数量和证明工作量必须有预算与明确诊断。

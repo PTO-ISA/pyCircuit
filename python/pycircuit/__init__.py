@@ -7,6 +7,7 @@ one source with ``pycircuit compile``; execute generated designs via the runtime
 __all__ = [
     "module",
     "rule",
+    "method",
     "struct",
     "bits",
     "table",
@@ -37,8 +38,13 @@ def module(declaration):
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 
-def rule(declaration):
+def rule(declaration=None, *, guard=None):
     """Declare a rule whose computations and state updates are compiler owned."""
+    raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def method(declaration=None, *, guard=None):
+    """Declare an instance operation within its caller's Rule transaction."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 

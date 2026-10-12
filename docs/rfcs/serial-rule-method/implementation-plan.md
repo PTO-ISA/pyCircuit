@@ -1,6 +1,6 @@
 # 串行 Rule 与 Method 扩展实现计划
 
-本计划把[目标扩展](README.md)分解为七个有界切片，输入语义来自[source-semantics](source-semantics.md)、[MLIR 流程](mlir-pipeline.md)与[扩展边界](extensions.md)，出口采用[验收规范](acceptance.md)。这是后续派发依据，所有实现、独立测试、评审及运行结果均未完成；不能据此修改当前支持声明。
+本计划把[目标扩展](README.md)分解为七个有界切片，输入语义来自[source-semantics](source-semantics.md)、[MLIR 流程](mlir-pipeline.md)与[扩展边界](extensions.md)，出口采用[验收规范](acceptance.md)。这是后续派发依据，完整七切片尚未完成；局部 IR/producer 检查不构成完整源语言或执行能力，不能据此扩大当前支持声明。
 
 ## 派发与共同约束
 
@@ -8,7 +8,7 @@
 
 PM 独占公共接线：`compiler/lib/Compiler/SourceUnit.cpp`、`compiler/include/pycircuit/Transforms/Passes.h`、`compiler/include/pycircuit/Dialect/ACIR/ACIROps.td`、`compiler/include/pycircuit/Dialect/ACIR/ACIROps.h`、`compiler/lib/Dialect/ACIR/ACIRDialect.cpp`、公共 pass 注册、所有 CMake 与测试登记。Python 公共导出和必要 capture/transport 语法接线也由 PM 统一整合；capture 只记录语法、身份和位置，不承担效果或事务推断。实现者提交精确接线请求，不能同时编辑共享注册表。
 
-下文“新增文件”是该计划预留的精确路径，不是已存在文件。PM 必须在每个派发包里再次冻结实际使用的集合、函数接口、op schema、证据输出入口与测试名；省去未必需要的文件也须在派发前明确。执行中不得以通配目录扩张所有权，也不得另起语义编译器、runner、协议或兼容层。拆成七个责任不要求七个独立可执行程序。
+下文区分已接入入口和后续预留文件；已接入的局部增量不代表整个切片完成。PM 必须在每个派发包里再次冻结实际使用的集合、函数接口、op schema、证据输出入口与测试名；省去未必需要的文件也须在派发前明确。执行中不得以通配目录扩张所有权，也不得另起语义编译器、runner、协议或兼容层。拆成七个责任不要求七个独立可执行程序。
 
 共享工作树中的其他编辑必须保留。每个切片只改自己的文件；依赖变更或边界调整报 PM，重新确定独占权后再继续。新 pass/analysis 的头文件直接声明既有 MLIR pipeline 使用的职责，不解析一份额外 Python AST。所有变换都必须有可检查的前后表示和验证不变量。
 
@@ -20,7 +20,7 @@ PM 独占公共接线：`compiler/lib/Compiler/SourceUnit.cpp`、`compiler/inclu
 
 **独占现有文件：** `compiler/lib/Compiler/SourceMemoryBindings.{h,cpp}`、`compiler/lib/Compiler/PythonImportContext.{h,cpp}`。明确的现有所有者是 binding/type/ownership 与 importer context，不能把 type authority 留给后端。
 
-**冻结新增文件：** `compiler/lib/Compiler/SourceTransactionEffects.h`、`compiler/lib/Compiler/SourceTransactionEffects.cpp`。
+**已接入入口：** `compiler/lib/Dialect/ACIR/ACIRTransactionOps.cpp` 和现有 `SourceEffects.h/.cpp` 负责原生效果验证；`compiler/lib/Compiler/PythonImportTransactions.inc` 通过同一个 Importer 生成类型化效果。不得再创建 Compiler 层的重复 effect verifier。
 
 **产出与不变量：** 类型化操作保留事务入口、call、owner/resource、access path、guard、普通返回、观测和状态 effect。实例 occurrence 与 alias 可比较；effectful 操作不得 Pure。数学 Integer 与 fixed bits 权威不混用；动态 owner、无法解析的类型／域失败关闭。PM 将必要的最小 op 扩展接入既有 ACIR。
 
@@ -36,7 +36,7 @@ PM 独占公共接线：`compiler/lib/Compiler/SourceUnit.cpp`、`compiler/inclu
 
 **独占现有文件：** `compiler/lib/Compiler/SourceRuleWrites.{h,cpp}`、`compiler/lib/Transforms/ExtractSourceInterface.cpp`、`compiler/lib/Compiler/SourceHeaderRegistry.cpp`、`compiler/lib/Compiler/SourceBodySnapshots.cpp`、`compiler/lib/Dialect/ACIR/SourceUnitValidation.cpp`、`compiler/lib/Dialect/ACIR/SourceEffects.cpp`。
 
-**冻结新增文件：** `compiler/lib/Compiler/SourceMethodSummaries.h`、`compiler/lib/Compiler/SourceMethodSummaries.cpp`。
+**共同分析入口：** `compiler/include/pycircuit/Dialect/ACIR/SourceMethodAnalysis.h`、`compiler/lib/Dialect/ACIR/SourceMethodAnalysis.cpp`；pass 位于 `compiler/lib/Transforms/AnalyzeSourceMethods.cpp`。当前仅调用图/totality 子集已接入；完整效果摘要和独立发布仍待完成。Compiler 层不保留另一份算法或 forwarding header。
 
 **产出与不变量：** 条件读写 footprint、guard、普通返回、端口／域／顺序需求在每个调用处绑定实际 owner，不克隆状态。发布保留完整闭包才能解决的 obligations；consumer 不重新读取 provider Python。相关变换后摘要重算。link 的 body 重验不能只检查哈希或信任 caller 提供的摘要。
 
@@ -126,11 +126,11 @@ guard 首批只接纳具有完全匹配必需位置参数的 lambda；owner 在�
 
 ## 独立测试的文件与职责
 
-测试所有者独占以下预留文件，不编辑实现者文件；已有测试登记与共享 helper 的接线由 PM 完成。每个新增文件路径在对应派发前核对不存在冲突，并冻结实际用例及 CTest/lit 选择。下表的文件均为拟新增，尚无实现或运行结果。
+测试所有者独占以下预留文件，不编辑实现者文件；已有测试登记与共享 helper 的接线由 PM 完成。每个新增文件路径在对应派发前核对不存在冲突，并冻结实际用例及 CTest/lit 选择。表中 typed-effects 的两个文件已接入局部验证；其余是后续预留。任何局部结果都不能替代该切片的完整验收。
 
 | 对应切片 | 独立测试文件（精确路径） | 测试内容与移除边界 |
 | --- | --- | --- |
-| typed effects | `tests/compiler/IR/MethodEffectsTest.cpp` | owner、域、type authority、effect traits、源位置；不冻结 incidental op 排版 |
+| typed effects | `tests/compiler/IR/TransactionEffectsTest.cpp` 与 `tests/compiler/IR/SourceTransactionCaptureTest.cpp` | owner、域、type authority、effect traits、源位置；不冻结 incidental op 排版 |
 | summaries | `tests/compiler/IR/MethodSummaryAuthorityTest.cpp` | 条件 footprint、资源／顺序摘要、body/interface 伪造、变换后失效重算 |
 | state SSA | `tests/compiler/IR/TransactionStateSSATest.cpp` | 候选串行、快照、字段、旧 Q、注册顺序；保留既有 ROB 独立 oracle |
 | admission | `tests/compiler/IR/TransactionAdmissionTest.cpp` | path validity、required/optional、false guard 局部 hold、retry progress |

@@ -16,6 +16,7 @@ Python or infers a different hardware meaning.
 | Capture | `_source_capture.py`, `_source_transport.py` | Read a stable source snapshot, parse Python syntax and serialize the existing private AST transport. Design functions are never executed. |
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
+| Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -35,6 +36,14 @@ use that operation's checked region and field-sensitive emission. TableMatch
 retains its scalar predicate boundary until equivalent target support is
 implemented and independently verified. Backend failures must not become a
 fallback implementation or a second semantic path.
+
+The [serial Rule/Method extension](../rfcs/serial-rule-method/README.md) now has
+a bounded source-to-typed-effects producer and an IR call-summary analysis.
+These stages retain explicit state reads/writes and Method calls; they do not
+yet solve candidate state, generate admission or emit executable transactions.
+Current source-unit publication and final-hardware verification reject their
+unlowered operations. A successful intermediate pass test is not a public
+compile/link/emit or simulation result.
 
 Record simplification preserves the declared result type of every projection.
 If an equivalent aggregate carries different source provenance and no exactly

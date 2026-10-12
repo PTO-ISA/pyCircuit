@@ -45,6 +45,12 @@ LogicalResult Importer::inferModuleGraph() {
         }
         if (auto found = local.find(name); found != local.end()) {
           edges[index].push_back(found->second);
+          if (modules[found->second].methodOwner) {
+            if (controlled)
+              return error() << "Method owner construction under runtime control is unsupported";
+            decl.transactionEffects = true;
+            decl.behavioral = true;
+          }
           if (modules[found->second].returnShape == ReturnShape::Struct ||
               !node.array("args").empty()) {
             if (controlled)
@@ -83,7 +89,7 @@ LogicalResult Importer::inferModuleGraph() {
       return success();
     marks[index] = 1;
     bool domain = modules[index].system || modules[index].persistent ||
-                  modules[index].queueDomain;
+                  modules[index].queueDomain || modules[index].transactionEffects;
     for (size_t child : edges[index]) {
       if (failed(self(self, child)))
         return failure();

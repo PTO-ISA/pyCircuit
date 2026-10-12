@@ -59,6 +59,7 @@ compilePythonSourceUnit(ModuleOp transport, DictionaryAttr sourceOwner,
   lowering.addPass(detail::createAnalyzeRuleWritesPass());
   lowering.addPass(detail::createInferSourceBindingsPass(sourceOwner, headers));
   lowering.addPass(detail::createLowerPythonSourcePass(sourceOwner, headers));
+  lowering.addPass(acir::createAnalyzeSourceMethodSummariesPass());
   auto simplify = acir::createSimplifyRecordWiresPass();
   if (retainSourceImport)
     lowering.addInstrumentation(std::make_unique<SourceImportInstrumentation>(

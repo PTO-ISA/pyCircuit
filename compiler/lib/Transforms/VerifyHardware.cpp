@@ -35,6 +35,7 @@ void registerACIRPasses() {
   PassRegistration<VerifyHardwarePass>();
   registerPass([] { return createExtractSourceInterfacePass(); });
   registerPass([] { return createSimplifyRecordWiresPass(); });
+  registerPass([] { return createAnalyzeSourceMethodSummariesPass(); });
 }
 
 } // namespace acir

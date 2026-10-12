@@ -2,6 +2,7 @@ add_acir_library(ACIRTransforms SOURCES
   VerifyHardware.cpp
   ExtractSourceInterface.cpp
   SimplifyRecordWires.cpp
+  AnalyzeSourceMethods.cpp
   LINK_LIBRARIES
     ACIRDialect
     MLIRPass

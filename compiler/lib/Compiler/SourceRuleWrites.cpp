@@ -145,14 +145,8 @@ bool SourceRuleWritesAnalysis::resolves(const AstNode &node,
 bool SourceRuleWritesAnalysis::hasDecorator(const AstNode &node,
                                             StringRef name) const {
   auto marker = classifyImportedMarker("pycircuit", name);
-  for (size_t i = 0; i < node.array("decorator_list").size(); ++i) {
-    auto decorator = node.item("decorator_list", i);
-    if (marker == MarkerKind::Encoding && decorator.kind() == "Call")
-      decorator = decorator.child("func");
-    if (resolves(decorator, marker))
-      return true;
-  }
-  return false;
+  return hasSourceDecorator(node, marker,
+                            [&](const AstNode &n) { return binding(n); });
 }
 const SourceRuleCallPlan *
 SourceRuleWritesAnalysis::lookup(const AstNode &module,

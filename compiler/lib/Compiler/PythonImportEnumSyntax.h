@@ -16,6 +16,7 @@ enum class MarkerKind {
   Module,
   System,
   Rule,
+  Method,
   Struct,
   Bits,
   Table,
@@ -49,6 +50,20 @@ using LexicalBindings =
 
 bool resolvesMarker(const AstNode &node, MarkerKind marker,
                     LexicalBindings bindings);
+
+bool hasSourceDecorator(const AstNode &declaration, MarkerKind marker,
+                        LexicalBindings bindings);
+
+struct CapturedCallableSyntax {
+  MarkerKind marker;
+  AstNode guard;
+};
+
+/// Decode only the bound Rule/Method decorator and its guard lambda signature.
+/// Typing, purity, owner capture and guard evaluation belong to source lowering.
+mlir::FailureOr<CapturedCallableSyntax>
+readCallableSyntax(const AstNode &declaration, LexicalBindings bindings,
+                   ac::detail::EmitError emitError);
 mlir::FailureOr<mlir::FlatSymbolRefAttr>
 resolveNominalType(const AstNode &node, LexicalBindings bindings,
                    ac::detail::EmitError emitError);

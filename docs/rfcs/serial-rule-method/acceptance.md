@@ -1,6 +1,6 @@
 # 串行 Rule 与 Method 扩展验收规范
 
-本文规定[扩展提案](README.md)的验收义务，配合[源语义](source-semantics.md)、[MLIR 流程](mlir-pipeline.md)、[扩展边界](extensions.md)与[实现计划](implementation-plan.md)使用。它描述目标行为，不证明当前支持、批准实施或测试通过。现有能力仍以[语言参考](../../reference/language.md)为准；所有新增测试、实现与结果均未验收。
+本文规定[扩展提案](README.md)的验收义务，配合[源语义](source-semantics.md)、[MLIR 流程](mlir-pipeline.md)、[扩展边界](extensions.md)与[实现计划](implementation-plan.md)使用。它描述目标行为，不证明当前支持、批准实施或测试通过。现有能力仍以[语言参考](../../reference/language.md)为准；以下完整范围尚未验收；已实现的局部 IR/producer 检查不代表完整扩展通过。
 
 ## 验收范围与判定规则
 
@@ -128,7 +128,7 @@ bash tools/run_api_tests.sh --tier nightly
 bash tools/run_examples.sh --tier nightly
 ```
 
-本提案所有新增测试与 gate/nightly 执行结果均为 **NOT-RUN**。既有测试文件仅表明可复用的责任入口。
+本表的完整实现验收及 gate/nightly 不能从局部测试推断。未实际执行的范围必须记录为 **NOT-RUN**；已有原生 IR/producer 结果只覆盖其明确的检查点。测试文件本身仅表明责任入口。
 
 ## 效率验收
 

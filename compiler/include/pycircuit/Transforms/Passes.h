@@ -8,6 +8,7 @@ namespace acir {
 std::unique_ptr<mlir::Pass> createVerifyHardwarePass();
 std::unique_ptr<mlir::Pass> createExtractSourceInterfacePass();
 std::unique_ptr<mlir::Pass> createSimplifyRecordWiresPass();
+std::unique_ptr<mlir::Pass> createAnalyzeSourceMethodSummariesPass();
 void registerACIRPasses();
 } // namespace acir
 #endif

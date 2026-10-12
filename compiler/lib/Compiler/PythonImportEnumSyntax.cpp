@@ -35,6 +35,7 @@ MarkerKind classifyImportedMarker(StringRef module, StringRef remoteName) {
       .Case("module", MarkerKind::Module)
       .Case("system", MarkerKind::System)
       .Case("rule", MarkerKind::Rule)
+      .Case("method", MarkerKind::Method)
       .Case("struct", MarkerKind::Struct)
       .Case("bits", MarkerKind::Bits)
       .Case("table", MarkerKind::Table)
@@ -54,6 +55,61 @@ bool resolvesMarker(const AstNode &node, MarkerKind marker,
     return false;
   auto resolved = bindings(node);
   return resolved && resolved->marker == marker && !resolved->nominalSymbol;
+}
+
+bool hasSourceDecorator(const AstNode &declaration, MarkerKind marker,
+                        LexicalBindings bindings) {
+  for (size_t i = 0; i < declaration.array("decorator_list").size(); ++i) {
+    auto decorator = declaration.item("decorator_list", i);
+    if (decorator.kind() == "Call" &&
+        (marker == MarkerKind::Encoding || marker == MarkerKind::Rule ||
+         marker == MarkerKind::Method))
+      decorator = decorator.child("func");
+    if (resolvesMarker(decorator, marker, bindings))
+      return true;
+  }
+  return false;
+}
+
+FailureOr<CapturedCallableSyntax>
+readCallableSyntax(const AstNode &declaration, LexicalBindings bindings,
+                   ac::detail::EmitError emitError) {
+  if (declaration.kind() != "FunctionDef" ||
+      declaration.array("decorator_list").size() != 1)
+    return emitError() << "Rule/Method requires one bound decorator";
+  auto decorator = declaration.item("decorator_list", 0);
+  auto target = decorator.kind() == "Call" ? decorator.child("func") : decorator;
+  auto resolved = target && bindings ? bindings(target) : std::nullopt;
+  auto marker = resolved && !resolved->nominalSymbol ? resolved->marker
+                                                   : MarkerKind::None;
+  if (marker != MarkerKind::Rule && marker != MarkerKind::Method)
+    return emitError() << "callable decorator must resolve to pycircuit rule or method";
+  CapturedCallableSyntax result{marker, {}};
+  if (decorator.kind() != "Call")
+    return result;
+  if (!decorator.array("args").empty() ||
+      decorator.array("keywords").size() != 1 ||
+      decorator.item("keywords", 0).string("arg") != "guard")
+    return emitError() << "Rule/Method decorator accepts only guard=lambda";
+  result.guard = decorator.item("keywords", 0).child("value");
+  if (result.guard.kind() != "Lambda")
+    return emitError() << "Rule/Method guard requires a lambda";
+  auto required = [](const AstNode &arguments) {
+    return arguments && arguments.array("posonlyargs").empty() &&
+           arguments.array("kwonlyargs").empty() &&
+           arguments.array("defaults").empty() &&
+           !arguments.child("vararg") && !arguments.child("kwarg");
+  };
+  auto formals = declaration.child("args");
+  auto guardFormals = result.guard.child("args");
+  if (!required(formals) || !required(guardFormals) ||
+      formals.array("args").size() != guardFormals.array("args").size())
+    return emitError() << "guard lambda requires the callable's exact required positional parameters";
+  for (size_t i = 0; i < formals.array("args").size(); ++i)
+    if (formals.item("args", i).string("arg") !=
+        guardFormals.item("args", i).string("arg"))
+      return emitError() << "guard lambda parameter names and order must match the callable";
+  return result;
 }
 
 FailureOr<FlatSymbolRefAttr>
