@@ -225,7 +225,11 @@ def ACIR_FireOp : ACIR_Op<"fire", [Pure]> {
 }
 def ACIR_EffectOp : ACIR_Op<"effect", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins I1:$enable, Variadic<AnyType>:$inputs);
-  let assemblyFormat = "$enable `(` $inputs `)` attr-dict `:` type($inputs)";
+  let assemblyFormat = "$enable `(` $inputs `)` attr-dict `:` functional-type(operands, results)";
+}
+def ACIR_PathOp : ACIR_Op<"path"> {
+  let arguments = (ins I1:$condition);
+  let assemblyFormat = "$condition attr-dict";
 }
 def ACIR_CurrentOp : ACIR_Op<"current", [MemoryEffects<[MemRead]>]> {
   let results = (outs AnyType:$value);

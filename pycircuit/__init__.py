@@ -1,4 +1,4 @@
-"""AST-only ACPy → transactional MLIR → conditional static rule graph."""
+"""ACPy → source MLIR → resolved transactions → RTL and cycle execution."""
 from .frontend import compile_source
 from .backend import analyze
 

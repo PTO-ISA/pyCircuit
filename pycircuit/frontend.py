@@ -286,7 +286,9 @@ class Frontend:
             if not isinstance(stmt, (ast.Assign, ast.AnnAssign)): self.error(stmt, '__init__ accepts static bindings only')
             target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
             if not isinstance(target, ast.Name): self.error(target, 'construction requires named members')
+            start=len(builder.ops)
             value = self.construct_value(stmt.value, prefix + '.' + target.id, builder, definitions)
+            if any(o['op'].startswith(('queue.', 'cell.', 'ehr.', 'signal.')) for o in builder.ops[start:]): self.error(stmt,'__init__ cannot read runtime state')
             if isinstance(value, Value) and any(o['op'].endswith(('read', 'write')) or o['op'] == 'call' for o in builder.ops if o['id'] == value.id): self.error(stmt, 'runtime computation is not allowed in __init__')
             env[target.id] = value
         builder.env = saved
@@ -494,6 +496,7 @@ class Lower:
         self.effects = []
         self.rule = None
         self.guard_context = kind == 'guard'
+        self.consume_context = kind == 'rule'
         self.lexical_instance = module['name'] if module else None
 
     def loc(self, node):
@@ -504,7 +507,7 @@ class Lower:
             op = op.replace('cell.', 'ehr.')
         self.serial += 1
         value = Value(f'v{self.serial}', typ, set(targets), consume)
-        if self.guard_context and op in ('queue.pop', 'queue.push', 'cell.write', 'signal.write', 'rule.call'): self.f.error(node, 'guard must only observe state')
+        if self.guard_context and op in ('queue.pop', 'queue.push', 'cell.write', 'ehr.write', 'signal.write', 'rule.call'): self.f.error(node, 'guard must only observe state')
         operation = dict(op=op, id=value.id, type=typ, args=[a.id for a in args], loc=self.loc(node), **attrs)
         self.block['ops'].append(operation)
         self.ops.append(operation)
@@ -651,7 +654,7 @@ class Lower:
         if not isinstance(value, Value) or not resource(value.type) or value.type.startswith('qarray<'): return value
         self.accesses.update(value.targets)
         operation = 'queue.read' if value.type.startswith('queue<') else 'signal.read' if value.type.startswith('signal<') else 'cell.read'
-        return self.op(operation, element(value.type), [value], node=node, role='consume' if operation == 'queue.read' and self.kind == 'rule' and not self.guard_context else 'observe')
+        return self.op(operation, element(value.type), [value], node=node, role='consume' if operation == 'queue.read' and self.consume_context and not self.guard_context else 'observe')
 
     def expr(self, node, expected=None, reference=False):
         value = self._expr(node, expected, reference)
@@ -694,7 +697,7 @@ class Lower:
                 if val.type.startswith(('cell<', 'ehr<')): return self.op('cell.read', element(val.type), [val], node=node, view='old', role='observe')
                 if not val.type.startswith('queue<'):
                     self.f.error(node, 'index Queue arrays before reading')
-                consuming = self.kind == 'rule' and not self.guard_context
+                consuming = self.consume_context and not self.guard_context
                 out = self.op('queue.read', element(val.type), [val], node=node,
                               view='old',
                               role='consume' if consuming else 'observe')
@@ -876,6 +879,7 @@ class Lower:
         lower = Lower(self.f, kind, name, scope, builder=self.builder, module=self.module, defs=definitions or self.defs)
         lower.lexical_instance = instance
         lower.guard_context = self.guard_context or kind == 'guard'
+        lower.consume_context = self.consume_context or kind == 'rule'
         vals = []
         for parameter, value in zip(fn.args.args, args):
             typ = self.f.annotation(parameter.annotation) if parameter.annotation else value.type
@@ -904,6 +908,7 @@ class Lower:
         function = lower.function(result=result)
         function['definition'] = fn.name
         if instance: function['instance'] = instance
+        if kind == 'rule': function['public'] = next((self.f.literal(k.value) for d in fn.decorator_list if isinstance(d,ast.Call) for k in d.keywords if k.arg=='public'), True)
         if decorator(fn) == 'rule' and instance:
             function['interface'] = 'Module:' + instance + ':' + fn.name
             function['rule'] = fn.name
@@ -1067,6 +1072,9 @@ class Lower:
                 for n, v in zip(changed, join['params']):
                     self.bind(n, v)
             elif isinstance(node, ast.For):
+                if isinstance(node.iter,ast.Call) and spelling(node.iter.func)=='range' and all(isinstance(x,ast.Constant) or spelling(x) in self.f.constants for x in node.iter.args):
+                    self.statements(self.f.expand_loops([node]))
+                    continue
                 if node.orelse or not isinstance(node.target, ast.Name) or not isinstance(node.iter, ast.Call) or spelling(node.iter.func) != 'range':
                     self.f.error(node, 'runtime loops require for name in range(...) without else')
                 args = [self.expr(x, 'u32') for x in node.iter.args]

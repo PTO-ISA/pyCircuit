@@ -68,6 +68,8 @@ LogicalResult definition(Operation *op) {
 LogicalResult call(Operation *op) {
   auto *def = resolve(op, cast<SymbolRefAttr>(op->getAttr("target")));
   if (!isa_and_nonnull<acir::RuleOp>(def)) return op->emitOpError("unknown Rule target");
+  auto metadata=def->getAttrOfType<DictionaryAttr>("acir.function");
+  if(auto publicFlag=metadata.getAs<BoolAttr>("public"))if(!publicFlag.getValue()&&op->getParentOfType<acir::ModuleOp>()!=def->getParentOfType<acir::ModuleOp>())return op->emitOpError("cannot call a private Rule from another Module");
   auto signature = cast<FunctionType>(cast<TypeAttr>(def->getAttr("function_type")).getValue());
   if (op->getOperandTypes() != signature.getInputs() || op->getResultTypes() != signature.getResults()) return op->emitOpError("call signature mismatch");
   return success();
