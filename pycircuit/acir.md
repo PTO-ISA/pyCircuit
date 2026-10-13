@@ -10,7 +10,8 @@
 `acir.rule` 有显式函数类型、guard region、body region；`acir.rule.call` 保存参数 SSA、
 符号引用、结果及固定组件输出绑定。调用点保留源码位置。
 
-`acir.body` 为 Module 的计算与选择逻辑。普通计算复用 arith／func／scf／cf，
+`acir.body` 为 Module 的计算与选择逻辑；没有 `__call__` 的实例不生成 body，
+其被调用 Rule 和状态仍归属于该实例。普通计算复用 arith／func／scf／cf，
 聚合值使用 `acir.aggregate/extract/update`。组件声明、初始化函数和 `acir.ref`
 保留资源身份。`acir.export/external` 保存跨实例共享 SSA 来源；不复制状态视图。
 

@@ -154,7 +154,7 @@ class Frontend:
             if isinstance(node, (ast.Import, ast.ImportFrom)): continue
             if isinstance(node, ast.FunctionDef):
                 self.validate_function(node)
-                if decorator(node) == 'module': self.error(node, 'Module requires a class with __init__ and __call__')
+                if decorator(node) == 'module': self.error(node, 'Module requires a class with __init__')
                 self.defs[node.name] = node
             elif isinstance(node, ast.ClassDef):
                 original = node.name
@@ -250,7 +250,8 @@ class Frontend:
             self.model['config'].append(entry)
             args.append(builder.op('config', typ, name=arg.arg, node=arg))
         inst = self.instantiate(cls, args, 'top', builder)
-        self.connect(inst, [], {}, builder, cls)
+        if '__call__' in inst.definitions:
+            self.connect(inst, [], {}, builder, cls)
         self.model['construction'] = builder.ops
         self.model['instances'] = [dict(name=i.name, parent=i.parent, definition=i.source_name, members={}, inputs={}, outputs=None, rules=sorted(i.rules)) for i in self.instances]
         self.model['contracts'] = []
@@ -274,8 +275,7 @@ class Frontend:
         if cls.name in self.constructing: self.error(cls, 'recursive Module construction')
         self.constructing.add(cls.name)
         init = next((f for f in cls.body if isinstance(f, ast.FunctionDef) and f.name == '__init__'), None)
-        call = next((f for f in cls.body if isinstance(f, ast.FunctionDef) and f.name == '__call__'), None)
-        if init is None or call is None: self.error(cls, 'Module requires __init__ and __call__')
+        if init is None: self.error(cls, 'Module requires __init__')
         if self.annotation(init.returns) != 'void': self.error(init, '__init__ must return None')
         definitions = {f.name:f for f in cls.body if isinstance(f, ast.FunctionDef)}
         if any(resource(self.annotation(p.annotation)) for p in init.args.args): self.error(init,'component interfaces bind in __call__, not __init__')
@@ -303,9 +303,10 @@ class Frontend:
         return instance
 
     def connect(self, instance, args, keywords, builder, node):
+        fn = instance.definitions.get('__call__')
+        if fn is None: self.error(node, 'Module has no __call__; invoke its public Rules directly')
         if getattr(instance, 'connected', False): self.error(node, 'Module __call__ binds fixed connections once')
         instance.connected = True
-        fn = instance.definitions['__call__']
         supplied = self.bind_args(fn, args, keywords)
         supplied = [builder.expr(v,reference=True) if isinstance(v,ast.AST) else v for v in supplied]
         env = dict(instance.env)
@@ -471,7 +472,8 @@ class Frontend:
         if isinstance(node, ast.Call):
             fn = defs.get(spelling(node.func), self.defs.get(spelling(node.func)))
             if fn and decorator(fn) == 'module':
-                init = next(f for f in fn.body if isinstance(f, ast.FunctionDef) and f.name == '__init__')
+                init = next((f for f in fn.body if isinstance(f, ast.FunctionDef) and f.name == '__init__'), None)
+                if init is None: self.error(fn, 'Module requires __init__')
                 supplied = self.bind_args(init, node.args, {k.arg:k.value for k in node.keywords})
                 args = [builder.expr(x, reference=True) for x in supplied]
                 if decorator(fn) == 'module':
@@ -702,7 +704,10 @@ class Lower:
             if qualified in self.f.constants: return self.const(self.f.constants[qualified], node=node)
             val = self.expr(node.value, reference=True)
             if isinstance(val, Instance):
-                if node.attr == 'outputs': return self.imported(val.outputs)
+                if node.attr == 'outputs':
+                    if '__call__' not in val.definitions: self.f.error(node, 'Module has no __call__ output connections; invoke its public Rules directly')
+                    if not getattr(val, 'connected', False): self.f.error(node, 'Module outputs require a fixed __call__ connection first')
+                    return self.imported(val.outputs)
                 if node.attr in val.rules: return RuleRef(val, val.rules[node.attr])
                 self.f.error(node, 'resource is private to its Module; use a public Rule or an explicit connection')
             val = self.signal_value(val, node)

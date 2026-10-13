@@ -1,7 +1,9 @@
 # class Module 示例与逐拍验收
 
-所有模型使用静态 __init__、固定 __call__、显式接口和统一 @ac.rule。
+所有模型使用静态 __init__、显式接口和统一 @ac.rule；有主体的模块使用固定 __call__ 连接。
 公开 Rule 可以组合到调用者的原子事务；独立事务通过组件传值。
+只提供状态和 Rule 的组件可省略 __call__：CPU 中 RegisterFile／DataMemory、DualChannel 的 Observer
+均直接使用公开 Rule，无需空主体或额外调用。逐拍轨迹直接记录 RF 和内存的内部状态。
 
 | 模型 | 验证内容 | top／配置 |
 | --- | --- | --- |

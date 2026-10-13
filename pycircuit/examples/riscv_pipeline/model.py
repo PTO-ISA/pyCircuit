@@ -34,9 +34,6 @@ class RegisterFile:
             registers[inst.rd] = inst.value
             pending[inst.rd] = False
 
-    def __call__() -> ac.cell[ac.array[ac.u32, 32]]:
-        return registers
-
 @ac.module
 class DataMemory:
 
@@ -52,9 +49,6 @@ class DataMemory:
     def store(address: ac.u32, value: ac.u32) -> None:
         assert address & 3 == 0 and address < 64
         words[address >> 2] = value
-
-    def __call__() -> ac.cell[ac.array[ac.u32, 16]]:
-        return words
 
 @ac.module
 class Fetch:
@@ -165,12 +159,10 @@ class Pipeline:
         memory_stage = MemoryStage()
         writeback = Writeback()
 
-    def __call__() -> tuple[ac.cell[ac.array[ac.u32, 32]], ac.cell[ac.array[ac.u32, 16]], tuple[ac.cell[ac.u32], ac.cell[ac.u32]]]:
-        rf()
-        memory()
+    def __call__() -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
         fetch()
         decode_stage(fetch.outputs, rf, retirement)
         execute(decode_stage.outputs)
         memory_stage(execute.outputs, memory, retirement)
         writeback(retirement, rf)
-        return (rf.outputs, memory.outputs, writeback.outputs)
+        return writeback.outputs

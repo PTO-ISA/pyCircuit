@@ -34,12 +34,37 @@ class Top:
 
 `__init__` 只表达静态构造；`__call__` 绑定固定接口，保存组合计算与调用选择。
 实例只绑定一次；运行时分支不创建组件／子实例。Module 输出必须是固定组件连接。
+只提供状态和公开 Rule 的组件可以省略 `__call__`；构造实例后直接调用其 Rule，
+无需额外写 `component()`。省略主体不自动调度任何 Rule，也不生成空的 Module body。
+需要绑定输入、输出连接或选择每拍 Rule 的模块才定义并连接 `__call__`。
+`.outputs` 仅表示已连接的 `__call__` 返回值；内部状态观察直接使用逐拍轨迹，
+不需要为了观测而给组件添加输出包装。
 成员函数省略 self 和 self.。构造配置、成员资源、子实例及 Rule 在本实例内可见。
 局部变量和参数优先于同名成员。所有参数和返回类型显式标注，无返回值写 `-> None`。
 
 子实例资源通过显式输出连接或绑定参数访问。其它未绑定资源使用公开 Rule 访问；
 `@ac.rule(public=False)` 只允许本 Module 直接调用。构造一次得到共享状态，分别构造得到独立状态。
 Module body 中普通 SSA 共享计算不会建立额外事务，也不增加跨拍 valid／缓存状态。
+
+例如寄存器组件只需构造状态和声明 Rule：
+
+```python
+@ac.module
+class Register:
+    def __init__() -> None:
+        value = ac.cell[ac.u32](initial=0)
+
+    @ac.rule
+    def read() -> ac.u32:
+        return value
+
+    @ac.rule
+    def write(data: ac.u32) -> None:
+        value = data
+```
+
+父 Module 在 `__init__` 中写 `register = Register()`，之后调用 `register.read()` 或
+`register.write(data)`。嵌套调用保留原有的 guard、组件可见性及外层原子事务语义。
 
 ## Rule、调用与 guard
 

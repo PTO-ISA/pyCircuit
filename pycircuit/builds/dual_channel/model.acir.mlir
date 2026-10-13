@@ -72,21 +72,18 @@ module attributes {acir.model = {config = [], constants = {}, exports = {}, form
       %0 = acir.queue.peek %arg0 {acir.id = "v4", acir.source_type = "u32", role = "observe"} : !acir.queue<i32> -> i32 loc(#loc12)
       acir.return %0 : i32 {acir.id = "v5", acir.source_type = "void"} loc(#loc13)
     }
-    acir.body attributes {acir.function = {kind = "body", name = "top.observer_body", owner = "top.observer", params = [], result = "void"}} {
-      acir.body.end {acir.source_type = "void"}
-    }
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":25:43)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":31:9)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:24)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:16)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:9)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":40:22)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":39:42)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":39:18)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":40:12)
-#loc10 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":41:24)
-#loc11 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":42:25)
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":22:43)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":28:9)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:24)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:16)
+#loc5 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:9)
+#loc6 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":36:22)
+#loc7 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:42)
+#loc8 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:18)
+#loc9 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":36:12)
+#loc10 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":37:24)
+#loc11 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":38:25)
 #loc12 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":15:16)
 #loc13 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":15:9)

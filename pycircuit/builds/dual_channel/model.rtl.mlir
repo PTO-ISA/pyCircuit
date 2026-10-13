@@ -130,10 +130,10 @@ module attributes {acir.model = {config = [], constants = {}, exports = {}, form
   }
 }
 #loc1 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":15:16)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":39:42)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":40:22)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":41:24)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":31:9)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":42:25)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:9)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:24)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:42)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":36:22)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":37:24)
+#loc5 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":28:9)
+#loc6 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":38:25)
+#loc7 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:9)
+#loc8 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:24)

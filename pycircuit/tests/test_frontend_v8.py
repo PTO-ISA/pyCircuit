@@ -72,3 +72,36 @@ class Top:
         ):
             with self.assertRaises(CompileError):
                 self.compile(template.replace('BODY', body).replace(' RELATION', relation))
+
+    def test_passive_module_has_no_connection_or_outputs(self):
+        template = '''from pycircuit import ac
+@ac.module
+class Storage:
+    def __init__() -> None:
+        state = ac.cell[ac.u32](initial=1)
+    @ac.rule
+    def read() -> ac.u32:
+        return state
+@ac.module
+class Top:
+    def __init__() -> None:
+        storage = Storage()
+        seen = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def capture() -> None:
+        seen = storage.read()
+    def __call__() -> None:
+        BODY
+'''
+        ir = self.compile(template.replace('BODY', 'capture()'))
+        self.assertEqual(ir.count('acir.body '), 1)
+        self.assertIn('acir.rule.call', ir)
+        for expression, diagnostic in (
+            ('storage()', 'Module has no __call__; invoke its public Rules directly'),
+            ('value = storage.outputs', 'Module has no __call__ output connections'),
+        ):
+            with self.assertRaisesRegex(CompileError, diagnostic):
+                self.compile(template.replace('BODY', expression))
+        without_init = template.replace('    def __init__() -> None:\n        state = ac.cell[ac.u32](initial=1)\n', '')
+        with self.assertRaisesRegex(CompileError, 'Module requires __init__'):
+            self.compile(without_init.replace('BODY', 'capture()'))

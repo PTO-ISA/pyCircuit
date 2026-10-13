@@ -201,8 +201,6 @@ class Storage:
     @ac.rule
     def late() -> None:
         state = 9
-    def __call__() -> None:
-        pass
 @ac.module
 class Top:
     def __init__() -> None:
@@ -216,7 +214,6 @@ class Top:
     def second(value: ac.u32) -> None:
         b = value + 1
     def __call__() -> None:
-        storage()
         storage.late()
         value = storage.read()
         first(value)
@@ -651,3 +648,59 @@ class Top:
 ''', 2)
         self.assertEqual(trace[-1]['state']['top.count'], 1)
         self.assertEqual(trace[-1]['state']['top.seen'], 11)
+
+    def test_passive_modules_share_outer_atomicity_and_preserve_instances(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Counter:
+    def __init__(step: ac.u32) -> None:
+        count = ac.cell[ac.u32](initial=1)
+    def ready() -> bool:
+        return count < 7
+    @ac.rule(guard=ready)
+    def advance() -> None:
+        count = count + step
+    @ac.rule
+    def read() -> ac.u32:
+        return count
+@ac.module
+class Top:
+    def __init__() -> None:
+        a = Counter(2)
+        b = Counter(5)
+        unused = Counter(1)
+        seen = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def advance() -> None:
+        a.advance()
+        b.advance()
+        seen = a.read() + b.read()
+    def __call__() -> None:
+        advance()
+'''
+        trace, graph, out = self.run_source(source, 4)
+        self.assertEqual(len(graph['nodes']), 1)
+        self.assertEqual(trace[0]['state'], {'top.a.count': 3, 'top.b.count': 6,
+                                             'top.unused.count': 1, 'top.seen': 2})
+        self.assertEqual(trace[1]['state'], {'top.a.count': 5, 'top.b.count': 11,
+                                             'top.unused.count': 1, 'top.seen': 9})
+        self.assertEqual(trace[2]['state'], trace[1]['state'])
+        self.assertEqual(list(trace[2]['fire'].values()), [False])
+        self.assert_reloads(trace, out)
+
+    def test_passive_top_does_not_automatically_schedule_rules(self):
+        trace, graph, out = self.run_source('''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        count = ac.cell[ac.u32](initial=3)
+    @ac.rule
+    def advance() -> None:
+        count = count + 1
+''', 3)
+        self.assertEqual(graph['nodes'], [])
+        for tick in trace:
+            self.assertEqual(tick['state'], {'top.count': 3})
+            self.assertEqual(tick['fire'], {})
+        self.assertNotIn('acir.body ', load(out / 'model.source.mlir'))
+        self.assert_reloads(trace, out)

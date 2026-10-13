@@ -14,9 +14,6 @@ class Observer:
     def peek(q: ac.queue[ac.u32]) -> ac.u32:
         return q.peek()
 
-    def __call__() -> None:
-        pass
-
 @ac.module
 class DualChannel:
 
@@ -35,7 +32,6 @@ class DualChannel:
         return value + 1
 
     def __call__() -> tuple[ac.queue[ac.u32], ac.queue[ac.u32]]:
-        observer()
         shared = observer.peek(source) + 1
         if shared != 0:
             left_out = left(shared)
