@@ -129,11 +129,15 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
   if (!unit)
     return emitError() << "source unit is required";
   auto forged = unit.walk([&](Operation *operation) {
-    if (!operation->hasAttr("ac.internal_ports"))
-      return WalkResult::advance();
-    operation->emitOpError()
-        << "ac.internal_ports is forbidden in source bodies and interfaces";
-    return WalkResult::interrupt();
+    for (StringRef name : {"ac.internal_ports", "ac.sampled_admission",
+                           "ac.transaction_wiring"}) {
+      if (!operation->hasAttr(name))
+        continue;
+      operation->emitOpError()
+          << name << " is forbidden in source bodies and interfaces";
+      return WalkResult::interrupt();
+    }
+    return WalkResult::advance();
   });
   if (forged.wasInterrupted())
     return failure();

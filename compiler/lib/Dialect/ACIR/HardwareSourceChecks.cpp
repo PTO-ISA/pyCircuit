@@ -1,5 +1,6 @@
 #include "HardwareSourceChecks.h"
 #include "ACIRSourceContracts.h"
+#include "HardwareSampledAdmission.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/APSInt.h"
@@ -25,9 +26,13 @@ LogicalResult predicate(const HardwareAnalysis &analysis, Value value,
   return success();
 }
 FailureOr<Value> carrier(const HardwareAnalysis &analysis, Value value,
-                         const HardwareBindings &bindings) {
+                         const HardwareBindings &bindings,
+                         detail::SourceCheckBudget &budget) {
   llvm::DenseSet<Value> seen;
   while (auto extract = value.getDefiningOp<BitsExtractOp>()) {
+    if (failed(budget.debit(1 + detail::SourceCheckBudget::bytes(sizeof(Value)),
+                            extract)))
+      return failure();
     if (!seen.insert(value).second)
       return extract.emitOpError() << "cyclic source check carrier association";
     if (failed(analysis.verifyResolvedOperation(extract, bindings)))
@@ -54,10 +59,9 @@ int compareCheck(DictionaryAttr lhs, DictionaryAttr rhs) {
   return 0;
 }
 } // namespace
-FailureOr<SmallVector<HardwareCheckBinding>>
-detail::definitionSourceChecks(const HardwareAnalysis &analysis,
-                               ModuleOp definition,
-                               const HardwareBindings &bindings) {
+FailureOr<SmallVector<HardwareCheckBinding>> detail::definitionSourceChecks(
+    const HardwareAnalysis &analysis, ModuleOp definition,
+    const HardwareBindings &bindings, detail::SourceCheckBudget &budget) {
   if (!definition.getBody().hasOneBlock())
     return definition.emitOpError()
            << "source checks require one definition graph block";
@@ -66,6 +70,57 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       identities([](DictionaryAttr lhs, DictionaryAttr rhs) {
         return compareCheck(lhs, rhs) < 0;
       });
+  llvm::DenseMap<Operation *, detail::SampledAdmissionView> sampledRules;
+  bool sampledDefinition =
+      definition->hasAttr("ac.transaction_wiring") ||
+      llvm::any_of(
+          definition.getBody().front().getOps<RuleOp>(),
+          [](RuleOp rule) { return rule->hasAttr("ac.sampled_admission"); });
+  detail::HardwareIdentityScope identityScope;
+  if (sampledDefinition) {
+    if (failed(budget.debit(detail::SourceCheckBudget::add(
+                                detail::SourceCheckBudget::bindings(bindings),
+                                detail::SourceCheckBudget::bytes(
+                                    sizeof(detail::HardwareIdentityScope))),
+                            definition)))
+      return failure();
+    identityScope = {definition, bindings, {}};
+  }
+  SmallVector<detail::HardwareIdentityEndpoint> stopEndpoints;
+  auto addStop = [&](Value value) -> LogicalResult {
+    if (failed(budget.debit(detail::SourceCheckBudget::bytes(
+                                sizeof(detail::HardwareIdentityEndpoint)),
+                            definition)))
+      return failure();
+    auto endpoint =
+        detail::makeIdentityEndpoint(value, identityScope, analysis, budget);
+    if (failed(endpoint))
+      return failure();
+    stopEndpoints.push_back(std::move(*endpoint));
+    return success();
+  };
+  if (definition->hasAttr("ac.transaction_wiring")) {
+    auto wiring =
+        detail::parseTransactionWiring(definition, analysis, bindings, budget);
+    if (failed(wiring))
+      return failure();
+    for (auto &writer : wiring->writers)
+      for (uint64_t index = writer.ordinaryResults;
+           index < writer.rule.getNumResults(); ++index)
+        if (failed(addStop(writer.rule.getResult(index))))
+          return failure();
+  }
+  if (sampledDefinition) {
+    for (auto rule : definition.getBody().front().getOps<RuleOp>()) {
+      auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
+      if (!required || required.size() > rule.getNumResults() / 2)
+        continue;
+      for (uint64_t index = rule.getNumResults() - 2 * required.size();
+           index < rule.getNumResults(); ++index)
+        if (failed(addStop(rule.getResult(index))))
+          return failure();
+    }
+  }
   for (auto rule : definition.getBody().front().getOps<RuleOp>()) {
     auto error = [&] { return rule.emitOpError(); };
     if (failed(mlir::verify(rule)) ||
@@ -74,6 +129,21 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
     auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
     if (rule->hasAttr("ac.required_checks") && !required)
       return error() << "ac.required_checks must be an array";
+    if (rule->hasAttr("ac.sampled_admission")) {
+      auto sampled =
+          detail::parseSampledAdmission(rule, analysis, bindings, budget);
+      if (failed(sampled) || failed(detail::proveSampledAdmission(
+                                 *sampled, analysis, bindings, budget)))
+        return failure();
+      if (!required || required.size() != sampled->guards.size())
+        return error() << "sampled Rule requires exactly its guard obligations";
+      if (failed(budget.debit(
+              detail::SourceCheckBudget::bytes(
+                  sizeof(std::pair<Operation *, detail::SampledAdmissionView>)),
+              rule)))
+        return failure();
+      sampledRules.try_emplace(rule, std::move(*sampled));
+    }
     if (!required)
       continue;
     if (required.size() > rule.getNumResults() / 2)
@@ -87,8 +157,9 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       auto location =
           record ? record.getAs<DictionaryAttr>("location") : DictionaryAttr();
       if (!record || record.size() != 3 || !kind ||
-          !llvm::is_contained(ArrayRef<StringRef>{"assert", "range"},
-                              kind.getValue()))
+          !llvm::is_contained(
+              ArrayRef<StringRef>{"assert", "range", "guard_known"},
+              kind.getValue()))
         return error() << "RequiredCheck requires exact id, kind and location";
       if (failed(detail::verifyCheckID(id, error)) ||
           failed(detail::verifySourceSpan(location, error)))
@@ -97,10 +168,27 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
                                                rule.getOccurrence()) != 0)
         return error() << "RequiredCheck registration must equal owning rule "
                           "occurrence";
-      if (!identities.emplace(id, result.size()).second)
-        return error() << "duplicate full source CheckID";
       uint64_t conditionResult = first + 2 * index;
       uint64_t pathResult = conditionResult + 1;
+      auto sampled = sampledRules.find(rule);
+      if (kind.getValue() == "guard_known") {
+        if (sampled == sampledRules.end())
+          return error() << "guard_known requires sampled admission";
+        const auto &guard = sampled->second.guards[index];
+        if (id != guard.id || conditionResult != guard.predicateResult ||
+            pathResult != guard.reachedResult)
+          return error() << "guard_known differs from sampled guard suffix";
+      } else if (sampled != sampledRules.end()) {
+        return error() << "sampled admission only permits guard_known checks";
+      }
+      if (failed(budget.debit(detail::SourceCheckBudget::bytes(
+                                  sizeof(HardwareCheckBinding) +
+                                  sizeof(std::pair<DictionaryAttr, size_t>) +
+                                  3 * sizeof(void *)),
+                              rule)))
+        return failure();
+      if (!identities.emplace(id, result.size()).second)
+        return error() << "duplicate full source CheckID";
       if (failed(predicate(analysis, rule.getResult(conditionResult), bindings,
                            rule)) ||
           failed(
@@ -135,14 +223,40 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
         found.location != expect.getLocationAttr())
       return expect.emitOpError()
              << "expect kind/location differs from RequiredCheck";
-    auto condition = carrier(analysis, expect.getCondition(), bindings);
-    auto path = carrier(analysis, expect.getPath(), bindings);
+    auto condition = carrier(analysis, expect.getCondition(), bindings, budget);
+    auto path = carrier(analysis, expect.getPath(), bindings, budget);
     if (failed(condition) || failed(path))
       return failure();
     if (*condition != found.rule.getResult(found.conditionResult) ||
         *path != found.rule.getResult(found.pathResult))
       return expect.emitOpError()
              << "expect operands must match owning rule check suffix";
+    if (found.kind.getValue() == "guard_known") {
+      auto sampled = sampledRules.find(found.rule);
+      if (sampled == sampledRules.end())
+        return expect.emitOpError() << "guard_known has no sampled Rule";
+      detail::HardwareIdentityStopPolicy stops{
+          detail::HardwareIdentityTraversal::DefinitionLocal, stopEndpoints};
+      const Value captures[] = {sampled->second.clock, sampled->second.reset};
+      for (auto [actual, capture] : llvm::zip(expect.getSampling(), captures)) {
+        auto lhs = detail::makeIdentityEndpoint(actual, identityScope, analysis,
+                                                budget);
+        auto rhs = detail::makeIdentityEndpoint(capture, identityScope,
+                                                analysis, budget);
+        if (failed(lhs) || failed(rhs))
+          return failure();
+        auto normalizedActual =
+            detail::normalizeIdentityEndpoint(*lhs, stops, analysis, budget);
+        auto normalizedCapture =
+            detail::normalizeIdentityEndpoint(*rhs, stops, analysis, budget);
+        if (failed(normalizedActual) || failed(normalizedCapture))
+          return failure();
+        if (normalizedActual->value != normalizedCapture->value ||
+            normalizedActual->resolvedType != normalizedCapture->resolvedType)
+          return expect.emitOpError()
+                 << "expect sampling pins differ from owning Rule captures";
+      }
+    }
     found.expect = expect;
     found.condition = expect.getCondition();
     found.path = expect.getPath();
@@ -153,6 +267,11 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       return definition.emitOpError() << "RequiredCheck has no matching expect";
   // Reuse the structural map order instead of sorting/recomparing the IDs.
   SmallVector<HardwareCheckBinding> ordered;
+  if (failed(budget.debit(detail::SourceCheckBudget::multiply(
+                              result.size(), detail::SourceCheckBudget::bytes(
+                                                 sizeof(HardwareCheckBinding))),
+                          definition)))
+    return failure();
   ordered.reserve(result.size());
   for (const auto &[id, index] : identities)
     ordered.push_back(result[index]);
@@ -181,7 +300,7 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
                                           const HardwareBindings &bindings) {
   auto error = [&] { return expect.emitOpError(); };
   if (!isa<ModuleOp>(expect->getParentOp()) ||
-      !llvm::is_contained(ArrayRef<StringRef>{"assert", "range"},
+      !llvm::is_contained(ArrayRef<StringRef>{"assert", "range", "guard_known"},
                           expect.getKind()))
     return error() << "check requires module placement and known kind";
   if (failed(verifyCheckID(expect->getAttrOfType<DictionaryAttr>("ac.check_id"),
@@ -191,6 +310,13 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
   if (expect->hasAttr("ac.message") &&
       !expect->getAttrOfType<StringAttr>("ac.message"))
     return error() << "source check message must be a static string";
+  if (expect.getSampling().size() !=
+      (expect.getKind() == "guard_known" ? 2u : 0u))
+    return error() << "guard_known requires clock/reset sampling operands; "
+                      "assert/range require no sampling operands";
+  for (Value pin : expect.getSampling())
+    if (failed(predicate(analysis, pin, bindings, expect)))
+      return failure();
   if (failed(predicate(analysis, expect.getCondition(), bindings, expect)) ||
       failed(predicate(analysis, expect.getPath(), bindings, expect)))
     return failure();
@@ -257,8 +383,10 @@ HardwareAnalysis::verifyDefinitionSourceChecks(ModuleOp definition) const {
            << "source check definition must belong to analyzed package";
   HardwareBindings bindings;
   bindings.owner = definition;
-  return success(
-      succeeded(detail::definitionSourceChecks(*this, definition, bindings)));
+  detail::SourceCheckBudget budget(HardwareSourceCheckLimits{});
+  budget.setPhase("definition source checks");
+  return success(succeeded(
+      detail::definitionSourceChecks(*this, definition, bindings, budget)));
 }
 
 FailureOr<HardwareSourceCheckPlan>
@@ -284,7 +412,9 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
   if (plan.bindings.size() != fresh->bindings.size() ||
       plan.owners.size() != fresh->owners.size() ||
       plan.checks.size() != fresh->checks.size() ||
-      plan.commits.size() != fresh->commits.size())
+      plan.commits.size() != fresh->commits.size() ||
+      plan.samplingBindings.size() != fresh->samplingBindings.size() ||
+      plan.samplingOccurrences.size() != fresh->samplingOccurrences.size())
     return mismatch();
   for (auto [lhs, rhs] : llvm::zip(plan.bindings, fresh->bindings))
     if (lhs.definition != rhs.definition || lhs.rule != rhs.rule ||
@@ -293,7 +423,8 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
         lhs.message != rhs.message || lhs.condition != rhs.condition ||
         lhs.path != rhs.path || lhs.requiredIndex != rhs.requiredIndex ||
         lhs.conditionResult != rhs.conditionResult ||
-        lhs.pathResult != rhs.pathResult)
+        lhs.pathResult != rhs.pathResult ||
+        lhs.samplingBindingIndex != rhs.samplingBindingIndex)
       return mismatch();
   for (auto [lhs, rhs] : llvm::zip(plan.owners, fresh->owners)) {
     if (lhs.definition != rhs.definition || lhs.parent != rhs.parent ||
@@ -311,13 +442,25 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
         lhs.ownerOccurrence != rhs.ownerOccurrence ||
         lhs.ordinal != rhs.ordinal || lhs.reset.kind != rhs.reset.kind ||
         lhs.reset.ownerOccurrence != rhs.reset.ownerOccurrence ||
-        lhs.reset.inputOrdinal != rhs.reset.inputOrdinal)
+        lhs.reset.inputOrdinal != rhs.reset.inputOrdinal ||
+        lhs.samplingOccurrenceIndex != rhs.samplingOccurrenceIndex)
       return mismatch();
   for (auto [lhs, rhs] : llvm::zip(plan.commits, fresh->commits))
     if (lhs.ownerOccurrence != rhs.ownerOccurrence ||
         lhs.allocation != rhs.allocation ||
         lhs.coordinates != rhs.coordinates ||
         lhs.primitiveKind != rhs.primitiveKind)
+      return mismatch();
+  for (auto [lhs, rhs] :
+       llvm::zip(plan.samplingBindings, fresh->samplingBindings))
+    if (lhs.definition != rhs.definition || lhs.clock != rhs.clock ||
+        lhs.reset != rhs.reset || lhs.localOrdinal != rhs.localOrdinal)
+      return mismatch();
+  for (auto [lhs, rhs] :
+       llvm::zip(plan.samplingOccurrences, fresh->samplingOccurrences))
+    if (lhs.bindingIndex != rhs.bindingIndex ||
+        lhs.ownerOccurrence != rhs.ownerOccurrence ||
+        lhs.ordinal != rhs.ordinal)
       return mismatch();
   return success();
 }

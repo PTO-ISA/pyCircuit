@@ -18,7 +18,7 @@ Python or infers a different hardware meaning.
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
 | Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of straight-line whole-owner candidate versions, invocation snapshots and guard obligations. Link uses this before lowering packages containing source transaction operations. |
-| Lower transactions | `LowerTransactions` | Materialize admitted same-domain, proven-true, whole scalar-state transactions across ordinary static instances into isolated pure Rules and original-owner DFFE instances; verify a detached candidate before replacing the input. Ordinary hardware uses existing verification without transaction-analysis limits. |
+| Lower transactions | `LowerTransactions` | Existing same-domain, proven-true producer; migration to sampled metadata and complete companion records is pending. The final verifier rejects incomplete routed outputs. Ordinary hardware retains existing verification without transaction-analysis limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -42,9 +42,19 @@ fallback implementation or a second semantic path.
 The [serial Rule/Method extension](../rfcs/serial-rule-method/README.md) has
 a bounded source-to-typed-effects producer and shared native call/state analyses.
 Source compilation retains explicit state reads/writes and Method calls.
+Guarded nested Rules now enter this typed route even without Method declarations
+or state. Native sampled admission verifies closed metadata, ordered known-one
+prefixes, real D/E and domain routes, private terminal uses, Collection limits,
+and per-occurrence sampling plans. Source bodies/interfaces cannot supply the
+final-only attributes. This is an intermediate native verification boundary:
+the existing lowerer still needs uniform metadata/original-plan materialization,
+and both emitter preparation paths explicitly reject sampled plans until
+C++/RTL check histories are implemented. Prior executable evidence below is
+bound to checkpoint `44b888c5`, not to this unfinished migration.
+
 Source units can publish these typed operations and their declaration-only
 interfaces. Consumer compilation reads the interfaces, without loading provider
-Python or Method bodies. Final link lowers repeated/nested calls through ordinary
+Python or Method bodies. At that checkpoint, final link lowered calls through ordinary
 static instances with proven-true guards/effect paths, a shared actual clock/reset
 domain and one outer writer per physical scalar owner. Final verification
 and emission reject any residual unlowered effects.

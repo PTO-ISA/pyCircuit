@@ -37,6 +37,7 @@ add_acir_library(ACIRDialect SOURCES
   HardwareAnalysisDependencies.cpp
   HardwareAnalysisValidation.cpp
   HardwareSourceChecks.cpp
+  HardwareSampledAdmission.cpp
   HardwareSourceCheckPreflight.cpp
   HardwareDependencySerialization.cpp
   HardwareWorkPartition.cpp

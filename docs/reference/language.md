@@ -1018,6 +1018,15 @@ not a clocked reset pulse or a promise to clear memory.
 
 ## Method execution and remaining capabilities
 
+Sampled-admission migration is in progress. The common final-IR verifier now
+requires explicit sampled-check and transaction-wiring contracts; the existing
+transaction lowerer has not yet migrated its outputs. Cross-instance outputs
+with internal ports therefore reject without their new companions, and both
+emitter preparation routes reject sampled plans until their lifecycle support
+lands. The executable subset described below records the last accepted
+checkpoint `44b888c5`; it is not a compatibility route or a passing result for
+this intermediate compiler state.
+
 The compiler independently publishes a bounded subset of `@method` and nested
 transaction syntax as verified source units. Consumers use published interfaces
 without provider Python or method bodies. Shared IR analysis resolves receiver
@@ -1031,7 +1040,13 @@ assignments/calls, typed scalar/Struct results, lambda guards and static
 zero-argument Method-owner construction. It does not expand effectful branch,
 loop, aggregate-state or general static-parameter admission.
 
-Final link lowers a bounded executable subset: whole scalar state represented
+A guarded nested Rule also selects typed transaction capture without requiring
+a dummy Method or state. A module such as `GuardOnly(enabled: u1)` may omit its
+module return annotation and register a zero-argument nested Rule with
+`-> None`. This does not admit module `-> None`, registration arguments or
+dynamic execution. Ordinary unguarded modules keep their existing source path.
+
+At that accepted checkpoint, final link lowered whole scalar state represented
 by fixed-width Bits, repeated or nested Method calls through static ordinary
 instances in the same physical clock/reset domain, proven-true
 active guards and effect paths, and at most one outer Rule writer per owner.

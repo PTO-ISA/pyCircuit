@@ -387,8 +387,15 @@ def ACIR_SourceObserveOp : ACIR_Op<"observe", [
 def ACIR_SourceExpectOp : ACIR_Op<"expect", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary =
-      "Record one source assertion check without runtime side effects";
-  let arguments = (ins ACIR_BitsType:$condition, ACIR_BitsType:$path, StrAttr:$kind,
+      "Record one source check and its optional physical sampling pins";
+  let description = [{
+    assert and range have no sampling operands. guard_known requires exactly
+    two one-bit sampling operands, clock then reset, associated with the owning
+    sampled Rule. Condition is the raw guard, path is its reached prefix.
+    Checks retain effects until whole-system validation; they are not pure data.
+  }];
+  let arguments = (ins ACIR_BitsType:$condition, ACIR_BitsType:$path,
+      Variadic<ACIR_BitsType>:$sampling, StrAttr:$kind,
       DictionaryAttr:$location);
   let hasVerifier = 1;
 }

@@ -61,6 +61,7 @@ add_acir_api_test(ACIRHardwareSourceChecksTests
   GUARD "${CMAKE_CURRENT_SOURCE_DIR}/run_source_checks_guarded.py"
   FILTER "-HardwareSourceChecksExecution.*"
   HardwareSourceChecksTest.cpp HardwareSourceCheckOccurrencesTest.cpp
+  HardwareSampledAdmissionTest.cpp HardwareSampledAdmissionWiringTest.cpp
   HardwareSourceCheckCapacityTest.cpp HardwareSourceCheckValidationBudgetTest.cpp
   HardwareDependencyModeReuseTest.cpp
   HardwareSourceChecksExecutionTest.cpp)

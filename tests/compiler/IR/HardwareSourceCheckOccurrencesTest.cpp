@@ -199,6 +199,273 @@ protected:
                       f("parameters", b.getArrayAttr({})),
                       f("type_arguments", b.getArrayAttr({}))}))});
   }
+  ac::ModuleOp domainModule(StringRef name) {
+    b.setInsertionPointToEnd(package->getBody());
+    OperationState state(loc(), ac::ModuleOp::getOperationName());
+    state.addAttributes(
+        {f("sym_name", b.getStringAttr(name)),
+         f("source_owner", d({f("package", b.getStringAttr("")),
+                              f("path", b.getStringAttr("owners.py"))})),
+         f("parameters", b.getArrayAttr({})),
+         f("type_parameters", b.getArrayAttr({})),
+         f("input_names", b.getArrayAttr({b.getStringAttr("enabled"),
+                                          b.getStringAttr("pyc_clk"),
+                                          b.getStringAttr("pyc_rst")})),
+         f("output_names", b.getArrayAttr({})),
+         f("function_type",
+           TypeAttr::get(b.getFunctionType({bits(1), bits(1), bits(1)}, {}))),
+         f("ac.domain_inputs", d({f("clock", b.getI64IntegerAttr(1)),
+                                  f("reset", b.getI64IntegerAttr(2))}))});
+    state.addRegion();
+    auto result = cast<ac::ModuleOp>(b.create(state));
+    auto *body = new Block;
+    result.getBody().push_back(body);
+    for (unsigned i = 0; i < 3; ++i)
+      body->addArgument(bits(1), loc());
+    return result;
+  }
+  DictionaryAttr stateID() {
+    return d({f("owner", d({f("instance_path", b.getArrayAttr({}))})),
+              f("declaration", occurrence("SampledLeaf", 20)),
+              f("element", b.getArrayAttr({}))});
+  }
+  void buildSampledCollection() {
+    package = mlir::ModuleOp::create(loc());
+    package->getOperation()->setAttr("ac.stage", b.getStringAttr("final"));
+
+    leaf = domainModule("SampledLeaf");
+    auto registration = occurrence("SampledLeaf", 7);
+    auto checkID = d({f("registration", registration),
+                      f("check", occurrence("SampledLeaf", 13)),
+                      f("obligation", b.getI64IntegerAttr(0))});
+    b.setInsertionPointToEnd(&leaf.getBody().front());
+    OperationState ruleState(loc(), ac::RuleOp::getOperationName());
+    ruleState.addOperands({leaf.getBody().front().getArgument(1),
+                           leaf.getBody().front().getArgument(2),
+                           leaf.getBody().front().getArgument(0)});
+    ruleState.addTypes({bits(1), bits(1), bits(1)});
+    ruleState.addAttributes(
+        {f("name", b.getStringAttr("sampled_check")),
+         f("occurrence", registration),
+         f("ac.required_checks",
+           b.getArrayAttr(
+               {d({f("id", checkID), f("kind", b.getStringAttr("guard_known")),
+                   f("location", span())})})),
+         f("ac.sampled_admission",
+           d({f("clock_capture", b.getI64IntegerAttr(0)),
+              f("reset_capture", b.getI64IntegerAttr(1)),
+              f("fire_result", b.getI64IntegerAttr(0)),
+              f("guards",
+                b.getArrayAttr(
+                    {d({f("id", checkID), f("invocation", b.getArrayAttr({})),
+                        f("predecessor", b.getI64IntegerAttr(-1))})}))}))});
+    ruleState.addRegion();
+    auto sampledRule = cast<ac::RuleOp>(b.create(ruleState));
+    auto *ruleBody = new Block;
+    sampledRule.getBody().push_back(ruleBody);
+    for (unsigned i = 0; i < 3; ++i)
+      ruleBody->addArgument(bits(1), loc());
+    b.setInsertionPointToEnd(ruleBody);
+    auto one = constant(1);
+    auto known = op(ac::BitsCompareOp::getOperationName(),
+                    {ruleBody->getArgument(2), one}, {bits(1)},
+                    {f("predicate", b.getStringAttr("case_eq"))});
+    op(ac::YieldOp::getOperationName(),
+       {known->getResult(0), ruleBody->getArgument(2), one});
+    b.setInsertionPointToEnd(&leaf.getBody().front());
+    op(ac::SourceExpectOp::getOperationName(),
+       {sampledRule.getResult(1), sampledRule.getResult(2),
+        leaf.getBody().front().getArgument(1),
+        leaf.getBody().front().getArgument(2)},
+       {},
+       {f("kind", b.getStringAttr("guard_known")), f("location", span()),
+        f("ac.check_id", checkID)});
+    op(ac::YieldOp::getOperationName());
+    leaf->setAttr(
+        "ac.transaction_wiring",
+        d({f("states", b.getArrayAttr({})), f("incoming", b.getArrayAttr({})),
+           f("writers",
+             b.getArrayAttr({d({f("registration", registration),
+                                f("ordinary_results", b.getI64IntegerAttr(0)),
+                                f("candidates", b.getArrayAttr({}))})}))}));
+
+    root = domainModule("Root");
+    b.setInsertionPointToEnd(&root.getBody().front());
+    auto shape = b.getArrayAttr({literal(2), literal(3)});
+    SmallVector<Value> laneInputs;
+    for (Value input : root.getBody().front().getArguments())
+      laneInputs.push_back(op(ac::TableSplatOp::getOperationName(), {input},
+                              {ac::TableType::get(&context, shape, bits(1))},
+                              {f("shape", shape)})
+                               ->getResult(0));
+    lanes = cast<ac::CollectionOp>(
+        op(ac::CollectionOp::getOperationName(), laneInputs, {},
+           {f("callee", FlatSymbolRefAttr::get(&context, "SampledLeaf")),
+            f("instance_name", b.getStringAttr("sampled_lanes")),
+            f("parameters", b.getArrayAttr({})),
+            f("type_arguments", b.getArrayAttr({})), f("shape", shape),
+            f("occurrence", occurrence("Root", 29))}));
+    op(ac::YieldOp::getOperationName());
+
+    b.setInsertionPointToEnd(package->getBody());
+    op(ac::SystemOp::getOperationName(), {}, {},
+       {f("domain", b.getStringAttr("default")),
+        f("entry", d({f("callee", FlatSymbolRefAttr::get(&context, "Root")),
+                      f("parameters", b.getArrayAttr({})),
+                      f("type_arguments", b.getArrayAttr({}))}))});
+  }
+  ac::InstanceOp addSampledStorage(Value enable, Value data) {
+    auto imported = primitive("dffe");
+    auto sampledRule = *leaf.getBody().front().getOps<ac::RuleOp>().begin();
+    b.setInsertionPoint(sampledRule);
+    auto zero = constant(0);
+    return cast<ac::InstanceOp>(op(
+        ac::InstanceOp::getOperationName(),
+        {leaf.getBody().front().getArgument(1),
+         leaf.getBody().front().getArgument(2), enable, data, zero},
+        {bits(1)},
+        {f("callee", FlatSymbolRefAttr::get(&context, imported.getSymName())),
+         f("instance_name", b.getStringAttr("sampled_state")),
+         f("parameters", b.getArrayAttr({})),
+         f("type_arguments", b.getArrayAttr({TypeAttr::get(bits(1))})),
+         f("occurrence", occurrence("SampledLeaf", 20))}));
+  }
+  void addCollectionIncomingRoute() {
+    auto &body = leaf.getBody().front();
+    auto data = body.addArgument(bits(1), loc());
+    auto enable = body.addArgument(bits(1), loc());
+    leaf->setAttr("function_type",
+                  TypeAttr::get(b.getFunctionType(
+                      {bits(1), bits(1), bits(1), bits(1), bits(1)}, {})));
+    leaf->setAttr(
+        "input_names",
+        b.getArrayAttr({b.getStringAttr("enabled"), b.getStringAttr("pyc_clk"),
+                        b.getStringAttr("pyc_rst"),
+                        b.getStringAttr("__ac_transaction_d_0"),
+                        b.getStringAttr("__ac_transaction_e_0")}));
+    leaf->setAttr(
+        "ac.internal_ports",
+        d({f("source_inputs", b.getI64IntegerAttr(3)),
+           f("source_outputs", b.getI64IntegerAttr(0)),
+           f("root_inputs", b.getArrayAttr({b.getI64IntegerAttr(0),
+                                            b.getI64IntegerAttr(0)}))}));
+    addSampledStorage(enable, data);
+    auto writer = cast<DictionaryAttr>(
+        leaf->getAttrOfType<DictionaryAttr>("ac.transaction_wiring")
+            .getAs<ArrayAttr>("writers")[0]);
+    leaf->setAttr(
+        "ac.transaction_wiring",
+        d({f("states", b.getArrayAttr({occurrence("SampledLeaf", 20)})),
+           f("incoming",
+             b.getArrayAttr(
+                 {d({f("state", stateID()), f("data", b.getI64IntegerAttr(3)),
+                     f("enable", b.getI64IntegerAttr(4))})})),
+           f("writers", b.getArrayAttr({writer}))}));
+
+    b.setInsertionPoint(lanes);
+    auto zero = constant(0);
+    auto shape = lanes.getShape();
+    SmallVector<Value> appended;
+    for (unsigned i = 0; i < 2; ++i)
+      appended.push_back(op(ac::TableSplatOp::getOperationName(), {zero},
+                            {ac::TableType::get(&context, shape, bits(1))},
+                            {f("shape", shape)})
+                             ->getResult(0));
+    lanes->insertOperands(lanes.getNumOperands(), appended);
+  }
+  void makeSampledLeafStateful() {
+    auto oldRule = *leaf.getBody().front().getOps<ac::RuleOp>().begin();
+    auto expect = *leaf.getBody().front().getOps<ac::SourceExpectOp>().begin();
+    b.setInsertionPoint(oldRule);
+    auto zero = constant(0);
+    auto imported = primitive("dffe");
+    b.setInsertionPoint(oldRule);
+    auto state = cast<ac::InstanceOp>(op(
+        ac::InstanceOp::getOperationName(),
+        {leaf.getBody().front().getArgument(1),
+         leaf.getBody().front().getArgument(2), zero, zero, zero},
+        {bits(1)},
+        {f("callee", FlatSymbolRefAttr::get(&context, imported.getSymName())),
+         f("instance_name", b.getStringAttr("sampled_state")),
+         f("parameters", b.getArrayAttr({})),
+         f("type_arguments", b.getArrayAttr({TypeAttr::get(bits(1))})),
+         f("occurrence", occurrence("SampledLeaf", 20))}));
+
+    OperationState ruleState(loc(), ac::RuleOp::getOperationName());
+    ruleState.addOperands({leaf.getBody().front().getArgument(1),
+                           leaf.getBody().front().getArgument(2),
+                           leaf.getBody().front().getArgument(0),
+                           state.getResult(0)});
+    ruleState.addTypes({bits(1), bits(1), bits(1), bits(1)});
+    NamedAttrList attrs(oldRule->getAttrs());
+    NamedAttrList sampled(
+        oldRule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    sampled.set("fire_result", b.getI64IntegerAttr(1));
+    attrs.set("ac.sampled_admission", sampled.getDictionary(&context));
+    ruleState.addAttributes(attrs);
+    ruleState.addRegion();
+    b.setInsertionPoint(oldRule);
+    auto replacement = cast<ac::RuleOp>(b.create(ruleState));
+    auto *ruleBody = new Block;
+    replacement.getBody().push_back(ruleBody);
+    for (unsigned i = 0; i < 4; ++i)
+      ruleBody->addArgument(bits(1), loc());
+    b.setInsertionPointToEnd(ruleBody);
+    auto one = constant(1);
+    auto known = op(ac::BitsCompareOp::getOperationName(),
+                    {ruleBody->getArgument(2), one}, {bits(1)},
+                    {f("predicate", b.getStringAttr("case_eq"))});
+    op(ac::YieldOp::getOperationName(),
+       {ruleBody->getArgument(3), known->getResult(0), ruleBody->getArgument(2),
+        one});
+    state->setOperands({leaf.getBody().front().getArgument(1),
+                        leaf.getBody().front().getArgument(2),
+                        replacement.getResult(1), replacement.getResult(0),
+                        zero});
+    expect->setOperands({replacement.getResult(2), replacement.getResult(3),
+                         leaf.getBody().front().getArgument(1),
+                         leaf.getBody().front().getArgument(2)});
+    oldRule.erase();
+    leaf->setAttr(
+        "ac.transaction_wiring",
+        d({f("states", b.getArrayAttr({occurrence("SampledLeaf", 20)})),
+           f("incoming", b.getArrayAttr({})),
+           f("writers",
+             b.getArrayAttr(
+                 {d({f("registration", occurrence("SampledLeaf", 7)),
+                     f("ordinary_results", b.getI64IntegerAttr(0)),
+                     f("candidates",
+                       b.getArrayAttr(
+                           {d({f("state", stateID()),
+                               f("result", b.getI64IntegerAttr(0))})}))})}))}));
+  }
+  ac::ModuleOp addRelay() {
+    auto relay = domainModule("Relay");
+    b.setInsertionPointToEnd(&relay.getBody().front());
+    op(ac::InstanceOp::getOperationName(),
+       relay.getBody().front().getArguments(), {},
+       {f("callee", FlatSymbolRefAttr::get(&context, "SampledLeaf")),
+        f("instance_name", b.getStringAttr("writer")),
+        f("parameters", b.getArrayAttr({})),
+        f("type_arguments", b.getArrayAttr({})),
+        f("occurrence", occurrence("Relay", 31))});
+    op(ac::YieldOp::getOperationName());
+    lanes->setAttr("callee", FlatSymbolRefAttr::get(&context, "Relay"));
+    return relay;
+  }
+  void replaceCollectionWithInstance(StringRef callee,
+                                     ValueRange appended = {}) {
+    SmallVector<Value> inputs(root.getBody().front().getArguments());
+    inputs.append(appended.begin(), appended.end());
+    b.setInsertionPoint(lanes);
+    op(ac::InstanceOp::getOperationName(), inputs, {},
+       {f("callee", FlatSymbolRefAttr::get(&context, callee)),
+        f("instance_name", b.getStringAttr("sampled_instance")),
+        f("parameters", b.getArrayAttr({})),
+        f("type_arguments", b.getArrayAttr({})),
+        f("occurrence", occurrence("Root", 29))});
+    lanes.erase();
+  }
   ac::ModuleImportOp primitive(StringRef kind) {
     b.setInsertionPointToEnd(package->getBody());
     std::string symbol = "Storage_" + kind.str();
@@ -474,6 +741,116 @@ TEST_F(HardwareSourceCheckOccurrencesTest,
   }
   for (const auto &check : p->checks)
     EXPECT_NE(check.ownerOccurrence, 0u);
+}
+
+TEST_F(HardwareSourceCheckOccurrencesTest,
+       SampledCollectionLanesHaveIndependentActualHistories) {
+  buildSampledCollection();
+  ASSERT_TRUE(succeeded(mlir::verify(*package)));
+  auto p = plan();
+  ASSERT_TRUE(succeeded(p)) << diagnostics;
+  ASSERT_EQ(p->owners.size(), 7u);
+  ASSERT_EQ(p->bindings.size(), 1u);
+  ASSERT_EQ(p->checks.size(), 6u);
+  ASSERT_EQ(p->samplingBindings.size(), 1u);
+  ASSERT_EQ(p->samplingOccurrences.size(), 6u);
+  EXPECT_TRUE(p->commits.empty());
+
+  const auto &sampling = p->samplingBindings.front();
+  EXPECT_EQ(sampling.definition, leaf);
+  EXPECT_EQ(sampling.clock, leaf.getBody().front().getArgument(1));
+  EXPECT_EQ(sampling.reset, leaf.getBody().front().getArgument(2));
+  EXPECT_EQ(sampling.localOrdinal, 0u);
+  EXPECT_EQ(p->bindings.front().samplingBindingIndex,
+            std::optional<uint64_t>(0));
+
+  for (unsigned lane = 0; lane < 6; ++lane) {
+    uint64_t ownerOrdinal = lane + 1;
+    const auto &owner = p->owners[ownerOrdinal];
+    EXPECT_EQ(owner.definition, leaf);
+    EXPECT_EQ(owner.parent, std::optional<uint64_t>(0));
+    ASSERT_EQ(owner.path.size(), 1u);
+    EXPECT_EQ(owner.path.front().allocation, lanes.getOperation());
+    EXPECT_EQ(owner.path.front().coordinates,
+              (SmallVector<uint64_t>{lane / 3, lane % 3}));
+
+    const auto &occurrence = p->samplingOccurrences[lane];
+    EXPECT_EQ(occurrence.bindingIndex, 0u);
+    EXPECT_EQ(occurrence.ownerOccurrence, ownerOrdinal);
+    EXPECT_EQ(occurrence.ordinal, lane);
+
+    const auto &check = p->checks[lane];
+    EXPECT_EQ(check.bindingIndex, 0u);
+    EXPECT_EQ(check.ownerOccurrence, ownerOrdinal);
+    EXPECT_EQ(check.samplingOccurrenceIndex, std::optional<uint64_t>(lane));
+    EXPECT_EQ(check.reset.kind, ac::HardwareCheckResetKind::PhysicalReset);
+    EXPECT_EQ(check.reset.ownerOccurrence,
+              std::optional<uint64_t>(ownerOrdinal));
+    EXPECT_EQ(check.reset.inputOrdinal, std::optional<unsigned>(2));
+  }
+  EXPECT_TRUE(
+      succeeded(ac::HardwareAnalysis(*package).verifySourceCheckPlan(*p)));
+
+  auto altered = *p;
+  altered.samplingOccurrences.front().ownerOccurrence =
+      altered.samplingOccurrences.back().ownerOccurrence;
+  EXPECT_TRUE(
+      failed(ac::HardwareAnalysis(*package).verifySourceCheckPlan(altered)));
+}
+
+TEST_F(HardwareSourceCheckOccurrencesTest,
+       CollectionRejectsOtherwiseValidIncomingTransactionColumns) {
+  buildSampledCollection();
+  addCollectionIncomingRoute();
+  ASSERT_TRUE(succeeded(mlir::verify(*package)));
+  EXPECT_TRUE(failed(plan()));
+  EXPECT_NE(diagnostics.find(
+                "transaction Collection callee cannot have internal routing "
+                "ports"),
+            std::string::npos)
+      << diagnostics;
+
+  b.setInsertionPoint(lanes);
+  auto zero = constant(0);
+  SmallVector<Value> appended{zero, zero};
+  replaceCollectionWithInstance("SampledLeaf", appended);
+  auto ordinary = plan();
+  EXPECT_TRUE(succeeded(ordinary)) << diagnostics;
+}
+
+TEST_F(HardwareSourceCheckOccurrencesTest,
+       CollectionRejectsOtherwiseValidLocalTransactionWriter) {
+  buildSampledCollection();
+  makeSampledLeafStateful();
+  ASSERT_TRUE(succeeded(mlir::verify(*package)));
+  EXPECT_TRUE(failed(plan()));
+  EXPECT_NE(diagnostics.find(
+                "transaction Collection callee cannot contain a local or "
+                "descendant writer"),
+            std::string::npos)
+      << diagnostics;
+
+  replaceCollectionWithInstance("SampledLeaf");
+  auto ordinary = plan();
+  EXPECT_TRUE(succeeded(ordinary)) << diagnostics;
+}
+
+TEST_F(HardwareSourceCheckOccurrencesTest,
+       CollectionRejectsWriterBehindOrdinaryRelay) {
+  buildSampledCollection();
+  makeSampledLeafStateful();
+  addRelay();
+  ASSERT_TRUE(succeeded(mlir::verify(*package)));
+  EXPECT_TRUE(failed(plan()));
+  EXPECT_NE(diagnostics.find(
+                "transaction Collection callee cannot contain a local or "
+                "descendant writer"),
+            std::string::npos)
+      << diagnostics;
+
+  replaceCollectionWithInstance("Relay");
+  auto ordinary = plan();
+  EXPECT_TRUE(succeeded(ordinary)) << diagnostics;
 }
 
 TEST_F(HardwareSourceCheckOccurrencesTest,

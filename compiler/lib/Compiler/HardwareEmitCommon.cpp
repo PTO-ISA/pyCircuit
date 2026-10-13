@@ -514,6 +514,12 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   auto checks = analysis.getSourceCheckPlan();
   if (failed(checks))
     return failure();
+  // Sampled guard checks require both targets' frozen-history lifecycle. Until
+  // that implementation lands, never emit them as ordinary reset-only checks,
+  // including bindings in definitions outside the selected root occurrence.
+  if (!checks->samplingBindings.empty())
+    return package.emitOpError()
+           << "sampled transaction check emission is not implemented";
   // The C++ native observation plan prepares through `prepareNativeChecks()`
   // and then re-closes the one instrumentation op it still cannot emit. This
   // shared gate stays closed for `ac.observe` because the Verilog target has no

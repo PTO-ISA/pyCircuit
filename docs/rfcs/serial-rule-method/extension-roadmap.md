@@ -25,7 +25,8 @@ bundle、retry probe 验收。具体源码依据见[总体规格](README.md)，�
 ## 当前实现与剩余出口
 
 “已有入口”只说明基线中有实现。历史测试结果须另查其精确候选证据，不能替代未来改动的
-fresh verification。本轮只修改规格；以下未勾选项均不是完成声明。
+fresh verification。本表保留上述历史基线；当前原生增量状态见表后说明，
+未勾选项仍不构成完成声明。
 
 | 切片 | 复用/扩展的 owner | 当前边界 | 必须补齐的退出条件 |
 | --- | --- | --- | --- |
@@ -44,11 +45,17 @@ fresh verification。本轮只修改规格；以下未勾选项均不是完成�
 Method System 集成 → 效果安全优化。独立测试可以提前准备；基础因果和冲突验证必须在
 每个切片存在，不能等资源切片才开始验证。Queue、Signal/EHR 不混入基础交付。
 
+基线后的原生增量已接入 sampled/wiring schema、identity/prefix/物理接线证明、采样
+binding/occurrence plan 和 GuardOnly 源分类。它不完成动态执行：统一 lowering 的
+metadata/原计划对照及 C++/RTL history 生命周期仍待实现，两个 emitter 入口暂时明确
+拒绝 sampled plan。旧 lowerer 的内部端口输出也尚未提供新 companion，不能把原生
+验证切片作为跨实例公共执行验收；当前状态见[语言参考](../../reference/language.md#method-execution-and-remaining-capabilities)。
+
 ## 动态 guard：必须先落实的共同 IR 合同
 
 复用已有 `ac.expect`、`ac.required_checks`、CheckID、HardwareSourceCheckPlan、
-Runtime Precheck/Precommit/Xfer 和 RTL commit gate。当前 `HardwareResolvedSourceCheck`
-只有 reset，DFFE 的 sampled-clock history 位于 Current/Pending；不能把 reset-gated
+Runtime Precheck/Precommit/Xfer 和 RTL commit gate。原检查点的 `HardwareResolvedSourceCheck`
+只有 reset；原生增量已加入独立采样索引及实例计划。DFFE 的 clock history 位于 Current/Pending；不能把 reset-gated
 普通 assert 当作动态 Method guard 的完整实现。
 
 [采样准入规格](sampled-admission.md)已将这些事实固定在**同一检查表示**中：必填源

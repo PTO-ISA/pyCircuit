@@ -1,5 +1,6 @@
 #include "HardwareSourceCheckPreflight.h"
 #include "ACIRSourceContracts.h"
+#include "HardwareSampledAdmission.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -11,7 +12,7 @@ namespace acir::ac::detail {
 namespace {
 using Budget = SourceCheckBudget;
 struct Expansion {
-  uint64_t owners = 1, checks = 0, commits = 0, cost = 0;
+  uint64_t owners = 1, checks = 0, commits = 0, sampling = 0, cost = 0;
 };
 struct Allocation {
   Operation *operation;
@@ -24,6 +25,7 @@ struct BoundDefinition {
   ModuleOp definition;
   HardwareBindings bindings;
   SmallVector<uint64_t> checkIndices;
+  SmallVector<uint64_t> samplingIndices;
   SmallVector<Allocation> allocations;
   std::optional<unsigned> reset;
   bool hasChecks = false;
@@ -66,12 +68,14 @@ public:
               return budget.debit(units, site);
             })))
       return failure();
+    budget.setPhase("transaction wiring");
+    if (failed(verifyTransactionWiring(analysis, scopes, budget)))
+      return failure();
     // A closed system needs the complete managed commit tree even without
     // source assertions: generated reset/prepare/commit must reach every leaf.
     // Reusable modules without checks still avoid hypothetical expansion.
     auto role = root->owner->getAttrOfType<StringAttr>("ac.root_kind");
-    if (!nodes[*rootIndex]->hasChecks &&
-        (!role || role.getValue() != "system"))
+    if (!nodes[*rootIndex]->hasChecks && (!role || role.getValue() != "system"))
       return std::move(plan);
     budget.setPhase("occurrence summary");
     auto expansion = summarize(*rootIndex);
@@ -79,13 +83,15 @@ public:
       return failure();
     if (expansion->owners > plan.owners.max_size() ||
         expansion->checks > plan.checks.max_size() ||
-        expansion->commits > plan.commits.max_size())
+        expansion->commits > plan.commits.max_size() ||
+        expansion->sampling > plan.samplingOccurrences.max_size())
       return package.emitOpError()
              << "source-check plan exceeds analysis work budget before "
                 "occurrence expansion";
     plan.owners.reserve(expansion->owners);
     plan.checks.reserve(expansion->checks);
     plan.commits.reserve(expansion->commits);
+    plan.samplingOccurrences.reserve(expansion->sampling);
     budget.setPhase("materialization");
     if (failed(materialize(*rootIndex, {}, std::nullopt, {})))
       return failure();
@@ -121,6 +127,7 @@ private:
   }
   struct RawDefinitionWork {
     uint64_t operations = 0, obligations = 0, metadata = 1, carriers = 0;
+    uint64_t sampledGuards = 0, operands = 0, samplingMetadata = 0;
   };
   FailureOr<uint64_t> rawCarrierCost(Value value, Operation *site) {
     llvm::DenseSet<Value> seen;
@@ -141,6 +148,171 @@ private:
       value = producer->getOperand(0);
     }
     return cost;
+  }
+  FailureOr<uint64_t> sampledReachableValues(Operation *definition) {
+    llvm::DenseSet<Value> boundaries;
+    llvm::DenseMap<Value, unsigned> visited;
+    SmallVector<std::pair<Value, bool>> pending;
+    auto seed = [&](Value value, bool prefix) -> LogicalResult {
+      if (!value)
+        return success();
+      if (failed(budget.debit(Budget::bytes(sizeof(std::pair<Value, bool>)),
+                              definition)))
+        return failure();
+      pending.emplace_back(value, prefix);
+      return success();
+    };
+    auto boundary = [&](Value value) -> LogicalResult {
+      if (failed(budget.debit(Budget::bytes(sizeof(Value)), definition)))
+        return failure();
+      boundaries.insert(value);
+      return success();
+    };
+    auto ordinal = [](DictionaryAttr row, StringRef name,
+                      uint64_t count) -> std::optional<uint64_t> {
+      auto value = row ? row.getAs<IntegerAttr>(name) : IntegerAttr();
+      auto type =
+          value ? dyn_cast<IntegerType>(value.getType()) : IntegerType();
+      if (!type || !type.isSignless() || type.getWidth() != 64 ||
+          value.getInt() < 0 || static_cast<uint64_t>(value.getInt()) >= count)
+        return std::nullopt;
+      return static_cast<uint64_t>(value.getInt());
+    };
+    // Use raw region/operand access: this runs before native ODS verification.
+    // Private slots are counted as endpoints, never as candidate/data roots.
+    for (Region &region : definition->getRegions()) {
+      for (Block &block : region) {
+        for (Operation &operation : block) {
+          Operation *op = &operation;
+          auto sampled =
+              op->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+          if (isa<RuleOp>(op)) {
+            uint64_t firstPrivate = op->getNumResults();
+            if (auto required =
+                    op->getAttrOfType<ArrayAttr>("ac.required_checks"))
+              if (required.size() <= op->getNumResults() / 2)
+                firstPrivate = op->getNumResults() - 2 * required.size();
+            if (auto fire =
+                    ordinal(sampled, "fire_result", op->getNumResults()))
+              firstPrivate = std::min(firstPrivate, *fire);
+            auto wiring = definition->getAttrOfType<DictionaryAttr>(
+                "ac.transaction_wiring");
+            auto writers =
+                wiring ? wiring.getAs<ArrayAttr>("writers") : ArrayAttr();
+            if (writers) {
+              for (Attribute raw : writers) {
+                if (failed(budget.debit(1, definition)))
+                  return failure();
+                auto writer = dyn_cast<DictionaryAttr>(raw);
+                if (!writer || !writer.get("registration") ||
+                    writer.get("registration") != op->getAttr("occurrence"))
+                  continue;
+                if (auto ordinary = ordinal(writer, "ordinary_results",
+                                            op->getNumResults()))
+                  firstPrivate = std::min(firstPrivate, *ordinary);
+              }
+            }
+            for (uint64_t index = firstPrivate; index < op->getNumResults();
+                 ++index)
+              if (failed(boundary(op->getResult(index))))
+                return failure();
+          }
+          if (sampled) {
+            for (StringRef name : {"clock_capture", "reset_capture"})
+              if (auto index = ordinal(sampled, name, op->getNumOperands()))
+                if (failed(seed(op->getOperand(*index), false)))
+                  return failure();
+            auto fire = ordinal(sampled, "fire_result", op->getNumResults());
+            auto guards = sampled.getAs<ArrayAttr>("guards");
+            if (fire && guards && op->getNumRegions() == 1 &&
+                op->getRegion(0).hasOneBlock() &&
+                !op->getRegion(0).front().empty()) {
+              Operation &yielded = op->getRegion(0).front().back();
+              if (*fire < yielded.getNumOperands() &&
+                  failed(seed(yielded.getOperand(*fire), true)))
+                return failure();
+              for (uint64_t index = 0; index < guards.size(); ++index) {
+                uint64_t predicate = Budget::add(Budget::add(*fire, 1),
+                                                 Budget::multiply(2, index));
+                uint64_t reached = Budget::add(predicate, 1);
+                if (predicate < yielded.getNumOperands() &&
+                    failed(seed(yielded.getOperand(predicate), false)))
+                  return failure();
+                if (reached < yielded.getNumOperands() &&
+                    failed(seed(yielded.getOperand(reached), true)))
+                  return failure();
+              }
+            }
+          }
+          if (isa<SourceExpectOp>(op)) {
+            auto kind = op->getAttrOfType<StringAttr>("kind");
+            if (kind && kind.getValue() == "guard_known")
+              for (unsigned index = 2; index < op->getNumOperands(); ++index)
+                if (failed(seed(op->getOperand(index), false)))
+                  return failure();
+          }
+        }
+      }
+    }
+    while (!pending.empty()) {
+      auto [value, prefix] = pending.pop_back_val();
+      if (failed(budget.debit(1, definition)))
+        return failure();
+      unsigned mode = prefix ? 2 : 1;
+      auto known = visited.find(value);
+      if (known != visited.end() && (known->second & mode))
+        continue;
+      if (known == visited.end()) {
+        if (failed(budget.debit(
+                Budget::bytes(sizeof(std::pair<Value, unsigned>)), definition)))
+          return failure();
+        known = visited.try_emplace(value, 0).first;
+      }
+      known->second |= mode;
+      if (boundaries.contains(value))
+        continue;
+      if (auto argument = dyn_cast<BlockArgument>(value)) {
+        Operation *owner = argument.getOwner()->getParentOp();
+        if (isa<RuleOp>(owner) &&
+            argument.getArgNumber() < owner->getNumOperands())
+          if (failed(seed(owner->getOperand(argument.getArgNumber()), prefix)))
+            return failure();
+        continue;
+      }
+      auto result = dyn_cast<OpResult>(value);
+      if (!result)
+        continue;
+      Operation *owner = result.getOwner();
+      if (isa<RuleOp>(owner)) {
+        if (owner->getNumRegions() == 1 && owner->getRegion(0).hasOneBlock() &&
+            !owner->getRegion(0).front().empty()) {
+          Operation &yielded = owner->getRegion(0).front().back();
+          if (result.getResultNumber() < yielded.getNumOperands() &&
+              failed(
+                  seed(yielded.getOperand(result.getResultNumber()), prefix)))
+            return failure();
+        }
+      } else if (isa<BitsExtractOp>(owner)) {
+        if (owner->getNumOperands() &&
+            failed(seed(owner->getOperand(0), prefix)))
+          return failure();
+      } else if (prefix && isa<BitsBinaryOp>(owner)) {
+        auto opcode = owner->getAttrOfType<StringAttr>("opcode");
+        if (opcode && opcode.getValue() == "and")
+          for (Value operand : owner->getOperands())
+            if (failed(seed(operand, true)))
+              return failure();
+      } else if (prefix && isa<BitsCompareOp>(owner)) {
+        auto predicate = owner->getAttrOfType<StringAttr>("predicate");
+        if (predicate && predicate.getValue() == "case_eq")
+          for (Value operand : owner->getOperands())
+            if (failed(seed(operand, false)))
+              return failure();
+      }
+      // Opaque raw guard computations and ordinary Instance results terminate
+      // definition-local identity; their unrelated data DAGs are not visited.
+    }
+    return Budget::add(visited.size(), boundaries.size());
   }
   LogicalResult rawPreflight() {
     // Do not invoke typed attribute/signature accessors or any op verifier.
@@ -168,18 +340,25 @@ private:
         return WalkResult::interrupt();
       auto &local = work[definition];
       ++local.operations;
-      for (StringRef key : {"occurrence", "ac.required_checks", "ac.check_id",
-                            "location", "ac.message"}) {
+      local.operands = Budget::add(local.operands, op->getNumOperands());
+      for (StringRef key :
+           {"occurrence", "ac.required_checks", "ac.check_id", "location",
+            "ac.message", "ac.sampled_admission", "ac.transaction_wiring"}) {
         auto cost = structureCost(op->getAttr(key), op);
         if (failed(cost))
           return WalkResult::interrupt();
         local.metadata = Budget::add(local.metadata, *cost);
+        if (key == "ac.sampled_admission" || key == "ac.transaction_wiring")
+          local.samplingMetadata = Budget::add(local.samplingMetadata, *cost);
       }
       if (auto required = op->getAttrOfType<ArrayAttr>("ac.required_checks"))
         local.obligations = Budget::add(local.obligations, required.size());
+      if (auto sampled =
+              op->getAttrOfType<DictionaryAttr>("ac.sampled_admission"))
+        if (auto guards = sampled.getAs<ArrayAttr>("guards"))
+          local.sampledGuards = Budget::add(local.sampledGuards, guards.size());
       if (isa<SourceExpectOp>(op)) {
-        for (unsigned index = 0; index < std::min(2u, op->getNumOperands());
-             ++index) {
+        for (unsigned index = 0; index < op->getNumOperands(); ++index) {
           Value operand = op->getOperand(index);
           auto cost = rawCarrierCost(operand, op);
           if (failed(cost))
@@ -209,9 +388,147 @@ private:
           Budget::add(records,
                       Budget::add(Budget::multiply(comparisons, local.metadata),
                                   local.carriers)));
+      // Native Module verification runs before the builder can share its
+      // budget with the local verifier. Prepay a conservative bound for the
+      // sampled schema, stop endpoints, identity walks and prefix atom sets.
+      if (local.samplingMetadata) {
+        auto reachable = sampledReachableValues(definition);
+        if (failed(reachable))
+          return failure();
+        uint64_t values =
+            Budget::add(Budget::add(*reachable, local.sampledGuards), 1);
+        uint64_t square = Budget::multiply(values, values);
+        uint64_t scope = Budget::bytes(sizeof(HardwareBindings) +
+                                       sizeof(HardwareIdentityScope));
+        uint64_t payload = Budget::bytes(
+            4 * sizeof(HardwareIdentityEndpoint) + sizeof(SampledGuardView) +
+            sizeof(TransactionWriterView) + sizeof(TransactionCandidateView));
+        // Memoized prefix nodes retain at most V atoms, and local identity
+        // walks visit at most V endpoints with at most V context comparisons.
+        // V counts only guard-prefix/identity-reachable SSA and private stop
+        // endpoints; unrelated datapaths retain only ordinary graph charges.
+        uint64_t proof = Budget::add(
+            Budget::multiply(Budget::multiply(square, values), scope),
+            Budget::multiply(square, Budget::add(payload, local.metadata)));
+        uint64_t schema = Budget::multiply(local.samplingMetadata,
+                                           Budget::add(local.operations, 1));
+        cost = Budget::add(
+            cost, Budget::add(proof, Budget::add(schema, local.operands)));
+      }
       if (failed(budget.debit(cost, definition)))
         return failure();
-      localValidationCost[definition] = cost;
+      if (failed(budget.debit(
+              Budget::bytes(sizeof(std::pair<Operation *, uint64_t>)),
+              definition)))
+        return failure();
+      localValidationCost[definition] = Budget::add(
+          local.operations,
+          Budget::add(records,
+                      Budget::add(Budget::multiply(comparisons, local.metadata),
+                                  local.carriers)));
+    }
+    return success();
+  }
+  LogicalResult catalogSampling(ModuleOp definition,
+                                const HardwareBindings &bindings,
+                                SmallVector<HardwareCheckBinding> &checks) {
+    if (!llvm::any_of(checks, [](const auto &check) {
+          return check.kind.getValue() == "guard_known";
+        }))
+      return success();
+    if (failed(budget.debit(Budget::bytes(sizeof(
+                                std::pair<Operation *, SmallVector<uint64_t>>)),
+                            definition)))
+      return failure();
+    auto &indices = localSamplingIndices[definition];
+    if (failed(budget.debit(
+            Budget::add(Budget::bindings(bindings),
+                        Budget::bytes(sizeof(HardwareIdentityScope))),
+            definition)))
+      return failure();
+    HardwareIdentityScope scope{definition, bindings, {}};
+    SmallVector<HardwareIdentityEndpoint> boundaries;
+    auto addBoundary = [&](Value value) -> LogicalResult {
+      if (failed(budget.debit(Budget::bytes(sizeof(HardwareIdentityEndpoint)),
+                              definition)))
+        return failure();
+      auto endpoint = makeIdentityEndpoint(value, scope, analysis, budget);
+      if (failed(endpoint))
+        return failure();
+      boundaries.push_back(std::move(*endpoint));
+      return success();
+    };
+    auto wiring =
+        parseTransactionWiring(definition, analysis, bindings, budget);
+    if (failed(wiring))
+      return failure();
+    for (auto &writer : wiring->writers)
+      for (uint64_t index = writer.ordinaryResults;
+           index < writer.rule.getNumResults(); ++index)
+        if (failed(addBoundary(writer.rule.getResult(index))))
+          return failure();
+    for (auto &check : checks)
+      if (failed(addBoundary(check.rule.getResult(check.conditionResult))) ||
+          failed(addBoundary(check.rule.getResult(check.pathResult))))
+        return failure();
+    HardwareIdentityStopPolicy stops{HardwareIdentityTraversal::DefinitionLocal,
+                                     boundaries};
+    // Repeated guards of one Rule share a binding. Distinct Rules share only
+    // exactly equal normalized definition-local SSA clock/reset pairs.
+    llvm::DenseMap<Operation *, uint64_t> ruleIndices;
+    for (auto &check : checks) {
+      if (check.kind.getValue() != "guard_known")
+        continue;
+      auto known = ruleIndices.find(check.rule);
+      if (known != ruleIndices.end()) {
+        check.samplingBindingIndex = known->second;
+        continue;
+      }
+      auto sampled =
+          parseSampledAdmission(check.rule, analysis, bindings, budget);
+      if (failed(sampled))
+        return failure();
+      auto clock =
+          makeIdentityEndpoint(sampled->clock, scope, analysis, budget);
+      auto reset =
+          makeIdentityEndpoint(sampled->reset, scope, analysis, budget);
+      if (failed(clock) || failed(reset))
+        return failure();
+      auto normalizedClock =
+          normalizeIdentityEndpoint(*clock, stops, analysis, budget);
+      auto normalizedReset =
+          normalizeIdentityEndpoint(*reset, stops, analysis, budget);
+      if (failed(normalizedClock) || failed(normalizedReset))
+        return failure();
+      std::optional<uint64_t> found;
+      for (uint64_t index : indices) {
+        if (failed(budget.debit(1, definition)))
+          return failure();
+        const auto &binding = plan.samplingBindings[index];
+        if (binding.clock == normalizedClock->value &&
+            binding.reset == normalizedReset->value) {
+          found = index;
+          break;
+        }
+      }
+      if (!found) {
+        if (failed(budget.debit(
+                Budget::add(Budget::bytes(sizeof(HardwareCheckSamplingBinding)),
+                            Budget::bytes(sizeof(uint64_t))),
+                definition)))
+          return failure();
+        found = plan.samplingBindings.size();
+        plan.samplingBindings.push_back({definition, normalizedClock->value,
+                                         normalizedReset->value,
+                                         indices.size()});
+        indices.push_back(*found);
+      }
+      if (failed(budget.debit(
+              Budget::bytes(sizeof(std::pair<Operation *, uint64_t>)),
+              check.rule)))
+        return failure();
+      ruleIndices.try_emplace(check.rule, *found);
+      check.samplingBindingIndex = *found;
     }
     return success();
   }
@@ -230,10 +547,19 @@ private:
               definition)))
         return failure();
       catalogScopes.emplace_back(definition, local);
-      auto bindings = definitionSourceChecks(analysis, definition, local);
+      auto bindings =
+          definitionSourceChecks(analysis, definition, local, budget);
       if (failed(bindings))
         return failure();
+      if (failed(
+              budget.debit(Budget::bytes(sizeof(
+                               std::pair<Operation *, SmallVector<uint64_t>>)),
+                           definition)))
+        return failure();
       auto &indices = localIndices[definition];
+      auto sampling = catalogSampling(definition, local, *bindings);
+      if (failed(sampling))
+        return failure();
       if (failed(budget.debit(Budget::multiply(bindings->size(),
                                                Budget::bytes(sizeof(uint64_t))),
                               definition)))
@@ -268,6 +594,14 @@ private:
     if (failed(budget.debit(localIndices[definition].size(), definition)))
       return failure();
     node->checkIndices = localIndices[definition];
+    auto sampling = localSamplingIndices.find(definition);
+    if (sampling != localSamplingIndices.end()) {
+      if (failed(budget.debit(Budget::multiply(sampling->second.size(),
+                                               Budget::bytes(sizeof(uint64_t))),
+                              definition)))
+        return failure();
+      node->samplingIndices = sampling->second;
+    }
     node->hasChecks = !node->checkIndices.empty();
     size_t index = nodes.size();
     nodes.push_back(std::move(node));
@@ -310,7 +644,7 @@ private:
       return failure();
     if (failed(budget.debit(localValidationCost[definition], definition)))
       return failure();
-    auto local = definitionSourceChecks(analysis, definition, scope);
+    auto local = definitionSourceChecks(analysis, definition, scope, budget);
     if (failed(local))
       return failure();
     SmallVector<Operation *> allocations;
@@ -416,11 +750,20 @@ private:
       return *node.expansion;
     Expansion result;
     result.checks = node.checkIndices.size();
+    result.sampling = node.samplingIndices.size();
     result.cost = Budget::add(
         ownerCost(node),
         Budget::multiply(result.checks,
                          Budget::add(1, Budget::bytes(sizeof(
                                             HardwareResolvedSourceCheck)))));
+    result.cost = Budget::add(result.cost,
+                              Budget::multiply(result.checks, result.sampling));
+    result.cost = Budget::add(
+        result.cost,
+        Budget::multiply(
+            result.sampling,
+            Budget::add(
+                1, Budget::bytes(sizeof(HardwareCheckSamplingOccurrence)))));
     for (auto &edge : node.allocations) {
       for (uint64_t extent : edge.shape)
         edge.count = Budget::multiply(edge.count, extent);
@@ -434,6 +777,8 @@ private:
             result.checks, Budget::multiply(edge.count, child->checks));
         result.commits = Budget::add(
             result.commits, Budget::multiply(edge.count, child->commits));
+        result.sampling = Budget::add(
+            result.sampling, Budget::multiply(edge.count, child->sampling));
         uint64_t cost = Budget::add(
             edge.shape.size(),
             Budget::add(child->cost,
@@ -474,12 +819,39 @@ private:
          node.bindings, parent, owner});
     if (node.reset)
       reset = {HardwareCheckResetKind::PhysicalReset, owner, *node.reset};
+    uint64_t firstSamplingOccurrence = plan.samplingOccurrences.size();
+    for (uint64_t bindingIndex : node.samplingIndices) {
+      if (failed(budget.debit(
+              Budget::add(
+                  1, Budget::bytes(sizeof(HardwareCheckSamplingOccurrence))),
+              node.definition)))
+        return failure();
+      plan.samplingOccurrences.push_back(
+          {bindingIndex, owner, plan.samplingOccurrences.size()});
+    }
     for (uint64_t bindingIndex : node.checkIndices) {
       if (failed(budget.debit(Budget::add(1, Budget::bytes(sizeof(
                                                  HardwareResolvedSourceCheck))),
                               node.definition)))
         return failure();
-      plan.checks.push_back({bindingIndex, owner, reset, plan.checks.size()});
+      std::optional<uint64_t> samplingOccurrence;
+      if (auto samplingBinding =
+              plan.bindings[bindingIndex].samplingBindingIndex) {
+        for (auto [localOrdinal, index] :
+             llvm::enumerate(node.samplingIndices)) {
+          if (failed(budget.debit(1, node.definition)))
+            return failure();
+          if (index == *samplingBinding) {
+            samplingOccurrence = firstSamplingOccurrence + localOrdinal;
+            break;
+          }
+        }
+        if (!samplingOccurrence)
+          return node.definition->emitOpError()
+                 << "sampled check lacks its owner sampling occurrence";
+      }
+      plan.checks.push_back(
+          {bindingIndex, owner, reset, plan.checks.size(), samplingOccurrence});
     }
     for (const auto &edge : node.allocations) {
       for (uint64_t lane = 0; lane < edge.count; ++lane) {
@@ -523,6 +895,7 @@ private:
   SourceCheckBudget budget;
   HardwareSourceCheckPlan plan;
   llvm::DenseMap<Operation *, SmallVector<uint64_t>> localIndices;
+  llvm::DenseMap<Operation *, SmallVector<uint64_t>> localSamplingIndices;
   llvm::DenseMap<Operation *, uint64_t> localValidationCost;
   llvm::DenseSet<Operation *> active;
   SmallVector<std::unique_ptr<BoundDefinition>> nodes;

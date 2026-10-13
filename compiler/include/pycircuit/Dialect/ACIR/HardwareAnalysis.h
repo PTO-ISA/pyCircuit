@@ -70,6 +70,15 @@ struct HardwareBindings {
   llvm::StringMap<mlir::Type> types;
 };
 
+struct HardwareCheckSamplingBinding {
+  ModuleOp definition;
+  mlir::Value clock, reset;
+  uint64_t localOrdinal = 0;
+};
+struct HardwareCheckSamplingOccurrence {
+  uint64_t bindingIndex = 0, ownerOccurrence = 0, ordinal = 0;
+};
+
 /// Definition-local obligations and their actual linked owner occurrences.
 /// These views retain original IR; they must be revalidated after mutations.
 struct HardwareCheckBinding {
@@ -82,6 +91,7 @@ struct HardwareCheckBinding {
   mlir::StringAttr message;
   mlir::Value condition, path;
   uint64_t requiredIndex = 0, conditionResult = 0, pathResult = 0;
+  std::optional<uint64_t> samplingBindingIndex;
 };
 struct HardwareCheckOccurrenceStep {
   mlir::Operation *allocation = nullptr;
@@ -104,6 +114,7 @@ struct HardwareResolvedSourceCheck {
   uint64_t bindingIndex = 0, ownerOccurrence = 0;
   HardwareCheckResetContext reset;
   uint64_t ordinal = 0;
+  std::optional<uint64_t> samplingOccurrenceIndex;
 };
 struct HardwareCheckCommitEndpoint {
   uint64_t ownerOccurrence = 0;
@@ -119,6 +130,8 @@ struct HardwareSourceCheckPlan {
   llvm::SmallVector<HardwareCheckOwnerOccurrence> owners;
   llvm::SmallVector<HardwareResolvedSourceCheck> checks;
   llvm::SmallVector<HardwareCheckCommitEndpoint> commits;
+  llvm::SmallVector<HardwareCheckSamplingBinding> samplingBindings;
+  llvm::SmallVector<HardwareCheckSamplingOccurrence> samplingOccurrences;
   bool hasChecks() const { return !checks.empty(); }
 };
 using FieldPath = llvm::SmallVector<mlir::StringAttr>;

@@ -31,6 +31,8 @@ LogicalResult Importer::scanSourceCallables() {
       staged[moduleName].push_back({declaration, *syntax});
       if (syntax->marker == MarkerKind::Method)
         methodOwnerNames.insert(moduleName);
+      if (syntax->marker == MarkerKind::Rule && syntax->guard)
+        transactionModuleNames.insert(moduleName);
     }
   }
   // Classify the actual static module-call graph before reading callable
@@ -100,13 +102,8 @@ LogicalResult Importer::scanSourceCallables() {
   // its established structural/behavioral route during this staged cutover.
   for (auto &moduleEntry : staged) {
     StringRef moduleName = moduleEntry.first();
-    if (!transactionModuleNames.contains(moduleName)) {
-      for (const auto &entry : moduleEntry.second)
-        if (entry.second.marker == MarkerKind::Rule && entry.second.guard)
-          return error()
-                 << "guarded nested Rule cannot use the legacy Rule path";
+    if (!transactionModuleNames.contains(moduleName))
       continue;
-    }
     for (auto &entry : moduleEntry.second) {
       AstNode declaration = entry.first;
       CapturedCallableSyntax syntax = entry.second;

@@ -537,6 +537,61 @@ def Driver(amount: ac.u8):
 }
 
 TEST_F(SourceTransactionCaptureTest,
+       GuardedNestedRuleClassifiesWithoutDummyMethodOrState) {
+  auto guarded = typed(R"py(import pycircuit as ac
+@ac.module
+def GuardOnly(enabled: ac.u1):
+    @ac.rule(guard=lambda: enabled)
+    def tick() -> None:
+        pass
+    tick()
+)py",
+                       "guard_only.py");
+  ASSERT_TRUE(guarded);
+  auto transactions = operations<ac::SourceTransactionOp>(*guarded);
+  ASSERT_EQ(transactions.size(), 1u);
+  EXPECT_TRUE(operations<ac::SourceMethodOp>(*guarded).empty());
+  EXPECT_TRUE(operations<ac::SourceStateOp>(*guarded).empty());
+  EXPECT_EQ(transactions.front().getName(), "tick");
+  EXPECT_EQ(transactions.front().getNumResults(), 0u);
+  EXPECT_TRUE(transactions.front().getClk());
+  EXPECT_TRUE(transactions.front().getRst());
+  auto owner = transactions.front()->getParentOfType<ac::ModuleOp>();
+  ASSERT_TRUE(owner);
+  auto domain = owner->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+  ASSERT_TRUE(domain);
+  EXPECT_TRUE(domain.getAs<IntegerAttr>("clock"));
+  EXPECT_TRUE(domain.getAs<IntegerAttr>("reset"));
+
+  auto ordinary = typed(R"py(import pycircuit as ac
+@ac.module
+def Pure(enabled: ac.u1) -> {"out": ac.u1}:
+    @ac.rule
+    def tick() -> None:
+        pass
+    tick()
+    return {"out": enabled}
+)py",
+                        "ordinary_rule.py");
+  ASSERT_TRUE(ordinary);
+  EXPECT_TRUE(operations<ac::SourceTransactionOp>(*ordinary).empty());
+  EXPECT_EQ(operations<ac::RuleOp>(*ordinary).size(), 1u);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       GuardedNestedRuleRegistrationArgumentsRemainUnsupported) {
+  reject(R"py(import pycircuit as ac
+@ac.module
+def GuardOnly(enabled: ac.u1):
+    @ac.rule(guard=lambda: enabled)
+    def tick() -> None:
+        pass
+    tick(enabled)
+)py",
+         "argument");
+}
+
+TEST_F(SourceTransactionCaptureTest,
        GuardLocationsUseExactLambdaAndBareFunctionDefinitionSpans) {
   auto file = typed(R"py(import pycircuit as ac
 @ac.module
