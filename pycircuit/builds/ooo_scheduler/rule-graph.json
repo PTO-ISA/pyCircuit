@@ -5,7 +5,7 @@
     {
       "from": 5,
       "relation": "Queue.pop → push",
-      "resource": "top.adder.out",
+      "resource": "top.add_done",
       "source_branch": 18,
       "target_branches": [
         10
@@ -15,7 +15,7 @@
     {
       "from": 5,
       "relation": "Queue.pop → push",
-      "resource": "top.adder.out",
+      "resource": "top.add_done",
       "source_branch": 18,
       "target_branches": [
         10
@@ -23,9 +23,29 @@
       "to": 2
     },
     {
+      "from": 2,
+      "relation": "Queue.pop → push",
+      "resource": "top.add_requests",
+      "source_branch": 9,
+      "target_branches": [
+        4
+      ],
+      "to": 0
+    },
+    {
+      "from": 2,
+      "relation": "Queue.pop → push",
+      "resource": "top.add_requests",
+      "source_branch": 9,
+      "target_branches": [
+        4
+      ],
+      "to": 0
+    },
+    {
       "from": 5,
       "relation": "Signal.set → get",
-      "resource": "top.cdb.event",
+      "resource": "top.event",
       "source_branch": 29,
       "target_branches": [
         59
@@ -35,7 +55,7 @@
     {
       "from": 5,
       "relation": "Queue.pop → push",
-      "resource": "top.multiplier.out",
+      "resource": "top.mul_done",
       "source_branch": 17,
       "target_branches": [
         15
@@ -45,7 +65,7 @@
     {
       "from": 5,
       "relation": "Queue.pop → push",
-      "resource": "top.multiplier.out",
+      "resource": "top.mul_done",
       "source_branch": 17,
       "target_branches": [
         15
@@ -53,29 +73,9 @@
       "to": 4
     },
     {
-      "from": 2,
-      "relation": "Queue.pop → push",
-      "resource": "top.scheduler.add_requests",
-      "source_branch": 9,
-      "target_branches": [
-        4
-      ],
-      "to": 0
-    },
-    {
-      "from": 2,
-      "relation": "Queue.pop → push",
-      "resource": "top.scheduler.add_requests",
-      "source_branch": 9,
-      "target_branches": [
-        4
-      ],
-      "to": 0
-    },
-    {
       "from": 3,
       "relation": "Queue.pop → push",
-      "resource": "top.scheduler.mul_requests",
+      "resource": "top.mul_requests",
       "source_branch": 11,
       "target_branches": [
         8
@@ -85,7 +85,7 @@
     {
       "from": 3,
       "relation": "Queue.pop → push",
-      "resource": "top.scheduler.mul_requests",
+      "resource": "top.mul_requests",
       "source_branch": 11,
       "target_branches": [
         8

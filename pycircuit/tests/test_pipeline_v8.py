@@ -365,8 +365,8 @@ class Top:
     def test_mixed_optional_outputs_and_existing_example_migration(self):
         for config in (False, True):
             trace, out = self.run_example('mixed_ports.py', 'MixedPorts', config={'enabled': config})
-            self.assertEqual(trace[0]['state']['top.router.accepted'], [8] if config else [])
-            self.assertEqual(trace[0]['state']['top.router.last_accepted'], 7 if config else 0)
+            self.assertEqual(trace[0]['state']['top.accepted'], [8] if config else [])
+            self.assertEqual(trace[0]['state']['top.last_accepted'], 7 if config else 0)
             self.assertEqual(trace[0]['state']['top.observer.last'], 7)
             self.assert_reloads(trace, out)
         trace, _ = self.run_example('signal_link.py', 'SignalLink', config={'enabled': True})
@@ -704,3 +704,76 @@ class Top:
             self.assertEqual(tick['fire'], {})
         self.assertNotIn('acir.body ', load(out / 'model.source.mlir'))
         self.assert_reloads(trace, out)
+
+    def test_explicit_module_pipeline_destinations_and_forwarding(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Source:
+    def __init__() -> None:
+        produced = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def produce(input: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
+        value = input
+        produced = produced + 1
+        return value
+    def __call__(input: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
+        if produced < 2:
+            return produce(input)
+@ac.module
+class Stage:
+    def __init__() -> None:
+        pass
+    @ac.rule
+    def transfer(input: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
+        return input + 10
+    def __call__(input: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
+        return transfer(input)
+@ac.module
+class Wrapper:
+    def __init__() -> None:
+        stage = Stage()
+    def __call__(input: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
+        return stage(input)
+@ac.module
+class Top:
+    def __init__() -> None:
+        input = ac.queue[ac.u32](capacity=2, initial=[1,2])
+        if_id = ac.queue[ac.u32](initial=3)
+        id_ex = ac.queue[ac.u32](initial=4)
+        cycle = ac.cell[ac.u32](initial=0)
+        total = ac.cell[ac.u32](initial=0)
+        producer = Source()
+        decoder = Wrapper()
+    @ac.rule
+    def drain() -> None:
+        total = total + id_ex
+    @ac.rule
+    def clock() -> None:
+        cycle = cycle + 1
+    def __call__() -> None:
+        if_id = producer(input)
+        id_ex = decoder(if_id)
+        if cycle != 1:
+            drain()
+        clock()
+'''
+        trace, _, out = self.run_source(source, 6)
+        self.assertEqual(trace[0]['state']['top.if_id'], [1])
+        self.assertEqual(trace[0]['state']['top.id_ex'], [13])
+        self.assertEqual(trace[0]['state']['top.total'], 4)
+        self.assertEqual(trace[1]['state'], dict(trace[0]['state'], **{'top.cycle': 2}))
+        self.assertEqual(trace[1]['state']['top.producer.produced'], 1)
+        self.assertEqual(trace[-1]['state']['top.total'], 40)
+        self.assertEqual(trace[-1]['state']['top.producer.produced'], 2)
+        self.assertEqual(set(trace[-1]['state']), {'top.input', 'top.if_id', 'top.id_ex',
+                                                   'top.cycle', 'top.total', 'top.producer.produced'})
+        self.assert_reloads(trace, out)
+        raw, _, _ = self.run_source(source, 6, optimize=False)
+        self.assertEqual(trace, raw)
+        explicit_parameter = source.replace(
+            '    def __call__(input: ac.queue[ac.u32]) -> ac.queue[ac.u32]:\n        return stage(input)',
+            '    def __call__(input: ac.queue[ac.u32], out: ac.queue[ac.u32]) -> None:\n        out = stage(input)')
+        explicit_parameter = explicit_parameter.replace('        id_ex = decoder(if_id)', '        decoder(if_id, id_ex)')
+        explicit, _, explicit_out = self.run_source(explicit_parameter, 6)
+        self.assertEqual(trace, explicit)
+        self.assert_reloads(explicit, explicit_out)

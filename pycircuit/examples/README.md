@@ -4,6 +4,9 @@
 公开 Rule 可以组合到调用者的原子事务；独立事务通过组件传值。
 只提供状态和 Rule 的组件可省略 __call__：CPU 中 RegisterFile／DataMemory、DualChannel 的 Observer
 均直接使用公开 Rule，无需空主体或额外调用。逐拍轨迹直接记录 RF 和内存的内部状态。
+CPU 的 if_id／id_ex／ex_mem／mem_wb Queue 全部在 Pipeline.__init__ 中声明，
+主体写 if_id = fetch()、id_ex = decode_stage(if_id, rf, mem_wb) 等赋值连接。
+OoO 的发射／完成 Queue 和广播 Signal 同样由顶层声明；所有示例已移除 .outputs。
 
 | 模型 | 验证内容 | top／配置 |
 | --- | --- | --- |

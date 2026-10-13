@@ -1,9 +1,9 @@
 module attributes {acir.config = {choose_left = true}, acir.model = {config = [{name = "choose_left", type = "bool"}], constants = {}, exports = {}, format_version = 8 : i64, top = "SharedState", type_order = [], types = {}}, acir.stage = "rtl"} {
   acir.circuit attributes {conflicts = [], edges = [], schedule = [0, 1, 2], stage = "rtl"} {
     acir.state @top.first : i32 {capacity = 1 : i64, initial = [3 : i32], kind = "queue"}
-    acir.state @top.independent.out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
-    acir.state @top.left.out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
-    acir.state @top.right.out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
+    acir.state @top.independent_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
+    acir.state @top.left_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
+    acir.state @top.right_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
     acir.state @top.second : i32 {capacity = 1 : i64, initial = [5 : i32], kind = "queue"}
     acir.state @top.separate.total : i32 {initial = 0 : i32, kind = "cell"}
     acir.state @top.shared.total : i32 {initial = 0 : i32, kind = "cell"}
@@ -11,7 +11,7 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %true = arith.constant true
     %false = arith.constant false
     %true_0 = arith.constant true loc(#loc1)
-    %0 = acir.export %true_0 {acir.id = "v7", acir.source_type = "bool"} : i1 -> i1 loc(#loc1)
+    %0 = acir.export %true_0 {acir.id = "v3", acir.source_type = "bool"} : i1 -> i1 loc(#loc1)
     %true_1 = arith.constant true
     %1 = arith.xori %0, %true_1 : i1
     %2 = acir.current {aspect = "value", resource = "top.shared.total"} : i32 loc(#loc2)
@@ -65,7 +65,7 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %44 = arith.andi %0, %43 : i1 loc(#loc6)
     %45 = arith.andi %0, %44 : i1 loc(#loc6)
     %46 = arith.xori %45, %true_1 : i1 loc(#loc6)
-    %47 = acir.current {aspect = "count", resource = "top.left.out"} : i32 loc(#loc7)
+    %47 = acir.current {aspect = "count", resource = "top.left_out"} : i32 loc(#loc7)
     %c0_i32_7 = arith.constant 0 : i32 loc(#loc7)
     %48 = arith.subi %47, %c0_i32_7 : i32 loc(#loc7)
     %c1_i32 = arith.constant 1 : i32 loc(#loc7)
@@ -77,8 +77,8 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %54 = arith.ori %52, %53 : i1 loc(#loc7)
     %55 = arith.andi %51, %54 : i1 loc(#loc7)
     %56 = acir.fire "top.left.transfer#0" %55 {successors = [], txn = 0 : i64} loc(#loc7)
-    %57 = acir.unary %true_0 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc8)
-    %58 = acir.export %57 {acir.id = "v12", acir.source_type = "bool"} : i1 -> i1 loc(#loc8)
+    %57 = acir.unary %true_0 "not" {acir.id = "v5", acir.source_type = "bool"} : i1 -> i1 loc(#loc8)
+    %58 = acir.export %57 {acir.id = "v6", acir.source_type = "bool"} : i1 -> i1 loc(#loc8)
     %59 = arith.xori %58, %true_1 : i1 loc(#loc2)
     %60 = arith.ori %59, %true : i1 loc(#loc2)
     %61 = arith.andi %58, %60 : i1 loc(#loc2)
@@ -130,7 +130,7 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %101 = arith.andi %58, %100 : i1 loc(#loc6)
     %102 = arith.andi %58, %101 : i1 loc(#loc6)
     %103 = arith.xori %102, %true_1 : i1 loc(#loc6)
-    %104 = acir.current {aspect = "count", resource = "top.right.out"} : i32 loc(#loc7)
+    %104 = acir.current {aspect = "count", resource = "top.right_out"} : i32 loc(#loc7)
     %c0_i32_14 = arith.constant 0 : i32 loc(#loc7)
     %105 = arith.subi %104, %c0_i32_14 : i32 loc(#loc7)
     %c1_i32_15 = arith.constant 1 : i32 loc(#loc7)
@@ -143,7 +143,7 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %112 = arith.andi %108, %111 : i1 loc(#loc7)
     %113 = acir.fire "top.right.transfer#1" %112 {successors = [], txn = 1 : i64} loc(#loc7)
     %true_16 = arith.constant {acir.source_type = "bool"} true loc(#loc9)
-    %114 = acir.export %true_16 {acir.id = "v17", acir.source_type = "bool"} : i1 -> i1 loc(#loc9)
+    %114 = acir.export %true_16 {acir.id = "v9", acir.source_type = "bool"} : i1 -> i1 loc(#loc9)
     %115 = arith.xori %114, %true_1 : i1 loc(#loc2)
     %116 = acir.current {aspect = "value", resource = "top.separate.total"} : i32 loc(#loc2)
     %117 = arith.ori %115, %true : i1 loc(#loc2)
@@ -196,7 +196,7 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %158 = arith.andi %114, %157 : i1 loc(#loc6)
     %159 = arith.andi %114, %158 : i1 loc(#loc6)
     %160 = arith.xori %159, %true_1 : i1 loc(#loc6)
-    %161 = acir.current {aspect = "count", resource = "top.independent.out"} : i32 loc(#loc7)
+    %161 = acir.current {aspect = "count", resource = "top.independent_out"} : i32 loc(#loc7)
     %c0_i32_23 = arith.constant 0 : i32 loc(#loc7)
     %162 = arith.subi %161, %c0_i32_23 : i32 loc(#loc7)
     %c1_i32_24 = arith.constant 1 : i32 loc(#loc7)
@@ -225,7 +225,7 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %180 = acir.aggregate(%179) : (i32) -> !acir.array<i32, 1> loc(#loc5)
     acir.next %180 {aspect = "storage", resource = "top.first"} : !acir.array<i32, 1> loc(#loc5)
     acir.next %175 {aspect = "count", resource = "top.first"} : i32 loc(#loc5)
-    %181 = acir.current {aspect = "storage", resource = "top.independent.out"} : !acir.array<i32, 1> loc(#loc5)
+    %181 = acir.current {aspect = "storage", resource = "top.independent_out"} : !acir.array<i32, 1> loc(#loc5)
     %c0_i32_30 = arith.constant 0 : i32 loc(#loc5)
     %182 = arith.subi %161, %c0_i32_30 : i32 loc(#loc5)
     %183 = acir.aggregate() : () -> i32 loc(#loc5)
@@ -244,9 +244,9 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %c0_i32_35 = arith.constant 0 : i32 loc(#loc7)
     %192 = arith.select %188, %c1_i32_34, %c0_i32_35 : i32 loc(#loc7)
     %193 = arith.addi %182, %192 : i32 loc(#loc7)
-    acir.next %191 {aspect = "storage", resource = "top.independent.out"} : !acir.array<i32, 1> loc(#loc7)
-    acir.next %193 {aspect = "count", resource = "top.independent.out"} : i32 loc(#loc7)
-    %194 = acir.current {aspect = "storage", resource = "top.left.out"} : !acir.array<i32, 1> loc(#loc7)
+    acir.next %191 {aspect = "storage", resource = "top.independent_out"} : !acir.array<i32, 1> loc(#loc7)
+    acir.next %193 {aspect = "count", resource = "top.independent_out"} : i32 loc(#loc7)
+    %194 = acir.current {aspect = "storage", resource = "top.left_out"} : !acir.array<i32, 1> loc(#loc7)
     %c0_i32_36 = arith.constant 0 : i32 loc(#loc7)
     %195 = arith.subi %47, %c0_i32_36 : i32 loc(#loc7)
     %196 = acir.aggregate() : () -> i32 loc(#loc7)
@@ -265,9 +265,9 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %c0_i32_41 = arith.constant 0 : i32 loc(#loc7)
     %205 = arith.select %201, %c1_i32_40, %c0_i32_41 : i32 loc(#loc7)
     %206 = arith.addi %195, %205 : i32 loc(#loc7)
-    acir.next %204 {aspect = "storage", resource = "top.left.out"} : !acir.array<i32, 1> loc(#loc7)
-    acir.next %206 {aspect = "count", resource = "top.left.out"} : i32 loc(#loc7)
-    %207 = acir.current {aspect = "storage", resource = "top.right.out"} : !acir.array<i32, 1> loc(#loc7)
+    acir.next %204 {aspect = "storage", resource = "top.left_out"} : !acir.array<i32, 1> loc(#loc7)
+    acir.next %206 {aspect = "count", resource = "top.left_out"} : i32 loc(#loc7)
+    %207 = acir.current {aspect = "storage", resource = "top.right_out"} : !acir.array<i32, 1> loc(#loc7)
     %c0_i32_42 = arith.constant 0 : i32 loc(#loc7)
     %208 = arith.subi %104, %c0_i32_42 : i32 loc(#loc7)
     %209 = acir.aggregate() : () -> i32 loc(#loc7)
@@ -286,8 +286,8 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     %c0_i32_47 = arith.constant 0 : i32 loc(#loc7)
     %218 = arith.select %214, %c1_i32_46, %c0_i32_47 : i32 loc(#loc7)
     %219 = arith.addi %208, %218 : i32 loc(#loc7)
-    acir.next %217 {aspect = "storage", resource = "top.right.out"} : !acir.array<i32, 1> loc(#loc7)
-    acir.next %219 {aspect = "count", resource = "top.right.out"} : i32 loc(#loc7)
+    acir.next %217 {aspect = "storage", resource = "top.right_out"} : !acir.array<i32, 1> loc(#loc7)
+    acir.next %219 {aspect = "count", resource = "top.right_out"} : i32 loc(#loc7)
     %220 = arith.ori %58, %58 : i1 loc(#loc5)
     %221 = arith.andi %113, %220 : i1 loc(#loc5)
     %c0_i32_48 = arith.constant 0 : i32 loc(#loc5)
@@ -335,12 +335,12 @@ module attributes {acir.config = {choose_left = true}, acir.model = {config = [{
     acir.next %243 {aspect = "count", resource = "top.third"} : i32 loc(#loc5)
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":36:18)
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":32:18)
 #loc2 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:17)
 #loc3 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:25)
 #loc4 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:9)
 #loc5 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":13:16)
 #loc6 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":13:9)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":26:9)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":50:31)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":51:38)
+#loc7 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":23:9)
+#loc8 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":47:43)
+#loc9 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":48:56)

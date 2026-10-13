@@ -6,9 +6,9 @@
       "from": 1,
       "relation": "EHR.port",
       "resource": "top.storage.state",
-      "source_branch": 0,
+      "source_branch": 1,
       "target_branches": [
-        1
+        0
       ],
       "to": 0
     },
@@ -16,19 +16,9 @@
       "from": 2,
       "relation": "EHR.port",
       "resource": "top.storage.state",
-      "source_branch": 0,
+      "source_branch": 1,
       "target_branches": [
-        1
-      ],
-      "to": 0
-    },
-    {
-      "from": 3,
-      "relation": "EHR.port",
-      "resource": "top.storage.state",
-      "source_branch": 4,
-      "target_branches": [
-        1
+        0
       ],
       "to": 0
     },
@@ -39,6 +29,16 @@
       "source_branch": 4,
       "target_branches": [
         0
+      ],
+      "to": 0
+    },
+    {
+      "from": 3,
+      "relation": "EHR.port",
+      "resource": "top.storage.state",
+      "source_branch": 4,
+      "target_branches": [
+        1
       ],
       "to": 1
     },
@@ -48,7 +48,7 @@
       "resource": "top.storage.state",
       "source_branch": 4,
       "target_branches": [
-        0
+        1
       ],
       "to": 2
     },
@@ -58,7 +58,7 @@
       "resource": "Module contract",
       "source_branch": 4,
       "target_branches": [
-        1
+        0
       ],
       "to": 0
     }

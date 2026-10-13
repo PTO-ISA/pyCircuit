@@ -4,5 +4,5 @@ digraph Transactions {
   t0 [label="top.configure#0"];
   t1 [label="top.producer.advance#1"];
   t2 [label="top.reader.observe#2"];
-  t1 -> t2 [label="top.producer.result\nSignal.set \u2192 get"];
+  t1 -> t2 [label="top.result\nSignal.set \u2192 get"];
 }

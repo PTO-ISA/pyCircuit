@@ -19,9 +19,6 @@ class Storage:
     def late() -> None:
         state = 9
 
-    def __call__() -> ac.ehr[ac.u32]:
-        return state
-
 @ac.module
 class EHRShared:
 
@@ -38,11 +35,9 @@ class EHRShared:
     def second(value: ac.u32) -> None:
         second_seen = value + 1
 
-    def __call__() -> tuple[ac.cell[ac.u32], ac.cell[ac.u32], ac.ehr[ac.u32]]:
-        storage()
+    def __call__() -> None:
         storage.late()
         shared = storage.read()
         first(shared)
         second(shared)
         storage.early()
-        return (first_seen, second_seen, storage.outputs)

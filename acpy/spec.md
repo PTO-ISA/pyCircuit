@@ -11,38 +11,41 @@ from pycircuit import ac
 @ac.module
 class Stage:
     def __init__() -> None:
-        out = ac.queue[ac.u32](capacity=2)
+        pass
 
     @ac.rule
     def transfer(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
         return source + 1
 
     def __call__(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
-        out = transfer(source)
-        return out
+        return transfer(source)
 
 @ac.module
 class Top:
     def __init__() -> None:
         source = ac.queue[ac.u32](initial=[1, 2], capacity=2)
+        out = ac.queue[ac.u32](capacity=2)
         stage = Stage()
 
-    def __call__() -> ac.queue[ac.u32]:
-        stage(source)
-        return stage.outputs
+    def __call__() -> None:
+        out = stage(source)
 ```
 
 `__init__` 只表达静态构造；`__call__` 绑定固定接口，保存组合计算与调用选择。
-实例只绑定一次；运行时分支不创建组件／子实例。Module 输出必须是固定组件连接。
+实例只绑定一次；运行时分支不创建组件／子实例。输出组件在父 Module 的 `__init__` 中明确声明，
+用 `out = stage(source)` 绑定目的地，赋值后 out 仍是同一个 Queue。`__call__` 的组件返回类型
+声明输出接口，主体返回对应 Rule 的输出；允许条件化 return／None，未选择路径不提出输出效果。
+输出写入与 Rule 的 guard、消费和状态修改属于同一个原子事务，不额外建立转发事务。
 只提供状态和公开 Rule 的组件可以省略 `__call__`；构造实例后直接调用其 Rule，
 无需额外写 `component()`。省略主体不自动调度任何 Rule，也不生成空的 Module body。
 需要绑定输入、输出连接或选择每拍 Rule 的模块才定义并连接 `__call__`。
-`.outputs` 仅表示已连接的 `__call__` 返回值；内部状态观察直接使用逐拍轨迹，
-不需要为了观测而给组件添加输出包装。
+`.outputs` 和返回内部组件引用的导出包装已删除，不再隐式创建输出 Queue。
+需要多个输出时先声明对应组件，再写 `a, b = stage(source)`；已有组件也可作为显式参数传入。
+内部状态观察直接使用逐拍轨迹，不需要为了观测而给组件添加输出包装。
 成员函数省略 self 和 self.。构造配置、成员资源、子实例及 Rule 在本实例内可见。
 局部变量和参数优先于同名成员。所有参数和返回类型显式标注，无返回值写 `-> None`。
 
-子实例资源通过显式输出连接或绑定参数访问。其它未绑定资源使用公开 Rule 访问；
+共享连接资源通过父模块声明及显式绑定参数访问。其它未绑定资源使用公开 Rule 访问；
 `@ac.rule(public=False)` 只允许本 Module 直接调用。构造一次得到共享状态，分别构造得到独立状态。
 Module body 中普通 SSA 共享计算不会建立额外事务，也不增加跨拍 valid／缓存状态。
 
@@ -85,7 +88,7 @@ guard 可以是布尔表达式或接收对应参数并返回 bool 的函数，�
 普通返回值可以用于只读计算或同事务嵌套调用。独立事务之间通过组件传值；
 修改性调用的普通返回值不能传给另一个独立事务。组件类型返回值绑定为固定输出资源的效果。
 混合输出用显式 tuple 类型，各槽位的 None 省略该效果；省略输出仍保留该路径上的其它修改。
-Cell／Signal 输出绑定已声明对象，Queue 输出也可由直接绑定声明；运行时不产生新身份。
+Cell／Signal／Queue 输出均绑定此前明确声明的对象；赋值连接不创建新组件或改变身份。
 
 ## Rule 关系
 

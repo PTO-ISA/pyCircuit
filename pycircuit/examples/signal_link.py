@@ -1,4 +1,4 @@
-"""A Module with methods, an autonomous Rule and control exports a saved Signal."""
+"""A controlled producer and reader share a Signal declared by their parent."""
 from pycircuit import ac
 
 @ac.module
@@ -7,25 +7,24 @@ class Producer:
     def __init__() -> None:
         offset = ac.cell[ac.u32](initial=0)
         count = ac.cell[ac.u32](initial=0)
-        result = ac.signal[ac.u32]()
 
     @ac.rule
     def configure(value: ac.u32) -> None:
         offset = value
 
     @ac.rule
-    def peek() -> ac.u32:
-        return result
+    def peek(source: ac.signal[ac.u32]) -> ac.u32:
+        return source
 
     @ac.rule
-    def advance() -> None:
-        result = count + offset
+    def advance() -> ac.signal[ac.u32]:
+        value = count + offset
         count = count + 1
+        return value
 
     def __call__(enabled: bool) -> ac.signal[ac.u32]:
         if enabled and count < 16:
-            advance()
-        return result
+            return advance()
 
 @ac.module
 class Reader:
@@ -37,18 +36,18 @@ class Reader:
     def observe(value: ac.u32) -> None:
         last = value
 
-    def __call__(source: ac.signal[ac.u32]) -> ac.cell[ac.u32]:
+    def __call__(source: ac.signal[ac.u32]) -> None:
         saved = source
         adjusted = saved + 1
         ready = adjusted != 0
         if ready:
             observe(adjusted)
-        return last
 
 @ac.module
 class SignalLink:
 
     def __init__(enabled: bool) -> None:
+        result = ac.signal[ac.u32]()
         producer = Producer()
         reader = Reader()
 
@@ -56,8 +55,7 @@ class SignalLink:
     def configure() -> None:
         producer.configure(4)
 
-    def __call__() -> tuple[ac.signal[ac.u32], ac.cell[ac.u32]]:
-        producer(enabled)
+    def __call__() -> None:
+        result = producer(enabled)
         configure()
-        reader(producer.outputs)
-        return (producer.outputs, reader.outputs)
+        reader(result)

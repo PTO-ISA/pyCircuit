@@ -11,7 +11,7 @@ module attributes {acir.config = {release_enabled = true}, acir.model = {config 
     %0 = acir.rule.call @top.slot::@top_body.0.call.2.5.0.call.2.3.0.call.2.1.0.call.2.1() {acir.id = "v2", acir.source_type = "bool", contract = "Module:top.slot", instance = "top.slot", interface = "Module:top.slot:available", role = "rule", rule = "available"} : () -> i1 loc(#loc3)
     return %0 : i1 loc(#loc4)
   }
-  acir.module @top attributes {acir.instance = {definition = "src_ehr_slots_1e0ac8be.EHRSlots", inputs = {}, members = {}, name = "top", outputs, parent, rules = ["allocate", "release"]}} {
+  acir.module @top attributes {acir.instance = {definition = "src_ehr_slots_1e0ac8be.EHRSlots", inputs = {}, members = {}, name = "top", parent, rules = ["allocate", "release"]}} {
     acir.contract {relations = [], rules = ["allocate", "release"]}
     func.func private @ac_init_top.slot.occupied(i1) -> i1
     func.func private @ac_init_top.slot.payload(i1) -> i32
@@ -34,7 +34,7 @@ module attributes {acir.config = {release_enabled = true}, acir.model = {config 
       acir.body.end {acir.source_type = "void"}
     }
   }
-  acir.module @top.slot attributes {acir.instance = {definition = "src_ehr_slots_1e0ac8be.Slot", inputs = {}, members = {}, name = "top.slot", outputs, parent = "top", rules = ["allocate", "available", "release"]}} {
+  acir.module @top.slot attributes {acir.instance = {definition = "src_ehr_slots_1e0ac8be.Slot", inputs = {}, members = {}, name = "top.slot", parent = "top", rules = ["allocate", "available", "release"]}} {
     acir.contract {relations = [{after = "available", before = "release", loc = {column = 16 : i64, file = "/home/lc/tmp/pycircuit/examples/ehr_slots.py", line = 11 : i64}, relation = "SB", source = "user"}, {after = "allocate", before = "available", loc = {column = 16 : i64, file = "/home/lc/tmp/pycircuit/examples/ehr_slots.py", line = 15 : i64}, relation = "SB", source = "user"}], rules = ["allocate", "available", "release"]}
     acir.ehr @top.slot.occupied : i1 {initial_fn = "ac_init_top.slot.occupied", name = "top.slot.occupied", type = "bool"}
     acir.cell @top.slot.payload : i32 {initial_fn = "ac_init_top.slot.payload", name = "top.slot.payload", type = "u32"}
@@ -66,21 +66,18 @@ module attributes {acir.config = {release_enabled = true}, acir.model = {config 
       acir.cell.write %1, %arg0 {acir.id = "v9", acir.source_type = "void"} : !acir.cell<i32>, i32 loc(#loc19)
       acir.return {acir.source_type = "void"}
     }
-    acir.body attributes {acir.function = {kind = "body", name = "top.slot_body", owner = "top.slot", params = [], result = "void"}} {
-      acir.body.end {acir.source_type = "void"}
-    }
   }
 }
 #loc1 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":8:41)
 #loc2 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":9:43)
 #loc3 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":20:16)
 #loc4 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":20:9)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":38:9)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":42:23)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":42:9)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":33:18)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":47:13)
-#loc10 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":48:9)
+#loc5 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":35:9)
+#loc6 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":39:23)
+#loc7 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":39:9)
+#loc8 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":30:18)
+#loc9 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":43:13)
+#loc10 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":44:9)
 #loc11 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":13:20)
 #loc12 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":13:9)
 #loc13 = loc("/home/lc/tmp/pycircuit/examples/ehr_slots.py":17:20)

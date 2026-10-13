@@ -22,7 +22,7 @@ class Dispatch:
         tag = rob.allocate(inst.rd)
         rf.rename(inst.rd, tag)
         entry = Entry(True, inst.kind, tag, inst.rd, lhs, rhs)
-        if not left.outputs.valid:
+        if not left.peek().valid:
             left.place(entry)
         else:
             right.place(entry)
@@ -35,7 +35,7 @@ class Dispatch:
 class Broadcast:
 
     def __init__() -> None:
-        event = ac.signal[Completion]()
+        pass
 
     @ac.rule
     def broadcast(a: ac.queue[Completion], b: ac.queue[Completion], choose_add: bool) -> ac.signal[Completion]:
@@ -50,8 +50,7 @@ class Broadcast:
 
     def __call__(add_done: ac.queue[Completion], mul_done: ac.queue[Completion], rob: ReorderBuffer, left: ReservationStation, right: ReservationStation) -> ac.signal[Completion]:
         prefer_add = not add_done.empty()
-        event = broadcast(add_done, mul_done, prefer_add)
-        return event
+        return broadcast(add_done, mul_done, prefer_add)
 
 @ac.module
 class Commit:
@@ -67,9 +66,8 @@ class Commit:
         retired = retired + 1
         last_tag = entry.tag
 
-    def __call__(rob: ReorderBuffer, rf: RegisterFile) -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
+    def __call__(rob: ReorderBuffer, rf: RegisterFile) -> None:
         commit()
-        return (retired, last_tag)
 
 @ac.module
 class CompletionAudit:
@@ -82,15 +80,19 @@ class CompletionAudit:
         saved = value
         last_tag = saved.tag
 
-    def __call__(event: ac.signal[Completion]) -> ac.cell[ac.u32]:
+    def __call__(event: ac.signal[Completion]) -> None:
         observe(event)
-        return last_tag
 
 @ac.module
 class OutOfOrder:
 
     def __init__() -> None:
         source = ac.queue[MicroOp](capacity=4, initial=[MicroOp(MUL, 1, 2, 3), MicroOp(ADD, 4, 1, 2), MicroOp(ADD, 5, 2, 3), MicroOp(ADD, 6, 4, 5)])
+        add_requests = ac.queue[Entry]()
+        mul_requests = ac.queue[Entry]()
+        add_done = ac.queue[Completion]()
+        mul_done = ac.queue[Completion]()
+        event = ac.signal[Completion]()
         rob = ReorderBuffer()
         rf = RegisterFile()
         left = ReservationStation()
@@ -103,16 +105,12 @@ class OutOfOrder:
         commit = Commit()
         audit = CompletionAudit()
 
-    def __call__() -> tuple[tuple[ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]]], tuple[ac.cell[ac.u32], ac.cell[ac.u32]], tuple[ac.cell[ac.u32], ac.cell[ac.u32]], ac.cell[ac.u32]]:
-        rob()
+    def __call__() -> None:
         rf(rob)
-        left()
-        right()
-        scheduler(left, right)
-        adder(scheduler.outputs[0])
-        multiplier(scheduler.outputs[1])
-        cdb(adder.outputs, multiplier.outputs, rob, left, right)
-        dispatch(source, rob, rf, left, right, adder.outputs, multiplier.outputs)
+        add_requests, mul_requests = scheduler(left, right)
+        add_done = adder(add_requests)
+        mul_done = multiplier(mul_requests)
+        event = cdb(add_done, mul_done, rob, left, right)
+        dispatch(source, rob, rf, left, right, add_done, mul_done)
         commit(rob, rf)
-        audit(cdb.outputs)
-        return (rf.outputs, rob.outputs, commit.outputs, audit.outputs)
+        audit(event)

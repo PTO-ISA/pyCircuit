@@ -11,9 +11,6 @@ class Ledger:
     def record(value: ac.u32) -> None:
         observed = value
 
-    def __call__() -> ac.cell[ac.u32]:
-        return observed
-
 @ac.module
 class Observer:
 
@@ -24,17 +21,14 @@ class Observer:
     def sample(x: ac.signal[ac.u32]) -> None:
         last = x
 
-    def __call__(value: ac.signal[ac.u32]) -> ac.cell[ac.u32]:
+    def __call__(value: ac.signal[ac.u32]) -> None:
         sample(value)
-        return last
 
 @ac.module
 class Router:
 
     def __init__() -> None:
-        accepted = ac.queue[ac.u32](capacity=2)
-        last_accepted = ac.cell[ac.u32](initial=0)
-        result = ac.signal[ac.u32]()
+        pass
 
     @ac.rule
     def route(message: ac.queue[ac.u32], take: bool) -> tuple[ac.queue[ac.u32], ac.cell[ac.u32], ac.signal[ac.u32]]:
@@ -45,20 +39,20 @@ class Router:
         return (None, None, value)
 
     def __call__(source: ac.queue[ac.u32], ledger: Ledger, enabled: bool) -> tuple[ac.queue[ac.u32], ac.cell[ac.u32], ac.signal[ac.u32]]:
-        accepted, last_accepted, result = route(source, enabled)
-        return (accepted, last_accepted, result)
+        return route(source, enabled)
 
 @ac.module
 class MixedPorts:
 
     def __init__(enabled: bool) -> None:
         source = ac.queue[ac.u32](initial=7)
+        accepted = ac.queue[ac.u32](capacity=2)
+        last_accepted = ac.cell[ac.u32](initial=0)
+        result = ac.signal[ac.u32]()
         ledger = Ledger()
         router = Router()
         observer = Observer()
 
-    def __call__() -> tuple[ac.queue[ac.u32], ac.cell[ac.u32], ac.cell[ac.u32]]:
-        ledger()
-        router(source, ledger, enabled)
-        observer(router.outputs[2])
-        return (router.outputs[0], router.outputs[1], observer.outputs)
+    def __call__() -> None:
+        accepted, last_accepted, result = router(source, ledger, enabled)
+        observer(result)

@@ -1,5 +1,5 @@
 module attributes {acir.model = {config = [], constants = {}, exports = {}, format_version = 8 : i64, top = "EHRShared", type_order = [], types = {}}, acir.stage = "rtl"} {
-  acir.circuit attributes {conflicts = [], edges = [{from = 1 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 0 : i64, target_branches = [1], to = 0 : i64}, {from = 2 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 0 : i64, target_branches = [1], to = 0 : i64}, {from = 3 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 4 : i64, target_branches = [1], to = 0 : i64}, {from = 3 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 4 : i64, target_branches = [0], to = 1 : i64}, {from = 3 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 4 : i64, target_branches = [0], to = 2 : i64}, {from = 3 : i64, relation = "SB", resource = "Module contract", source_branch = 4 : i64, target_branches = [1], to = 0 : i64}], schedule = [3, 1, 2, 0], stage = "rtl"} {
+  acir.circuit attributes {conflicts = [], edges = [{from = 1 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 1 : i64, target_branches = [0], to = 0 : i64}, {from = 2 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 1 : i64, target_branches = [0], to = 0 : i64}, {from = 3 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 4 : i64, target_branches = [0], to = 0 : i64}, {from = 3 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 4 : i64, target_branches = [1], to = 1 : i64}, {from = 3 : i64, relation = "EHR.port", resource = "top.storage.state", source_branch = 4 : i64, target_branches = [1], to = 2 : i64}, {from = 3 : i64, relation = "SB", resource = "Module contract", source_branch = 4 : i64, target_branches = [0], to = 0 : i64}], schedule = [3, 1, 2, 0], stage = "rtl"} {
     acir.state @top.first_seen : i32 {initial = 0 : i32, kind = "cell"}
     acir.state @top.second_seen : i32 {initial = 0 : i32, kind = "cell"}
     acir.state @top.storage.state : i32 {initial = 1 : i32, kind = "ehr"}
@@ -31,6 +31,6 @@ module attributes {acir.model = {config = [], constants = {}, exports = {}, form
 }
 #loc1 = loc("/home/lc/tmp/pycircuit/examples/ehr_shared.py":16:16)
 #loc2 = loc("/home/lc/tmp/pycircuit/examples/ehr_shared.py":12:17)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/ehr_shared.py":39:9)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/ehr_shared.py":39:31)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/ehr_shared.py":36:9)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/ehr_shared.py":36:31)
 #loc5 = loc("/home/lc/tmp/pycircuit/examples/ehr_shared.py":20:17)

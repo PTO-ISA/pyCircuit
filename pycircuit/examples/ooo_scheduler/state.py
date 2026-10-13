@@ -1,4 +1,4 @@
-"""Shared state lives in modules; its methods execute inside the caller's rule."""
+"""Shared state lives in modules; their Rules execute inside the caller's transaction."""
 from pycircuit import ac
 from payloads import Operand, Entry, RobEntry
 
@@ -39,7 +39,8 @@ class ReservationStation:
         if changed:
             slot = entry
 
-    def __call__() -> ac.cell[Entry]:
+    @ac.rule
+    def peek() -> Entry:
         return slot
 
 @ac.module
@@ -76,9 +77,6 @@ class RobSlot:
         entry = state
         state = RobEntry()
         return entry
-
-    def __call__() -> ac.cell[RobEntry]:
-        return state
 
 @ac.module
 class ReorderBuffer:
@@ -151,13 +149,6 @@ class ReorderBuffer:
         head = tag + 1
         return entry
 
-    def __call__() -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
-        slot0()
-        slot1()
-        slot2()
-        slot3()
-        return (head, tail)
-
 @ac.module
 class RegisterFile:
 
@@ -191,5 +182,5 @@ class RegisterFile:
             registers[entry.rd] = entry.value
             committed[entry.rd] = entry.tag
 
-    def __call__(rob: ReorderBuffer) -> tuple[ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]]]:
-        return (registers, renamed, committed)
+    def __call__(rob: ReorderBuffer) -> None:
+        pass

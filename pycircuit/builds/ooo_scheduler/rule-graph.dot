@@ -10,9 +10,9 @@ digraph Transactions {
   t6 [label="top.dispatch.dispatch#6"];
   t7 [label="top.commit.commit#7"];
   t8 [label="top.audit.observe#8"];
-  t5 -> t2 [label="top.adder.out\nQueue.pop \u2192 push"];
-  t5 -> t8 [label="top.cdb.event\nSignal.set \u2192 get"];
-  t5 -> t4 [label="top.multiplier.out\nQueue.pop \u2192 push"];
-  t2 -> t0 [label="top.scheduler.add_requests\nQueue.pop \u2192 push"];
-  t3 -> t1 [label="top.scheduler.mul_requests\nQueue.pop \u2192 push"];
+  t5 -> t2 [label="top.add_done\nQueue.pop \u2192 push"];
+  t2 -> t0 [label="top.add_requests\nQueue.pop \u2192 push"];
+  t5 -> t8 [label="top.event\nSignal.set \u2192 get"];
+  t5 -> t4 [label="top.mul_done\nQueue.pop \u2192 push"];
+  t3 -> t1 [label="top.mul_requests\nQueue.pop \u2192 push"];
 }

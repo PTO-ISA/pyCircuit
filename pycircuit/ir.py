@@ -24,7 +24,6 @@ class Instance:
     name: str
     env: dict
     rules: dict
-    outputs: object = None
     definitions: dict = field(default_factory=dict)
     parent: str | None = None
     source_name: str = ''

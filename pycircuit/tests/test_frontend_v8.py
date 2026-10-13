@@ -28,11 +28,10 @@ class Top:
     @ac.rule
     def other(value: ac.u32) -> None:
         count = value
-    def __call__() -> ac.cell[ac.u32]:
+    def __call__() -> None:
         value = count + 1
         if value < 4:
             advance(value)
-        return count
 ''')
         for operation in ('acir.rule ', 'acir.rule.call', 'acir.body ', 'scf.if', 'acir.contract', 'acir.cell.write'):
             self.assertIn(operation, ir)
@@ -98,10 +97,43 @@ class Top:
         self.assertIn('acir.rule.call', ir)
         for expression, diagnostic in (
             ('storage()', 'Module has no __call__; invoke its public Rules directly'),
-            ('value = storage.outputs', 'Module has no __call__ output connections'),
+            ('value = storage.outputs', 'Module .outputs is removed'),
         ):
             with self.assertRaisesRegex(CompileError, diagnostic):
                 self.compile(template.replace('BODY', expression))
         without_init = template.replace('    def __init__() -> None:\n        state = ac.cell[ac.u32](initial=1)\n', '')
         with self.assertRaisesRegex(CompileError, 'Module requires __init__'):
             self.compile(without_init.replace('BODY', 'capture()'))
+
+    def test_legacy_module_outputs_and_implicit_destinations_are_rejected(self):
+        template = '''from pycircuit import ac
+@ac.module
+class Producer:
+    def __init__() -> None:
+        internal = ac.queue[ac.u32]()
+    @ac.rule
+    def produce() -> ac.queue[ac.u32]:
+        return 7
+    def __call__() -> ac.queue[ac.u32]:
+        RETURN
+@ac.module
+class Top:
+    def __init__() -> None:
+        destination = ac.queue[ac.u32]()
+        producer = Producer()
+    def __call__() -> None:
+        BODY
+'''
+        for returned, body, diagnostic in (
+            ('return produce()', 'temporary = producer()', 'previously declared component'),
+            ('return produce()', 'producer()', 'previously declared component'),
+            ('return produce()', 'destination = producer()\n        saved = producer.outputs', 'Module .outputs is removed'),
+            ('return internal', 'destination = producer()', 'no longer export internal components'),
+            ('implicit = produce()', 'destination = producer()', 'Rule component output must bind'),
+            ('return (produce(), produce())', 'destination = producer()', 'one Rule output per destination'),
+        ):
+            with self.assertRaisesRegex(CompileError, diagnostic):
+                self.compile(template.replace('RETURN', returned).replace('BODY', body))
+        wrong_type = template.replace('destination = ac.queue[ac.u32]()', 'destination = ac.cell[ac.u32](initial=0)')
+        with self.assertRaisesRegex(CompileError, 'previously declared component of type queue'):
+            self.compile(wrong_type.replace('RETURN', 'return produce()').replace('BODY', 'destination = producer()'))

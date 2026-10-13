@@ -253,7 +253,7 @@ class Frontend:
         if '__call__' in inst.definitions:
             self.connect(inst, [], {}, builder, cls)
         self.model['construction'] = builder.ops
-        self.model['instances'] = [dict(name=i.name, parent=i.parent, definition=i.source_name, members={}, inputs={}, outputs=None, rules=sorted(i.rules)) for i in self.instances]
+        self.model['instances'] = [dict(name=i.name, parent=i.parent, definition=i.source_name, members={}, inputs={}, rules=sorted(i.rules)) for i in self.instances]
         self.model['contracts'] = []
         for i in self.instances:
             relations = []
@@ -302,11 +302,21 @@ class Frontend:
         for fn in instance.definitions.values(): self.closures[instance.name, id(fn)] = (env, definitions, instance.name)
         return instance
 
-    def connect(self, instance, args, keywords, builder, node):
+    def connect(self, instance, args, keywords, builder, node, outputs=None):
         fn = instance.definitions.get('__call__')
         if fn is None: self.error(node, 'Module has no __call__; invoke its public Rules directly')
         if getattr(instance, 'connected', False): self.error(node, 'Module __call__ binds fixed connections once')
         instance.connected = True
+        output_type = self.annotation(fn.returns)
+        def validate_outputs(value, typ):
+            if isinstance(typ, list):
+                if not isinstance(value, list) or len(value) != len(typ): self.error(node, 'Module output binding tuple arity mismatch')
+                for v, t in zip(value, typ): validate_outputs(v, t)
+            elif typ == 'void':
+                if value is not None: self.error(node, 'Module returning None has no output binding')
+            elif not resource(typ): self.error(fn, 'Module returns must declare component output types')
+            elif not isinstance(value, Value) or value.type != typ: self.error(node, 'Module result must bind to a previously declared component of type ' + typ)
+        validate_outputs(outputs, output_type)
         supplied = self.bind_args(fn, args, keywords)
         supplied = [builder.expr(v,reference=True) if isinstance(v,ast.AST) else v for v in supplied]
         env = dict(instance.env)
@@ -321,39 +331,11 @@ class Frontend:
         self.model['modules'].append(mod)
         lower = Lower(self, 'body', instance.name + '_body', env, builder=builder, module=mod, defs=instance.definitions)
         lower.lexical_instance = instance.name
-        # Fixed Queue return connections may be declared by an output call.
-        for stmt in ast.walk(fn):
-            if not isinstance(stmt, (ast.Assign, ast.AnnAssign)) or not isinstance(stmt.value, ast.Call): continue
-            target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
-            callee = instance.rules.get(spelling(stmt.value.func))
-            if isinstance(target, ast.Name) and target.id not in env and callee:
-                t = self.annotation(callee.returns)
-                if isinstance(t,str) and t.startswith('queue<'):
-                    declaration = ast.parse('ac.queue[ac.u32]()',mode='eval').body
-                    declaration.func.slice = callee.returns.slice
-                    env[target.id] = self.construct_value(declaration, instance.name + '.' + target.id, builder, {})
-        lower.env = dict(env)
+        lower.output_targets = outputs
         for rule in instance.definitions.values(): self.closures[instance.name, id(rule)] = (env, instance.definitions, instance.name)
-        body = [stmt for stmt in fn.body if not isinstance(stmt, ast.Return)]
-        lower.statements(body)
-        returned = next((stmt for stmt in fn.body if isinstance(stmt,ast.Return)), None)
-        if returned:
-            instance.outputs = lower.expr(returned.value, reference=True)
-            def export(v):
-                if isinstance(v,list): return [export(x) for x in v]
-                if isinstance(v,Value) and not resource(v.type): self.error(returned,'Module outputs must be fixed component connections')
-                return v
-            instance.outputs = export(instance.outputs)
-            def verify_output(value,typ):
-                if isinstance(typ,list):
-                    if not isinstance(value,list) or len(value)!=len(typ): self.error(returned,'Module output tuple type mismatch')
-                    for v,t in zip(value,typ): verify_output(v,t)
-                elif value is None and typ=='void': pass
-                elif not isinstance(value,Value) or value.type!=typ: self.error(returned,'Module output type mismatch')
-            verify_output(instance.outputs,self.annotation(fn.returns))
+        lower.statements(fn.body)
         mod['body'] = lower.function()
         mod['resources'] = sorted(mod.pop('_resources'))
-        return instance.outputs
 
     def expand_loops(self, body):
         import copy
@@ -611,10 +593,6 @@ class Lower:
             return self.f.global_value(name, self.builder or self, node)
         if name in self.f.constants:
             return self.const(self.f.constants[name], node=node)
-        if self.module:
-            for _, _, target in self.module.get('_pending_outputs', []):
-                if target is not None and any(isinstance(n, ast.Name) and n.id == name for n in ast.walk(target)):
-                    self.f.error(node, f'cannot infer output {name} in a connection/type cycle; add an explicit Queue or Rule return type annotation')
         self.f.error(node, f'unknown name: {name}')
 
     def bind(self, name, val):
@@ -704,10 +682,7 @@ class Lower:
             if qualified in self.f.constants: return self.const(self.f.constants[qualified], node=node)
             val = self.expr(node.value, reference=True)
             if isinstance(val, Instance):
-                if node.attr == 'outputs':
-                    if '__call__' not in val.definitions: self.f.error(node, 'Module has no __call__ output connections; invoke its public Rules directly')
-                    if not getattr(val, 'connected', False): self.f.error(node, 'Module outputs require a fixed __call__ connection first')
-                    return self.imported(val.outputs)
+                if node.attr == 'outputs': self.f.error(node, 'Module .outputs is removed; bind results to explicitly declared components')
                 if node.attr in val.rules: return RuleRef(val, val.rules[node.attr])
                 self.f.error(node, 'resource is private to its Module; use a public Rule or an explicit connection')
             val = self.signal_value(val, node)
@@ -790,7 +765,7 @@ class Lower:
                     return other.type
         self.f.error(node, f'mixed types need an explicit cast: {a.type}, {b.type}')
 
-    def call(self, node, expected):
+    def call(self, node, expected, outputs=None):
         name = spelling(node.func)
         short = name.removeprefix('ac.')
         if short in SCALARS:
@@ -825,10 +800,11 @@ class Lower:
                     vals.append(self.op('zero', f['type'], node=node))
             return self.op('aggregate', name, vals, node=node)
         if isinstance(node.func, ast.Name) and isinstance(self.env.get(node.func.id), Instance):
+            if self.kind != 'body': self.f.error(node, 'Module __call__ connections belong in Module bodies')
             instance = self.env[node.func.id]
             args = [self.expr(x, reference=True) for x in node.args]
             keywords = {k.arg:self.expr(k.value, reference=True) for k in node.keywords}
-            return self.imported(self.f.connect(instance, args, keywords, self.builder, node))
+            return self.f.connect(instance, args, keywords, self.builder, node, outputs=outputs)
         bound = None
         fn = self.defs.get(name, self.f.defs.get(name))
         if not fn and isinstance(node.func, ast.Attribute):
@@ -959,37 +935,68 @@ class Lower:
             return wrapped('queue', element(typ)) if typ.startswith('qarray<') else element(typ)
         self.f.error(target, 'unsupported assignment type')
 
-    def assignment(self, target, value, node, connection=False):
-        if not connection:
-            existing = self.env.get(target.id) if isinstance(target, ast.Name) else self.expr(target, reference=True) if isinstance(target, ast.Attribute) and isinstance(self.expr(target.value, reference=True), Instance) else None
-            if isinstance(target,ast.Subscript):
-                probe=self.expr(target,reference=True)
-                if isinstance(probe,Value) and probe.type.startswith('queue<'): existing=probe
-            if isinstance(existing, Value) and resource(existing.type) and not existing.type.startswith('qarray<') and True:
-                existing = self.imported(existing)
-                value = self.cast(self.signal_value(value,node), element(existing.type), node)
-                producing = next((o for o in self.ops if o['id'] == value.id), None)
-                slot=producing.get('slot') if producing else None
-                if producing and producing.get('output_call'): producing=next(o for o in self.ops if o['id']==producing['output_call'])
-                if self.kind == 'body':
-                    if isinstance(target,ast.Subscript): self.f.error(node,'dynamic output binding belongs inside a Rule')
-                    if producing is None or producing.get('role') != 'rule': self.f.error(node, 'Module state assignment requires a Rule component output')
-                    if slot is None: producing['output_binding'] = next(iter(existing.targets))
-                    else:
-                        binding=producing.setdefault('output_bindings',{})
-                        binding[slot]=next(iter(existing.targets))
-                else:
-                    operation = 'queue.push' if existing.type.startswith('queue<') else 'signal.write' if existing.type.startswith('signal<') else 'cell.write'
-                    self.op(operation, 'void', [existing,value], node=node)
-                return
+    def module_call(self, node):
+        return isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and isinstance(self.env.get(node.func.id), Instance)
+
+    def output_destination(self, target):
+        if isinstance(target, (ast.Tuple, ast.List)):
+            return [self.output_destination(t) for t in target.elts]
         if isinstance(target, ast.Name):
+            value = self.env.get(target.id)
+            if isinstance(value, Value) and resource(value.type) and len(value.targets) == 1:
+                return value
+        self.f.error(target, 'Module result must bind to a previously declared component')
+
+    def bind_return(self, value, targets, node):
+        if value is None: return
+        if isinstance(targets, list):
+            if not isinstance(value, list) or len(value) != len(targets): self.f.error(node, 'Module output binding tuple arity mismatch')
+            for v, t in zip(value, targets): self.bind_return(v, t, node)
+            return
+        if targets is None: self.f.error(node, 'Module returning None cannot return an output value')
+        if not isinstance(value, Value): self.f.error(node, 'Module output binding requires one Rule output per destination')
+        if isinstance(value, Value) and resource(value.type): self.f.error(node, 'Module returns no longer export internal components; return a Rule output to an explicit destination')
+        key = '$module_result'
+        self.env[key] = targets
+        self.assignment(ast.Name(id=key, ctx=ast.Store()), value, node)
+        del self.env[key]
+
+    def assignment(self, target, value, node):
+        existing = self.env.get(target.id) if isinstance(target, ast.Name) else self.expr(target, reference=True) if isinstance(target, ast.Attribute) and isinstance(self.expr(target.value, reference=True), Instance) else None
+        if isinstance(target,ast.Subscript):
+            probe=self.expr(target,reference=True)
+            if isinstance(probe,Value) and probe.type.startswith('queue<'): existing=probe
+        if isinstance(existing, Value) and resource(existing.type) and not existing.type.startswith('qarray<'):
+            existing = self.imported(existing)
+            value = self.cast(self.signal_value(value,node), element(existing.type), node)
+            producing = next((o for o in self.ops if o['id'] == value.id), None)
+            slot=producing.get('slot') if producing else None
+            if producing and producing.get('output_call'): producing=next(o for o in self.ops if o['id']==producing['output_call'])
+            if self.kind == 'body':
+                if isinstance(target,ast.Subscript): self.f.error(node,'dynamic output binding belongs inside a Rule')
+                if producing is None or producing.get('role') != 'rule': self.f.error(node, 'Module state assignment requires a Rule component output')
+                if slot is None: producing['output_binding'] = next(iter(existing.targets))
+                else:
+                    binding=producing.setdefault('output_bindings',{})
+                    binding[slot]=next(iter(existing.targets))
+            else:
+                operation = 'queue.push' if existing.type.startswith('queue<') else 'signal.write' if existing.type.startswith('signal<') else 'cell.write'
+                self.op(operation, 'void', [existing,value], node=node)
+            return
+        if isinstance(target, ast.Name):
+            if self.kind == 'body' and isinstance(value, Value):
+                producer = next((o for o in self.ops if o['id'] == value.id), None)
+                if producer and producer.get('output_call'): producer = next(o for o in self.ops if o['id'] == producer['output_call'])
+                function = next((f for f in self.f.model['functions'] if producer and f['name'] == producer.get('name')), None)
+                if function and (resource(function.get('output_type')) or isinstance(function.get('output_type'), list)):
+                    self.f.error(node, 'Rule component output must bind to a previously declared component')
             self.bind(target.id, value)
             return
         if isinstance(target, (ast.Tuple, ast.List)):
             if not isinstance(value, list) or len(value) != len(target.elts):
                 self.f.error(node, 'tuple assignment arity mismatch')
             for t, v in zip(target.elts, value):
-                self.assignment(t, v, node, connection=connection)
+                self.assignment(t, v, node)
             return
         if isinstance(target, (ast.Attribute, ast.Subscript)):
             path, indices, base = [], [], target
@@ -1031,18 +1038,23 @@ class Lower:
                         if scope: scope[0][key] = value
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 targets = node.targets if isinstance(node, ast.Assign) else [node.target]
+                if self.module_call(node.value):
+                    if len(targets) != 1: self.f.error(node, 'Module output binding requires one assignment target')
+                    outputs = self.output_destination(targets[0])
+                    if isinstance(node, ast.AnnAssign) and self.f.annotation(node.annotation) != outputs.type:
+                        self.f.error(node, 'Module output binding annotation must match the declared component')
+                    self.call(node.value, None, outputs=outputs)
+                    continue
                 typ = self.f.annotation(node.annotation) if isinstance(node, ast.AnnAssign) else None
                 if typ is None and isinstance(targets[0], (ast.Attribute, ast.Subscript)):
                     typ = self.target_type(targets[0])
                     if resource(typ): typ=element(typ)
-                fn = self.defs.get(spelling(node.value.func), self.f.defs.get(spelling(node.value.func))) if isinstance(node.value, ast.Call) else None
-                connection = False
-                val = self.expr(node.value, typ, reference=connection)
+                val = self.expr(node.value, typ)
                 if typ:
                     val = self.cast(val, typ, node)
                 for t in targets:
                     if isinstance(node,ast.AnnAssign) and isinstance(t,ast.Name) and not resource(typ): self.bind(t.id,val)
-                    else: self.assignment(t, val, node, connection=connection)
+                    else: self.assignment(t, val, node)
             elif isinstance(node, ast.AugAssign):
                 old = self.expr(node.target)
                 rhs = self.expr(node.value, old.type)
@@ -1125,8 +1137,10 @@ class Lower:
                 self.block, self.env, self.locals = end, header_env, header_locals
             elif isinstance(node, ast.Return):
                 if self.kind == 'body':
-                    if node.value is not None:
-                        self.f.error(node, 'Module body returns no payload; Module return exports connections')
+                    if self.module_call(node.value):
+                        self.call(node.value, None, outputs=self.output_targets)
+                    elif node.value is not None:
+                        self.bind_return(self.expr(node.value, reference=True), self.output_targets, node)
                     self.op('return', 'void', node=node)
                 else:
                     if getattr(self,'output_types',None):

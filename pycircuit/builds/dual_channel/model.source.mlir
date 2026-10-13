@@ -24,7 +24,7 @@ module attributes {acir.model = {config = [], constants = {}, exports = {}, form
     %0 = acir.aggregate() {acir.source_type = "vector<u32>"} : () -> !acir.vector<i32>
     return %0 : !acir.vector<i32>
   }
-  acir.module @top attributes {acir.instance = {definition = "src_dual_channel_3c0614f6.DualChannel", inputs = {}, members = {}, name = "top", outputs, parent, rules = ["left", "right"]}} {
+  acir.module @top attributes {acir.instance = {definition = "src_dual_channel_3c0614f6.DualChannel", inputs = {}, members = {}, name = "top", parent, rules = ["left", "right"]}} {
     acir.contract {relations = [], rules = ["left", "right"]}
     acir.queue @top.source : i32 {capacity_fn = "ac_init_top.source_cap", initial_fn = "ac_init_top.source", name = "top.source", type = "u32"}
     acir.queue @top.left_out : i32 {capacity_fn = "ac_init_top.left_out_cap", initial_fn = "ac_init_top.left_out", name = "top.left_out", type = "u32"}
@@ -59,7 +59,7 @@ module attributes {acir.model = {config = [], constants = {}, exports = {}, form
       acir.body.end {acir.source_type = "void"}
     }
   }
-  acir.module @top.observer attributes {acir.instance = {definition = "src_dual_channel_3c0614f6.Observer", inputs = {}, members = {}, name = "top.observer", outputs, parent = "top", rules = ["peek"]}} {
+  acir.module @top.observer attributes {acir.instance = {definition = "src_dual_channel_3c0614f6.Observer", inputs = {}, members = {}, name = "top.observer", parent = "top", rules = ["peek"]}} {
     acir.contract {relations = [], rules = ["peek"]}
     func.func private @ac_init_top.source_cap() -> i32
     func.func private @ac_init_top.source() -> !acir.vector<i32>

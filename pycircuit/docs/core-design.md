@@ -43,7 +43,7 @@ state = ac.cell[ac.u32](initial=0)
 | read | `value = state`，或在普通值表达式中使用 state | 读取周期开始的旧值 |
 | write | `state = value`，或 Rule 的 Cell 输出 | 提出写入，获准后下拍生效 |
 
-Cell 必须有初值。已声明 Cell 在赋值左侧时表示 write，保持状态对象身份；新局部变量接收其 payload。传给 Cell 类型参数或作为 Module 输出连接时，保留状态对象引用。
+Cell 必须有初值。已声明 Cell 在赋值左侧时表示 write，保持状态对象身份；新局部变量接收其 payload。传给 Cell 类型参数时保留状态对象引用；作为 Module 输出目的地时保持原对象，绑定获准写入。
 
 即使同一事务已经提出 write，read 仍读取旧值。字段或数组元素赋值表示所属 Cell 的状态更新。
 
@@ -87,7 +87,7 @@ signal = ac.signal[ac.u32]()
 
 Signal 不声明初值。每拍开始为 invalid；只有本拍有效 set 后才可读取，下一拍重新为 invalid。get 不消费，允许多个读取者；valid 为 False 时 payload 不可使用。
 
-已声明 Signal 在赋值左侧时表示 set；新局部变量接收其 payload。传给 Signal 类型参数或作为 Module 输出连接时，保留组件引用。
+已声明 Signal 在赋值左侧时表示 set；新局部变量接收其 payload。传给 Signal 类型参数时保留组件引用；作为 Module 输出目的地时保持原对象，绑定获准 set。
 
 组件关系遵循 BSV Wire：
 
@@ -314,7 +314,7 @@ Module 声明状态对象、子 Module 实例和 Rule，主体书写组合计算
 | --- | --- |
 | `__init__` | 接收参数化 config，声明内部组件与子 Module 实例 |
 | `@ac.rule` 成员函数 | 表达组合计算、控制流、状态操作及嵌套 Rule 调用，保持原子事务语义 |
-| `__call__` | 绑定接口，表达组合计算、控制流及 Rule 调用，返回输出连接 |
+| `__call__` | 绑定接口，表达组合计算、控制流及 Rule 调用，把 Rule 输出绑定到调用者明确声明的目的地 |
 
 首版三者的所有参数及返回类型都必须显式标注，无返回值写 `-> None`；`__init__` 返回类型为 None。连接后的接口类型推断留待后续实现。
 
@@ -337,13 +337,17 @@ Module 声明状态对象、子 Module 实例和 Rule，主体书写组合计算
 这是由 ACPy 编译器解析的 DSL。编译器建立隐式实例作用域，不依赖普通 Python class 自动提供这种名字查找行为。
 
 先通过构造函数实例化。有 `__call__` 接口的实例通过它建立固定连接，每个实例只绑定一组编译期固定连接，
-不在运行时重新绑定；没有 `__call__` 的实例直接使用其公开 Rule。`.outputs` 仅表示已连接主体返回的固定组件连接。
+不在运行时重新绑定；没有 `__call__` 的实例直接使用其公开 Rule。
+连接通过 `out = stage(source, ...)` 或显式组件参数表达，输出对象由父 Module 预先声明。
 
 - `__call__` 入参可以是 Queue、Cell、Signal 等组件引用，也可以是其他 Module 实例。实例参数用于调用其公开 Rule，传入实例本身不建立执行顺序。
-- `__call__` 返回固定组件引用或组件元组，供下游连接；Rule 的组件类型返回则提供写入 payload。Module 不返回跨独立事务传递的临时 var。
-- 输出组件可以显式声明，也可以根据返回类型在连接阶段生成，采用组件的默认构造配置；没有默认值的必要配置必须提供。
-- 父 Module 声明的组件可以作为端口参数传入，绑定输入资源或输出目标。已声明组件和子实例也可通过 `m.A` 引用，不需要额外维护输出列表。
+- `__call__` 的组件／组件元组返回类型声明输出接口；主体返回 Rule 的输出，绑定到赋值左侧的已声明目的地，不返回内部组件引用。Module 不返回跨独立事务传递的临时 var。
+- 输出组件必须明确声明，位宽、容量、初值等配置由该声明决定；不根据返回类型自动生成组件。条件化 return／None 仅提出所选路径的输出效果。
+- 父 Module 声明的组件作为端口参数传入或绑定为输出目的地，确定共享连接；子实例内部未绑定的状态通过公开 Rule 访问，不维护输出列表。
 - 显式资源绑定确定访问范围，不改变对象归属和组件操作契约。读取时获取对应语义下的可见值，不在连接时复制一次 payload。
+
+不再使用 `.outputs` 列表或把内部状态作为 `__call__` 返回引用导出；内部状态由逐拍轨迹观察。
+`out = stage(...)` 保持 out 的对象身份，输出效果归入产生该值的 Rule 事务，不增加独立的搬运事务。
 
 ### 4.3 示例
 
@@ -352,13 +356,12 @@ Module 声明状态对象、子 Module 实例和 Rule，主体书写组合计算
 ```python
 @ac.module
 class ID:
-    def __init__(width: int = 32) -> None:
+    def __init__(width: ac.u32 = 32) -> None:
         ...
 
     @ac.rule
     def decode(
         source: ac.queue[Fetched],
-        rf: RegisterFile,
     ) -> ac.queue[Operands]:
         ...
 
@@ -366,7 +369,7 @@ class ID:
         source: ac.queue[Fetched],
         rf: RegisterFile,
     ) -> ac.queue[Operands]:
-        return decode(source, rf)
+        return decode(source)
 
 
 @ac.module
@@ -386,15 +389,20 @@ class EX:
         return execute(source)
 ```
 
-先实例化，再连接：
+在顶层 Module 中先声明流水线 Queue 和实例，再连接：
 
 ```python
-rf = RegisterFile()
-id_stage = ID(width=32)
-ex_stage = EX()
+def __init__() -> None:
+    if_id = ac.queue[Fetched]()
+    id_ex = ac.queue[Operands]()
+    ex_mem = ac.queue[Result]()
+    rf = RegisterFile()
+    id_stage = ID(width=32)
+    ex_stage = EX()
 
-id_ex = id_stage(if_id, rf)
-ex_mem = ex_stage(id_ex)
+def __call__() -> None:
+    id_ex = id_stage(if_id, rf)
+    ex_mem = ex_stage(id_ex)
 ```
 
 对应固定连接：
@@ -404,7 +412,8 @@ IF_ID → ID → ID_EX → EX → EX_MEM
          └── 调用 RF 的公开 Rule
 ```
 
-ID_EX 和 EX_MEM 根据明确的 Queue 输出类型在连接阶段生成。Rule 输出绑定到对应 Queue，Module 的 return 暴露同一个对象引用，不额外提出 push。
+ID_EX 和 EX_MEM 由顶层明确声明，Rule 输出绑定到对应 Queue；Module return 不导出引用，
+不额外提出第二次 push，目的地容量要求参与原 Rule 的完整条件和原子取消。
 
 ### 4.4 编译处理
 

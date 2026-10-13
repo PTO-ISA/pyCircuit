@@ -3,29 +3,9 @@
   "diagnostics": [],
   "edges": [
     {
-      "from": 2,
-      "relation": "Queue.pop → push",
-      "resource": "top.decode_stage.out",
-      "source_branch": 11,
-      "target_branches": [
-        10
-      ],
-      "to": 1
-    },
-    {
-      "from": 2,
-      "relation": "Queue.pop → push",
-      "resource": "top.decode_stage.out",
-      "source_branch": 11,
-      "target_branches": [
-        10
-      ],
-      "to": 1
-    },
-    {
       "from": 3,
       "relation": "Queue.pop → push",
-      "resource": "top.execute.out",
+      "resource": "top.ex_mem",
       "source_branch": 13,
       "target_branches": [
         12
@@ -35,17 +15,37 @@
     {
       "from": 3,
       "relation": "Queue.pop → push",
-      "resource": "top.execute.out",
+      "resource": "top.ex_mem",
       "source_branch": 13,
       "target_branches": [
         12
       ],
       "to": 2
+    },
+    {
+      "from": 2,
+      "relation": "Queue.pop → push",
+      "resource": "top.id_ex",
+      "source_branch": 11,
+      "target_branches": [
+        10
+      ],
+      "to": 1
+    },
+    {
+      "from": 2,
+      "relation": "Queue.pop → push",
+      "resource": "top.id_ex",
+      "source_branch": 11,
+      "target_branches": [
+        10
+      ],
+      "to": 1
     },
     {
       "from": 1,
       "relation": "Queue.pop → push",
-      "resource": "top.fetch.out",
+      "resource": "top.if_id",
       "source_branch": 6,
       "target_branches": [
         2
@@ -55,7 +55,7 @@
     {
       "from": 1,
       "relation": "Queue.pop → push",
-      "resource": "top.fetch.out",
+      "resource": "top.if_id",
       "source_branch": 6,
       "target_branches": [
         2
@@ -65,7 +65,7 @@
     {
       "from": 4,
       "relation": "Queue.pop → push",
-      "resource": "top.retirement",
+      "resource": "top.mem_wb",
       "source_branch": 17,
       "target_branches": [
         16
@@ -75,7 +75,7 @@
     {
       "from": 4,
       "relation": "Queue.pop → push",
-      "resource": "top.retirement",
+      "resource": "top.mem_wb",
       "source_branch": 17,
       "target_branches": [
         16

@@ -7,7 +7,7 @@ module attributes {acir.model = {config = [], constants = {}, exports = {}, form
     %c2_i32 = arith.constant {acir.source_type = "u32"} 2 : i32 loc(#loc2)
     return %c2_i32 : i32
   }
-  acir.module @top attributes {acir.instance = {definition = "src_dependency_cycles_63d6eeaf.CellFeedback", inputs = {}, members = {}, name = "top", outputs, parent, rules = ["update_a", "update_b"]}} {
+  acir.module @top attributes {acir.instance = {definition = "src_dependency_cycles_63d6eeaf.CellFeedback", inputs = {}, members = {}, name = "top", parent, rules = ["update_a", "update_b"]}} {
     acir.contract {relations = [], rules = ["update_a", "update_b"]}
     acir.cell @top.a : i32 {initial_fn = "ac_init_top.a", name = "top.a", type = "u32"}
     acir.cell @top.b : i32 {initial_fn = "ac_init_top.b", name = "top.b", type = "u32"}

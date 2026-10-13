@@ -16,10 +16,9 @@ class CellFeedback:
     def update_b() -> None:
         b = a + 1
 
-    def __call__() -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
+    def __call__() -> None:
         update_a()
         update_b()
-        return (a, b)
 
 @ac.module
 class ExclusiveRing:
@@ -36,12 +35,11 @@ class ExclusiveRing:
     def backward(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
         return source
 
-    def __call__() -> tuple[ac.queue[ac.u32], ac.queue[ac.u32]]:
+    def __call__() -> None:
         if choose:
             right = forward(left)
         else:
             left = backward(right)
-        return (left, right)
 
 @ac.module
 class QueueRing:
@@ -58,7 +56,6 @@ class QueueRing:
     def backward(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
         return source
 
-    def __call__() -> tuple[ac.queue[ac.u32], ac.queue[ac.u32]]:
+    def __call__() -> None:
         right = forward(left)
         left = backward(right)
-        return (left, right)

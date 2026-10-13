@@ -17,7 +17,7 @@ module attributes {acir.config = {choose = true}, acir.model = {config = [{name 
     %0 = acir.aggregate(%c2_i32) {acir.source_type = "vector<u32>"} : (i32) -> !acir.vector<i32>
     return %0 : !acir.vector<i32>
   }
-  acir.module @top attributes {acir.instance = {definition = "src_dependency_cycles_63d6eeaf.ExclusiveRing", inputs = {}, members = {}, name = "top", outputs, parent, rules = ["backward", "forward"]}} {
+  acir.module @top attributes {acir.instance = {definition = "src_dependency_cycles_63d6eeaf.ExclusiveRing", inputs = {}, members = {}, name = "top", parent, rules = ["backward", "forward"]}} {
     acir.contract {relations = [], rules = ["backward", "forward"]}
     acir.queue @top.left : i32 {capacity_fn = "ac_init_top.left_cap", initial_fn = "ac_init_top.left", name = "top.left", type = "u32"}
     acir.queue @top.right : i32 {capacity_fn = "ac_init_top.right_cap", initial_fn = "ac_init_top.right", name = "top.right", type = "u32"}
@@ -48,12 +48,12 @@ module attributes {acir.config = {choose = true}, acir.model = {config = [{name 
     }
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":28:41)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":29:42)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":33:16)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":33:9)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":37:16)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":37:9)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":27:18)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":41:21)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":43:20)
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":27:41)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":28:42)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":32:16)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":32:9)
+#loc5 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":36:16)
+#loc6 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":36:9)
+#loc7 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":26:18)
+#loc8 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":40:21)
+#loc9 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":42:20)

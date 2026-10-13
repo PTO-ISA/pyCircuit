@@ -20,7 +20,7 @@
 | 2. 事务提取与条件传播 | 已实现 | C++ pass 直接读取 MLIR；调用点独立、嵌套原子、共享 SSA、失败不进入 else、按资源合并消费均通过逐拍回归 |
 | 3. MLIR 契约、EHR 与调度分析 | 已实现 | 声明沿调用栈传播，C／SBR 同路径诊断，EHR 固定视图、未声明可见性拒绝，分支／后继与合并 DAG 保存于 IR |
 | 4. RTL 友好 lowering | 已实现 | Cell／Queue／EHR 化为 current、组合选择与 next；Signal 无 RTL 状态；独立 verifier 检查残留操作、状态类型与调度 |
-| 5. MLIR 执行、CLI 与清理 | 已实现 | 当前 29 项回归、CTest 1/1、8 个模型各 32 拍；两层执行、优化与三阶段重载一致；旧编译路径已删除 |
+| 5. MLIR 执行、CLI 与清理 | 已实现 | 当前 31 项回归、CTest 1/1、8 个模型各 32 拍；两层执行、优化与三阶段重载一致；旧编译路径已删除 |
 
 ## 验收
 
@@ -117,3 +117,25 @@ CPU 中 RegisterFile／DataMemory、DualChannel 的 Observer 已移除导出包�
 29 项回归和 CTest 1/1 通过，8 个示例的两层执行、优化开关及三阶段重载验收继续通过。
 CPU 与 DualChannel 改写前后各 32 拍的 fire 和状态完全一致，CPU 的独立 ISA 与退休周期预期不变。
 修正前轨迹、对比结果、回归日志和 JUnit 位于 `builds/benchmarks/rf-call-inspection/`。
+
+## 补充修正：顶层声明连接组件，删除旧输出列表
+
+2026-10-13：此前仅移除 RF 的空主体，仍保留阶段内部 out 和 .outputs，未完成接口迁移。
+现改为在 Pipeline.__init__ 明确声明 if_id／id_ex／ex_mem／mem_wb，再通过
+`if_id = fetch()`、`id_ex = decode_stage(if_id, rf, mem_wb)` 等赋值绑定输出。
+Module 的组件返回类型声明输出接口，主体返回 Rule 的输出；目的地身份和构造配置不变，
+容量条件及输出效果归入原 Rule 事务，不生成额外搬运事务。支持条件化 return／None、
+多输出绑定、嵌套 Module 输出转发，以及输出组件作为显式参数传入。
+
+删除 .outputs 访问、Instance.outputs、内部组件引用导出、隐式输出 Queue 构造及旧输出推断路径。
+旧输入明确诊断，不保留兼容分支。全部示例迁移到明确声明的连接资源；
+OoO 的发射／完成 Queue 和广播 Signal 由顶层声明，保留站观察通过公开 peek Rule。
+同步更新核心设计、ACPy／ACIR、示例说明及三层 MLIR／图报告。
+
+31 项回归和 CTest 1/1 通过。新增逐拍模型核对顶层资源身份、嵌套转发、满时同拍腾空间、
+反压时生产者状态的原子取消、优化及三层重载；显式输出参数版本也得到同一轨迹。
+负例覆盖 .outputs、隐式目的地、内部组件导出、输出形状和类型错误。
+8 个示例各 32 拍的两层执行、优化开关及重载继续通过；与修正前对照，
+仅将已移动组件的旧名字映射到新名字，全部 fire 和状态逐拍一致。CPU 独立 ISA 及退休周期、
+OoO 退休次序继续通过。基线、名字映射、对照结果、日志和 JUnit 保存在
+`builds/benchmarks/explicit-connections/`。

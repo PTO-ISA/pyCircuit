@@ -5,10 +5,10 @@
     {
       "from": 0,
       "relation": "Signal.set → get",
-      "resource": "top.router.result",
-      "source_branch": 4,
+      "resource": "top.result",
+      "source_branch": 3,
       "target_branches": [
-        5
+        4
       ],
       "to": 1
     }

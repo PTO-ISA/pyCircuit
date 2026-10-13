@@ -6,8 +6,8 @@ digraph Transactions {
   t2 [label="top.execute.execute#2"];
   t3 [label="top.memory_stage.access#3"];
   t4 [label="top.writeback.commit#4"];
-  t2 -> t1 [label="top.decode_stage.out\nQueue.pop \u2192 push"];
-  t3 -> t2 [label="top.execute.out\nQueue.pop \u2192 push"];
-  t1 -> t0 [label="top.fetch.out\nQueue.pop \u2192 push"];
-  t4 -> t3 [label="top.retirement\nQueue.pop \u2192 push"];
+  t3 -> t2 [label="top.ex_mem\nQueue.pop \u2192 push"];
+  t2 -> t1 [label="top.id_ex\nQueue.pop \u2192 push"];
+  t1 -> t0 [label="top.if_id\nQueue.pop \u2192 push"];
+  t4 -> t3 [label="top.mem_wb\nQueue.pop \u2192 push"];
 }

@@ -65,6 +65,10 @@ pycircuit/builds/compiler/mlir/acir-opt model.transaction.mlir --acir-lower-rtl
 只提供状态和公开 Rule 的组件可省略 `__call__`，实例化后直接调用其 Rule，无需额外的 `rf()`。
 有输入连接、固定输出或每拍主体逻辑的模块仍通过 `__call__` 连接。
 逐拍轨迹包含内部状态，RF／内存无需为了观测而导出状态组件；无主体的实例不会自动执行 Rule。
+流水线 Queue 由顶层 `__init__` 明确声明，使用 `if_id = fetch()`、
+`id_ex = decode_stage(if_id, rf, mem_wb)` 等赋值绑定输出目的地。
+`.outputs`、隐式生成输出 Queue 和返回内部组件引用的包装均已删除。
+赋值保持目的地身份，输出效果和容量要求纳入产生值的 Rule 事务。
 
 统一 `@ac.rule` 由实际效果推导只读／修改分类。Module body 中每个修改性调用点建立事务，
 嵌套调用共享外层事务。失败的读取／guard 阻止相关分支执行；分支内要求只约束所选路径，

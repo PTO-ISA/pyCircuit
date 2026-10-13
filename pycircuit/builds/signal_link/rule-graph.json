@@ -5,10 +5,10 @@
     {
       "from": 1,
       "relation": "Signal.set → get",
-      "resource": "top.producer.result",
+      "resource": "top.result",
       "source_branch": 3,
       "target_branches": [
-        0
+        4
       ],
       "to": 2
     }

@@ -31,9 +31,8 @@ class DualChannel:
     def right(value: ac.u32) -> ac.queue[ac.u32]:
         return value + 1
 
-    def __call__() -> tuple[ac.queue[ac.u32], ac.queue[ac.u32]]:
+    def __call__() -> None:
         shared = observer.peek(source) + 1
         if shared != 0:
             left_out = left(shared)
             right_out = right(shared)
-        return (left_out, right_out)

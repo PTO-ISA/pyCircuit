@@ -9,6 +9,8 @@
 保存当前 Rule 相对于同 Module 目标 Rule 的 SB／SBR／C／CF 声明。
 `acir.rule` 有显式函数类型、guard region、body region；`acir.rule.call` 保存参数 SSA、
 符号引用、结果及固定组件输出绑定。调用点保留源码位置。
+Module 返回接口在前端绑定到调用者明确声明的组件，源层 Rule call 的 output_binding(s)
+直接引用这些目的地；不保留 `.outputs`，不自动生成输出组件，不增加额外转发事务。
 
 `acir.body` 为 Module 的计算与选择逻辑；没有 `__call__` 的实例不生成 body，
 其被调用 Rule 和状态仍归属于该实例。普通计算复用 arith／func／scf／cf，

@@ -24,9 +24,6 @@ class Slot:
         occupied = True
         payload = value
 
-    def __call__() -> None:
-        pass
-
 @ac.module
 class EHRSlots:
 
@@ -42,7 +39,6 @@ class EHRSlots:
         slot.allocate(7)
 
     def __call__() -> None:
-        slot()
         if release_enabled:
             release()
         allocate()

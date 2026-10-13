@@ -56,7 +56,6 @@ class Fetch:
     def __init__() -> None:
         rom = ac.cell[ac.array[ac.u32, 6]](initial=[7340179, 5243155, 2130355, 3153955, 8707, 1075970739])
         pc = ac.cell[ac.u32](initial=0)
-        out = ac.queue[Fetched]()
 
     @ac.rule
     def fetch(current_pc: ac.u32) -> ac.queue[Fetched]:
@@ -67,14 +66,13 @@ class Fetch:
     def __call__() -> ac.queue[Fetched]:
         current_pc = pc
         if current_pc < 24:
-            out = fetch(current_pc)
-        return out
+            return fetch(current_pc)
 
 @ac.module
 class DecodeStage:
 
     def __init__() -> None:
-        out = ac.queue[Operands]()
+        pass
 
     @ac.rule
     def read_operands(message: ac.queue[Fetched], decoded: Decoded) -> ac.queue[Operands]:
@@ -89,14 +87,13 @@ class DecodeStage:
         inst = decode(source)
         enabled = retirement.empty() and rf.ready(inst)
         if enabled:
-            out = read_operands(source, inst)
-        return out
+            return read_operands(source, inst)
 
 @ac.module
 class Execute:
 
     def __init__() -> None:
-        out = ac.queue[Executed]()
+        pass
 
     @ac.rule
     def execute(message: ac.queue[Operands]) -> ac.queue[Executed]:
@@ -105,8 +102,7 @@ class Execute:
         return Executed(inst.pc, inst.word, inst.kind, inst.rd, result, inst.store_value, inst.writes)
 
     def __call__(source: ac.queue[Operands]) -> ac.queue[Executed]:
-        out = execute(source)
-        return out
+        return execute(source)
 
 @ac.module
 class MemoryStage:
@@ -124,9 +120,8 @@ class MemoryStage:
             memory.store(inst.value, inst.store_value)
         return Retired(inst.pc, inst.word, inst.rd, result, inst.writes)
 
-    def __call__(source: ac.queue[Executed], memory: DataMemory, out: ac.queue[Retired]) -> ac.queue[Retired]:
-        out = access(source)
-        return out
+    def __call__(source: ac.queue[Executed], memory: DataMemory) -> ac.queue[Retired]:
+        return access(source)
 
 @ac.module
 class Writeback:
@@ -142,9 +137,8 @@ class Writeback:
         retired = retired + 1
         last_pc = inst.pc
 
-    def __call__(source: ac.queue[Retired], rf: RegisterFile) -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
+    def __call__(source: ac.queue[Retired], rf: RegisterFile) -> None:
         commit(source)
-        return (retired, last_pc)
 
 @ac.module
 class Pipeline:
@@ -152,17 +146,19 @@ class Pipeline:
     def __init__() -> None:
         rf = RegisterFile()
         memory = DataMemory()
-        retirement = ac.queue[Retired]()
+        if_id = ac.queue[Fetched]()
+        id_ex = ac.queue[Operands]()
+        ex_mem = ac.queue[Executed]()
+        mem_wb = ac.queue[Retired]()
         fetch = Fetch()
         decode_stage = DecodeStage()
         execute = Execute()
         memory_stage = MemoryStage()
         writeback = Writeback()
 
-    def __call__() -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
-        fetch()
-        decode_stage(fetch.outputs, rf, retirement)
-        execute(decode_stage.outputs)
-        memory_stage(execute.outputs, memory, retirement)
-        writeback(retirement, rf)
-        return writeback.outputs
+    def __call__() -> None:
+        if_id = fetch()
+        id_ex = decode_stage(if_id, rf, mem_wb)
+        ex_mem = execute(id_ex)
+        mem_wb = memory_stage(ex_mem, memory)
+        writeback(mem_wb, rf)
