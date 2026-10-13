@@ -1,4 +1,6 @@
 #include "Dialect.h"
+#include "Passes.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -8,8 +10,9 @@ int main(int argc, char **argv) {
   mlir::DialectRegistry registry;
   registry.insert<acir::ACIRDialect, mlir::arith::ArithDialect,
                   mlir::cf::ControlFlowDialect,
-                  mlir::func::FuncDialect>();
+                  mlir::func::FuncDialect, mlir::scf::SCFDialect>();
   mlir::registerTransformsPasses();
+  acir::registerACIRPasses();
   return mlir::asMainReturnCode(
       mlir::MlirOptMain(argc, argv, "ACPy circuit optimizer\n", registry));
 }

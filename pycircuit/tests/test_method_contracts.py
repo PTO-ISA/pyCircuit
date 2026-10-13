@@ -30,7 +30,6 @@ class MethodContractTests(unittest.TestCase):
                 q = ac.queue[ac.u32](capacity=1, initial=9)
                 @ac.rule
                 def exchange(x: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
-                    x.value = 3
                     return x.value + 1
                 @ac.rule
                 def queries():
@@ -42,7 +41,7 @@ class MethodContractTests(unittest.TestCase):
         '''):
             self.assertEqual({(e['source'], e['target']) for e in graph['edges']}, {('top.exchange', 'top.queries')})
             self.assertFalse(graph['diagnostics'])
-            for operation in ('read', 'revise', 'pop'):
+            for operation in ('read', 'pop'):
                 self.assertEqual(self.accesses(graph, 'top.exchange', operation)[0]['ready'], '!empty(q)')
                 self.assertEqual(self.accesses(graph, 'top.exchange', operation)[0]['view'], 'old')
             self.assertEqual(self.accesses(graph, 'top.exchange', 'push')[0]['ready'], '!ehr.full(q,1)')
@@ -185,7 +184,7 @@ class MethodContractTests(unittest.TestCase):
                 q = put()
                 observe()
         '''):
-            self.assertEqual([(e['source'], e['target'], e['interfaces']) for e in graph['edges']], [('top.observe', 'top.put', ['read', 'push'])])
+            self.assertEqual([(e['source'], e['target'], e['interfaces']) for e in graph['edges']], [('top.observe', 'top.put', ['peek', 'push'])])
             edge = graph['edges'][0]
             self.assertIs(edge['condition'], True)
             self.assertEqual({p['source'] for p in edge['provenance']}, {'default', 'derived'})
@@ -309,12 +308,12 @@ class MethodContractTests(unittest.TestCase):
             @ac.module
             def Store():
                 q = ac.queue[ac.u32](initial=1)
-                @ac.method(After='revise')
+                @ac.method(After='consume')
                 def observe() -> ac.u32:
                     return q.value
                 @ac.method
-                def revise():
-                    q.value = 2
+                def consume(message: ac.queue[ac.u32]):
+                    value = message.value
             @ac.module
             def Top():
                 store = Store()
@@ -322,10 +321,10 @@ class MethodContractTests(unittest.TestCase):
                 def one():
                     x = store.observe()
                 @ac.rule
-                def two():
-                    store.revise()
+                def two(message: ac.queue[ac.u32]):
+                    store.consume(message)
                 one()
-                two()
+                two(store.q)
         '''):
             self.assertTrue(graph['diagnostics'])
             self.assertEqual({e['source'] for e in graph['edges']}, {'top.one', 'top.two'})
@@ -431,14 +430,14 @@ class MethodContractTests(unittest.TestCase):
             from pycircuit import ac
             @ac.module
             def Inner():
-                q = ac.queue[ac.u32](initial=1)
+                q = ac.ehr[ac.u32](initial=1)
                 @ac.method
                 def read() -> ac.u32:
                     return q.value
-                @ac.method
-                def revise():
+                @ac.method(After='read')
+                def update():
                     q.value = 2
-                @ac.method(After='revise')
+                @ac.method(After='update')
                 def finish():
                     pass
             @ac.module
@@ -478,8 +477,8 @@ class MethodContractTests(unittest.TestCase):
                 def read(index: ac.u32) -> ac.u32:
                     return entries[index].value
                 @ac.method
-                def revise(index: ac.u32):
-                    entries[index].value = 2
+                def consume(messages: ac.qarray[ac.u32], index: ac.u32):
+                    value = messages[index].value
             @ac.module
             def Top():
                 store = Store()
@@ -487,10 +486,10 @@ class MethodContractTests(unittest.TestCase):
                 def one():
                     x = store.read(0)
                 @ac.rule
-                def two():
-                    store.revise(1)
+                def two(messages: ac.qarray[ac.u32]):
+                    store.consume(messages, 1)
                 one()
-                two()
+                two(store.entries)
         '''):
             self.assertFalse(graph['edges'])
 
@@ -542,7 +541,7 @@ class MethodContractTests(unittest.TestCase):
         self.model(template.replace('AFTER', '()'))
         saved = load(self.path / 'out/model.acir.mlir')
         with self.assertRaisesRegex(CompileError, 'recompile'):
-            analyze(saved.replace('format_version = 6', 'format_version = 3'), self.path / 'v3')
+            analyze(saved.replace('format_version = 7', 'format_version = 3'), self.path / 'v3')
 
 
 if __name__ == '__main__': unittest.main()

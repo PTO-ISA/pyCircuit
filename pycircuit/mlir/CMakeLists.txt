@@ -14,14 +14,14 @@ mlir_tablegen(ACIRTypes.cpp.inc -gen-typedef-defs -typedefs-dialect=acir)
 mlir_tablegen(ACIROps.h.inc -gen-op-decls)
 mlir_tablegen(ACIROps.cpp.inc -gen-op-defs)
 add_public_tablegen_target(ACIRIncGen)
-add_library(ACIRCompiler STATIC Dialect.cpp Compiler.cpp)
+add_library(ACIRCompiler STATIC Dialect.cpp Compiler.cpp Lowering.cpp Components.cpp)
 add_dependencies(ACIRCompiler ACIRIncGen)
 target_include_directories(ACIRCompiler PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_include_directories(ACIRCompiler SYSTEM PRIVATE ${LLVM_INCLUDE_DIRS} ${MLIR_INCLUDE_DIRS})
 target_compile_definitions(ACIRCompiler PRIVATE ${LLVM_DEFINITIONS})
 target_compile_features(ACIRCompiler PRIVATE cxx_std_20)
 target_link_libraries(ACIRCompiler PUBLIC MLIRParser MLIRIR MLIRPass MLIRTransforms
-  MLIRFuncDialect MLIRArithDialect MLIRControlFlowDialect
+  MLIRFuncDialect MLIRArithDialect MLIRControlFlowDialect MLIRSCFDialect MLIRSCFToControlFlow
   MLIRSupport)
 if(NOT LLVM_ENABLE_RTTI)
   target_compile_options(ACIRCompiler PRIVATE -fno-rtti)

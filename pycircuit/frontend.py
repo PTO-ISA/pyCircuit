@@ -207,7 +207,7 @@ class Frontend:
             if kind == 'tuple':
                 return [self.annotation(x) for x in node.slice.elts]
             if kind in ('queue', 'cell', 'ehr', 'signal', 'ref', 'vector', 'qarray'):
-                return wrapped('queue' if kind == 'ref' else 'cell' if kind == 'ehr' else kind, self.annotation(node.slice))
+                return wrapped('queue' if kind == 'ref' else kind, self.annotation(node.slice))
             if kind == 'array' and isinstance(node.slice, ast.Tuple):
                 return f'array<{self.annotation(node.slice.elts[0])},{self.literal(node.slice.elts[1])}>'
         self.error(node, f'unsupported type: {ast.unparse(node)}')
@@ -228,22 +228,23 @@ class Frontend:
             self.model['config'].append(dict(name=arg.arg, type=typ))
             args.append(builder.op('config', typ, name=arg.arg, node=arg))
         self.instantiate(self.defs[top_key], args, '', builder)
-        # Keep scalar-parameter interfaces even when no rule calls them. Their
-        # bound bodies can contribute an intermediate necessary order to closure.
-        # Resource-parameter methods require concrete call-site bindings instead.
+        # Retain typed interface bodies even when unused. Only interfaces with
+        # scalar parameters and static captures contribute unconditional summaries.
         for inst in list(self.instances):
             for name, fn in inst.methods.items():
-                if any(p.annotation is None or resource(self.annotation(p.annotation)) for p in fn.args.args): continue
+                if any(p.annotation is None for p in fn.args.args): continue
+                resource_parameters = any(resource(self.annotation(p.annotation)) for p in fn.args.args)
                 scope = self.closures[inst.name, id(fn)][0]
                 used = self.capture_names(fn, inst.definitions, inst.name)
-                if any(id(v) in self.work_values for key,v in scope.items() if key in used): continue
-                summary = Lower(self, 'helper', 'ac_summary_' + inst.name + '.' + name, inst.env,
+                dynamic_capture = any(id(v) in self.work_values for key,v in scope.items() if key in used)
+                scope = dict(inst.env) | scope
+                summary = Lower(self, 'helper', 'ac_summary_' + inst.name + '.' + name, scope,
                                 builder=builder, defs=inst.definitions)
                 values = [summary.param(p.arg, self.annotation(p.annotation)) for p in fn.args.args]
-                self.closures[inst.name, id(fn)] = (inst.env, inst.definitions, inst.name)
-                summary.behavior_call(fn, values, fn, inst.env, 'method', inst.definitions, inst.name)
+                self.closures[inst.name, id(fn)] = (scope, inst.definitions, inst.name)
+                summary.behavior_call(fn, values, fn, scope, 'method', inst.definitions, inst.name)
                 target = next(f for f in self.model['functions'] if f['name'] == summary.ops[-1]['name'])
-                target['summary'] = True
+                target['summary'] = not resource_parameters and not dynamic_capture
         self.model['construction'] = builder.ops
         # All call sites have now contributed possible resource identities.
         for mod in self.model['modules']:
@@ -260,8 +261,7 @@ class Frontend:
         self.model['instances'] = [dict(name=i.name, parent=i.parent, definition=i.source_name,
             members={k: connection(v) for k, v in i.env.items() if isinstance(v, (Value, Instance))},
             inputs={k: connection(v) for k, v in i.inputs.items()}, outputs=connection(i.outputs), methods=sorted(i.methods)) for i in self.instances]
-        from .contracts import defaults
-        self.model['contracts'] = defaults()
+        self.model['contracts'] = []
         for inst in self.instances:
             relations = []
             for name, fn in inst.methods.items():
@@ -283,9 +283,7 @@ class Frontend:
             entry['contract'] = contract
             entry['interfaces'] = {name: contract + ':' + name for name in inst.methods}
         for res in self.model['resources']:
-            res['contract'] = 'Signal' if res['kind'] == 'signal' else (('EHR' if res.get('visibility') == 'ehr' else 'Cell') if res['kind'] == 'cell' else 'Queue')
-            if res['kind'] in ('queue', 'qarray'):
-                res['views'] = [dict(name='full', visibility='ehr', initial='old_count == capacity', commit='queue.effects')]
+            res['contract'] = 'Signal' if res['kind'] == 'signal' else (('EHR' if res.get('visibility') == 'ehr' else 'Cell') if res['kind'] in ('cell', 'ehr') else 'Queue')
         return self.model
 
     def expand_loops(self, body):
@@ -618,7 +616,7 @@ class Frontend:
                         t = element(t) if kind in ('queue', 'cell', 'signal') and t and t.startswith(('queue<', 'cell<', 'signal<')) else t
                         binding = targets[i] if i < len(targets) else None
                         old = env.get(binding.id) if isinstance(binding, ast.Name) else None
-                        if kind in ('cell', 'signal') and (not isinstance(old, Value) or old.type != wrapped(kind, t)): self.error(call, kind.title() + ' output must bind an explicitly initialized ' + kind.title())
+                        if kind in ('cell', 'ehr', 'signal') and (not isinstance(old, Value) or old.type != wrapped(kind, t)): self.error(call, kind.title() + ' output must bind an explicitly initialized ' + kind.title())
                         if t is None and isinstance(old, Value) and old.type.startswith(('queue<', 'cell<', 'signal<')): t = element(old.type)
                         if t is None:
                             outputs.append(None); continue
@@ -632,7 +630,7 @@ class Frontend:
                                 if isinstance(dec, ast.Call):
                                     cap = next((self.literal(k.value) for k in dec.keywords if k.arg == 'capacity'), 1)
                             if not isinstance(cap, int) or cap < 1: self.error(call, 'Rule default capacity must be a positive integer; declare separate output Queues for different capacities')
-                            out = dict(name=name, kind='queue', type=t, capacity=builder.const(cap).id, initial=[], sequence=False)
+                            out = dict(name=name, owner=mod['name'], kind='queue', type=t, capacity=builder.const(cap).id, initial=[], sequence=False)
                             self.model['resources'].append(out)
                         outputs.append(out)
                     mod['_outputs'][fn.name] = outputs
@@ -677,26 +675,26 @@ class Frontend:
                 value = init.op('zero', typ, node=node)
             value = init.cast(value, typ, node)
             init.op('return', 'void', [value], node=node)
-            self.model['resources'].append(dict(name=name, kind='qarray', type=typ, iterable=iterable.id,
+            self.model['resources'].append(dict(name=name, owner=self.instance_stack[-1] if self.instance_stack else 'top', kind='qarray', type=typ, iterable=iterable.id,
                                                capacity=cap.id, initializer=init.function(), empty_initial=initial is None))
             return builder.op('resource', wrapped('qarray', typ), name=name, targets={name}, node=node)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript) and spelling(node.func.value) in ('ac.queue', 'ac.cell', 'ac.ehr', 'ac.signal'):
             declared = spelling(node.func.value)[3:]
-            kind = 'cell' if declared == 'ehr' else declared
+            kind = declared
             typ = self.annotation(node.func.slice)
             kw = {x.arg: x.value for x in node.keywords}
             if node.args or set(kw) - {'capacity', 'initial'}:
                 self.error(node, 'Queue accepts capacity= and initial= only')
-            if kind in ('cell', 'signal') and ('initial' not in kw or 'capacity' in kw): self.error(node, kind.title() + ' requires initial= and has no capacity')
+            if kind in ('cell', 'ehr', 'signal') and ('initial' not in kw or 'capacity' in kw): self.error(node, kind.title() + ' requires initial= and has no capacity')
             capacity = (builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)) if kind == 'queue' else None
             initial = builder.expr(kw['initial'], typ) if 'initial' in kw else None
-            if kind in ('cell', 'signal'):
+            if kind in ('cell', 'ehr', 'signal'):
                 if initial is None: self.error(node, kind.title() + ' initial must be a payload value')
                 initial = builder.cast(initial, typ, node)
             # scalar initial is one element; a list is a FIFO initialization sequence.
             values = [] if initial is None else [initial.id]
             sequence = initial is not None and initial.type != typ and initial.type.startswith(('vector<', 'array<'))
-            self.model['resources'].append(dict(name=name, kind=kind, type=typ, loc=builder.loc(node), **({'capacity': capacity.id} if capacity else {}),
+            self.model['resources'].append(dict(name=name, owner=self.instance_stack[-1] if self.instance_stack else 'top', kind=kind, type=typ, loc=builder.loc(node), **({'capacity': capacity.id} if capacity else {}),
                                                 initial=values, sequence=sequence, visibility='ehr' if declared == 'ehr' else 'current' if kind == 'signal' else 'old'))
             return builder.op('resource', wrapped(kind, typ), name=name, targets={name}, node=node)
         if isinstance(node, ast.List) and any(isinstance(x, ast.Call) and isinstance(x.func, ast.Subscript) and spelling(x.func.value) == 'ac.queue' for x in node.elts):
@@ -723,7 +721,7 @@ class Frontend:
             val = init.expr(kw.get('initial', ast.Constant(0)), typ)
             init.op('return', 'void', [val], node=node)
             cap = builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)
-            self.model['resources'].append(dict(name=name, kind='qarray', type=typ, iterable=iterable.id,
+            self.model['resources'].append(dict(name=name, owner=self.instance_stack[-1] if self.instance_stack else 'top', kind='qarray', type=typ, iterable=iterable.id,
                                                 capacity=cap.id, initializer=init.function()))
             return builder.op('resource', wrapped('qarray', typ), name=name, targets={name}, node=node)
         if isinstance(node, ast.Call):
@@ -776,24 +774,14 @@ class Lower:
         return dict(file=getattr(node, 'source', ''), line=getattr(node, 'lineno', 0), column=getattr(node, 'col_offset', 0))
 
     def op(self, op, typ, args=(), node=None, targets=(), consume=False, **attrs):
-        if op in ('cell.read', 'cell.write') and not attrs.get('aspect'):
-            if any(r['name'] in args[0].targets and r.get('visibility') == 'ehr' for r in self.f.model['resources']):
-                attrs['view'] = 'ehr'
-        if op == 'queue.full':
-            return self.op('cell.read', 'bool', args, node=node, view='ehr', aspect='full', interface='query.full')
-        if op == 'queue.push':
-            full = self.op('queue.full', 'bool', args[:1], node=node, role='guard')
-            ready = self.op('unary', 'bool', [full], node=node, operator='not')
-            self.op('guard', 'void', [ready], node=node, name='Queue.push capacity', implicit=True)
+        if op in ('cell.read', 'cell.write') and args and args[0].type.startswith('ehr<'):
+            op = op.replace('cell.', 'ehr.')
         self.serial += 1
         value = Value(f'v{self.serial}', typ, set(targets), consume)
-        if self.guard_context and op in ('queue.pop', 'queue.push', 'queue.revise', 'cell.write', 'signal.write', 'rule.call'): self.f.error(node, 'guard must only observe state')
+        if self.guard_context and op in ('queue.pop', 'queue.push', 'cell.write', 'signal.write', 'rule.call'): self.f.error(node, 'guard must only observe state')
         operation = dict(op=op, id=value.id, type=typ, args=[a.id for a in args], loc=self.loc(node), **attrs)
         self.block['ops'].append(operation)
         self.ops.append(operation)
-        if op == 'queue.pop':
-            available = self.op('const', 'bool', node=node, value=False)
-            self.op('cell.write', 'void', [args[0], available], node=node, view='ehr', aspect='full', interface='pop')
         return value
 
     def terminated(self):
@@ -818,7 +806,7 @@ class Lower:
             if self.kind in ('helper', 'method', 'guard', 'initializer') and (getattr(self, 'expected_return', None) not in (None, 'void') or self.return_type != 'void'):
                 self.op('unreachable', 'void')
             self.op('return', 'void')
-        return dict(name=self.name, kind=self.kind, params=self.params,
+        return dict(name=self.name, kind=self.kind, params=self.params, guard=getattr(self, 'guard_blocks', None), guard_info=getattr(self, 'guard_info', None),
                     result=result or self.return_type,
                     blocks=[dict(label=b['label'], params=[vars(p) | {'targets': sorted(p.targets)} for p in b['params']], ops=b['ops']) for b in self.blocks])
 
@@ -975,16 +963,13 @@ class Lower:
             if isinstance(val, Value) and val.type.startswith('signal<'): val = self.signal_value(val, node)
             if node.attr == 'value' and resource(val.type):
                 self.accesses.update(val.targets)
-                if val.type.startswith('cell<'): return self.op('cell.read', element(val.type), [val], node=node, view='old', role='observe')
+                if val.type.startswith(('cell<', 'ehr<')): return self.op('cell.read', element(val.type), [val], node=node, view='old', role='observe')
                 if not val.type.startswith('queue<'):
                     self.f.error(node, 'index Queue arrays before reading')
                 consuming = val.consume and not self.guard_context
                 out = self.op('queue.read', element(val.type), [val], node=node,
                               view='old',
                               role='consume' if consuming else 'observe')
-                if self.kind in ('rule', 'method', 'helper') and val.consume and not self.guard_context:
-                    self.op('queue.pop', 'void', [val], node=node)
-                    self.effects.append((val, 'Pop'))
                 return out
             fields = self.f.types.get(val.type, [])
             field = next((x for x in fields if x['name'] == node.attr), None)
@@ -1117,9 +1102,27 @@ class Lower:
         if isinstance(bound, Method):
             captured, definitions, instance = self.f.closures.get((bound.instance.name, id(fn)),
                 (bound.instance.env, bound.instance.definitions, bound.instance.name))
-        return self.behavior_call(fn, args, node, captured, 'guard' if self.guard_context else decorator(fn), definitions, instance)
+        return self.behavior_call(fn, args, node, captured, decorator(fn) if decorator(fn) == 'method' else 'guard' if self.guard_context else decorator(fn), definitions, instance)
 
     def apply_guard(self, fn, args, node):
+        if self.kind not in ('rule', 'method'): return self._apply_guard(fn, args, node)
+        saved = self.blocks, self.block, self.ops, self.guard_context, self.imports.copy()
+        self.blocks = [dict(label='entry', params=[], ops=[])]
+        self.block, self.ops, self.guard_context = self.blocks[0], [], True
+        self._apply_guard(fn, args, node)
+        checks = [o for o in self.ops if o['op'] == 'guard']
+        if checks:
+            last = checks[-1]; self.block['ops'].remove(last); self.ops.remove(last)
+            value = Value(last['args'][0], 'bool')
+        else: value = self.const(True)
+        yield_op = self.op('return', 'void', [value])
+        if checks:
+            self.block['ops'][-1]['loc'] = last['loc']
+            self.guard_info = {k:last[k] for k in ('name', 'source') if k in last}
+        self.guard_blocks = self.blocks
+        self.blocks, self.block, self.ops, self.guard_context, self.imports = saved
+
+    def _apply_guard(self, fn, args, node):
         for dec in fn.decorator_list:
             if isinstance(dec, ast.Call):
                 guard = next((k.value for k in dec.keywords if k.arg == 'guard'), None)
@@ -1235,7 +1238,7 @@ class Lower:
             except CompileError: pass
         if isinstance(target, ast.Attribute):
             typ = self.target_type(target.value)
-            if target.attr == 'value' and typ.startswith(('queue<', 'cell<')):
+            if target.attr == 'value' and typ.startswith(('queue<', 'cell<', 'ehr<')):
                 return element(typ)
             fields = self.f.types.get(typ, [])
             field = next((f for f in fields if f['name'] == target.attr), None)
@@ -1269,17 +1272,17 @@ class Lower:
             path, indices, base = [], [], target
             while isinstance(base, (ast.Attribute, ast.Subscript)):
                 if isinstance(base, ast.Attribute):
-                    if base.attr == 'value' and self.target_type(base.value).startswith(('queue<', 'cell<')):
+                    if base.attr == 'value' and self.target_type(base.value).startswith(('queue<', 'cell<', 'ehr<')):
                         q = self.expr(base.value)
                         if self.kind not in ('rule', 'method', 'helper'): self.f.error(node, 'state updates require a transaction')
                         indices = [self.expr(n) for n in indices]
-                        if q.type.startswith('cell<'):
+                        if q.type.startswith(('cell<', 'ehr<')):
                             if path:
                                 old = self.op('cell.read', element(q.type), [q], node=node, view='old', role='observe')
                                 value = self.op('update', old.type, [old, value, *indices], path=path, node=node)
                             self.op('cell.write', 'void', [q, value], node=node)
                             return
-                        self.op('queue.revise', 'void', [q, value, *indices], path=path, node=node)
+                        self.f.error(node, 'Queue revise is removed; use Cell/EHR or consume and produce')
                         return
                     path.insert(0, base.attr)
                     base = base.value
@@ -1411,26 +1414,30 @@ class Lower:
                     leaves = flatten(node.value) if isinstance(self.rule['shape'], list) else [node.value]
                     outputs = self.rule['outputs']
                     if len(leaves) != len(outputs) and outputs: self.f.error(node, 'Rule output arity mismatch')
-                    def produce(expr, index):
+                    def evaluate_output(expr, index):
+                        if expr is None or isinstance(expr, ast.Constant) and expr.value is None: return None
+                        if isinstance(expr, Value): return expr
                         out = outputs[index] if index < len(outputs) else None
-                        if expr is None or isinstance(expr, ast.Constant) and expr.value is None:
-                            return
-                        if isinstance(expr, ast.IfExp):
-                            cond = self.cast(self.expr(expr.test), 'bool', expr)
-                            yes, no, end = self.new_block(), self.new_block(), self.new_block()
-                            self.conditional(cond, yes, no)
-                            self.block = yes; produce(expr.body, index); self.jump(end)
-                            self.block = no; produce(expr.orelse, index); self.jump(end)
-                            self.block = end
-                            return
-                        value = self.expr(expr, out['type'] if out else None)
                         if out is None: self.f.error(node, 'cannot infer output; add a return type annotation')
-                        value = self.cast(value, out['type'], node)
-                        kind = out.get('kind', 'queue')
-                        q = self.imported(Value(out['reference'], wrapped(kind, out['type']), set(out['targets']))) if 'reference' in out else self.op('resource', wrapped(kind, out['type']), name=out['name'], targets={out['name']}, node=node)
-                        self.op('signal.write' if kind == 'signal' else 'cell.write' if kind == 'cell' else 'queue.push', 'void', [q, value], node=node, **({'view': 'current', 'interface': 'set'} if kind == 'signal' else {}))
-                    for index, expr in enumerate(leaves): produce(expr, index)
-                    self.op('return', 'void', node=node)
+                        return self.cast(self.expr(expr, out['type']), out['type'], node)
+                    def finish(expressions):
+                        for i, expr in enumerate(expressions):
+                            if isinstance(expr, ast.IfExp):
+                                # Preserve left-to-right payload evaluation, including
+                                # Method effects that precede this optional slot.
+                                prefix = [evaluate_output(value, k) for k, value in enumerate(expressions[:i])]
+                                cond = self.cast(self.expr(expr.test), 'bool', expr)
+                                yes, no = self.new_block(), self.new_block()
+                                self.conditional(cond, yes, no)
+                                self.block = yes; finish(prefix + [expr.body] + expressions[i+1:])
+                                self.block = no; finish(prefix + [expr.orelse] + expressions[i+1:])
+                                return
+                        values, slots = [], []
+                        for i, expr in enumerate(expressions):
+                            value = evaluate_output(expr, i)
+                            if value is not None: values.append(value); slots.append(i)
+                        self.op('return', 'void', values, node=node, slots=slots)
+                    finish(leaves)
                 else:
                     val = self.expr(node.value)
                     if val is None and getattr(self, 'expected_return', None) in (None, 'void'):

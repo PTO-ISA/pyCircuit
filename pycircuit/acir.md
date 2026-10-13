@@ -1,86 +1,98 @@
-# ACIR MLIR v6
+# ACIR MLIR v7
 
-本文描述当前已经实现的保存格式。后续原生结构与组件 primitive 的目标见 [ACIR 基础设计](../acir/basic-design.md)，尚未全部实现。
+本文记录当前 v7 实现。Signal 的目标设计已修订为 BSV Wire：本拍有效写入后可读，get 以 valid 为隐式 guard，不保存跨周期值；set → get 为严格先后，同一事务不可对同一 Signal 同时读写。下文 Signal 初始化、旧值回退及读取契约属于尚未迁移的旧实现，不是新的设计规范。
 
-MLIR 是唯一可独立重载的程序表示，不保存 Python AST，也不依赖 JSON 图恢复计算。注册 dialect 使用 `func`、`arith`、`cf` 保存计算、函数调用、SSA 块参数、分支和循环。v3/v4/v5 产物必须从 Python 源码重新编译，编译器拒绝继续使用旧格式语义。
+关系表的目标语义已对齐 CF／C／SB／SBR，EHR 端口契约已对齐 BSV CReg，不允许同一外层事务跨端口访问。当前 v7 实现尚未迁移这些关系与限制；下文记录现有表示。
 
-`module` 的 `acir.model` 保存版本、top、配置、payload 类型、导出连接、实例层次和源组件契约表 `contracts`。契约有稳定 `id`、公开 `methods`、`relations`；每条关系保存 `before`、`after`、`relation="SB"`、`source` 和来源。关系表没有 `when`、ready、guard 或路径条件。未声明且未推导出必要顺序的接口对默认 CF。
+保存的主 MLIR 直接表达静态结构、组件操作、guard、计算和返回值。它是独立重载的程序表示，不包含 Python AST 或完整 RuleGraph。v6 及更早产物需要从源码重新编译。
 
-基础契约为 Queue、Cell、Signal 与 EHR；用户组件契约身份是 `Module:<实例路径>`。实例保存 contract 和 method 到稳定 interface 的映射；资源保存 contract，固定资源数组的元素分别绑定身份。层次路径使用点分隔，名字中的下划线不会成为层次分隔符。导入的静态全局实例使用保留的 `.global.` 前缀。
-
-| 表示 | 契约 |
-| --- | --- |
-| `!acir.queue<T>` / `!acir.cell<T>` / `!acir.signal<T>` / `!acir.qarray<T>` | 状态引用，与 payload SSA 分开 |
-| `!acir.struct<"Name">` / `!acir.array<T,N>` / `!acir.vector<T>` / builtin `tuple<...>` | 普通 payload 或返回值结构 |
-| `acir.resource` | 资源身份、组件契约、初始化和容量函数；固定数组另保存长度与元素初始化 |
-| `acir.get` / `acir.config` | 固定资源身份和构造配置 |
-| `acir.read` | old、ehr 或 Signal current 视图；EHR 复用 Cell 引用，Queue 容量用 `aspect="full"` 的 bool 读取；保留角色和派生端口 |
-| `acir.query` | empty/size 查询旧状态，ready=true；full 通过 `acir.read` 读取容量 EHR |
-| `acir.pop` / `acir.push` / `acir.revise` / `acir.write` | 当前路径的事务效果；revise 更新旧队尾 |
-| `func.call` | helper/method/guard；method 保存 instance、contract、interface、method 绑定 |
-| `acir.guard` | 显式 guard；求值只观察状态，控制后续行为 |
-| `acir.invoke` | Module 选择具体 rule，保存 callee 和参数 SSA，无 SSA 返回值 |
-| `acir.export` | 为共享普通值保留稳定 SSA 锚点，不重新读取状态 |
-| `acir.external` | 引用另一实例准备函数的 SSA 定义，source/identity 对应真实 IR |
-
-原生 printer 使用 TableGen 声明式 assembly format，按操作名、操作数、必要属性和类型打印 ACIR 操作。资源 name/kind/type、查询 kind、guard/invoke name 与 external source/identity 直接放在操作后，其余语义属性保留在属性字典中；源码位置仍输出为 `loc(...)`。例如：
-
-```mlir
-acir.resource "input" "queue" "u32" {contract = "Queue", visibility = "old"}
-%q = acir.get "input" : !acir.queue<i32>
-%value = acir.read %q {acir.id = "v1", role = "observe", view = "old"} : !acir.queue<i32> -> i32
-%empty = acir.query %q "empty" : !acir.queue<i32> -> i1
-acir.pop %q : !acir.queue<i32>
-acir.push %q, %value : !acir.queue<i32>, i32
-acir.guard %empty "enabled"
-acir.invoke "top.consume"(%q) : (!acir.queue<i32>) -> ()
+```text
+ACPy 静态展开 → 原生 ACIR → C++ 分析 lowering（副本）
+                                  → 实际 SSA/CFG → Python RuleGraph
 ```
 
-聚合、索引、更新和 revise 的可变操作数保留完整函数类型；`extract` 的 field、`update/revise` 的 path 都保留在属性字典。固定 bool/i32 结果或 guard/check 的 bool 输入由 ODS 类型约束表达。所有操作仍接受原有带引号的通用 MLIR 语法；Python 前端继续生成通用语法，仅原生 printer 负责简洁输出。此次只改变文本与数据布局，不改变控制流、分析阶段或程序语义。
+## 原生结构与符号
 
-Queue 采用 Pipeline FIFO：read/pop/revise 的 ready 为 `!empty`，读取只观察旧队头；push 的隐式 guard 读取 `!ehr.full(queue,1)`，跨事务只由本拍获准的 pop 释放容量。新 push 数据下拍才可读。payload 声明 `read SB revise SB pop`，内部容量视图给出 `pop SB query.full`，push guard 调用关系给出 `query.full SB push`，闭包包含 read→push，即使中间接口没有实际调用。Cell read/write 默认 CF，write 下拍可见。
+外层 builtin `module` 的 `acir.model` 只保存版本、top、构造配置、payload 类型和导出连接。每个静态实例对应一个 `acir.module`，建立一个符号作用域。实例的构造来源、父实例、公开成员、输入和返回连接保存在 `acir.instance` 属性；子实例句柄用 `acir.instance` 操作引用已展开的 Module，引用共享实例不复制资源。
 
-Signal 使用 `!acir.signal<T>` 与 `visibility="current"` 声明，必须保存 payload 初值函数，不保存容量函数。`acir.read/write` 分别绑定 `interface="get"/"set"` 和 `view="current"`，不保存 EHR port。基础契约 `Signal` 声明 `set SB get`。访问的 `local_condition` 表达临时写入路径，`condition` 表达完整事务判断后的发布条件；顺序边使用判断路径，不引入 writer-fire 准入条件。
+| 操作 | 内容 |
+| --- | --- |
+| `acir.module` | 单个声明区域，保存资源、实例句柄、接口、定义和 Work |
+| `acir.instance` | 符号化的子实例／共享实例连接 |
+| `acir.interface` | 公开接口、具体 Method 定义和 `orders` 中的符号化 After 关系 |
+| `acir.rule` | 函数类型、输出槽位引用类型、独立 guard 和 body |
+| `acir.method` | 函数类型、接口身份、独立 guard 和 body |
+| `acir.work` | Module 组合计算和 Rule 选择；不建立事务 |
+| `acir.rule.call` | 目标符号、实参和 `output_bindings`；没有 SSA 返回值 |
+| `acir.method.call` | 目标符号、实参和普通 SSA 返回值 |
 
-Signal get 的派生 `bypass` 保存 `selection="last_local_else_granted_set"`、候选 set、资格、事务、写入顺序、`fallback="retained"` 和 `commit="transaction"`。同事务选择最后一次有效前序 set，资格不要求事务最终获准；跨事务资格包含 `granted(transaction)`。没有有效写入时读取保留值；竞争写入的仲裁未定义，候选列表的顺序不表示跨 Rule 优先级。Module current 读取进入 preparations 并关联实际使用者，保留路径及 method guard。
+跨实例引用写为 `@instance::@symbol`。实例路径中的点属于符号名；需要时使用 MLIR 的引号符号语法。普通 helper 和初始化函数使用 `func.func`；各 Module 中的 private 声明导入共享 helper，分析 lowering 将定义保留一次。按调用参数和捕获环境静态展开的 Method 定义通过 `interface_ref` 关联同一个公开接口。已注解的未使用接口也保留定义；只有普通参数、静态捕获的接口参与无条件摘要。
 
-Rule-var 普通返回通路与 `acir.result`、`var.validity`、生产者有效性字段已经移除。普通参数、helper/method 返回和 Module 共享 SSA 仍保留；Rule 的 Queue/Cell/Signal 返回都表达资源效果，调用只恢复静态连接。
+Rule／Method 的两个区域具有相同的入口参数类型，验证器检查它们与函数签名一致。省略 guard 表示 true；显式 guard 以 `acir.guard.yield` 产生 bool。body 以 `acir.return` 结束，Work 以 `acir.work.end` 结束。
 
-EHR 资源仍使用 `!acir.cell<T>`，声明附带 `visibility="ehr"` 和普通 `initial_fn`。读写使用 `view="ehr"`，不新增专用 operation。Queue 资源声明 `views.full`，初始化表达式为旧数量等于容量；容量读写直接引用 Queue，以 `aspect="full"` 表示 bool 内部视图，verifier 检查类型。pop 后的 `acir.write false` 位于早端口，显式 full 和 push 隐式 guard 的 `acir.read` 位于晚端口。隐式 guard 与就绪要求单独保存，不能当成普通分支裁剪必要依赖。
+Rule 的 `output_types` 保存 Queue／Cell／Signal 槽位类型；`acir.return` 的 `slots` 将实际 payload 对应到槽位。None 对应省略该槽位，不产生无效 payload，也不取消其它效果。调用的输出绑定必须引用匹配的固定资源；同一 Rule 的多个互斥选择位置必须使用相同绑定。Method 的 return 则与普通 SSA 返回签名一致。
 
-结构收集忽略 guard 是否获准，保存派生的 `ehr_bindings`，确保拒绝的 method 仍保持阶段；有效访问按真实路径另行收集。派生的顶层 `acir.ehr`/JSON `ehr` 保存每个具体资源视图的 `port_count` 与 method 绑定。操作的 `ports` 保存具体资源映射；单一绑定另有 `port`。声明契约与派生结果分开，重载删除派生信息并从实际访问重新分配。无序读写共阶段，严格 SB 要求更晚阶段；合并同阶段后以阶段 DAG 的最长路径分配连续端口。纯读取间的 SB 不提高端口，同阶段与严格先后冲突时报告来源。helper 使用最内层 method 的阶段，嵌套 method 保留自己的身份，直接访问为端口 0。
+```mlir
+acir.rule @top.exchange : (!acir.queue<i32>) -> ()
+    {output_types = [!acir.queue<i32>]} body {
+^entry(%input: !acir.queue<i32>):
+  %value = acir.queue.peek %input {role = "consume"} : !acir.queue<i32> -> i32
+  acir.return %value : i32 {slots = [0 : i64]}
+}
+```
 
-访问的 `bypass` 保存前序端口候选写入、写入条件、事务身份、同一 method 内写入序列和旧值回退。跨 Rule 候选必须带 `granted(transaction)`；同 Rule 候选使用临时写入条件，整体仍提交或取消。不同事务的非法竞争写入没有隐含优先级。full 的 SSA 条件使用独立的、按事务区分临时视图的 `ehr.full(resource,port)@transaction` 身份，不与旧 full 合并，不参与旧 empty/full 排斥证明。
+实际产物另有 `acir.function` 来源属性，保留参数角色、源定义和接口绑定，供诊断和调用追踪使用。输出资源由 call 的绑定决定；高层 return 不提前变成 push／write／set。
 
-函数的 `acir.function` 保存角色、源定义、实例归属、参数类型、资源身份、消费角色及输出绑定。method/helper 按调用绑定生成专门函数，guard 观察角色不继承消费。已注解、没有资源参数且不捕获动态准备值的公开 method 另保存 `summary=true` 的普通函数，用于未调用接口的契约闭包；捕获动态值时使用实际调用绑定。不新增图专用 operation。helper 和 guard 使用定义所属实例的词法环境，避免调用者参数或另一实例的同名状态污染捕获。
+## 组件引用与操作
 
-`model.acir.mlir` 只保留真实源码的 MLIR location；临时 `.analysis-*/input.mlir` 路径、无效 `loc(unknown)` 后缀及旧 `acir.type:*` 标记在重载与打印时清理。块参数使用 MLIR 类型，函数参数的源类型仍由 `acir.function.params` 保存。额外的 `model.readable.mlir` 使用原生 printer 隐藏调试位置，便于阅读；它保留计算和语义属性，重载后的诊断不再具有操作源码位置，完整位置追溯应使用主文件。
+声明包含符号、payload 类型、源类型名称和初始化函数；Queue 另有容量函数。固定一维 Queue 数组用 `acir.queue.array`，保存长度计算和元素初始化函数。`acir.ref` 用符号引用声明，并产生与声明匹配的引用类型。
 
-`acir.id` 关联稳定源 SSA 定义。条件、访问与调用上下文的身份不依赖 location；匿名或重复源 ID 的操作按实际函数/CFG 中的操作位置区分，边与访问排序也使用这些身份。只移动源码位置不会改变条件与关系，旧分析图中的派生 ID 在重新分析时更新，ACIR 格式仍为 v6。read/query 与共享 export 保留保守 MemoryEffect，不能被删除、CSE 或推测到分支外。其余合法纯计算可 canonicalize/CSE。分析支持优化生成的资源 `arith.select`，保存各候选身份与选择条件；循环携带依赖通过固定点传递至 helper 返回值及共享 exports。
+| 声明／引用 | 原生操作 |
+| --- | --- |
+| `acir.queue` / `!acir.queue<T>` | `queue.peek/pop/push/empty/full/size` |
+| `acir.cell` / `!acir.cell<T>` | `cell.read/write` |
+| `acir.signal` / `!acir.signal<T>` | `signal.get/set` |
+| `acir.ehr` / `!acir.ehr<T>` | `ehr.read/write` |
+| `acir.queue.array` / `!acir.qarray<T>` | 索引后操作对应 Queue 引用 |
 
-`acir-compile INPUT.mlir OUTPUT_DIR [--opt]` 解析和验证 MLIR，导出实际函数、操作、SSA 与 CFG 的临时 `program.json`，并规范化 MLIR。Python 分析重新传播资源身份、路径、guard、ready、Signal 可见性和共享计算来源，不读取 Python。完整 RuleGraph 保存在分析器内存，并导出独立的 `rule-graph.json` 和 `rule-graph.dot`；MLIR 不再嵌入 `acir.analysis` 或推导后的 `acir.contracts`。`acir.model.contracts` 继续保存原始组件契约，顶层 `acir.ehr` 和操作上的 `port`/`ports` 继续用于现有端口处理接口。加载已有 v6 文件时仍接受并清除旧 `acir.analysis`、`acir.contracts`，同时清除派生 EHR 标记，再依据 `acir.model` 声明和实际 SSA/CFG 重算；旧摘要不能覆盖实际操作。
+不再注册通用 resource/read/write/query/invoke 或 Queue revise。Cell、Signal 和 EHR 必须初始化且没有容量。引用、payload、输出绑定和区域返回类型由原生验证器检查；用户不手填 view、aspect 或 EHR 端口。
 
-分析收集基础操作及 method 调用，绑定具体实例，查表和计算 SB 闭包，结合路径与 guard，再提升为 rule 顺序。嵌套 method 的关系向父组件传递，用户声明与内部关系合并。无条件且资源绑定精确的接口摘要参与组件级闭包；有条件、带资源参数或动态资源索引的推导保留具体调用绑定，避免将一组绑定的必要顺序错误套用到另一组。
+基础组件契约集中在 [Components.cpp](mlir/Components.cpp)。同一接口同时提供分析操作、默认 readiness、可见性和顺序，并向 Python 导出契约。Queue 的顺序为 peek → pop → query.full → push；容量视图的阶段来自该契约。payload 读取观察旧队头，新 push 数据下拍可读；获准 pop 可以释放同拍容量。Cell 始终读旧值。Signal 保留 set → get 顺序，没有有效写入时读取保留值，不传播生产者成功条件。用户 EHR 按实际 Method 顺序分配阶段，无序访问不凭任意 Rule 排序增加可见性。
 
-JSON 保存以下内容：
+## 计算、共享与控制流
 
-- `contracts`：默认、用户和推导关系、来源证据及接口闭包。带 `bindings` 的推导仅适用于具体调用，路径条件位于对应调用记录。
-- `ehr_bindings`：独立于事务获准条件的结构访问绑定，供端口分配和操作标注。
-- `ehr`：逐具体资源及 aspect 的连续端口数、method 绑定、旧值回退和提交归属。
-- `method_summaries`：静态接口摘要函数及其绑定访问；未调用接口也可检查。
-- `nodes[].methods`：实际 method 调用、稳定身份、组件、参数、路径、guard、基础访问身份和嵌套祖先。
-- `nodes[].accesses`：transaction、function、resource、operation、condition、ready、view、role、接口契约、绑定精度、位置及调用链；EHR 另有 aspect、phase、port、local_condition 和 bypass（含写入来源及资格条件）。按事务与实际资源合并隐式消费。
-- `nodes[].guards`、`requirements`：显式 guard、路径上的基础 ready 及准备计算有效性，分别保存。
-- `edges`：统一的 `method.order` SB 边，包含接口、契约、证据、条件、资源或值身份、访问身份和源码位置。
-- `computations`：准备计算的访问，共享 SSA 来源同时关联使用它的事务。
-- `preparations`：从实际 SSA 定义导出的准备区域，保存 `id`、`function`、调用 `context`、`block`、源 `identity` 与位置、operation/dialect、`inputs`/`outputs`、执行 `condition`、`output_validity`、分支／循环／调用 `boundary`、`control_dependencies`、`state_dependencies`、`method_dependencies`、条件化 `requirements` 及 `users`。输入输出 SSA 身份在对应 function/context 中解释，完整 CFG 与块参数绑定仍在 IR 中。
-- `preparation_methods`：准备阶段的具体 method 调用和祖先绑定；使用者的 `nodes[].methods` 通过 `source_method` 关联原调用。关联访问通过 `source_access`、`source_methods` 保留原访问及调用来源，视图、端口和调用链不被改写。同一次共享访问在每个使用它的 Rule 中只关联一次，`condition` 合并使用路径，`vias` 保存各处使用原因。
-- `nodes[].preparations` / `preparation_bindings`：该 Rule 所需区域及条件化使用关系；区域不是事务节点，独立调用保持不同身份。基础 ready 随消费关系传播，未使用的准备读取不会约束其它 Rule。
+普通计算复用 `arith`，普通 helper 使用 `func`。单出口结构化分支、短路和循环保存为 `scf.if`／`scf.while`；存在多个 return 的函数保留 CFG，以精确表达每个路径提供的输出槽位。聚合计算继续使用 `acir.aggregate/extract/update/length` 等辅助操作，固定数组和结构体类型保持原有范围。
 
-`preparations` 与上述关联保存于独立 `rule-graph.json`，不嵌入 MLIR，不新增计算 operation，ACIR 格式保持 v6。重载从实际 IR 重建。Module 可调用只读 method，返回值保留调用 guard 的有效性；变量 guard 直接引用声明作用域的 SSA 值，保留原计算、状态视图及计算自身的有效性。分支保护的读取保留执行条件，循环计算保留边界。设计目标见 [编译阶段的设计意图](docs/compiler-intent.md)；静态共享标记不等同于运行时共享求值。
+Work 的动态捕获作为 Rule 参数传入，资源捕获使用明确引用。共享普通值使用 `acir.export` 保留 SSA 锚点，`acir.external` 关联另一实例中的实际定义。它们不表示运行时缓存。状态读取和共享 export 保留保守 MemoryEffect，优化不能将状态读取推测到未执行路径。
 
-同一事务内的 SB 不生成 rule 自环，也不拆分事务。能够证明调用互斥时排除约束，其余情况保守保留。矛盾顺序的诊断可追溯到用户声明、基础默认关系、嵌套调用和位置；DOT 同样展示接口、条件和来源。
+## 分析 lowering 与独立重载
 
-路径证明只处理常量、共享 SSA 的简单布尔互斥，以及正容量 Queue 的 empty/full 不共存。布尔展开有明确上限；超限不被认作可确认环。循环摘要对循环携带值和动态资源索引保守处理，完整 CFG 始终保留。诊断区分 confirmed-cycle 与 unproven-order。
+```bash
+pycircuit/builds/compiler/mlir/acir-opt model.acir.mlir --acir-lower-analysis
+```
 
-本阶段只验证静态编译与依赖分析，不定义运行时激活、冲突仲裁、竞争写入检查、提交算法、仿真后端或 CPU 时序 benchmark。
+[Lowering.cpp](mlir/Lowering.cpp) 将 Work、Rule、Method 转换为分析函数，保留原始身份和调用边界。显式 guard 转成条件检查，输出 payload 在实际 return 路径展开为绑定资源效果，消费性 peek 产生 pop 请求。相同块中同一引用的重复消费合并，并保留贡献读取的位置；跨调用、别名和路径的消费请求按外层事务与实际资源合并为一个条件化消费。Queue full 和 push 的容量检查及 pop 的容量释放只在分析副本中展开。最后使用标准 SCF→CF 转换。
+
+`acir-compile INPUT.mlir OUTPUT_DIR [--opt]` 验证、规范化主 MLIR，在副本上运行 lowering，再导出真实操作、SSA、CFG 和组件契约到临时 `program.json`。Python 只使用这份实际 IR 导出进行分析，不读源码或旧图。`--opt` 控制主 IR 的 canonicalize/CSE。
+
+Method guard 在 Rule 内归入外层事务；在 Work 内沿返回值的数据和控制依赖约束相关 Rule。guard 失败不会作为条件 false 进入依赖该值的 else。普通 SSA 不增加持久 valid 状态。
+
+主文件 `model.acir.mlir` 保留真实源码位置。临时 MLIR 输入位置与无意义的 UnknownLoc 后缀被清理；`model.readable.mlir` 隐藏位置。`acir.id` 保留源操作身份，匿名或重复 ID 根据实际操作位置区分。移动源码位置不会改变条件或顺序关系。
+
+完整图、端口和旁路只保存在 RuleGraph；没有分析后的二次编译，也不向主 MLIR 注入端口或分析缓存。修改实际操作后可重新分析，删除 Python 源码后也可重建相同图。
+
+## RuleGraph
+
+JSON 的 `format_version` 为 7，保留以下派生结果：
+
+- `contracts`、`method_summaries`：基础、用户和推导契约，公开接口及必要顺序的来源证据。
+- `nodes`：事务身份、选择路径、guard、具体 Method 调用、条件化资源访问和 readiness。消费请求按实际资源合并。
+- `edges`：条件化 `method.order` SB 关系、接口、资源、来源及源码位置。事务内顺序不生成自环。
+- `ehr`、`ehr_bindings`：结构阶段、端口、初始化回退与访问绑定；这些字段不会注入高层 IR。
+- 访问的 `bypass`：前序临时／获准写入、资格条件和旧值／保留值回退。没有跨 Rule 竞争写入的隐含优先级。
+- `computations`、`preparations`、`preparation_methods`：共享 SSA、分支／循环／调用边界、条件化依赖、有效性和使用者；准备区域不是事务。
+- `diagnostics`：可证明依赖环和无法证明顺序的诊断，附带来源证据。
+
+路径证明保留现有有界布尔推导与 Queue 旧 empty/full 排斥约束；容量 EHR 不与旧 full 混用。完整循环仍在 IR 中，分析对循环携带值和动态资源索引采用保守摘要。
+
+本轮不实现执行后端、运行时缓存、竞争仲裁或 CPU 时序验证。EHR 输出目标和新的辅助表达继续留作未决事项。

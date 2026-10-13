@@ -128,4 +128,4 @@ python3 -m unittest discover -s pycircuit/tests -p test_examples.py -v
 
 [test_examples.py](../tests/test_examples.py) 对十个 top 分别编译优化前后的 IR，检查相同状态效果和关系种类，然后删除临时 Python 源文件，仅从已保存的 MLIR 重做分析并比较完整图。[test_preparations.py](../tests/test_preparations.py) 检查共享定义、变量 guard、独立调用、按需就绪、循环和 EHR 后阶段。另有布尔化简真值表测试，覆盖嵌套分支带来的条件摘要问题。
 
-Queue 阶段连接统一采用 Pipeline FIFO：read/pop 使用旧队头，push 可利用成功 pop 释放容量；默认 read → revise → pop → push 闭包驱动顺序图。`nodes[].methods` 保存稳定接口和调用访问摘要，`contracts` 保存默认、推导和用户来源。ACIR v6 的两个 CPU 范式产物也保存在 `pycircuit/builds/riscv_pipeline/` 与 `pycircuit/builds/ooo_scheduler/`。
+Queue 阶段连接统一采用 Pipeline FIFO：read/pop 使用旧队头，push 可利用成功 pop 释放容量；默认 peek → pop → push 闭包驱动顺序图。`nodes[].methods` 保存稳定接口和调用访问摘要，`contracts` 保存默认、推导和用户来源。ACIR v7 的两个 CPU 范式产物也保存在 `pycircuit/builds/riscv_pipeline/` 与 `pycircuit/builds/ooo_scheduler/`。

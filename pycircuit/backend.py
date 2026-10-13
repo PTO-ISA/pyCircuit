@@ -29,20 +29,8 @@ def analyze(model, directory, optimize=True):
             raise CompileError(result.stderr or result.stdout or 'MLIR verification failed')
         program = json.loads((Path(temporary) / 'program.json').read_text())
         graph = analyze_program(program)
-        functions = {}
-        for record in graph['ehr_bindings']:
-            if not record['identity']: continue
-            entries = functions.setdefault(record['function'], {}).setdefault(record['identity'], [])
-            binding = dict(resource=record['resource'], aspect=record['aspect'], port=record['port'])
-            if binding not in entries: entries.append(binding)
-        bindings = Path(temporary) / 'bindings.json'
-        bindings.write_text(json.dumps(dict(views=graph['ehr'], functions=functions)))
-        annotated = Path(temporary) / 'annotated'
-        result = subprocess.run([compiler(), str(Path(temporary) / 'model.acir.mlir'), str(annotated), '--bindings', str(bindings)], capture_output=True, text=True)
-        if result.returncode: raise CompileError(result.stderr or 'EHR annotation failed')
-        text = (annotated / 'model.acir.mlir').read_text()
-        save(text, directory / 'model.acir.mlir')
-        save((annotated / 'model.readable.mlir').read_text(), directory / 'model.readable.mlir')
+        save((Path(temporary) / 'model.acir.mlir').read_text(), directory / 'model.acir.mlir')
+        save((Path(temporary) / 'model.readable.mlir').read_text(), directory / 'model.readable.mlir')
         (directory / 'rule-graph.json').write_text(json.dumps(graph, indent=2, ensure_ascii=False) + '\n')
         (directory / 'rule-graph.dot').write_text(dot(graph))
     return graph

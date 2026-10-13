@@ -1,4 +1,5 @@
 """Textual MLIR serialization. No generated C++ or serialized Python AST."""
+import re
 from .ir import SCALARS, VERSION, element
 
 
@@ -31,7 +32,7 @@ def typ(t):
         return 'i1'
     if t in SCALARS:
         return 'i' + t[1:]
-    if t.startswith(('queue<', 'cell<', 'signal<', 'qarray<', 'vector<', 'array<', 'tuple<')):
+    if t.startswith(('queue<', 'cell<', 'ehr<', 'signal<', 'qarray<', 'vector<', 'array<', 'tuple<')):
         kind, rest = t.split('<', 1)
         payload = rest[:-1]
         if kind == 'tuple':
@@ -51,6 +52,8 @@ def typ(t):
 def serialize(model):
     functions = []
     resources = []
+    global _symbols, _functions
+    _symbols, _functions = {}, {}
     config = model['config']
     construction = {o['id']: o for o in model['construction']}
     def initializer(name, result, ids, sequence=False):
@@ -85,10 +88,10 @@ def serialize(model):
         name = r['name']
         if r['kind'] in ('queue', 'qarray'):
             r['capacity_fn'] = initializer('ac_init_' + name + '_cap', 'u32', [r.pop('capacity')])
-        if r['kind'] in ('queue', 'cell', 'signal'):
-            if r['kind'] in ('cell', 'signal'): r.pop('capacity', None)
+        if r['kind'] in ('queue', 'cell', 'ehr', 'signal'):
+            if r['kind'] in ('cell', 'ehr', 'signal'): r.pop('capacity', None)
             ids, sequence = r.pop('initial'), r.pop('sequence')
-            result = r['type'] if r['kind'] in ('cell', 'signal') else construction[ids[0]]['type'] if sequence else 'vector<' + r['type'] + '>'
+            result = r['type'] if r['kind'] in ('cell', 'ehr', 'signal') else construction[ids[0]]['type'] if sequence else 'vector<' + r['type'] + '>'
             r['initial_fn'] = initializer('ac_init_' + name, result, ids, sequence)
         elif r['kind'] == 'qarray':
             i = r.pop('iterable')
@@ -116,23 +119,106 @@ def serialize(model):
             for op in block['ops']:
                 if op['op'] == 'binary' and op['operator'] in ('<<', '>>', '//', '%'):
                     name = {'<<':'shl', '>>':'shr', '//':'div', '%':'mod'}[op['operator']]
-                    symbol = 'ac_builtin_' + name + '_' + op['type']
-                    intrinsics[symbol] = (name, op['type'])
-    header = dict(format_version=VERSION, contracts=model['contracts'], instances=model.get('instances', []), exports=model['exports'], top=model['top'], config=config, types=model['types'], type_order=list(model['types']), constants=model.get('constants',{}), modules=modules)
-    lines = ['module attributes {acir.model = ' + attr(header) + '} {']
+                    intrinsic_symbol = 'ac_builtin_' + name + '_' + op['type']
+                    intrinsics[intrinsic_symbol] = (name, op['type'])
+    header = dict(format_version=VERSION, exports=model['exports'], top=model['top'], config=config, types=model['types'], type_order=list(model['types']), constants=model.get('constants',{}))
+    # Resources retain their elaborated identity. Ownership follows instance members.
+    owners = {}
+    for instance in model.get('instances', []):
+        for value in instance['members'].values():
+            if isinstance(value, dict):
+                for name in value.get('resources', []): owners.setdefault(name, instance['name'])
     for r in resources:
-        lines.append('  "acir.resource"() ' + attr(r) + ' : () -> () loc(unknown)')
-    for symbol, (name, t) in sorted(intrinsics.items()):
-        meta = dict(name=symbol, kind='intrinsic', intrinsic=name, result=t,
-                    params=[dict(name='a',type=t),dict(name='b',type=t)])
-        lines.append('  func.func private @' + symbol + '(' + typ(t) + ', ' + typ(t) + ') -> ' + typ(t) + ' attributes {acir.function = ' + attr(meta) + '} loc(unknown)')
+        owner = r.get('owner') or owners.get(r['name'], next((i['name'] for i in model.get('instances', []) if i['parent'] is None), 'top'))
+        _symbols[r['name']] = (owner, r['name'])
+    module_names = list(dict.fromkeys([i['name'] for i in model.get('instances', [])] + [m['name'] for m in modules]))
     for fn in functions:
-        lines.extend(function(fn))
+        owner = fn.get('owner') or fn.get('instance') or next((m for m in sorted(module_names, key=len, reverse=True) if fn['name'].startswith(m + '.') or fn['name'] == m + '_Work'), None)
+        fn['_scope'] = owner
+        _functions[fn['name']] = fn
+        if owner: _symbols[fn['name']] = (owner, fn['name'])
+    lines = ['module attributes {acir.model = ' + attr(header) + '} {']
+    # Ordinary helper/intrinsic functions remain func operations. Global helpers
+    # are imported into each module's single scope; lowering interns them once.
+    globals_ = [f for f in functions if not f['_scope']]
+    for intrinsic_symbol, (name, t) in sorted(intrinsics.items()):
+        meta = dict(name=intrinsic_symbol, kind='intrinsic', intrinsic=name, result=t, params=[dict(name='a',type=t),dict(name='b',type=t)])
+        globals_.append(dict(_intrinsic='  func.func private @' + intrinsic_symbol + '(' + typ(t) + ', ' + typ(t) + ') -> ' + typ(t) + ' attributes {acir.function = ' + attr(meta) + '} loc(unknown)'))
+    for f in globals_:
+        lines.extend([f['_intrinsic']] if '_intrinsic' in f else function(f))
+    for name in module_names:
+        instance = next((i for i in model.get('instances', []) if i['name'] == name), {})
+        contract = next((c for c in model['contracts'] if c['id'] == 'Module:' + name), {})
+        lines.append('  acir.module ' + sym(name) + ' attributes {acir.instance = ' + attr(instance) + '} {')
+        for local, value in instance.get('members', {}).items():
+            if isinstance(value, dict) and 'instance' in value:
+                lines.append('    acir.instance ' + sym(local) + ' = ' + sym(value['instance']))
+        for method in instance.get('methods', []):
+            implementations = [symbol(f['name']) for f in functions if f.get('instance') == name and f.get('method') == method and f['kind'] == 'method']
+            orders = []
+            for relation in contract.get('relations', []):
+                if relation['after'] != method: continue
+                data = {k:v for k,v in relation.items() if k not in ('before','after')}
+                orders.append(attr(data)[:-1] + ', before = ' + sym(name) + '::' + sym(relation['before']) + '}')
+            lines.append('    acir.interface ' + sym(method) + ' {implementations = [' + ', '.join(implementations) + '], orders = [' + ', '.join(orders) + ']}')
+        for r in resources:
+            if _symbols[r['name']][0] != name: continue
+            data = {k:v for k,v in r.items() if k not in ('kind', 'owner', 'contract', 'visibility', 'loc')}
+            decl = 'queue.array' if r['kind'] == 'qarray' else r['kind']
+            lines.append('    acir.' + decl + ' ' + sym(r['name']) + ' : ' + typ(r['type']) + ' ' + attr(data))
+        for f in globals_:
+            if '_intrinsic' in f: lines.append(f['_intrinsic']); continue
+            signature = ', '.join(typ(p['type']) for p in f['params'])
+            result = '' if f['result'] == 'void' else ' -> ' + typ(f['result'])
+            lines.append('    func.func private ' + sym(f['name']) + '(' + signature + ')' + result)
+
+        for fn in functions:
+            if fn['_scope'] != name: continue
+            if fn['kind'] == 'work':
+                meta = {k:v for k,v in fn.items() if k not in ('blocks','guard','_scope') and v is not None}
+                lines.append('    acir.work attributes {acir.function = ' + attr(meta) + '} {')
+                lines.extend(region(fn, 'work'))
+                lines.append('    }')
+            elif fn['kind'] in ('rule', 'method'):
+                meta = {k:v for k,v in fn.items() if k not in ('blocks','guard','_scope','outputs') and v is not None}
+                signature = '(' + ', '.join(typ(p['type']) for p in fn['params']) + ') -> ' + ('()' if fn['result'] == 'void' else typ(fn['result']))
+                extra = ', interface_ref = ' + sym(name) + '::' + sym(fn['method']) if fn['kind'] == 'method' and fn.get('method') else ''
+                if fn['kind'] == 'rule':
+                    output_types = [typ((o.get('kind', 'queue') + '<' + o['type'] + '>')) if o else 'unit' for o in fn['outputs']]
+                    extra = ', output_types = [' + ', '.join(output_types) + ']'
+                start = '    acir.' + fn['kind'] + ' ' + sym(fn['name']) + ' : ' + signature + ' {acir.function = ' + attr(meta) + extra + '}'
+                guard_blocks = fn['guard']
+                trivial = len(guard_blocks) == 1 and len(guard_blocks[0]['ops']) == 2 and guard_blocks[0]['ops'][0]['op'] == 'const' and guard_blocks[0]['ops'][0]['value'] is True
+                if trivial: lines.append(start + ' body {')
+                else:
+                    lines.append(start + ' guard {')
+                    guard = dict(fn, result='bool', blocks=guard_blocks)
+                    lines.extend(region(guard, 'guard'))
+                    lines.append('    } body {')
+                lines.extend(region(fn, fn['kind']))
+                lines.append('    }')
+            else: lines.extend(function(fn))
+        lines.append('  }')
     lines.append('}')
     return '\n'.join(lines) + '\n'
 
 
-def function(fn):
+def sym(name):
+    return '@' + (name if re.fullmatch(r'[a-zA-Z_$][a-zA-Z0-9_$.-]*', name) else quote(name))
+
+
+def symbol(name):
+    scope, local = _symbols[name]
+    return sym(scope) + '::' + sym(local)
+
+
+def region(fn, kind):
+    lines = function(fn, kind)[1:-1]
+    signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) for p in fn['params'])
+    return ['    ^entry' + ('(' + signature + ')' if signature else '') + ':'] + lines
+
+
+def function(fn, region_kind=None):
     params = fn['params']
     types = {p['id']: p['type'] for p in params}
     blocks = fn['blocks']
@@ -141,19 +227,21 @@ def function(fn):
         types.update({o['id']: o['type'] for o in b['ops']})
     result = fn['result']
     # A missing helper return is a diagnostic trap with a typed fallback return.
-    meta = {k: v for k, v in fn.items() if k != 'blocks'}
+    meta = {k: v for k, v in fn.items() if k not in ('blocks', 'guard', '_scope') and v is not None}
     signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(unknown)' for p in params)
     ret = '' if result == 'void' else ' -> ' + typ(result)
-    out = ['  func.func @' + fn['name'] + '(' + signature + ')' + ret + ' attributes {acir.function = ' + attr(meta) + '} {']
+    out = ['  func.func ' + sym(fn['name']) + '(' + signature + ')' + ret + ' attributes {acir.function = ' + attr(meta) + '} {']
     def emit(o):
         kind, t, ids = o['op'], o['type'], o['args']
         args = ', '.join('%' + x for x in ids)
         ts = ', '.join(typ(types[x]) for x in ids)
         lhs = '' if t == 'void' else '%' + o['id'] + ' = '
         attrs = {k: v for k, v in o.items() if k not in ('op','id','type','args','loc')}
+        if kind.startswith(('queue.', 'cell.', 'ehr.', 'signal.')):
+            attrs.pop('view', None); attrs.pop('interface', None)
         attrs['acir.source_type'] = t
-        if o.get('loc', {}).get('line') or kind == 'export': attrs['acir.id'] = o['id']
-        custom = {'resource': 'get', 'signal.read': 'read', 'signal.write': 'write', 'cell.read': 'read', 'cell.write': 'write', 'queue.read': 'read', 'queue.pop': 'pop', 'queue.push': 'push', 'queue.revise': 'revise', 'rule.call': 'invoke', 'field': 'extract', 'index': 'extract', 'length': 'length', 'aggregate': 'aggregate', 'update': 'update', 'array.update': 'update', 'zero':'aggregate'}
+        if o.get('loc', {}).get('line') or kind in ('export', 'rule.call'): attrs['acir.id'] = o['id']
+        custom = {'resource': 'ref', 'signal.read': 'signal.get', 'signal.write': 'signal.set', 'queue.read': 'queue.peek', 'field': 'extract', 'index': 'extract', 'length': 'length', 'aggregate': 'aggregate', 'update': 'update', 'array.update': 'update', 'zero':'aggregate'}
         if kind == 'param':
             return
         if kind == 'br':
@@ -161,7 +249,11 @@ def function(fn):
         elif kind == 'cond_br':
             stmt = f'cf.cond_br {args}, ^{o["yes"]}, ^{o["no"]}'
         elif kind == 'return':
-            if not ids and result != 'void':
+            if region_kind:
+                ending = 'guard.yield' if region_kind == 'guard' else 'work.end' if region_kind == 'work' else 'return'
+                if region_kind == 'rule': attrs.setdefault('slots', [])
+                stmt = '"acir.' + ending + '"(' + args + ') ' + attr(attrs) + f' : ({ts}) -> ()'
+            elif not ids and result != 'void':
                 out.append('    %fallback_' + o['id'] + ' = "acir.aggregate"() {acir.source_type = ' + quote(result) + '} : () -> ' + typ(result) + ' loc(unknown)')
                 stmt = 'return %fallback_' + o['id'] + ' : ' + typ(result)
             else:
@@ -193,25 +285,116 @@ def function(fn):
                 stmt = lhs + f'"acir.compare"({args}) ' + attr(attrs) + f' : ({ts}) -> {typ(t)}'
         elif kind == 'call':
             attrs.pop('name', None)
-            stmt = lhs + 'func.call @' + o['name'] + f'({args}) ' + attr(attrs) + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
+            target = _functions.get(o['name'])
+            if target and target['kind'] == 'method':
+                attributes = attr(attrs)[:-1] + ', target = ' + symbol(o['name']) + '}'
+                stmt = lhs + '"acir.method.call"(' + args + ') ' + attributes + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
+            else:
+                stmt = lhs + 'func.call ' + sym(o['name']) + f'({args}) ' + attr(attrs) + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
         else:
             if kind == 'unary': attrs['operator_name'] = attrs.pop('operator')
-            if kind in ('queue.empty', 'queue.full', 'queue.size'):
-                attrs['kind'] = kind.split('.')[1]
-                custom[kind] = 'query'
             if kind == 'index' or kind == 'array.update': attrs['indexed'] = True
-            stmt = lhs + '"acir.' + custom.get(kind, kind) + f'"({args}) ' + attr(attrs) + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
+            if kind == 'resource':
+                attrs.pop('name', None)
+                attributes = attr(attrs)[:-1] + ', target = ' + symbol(o['name']) + '}'
+            elif kind == 'rule.call':
+                target = _functions[o['callee']]
+                bindings = [symbol(x['name']) if x else 'unit' for x in target['outputs']]
+                attrs.pop('callee', None); attrs.pop('name', None)
+                attributes = attr(attrs)[:-1] + ', target = ' + symbol(o['callee']) + ', output_bindings = [' + ', '.join(bindings) + ']}'
+            else: attributes = attr(attrs)
+            stmt = lhs + '"acir.' + custom.get(kind, kind) + f'"({args}) ' + attributes + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
         loc = o.get('loc',{})
         if loc.get('line'):
             stmt += ' loc(' + quote(loc['file']) + f':{loc["line"]}:{loc.get("column",0) + 1})'
         else:
             stmt += ' loc(unknown)'
         out.append('    ' + stmt)
-    for index, b in enumerate(blocks):
-        if index:
-            args = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(unknown)' for p in b['params'])
-            out.append('  ^' + b['label'] + ('(' + args + ')' if args else '') + ':')
-        for o in b['ops']:
-            emit(o)
+    def structured():
+        # ACPy's reducible CFG records are rendered as SCF when there is one
+        # exit. Multiple payload/None returns deliberately retain explicit CFG.
+        if sum(o['op'] == 'return' for block in blocks for o in block['ops']) != 1: return False
+        by_name = {block['label']: block for block in blocks}
+        successors = {}
+        for block in blocks:
+            end = block['ops'][-1]
+            successors[block['label']] = [end['dest']] if end['op'] == 'br' else [end['yes'], end['no']] if end['op'] == 'cond_br' else []
+        post = {name: set(by_name) for name in by_name}
+        for name, edges in successors.items():
+            if not edges: post[name] = {name}
+        changed = True
+        while changed:
+            changed = False
+            for name, edges in successors.items():
+                if edges:
+                    value = {name} | set.intersection(*(post[e] for e in edges))
+                    if value != post[name]: post[name] = value; changed = True
+        def reaches(start, target, avoid):
+            visited, pending = set(avoid), [start]
+            while pending:
+                name = pending.pop()
+                if name == target: return True
+                if name in visited: continue
+                visited.add(name); pending.extend(successors[name])
+            return False
+        def mapped_emit(operation, aliases):
+            begin = len(out); emit(operation)
+            for index in range(begin, len(out)):
+                out[index] = re.sub(r'%([a-zA-Z0-9_]+)', lambda m: '%' + aliases.get(m[1], m[1]), out[index])
+        def names(values, aliases): return ', '.join('%' + aliases.get(v, v) for v in values)
+        def yield_values(values, aliases):
+            out.append('    scf.yield' + (' ' + names(values, aliases) + ' : ' + ', '.join(typ(types[v]) for v in values) if values else ''))
+        def walk(name, stop=None, aliases=None):
+            aliases = aliases or {}
+            while name != stop:
+                block = by_name[name]
+                for operation in block['ops'][:-1]: mapped_emit(operation, aliases)
+                end = block['ops'][-1]
+                if end['op'] == 'return': mapped_emit(end, aliases); return
+                if end['op'] == 'br':
+                    dest = end['dest']
+                    if dest == stop: yield_values(end['args'], aliases); return
+                    head = by_name[dest]; term = head['ops'][-1]
+                    loop = term['op'] == 'cond_br' and reaches(term['yes'], dest, {term['no']})
+                    if loop:
+                        params = head['params']; identifiers = [p['id'] for p in params]
+                        before = {**aliases, **{v:v + '_before' for v in identifiers}}
+                        after = {**aliases, **{v:v + '_after' for v in identifiers}}
+                        ts = ', '.join(typ(p['type']) for p in params)
+                        lhs = ', '.join('%' + v for v in identifiers) + ' = ' if identifiers else ''
+                        assignments = ', '.join('%' + before[p['id']] + ' = %' + aliases.get(v,v) for p,v in zip(params, end['args']))
+                        out.append('    ' + lhs + 'scf.while (' + assignments + ') : (' + ts + ') -> (' + ts + ') {')
+                        for operation in head['ops'][:-1]: mapped_emit(operation, before)
+                        out.append('    scf.condition(' + names(term['args'], before) + ')' + (' ' + names(identifiers, before) + ' : ' + ts if identifiers else ''))
+                        out.append('    } do {')
+                        signature = ', '.join('%' + after[p['id']] + ': ' + typ(p['type']) for p in params)
+                        out.append('    ^after' + ('(' + signature + ')' if signature else '') + ':')
+                        walk(term['yes'], dest, after)
+                        out.append('    }')
+                        name = term['no']; continue
+                    # A straight branch binds the destination's arguments.
+                    aliases = {**aliases, **{p['id']:aliases.get(v,v) for p,v in zip(head['params'], end['args'])}}
+                    name = dest; continue
+                yes, no = end['yes'], end['no']
+                common = (post[yes] & post[no]) - {name}
+                if not common: raise ValueError('no structured join')
+                join = max(common, key=lambda n: len(post[n]))
+                params = by_name[join]['params']
+                lhs = ', '.join('%' + p['id'] for p in params) + ' = ' if params else ''
+                result_types = ' -> (' + ', '.join(typ(p['type']) for p in params) + ')' if params else ''
+                out.append('    ' + lhs + 'scf.if ' + names(end['args'], aliases) + result_types + ' {')
+                walk(yes, join, dict(aliases)); out.append('    } else {'); walk(no, join, dict(aliases)); out.append('    }')
+                name = join
+        start = len(out)
+        try: walk(blocks[0]['label'])
+        except (ValueError, RecursionError):
+            del out[start:]; return False
+        return True
+    if not structured():
+        for index, b in enumerate(blocks):
+            if index:
+                args = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(unknown)' for p in b['params'])
+                out.append('  ^' + b['label'] + ('(' + args + ')' if args else '') + ':')
+            for o in b['ops']: emit(o)
     out.append('  } loc(unknown)')
     return out

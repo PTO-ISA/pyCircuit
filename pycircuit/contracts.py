@@ -2,19 +2,6 @@
 from .ir import CompileError
 
 
-def defaults():
-    return [
-        dict(id='Queue', methods=['read', 'revise', 'pop', 'push', 'query.empty', 'query.full', 'query.size'],
-             guards={'push': ['query.full']}, views={'full': dict(visibility='ehr', stages=['pop', 'query.full'])},
-             relations=[dict(before=a, after=b, relation='SB', source='default',
-                             origin='Pipeline FIFO') for a, b in
-                        [('read', 'revise'), ('revise', 'pop')]]),
-        dict(id='EHR', methods=['read', 'write'], relations=[]),
-        dict(id='Signal', methods=['set', 'get'], relations=[dict(before='set', after='get', relation='SB', source='default', origin='Signal current value')]),
-        dict(id='Cell', methods=['read', 'write'], relations=[]),
-    ]
-
-
 def closure(contract):
     """Retain a finite witness for each necessary interface order, including cycles.
 

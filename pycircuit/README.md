@@ -2,7 +2,7 @@
 
 编译流程为 ACPy AST → ACIR MLIR → 条件化 RuleGraph。当前支持静态编译、独立重载和依赖分析，不生成仿真代码。
 
-核心抽象的修订草稿见 [pyCircuit 核心抽象设计](docs/core-design.md)。目标语义见 [ACIR 基础设计](../acir/basic-design.md)，当前支持的前端写法见 [ACPy 前端](../acpy/spec.md)，当前保存格式见 [ACIR v6](acir.md)。基础设计中的原生 Module／Rule／Method 等结构尚未全部实现。
+核心抽象的修订草稿见 [pyCircuit 核心抽象设计](docs/core-design.md)。目标 primitive 见 [ACIR 基础设计](../acir/basic-design.md)，前端编程范式见 [ACPy 设计](../acpy/spec.md)，当前保存格式见 [ACIR v7](acir.md)。原生表示与分析 lowering 的职责见保存格式文档。
 
 ## 构建与测试
 
@@ -30,6 +30,12 @@ python -m pycircuit compile pycircuit/tests/models/transfer.py --top Top \
 python -m pycircuit analyze \
   pycircuit/builds/benchmarks/rule-graph/transfer/model.acir.mlir \
   --output pycircuit/builds/benchmarks/rule-graph/reloaded
+```
+
+保存的 `model.acir.mlir` 使用原生 ACIR v7。分析在副本上展开消费、输出效果、组件契约和 CFG；主文件不保存派生端口。v6 及更早文件需要重新编译。单独查看通用 lowering：
+
+```bash
+pycircuit/builds/compiler/mlir/acir-opt model.acir.mlir --acir-lower-analysis
 ```
 
 `ACPY_MLIR_COMPILER` 可省略，此时从 PATH 查找 `acir-compile`。`--no-opt` 关闭 canonicalize/CSE。重载不依赖 Python 源码，也不使用旧分析图恢复计算。

@@ -1,6 +1,6 @@
 # 编译阶段的设计意图
 
-本文记录分析和转化需要保留的语义，不规定具体算法。目标表示见 [ACIR 基础设计](../../acir/basic-design.md)，当前实现见 [ACIR v6](../acir.md) 和 [ACPy 前端](../../acpy/spec.md)。
+本文记录分析和转化需要保留的语义，不规定具体算法。目标表示见 [ACIR 基础设计](../../acir/basic-design.md)，前端范式见 [ACPy 设计](../../acpy/spec.md)，当前实现表示见 [ACIR v7](../acir.md)。
 
 ## 1. 静态展开
 
@@ -28,7 +28,13 @@ Module 选择路径、Rule guard 和实际调用的 Method guard 共同约束事
 
 使用组件提供的 guard、效果、顺序和可见性推导事务关系。基础组件集中提供默认语义，用户组件显式声明契约。Queue 内部容量 EHR 属于组件实现；用户 EHR 的端口根据 Method 关系分配，不由任意 Rule 排序增加可见性。
 
-Signal 保存初始化值与保留值。set → get 保留写者判断先于读者的顺序，但不要求写者成功；没有有效写入时读取保留值。同事务的临时效果保持整体提交或取消。
+关系区分 BSV 的 CF、C、SB、SBR。SB 允许同事务组合，SBR 和 C 禁止同一外层事务实际路径上的组合，包含嵌套调用。跨事务的 SB／SBR 推导顺序边，C 推导冲突约束；执行顺序不代替仲裁优先级。
+
+EHR 端口契约对齐 CReg：同端口 read／read 为 CF，read → write 为 SB，write → write 为 SBR；不同端口间所有操作按端口顺序为 SBR。同一事务不访问同一 EHR 的不同端口，不提供临时写入旁路。读取选择前序获准写入中端口编号最大的写入；下拍保存值由获准写入中端口编号最大的写入决定，无写入时保留旧值。
+
+Signal 采用 BSV Wire 语义，不保存跨周期值，也不声明初值。每拍开始为 invalid，本拍有效 set 后才可 get；get 的隐式 guard 为 valid，不消费。set → get 是严格同拍先后关系，同一外层事务不能对同一 Signal 同时 set 和 get。set 与 set 冲突，get 与 get 无冲突。get 只观察前序获准写入，不提供同事务临时写入旁路；嵌套 set 随外层事务提交或取消。
+
+Signal 有效性沿读取结果的数据与控制依赖约束相关 Rule。无有效写入时 get 失败，不回退到旧值，也不把 invalid 当作分支条件 False。RTL 中 data 与 valid 表达组合连线及有效写入条件，仿真存储不代表硬件寄存器。
 
 ## 7. RuleGraph 与共享计算
 

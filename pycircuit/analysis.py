@@ -260,7 +260,7 @@ class Analyzer:
             key = fingerprint((owner, context, fn['name'], self.operation_ids[id(op)], resource, kind))
             record = self.records.setdefault(key, dict(id=key, transaction=owner, function=fn['name'], resource=resource,
                   operation=kind, condition=False, loc=op.get('loc', {}), role=op['attrs'].get('role', 'observe'),
-                  view=('ehr' if op['attrs'].get('aspect') == 'full' or self.resources[resource.split('[')[0]].get('visibility') == 'ehr' else 'current' if self.resources[resource.split('[')[0]]['kind'] == 'signal' else 'old'),
+                  view=op['attrs'].get('view', 'old'),
                   aspect=op['attrs'].get('aspect', 'value'), identity=op['attrs'].get('acir.id'), methods=list(self.method_stack),
                   phase=self.method_records[self.method_stack[-1]]['identity'] if self.method_stack else '$direct',
                   phase_context=[dict(contract=self.method_records[m]['contract'], interface=self.method_records[m]['interface']) for m in self.method_stack],
@@ -276,8 +276,8 @@ class Analyzer:
                 if kind == 'read': record['operation'] = 'query.full'
             if record['view'] == 'ehr':
                 record['port'] = self.allocation['ports'].get((resource, record['aspect'], record['phase']), 0) if self.allocation else (1 if record['aspect'] == 'full' and kind == 'read' else 0)
-            record['ready'] = 'true' if record['aspect'] == 'full' or self.resources[resource.split('[')[0]]['kind'] in ('cell', 'signal') else (
-                '!empty(' + resource + ')' if kind in ('read', 'pop', 'revise') else '!ehr.full(' + resource + ',1)' if kind == 'push' else 'true')
+            if kind == 'pop': record['locations'] = op['attrs'].get('consumption_locations', [op.get('loc', {})])
+            record['ready'] = op['attrs'].get('readiness', 'true').replace('{resource}', resource)
             output.add(key)
         return frozenset(output)
 
@@ -381,10 +381,10 @@ class Analyzer:
             for block in fn['blocks']:
                 for op in block['ops']:
                     sources = {op['attrs']['name']} if op['op'] == 'acir.get' else set().union(*(static_refs[a] for a in op['args']))
-                    links = [(r['id'], sources) for r in op['results'] if r['type'].startswith(('queue<', 'cell<', 'signal<', 'qarray<'))]
+                    links = [(r['id'], sources) for r in op['results'] if r['type'].startswith(('queue<', 'cell<', 'ehr<', 'signal<', 'qarray<'))]
                     for destination, arguments_ids in [(op.get('dest'), op.get('dest_args', [])), (op.get('yes'), op.get('yes_args', [])), (op.get('no'), op.get('no_args', []))]:
                         if destination:
-                            links.extend((p['id'], static_refs[a]) for p,a in zip(blocks[destination]['params'], arguments_ids) if p['type'].startswith(('queue<', 'cell<', 'signal<', 'qarray<')))
+                            links.extend((p['id'], static_refs[a]) for p,a in zip(blocks[destination]['params'], arguments_ids) if p['type'].startswith(('queue<', 'cell<', 'ehr<', 'signal<', 'qarray<')))
                     for identifier, additions in links:
                         existing = static_refs[identifier]; count = len(existing)
                         existing.update(additions); changed |= len(existing) != count
@@ -455,7 +455,7 @@ class Analyzer:
                     elif access and op['results'][0]['type'] == 'bool':
                         expression = atom('ehr.read:' + fingerprint([(self.records[k]['resource'], self.records[k].get('port', 0), owner if self.records[k].get('port', 0) else None) for k in sorted(access)])) if any(self.records[k]['view'] == 'ehr' for k in access) else expression
                     if owner: self.add_dependencies(owner, vals[0].deps, path, 'resource operand')
-                elif kind in ('acir.pop', 'acir.push', 'acir.revise', 'acir.write'):
+                elif kind in ('acir.pop', 'acir.push', 'acir.write'):
                     if owner is None: raise CompileError('state effect outside a transaction')
                     if any(self.functions[n]['meta'].get('kind') == 'guard' for n in self.stack): raise CompileError('guard must only observe state')
                     effects = self.access(fn, op, vals[0], path, owner, kind[5:], context)
@@ -516,6 +516,8 @@ class Analyzer:
                     constant = not vals[0].const if vals[0].const is not None else None
                 elif kind in ('arith.andi', 'arith.ori') and op['results'][0]['type'] == 'bool':
                     expression = (both if kind == 'arith.andi' else either)(*(v.expr for v in vals))
+                elif kind == 'arith.xori' and op['results'][0]['type'] == 'bool':
+                    expression = either(both(vals[0].expr, neg(vals[1].expr)), both(neg(vals[0].expr), vals[1].expr))
                 elif kind == 'arith.cmpi' and all(v.const is not None for v in vals):
                     a, b = [v.const for v in vals]; pred = attrs['predicate']
                     constant = {0: a == b, 1: a != b, 2: a < b, 3: a <= b, 4: a > b, 5: a >= b, 6: a < b, 7: a <= b, 8: a > b, 9: a >= b}[pred]
@@ -575,7 +577,7 @@ class Analyzer:
                     _, _, completion = self.evaluate(target, vals, selection, rule, rule + '/' + fingerprint((fn['name'], self.operation_ids[id(op)])))
                     for key in set(self.records) - before_ids:
                         record = self.records[key]
-                        if record['operation'] in ('pop', 'push', 'write', 'revise'): record['condition'] = both(record['condition'], completion)
+                        if record['operation'] in ('pop', 'push', 'write'): record['condition'] = both(record['condition'], completion)
                     self.nodes[rule].setdefault('completion_conditions', []).append(completion)
                 elif kind in ('cf.br', 'cf.cond_br'):
                     loop_header = any(dest == label for _, dest in backedges)
@@ -830,7 +832,7 @@ class Analyzer:
             for fn in collector.functions.values():
                 if fn['meta'].get('kind') == 'work': collector.run_work(fn['name'])
             summary_accesses = [a for m in collector.method_summaries for a in m['accesses']]
-            return Analyzer(self.program, allocate(list(collector.records.values()) + summary_accesses, self.orders, self.resources, self.array_sizes)).build()
+            return Analyzer(self.program, allocate(list(collector.records.values()) + summary_accesses, self.orders, self.resources, self.array_sizes, self.contracts)).build()
         self.describe_bypass(records)
         self.method_orders(records)
         # Merge identical operation constraints, retaining all source locations.
@@ -853,10 +855,11 @@ class Analyzer:
             for r in accesses:
                 if r['operation'] != 'pop': other.append(r); continue
                 key = r['resource']
-                if key not in pops: pops[key] = dict(r, locations=[r['loc']])
+                if key not in pops: pops[key] = dict(r)
                 else:
                     pops[key]['condition'] = either(pops[key]['condition'], r['condition'])
-                    if r['loc'] not in pops[key]['locations']: pops[key]['locations'].append(r['loc'])
+                    for source in r['locations']:
+                        if source not in pops[key]['locations']: pops[key]['locations'].append(source)
             node = dict(node, guards=self.guard_records[node['id']], methods=[dict(r, accesses=[a['id'] for a in records if r['id'] in a.get('methods', [])]) for r in self.method_records.values() if r['transaction'] == node['id']],
                         preparations=sorted(self.preparation_uses[node['id']]),
                         preparation_bindings=[dict(preparation=p, condition=c) for p,c in sorted(self.preparation_uses[node['id']].items())],

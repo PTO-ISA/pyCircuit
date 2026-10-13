@@ -1,4 +1,4 @@
-"""Draw ACIR v6 Module hierarchies and rule orders from rule-graph.json.
+"""Draw ACIR v7 Module hierarchies and rule orders from rule-graph.json.
 
 Uses Python's standard library and the Graphviz dot executable. It does not
 load model sources or invoke the MLIR compiler.
@@ -30,8 +30,8 @@ def sources(proofs):
 
 
 def to_dot(graph, rankdir='LR', hide_empty=False):
-    if graph.get('format_version') != 6:
-        raise ValueError('expected an ACIR v6 rule-graph.json; recompile old models')
+    if graph.get('format_version') != 7:
+        raise ValueError('expected an ACIR v7 rule-graph.json; recompile old models')
     modules = {m['name']: m for m in graph['instances']}
     nodes = {n['id']: n for n in graph['nodes']}
     if len(modules) != len(graph['instances']) or len(nodes) != len(graph['nodes']):
@@ -199,7 +199,7 @@ def render(graph, output, executable=None, rankdir='LR', hide_empty=False):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('graph', type=Path, help='ACIR v6 rule-graph.json')
+    parser.add_argument('graph', type=Path, help='ACIR v7 rule-graph.json')
     parser.add_argument('-o', '--output', type=Path,
                         help='SVG/PNG/PDF/DOT path; default: module-rule-graph.svg beside JSON')
     parser.add_argument('--dot', help='path to Graphviz dot executable')

@@ -232,8 +232,8 @@ class RuleGraphTests(unittest.TestCase):
         self.assertEqual(reads[0]['view'], 'old')
         self.assertEqual(len(graph['edges']), 0)
         text = (self.path / 'out/model.acir.mlir').read_text()
-        self.assertIn('cf.cond_br', text)
-        self.assertEqual(text.count('acir.read '), 1)
+        self.assertIn('scf.if', text)
+        self.assertEqual(text.count('acir.cell.read '), 1)
 
     def test_preparation_queue_dependency_in_conditions_and_arguments(self):
         graph = self.model('''
@@ -285,16 +285,16 @@ class RuleGraphTests(unittest.TestCase):
             def Top(index: ac.u32):
                 entries = ac.array(ac.queue[ac.u32], shape=(3,), initial=0)
                 @ac.rule
-                def fixed():
-                    entries[1].value = 2
+                def fixed(q: ac.queue[ac.u32]):
+                    x = q.value
                 @ac.rule
-                def dynamic(i: ac.u32):
-                    entries[i].value = 3
-                fixed()
-                dynamic(index)
+                def dynamic(q: ac.queue[ac.u32]):
+                    x = q.value
+                fixed(entries[1])
+                dynamic(entries[index])
         ''')
-        self.assertEqual({a['resource'] for a in self.accesses(graph, 'top.fixed', 'revise')}, {'entries[1]'})
-        self.assertEqual({a['resource'] for a in self.accesses(graph, 'top.dynamic', 'revise')}, {'entries[0]', 'entries[1]', 'entries[2]'})
+        self.assertEqual({a['resource'] for a in self.accesses(graph, 'top.fixed', 'pop')}, {'entries[1]'})
+        self.assertEqual({a['resource'] for a in self.accesses(graph, 'top.dynamic', 'pop')}, {'entries[0]', 'entries[1]', 'entries[2]'})
 
     def test_source_free_reload_and_optimization(self):
         text = '''
@@ -322,15 +322,12 @@ class RuleGraphTests(unittest.TestCase):
         self.assertNotIn('acir.analysis', saved)
         self.assertNotIn('acir.contracts', saved)
         self.assertIn('acir.model', saved)
-        self.assertIn('acir.ehr', saved)
-        # Legacy v6 caches are accepted, cleared and never override actual IR.
-        legacy = saved.replace('module attributes {', 'module attributes {acir.analysis = ' + attr(graph) + ', acir.contracts = ' + attr(graph['contracts']) + ', ', 1)
-        self.assertEqual(graph, analyze(legacy, self.path / 'legacy', optimize=False))
-        cleaned = load(self.path / 'legacy/model.acir.mlir')
-        self.assertNotIn('acir.analysis', cleaned)
-        self.assertNotIn('acir.contracts', cleaned)
-        changed = '\n'.join(line.replace('acir.read ', 'acir.length ').replace(' -> i32', '') if 'acir.read ' in line and '-> i32' in line else line for line in legacy.splitlines())
-        self.assertNotEqual(changed, legacy)
+        self.assertNotIn('acir.ehr', saved)
+        self.assertNotIn('port =', saved)
+        with self.assertRaisesRegex(CompileError, 'format_version 7.*recompile'):
+            analyze(saved.replace('format_version = 7', 'format_version = 6'), self.path / 'legacy', optimize=False)
+        changed = '\n'.join(line.replace('acir.queue.peek ', 'acir.length ').replace(' -> i32', '') if 'acir.queue.peek ' in line and '-> i32' in line else line for line in saved.splitlines())
+        self.assertNotEqual(changed, saved)
         mutated = analyze(changed, self.path / 'mutated', optimize=False)
         self.assertFalse(mutated['edges'])
 
@@ -518,10 +515,10 @@ class RuleGraphTests(unittest.TestCase):
             def Top():
                 entries = ac.array(ac.queue[ac.u32], shape=(2 + 2,), initial=0)
                 @ac.rule
-                def update(i: ac.u32):
-                    entries[i].value = 1
+                def update(q: ac.queue[ac.u32]):
+                    value = q.value
                 if ac.u32(0xffffffff) < ac.u32(5):
-                    update(0)
+                    update(entries[0])
         """)
         self.assertFalse(graph['nodes'])
         graph = self.model("""
@@ -530,11 +527,11 @@ class RuleGraphTests(unittest.TestCase):
             def Top(i: ac.u32):
                 entries = ac.array(ac.queue[ac.u32], shape=(2 + 2,), initial=0)
                 @ac.rule
-                def update(i: ac.u32):
-                    entries[i].value = 1
-                update(i)
+                def update(q: ac.queue[ac.u32]):
+                    value = q.value
+                update(entries[i])
         """)
-        self.assertEqual(len(self.accesses(graph, 'top.update', 'revise')), 4)
+        self.assertEqual(len(self.accesses(graph, 'top.update', 'pop')), 4)
 
     def test_cycle_diagnostics_roundtrip_and_cli_failure(self):
         graph = self.model("""
@@ -587,8 +584,8 @@ class RuleGraphTests(unittest.TestCase):
         self.assertTrue(any(e['source'] == 'top.right' and e['target'] == 'top.produce' for e in graph['edges']))
         self.assertFalse(any(e['source'] == 'top.produce' for e in graph['edges']))
         text = (self.path/'out/model.acir.mlir').read_text()
-        work = text[text.index('func.func @top_Work'):]
-        self.assertLess(work.index('acir.invoke '), work.index('call @'))
+        work = text[text.index('acir.work '):]
+        self.assertLess(work.index('acir.rule.call '), work.index('call @'))
 
     def test_cli_reload(self):
         self.model('''

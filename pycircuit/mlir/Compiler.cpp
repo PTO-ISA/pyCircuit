@@ -1,6 +1,8 @@
 // Parse and verify the saved program. Export actual SSA/CFG to the graph analysis;
 // neither Python source nor a serialized AST is used by the reload path.
 #include "Dialect.h"
+#include "Components.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -41,26 +43,11 @@ llvm::json::Value attribute(Attribute a) {
   a.print(out);
   return text;
 }
-Attribute jsonAttribute(MLIRContext *ctx, const llvm::json::Value &value) {
-  if (auto b = value.getAsBoolean()) return BoolAttr::get(ctx, *b);
-  if (auto n = value.getAsInteger()) return IntegerAttr::get(IntegerType::get(ctx, 64), *n);
-  if (auto s = value.getAsString()) return StringAttr::get(ctx, *s);
-  if (auto array = value.getAsArray()) {
-    SmallVector<Attribute> items;
-    for (const auto &item : *array) items.push_back(jsonAttribute(ctx, item));
-    return ArrayAttr::get(ctx, items);
-  }
-  if (auto object = value.getAsObject()) {
-    SmallVector<NamedAttribute> items;
-    for (const auto &item : *object) items.emplace_back(StringAttr::get(ctx, llvm::StringRef(item.first)), jsonAttribute(ctx, item.second));
-    return DictionaryAttr::get(ctx, items);
-  }
-  return UnitAttr::get(ctx);
-}
 std::string type(Type t) {
   if (auto i = dyn_cast<IntegerType>(t)) return i.getWidth() == 1 ? "bool" : "u" + std::to_string(i.getWidth());
   if (auto q = dyn_cast<acir::QueueType>(t)) return "queue<" + type(q.getElementType()) + ">";
   if (auto q = dyn_cast<acir::SignalType>(t)) return "signal<" + type(q.getElementType()) + ">";
+  if (auto q = dyn_cast<acir::EHRType>(t)) return "ehr<" + type(q.getElementType()) + ">";
   if (auto q = dyn_cast<acir::CellType>(t)) return "cell<" + type(q.getElementType()) + ">";
   if (auto q = dyn_cast<acir::QueueArrayType>(t)) return "qarray<" + type(q.getElementType()) + ">";
   if (auto q = dyn_cast<acir::VectorType>(t)) return "vector<" + type(q.getElementType()) + ">";
@@ -181,14 +168,32 @@ std::string withoutUnknownLocations(llvm::StringRef assembly) {
 }
 llvm::json::Object program(ModuleOp module) {
   llvm::json::Object result;
-  result["model"] = attribute(module->getAttr("acir.model"));
+  auto model = attribute(module->getAttr("acir.model"));
+  auto contracts = acir::componentContracts();
+  for (auto &contract : *model.getAsObject()->getArray("contracts")) contracts.push_back(std::move(contract));
+  (*model.getAsObject())["contracts"] = std::move(contracts);
+  result["model"] = std::move(model);
   llvm::json::Array resources, functions;
-  for (auto r : module.getOps<acir::ResourceOp>()) resources.push_back(attribute(r->getAttrDictionary()));
+  for (auto &op : module.getBody()->getOperations()) {
+    auto name = op.getName().getStringRef();
+    if (name != "acir.queue" && name != "acir.queue.array" && name != "acir.cell" && name != "acir.ehr" && name != "acir.signal") continue;
+    auto data = attribute(op.getAttrDictionary()); auto &resource = *data.getAsObject();
+    auto kind = name.drop_front(5);
+    resource.erase("sym_name"); resource.erase("payload_type");
+    resource["kind"] = kind == "queue.array" ? "qarray" : kind.str();
+    resource["contract"] = kind == "ehr" ? "EHR" : kind == "cell" ? "Cell" : kind == "signal" ? "Signal" : "Queue";
+    resource["visibility"] = kind == "ehr" ? "ehr" : kind == "signal" ? "current" : "old";
+    if (kind == "queue" || kind == "queue.array") resource["views"] = llvm::json::Array{llvm::json::Object{{"name", "full"}, {"visibility", "ehr"}, {"initial", "old_count == capacity"}, {"commit", "queue.effects"}}};
+    resource["loc"] = location(op.getLoc());
+    resources.push_back(std::move(data));
+  }
   for (auto f : module.getOps<func::FuncOp>()) {
     if (f.isDeclaration()) continue;
     llvm::json::Object fn;
-    if (!f->getAttrOfType<DictionaryAttr>("acir.function"))
-      throw std::runtime_error("missing acir.function metadata: " + f.getSymName().str());
+    if (!f->getAttrOfType<DictionaryAttr>("acir.function")) {
+      Builder b(module.getContext());
+      f->setAttr("acir.function", b.getDictionaryAttr({b.getNamedAttr("name", f.getSymNameAttr()), b.getNamedAttr("kind", b.getStringAttr("helper"))}));
+    }
     fn["name"] = f.getSymName().str();
     fn["meta"] = attribute(f->getAttr("acir.function"));
     DenseMap<Value, std::string> ids;
@@ -214,12 +219,29 @@ llvm::json::Object program(ModuleOp module) {
       b["params"] = std::move(params);
       for (auto &op : block) {
         llvm::json::Object o;
-        o["op"] = op.getName().getStringRef().str();
+        auto method = acir::componentMethod(&op);
+        auto operation = op.getName().getStringRef();
+        o["op"] = method.operation ? std::string(method.operation) : operation == "acir.ref" ? "acir.get" : operation == "acir.analysis.invoke" ? "acir.invoke" : operation.str();
         o["args"] = values(op.getOperands());
         llvm::json::Array results;
         for (auto v : op.getResults()) results.push_back(llvm::json::Object{{"id", ids.lookup(v)}, {"type", sourceType(v)}});
         o["results"] = std::move(results);
-        o["attrs"] = attribute(op.getAttrDictionary());
+        auto attributes = attribute(op.getAttrDictionary());
+        auto &a = *attributes.getAsObject();
+        if (auto ref = dyn_cast<acir::GetOp>(&op)) a["name"] = ref.getTarget().getLeafReference().getValue().str();
+        if (auto sources = op.getAttrOfType<ArrayAttr>("acir.consume_locs")) {
+          llvm::json::Array locations;
+          for (auto source : sources) locations.push_back(location(cast<LocationAttr>(source)));
+          a["consumption_locations"] = std::move(locations); a.erase("acir.consume_locs");
+        }
+        if (method.operation) {
+          a["interface"] = method.interface; a["view"] = method.view;
+          a["readiness"] = method.readiness;
+          if (operation.starts_with("acir.analysis.capacity.")) a["aspect"] = "full";
+          if (operation == "acir.queue.empty") a["kind"] = "empty";
+          if (operation == "acir.queue.size") a["kind"] = "size";
+        }
+        o["attrs"] = std::move(attributes);
         o["loc"] = location(op.getLoc());
         if (auto br = dyn_cast<cf::BranchOp>(&op)) {
           o["dest"] = labels.lookup(br.getDest());
@@ -242,55 +264,30 @@ llvm::json::Object program(ModuleOp module) {
 int acir::compileMain(int argc, char **argv) {
   llvm::InitLLVM init(argc, argv);
   try {
-    if (argc < 3) { llvm::errs() << "usage: acir-compile INPUT.mlir OUTPUT_DIR [--opt | --bindings FILE]\n"; return 2; }
+    if (argc < 3) { llvm::errs() << "usage: acir-compile INPUT.mlir OUTPUT_DIR [--opt]\n"; return 2; }
+    if (argc > 4 || (argc == 4 && std::string(argv[3]) != "--opt")) throw std::runtime_error("usage: acir-compile INPUT.mlir OUTPUT_DIR [--opt]");
     DialectRegistry registry;
-    registry.insert<acir::ACIRDialect, arith::ArithDialect, cf::ControlFlowDialect, func::FuncDialect>();
+    registry.insert<acir::ACIRDialect, arith::ArithDialect, cf::ControlFlowDialect, func::FuncDialect, scf::SCFDialect>();
     MLIRContext context(registry); context.loadAllAvailableDialects();
-    auto module = parseSourceFile<ModuleOp>(argv[1], &context);
-    if (!module || failed(verify(*module))) return 1;
+    auto module = parseSourceFile<mlir::ModuleOp>(argv[1], &context);
+    if (!module) { llvm::errs() << "invalid or obsolete ACIR; recompile Python sources\n"; return 1; }
+    if (failed(verify(*module))) return 1;
     auto meta = (*module)->getAttrOfType<DictionaryAttr>("acir.model");
-    if (!meta || !meta.getAs<IntegerAttr>("format_version") || meta.getAs<IntegerAttr>("format_version").getInt() != 6)
-      throw std::runtime_error("expected ACIR format_version 6; recompile Python sources (older formats used removed Rule-var semantics)");
-    // Legacy v6 files may contain full analysis caches. Rebuild from the model
-    // declarations and actual SSA/CFG instead of carrying those caches forward.
-    (*module)->removeAttr("acir.analysis");
-    (*module)->removeAttr("acir.contracts");
-    (*module)->removeAttr("acir.ehr");
-    module->walk([](Operation *op) { op->removeAttr("port"); op->removeAttr("ports"); });
+    if (!meta || !meta.getAs<IntegerAttr>("format_version") || meta.getAs<IntegerAttr>("format_version").getInt() != 7)
+      throw std::runtime_error("expected ACIR format_version 7; recompile Python sources");
     if (argc > 3 && std::string(argv[3]) == "--opt") {
       PassManager pm(&context); pm.addPass(createCanonicalizerPass()); pm.addPass(createCSEPass());
       if (failed(pm.run(*module))) return 1;
     }
     cleanLocations(*module, argv[1]);
-    if (argc > 4 && std::string(argv[3]) == "--bindings") {
-      std::ifstream input(argv[4]);
-      std::stringstream text; text << input.rdbuf();
-      auto parsed = llvm::json::parse(text.str());
-      if (!parsed || !parsed->getAsObject()) throw std::runtime_error("invalid EHR bindings JSON");
-      auto root = parsed->getAsObject();
-      if (!root->getArray("views")) throw std::runtime_error("missing EHR views");
-      (*module)->setAttr("acir.ehr", jsonAttribute(&context, *root->get("views")));
-      auto functions = root->getObject("functions");
-      if (!functions) throw std::runtime_error("missing EHR function bindings");
-      for (auto fn : module->getOps<func::FuncOp>()) {
-        auto bindings = functions->getObject(fn.getSymName());
-        if (!bindings) continue;
-        fn.walk([&](Operation *op) {
-          auto id = op->getAttrOfType<StringAttr>("acir.id");
-          if (!id) return;
-          if (auto ports = bindings->getArray(id.getValue())) {
-            op->setAttr("ports", jsonAttribute(&context, *bindings->get(id.getValue())));
-            if (ports->size() == 1)
-              op->setAttr("port", jsonAttribute(&context, *ports->front().getAsObject()->get("port")));
-          }
-        });
-      }
-    }
+    auto lowered = cast<mlir::ModuleOp>(module->clone());
+    PassManager lower(&context); lower.addPass(createLowerAnalysisPass());
+    if (failed(lower.run(lowered)) || failed(verify(lowered))) { lowered.erase(); return 1; }
     std::filesystem::path directory(argv[2]); std::filesystem::create_directories(directory);
     std::error_code ec;
     llvm::raw_fd_ostream json((directory / "program.json").string(), ec);
     if (ec) throw std::runtime_error(ec.message());
-    json << llvm::formatv("{0:2}\n", llvm::json::Value(program(*module)));
+    json << llvm::formatv("{0:2}\n", llvm::json::Value(program(lowered)));
     llvm::raw_fd_ostream ir((directory / "model.acir.mlir").string(), ec);
     if (ec) throw std::runtime_error(ec.message());
     std::string assembly;
@@ -300,6 +297,7 @@ int acir::compileMain(int argc, char **argv) {
     llvm::raw_fd_ostream readable((directory / "model.readable.mlir").string(), ec);
     if (ec) throw std::runtime_error(ec.message());
     module->print(readable); readable << '\n';
+    lowered.erase();
     return 0;
   } catch (const std::exception &e) { llvm::errs() << "acir-compile: " << e.what() << '\n'; return 1; }
 }

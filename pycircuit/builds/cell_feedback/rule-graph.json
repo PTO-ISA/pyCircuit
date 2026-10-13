@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 7,
   "contracts": [
     {
       "guards": {
@@ -9,8 +9,7 @@
       },
       "id": "Queue",
       "methods": [
-        "read",
-        "revise",
+        "peek",
         "pop",
         "push",
         "query.empty",
@@ -19,15 +18,8 @@
       ],
       "relations": [
         {
-          "after": "revise",
-          "before": "read",
-          "origin": "Pipeline FIFO",
-          "relation": "SB",
-          "source": "default"
-        },
-        {
           "after": "pop",
-          "before": "revise",
+          "before": "peek",
           "origin": "Pipeline FIFO",
           "relation": "SB",
           "source": "default"
@@ -43,6 +35,69 @@
         }
       },
       "closure": [
+        {
+          "before": "peek",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
         {
           "before": "pop",
           "after": "push",
@@ -91,169 +146,17 @@
               "origin": "push guard calls query.full"
             }
           ]
-        },
-        {
-          "before": "read",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "revise",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
         }
       ]
+    },
+    {
+      "id": "Cell",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
     },
     {
       "id": "EHR",
@@ -295,15 +198,6 @@
           ]
         }
       ]
-    },
-    {
-      "id": "Cell",
-      "methods": [
-        "read",
-        "write"
-      ],
-      "relations": [],
-      "closure": []
     },
     {
       "id": "Module:top",
@@ -362,11 +256,7 @@
       "contract": "Cell",
       "initial_fn": "ac_init_a",
       "kind": "cell",
-      "loc": {
-        "column": 8,
-        "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-        "line": 7
-      },
+      "loc": {},
       "name": "a",
       "type": "u32",
       "visibility": "old"
@@ -375,11 +265,7 @@
       "contract": "Cell",
       "initial_fn": "ac_init_b",
       "kind": "cell",
-      "loc": {
-        "column": 8,
-        "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-        "line": 8
-      },
+      "loc": {},
       "name": "b",
       "type": "u32",
       "visibility": "old"
@@ -421,7 +307,7 @@
       "preparation_bindings": [],
       "accesses": [
         {
-          "id": "800f688a858f250f",
+          "id": "e5d81b4cf2bdab31",
           "transaction": "top.update_a",
           "function": "top.update_a",
           "resource": "a",
@@ -435,7 +321,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v6",
+          "identity": "v8",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -450,12 +336,12 @@
           "local_condition": true,
           "ready": "true",
           "value": {
-            "atom": "ssa:6aad447ac181620c"
+            "atom": "ssa:ecff876a03dcf9d6"
           },
           "value_constant": null
         },
         {
-          "id": "c5d11d6fc5f2f4fe",
+          "id": "c2def55218733052",
           "transaction": "top.update_a",
           "function": "top.update_a",
           "resource": "b",
@@ -469,7 +355,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -520,7 +406,7 @@
       "preparation_bindings": [],
       "accesses": [
         {
-          "id": "e38d5f434cb2ac1f",
+          "id": "d82eb66bca5c6039",
           "transaction": "top.update_b",
           "function": "top.update_b",
           "resource": "a",
@@ -534,7 +420,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -550,7 +436,7 @@
           "ready": "true"
         },
         {
-          "id": "9d84b9279c8b1517",
+          "id": "9cf4f9755de3d7b1",
           "transaction": "top.update_b",
           "function": "top.update_b",
           "resource": "b",
@@ -564,7 +450,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v6",
+          "identity": "v8",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -579,7 +465,7 @@
           "local_condition": true,
           "ready": "true",
           "value": {
-            "atom": "ssa:817dca307ef00533"
+            "atom": "ssa:39ba61076eb21f00"
           },
           "value_constant": null
         }

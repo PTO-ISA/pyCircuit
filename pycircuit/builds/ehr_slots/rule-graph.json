@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 7,
   "contracts": [
     {
       "guards": {
@@ -9,8 +9,7 @@
       },
       "id": "Queue",
       "methods": [
-        "read",
-        "revise",
+        "peek",
         "pop",
         "push",
         "query.empty",
@@ -19,15 +18,8 @@
       ],
       "relations": [
         {
-          "after": "revise",
-          "before": "read",
-          "origin": "Pipeline FIFO",
-          "relation": "SB",
-          "source": "default"
-        },
-        {
           "after": "pop",
-          "before": "revise",
+          "before": "peek",
           "origin": "Pipeline FIFO",
           "relation": "SB",
           "source": "default"
@@ -43,6 +35,69 @@
         }
       },
       "closure": [
+        {
+          "before": "peek",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
         {
           "before": "pop",
           "after": "push",
@@ -91,169 +146,17 @@
               "origin": "push guard calls query.full"
             }
           ]
-        },
-        {
-          "before": "read",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "revise",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
         }
       ]
+    },
+    {
+      "id": "Cell",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
     },
     {
       "id": "EHR",
@@ -297,15 +200,6 @@
       ]
     },
     {
-      "id": "Cell",
-      "methods": [
-        "read",
-        "write"
-      ],
-      "relations": [],
-      "closure": []
-    },
-    {
       "id": "Module:slot",
       "methods": [
         "allocate",
@@ -313,18 +207,6 @@
         "release"
       ],
       "relations": [
-        {
-          "after": "available",
-          "before": "release",
-          "loc": {
-            "column": 21,
-            "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-            "line": 14
-          },
-          "origin": "slot.available",
-          "relation": "SB",
-          "source": "user"
-        },
         {
           "after": "allocate",
           "before": "available",
@@ -334,6 +216,18 @@
             "line": 21
           },
           "origin": "slot.allocate",
+          "relation": "SB",
+          "source": "user"
+        },
+        {
+          "after": "available",
+          "before": "release",
+          "loc": {
+            "column": 21,
+            "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
+            "line": 14
+          },
+          "origin": "slot.available",
           "relation": "SB",
           "source": "user"
         },
@@ -359,8 +253,8 @@
                 "summary:Module:slot:available"
               ],
               "accesses": [
-                "78017f99892ecf57",
-                "ea0be3a365345e97"
+                "82acb4c510a3da4e",
+                "f9d01cf278332b8e"
               ],
               "provenance": [
                 {
@@ -400,12 +294,12 @@
           "source": "derived",
           "origin": "EHR",
           "bindings": [
-            "5bce27d8e1caf859",
-            "e9d3fd0305f20888"
+            "02784cd11f404d28",
+            "737a38216acbdb78"
           ],
           "accesses": [
-            "f048829bbb74aecb",
-            "24081e0eff59409c"
+            "5662136b5ae2e959",
+            "b9a8600eb3cefc22"
           ],
           "provenance": [
             {
@@ -453,8 +347,8 @@
                         "summary:Module:slot:available"
                       ],
                       "accesses": [
-                        "78017f99892ecf57",
-                        "ea0be3a365345e97"
+                        "82acb4c510a3da4e",
+                        "f9d01cf278332b8e"
                       ],
                       "provenance": [
                         {
@@ -499,12 +393,12 @@
           "source": "derived",
           "origin": "EHR",
           "bindings": [
-            "5bce27d8e1caf859",
-            "dcfcb1440b1c8ee5"
+            "02784cd11f404d28",
+            "e0ae616704116e07"
           ],
           "accesses": [
-            "f048829bbb74aecb",
-            "24081e0eff59409c"
+            "5662136b5ae2e959",
+            "b9a8600eb3cefc22"
           ],
           "provenance": [
             {
@@ -552,8 +446,8 @@
                         "summary:Module:slot:available"
                       ],
                       "accesses": [
-                        "78017f99892ecf57",
-                        "ea0be3a365345e97"
+                        "82acb4c510a3da4e",
+                        "f9d01cf278332b8e"
                       ],
                       "provenance": [
                         {
@@ -651,8 +545,8 @@
                     "summary:Module:slot:available"
                   ],
                   "accesses": [
-                    "78017f99892ecf57",
-                    "ea0be3a365345e97"
+                    "82acb4c510a3da4e",
+                    "f9d01cf278332b8e"
                   ],
                   "provenance": [
                     {
@@ -738,8 +632,8 @@
                     "summary:Module:slot:available"
                   ],
                   "accesses": [
-                    "78017f99892ecf57",
-                    "ea0be3a365345e97"
+                    "82acb4c510a3da4e",
+                    "f9d01cf278332b8e"
                   ],
                   "provenance": [
                     {
@@ -800,7 +694,7 @@
       "arguments": [],
       "accesses": [
         {
-          "id": "78017f99892ecf57",
+          "id": "82acb4c510a3da4e",
           "transaction": "summary:Module:slot:release",
           "function": "ac_summary_slot.release.0.call.4.0",
           "resource": "slot.occupied",
@@ -814,7 +708,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [
             "summary:Module:slot:release"
           ],
@@ -856,7 +750,7 @@
       "arguments": [],
       "accesses": [
         {
-          "id": "ea0be3a365345e97",
+          "id": "f9d01cf278332b8e",
           "transaction": "summary:Module:slot:available",
           "function": "ac_summary_slot.available.0.call.5.0",
           "resource": "slot.occupied",
@@ -870,7 +764,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "value",
-          "identity": "v2",
+          "identity": "v4",
           "methods": [
             "summary:Module:slot:available"
           ],
@@ -914,7 +808,7 @@
       "arguments": [],
       "accesses": [
         {
-          "id": "f838be5726e8c71d",
+          "id": "d89d7b03f1e75083",
           "transaction": "summary:Module:slot:allocate",
           "function": "ac_summary_slot.allocate.0.call.6.1.0.call.6.1.0.call.6.1",
           "resource": "slot.occupied",
@@ -928,10 +822,10 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "value",
-          "identity": "v2",
+          "identity": "v4",
           "methods": [
             "summary:Module:slot:allocate",
-            "58d29d08e55f041e"
+            "044121b7b37efbef"
           ],
           "phase": "Module:slot:available",
           "phase_context": [
@@ -950,6 +844,7 @@
           "binding": "exact",
           "call_chain": [
             "ac_summary_slot.allocate.0.call.6.1",
+            "ac_summary_slot.allocate.0.call.6.1.guard",
             "ac_summary_slot.allocate.0.call.6.1.0.call.6.1",
             "ac_summary_slot.allocate.0.call.6.1.0.call.6.1.0.call.6.1"
           ],
@@ -958,7 +853,7 @@
           "ready": "true"
         },
         {
-          "id": "02d3587226e800ea",
+          "id": "f54be491ec89a162",
           "transaction": "summary:Module:slot:allocate",
           "function": "ac_summary_slot.allocate.0.call.6.1",
           "resource": "slot.occupied",
@@ -976,7 +871,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "value",
-          "identity": "v6",
+          "identity": "v7",
           "methods": [
             "summary:Module:slot:allocate"
           ],
@@ -1005,7 +900,7 @@
           "value_constant": true
         },
         {
-          "id": "0dc075042997b9fa",
+          "id": "7ae9ac6f325f3d3a",
           "transaction": "summary:Module:slot:allocate",
           "function": "ac_summary_slot.allocate.0.call.6.1",
           "resource": "slot.payload",
@@ -1023,7 +918,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v8",
+          "identity": "v9",
           "methods": [
             "summary:Module:slot:allocate"
           ],
@@ -1071,7 +966,7 @@
           "resources": [
             "slot.occupied"
           ],
-          "type": "cell<bool>",
+          "type": "ehr<bool>",
           "value": null
         },
         "payload": {
@@ -1122,12 +1017,8 @@
     {
       "contract": "EHR",
       "initial_fn": "ac_init_slot.occupied",
-      "kind": "cell",
-      "loc": {
-        "column": 15,
-        "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-        "line": 7
-      },
+      "kind": "ehr",
+      "loc": {},
       "name": "slot.occupied",
       "type": "bool",
       "visibility": "ehr"
@@ -1136,11 +1027,7 @@
       "contract": "Cell",
       "initial_fn": "ac_init_slot.payload",
       "kind": "cell",
-      "loc": {
-        "column": 14,
-        "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-        "line": 8
-      },
+      "loc": {},
       "name": "slot.payload",
       "type": "u32",
       "visibility": "old"
@@ -1178,7 +1065,7 @@
   "ehr_bindings": [
     {
       "function": "ac_summary_slot.allocate.0.call.6.1",
-      "identity": "v6",
+      "identity": "v7",
       "resource": "slot.occupied",
       "aspect": "value",
       "phase": "Module:slot:allocate",
@@ -1186,7 +1073,7 @@
     },
     {
       "function": "ac_summary_slot.allocate.0.call.6.1.0.call.6.1.0.call.6.1",
-      "identity": "v2",
+      "identity": "v4",
       "resource": "slot.occupied",
       "aspect": "value",
       "phase": "Module:slot:available",
@@ -1194,7 +1081,7 @@
     },
     {
       "function": "ac_summary_slot.available.0.call.5.0",
-      "identity": "v2",
+      "identity": "v4",
       "resource": "slot.occupied",
       "aspect": "value",
       "phase": "Module:slot:available",
@@ -1202,31 +1089,31 @@
     },
     {
       "function": "ac_summary_slot.release.0.call.4.0",
-      "identity": "v3",
+      "identity": "v5",
       "resource": "slot.occupied",
       "aspect": "value",
       "phase": "Module:slot:release",
       "port": 0
     },
     {
-      "function": "top.allocate.0.call.1.1",
-      "identity": "v6",
+      "function": "top.allocate.0.call.1.3",
+      "identity": "v7",
       "resource": "slot.occupied",
       "aspect": "value",
       "phase": "Module:slot:allocate",
       "port": 2
     },
     {
-      "function": "top.allocate.0.call.1.1.0.call.1.1.0.call.1.1",
-      "identity": "v2",
+      "function": "top.allocate.0.call.1.3.0.call.1.1.0.call.1.1",
+      "identity": "v4",
       "resource": "slot.occupied",
       "aspect": "value",
       "phase": "Module:slot:available",
       "port": 1
     },
     {
-      "function": "top.release.0.call.0.0",
-      "identity": "v3",
+      "function": "top.release.0.call.0.2",
+      "identity": "v5",
       "resource": "slot.occupied",
       "aspect": "value",
       "phase": "Module:slot:release",
@@ -1278,7 +1165,7 @@
             "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
             "line": 21
           },
-          "function": "top.allocate.0.call.1.1",
+          "function": "top.allocate.0.call.1.3",
           "name": "free",
           "source": "function",
           "implicit": false
@@ -1286,7 +1173,7 @@
       ],
       "methods": [
         {
-          "id": "e9d3fd0305f20888",
+          "id": "737a38216acbdb78",
           "transaction": "top.allocate",
           "component": "slot",
           "contract": "Module:slot",
@@ -1305,7 +1192,7 @@
             "line": 37
           },
           "ancestors": [],
-          "function": "top.allocate.0.call.1.1",
+          "function": "top.allocate.0.call.1.3",
           "arguments": [
             {
               "resources": [],
@@ -1315,13 +1202,13 @@
             }
           ],
           "accesses": [
-            "24081e0eff59409c",
-            "8a6b717069c601d6",
-            "cb994d70ba7162c9"
+            "b9a8600eb3cefc22",
+            "ec3454c9bc8b72fd",
+            "0a7176c394432094"
           ]
         },
         {
-          "id": "dcfcb1440b1c8ee5",
+          "id": "e0ae616704116e07",
           "transaction": "top.allocate",
           "component": "slot",
           "contract": "Module:slot",
@@ -1336,12 +1223,12 @@
             "line": 19
           },
           "ancestors": [
-            "e9d3fd0305f20888"
+            "737a38216acbdb78"
           ],
-          "function": "top.allocate.0.call.1.1.0.call.1.1.0.call.1.1",
+          "function": "top.allocate.0.call.1.3.0.call.1.1.0.call.1.1",
           "arguments": [],
           "accesses": [
-            "24081e0eff59409c"
+            "b9a8600eb3cefc22"
           ]
         }
       ],
@@ -1349,9 +1236,9 @@
       "preparation_bindings": [],
       "accesses": [
         {
-          "id": "24081e0eff59409c",
+          "id": "b9a8600eb3cefc22",
           "transaction": "top.allocate",
-          "function": "top.allocate.0.call.1.1.0.call.1.1.0.call.1.1",
+          "function": "top.allocate.0.call.1.3.0.call.1.1.0.call.1.1",
           "resource": "slot.occupied",
           "operation": "read",
           "condition": true,
@@ -1363,10 +1250,10 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "value",
-          "identity": "v2",
+          "identity": "v4",
           "methods": [
-            "e9d3fd0305f20888",
-            "dcfcb1440b1c8ee5"
+            "737a38216acbdb78",
+            "e0ae616704116e07"
           ],
           "phase": "Module:slot:available",
           "phase_context": [
@@ -1386,9 +1273,10 @@
           "call_chain": [
             "top_Work",
             "top.allocate",
-            "top.allocate.0.call.1.1",
-            "top.allocate.0.call.1.1.0.call.1.1",
-            "top.allocate.0.call.1.1.0.call.1.1.0.call.1.1"
+            "top.allocate.0.call.1.3",
+            "top.allocate.0.call.1.3.guard",
+            "top.allocate.0.call.1.3.0.call.1.1",
+            "top.allocate.0.call.1.3.0.call.1.1.0.call.1.1"
           ],
           "local_condition": true,
           "port": 1,
@@ -1397,7 +1285,7 @@
             "selection": "last_effective_prior_port",
             "sources": [
               {
-                "access": "f048829bbb74aecb",
+                "access": "5662136b5ae2e959",
                 "port": 0,
                 "transaction": "top.release",
                 "eligibility": {
@@ -1421,9 +1309,9 @@
           }
         },
         {
-          "id": "8a6b717069c601d6",
+          "id": "ec3454c9bc8b72fd",
           "transaction": "top.allocate",
-          "function": "top.allocate.0.call.1.1",
+          "function": "top.allocate.0.call.1.3",
           "resource": "slot.occupied",
           "operation": "write",
           "condition": {
@@ -1439,9 +1327,9 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "value",
-          "identity": "v6",
+          "identity": "v7",
           "methods": [
-            "e9d3fd0305f20888"
+            "737a38216acbdb78"
           ],
           "phase": "Module:slot:allocate",
           "phase_context": [
@@ -1457,7 +1345,7 @@
           "call_chain": [
             "top_Work",
             "top.allocate",
-            "top.allocate.0.call.1.1"
+            "top.allocate.0.call.1.3"
           ],
           "local_condition": {
             "not": {
@@ -1470,9 +1358,9 @@
           "value_constant": true
         },
         {
-          "id": "cb994d70ba7162c9",
+          "id": "0a7176c394432094",
           "transaction": "top.allocate",
-          "function": "top.allocate.0.call.1.1",
+          "function": "top.allocate.0.call.1.3",
           "resource": "slot.payload",
           "operation": "write",
           "condition": {
@@ -1488,9 +1376,9 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v8",
+          "identity": "v9",
           "methods": [
-            "e9d3fd0305f20888"
+            "737a38216acbdb78"
           ],
           "phase": "Module:slot:allocate",
           "phase_context": [
@@ -1506,7 +1394,7 @@
           "call_chain": [
             "top_Work",
             "top.allocate",
-            "top.allocate.0.call.1.1"
+            "top.allocate.0.call.1.3"
           ],
           "local_condition": {
             "not": {
@@ -1558,7 +1446,7 @@
       "guards": [],
       "methods": [
         {
-          "id": "5bce27d8e1caf859",
+          "id": "02784cd11f404d28",
           "transaction": "top.release",
           "component": "slot",
           "contract": "Module:slot",
@@ -1577,10 +1465,10 @@
             "line": 33
           },
           "ancestors": [],
-          "function": "top.release.0.call.0.0",
+          "function": "top.release.0.call.0.2",
           "arguments": [],
           "accesses": [
-            "f048829bbb74aecb"
+            "5662136b5ae2e959"
           ]
         }
       ],
@@ -1597,9 +1485,9 @@
       ],
       "accesses": [
         {
-          "id": "f048829bbb74aecb",
+          "id": "5662136b5ae2e959",
           "transaction": "top.release",
-          "function": "top.release.0.call.0.0",
+          "function": "top.release.0.call.0.2",
           "resource": "slot.occupied",
           "operation": "write",
           "condition": {
@@ -1613,9 +1501,9 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [
-            "5bce27d8e1caf859"
+            "02784cd11f404d28"
           ],
           "phase": "Module:slot:release",
           "phase_context": [
@@ -1631,7 +1519,7 @@
           "call_chain": [
             "top_Work",
             "top.release",
-            "top.release.0.call.0.0"
+            "top.release.0.call.0.2"
           ],
           "local_condition": {
             "atom": "config:release_enabled"
@@ -1646,209 +1534,6 @@
     }
   ],
   "edges": [
-    {
-      "source": "top.release",
-      "target": "top.allocate",
-      "kind": "method.order",
-      "resource": "slot",
-      "condition": {
-        "atom": "config:release_enabled"
-      },
-      "operations": [
-        "release",
-        "available"
-      ],
-      "locations": [
-        {
-          "column": 9,
-          "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-          "line": 33
-        },
-        {
-          "column": 16,
-          "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-          "line": 19
-        }
-      ],
-      "via": null,
-      "source_access": "5bce27d8e1caf859",
-      "target_access": "dcfcb1440b1c8ee5",
-      "relation": "SB",
-      "contract": "Module:slot",
-      "interfaces": [
-        "release",
-        "available"
-      ],
-      "provenance": [
-        {
-          "after": "available",
-          "before": "release",
-          "loc": {
-            "column": 21,
-            "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-            "line": 14
-          },
-          "origin": "slot.available",
-          "relation": "SB",
-          "source": "user"
-        },
-        {
-          "before": "release",
-          "after": "available",
-          "relation": "SB",
-          "source": "derived",
-          "origin": "Module:slot",
-          "summaries": [
-            "ac_summary_slot.release.0.call.4.0",
-            "ac_summary_slot.available.0.call.5.0"
-          ],
-          "provenance": [
-            {
-              "before": "release",
-              "after": "available",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR",
-              "bindings": [
-                "summary:Module:slot:release",
-                "summary:Module:slot:available"
-              ],
-              "accesses": [
-                "78017f99892ecf57",
-                "ea0be3a365345e97"
-              ],
-              "provenance": [
-                {
-                  "before": "Module:slot:release",
-                  "after": "Module:slot:available",
-                  "relation": "SB",
-                  "source": "derived",
-                  "origin": "EHR prior-port visibility",
-                  "ports": [
-                    0,
-                    1
-                  ],
-                  "provenance": [
-                    {
-                      "after": "available",
-                      "before": "release",
-                      "loc": {
-                        "column": 21,
-                        "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-                        "line": 14
-                      },
-                      "origin": "slot.available",
-                      "relation": "SB",
-                      "source": "user"
-                    }
-                  ]
-                }
-              ],
-              "decision_order": false
-            }
-          ]
-        },
-        {
-          "before": "release",
-          "after": "available",
-          "relation": "SB",
-          "source": "derived",
-          "origin": "EHR",
-          "bindings": [
-            "5bce27d8e1caf859",
-            "dcfcb1440b1c8ee5"
-          ],
-          "accesses": [
-            "f048829bbb74aecb",
-            "24081e0eff59409c"
-          ],
-          "provenance": [
-            {
-              "before": "Module:slot:release",
-              "after": "Module:slot:available",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR prior-port visibility",
-              "ports": [
-                0,
-                1
-              ],
-              "provenance": [
-                {
-                  "after": "available",
-                  "before": "release",
-                  "loc": {
-                    "column": 21,
-                    "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-                    "line": 14
-                  },
-                  "origin": "slot.available",
-                  "relation": "SB",
-                  "source": "user"
-                },
-                {
-                  "before": "release",
-                  "after": "available",
-                  "relation": "SB",
-                  "source": "derived",
-                  "origin": "Module:slot",
-                  "summaries": [
-                    "ac_summary_slot.release.0.call.4.0",
-                    "ac_summary_slot.available.0.call.5.0"
-                  ],
-                  "provenance": [
-                    {
-                      "before": "release",
-                      "after": "available",
-                      "relation": "SB",
-                      "source": "derived",
-                      "origin": "EHR",
-                      "bindings": [
-                        "summary:Module:slot:release",
-                        "summary:Module:slot:available"
-                      ],
-                      "accesses": [
-                        "78017f99892ecf57",
-                        "ea0be3a365345e97"
-                      ],
-                      "provenance": [
-                        {
-                          "before": "Module:slot:release",
-                          "after": "Module:slot:available",
-                          "relation": "SB",
-                          "source": "derived",
-                          "origin": "EHR prior-port visibility",
-                          "ports": [
-                            0,
-                            1
-                          ],
-                          "provenance": [
-                            {
-                              "after": "available",
-                              "before": "release",
-                              "loc": {
-                                "column": 21,
-                                "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
-                                "line": 14
-                              },
-                              "origin": "slot.available",
-                              "relation": "SB",
-                              "source": "user"
-                            }
-                          ]
-                        }
-                      ],
-                      "decision_order": false
-                    }
-                  ]
-                }
-              ]
-            }
-          ],
-          "decision_order": false
-        }
-      ]
-    },
     {
       "source": "top.release",
       "target": "top.allocate",
@@ -1883,8 +1568,8 @@
         }
       ],
       "via": null,
-      "source_access": "5bce27d8e1caf859",
-      "target_access": "e9d3fd0305f20888",
+      "source_access": "02784cd11f404d28",
+      "target_access": "737a38216acbdb78",
       "relation": "SB",
       "contract": "Module:slot",
       "interfaces": [
@@ -1926,8 +1611,8 @@
                 "summary:Module:slot:available"
               ],
               "accesses": [
-                "78017f99892ecf57",
-                "ea0be3a365345e97"
+                "82acb4c510a3da4e",
+                "f9d01cf278332b8e"
               ],
               "provenance": [
                 {
@@ -1979,12 +1664,12 @@
           "source": "derived",
           "origin": "EHR",
           "bindings": [
-            "5bce27d8e1caf859",
-            "e9d3fd0305f20888"
+            "02784cd11f404d28",
+            "737a38216acbdb78"
           ],
           "accesses": [
-            "f048829bbb74aecb",
-            "24081e0eff59409c"
+            "5662136b5ae2e959",
+            "b9a8600eb3cefc22"
           ],
           "provenance": [
             {
@@ -2032,8 +1717,211 @@
                         "summary:Module:slot:available"
                       ],
                       "accesses": [
-                        "78017f99892ecf57",
-                        "ea0be3a365345e97"
+                        "82acb4c510a3da4e",
+                        "f9d01cf278332b8e"
+                      ],
+                      "provenance": [
+                        {
+                          "before": "Module:slot:release",
+                          "after": "Module:slot:available",
+                          "relation": "SB",
+                          "source": "derived",
+                          "origin": "EHR prior-port visibility",
+                          "ports": [
+                            0,
+                            1
+                          ],
+                          "provenance": [
+                            {
+                              "after": "available",
+                              "before": "release",
+                              "loc": {
+                                "column": 21,
+                                "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
+                                "line": 14
+                              },
+                              "origin": "slot.available",
+                              "relation": "SB",
+                              "source": "user"
+                            }
+                          ]
+                        }
+                      ],
+                      "decision_order": false
+                    }
+                  ]
+                }
+              ]
+            }
+          ],
+          "decision_order": false
+        }
+      ]
+    },
+    {
+      "source": "top.release",
+      "target": "top.allocate",
+      "kind": "method.order",
+      "resource": "slot",
+      "condition": {
+        "atom": "config:release_enabled"
+      },
+      "operations": [
+        "release",
+        "available"
+      ],
+      "locations": [
+        {
+          "column": 9,
+          "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
+          "line": 33
+        },
+        {
+          "column": 16,
+          "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
+          "line": 19
+        }
+      ],
+      "via": null,
+      "source_access": "02784cd11f404d28",
+      "target_access": "e0ae616704116e07",
+      "relation": "SB",
+      "contract": "Module:slot",
+      "interfaces": [
+        "release",
+        "available"
+      ],
+      "provenance": [
+        {
+          "after": "available",
+          "before": "release",
+          "loc": {
+            "column": 21,
+            "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
+            "line": 14
+          },
+          "origin": "slot.available",
+          "relation": "SB",
+          "source": "user"
+        },
+        {
+          "before": "release",
+          "after": "available",
+          "relation": "SB",
+          "source": "derived",
+          "origin": "Module:slot",
+          "summaries": [
+            "ac_summary_slot.release.0.call.4.0",
+            "ac_summary_slot.available.0.call.5.0"
+          ],
+          "provenance": [
+            {
+              "before": "release",
+              "after": "available",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR",
+              "bindings": [
+                "summary:Module:slot:release",
+                "summary:Module:slot:available"
+              ],
+              "accesses": [
+                "82acb4c510a3da4e",
+                "f9d01cf278332b8e"
+              ],
+              "provenance": [
+                {
+                  "before": "Module:slot:release",
+                  "after": "Module:slot:available",
+                  "relation": "SB",
+                  "source": "derived",
+                  "origin": "EHR prior-port visibility",
+                  "ports": [
+                    0,
+                    1
+                  ],
+                  "provenance": [
+                    {
+                      "after": "available",
+                      "before": "release",
+                      "loc": {
+                        "column": 21,
+                        "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
+                        "line": 14
+                      },
+                      "origin": "slot.available",
+                      "relation": "SB",
+                      "source": "user"
+                    }
+                  ]
+                }
+              ],
+              "decision_order": false
+            }
+          ]
+        },
+        {
+          "before": "release",
+          "after": "available",
+          "relation": "SB",
+          "source": "derived",
+          "origin": "EHR",
+          "bindings": [
+            "02784cd11f404d28",
+            "e0ae616704116e07"
+          ],
+          "accesses": [
+            "5662136b5ae2e959",
+            "b9a8600eb3cefc22"
+          ],
+          "provenance": [
+            {
+              "before": "Module:slot:release",
+              "after": "Module:slot:available",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR prior-port visibility",
+              "ports": [
+                0,
+                1
+              ],
+              "provenance": [
+                {
+                  "after": "available",
+                  "before": "release",
+                  "loc": {
+                    "column": 21,
+                    "file": "/home/lc/tmp/pycircuit/examples/ehr_slots.py",
+                    "line": 14
+                  },
+                  "origin": "slot.available",
+                  "relation": "SB",
+                  "source": "user"
+                },
+                {
+                  "before": "release",
+                  "after": "available",
+                  "relation": "SB",
+                  "source": "derived",
+                  "origin": "Module:slot",
+                  "summaries": [
+                    "ac_summary_slot.release.0.call.4.0",
+                    "ac_summary_slot.available.0.call.5.0"
+                  ],
+                  "provenance": [
+                    {
+                      "before": "release",
+                      "after": "available",
+                      "relation": "SB",
+                      "source": "derived",
+                      "origin": "EHR",
+                      "bindings": [
+                        "summary:Module:slot:release",
+                        "summary:Module:slot:available"
+                      ],
+                      "accesses": [
+                        "82acb4c510a3da4e",
+                        "f9d01cf278332b8e"
                       ],
                       "provenance": [
                         {
@@ -2098,8 +1986,8 @@
         }
       ],
       "via": null,
-      "source_access": "f048829bbb74aecb",
-      "target_access": "24081e0eff59409c",
+      "source_access": "5662136b5ae2e959",
+      "target_access": "b9a8600eb3cefc22",
       "relation": "SB",
       "contract": "EHR",
       "interfaces": [
@@ -2152,8 +2040,8 @@
                     "summary:Module:slot:available"
                   ],
                   "accesses": [
-                    "78017f99892ecf57",
-                    "ea0be3a365345e97"
+                    "82acb4c510a3da4e",
+                    "f9d01cf278332b8e"
                   ],
                   "provenance": [
                     {

@@ -4,6 +4,7 @@
 #include "mlir/IR/Dialect.h"
 #include "mlir/IR/OpDefinition.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "mlir/IR/SymbolTable.h"
 
 #include "ACIRDialect.h.inc"
 #define GET_TYPEDEF_CLASSES

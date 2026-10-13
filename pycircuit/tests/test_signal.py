@@ -20,7 +20,7 @@ class SignalTests(unittest.TestCase):
             self.assertEqual(graph, analyze(load(self.path / str(optimize) / 'model.acir.mlir'), self.path / ('reload-' + str(optimize)), optimize=False))
             self.assertEqual({(e['source'], e['target'], e['resource']) for e in original['edges']},
                              {(e['source'], e['target'], e['resource']) for e in graph['edges']})
-            self.assertEqual(graph['format_version'], 6)
+            self.assertEqual(graph['format_version'], 7)
             self.assertFalse(graph['diagnostics'])
             self.assertTrue(all(e['kind'] == 'method.order' for e in graph['edges']))
             signals = {r['name'] for r in graph['resources'] if r['kind'] == 'signal'}
@@ -301,7 +301,7 @@ class SignalTests(unittest.TestCase):
                 use()
         ''')
         saved = load(self.path / 'out/model.acir.mlir')
-        changed = '\n'.join(line.replace('acir.read ', 'acir.length ').replace(' -> i32', '') if 'acir.read ' in line else line for line in saved.splitlines())
+        changed = '\n'.join(line.replace('acir.signal.get ', 'acir.length ').replace(' -> i32', '') if 'acir.signal.get ' in line else line for line in saved.splitlines())
         self.assertNotEqual(changed, saved)
         graph = analyze(changed, self.path / 'mutated', optimize=False)
         self.assertFalse(graph['edges'])

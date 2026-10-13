@@ -102,8 +102,8 @@ class EHRTests(unittest.TestCase):
                 self.assertIn(predicate, eligibility)
             self.assertIn(('top.put', 'top.get'), {(e['source'], e['target']) for e in graph['edges']})
             mlir = load(self.path / 'out/model.acir.mlir')
-            self.assertIn('port = 1', mlir)
-            self.assertIn('visibility = "ehr"', mlir)
+            self.assertNotIn('port =', mlir)
+            self.assertIn('acir.ehr.read', mlir)
 
     def test_same_rule_temporary_writes_and_same_port_invisibility(self):
         for graph in self.variants('''
@@ -449,11 +449,12 @@ class EHRTests(unittest.TestCase):
         same = next(r for r in reads if r['port'] == 1)
         self.assertEqual([s['port'] for s in same['bypass']['sources']], [0])
         saved = load(self.path / 'out/model.acir.mlir')
-        changed = saved.replace('port = 2 : i64', 'port = 99 : i64')
-        self.assertEqual(graph, analyze(changed, self.path / 'recomputed', optimize=False))
-        for old in (3, 4, 5):
-            with self.assertRaisesRegex(CompileError, 'format_version 6.*recompile'):
-                analyze(saved.replace('format_version = 6', 'format_version = ' + str(old)), self.path / str(old))
+        self.assertNotIn('port =', saved)
+        self.assertNotIn('acir.ehr =', saved)
+        self.assertEqual(graph, analyze(saved, self.path / 'recomputed', optimize=False))
+        for old in (3, 4, 5, 6):
+            with self.assertRaisesRegex(CompileError, 'format_version 7.*recompile'):
+                analyze(saved.replace('format_version = 7', 'format_version = ' + str(old)), self.path / str(old))
 
     def test_denied_method_keeps_its_stage_but_never_exports_a_write(self):
         for graph in self.variants('''

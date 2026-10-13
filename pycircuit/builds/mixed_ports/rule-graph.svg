@@ -28,14 +28,14 @@
 <title>router.route&#45;&gt;observer.sample</title>
 <path fill="none" stroke="black" d="M412.35,-42.25C570.83,-42.25 783.46,-42.25 908.5,-42.25"/>
 <polygon fill="black" stroke="black" points="908.44,-45.75 918.44,-42.25 908.44,-38.75 908.44,-45.75"/>
-<text xml:space="preserve" text-anchor="middle" x="666.14" y="-46.2" font-family="Times,serif" font-size="14.00">method.order: router.result\nconfig:enabled\nset SB get [default]</text>
+<text xml:space="preserve" text-anchor="middle" x="666.14" y="-46.2" font-family="Times,serif" font-size="14.00">method.order: router.result\n!config:enabled\nset SB get [default]</text>
 </g>
 <!-- router.route&#45;&gt;observer.sample -->
 <g id="edge2" class="edge">
 <title>router.route&#45;&gt;observer.sample</title>
 <path fill="none" stroke="black" d="M390.86,-23.33C404.06,-22.4 417.17,-21.6 429.89,-21 639.65,-11.03 693.34,-1.05 902.39,-21 914.93,-22.2 928.16,-24.14 940.93,-26.38"/>
 <polygon fill="black" stroke="black" points="940.06,-29.78 950.53,-28.14 941.32,-22.89 940.06,-29.78"/>
-<text xml:space="preserve" text-anchor="middle" x="666.14" y="-24.95" font-family="Times,serif" font-size="14.00">method.order: router.result\n!config:enabled\nset SB get [default]</text>
+<text xml:space="preserve" text-anchor="middle" x="666.14" y="-24.95" font-family="Times,serif" font-size="14.00">method.order: router.result\nconfig:enabled\nset SB get [default]</text>
 </g>
 </g>
 </svg>

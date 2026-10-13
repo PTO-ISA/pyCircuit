@@ -29,14 +29,14 @@
 <title>top.release&#45;&gt;top.allocate</title>
 <path fill="none" stroke="black" d="M341.38,-59.72C355.87,-60.74 370.34,-61.61 384.28,-62.23 747.92,-78.55 839.66,-78.86 1203.28,-62.23 1209.8,-61.93 1216.44,-61.58 1223.14,-61.18"/>
 <polygon fill="black" stroke="black" points="1223.2,-64.69 1232.96,-60.56 1222.76,-57.7 1223.2,-64.69"/>
-<text xml:space="preserve" text-anchor="middle" x="793.78" y="-78.54" font-family="Times,serif" font-size="14.00">method.order: slot\nconfig:release_enabled\nrelease SB available [derived,user]</text>
+<text xml:space="preserve" text-anchor="middle" x="793.78" y="-78.54" font-family="Times,serif" font-size="14.00">method.order: slot\n(config:release_enabled &amp;&amp; !ehr.read:dc14d5646d0623cb)\nrelease SB allocate [derived,user]</text>
 </g>
 <!-- top.release&#45;&gt;top.allocate -->
 <g id="edge2" class="edge">
 <title>top.release&#45;&gt;top.allocate</title>
 <path fill="none" stroke="black" d="M365.77,-41.15C372.01,-41.09 378.2,-41.03 384.28,-40.98 748.27,-38.03 839.29,-37.97 1203.28,-40.98 1205.52,-41 1207.77,-41.02 1210.04,-41.04"/>
 <polygon fill="black" stroke="black" points="1209.9,-44.54 1219.94,-41.14 1209.97,-37.54 1209.9,-44.54"/>
-<text xml:space="preserve" text-anchor="middle" x="793.78" y="-44.93" font-family="Times,serif" font-size="14.00">method.order: slot\n(config:release_enabled &amp;&amp; !ehr.read:dc14d5646d0623cb)\nrelease SB allocate [derived,user]</text>
+<text xml:space="preserve" text-anchor="middle" x="793.78" y="-44.93" font-family="Times,serif" font-size="14.00">method.order: slot\nconfig:release_enabled\nrelease SB available [derived,user]</text>
 </g>
 <!-- top.release&#45;&gt;top.allocate -->
 <g id="edge3" class="edge">

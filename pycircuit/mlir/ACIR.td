@@ -3,6 +3,7 @@
 include "mlir/IR/OpBase.td"
 include "mlir/IR/AttrTypeBase.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/IR/SymbolInterfaces.td"
 
 def ACIR_Dialect : Dialect {
   let name = "acir";
@@ -18,6 +19,7 @@ class ACIR_ElementType<string name, string typeMnemonic> : TypeDef<ACIR_Dialect,
 }
 def ACIR_QueueType : ACIR_ElementType<"Queue", "queue">;
 def ACIR_SignalType : ACIR_ElementType<"Signal", "signal">;
+def ACIR_EHRType : ACIR_ElementType<"EHR", "ehr">;
 def ACIR_CellType : ACIR_ElementType<"Cell", "cell">;
 def ACIR_QueueArrayType : ACIR_ElementType<"QueueArray", "qarray">;
 def ACIR_VectorType : ACIR_ElementType<"Vector", "vector">;
@@ -32,22 +34,112 @@ def ACIR_StructType : TypeDef<ACIR_Dialect, "Struct"> {
   let parameters = (ins StringRefParameter<"nominal payload struct name">:$name);
   let assemblyFormat = "`<` $name `>`";
 }
-def ACIR_ResourceRef : AnyTypeOf<[ACIR_QueueType, ACIR_CellType, ACIR_SignalType]>;
+def ACIR_ResourceRef : AnyTypeOf<[ACIR_QueueType, ACIR_CellType, ACIR_SignalType, ACIR_EHRType]>;
 
 class ACIR_Op<string mnemonic, list<Trait> traits = []> : Op<ACIR_Dialect, mnemonic, traits>;
 
-// These declarative formats only change assembly. Keep semantic metadata in
-// attr-dict; MLIR still accepts the generic quoted operation syntax.
-// Resource declarations and function attributes form the static connection graph.
-def ACIR_ResourceOp : ACIR_Op<"resource"> {
-  let arguments = (ins StrAttr:$name, StrAttr:$kind, StrAttr:$type);
-  let assemblyFormat = "$name $kind $type attr-dict";
+// Native instance scope; Work is a region in this scope, not a transaction.
+def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable, NoTerminator]> {
+  let arguments = (ins SymbolNameAttr:$sym_name);
+  let regions = (region AnyRegion:$declarations);
+  let assemblyFormat = "$sym_name attr-dict-with-keyword $declarations";
+}
+def ACIR_InstanceOp : ACIR_Op<"instance", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, SymbolRefAttr:$target);
+  let assemblyFormat = "$sym_name `=` $target attr-dict";
   let hasVerifier = 1;
 }
-def ACIR_GetOp : ACIR_Op<"get", [Pure]> {
-  let arguments = (ins StrAttr:$name);
-  let results = (outs AnyTypeOf<[ACIR_QueueType, ACIR_CellType, ACIR_SignalType, ACIR_QueueArrayType]>:$reference);
-  let assemblyFormat = "$name attr-dict `:` type($reference)";
+def ACIR_InterfaceOp : ACIR_Op<"interface", [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, ArrayAttr:$implementations, ArrayAttr:$orders);
+  let assemblyFormat = "$sym_name attr-dict";
+  let hasVerifier = 1;
+}
+class ACIR_Definition<string name> : ACIR_Op<name, [Symbol, IsolatedFromAbove]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type);
+  let regions = (region AnyRegion:$guard, AnyRegion:$body);
+  let assemblyFormat = "$sym_name `:` $function_type attr-dict (`guard` $guard^)? `body` $body";
+  let hasVerifier = 1;
+}
+def ACIR_RuleOp : ACIR_Definition<"rule">;
+def ACIR_MethodOp : ACIR_Definition<"method">;
+def ACIR_WorkOp : ACIR_Op<"work", [IsolatedFromAbove]> {
+  let regions = (region AnyRegion:$body);
+  let assemblyFormat = "attr-dict-with-keyword $body";
+  let hasVerifier = 1;
+}
+class ACIR_Declaration<string name> : ACIR_Op<name, [Symbol]> {
+  let arguments = (ins SymbolNameAttr:$sym_name, StrAttr:$name, StrAttr:$type, TypeAttr:$payload_type);
+  let assemblyFormat = "$sym_name `:` $payload_type attr-dict";
+  let hasVerifier = 1;
+}
+def ACIR_QueueOp : ACIR_Declaration<"queue">;
+def ACIR_CellOp : ACIR_Declaration<"cell">;
+def ACIR_SignalOp : ACIR_Declaration<"signal">;
+def ACIR_EHROp : ACIR_Declaration<"ehr">;
+def ACIR_QueueArrayOp : ACIR_Declaration<"queue.array">;
+def ACIR_GetOp : ACIR_Op<"ref", [Pure]> {
+  let arguments = (ins SymbolRefAttr:$target);
+  let results = (outs AnyType:$reference);
+  let assemblyFormat = "$target attr-dict `:` type($reference)";
+  let hasVerifier = 1;
+}
+def ACIR_RuleCallOp : ACIR_Op<"rule.call", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let arguments = (ins Variadic<AnyType>:$inputs, SymbolRefAttr:$target, ArrayAttr:$output_bindings);
+  let assemblyFormat = "$target `(` $inputs `)` attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
+}
+def ACIR_MethodCallOp : ACIR_Op<"method.call", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let arguments = (ins Variadic<AnyType>:$inputs, SymbolRefAttr:$target);
+  let results = (outs Variadic<AnyType>:$outputs);
+  let assemblyFormat = "$target `(` $inputs `)` attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
+}
+class ACIR_End<string name> : ACIR_Op<name, [Terminator]> {
+  let arguments = (ins Variadic<AnyType>:$values);
+  let assemblyFormat = "($values^ `:` type($values))? attr-dict";
+}
+def ACIR_GuardYieldOp : ACIR_Op<"guard.yield", [Terminator]> {
+  let arguments = (ins I1:$condition);
+  let assemblyFormat = "$condition attr-dict";
+  let hasVerifier = 1;
+}
+def ACIR_ReturnOp : ACIR_End<"return"> { let hasVerifier = 1; }
+def ACIR_WorkEndOp : ACIR_Op<"work.end", [Terminator]> {
+  let assemblyFormat = "attr-dict";
+  let hasVerifier = 1;
+}
+class ACIR_Read<string name, Type ref, Type result = AnyType> : ACIR_Op<name, [MemoryEffects<[MemRead, MemWrite]>]> {
+  let arguments = (ins ref:$resource);
+  let results = (outs result:$value);
+  let assemblyFormat = "$resource attr-dict `:` qualified(type($resource)) `->` type($value)";
+  let hasVerifier = 1;
+}
+class ACIR_Write<string name, Type ref> : ACIR_Op<name, [MemoryEffects<[MemWrite]>]> {
+  let arguments = (ins ref:$resource, AnyType:$value);
+  let assemblyFormat = "$resource `,` $value attr-dict `:` qualified(type($resource)) `,` type($value)";
+  let hasVerifier = 1;
+}
+def ACIR_QueuePeekOp : ACIR_Read<"queue.peek", ACIR_QueueType>;
+def ACIR_CellReadOp : ACIR_Read<"cell.read", ACIR_CellType>;
+def ACIR_SignalGetOp : ACIR_Read<"signal.get", ACIR_SignalType>;
+def ACIR_EHRReadOp : ACIR_Read<"ehr.read", ACIR_EHRType>;
+def ACIR_QueueEmptyOp : ACIR_Read<"queue.empty", ACIR_QueueType, I1>;
+def ACIR_QueueFullOp : ACIR_Read<"queue.full", ACIR_QueueType, I1>;
+def ACIR_QueueSizeOp : ACIR_Read<"queue.size", ACIR_QueueType, I32>;
+def ACIR_PopOp : ACIR_Op<"queue.pop", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let arguments = (ins ACIR_QueueType:$resource);
+  let assemblyFormat = "$resource attr-dict `:` qualified(type($resource))";
+}
+def ACIR_PushOp : ACIR_Write<"queue.push", ACIR_QueueType>;
+def ACIR_CellWriteOp : ACIR_Write<"cell.write", ACIR_CellType>;
+def ACIR_SignalSetOp : ACIR_Write<"signal.set", ACIR_SignalType>;
+def ACIR_EHRWriteOp : ACIR_Write<"ehr.write", ACIR_EHRType>;
+// Analysis-only capacity accesses, introduced by the component lowering.
+def ACIR_CapacityReadOp : ACIR_Read<"analysis.capacity.read", ACIR_QueueType, I1>;
+def ACIR_CapacityWriteOp : ACIR_Write<"analysis.capacity.write", ACIR_QueueType>;
+def ACIR_AnalysisInvokeOp : ACIR_Op<"analysis.invoke", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let arguments = (ins Variadic<AnyType>:$inputs, StrAttr:$name, StrAttr:$callee);
+  let assemblyFormat = "$name `(` $inputs `)` attr-dict `:` functional-type(operands, results)";
 }
 def ACIR_ConfigOp : ACIR_Op<"config", [Pure]> {
   let arguments = (ins StrAttr:$name);
@@ -55,35 +147,6 @@ def ACIR_ConfigOp : ACIR_Op<"config", [Pure]> {
   let assemblyFormat = "$name attr-dict `:` type($value)";
 }
 
-// Reads/queries observe component views and require path-local readiness.
-// Keep conservative effects so optimization cannot move them across branches.
-// In particular these ops must never acquire Pure/AlwaysSpeculatable traits.
-def ACIR_ReadOp : ACIR_Op<"read", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let arguments = (ins ACIR_ResourceRef:$resource);
-  let results = (outs AnyType:$value);
-  let assemblyFormat = "$resource attr-dict `:` type($resource) `->` type($value)";
-  let hasVerifier = 1;
-}
-def ACIR_QueryOp : ACIR_Op<"query", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let arguments = (ins ACIR_QueueType:$resource, StrAttr:$kind);
-  let results = (outs AnyInteger:$value);
-  let assemblyFormat = "$resource $kind attr-dict `:` qualified(type($resource)) `->` type($value)";
-  let hasVerifier = 1;
-}
-def ACIR_PopOp : ACIR_Op<"pop", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let arguments = (ins ACIR_QueueType:$resource);
-  let assemblyFormat = "$resource attr-dict `:` qualified(type($resource))";
-}
-def ACIR_PushOp : ACIR_Op<"push", [MemoryEffects<[MemWrite]>]> {
-  let arguments = (ins ACIR_QueueType:$resource, AnyType:$value);
-  let assemblyFormat = "$resource `,` $value attr-dict `:` qualified(type($resource)) `,` type($value)";
-  let hasVerifier = 1;
-}
-def ACIR_WriteOp : ACIR_Op<"write", [MemoryEffects<[MemWrite]>]> {
-  let arguments = (ins ACIR_ResourceRef:$resource, AnyType:$value);
-  let assemblyFormat = "$resource `,` $value attr-dict `:` type($resource) `,` type($value)";
-  let hasVerifier = 1;
-}
 def ACIR_GuardOp : ACIR_Op<"guard", [MemoryEffects<[MemRead, MemWrite]>]> {
   let arguments = (ins I1:$condition, StrAttr:$name);
   let assemblyFormat = "$condition $name attr-dict";
@@ -100,15 +163,6 @@ def ACIR_ExternalOp : ACIR_Op<"external", [MemoryEffects<[MemRead, MemWrite]>]> 
   let arguments = (ins StrAttr:$source, StrAttr:$identity);
   let results = (outs AnyType:$value);
   let assemblyFormat = "$source $identity attr-dict `:` type($value)";
-}
-def ACIR_ReviseOp : ACIR_Op<"revise", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let arguments = (ins ACIR_QueueType:$resource, AnyType:$value, Variadic<AnyInteger>:$indices, ArrayAttr:$path);
-  let assemblyFormat = "$resource `,` $value (`[` $indices^ `]`)? attr-dict `:` functional-type(operands, results)";
-  let hasVerifier = 1;
-}
-def ACIR_InvokeOp : ACIR_Op<"invoke", [MemoryEffects<[MemRead, MemWrite]>]> {
-  let arguments = (ins Variadic<AnyType>:$inputs, StrAttr:$name);
-  let assemblyFormat = "$name `(` $inputs `)` attr-dict `:` functional-type(operands, results)";
 }
 // Aggregate indexing may report a bounds error; it is not speculatable.
 def ACIR_AggregateOp : ACIR_Op<"aggregate", [NoMemoryEffect]> {

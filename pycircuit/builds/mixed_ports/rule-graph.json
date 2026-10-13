@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 7,
   "contracts": [
     {
       "guards": {
@@ -9,8 +9,7 @@
       },
       "id": "Queue",
       "methods": [
-        "read",
-        "revise",
+        "peek",
         "pop",
         "push",
         "query.empty",
@@ -19,15 +18,8 @@
       ],
       "relations": [
         {
-          "after": "revise",
-          "before": "read",
-          "origin": "Pipeline FIFO",
-          "relation": "SB",
-          "source": "default"
-        },
-        {
           "after": "pop",
-          "before": "revise",
+          "before": "peek",
           "origin": "Pipeline FIFO",
           "relation": "SB",
           "source": "default"
@@ -43,6 +35,69 @@
         }
       },
       "closure": [
+        {
+          "before": "peek",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
         {
           "before": "pop",
           "after": "push",
@@ -91,169 +146,17 @@
               "origin": "push guard calls query.full"
             }
           ]
-        },
-        {
-          "before": "read",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "revise",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
         }
       ]
+    },
+    {
+      "id": "Cell",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
     },
     {
       "id": "EHR",
@@ -295,15 +198,6 @@
           ]
         }
       ]
-    },
-    {
-      "id": "Cell",
-      "methods": [
-        "read",
-        "write"
-      ],
-      "relations": [],
-      "closure": []
     },
     {
       "id": "Module:ledger",
@@ -349,7 +243,7 @@
       "arguments": [],
       "accesses": [
         {
-          "id": "fc3df4410af4bc06",
+          "id": "1a0c9906a05d3fd5",
           "transaction": "summary:Module:ledger:record",
           "function": "ac_summary_ledger.record.0.call.1.1",
           "resource": "ledger.observed",
@@ -363,7 +257,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [
             "summary:Module:ledger:record"
           ],
@@ -612,36 +506,10 @@
   ],
   "resources": [
     {
-      "capacity_fn": "ac_init_source_cap",
-      "contract": "Queue",
-      "initial_fn": "ac_init_source",
-      "kind": "queue",
-      "loc": {
-        "column": 13,
-        "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-        "line": 52
-      },
-      "name": "source",
-      "type": "u32",
-      "views": [
-        {
-          "commit": "queue.effects",
-          "initial": "old_count == capacity",
-          "name": "full",
-          "visibility": "ehr"
-        }
-      ],
-      "visibility": "old"
-    },
-    {
       "contract": "Cell",
       "initial_fn": "ac_init_ledger.observed",
       "kind": "cell",
-      "loc": {
-        "column": 15,
-        "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-        "line": 7
-      },
+      "loc": {},
       "name": "ledger.observed",
       "type": "u32",
       "visibility": "old"
@@ -651,11 +519,7 @@
       "contract": "Queue",
       "initial_fn": "ac_init_router.accepted",
       "kind": "queue",
-      "loc": {
-        "column": 15,
-        "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-        "line": 31
-      },
+      "loc": {},
       "name": "router.accepted",
       "type": "u32",
       "views": [
@@ -672,11 +536,7 @@
       "contract": "Cell",
       "initial_fn": "ac_init_router.last_accepted",
       "kind": "cell",
-      "loc": {
-        "column": 20,
-        "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-        "line": 32
-      },
+      "loc": {},
       "name": "router.last_accepted",
       "type": "u32",
       "visibility": "old"
@@ -685,11 +545,7 @@
       "contract": "Signal",
       "initial_fn": "ac_init_router.result",
       "kind": "signal",
-      "loc": {
-        "column": 13,
-        "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-        "line": 33
-      },
+      "loc": {},
       "name": "router.result",
       "type": "u32",
       "visibility": "current"
@@ -698,13 +554,27 @@
       "contract": "Cell",
       "initial_fn": "ac_init_observer.last",
       "kind": "cell",
-      "loc": {
-        "column": 11,
-        "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-        "line": 18
-      },
+      "loc": {},
       "name": "observer.last",
       "type": "u32",
+      "visibility": "old"
+    },
+    {
+      "capacity_fn": "ac_init_source_cap",
+      "contract": "Queue",
+      "initial_fn": "ac_init_source",
+      "kind": "queue",
+      "loc": {},
+      "name": "source",
+      "type": "u32",
+      "views": [
+        {
+          "commit": "queue.effects",
+          "initial": "old_count == capacity",
+          "name": "full",
+          "visibility": "ehr"
+        }
+      ],
       "visibility": "old"
     }
   ],
@@ -751,7 +621,7 @@
   "ehr_bindings": [
     {
       "function": "router.route",
-      "identity": "v12",
+      "identity": null,
       "resource": "router.accepted",
       "aspect": "full",
       "phase": "Queue:query.full",
@@ -759,7 +629,7 @@
     },
     {
       "function": "router.route",
-      "identity": "v6",
+      "identity": null,
       "resource": "source",
       "aspect": "full",
       "phase": "Queue:pop",
@@ -816,7 +686,7 @@
       ],
       "accesses": [
         {
-          "id": "6ecbcf8428598ac3",
+          "id": "b6c6e0ad42b62edc",
           "transaction": "observer.sample",
           "function": "observer.sample",
           "resource": "observer.last",
@@ -830,7 +700,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v4",
+          "identity": "v6",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -845,12 +715,12 @@
           "local_condition": true,
           "ready": "true",
           "value": {
-            "atom": "ssa:a0d4f9e56f9c3164"
+            "atom": "ssa:b9f92096681287fa"
           },
           "value_constant": null
         },
         {
-          "id": "b0847e9fb66c4dfa",
+          "id": "41a0354d35657d0b",
           "transaction": "observer.sample",
           "function": "observer.sample",
           "resource": "router.result",
@@ -864,7 +734,7 @@
           "role": "observe",
           "view": "current",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -882,7 +752,7 @@
             "selection": "last_local_else_granted_set",
             "sources": [
               {
-                "access": "f3bb45a803352391",
+                "access": "2e8b6117639975ab",
                 "transaction": "router.route",
                 "eligibility": {
                   "and": [
@@ -898,13 +768,13 @@
                 },
                 "visibility": "granted_transaction",
                 "value": {
-                  "atom": "ssa:3a02c0c2cc3f9651"
+                  "atom": "ssa:cfc27842512eb21b"
                 },
                 "value_constant": null,
                 "sequence": 4
               },
               {
-                "access": "01de73a944d8aee2",
+                "access": "9038424528b52b17",
                 "transaction": "router.route",
                 "eligibility": {
                   "and": [
@@ -918,7 +788,7 @@
                 },
                 "visibility": "granted_transaction",
                 "value": {
-                  "atom": "ssa:3a02c0c2cc3f9651"
+                  "atom": "ssa:cfc27842512eb21b"
                 },
                 "value_constant": null,
                 "sequence": 8
@@ -997,7 +867,7 @@
       ],
       "methods": [
         {
-          "id": "fdc257984ea9aa12",
+          "id": "d6609341284384d2",
           "transaction": "router.route",
           "component": "ledger",
           "contract": "Module:ledger",
@@ -1012,17 +882,17 @@
             "line": 40
           },
           "ancestors": [],
-          "function": "router.route.0.call.0.6",
+          "function": "router.route.0.call.0.5",
           "arguments": [
             {
               "resources": [],
               "value": {
-                "atom": "ssa:3a02c0c2cc3f9651"
+                "atom": "ssa:cfc27842512eb21b"
               }
             }
           ],
           "accesses": [
-            "b3f278640d0ce999"
+            "75fa15c294d26f35"
           ]
         }
       ],
@@ -1042,9 +912,9 @@
       ],
       "accesses": [
         {
-          "id": "b3f278640d0ce999",
+          "id": "75fa15c294d26f35",
           "transaction": "router.route",
-          "function": "router.route.0.call.0.6",
+          "function": "router.route.0.call.0.5",
           "resource": "ledger.observed",
           "operation": "write",
           "condition": true,
@@ -1056,9 +926,9 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [
-            "fdc257984ea9aa12"
+            "d6609341284384d2"
           ],
           "phase": "Module:ledger:record",
           "phase_context": [
@@ -1074,17 +944,17 @@
           "call_chain": [
             "router_Work",
             "router.route",
-            "router.route.0.call.0.6"
+            "router.route.0.call.0.5"
           ],
           "local_condition": true,
           "ready": "true",
           "value": {
-            "atom": "ssa:3a02c0c2cc3f9651"
+            "atom": "ssa:cfc27842512eb21b"
           },
           "value_constant": null
         },
         {
-          "id": "5e07419ee7ae033c",
+          "id": "6018cb3925bfd5a0",
           "transaction": "router.route",
           "function": "router.route",
           "resource": "router.accepted",
@@ -1100,7 +970,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v15",
+          "identity": "v10.out0",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -1117,12 +987,12 @@
           },
           "ready": "!ehr.full(router.accepted,1)",
           "value": {
-            "atom": "ssa:8a8dfd377e4928c3"
+            "atom": "ssa:71e60e1c6f70f396"
           },
           "value_constant": null
         },
         {
-          "id": "fcfeb4a822a7e04c",
+          "id": "2a4c2031363af37d",
           "transaction": "router.route",
           "function": "router.route",
           "resource": "router.accepted",
@@ -1138,7 +1008,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "full",
-          "identity": "v12",
+          "identity": null,
           "methods": [],
           "phase": "Queue:query.full",
           "phase_context": [],
@@ -1163,7 +1033,7 @@
           }
         },
         {
-          "id": "0c6c377f6cca7938",
+          "id": "9a0732e9394ff234",
           "transaction": "router.route",
           "function": "router.route",
           "resource": "router.last_accepted",
@@ -1179,7 +1049,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v17",
+          "identity": "v10.out1",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -1196,50 +1066,12 @@
           },
           "ready": "true",
           "value": {
-            "atom": "ssa:3a02c0c2cc3f9651"
+            "atom": "ssa:cfc27842512eb21b"
           },
           "value_constant": null
         },
         {
-          "id": "01de73a944d8aee2",
-          "transaction": "router.route",
-          "function": "router.route",
-          "resource": "router.result",
-          "operation": "write",
-          "condition": {
-            "atom": "config:enabled"
-          },
-          "loc": {
-            "column": 13,
-            "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-            "line": 42
-          },
-          "role": "observe",
-          "view": "current",
-          "aspect": "value",
-          "identity": "v19",
-          "methods": [],
-          "phase": "$direct",
-          "phase_context": [],
-          "sequence": 8,
-          "contract": "Signal",
-          "interface": "set",
-          "binding": "exact",
-          "call_chain": [
-            "router_Work",
-            "router.route"
-          ],
-          "local_condition": {
-            "atom": "config:enabled"
-          },
-          "ready": "true",
-          "value": {
-            "atom": "ssa:3a02c0c2cc3f9651"
-          },
-          "value_constant": null
-        },
-        {
-          "id": "f3bb45a803352391",
+          "id": "2e8b6117639975ab",
           "transaction": "router.route",
           "function": "router.route",
           "resource": "router.result",
@@ -1257,7 +1089,7 @@
           "role": "observe",
           "view": "current",
           "aspect": "value",
-          "identity": "v25",
+          "identity": "v15.out2",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -1276,12 +1108,50 @@
           },
           "ready": "true",
           "value": {
-            "atom": "ssa:3a02c0c2cc3f9651"
+            "atom": "ssa:cfc27842512eb21b"
           },
           "value_constant": null
         },
         {
-          "id": "8c16998e3e55e44c",
+          "id": "9038424528b52b17",
+          "transaction": "router.route",
+          "function": "router.route",
+          "resource": "router.result",
+          "operation": "write",
+          "condition": {
+            "atom": "config:enabled"
+          },
+          "loc": {
+            "column": 13,
+            "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
+            "line": 42
+          },
+          "role": "observe",
+          "view": "current",
+          "aspect": "value",
+          "identity": "v10.out2",
+          "methods": [],
+          "phase": "$direct",
+          "phase_context": [],
+          "sequence": 8,
+          "contract": "Signal",
+          "interface": "set",
+          "binding": "exact",
+          "call_chain": [
+            "router_Work",
+            "router.route"
+          ],
+          "local_condition": {
+            "atom": "config:enabled"
+          },
+          "ready": "true",
+          "value": {
+            "atom": "ssa:cfc27842512eb21b"
+          },
+          "value_constant": null
+        },
+        {
+          "id": "7bdf65ed59c14956",
           "transaction": "router.route",
           "function": "router.route",
           "resource": "source",
@@ -1295,7 +1165,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v4",
+          "identity": "v5.pop",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -1308,19 +1178,19 @@
             "router.route"
           ],
           "local_condition": true,
-          "ready": "!empty(source)",
-          "value": null,
-          "value_constant": null,
           "locations": [
             {
               "column": 17,
               "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
               "line": 39
             }
-          ]
+          ],
+          "ready": "!empty(source)",
+          "value": null,
+          "value_constant": null
         },
         {
-          "id": "caeab891d3e3dfd7",
+          "id": "3fbcb6c6f388e56d",
           "transaction": "router.route",
           "function": "router.route",
           "resource": "source",
@@ -1334,13 +1204,13 @@
           "role": "consume",
           "view": "old",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v5",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
           "sequence": 0,
           "contract": "Queue",
-          "interface": "read",
+          "interface": "peek",
           "binding": "exact",
           "call_chain": [
             "router_Work",
@@ -1350,7 +1220,7 @@
           "ready": "!empty(source)"
         },
         {
-          "id": "c87aac726ece34f5",
+          "id": "840203145b219195",
           "transaction": "router.route",
           "function": "router.route",
           "resource": "source",
@@ -1364,7 +1234,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "full",
-          "identity": "v6",
+          "identity": null,
           "methods": [],
           "phase": "Queue:pop",
           "phase_context": [],
@@ -1391,67 +1261,24 @@
         {
           "condition": true,
           "ready": "!empty(source)",
-          "access": "caeab891d3e3dfd7"
+          "access": "3fbcb6c6f388e56d"
         },
         {
           "condition": {
             "atom": "config:enabled"
           },
           "ready": "!ehr.full(router.accepted,1)",
-          "access": "5e07419ee7ae033c"
+          "access": "6018cb3925bfd5a0"
         },
         {
           "condition": true,
           "ready": "!empty(source)",
-          "access": "8c16998e3e55e44c"
+          "access": "7bdf65ed59c14956"
         }
       ]
     }
   ],
   "edges": [
-    {
-      "source": "router.route",
-      "target": "observer.sample",
-      "kind": "method.order",
-      "resource": "router.result",
-      "condition": {
-        "atom": "config:enabled"
-      },
-      "operations": [
-        "write",
-        "read"
-      ],
-      "locations": [
-        {
-          "column": 13,
-          "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-          "line": 42
-        },
-        {
-          "column": 22,
-          "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
-          "line": 22
-        }
-      ],
-      "via": null,
-      "source_access": "01de73a944d8aee2",
-      "target_access": "b0847e9fb66c4dfa",
-      "relation": "SB",
-      "contract": "Signal",
-      "interfaces": [
-        "set",
-        "get"
-      ],
-      "provenance": [
-        {
-          "after": "get",
-          "before": "set",
-          "origin": "Signal current value",
-          "relation": "SB",
-          "source": "default"
-        }
-      ]
-    },
     {
       "source": "router.route",
       "target": "observer.sample",
@@ -1479,8 +1306,51 @@
         }
       ],
       "via": null,
-      "source_access": "f3bb45a803352391",
-      "target_access": "b0847e9fb66c4dfa",
+      "source_access": "2e8b6117639975ab",
+      "target_access": "41a0354d35657d0b",
+      "relation": "SB",
+      "contract": "Signal",
+      "interfaces": [
+        "set",
+        "get"
+      ],
+      "provenance": [
+        {
+          "after": "get",
+          "before": "set",
+          "origin": "Signal current value",
+          "relation": "SB",
+          "source": "default"
+        }
+      ]
+    },
+    {
+      "source": "router.route",
+      "target": "observer.sample",
+      "kind": "method.order",
+      "resource": "router.result",
+      "condition": {
+        "atom": "config:enabled"
+      },
+      "operations": [
+        "write",
+        "read"
+      ],
+      "locations": [
+        {
+          "column": 13,
+          "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
+          "line": 42
+        },
+        {
+          "column": 22,
+          "file": "/home/lc/tmp/pycircuit/examples/mixed_ports.py",
+          "line": 22
+        }
+      ],
+      "via": null,
+      "source_access": "9038424528b52b17",
+      "target_access": "41a0354d35657d0b",
       "relation": "SB",
       "contract": "Signal",
       "interfaces": [

@@ -3,7 +3,7 @@ from collections import defaultdict
 from .ir import CompileError
 
 
-def allocate(records, orders, resources, array_sizes):
+def allocate(records, orders, resources, array_sizes, contracts):
     groups = defaultdict(list)
     for record in records:
         if record['view'] == 'ehr':
@@ -17,8 +17,9 @@ def allocate(records, orders, resources, array_sizes):
     views, ports = [], {}
     for (resource, aspect), accesses in sorted(groups.items()):
         if aspect == 'full':
-            bindings = {'Queue:pop': 0, 'Queue:query.full': 1}
-            count = 2
+            declaration = contracts[resources[resource.split('[')[0]]['contract']]['views'][aspect]
+            bindings = {'Queue:' + name: index for index, name in enumerate(declaration['stages'])}
+            count = len(bindings)
         else:
             phases = sorted({a['phase'] for a in accesses if a['phase'] != '$direct'})
             for access in accesses:

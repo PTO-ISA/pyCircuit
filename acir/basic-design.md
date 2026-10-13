@@ -1,6 +1,6 @@
 # ACIR 基础设计
 
-本文记录本轮讨论确认的 IR 设计，不表示当前编译器已经实现全部 primitive。操作的精确文本语法尚未确定。
+本文记录本轮确认的 IR 设计；已实现的原生操作、文本语法和分析 lowering 见 [ACIR v7](../pycircuit/acir.md)。
 
 ACIR 基于 MLIR，直接表达静态结构、计算、控制流、组件调用和事务语义。编译器从这些信息推导 RuleGraph，不在高层 IR 中重复保存完整分析图。
 
@@ -38,7 +38,7 @@ Rule 和 Method 各自具有 guard 区域与 body 区域。两个区域分别绑
 - Method 可以返回普通 SSA 值，供调用者继续计算；其效果与返回值的使用遵循外层事务及 guard 条件。
 - Rule 的消费性 Queue 输入在实际读取 payload 的路径上对应 pop；普通观察和 guard 读取不消费。
 
-## 2. 基础状态组件
+## 2. 基础组件
 
 基础组件具有自己的声明、引用类型和 Method 操作，避免由通用 read／write／query 再解释组件语义。
 
@@ -46,7 +46,7 @@ Rule 和 Method 各自具有 guard 区域与 body 区域。两个区域分别绑
 | --- | --- | --- |
 | `acir.queue` | `acir.queue.peek/pop/push/empty/full/size` | FIFO，读取旧数据；成功 pop 可为同拍 push 腾出空间 |
 | `acir.cell` | `acir.cell.read/write` | 读取周期开始的旧值，获准写入下拍生效 |
-| `acir.signal` | `acir.signal.get/set` | 持有初始化值和保留值，set 排在 get 前 |
+| `acir.signal` | `acir.signal.get/set` | 本拍写入后有效，get 以 valid 为隐式 guard，set 排在 get 前 |
 | `acir.ehr` | `acir.ehr.read/write` | 根据 Method 阶段观察前序有效写入 |
 
 普通 payload SSA 值与组件引用分开。所有状态效果属于外层 Rule，并随整个事务提交或取消。Module Work 只能观察状态。
@@ -56,6 +56,8 @@ Rule 和 Method 各自具有 guard 区域与 body 区域。两个区域分别绑
 基础组件定义由编译器集中维护，提供 Method 的默认 guard、状态效果、顺序及可见性。分析器通过统一接口查询契约，不将组件规则散落为特殊判断。
 
 用户组件的契约显式保存在 MLIR 中，与基础组件使用同一套契约接口。
+
+关系含义对齐 BSV：CF 表示无冲突；C 表示不能同时使用；SB 表示普通先后，允许同事务组合；SBR 表示严格先后，禁止在同一外层事务的实际路径上组合，包含嵌套调用。SB／SBR 推导顺序边，C 推导冲突约束；顺序不规定仲裁优先级。关系声明的前端写法与冲突选择策略尚未确定。
 
 ### Queue
 
@@ -67,17 +69,21 @@ Rule 和 Method 各自具有 guard 区域与 body 区域。两个区域分别绑
 
 ### Signal
 
-- Signal 是有初始值、保留值的状态对象，不是临时 SSA 值。
-- set → get；跨 Rule 读取可见前序获准写入。没有有效写入时读取保留值。
-- 同 Rule 内的前序临时 set 可以被后续 get 观察，但最终写入仍随整个事务提交或取消。
+- Signal 采用 BSV Wire 语义，是具有固定身份的组件，不是临时 SSA 值；不声明初值，也不保存跨周期值。
+- 每拍开始为 invalid，本拍有效 set 后才可 get。get 的隐式 guard 为 valid，不消费，允许多个读取者。
+- set → get；跨 Rule 只读取前序获准写入。没有有效写入时 get 失败，不回退到旧值。
+- set → get 是严格同拍先后关系，同一原子事务不能对同一 Signal 同时 set 和 get，包含嵌套调用。set 与 set 冲突，get 与 get 无冲突；不提供同事务临时写入旁路。
 - Signal 不使用 Queue 的消费语义，也不要求高层显式 EHR 端口。
+- RTL 中 data 和 valid 对应组合信号；仿真对象保存本拍求值结果，不代表跨周期寄存器。
 
 ### 用户 EHR
 
 - 用户显式声明 EHR 及其初始值，读写操作不手填端口号。
-- 编译器根据访问它的 Method 顺序分配阶段与端口；后阶段观察前阶段有效写入。
+- 端口契约对齐 BSV CReg。编译器根据访问它的 Method 顺序分配阶段与端口；后阶段只观察前阶段获准写入，多个前序写入时选择端口编号最大的写入。
 - 没有顺序关系时不增加可见性端口；同端口写入不可见。没有前序有效写入时读取旧值。
-- 同 Rule 的前序阶段写入可临时可见，整体仍原子提交或取消；跨 Rule 只观察获准写入。
+- 同端口 read／read 为 CF，read → write 为 SB，write → write 为 SBR；低端口所有操作到高端口所有操作为 SBR。
+- 同一外层事务不能访问同一 EHR 的不同端口，包含嵌套调用；不提供同事务跨端口临时写入旁路。Queue 内部 EHR 的 pop／push 阶段也遵循该限制。
+- 获准写入中端口编号最大的写入决定下拍保存值；没有获准写入时保持旧值。
 
 ## 3. Method 返回值的条件传播
 
@@ -95,7 +101,7 @@ independent()            # 不受 ready 影响。
 
 如果 `value` 决定分支，则两条分支都以 ready 成立为前提。调用失败不能当成条件为假而进入 else。编译器在 lowering 时将受保护计算落实为相应的执行路径，不给普通 SSA 值增加持久 valid 状态，也不默认使用旧值。
 
-Rule 间通过 Signal 传递值时，生产者成功条件不传播给消费者：生产者失败，消费者读取保留值。但 set → get 顺序仍要求消费者等待前序写入事务的结果确定。
+Rule 间通过 Signal 传递值时，消费者通过 get 的隐式 guard 依赖本拍有效写入；生产者失败，其 set 无效。set → get 顺序要求先确定前序生产者的事务结果。Module 中 get 的有效性条件沿返回值的数据与控制依赖传播，不将 invalid 当作 False。
 
 Rule 的完整执行条件由 Module 选择路径、Rule 自身 guard 和实际调用的 Method guard 组成。分支中的要求只约束对应路径。
 
@@ -119,8 +125,7 @@ RuleGraph 是编译器内存中的派生分析结果，可导出 JSON 与可视�
 
 ## 5. 尚未收敛的表达
 
-- 各操作的精确 assembly format、区域终结操作和端口绑定语法。
-- 聚合数据、数组及其他辅助计算操作的最小集合。
-- 共享值导出与跨实例引用是否需要专用操作，以及对应形式。
+- 聚合数据、数组及其他辅助计算操作的后续扩展。
+- EHR 作为 Rule 输出目标，以及共享值和辅助表达的后续扩展。
 
-这些内容不在本文自行补充。
+原生操作的 assembly format、终结操作、输出绑定及现有 export／external 形式见 [ACIR v7](../pycircuit/acir.md)。未决扩展不在本文补充。

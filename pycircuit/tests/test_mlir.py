@@ -1,19 +1,58 @@
-"""Verify registered state operations and optimization effects independently."""
+"""Native ACIR parsing, symbols, regions, effects and standalone lowering."""
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
+import textwrap
 import unittest
+from pycircuit import compile_source, analyze
+from pycircuit.ir import CompileError
+from pycircuit.mlir_text import serialize
 
 ROOT = Path(__file__).resolve().parents[2]
-
+MODEL = '''
+from pycircuit import ac
+@ac.module
+def Store():
+    c = ac.cell[ac.u32](initial=0)
+    s = ac.signal[ac.u32](initial=0)
+    e = ac.ehr[ac.u32](initial=0)
+    @ac.method
+    def put(x: ac.u32) -> ac.u32:
+        c.value = x
+        e.value = x
+        s = x
+        return x
+@ac.module
+def Top(flag: bool, n: ac.u32):
+    store = Store()
+    q = ac.queue[ac.u32](initial=1)
+    out = ac.queue[ac.u32]()
+    def ready(x: ac.queue[ac.u32]) -> bool:
+        return not x.empty()
+    @ac.rule(guard=ready)
+    def move(x: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
+        value = x.value
+        if flag:
+            store.put(value)
+            return value
+        return None
+    @ac.rule
+    def compute(limit: ac.u32):
+        total = ac.u32(0)
+        for i in range(limit):
+            if flag:
+                total = total + i
+        store.put(total)
+    out = move(q)
+    compute(n)
+'''
 
 class MLIRTests(unittest.TestCase):
     def setUp(self):
-        base = ROOT / 'pycircuit/builds/benchmarks/rule-graph/tests'
-        base.mkdir(parents=True, exist_ok=True)
-        self.temp = tempfile.TemporaryDirectory(prefix='ods-', dir=base)
-        self.addCleanup(self.temp.cleanup)
+        base = ROOT / 'pycircuit/builds/benchmarks/rule-graph/tests'; base.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(prefix='ods-', dir=base); self.addCleanup(self.temp.cleanup)
         self.path = Path(self.temp.name)
         self.opt = os.environ.get('ACPY_MLIR_OPT') or str(Path(os.environ['ACPY_MLIR_COMPILER']).with_name('acir-opt'))
 
@@ -21,159 +60,222 @@ class MLIRTests(unittest.TestCase):
         source = self.path / 'input.mlir'; source.write_text(text)
         return subprocess.run([self.opt, str(source), *flags], capture_output=True, text=True, timeout=30)
 
-    def test_all_assembly_formats_preserve_generic_ir(self):
-        source = '''module {
-  "acir.resource"() {name = "q", kind = "queue", type = "u32", contract = "Queue", visibility = "old", capacity_fn = "capacity"} : () -> ()
-  func.func @formats(%q: !acir.queue<i32>, %qa: !acir.queue<!acir.array<i32, 2>>, %v: i32, %i: i32, %j: i64, %flag: i1, %a: !acir.array<i32, 2>, %nested: !acir.array<!acir.array<i32, 2>, 2>, %s: !acir.struct<"Pair">) {
-    %ref = "acir.get"() {name = "q", acir.id = "resource"} : () -> !acir.queue<i32>
-    %cfg = "acir.config"() {name = "capacity"} : () -> i32
-    %read = "acir.read"(%q) {view = "old", role = "observe", acir.id = "read"} : (!acir.queue<i32>) -> i32 loc("formats.py":12:4)
-    %query = "acir.query"(%q) {kind = "empty"} : (!acir.queue<i32>) -> i1
-    "acir.pop"(%q) : (!acir.queue<i32>) -> ()
-    "acir.push"(%q, %v) : (!acir.queue<i32>, i32) -> ()
-    "acir.write"(%q, %flag) {aspect = "full", view = "ehr", port = 0 : i64, ports = [{resource = "q", aspect = "full", port = 0 : i64}]} : (!acir.queue<i32>, i1) -> ()
-    "acir.guard"(%flag) {name = "enabled", acir.id = "guard"} : (i1) -> ()
-    %export = "acir.export"(%v) {acir.id = "shared"} : (i32) -> i32
-    %external = "acir.external"() {source = "other_Work", identity = "shared"} : () -> i32
-    "acir.revise"(%q, %v) {path = []} : (!acir.queue<i32>, i32) -> ()
-    "acir.revise"(%qa, %v, %i) {path = [unit]} : (!acir.queue<!acir.array<i32, 2>>, i32, i32) -> ()
-    "acir.invoke"() {name = "no_args"} : () -> ()
-    "acir.invoke"(%q, %v) {name = "with_args", acir.id = "call"} : (!acir.queue<i32>, i32) -> ()
-    %zero = "acir.aggregate"() : () -> !acir.struct<"Pair">
-    %array = "acir.aggregate"(%v, %i) : (i32, i32) -> !acir.array<i32, 2>
-    %field = "acir.extract"(%s) {field = "left"} : (!acir.struct<"Pair">) -> i32
-    %index = "acir.extract"(%a, %i) {indexed = true} : (!acir.array<i32, 2>, i32) -> i32
-    %indices = "acir.extract"(%nested, %i, %j) {indexed = true} : (!acir.array<!acir.array<i32, 2>, 2>, i32, i64) -> i32
-    %update = "acir.update"(%s, %v) {path = ["left"]} : (!acir.struct<"Pair">, i32) -> !acir.struct<"Pair">
-    %updated = "acir.update"(%a, %v, %i) {path = [unit]} : (!acir.array<i32, 2>, i32, i32) -> !acir.array<i32, 2>
-    %length = "acir.length"(%a) : (!acir.array<i32, 2>) -> i32
-    %cast = "acir.cast"(%v) : (i32) -> i64
-    %unary = "acir.unary"(%v) {operator_name = "invert"} : (i32) -> i32
-    %compare = "acir.compare"(%v, %i) {operator_name = "eq"} : (i32, i32) -> i1
-    %range = "acir.range"(%i) : (i32) -> !acir.vector<i32>
-    "acir.check"(%flag) : (i1) -> ()
-    "acir.unreachable"() : () -> ()
-    return
-  }
-}'''
-        compact = self.optimize(source, '--mlir-print-debuginfo')
+    def model(self, text=MODEL):
+        source = self.path / 'source.py'; source.write_text(textwrap.dedent(text))
+        return serialize(compile_source(source, 'Top'))
+
+    def test_native_roundtrip_and_lowering(self):
+        text = self.model()
+        compact = self.optimize(text, '--mlir-print-debuginfo')
         self.assertEqual(compact.returncode, 0, compact.stderr)
-        for operation in ('resource', 'get', 'config', 'read', 'query', 'pop', 'push',
-                          'write', 'guard', 'export', 'external', 'revise', 'invoke',
-                          'aggregate', 'extract', 'update', 'length', 'cast', 'unary',
-                          'compare', 'range', 'check', 'unreachable'):
-            with self.subTest(operation=operation):
-                self.assertIn('acir.' + operation, compact.stdout)
-                self.assertNotIn('"acir.' + operation + '"', compact.stdout)
-        self.assertIn('acir.invoke "no_args"()', compact.stdout)
-        self.assertIn('acir.invoke "with_args"(', compact.stdout)
-        self.assertIn('acir.pop %arg0 : !acir.queue<i32>', compact.stdout)
-        query = next(line for line in compact.stdout.splitlines() if 'acir.query ' in line)
-        self.assertIn(': !acir.queue<i32> -> i1', query)
-        pushed = next(line for line in compact.stdout.splitlines() if 'acir.push ' in line)
-        self.assertIn(': !acir.queue<i32>, i32', pushed)
-        vector = next(line for line in compact.stdout.splitlines() if 'acir.range ' in line)
-        self.assertIn('-> !acir.vector<i32>', vector)
-        self.assertIn('field = "left"', compact.stdout)
-        field = next(line for line in compact.stdout.splitlines() if 'field = "left"' in line)
-        self.assertNotIn('[]', field)
-        self.assertIn('acir.id = "shared"', compact.stdout)
-        self.assertIn('ports = [{', compact.stdout)
-        self.assertIn('"formats.py":12:4', compact.stdout)
-        flags = ('--mlir-print-op-generic', '--mlir-print-debuginfo')
-        original = self.optimize(source, *flags)
-        roundtrip = self.optimize(compact.stdout, *flags)
-        self.assertEqual(original.returncode, 0, original.stderr)
-        self.assertEqual(roundtrip.returncode, 0, roundtrip.stderr)
-        self.assertEqual(original.stdout, roundtrip.stdout)
+        for op in ('module', 'instance', 'interface', 'rule', 'method', 'work', 'rule.call', 'method.call', 'guard.yield', 'return', 'work.end', 'queue', 'cell', 'signal', 'ehr', 'queue.peek', 'cell.write', 'signal.set', 'ehr.write'):
+            self.assertIn('acir.' + op, compact.stdout)
+        self.assertIn('scf.if', compact.stdout); self.assertIn('scf.while', compact.stdout)
+        self.assertIn('cf.cond_br', compact.stdout) # Multiple returns retain CFG.
+        self.assertIn('output_bindings = [@top::@out]', compact.stdout)
+        for op in ('acir.queue.pop ', 'acir.queue.push ', 'acir.analysis.', 'port =', 'fallback_'):
+            self.assertNotIn(op, compact.stdout)
+        flags = ('--mlir-print-op-generic',)
+        original = self.optimize(text, *flags); rebuilt = self.optimize(compact.stdout, *flags)
+        self.assertEqual(rebuilt.returncode, 0, rebuilt.stderr); self.assertEqual(original.stdout, rebuilt.stdout)
+        lowered = self.optimize(compact.stdout, '--acir-lower-analysis')
+        self.assertEqual(lowered.returncode, 0, lowered.stderr)
+        for op in ('acir.queue.pop ', 'acir.queue.push ', 'acir.analysis.capacity.read', 'acir.analysis.capacity.write', 'call @', 'cf.cond_br'):
+            self.assertIn(op, lowered.stdout)
+        self.assertNotIn('scf.', lowered.stdout); self.assertNotIn('acir.rule @', lowered.stdout)
+        self.assertEqual(self.optimize(lowered.stdout).returncode, 0)
 
-    def test_reads_and_queries_keep_conservative_effects(self):
-        result = self.optimize('''module {
-  func.func @observe(%q: !acir.queue<i32>, %cell: !acir.cell<i32>, %condition: i1) {
-    cf.cond_br %condition, ^yes, ^done
-  ^yes:
-    %a = "acir.read"(%q) : (!acir.queue<i32>) -> i32
-    %b = "acir.read"(%q) : (!acir.queue<i32>) -> i32
-    %c = "acir.query"(%q) {kind = "empty"} : (!acir.queue<i32>) -> i1
-    %d = "acir.query"(%q) {kind = "empty"} : (!acir.queue<i32>) -> i1
-    %e = "acir.read"(%cell) : (!acir.cell<i32>) -> i32
-    %f = "acir.read"(%cell) : (!acir.cell<i32>) -> i32
-    cf.br ^done
-  ^done:
-    return
-  }
-}''', '--canonicalize', '--cse')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count('acir.read '), 4)
-        self.assertEqual(result.stdout.count('acir.query '), 2)
-        self.assertLess(result.stdout.index('cf.cond_br'), result.stdout.index('acir.read '))
+    def test_symbols_parameters_and_output_slots_rejected(self):
+        text = self.model()
+        cases = [
+            (text.replace('@top::@out', '@top::@missing'), 'output binding'),
+            (text.replace('@top::@q', '@top::@missing'), 'unknown resource'),
+            (text.replace('"slots" = [0 : i64]', '"slots" = [4 : i64]'), 'return slot'),
+            (text.replace('"slots" = [0 : i64]', '"slots" = []'), 'one output slot'),
+            (text.replace('output_bindings = [@top::@out]', 'output_bindings = [@store::@store.c]'), 'component kind'),
+            (text.replace('target = @top::@top.move', 'target = @top::@missing'), 'target symbol'),
+            (text.replace('^entry(%v1: !acir.queue<i32>):', '^entry(%v1: !acir.cell<i32>):', 1), 'different type'),
+        ]
+        for changed, diagnostic in cases:
+            with self.subTest(diagnostic=diagnostic):
+                self.assertNotEqual(changed, text)
+                result = self.optimize(changed)
+                self.assertNotEqual(result.returncode, 0); self.assertIn(diagnostic, result.stderr)
 
-    def test_ehr_reads_ports_and_capacity_writes_survive_optimization(self):
+    def test_component_effects_stay_on_their_paths(self):
         result = self.optimize('''module {
-          func.func @views(%q: !acir.queue<i32>, %c: !acir.cell<i32>, %v: i1) {
-            %a = "acir.read"(%c) {view = "ehr", port = 0 : i64} : (!acir.cell<i32>) -> i32
-            %b = "acir.read"(%c) {view = "ehr", port = 1 : i64} : (!acir.cell<i32>) -> i32
-            "acir.write"(%q, %v) {view = "ehr", aspect = "full", port = 0 : i64} : (!acir.queue<i32>, i1) -> ()
-            %f = "acir.read"(%q) {view = "ehr", aspect = "full", port = 1 : i64} : (!acir.queue<i32>) -> i1
+          func.func @observe(%q: !acir.queue<i32>, %c: !acir.cell<i32>, %s: !acir.signal<i32>, %e: !acir.ehr<i32>, %flag: i1) {
+            scf.if %flag {
+              %a = acir.queue.peek %q : !acir.queue<i32> -> i32
+              %b = acir.queue.peek %q : !acir.queue<i32> -> i32
+              %c1 = acir.cell.read %c : !acir.cell<i32> -> i32
+              %s1 = acir.signal.get %s : !acir.signal<i32> -> i32
+              %e1 = acir.ehr.read %e : !acir.ehr<i32> -> i32
+              %empty = acir.queue.empty %q : !acir.queue<i32> -> i1
+              %full = acir.queue.full %q : !acir.queue<i32> -> i1
+              %size = acir.queue.size %q : !acir.queue<i32> -> i32
+              acir.signal.set %s, %a : !acir.signal<i32>, i32
+            }
             return
           }
         }''', '--canonicalize', '--cse')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count('acir.read '), 3)
-        self.assertEqual(result.stdout.count('acir.write '), 1)
-        self.assertIn('port = 0', result.stdout)
-        self.assertIn('port = 1', result.stdout)
+        self.assertEqual(result.stdout.count('acir.queue.peek '), 2)
+        self.assertLess(result.stdout.index('scf.if'), result.stdout.index('acir.queue.peek'))
+        for op in ('cell.read', 'signal.get', 'ehr.read', 'queue.empty', 'queue.full', 'queue.size', 'signal.set'):
+            self.assertIn('acir.' + op, result.stdout)
 
-    def test_ods_rejects_invalid_payload_query_and_result(self):
+    def test_payloads_and_removed_operations(self):
         for operation, diagnostic in [
-            ('"acir.push"(%q, %v) : (!acir.queue<i32>, i64) -> ()', 'pushed value must match'),
-            ('%x = "acir.query"(%q) {kind = "full"} : (!acir.queue<i32>) -> i1', 'EHR capacity read'),
-            ('%x = "acir.read"(%q) {view = "ehr"} : (!acir.queue<i32>) -> i32', 'old state view'),
-            ('%x = "acir.query"(%q) {kind = "size"} : (!acir.queue<i32>) -> i1', 'incorrect result width'),
-            ('"acir.revise"(%q, %v) {path = [unit]} : (!acir.queue<i32>, i64) -> ()', 'path/index count mismatch'),
-            ('%x = "acir.read"(%c) {view = "current"} : (!acir.cell<i32>) -> i32', 'current view requires a Signal'),
-            ('"acir.write"(%c, %v) : (!acir.cell<i32>, i64) -> ()', 'written value must match'),
-            ('%x = "acir.invoke"() {name = "r"} : () -> i32', 'requires zero results'),
-            ('%x = "acir.result"(%t) {index = 1 : i64, producer = "r"} : (tuple<i32>) -> i32', 'unregistered operation'),
-            ('%x = "acir.read"(%q) {aspect = "full", view = "ehr"} : (!acir.queue<i32>) -> i32', 'capacity view'),
-            ('"acir.write"(%q, %v) : (!acir.queue<i32>, i64) -> ()', 'capacity write'),
-            ('%x = "acir.read"(%q) {view = "old_or_bypass"} : (!acir.queue<i32>) -> i32', 'old state view'),
-        ]:
-            result = self.optimize('module { func.func @invalid(%q: !acir.queue<i32>, %c: !acir.cell<i32>, %v: i64, %t: tuple<i32>) {\n' + operation + '\n return\n} }')
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn(diagnostic, result.stderr)
-
-    def test_signal_current_reads_and_sets_survive_optimization(self):
-        result = self.optimize('''module {
-          func.func @signal(%s: !acir.signal<i32>, %v: i32, %condition: i1) {
-            cf.cond_br %condition, ^yes, ^done
-          ^yes:
-            "acir.write"(%s, %v) {view = "current", interface = "set"} : (!acir.signal<i32>, i32) -> ()
-            %a = "acir.read"(%s) {view = "current", interface = "get"} : (!acir.signal<i32>) -> i32
-            %b = "acir.read"(%s) {view = "current", interface = "get"} : (!acir.signal<i32>) -> i32
-            cf.br ^done
-          ^done:
-            return
-          }
-        }''', '--canonicalize', '--cse')
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.count('acir.read '), 2)
-        self.assertEqual(result.stdout.count('acir.write '), 1)
-        self.assertLess(result.stdout.index('cf.cond_br'), result.stdout.index('acir.write '))
-        self.assertNotIn('port =', result.stdout)
-
-    def test_signal_verifier_rejects_ehr_views_ports_and_bad_payloads(self):
-        for operation, diagnostic in [
-            ('%x = "acir.read"(%s) {view = "ehr", interface = "get"} : (!acir.signal<i32>) -> i32', 'Signal requires current'),
-            ('%x = "acir.read"(%s) {view = "current", interface = "get", port = 0 : i64} : (!acir.signal<i32>) -> i32', 'no EHR ports'),
-            ('%x = "acir.read"(%s) {view = "current", interface = "set"} : (!acir.signal<i32>) -> i32', 'get interface'),
-            ('%x = "acir.read"(%s) {view = "current", interface = "get"} : (!acir.signal<i32>) -> i64', 'result must match'),
-            ('"acir.write"(%s, %v) {view = "current", interface = "set"} : (!acir.signal<i32>, i64) -> ()', 'written value must match'),
-            ('"acir.write"(%s, %v) {view = "ehr", interface = "set"} : (!acir.signal<i32>, i64) -> ()', 'Signal requires current'),
-            ('"acir.resource"() {name = "s", kind = "signal", type = "u32", visibility = "current"} : () -> ()', 'initialization'),
-            ('"acir.resource"() {name = "s", kind = "signal", type = "u32", visibility = "current", initial_fn = "init", capacity_fn = "cap"} : () -> ()', 'no capacity'),
+            ('acir.queue.push %q, %v : !acir.queue<i32>, i64', 'payload'),
+            ('%a = acir.queue.peek %q : !acir.queue<i32> -> i64', 'payload'),
+            ('%a = acir.queue.size %q : !acir.queue<i32> -> i1', 'i32'),
+            ('%a = acir.signal.get %s {port = 0 : i64} : !acir.signal<i32> -> i32', 'derived'),
+            ('"acir.read"(%q) : (!acir.queue<i32>) -> i32', 'unregistered operation'),
+            ('"acir.revise"(%q, %v) {path = []} : (!acir.queue<i32>, i64) -> ()', 'unregistered operation'),
         ]:
             with self.subTest(operation=operation):
-                result = self.optimize('module { func.func @invalid(%s: !acir.signal<i32>, %v: i64) {\n' + operation + '\n return\n} }')
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn(diagnostic, result.stderr)
+                result = self.optimize('module { func.func @bad(%q: !acir.queue<i32>, %s: !acir.signal<i32>, %v: i64) {\n' + operation + '\nreturn\n} }')
+                self.assertNotEqual(result.returncode, 0); self.assertIn(diagnostic, result.stderr)
+
+    def test_v6_requires_recompile_and_queue_assignment_is_removed(self):
+        text = self.model()
+        with self.assertRaisesRegex(CompileError, 'format_version 7.*recompile'):
+            analyze(text.replace('7 : i64', '6 : i64', 1), self.path / 'old')
+        with self.assertRaisesRegex(CompileError, 'Queue revise is removed'):
+            self.model('''from pycircuit import ac
+@ac.module
+def Top():
+    q = ac.queue[ac.u32](initial=1)
+    @ac.rule
+    def change():
+        q.value = 2
+    change()
+''')
+
+    def test_lowering_coalesces_repeated_consumption_and_retains_sources(self):
+        text = self.model('''
+            from pycircuit import ac
+            @ac.module
+            def Top():
+                q = ac.queue[ac.u32](initial=7)
+                @ac.rule
+                def exchange(x: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
+                    first = x.value
+                    second = x.value
+                    return first + second
+                q = exchange(q)
+        ''')
+        self.assertNotIn('acir.queue.pop', text)
+        lowered = self.optimize(text, '--acir-lower-analysis')
+        self.assertEqual(lowered.returncode, 0, lowered.stderr)
+        self.assertEqual(lowered.stdout.count('acir.queue.pop '), 1)
+        self.assertEqual(lowered.stdout.count('acir.analysis.capacity.write '), 1)
+        graph = analyze(text, self.path / 'effects', optimize=False)
+        pop = next(a for a in graph['nodes'][0]['accesses'] if a['operation'] == 'pop')
+        self.assertEqual(len(pop['locations']), 2)
+
+    def test_optional_tuple_keeps_method_evaluation_order(self):
+        text = self.model('''
+            from pycircuit import ac
+            @ac.module
+            def Top():
+                s = ac.signal[bool](initial=False)
+                q = ac.queue[ac.u32]()
+                c = ac.cell[ac.u32](initial=0)
+                @ac.method
+                def set_ready() -> ac.u32:
+                    s = True
+                    return 9
+                @ac.method
+                def ready() -> bool:
+                    return s
+                @ac.rule
+                def make() -> tuple[ac.cell[ac.u32], ac.queue[ac.u32]]:
+                    return set_ready(), 3 if ready() else None
+                c, q = make()
+        ''')
+        graph = analyze(text, self.path / 'tuple', optimize=False)
+        node = graph['nodes'][0]
+        read = next(a for a in node['accesses'] if a['resource'] == 's' and a['operation'] == 'read')
+        self.assertEqual(read['bypass']['sources'][0]['visibility'], 'temporary')
+        write = next(a for a in node['accesses'] if a['resource'] == 's' and a['operation'] == 'write')
+        self.assertLess(write['sequence'], read['sequence'])
+        cells = [a for a in node['accesses'] if a['resource'] == 'c' and a['operation'] == 'write']
+        self.assertEqual({a['value_constant'] for a in cells}, {9})
+
+    def test_native_ir_analyzes_without_frontend_function_summaries(self):
+        text = '''module attributes {acir.model = {format_version = 7 : i64, top = "Top", exports = {}, config = [], types = {}, type_order = [], constants = {}}} {
+          func.func @capacity() -> i32 {
+            %one = arith.constant 1 : i32
+            return %one : i32
+          }
+          func.func @initial() -> !acir.vector<i32> {
+            %empty = acir.aggregate() : () -> !acir.vector<i32>
+            return %empty : !acir.vector<i32>
+          }
+          acir.module @top {
+            acir.queue @q : i32 {name = "q", type = "u32", capacity_fn = "capacity", initial_fn = "initial"}
+            acir.rule @r : () -> () {output_types = [!acir.queue<i32>]} body {
+              %seven = arith.constant 7 : i32
+              acir.return %seven : i32 {slots = [0 : i64]}
+            }
+            acir.work {
+              acir.rule.call @top::@r() {output_bindings = [@top::@q]} : () -> ()
+              acir.work.end
+            }
+          }
+        }'''
+        graph = analyze(text, self.path / 'native', optimize=False)
+        self.assertEqual([n['id'] for n in graph['nodes']], ['top.r'])
+        push = next(a for a in graph['nodes'][0]['accesses'] if a['operation'] == 'push')
+        self.assertEqual((push['resource'], push['value_constant']), ('q', 7))
+        saved = (self.path / 'native/model.acir.mlir').read_text()
+        self.assertNotIn('acir.function', saved)
+        self.assertEqual(graph, analyze(saved, self.path / 'reload', optimize=False))
+
+    def test_explicit_native_pop_releases_capacity(self):
+        text = self.model("""
+            from pycircuit import ac
+            @ac.module
+            def Top():
+                q = ac.queue[ac.u32](initial=1)
+                @ac.rule
+                def take(source: ac.queue[ac.u32]):
+                    value = source.value
+                @ac.rule
+                def put() -> ac.queue[ac.u32]:
+                    return 2
+                take(q)
+                q = put()
+        """)
+        # Editing actual native IR replaces the consuming peek with explicit pop.
+        text = re.sub(r'%v\d+ = "acir.queue.peek"\((%v\d+)\).*?: \(!acir.queue<i32>\) -> i32[^\n]*',
+                      r'"acir.queue.pop"(\1) : (!acir.queue<i32>) -> ()', text)
+        self.assertNotIn('"acir.queue.peek"', text)
+        graph = analyze(text, self.path / 'explicit', optimize=False)
+        self.assertIn(('top.take', 'top.put'), {(e['source'], e['target']) for e in graph['edges']})
+        put = next(n for n in graph['nodes'] if n['id'] == 'top.put')
+        capacity = next(a for a in put['accesses'] if a['operation'] == 'query.full')
+        self.assertEqual(capacity['bypass']['sources'][0]['transaction'], 'top.take')
+
+    def test_resources_stay_in_the_declaring_module_scope(self):
+        text = self.model('''
+            from pycircuit import ac
+            @ac.module
+            def Child(source: ac.queue[ac.u32]):
+                @ac.rule
+                def take(message: ac.queue[ac.u32]):
+                    value = message.value
+                take(source)
+            @ac.module
+            def Top():
+                q = ac.queue[ac.u32](initial=1)
+                child = Child(q)
+        ''')
+        self.assertLess(text.index('acir.module @top'), text.index('acir.queue @q'))
+        self.assertEqual(text.count('acir.queue @q'), 1)
+        self.assertIn('target = @top::@q', text)
+        graph = analyze(text, self.path / 'owned', optimize=False)
+        self.assertEqual([n['id'] for n in graph['nodes']], ['child.take'])
+        self.assertEqual([a['resource'] for a in graph['nodes'][0]['accesses'] if a['operation'] == 'pop'], ['q'])

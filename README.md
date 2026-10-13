@@ -7,12 +7,12 @@
 | [pyCircuit 核心抽象设计](pycircuit/docs/core-design.md) | 修订草稿：状态组件、Rule、Module、同拍顺序与 EHR |
 | [ACIR 基础设计](acir/basic-design.md) | 本轮确认的目标 primitive、组件契约和 guard 传播 |
 | [编译器构建与使用](pycircuit/README.md) | 构建、compile/analyze、产物和可视化 |
-| [ACPy 前端](acpy/spec.md) | 当前前端写法与支持范围 |
-| [ACIR 当前格式](pycircuit/acir.md) | 当前 v6 操作、保存格式和分析字段 |
+| [ACPy 设计](acpy/spec.md) | 编程范式、定义、规则及基础组件操作 |
+| [ACIR 当前格式](pycircuit/acir.md) | 当前 v7 操作、保存格式和分析字段 |
 | [编译阶段的设计意图](pycircuit/docs/compiler-intent.md) | 各分析与转化需要保留的语义 |
 | [编程范式示例](pycircuit/examples/README.md) | 组件组合、五级流水线和 OoO 调度例子 |
 
-基础设计描述后续重构目标；当前格式文档描述已经实现的表示，两者尚未完全一致。
+原生 ACIR 保存结构、guard、返回值和组件操作；分析 lowering 在副本上展开事务效果和 CFG。
 
 ## 本地参考、构建与结果
 

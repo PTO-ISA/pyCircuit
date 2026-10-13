@@ -1,5 +1,5 @@
 {
-  "format_version": 6,
+  "format_version": 7,
   "contracts": [
     {
       "guards": {
@@ -9,8 +9,7 @@
       },
       "id": "Queue",
       "methods": [
-        "read",
-        "revise",
+        "peek",
         "pop",
         "push",
         "query.empty",
@@ -19,15 +18,8 @@
       ],
       "relations": [
         {
-          "after": "revise",
-          "before": "read",
-          "origin": "Pipeline FIFO",
-          "relation": "SB",
-          "source": "default"
-        },
-        {
           "after": "pop",
-          "before": "revise",
+          "before": "peek",
           "origin": "Pipeline FIFO",
           "relation": "SB",
           "source": "default"
@@ -43,6 +35,69 @@
         }
       },
       "closure": [
+        {
+          "before": "peek",
+          "after": "pop",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "push",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            },
+            {
+              "before": "query.full",
+              "after": "push",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "push guard calls query.full"
+            }
+          ]
+        },
+        {
+          "before": "peek",
+          "after": "query.full",
+          "relation": "SB",
+          "provenance": [
+            {
+              "after": "pop",
+              "before": "peek",
+              "origin": "Pipeline FIFO",
+              "relation": "SB",
+              "source": "default"
+            },
+            {
+              "before": "pop",
+              "after": "query.full",
+              "relation": "SB",
+              "source": "derived",
+              "origin": "EHR full prior-port visibility"
+            }
+          ]
+        },
         {
           "before": "pop",
           "after": "push",
@@ -91,169 +146,17 @@
               "origin": "push guard calls query.full"
             }
           ]
-        },
-        {
-          "before": "read",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
-        },
-        {
-          "before": "read",
-          "after": "revise",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "revise",
-              "before": "read",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "pop",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "push",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            },
-            {
-              "before": "query.full",
-              "after": "push",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "push guard calls query.full"
-            }
-          ]
-        },
-        {
-          "before": "revise",
-          "after": "query.full",
-          "relation": "SB",
-          "provenance": [
-            {
-              "after": "pop",
-              "before": "revise",
-              "origin": "Pipeline FIFO",
-              "relation": "SB",
-              "source": "default"
-            },
-            {
-              "before": "pop",
-              "after": "query.full",
-              "relation": "SB",
-              "source": "derived",
-              "origin": "EHR full prior-port visibility"
-            }
-          ]
         }
       ]
+    },
+    {
+      "id": "Cell",
+      "methods": [
+        "read",
+        "write"
+      ],
+      "relations": [],
+      "closure": []
     },
     {
       "id": "EHR",
@@ -295,15 +198,6 @@
           ]
         }
       ]
-    },
-    {
-      "id": "Cell",
-      "methods": [
-        "read",
-        "write"
-      ],
-      "relations": [],
-      "closure": []
     },
     {
       "id": "Module:top",
@@ -363,11 +257,7 @@
       "contract": "Queue",
       "initial_fn": "ac_init_left",
       "kind": "queue",
-      "loc": {
-        "column": 11,
-        "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-        "line": 45
-      },
+      "loc": {},
       "name": "left",
       "type": "u32",
       "views": [
@@ -385,11 +275,7 @@
       "contract": "Queue",
       "initial_fn": "ac_init_right",
       "kind": "queue",
-      "loc": {
-        "column": 12,
-        "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-        "line": 46
-      },
+      "loc": {},
       "name": "right",
       "type": "u32",
       "views": [
@@ -446,23 +332,23 @@
   "ehr_bindings": [
     {
       "function": "top.backward",
-      "identity": "v5",
-      "resource": "right",
-      "aspect": "full",
-      "phase": "Queue:pop",
-      "port": 0
-    },
-    {
-      "function": "top.backward",
-      "identity": "v7",
+      "identity": null,
       "resource": "left",
       "aspect": "full",
       "phase": "Queue:query.full",
       "port": 1
     },
     {
+      "function": "top.backward",
+      "identity": null,
+      "resource": "right",
+      "aspect": "full",
+      "phase": "Queue:pop",
+      "port": 0
+    },
+    {
       "function": "top.forward",
-      "identity": "v5",
+      "identity": null,
       "resource": "left",
       "aspect": "full",
       "phase": "Queue:pop",
@@ -470,7 +356,7 @@
     },
     {
       "function": "top.forward",
-      "identity": "v7",
+      "identity": null,
       "resource": "right",
       "aspect": "full",
       "phase": "Queue:query.full",
@@ -545,7 +431,7 @@
       ],
       "accesses": [
         {
-          "id": "6420228f6aff3d51",
+          "id": "b36821769624a38e",
           "transaction": "top.backward",
           "function": "top.backward",
           "resource": "left",
@@ -559,7 +445,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v10",
+          "identity": "v5.out0",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -574,12 +460,12 @@
           "local_condition": true,
           "ready": "!ehr.full(left,1)",
           "value": {
-            "atom": "ssa:c0bfe65bfa118d0d"
+            "atom": "ssa:b338e3bde14868f8"
           },
           "value_constant": null
         },
         {
-          "id": "4f8dd3cfd2c3c336",
+          "id": "790b2f202a9f34ec",
           "transaction": "top.backward",
           "function": "top.backward",
           "resource": "left",
@@ -593,7 +479,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "full",
-          "identity": "v7",
+          "identity": null,
           "methods": [],
           "phase": "Queue:query.full",
           "phase_context": [],
@@ -612,7 +498,7 @@
             "selection": "last_effective_prior_port",
             "sources": [
               {
-                "access": "b706e0be1a0e0dca",
+                "access": "64e1496d92c7eae3",
                 "port": 0,
                 "transaction": "top.forward",
                 "eligibility": {
@@ -638,7 +524,7 @@
           }
         },
         {
-          "id": "080afd95649f4220",
+          "id": "1b1d14f7dff177fb",
           "transaction": "top.backward",
           "function": "top.backward",
           "resource": "right",
@@ -652,7 +538,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v4.pop",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -665,19 +551,19 @@
             "top.backward"
           ],
           "local_condition": true,
-          "ready": "!empty(right)",
-          "value": null,
-          "value_constant": null,
           "locations": [
             {
               "column": 16,
               "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
               "line": 54
             }
-          ]
+          ],
+          "ready": "!empty(right)",
+          "value": null,
+          "value_constant": null
         },
         {
-          "id": "8c012a2a1c5773eb",
+          "id": "ab27ec007a2a04c3",
           "transaction": "top.backward",
           "function": "top.backward",
           "resource": "right",
@@ -691,13 +577,13 @@
           "role": "consume",
           "view": "old",
           "aspect": "value",
-          "identity": "v2",
+          "identity": "v4",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
           "sequence": 5,
           "contract": "Queue",
-          "interface": "read",
+          "interface": "peek",
           "binding": "exact",
           "call_chain": [
             "top_Work",
@@ -707,7 +593,7 @@
           "ready": "!empty(right)"
         },
         {
-          "id": "0658e86c4673261a",
+          "id": "a34d44194f0d2836",
           "transaction": "top.backward",
           "function": "top.backward",
           "resource": "right",
@@ -721,7 +607,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "full",
-          "identity": "v5",
+          "identity": null,
           "methods": [],
           "phase": "Queue:pop",
           "phase_context": [],
@@ -748,17 +634,17 @@
         {
           "condition": true,
           "ready": "!empty(right)",
-          "access": "8c012a2a1c5773eb"
+          "access": "ab27ec007a2a04c3"
         },
         {
           "condition": true,
           "ready": "!ehr.full(left,1)",
-          "access": "6420228f6aff3d51"
+          "access": "b36821769624a38e"
         },
         {
           "condition": true,
           "ready": "!empty(right)",
-          "access": "080afd95649f4220"
+          "access": "1b1d14f7dff177fb"
         }
       ]
     },
@@ -829,7 +715,7 @@
       ],
       "accesses": [
         {
-          "id": "58b56eec82e82596",
+          "id": "87556d8fa6793b62",
           "transaction": "top.forward",
           "function": "top.forward",
           "resource": "left",
@@ -843,7 +729,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v3",
+          "identity": "v4.pop",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -856,19 +742,19 @@
             "top.forward"
           ],
           "local_condition": true,
-          "ready": "!empty(left)",
-          "value": null,
-          "value_constant": null,
           "locations": [
             {
               "column": 16,
               "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
               "line": 50
             }
-          ]
+          ],
+          "ready": "!empty(left)",
+          "value": null,
+          "value_constant": null
         },
         {
-          "id": "492f8b9a5cef545c",
+          "id": "37a43fd60428998b",
           "transaction": "top.forward",
           "function": "top.forward",
           "resource": "left",
@@ -882,13 +768,13 @@
           "role": "consume",
           "view": "old",
           "aspect": "value",
-          "identity": "v2",
+          "identity": "v4",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
           "sequence": 0,
           "contract": "Queue",
-          "interface": "read",
+          "interface": "peek",
           "binding": "exact",
           "call_chain": [
             "top_Work",
@@ -898,7 +784,7 @@
           "ready": "!empty(left)"
         },
         {
-          "id": "b706e0be1a0e0dca",
+          "id": "64e1496d92c7eae3",
           "transaction": "top.forward",
           "function": "top.forward",
           "resource": "left",
@@ -912,7 +798,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "full",
-          "identity": "v5",
+          "identity": null,
           "methods": [],
           "phase": "Queue:pop",
           "phase_context": [],
@@ -935,7 +821,7 @@
           "value_constant": false
         },
         {
-          "id": "a8faf7769b4029ce",
+          "id": "20338af1cc724f72",
           "transaction": "top.forward",
           "function": "top.forward",
           "resource": "right",
@@ -949,7 +835,7 @@
           "role": "observe",
           "view": "old",
           "aspect": "value",
-          "identity": "v10",
+          "identity": "v5.out0",
           "methods": [],
           "phase": "$direct",
           "phase_context": [],
@@ -964,12 +850,12 @@
           "local_condition": true,
           "ready": "!ehr.full(right,1)",
           "value": {
-            "atom": "ssa:bd64903e74128998"
+            "atom": "ssa:0df09003534c47ee"
           },
           "value_constant": null
         },
         {
-          "id": "67a4fc0351821fcd",
+          "id": "27021c3508486be4",
           "transaction": "top.forward",
           "function": "top.forward",
           "resource": "right",
@@ -983,7 +869,7 @@
           "role": "observe",
           "view": "ehr",
           "aspect": "full",
-          "identity": "v7",
+          "identity": null,
           "methods": [],
           "phase": "Queue:query.full",
           "phase_context": [],
@@ -1002,7 +888,7 @@
             "selection": "last_effective_prior_port",
             "sources": [
               {
-                "access": "0658e86c4673261a",
+                "access": "a34d44194f0d2836",
                 "port": 0,
                 "transaction": "top.backward",
                 "eligibility": {
@@ -1032,17 +918,17 @@
         {
           "condition": true,
           "ready": "!empty(left)",
-          "access": "492f8b9a5cef545c"
+          "access": "37a43fd60428998b"
         },
         {
           "condition": true,
           "ready": "!ehr.full(right,1)",
-          "access": "a8faf7769b4029ce"
+          "access": "20338af1cc724f72"
         },
         {
           "condition": true,
           "ready": "!empty(left)",
-          "access": "58b56eec82e82596"
+          "access": "87556d8fa6793b62"
         }
       ]
     }
@@ -1055,6 +941,54 @@
       "resource": "right",
       "condition": true,
       "operations": [
+        "pop",
+        "push"
+      ],
+      "locations": [
+        {
+          "column": 16,
+          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+          "line": 54
+        },
+        {
+          "column": 9,
+          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+          "line": 50
+        }
+      ],
+      "via": null,
+      "source_access": "1b1d14f7dff177fb",
+      "target_access": "20338af1cc724f72",
+      "relation": "SB",
+      "contract": "Queue",
+      "interfaces": [
+        "pop",
+        "push"
+      ],
+      "provenance": [
+        {
+          "before": "pop",
+          "after": "query.full",
+          "relation": "SB",
+          "source": "derived",
+          "origin": "EHR full prior-port visibility"
+        },
+        {
+          "before": "query.full",
+          "after": "push",
+          "relation": "SB",
+          "source": "derived",
+          "origin": "push guard calls query.full"
+        }
+      ]
+    },
+    {
+      "source": "top.backward",
+      "target": "top.forward",
+      "kind": "method.order",
+      "resource": "right",
+      "condition": true,
+      "operations": [
         "write",
         "query.full"
       ],
@@ -1071,8 +1005,8 @@
         }
       ],
       "via": null,
-      "source_access": "0658e86c4673261a",
-      "target_access": "67a4fc0351821fcd",
+      "source_access": "a34d44194f0d2836",
+      "target_access": "27021c3508486be4",
       "relation": "SB",
       "contract": "Queue",
       "interfaces": [
@@ -1109,54 +1043,6 @@
       "resource": "right",
       "condition": true,
       "operations": [
-        "pop",
-        "push"
-      ],
-      "locations": [
-        {
-          "column": 16,
-          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-          "line": 54
-        },
-        {
-          "column": 9,
-          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-          "line": 50
-        }
-      ],
-      "via": null,
-      "source_access": "080afd95649f4220",
-      "target_access": "a8faf7769b4029ce",
-      "relation": "SB",
-      "contract": "Queue",
-      "interfaces": [
-        "pop",
-        "push"
-      ],
-      "provenance": [
-        {
-          "before": "pop",
-          "after": "query.full",
-          "relation": "SB",
-          "source": "derived",
-          "origin": "EHR full prior-port visibility"
-        },
-        {
-          "before": "query.full",
-          "after": "push",
-          "relation": "SB",
-          "source": "derived",
-          "origin": "push guard calls query.full"
-        }
-      ]
-    },
-    {
-      "source": "top.backward",
-      "target": "top.forward",
-      "kind": "method.order",
-      "resource": "right",
-      "condition": true,
-      "operations": [
         "read",
         "push"
       ],
@@ -1173,25 +1059,18 @@
         }
       ],
       "via": null,
-      "source_access": "8c012a2a1c5773eb",
-      "target_access": "a8faf7769b4029ce",
+      "source_access": "ab27ec007a2a04c3",
+      "target_access": "20338af1cc724f72",
       "relation": "SB",
       "contract": "Queue",
       "interfaces": [
-        "read",
+        "peek",
         "push"
       ],
       "provenance": [
-        {
-          "after": "revise",
-          "before": "read",
-          "origin": "Pipeline FIFO",
-          "relation": "SB",
-          "source": "default"
-        },
         {
           "after": "pop",
-          "before": "revise",
+          "before": "peek",
           "origin": "Pipeline FIFO",
           "relation": "SB",
           "source": "default"
@@ -1235,77 +1114,22 @@
         }
       ],
       "via": null,
-      "source_access": "492f8b9a5cef545c",
-      "target_access": "6420228f6aff3d51",
+      "source_access": "37a43fd60428998b",
+      "target_access": "b36821769624a38e",
       "relation": "SB",
       "contract": "Queue",
       "interfaces": [
-        "read",
+        "peek",
         "push"
       ],
       "provenance": [
-        {
-          "after": "revise",
-          "before": "read",
-          "origin": "Pipeline FIFO",
-          "relation": "SB",
-          "source": "default"
-        },
         {
           "after": "pop",
-          "before": "revise",
+          "before": "peek",
           "origin": "Pipeline FIFO",
           "relation": "SB",
           "source": "default"
         },
-        {
-          "before": "pop",
-          "after": "query.full",
-          "relation": "SB",
-          "source": "derived",
-          "origin": "EHR full prior-port visibility"
-        },
-        {
-          "before": "query.full",
-          "after": "push",
-          "relation": "SB",
-          "source": "derived",
-          "origin": "push guard calls query.full"
-        }
-      ]
-    },
-    {
-      "source": "top.forward",
-      "target": "top.backward",
-      "kind": "method.order",
-      "resource": "left",
-      "condition": true,
-      "operations": [
-        "pop",
-        "push"
-      ],
-      "locations": [
-        {
-          "column": 16,
-          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-          "line": 50
-        },
-        {
-          "column": 9,
-          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
-          "line": 54
-        }
-      ],
-      "via": null,
-      "source_access": "58b56eec82e82596",
-      "target_access": "6420228f6aff3d51",
-      "relation": "SB",
-      "contract": "Queue",
-      "interfaces": [
-        "pop",
-        "push"
-      ],
-      "provenance": [
         {
           "before": "pop",
           "after": "query.full",
@@ -1345,8 +1169,8 @@
         }
       ],
       "via": null,
-      "source_access": "b706e0be1a0e0dca",
-      "target_access": "4f8dd3cfd2c3c336",
+      "source_access": "64e1496d92c7eae3",
+      "target_access": "790b2f202a9f34ec",
       "relation": "SB",
       "contract": "Queue",
       "interfaces": [
@@ -1373,6 +1197,54 @@
               "origin": "EHR full prior-port visibility"
             }
           ]
+        }
+      ]
+    },
+    {
+      "source": "top.forward",
+      "target": "top.backward",
+      "kind": "method.order",
+      "resource": "left",
+      "condition": true,
+      "operations": [
+        "pop",
+        "push"
+      ],
+      "locations": [
+        {
+          "column": 16,
+          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+          "line": 50
+        },
+        {
+          "column": 9,
+          "file": "/home/lc/tmp/pycircuit/examples/dependency_cycles.py",
+          "line": 54
+        }
+      ],
+      "via": null,
+      "source_access": "87556d8fa6793b62",
+      "target_access": "b36821769624a38e",
+      "relation": "SB",
+      "contract": "Queue",
+      "interfaces": [
+        "pop",
+        "push"
+      ],
+      "provenance": [
+        {
+          "before": "pop",
+          "after": "query.full",
+          "relation": "SB",
+          "source": "derived",
+          "origin": "EHR full prior-port visibility"
+        },
+        {
+          "before": "query.full",
+          "after": "push",
+          "relation": "SB",
+          "source": "derived",
+          "origin": "push guard calls query.full"
         }
       ]
     }

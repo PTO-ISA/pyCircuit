@@ -97,7 +97,7 @@ class LocationTests(unittest.TestCase):
         for duplicate in (False, True):
             with self.subTest(duplicate=duplicate):
                 def change(line):
-                    if 'acir.read ' not in line:
+                    if 'acir.queue.peek ' not in line:
                         return line
                     return re.sub(r'acir.id = "[^"]+", ',
                                   'acir.id = "same", ' if duplicate else '', line)
