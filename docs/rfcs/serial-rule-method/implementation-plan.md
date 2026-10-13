@@ -51,7 +51,7 @@ closure 与 body 重验入口；其公共证据和最终 lowering／执行证据
 
 独立发布前先完成 Method 逻辑类型权威前置切片：producer 用既有 `sourceConstraint`
 编码显式参数与返回，Dialect 从 module contract 提取共用验证，不建立另一套类型系统。
-每个 Method 的三个必填 `ac.*` 属性及其 exact shape 见 [IR 契约](mlir-pipeline.md#类型化效果操作)。
+每个 Method 的三个必填 `ac.*` 属性及其 exact shape 见 [IR 契约](mlir-pipeline.md#typed-effects)。
 独立验收必须覆盖同一物理一位表示下 Boolean／Integer／fixed bits 的打印重读区分，
 参数来源与 owner 路径、返回形状、类型／域和字段篡改拒绝，以及调用方先于 callee 子节点
 验证时的安全诊断。这个前置切片不修改 source grammar、source-unit 发布或 final admission；

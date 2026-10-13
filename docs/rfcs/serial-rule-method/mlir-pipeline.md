@@ -36,6 +36,8 @@ pass，却仍让每个 pass 独立解释 Python AST 或依赖不可检查的隐�
 可以参与基础分类，但其通用读写集合不能替代本表中的 guard、事务和资源语义。
 操作 verifier 检查局部结构；闭包 verifier 检查真实 owner、跨调用关系和完整效果集合。
 
+<a id="typed-effects"></a>
+
 ## 类型化效果操作
 
 首个原生 IR 增量使用以下六个操作，不增加新的引用、token 或 payload 类型。

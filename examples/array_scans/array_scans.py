@@ -50,7 +50,6 @@ class Result:
     data: ScanResult
 
 
-@rule
 def subtract(accumulator: u8, value: u8) -> u8:
     return accumulator - value
 

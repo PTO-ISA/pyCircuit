@@ -59,12 +59,10 @@ class Result:
     data: CombinatorResult
 
 
-@rule
 def bump(value: u8) -> u8:
     return value + 1
 
 
-@rule
 def decode_checked(value: u8) -> u8:
     return value if value < 5 else 0
 

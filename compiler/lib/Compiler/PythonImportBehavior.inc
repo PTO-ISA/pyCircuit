@@ -344,7 +344,7 @@ LogicalResult Importer::matchStatement(const AstNode &statement, OpBuilder &at,
 LogicalResult
 Importer::preflightForCapabilities(const AstNode &statement,
                                    LoopAdmissionSummary &summary) {
-  PureScalarSummary inspected;
+  SourceWalkSummary inspected;
   SmallVector<FlatSymbolRefAttr> defaultConstructors;
   auto visit = [&](auto &&self, const AstNode &node,
                    bool target = false) -> LogicalResult {
@@ -355,7 +355,7 @@ Importer::preflightForCapabilities(const AstNode &statement,
     if (!queryBudget.enter(reason))
       return diagnostic() << "bounded for preflight: " << reason;
     auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
-    if (failed(chargePureSource(node, inspected)) ||
+    if (failed(chargeSourceWalk(node, inspected)) ||
         !pureCheckedAdd(summary.nodes, 1))
       return failure();
     auto child = [&](StringRef field, bool assignment = false) {
@@ -385,7 +385,7 @@ Importer::preflightForCapabilities(const AstNode &statement,
         // unreachable declaration. Calls in annotations are outside this slice.
         auto annotation = node.child("annotation");
         auto inspect = [&](auto &&walk, const AstNode &part) -> LogicalResult {
-          if (!part || failed(chargePureSource(part, inspected)) ||
+          if (!part || failed(chargeSourceWalk(part, inspected)) ||
               !pureCheckedAdd(summary.nodes, 1))
             return failure();
           if (part.kind() == "Name" || part.kind() == "Constant")
@@ -448,7 +448,7 @@ Importer::preflightForCapabilities(const AstNode &statement,
                     : list("elts");
     if (kind == "UnaryOp") {
       auto operation = node.child("op");
-      if (failed(chargePureSource(operation, inspected)) ||
+      if (failed(chargeSourceWalk(operation, inspected)) ||
           !pureCheckedAdd(summary.nodes, 1))
         return failure();
       if (!llvm::is_contained(ArrayRef<StringRef>{"Invert", "Not"},
@@ -462,7 +462,7 @@ Importer::preflightForCapabilities(const AstNode &statement,
                          node.array("comparators").size() != 1))
         return diagnostic() << "bounded for comparison must be single";
       auto operation = comparison ? node.item("ops", 0) : node.child("op");
-      if (failed(chargePureSource(operation, inspected)) ||
+      if (failed(chargeSourceWalk(operation, inspected)) ||
           !pureCheckedAdd(summary.nodes, 1))
         return failure();
       bool admitted =
@@ -483,7 +483,7 @@ Importer::preflightForCapabilities(const AstNode &statement,
     }
     if (kind == "BoolOp") {
       auto operation = node.child("op");
-      if (failed(chargePureSource(operation, inspected)) ||
+      if (failed(chargeSourceWalk(operation, inspected)) ||
           !pureCheckedAdd(summary.nodes, 1))
         return failure();
       if (operation.kind() != "And" && operation.kind() != "Or")
@@ -497,7 +497,7 @@ Importer::preflightForCapabilities(const AstNode &statement,
     }
     if (kind == "Call") {
       auto function = node.child("func");
-      if (failed(chargePureSource(function, inspected)) ||
+      if (failed(chargeSourceWalk(function, inspected)) ||
           !pureCheckedAdd(summary.nodes, 1))
         return failure();
       auto binding = lookupBinding(function);
@@ -505,63 +505,17 @@ Importer::preflightForCapabilities(const AstNode &statement,
           binding && binding->category == BindingCategory::Struct;
       if (!constructor && !concatCall(node) &&
           !intrinsic(function, "enum_to_bits")) {
-        if (function.kind() != "Name" ||
-            !behavioralRules.contains(function.string("id")))
+        auto helper = resolveValueHelper(function, activeBehavioralDecl ?
+            activeBehavioralDecl->symbol : FlatSymbolRefAttr());
+        if (failed(helper) || !*helper)
           return diagnostic() << "bounded for call capability is unsupported";
-        if (!summary.helpers.contains(node.value)) {
-          PureScalarSummary helper;
-          helper.arity = node.array("args").size();
-          auto base = queryBudget.used(TableQueryResource::Nesting);
-          SmallVector<AstNode> bodies;
-          if (failed(preflightPureCall(node, {}, helper, bodies, false)))
-            return failure();
-          // LLVM 22.1.8 DenseMap starts with 64 buckets and doubles before
-          // insertion at a 3/4 load. This append-only map has no tombstones.
-          // Prepay the complete newly allocated bucket array: old storage
-          // remains paid while grow() moves records into the new allocation.
-          using HelperMap = decltype(summary.helpers);
-          using HelperBucket = HelperMap::value_type;
-          constexpr uint64_t slotBytes = sizeof(uint64_t);
-          constexpr uint64_t bucketSlots =
-              (sizeof(HelperBucket) + slotBytes - 1) / slotBytes;
-          constexpr uint64_t mapSlots =
-              (sizeof(HelperMap) + slotBytes - 1) / slotBytes;
-          constexpr uint64_t minimumBuckets = 64;
-          uint64_t oldBuckets =
-              summary.helpers.getMemorySize() / sizeof(HelperBucket);
-          uint64_t newEntries = summary.helpers.size();
-          uint64_t load = 0, capacity = 0, allocatedBuckets = 0;
-          bool fits = pureCheckedAdd(newEntries, 1) &&
-                      pureCheckedProduct(newEntries, 4, load) &&
-                      pureCheckedProduct(oldBuckets, 3, capacity);
-          if (!oldBuckets)
-            allocatedBuckets = minimumBuckets;
-          else if (load >= capacity)
-            fits &= pureCheckedProduct(oldBuckets, 2, allocatedBuckets);
-          TableQueryCharge cache;
-          // Also cover the insertion's temporary key/record and first map
-          // header. sizeof(bucket) includes actual key/value padding.
-          fits &= TableQueryBudget::add(cache, TableQueryResource::Slots,
-                                        bucketSlots) &&
-                  TableQueryBudget::addProduct(cache, TableQueryResource::Slots,
-                                               allocatedBuckets, bucketSlots);
-          if (!oldBuckets)
-            fits &= TableQueryBudget::add(cache, TableQueryResource::Slots,
-                                          mapSlots);
-          if (!fits || !queryBudget.reserve(cache, reason))
-            return diagnostic()
-                   << "bounded for helper cache: "
-                   << (fits ? reason
-                            : "entry/allocation slots budget exhausted");
-          summary.helpers[node.value] = {helper, helper.depth - base, 0};
-        }
       }
       if (failed(list("args")))
         return failure();
       llvm::StringSet<> supplied;
       for (size_t i = 0; i < node.array("keywords").size(); ++i) {
         auto keyword = node.item("keywords", i);
-        if (failed(chargePureSource(keyword, inspected)) ||
+        if (failed(chargeSourceWalk(keyword, inspected)) ||
             !pureCheckedAdd(summary.nodes, 1))
           return failure();
         if (!constructor || keyword.string("arg").empty())
@@ -983,19 +937,13 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
         return failure();
       return scalar(width);
     }
-    auto declaration = pureRuleDeclaration(node);
-    if (failed(declaration))
-      return failure();
+    auto helper = resolveValueHelper(function, symbol);
+    if (failed(helper) || !*helper || (*helper)->results.size() != 1)
+      return diagnostic() << "bounded for requires a valued pure helper";
     for (size_t i = 0; i < node.array("args").size(); ++i)
       if (failed(visit(node.item("args", i))))
         return failure();
-    // Only the declaration's closed fixed return schema is inspected. Existing
-    // helper ownership pays for its body, argument conversions and clones.
-    auto annotation = declaration->child("returns");
-    auto type = portType(annotation, symbol);
-    if (failed(type))
-      return failure();
-    return typed(*type);
+    return typed((*helper)->results.front().type);
   }
   return diagnostic() << "bounded for cannot reserve expression '"
                       << node.kind() << "'";
@@ -1512,11 +1460,11 @@ LogicalResult Importer::loopStatements(const AstNode &parent, StringRef field,
 
 LogicalResult Importer::pushHelperFrame(const AstNode &call,
                                         const AstNode &declaration,
-                                        FlatSymbolRefAttr symbol) {
-  // Empty/default non-loop callers retain their existing occurrences. A helper
-  // reached from loop expansion records its lexical call after its actuals.
-  if (!activeLoop)
-    return success();
+                                        FlatSymbolRefAttr symbol,
+                                        FlatSymbolRefAttr callee) {
+  // Typed templates preserve declaration provenance and append a source call
+  // frame after actual evaluation, including calls inside loop expansions.
+  (void)declaration;
   TableQueryCharge charge;
   uint64_t components = call.path.size(), bytes = 0;
   for (const auto &step : call.path)
@@ -1527,20 +1475,17 @@ LogicalResult Importer::pushHelperFrame(const AstNode &call,
       pureCheckedProduct(2, components, frames) && pureCheckedAdd(frames, 8) &&
       TableQueryBudget::add(charge, TableQueryResource::Slots, frames) &&
       TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
-                            bytes + qualify(declaration.string("name")).size());
+                            bytes + callee.getValue().size());
   std::string reason;
   if (!fits || !queryBudget.reserve(charge, reason))
     return mlir::emitError(call.location(b.getContext(), source.path))
-           << "bounded for iteration " << activeLoop->iteration
-           << " helper frame: "
+           << "pure helper call frame: "
            << (fits ? reason : "resource counter exhausted");
   auto site = sourceOccurrence(b, symbol, call).getAs<DictionaryAttr>("site");
   activeSourceExpansion.push_back(b.getDictionaryAttr(
       {b.getNamedAttr("kind", b.getStringAttr("call")),
        b.getNamedAttr("site", site),
-       b.getNamedAttr("callee", FlatSymbolRefAttr::get(
-                                    b.getContext(),
-                                    qualify(declaration.string("name"))))}));
+       b.getNamedAttr("callee", callee)}));
   return success();
 }
 
@@ -1556,8 +1501,8 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
   if (!activeRule || activeRule->structural || !owners.empty())
     return diagnostic() << "bounded for requires a pure behavioral rule "
                            "invocation without persistent-owner writes";
-  PureScalarSummary inspected;
-  if (failed(chargePureSource(statement, inspected)))
+  SourceWalkSummary inspected;
+  if (failed(chargeSourceWalk(statement, inspected)))
     return failure();
   auto syntax = readLiteralForSyntax(statement, diagnostic);
   if (failed(syntax))
@@ -1568,7 +1513,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     return diagnostic() << "bounded for range builtin is shadowed";
   for (const AstNode &node :
        {statement.child("iter"), function, syntax->target, syntax->bound})
-    if (failed(chargePureSource(node, inspected)))
+    if (failed(chargeSourceWalk(node, inspected)))
       return failure();
   StringRef spelling = syntax->spelling;
   while (spelling.size() > 1 && spelling.front() == '0')
@@ -1714,6 +1659,28 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
       text(entry.first());
       slots(entry.second.size());
     }
+  SmallVector<Value> anonymousHelperCaptures;
+  auto enclosingCaptures = helperCaptureBindings.find(at.getBlock());
+  if (enclosingCaptures != helperCaptureBindings.end()) {
+    llvm::DenseSet<Value> namedCaptures;
+    for (const auto &entry : environment.values) namedCaptures.insert(entry.second);
+    for (const auto &entry : environment.writes) namedCaptures.insert(entry.second);
+    if (environment.ambient) namedCaptures.insert(environment.ambient);
+    if (environment.continuation) namedCaptures.insert(environment.continuation);
+    // Existing ordinary environment captures already pay their full planes.
+    // Only identity-only helper snapshots add another transport argument.
+    ac::HardwareAnalysis captureAnalysis(*body);
+    fits &= TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
+                                         enclosingCaptures->second.size(), 2);
+    for (const auto &entry : enclosingCaptures->second) {
+      if (namedCaptures.contains(entry.second)) continue;
+      anonymousHelperCaptures.push_back(entry.second);
+      auto words = loopStorageWords(entry.second.getType(), captureAnalysis, statement);
+      if (failed(words)) return failure();
+      fits &= TableQueryBudget::add(charge, TableQueryResource::Slots, 8) &&
+              TableQueryBudget::addProduct(charge, TableQueryResource::PayloadWords, *words, 3);
+    }
+  }
   // Branch environments and helper ownership are loop bookkeeping, not new
   // hardware. Reserve their maximum finite source footprint before staging.
   uint64_t environmentEntries = environment.values.size() +
@@ -1722,13 +1689,6 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
   fits &= pureCheckedAdd(environmentEntries, admission.nodes) &&
           TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
                                        environmentEntries, 8);
-  for (const auto &entry : admission.helpers) {
-    uint64_t ownership = entry.second.summary.nodes +
-                         entry.second.summary.formals +
-                         entry.second.summary.calls;
-    fits &= TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
-                                         trips, ownership);
-  }
   if (!fits || !queryBudget.reserve(charge, reason))
     return diagnostic() << "bounded for snapshot/header: "
                         << (fits ? reason : "resource counter exhausted");
@@ -1765,6 +1725,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     captures.map(argument, original);
     return argument;
   };
+  for (Value original : anonymousHelperCaptures) capture(original);
   for (auto &entry : staged.values)
     entry.second = capture(entry.second);
   for (auto &entry : staged.writes)
@@ -1795,6 +1756,8 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
         arithmeticValues.erase(argument);
       }
     }
+    for (Value argument : block->getArguments()) originalCaptures.erase(argument);
+    helperCaptureBindings.erase(block);
     temporary->erase();
   });
   auto inside = OpBuilder::atBlockEnd(block);
@@ -2012,6 +1975,15 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
       returned = stmt;
       continue;
     }
+    if (stmt.kind() == "Expr" && stmt.child("value").kind() == "Call") {
+      auto call = stmt.child("value");
+      auto helper = resolveValueHelper(call.child("func"), symbol);
+      if (failed(helper)) return failure();
+      if (*helper) {
+        if (failed(valueHelperCall(call, at, symbol, values, instances))) return failure();
+        continue;
+      }
+    }
     if (stmt.kind() == "Assert") {
       if (failed(captureSourceCheck(stmt, at, symbol, environment)))
         return failure();
@@ -2227,6 +2199,13 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
 }
 
 LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
+  auto savedRules = behavioralRules;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto statement = decl.node.item("body", i);
+    if (statement.kind() == "FunctionDef" && hasDecorator(statement, "rule"))
+      behavioralRules[statement.string("name")] = statement;
+  }
+  auto restoreRules = llvm::scope_exit([&] { behavioralRules = std::move(savedRules); });
   if (!decl.parameters.empty())
     return error() << "behavioral module static parameters are unsupported";
   b.setInsertionPointToEnd(body->getBody());
@@ -2381,6 +2360,22 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
           &structuralStorage.back();
     }
   }
+  SmallVector<std::string> computationalRules;
+  for (const auto &entry : structuralRules) {
+    bool structural = true;
+    for (size_t i = 0; i < entry.second.array("body").size(); ++i) {
+      auto statement = entry.second.item("body", i);
+      if (docstring(statement) || statement.kind() == "Pass") continue;
+      if (statement.kind() == "Assert" || statement.kind() == "If" || statement.kind() == "Match") continue;
+      auto call = statement.kind() == "Expr" ? statement.child("value") : AstNode();
+      bool binding = call.kind() == "Call" && call.child("func").kind() == "Name" &&
+                     structuralInstances.contains(call.child("func").string("id"));
+      bool observation = call.kind() == "Call" && (intrinsic(call.child("func"), "log") || intrinsic(call.child("func"), "report"));
+      if (!binding && !observation) structural = false;
+    }
+    if (!structural) computationalRules.push_back(entry.first().str());
+  }
+  for (const auto &name : computationalRules) structuralRules.erase(name);
   SmallVector<StateOwner> states;
   ownerProposals.clear();
   activeBehavioralDecl = &decl;
@@ -2403,14 +2398,27 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     }
     if (returned)
       return error() << "declaration after module return is unsupported";
-    if (decl.system && stmt.kind() == "FunctionDef")
+    if (stmt.kind() == "FunctionDef") {
+      if (stmt.array("decorator_list").empty()) {
+        if (failed(declareValueHelper(stmt, decl.symbol, values))) return failure();
+      } else if (!hasDecorator(stmt, "rule"))
+        return error() << "nested callable requires Rule or ordinary typed helper";
       continue;
+    }
     if (decl.system && stmt.kind() == "Assign" &&
         structuralCallSites.contains(
             sourceOccurrence(at, decl.symbol, stmt.child("value"))))
       continue;
     if (stmt.kind() == "Expr") {
       auto call = stmt.child("value");
+      if (call.kind() == "Call") {
+        auto helper = resolveValueHelper(call.child("func"), decl.symbol);
+        if (failed(helper)) return failure();
+        if (*helper) {
+          if (failed(valueHelperCall(call, at, decl.symbol, values, noInstances))) return failure();
+          continue;
+        }
+      }
       if (decl.system && call.kind() == "Call" &&
           call.child("func").kind() == "Name" &&
           structuralRules.contains(call.child("func").string("id"))) {
@@ -2575,6 +2583,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
                             table ? ac::CollectionOp::getOperationName()
                                   : ac::InstanceOp::getOperationName(),
                             {}, TypeRange{*type}, attrs);
+    helperOwnerBindings.insert(target.string("id"));
     states.push_back({target.string("id").str(), *type, *init, storage, stmt});
     values[target.string("id")] = storage->getResult(0);
     remember(storage->getResult(0), annotationKind(annotation));

@@ -1,5 +1,6 @@
 #include "SourceLink.h"
 #include "SourceHeaderHelpers.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
@@ -171,6 +172,22 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
       builder.getNamedAttr("type_arguments", builder.getArrayAttr({}))}));
   state.addAttribute("domain", builder.getStringAttr("default"));
   (*linked).getBody()->push_back(Operation::create(state));
+  auto residualCall = linked->walk([&](func::CallOp call) {
+    if (call->getParentOfType<func::FuncOp>())
+      return WalkResult::advance();
+    call.emitOpError() << "source value helper calls must be expanded before "
+                         "hardware publication";
+    return WalkResult::interrupt();
+  });
+  if (residualCall.wasInterrupted())
+    return failure();
+  // Admission above checked all helper bodies and their source authority.
+  // Hardware expressions already contain their expanded payload operations.
+  for (auto helper : llvm::make_early_inc_range(linked->getOps<func::FuncOp>())) {
+    auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
+    if (kind && kind.getValue() == "value")
+      helper.erase();
+  }
   if (failed(ac::detail::verifyNoUnloweredTransactions(*linked)))
     return emitError() << "transaction lowering is not yet available for final "
                          "hardware publication";

@@ -9,6 +9,8 @@
 Method owner 是直接包含嵌套公开 `@method` 的 `@module`，首批没有作者定义的 runtime 参数或普通返回；`Counter()` 一类静态构造产生实例句柄。普通 typed-result module 接口不因此改变。Method 内绑定外层 owner 更新，不使用 `nonlocal`，不允许同名局部 shadow owner。只读 Method 也只能在 Rule 事务中调用。
 
 纯 helper 只使用现有已准入的 typed 表达式／语句子集及 source-semantics 中的明确限制；“纯”或“有限”均不授权一般 Python 语法、递归或新的静态求值能力。
+`METHOD-PURE-HELPER-CUTOVER` 同时执行[纯函数专项 checklist](pure-helpers.md)，包括
+词法快照、内部名称碰撞、native ABI 权威、跨源发布和旧调用者数值／时序回归。
 
 首批 guard 只用 `guard=lambda ...`，形式参数与被装饰函数必需位置参数同名同序。owner 读取使用调用入口的候选版本，普通自由值固定为定义位置的词法 SSA；guard 不可调用 Method/Rule 或产生效果。不能证明 total 的 guarded Rule 必须 `-> None`，普通输出有效性接口延后；total Rule 保留普通返回。每个 Module 实例的 Rule 声明恰好静态注册一次，重复、运行时、循环注册及事务中调用自主 Rule 均拒绝。纯 `def` 不隐含读取 owner，保留的纯 `@rule` helper 调用者须显式迁移，不能静默重解释旧语义。
 

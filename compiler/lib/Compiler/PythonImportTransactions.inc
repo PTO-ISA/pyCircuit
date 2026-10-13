@@ -273,6 +273,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     AstNode statement = decl.node.item("body", i);
     if (statement.kind() == "FunctionDef") {
       StringRef name = statement.string("name");
+      if (statement.array("decorator_list").empty()) {
+        if (failed(declareValueHelper(statement, decl.symbol, moduleValues))) return failure();
+      } else if (!methods.contains(name) && !rules.contains(name))
+        return error() << "nested callable requires Rule, Method or ordinary typed helper";
       if (methods.contains(name))
         snapshot(methodCaptures[name]);
       else if (rules.contains(name))
@@ -323,6 +327,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           {at.getNamedAttr("instance_name", at.getStringAttr(name)),
            at.getNamedAttr("occurrence",
                            sourceOccurrence(at, decl.symbol, statement))});
+      helperOwnerBindings.insert(name);
       states[name] = {name.str(), *type, *converted, state, statement};
       continue;
     }
@@ -418,6 +423,22 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
            behavioralRules.contains(name);
   };
 
+  SmallVector<ValueHelperDecl *> lexicalHelpers;
+  for (auto &entry : valueHelpers)
+    if (entry.second->lexicalOwner == decl.symbol) lexicalHelpers.push_back(entry.second.get());
+  for (auto *helper : lexicalHelpers)
+    if (failed(lowerValueHelper(*helper))) return failure();
+  auto retainHelperSnapshots = [&](CaptureSnapshot &captures) {
+    for (const auto &entry : valueHelpers) {
+      if (entry.second->lexicalOwner != decl.symbol) continue;
+      for (const auto &capture : entry.second->captures)
+        if (llvm::none_of(captures, [&](const auto &existing) { return existing.second == capture.second; }))
+          captures.push_back({{}, capture.second});
+    }
+  };
+  for (auto &entry : methodCaptures) retainHelperSnapshots(entry.second);
+  for (auto &entry : ruleCaptures) retainHelperSnapshots(entry.second);
+
   auto emitStatements = [&](SourceCallableDecl &callable, OpBuilder &inside,
                             llvm::StringMap<Value> &values,
                             bool guard) -> FailureOr<SmallVector<Value>> {
@@ -431,14 +452,12 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       AstNode expressionNode = callable.syntax.guard
                                    ? callable.syntax.guard.child("body")
                                    : callable.declaration;
-      if (callable.syntax.guard && expressionNode.kind() == "Call")
-        return error() << "guard calls and effects are unsupported";
       auto value = callable.syntax.guard
                        ? expression(expressionNode, inside, decl.symbol, values,
                                     instances)
                        : trueValue(expressionNode, inside, decl.symbol);
       if (failed(value))
-        return failure();
+        return error() << "guard expression must be pure and return a predicate";
       if (!callable.syntax.guard) {
         yielded.push_back(*value);
       } else {
@@ -504,6 +523,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             expressionNode.child("func").kind() == "Name" &&
             rules.contains(expressionNode.child("func").string("id")))
           return error() << "nested Rule calls are unsupported";
+        auto helper = expressionNode.kind() == "Call" ? resolveValueHelper(expressionNode.child("func"), decl.symbol)
+                                                    : FailureOr<ValueHelperDecl *>(static_cast<ValueHelperDecl *>(nullptr));
+        if (failed(helper)) return failure();
+        if (*helper) {
+          if (failed(valueHelperCall(expressionNode, inside, decl.symbol, values, instances))) return failure();
+          continue;
+        }
         auto results = sourceMethodCall(statement.child("value"), inside,
                                         decl.symbol, values, instances);
         if (failed(results))
@@ -653,8 +679,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (port.fixedBits)
           fixedValues.insert(argument);
       }
-      for (auto [name, original] : llvm::zip(captureNames, captures))
-        values[name] = captureValue(block, original, method->getLoc());
+      for (auto [name, original] : llvm::zip(captureNames, captures)) {
+        auto captured = captureValue(block, original, method->getLoc());
+        if (!name.empty()) values[name] = captured;
+      }
       OpBuilder inside = OpBuilder::atBlockEnd(block);
       auto yielded = emitStatements(callable, inside, values, regionIndex == 0);
       if (failed(yielded))
@@ -723,9 +751,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       auto *block = new Block();
       transaction->getRegion(regionIndex).push_back(block);
       llvm::StringMap<Value> values;
-      for (auto [captureName, original] : llvm::zip(captureNames, captures))
-        values[captureName] =
-            captureValue(block, original, transaction->getLoc());
+      for (auto [captureName, original] : llvm::zip(captureNames, captures)) {
+        auto captured = captureValue(block, original, transaction->getLoc());
+        if (!captureName.empty()) values[captureName] = captured;
+      }
       OpBuilder inside = OpBuilder::atBlockEnd(block);
       auto yielded = emitStatements(callable, inside, values, regionIndex == 0);
       if (failed(yielded))

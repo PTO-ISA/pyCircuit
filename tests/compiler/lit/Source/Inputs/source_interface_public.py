@@ -18,6 +18,7 @@ for name in ("repo", "source-compiler", "linker", "emitter", "optimizer", "scrat
 parser.add_argument("--invalid", action="store_true")
 parser.add_argument("--query-checks", choices=("syntax", "admission", "resources"))
 parser.add_argument("--method-checks", choices=("publication", "admission"))
+parser.add_argument("--helper-checks", action="store_true")
 args = parser.parse_args()
 repo = Path(args.repo).resolve()
 scratch = Path(args.scratch).resolve()
@@ -134,6 +135,153 @@ for unit in (child, parent):
     assert actual == expected, (actual, expected)
     assert '"ac.module"' not in actual and '"ac.system"' not in actual
     assert 'ac.unit_kind = "interface"' in actual
+
+if args.helper_checks:
+    provider_text = """import pycircuit as ac
+@ac.struct
+class Pair:
+    left: ac.u8
+    right: ac.u8
+def bump(value: ac.u8) -> ac.u8:
+    result: ac.u8 = value + 1
+    return result
+def chain(value: ac.u8) -> ac.u8:
+    saved = bump(value)
+    return bump(saved)
+def swap(value: Pair) -> Pair:
+    rebuilt = Pair(left=value.right, right=value.left)
+    return rebuilt
+def consume(value: ac.u8) -> None:
+    temporary: ac.u8 = value + 1
+    return
+"""
+    consumer_text = """import pycircuit as ac
+from interfaces.helper_provider import bump, chain, swap, consume, Pair
+@ac.module
+def Consumer(left: ac.u8, right: ac.u8) -> Pair:
+    snapshot = left + 1
+    def captured(value: ac.u8) -> ac.u8:
+        return value ^ snapshot
+    snapshot = right + 1
+    consume(left)
+    return swap(Pair(left=chain(left), right=captured(right)))
+"""
+    stages = root / "helper-publication"
+    stages.mkdir()
+    retained = scratch / "helper-publication-artifacts"
+    retained.mkdir(exist_ok=True)
+    snapshots = retained / "sources"
+    snapshots.mkdir(exist_ok=True)
+    provider_source = source / "helper_provider.py"
+    consumer_source = source / "helper_consumer.py"
+    for path, text in (
+        (provider_source, provider_text),
+        (consumer_source, consumer_text),
+    ):
+        path.write_text(text)
+        (snapshots / path.name).write_text(text)
+    provider_unit, consumer_unit = stages / "provider", stages / "consumer"
+    compile_unit(provider_source.name, provider_unit)
+    provider_body = payload(provider_unit, "body").read_text()
+    assert '"ac.module"(' not in provider_body and "func.func" in provider_body
+    provider_source.unlink()
+    compile_unit(consumer_source.name, consumer_unit, [provider_unit])
+    assert not provider_source.exists()
+    for unit in (provider_unit, consumer_unit):
+        extracted = stages / (unit.name + "-extracted.ac")
+        extract(payload(unit, "body"), extracted)
+        actual = normalize(extracted, stages / (unit.name + "-actual.ac"))
+        expected = normalize(
+            payload(unit, "interface"), stages / (unit.name + "-expected.ac")
+        )
+        assert actual == expected, unit
+        assert 'ac.helper_kind = "value"' in expected
+        assert "ac.capture_types =" in expected
+    final = stages / "final.ac"
+    cli(
+        "link",
+        provider_unit,
+        consumer_unit,
+        "--top",
+        "interfaces.helper_consumer.Consumer",
+        "-o",
+        final,
+    )
+    final_text = final.read_text()
+    assert "func.func" not in final_text and "func.call" not in final_text, final_text
+    emitted = {}
+    for target in ("cpp", "verilog"):
+        output = stages / target
+        cli("emit", final, "--target", target, "-o", output)
+        emitted[target] = snapshot(output)
+    protected_unit, protected_final = snapshot(consumer_unit), final.read_bytes()
+    negatives = {
+        "missing-provider": (consumer_text, []),
+        "wrong-helper-kind": (
+            consumer_text.replace("chain(left)", "chain(True)"),
+            [provider_unit],
+        ),
+        "wrong-nominal": (
+            consumer_text.replace(
+                "swap(Pair(left=chain(left), right=captured(right)))", "swap(left)"
+            ),
+            [provider_unit],
+        ),
+        "none-as-value": (
+            consumer_text.replace("chain(left)", "consume(left)"),
+            [provider_unit],
+        ),
+    }
+    for name, (text, imports) in negatives.items():
+        consumer_source.write_text(text)
+        absent = stages / ("invalid-" + name)
+        compile_unit(consumer_source.name, absent, imports, accepted=False)
+        assert not absent.exists(), name
+        compile_unit(
+            consumer_source.name, consumer_unit, imports, replace=True, accepted=False
+        )
+        assert snapshot(consumer_unit) == protected_unit, name
+        assert final.read_bytes() == protected_final, name
+        assert all(
+            snapshot(stages / target) == expected
+            for target, expected in emitted.items()
+        ), name
+    consumer_source.write_text(consumer_text)
+    destination = retained / "stages"
+    if destination.exists():
+        shutil.rmtree(destination)
+    shutil.copytree(stages, destination)
+    (scratch / "helper-publication-receipt.json").write_text(
+        json.dumps(
+            {
+                "scope": "ordinary helper-only provider, unavailable provider Python, consumer source publication/link/dual emit",
+                "provider_python_unavailable": not provider_source.exists(),
+                "artifact_sha256": {
+                    path.relative_to(retained)
+                    .as_posix(): hashlib.sha256(path.read_bytes())
+                    .hexdigest()
+                    for path in sorted(retained.rglob("*"))
+                    if path.is_file()
+                },
+                "tools": {
+                    str(Path(tool).resolve()): hashlib.sha256(
+                        Path(tool).read_bytes()
+                    ).hexdigest()
+                    for tool in (
+                        args.source_compiler,
+                        args.linker,
+                        args.emitter,
+                        args.optimizer,
+                    )
+                },
+                "managed_publications_preserved": True,
+            },
+            indent=2,
+        )
+        + "\n"
+    )
+    print("Ordinary helper publication checks passed")
+    sys.exit(0)
 
 if args.method_checks:
     provider_text = """import pycircuit as ac
@@ -480,7 +628,7 @@ if args.query_checks:
         for name in ("zero-args", "two-args"):
             positives[name] = negatives.pop(name)
         positives["multi-input-map"] = positives["ordinary"].replace(
-            "entries.first(where=lambda row: Write(state))",
+            "entries.first(where=lambda row: predicate(state))",
             "entries.map(lambda lane, other: lane, entries)",
         )
         for accepted, cases in ((True, positives), (False, negatives)):

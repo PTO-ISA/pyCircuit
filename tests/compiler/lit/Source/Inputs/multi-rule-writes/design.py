@@ -38,6 +38,13 @@ def WriteA(s, data, enable):
         s.pair.a = s.pair.b ^ data
 
 
+@sampled
+def WriteAConflict(s, data, enable):
+    if enable:
+        s.pair.a = data
+        s.pair.a = s.pair.b ^ data
+
+
 @ac.rule
 def WriteB(s, other, enable) -> None:
     if enable:
@@ -89,6 +96,12 @@ def Whole(s, data, enable) -> Ack:
 
 
 @ac.rule
+def WholeConflict(s, data, enable) -> Ack:
+    s = State(pair=Pair(a=data, b=data), c=data)  # noqa: F841 - whole-owner write intent
+    return Ack(value=data)
+
+
+@ac.rule
 def Aliases(left, right, data) -> Ack:
     left.pair.a = data
     return Ack(value=right.pair.a)
@@ -96,6 +109,12 @@ def Aliases(left, right, data) -> Ack:
 
 @ac.rule
 def TableWrite(entries, data) -> Ack:
+    entries[0] = data
+    return Ack(value=entries[1])
+
+
+@ac.rule
+def TableWriteSecond(entries, data) -> Ack:
     entries[0] = data
     return Ack(value=entries[1])
 
@@ -137,7 +156,7 @@ def Tables(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Result:
     left = ac.table[2, ac.u8](init=0)
     right = ac.table[2, ac.u8](init=0)
     first = TableWrite(left, data)  # noqa: F841 - ignored output retains table writes
-    second = TableWrite(right, other)  # noqa: F841 - ignored output retains table writes
+    second = TableWriteSecond(right, other)  # noqa: F841 - ignored output retains table writes
     return Result(a=left[0], b=right[0], c=left[1], side=right[1])
 
 
@@ -351,10 +370,22 @@ def EnumElements(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> ScalarT
                              c=ac.enum_to_bits(entries[2]))
 
 
-# Grant fixtures share one definition with distinct actual captures. Their
+# Grant fixtures use distinct declarations for independent registrations. Their
 # result layout is the same as Phase A so native/RTL independent oracles agree.
 @ac.rule
 def GrantScalar(value, data, enable):
+    if enable:
+        value = value ^ data
+
+
+@ac.rule
+def GrantScalarSecond(value, data, enable):
+    if enable:
+        value = value ^ data
+
+
+@ac.rule
+def GrantScalarThird(value, data, enable):
     if enable:
         value = value ^ data
 
@@ -383,6 +414,18 @@ def GrantTable(entries, index, data, enable):
         entries[index].a = entries[index].b ^ data
 
 
+@ac.rule
+def GrantTableSecond(entries, index, data, enable):
+    if enable:
+        entries[index].a = entries[index].b ^ data
+
+
+@ac.rule
+def GrantTableThird(entries, index, data, enable):
+    if enable:
+        entries[index].a = entries[index].b ^ data
+
+
 @ac.module
 def ScalarGrant(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Result:
     side: ac.u8 = 9
@@ -391,8 +434,8 @@ def ScalarGrant(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Result:
     gb = en_b & ~en_a
     gc = ~en_a & ~en_b
     GrantScalar(value, data, ga)
-    GrantScalar(value, other, gb)
-    GrantScalar(value, data ^ other, gc)
+    GrantScalarSecond(value, other, gb)
+    GrantScalarThird(value, data ^ other, gc)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -405,8 +448,8 @@ def ScalarGrantReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> R
     gb = en_b & ~en_a
     gc = ~en_a & ~en_b
     GrantScalar(value, data ^ other, gc)
-    GrantScalar(value, other, gb)
-    GrantScalar(value, data, ga)
+    GrantScalarSecond(value, other, gb)
+    GrantScalarThird(value, data, ga)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -447,8 +490,8 @@ def TableGrant(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Result:
     gb = en_b & ~en_a
     gc = ~en_a & ~en_b
     GrantTable(entries, data % 2, data, ga)
-    GrantTable(entries, other % 2, other, gb)
-    GrantTable(entries, 0, data ^ other, gc)
+    GrantTableSecond(entries, other % 2, other, gb)
+    GrantTableThird(entries, 0, data ^ other, gc)
     WriteSide(side, data)
     return Result(a=entries[0].a, b=entries[1].a, c=entries[0].b, side=side)
 
@@ -461,8 +504,8 @@ def TableGrantReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Re
     gb = en_b & ~en_a
     gc = ~en_a & ~en_b
     GrantTable(entries, 0, data ^ other, gc)
-    GrantTable(entries, other % 2, other, gb)
-    GrantTable(entries, data % 2, data, ga)
+    GrantTableSecond(entries, other % 2, other, gb)
+    GrantTableThird(entries, data % 2, data, ga)
     WriteSide(side, data)
     return Result(a=entries[0].a, b=entries[1].a, c=entries[0].b, side=side)
 
@@ -474,7 +517,7 @@ def ComplementGrant(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Resu
     ga = en_a
     gb = ~en_a
     GrantScalar(value, data, ga)
-    GrantScalar(value, other, gb)
+    GrantScalarSecond(value, other, gb)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -486,7 +529,7 @@ def ComplementGrantReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) 
     ga = en_a
     gb = ~en_a
     GrantScalar(value, other, gb)
-    GrantScalar(value, data, ga)
+    GrantScalarSecond(value, data, ga)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -498,7 +541,7 @@ def PoisonGrant(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Result:
     ga = en_a
     gb = (en_b & ~en_b) | ~en_a
     GrantScalar(value, data, ga)
-    GrantScalar(value, other, gb)
+    GrantScalarSecond(value, other, gb)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -510,7 +553,7 @@ def PoisonGrantReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> R
     ga = en_a
     gb = (en_b & ~en_b) | ~en_a
     GrantScalar(value, other, gb)
-    GrantScalar(value, data, ga)
+    GrantScalarSecond(value, data, ga)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -522,7 +565,7 @@ def NeverGrant(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Result:
     ga = en_a & ~en_a
     gb = en_a
     GrantScalar(value, data, ga)
-    GrantScalar(value, other, gb)
+    GrantScalarSecond(value, other, gb)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -534,7 +577,7 @@ def NeverGrantReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Re
     ga = en_a & ~en_a
     gb = en_a
     GrantScalar(value, other, gb)
-    GrantScalar(value, data, ga)
+    GrantScalarSecond(value, data, ga)
     WriteSide(side, data)
     return Result(a=value, b=17, c=29, side=side)
 
@@ -570,7 +613,7 @@ def TableComplement(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Resu
     ga = en_a
     gb = ~en_a
     GrantTable(entries, data % 2, data, ga)
-    GrantTable(entries, other % 2, other, gb)
+    GrantTableSecond(entries, other % 2, other, gb)
     WriteSide(side, data)
     return Result(a=entries[0].a, b=entries[1].a, c=entries[0].b, side=side)
 
@@ -582,7 +625,7 @@ def TableComplementReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) 
     ga = en_a
     gb = ~en_a
     GrantTable(entries, other % 2, other, gb)
-    GrantTable(entries, data % 2, data, ga)
+    GrantTableSecond(entries, data % 2, data, ga)
     WriteSide(side, data)
     return Result(a=entries[0].a, b=entries[1].a, c=entries[0].b, side=side)
 
@@ -1006,6 +1049,16 @@ def AddressPut(entries, side, index, later, value, raw, enable) -> Ack:
 
 
 @ac.rule
+def AddressPutSecond(entries, side, index, later, value, raw, enable) -> Ack:
+    local = index
+    if enable:
+        entries[local].a = value
+        entries[local].b = raw[3:4]
+        side = raw  # noqa: F841 - persistent owner proposal observed by root
+    return Ack(value=raw)
+
+
+@ac.rule
 def AddressSnapshotPut(entries, side, index, later, value, raw, enable) -> Ack:
     local = index
     if enable:
@@ -1017,7 +1070,34 @@ def AddressSnapshotPut(entries, side, index, later, value, raw, enable) -> Ack:
 
 
 @ac.rule
+def AddressSnapshotPutSecond(entries, side, index, later, value, raw, enable) -> Ack:
+    local = index
+    if enable:
+        entries[local].a = value
+        entries[local].b = raw[3:4]
+        side = raw  # noqa: F841 - persistent owner proposal observed by root
+    local = later
+    return Ack(value=local)
+
+
+@ac.rule
 def AddressBranchPut(entries, side, index, later, value, raw, enable) -> Ack:
+    local = index
+    if enable:
+        if raw[6:7]:
+            local = index
+            entries[local].a = value
+            entries[local].b = raw[3:4]
+        else:
+            local = index
+            entries[local].a = value
+            entries[local].b = raw[3:4]
+        side = raw  # noqa: F841 - persistent owner proposal observed by root
+    return Ack(value=local)
+
+
+@ac.rule
+def AddressBranchPutSecond(entries, side, index, later, value, raw, enable) -> Ack:
     local = index
     if enable:
         if raw[6:7]:
@@ -1050,7 +1130,34 @@ def AddressMatchPut(entries, side, index, later, value, raw, enable) -> Ack:
 
 
 @ac.rule
+def AddressMatchPutSecond(entries, side, index, later, value, raw, enable) -> Ack:
+    local = index
+    if enable:
+        match raw[6:7]:
+            case 0:
+                local = index
+                entries[local].a = value
+                entries[local].b = raw[3:4]
+            case _:
+                local = index
+                entries[local].a = value
+                entries[local].b = raw[3:4]
+        side = raw  # noqa: F841 - persistent owner proposal observed by root
+    return Ack(value=local)
+
+
+@ac.rule
 def AddressIdentityPut(entries, side, index, later, value, raw, enable) -> Ack:
+    local = index
+    if enable:
+        entries[local].a = entries[local].a
+        entries[local].b = raw[3:4]
+        side = raw  # noqa: F841 - persistent owner proposal observed by root
+    return Ack(value=raw)
+
+
+@ac.rule
+def AddressIdentityPutSecond(entries, side, index, later, value, raw, enable) -> Ack:
     local = index
     if enable:
         entries[local].a = entries[local].a
@@ -1069,7 +1176,25 @@ def AddressSubtreePut(entries, side, index, later, value, raw, enable) -> Ack:
 
 
 @ac.rule
+def AddressSubtreePutSecond(entries, side, index, later, value, raw, enable) -> Ack:
+    local = index
+    if enable:
+        entries[local].pair = FieldPair(a=value, b=raw[3:4])
+        side = raw  # noqa: F841 - persistent owner proposal observed by root
+    return Ack(value=raw)
+
+
+@ac.rule
 def AddressWholePut(entries, side, index, later, value, raw, enable) -> Ack:
+    local = index
+    if enable:
+        entries[local] = FieldCell(a=value, b=raw[3:4], keep=raw[4:6], mark=FieldMark.ONE)
+        side = raw  # noqa: F841 - persistent owner proposal observed by root
+    return Ack(value=raw)
+
+
+@ac.rule
+def AddressWholePutSecond(entries, side, index, later, value, raw, enable) -> Ack:
     local = index
     if enable:
         entries[local] = FieldCell(a=value, b=raw[3:4], keep=raw[4:6], mark=FieldMark.ONE)
@@ -1087,7 +1212,7 @@ def AddressDynamic(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Field
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1103,7 +1228,7 @@ def AddressDynamicReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -
     ga = en_a
     gb = en_b & (~ga | (i != j))
     b = AddressPut(entries, right, j, i, other[2:3], other, gb)
-    a = AddressPut(entries, left, i, j, data[2:3], data, ga)
+    a = AddressPutSecond(entries, left, i, j, data[2:3], data, ga)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1119,7 +1244,7 @@ def AddressReverseOperands(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) 
     ga = en_a
     gb = en_b & (~ga | (j != i))
     a = AddressPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1135,7 +1260,7 @@ def AddressEqPolarity(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Fi
     ga = en_a
     gb = en_b & (~ga | ~(i == j))
     a = AddressPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1151,7 +1276,7 @@ def AddressSelect(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> FieldR
     ga = en_a
     gb = en_b if i != j else en_b & ~ga
     a = AddressPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1167,7 +1292,7 @@ def AddressAssignment(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Fi
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressSnapshotPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressSnapshotPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressSnapshotPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1183,7 +1308,7 @@ def AddressBranch(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> FieldR
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressBranchPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressBranchPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressBranchPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1199,7 +1324,7 @@ def AddressMatch(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> FieldRe
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressMatchPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressMatchPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressMatchPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1215,7 +1340,7 @@ def AddressIdentity(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Fiel
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressIdentityPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressIdentityPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressIdentityPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1231,7 +1356,7 @@ def AddressSubtree(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Field
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressSubtreePut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressSubtreePut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressSubtreePutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].pair.a, entries[0].pair.b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].pair.a, entries[1].pair.b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].pair.a, entries[2].pair.b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].pair.a, entries[3].pair.b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1247,7 +1372,7 @@ def AddressWhole(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> FieldRe
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressWholePut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressWholePut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressWholePutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1263,7 +1388,7 @@ def AddressRange(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> FieldRe
     ga = en_a
     gb = en_b & (~ga | (i != j))
     a = AddressPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=0,
                        between=a.value, after=b.value, read=left ^ right)
@@ -1324,7 +1449,7 @@ def AddressSelectReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) ->
     ga = en_a
     gb = en_b if i != j else en_b & ~ga
     b = AddressPut(entries, right, j, i, other[2:3], other, gb)
-    a = AddressPut(entries, left, i, j, data[2:3], data, ga)
+    a = AddressPutSecond(entries, left, i, j, data[2:3], data, ga)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1342,7 +1467,7 @@ def AddressSelectEq(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) -> Fiel
     ga = en_a
     gb = en_b & ~ga if i == j else en_b
     a = AddressPut(entries, left, i, j, data[2:3], data, ga)
-    b = AddressPut(entries, right, j, i, other[2:3], other, gb)
+    b = AddressPutSecond(entries, right, j, i, other[2:3], other, gb)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)
@@ -1360,7 +1485,7 @@ def AddressSelectEqReverse(en_a: ac.u1, en_b: ac.u1, data: ac.u8, other: ac.u8) 
     ga = en_a
     gb = en_b & ~ga if i == j else en_b
     b = AddressPut(entries, right, j, i, other[2:3], other, gb)
-    a = AddressPut(entries, left, i, j, data[2:3], data, ga)
+    a = AddressPutSecond(entries, left, i, j, data[2:3], data, ga)
     return FieldResult(lane0=ac.concat(entries[0].a, entries[0].b, entries[0].keep, ac.enum_to_bits(entries[0].mark)), lane1=ac.concat(entries[1].a, entries[1].b, entries[1].keep, ac.enum_to_bits(entries[1].mark)),
                        lane2=ac.concat(entries[2].a, entries[2].b, entries[2].keep, ac.enum_to_bits(entries[2].mark)), before=ac.concat(entries[3].a, entries[3].b, entries[3].keep, ac.enum_to_bits(entries[3].mark)),
                        between=a.value, after=b.value, read=left ^ right)

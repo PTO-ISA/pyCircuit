@@ -21,6 +21,19 @@ std::optional<Import> Importer::lookupBinding(const AstNode &node) const {
   auto parent = lookupBinding(node.child("value"));
   if (!parent || parent->category != BindingCategory::Namespace)
     return std::nullopt;
+  if (parent->importedModule != "pycircuit" && parent->importedModule != "enum" && parent->importedModule != "typing") {
+    auto symbol = headers.lookupExport(parent->importedModule, node.string("attr"));
+    Operation *declaration = symbol ? headers.lookupDeclaration(symbol) : nullptr;
+    if (!declaration) return std::nullopt;
+    parent->symbol = symbol;
+    parent->declaration = declaration;
+    parent->remote = node.string("attr").str();
+    parent->category = isa<func::FuncOp>(declaration) ? BindingCategory::Helper
+                       : isa<ac::StructOp>(declaration) ? BindingCategory::Struct
+                       : isa<ac::EnumOp>(declaration) ? BindingCategory::Enum
+                       : BindingCategory::Module;
+    return parent;
+  }
   parent->category = BindingCategory::Marker;
   parent->remote = node.string("attr").str();
   return parent;

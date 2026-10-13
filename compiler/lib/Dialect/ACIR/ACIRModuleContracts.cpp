@@ -133,7 +133,8 @@ LogicalResult verifySourceCallHardwareConstraint(
 
 LogicalResult verifyRequiredSourceParameter(Attribute raw,
                                             StringAttr expectedName,
-                                            Operation *lexicalModule,
+                                            DictionaryAttr sourceOwner,
+                                            FlatSymbolRefAttr definition,
                                             Operation *diagnosticOperation,
                                             StringRef description) {
   auto error = [&] { return diagnosticOperation->emitOpError(); };
@@ -155,18 +156,11 @@ LogicalResult verifyRequiredSourceParameter(Attribute raw,
     return error() << description
                    << " parameters require matching names, "
                       "positional-or-keyword binding and absent defaults";
-  auto sourceOwner =
-      lexicalModule->getAttrOfType<DictionaryAttr>("source_owner");
-  auto symbol = lexicalModule->getAttrOfType<StringAttr>(
-      SymbolTable::getSymbolAttrName());
-  if (!symbol || failed(verifySourceOwner(sourceOwner, error)))
+  if (!definition || failed(verifySourceOwner(sourceOwner, error)))
     return error() << description
-                   << " requires a named lexical module and "
-                      "valid SourceOwner";
-  auto definition =
-      FlatSymbolRefAttr::get(lexicalModule->getContext(), symbol.getValue());
+                   << " requires a canonical definition and valid SourceOwner";
   if (failed(verifyOccurrence(origin, error)) ||
-      failed(verifyOriginDefinition(origin, definition, "module parameter",
+      failed(verifyOriginDefinition(origin, definition, description,
                                     error)) ||
       failed(verifySourceSpan(location, error)))
     return failure();
@@ -176,6 +170,22 @@ LogicalResult verifyRequiredSourceParameter(Attribute raw,
                    << " parameter path differs from "
                       "its original SourceOwner";
   return success();
+}
+
+LogicalResult verifyRequiredSourceParameter(Attribute raw,
+                                            StringAttr expectedName,
+                                            Operation *lexicalModule,
+                                            Operation *diagnosticOperation,
+                                            StringRef description) {
+  auto symbol = lexicalModule->getAttrOfType<StringAttr>(
+      SymbolTable::getSymbolAttrName());
+  return verifyRequiredSourceParameter(
+      raw, expectedName,
+      lexicalModule->getAttrOfType<DictionaryAttr>("source_owner"),
+      symbol ? FlatSymbolRefAttr::get(lexicalModule->getContext(),
+                                     symbol.getValue())
+             : FlatSymbolRefAttr(),
+      diagnosticOperation, description);
 }
 
 LogicalResult verifyModuleSourceCallContract(Operation *owner) {

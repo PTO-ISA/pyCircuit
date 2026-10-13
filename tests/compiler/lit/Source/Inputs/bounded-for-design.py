@@ -101,7 +101,6 @@ class Result:
     carrier: bits[65]
 
 
-@rule
 def subtract(accumulator: u8, value: u8) -> u8:
     return accumulator - value
 

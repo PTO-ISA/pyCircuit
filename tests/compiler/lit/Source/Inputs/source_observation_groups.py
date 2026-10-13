@@ -20,6 +20,16 @@ def advance(phase):
 
 
 @rule
+def advanceSecond(phase):
+    phase = phase + 1
+
+
+@rule
+def advanceThird(phase):
+    phase = phase + 1
+
+
+@rule
 def root_observations(phase, input_left, input_right, tag, stamp):
     log("info", "before", phase)
     log(
@@ -72,8 +82,8 @@ def ObservationGroups():
     inspect()
     root_observations(phase, input_left, input_right, tag, stamp)
     advance(input_left)
-    advance(input_right)
-    advance(phase)
+    advanceSecond(input_right)
+    advanceThird(phase)
 
 
 @system
@@ -104,8 +114,8 @@ def ObservationGroupsFailure():
     inspect()
     root_observations(phase, input_left, input_right, tag, stamp)
     advance(input_left)
-    advance(input_right)
-    advance(phase)
+    advanceSecond(input_right)
+    advanceThird(phase)
     check_window(phase)
 
 

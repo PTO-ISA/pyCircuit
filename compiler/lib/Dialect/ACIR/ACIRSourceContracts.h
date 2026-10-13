@@ -39,6 +39,10 @@ mlir::LogicalResult verifySourceCallHardwareConstraint(
     llvm::StringRef description);
 mlir::LogicalResult verifyRequiredSourceParameter(
     mlir::Attribute raw, mlir::StringAttr expectedName,
+    mlir::DictionaryAttr sourceOwner, mlir::FlatSymbolRefAttr definition,
+    mlir::Operation *diagnosticOperation, llvm::StringRef description);
+mlir::LogicalResult verifyRequiredSourceParameter(
+    mlir::Attribute raw, mlir::StringAttr expectedName,
     mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation,
     llvm::StringRef description);
 

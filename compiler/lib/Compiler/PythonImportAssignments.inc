@@ -188,8 +188,10 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
                    << "' cannot be assigned in source";
   if (target.kind() == "Name") {
     StringRef name = target.string("id");
-    if (names.contains(name) || structs.contains(name) ||
-        behavioralRules.contains(name))
+    bool helperLocal = activeValueHelper && activeHelperFrame &&
+                       activeHelperFrame->localNames.contains(name);
+    if (!helperLocal && (names.contains(name) || structs.contains(name) ||
+                         behavioralRules.contains(name)))
       return error() << "assignment shadows a source declaration";
     values[name] = replacement;
     return success();

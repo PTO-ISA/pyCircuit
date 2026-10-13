@@ -1,4 +1,5 @@
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/SymbolTable.h"
@@ -100,7 +101,7 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
   if (role.getValue() == "definition") {
     if (declarationOwner != owner)
       return emitError() << "source definition has a foreign SourceOwner";
-    if (body ? !isa<ModuleOp, StructOp, EnumOp>(operation)
+    if (body ? !isa<ModuleOp, StructOp, EnumOp, func::FuncOp>(operation)
              : !retainedDeclaration(operation))
       return emitError() << "unsupported source definition category";
   } else if (role.getValue() == "import_snapshot") {
@@ -160,6 +161,19 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
     return emitError() << "implementation body must own at least one module";
   if (body && !implementation && modules != 0)
     return emitError() << "declarations body cannot own ac.module";
+  SmallVector<func::FuncOp> valueHelpers;
+  for (Operation &operation : unit.getBody()->getOperations())
+    if (auto helper = dyn_cast<func::FuncOp>(operation)) {
+      auto helperKind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
+      if (helperKind && helperKind.getValue() == "value")
+        valueHelpers.push_back(helper);
+    }
+  if (failed(verifySourceValueHelperClosure(
+          valueHelpers, [&](FlatSymbolRefAttr symbol) {
+            return dyn_cast_or_null<func::FuncOp>(
+                result.declarations.lookup(symbol.getValue()));
+          })))
+    return failure();
   if (failed(detail::verifyRetainedNamespaceTargets(unit, result.declarations,
                                                     emitError)))
     return failure();
@@ -192,12 +206,27 @@ bool hasQualifiedDeclarationIdentityForOwner(Operation *operation,
   if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp>(
           operation))
     return !local.empty() && !local.contains('.');
-  if (isa<func::FuncOp>(operation)) {
+  if (auto helper = dyn_cast<func::FuncOp>(operation)) {
+    auto lexical = helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner");
+    if (lexical) {
+      StringRef parent, leaf;
+      std::tie(parent, leaf) = symbol.rsplit('.');
+      if (!module.empty() &&
+          !parent.starts_with((Twine(module) + ".").str()))
+        return false;
+      StringRef localParent =
+          module.empty() ? parent : parent.drop_front(module.size() + 1);
+      return parent == lexical.getValue() && !leaf.empty() &&
+             !leaf.contains('.') && !localParent.empty() &&
+             !localParent.contains('.');
+    }
     if (!local.contains('.'))
       return !local.empty();
     StringRef parent, leaf;
     std::tie(parent, leaf) = local.rsplit('.');
-    return !parent.empty() && !parent.contains('.') && leaf == "__init__";
+    auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
+    return kind && kind.getValue() == "record_constructor" &&
+           !parent.empty() && !parent.contains('.') && leaf == "__init__";
   }
   return false;
 }

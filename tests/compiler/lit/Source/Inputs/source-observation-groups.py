@@ -524,7 +524,7 @@ def main():
             report_statement,
             '        saved = report("observation_sample", sample)\n'
             + report_statement,
-            "structural rule-local assignments are unsupported",
+            "unsupported hardware expression 'Call'",
         ),
         (
             "nested-empty-rule",
@@ -542,7 +542,7 @@ def main():
             "nested-unknown-call",
             log_statement,
             "        missing_observation(sample)",
-            "unsupported expression statement in pure rule",
+            "unsupported behavioral rule statement 'Expr'",
         ),
     ):
         assert original_source.count(original) == 2, (label, original)

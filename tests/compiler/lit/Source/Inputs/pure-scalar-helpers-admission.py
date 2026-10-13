@@ -1,4 +1,4 @@
-"""Public admission boundaries for fixed scalar expression helpers."""
+"""Public ordinary-def helper, signature, and registration boundaries."""
 
 PRELUDE = "from pycircuit import module, rule, struct, u1, u2, u8, bits, table\nfrom typing import Annotated\n"
 
@@ -24,9 +24,8 @@ def admission_cases():
     def add(name, text, categories):
         cases.append({"name": name, "text": text, "categories": categories})
 
-    identity = "@rule\ndef helper(value: u8) -> u8:\n    return value\n"
+    identity = "def helper(value: u8) -> u8:\n    return value\n"
     for name, expression, categories in (
-        ("integer_actual", "helper(0)", ("kind", "fixed", "integer", "formal")),
         (
             "keyword_actual",
             "helper(value=value)",
@@ -37,7 +36,7 @@ def admission_cases():
         ("unknown_actual_first", "helper(left_missing)", ("left_missing",)),
     ):
         add(name, design(identity, expression), categories)
-    pair = "@rule\ndef helper(left: u8, right: u8) -> u8:\n    return left ^ right\n"
+    pair = "def helper(left: u8, right: u8) -> u8:\n    return left ^ right\n"
     add(
         "left_to_right_actuals",
         design(pair, "helper(left_missing, right_missing)"),
@@ -47,38 +46,21 @@ def admission_cases():
     # source-kind mismatch must precede a later actual name error.
     add(
         "binding_before_later_actual",
-        design(pair, "helper(0, right_missing)"),
-        ("kind", "integer", "fixed", "formal"),
+        design(pair, "helper(256, right_missing)"),
+        ("range", "fit", "width", "formal", "bound"),
     )
-    add(
-        "width_authority",
-        design(identity, "helper(value)", value_type="u2"),
-        ("width", "type", "formal"),
-    )
-    add(
-        "count_width_authority",
-        design(identity, "helper(value.count())", value_type="table[3, u1]"),
-        ("width", "type", "formal"),
-    )
-    add(
-        "boolean_actual",
-        design(identity, "helper(True)"),
-        ("kind", "boolean", "fixed", "formal"),
-    )
-    add(
-        "integer_source_actual",
-        design(identity, value_type="Annotated[int, range(256)]"),
-        ("kind", "integer", "fixed", "formal"),
-    )
-    add(
-        "boolean_source_actual",
-        design(identity, value_type="bool"),
-        ("kind", "boolean", "fixed", "formal"),
-    )
+
+
+
+
+
+    add("integer_range_does_not_fit", design(identity, value_type="Annotated[int, range(1 << 9)]"), ("range", "fit", "width", "bound", "type"))
+    add("boolean_actual_width", design(identity, "helper(True)"), ("type mismatch", "width", "type"))
+    add("boolean_source_width", design(identity, value_type="bool"), ("type mismatch", "width", "type"))
     for name, signature in (
         ("unannotated_formal", "value"),
-        ("logical_formal", "value: Annotated[int, range(256)]"),
-        ("boolean_formal", "value: bool"),
+        ("integer_formal_with_fixed_actual", "value: Annotated[int, range(1 << 8)]"),
+        ("boolean_formal_with_fixed_actual", "value: bool"),
         ("default_formal", "value: u8 = 1"),
         ("positional_only", "value: u8, /"),
         ("keyword_only", "*, value: u8"),
@@ -86,7 +68,7 @@ def admission_cases():
         ("duplicate_formal", "value: u8, value: u8"),
         ("reserved_formal", "pyc_clk: u8"),
     ):
-        helper = f"@rule\ndef helper({signature}) -> u8:\n    return value\n"
+        helper = f"def helper({signature}) -> u8:\n    return value\n"
         text = design(
             helper,
             "helper(value, value)" if name == "duplicate_formal" else "helper(value)",
@@ -95,7 +77,7 @@ def admission_cases():
             name,
             text,
             (
-                ("duplicate rule parameter",)
+                ("duplicate", "parameter")
                 if name == "duplicate_formal"
                 else (
                     "arity",
@@ -106,14 +88,15 @@ def admission_cases():
                     "duplicate",
                     "reserved",
                     "collision",
+                    "kind",
+                    "type",
+                "table",
                 )
             ),
         )
     for name, result in (
-        ("logical_result", "Annotated[int, range(256)]"),
+        ("logical_result", "Annotated[int, range(1 << 8)]"),
         ("boolean_result", "bool"),
-        ("computed_width", "bits[4 + 4]"),
-        ("shift_width", "bits[1 << 3]"),
     ):
         add(
             name,
@@ -138,7 +121,7 @@ def admission_cases():
         design(
             identity, value_type="Tag", extra="@struct\nclass Tag:\n    value: u8\n"
         ),
-        ("kind", "type", "formal", "fixed"),
+        ("authoritative bits", "provenance", "kind", "type", "formal", "fixed"),
     )
     add(
         "declaration_formal_collision",
@@ -146,16 +129,11 @@ def admission_cases():
         ("collision", "formal", "declaration", "binding"),
     )
     for name, body in (
-        ("assignment", "temporary = value\n    return temporary"),
-        ("multiple_return", "return value\n    return value"),
-        ("conditional_statement", "if True:\n        return value\n    return value"),
-        ("slice", "return value[:4]"),
-        ("division", "return value // 2"),
-        ("shift", "return value << 1"),
-        ("table_method", "return value.count()"),
+                ("multiple_return", "return value\n    return value"),
+        ("conditional_early_return", "if True:\n        return value\n    return value"),
+                        ("table_method", "return value.count()"),
         ("intrinsic", "return bits(value)"),
-        ("literal_tree", "return 1 + 2"),
-        ("literal_choice", "return 1 if value else 2"),
+                ("literal_choice", "return 1 if value else 2"),
         ("predicate_arithmetic", "return (value == value) + value"),
         ("caller_capture", "return value + captured"),
         ("effect_dead_arm", "return value if True else print(value)"),
@@ -163,7 +141,7 @@ def admission_cases():
         ("assert_statement", "assert value\n    return value"),
         ("nested_definition", "def hidden():\n        return value\n    return value"),
     ):
-        helper = "@rule\ndef helper(value: u8) -> u8:\n    " + body + "\n"
+        helper = "def helper(value: u8) -> u8:\n    " + body + "\n"
         text = design(helper)
         if name == "caller_capture":
             text = text.replace(
@@ -173,7 +151,7 @@ def admission_cases():
         add(
             name,
             text,
-            (
+            ("table value method requires",) if name == "table_method" else (
                 "pure",
                 "scalar",
                 "expression",
@@ -182,6 +160,10 @@ def admission_cases():
                 "literal",
                 "statement",
                 "captur",
+                "condition",
+                "predicate",
+                "width",
+                "type",
             ),
         )
     add(
@@ -191,7 +173,7 @@ def admission_cases():
     )
     indirect = (
         identity.replace("return value", "return other(value)")
-        + "@rule\ndef other(value: u8) -> u8:\n    return helper(value)\n"
+        + "def other(value: u8) -> u8:\n    return helper(value)\n"
     )
     add("indirect_body_recursion", design(indirect), ("recurs", "cycle", "acyclic"))
     add(
@@ -247,10 +229,10 @@ def admission_cases():
         ("budget", "nesting", "depth"),
     )
     chain = "".join(
-        f"@rule\ndef level{i}(value: u8) -> u8:\n    return "
-        + (f"level{i + 1}(value)" if i < nesting_limit else "value")
+        f"def level{i}(value: u8) -> u8:\n    return "
+        + (f"level{i + 1}(value)" if i <= nesting_limit else "value")
         + "\n"
-        for i in range(nesting_limit + 1)
+        for i in range(nesting_limit + 2)
     )
     add(
         "body_depth_budget",
@@ -259,7 +241,7 @@ def admission_cases():
     )
     dag = identity.replace("helper", "level0")
     for i in range(1, 14):
-        dag += f"@rule\ndef level{i}(value: u8) -> u8:\n    return level{i - 1}(value) ^ level{i - 1}(value)\n"
+        dag += f"def level{i}(value: u8) -> u8:\n    return level{i - 1}(value) ^ level{i - 1}(value)\n"
     add(
         "expanded_body_budget",
         design(dag, "level13(value)"),
@@ -276,23 +258,24 @@ def admission_cases():
     # reject before parsing a wide native literal or checking the u8 result fit.
     magnitude = "9" * 4000
     large_literal = (
-        "@rule\ndef wide_literal(value: u8) -> u8:\n    return value + "
+        "def wide_literal(value: u8) -> u8:\n    return value + "
         + magnitude
         + "\n"
     )
-    large_literal += "@rule\ndef helper(value: u8) -> u8:\n    return wide_literal(value) ^ wide_literal(value)\n"
+    large_literal += "def helper(value: u8) -> u8:\n    return wide_literal(value) ^ wide_literal(value)\n"
     add(
         "literal_storage_before_allocation",
         design(large_literal),
         ("budget", "envelope", "storage"),
     )
     cases.extend(named_map_admission_cases())
+    cases.extend(ordinary_contract_cases())
     return cases
 
 
 def named_map_admission_cases():
     cases = []
-    identity = "@rule\ndef helper(value: u8) -> u8:\n    return value\n"
+    identity = "def helper(value: u8) -> u8:\n    return value\n"
 
     def mapped(
         helper=identity,
@@ -320,19 +303,19 @@ def Top(value: {value_type}, other: table[3, u8]) -> Result:
     add(
         "receiver_width",
         mapped(value_type="table[3, u2]"),
-        ("rule parameter type mismatch",),
+        ("type mismatch", "width", "type"),
     )
-    pair = "@rule\ndef helper(left: u8, right: u8) -> u8:\n    return left ^ right\n"
+    pair = "def helper(left: u8, right: u8) -> u8:\n    return left ^ right\n"
     add(
         "additional_width",
-        mapped(pair.replace("right: u8", "right: u2"), "value.map(helper, other)"),
-        ("rule parameter type mismatch",),
+        mapped(pair.replace("right: u8", "right: u2").replace("return left ^ right", "return left"), "value.map(helper, other)"),
+        ("type mismatch", "width", "type"),
     )
-    add("missing_actual", mapped(pair), ("arity", "argument", "formal"))
+    add("missing_actual", mapped(pair), ("arity", "argument", "formal", "zero-capture typed scalar helper"))
     add(
         "extra_actual",
         mapped(expression="value.map(helper, other)"),
-        ("arity", "argument", "formal"),
+        ("arity", "argument", "formal", "zero-capture typed scalar helper"),
     )
     add(
         "shape",
@@ -350,12 +333,12 @@ def Top(value: {value_type}, other: table[3, u8]) -> Result:
         ("left_missing",),
     )
     add(
-        "actual_before_body_recursion",
+        "static_closure_before_bad_actual",
         mapped(
             identity.replace("return value", "return helper(value)"),
             "value.map(helper, missing_actual)",
         ),
-        ("missing_actual",),
+        ("recurs", "cycle", "acyclic"),
     )
     add(
         "shadowed_callback",
@@ -388,17 +371,12 @@ def Top(value: {value_type}, other: table[3, u8]) -> Result:
             name, mapped(identity.replace("return value", "return " + body)), categories
         )
     indirect = identity.replace("return value", "return other_helper(value)")
-    indirect += "@rule\ndef other_helper(value: u8) -> u8:\n    return helper(value)\n"
+    indirect += "def other_helper(value: u8) -> u8:\n    return helper(value)\n"
     add("indirect_recursion", mapped(indirect), ("recurs", "cycle", "acyclic"))
     add(
         "default",
         mapped(identity.replace("value: u8", "value: u8 = 1")),
         ("signature", "formal", "parameter", "default"),
-    )
-    add(
-        "computed_annotation",
-        mapped(identity.replace("value: u8", "value: bits[4 + 4]")),
-        ("signature", "formal", "annotat", "width", "fixed"),
     )
     add(
         "formal_collision",
@@ -415,11 +393,11 @@ def Top(value: {value_type}, other: table[3, u8]) -> Result:
         "closed_lane_authority",
         mapped(
             identity.replace("value: u8", "value: u2")
-            + "@rule\ndef zero(value: u8) -> u8:\n    return 0\n",
+            + "def zero(value: u8) -> u8:\n    return 0\n",
             statements="    zeros = value.map(zero)\n",
             expression="zeros.map(helper)",
         ),
-        ("rule parameter type mismatch",),
+        ("type mismatch", "width", "type"),
     )
     add(
         "first_template_width_budget",
@@ -428,7 +406,7 @@ def Top(value: {value_type}, other: table[3, u8]) -> Result:
     )
     dag = identity.replace("helper", "level0")
     for i in range(1, 14):
-        dag += f"@rule\ndef level{i}(value: u8) -> u8:\n    return level{i - 1}(value) ^ level{i - 1}(value)\n"
+        dag += f"def level{i}(value: u8) -> u8:\n    return level{i - 1}(value) ^ level{i - 1}(value)\n"
     add(
         "first_template_occurrence_budget",
         mapped(dag, "value.map(level13)"),
@@ -459,13 +437,37 @@ def Top(value: {value_type}, other: table[3, u8]) -> Result:
 
 
 def positive_controls():
-    identity = "@rule\ndef helper(value: u8) -> u8:\n    return value\n"
-    # A moderate finite chain exercises lifecycle balance without assuming the
-    # implementation-dependent number of active preflight guards per call.
+    identity = "def helper(value: u8) -> u8:\n    return value\n"
     depth = 32
-    return [
-        {
-            "name": "finite_actual_depth",
-            "text": design(identity, "helper(" * depth + "value" + ")" * depth),
-        }
+    controls = [{"name": "finite_actual_depth", "text": design(identity, "helper(" * depth + "value" + ")" * depth)}]
+    for name, body in (("helper_slice_widening", "return value[:4]"), ("helper_locals", "temporary = value\n    annotated: u8 = temporary + 1\n    return annotated"), ("helper_division", "return value // 2"), ("helper_shift", "return value << 1"), ("helper_literal_tree", "return 1 + 2")):
+        controls.append({"name": name, "text": design(identity.replace("return value", body))})
+    for name, width in (("helper_computed_width", "bits[4 + 4]"), ("helper_shift_width", "bits[1 << 3]")):
+        controls.append({"name": name, "text": design(identity.replace("-> u8", "-> " + width))})
+    controls.append({"name": "helper_struct_none_snapshot", "text": PRELUDE + "@struct\nclass Pair:\n    left: u8\n    right: u8\ndef rebuild(value: Pair) -> Pair:\n    copied = Pair(left=value.right, right=value.left)\n    return copied\ndef consume(value: u8) -> None:\n    temporary: u8 = value + 1\n    return\n@module\ndef Top(value: u8) -> Pair:\n    captured = value + 1\n    def helper(arg: u8) -> u8:\n        return arg ^ captured\n    captured = value + 2\n    consume(value)\n    return rebuild(Pair(left=helper(value), right=value))\n"})
+    controls.append({"name": "pure_autonomous_once", "text": PRELUDE + "@struct\nclass Result:\n    value: u8\n@rule\ndef autonomous(value: u8) -> u8:\n    return value + 1\n@module\ndef Top(value: u8) -> Result:\n    selected = autonomous(value)\n    return Result(value=selected)\n"})
+    for name, expression, actual in (("fitting_literal_actual", "helper(0)", "u8"), ("fixed_widening_actual", "helper(value)", "u2"), ("count_widening_actual", "helper(value.count())", "table[3, u1]"), ("finite_integer_actual", "helper(value)", "Annotated[int, range(1 << 8)]")):
+        controls.append({"name": name, "text": design(identity, expression, value_type=actual)})
+    controls.append({"name": "boolean_to_fixed_one_bit", "text": design(identity.replace("value: u8", "value: u1").replace("-> u8", "-> u1"), value_type="bool")})
+    return controls
+
+
+def ordinary_contract_cases():
+    identity = "def helper(value: u8) -> u8:\n    return value\n"
+    legacy = "@rule\ndef helper(value: u8) -> u8:\n    return value\n"
+    rows = [
+        ("legacy_rule_expression", design(legacy), ("rule", "registration", "statement")),
+        ("legacy_rule_in_helper", design(legacy.replace("helper", "legacy") + identity.replace("return value", "return legacy(value)")), ("rule", "helper", "pure")),
+        ("legacy_rule_callback", design(legacy, "value.map(helper)[0]", value_type="table[3, u8]"), ("rule", "helper", "callback")),
+        ("helper_missing_return_annotation", design(identity.replace(" -> u8", "")), ("return", "annotat", "helper")),
+        ("helper_loop", design(identity.replace("return value", "for index in range(2):\n        value = value + 1\n    return value")), ("loop", "helper", "pure", "statement")),
+        ("helper_module_allocation", design(identity.replace("return value", "allocated = Child(value)\n    return allocated"), extra="@module\ndef Child(value: u8) -> u8:\n    return value\n"), ("module", "alloc", "helper", "pure")),
+        ("helper_from_caller_local_definition", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def run() -> Result:\n        def helper(arg: u8) -> u8:\n            return arg\n        return Result(value=helper(value))\n    return run()\n", ("helper", "nested", "declaration", "scope")),
+        ("duplicate_autonomous_registration", PRELUDE + legacy + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    first = helper(value)\n    second = helper(value)\n    return Result(value=first)\n", ("once", "registration", "duplicate")),
+        ("implicit_owner_capture", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    state: u8 = 0\n    @rule\n    def update():\n        state = value\n    update()\n    def helper(arg: u8) -> u8:\n        return state\n    return Result(value=helper(value))\n", ("owner", "state", "captur", "helper")),
+        ("helper_calls_rule", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def tick() -> u8:\n        return value\n    def helper(arg: u8) -> u8:\n        return tick()\n    return Result(value=helper(value))\n", ("rule", "helper", "pure")),
     ]
+    shadow_base = PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    def add(arg: u8) -> u8:\n        return arg + 1\n    HELPER\n    return Result(value=helper(value))\n"
+    for name, helper in (("private_helper_formal_shadow", "def helper(add: u8) -> u8:\n        return add(1)"), ("private_helper_local_shadow", "def helper(arg: u8) -> u8:\n        add = 0\n        return add(1)")):
+        rows.append((name, shadow_base.replace("HELPER", helper), ("not callable", "not a callable", "shadow", "cannot be called", "non-callable")))
+    return [{"name": name, "text": text, "categories": categories} for name, text, categories in rows]

@@ -150,25 +150,35 @@ if (node.kind() == "Call") {
     return constructStruct(node, at, ownerSymbol, values, instances, expected,
                            captures);
 }
+if (node.kind() == "Call") {
+  auto helper = resolveValueHelper(node.child("func"), ownerSymbol, &values);
+  if (failed(helper)) return failure();
+  if (*helper) {
+    auto results = valueHelperCall(node, at, ownerSymbol, values, instances);
+    if (failed(results)) return failure();
+    if (results->size() != 1)
+      return error() << "None pure helper is admitted only as a statement";
+    return results->front();
+  }
+}
 if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
     behavioralRules.contains(node.child("func").string("id"))) {
-  auto rule = behavioralRules.lookup(node.child("func").string("id"));
-  if (activePureScalar || fixedAnnotation(rule.child("returns")))
-    return pureRuleCall(node, at, ownerSymbol, values, instances);
-  if (!activeBehavioralDecl || !activeStates ||
+  if (activeValueHelper || !activeBehavioralDecl || !activeStates ||
       !isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
-    return error() << "behavioral rule calls are only admitted at module scope";
-  auto results =
-      behavioralCall(*activeBehavioralDecl, node, at, values, *activeStates);
-  if (failed(results))
-    return failure();
-  if (results->size() != 1 || !isa<ac::StructType>(results->front().getType()))
-    return error() << "rule value calls require a typed struct return contract";
+    return error() << "Rule calls are only complete Module/System registrations";
+  auto results = behavioralCall(*activeBehavioralDecl, node, at, values, *activeStates);
+  if (failed(results)) return failure();
+  if (results->size() != 1)
+    return error() << "Rule value registration requires one ordinary result";
   return results->front();
 }
 if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
-    local.contains(node.child("func").string("id")))
-  return directModuleCall(node, at, ownerSymbol, values, instances);
+    local.contains(node.child("func").string("id"))) {
+  if (activeValueHelper)
+    return error() << "pure helper cannot instantiate a module";
+  else
+    return directModuleCall(node, at, ownerSymbol, values, instances);
+}
 if (node.kind() == "Subscript") {
   auto base = expression(node.child("value"), at, ownerSymbol, values,
                          instances, {}, captures);

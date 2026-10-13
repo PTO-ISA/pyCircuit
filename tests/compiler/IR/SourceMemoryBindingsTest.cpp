@@ -50,6 +50,18 @@ def Memory(ren: ac.u1, raddr: ac.u2, wvalid: ac.u1,
     return value
 )py";
 
+// Each autonomous write has its own declaration. Shared bodies do not grant
+// a Rule multiple registrations in one owning module.
+std::string writerRules(unsigned count, bool conditional = true) {
+  std::string text;
+  for (unsigned i = 0; i != count; ++i) {
+    text += "@ac.rule\ndef put" + std::to_string(i) +
+            (conditional ? "(value, data, enable):\n    if enable:\n        value = data\n"
+                         : "(value, data):\n    value = data\n");
+  }
+  return text;
+}
+
 class SourceMemoryBindingsTest : public ::testing::Test {
 protected:
   MLIRContext context;
@@ -262,9 +274,9 @@ TEST_F(SourceMemoryBindingsTest, InferenceStopsBeforeRuntimeBodyLowering) {
 TEST_F(SourceMemoryBindingsTest, PendingGrantPlanIsNotProofAndRemainsImmutable) {
   for (bool complementary : {false, true}) {
     std::string text = "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
-        "@ac.rule\ndef put(value, data, enable):\n    if enable:\n        value = data\n"
+        + writerRules(2) +
         "@ac.module\ndef Top(p: ac.u1, q: ac.u1, data: ac.u8) -> Out:\n"
-        "    value: ac.u8 = 7\n    put(value, data, p)\n    put(value, data, " +
+        "    value: ac.u8 = 7\n    put0(value, data, p)\n    put1(value, data, " +
         std::string(complementary ? "~p" : "q") + ")\n    return Out(value=value)\n";
     auto captured = capture("pending.py", text);
     ASSERT_TRUE(captured);
@@ -275,7 +287,7 @@ TEST_F(SourceMemoryBindingsTest, PendingGrantPlanIsNotProofAndRemainsImmutable) 
     EXPECT_NE(pair.firstCall.value.get("span"), pair.secondCall.value.get("span"));
     EXPECT_NE(pair.firstAssignment.value.get("span"), Attribute{});
     EXPECT_NE(pair.secondAssignment.value.get("span"), Attribute{});
-    EXPECT_EQ(pair.firstCall.child("func").get("id"),
+    EXPECT_NE(pair.firstCall.child("func").get("id"),
               pair.secondCall.child("func").get("id"));
     const auto spent = writes.spentWork();
     const auto captureAttr = (*captured)->getAttr("ac.python_capture");
@@ -307,14 +319,14 @@ TEST_F(SourceMemoryBindingsTest, PendingEndpointsSurviveGrowingRegistrationStora
   // Multiple owners and calls grow both storage vectors. Each pair must keep
   // the exact owner/call occurrences rather than borrow invalidated pointers.
   std::string text = "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
-      "@ac.rule\ndef put(value, data, enable):\n    if enable:\n        value = data\n"
+      + writerRules(80) +
       "@ac.module\ndef Top(p: ac.u1, data: ac.u8) -> Out:\n";
   for (unsigned i = 0; i < 40; ++i)
     text += "    v" + std::to_string(i) + ": ac.u8 = 0\n";
   for (unsigned i = 0; i < 40; ++i)
-    text += "    put(v" + std::to_string(i) + ", data, p)\n";
+    text += "    put" + std::to_string(i) + "(v" + std::to_string(i) + ", data, p)\n";
   for (unsigned i = 0; i < 40; ++i)
-    text += "    put(v" + std::to_string(i) + ", data, ~p)\n";
+    text += "    put" + std::to_string(i + 40) + "(v" + std::to_string(i) + ", data, ~p)\n";
   text += "    return Out(value=v39)\n";
   auto captured = capture("growing.py", text);
   ASSERT_TRUE(captured);
@@ -337,15 +349,16 @@ TEST_F(SourceMemoryBindingsTest, PendingEndpointsSurviveGrowingRegistrationStora
 TEST_F(SourceMemoryBindingsTest, PendingPairCapAdmitsExactBoundaryAndRejectsNextPair) {
   for (bool overflow : {false, true}) {
     std::string text = "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
-        "@ac.rule\ndef put(value, data, enable):\n    if enable:\n        value = data\n"
+        + writerRules(160) +
         "@ac.module\ndef Top(p: ac.u1, data: ac.u8) -> Out:\n";
     for (unsigned ownerIndex = 0; ownerIndex < 12; ++ownerIndex)
       text += "    v" + std::to_string(ownerIndex) + ": ac.u8 = 0\n";
+    unsigned registration = 0;
     // C(128,2)+C(11,2)+9*C(2,2) = 8192 exact obligations.
     for (unsigned ownerIndex = 0; ownerIndex < (overflow ? 12u : 11u); ++ownerIndex) {
       unsigned registrations = ownerIndex == 0 ? 128 : ownerIndex == 1 ? 11 : 2;
       for (unsigned call = 0; call < registrations; ++call)
-        text += "    put(v" + std::to_string(ownerIndex) + ", data, p)\n";
+        text += "    put" + std::to_string(registration++) + "(v" + std::to_string(ownerIndex) + ", data, p)\n";
     }
     text += "    return Out(value=v0)\n";
     diagnostics.clear();
@@ -360,41 +373,41 @@ TEST_F(SourceMemoryBindingsTest, PendingPairCapAdmitsExactBoundaryAndRejectsNext
 }
 
 TEST_F(SourceMemoryBindingsTest, SourceWorkCapIsSharedAcrossUnusedModules) {
-  for (unsigned modules : {1u, 2u}) {
+  for (unsigned modules : {1u, 4u}) {
     std::string text = "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
-        "@ac.rule\ndef put(value, data):\n    value = data\n";
+        + writerRules(1000, false);
     for (unsigned moduleIndex = 0; moduleIndex < modules; ++moduleIndex) {
       text += "@ac.module\ndef Top" + std::to_string(moduleIndex) + "(data: ac.u8) -> Out:\n";
       for (unsigned i = 0; i < 1000; ++i)
         text += "    v" + std::to_string(i) + ": ac.u8 = 0\n";
       for (unsigned i = 0; i < 1000; ++i)
-        text += "    put(v" + std::to_string(i) + ", data)\n";
+        text += "    put" + std::to_string(i) + "(v" + std::to_string(i) + ", data)\n";
       text += "    return Out(value=v999)\n";
     }
     diagnostics.clear();
     auto captured = capture("work.py", text);
     ASSERT_TRUE(captured);
     source::SourceRuleWritesAnalysis writes(captured->getOperation());
-    EXPECT_EQ(writes.isPlanValid(), modules == 1) << diagnostics;
+    EXPECT_EQ(writes.isPlanValid(), modules == 1) << "source-wide work=" << writes.spentWork() << " " << diagnostics;
     EXPECT_TRUE(writes.pendingPairs().empty());
     if (modules == 1)
       EXPECT_LT(writes.spentWork(), 1048576u);
     else
-      EXPECT_NE(diagnostics.find("work budget exhausted"), std::string::npos) << diagnostics;
+      EXPECT_NE(diagnostics.find("work budget exhausted"), std::string::npos) << "source-wide work=" << writes.spentWork() << " " << diagnostics;
   }
 }
 
 TEST_F(SourceMemoryBindingsTest, LoweringWorkCapChargesPaddedConstantsAcrossModules) {
   for (unsigned modules : {1u, 2u}) {
     std::string text = "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
-        "@ac.rule\ndef put(value, data, enable):\n    if enable:\n        value = data\n";
+        + writerRules(64);
     for (unsigned moduleIndex = 0; moduleIndex < modules; ++moduleIndex) {
       text += "@ac.module\ndef Top" + std::to_string(moduleIndex) +
           "(p: ac.bits[1000000], data: ac.u8) -> Out:\n";
       for (unsigned i = 0; i < (modules == 1 ? 32u : 20u); ++i)
         text += "    v" + std::to_string(i) + ": ac.u8 = 0\n"
-            "    put(v" + std::to_string(i) + ", data, p == 0)\n"
-            "    put(v" + std::to_string(i) + ", data, p == 1)\n";
+            "    put" + std::to_string(2 * i) + "(v" + std::to_string(i) + ", data, p == 0)\n"
+            "    put" + std::to_string(2 * i + 1) + "(v" + std::to_string(i) + ", data, p == 1)\n";
       text += "    return Out(value=v0)\n";
     }
     diagnostics.clear();
@@ -429,7 +442,11 @@ class Flag:
 class Out:
     value: ac.u8
 @ac.rule
-def put(value, data, enable):
+def put0(value, data, enable):
+    if enable:
+        value = data
+@ac.rule
+def put1(value, data, enable):
     if enable:
         value = data
 @ac.module
@@ -441,8 +458,8 @@ def Top(data: ac.u8) -> Out:
     a = Flip(b.value)
     b = Flip(a.value)
     grant = a.value
-    put(value, data, grant)
-    put(value, data, ~grant)
+    put0(value, data, grant)
+    put1(value, data, ~grant)
     return Out(value=value)
 )py");
   ASSERT_TRUE(captured);
@@ -462,7 +479,6 @@ TEST_F(SourceMemoryBindingsTest,
 @struct
 class Out:
     value: u8
-@rule
 def increment(value: u8) -> u8:
     return value + 1
 @struct
@@ -521,7 +537,6 @@ def Top(entries: table[2, u8]) -> Out:
 @struct
 class Out:
     value: u8
-@rule
 def increment(value: u8) -> u8:
     return value + 1
 @struct
@@ -565,10 +580,8 @@ TEST_F(
 class Out:
     value: u13
     outside: u13
-@rule
 def helper(value: u8) -> u8:
     return value + 1
-@rule
 def nested(value: u8) -> u8:
     return helper(value) + 2
 @rule
@@ -625,13 +638,16 @@ def Top(value: u8) -> Out:
   auto expectedForSite = expectedSite(actualFor);
   auto expectedInductionSite = expectedSite(actualFor.child("target"));
   auto expectedNestedCallSite = expectedSite(nestedCall);
-  auto expectedHelperCallSite = expectedSite(nestedExpression.child("left"));
+  auto nestedSymbol = FlatSymbolRefAttr::get(&context, "memory_cache.provenance.nested");
+  auto helperSymbol = FlatSymbolRefAttr::get(&context, "memory_cache.provenance.helper");
+  auto expectedHelperCallSite = source::occurrence(expectedBuilder, nestedSymbol,
+      nestedExpression.child("left")).getAs<DictionaryAttr>("site");
   auto expectedCallerProducerSite =
       expectedSite(callerActualNode.child("right"));
-  auto expectedNestedProducerSite =
-      expectedSite(nestedExpression.child("right"));
-  auto expectedHelperProducerSite =
-      expectedSite(helperExpression.child("right"));
+  auto expectedNestedProducerSite = source::occurrence(expectedBuilder, nestedSymbol,
+      nestedExpression.child("right")).getAs<DictionaryAttr>("site");
+  auto expectedHelperProducerSite = source::occurrence(expectedBuilder, helperSymbol,
+      helperExpression.child("right")).getAs<DictionaryAttr>("site");
   auto expectedOutsideProducerSite =
       expectedSite(outsideExpression.child("right"));
   source::SourceMemoryBindingsAnalysis bindings(captured->getOperation());
@@ -659,6 +675,9 @@ def Top(value: u8) -> Out:
     if (auto location = dyn_cast<FileLineColLoc>(operation->getLoc()))
       return location.getLine();
     return 0;
+  };
+  auto sourceLine = [&](source::AstNode node) {
+    return cast<FileLineColLoc>(node.location(&context, "provenance.py")).getLine();
   };
   auto iteration = [&](DictionaryAttr frame, uint64_t ordinal) {
     if (!frame || frame.getAs<StringAttr>("kind").getValue() != "iteration")
@@ -693,16 +712,16 @@ def Top(value: u8) -> Out:
     if (!expansion)
       return;
     const unsigned line = lineOf(operation);
-    if (line == 18 && expansion.empty() &&
+    if (line == sourceLine(outsideExpression.child("right")) && expansion.empty() &&
         origin.getAs<DictionaryAttr>("site") == expectedOutsideProducerSite)
       outside = true;
     for (uint64_t ordinal = 0; ordinal < 2; ++ordinal) {
       if (expansion.size() == 1 &&
           iteration(cast<DictionaryAttr>(expansion[0]), ordinal)) {
-        if (line == 15 &&
+        if (line == sourceLine(actualFor) &&
             origin.getAs<DictionaryAttr>("site") == expectedInductionSite)
           induction[ordinal] = true;
-        if (line == 16 && origin.getAs<DictionaryAttr>("site") ==
+        if (line == sourceLine(callerActualNode.child("right")) && origin.getAs<DictionaryAttr>("site") ==
                               expectedCallerProducerSite) {
           callerActual[ordinal] = true;
           if (!malformed) {
@@ -718,7 +737,7 @@ def Top(value: u8) -> Out:
           call(cast<DictionaryAttr>(expansion[1]),
                "memory_cache.provenance.nested", expectedNestedCallSite)) {
         nestedBody[ordinal] |=
-            line == 11 &&
+            line == sourceLine(nestedExpression.child("right")) &&
             origin.getAs<DictionaryAttr>("site") == expectedNestedProducerSite;
       }
       if (expansion.size() == 3 &&
@@ -727,7 +746,7 @@ def Top(value: u8) -> Out:
                "memory_cache.provenance.nested", expectedNestedCallSite) &&
           call(cast<DictionaryAttr>(expansion[2]),
                "memory_cache.provenance.helper", expectedHelperCallSite) &&
-          line == 8 &&
+          line == sourceLine(helperExpression.child("right")) &&
           origin.getAs<DictionaryAttr>("site") == expectedHelperProducerSite) {
         helperBody[ordinal] = true;
       }

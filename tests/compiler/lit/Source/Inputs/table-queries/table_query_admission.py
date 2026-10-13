@@ -150,17 +150,19 @@ class Result:
 @ac.rule
 def Write(state):
     state = 1
+def predicate(value: ac.u8) -> ac.u8:
+    return value + 1
 @ac.module
 def Top() -> Result:
     state: ac.u8 = 0
-    callback = entries.first(where=lambda row: Write(state))
+    callback = entries.first(where=lambda row: predicate(state))
     Write(state)
     return Result(value=state)
 """
     valid = {
         "ordinary": source,
         "namespace-shadow": source.replace(
-            "lambda row: Write(state)", "lambda ac: ac.valid"
+            "lambda row: predicate(state)", "lambda ac: ac.valid"
         ),
         "posonly": source.replace("lambda row:", "lambda row, /:"),
     }
@@ -208,10 +210,18 @@ def resource_cases():
     ).replace(
         ASSIGNMENT, (ASSIGNMENT + "\n    ") * 4097 + "index, valid = " + CALL
     )
-    registered = one.replace(
-        "    return evaluate(entries)",
-        "    " + "evaluate(entries)\n    " * 4097 + "return evaluate(entries)",
+    # Preserve4098 invocations across independently registered declarations:
+    # each2049-query Rule fits alone, while their shared source ledger exhausts.
+    # Two bodies avoid inflating the source with4098 duplicate function shells.
+    prefix = one[: one.index("@ac.rule\ndef evaluate")]
+    block = one[one.index("@ac.rule\ndef evaluate") : one.index("@ac.module\ndef Top")]
+    block = block.replace(ASSIGNMENT, (ASSIGNMENT + "\n    ") * 2048 + ASSIGNMENT)
+    registered = (
+        prefix
+        + block.replace("def evaluate(", "def evaluate_first(")
+        + block.replace("def evaluate(", "def evaluate_second(")
     )
+    registered += "@ac.module\ndef Top() -> Result:\n    entries = ac.table[1, Entry](init=0)\n    evaluate_first(entries)\n    return evaluate_second(entries)\n"
     cartesian = """import pycircuit as ac
 @ac.struct
 class Entry:
@@ -231,7 +241,7 @@ def Top(entries: ac.table[1024, Entry], ready: ac.table[2048, ac.u1]) -> Result:
         "payload-words": wide,
         "occurrences": repeated,
         "unused-module": unused,
-        "repeated-registration": registered,
+        "distinct-registrations": registered,
         "cartesian-product": cartesian,
     }
 

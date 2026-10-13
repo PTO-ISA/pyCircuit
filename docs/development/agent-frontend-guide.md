@@ -75,10 +75,14 @@ widens before summing and retains its `[0, N+1)` range proof. Captures preserve
 call-time values, including nominal Structs containing Tables. See
 [Table transformations](../reference/language.md#table-transformations-and-reductions)
 for exact result, callback, four-state and resource boundaries. Map also accepts
-same-source named `@rule` callbacks from the fixed scalar expression subset.
+named ordinary typed `def` callbacks through the shared pure-helper lowering.
+Named callbacks retain fixed-Bits parameters/results and no free captures.
 Generic row types must exactly match their formal annotations; individual lane
 values do not supply range or constant authority. Helper calls inside expression
-lambdas remain unsupported. Ordered prefixes can use the
+lambdas remain unsupported. Use ordinary typed `def` for pure reuse and reserve
+`@rule` for exactly one static autonomous registration per declaration/instance.
+See [pure value helpers](../reference/language.md#pure-value-helpers) for lexical
+snapshots, publication and the bounded body grammar. Ordered prefixes can use the
 [bounded literal-range loop profile](../reference/language.md#bounded-source-loops)
 in pure behavioral rules; it adds no scan API or clock cycle. Preserve its exact
 range grammar, binder behavior, effect exclusions and resource bounds.

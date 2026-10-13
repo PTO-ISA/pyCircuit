@@ -7,6 +7,7 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/AsmParser/AsmParser.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -218,6 +219,110 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     return 0;
   }
 };
+
+TEST_F(SourceTransactionCaptureTest, OrdinaryHelpersInlineIntoRuleAndMethodBodies) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    bias = 1
+    def increment(value: ac.u8) -> ac.u8:
+        typed_bias: ac.u8 = bias
+        intermediate: ac.u8 = value + typed_bias
+        return intermediate
+    @ac.method
+    def add(__pyc_helper_snapshot_0: ac.u8) -> ac.u8:
+        count = increment(count + __pyc_helper_snapshot_0)
+        return count
+    @ac.rule
+    def advance() -> None:
+        count = increment(count)
+    advance()
+)py", "helpers.py");
+  ASSERT_TRUE(file);
+  auto methods = operations<ac::SourceMethodOp>(*file);
+  auto transactions = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(methods.size(), 1u);
+  ASSERT_EQ(transactions.size(), 1u);
+  for (auto *scope : {methods[0].getOperation(), transactions[0].getOperation()}) {
+    unsigned calls = 0;
+    scope->walk([&](mlir::func::CallOp) { ++calls; });
+    EXPECT_EQ(calls, 0u);
+  }
+  EXPECT_FALSE(operations<ac::BitsBinaryOp>(*file).empty());
+}
+
+TEST_F(SourceTransactionCaptureTest, DeferredNestedHelpersKeepLexicalScopeAndHiddenCaptureIdentity) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class Result:
+    formal: ac.u8
+    local: ac.u8
+    forward: ac.u8
+@ac.module
+def Top(value: ac.u8) -> Result:
+    offset = value + 1
+    def base(arg: ac.u8) -> ac.u8:
+        return arg + offset
+    def caller(__pyc_capture_0: ac.u8) -> ac.u8:
+        return base(__pyc_capture_0)
+    def local(arg: ac.u8) -> ac.u8:
+        __pyc_capture_0 = arg
+        return base(__pyc_capture_0)
+    def first(arg: ac.u8) -> ac.u8:
+        return later(arg)
+    def later(arg: ac.u8) -> ac.u8:
+        return arg + 1
+    offset = value + 7
+    return Result(formal=caller(value), local=local(value), forward=first(value))
+)py", "hidden_capture.py");
+  ASSERT_TRUE(file);
+  for (auto definition : operations<ac::ModuleOp>(*file)) {
+    unsigned calls = 0;
+    definition->walk([&](mlir::func::CallOp) { ++calls; });
+    EXPECT_EQ(calls, 0u);
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest, HelperBindingsMayShadowRuleNamesAsOrdinaryValues) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class Result:
+    formal: ac.u8
+    local: ac.u8
+@ac.rule
+def legacy(value: ac.u8) -> ac.u8:
+    return value
+@ac.module
+def Top(value: ac.u8) -> Result:
+    def formal(legacy: ac.u8) -> ac.u8:
+        return legacy + 1
+    def local(arg: ac.u8) -> ac.u8:
+        legacy = arg
+        return legacy + 1
+    return Result(formal=formal(value), local=local(value))
+)py", "rule_shadow.py");
+  ASSERT_TRUE(file);
+}
+
+TEST_F(SourceTransactionCaptureTest, OrdinaryModuleResultWiresCanBeCapturedAsPayloadSnapshots) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class View:
+    value: ac.u8
+@ac.module
+def Child(value: ac.u8) -> View:
+    return View(value=value + 1)
+@ac.module
+def Top(value: ac.u8) -> View:
+    wire = Child(value)
+    def helper(arg: ac.u8) -> ac.u8:
+        return wire.value + arg
+    return View(value=helper(value))
+)py", "wire_capture.py");
+  ASSERT_TRUE(file);
+  EXPECT_EQ(operations<ac::InstanceOp>(*file).size(), 1u);
+}
 
 std::string counterSource(unsigned width = 8, StringRef ownerName = "Counter",
                           StringRef parentName = "Parent", bool two = false) {
@@ -1537,6 +1642,127 @@ def Owner():
     methods[0]->setAttr(attribute, saved);
   }
   ASSERT_TRUE(succeeded(mlir::verify(*file))) << diagnostics;
+}
+
+
+TEST_F(SourceTransactionCaptureTest, PublishedHelperBodyAndContractRemainBoundToTheirProvider) {
+  auto captured = capture("helper_provider.py", R"py(import pycircuit as ac
+def identity(value: ac.u8) -> ac.u8:
+    return value
+)py");
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(*captured, owner("helper_provider.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  for (unsigned mutation = 0; mutation != 4; ++mutation) {
+    OwningOpRef<ModuleOp> header(cast<ModuleOp>((*compiled->interface)->clone()));
+    mlir::func::FuncOp helper;
+    for (auto candidate : header->getOps<mlir::func::FuncOp>())
+      if (candidate->getAttrOfType<StringAttr>("ac.helper_kind") == StringAttr::get(&context, "value")) helper = candidate;
+    ASSERT_TRUE(helper);
+    Builder b(&context);
+    if (mutation == 0) {
+      OpBuilder operations(&context);
+      operations.setInsertionPoint(helper.getBody().front().getTerminator());
+      auto argument = helper.getBody().front().getArgument(0);
+      OperationState invert(helper.getLoc(), ac::BitsUnaryOp::getOperationName());
+      invert.addOperands(argument);
+      invert.addTypes(helper.getFunctionType().getResult(0));
+      invert.addAttribute("opcode", b.getStringAttr("not"));
+      auto *operation = operations.create(invert);
+      helper.getBody().front().getTerminator()->setOperand(0, operation->getResult(0));
+      ASSERT_TRUE(succeeded(mlir::verify(*header))) << diagnostics;
+    }
+    if (mutation == 1) {
+      auto byte = cast<ac::BitsType>(helper.getFunctionType().getInput(0));
+      auto width = byte.getWidth();
+      auto value = width.getTree().getAs<DictionaryAttr>("value");
+      ASSERT_TRUE(value);
+      auto one = changed(value, "value", parseAttribute("#ac.math_int<1>", &context));
+      auto bit = ac::BitsType::get(&context, ac::StaticExprAttr::get(&context, changed(width.getTree(), "value", one)));
+      helper.setType(b.getFunctionType({bit}, {bit}));
+      helper.getBody().front().getArgument(0).setType(bit);
+      auto parameter = cast<DictionaryAttr>(helper->getAttrOfType<ArrayAttr>("ac.parameters")[0]);
+      auto constraint = parameter.getAs<DictionaryAttr>("constraint");
+      auto bound = changed(constraint, "type", TypeAttr::get(bit));
+      helper->setAttr("ac.parameters", b.getArrayAttr({changed(parameter, "constraint", bound)}));
+      helper->setAttr("ac.result_constraints", b.getArrayAttr({bound}));
+      helper.getBody().getBlocks().clear();
+      auto *block = new Block;
+      helper.getBody().push_back(block);
+      auto input = block->addArgument(bit, helper.getLoc());
+      OpBuilder operations(&context);
+      operations.setInsertionPointToEnd(block);
+      operations.create<mlir::func::ReturnOp>(helper.getLoc(), input);
+      ASSERT_TRUE(succeeded(mlir::verify(*header))) << diagnostics;
+    }
+    if (mutation == 2) helper->setAttr("ac.capture_types", b.getArrayAttr({TypeAttr::get(helper.getFunctionType().getInput(0))}));
+    if (mutation == 3) helper->setAttr("ac.source_owner", owner("foreign.py"));
+    diagnostics.clear();
+    EXPECT_TRUE(failed(compiler::verifyIntrinsicSourceUnitPair(*compiled->body, *header, error())));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest, HelperOnlyProviderCannotPublishWithoutItsOwningFunctionBody) {
+  auto captured = capture("helper_provider.py", R"py(import pycircuit as ac
+def identity(value: ac.u8) -> ac.u8:
+    return value
+)py");
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(*captured, owner("helper_provider.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  auto registry = compiler::SourceHeaderRegistry::create(&context, {*compiled->interface}, error());
+  ASSERT_TRUE(succeeded(registry)) << diagnostics;
+  for (bool snapshot : {false, true}) {
+    OwningOpRef<ModuleOp> body(cast<ModuleOp>((*compiled->body)->clone()));
+    for (auto helper : llvm::make_early_inc_range(body->getOps<mlir::func::FuncOp>())) {
+      if (snapshot) helper->setAttr("ac.declaration_role", Builder(&context).getStringAttr("import_snapshot"));
+      else helper->erase();
+    }
+    diagnostics.clear();
+    EXPECT_TRUE(failed(compiler::verifyIntrinsicSourceUnitPair(*body, *compiled->interface, error())));
+    EXPECT_FALSE(diagnostics.empty());
+    diagnostics.clear();
+    EXPECT_TRUE(failed(registry->verifyBodySnapshots(*body, *compiled->interface, error())));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest, PureHelpersMaySupplyGuardsButCannotHideEffects) {
+  constexpr StringLiteral sourceText = R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 1
+    def predicate(value: ac.u8) -> bool:
+        return value != 0
+    @ac.method(guard=lambda delta: predicate(delta))
+    def guarded(delta: ac.u8) -> None:
+        count = delta
+    @ac.rule(guard=lambda: predicate(count))
+    def inspect() -> None:
+        pass
+    inspect()
+)py";
+  auto file = typed(sourceText, "helper_guard.py");
+  ASSERT_TRUE(file);
+  for (auto method : operations<ac::SourceMethodOp>(*file))
+    EXPECT_FALSE(direct<ac::BitsCompareOp>(method.getGuard()).empty());
+  for (auto transaction : operations<ac::SourceTransactionOp>(*file))
+    EXPECT_FALSE(direct<ac::BitsCompareOp>(transaction.getGuard()).empty());
+  for (StringRef body : {"return ac.report(value)", "return guarded(value)", "allocated = Owner()\n        return True"}) {
+    std::string text = sourceText.str();
+    auto offset = text.find("return value != 0");
+    text.replace(offset, std::string("return value != 0").size(), body.str());
+    auto captured = capture("bad_guard.py", text);
+    ASSERT_TRUE(captured);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*captured, "bad_guard.py")));
+    EXPECT_FALSE(diagnostics.empty());
+  }
 }
 
 } // namespace

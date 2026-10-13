@@ -132,14 +132,14 @@ unit_before = snapshot(unit)
 
 # The first textual call is in Multi; Reverse retains a valid independent copy.
 replacements = {
-    "same-field": ("    WriteB(s, other, en_b)", "    WriteA(s, other, en_b)"),
+    "same-field": ("    WriteB(s, other, en_b)", "    WriteAConflict(s, other, en_b)"),
     "identity-write": ("    WriteB(s, other, en_b)", "    Identity(s, other, en_b)"),
     "parent-child": ("    WriteB(s, other, en_b)", "    Parent(s, other, en_b)"),
-    "whole-field": ("    WriteB(s, other, en_b)", "    Whole(s, other, en_b)"),
+    "whole-field": ("    WriteB(s, other, en_b)", "    WholeConflict(s, other, en_b)"),
     "writable-alias": ("    WriteA(s, data, en_a)", "    Aliases(s, s, data)"),
     "same-table-owner": (
-        "second = TableWrite(right, other)",
-        "second = TableWrite(left, other)",
+        "second = TableWriteSecond(right, other)",
+        "second = TableWriteSecond(left, other)",
     ),
     "input-shadows-rule": ("def Multi(en_a:", "def Multi(WriteA: ac.u8, en_a:"),
 }
@@ -292,15 +292,25 @@ compile_source(mapping, scratch / "mapping-void-unit")
 
 # Proof facts are necessary known-truth conditions, not Boolean rewriting.
 # Each accepted case writes one real scalar owner through distinct captures.
-def proof_source(first, second, setup="", third=None, tail=""):
-    calls = f"    put(value, data, {first})\n    put(value, other, {second})\n"
+def proof_rules(count, checked=False):
+    text = ""
+    for ordinal in range(count):
+        annotation = " -> Out" if checked else ""
+        text += f"@ac.rule\ndef put{ordinal}(value, data, enable){annotation}:\n    if enable:\n        value = data\n"
+        if checked:
+            text += "    assert True, 'grant check'\n    return Out(value=data)\n"
+    return text
+
+
+def proof_source(first, second, setup="", third=None, tail="", checked=False):
+    calls = f"    put0(value, data, {first})\n    put1(value, other, {second})\n"
     if third is not None:
-        calls += f"    put(value, data ^ other, {third})\n"
+        calls += f"    put2(value, data ^ other, {third})\n"
     return (
         "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
-        "@ac.rule\ndef put(value, data, enable):\n    if enable:\n        value = data\n"
-        "@ac.module\ndef Top(p: ac.u1, q: ac.u1, r: ac.u1, data: ac.u8, other: ac.u8) -> Out:\n"
-        "    value: ac.u8 = 7\n"
+        + proof_rules(3 if third is not None else 2, checked)
+        + "@ac.module\ndef Top(p: ac.u1, q: ac.u1, r: ac.u1, data: ac.u8, other: ac.u8) -> Out:\n"
+        + "    value: ac.u8 = 7\n"
         + setup
         + calls
         + "    return Out(value=value)\n"
@@ -367,15 +377,7 @@ for name, (first, second, setup) in proof_accepts.items():
 # A rule's user output precedes its proposal and source-check suffix. Proof
 # endpoint mapping must remain exact when all three result kinds coexist.
 checked = source / "checked_grants.py"
-checked.write_text(
-    proof_source("p", "~p")
-    .replace("def put(value, data, enable):", "def put(value, data, enable) -> Out:")
-    .replace(
-        "        value = data\n@ac.module",
-        "        value = data\n    assert True, 'grant check'\n"
-        "    return Out(value=data)\n@ac.module",
-    )
-)
+checked.write_text(proof_source("p", "~p", checked=True))
 analyze(checked)
 compile_source(checked, scratch / "checked-grants-unit")
 
@@ -451,7 +453,7 @@ proof_rejects = {
         "p",
         "~p",
         tail="@ac.module\ndef Unused(p: ac.u1, q: ac.u1, data: ac.u8) -> Out:\n"
-        "    value: ac.u8 = 0\n    put(value, data, p)\n    put(value, data, q)\n"
+        "    value: ac.u8 = 0\n    put0(value, data, p)\n    put1(value, data, q)\n"
         "    return Out(value=value)\n",
     ),
 }
@@ -555,13 +557,17 @@ for owners in (31, 32):
     expression = balanced_and(["(p ^ q)"] * 32)
     setup = "".join(f"    v{i}: ac.u8 = 0\n" for i in range(owners))
     setup += "".join(
-        f"    g{i} = {expression}\n    put(v{i}, data, g{i})\n"
-        f"    put(v{i}, other, ~g{i})\n"
+        f"    g{i} = {expression}\n    put{2*i}(v{i}, data, g{i})\n"
+        f"    put{2*i+1}(v{i}, other, ~g{i})\n"
         for i in range(owners)
     )
     candidate = proof_source("p", "~p")
     begin = candidate.index("    value: ac.u8 = 7")
-    candidate = candidate[:begin] + setup + "    return Out(value=v0)\n"
+    candidate = (
+        candidate[:begin].replace(proof_rules(2), proof_rules(2 * owners))
+        + setup
+        + "    return Out(value=v0)\n"
+    )
     budget_cases.append(
         (f"queries-{owners}", candidate, None if owners == 31 else "query")
     )
@@ -570,10 +576,10 @@ for modules in (1, 2):
         "p: ac.u1, q: ac.u1, r: ac.u1", "p: ac.bits[1000000]"
     )
     begin = candidate.index("    value: ac.u8 = 7")
-    header = candidate[:begin]
+    header = candidate[:begin].replace(proof_rules(2), proof_rules(64))
     setup = "".join(
-        f"    v{i}: ac.u8 = 0\n    put(v{i}, data, p == 0)\n"
-        f"    put(v{i}, other, p == 1)\n"
+        f"    v{i}: ac.u8 = 0\n    put{2*i}(v{i}, data, p == 0)\n"
+        f"    put{2*i+1}(v{i}, other, p == 1)\n"
         for i in range(32 if modules == 1 else 20)
     )
     candidate = header + setup + "    return Out(value=v0)\n"
@@ -589,9 +595,9 @@ for modules in (1, 2):
 candidate = proof_source("p", "~p")
 begin = candidate.index("    value: ac.u8 = 7")
 candidate = (
-    candidate[:begin]
+    candidate[:begin].replace(proof_rules(2), proof_rules(129))
     + "    value: ac.u8 = 7\n"
-    + "    put(value, data, p)\n" * 129
+    + "".join(f"    put{i}(value, data, p)\n" for i in range(129))
     + "    return Out(value=value)\n"
 )
 budget_cases.append(("pending-pairs", candidate, "pending pair"))

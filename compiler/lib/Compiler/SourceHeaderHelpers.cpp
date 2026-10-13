@@ -1,4 +1,5 @@
 #include "SourceHeaderHelpers.h"
+#include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/IR/OperationSupport.h"
@@ -51,6 +52,11 @@ LogicalResult verifySourcePath(DictionaryAttr sourceSpan, DictionaryAttr owner,
 LogicalResult verifyHeaderHelper(func::FuncOp helper,
                                  const SourceHeaderRegistry &registry,
                                  ac::detail::EmitError emitError) {
+  auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
+  if (kind && kind.getValue() == "value")
+    return ac::verifySourceValueHelper(helper, [&](FlatSymbolRefAttr symbol) {
+      return registry.lookupHelper(symbol);
+    });
   if (helper.isExternal() || helper.getBody().getBlocks().size() != 1)
     return emitError() << "header helper must have one executable body block";
   auto helperKind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
@@ -58,9 +64,7 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
   auto returnForm = helper->getAttrOfType<StringAttr>("ac.return_form");
   auto constraints = helper->getAttrOfType<ArrayAttr>("ac.result_constraints");
   auto checks = helper->getAttrOfType<ArrayAttr>("ac.check_templates");
-  if (!helperKind ||
-      (helperKind.getValue() != "record_constructor" &&
-       helperKind.getValue() != "value") ||
+  if (!helperKind || helperKind.getValue() != "record_constructor" ||
       !parameters || !returnForm || !constraints || !checks)
     return emitError() << "header helper contract metadata is incomplete";
   if (!checks.empty())
@@ -169,8 +173,6 @@ LogicalResult verifyHeaderHelper(func::FuncOp helper,
     auto resultRecord = resultType.getAs<FlatSymbolRefAttr>("symbol");
     if (!record || !resultRecord || record != resultRecord)
       return emitError() << "record constructor nominal result mismatch";
-  } else if (helper->hasAttr("ac.record")) {
-    return emitError() << "value helper must not carry ac.record";
   }
 
   Block &entry = helper.getBody().front();

@@ -106,6 +106,7 @@ nav:
       - Extension Specifications:
           - Serial Rule and Method: rfcs/serial-rule-method/README.md
           - Source Semantics: rfcs/serial-rule-method/source-semantics.md
+          - Pure Helpers: rfcs/serial-rule-method/pure-helpers.md
           - MLIR Pipeline: rfcs/serial-rule-method/mlir-pipeline.md
           - Transaction Publication Summary: rfcs/serial-rule-method/publication-summary.md
           - Resource Extensions: rfcs/serial-rule-method/extensions.md

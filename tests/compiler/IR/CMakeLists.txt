@@ -33,7 +33,7 @@ add_acir_api_test(ACIRFixedUnsignedDivRemLoweringTests FixedUnsignedDivRemLoweri
 target_link_libraries(ACIRFixedUnsignedDivRemLoweringTests PRIVATE ACIRSourceCompiler)
 add_acir_api_test(ACIRSourceInterfacePassTests SourceInterfacePassTest.cpp
   SourceMemoryBindingsTest.cpp TableQuerySourceTest.cpp
-  SourceTransactionCaptureTest.cpp)
+  SourceTransactionCaptureTest.cpp SourceHelperAuthorityTest.cpp)
 target_compile_definitions(ACIRSourceInterfacePassTests PRIVATE
   PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
   PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")

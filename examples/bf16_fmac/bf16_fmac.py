@@ -100,8 +100,9 @@ class PackedResult:
     value: ac.u32
 
 
-@ac.rule
-def partial_products(a_in, b_in, acc_in, valid_in) -> PartialProducts:
+def partial_products(
+    a_in: ac.u16, b_in: ac.u16, acc_in: ac.u32, valid_in: ac.u1
+) -> PartialProducts:
     # Flush exponent-zero mantissas; retain the ten-bit modular exponent.
     a_exp = a_in[7:15]
     b_exp = b_in[7:15]
@@ -157,13 +158,11 @@ def partial_products(a_in, b_in, acc_in, valid_in) -> PartialProducts:
     )
 
 
-@ac.rule
-def carry_save(a, b, c) -> CarrySave:
+def carry_save(a: ac.u16, b: ac.u16, c: ac.u16) -> CarrySave:
     return CarrySave(sum=a ^ b ^ c, carry=((a & b) | (c & (a ^ b))) << 1)
 
 
-@ac.rule
-def ripple8(a, b, cin) -> RippleResult:
+def ripple8(a: ac.u8, b: ac.u8, cin: bool) -> RippleResult:
     # Full-adder gates, not bits addition: carries remain locally resolvable.
     carry: ac.u1 = cin
     ab0 = a[0:1] ^ b[0:1]
@@ -196,8 +195,7 @@ def ripple8(a, b, cin) -> RippleResult:
     )
 
 
-@ac.rule
-def prepare_alignment(stage) -> Alignment:
+def prepare_alignment(stage: Stage2) -> Alignment:
     prod_msb = stage.prod_mant[15:16]
     prod_mant = stage.prod_mant >> 1 if prod_msb else stage.prod_mant
     prod_exp = stage.metadata.prod_exp + 1 if prod_msb else stage.metadata.prod_exp
@@ -220,8 +218,7 @@ def prepare_alignment(stage) -> Alignment:
     )
 
 
-@ac.rule
-def right_barrel26(value, amount) -> Mantissa:
+def right_barrel26(value: ac.u26, amount: ac.u5) -> Mantissa:
     shifted = value >> 1 if amount[0:1] else value
     shifted = shifted >> 2 if amount[1:2] else shifted
     shifted = shifted >> 4 if amount[2:3] else shifted
@@ -230,8 +227,9 @@ def right_barrel26(value, amount) -> Mantissa:
     return Mantissa(value=shifted)
 
 
-@ac.rule
-def combine(stage, alignment, prod_shift, acc_shift) -> Stage3:
+def combine(
+    stage: Stage2, alignment: Alignment, prod_shift: Mantissa, acc_shift: Mantissa
+) -> Stage3:
     prod = alignment.prod_mant if alignment.prod_bigger else prod_shift.value
     acc = acc_shift.value if alignment.prod_bigger else alignment.acc_mant
     same_sign = ~(stage.metadata.prod_sign ^ stage.metadata.acc_sign)
@@ -255,8 +253,7 @@ def combine(stage, alignment, prod_shift, acc_shift) -> Stage3:
     )
 
 
-@ac.rule
-def priority_normalization(mant) -> Normalization:
+def priority_normalization(mant: ac.u26) -> Normalization:
     # The historical low-to-high priority mux chain preserves equal-bit merges.
     lzc: ac.u6 = 26
     lzc = 25 if mant[0:1] else lzc
@@ -296,8 +293,7 @@ def priority_normalization(mant) -> Normalization:
     )
 
 
-@ac.rule
-def left_barrel26(value, amount) -> Mantissa:
+def left_barrel26(value: ac.u26, amount: ac.u5) -> Mantissa:
     shifted = value << 1 if amount[0:1] else value
     shifted = shifted << 2 if amount[1:2] else shifted
     shifted = shifted << 4 if amount[2:3] else shifted
@@ -306,8 +302,9 @@ def left_barrel26(value, amount) -> Mantissa:
     return Mantissa(value=shifted)
 
 
-@ac.rule
-def pack_result(stage, normalization, left, right) -> PackedResult:
+def pack_result(
+    stage: Stage3, normalization: Normalization, left: Mantissa, right: Mantissa
+) -> PackedResult:
     mant = (
         left.value
         if normalization.need_left

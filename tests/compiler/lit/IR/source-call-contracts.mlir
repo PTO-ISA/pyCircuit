@@ -139,7 +139,7 @@ module {
 #foreign = {site = {definition = @Foreign, ast_path = []}, expansion = []}
 module {
   ac.struct "Result" fields [{name = "value", type = !b1}]
-  // expected-error @+1 {{module parameter occurrence definition does not match its canonical symbol}}
+  // expected-error @+1 {{source module call occurrence definition does not match its canonical symbol}}
   "ac.module"() ({^bb0(%flag: !b1): %result = "ac.struct.create"(%flag) : (!b1) -> !ac.struct<"Result"> "ac.yield"(%result) : (!ac.struct<"Result">) -> ()}) {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> !ac.struct<"Result">, input_names = ["flag"], output_names = ["result"], ac.return_form = "single", ac.parameters = [{name = "flag", binding = "positional_or_keyword", constraint = {kind = "hardware", type = !b1, source_kind = "fixed_bits"}, default = {present = false}, origin = #foreign, location = #span}], ac.result_constraints = [{kind = "hardware", type = !ac.struct<"Result">, source_kind = "nominal"}], ac.domain_inputs = {}} : () -> ()
 }
 

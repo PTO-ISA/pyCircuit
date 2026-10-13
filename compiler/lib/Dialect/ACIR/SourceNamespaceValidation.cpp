@@ -113,8 +113,13 @@ LogicalResult verifyNamespaceTargetCategory(Operation *declaration,
     return success();
   if (auto helper = dyn_cast<func::FuncOp>(declaration)) {
     auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
-    if (kind && kind.getValue() == "value")
+    if (kind && kind.getValue() == "value") {
+      auto visibility = helper->getAttrOfType<StringAttr>("sym_visibility");
+      if (helper->hasAttr("ac.lexical_owner") ||
+          (visibility && visibility.getValue() == "private"))
+        return emitError() << "private lexical helpers cannot be namespace exports";
       return success();
+    }
     if (kind && kind.getValue() == "record_constructor")
       return emitError()
              << "record constructor helpers are not direct namespace exports";

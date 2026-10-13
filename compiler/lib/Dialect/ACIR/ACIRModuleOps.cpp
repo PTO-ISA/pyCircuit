@@ -41,9 +41,11 @@ LogicalResult verifyHardwareAttributeScope(Attribute attr, Operation *owner) {
           ref ? ref.getAs<FlatSymbolRefAttr>("owner") : FlatSymbolRefAttr();
       auto name = ref ? ref.getAs<StringAttr>("name") : StringAttr();
       bool declared = false;
-      for (auto raw : owner->getAttrOfType<ArrayAttr>("parameters"))
-        if (cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name)
-          declared = true;
+      if (auto parameters = owner->getAttrOfType<ArrayAttr>("parameters"))
+        for (auto raw : parameters)
+          if (auto parameter = dyn_cast<DictionaryAttr>(raw))
+            if (parameter.getAs<StringAttr>("name") == name)
+              declared = true;
       if (!kind || kind.getValue() != "parameter" || !symbol ||
           symbol.getValue() != SymbolTable::getSymbolName(owner).getValue() ||
           !declared)
@@ -74,10 +76,11 @@ LogicalResult verifyHardwareTypeScope(Type type, Operation *owner) {
     return verifyHardwareTypeScope(table.getElementType(), owner);
   }
   if (auto formal = dyn_cast<TypeParamType>(type)) {
-    if (formal.getOwner().getValue() !=
-            SymbolTable::getSymbolName(owner).getValue() ||
-        !llvm::is_contained(owner->getAttrOfType<ArrayAttr>("type_parameters"),
-                            Attribute(formal.getName())))
+    auto parameters = owner->getAttrOfType<ArrayAttr>("type_parameters");
+    auto symbol = SymbolTable::getSymbolName(owner);
+    if (!parameters || !symbol ||
+        formal.getOwner().getValue() != symbol.getValue() ||
+        !llvm::is_contained(parameters, Attribute(formal.getName())))
       return owner->emitOpError()
              << "wire type parameter must belong to its declaring module";
   }

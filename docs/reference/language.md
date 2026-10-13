@@ -424,12 +424,12 @@ contextual tuple/list fields, static defaults and recursive zero initialization.
 Imported nominal values retain their published identity; map does not broaden
 imported constructor/default admission inside callbacks.
 
-Map also accepts a same-source named `@rule` from the fixed scalar expression
-subset described below. Each Table element type must exactly match its formal
+Map also accepts a named ordinary typed `def` through the pure value-helper
+contract below. Each Table element type must exactly match its formal
 annotation, and the result is fixed Bits. The helper is typed once with generic
 row arguments and lowered through the existing map staging. Individual lane
 values do not supply range or constant authority for typing its body. These
-named callbacks may call other helpers in the same scalar subset.
+named callbacks may call other verified pure helpers within the callback operation limits.
 
 Captures are immutable call-time Bits/Enum/Struct snapshots. A captured Struct
 may contain Tables; explicitly indexed reads of captured Tables use the existing
@@ -503,8 +503,9 @@ loops. The body supports ordinary assignments, annotations, `pass`, existing
 `if`/conditional expressions, projections, proven Table indexing, fixed slices,
 `+`, `-`, `*`, `&`, `|`, `^`, supported unary/comparison/Boolean expressions,
 nominal Struct construction and contextual Table literals. Calls are limited to
-`concat`, `enum_to_bits` and existing same-source fixed scalar helpers. This does
-not broaden the fixed scalar helper or named Table callback expression subsets.
+`concat`, `enum_to_bits` and verified pure value helpers. This does not broaden
+the loop grammar or named Table callback restrictions; helper expansion is
+charged to the existing loop and source-wide budgets.
 Unary `not` and fixed-bit `~` retain their existing rules. Unary `+` and `-`
 are not implemented in this profile, including zero-trip bodies; binary
 subtraction such as `0 - 1` can produce a negative Integer.
@@ -828,42 +829,63 @@ arguments for standard leaves. Source location differences do not change
 hardware type meaning. Bool literals become known width-appropriate bits;
 width/range mismatches remain errors.
 
-## Scalar rule expressions
+## Pure value helpers
 
-A same-source top-level bare `@rule` may also be called as a scalar expression
-when every parameter and the result declares unsigned fixed Bits and its body
-contains one final expression return. Optional docstrings and `pass` statements
-may precede that return. For example:
+Use an ordinary typed `def` for reusable combinational computation. A helper
+may be top-level or declared directly inside a Module/System. `@rule` identifies
+an autonomous registration and is not a helper decorator.
 
 ```python
-from pycircuit import rule, u8
+from pycircuit import u8
 
-@rule
 def bump(value: u8) -> u8:
-    return value + 1
+    result: u8 = value + 1
+    return result
 ```
 
-Signatures use existing fixed aliases or `bits[positive_integer_literal]`.
-Arguments must already have the exact declared fixed-bit type and authority;
-plain Integer literals and implicit widening are not admitted at this boundary.
-The expression body supports fixed addition, subtraction, multiplication,
-inversion, bitwise `&`, `|` and `^`, single comparisons and conditional
-expressions, using their existing width and four-state semantics. A direct
-nonnegative Integer literal may pair with a fixed operand. Literal-only
-arithmetic, shifts, indexing/slices and Table methods inside helper bodies
-remain unsupported. Conditions must be Boolean comparisons,
-Boolean literals or fixed one-bit values. Acyclic calls to helpers in this same
-subset are permitted, including finite nested arguments such as `bump(bump(x))`.
-Actual arguments are evaluated and bound once in source order.
+Helpers require typed ordinary positional parameters and an explicit zero/one
+result contract (`-> None` for no result). They reuse the existing hardware
+binding boundaries and logical types; physical width alone does not permit an
+Integer/Boolean/fixed-Bits conversion. Actual arguments are evaluated and bound
+once, in source order. Defaults, keywords, variadic and positional-only
+parameters are not admitted.
 
-These calls allocate no state and lower through the existing scalar operations.
-They share the source-wide resource budget with Table operations. Both branches
-are checked even when a condition is a literal. Recursion, effects, assignments,
-aggregate parameters/results, imported bodies and defaults/keywords remain
-unsupported. A helper can be supplied directly to a Table's `map` method;
-calls inside Table expression lambdas remain unsupported. Existing
-registered-rule calls retain their storage ownership, binding and source-check
-behavior.
+Bodies use existing typed expressions, local assignments and annotations,
+immutable Struct field updates, `if/else`, `pass` and one final return. Branches
+retain definite-assignment and four-state selection rules. Existing arithmetic,
+projection, constructor and Table restrictions still apply. Acyclic helper calls
+are allowed; loops, early returns, nested declarations inside helpers,
+allocation, Rule/Method calls, assertions and I/O are rejected even in dead
+paths. A helper cannot read a persistent owner implicitly; pass its ordinary
+payload explicitly.
+
+A nested helper captures ordinary SSA values at its declaration, including
+ordinary module-result wires. Later rebinding of the same name does not change
+the capture. Calls between nested helpers use each callee's declaration snapshot;
+local parameter/variable bindings retain normal lexical precedence. Helpers do
+not capture owner or instance handles, clocks or reset. Top-level helpers have
+no runtime captures; nested helpers remain private to their lexical module.
+
+Source units publish typed helper bodies through the existing interface owner.
+Consumers resolve that published closure without reading provider Python; link
+checks the owning body against the interface. Native validation checks purity,
+logical types, lexical ownership, recursion and bounded expansion before
+inlining or elimination. Source helper functions/calls do not survive in final
+hardware IR, and neither backend interprets Python helpers.
+
+Ordinary expressions, registered Rule/Method bodies, named Table callbacks and
+the existing bounded-loop caller share this helper implementation. Named Table
+callbacks retain their fixed-Bits and zero-capture restrictions; calls inside
+Table expression lambdas remain unsupported. Helper support does not establish
+Method final lowering or runtime execution. The transaction extension remains
+subject to its separate acceptance criteria.
+
+Each Rule declaration must be registered exactly once per Module/System
+instance, as a complete static statement call, assignment value or return value.
+Nested expression calls, callable-body calls, Table callbacks and loop/repeated
+registration are rejected. A pure autonomous Rule remains a Rule; its return
+type or absence of writes never silently converts it into a helper. Historical
+pure `@rule` helpers must be changed to typed `def` explicitly.
 
 ## Immutable local wires
 

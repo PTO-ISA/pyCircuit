@@ -2,6 +2,7 @@
 #include "SourceDeclarationContext.h"
 #include "SourceRuleWrites.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/OperationSupport.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -90,7 +91,7 @@ public:
     return "Resolve source allocation geometry, bindings and hidden domains";
   }
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<ac::ACIRDialect>();
+    registry.insert<ac::ACIRDialect, func::FuncDialect>();
   }
   void runOnOperation() override {
     auto operation = getOperation();

@@ -438,7 +438,7 @@ result = {
             args.vvp,
         )
     },
-    "scope": "fixed scalar expression helpers and named fixed Table maps; three runtime roots; no effects or helper calls inside arbitrary Lambdas",
+    "scope": "ordinary typed helpers: locals, branches, lexical payload snapshots and named fixed Table callbacks; three numeric/four-state runtime roots plus source/native authority and admission checks",
 }
 (evidence / "candidate.json").write_text(json.dumps(result, indent=2) + "\n")
 print(

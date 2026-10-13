@@ -53,450 +53,6 @@ Importer::bindRuleFormal(const AstNode &formal, const AstNode &actual,
   return BoundRuleFormal{name.str(), *converted, binding};
 }
 
-FailureOr<SmallVector<BoundRuleFormal>>
-Importer::bindPureActuals(const AstNode &rule, const AstNode &call,
-                          OpBuilder &at, FlatSymbolRefAttr symbol,
-                          llvm::StringMap<Value> &values,
-                          llvm::StringMap<Instance *> &instances) {
-  auto args = rule.child("args");
-  if (failed(validateRuleParameters(rule)))
-    return failure();
-  if (!call.array("keywords").empty() ||
-      call.array("args").size() != args.array("args").size())
-    return mlir::emitError(call.location(b.getContext(), source.path))
-           << "scalar helper requires its exact positional argument list";
-  SmallVector<Value> actuals;
-  SmallVector<std::string> names;
-  SmallVector<BoundRuleFormal> bound;
-  if (activeLoop) {
-    // Caller expressions remain in the caller's expansion frame and are owned
-    // by its loop statement. Only boundaries and the callee enter the call
-    // frame.
-    for (size_t i = 0; i < args.array("args").size(); ++i) {
-      auto formal = args.item("args", i);
-      if (failed(validateRuleFormalName(formal, names)))
-        return failure();
-      names.push_back(formal.string("arg").str());
-      auto value =
-          expression(call.item("args", i), at, symbol, values, instances);
-      if (failed(value))
-        return failure();
-      actuals.push_back(*value);
-    }
-    size_t frameDepth = activeSourceExpansion.size();
-    if (failed(pushHelperFrame(call, rule, symbol)))
-      return failure();
-    auto restore =
-        llvm::scope_exit([&] { activeSourceExpansion.resize(frameDepth); });
-    Operation *previous = at.getInsertionBlock()->empty()
-                              ? nullptr
-                              : &at.getInsertionBlock()->back();
-    for (size_t i = 0; i < args.array("args").size(); ++i) {
-      auto actual = call.item("args", i);
-      auto binding = inferredBoundary(names[i], actuals[i], actual, true);
-      auto checked = bindRuleFormal(args.item("args", i), actual, actuals[i],
-                                    binding, false, at, symbol);
-      if (failed(checked))
-        return failure();
-      bound.push_back(std::move(*checked));
-    }
-    if (!activePureScalar) {
-      Operation *operation = previous
-                                 ? previous->getNextNode()
-                                 : (at.getInsertionBlock()->empty()
-                                        ? nullptr
-                                        : &at.getInsertionBlock()->front());
-      for (; operation; operation = operation->getNextNode())
-        activeLoop->helperOwned.insert(operation);
-    }
-  } else {
-    for (size_t i = 0; i < args.array("args").size(); ++i) {
-      auto formal = args.item("args", i);
-      if (failed(validateRuleFormalName(formal, names)))
-        return failure();
-      names.push_back(formal.string("arg").str());
-      // The list, rather than a binary operator's internal operand order, owns
-      // once-only source-order actual evaluation. No formal width hint is
-      // given.
-      auto value =
-          expression(call.item("args", i), at, symbol, values, instances);
-      if (failed(value))
-        return failure();
-      actuals.push_back(*value);
-      auto actual = call.item("args", i);
-      auto binding = inferredBoundary(names[i], actuals[i], actual, true);
-      auto checked = bindRuleFormal(formal, actual, actuals[i], binding, false,
-                                    at, symbol);
-      if (failed(checked))
-        return failure();
-      bound.push_back(std::move(*checked));
-    }
-  }
-  return bound;
-}
-
-FailureOr<Value> Importer::lowerPureBody(const AstNode &rule,
-                                         ArrayRef<BoundRuleFormal> formals,
-                                         OpBuilder &at,
-                                         FlatSymbolRefAttr symbol) {
-  auto &context = *activePureScalar;
-  auto diagnostic = [&] {
-    return mlir::emitError(rule.location(b.getContext(), source.path));
-  };
-  if (++context.calls > context.summary.calls ||
-      !pureCheckedAdd(context.formals, formals.size()) ||
-      context.formals > context.summary.formals)
-    return diagnostic() << "scalar helper binding exceeds its source envelope";
-  if (llvm::any_of(context.bodies, [&](const AstNode &ancestor) {
-        return samePureDeclaration(ancestor, rule);
-      }))
-    return diagnostic() << "scalar helper body recursion is unsupported";
-  // Actuals are already evaluated and exactly bound. Declaration identity
-  // tracks only active bodies, independently of the shared nesting guards.
-  context.bodies.push_back(rule);
-  context.peakBodies = std::max(context.peakBodies,
-                                static_cast<uint64_t>(context.bodies.size()));
-  auto pop = llvm::scope_exit([&] { context.bodies.pop_back(); });
-  // Preflight established the final Return on this immutable declaration.
-  // Do not rescan its potentially long Pass/docstring prefix while typing.
-  auto bodyStatements = rule.array("body");
-  if (bodyStatements.empty())
-    return diagnostic() << "scalar helper is missing its preflighted return";
-  auto returned = rule.item("body", bodyStatements.size() - 1);
-  if (returned.kind() != "Return" || !returned.child("value"))
-    return diagnostic() << "scalar helper is missing its preflighted return";
-  auto type = portType(rule.child("returns"), symbol);
-  if (failed(type))
-    return failure();
-  llvm::StringMap<Value> values;
-  llvm::StringMap<Instance *> noInstances;
-  for (const auto &formal : formals)
-    values[formal.name] = formal.value;
-  if (values.size() != formals.size() ||
-      context.peakFrameSlots > context.summary.slots[4])
-    return diagnostic() << "scalar helper formal frame exceeds its reservation";
-  auto value = expression(returned.child("value"), at, symbol, values,
-                          noInstances, *type);
-  if (failed(value))
-    return failure();
-  // The existing unsigned boundary owns fit, widening and fresh fixed facts.
-  return unsignedBoundary(*value, *type, returned.child("value"), at, symbol);
-}
-
-FailureOr<Value> Importer::namedPureMap(const AstNode &call,
-                                        const AstNode &name, ValueRange tables,
-                                        TableQueryLowering &lowering,
-                                        const TableQueryHooks &hooks,
-                                        OpBuilder &at,
-                                        FlatSymbolRefAttr symbol) {
-  auto declaration = pureRuleDeclaration(name);
-  if (failed(declaration))
-    return failure();
-  PureScalarSummary summary;
-  summary.arity = tables.size();
-  {
-    SmallVector<AstNode> bodies;
-    if (failed(chargePureSource(name, summary)) ||
-        failed(preflightPureDeclaration(name, *declaration, tables.size(),
-                                        summary, bodies)))
-      return failure();
-  }
-  if (failed(reservePureScalar(summary, call, true)))
-    return failure();
-  auto loc = name.location(b.getContext(), source.path);
-  auto temporary =
-      createOp(at, loc, ac::RuleOp::getOperationName(), {}, {}, {}, 1);
-  auto block = new Block();
-  temporary->getRegion(0).push_back(block);
-  auto cleanup = llvm::scope_exit([&] {
-    for (Value value : block->getArguments())
-      hooks.forgetFacts(value);
-    for (Operation &operation : *block)
-      for (Value value : operation.getResults())
-        hooks.forgetFacts(value);
-    temporary->erase();
-  });
-  SmallVector<Value> rows;
-  Value result;
-  {
-    // Generic rows carry only fixed Bits authority, never a selected lane's
-    // interval, closed value or source kind. All Tables were evaluated already.
-    SmallVector<BoundRuleFormal> formals;
-    auto inside = OpBuilder::atBlockEnd(block);
-    auto args = declaration->child("args");
-    for (size_t i = 0; i < tables.size(); ++i) {
-      auto formal = args.item("args", i);
-      auto actual =
-          i ? call.item("args", i) : call.child("func").child("value");
-      auto row = block->addArgument(
-          cast<ac::TableType>(tables[i].getType()).getElementType(), loc);
-      if (!isa<ac::BitsType>(row.getType()))
-        return mlir::emitError(actual.location(b.getContext(), source.path))
-               << "named Table map requires fixed Bits elements";
-      fixedValues.insert(row);
-      rows.push_back(row);
-      auto binding = inferredBoundary(formal.string("arg"), row, actual, true);
-      auto bound =
-          bindRuleFormal(formal, actual, row, binding, false, inside, symbol);
-      if (failed(bound))
-        return failure();
-      formals.push_back(std::move(*bound));
-    }
-    PureScalarContext context{summary};
-    context.frameSlots = context.peakFrameSlots = 6 * summary.arity;
-    auto previousPure = std::exchange(activePureScalar, &context);
-    auto previousRule = std::exchange(activeRule, nullptr);
-    auto previousDecl = std::exchange(activeBehavioralDecl, nullptr);
-    auto previousStates = std::exchange(activeStates, nullptr);
-    auto restore = llvm::scope_exit([&] {
-      activeStates = previousStates;
-      activeBehavioralDecl = previousDecl;
-      activeRule = previousRule;
-      activePureScalar = previousPure;
-    });
-    auto lowered = lowerPureBody(*declaration, formals, inside, symbol);
-    if (failed(lowered) ||
-        failed(auditPureScalar(*block, context, call, symbol, 0, nullptr,
-                               nullptr,
-                               succeeded(lowered) ? *lowered : Value())))
-      return failure();
-    result = *lowered;
-  }
-  // Root formals and every active B1/behavioral context have left scope before
-  // the one existing Table stage clones anything. The block and facts remain.
-  TableQueryStageEnvelope envelope{summary.operations, summary.arity,
-                                   summary.mapArguments, summary.values,
-                                   summary.slots[2]};
-  auto staged =
-      lowering.stage(*block, rows, tables, {result}, false, &envelope);
-  if (failed(staged))
-    return failure();
-  return staged->front();
-}
-
-FailureOr<Value>
-Importer::pureRuleCall(const AstNode &call, OpBuilder &at,
-                       FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
-                       llvm::StringMap<Instance *> &instances) {
-  auto diagnostic = [&] {
-    return mlir::emitError(call.location(b.getContext(), source.path));
-  };
-  if (!queryArguments.empty())
-    return diagnostic() << "scalar helpers are unsupported in Table callbacks";
-  // This guard owns the entire call, including root actuals and all cleanup.
-  // Inside an expanded body it is the single measured call-descent guard;
-  // there is no second reservation or temporary wrapper for that call.
-  std::string reason;
-  if (!queryBudget.enter(reason))
-    return diagnostic() << reason;
-  auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
-  auto declaration = pureRuleDeclaration(call);
-  if (failed(declaration))
-    return failure();
-  if (activePureScalar) {
-    auto &context = *activePureScalar;
-    if (queryBudget.used(TableQueryResource::Nesting) > context.summary.depth)
-      return diagnostic() << "scalar helper call exceeds its source envelope";
-    uint64_t slots = 6 * declaration->child("args").array("args").size();
-    context.frameSlots += slots;
-    context.peakFrameSlots =
-        std::max(context.peakFrameSlots, context.frameSlots);
-    auto frame = llvm::scope_exit([&] { context.frameSlots -= slots; });
-    if (context.peakFrameSlots > context.summary.slots[4])
-      return diagnostic()
-             << "scalar helper actual frame exceeds its reservation";
-    auto formals =
-        bindPureActuals(*declaration, call, at, symbol, values, instances);
-    if (failed(formals))
-      return failure();
-    size_t expansionDepth = activeSourceExpansion.size();
-    if (failed(pushHelperFrame(call, *declaration, symbol)))
-      return failure();
-    auto restoreExpansion =
-        llvm::scope_exit([&] { activeSourceExpansion.resize(expansionDepth); });
-    return lowerPureBody(*declaration, *formals, at, symbol);
-  }
-  PureScalarSummary summary;
-  summary.arity = call.array("args").size();
-  if (activeLoop) {
-    auto found = activeLoop->admission->helpers.find(call.value);
-    if (found == activeLoop->admission->helpers.end())
-      return diagnostic() << "bounded for helper has no capability preflight";
-    auto &cached = found->second;
-    summary = cached.summary;
-    summary.depth =
-        queryBudget.used(TableQueryResource::Nesting) + cached.relativeDepth;
-    if (cached.applications++) {
-      TableQueryCharge occurrence;
-      if (!TableQueryBudget::add(occurrence, TableQueryResource::Occurrences,
-                                 summary.calls) ||
-          !queryBudget.reserve(occurrence, reason))
-        return diagnostic() << "bounded for helper applications: " << reason;
-    }
-    TableQueryCharge metadata;
-    if (!TableQueryBudget::addProduct(metadata, TableQueryResource::Slots,
-                                      activeSourceExpansion.size() +
-                                          summary.calls,
-                                      summary.nodes + summary.formals) ||
-        !queryBudget.reserve(metadata, reason))
-      return diagnostic() << "bounded for helper provenance: " << reason;
-  } else {
-    SmallVector<AstNode> bodies;
-    if (failed(preflightPureCall(call, {}, summary, bodies, false)))
-      return failure();
-  }
-  if (failed(reservePureScalar(summary, call)))
-    return failure();
-  // Keep the caller's lexical/effect context until every actual has been
-  // evaluated and exact B0 binding has succeeded. Root-actual helpers each
-  // own their independent envelope while this lifecycle guard remains active.
-  auto formals =
-      bindPureActuals(*declaration, call, at, symbol, values, instances);
-  if (failed(formals))
-    return failure();
-  ac::HardwareAnalysis analysis(*body);
-  for (const auto &formal : *formals) {
-    auto width = analysis.getPackedWidth(formal.value.getType(), {},
-                                         at.getInsertionBlock()->getParentOp());
-    auto fact = numericValues.find(formal.value);
-    auto bounded = [&](const llvm::APSInt &integer) {
-      return integer.getBitWidth() / 64 + (integer.getBitWidth() % 64 != 0) <=
-                 summary.words &&
-             (integer.isSigned() ? integer.getSignificantBits()
-                                 : integer.getActiveBits()) <= summary.height;
-    };
-    if (failed(width) || *width > summary.width)
-      return diagnostic() << "scalar helper capture exceeds its fact envelope";
-    if (fact == numericValues.end())
-      continue;
-    const auto &info = fact->second;
-    if (info.interval &&
-        (!bounded(info.interval->lower) || !bounded(info.interval->upper)))
-      return diagnostic() << "scalar helper capture exceeds its fact envelope";
-    if (auto closed =
-            dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant)) {
-      auto decoded = pureAuditInteger(closed, summary);
-      if (!decoded || !bounded(*decoded))
-        return diagnostic()
-               << "scalar helper capture exceeds its fact envelope";
-    }
-  }
-  auto loc = call.location(b.getContext(), source.path);
-  // Existing ac.rule staging pattern: this holder is type-only, with no
-  // registered rule contract, occurrence plan, writes, instances or effects.
-  auto temporary =
-      createOp(at, loc, ac::RuleOp::getOperationName(), {}, {}, {}, 1);
-  auto block = new Block();
-  temporary->getRegion(0).push_back(block);
-  Operation *firstClone = nullptr;
-  uint64_t cloneCount = 0;
-  bool publishClone = false;
-  auto cleanup = llvm::scope_exit([&] {
-    if (!publishClone) {
-      Operation *operation = firstClone;
-      for (uint64_t i = 1; i < cloneCount; ++i)
-        operation = operation->getNextNode();
-      for (uint64_t i = 0; i < cloneCount; ++i) {
-        Operation *previous = operation->getPrevNode();
-        for (Value value : operation->getResults()) {
-          numericValues.erase(value);
-          fixedValues.erase(value);
-          arithmeticValues.erase(value);
-        }
-        operation->erase();
-        operation = previous;
-      }
-    }
-    for (Value value : block->getArguments()) {
-      numericValues.erase(value);
-      fixedValues.erase(value);
-      arithmeticValues.erase(value);
-    }
-    for (Operation &operation : *block)
-      for (Value value : operation.getResults()) {
-        numericValues.erase(value);
-        fixedValues.erase(value);
-        arithmeticValues.erase(value);
-      }
-    temporary->erase();
-  });
-  // Map capture arguments directly to the accepted original Values; the formal
-  // records then hold the captured Values used by the formal-only body frame.
-  IRMapping mapping;
-  for (auto &formal : *formals) {
-    Value original = formal.value;
-    formal.value = captureValue(block, original, loc);
-    mapping.map(formal.value, original);
-  }
-  PureScalarContext context{summary};
-  context.frameSlots = context.peakFrameSlots = 6 * summary.arity;
-  auto previousPure = std::exchange(activePureScalar, &context);
-  auto previousRule = std::exchange(activeRule, nullptr);
-  auto previousDecl = std::exchange(activeBehavioralDecl, nullptr);
-  auto previousStates = std::exchange(activeStates, nullptr);
-  auto restore = llvm::scope_exit([&] {
-    activeStates = previousStates;
-    activeBehavioralDecl = previousDecl;
-    activeRule = previousRule;
-    activePureScalar = previousPure;
-  });
-  auto inside = OpBuilder::atBlockEnd(block);
-  size_t expansionDepth = activeSourceExpansion.size();
-  if (failed(pushHelperFrame(call, *declaration, symbol)))
-    return failure();
-  auto restoreExpansion =
-      llvm::scope_exit([&] { activeSourceExpansion.resize(expansionDepth); });
-  auto result = lowerPureBody(*declaration, *formals, inside, symbol);
-  if (failed(result))
-    return failure();
-  createOp(inside, loc, ac::YieldOp::getOperationName(), {*result}, {}, {});
-  if (failed(auditPureScalar(*block, context, call, symbol,
-                             mapping.getValueMap().size())))
-    return failure();
-  for (Operation &operation : *block) {
-    if (isa<ac::YieldOp>(operation))
-      break;
-    SmallVector<Value, 3> operands;
-    for (Value value : operation.getOperands()) {
-      if (!mapping.contains(value))
-        return diagnostic() << "scalar helper clone has an unmapped input";
-      operands.push_back(mapping.lookup(value));
-    }
-    // Flat scalar cloning uses only the Value map. Generic recursive clone
-    // would also retain operation/block maps that are outside this envelope.
-    auto copy =
-        createOp(at, operation.getLoc(), operation.getName().getStringRef(),
-                 operands, operation.getResultTypes(), operation.getAttrs());
-    if (!firstClone)
-      firstClone = copy;
-    ++cloneCount;
-    Value old = operation.getResult(0), value = copy->getResult(0);
-    mapping.map(old, value);
-    auto info = valueInfo(old);
-    info.value = value;
-    numericValues[value] = std::move(info);
-    if (fixedValues.contains(old))
-      fixedValues.insert(value);
-    if (arithmeticValues.contains(old))
-      arithmeticValues.insert(value);
-  }
-  if (failed(auditPureScalar(*block, context, call, symbol,
-                             mapping.getValueMap().size(),
-                             at.getInsertionBlock(), firstClone)))
-    return failure();
-  if (!mapping.contains(*result))
-    return diagnostic() << "scalar helper result is missing its scalar clone";
-  if (activeLoop) {
-    Operation *operation = firstClone;
-    for (uint64_t i = 0; i < cloneCount; ++i) {
-      activeLoop->helperOwned.insert(operation);
-      operation = operation->getNextNode();
-    }
-  }
-  publishClone = true;
-  return mapping.lookup(*result);
-}
-
 FailureOr<SmallVector<Value>>
 Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                          llvm::StringMap<Value> &values,
@@ -529,6 +85,11 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
         return failure();
       contract.returnShape = ReturnShape::Struct;
       contract.outputs = {{"result", *type, annotation, {}, false}};
+    } else if (annotation.kind() != "Dict") {
+      auto type = portType(annotation, decl.symbol);
+      if (failed(type)) return failure();
+      contract.returnShape = ReturnShape::Struct;
+      contract.outputs = {{"result", *type, annotation, annotationKind(annotation), fixedAnnotation(annotation)}};
     } else {
       if (decl.returnShape != ReturnShape::Mapping ||
           annotation.kind() != "Dict" ||
@@ -644,6 +205,26 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
     formalBoundaries.push_back(bound->boundary);
     captures.push_back(bound->value);
   }
+  // Directly nested Rules retain ordinary lexical wire captures in addition to
+  // their explicit owner/formal bindings. This uses the existing Rule operand
+  // and region argument convention, without changing any state ownership.
+  SmallVector<std::pair<std::string, Value>> lexicalValues;
+  bool lexicalRule = llvm::any_of(decl.node.array("body"), [&](Attribute raw) { return raw == rule.value; });
+  if (lexicalRule)
+    for (const auto &entry : values)
+      if (!llvm::is_contained(formals, entry.first().str())) {
+        lexicalValues.push_back({entry.first().str(), entry.second});
+        captures.push_back(entry.second);
+      }
+  if (lexicalRule)
+    for (const auto &entry : valueHelpers) {
+      if (entry.second->lexicalOwner != decl.symbol) continue;
+      for (const auto &capture : entry.second->captures)
+        if (!llvm::is_contained(captures, capture.second)) {
+          lexicalValues.push_back({{}, capture.second});
+          captures.push_back(capture.second);
+        }
+    }
   SmallVector<Type> resultTypes;
   for (auto &port : contract.outputs)
     resultTypes.push_back(port.type);
@@ -708,6 +289,13 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
   for (auto [index, name] : llvm::enumerate(formals)) {
     localValues[name] = captureValue(block, captures[index], ruleOp->getLoc());
     environment.boundaries[name] = formalBoundaries[index];
+  }
+  for (auto [index, entry] : llvm::enumerate(lexicalValues)) {
+    auto value = captureValue(block, captures[formals.size() + index], ruleOp->getLoc());
+    if (!entry.first.empty()) {
+      localValues[entry.first] = value;
+      environment.boundaries[entry.first] = inferredBoundary(entry.first, value, rule);
+    }
   }
   auto nested = OpBuilder::atBlockEnd(block);
   {
@@ -801,5 +389,11 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
   }
   SmallVector<Value> results(
       ruleOp->getResults().take_front(contract.outputs.size()));
+  // The Rule's completed return boundary publishes the same source authority
+  // as a typed Module result. Registration remains a Rule even with no effects.
+  for (auto [result, port] : llvm::zip(results, contract.outputs)) {
+    remember(result, port.sourceKind);
+    if (port.fixedBits) fixedValues.insert(result);
+  }
   return results;
 }

@@ -5,57 +5,46 @@ import itertools
 CLOCK = "pyc_7079635f636c6b"
 
 SCALAR_DESIGN = '''from pycircuit import module, rule, struct, u1, u8, bits
-@rule
 def bump(value: u8) -> u8:
     """A fixed-width expression helper."""
     pass
-    return value + 1
-@rule
+    result: u8 = value + 1
+    return result
 def difference(left: u8, right: u8) -> u8:
-    return left - right
-@rule
+    delta: u8 = left - right
+    return delta
 def product(left: u8, right: u8) -> u8:
     return left * right
-@rule
 def composed(value: u8) -> u8:
     return difference(bump(value), bump(value))
-@rule
 def complement(value: bits[65]) -> bits[65]:
     return ~value
-@rule
 def wide_add(value: bits[65]) -> bits[65]:
     return value + 1
-@rule
 def band(left: u8, right: u8) -> u8:
     return left & right
-@rule
 def bor(left: u8, right: u8) -> u8:
     return left | right
-@rule
 def bxor(left: u8, right: u8) -> u8:
     return left ^ right
-@rule
 def equal(left: u8, right: u8) -> u1:
     return left == right
-@rule
 def below(left: u8, right: u8) -> u1:
     return left < right
-@rule
 def choose(flag: u1, left: u8, right: u8) -> u8:
-    return left if flag else right
-@rule
+    if flag:
+        selected = left
+    else:
+        selected = right
+    return selected
 def minimum(left: u8, right: u8) -> u8:
     return left if left < right else right
-@rule
 def right_literal(flag: u1, value: u8) -> u8:
     return value if flag else 7
-@rule
 def left_literal(flag: u1, value: u8) -> u8:
     return 7 if flag else value
-@rule
 def fixed_literal(value: u8) -> u8:
     return 23
-@rule
 def true_guard(value: u8) -> u8:
     return value if True else 255
 @struct
@@ -92,10 +81,8 @@ def Top(left: u8, right: u8, wide: bits[65], flag: u1) -> Result:
 '''
 
 COUNT_DESIGN = """from pycircuit import module, rule, struct, u1, u2, table
-@rule
 def step(value: u2) -> u2:
     return value + 1
-@rule
 def pair(left: u2, right: u2) -> u2:
     return left ^ right
 @struct
@@ -112,31 +99,22 @@ def Top(flags: table[3, u1]) -> Result:
 """
 
 NAMED_MAP_DESIGN = """from pycircuit import module, rule, struct, u1, u8, bits, table
-@rule
 def bump(value: u8) -> u8:
     return value + 1
-@rule
 def bump_twice(value: u8) -> u8:
     return bump(bump(value))
-@rule
 def decrement(value: u8) -> u8:
     return value - 1
-@rule
 def mix(left: u8, right: u8) -> u8:
     return bump(left) ^ decrement(right)
-@rule
 def equal_rows(left: u8, right: u8) -> u1:
     return left == right
-@rule
 def minimum_rows(left: u8, right: u8) -> u8:
     return left if left < right else right
-@rule
 def identity(value: u8) -> u8:
     return value
-@rule
 def fixed(value: u8) -> u8:
     return 23
-@rule
 def wide_step(value: bits[65]) -> bits[65]:
     return value + 1
 @struct
@@ -161,13 +139,22 @@ def Top(left: table[3, u8], right: table[3, u8], wide: table[3, bits[65]]) -> Re
     equivalent = left.map(lambda a, b: (a + 1) ^ (b - 1), right)
     equality = left.map(equal_rows, right)
     minimum = left.map(minimum_rows, right)
-    first = mix(left[0], right[0])
+    captured = left[0]
+    def captured_mix(value: u8) -> u8:
+        return bump(captured) ^ decrement(value)
+    def captured_caller(__pyc_capture_0: u8) -> u8:
+        return captured_mix(__pyc_capture_0)
+    def captured_local(value: u8) -> u8:
+        __pyc_capture_0 = value
+        return captured_mix(__pyc_capture_0)
+    captured = right[0]
+    first = captured_local(right[0])
     second = mix(left[1], right[1])
     third = mix(left[2], right[2])
     same = left.map(identity)
     constant = left.map(fixed)
     stepped = wide.map(wide_step)
-    after = mix(left[0], right[0])
+    after = captured_caller(right[0])
     finite = left.map(identity).map(identity)
     finite_helper = left.map(bump_twice)
     ordered = left.map(lambda a: a + 1).map(mix, right.map(lambda b: b - 1))

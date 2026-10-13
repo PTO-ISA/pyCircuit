@@ -36,6 +36,16 @@ def Put(entries, side, index, value, enable, allow) -> Ack:
     return Ack(value=value)
 
 
+@ac.rule
+def PutSecond(entries, side, index, value, enable, allow) -> Ack:
+    if enable:
+        entries[index].a = value
+        entries[index].b = value ^ 255
+        side = value  # noqa: F841 - persistent owner proposal observed by Top
+        assert allow, "address grant suffix"
+    return Ack(value=value)
+
+
 @ac.module
 def Top(req_a: ac.u1, req_b: ac.u1, i: ac.u1, j: ac.u1,
         write_a: ac.u8, write_b: ac.u8, allow: ac.u1) -> Result:
@@ -45,7 +55,7 @@ def Top(req_a: ac.u1, req_b: ac.u1, i: ac.u1, j: ac.u1,
     grant_a = req_a
     grant_b = req_b & (~grant_a | (i != j))
     a = Put(entries, left, i, write_a, grant_a, allow)
-    b = Put(entries, right, j, write_b, grant_b, allow)
+    b = PutSecond(entries, right, j, write_b, grant_b, allow)
     return Result(a0=entries[0].a, b0=entries[0].b,
                   a1=entries[1].a, b1=entries[1].b,
                   left=left, right=right, user_a=a.value, user_b=b.value)
