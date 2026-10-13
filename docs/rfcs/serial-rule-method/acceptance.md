@@ -20,6 +20,10 @@ Method owner 是直接包含嵌套公开 `@method` 的 `@module`，首批没有�
 
 ## 必须建立的语义证据
 
+跨实例执行还必须关闭[专项 checklist](cross-instance-lowering.md#cross-instance-checklist)
+中的六个 `METHOD-*` 需求组；它们细化实例身份、物理根 ABI 和接线原子性，不替代本表。
+每项剩余能力的前置合同与接单检查见[实施矩阵](extension-roadmap.md)。
+
 | 需求标识 | 正例与独立期望 | 负例／边界与预期诊断类别 | 最小证据层 |
 | --- | --- | --- | --- |
 | `METHOD-INSTANCE-IDENTITY` | 同一实例重复调用共享一个 owner；两次结构实例化保有独立状态，名称变化不改变行为 | 无法解析的 owner、动态实例化、跨域事务：所有权／实例／域不支持 | typed effects、公共双目标 |

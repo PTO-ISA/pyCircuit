@@ -108,10 +108,12 @@ nav:
           - Source Semantics: rfcs/serial-rule-method/source-semantics.md
           - Pure Helpers: rfcs/serial-rule-method/pure-helpers.md
           - MLIR Pipeline: rfcs/serial-rule-method/mlir-pipeline.md
+          - Cross-instance Method Lowering: rfcs/serial-rule-method/cross-instance-lowering.md
           - Transaction Publication Summary: rfcs/serial-rule-method/publication-summary.md
           - Resource Extensions: rfcs/serial-rule-method/extensions.md
           - Acceptance Checklist: rfcs/serial-rule-method/acceptance.md
           - Implementation Plan: rfcs/serial-rule-method/implementation-plan.md
+          - Extension Roadmap: rfcs/serial-rule-method/extension-roadmap.md
       - Repository Management: development/repository-management.md
       - Repository Layout: development/repository-layout.md
       - Verification Evidence: gates/README.md

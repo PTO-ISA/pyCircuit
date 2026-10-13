@@ -71,7 +71,7 @@ helper grammar 限于现有已准入 typed 表达式／语句子集及 source-se
 
 **先导分析的独占文件：** 新增 `compiler/include/pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h`、`compiler/lib/Dialect/ACIR/SourceTransactionStateAnalysis.cpp` 和 `compiler/lib/Transforms/AnalyzeTransactionStateSSA.cpp`。仅为传递既有 parent bindings，允许在 `SourceMethodAnalysis.h`／`SourceMethodResolution.cpp` 给实际 call resolver 增加重载；不得构造假的 publication summary row。
 
-**后续真正变换的预留文件：** `compiler/lib/Transforms/LowerTransactionStateSSA.cpp`。effectful branch／selector 的源码扩展由 `PythonImportTransactions.inc` 及其 native verifier/summary 所有者承担；不能用 legacy importer 的私有候选环境替代通用 MLIR 变换。
+**真正变换的既有 owner：** `compiler/lib/Transforms/LowerTransactions.cpp`，同 owner 的有界执行已接入。后续跨实例继续扩展这一 pass，精确合同见[跨实例接线](cross-instance-lowering.md)；不再创建先前预留的 `LowerTransactionStateSSA.cpp` 平行物化路径。effectful branch／selector 的源码扩展由 `PythonImportTransactions.inc` 及其 native verifier/summary 所有者承担；不能用 legacy importer 的私有候选环境替代通用 MLIR 变换。
 
 **产出与不变量：** 每个独立 Rule 从旧 Q 建立候选；同一事务通过语句、分支、Method 调用线程化候选版本；局部值保持不可变快照。字段／下标更新保留精确路径和身份写。source order 只产生真实数据、状态或 effect 依赖，不能让所有纯计算串行。memory/Queue 不自动获得寄存器候选转发语义。
 
@@ -121,9 +121,9 @@ guard 首批只接纳具有完全匹配必需位置参数的 lambda；owner 在�
 
 **独占现有文件：** `compiler/lib/Compiler/PythonImportRecords.{h,cpp}`、`compiler/lib/Compiler/PythonImportComposition.inc`、`compiler/lib/Compiler/SourceLink.{h,cpp}`、`compiler/lib/Transforms/VerifyHardware.cpp`、`compiler/lib/Dialect/ACIR/FinalSourceUnitValidation.cpp`、`compiler/lib/Dialect/ACIR/HardwareAnalysisValidation.cpp`。
 
-**冻结新增文件：** `compiler/lib/Transforms/LowerTransactions.cpp`。
+**既有实现文件：** `compiler/lib/Transforms/LowerTransactions.cpp`。
 
-首个可执行增量直接复用该 owner，按 [MLIR 事务降低合同](mlir-pipeline.md#事务降低)
+首个可执行增量直接复用该 owner，按 [MLIR 事务降低合同](mlir-pipeline.md#transaction-lowering)
 完成同 owner、恒真 guard、whole-owner Bits、单外层 writer 的真实 DFFE/Rule 物化；
 不另建临时 lowerer。独立 native 用例由 `tests/compiler/IR/TransactionLoweringTest.cpp`
 及 `tests/compiler/lit/IR/transaction-lowering.mlir` 承担，公共源码 fixture 使用
@@ -176,6 +176,10 @@ PM 另负责 `SourceLink.h/.cpp` 的阶段捕获与权威重验，以及 `compil
 已有 `tests/compiler/lit/Source/multi-rule-writes.test`、`source-interface-extraction-invalid.test`、`record-projection-simplification.test`、`queue-source.test` 与 `tests/system/test_source_system_execution.py` 是应保持的责任入口；若确需修改这些文件，先由 PM 单独分配给独立测试所有者。不要创建第二 runner，不要求测试依赖本 RFC、local 日志或验收计数。长期 oracle/mutation 与变体矩阵放入现有 nightly 选择；短 gate 不偷偷运行全矩阵。
 
 ## 依赖、整合与证据出口
+
+后续派发先核对[扩展实施与验收矩阵](extension-roadmap.md)中的检查点与待实现边界。
+跨实例的新增共享接口按专项规格审查；动态 guard 在采样域、history、检查身份与顺序的
+精确共同 IR schema 冻结前不得派发实现，不能由 executor 在测试失败时自行补定。
 
 主链为 typed effects → summaries → state SSA → admission → resource/causality → final lowering → optimization。state SSA、admission 和 resource analysis 交换已声明符号事实；按有界分析接口闭合，不以顺序列表掩盖循环求解。允许独立测试准备与各切片实现并行；不可并行编辑同一 owner 文件。
 

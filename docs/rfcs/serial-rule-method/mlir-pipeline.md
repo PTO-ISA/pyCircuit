@@ -41,8 +41,10 @@ pass，却仍让每个 pass 独立解释 Python AST 或依赖不可检查的隐�
 ## 类型化效果操作
 
 首个原生 IR 增量使用以下六个操作，不增加新的引用、token 或 payload 类型。
-这组操作的原生验证不授予 source-unit 发布或 emit 权限；源码 producer、摘要和最终
-lowering 必须分别完成后续验收。当前发布与最终硬件边界拒绝残留的这些操作。
+这组操作的原生验证本身不授予 source-unit 发布或 emit 权限；源码 producer、摘要和最终
+lowering 分别验收。已接入的 source-unit 路径依照发布合同保留 typed effects，完整 link
+必须在支持的范围内降低它们；verified final 边界拒绝残留事务操作。不能把源 body 中
+保留 typed effects 与最终硬件中残留未降低效果混为一谈。
 
 | 操作 | 输入 → 输出 | 身份和区域 |
 | --- | --- | --- |
@@ -186,7 +188,7 @@ Queue 的事务内容量抵扣见[资源合同](extensions.md#queue-request-admi
 请求、路径有效性、冲突和因果分析可以共享 provisional 表示，但必须在有界分析内完成；
 失败或预算耗尽必须诊断，不能降格为“默认可执行”。不得添加隐式仲裁或任意 winner。
 
-### 事务降低
+### 事务降低 {#transaction-lowering}
 
 输入必须已经完成 owner、guard、冲突、资源和因果义务。统一 Rule 获准条件门控其实际
 路径上的全部效果，输出现有组合操作、Table 操作、`ac.value.merge`、Queue 输入及
