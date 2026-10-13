@@ -23,8 +23,8 @@ class Scheduler:
         return right.take(MUL)
 
     def __call__(left: ReservationStation, right: ReservationStation) -> tuple[ac.queue[Entry], ac.queue[Entry]]:
-        a = left.outputs.value
-        b = right.outputs.value
+        a = left.outputs
+        b = right.outputs
         a_ready = a.valid and a.lhs.ready and a.rhs.ready
         b_ready = b.valid and b.lhs.ready and b.rhs.ready
         a_add = a_ready and a.kind == ADD
@@ -45,7 +45,7 @@ class Adder:
 
     @ac.rule
     def execute(message: ac.queue[Entry]) -> ac.queue[Completion]:
-        entry = message.value
+        entry = message
         return Completion(entry.tag, entry.rd, entry.lhs.value + entry.rhs.value)
 
     def __call__(source: ac.queue[Entry]) -> ac.queue[Completion]:
@@ -63,21 +63,21 @@ class Multiplier:
 
     @ac.rule
     def accept(message: ac.queue[Entry]) -> None:
-        request.value = message.value
-        remaining.value = 2
-        active.value = True
+        request = message
+        remaining = 2
+        active = True
 
     @ac.rule
     def advance() -> ac.queue[Completion]:
-        if remaining.value != 0:
-            remaining.value = remaining.value - 1
+        if remaining != 0:
+            remaining = remaining - 1
             return None
-        entry = request.value
-        active.value = False
+        entry = request
+        active = False
         return Completion(entry.tag, entry.rd, entry.lhs.value * entry.rhs.value)
 
     def __call__(source: ac.queue[Entry]) -> ac.queue[Completion]:
-        busy = active.value
+        busy = active
         if busy:
             out = advance()
         else:

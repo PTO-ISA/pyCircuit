@@ -9,8 +9,8 @@ class Accumulator:
 
     @ac.rule
     def add(message: ac.queue[ac.u32]) -> ac.u32:
-        total.value = total.value + message.value
-        return message.value
+        total = total + message
+        return message
 
     def __call__() -> ac.cell[ac.u32]:
         return total

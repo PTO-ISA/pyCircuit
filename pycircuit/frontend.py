@@ -161,6 +161,7 @@ class Frontend:
                 node.name = bindings[original]
                 if decorator(node) == 'module':
                     if node.bases or node.keywords: self.error(node, 'Module inheritance is unsupported')
+                    if len(node.decorator_list)!=1 or isinstance(node.decorator_list[0],ast.Call) and (node.decorator_list[0].args or node.decorator_list[0].keywords): self.error(node,'@ac.module accepts no arguments')
                     self.validate_function(node)
                     self.defs[node.name] = node
                     continue
@@ -199,7 +200,7 @@ class Frontend:
                 kind = spelling(dec.func if isinstance(dec, ast.Call) else dec)
                 if kind != 'ac.rule': self.error(dec, 'only @ac.rule is supported on functions')
                 allowed = {'guard', 'public', 'SB', 'SBR', 'C', 'CF'}
-                if isinstance(dec, ast.Call) and (dec.args or any(k.arg not in allowed for k in dec.keywords)):
+                if isinstance(dec, ast.Call) and (dec.args or any(k.arg not in allowed for k in dec.keywords) or len({k.arg for k in dec.keywords})!=len(dec.keywords)):
                     self.error(dec, 'Rule accepts guard, public, SB, SBR, C and CF')
 
     def literal(self, node):
@@ -240,10 +241,13 @@ class Frontend:
         builder = Lower(self, 'construction', 'construct')
         init = next((f for f in cls.body if isinstance(f, ast.FunctionDef) and f.name == '__init__'), None)
         args = []
+        defaults=dict(zip((p.arg for p in init.args.args[-len(init.args.defaults):]),init.args.defaults)) if init and init.args.defaults else {}
         for arg in init.args.args if init else []:
             typ = self.annotation(arg.annotation)
             if typ not in SCALARS: self.error(arg, 'top configuration requires a scalar type')
-            self.model['config'].append(dict(name=arg.arg, type=typ))
+            entry=dict(name=arg.arg,type=typ)
+            if arg.arg in defaults: entry['default']=self.literal(defaults[arg.arg])
+            self.model['config'].append(entry)
             args.append(builder.op('config', typ, name=arg.arg, node=arg))
         inst = self.instantiate(cls, args, 'top', builder)
         self.connect(inst, [], {}, builder, cls)
@@ -274,6 +278,7 @@ class Frontend:
         if init is None or call is None: self.error(cls, 'Module requires __init__ and __call__')
         if self.annotation(init.returns) != 'void': self.error(init, '__init__ must return None')
         definitions = {f.name:f for f in cls.body if isinstance(f, ast.FunctionDef)}
+        if any(resource(self.annotation(p.annotation)) for p in init.args.args): self.error(init,'component interfaces bind in __call__, not __init__')
         env = dict(zip((p.arg for p in init.args.args), args))
         instance = Instance(prefix, env, {n:f for n,f in definitions.items() if decorator(f) == 'rule'}, definitions=definitions, parent=self.instance_stack[-1] if self.instance_stack else None, source_name=cls.name)
         self.instances.append(instance)
@@ -302,6 +307,7 @@ class Frontend:
         instance.connected = True
         fn = instance.definitions['__call__']
         supplied = self.bind_args(fn, args, keywords)
+        supplied = [builder.expr(v,reference=True) if isinstance(v,ast.AST) else v for v in supplied]
         env = dict(instance.env)
         for p,v in zip(fn.args.args, supplied):
             typ = self.annotation(p.annotation)
@@ -699,17 +705,7 @@ class Lower:
                 if node.attr == 'outputs': return self.imported(val.outputs)
                 if node.attr in val.rules: return RuleRef(val, val.rules[node.attr])
                 self.f.error(node, 'resource is private to its Module; use a public Rule or an explicit connection')
-            if node.attr != 'value': val = self.signal_value(val, node)
-            if node.attr == 'value' and resource(val.type):
-                self.accesses.update(val.targets)
-                if val.type.startswith(('cell<', 'ehr<')): return self.op('cell.read', element(val.type), [val], node=node, view='old', role='observe')
-                if not val.type.startswith('queue<'):
-                    self.f.error(node, 'index Queue arrays before reading')
-                consuming = self.consume_context and not self.guard_context
-                out = self.op('queue.read', element(val.type), [val], node=node,
-                              view='old',
-                              role='consume' if consuming else 'observe')
-                return out
+            val = self.signal_value(val, node)
             fields = self.f.types.get(val.type, [])
             field = next((x for x in fields if x['name'] == node.attr), None)
             if not field:
@@ -940,15 +936,13 @@ class Lower:
     def target_type(self, target):
         if isinstance(target, ast.Name):
             return self.lookup(target.id, target).type
-        if isinstance(target, ast.Attribute) and target.attr != 'value':
+        if isinstance(target, ast.Attribute):
             try:
                 v = self.expr(target, reference=True)
                 if isinstance(v, Value): return element(v.type) if v.type.startswith('signal<') else v.type
             except CompileError: pass
         if isinstance(target, ast.Attribute):
             typ = self.target_type(target.value)
-            if target.attr == 'value' and typ.startswith(('queue<', 'cell<', 'ehr<')):
-                return element(typ)
             if resource(typ): typ=element(typ)
             fields = self.f.types.get(typ, [])
             field = next((f for f in fields if f['name'] == target.attr), None)
@@ -996,18 +990,6 @@ class Lower:
             path, indices, base = [], [], target
             while isinstance(base, (ast.Attribute, ast.Subscript)):
                 if isinstance(base, ast.Attribute):
-                    if base.attr == 'value' and self.target_type(base.value).startswith(('queue<', 'cell<', 'ehr<')):
-                        q = self.expr(base.value, reference=True)
-                        if self.kind not in ('rule', 'helper'): self.f.error(node, 'state updates require a transaction')
-                        indices = [self.expr(n) for n in indices]
-                        if q.type.startswith(('cell<', 'ehr<')):
-                            if path:
-                                old = self.op('cell.read', element(q.type), [q], node=node, view='old', role='observe')
-                                value = self.op('update', old.type, [old, value, *indices], path=path, node=node)
-                            self.op('cell.write', 'void', [q, value], node=node)
-                            return
-                        self.f.error(node, 'Queue revise is removed; use Cell/EHR or consume and produce')
-                        return
                     path.insert(0, base.attr)
                     base = base.value
                 else:
@@ -1017,10 +999,11 @@ class Lower:
             if not isinstance(base, ast.Name): self.f.error(node, 'local updates require a named aggregate')
             original = self.lookup(base.id, node)
             component=original if resource(original.type) else None
+            if component and component.type.startswith('queue<'): self.f.error(node,'Queue payload update is unsupported; consume and produce')
             if component: original=self.signal_value(self.imported(component),node)
             indices = [self.expr(n) for n in indices]
             result = self.op('update', original.type, [original, value, *indices], path=path, node=node)
-            if component: self.op('cell.write','void',[self.imported(component),result],node=node)
+            if component: self.op('signal.write' if component.type.startswith('signal<') else 'cell.write','void',[self.imported(component),result],node=node)
             else: self.bind(base.id, result)
             return
         self.f.error(node, 'unsupported assignment target')
@@ -1053,7 +1036,8 @@ class Lower:
                 if typ:
                     val = self.cast(val, typ, node)
                 for t in targets:
-                    self.assignment(t, val, node, connection=connection)
+                    if isinstance(node,ast.AnnAssign) and isinstance(t,ast.Name) and not resource(typ): self.bind(t.id,val)
+                    else: self.assignment(t, val, node, connection=connection)
             elif isinstance(node, ast.AugAssign):
                 old = self.expr(node.target)
                 rhs = self.expr(node.value, old.type)

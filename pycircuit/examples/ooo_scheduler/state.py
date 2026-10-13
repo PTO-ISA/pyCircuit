@@ -9,25 +9,25 @@ class ReservationStation:
         slot = ac.cell[Entry](initial=Entry())
 
     def free(entry: Entry) -> bool:
-        return not slot.value.valid
+        return not slot.valid
 
     @ac.rule(guard=free)
     def place(entry: Entry) -> None:
-        slot.value = entry
+        slot = entry
 
     def issuable(kind: ac.u32) -> bool:
-        entry = slot.value
+        entry = slot
         return entry.valid and entry.kind == kind and entry.lhs.ready and entry.rhs.ready
 
     @ac.rule(guard=issuable)
     def take(kind: ac.u32) -> Entry:
-        entry = slot.value
-        slot.value = Entry()
+        entry = slot
+        slot = Entry()
         return entry
 
     @ac.rule
     def wakeup(tag: ac.u32, value: ac.u32) -> None:
-        entry = slot.value
+        entry = slot
         changed = False
         if entry.valid:
             if not entry.lhs.ready and entry.lhs.tag == tag:
@@ -37,7 +37,7 @@ class ReservationStation:
                 entry.rhs = Operand(True, tag, value)
                 changed = True
         if changed:
-            slot.value = entry
+            slot = entry
 
     def __call__() -> ac.cell[Entry]:
         return slot
@@ -49,32 +49,32 @@ class RobSlot:
         state = ac.cell[RobEntry](initial=RobEntry())
 
     def free(tag: ac.u32, rd: ac.u32) -> bool:
-        return not state.value.valid
+        return not state.valid
 
     @ac.rule(guard=free)
     def allocate(tag: ac.u32, rd: ac.u32) -> None:
-        state.value = RobEntry(True, False, tag, rd, 0)
+        state = RobEntry(True, False, tag, rd, 0)
 
     @ac.rule
     def complete(tag: ac.u32, value: ac.u32) -> None:
-        entry = state.value
+        entry = state
         if entry.valid and (not entry.done) and (entry.tag == tag):
             entry.done = True
             entry.value = value
-            state.value = entry
+            state = entry
 
     @ac.rule
     def peek() -> RobEntry:
-        return state.value
+        return state
 
     def completed(tag: ac.u32) -> bool:
-        entry = state.value
+        entry = state
         return entry.valid and entry.done and (entry.tag == tag)
 
     @ac.rule(guard=completed)
     def retire(tag: ac.u32) -> RobEntry:
-        entry = state.value
-        state.value = RobEntry()
+        entry = state
+        state = RobEntry()
         return entry
 
     def __call__() -> ac.cell[RobEntry]:
@@ -93,14 +93,14 @@ class ReorderBuffer:
 
     @ac.rule
     def has_room() -> bool:
-        return tail.value - head.value < 4
+        return tail - head < 4
 
     def room(rd: ac.u32) -> bool:
-        return tail.value - head.value < 4
+        return tail - head < 4
 
     @ac.rule(guard=room)
     def allocate(rd: ac.u32) -> ac.u32:
-        tag = tail.value
+        tag = tail
         index = tag - 1 & 3
         if index == 0:
             slot0.allocate(tag, rd)
@@ -110,7 +110,7 @@ class ReorderBuffer:
             slot2.allocate(tag, rd)
         else:
             slot3.allocate(tag, rd)
-        tail.value = tag + 1
+        tail = tag + 1
         return tag
 
     @ac.rule
@@ -138,7 +138,7 @@ class ReorderBuffer:
 
     @ac.rule
     def retire() -> RobEntry:
-        tag = head.value
+        tag = head
         index = tag - 1 & 3
         if index == 0:
             entry = slot0.retire(tag)
@@ -148,7 +148,7 @@ class ReorderBuffer:
             entry = slot2.retire(tag)
         else:
             entry = slot3.retire(tag)
-        head.value = tag + 1
+        head = tag + 1
         return entry
 
     def __call__() -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
@@ -171,9 +171,9 @@ class RegisterFile:
         assert index < 8
         if index == 0:
             return Operand(True, 0, 0)
-        tag = renamed.value[index]
-        if tag == committed.value[index]:
-            return Operand(True, tag, registers.value[index])
+        tag = renamed[index]
+        if tag == committed[index]:
+            return Operand(True, tag, registers[index])
         entry = rob.lookup(tag)
         if entry.valid and entry.done and (entry.tag == tag):
             return Operand(True, tag, entry.value)
@@ -183,13 +183,13 @@ class RegisterFile:
     def rename(rd: ac.u32, tag: ac.u32) -> None:
         assert rd < 8
         if rd != 0:
-            renamed.value[rd] = tag
+            renamed[rd] = tag
 
     @ac.rule
     def commit(entry: RobEntry) -> None:
         if entry.rd != 0:
-            registers.value[entry.rd] = entry.value
-            committed.value[entry.rd] = entry.tag
+            registers[entry.rd] = entry.value
+            committed[entry.rd] = entry.tag
 
     def __call__(rob: ReorderBuffer) -> tuple[ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]]]:
         return (registers, renamed, committed)

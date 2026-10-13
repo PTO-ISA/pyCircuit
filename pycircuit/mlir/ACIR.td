@@ -208,24 +208,29 @@ def ACIR_AssertOp : ACIR_Op<"assert", [MemoryEffects<[MemWrite]>]> {
 def ACIR_CircuitOp : ACIR_Op<"circuit", [SymbolTable, NoTerminator]> {
   let regions = (region AnyRegion:$body);
   let assemblyFormat = "attr-dict-with-keyword $body";
+  let hasVerifier = 1;
 }
 def ACIR_StateOp : ACIR_Op<"state", [Symbol]> {
   let arguments = (ins SymbolNameAttr:$sym_name, TypeAttr:$payload_type);
   let assemblyFormat = "$sym_name `:` $payload_type attr-dict";
+  let hasVerifier = 1;
 }
 def ACIR_ReadOp : ACIR_Op<"read", [MemoryEffects<[MemRead]>]> {
   let arguments = (ins Variadic<AnyType>:$inputs);
   let results = (outs AnyType:$value, I1:$ready);
   let assemblyFormat = "`(` $inputs `)` attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
 }
 def ACIR_FireOp : ACIR_Op<"fire", [Pure]> {
   let arguments = (ins I1:$condition, StrAttr:$name);
   let results = (outs I1:$fire);
   let assemblyFormat = "$name $condition attr-dict";
+  let hasVerifier = 1;
 }
 def ACIR_EffectOp : ACIR_Op<"effect", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins I1:$enable, Variadic<AnyType>:$inputs);
   let assemblyFormat = "$enable `(` $inputs `)` attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
 }
 def ACIR_PathOp : ACIR_Op<"path"> {
   let arguments = (ins I1:$condition);
@@ -234,9 +239,11 @@ def ACIR_PathOp : ACIR_Op<"path"> {
 def ACIR_CurrentOp : ACIR_Op<"current", [MemoryEffects<[MemRead]>]> {
   let results = (outs AnyType:$value);
   let assemblyFormat = "attr-dict `:` type($value)";
+  let hasVerifier = 1;
 }
 def ACIR_NextOp : ACIR_Op<"next", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins AnyType:$value);
   let assemblyFormat = "$value attr-dict `:` type($value)";
+  let hasVerifier = 1;
 }
 #endif

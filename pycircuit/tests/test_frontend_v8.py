@@ -52,3 +52,23 @@ class Top:
         ):
             with self.assertRaises(CompileError):
                 self.compile(source)
+
+    def test_signal_initial_state_runtime_construction_and_bad_contract_rejected(self):
+        template = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        BODY
+    @ac.rule RELATION
+    def change() -> None:
+        pass
+    def __call__() -> None:
+        change()
+'''
+        for body, relation in (
+            ('s = ac.signal[ac.u32](initial=0)', ''),
+            ('s = ac.cell[ac.u32](initial=0)\n        runtime = s + 1', ''),
+            ('s = ac.cell[ac.u32](initial=0)', '(SB="missing")'),
+        ):
+            with self.assertRaises(CompileError):
+                self.compile(template.replace('BODY', body).replace(' RELATION', relation))

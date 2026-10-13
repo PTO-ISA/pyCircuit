@@ -10,11 +10,11 @@ class CellFeedback:
 
     @ac.rule
     def update_a() -> None:
-        a.value = b.value + 1
+        a = b + 1
 
     @ac.rule
     def update_b() -> None:
-        b.value = a.value + 1
+        b = a + 1
 
     def __call__() -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
         update_a()
@@ -30,11 +30,11 @@ class ExclusiveRing:
 
     @ac.rule
     def forward(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
-        return source.value
+        return source
 
     @ac.rule
     def backward(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
-        return source.value
+        return source
 
     def __call__() -> tuple[ac.queue[ac.u32], ac.queue[ac.u32]]:
         if choose:
@@ -52,11 +52,11 @@ class QueueRing:
 
     @ac.rule
     def forward(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
-        return source.value
+        return source
 
     @ac.rule
     def backward(source: ac.queue[ac.u32]) -> ac.queue[ac.u32]:
-        return source.value
+        return source
 
     def __call__() -> tuple[ac.queue[ac.u32], ac.queue[ac.u32]]:
         right = forward(left)

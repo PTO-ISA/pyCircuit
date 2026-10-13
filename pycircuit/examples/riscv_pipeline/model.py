@@ -15,24 +15,24 @@ class RegisterFile:
 
     @ac.rule
     def ready(inst: Decoded) -> bool:
-        return not pending.value[inst.rs1] and (not pending.value[inst.rs2]) and (not inst.writes or not pending.value[inst.rd])
+        return not pending[inst.rs1] and (not pending[inst.rs2]) and (not inst.writes or not pending[inst.rd])
 
     @ac.rule
     def read(index: ac.u32) -> ac.u32:
         if index == 0:
             return 0
-        return registers.value[index]
+        return registers[index]
 
     @ac.rule
     def reserve(inst: Decoded) -> None:
         if inst.writes and inst.rd != 0:
-            pending.value[inst.rd] = True
+            pending[inst.rd] = True
 
     @ac.rule
     def commit(inst: Retired) -> None:
         if inst.writes and inst.rd != 0:
-            registers.value[inst.rd] = inst.value
-            pending.value[inst.rd] = False
+            registers[inst.rd] = inst.value
+            pending[inst.rd] = False
 
     def __call__() -> ac.cell[ac.array[ac.u32, 32]]:
         return registers
@@ -46,12 +46,12 @@ class DataMemory:
     @ac.rule
     def load(address: ac.u32) -> ac.u32:
         assert address & 3 == 0 and address < 64
-        return words.value[address >> 2]
+        return words[address >> 2]
 
     @ac.rule
     def store(address: ac.u32, value: ac.u32) -> None:
         assert address & 3 == 0 and address < 64
-        words.value[address >> 2] = value
+        words[address >> 2] = value
 
     def __call__() -> ac.cell[ac.array[ac.u32, 16]]:
         return words
@@ -66,12 +66,12 @@ class Fetch:
 
     @ac.rule
     def fetch(current_pc: ac.u32) -> ac.queue[Fetched]:
-        word = rom.value[current_pc >> 2]
-        pc.value = current_pc + 4
+        word = rom[current_pc >> 2]
+        pc = current_pc + 4
         return Fetched(current_pc, word)
 
     def __call__() -> ac.queue[Fetched]:
-        current_pc = pc.value
+        current_pc = pc
         if current_pc < 24:
             out = fetch(current_pc)
         return out
@@ -84,7 +84,7 @@ class DecodeStage:
 
     @ac.rule
     def read_operands(message: ac.queue[Fetched], decoded: Decoded) -> ac.queue[Operands]:
-        consumed = message.value
+        consumed = message
         lhs = rf.read(decoded.rs1)
         store_value = rf.read(decoded.rs2)
         rhs = decoded.immediate if decoded.immediate_rhs else store_value
@@ -92,7 +92,7 @@ class DecodeStage:
         return Operands(decoded.pc, decoded.word, decoded.kind, decoded.rd, lhs, rhs, store_value, decoded.writes)
 
     def __call__(source: ac.queue[Fetched], rf: RegisterFile, retirement: ac.queue[Retired]) -> ac.queue[Operands]:
-        inst = decode(source.value)
+        inst = decode(source)
         enabled = retirement.empty() and rf.ready(inst)
         if enabled:
             out = read_operands(source, inst)
@@ -106,7 +106,7 @@ class Execute:
 
     @ac.rule
     def execute(message: ac.queue[Operands]) -> ac.queue[Executed]:
-        inst = message.value
+        inst = message
         result = inst.lhs - inst.rhs if inst.kind == SUB else inst.lhs + inst.rhs
         return Executed(inst.pc, inst.word, inst.kind, inst.rd, result, inst.store_value, inst.writes)
 
@@ -122,7 +122,7 @@ class MemoryStage:
 
     @ac.rule
     def access(message: ac.queue[Executed]) -> ac.queue[Retired]:
-        inst = message.value
+        inst = message
         result = inst.value
         if inst.kind == LOAD:
             result = memory.load(inst.value)
@@ -143,10 +143,10 @@ class Writeback:
 
     @ac.rule
     def commit(message: ac.queue[Retired]) -> None:
-        inst = message.value
+        inst = message
         rf.commit(inst)
-        retired.value = retired.value + 1
-        last_pc.value = inst.pc
+        retired = retired + 1
+        last_pc = inst.pc
 
     def __call__(source: ac.queue[Retired], rf: RegisterFile) -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
         commit(source)

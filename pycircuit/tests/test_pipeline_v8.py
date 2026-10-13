@@ -13,7 +13,9 @@ EXAMPLES = ROOT / 'pycircuit/examples'
 
 class PipelineTests(unittest.TestCase):
     def setUp(self):
-        self.tmp = tempfile.TemporaryDirectory()
+        temporary = ROOT / 'pycircuit/builds/benchmarks/test-runs'
+        temporary.mkdir(parents=True, exist_ok=True)
+        self.tmp = tempfile.TemporaryDirectory(dir=temporary)
         self.directory = Path(self.tmp.name)
 
     def tearDown(self):
@@ -523,9 +525,6 @@ class Top:
     def __call__() -> None:
         advance()
 '''
-        # 'value' is the legacy whole-payload spelling on components. Use a
-        # distinct struct field to exercise payload field syntax.
-        source = source.replace('value: ac.u32', 'amount: ac.u32').replace('record.value =', 'record.amount =')
         trace, _, out = self.run_source(source, 2)
         self.assertEqual(trace[0]['state']['top.sum'], 3)
         self.assertEqual(trace[1]['state']['top.sum'], 5)
@@ -555,3 +554,100 @@ class Top:
         self.assertEqual(trace[0]['state']['top.queues.1'], [7])
         self.assertEqual(trace[-1]['state']['top.total'], 28)
         self.assert_reloads(trace, out)
+
+    def test_rtl_verifier_rejects_stale_schedule(self):
+        trace, _, out = self.run_source('''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        count = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def advance() -> None:
+        count = count + 1
+    def __call__() -> None:
+        advance()
+''')
+        rtl = load(out / 'model.rtl.mlir')
+        self.assertIn('schedule = [0]', rtl)
+        malformed = rtl.replace('schedule = [0]', 'schedule = []')
+        with self.assertRaisesRegex(CompileError, 'schedule must contain every fire'):
+            analyze(malformed, out / 'invalid')
+
+    def test_signal_has_no_rtl_state_and_none_output_keeps_other_effects(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        signal = ac.signal[ac.u32]()
+        q = ac.queue[ac.u32](initial=99)
+        count = ac.cell[ac.u32](initial=0)
+        seen = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def produce() -> None:
+        if count == 0:
+            signal = 8
+        count = count + 1
+    @ac.rule
+    def receive() -> None:
+        seen = signal
+    @ac.rule
+    def omitted() -> ac.queue[ac.u32]:
+        count = count + 1
+        return None
+    def __call__() -> None:
+        produce()
+        receive()
+'''
+        trace, _, out = self.run_source(source)
+        self.assertEqual(trace[-1]['state']['top.count'], 4)
+        self.assertEqual(trace[-1]['state']['top.seen'], 8)
+        rtl = load(out / 'model.rtl.mlir')
+        self.assertNotIn('kind = "signal"', rtl)
+        source = source.replace('        produce()\n        receive()', '        q = omitted()')
+        trace, _, _ = self.run_source(source)
+        self.assertEqual(trace[-1]['state']['top.count'], 4)
+        self.assertEqual(trace[-1]['state']['top.q'], [99])
+
+    def test_native_passes_reload_and_cli_stages(self):
+        trace, _, out = self.run_source('''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__(limit: ac.u32 = 3) -> None:
+        count = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def advance() -> None:
+        count = count + 1
+    def __call__() -> None:
+        if count < limit:
+            advance()
+''')
+        self.assertEqual(trace[-1]['state']['top.count'], 3)
+        native = subprocess.run([os.environ['ACPY_MLIR_OPT'], str(out / 'model.source.mlir'),
+                                 '--acir-extract-transactions', '--acir-lower-rtl'], capture_output=True, text=True)
+        self.assertEqual(native.returncode, 0, native.stderr)
+        analyze(native.stdout, out / 'native', cycles=4)
+        self.assertEqual(trace, json.loads((out / 'native/rtl-trace.json').read_text())['trace'])
+        with self.assertRaisesRegex(CompileError, 'frozen'):
+            analyze(load(out / 'model.transaction.mlir'), out / 'changed', config={'limit': 5})
+        cli = subprocess.run(['python3', '-m', 'pycircuit', 'run', str(out / 'model.rtl.mlir'),
+                              '--output', str(out / 'cli'), '--cycles', '4'], cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(cli.returncode, 0, cli.stderr)
+        self.assertEqual(trace, json.loads((out / 'cli/rtl-trace.json').read_text())['trace'])
+
+    def test_annotated_local_shadows_member(self):
+        trace, _, _ = self.run_source('''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        count = ac.cell[ac.u32](initial=1)
+        seen = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def advance() -> None:
+        count: ac.u32 = 10
+        count = count + 1
+        seen = count
+    def __call__() -> None:
+        advance()
+''', 2)
+        self.assertEqual(trace[-1]['state']['top.count'], 1)
+        self.assertEqual(trace[-1]['state']['top.seen'], 11)

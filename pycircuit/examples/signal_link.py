@@ -11,7 +11,7 @@ class Producer:
 
     @ac.rule
     def configure(value: ac.u32) -> None:
-        offset.value = value
+        offset = value
 
     @ac.rule
     def peek() -> ac.u32:
@@ -19,11 +19,11 @@ class Producer:
 
     @ac.rule
     def advance() -> None:
-        result = count.value + offset.value
-        count.value = count.value + 1
+        result = count + offset
+        count = count + 1
 
     def __call__(enabled: bool) -> ac.signal[ac.u32]:
-        if enabled and count.value < 16:
+        if enabled and count < 16:
             advance()
         return result
 
@@ -35,7 +35,7 @@ class Reader:
 
     @ac.rule
     def observe(value: ac.u32) -> None:
-        last.value = value
+        last = value
 
     def __call__(source: ac.signal[ac.u32]) -> ac.cell[ac.u32]:
         saved = source

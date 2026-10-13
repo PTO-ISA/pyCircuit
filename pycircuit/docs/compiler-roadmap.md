@@ -19,8 +19,8 @@
 | 1. class Module 与统一 Rule、源语义 IR | 已实现 | 仓库全部示例可生成 v8 源 MLIR；2 项源层回归通过，含原生验证、作用域、赋值和旧 API 拒绝 |
 | 2. 事务提取与条件传播 | 已实现 | C++ pass 直接读取 MLIR；调用点独立、嵌套原子、共享 SSA、失败不进入 else、按资源合并消费均通过逐拍回归 |
 | 3. MLIR 契约、EHR 与调度分析 | 已实现 | 声明沿调用栈传播，C／SBR 同路径诊断，EHR 固定视图、未声明可见性拒绝，分支／后继与合并 DAG 保存于 IR |
-| 4. RTL 友好 lowering | 进行中 | 完整 fire、选择器、组件状态与 next-state、消除决策 |
-| 5. MLIR 执行、CLI 与清理 | 待实施 | 两层逐拍一致、独立预期、OoO、ISA CPU、优化与重载 |
+| 4. RTL 友好 lowering | 已实现 | Cell／Queue／EHR 化为 current、组合选择与 next；Signal 无 RTL 状态；独立 verifier 检查残留操作、状态类型与调度 |
+| 5. MLIR 执行、CLI 与清理 | 进行中 | 两层逐拍一致、独立预期、OoO、ISA CPU、优化与重载 |
 
 ## 验收
 
@@ -67,3 +67,16 @@ release → allocate 合法 EHR guard、无声明时读取旧值、共享读取�
 
 同拍端口竞争保存为 conflicts 报告，不自动仲裁。对同事务禁用关系，仅在实际路径可能重合时拒绝；
 布尔 SSA 证明无法处理过大的条件时采取保守诊断，不增加 EHR 可见性。
+
+## 阶段 4 验证
+
+RTL lowering 已独立为 RTLLowering.cpp，事务 pass 独立为 Transactions.cpp。
+Queue 化为固定存储数组、count、消费移位和入队索引更新；Cell/EHR 为组合选择链与 next-state。
+Signal 只有组合 data/valid，不留状态声明。共享读取使用同一转换映射，保持固定端口。
+RTL verifier 检查无残留调用／控制流／状态效果、状态类型正确、调度包含全部 fire 且满足顺序边。
+原生 pass 串联、默认构造配置、冻结配置重载、CLI 执行和损坏调度文件的拒绝均已回归。
+25 项测试与 CTest（1/1）通过；完整日志与 JUnit 位于 builds/benchmarks/refactor/。
+
+范围限制最小复现：`for i in range(counter): ...` 中 counter 来自运行时 Cell。
+源层可以保存循环，当前有限组合 RTL lowering 对循环 CFG 报错；不能静态确定展开次数时不生成动态执行硬件。
+字面量固定循环已支持。此限制不影响本轮验收模型，也不通过改变循环行为绕过。

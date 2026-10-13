@@ -7,12 +7,12 @@ class State:
         count = ac.cell[ac.u32](initial=0)
 
     def ready(x: ac.queue[ac.u32]) -> bool:
-        return count.value < 10
+        return count < 10
 
     @ac.rule(guard=ready)
     def add(x: ac.queue[ac.u32]) -> ac.u32:
-        count.value = count.value + x.value
-        return x.value
+        count = count + x
+        return x
 
     def __call__() -> ac.cell[ac.u32]:
         return count

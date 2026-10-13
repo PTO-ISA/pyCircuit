@@ -10,19 +10,19 @@ class Slot:
 
     @ac.rule(SB='available')
     def release() -> None:
-        occupied.value = False
+        occupied = False
 
     @ac.rule(SB='allocate')
     def available() -> bool:
-        return not occupied.value
+        return not occupied
 
     def free(value: ac.u32) -> bool:
         return available()
 
     @ac.rule(guard=free)
     def allocate(value: ac.u32) -> None:
-        occupied.value = True
-        payload.value = value
+        occupied = True
+        payload = value
 
     def __call__() -> None:
         pass

@@ -16,13 +16,13 @@ class Dispatch:
 
     @ac.rule
     def dispatch(message: ac.queue[MicroOp]) -> None:
-        inst = message.value
+        inst = message
         lhs = rf.operand(inst.rs1)
         rhs = rf.operand(inst.rs2)
         tag = rob.allocate(inst.rd)
         rf.rename(inst.rd, tag)
         entry = Entry(True, inst.kind, tag, inst.rd, lhs, rhs)
-        if not left.outputs.value.valid:
+        if not left.outputs.valid:
             left.place(entry)
         else:
             right.place(entry)
@@ -40,9 +40,9 @@ class Broadcast:
     @ac.rule
     def broadcast(a: ac.queue[Completion], b: ac.queue[Completion], choose_add: bool) -> ac.signal[Completion]:
         if choose_add:
-            result = a.value
+            result = a
         else:
-            result = b.value
+            result = b
         rob.complete(result.tag, result.value)
         left.wakeup(result.tag, result.value)
         right.wakeup(result.tag, result.value)
@@ -64,8 +64,8 @@ class Commit:
     def commit() -> None:
         entry = rob.retire()
         rf.commit(entry)
-        retired.value = retired.value + 1
-        last_tag.value = entry.tag
+        retired = retired + 1
+        last_tag = entry.tag
 
     def __call__(rob: ReorderBuffer, rf: RegisterFile) -> tuple[ac.cell[ac.u32], ac.cell[ac.u32]]:
         commit()
@@ -80,7 +80,7 @@ class CompletionAudit:
     @ac.rule
     def observe(value: ac.signal[Completion]) -> None:
         saved = value
-        last_tag.value = saved.tag
+        last_tag = saved.tag
 
     def __call__(event: ac.signal[Completion]) -> ac.cell[ac.u32]:
         observe(event)

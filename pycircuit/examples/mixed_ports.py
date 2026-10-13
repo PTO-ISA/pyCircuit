@@ -9,7 +9,7 @@ class Ledger:
 
     @ac.rule
     def record(value: ac.u32) -> None:
-        observed.value = value
+        observed = value
 
     def __call__() -> ac.cell[ac.u32]:
         return observed
@@ -22,7 +22,7 @@ class Observer:
 
     @ac.rule
     def sample(x: ac.signal[ac.u32]) -> None:
-        last.value = x
+        last = x
 
     def __call__(value: ac.signal[ac.u32]) -> ac.cell[ac.u32]:
         sample(value)
@@ -38,7 +38,7 @@ class Router:
 
     @ac.rule
     def route(message: ac.queue[ac.u32], take: bool) -> tuple[ac.queue[ac.u32], ac.cell[ac.u32], ac.signal[ac.u32]]:
-        value = message.value
+        value = message
         ledger.record(value)
         if take:
             return (value + 1, value, value)
