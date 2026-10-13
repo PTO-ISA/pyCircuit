@@ -1,0 +1,90 @@
+{
+  "conflicts": [],
+  "diagnostics": [],
+  "edges": [
+    {
+      "from": 1,
+      "relation": "EHR.port",
+      "resource": "top.storage.state",
+      "source_branch": 0,
+      "target_branches": [
+        1
+      ],
+      "to": 0
+    },
+    {
+      "from": 2,
+      "relation": "EHR.port",
+      "resource": "top.storage.state",
+      "source_branch": 0,
+      "target_branches": [
+        1
+      ],
+      "to": 0
+    },
+    {
+      "from": 3,
+      "relation": "EHR.port",
+      "resource": "top.storage.state",
+      "source_branch": 4,
+      "target_branches": [
+        1
+      ],
+      "to": 0
+    },
+    {
+      "from": 3,
+      "relation": "EHR.port",
+      "resource": "top.storage.state",
+      "source_branch": 4,
+      "target_branches": [
+        0
+      ],
+      "to": 1
+    },
+    {
+      "from": 3,
+      "relation": "EHR.port",
+      "resource": "top.storage.state",
+      "source_branch": 4,
+      "target_branches": [
+        0
+      ],
+      "to": 2
+    },
+    {
+      "from": 3,
+      "relation": "SB",
+      "resource": "Module contract",
+      "source_branch": 4,
+      "target_branches": [
+        1
+      ],
+      "to": 0
+    }
+  ],
+  "nodes": [
+    {
+      "id": "top.storage.late#0",
+      "txn": 0
+    },
+    {
+      "id": "top.first#1",
+      "txn": 1
+    },
+    {
+      "id": "top.second#2",
+      "txn": 2
+    },
+    {
+      "id": "top.storage.early#3",
+      "txn": 3
+    }
+  ],
+  "schedule": [
+    3,
+    1,
+    2,
+    0
+  ]
+}

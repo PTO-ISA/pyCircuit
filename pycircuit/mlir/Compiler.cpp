@@ -72,6 +72,8 @@ void cleanLocations(mlir::ModuleOp module, llvm::StringRef input) {
 std::string withoutUnknownLocations(llvm::StringRef assembly) {
   SmallVector<llvm::StringRef> lines;
   assembly.split(lines, '\n');
+  while (!lines.empty() && lines.back().empty())
+    lines.pop_back();
   std::set<std::string> aliases;
   for (auto line : lines) {
     if (line.starts_with("#") && line.ends_with(" = loc(unknown)"))

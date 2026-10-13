@@ -8,7 +8,7 @@
 2026-10-13：开始时存在 83 个已修改文件及 3 个未跟踪 C++ 文件。
 原始 HEAD、状态清单、完整二进制 patch、未跟踪文件归档保存于
 `builds/benchmarks/compiler-refactor-baseline/`。现有改动作为独立基线提交保存。
-当前链路为 v7 源 MLIR → C++ analysis lowering → program.json → Python 图分析；无执行器。
+开始时的链路为 v7 源 MLIR → C++ analysis lowering → program.json → Python 图分析；无执行器。
 本 checkout 为 `/home/lc/tmp`，不适用仅允许在 `/home/lc/pyCircuit` 构建的 pyc6 skill。
 继续使用 README 指定的 Clang 22、GCC 14 与 MLIR 22。
 
@@ -20,7 +20,7 @@
 | 2. 事务提取与条件传播 | 已实现 | C++ pass 直接读取 MLIR；调用点独立、嵌套原子、共享 SSA、失败不进入 else、按资源合并消费均通过逐拍回归 |
 | 3. MLIR 契约、EHR 与调度分析 | 已实现 | 声明沿调用栈传播，C／SBR 同路径诊断，EHR 固定视图、未声明可见性拒绝，分支／后继与合并 DAG 保存于 IR |
 | 4. RTL 友好 lowering | 已实现 | Cell／Queue／EHR 化为 current、组合选择与 next；Signal 无 RTL 状态；独立 verifier 检查残留操作、状态类型与调度 |
-| 5. MLIR 执行、CLI 与清理 | 进行中 | 两层逐拍一致、独立预期、OoO、ISA CPU、优化与重载 |
+| 5. MLIR 执行、CLI 与清理 | 已实现 | 26 项回归、CTest 1/1、8 个模型各 32 拍；两层执行、优化与三阶段重载一致；旧编译路径已删除 |
 
 ## 验收
 
@@ -30,7 +30,8 @@ Signal、EHR 可见性；OoO 分配／等待／发射／广播／退休；指令
 
 ## 下一步
 
-实现源接口并在现有工具链上构建验证；随后将完整事务条件和调度结果写入 MLIR。
+本轮五阶段完成。后续可独立开展 SystemVerilog 后端、动态循环的硬件表达、自动仲裁、
+激活调度及跨拍缓存优化；这些工作不纳入本轮完成范围。
 
 ## 阶段 1 验证
 
@@ -80,3 +81,23 @@ RTL verifier 检查无残留调用／控制流／状态效果、状态类型正�
 范围限制最小复现：`for i in range(counter): ...` 中 counter 来自运行时 Cell。
 源层可以保存循环，当前有限组合 RTL lowering 对循环 CFG 报错；不能静态确定展开次数时不生成动态执行硬件。
 字面量固定循环已支持。此限制不影响本轮验收模型，也不通过改变循环行为绕过。
+
+## 阶段 5 验证与清理
+
+2026-10-13：26 项回归全部通过，CTest 1/1 通过。事务与 RTL 执行器直接读取 MLIR，
+每拍保存 fire 与提交状态；CLI 支持分阶段停止、独立重载、静态配置与指定拍数执行。
+CPU 用独立指令位解码的 RV32I 参考核对寄存器和内存，退休拍为 4、5、9、13、14、18。
+OoO 最终寄存器为 [0,42,6,7,48,13,61,0]，退休标签顺序为 1、2、3、4；
+同时检查分配、操作数等待、ADD／MUL 发射和完成广播确实发生。
+
+`tests/run_acceptance.py` 对 dual_channel、shared_state、mixed_ports、signal_link、
+cell_feedback、ehr_shared、riscv_pipeline、ooo_scheduler 各执行 32 拍。
+所有模型的事务／RTL 轨迹、优化开启／关闭、源／事务／RTL 独立重载均一致。
+EHRSlots 的同事务跨端口操作、ExclusiveRing 与 QueueRing 的分支合并环均得到预期诊断。
+完整轨迹、配置及汇总保存在 `builds/benchmarks/compiler-acceptance/`；
+回归日志与 JUnit 保存在 `builds/benchmarks/refactor/`。
+
+删除 program.json 导出、Python 图分析／契约／EHR 主链路及旧 Method／Work 测试，
+以新接口的源层与逐拍验收替代。更新 ACPy／ACIR 规范、编译意图、CLI 使用文档和图查看工具。
+仓库保留的示例输出已重新生成三个 MLIR 层与事务图；过时的 readable／Module 图输出已清理。
+JSON 仅作报告，不作为编译或重载输入。原始未提交内容仍可由基线提交及归档恢复。

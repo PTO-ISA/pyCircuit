@@ -1,6 +1,7 @@
-digraph rules {
+digraph Transactions {
   rankdir=LR;
-  "independent.transfer" [label="independent.transfer\nEHR: independent.out.full p1 query.full\nthird.full p0 write"];
-  "left.transfer" [label="left.transfer\nEHR: first.full p0 write\nleft.out.full p1 query.full"];
-  "right.transfer" [label="right.transfer\nEHR: right.out.full p1 query.full\nsecond.full p0 write"];
+  node [shape=box];
+  t0 [label="top.left.transfer#0"];
+  t1 [label="top.right.transfer#1"];
+  t2 [label="top.independent.transfer#2"];
 }

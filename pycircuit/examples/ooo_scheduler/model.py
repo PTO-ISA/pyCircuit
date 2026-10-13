@@ -1,7 +1,7 @@
 """Two reservation stations, ADD/MUL issue, completion broadcast, ordered commit.
 
-No dynamic construction, executable Python, scheduler backend, or speculation.
-Selection policy and state ownership are expressed explicitly in source.
+Static construction and explicit selection policy and state ownership.
+The transaction and RTL executors verify waiting, broadcast and ordered retirement.
 """
 from pycircuit import ac
 from payloads import ADD, MUL, MicroOp, Entry, Completion

@@ -1,5 +1,6 @@
-digraph rules {
+digraph Transactions {
   rankdir=LR;
-  "top.left" [label="top.left\nEHR: left_out.full p1 query.full"];
-  "top.right" [label="top.right\nEHR: right_out.full p1 query.full"];
+  node [shape=box];
+  t0 [label="top.left#0"];
+  t1 [label="top.right#1"];
 }

@@ -1,7 +1,7 @@
-digraph rules {
+digraph Transactions {
   rankdir=LR;
-  "observer.sample" [label="observer.sample"];
-  "router.route" [label="router.route\nEHR: router.accepted.full p1 query.full\nsource.full p0 write"];
-  "router.route" -> "observer.sample" [label="method.order: router.result\\n!config:enabled\\nset SB get [default]"];
-  "router.route" -> "observer.sample" [label="method.order: router.result\\nconfig:enabled\\nset SB get [default]"];
+  node [shape=box];
+  t0 [label="top.router.route#0"];
+  t1 [label="top.observer.sample#1"];
+  t0 -> t1 [label="top.router.result\nSignal.set \u2192 get"];
 }

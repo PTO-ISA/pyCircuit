@@ -1,26 +1,25 @@
-# pyCircuit：Python → MLIR → RuleGraph
+# pyCircuit：ACPy → MLIR → 逐拍执行验证
 
-前端静态展开 ACPy 模型，保存可独立重载的 MLIR，再分析条件化的 Rule 依赖图。当前实现提供编译和静态分析，不包含执行或仿真后端。
+静态展开 class Module，保存源语义 MLIR，在原生 MLIR pass 中提取事务、传播条件与契约、
+分配 EHR 端口和固定调度，降低为 RTL 友好的组合逻辑与 next-state，并对照两层逐拍执行。
 
 | 入口 | 内容 |
 | --- | --- |
-| [pyCircuit 核心抽象设计](pycircuit/docs/core-design.md) | 修订草稿：状态组件、Rule、Module、同拍顺序与 EHR |
-| [ACIR 基础设计](acir/basic-design.md) | 本轮确认的目标 primitive、组件契约和 guard 传播 |
-| [编译器构建与使用](pycircuit/README.md) | 构建、compile/analyze、产物和可视化 |
-| [ACPy 设计](acpy/spec.md) | 编程范式、定义、规则及基础组件操作 |
-| [ACIR 当前格式](pycircuit/acir.md) | 当前 v7 操作、保存格式和分析字段 |
-| [编译阶段的设计意图](pycircuit/docs/compiler-intent.md) | 各分析与转化需要保留的语义 |
-| [编程范式示例](pycircuit/examples/README.md) | 组件组合、五级流水线和 OoO 调度例子 |
-
-原生 ACIR 保存结构、guard、返回值和组件操作；分析 lowering 在副本上展开事务效果和 CFG。
+| [核心抽象设计](pycircuit/docs/core-design.md) | Cell、Queue、Signal、EHR、统一 Rule、Module 与同拍顺序 |
+| [编译路线图](pycircuit/docs/compiler-roadmap.md) | 阶段进度、基线保存、验证证据、问题与下一步 |
+| [构建与使用](pycircuit/README.md) | 编译、分层重载、逐拍执行和 CLI |
+| [ACPy 语法](acpy/spec.md) | class Module、显式类型、固定连接与 Rule 关系 |
+| [ACIR v8](pycircuit/acir.md) | 源语义、事务和 RTL 三层 MLIR |
+| [编译意图](pycircuit/docs/compiler-intent.md) | 各阶段必须保留的语义 |
+| [示例与验收](pycircuit/examples/README.md) | Queue、共享计算、OoO 和指令 CPU |
 
 ## 本地参考、构建与结果
 
 | 目录 | 用途 |
 | --- | --- |
 | `reference/<项目名>/` | 外部参考源码，不纳入 Git |
-| `pycircuit/builds/compiler/` | 编译器构建 |
-| `pycircuit/builds/<例子名>/` | 可供 review 的 MLIR、JSON 与可视化 |
-| `pycircuit/builds/benchmarks/` | benchmark 输入、实验、日志和结果 |
+| `pycircuit/builds/compiler/` | 原生编译器构建 |
+| `pycircuit/builds/<例子名>/` | 可 review 的三层 MLIR 和图报告 |
+| `pycircuit/builds/benchmarks/` | 新 benchmark 输入、实验、日志和结果 |
 
-新构建和实验使用以上路径。已有本地参考目录与历史测量保留。
+历史测量保留原路径；新运行统一使用以上位置。

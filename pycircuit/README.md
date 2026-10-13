@@ -1,8 +1,7 @@
 # 编译器构建与使用
 
-编译流程为 ACPy AST → ACIR MLIR → 条件化 RuleGraph。当前支持静态编译、独立重载和依赖分析，不生成仿真代码。
-
-核心抽象的修订草稿见 [pyCircuit 核心抽象设计](docs/core-design.md)。目标 primitive 见 [ACIR 基础设计](../acir/basic-design.md)，前端编程范式见 [ACPy 设计](../acpy/spec.md)，当前保存格式见 [ACIR v7](acir.md)。原生表示与分析 lowering 的职责见保存格式文档。
+编译链路：ACPy → 源语义 MLIR → 事务 MLIR → RTL 友好 MLIR → 逐拍轨迹。
+语义见 [核心设计](docs/core-design.md)，阶段进度与问题见 [路线图](docs/compiler-roadmap.md)。
 
 ## 构建与测试
 
@@ -17,58 +16,73 @@ cmake -S pycircuit -B pycircuit/builds/compiler -G Ninja \
   -DCMAKE_BUILD_TYPE=Release
 cmake --build pycircuit/builds/compiler -j 6
 ctest --test-dir pycircuit/builds/compiler --output-on-failure
-```
-
-也可以使用其他兼容 MLIR 22 的工具链。
-
-## 编译与重载
-
-```bash
 export ACPY_MLIR_COMPILER="$PWD/pycircuit/builds/compiler/mlir/acir-compile"
-python -m pycircuit compile pycircuit/tests/models/transfer.py --top Top \
-  --output pycircuit/builds/benchmarks/rule-graph/transfer
-python -m pycircuit analyze \
-  pycircuit/builds/benchmarks/rule-graph/transfer/model.acir.mlir \
-  --output pycircuit/builds/benchmarks/rule-graph/reloaded
+python -m pycircuit.tests.run_acceptance
 ```
 
-保存的 `model.acir.mlir` 使用原生 ACIR v7。分析在副本上展开消费、输出效果、组件契约和 CFG；主文件不保存派生端口。v6 及更早文件需要重新编译。单独查看通用 lowering：
+Python 仅解析 ACPy 和调用编译器。事务提取、条件传播、契约／端口分析、调度、RTL lowering
+以及两个通用执行器直接读取 MLIR，在 C++ 中完成。JSON 仅为分析／执行报告。
+验收脚本复现 8 个示例的 32 拍执行、优化开关和三阶段重载，并更新示例输出。
+轨迹与汇总位于 `builds/benchmarks/compiler-acceptance/`；回归包含独立 ISA 和定向周期预期。
+
+## 编译、阶段输出与执行
 
 ```bash
-pycircuit/builds/compiler/mlir/acir-opt model.acir.mlir --acir-lower-analysis
+python -m pycircuit compile pycircuit/examples/riscv_pipeline/model.py --top Pipeline \
+  --output pycircuit/builds/benchmarks/cpu --cycles 32
+python -m pycircuit run pycircuit/builds/benchmarks/cpu/model.transaction.mlir \
+  --output pycircuit/builds/benchmarks/cpu-reload --cycles 32
+python -m pycircuit run pycircuit/builds/benchmarks/cpu/model.rtl.mlir \
+  --output pycircuit/builds/benchmarks/rtl-reload --cycles 32
 ```
 
-`ACPY_MLIR_COMPILER` 可省略，此时从 PATH 查找 `acir-compile`。`--no-opt` 关闭 canonicalize/CSE。重载不依赖 Python 源码，也不使用旧分析图恢复计算。
+`compile` 接受 ACPy；`analyze` 和 `run` 接受独立 MLIR 文件。`--stop-after source|transaction|rtl`
+控制最后阶段，默认 rtl。`--cycles N` 执行 N 拍；从源文件开始时会保存事务和 RTL 两种轨迹。
+`--config NAME=VALUE` 为 top 的构造参数提供静态配置，可重复；布尔值使用 0／1。
+`--no-opt` 关闭 canonicalize／CSE。重载不需要 Python 源码、图 JSON 或其他阶段文件。
 
-| 产物 | 用途 |
+| 文件 | 内容 |
 | --- | --- |
-| `model.acir.mlir` | 程序与源码位置，可独立重载 |
-| `model.readable.mlir` | 隐藏调试位置的阅读版，重载后不保留原操作位置 |
-| `rule-graph.json` | 完整分析图、条件和来源 |
-| `rule-graph.dot` | Rule 顺序图 |
+| `model.source.mlir` | v8 静态实例、组件、统一 Rule 的 guard／body、SSA、SCF／CFG、契约 |
+| `model.transaction.mlir` | 每调用点独立 fire、路径条件、条件化效果、共享 SSA、固定端口、后继与无环顺序 |
+| `model.rtl.mlir` | 完整组合 fire／选择器、固定 Queue 存储和占用、current／next-state；Signal 为组合 data／valid |
+| `rule-graph.json` | 事务节点、分支边、端口竞争和固定调度的查看报告 |
+| `transaction-trace.json`、`rtl-trace.json` | 每拍 fire 与提交后的状态；Signal 不列为跨拍状态 |
 
-完整 RuleGraph 不嵌入 MLIR。发现已确认依赖环或无法证明的顺序时，CLI 返回非零，并保留带诊断的产物。当前不提供运行时调度、竞争写入检查或 CPU 时序验证。
+`model.acir.mlir` 是源层文件的同内容别名。v7 及更早文件需从 ACPy 重新编译。
+也可直接使用原生 pass：
+
+```bash
+pycircuit/builds/compiler/mlir/acir-opt model.source.mlir --acir-extract-transactions
+pycircuit/builds/compiler/mlir/acir-opt model.transaction.mlir --acir-lower-rtl
+```
+
+构造配置保存于源 MLIR 的 `acir.config`；直接运行 pass 时必须已有完整配置。
+错误返回非零，说明资源、事务或契约原因。所有分支顺序边的节点合并图必须无环。
+
+## 语义与边界
+
+统一 `@ac.rule` 由实际效果推导只读／修改分类。Module body 中每个修改性调用点建立事务，
+嵌套调用共享外层事务。失败的读取／guard 阻止相关分支执行；分支内要求只约束所选路径，
+合流后的无关事务保持独立。同事务重复消费按真实 Queue 合并。
+
+Cell 读取旧值；Queue 满时允许前序成功 pop 腾空间，新 push 数据下拍可读；
+Signal 只在本拍成功 set 后有效；EHR 读取固定端口之前的成功写入。
+EHR 端口不能因任意拓扑排序而增加未声明可见性。竞争报告不进行自动仲裁，
+未处理的端口竞争结果不保证。RTL 层已无 Rule 调用、隐式就绪条件或待定调度。
+
+固定 Queue 数组支持运行时下标选择，Cell 支持字段／数组更新，字面量固定循环静态展开。
+依赖运行时数据、无法静态展开的循环保留在源层，但事务／RTL lowering 明确诊断循环 CFG；
+当前执行目标是有限组合逻辑。无 SystemVerilog 后端、激活调度或跨拍缓存优化。
 
 ## 示例与可视化
 
-源码、模型意图及对应测试见 [示例说明](examples/README.md)。当前五级流水线和 OoO 调度的产物分别位于 `builds/riscv_pipeline/` 和 `builds/ooo_scheduler/`。
+[示例说明](examples/README.md) 包含 CPU、OoO、共享计算与诊断模型。
 
 ```bash
 python pycircuit/draw_rules.py pycircuit/builds/riscv_pipeline/rule-graph.json
-python pycircuit/draw_rules.py pycircuit/builds/ooo_scheduler/rule-graph.json
 ```
 
-脚本使用 Python 标准库和 Graphviz。默认在输入 JSON 目录生成 `module-rule-graph.svg` 和 `module-rule-graph.dot`。箭头表示同周期必要顺序，不等同于 payload 流动方向；条件关系的完整信息保留在 JSON 和 SVG 悬停提示中。
-
-`-o PATH` 支持 SVG、PNG、PDF 或 DOT；DOT 输出无需 Graphviz。`--rankdir TB` 改为纵向布局，`--hide-empty-modules` 隐藏没有 Rule 的组件。可通过 `--dot PATH` 或 `ACPY_GRAPHVIZ_DOT` 指定 Graphviz；脚本也查找仓库本地环境和 PATH。
-
-新建本地 Graphviz 环境：
-
-```bash
-CONDA_PKGS_DIRS="$PWD/pycircuit/builds/rule-graphviz/pkgs" \
-  /home/lc/opt/miniforge3/bin/conda env create \
-  --prefix "$PWD/pycircuit/builds/rule-graphviz/env" \
-  --file pycircuit/graphviz-environment.yml
-```
-
-外部参考源码位于根目录 `reference/`，构建位于 `pycircuit/builds/`，实验、日志和测量位于 `pycircuit/builds/benchmarks/`。
+绘图使用 Graphviz；`-o PATH.dot` 无需安装 Graphviz。JSON 和图均不参与后续编译。
+外部源码位于 `reference/<项目名>/`，构建位于 `builds/`，新实验输入、日志与结果位于
+`builds/benchmarks/`。

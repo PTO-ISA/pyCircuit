@@ -1,8 +1,0 @@
-digraph rules {
-  rankdir=LR;
-  "top.allocate" [label="top.allocate\nEHR: slot.occupied.value p1 read\nslot.occupied.value p2 write"];
-  "top.release" [label="top.release\nEHR: slot.occupied.value p0 write"];
-  "top.release" -> "top.allocate" [label="method.order: slot\\n(config:release_enabled && !ehr.read:dc14d5646d0623cb)\\nrelease SB allocate [derived,user]"];
-  "top.release" -> "top.allocate" [label="method.order: slot\\nconfig:release_enabled\\nrelease SB available [derived,user]"];
-  "top.release" -> "top.allocate" [label="method.order: slot.occupied\\nconfig:release_enabled\\np0 \u2192 p1\\nwrite SB read [derived,user]"];
-}

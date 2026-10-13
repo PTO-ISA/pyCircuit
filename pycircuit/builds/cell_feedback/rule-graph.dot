@@ -1,5 +1,6 @@
-digraph rules {
+digraph Transactions {
   rankdir=LR;
-  "top.update_a" [label="top.update_a"];
-  "top.update_b" [label="top.update_b"];
+  node [shape=box];
+  t0 [label="top.update_a#0"];
+  t1 [label="top.update_b#1"];
 }

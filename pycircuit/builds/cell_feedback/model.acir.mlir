@@ -1,52 +1,50 @@
-module attributes {acir.model = {config = [], constants = {}, exports = {a = "a", b = "b"}, format_version = 7 : i64, top = "CellFeedback", type_order = [], types = {}}} {
-  func.func @ac_init_a() -> i32 attributes {acir.function = {kind = "helper", name = "ac_init_a", params = [], result = "u32"}} {
+module attributes {acir.model = {config = [], constants = {}, exports = {}, format_version = 8 : i64, top = "CellFeedback", type_order = [], types = {}}} {
+  func.func @ac_init_top.a() -> i32 attributes {acir.function = {kind = "helper", name = "ac_init_top.a", params = [], result = "u32"}} {
     %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc1)
     return %c1_i32 : i32
   }
-  func.func @ac_init_b() -> i32 attributes {acir.function = {kind = "helper", name = "ac_init_b", params = [], result = "u32"}} {
+  func.func @ac_init_top.b() -> i32 attributes {acir.function = {kind = "helper", name = "ac_init_top.b", params = [], result = "u32"}} {
     %c2_i32 = arith.constant {acir.source_type = "u32"} 2 : i32 loc(#loc2)
     return %c2_i32 : i32
   }
-  acir.module @top attributes {acir.instance = {contract = "Module:top", definition = "src_dependency_cycles_63d6eeaf.CellFeedback", inputs = {}, interfaces = {}, members = {a = {resources = ["a"], type = "cell<u32>", value}, b = {resources = ["b"], type = "cell<u32>", value}}, methods = [], name = "top", outputs = [{resources = ["a"], type = "cell<u32>", value}, {resources = ["b"], type = "cell<u32>", value}], parent}} {
-    acir.cell @a : i32 {initial_fn = "ac_init_a", name = "a", type = "u32"}
-    acir.cell @b : i32 {initial_fn = "ac_init_b", name = "b", type = "u32"}
-    func.func private @ac_init_a() -> i32
-    func.func private @ac_init_b() -> i32
-    acir.rule @top.update_a : () -> () {acir.function = {kind = "rule", name = "top.update_a", owner = "top", params = [], result = "void", rule = "update_a"}, output_types = []} body {
+  acir.module @top attributes {acir.instance = {definition = "src_dependency_cycles_63d6eeaf.CellFeedback", inputs = {}, members = {}, name = "top", outputs, parent, rules = ["update_a", "update_b"]}} {
+    acir.contract {relations = [], rules = ["update_a", "update_b"]}
+    acir.cell @top.a : i32 {initial_fn = "ac_init_top.a", name = "top.a", type = "u32"}
+    acir.cell @top.b : i32 {initial_fn = "ac_init_top.b", name = "top.b", type = "u32"}
+    func.func private @ac_init_top.a() -> i32
+    func.func private @ac_init_top.b() -> i32
+    acir.rule @top_body.0.call.0.0 : () -> () {acir.function = {contract = "Module:top", definition = "update_a", instance = "top", interface = "Module:top:update_a", kind = "rule", name = "top_body.0.call.0.0", output_type = "void", owner = "top", params = [], public = true, result = "void", rule = "update_a"}} body {
       %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc3)
-      %0 = acir.ref @top::@a {acir.id = "v3", acir.source_type = "cell<u32>"} : !acir.cell<i32> loc(#loc4)
-      %1 = acir.ref @top::@b {acir.id = "v4", acir.source_type = "cell<u32>"} : !acir.cell<i32> loc(#loc5)
-      %2 = acir.cell.read %1 {acir.id = "v5", acir.source_type = "u32", role = "observe"} : !acir.cell<i32> -> i32 loc(#loc6)
-      %3 = arith.addi %2, %c1_i32 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc6)
-      acir.cell.write %0, %3 {acir.id = "v8", acir.source_type = "void"} : !acir.cell<i32>, i32 loc(#loc7)
-      acir.return {acir.source_type = "void", slots = []}
+      %0 = acir.ref @top::@top.b {acir.source_type = "cell<u32>"} : !acir.cell<i32>
+      %1 = acir.cell.read %0 {acir.id = "v4", acir.source_type = "u32", role = "observe"} : !acir.cell<i32> -> i32 loc(#loc4)
+      %2 = arith.addi %1, %c1_i32 {acir.id = "v6", acir.source_type = "u32"} : i32 loc(#loc4)
+      %3 = acir.ref @top::@top.a {acir.source_type = "cell<u32>"} : !acir.cell<i32>
+      acir.cell.write %3, %2 {acir.id = "v8", acir.source_type = "void"} : !acir.cell<i32>, i32 loc(#loc5)
+      acir.return {acir.source_type = "void"}
     }
-    acir.rule @top.update_b : () -> () {acir.function = {kind = "rule", name = "top.update_b", owner = "top", params = [], result = "void", rule = "update_b"}, output_types = []} body {
-      %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc8)
-      %0 = acir.ref @top::@b {acir.id = "v3", acir.source_type = "cell<u32>"} : !acir.cell<i32> loc(#loc5)
-      %1 = acir.ref @top::@a {acir.id = "v4", acir.source_type = "cell<u32>"} : !acir.cell<i32> loc(#loc4)
-      %2 = acir.cell.read %1 {acir.id = "v5", acir.source_type = "u32", role = "observe"} : !acir.cell<i32> -> i32 loc(#loc9)
-      %3 = arith.addi %2, %c1_i32 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc9)
-      acir.cell.write %0, %3 {acir.id = "v8", acir.source_type = "void"} : !acir.cell<i32>, i32 loc(#loc10)
-      acir.return {acir.source_type = "void", slots = []}
+    acir.rule @top_body.0.call.1.1 : () -> () {acir.function = {contract = "Module:top", definition = "update_b", instance = "top", interface = "Module:top:update_b", kind = "rule", name = "top_body.0.call.1.1", output_type = "void", owner = "top", params = [], public = true, result = "void", rule = "update_b"}} body {
+      %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc6)
+      %0 = acir.ref @top::@top.a {acir.source_type = "cell<u32>"} : !acir.cell<i32>
+      %1 = acir.cell.read %0 {acir.id = "v4", acir.source_type = "u32", role = "observe"} : !acir.cell<i32> -> i32 loc(#loc7)
+      %2 = arith.addi %1, %c1_i32 {acir.id = "v6", acir.source_type = "u32"} : i32 loc(#loc7)
+      %3 = acir.ref @top::@top.b {acir.source_type = "cell<u32>"} : !acir.cell<i32>
+      acir.cell.write %3, %2 {acir.id = "v8", acir.source_type = "void"} : !acir.cell<i32>, i32 loc(#loc8)
+      acir.return {acir.source_type = "void"}
     }
-    acir.work attributes {acir.function = {kind = "work", name = "top_Work", owner = "top", params = [], result = "void"}} {
-      acir.rule.call @top::@top.update_a() {acir.id = "v1", acir.source_type = "void", output_bindings = []} : () -> () loc(#loc11)
-      acir.rule.call @top::@top.update_b() {acir.id = "v2", acir.source_type = "void", output_bindings = []} : () -> () loc(#loc12)
-      acir.work.end {acir.source_type = "void"}
+    acir.body attributes {acir.function = {kind = "body", name = "top_body", owner = "top", params = [], result = "void"}} {
+      acir.rule.call @top::@top_body.0.call.0.0() {acir.id = "v1", acir.source_type = "void", contract = "Module:top", instance = "top", interface = "Module:top:update_a", role = "rule", rule = "update_a"} : () -> () loc(#loc9)
+      acir.rule.call @top::@top_body.0.call.1.1() {acir.id = "v2", acir.source_type = "void", contract = "Module:top", instance = "top", interface = "Module:top:update_b", role = "rule", rule = "update_b"} : () -> () loc(#loc10)
+      acir.body.end {acir.source_type = "void"}
     }
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":7:33)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":8:33)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":12:29)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":7:9)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":8:9)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":12:19)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":12:9)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":16:29)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":16:19)
-#loc10 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":16:9)
-#loc11 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":18:5)
-#loc12 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":19:5)
-
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":8:37)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":9:37)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":13:17)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":13:13)
+#loc5 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":13:9)
+#loc6 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":17:17)
+#loc7 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":17:13)
+#loc8 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":17:9)
+#loc9 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":20:9)
+#loc10 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":21:9)

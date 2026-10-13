@@ -1,0 +1,14 @@
+digraph Transactions {
+  rankdir=LR;
+  node [shape=box];
+  t0 [label="top.storage.late#0"];
+  t1 [label="top.first#1"];
+  t2 [label="top.second#2"];
+  t3 [label="top.storage.early#3"];
+  t1 -> t0 [label="top.storage.state\nEHR.port"];
+  t2 -> t0 [label="top.storage.state\nEHR.port"];
+  t3 -> t0 [label="top.storage.state\nEHR.port"];
+  t3 -> t1 [label="top.storage.state\nEHR.port"];
+  t3 -> t2 [label="top.storage.state\nEHR.port"];
+  t3 -> t0 [label="Module contract\nSB"];
+}
