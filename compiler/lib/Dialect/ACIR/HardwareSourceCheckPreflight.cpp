@@ -34,7 +34,7 @@ struct BoundDefinition {
 class Builder {
 public:
   Builder(const HardwareAnalysis &analysis, HardwareSourceCheckLimits limits)
-      : analysis(analysis), budget(limits) {}
+      : analysis(analysis), budget(limits), validation(analysis, budget) {}
   FailureOr<HardwareSourceCheckPlan> build() {
     auto package = analysis.getPackage();
     budget.setPhase("raw preflight");
@@ -69,7 +69,7 @@ public:
             })))
       return failure();
     budget.setPhase("transaction wiring");
-    if (failed(verifyTransactionWiring(analysis, scopes, budget)))
+    if (failed(verifyTransactionWiring(analysis, scopes, validation, budget)))
       return failure();
     // A closed system needs the complete managed commit tree even without
     // source assertions: generated reset/prepare/commit must reach every leaf.
@@ -127,7 +127,11 @@ private:
   }
   struct RawDefinitionWork {
     uint64_t operations = 0, obligations = 0, metadata = 1, carriers = 0;
-    uint64_t sampledGuards = 0, operands = 0, samplingMetadata = 0;
+    uint64_t operands = 0, rules = 0, sampledRules = 0, instances = 0;
+    uint64_t ruleResults = 0, instanceMetadata = 0, ruleMetadata = 0;
+    uint64_t wiringMetadata = 0, states = 0, incoming = 0, writers = 0;
+    uint64_t candidates = 0, maxCandidates = 0, sampledSchema = 0;
+    bool hasSamplingMetadata = false, hasWiring = false;
   };
   FailureOr<uint64_t> rawCarrierCost(Value value, Operation *site) {
     llvm::DenseSet<Value> seen;
@@ -149,15 +153,78 @@ private:
     }
     return cost;
   }
-  FailureOr<uint64_t> sampledReachableValues(Operation *definition) {
+  struct RawSampledRuleWork {
+    uint64_t prefixValues = 0, andNodes = 0, comparisons = 0;
+    uint64_t andOperands = 0, guards = 0, identityLength = 0;
+  };
+  static uint64_t sampledRuleProofCost(const RawSampledRuleWork &work,
+                                       uint64_t stops) {
+    auto add = Budget::add;
+    auto multiply = Budget::multiply;
+    uint64_t b = Budget::bytes(sizeof(HardwareBindings));
+    uint64_t s = add(b, Budget::bytes(sizeof(HardwareIdentityScope)));
+    uint64_t e = add(1, Budget::bytes(sizeof(HardwareIdentityEndpoint)));
+    uint64_t f = add(add(add(e, b), 1), s);
+    uint64_t m = add(1, Budget::bytes(2 * sizeof(HardwareIdentityEndpoint)));
+    uint64_t h =
+        add(1, Budget::bytes(sizeof(SmallVector<HardwareIdentityEndpoint>) +
+                             sizeof(uint64_t)));
+    uint64_t hc =
+        add(1, Budget::bytes(sizeof(HardwareIdentityEndpoint) +
+                             sizeof(SmallVector<HardwareIdentityEndpoint>) +
+                             2 * sizeof(uint64_t)));
+    uint64_t atoms = std::max(work.guards, work.comparisons);
+    uint64_t prefixQueries = add(add(work.guards, 1), work.andOperands);
+    uint64_t queries = add(prefixQueries, add(multiply(2, work.comparisons),
+                                              multiply(5, work.guards)));
+    uint64_t length = work.identityLength;
+    // Definition-local Value matches have the same full scope/type. The
+    // prefilters stop each list at its first match or cycle: at most one scope
+    // pair per stop/seen/memo list, plus the copied endpoint scopes.
+    uint64_t normalStep =
+        add(add(1, stops), add(add(e, b), add(f, multiply(6, s))));
+    uint64_t normal = add(f, multiply(length, normalStep));
+    if (length) {
+      uint64_t left = length, right = length - 1;
+      if (left % 2 == 0)
+        left /= 2;
+      else
+        right /= 2;
+      normal = add(normal, multiply(left, right));
+    }
+    uint64_t identity = multiply(
+        queries, add(add(add(f, queries), normal), add(m, multiply(4, s))));
+    uint64_t copy = add(h, multiply(atoms, add(e, s)));
+    uint64_t atomStep =
+        add(add(atoms, 1), add(multiply(multiply(2, s), atoms), add(e, s)));
+    uint64_t sort = multiply(add(atoms, 1), add(atoms, 1));
+    uint64_t joinGeneral = add(copy, add(multiply(atoms, atomStep), sort));
+    uint64_t joinSingleton = add(copy, add(atomStep, sort));
+    uint64_t equal =
+        add(sort, multiply(multiply(multiply(2, s), atoms), atoms));
+    uint64_t cost =
+        add(identity,
+            multiply(prefixQueries,
+                     add(multiply(multiply(2, s), work.prefixValues), copy)));
+    cost = add(cost, multiply(work.prefixValues, add(add(multiply(2, b), 2),
+                                                     add(hc, add(s, copy)))));
+    cost = add(cost, multiply(multiply(2, work.comparisons), add(b, 1)));
+    cost = add(cost, multiply(add(work.comparisons, work.guards),
+                              add(add(multiply(2, b), 2), add(e, s))));
+    cost = add(cost, multiply(work.andNodes, joinGeneral));
+    cost = add(cost, multiply(work.guards, joinSingleton));
+    return add(cost, multiply(add(work.guards, 1), equal));
+  }
+  FailureOr<uint64_t> sampledProofCost(Operation *definition, uint64_t stops) {
     llvm::DenseSet<Value> boundaries;
-    llvm::DenseMap<Value, unsigned> visited;
+    SmallVector<Operation *> rules;
     SmallVector<std::pair<Value, bool>> pending;
     auto seed = [&](Value value, bool prefix) -> LogicalResult {
       if (!value)
         return success();
-      if (failed(budget.debit(Budget::bytes(sizeof(std::pair<Value, bool>)),
-                              definition)))
+      if (failed(budget.debit(
+              Budget::add(1, Budget::bytes(sizeof(std::pair<Value, bool>))),
+              definition)))
         return failure();
       pending.emplace_back(value, prefix);
       return success();
@@ -178,11 +245,43 @@ private:
         return std::nullopt;
       return static_cast<uint64_t>(value.getInt());
     };
-    // Use raw region/operand access: this runs before native ODS verification.
-    // Private slots are counted as endpoints, never as candidate/data roots.
+    auto seedSampled = [&](Operation *op) -> LogicalResult {
+      auto sampled = op->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+      for (StringRef name : {"clock_capture", "reset_capture"})
+        if (auto index = ordinal(sampled, name, op->getNumOperands()))
+          if (failed(seed(op->getOperand(*index), false)))
+            return failure();
+      auto fire = ordinal(sampled, "fire_result", op->getNumResults());
+      auto guards = sampled.getAs<ArrayAttr>("guards");
+      if (!fire || !guards || op->getNumRegions() != 1 ||
+          !op->getRegion(0).hasOneBlock() || op->getRegion(0).front().empty())
+        return success();
+      Operation &yielded = op->getRegion(0).front().back();
+      if (*fire < yielded.getNumOperands() &&
+          failed(seed(yielded.getOperand(*fire), true)))
+        return failure();
+      for (uint64_t index = 0; index < guards.size(); ++index) {
+        if (failed(budget.debit(1, definition)))
+          return failure();
+        uint64_t predicate =
+            Budget::add(Budget::add(*fire, 1), Budget::multiply(2, index));
+        uint64_t reached = Budget::add(predicate, 1);
+        if (predicate < yielded.getNumOperands() &&
+            failed(seed(yielded.getOperand(predicate), false)))
+          return failure();
+        if (reached < yielded.getNumOperands() &&
+            failed(seed(yielded.getOperand(reached), true)))
+          return failure();
+      }
+      return success();
+    };
+    // Use raw region/operand access before native ODS verification. Private
+    // slots are endpoints; unrelated data DAGs and ordinary Instances stop.
     for (Region &region : definition->getRegions()) {
       for (Block &block : region) {
         for (Operation &operation : block) {
+          if (failed(budget.debit(1, definition)))
+            return failure();
           Operation *op = &operation;
           auto sampled =
               op->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
@@ -217,102 +316,277 @@ private:
               if (failed(boundary(op->getResult(index))))
                 return failure();
           }
-          if (sampled) {
-            for (StringRef name : {"clock_capture", "reset_capture"})
-              if (auto index = ordinal(sampled, name, op->getNumOperands()))
-                if (failed(seed(op->getOperand(*index), false)))
-                  return failure();
-            auto fire = ordinal(sampled, "fire_result", op->getNumResults());
-            auto guards = sampled.getAs<ArrayAttr>("guards");
-            if (fire && guards && op->getNumRegions() == 1 &&
-                op->getRegion(0).hasOneBlock() &&
-                !op->getRegion(0).front().empty()) {
-              Operation &yielded = op->getRegion(0).front().back();
-              if (*fire < yielded.getNumOperands() &&
-                  failed(seed(yielded.getOperand(*fire), true)))
-                return failure();
-              for (uint64_t index = 0; index < guards.size(); ++index) {
-                uint64_t predicate = Budget::add(Budget::add(*fire, 1),
-                                                 Budget::multiply(2, index));
-                uint64_t reached = Budget::add(predicate, 1);
-                if (predicate < yielded.getNumOperands() &&
-                    failed(seed(yielded.getOperand(predicate), false)))
-                  return failure();
-                if (reached < yielded.getNumOperands() &&
-                    failed(seed(yielded.getOperand(reached), true)))
-                  return failure();
-              }
-            }
-          }
-          if (isa<SourceExpectOp>(op)) {
-            auto kind = op->getAttrOfType<StringAttr>("kind");
-            if (kind && kind.getValue() == "guard_known")
-              for (unsigned index = 2; index < op->getNumOperands(); ++index)
-                if (failed(seed(op->getOperand(index), false)))
-                  return failure();
+          if (sampled && isa<RuleOp>(op)) {
+            if (failed(budget.debit(Budget::bytes(sizeof(Operation *)),
+                                    definition)))
+              return failure();
+            rules.push_back(op);
           }
         }
       }
     }
-    while (!pending.empty()) {
-      auto [value, prefix] = pending.pop_back_val();
-      if (failed(budget.debit(1, definition)))
-        return failure();
-      unsigned mode = prefix ? 2 : 1;
-      auto known = visited.find(value);
-      if (known != visited.end() && (known->second & mode))
-        continue;
-      if (known == visited.end()) {
-        if (failed(budget.debit(
-                Budget::bytes(sizeof(std::pair<Value, unsigned>)), definition)))
-          return failure();
-        known = visited.try_emplace(value, 0).first;
-      }
-      known->second |= mode;
+    auto identityNext = [&](Value value) -> Value {
       if (boundaries.contains(value))
-        continue;
+        return {};
       if (auto argument = dyn_cast<BlockArgument>(value)) {
         Operation *owner = argument.getOwner()->getParentOp();
         if (isa<RuleOp>(owner) &&
             argument.getArgNumber() < owner->getNumOperands())
-          if (failed(seed(owner->getOperand(argument.getArgNumber()), prefix)))
-            return failure();
-        continue;
-      }
-      auto result = dyn_cast<OpResult>(value);
-      if (!result)
-        continue;
-      Operation *owner = result.getOwner();
-      if (isa<RuleOp>(owner)) {
-        if (owner->getNumRegions() == 1 && owner->getRegion(0).hasOneBlock() &&
-            !owner->getRegion(0).front().empty()) {
-          Operation &yielded = owner->getRegion(0).front().back();
-          if (result.getResultNumber() < yielded.getNumOperands() &&
-              failed(
-                  seed(yielded.getOperand(result.getResultNumber()), prefix)))
-            return failure();
+          return owner->getOperand(argument.getArgNumber());
+      } else if (auto result = dyn_cast<OpResult>(value)) {
+        Operation *owner = result.getOwner();
+        if (isa<RuleOp>(owner)) {
+          if (owner->getNumRegions() == 1 &&
+              owner->getRegion(0).hasOneBlock() &&
+              !owner->getRegion(0).front().empty()) {
+            Operation &yielded = owner->getRegion(0).front().back();
+            if (result.getResultNumber() < yielded.getNumOperands())
+              return yielded.getOperand(result.getResultNumber());
+          }
+        } else if (isa<BitsExtractOp>(owner) && owner->getNumOperands()) {
+          return owner->getOperand(0);
         }
-      } else if (isa<BitsExtractOp>(owner)) {
-        if (owner->getNumOperands() &&
-            failed(seed(owner->getOperand(0), prefix)))
-          return failure();
-      } else if (prefix && isa<BitsBinaryOp>(owner)) {
-        auto opcode = owner->getAttrOfType<StringAttr>("opcode");
-        if (opcode && opcode.getValue() == "and")
-          for (Value operand : owner->getOperands())
-            if (failed(seed(operand, true)))
-              return failure();
-      } else if (prefix && isa<BitsCompareOp>(owner)) {
-        auto predicate = owner->getAttrOfType<StringAttr>("predicate");
-        if (predicate && predicate.getValue() == "case_eq")
-          for (Value operand : owner->getOperands())
-            if (failed(seed(operand, false)))
-              return failure();
       }
-      // Opaque raw guard computations and ordinary Instance results terminate
-      // definition-local identity; their unrelated data DAGs are not visited.
+      return {};
+    };
+    auto walk = [&]() -> FailureOr<RawSampledRuleWork> {
+      llvm::DenseMap<Value, unsigned> visited;
+      RawSampledRuleWork result;
+      while (!pending.empty()) {
+        auto [value, prefix] = pending.pop_back_val();
+        if (failed(budget.debit(1, definition)))
+          return failure();
+        unsigned mode = prefix ? 2 : 1;
+        auto known = visited.find(value);
+        if (known != visited.end() && (known->second & mode))
+          continue;
+        if (known == visited.end()) {
+          if (failed(budget.debit(
+                  Budget::bytes(sizeof(std::pair<Value, unsigned>)),
+                  definition)))
+            return failure();
+          known = visited.try_emplace(value, 0).first;
+        }
+        known->second |= mode;
+        if (prefix)
+          result.prefixValues = Budget::add(result.prefixValues, 1);
+        if (Value next = identityNext(value)) {
+          if (failed(seed(next, prefix)))
+            return failure();
+          continue;
+        }
+        if (boundaries.contains(value))
+          continue;
+        Operation *owner = value.getDefiningOp();
+        if (prefix && owner && isa<BitsBinaryOp>(owner)) {
+          auto opcode = owner->getAttrOfType<StringAttr>("opcode");
+          if (opcode && opcode.getValue() == "and") {
+            result.andNodes = Budget::add(result.andNodes, 1);
+            result.andOperands =
+                Budget::add(result.andOperands, owner->getNumOperands());
+            for (Value operand : owner->getOperands())
+              if (failed(seed(operand, true)))
+                return failure();
+          }
+        } else if (prefix && owner && isa<BitsCompareOp>(owner)) {
+          auto predicate = owner->getAttrOfType<StringAttr>("predicate");
+          if (predicate && predicate.getValue() == "case_eq") {
+            result.comparisons = Budget::add(result.comparisons, 1);
+            for (Value operand : owner->getOperands())
+              if (failed(seed(operand, false)))
+                return failure();
+          }
+        }
+      }
+      struct IdentityLength {
+        uint64_t length = 0;
+        bool complete = false, cyclic = false;
+      };
+      llvm::DenseMap<Value, IdentityLength> lengths;
+      SmallVector<Value> chain;
+      // The raw graph has at most one identity successor. Memoize suffixes
+      // iteratively, so long captures/extracts never consume the host stack.
+      for (const auto &entry : visited) {
+        if (failed(budget.debit(1, definition)))
+          return failure();
+        Value current = entry.first;
+        uint64_t length = 0;
+        bool cycle = false;
+        while (current) {
+          if (failed(budget.debit(1, definition)))
+            return failure();
+          auto known = lengths.find(current);
+          if (known != lengths.end()) {
+            cycle = !known->second.complete || known->second.cyclic;
+            length =
+                cycle ? Budget::add(visited.size(), 1) : known->second.length;
+            break;
+          }
+          if (failed(budget.debit(
+                  Budget::add(
+                      Budget::bytes(sizeof(std::pair<Value, IdentityLength>)),
+                      Budget::bytes(sizeof(Value))),
+                  definition)))
+            return failure();
+          lengths.try_emplace(current);
+          chain.push_back(current);
+          current = identityNext(current);
+        }
+        while (!chain.empty()) {
+          if (failed(budget.debit(1, definition)))
+            return failure();
+          if (!cycle)
+            length = Budget::add(length, 1);
+          lengths.find(chain.pop_back_val())->second = {length, true, cycle};
+        }
+        result.identityLength = std::max(result.identityLength, length);
+      }
+      return result;
+    };
+    uint64_t proof = 0;
+    for (Operation *rule : rules) {
+      if (failed(budget.debit(1, definition)) || failed(seedSampled(rule)))
+        return failure();
+      auto local = walk();
+      if (failed(local))
+        return failure();
+      auto sampled =
+          rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+      if (auto guards = sampled.getAs<ArrayAttr>("guards"))
+        local->guards = guards.size();
+      proof = Budget::add(proof, sampledRuleProofCost(*local, stops));
     }
-    return Budget::add(visited.size(), boundaries.size());
+    return proof;
+  }
+  template <typename T> static uint64_t schemaRecordCost() {
+    return Budget::add(1, Budget::bytes(sizeof(T)));
+  }
+  FailureOr<uint64_t> sampledSchemaCost(Attribute attribute, uint64_t metadata,
+                                        Operation *site) {
+    auto sampled = dyn_cast_or_null<DictionaryAttr>(attribute);
+    auto guards = sampled ? sampled.getAs<ArrayAttr>("guards") : ArrayAttr();
+    uint64_t count = guards ? guards.size() : 0;
+    uint64_t frames = 0;
+    if (guards) {
+      for (Attribute raw : guards) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        auto guard = dyn_cast<DictionaryAttr>(raw);
+        if (auto invocation =
+                guard ? guard.getAs<ArrayAttr>("invocation") : ArrayAttr())
+          frames = Budget::add(frames, invocation.size());
+      }
+    }
+    uint64_t cost =
+        Budget::add(schemaRecordCost<SampledAdmissionView>(),
+                    Budget::multiply(std::max(uint64_t(1), count), metadata));
+    cost = Budget::add(cost, 3);
+    cost = Budget::add(
+        cost, Budget::multiply(
+                  count, Budget::add(schemaRecordCost<SampledGuardView>(), 2)));
+    return Budget::add(
+        cost, Budget::multiply(frames, schemaRecordCost<DictionaryAttr>()));
+  }
+  LogicalResult countWiringSchema(Attribute attribute, RawDefinitionWork &local,
+                                  Operation *site) {
+    auto wiring = dyn_cast_or_null<DictionaryAttr>(attribute);
+    if (!wiring)
+      return success();
+    if (auto states = wiring.getAs<ArrayAttr>("states"))
+      local.states = states.size();
+    if (auto incoming = wiring.getAs<ArrayAttr>("incoming"))
+      local.incoming = incoming.size();
+    if (auto writers = wiring.getAs<ArrayAttr>("writers")) {
+      local.writers = writers.size();
+      for (Attribute raw : writers) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        auto writer = dyn_cast<DictionaryAttr>(raw);
+        if (auto candidates =
+                writer ? writer.getAs<ArrayAttr>("candidates") : ArrayAttr()) {
+          local.candidates = Budget::add(local.candidates, candidates.size());
+          local.maxCandidates =
+              std::max(local.maxCandidates, uint64_t(candidates.size()));
+        }
+      }
+    }
+    return success();
+  }
+  static uint64_t wiringSchemaCost(const RawDefinitionWork &local) {
+    if (!local.hasWiring)
+      return 0;
+    auto add = Budget::add;
+    auto multiply = Budget::multiply;
+    uint64_t rows = std::max(
+        {uint64_t(1), local.states, local.incoming, local.maxCandidates});
+    uint64_t cost = schemaRecordCost<TransactionWiringView>();
+    cost =
+        add(cost, multiply(local.states,
+                           schemaRecordCost<TransactionStateInventoryEntry>()));
+    cost = add(cost, multiply(local.incoming,
+                              schemaRecordCost<TransactionIncomingView>()));
+    cost = add(cost, multiply(local.writers,
+                              schemaRecordCost<TransactionWriterView>()));
+    cost = add(cost, multiply(local.candidates,
+                              schemaRecordCost<TransactionCandidateView>()));
+    cost = add(cost, multiply(rows, local.wiringMetadata));
+    cost = add(
+        cost, multiply(local.states, add(local.operations,
+                                         multiply(2, local.instanceMetadata))));
+    cost = add(cost, multiply(local.instances, local.wiringMetadata));
+    cost = add(
+        cost, multiply(local.writers,
+                       add(local.operations, multiply(2, local.ruleMetadata))));
+    cost = add(cost, multiply(local.rules, local.wiringMetadata));
+    if (local.writers) {
+      // Divide the even factor first: saturation before division would lose
+      // the conservative triangle bound for very large raw inventories.
+      uint64_t left = local.writers, right = local.writers - 1;
+      if (left % 2 == 0)
+        left /= 2;
+      else
+        right /= 2;
+      cost = add(cost, multiply(left, right));
+    }
+    cost = add(cost, add(local.incoming, local.sampledSchema));
+    return add(cost, multiply(local.rules, add(local.writers, 1)));
+  }
+  static uint64_t nativeSampledSchemaCost(const RawDefinitionWork &local) {
+    auto add = Budget::add;
+    auto multiply = Budget::multiply;
+    uint64_t b = Budget::bytes(sizeof(HardwareBindings));
+    uint64_t s = add(b, Budget::bytes(sizeof(HardwareIdentityScope)));
+    uint64_t e = schemaRecordCost<HardwareIdentityEndpoint>();
+    uint64_t f = add(add(add(e, b), 1), s);
+    uint64_t prepared =
+        add(1, Budget::bytes(sizeof(PreparedSampledBoundaries)));
+    uint64_t validate = add(1, multiply(2, b));
+    uint64_t cost =
+        add(wiringSchemaCost(local), multiply(2, local.sampledSchema));
+    cost = add(cost, add(prepared, multiply(2, b)));
+    cost = add(cost, multiply(local.ruleResults, add(e, f)));
+    cost = add(cost, multiply(add(local.sampledRules, 1), validate));
+    uint64_t map =
+        Budget::bytes(sizeof(std::pair<Operation *, SampledAdmissionView>));
+    cost = add(cost, multiply(local.sampledRules, map));
+    cost = add(cost, multiply(2, local.operations));
+    cost = add(cost, multiply(local.rules, local.writers));
+    // The native definition verifier owns a fresh validation context: one
+    // initial prepare, then one prepare and entry lookup per sampled Rule.
+    // Keep the prior schema/proof reserve and add all context bookkeeping.
+    uint64_t r = local.sampledRules;
+    uint64_t queries = add(r, 1);
+    cost = add(cost, schemaRecordCost<SampledAdmissionValidation>());
+    cost = add(
+        cost,
+        add(1, Budget::bytes(SampledAdmissionValidation::entryStorageBytes())));
+    cost = add(cost, queries);
+    cost = add(cost, multiply(r, add(1, multiply(2, b))));
+    // verifyInvocation, actual-Rule queries, prepared-entry selection and the
+    // successful Rule list all compare identities before further work.
+    cost = add(cost, add(1, multiply(2, r)));
+    cost = add(cost, multiply(r, r));
+    return add(cost, multiply(r, schemaRecordCost<RuleOp>()));
   }
   LogicalResult rawPreflight() {
     // Do not invoke typed attribute/signature accessors or any op verifier.
@@ -339,24 +613,53 @@ private:
               op)))
         return WalkResult::interrupt();
       auto &local = work[definition];
-      ++local.operations;
+      local.operations = Budget::add(local.operations, 1);
+      bool directRule = isa<RuleOp>(op) && op->getParentOp() == definition;
+      bool directInstance =
+          isa<InstanceOp>(op) && op->getParentOp() == definition;
+      if (directRule) {
+        local.rules = Budget::add(local.rules, 1);
+        local.ruleResults = Budget::add(local.ruleResults, op->getNumResults());
+        if (op->hasAttr("ac.sampled_admission"))
+          local.sampledRules = Budget::add(local.sampledRules, 1);
+      }
+      if (directInstance)
+        local.instances = Budget::add(local.instances, 1);
       local.operands = Budget::add(local.operands, op->getNumOperands());
       for (StringRef key :
            {"occurrence", "ac.required_checks", "ac.check_id", "location",
             "ac.message", "ac.sampled_admission", "ac.transaction_wiring"}) {
-        auto cost = structureCost(op->getAttr(key), op);
+        Attribute attribute = op->getAttr(key);
+        auto cost = structureCost(attribute, op);
         if (failed(cost))
           return WalkResult::interrupt();
         local.metadata = Budget::add(local.metadata, *cost);
-        if (key == "ac.sampled_admission" || key == "ac.transaction_wiring")
-          local.samplingMetadata = Budget::add(local.samplingMetadata, *cost);
+        uint64_t metadata = std::max(uint64_t(1), *cost);
+        if (key == "occurrence") {
+          if (directInstance)
+            local.instanceMetadata =
+                Budget::add(local.instanceMetadata, metadata);
+          if (directRule)
+            local.ruleMetadata = Budget::add(local.ruleMetadata, metadata);
+        }
+        if (attribute &&
+            (key == "ac.sampled_admission" || key == "ac.transaction_wiring"))
+          local.hasSamplingMetadata = true;
+        if (directRule && key == "ac.sampled_admission" && attribute) {
+          auto schema = sampledSchemaCost(attribute, metadata, op);
+          if (failed(schema))
+            return WalkResult::interrupt();
+          local.sampledSchema = Budget::add(local.sampledSchema, *schema);
+        }
+        if (op == definition && key == "ac.transaction_wiring" && attribute) {
+          local.hasWiring = true;
+          local.wiringMetadata = metadata;
+          if (failed(countWiringSchema(attribute, local, op)))
+            return WalkResult::interrupt();
+        }
       }
       if (auto required = op->getAttrOfType<ArrayAttr>("ac.required_checks"))
         local.obligations = Budget::add(local.obligations, required.size());
-      if (auto sampled =
-              op->getAttrOfType<DictionaryAttr>("ac.sampled_admission"))
-        if (auto guards = sampled.getAs<ArrayAttr>("guards"))
-          local.sampledGuards = Budget::add(local.sampledGuards, guards.size());
       if (isa<SourceExpectOp>(op)) {
         for (unsigned index = 0; index < op->getNumOperands(); ++index) {
           Value operand = op->getOperand(index);
@@ -391,29 +694,17 @@ private:
       // Native Module verification runs before the builder can share its
       // budget with the local verifier. Prepay a conservative bound for the
       // sampled schema, stop endpoints, identity walks and prefix atom sets.
-      if (local.samplingMetadata) {
-        auto reachable = sampledReachableValues(definition);
-        if (failed(reachable))
+      if (local.hasSamplingMetadata) {
+        // Definition stops may retain duplicate check endpoints; each prefix
+        // proof and native schema parse have their own bounded inventories.
+        uint64_t stops = Budget::add(local.ruleResults,
+                                     Budget::multiply(2, local.obligations));
+        auto proof = sampledProofCost(definition, stops);
+        if (failed(proof))
           return failure();
-        uint64_t values =
-            Budget::add(Budget::add(*reachable, local.sampledGuards), 1);
-        uint64_t square = Budget::multiply(values, values);
-        uint64_t scope = Budget::bytes(sizeof(HardwareBindings) +
-                                       sizeof(HardwareIdentityScope));
-        uint64_t payload = Budget::bytes(
-            4 * sizeof(HardwareIdentityEndpoint) + sizeof(SampledGuardView) +
-            sizeof(TransactionWriterView) + sizeof(TransactionCandidateView));
-        // Memoized prefix nodes retain at most V atoms, and local identity
-        // walks visit at most V endpoints with at most V context comparisons.
-        // V counts only guard-prefix/identity-reachable SSA and private stop
-        // endpoints; unrelated datapaths retain only ordinary graph charges.
-        uint64_t proof = Budget::add(
-            Budget::multiply(Budget::multiply(square, values), scope),
-            Budget::multiply(square, Budget::add(payload, local.metadata)));
-        uint64_t schema = Budget::multiply(local.samplingMetadata,
-                                           Budget::add(local.operations, 1));
+        uint64_t schema = nativeSampledSchemaCost(local);
         cost = Budget::add(
-            cost, Budget::add(proof, Budget::add(schema, local.operands)));
+            cost, Budget::add(*proof, Budget::add(schema, local.operands)));
       }
       if (failed(budget.debit(cost, definition)))
         return failure();
@@ -441,38 +732,15 @@ private:
                             definition)))
       return failure();
     auto &indices = localSamplingIndices[definition];
-    if (failed(budget.debit(
-            Budget::add(Budget::bindings(bindings),
-                        Budget::bytes(sizeof(HardwareIdentityScope))),
-            definition)))
+    auto prepared = validation.prepare(definition, bindings);
+    if (failed(prepared))
       return failure();
-    HardwareIdentityScope scope{definition, bindings, {}};
-    SmallVector<HardwareIdentityEndpoint> boundaries;
-    auto addBoundary = [&](Value value) -> LogicalResult {
-      if (failed(budget.debit(Budget::bytes(sizeof(HardwareIdentityEndpoint)),
-                              definition)))
-        return failure();
-      auto endpoint = makeIdentityEndpoint(value, scope, analysis, budget);
-      if (failed(endpoint))
-        return failure();
-      boundaries.push_back(std::move(*endpoint));
-      return success();
-    };
-    auto wiring =
-        parseTransactionWiring(definition, analysis, bindings, budget);
-    if (failed(wiring))
-      return failure();
-    for (auto &writer : wiring->writers)
-      for (uint64_t index = writer.ordinaryResults;
-           index < writer.rule.getNumResults(); ++index)
-        if (failed(addBoundary(writer.rule.getResult(index))))
-          return failure();
-    for (auto &check : checks)
-      if (failed(addBoundary(check.rule.getResult(check.conditionResult))) ||
-          failed(addBoundary(check.rule.getResult(check.pathResult))))
-        return failure();
+    if (!*prepared)
+      return definition->emitOpError()
+             << "sampling catalog lacks prepared boundaries";
+    const auto &scope = (*prepared)->getScope();
     HardwareIdentityStopPolicy stops{HardwareIdentityTraversal::DefinitionLocal,
-                                     boundaries};
+                                     (*prepared)->getBoundaries()};
     // Repeated guards of one Rule share a binding. Distinct Rules share only
     // exactly equal normalized definition-local SSA clock/reset pairs.
     llvm::DenseMap<Operation *, uint64_t> ruleIndices;
@@ -547,8 +815,8 @@ private:
               definition)))
         return failure();
       catalogScopes.emplace_back(definition, local);
-      auto bindings =
-          definitionSourceChecks(analysis, definition, local, budget);
+      auto bindings = definitionSourceChecks(analysis, definition, local,
+                                             validation, budget);
       if (failed(bindings))
         return failure();
       if (failed(
@@ -642,11 +910,29 @@ private:
     });
     if (resolved.wasInterrupted())
       return failure();
-    if (failed(budget.debit(localValidationCost[definition], definition)))
-      return failure();
-    auto local = definitionSourceChecks(analysis, definition, scope, budget);
-    if (failed(local))
-      return failure();
+    // Catalog proofs are complete before visit, and the package stays
+    // immutable. Reuse only the same definition with exactly equal bindings.
+    bool catalogProved = false;
+    for (const auto &[catalogDefinition, catalogBindings] : catalogScopes) {
+      if (failed(budget.debit(1, definition)))
+        return failure();
+      if (catalogDefinition != definition)
+        continue;
+      if (failed(budget.debit(Budget::add(Budget::bindings(scope),
+                                          Budget::bindings(catalogBindings)),
+                              definition)))
+        return failure();
+      catalogProved = sameHardwareBindings(scope, catalogBindings);
+      break;
+    }
+    if (!catalogProved) {
+      if (failed(budget.debit(localValidationCost[definition], definition)))
+        return failure();
+      auto local = definitionSourceChecks(analysis, definition, scope,
+                                          validation, budget);
+      if (failed(local))
+        return failure();
+    }
     SmallVector<Operation *> allocations;
     for (Operation &op : definition.getBody().front()) {
       if (!isa<InstanceOp, CollectionOp, QueueOp>(op))
@@ -893,6 +1179,7 @@ private:
   }
   const HardwareAnalysis &analysis;
   SourceCheckBudget budget;
+  SampledAdmissionValidation validation;
   HardwareSourceCheckPlan plan;
   llvm::DenseMap<Operation *, SmallVector<uint64_t>> localIndices;
   llvm::DenseMap<Operation *, SmallVector<uint64_t>> localSamplingIndices;

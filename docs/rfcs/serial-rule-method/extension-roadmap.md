@@ -16,6 +16,7 @@ typed 值、Struct/Table、source units、`@system` 和共同 IR；不迁回 iss
 | class 构造、隐式 self、二阶段连接 | 保留现有 typed 函数式 Module 与静态实例 | 不引入并行 authoring profile 或兼容层 |
 | 返回值隐式变 Queue、赋值隐式 pop | 普通返回仍是普通 typed payload | 资源引用语法另行确定；字段名不带隐藏语义 |
 | Rule 关系表、Signal/EHR | 保留为明确后续范围 | 基础 Method 不引入隐式前递、priority 或 `After` |
+| Signal 与 EHR 的可见性 | Signal 无本拍获准写入则 invalid；EHR 才允许旧 Q 回退 | 不混同无状态 Wire 与有状态寄存器，不将 invalid 作为 false |
 | 由编译器生成高效硬件 | MLIR 承担 effects、SSA、admission、冲突、因果及优化 | capture 不执行设计；后端不补语义；不隐式 pipeline |
 
 ROB 对应“完成→退休→分配”的候选可见性；SSM S1 对应多个 owner 的 all-or-none；
@@ -25,7 +26,7 @@ bundle、retry probe 验收。具体源码依据见[总体规格](README.md)，�
 ## 当前实现与剩余出口
 
 “已有入口”只说明基线中有实现。历史测试结果须另查其精确候选证据，不能替代未来改动的
-fresh verification。本表保留上述历史基线；当前原生增量状态见表后说明，
+fresh verification。本表区分历史基线与当前有界实现；原生执行证据见表后说明，
 未勾选项仍不构成完成声明。
 
 | 切片 | 复用/扩展的 owner | 当前边界 | 必须补齐的退出条件 |
@@ -33,29 +34,38 @@ fresh verification。本表保留上述历史基线；当前原生增量状态�
 | 类型、效果与独立发布 | SourceEffects、SourceMethodAnalysis、SourceTransactionSummary、SourceMethodResolution | 有 typed 方法、闭包/摘要验证及 source-unit 入口 | 后续变化重验 body/summary 和接口-only consumer，不增加第二 authority |
 | 纯 helper hard break | 现有 typed helper body 与 capture/import 路径 | 已有普通纯 `def` 路径 | 每次扩展维持纯度、快照、类型权威和旧入口拒绝 |
 | state SSA 分析 | SourceTransactionStateAnalysis | 直线 whole-owner typed plan，尚非完整 branch/partial SSA | 分支、selectors、条件写的精确版本与 join |
-| 同 owner 执行 | LowerTransactions | 恒真路径、whole Bits、唯一 writer | 保留实际执行、独立旧 Q 和失败原子性回归 |
-| 跨实例执行 | 同一 LowerTransactions + 现有 Module/Instance | 已接入同域、恒真路径、whole Bits、唯一实际 writer 的原实例接线；Collection 限制保留 | 后续变化维持[跨实例规格](cross-instance-lowering.md)全部不变量并重新验证 |
-| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 一般检查只有 reset 上下文，无完整通用 sampled-edge 执行；精确架构已明确 | [采样准入规格](sampled-admission.md)的 schema、证明、history 生命周期与独立执行验收 |
+| 同 owner 执行 | LowerTransactions | 直线、同域、whole Bits、唯一实际 writer 的统一采样 lowering | 保留实际执行、独立旧 Q 和失败原子性回归；补齐公共源验收 |
+| 跨实例执行 | 同一 LowerTransactions + 现有 Module/Instance | 原实例接线已生成完整 companion，统一采样；Collection 限制保留 | 维持[跨实例规格](cross-instance-lowering.md)全部不变量并重验公共源 |
+| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 有序 validity/guard、双层证明及 C++/RTL history 已实现；有 focused final-IR 执行证据 | [采样准入规格](sampled-admission.md)的公共动态源矩阵、输出保护及独立集成验收 |
 | 部分状态与冲突 | 既有字段/索引类型、write footprint、grant/disjointness proof | 不能由旧 behavioral 路径支持推断 Method 已支持 | whole/field/index 冲突统一，保留四态及源写意图 |
 | 资源与因果 | 既有 HardwareAnalysis、primitive 端口合同 | Method 的完整 resource closure 未完成 | 合法请求准入、明确拒绝超端口与联合环；Queue 单独验收 |
 | Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | 普通 System 回归不代表 Method System 完成 | 真实 Method `@system` 的时钟/复位、检查、观测、终止及失败闭环 |
 | 效果安全优化 | 既有 record-wire、纯 SSA 优化和 final verifier | 不能从能够生成代码推断效率达标 | 三项结构效率义务及明确样本的成本测量 |
 
-建议剩余依赖顺序：保持跨实例不变量 → 动态 guard → 分支/部分更新 → 资源/冲突/因果完整闭包 →
+建议剩余依赖顺序：保持跨实例不变量 → 公共动态 guard 验收 → 分支/部分更新 → 资源/冲突/因果完整闭包 →
 Method System 集成 → 效果安全优化。独立测试可以提前准备；基础因果和冲突验证必须在
 每个切片存在，不能等资源切片才开始验证。Queue、Signal/EHR 不混入基础交付。
 
-基线后的原生增量已接入 sampled/wiring schema、identity/prefix/物理接线证明、采样
-binding/occurrence plan 和 GuardOnly 源分类。它不完成动态执行：统一 lowering 的
-metadata/原计划对照及 C++/RTL history 生命周期仍待实现，两个 emitter 入口暂时明确
-拒绝 sampled plan。旧 lowerer 的内部端口输出也尚未提供新 companion，不能把原生
-验证切片作为跨实例公共执行验收；当前状态见[语言参考](../../reference/language.md#method-execution-and-remaining-capabilities)。
+基线后的有界实现已接入 sampled/wiring schema、identity/prefix/物理接线证明、采样
+binding/occurrence plan、GuardOnly 源分类和统一 lowering。每个实际事务均生成真实域
+captures、完整 companion、有序 guards 和 validity prefixes；literal true/false、无状态、
+只读事务没有旁路。外层 Rule 的普通返回值仍要求既有恒真证明，不新增 valid-result 作者接口。
+detached candidate 先对照原源计划认证，再进入一次 canonical final verifier；两层验证
+成功后才原子替换。C++ 与 managed RTL 使用同一采样计划及 history 生命周期。
 
-## 动态 guard：必须先落实的共同 IR 合同
+当前 focused final-IR 回归已有 native workers 1/2 与真实四态 RTL 执行证据，不能替代
+公共动态源矩阵或 Method `@system` 闭环。2026-10-14 有界候选的公共恒真六场景、短
+API gate 与 examples gate 已重验通过；定义局部证明复用解决了原公共跨实例预算失败，
+保持原限额和全部实际实例证明。结果不自动覆盖后续候选；nightly 未运行，基础 Method
+checklist 仍有上述公共动态及 System 缺口，不据此宣称全范围完成。
+当前边界见[语言参考](../../reference/language.md#method-execution-and-remaining-capabilities)。
+
+## 动态 guard：共同 IR 合同与剩余验收
 
 复用已有 `ac.expect`、`ac.required_checks`、CheckID、HardwareSourceCheckPlan、
 Runtime Precheck/Precommit/Xfer 和 RTL commit gate。原检查点的 `HardwareResolvedSourceCheck`
-只有 reset；原生增量已加入独立采样索引及实例计划。DFFE 的 clock history 位于 Current/Pending；不能把 reset-gated
+只有 reset；当前实现增加独立采样索引、实例计划及双后端冻结快照/history。
+DFFE 的 clock history 位于 Current/Pending；不能把 reset-gated
 普通 assert 当作动态 Method guard 的完整实现。
 
 [采样准入规格](sampled-admission.md)已将这些事实固定在**同一检查表示**中：必填源
@@ -150,6 +160,8 @@ SourceLink 的真实 stage capture 继续作为物化前后证据，不用手工
 - [ ] 负例具有责任对象和源位置；compile/link/emit 与 stage output 失败不覆盖已有产物。
 - [ ] 结构效率：不加延迟/存储、指定样本未用临时字段消除、等价纯计算共享；面积/时序
   只有实际综合才能报告，操作数下降不作为替代证据。
+- [ ] `METHOD-ANALYSIS-BOUNDS`：冻结规模的公共源在现有预算内通过，极小预算反例
+  原子失败；准备结果复用、准确绑定与变换后失效都有独立证据。
 - [ ] 保存精确候选、工具、源与 oracle 哈希、完整命令/退出码、stage files、final 哈希和
   双目标清单；测试不读取本地日志或本规格作为行为 oracle。
 - [ ] 更新当前语言文档的真实支持范围；独立 reviewer 检查代码与证据，列出剩余缺口。

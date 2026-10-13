@@ -221,13 +221,44 @@ parseSampledAdmission(rule, analysis, bindings, budget) -> SampledAdmissionView
 parseTransactionWiring(module, analysis, bindings, budget) -> TransactionWiringView
 resolveTransactionState(module, StateID, analysis, bindings, budget) -> PhysicalStateEndpoint
 normalizeIdentityEndpoint(endpoint, stopBoundaries, analysis, budget) -> NormalizedEndpoint
-proveSampledAdmission(view, analysis, bindings, budget) -> LogicalResult
-verifyTransactionWiring(analysis, budget) -> LogicalResult
+prepareSampledBoundaries(definition, analysis, bindings, budget) -> optional PreparedSampledBoundaries
+proveSampledAdmission(view, prepared, analysis, bindings, budget) -> LogicalResult
+verifyTransactionWiring(analysis, scopes, validation, budget) -> LogicalResult
 ```
 
 views 包含已解析 ops/indices；physical endpoint 包含真实路径/DFFE/绑定 payload。
-LowerTransactions 的 `verifyMaterializedTransactionContract` 比较 original preparation、
+LowerTransactions 的 `verifyTransactionMaterialization` 比较 original preparation、
 final candidate、materialized value mappings，不另造 evaluator。
+
+`PreparedSampledBoundaries` 是一次只读验证中借用 immutable IR 的准备结果，不是缓存的
+验证结论。仅 factory 可以构造；结果不可复制，公开只读 scope/boundaries。它必须包含
+该定义完整的 candidate、fire、guard、assert/range 边界，不能因本次 Rule 不使用某边界
+而省略。普通无 sampled/wiring 定义成功返回空 optional；构造失败与空结果必须区分。
+
+消费前核对精确 definition、definition-local 空路径和完整 bindings。不同 bindings 不得
+复用；IR 修改后必须失效。同一准确 scope 内的 definition checks、sampling catalog 和
+多个 Rule 可以共享准备结果，每个 Rule/完整 bindings 必须有完整 prefix 证明。实际 occurrence 的物理接线、
+private-use 与 clock history 验证继续独立进行，不能按定义名去重实际实例。
+旧的无 prepared 参数证明入口必须删除，不保留默认参数或 fallback。
+
+既有 source-check owner 中的 `SampledAdmissionValidation` 在一次只读调用中保有准备
+结果与已经成功的 definition-local Rule prefix 证明。它绑定同一 analysis 和 budget，
+不允许复制/移动；`verifyInvocation` 拒绝错配。`prepare(definition, bindings)` 只通过
+原 factory 构造完整边界，稳定保存指针；普通定义成功返回空指针。
+`verify(rule, bindings)` 每次从真实 Rule 重新解析 schema，只有精确 definition、完整
+bindings 与 Rule 身份已成功时才复用 prefix 证明。首次仍运行同一个 prover，失败不记录。
+调用者不能注入 view 或“已成功”标志；Prepared 对象本身仍不授予证明权威。
+
+Builder 将同一个 validation 贯穿 catalog、绑定检查和 wiring；独立 native 入口各自
+新建。相关 IR 修改必须销毁旧 context 后重新验证。不得跨独立 source/final 验证调用
+保留缓存。定义局部成功不代表整份 source checks、实际 occurrence 或独立根成功；
+所有 expect 配对、实际 stops、D/E、domain、private-use 仍按其原责任验证。
+context 查找、完整 bindings 比较、entry/Rule 存储均提前计费；native raw preflight
+保留既有上界并覆盖新增记账，不通过减少限额预付来使样本通过。
+
+同一 writer 的候选均已逐项验证目标、类型、域、冲突及其规范化 enable 等于 fire 后，
+允许对该 fire 的完整 Enable 扇出只遍历一次；每条 Data 路由仍须验证。该复用不跨 writer
+或实际 occurrence，不删 incoming Enable、末端、逃逸、环和 dead-end 检查。
 
 扩展既有 HardwareAnalysis 数据：
 

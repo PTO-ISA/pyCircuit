@@ -1,5 +1,6 @@
 #include "HardwareEmitCppChecks.h"
 #include "FinalCppNames.h"
+#include "llvm/ADT/STLExtras.h"
 #include <limits>
 
 using namespace mlir;
@@ -92,6 +93,18 @@ FailureOr<size_t> localIndex(HardwareEmitContext &context, uint64_t global) {
   return context.package.emitOpError()
          << "native check binding has no local site";
 }
+FailureOr<uint64_t> samplingIndex(HardwareEmitContext &context,
+                                  uint64_t occurrenceIndex) {
+  const auto &plan = context.sourceChecks();
+  if (occurrenceIndex >= plan.samplingOccurrences.size())
+    return context.package.emitOpError()
+           << "native sampling occurrence is outside plan";
+  auto bindingIndex = plan.samplingOccurrences[occurrenceIndex].bindingIndex;
+  if (bindingIndex >= plan.samplingBindings.size())
+    return context.package.emitOpError()
+           << "native sampling binding is outside plan";
+  return plan.samplingBindings[bindingIndex].localOrdinal;
+}
 } // namespace
 SmallVector<CppSourceCheckSite>
 cppDefinitionChecks(const HardwareEmitContext &context,
@@ -106,7 +119,10 @@ void emitCppCheckStorage(HardwareEmitContext &context, ac::ModuleOp definition,
                          raw_ostream &out) {
   auto sites = cppDefinitionChecks(context, definition);
   bool reset = resetSnapshot(context, definition);
-  if (sites.empty() && !reset)
+  bool samples = llvm::any_of(
+      context.sourceChecks().samplingBindings,
+      [&](const auto &binding) { return binding.definition == definition; });
+  if (sites.empty() && !reset && !samples)
     return;
   out << "private:\n";
   for (auto site : sites) {
@@ -120,7 +136,43 @@ void emitCppCheckStorage(HardwareEmitContext &context, ac::ModuleOp definition,
     out << "  gfsim::wire<gfsim::table<gfsim::Bits<1>, pyc_count>> "
            "pyc_check_reset_;\n"
            "  std::array<bool, pyc_count> pyc_check_reset_valid_{};\n";
+  for (const auto &binding : context.sourceChecks().samplingBindings) {
+    if (binding.definition != definition)
+      continue;
+    auto ordinal = binding.localOrdinal;
+    for (StringRef field : {"clock", "pending_clock", "pending_valid", "valid"})
+      out << "  std::array<bool, pyc_count> pyc_sampling_" << field << "_"
+          << ordinal << "{};\n";
+    out << "  std::array<gfsim::SampledClockEvaluation, pyc_count> "
+           "pyc_sampling_evaluation_"
+        << ordinal << "{};\n";
+  }
   out << "public:\n";
+  for (const auto &binding : context.sourceChecks().samplingBindings) {
+    if (binding.definition != definition)
+      continue;
+    auto ordinal = binding.localOrdinal;
+    out << "  void __pyc_capture_sampling_" << ordinal
+        << "(std::size_t lane, const gfsim::wire<gfsim::Bits<1>> &clock, "
+           "const gfsim::wire<gfsim::Bits<1>> &reset) noexcept {\n"
+        << "    const auto evaluation = gfsim::evaluateSampledClock("
+           "pyc_sampling_clock_"
+        << ordinal << "[lane], clock, reset);\n"
+        << "    pyc_sampling_evaluation_" << ordinal << "[lane] = evaluation;\n"
+        << "    pyc_sampling_pending_clock_" << ordinal
+        << "[lane] = evaluation.nextClock;\n"
+        << "    pyc_sampling_pending_valid_" << ordinal
+        << "[lane] = evaluation.fault == gfsim::SampledClockFault::None;\n"
+        << "    pyc_sampling_valid_" << ordinal << "[lane] = true;\n  }\n"
+        << "  bool __pyc_sampling_valid_" << ordinal
+        << "(std::size_t lane) const noexcept { return pyc_sampling_valid_"
+        << ordinal << "[lane]; }\n"
+        << "  const gfsim::SampledClockEvaluation &__pyc_sampling_evaluation_"
+        << ordinal
+        << "(std::size_t lane) const noexcept { return "
+           "pyc_sampling_evaluation_"
+        << ordinal << "[lane]; }\n";
+  }
   for (auto site : sites) {
     for (StringRef operand : {"condition", "path"})
       out << "  const gfsim::wire<gfsim::Bits<1>> &__pyc_check_" << operand
@@ -155,12 +207,51 @@ void emitCppCheckClear(HardwareEmitContext &context, ac::ModuleOp definition,
     out << "    pyc_check_valid_" << site.ordinal << ".fill(false);\n";
   if (resetSnapshot(context, definition))
     out << "    pyc_check_reset_valid_.fill(false);\n";
+  for (const auto &binding : context.sourceChecks().samplingBindings)
+    if (binding.definition == definition)
+      out << "    pyc_sampling_valid_" << binding.localOrdinal
+          << ".fill(false);\n    pyc_sampling_pending_valid_"
+          << binding.localOrdinal << ".fill(false);\n";
+}
+void emitCppSamplingXfer(HardwareEmitContext &context, ac::ModuleOp definition,
+                         raw_ostream &out) {
+  for (const auto &binding : context.sourceChecks().samplingBindings) {
+    if (binding.definition != definition)
+      continue;
+    auto ordinal = binding.localOrdinal;
+    out << "    for (std::size_t pyc_lane = 0; pyc_lane < pyc_count; "
+           "++pyc_lane)\n"
+        << "      if (pyc_sampling_pending_valid_" << ordinal
+        << "[pyc_lane]) pyc_sampling_clock_" << ordinal
+        << "[pyc_lane] = pyc_sampling_pending_clock_" << ordinal
+        << "[pyc_lane];\n";
+  }
+}
+void emitCppSamplingReset(HardwareEmitContext &context, ac::ModuleOp definition,
+                          raw_ostream &out) {
+  for (const auto &binding : context.sourceChecks().samplingBindings)
+    if (binding.definition == definition)
+      out << "    pyc_sampling_pending_clock_" << binding.localOrdinal
+          << ".fill(false);\n    pyc_sampling_pending_valid_"
+          << binding.localOrdinal << ".fill(true);\n";
 }
 LogicalResult
 emitCppCheckCapture(HardwareEmitContext &context, ac::ModuleOp definition,
                     StringRef object, StringRef count,
                     const std::function<FailureOr<std::string>(Value)> &value,
                     raw_ostream &out) {
+  for (const auto &binding : context.sourceChecks().samplingBindings) {
+    if (binding.definition != definition)
+      continue;
+    auto clock = value(binding.clock);
+    auto reset = value(binding.reset);
+    if (failed(clock) || failed(reset))
+      return failure();
+    out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << count
+        << "; ++pyc_lane) " << object << "__pyc_capture_sampling_"
+        << binding.localOrdinal << "(pyc_lane, " << *clock
+        << ".element(pyc_lane), " << *reset << ".element(pyc_lane));\n";
+  }
   if (resetSnapshot(context, definition)) {
     auto domain = definition->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
     auto ordinal = domain.getAs<IntegerAttr>("reset").getValue().getZExtValue();
@@ -186,7 +277,8 @@ emitCppCheckCapture(HardwareEmitContext &context, ac::ModuleOp definition,
 bool cppHasRootChecks(const HardwareEmitContext &context,
                       ac::ModuleOp definition) {
   const auto &plan = context.sourceChecks();
-  return plan.hasChecks() && plan.owners.front().definition == definition;
+  return (plan.hasChecks() || !plan.samplingOccurrences.empty()) &&
+         plan.owners.front().definition == definition;
 }
 LogicalResult emitCppCheckInstanceNames(HardwareEmitContext &context,
                                         raw_ostream &out) {
@@ -217,7 +309,8 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
     std::string complete = owner->object + "->__pyc_check_valid_" +
                            std::to_string(*local) + "(" +
                            std::to_string(owner->lane) + ")";
-    if (check.reset.kind == ac::HardwareCheckResetKind::PhysicalReset) {
+    if (!check.samplingOccurrenceIndex &&
+        check.reset.kind == ac::HardwareCheckResetKind::PhysicalReset) {
       auto resetOwner = address(context, *check.reset.ownerOccurrence);
       if (failed(resetOwner))
         return failure();
@@ -229,6 +322,37 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
         << viewLiteral("runtime_failure") << ", "
         << viewLiteral("model check failed")
         << ", {}, {}, {}};\n      return false;\n    }\n";
+  }
+  for (const auto &sampling : plan.samplingOccurrences) {
+    auto owner = address(context, sampling.ownerOccurrence);
+    auto local = samplingIndex(context, sampling.ordinal);
+    if (failed(owner) || failed(local))
+      return failure();
+    out << "    if (!(" << owner->object << "->__pyc_sampling_valid_" << *local
+        << "(" << owner->lane << "))) {\n"
+        << "      failure = {gfsim::SimFailurePhase::Check, "
+        << viewLiteral("runtime_failure") << ", "
+        << viewLiteral("model check failed")
+        << ", {}, {}, {}};\n      return false;\n    }\n";
+  }
+  // Physical faults precede every source guard. All evaluations are frozen by
+  // Work, including check-only transactions without any storage leaf.
+  for (const auto &sampling : plan.samplingOccurrences) {
+    auto owner = address(context, sampling.ownerOccurrence);
+    auto local = samplingIndex(context, sampling.ordinal);
+    if (failed(owner) || failed(local))
+      return failure();
+    out << "    {\n      const auto &pyc_sampling = " << owner->object
+        << "->__pyc_sampling_evaluation_" << *local << "(" << owner->lane
+        << ");\n"
+        << "      if (pyc_sampling.fault != gfsim::SampledClockFault::None) "
+           "{\n"
+        << "        failure = {gfsim::SimFailurePhase::Check, "
+        << viewLiteral("runtime_failure")
+        << ", pyc_sampling.fault == gfsim::SampledClockFault::UnknownClock ? "
+        << viewLiteral("sampled clock is unknown") << " : "
+        << viewLiteral("sampled reset is unknown")
+        << ", {}, {}, {}};\n        return false;\n      }\n    }\n";
   }
   for (const auto &check : plan.checks) {
     auto owner = address(context, check.ownerOccurrence);
@@ -246,16 +370,45 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
             : "source " + binding.kind.getValue().str() + " check failed";
     auto lane = std::to_string(owner->lane);
     auto site = std::to_string(*local);
+    if (binding.kind.getValue() == "guard_known") {
+      if (!check.samplingOccurrenceIndex)
+        return binding.expect->emitOpError()
+               << "native guard check has no sampling occurrence";
+      auto samplingLocal =
+          samplingIndex(context, *check.samplingOccurrenceIndex);
+      if (failed(samplingLocal))
+        return failure();
+      const auto &sampling =
+          plan.samplingOccurrences[*check.samplingOccurrenceIndex];
+      auto samplingOwner = address(context, sampling.ownerOccurrence);
+      if (failed(samplingOwner))
+        return failure();
+      out << "    {\n      const auto &pyc_reached = " << owner->object
+          << "->__pyc_check_path_" << site << "(" << lane << ");\n"
+          << "      if (!pyc_reached.isFullyKnown()) {\n"
+          << "        failure = {gfsim::SimFailurePhase::Check, "
+          << viewLiteral("runtime_failure") << ", "
+          << viewLiteral("sampled guard reachability is unknown")
+          << ", {}, {}, {}};\n        return false;\n      }\n"
+          << "      const auto &pyc_sampling = " << samplingOwner->object
+          << "->__pyc_sampling_evaluation_" << *samplingLocal << "("
+          << samplingOwner->lane << ");\n"
+          << "      if (pyc_sampling.rising && !pyc_sampling.resetActive && "
+             "pyc_reached.value().toBool() && !"
+          << owner->object << "->__pyc_check_condition_" << site << "(" << lane
+          << ").isFullyKnown()) {\n"
+          << "        failure = {gfsim::SimFailurePhase::Check, "
+          << viewLiteral("source_check_failed") << ", " << viewLiteral(message)
+          << ", pyc_check_instances_[" << check.ordinal << "], " << *location
+          << ", " << *id << "};\n        return false;\n      }\n    }\n";
+      continue;
+    }
     std::string reset = "gfsim::FourState<1>::known(gfsim::Bits<1>{0})";
-    std::string complete =
-        owner->object + "->__pyc_check_valid_" + site + "(" + lane + ")";
     if (check.reset.kind == ac::HardwareCheckResetKind::PhysicalReset) {
       auto resetOwner = address(context, *check.reset.ownerOccurrence);
       if (failed(resetOwner))
         return failure();
       auto resetLane = std::to_string(resetOwner->lane);
-      complete += " && " + resetOwner->object + "->__pyc_check_reset_valid(" +
-                  resetLane + ")";
       reset = resetOwner->object + "->__pyc_check_reset(" + resetLane +
               ").packed()";
     }

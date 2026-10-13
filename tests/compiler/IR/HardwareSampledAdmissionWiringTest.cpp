@@ -6,6 +6,8 @@
 #include "mlir/IR/Diagnostics.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
@@ -74,7 +76,50 @@ protected:
         "i64, end_column = 21 : i64}}>";
     return cast<ac::StaticExprAttr>(parseAttribute(text, &context));
   }
+  ac::StaticExprAttr parameterReference(StringRef name) {
+    auto text = "#ac.static_expr<{kind = \"reference\", ref = {kind = "
+                "\"parameter\", owner = @Owner, name = \"" +
+                name.str() +
+                "\"}, origin = {site = {definition = @Owner, ast_path = "
+                "[]}, expansion = []}, location = {path = \"wiring.py\", "
+                "line = 4 : i64, column = 2 : i64, end_line = 4 : i64, "
+                "end_column = 21 : i64}}>";
+    return cast<ac::StaticExprAttr>(parseAttribute(text, &context));
+  }
   Type bit() { return ac::BitsType::get(&context, literal(1)); }
+  void setDomainType(Type type) {
+    auto &body = definition.getBody().front();
+    body.getArgument(1).setType(type);
+    body.getArgument(2).setType(type);
+    SmallVector<Type> inputs(definition.getFunctionType().getInputs());
+    inputs[1] = type;
+    inputs[2] = type;
+    definition->setAttr(
+        "function_type",
+        TypeAttr::get(b.getFunctionType(
+            inputs, definition.getFunctionType().getResults())));
+    rule.getBody().front().getArgument(0).setType(type);
+    rule.getBody().front().getArgument(1).setType(type);
+  }
+  void setStatePayloadType(Type type) {
+    auto &body = definition.getBody().front();
+    auto initial = body.addArgument(type, loc());
+    SmallVector<Type> inputs(definition.getFunctionType().getInputs());
+    inputs.push_back(type);
+    definition->setAttr(
+        "function_type",
+        TypeAttr::get(b.getFunctionType(
+            inputs, definition.getFunctionType().getResults())));
+    SmallVector<Attribute> names(definition.getInputNames().getValue());
+    names.push_back(b.getStringAttr("initial"));
+    definition->setAttr("input_names", b.getArrayAttr(names));
+    storage->getResult(0).setType(type);
+    storage->setAttr("type_arguments", b.getArrayAttr({TypeAttr::get(type)}));
+    storage->setOperand(4, initial);
+    rule.getBody().front().getArgument(3).setType(type);
+    rule.getBody().front().getTerminator()->setOperand(
+        0, rule.getBody().front().getArgument(2));
+  }
   Operation *op(StringRef name, ValueRange operands = {},
                 TypeRange results = {}, ArrayRef<NamedAttribute> attrs = {}) {
     OperationState state(loc(), name);
@@ -83,9 +128,9 @@ protected:
     state.addAttributes(attrs);
     return b.create(state);
   }
-  Value constant(uint64_t value) {
+  Value constant(uint64_t value, StringRef symbol = "Owner") {
     return op(ac::BitsConstantOp::getOperationName(), {}, {bit()},
-              {f("value", literal(value))})
+              {f("value", literal(value, symbol))})
         ->getResult(0);
   }
   DictionaryAttr wiring(ArrayRef<Attribute> states,
@@ -243,6 +288,85 @@ protected:
                       f("parameters", b.getArrayAttr({})),
                       f("type_arguments", b.getArrayAttr({}))}))});
   }
+  SmallVector<ac::InstanceOp> expandToThreeCandidates() {
+    if (!storage) {
+      ADD_FAILURE() << "three-candidate fixture requires stateful build";
+      return {};
+    }
+    auto &body = definition.getBody().front();
+    SmallVector<ac::InstanceOp> states{storage};
+    for (uint64_t declaration : {21u, 22u}) {
+      auto *copy = storage->clone();
+      copy->setAttr("instance_name",
+                    b.getStringAttr("state_" + std::to_string(declaration)));
+      copy->setAttr("occurrence", occurrence(declaration));
+      body.getOperations().insert(rule->getIterator(), copy);
+      states.push_back(cast<ac::InstanceOp>(copy));
+    }
+
+    NamedAttrList attributes(rule->getAttrs());
+    NamedAttrList sampled(
+        rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    sampled.set("fire_result", b.getI64IntegerAttr(3));
+    attributes.set("ac.sampled_admission", sampled.getDictionary(&context));
+    b.setInsertionPoint(rule);
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    SmallVector<Value> captures(rule.getOperands());
+    captures.push_back(states[1].getResult(0));
+    captures.push_back(states[2].getResult(0));
+    state.addOperands(captures);
+    state.addTypes(SmallVector<Type>(6, bit()));
+    state.addAttributes(attributes);
+    state.addRegion();
+    auto replacement = cast<ac::RuleOp>(b.create(state));
+    auto *replacementBody = new Block;
+    replacement.getBody().push_back(replacementBody);
+    for (Value capture : captures)
+      replacementBody->addArgument(capture.getType(), loc());
+    b.setInsertionPointToEnd(replacementBody);
+    auto knownOne = constant(1);
+    auto known = cast<ac::BitsCompareOp>(
+        op(ac::BitsCompareOp::getOperationName(),
+           {replacementBody->getArgument(2), knownOne}, {bit()},
+           {f("predicate", b.getStringAttr("case_eq"))}));
+    op(ac::YieldOp::getOperationName(),
+       {replacementBody->getArgument(3), replacementBody->getArgument(4),
+        replacementBody->getArgument(5), known.getResult(),
+        replacementBody->getArgument(2), knownOne});
+
+    for (auto [index, instance] : llvm::enumerate(states))
+      instance->setOperands({body.getArgument(1), body.getArgument(2),
+                             replacement.getResult(3),
+                             replacement.getResult(index), zero});
+    expect->setOperands({replacement.getResult(4), replacement.getResult(5),
+                         body.getArgument(1), body.getArgument(2)});
+    rule.erase();
+    rule = replacement;
+    definition->setAttr(
+        "ac.transaction_wiring",
+        wiring({occurrence(20), occurrence(21), occurrence(22)}, {},
+               {writer({candidate(stateID(20), 0), candidate(stateID(21), 1),
+                        candidate(stateID(22), 2)})}));
+    return states;
+  }
+  ac::RuleOp addIllegalRuleCapture(ValueRange captures,
+                                   StringRef name = "illegal_capture") {
+    auto &body = definition.getBody().front();
+    b.setInsertionPoint(body.getTerminator());
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands(captures);
+    state.addAttribute("name", b.getStringAttr(name));
+    state.addAttribute("occurrence", occurrence(90));
+    state.addRegion();
+    auto captured = cast<ac::RuleOp>(b.create(state));
+    auto *capturedBody = new Block;
+    captured.getBody().push_back(capturedBody);
+    for (Value value : captures)
+      capturedBody->addArgument(value.getType(), loc());
+    b.setInsertionPointToEnd(capturedBody);
+    op(ac::YieldOp::getOperationName());
+    return captured;
+  }
   template <typename Function> auto capture(Function function) {
     diagnostics.clear();
     ScopedDiagnosticHandler handler(&context, [&](Diagnostic &error) {
@@ -251,6 +375,13 @@ protected:
       return success();
     });
     return function();
+  }
+  std::string printPackage() {
+    std::string text;
+    llvm::raw_string_ostream stream(text);
+    package->print(stream);
+    stream << '\n';
+    return text;
   }
   LogicalResult verifyWiring(uint64_t limit = 1 << 22) {
     ac::HardwareAnalysis analysis(*package);
@@ -261,7 +392,9 @@ protected:
       scopes.emplace_back(module, std::move(bindings));
     }
     detail::SourceCheckBudget budget({limit});
-    return detail::verifyTransactionWiring(analysis, scopes, budget);
+    detail::SampledAdmissionValidation validation(analysis, budget);
+    return detail::verifyTransactionWiring(analysis, scopes, validation,
+                                           budget);
   }
   void makeExternalIncomingHold() {
     storage->setOperands({definition.getBody().front().getArgument(1),
@@ -332,16 +465,20 @@ protected:
     entry.set("callee", FlatSymbolRefAttr::get(&context, "Parent"));
     system->setAttr("entry", entry.getDictionary(&context));
   }
-  void exportUnusedPrivateValue(Value exported) {
+  void exportValueThroughParent(Value exported, bool privateValue) {
     definition->setAttr("function_type", TypeAttr::get(b.getFunctionType(
                                              {bit(), bit(), bit()}, {bit()})));
     definition->setAttr(
         "output_names",
-        b.getArrayAttr({b.getStringAttr("__ac_transaction_private_0")}));
-    definition->setAttr("ac.internal_ports",
-                        d({f("source_inputs", b.getI64IntegerAttr(3)),
-                           f("source_outputs", b.getI64IntegerAttr(0)),
-                           f("root_inputs", b.getArrayAttr({}))}));
+        b.getArrayAttr({b.getStringAttr(
+            privateValue ? "__ac_transaction_private_0" : "guard")}));
+    if (privateValue)
+      definition->setAttr("ac.internal_ports",
+                          d({f("source_inputs", b.getI64IntegerAttr(3)),
+                             f("source_outputs", b.getI64IntegerAttr(0)),
+                             f("root_inputs", b.getArrayAttr({}))}));
+    else
+      definition->removeAttr("ac.internal_ports");
     definition.getBody().front().getTerminator()->setOperands(exported);
 
     auto system = *package->getOps<ac::SystemOp>().begin();
@@ -378,6 +515,282 @@ protected:
     NamedAttrList entry(system.getEntry());
     entry.set("callee", FlatSymbolRefAttr::get(&context, "Parent"));
     system->setAttr("entry", entry.getDictionary(&context));
+  }
+  void exportUnusedPrivateValue(Value exported) {
+    exportValueThroughParent(exported, true);
+  }
+  ac::RuleOp addValuedParentGuardedBy(Value predicate, uint64_t index = 0) {
+    auto &body = proofRoot.getBody().front();
+    auto registration = 40 + 2 * index;
+    auto location = d({f("path", b.getStringAttr("parent.py")),
+                       f("line", b.getI64IntegerAttr(4)),
+                       f("column", b.getI64IntegerAttr(2)),
+                       f("end_line", b.getI64IntegerAttr(4)),
+                       f("end_column", b.getI64IntegerAttr(21))});
+    auto id = d({f("registration", occurrence(registration, "Parent")),
+                 f("check", occurrence(registration + 1, "Parent")),
+                 f("obligation", b.getI64IntegerAttr(0))});
+    b.setInsertionPoint(body.getTerminator());
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands({body.getArgument(1), body.getArgument(2), predicate});
+    state.addTypes(SmallVector<Type>(4, bit()));
+    state.addAttributes(
+        {f("name", b.getStringAttr("valued_" + std::to_string(index))),
+         f("occurrence", occurrence(registration, "Parent")),
+         f("ac.required_checks",
+           b.getArrayAttr(
+               {d({f("id", id), f("kind", b.getStringAttr("guard_known")),
+                   f("location", location)})})),
+         f("ac.sampled_admission",
+           d({f("clock_capture", b.getI64IntegerAttr(0)),
+              f("reset_capture", b.getI64IntegerAttr(1)),
+              f("fire_result", b.getI64IntegerAttr(1)),
+              f("guards",
+                b.getArrayAttr(
+                    {d({f("id", id), f("invocation", b.getArrayAttr({})),
+                        f("predecessor", b.getI64IntegerAttr(-1))})}))}))});
+    state.addRegion();
+    auto valued = cast<ac::RuleOp>(b.create(state));
+    auto *ruleBody = new Block;
+    valued.getBody().push_back(ruleBody);
+    for (Value capture : valued.getOperands())
+      ruleBody->addArgument(capture.getType(), loc());
+    b.setInsertionPointToEnd(ruleBody);
+    auto knownOne = constant(1, "Parent");
+    auto admitted = op(ac::BitsCompareOp::getOperationName(),
+                       {ruleBody->getArgument(2), knownOne}, {bit()},
+                       {f("predicate", b.getStringAttr("case_eq"))});
+    op(ac::YieldOp::getOperationName(),
+       {ruleBody->getArgument(2), admitted->getResult(0),
+        ruleBody->getArgument(2), knownOne});
+    b.setInsertionPoint(body.getTerminator());
+    op(ac::SourceExpectOp::getOperationName(),
+       {valued.getResult(2), valued.getResult(3), body.getArgument(1),
+        body.getArgument(2)},
+       {},
+       {f("kind", b.getStringAttr("guard_known")), f("location", location),
+        f("ac.check_id", id)});
+    SmallVector<Attribute> writers;
+    if (auto metadata =
+            proofRoot->getAttrOfType<DictionaryAttr>("ac.transaction_wiring"))
+      llvm::append_range(writers,
+                         metadata.getAs<ArrayAttr>("writers").getValue());
+    writers.push_back(d({f("registration", occurrence(registration, "Parent")),
+                         f("ordinary_results", b.getI64IntegerAttr(1)),
+                         f("candidates", b.getArrayAttr({}))}));
+    proofRoot->setAttr("ac.transaction_wiring", wiring({}, {}, writers));
+    return valued;
+  }
+  Value makePlainCheckedPrivateValue(StringRef kind) {
+    expect.erase();
+    rule.erase();
+    definition->removeAttr("ac.transaction_wiring");
+    auto id = checkID();
+    auto &body = definition.getBody().front();
+    b.setInsertionPoint(body.getTerminator());
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands(one);
+    state.addTypes({bit(), bit()});
+    state.addAttributes(
+        {f("name", b.getStringAttr("plain_check")),
+         f("occurrence", occurrence(7)),
+         f("ac.required_checks",
+           b.getArrayAttr({d({f("id", id), f("kind", b.getStringAttr(kind)),
+                              f("location", span())})}))});
+    state.addRegion();
+    rule = cast<ac::RuleOp>(b.create(state));
+    auto *ruleBody = new Block;
+    rule.getBody().push_back(ruleBody);
+    auto value = ruleBody->addArgument(bit(), loc());
+    b.setInsertionPointToEnd(ruleBody);
+    op(ac::YieldOp::getOperationName(), {value, value});
+    b.setInsertionPoint(body.getTerminator());
+    expect = cast<ac::SourceExpectOp>(
+        op(ac::SourceExpectOp::getOperationName(), rule.getResults(), {},
+           {f("kind", b.getStringAttr(kind)), f("location", span()),
+            f("ac.check_id", id)}));
+    return rule.getResult(0);
+  }
+  DictionaryAttr indexedCheckID(uint64_t registration, uint64_t check) {
+    return d({f("registration", occurrence(registration)),
+              f("check", occurrence(check)),
+              f("obligation", b.getI64IntegerAttr(0))});
+  }
+  ac::RuleOp addIndependentSampledRule(uint64_t index) {
+    auto registration = 100 + 2 * index;
+    auto id = indexedCheckID(registration, registration + 1);
+    auto *copy = rule->clone();
+    copy->setAttr("name", b.getStringAttr("sampled_" + std::to_string(index)));
+    copy->setAttr("occurrence", occurrence(registration));
+    copy->setAttr("ac.required_checks",
+                  b.getArrayAttr({d({f("id", id),
+                                     f("kind", b.getStringAttr("guard_known")),
+                                     f("location", span())})}));
+    NamedAttrList sampled(
+        copy->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    auto guards = cast<ArrayAttr>(sampled.get("guards"));
+    NamedAttrList guard(cast<DictionaryAttr>(guards[0]));
+    guard.set("id", id);
+    sampled.set("guards", b.getArrayAttr({guard.getDictionary(&context)}));
+    copy->setAttr("ac.sampled_admission", sampled.getDictionary(&context));
+    definition.getBody().front().getOperations().insert(
+        definition.getBody().front().getTerminator()->getIterator(), copy);
+    auto sampledRule = cast<ac::RuleOp>(copy);
+    auto *expectCopy = expect->clone();
+    expectCopy->setOperands({sampledRule.getResult(1), sampledRule.getResult(2),
+                             definition.getBody().front().getArgument(1),
+                             definition.getBody().front().getArgument(2)});
+    expectCopy->setAttr("ac.check_id", id);
+    definition.getBody().front().getOperations().insert(
+        definition.getBody().front().getTerminator()->getIterator(),
+        expectCopy);
+    auto metadata =
+        definition->getAttrOfType<DictionaryAttr>("ac.transaction_wiring");
+    SmallVector<Attribute> writers(
+        metadata.getAs<ArrayAttr>("writers").getValue());
+    writers.push_back(writer({}));
+    NamedAttrList changed(cast<DictionaryAttr>(writers.back()));
+    changed.set("registration", occurrence(registration));
+    writers.back() = changed.getDictionary(&context);
+    NamedAttrList wiringFields(metadata);
+    wiringFields.set("writers", b.getArrayAttr(writers));
+    definition->setAttr("ac.transaction_wiring",
+                        wiringFields.getDictionary(&context));
+    return sampledRule;
+  }
+  ac::RuleOp addPlainCheck(uint64_t index) {
+    auto registration = 300 + 2 * index;
+    auto id = indexedCheckID(registration, registration + 1);
+    auto &body = definition.getBody().front();
+    b.setInsertionPoint(body.getTerminator());
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands(one);
+    state.addTypes({bit(), bit()});
+    state.addAttributes(
+        {f("name", b.getStringAttr("plain_" + std::to_string(index))),
+         f("occurrence", occurrence(registration)),
+         f("ac.required_checks",
+           b.getArrayAttr({d({f("id", id), f("kind", b.getStringAttr("assert")),
+                              f("location", span())})}))});
+    state.addRegion();
+    auto checked = cast<ac::RuleOp>(b.create(state));
+    auto *checkedBody = new Block;
+    checked.getBody().push_back(checkedBody);
+    auto value = checkedBody->addArgument(bit(), loc());
+    b.setInsertionPointToEnd(checkedBody);
+    op(ac::YieldOp::getOperationName(), {value, value});
+    b.setInsertionPoint(body.getTerminator());
+    op(ac::SourceExpectOp::getOperationName(), checked.getResults(), {},
+       {f("kind", b.getStringAttr("assert")), f("location", span()),
+        f("ac.check_id", id)});
+    return checked;
+  }
+  void growGuardIdentityChain(unsigned length) {
+    auto *yielded = rule.getBody().front().getTerminator();
+    auto compare = *rule.getBody().front().getOps<ac::BitsCompareOp>().begin();
+    Value value = yielded->getOperand(1);
+    b.setInsertionPoint(compare);
+    for (unsigned i = 0; i < length; ++i)
+      value = op(ac::BitsExtractOp::getOperationName(), {value}, {bit()},
+                 {f("low", literal(0))})
+                  ->getResult(0);
+    compare->setOperand(0, value);
+    yielded->setOperand(1, value);
+  }
+  void makeSharedPrefixGuards(unsigned count) {
+    ASSERT_GT(count, 0u);
+    expect.erase();
+    rule.erase();
+    auto &body = definition.getBody().front();
+    SmallVector<Attribute> required, guards;
+    auto guardID = [&](unsigned ordinal) {
+      return d({f("registration", occurrence(7)), f("check", occurrence(8)),
+                f("obligation", b.getI64IntegerAttr(ordinal))});
+    };
+    auto invocation = [&](unsigned ordinal) {
+      if (!ordinal)
+        return b.getArrayAttr({});
+      return b.getArrayAttr(
+          {d({f("call", occurrence(500 + ordinal)),
+              f("receiver", d({f("instance_path", b.getArrayAttr({}))}))})});
+    };
+    for (unsigned i = 0; i < count; ++i) {
+      auto id = guardID(i);
+      required.push_back(
+          d({f("id", id), f("kind", b.getStringAttr("guard_known")),
+             f("location", span())}));
+      guards.push_back(
+          d({f("id", id), f("invocation", invocation(i)),
+             f("predecessor", b.getI64IntegerAttr(i ? int64_t(i - 1) : -1))}));
+    }
+    b.setInsertionPoint(body.getTerminator());
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands(
+        {body.getArgument(1), body.getArgument(2), body.getArgument(0)});
+    state.addTypes(SmallVector<Type>(1 + 2 * count, bit()));
+    state.addAttributes({f("name", b.getStringAttr("tick")),
+                         f("occurrence", occurrence(7)),
+                         f("ac.required_checks", b.getArrayAttr(required)),
+                         f("ac.sampled_admission",
+                           d({f("clock_capture", b.getI64IntegerAttr(0)),
+                              f("reset_capture", b.getI64IntegerAttr(1)),
+                              f("fire_result", b.getI64IntegerAttr(0)),
+                              f("guards", b.getArrayAttr(guards))}))});
+    state.addRegion();
+    rule = cast<ac::RuleOp>(b.create(state));
+    auto *ruleBody = new Block;
+    rule.getBody().push_back(ruleBody);
+    for (Value capture : rule.getOperands())
+      ruleBody->addArgument(capture.getType(), loc());
+    b.setInsertionPointToEnd(ruleBody);
+    Value knownOne = constant(1);
+    auto known = op(ac::BitsCompareOp::getOperationName(),
+                    {ruleBody->getArgument(2), knownOne}, {bit()},
+                    {f("predicate", b.getStringAttr("case_eq"))})
+                     ->getResult(0);
+    Value prefix = knownOne;
+    SmallVector<Value> suffix;
+    for (unsigned i = 0; i < count; ++i) {
+      suffix.push_back(ruleBody->getArgument(2));
+      suffix.push_back(prefix);
+      prefix = op(ac::BitsBinaryOp::getOperationName(), {prefix, known},
+                  {bit()}, {f("opcode", b.getStringAttr("and"))})
+                   ->getResult(0);
+    }
+    SmallVector<Value> yielded{prefix};
+    llvm::append_range(yielded, suffix);
+    op(ac::YieldOp::getOperationName(), yielded);
+    b.setInsertionPoint(body.getTerminator());
+    for (unsigned i = 0; i < count; ++i)
+      op(ac::SourceExpectOp::getOperationName(),
+         {rule.getResult(1 + 2 * i), rule.getResult(2 + 2 * i),
+          body.getArgument(1), body.getArgument(2)},
+         {},
+         {f("kind", b.getStringAttr("guard_known")), f("location", span()),
+          f("ac.check_id", guardID(i))});
+    definition->setAttr("ac.transaction_wiring", wiring({}, {}, {writer({})}));
+  }
+  void expectDefaultPlanAndTinyBudget(unsigned checks,
+                                      unsigned samplingBindings) {
+    auto before = printPackage();
+    ac::HardwareAnalysis analysis(*package);
+    auto plan = capture([&] { return analysis.getSourceCheckPlan(); });
+    ASSERT_TRUE(succeeded(plan)) << diagnostics;
+    EXPECT_EQ(plan->checks.size(), checks);
+    EXPECT_EQ(plan->samplingBindings.size(), samplingBindings);
+    auto tiny = capture([&] {
+      return analysis.getSourceCheckPlan(ac::HardwareSourceCheckLimits{1});
+    });
+    EXPECT_TRUE(failed(tiny));
+    EXPECT_NE(
+        diagnostics.find("source-check plan exceeds analysis work budget"),
+        std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(printPackage(), before);
+    auto repeated = capture([&] { return analysis.getSourceCheckPlan(); });
+    ASSERT_TRUE(succeeded(repeated)) << diagnostics;
+    EXPECT_EQ(repeated->checks.size(), checks);
+    EXPECT_EQ(repeated->samplingBindings.size(), samplingBindings);
   }
   void instantiateSampledOwnerTwice() {
     auto system = *package->getOps<ac::SystemOp>().begin();
@@ -481,6 +894,142 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
+       PreparedBoundariesRetainStatefulCandidateFireAndGuardSuffixes) {
+  build(true);
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  auto prepared = capture([&] {
+    return detail::prepareSampledBoundaries(definition, analysis, bindings,
+                                            budget);
+  });
+  ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+  ASSERT_TRUE(prepared->has_value());
+  auto contains = [&](Value value) {
+    return llvm::any_of(
+        (**prepared).getBoundaries(),
+        [&](const auto &endpoint) { return endpoint.value == value; });
+  };
+  ASSERT_EQ(rule->getNumResults(), 4u);
+  for (Value value : rule->getResults())
+    EXPECT_TRUE(contains(value));
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       PreparedPointersStayStableAcrossImmutableContextGrowth) {
+  build(false);
+  exportValueThroughParent(one, false);
+  auto child = *proofRoot.getBody().front().getOps<ac::InstanceOp>().begin();
+  auto parentRule = addValuedParentGuardedBy(child.getResult(0));
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings ownerBindings;
+  ownerBindings.owner = definition;
+  ac::HardwareBindings parentBindings;
+  parentBindings.owner = proofRoot;
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  auto ownerPrepared =
+      capture([&] { return validation.prepare(definition, ownerBindings); });
+  ASSERT_TRUE(succeeded(ownerPrepared)) << diagnostics;
+  ASSERT_NE(*ownerPrepared, nullptr);
+  auto parentPrepared =
+      capture([&] { return validation.prepare(proofRoot, parentBindings); });
+  ASSERT_TRUE(succeeded(parentPrepared)) << diagnostics;
+  ASSERT_NE(*parentPrepared, nullptr);
+  EXPECT_NE(*ownerPrepared, *parentPrepared);
+  auto ownerAgain =
+      capture([&] { return validation.prepare(definition, ownerBindings); });
+  ASSERT_TRUE(succeeded(ownerAgain)) << diagnostics;
+  EXPECT_EQ(*ownerAgain, *ownerPrepared);
+  EXPECT_TRUE(succeeded(capture([&] {
+    return validation.verify(rule, ownerBindings);
+  }))) << diagnostics;
+  EXPECT_TRUE(succeeded(capture([&] {
+    return validation.verify(parentRule, parentBindings);
+  }))) << diagnostics;
+  EXPECT_TRUE(succeeded(capture([&] {
+    return validation.verifyInvocation(analysis, budget);
+  }))) << diagnostics;
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       ThreeCandidatesRetainEveryDataRouteAndOneSharedFire) {
+  build(true);
+  auto states = expandToThreeCandidates();
+  ASSERT_EQ(states.size(), 3u);
+  for (auto [index, instance] : llvm::enumerate(states)) {
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+  }
+  EXPECT_TRUE(succeeded(capture([&] { return verifyWiring(); })))
+      << diagnostics;
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       LateSharedFireRuleCaptureRejectsWithAllPhysicalRoutesIntact) {
+  build(true);
+  auto states = expandToThreeCandidates();
+  ASSERT_EQ(states.size(), 3u);
+  addIllegalRuleCapture({rule.getResult(3)});
+  for (auto [index, instance] : llvm::enumerate(states)) {
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+  }
+  EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       LateSharedFireIdentityForkWithoutDeadEndRejects) {
+  build(true);
+  auto states = expandToThreeCandidates();
+  ASSERT_EQ(states.size(), 3u);
+  auto &body = definition.getBody().front();
+  b.setInsertionPoint(body.getTerminator());
+  auto identity = [&](Value value) {
+    return op(ac::BitsExtractOp::getOperationName(), {value}, {bit()},
+              {f("low", literal(0))})
+        ->getResult(0);
+  };
+  auto trunk = identity(rule.getResult(3));
+  auto left = identity(trunk);
+  auto right = identity(trunk);
+  addIllegalRuleCapture({left, right}, "illegal_fork");
+  for (auto [index, instance] : llvm::enumerate(states)) {
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+  }
+  EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       LateSharedFireIdentityForkWithDeadEndsRejects) {
+  build(true);
+  auto states = expandToThreeCandidates();
+  ASSERT_EQ(states.size(), 3u);
+  auto &body = definition.getBody().front();
+  b.setInsertionPoint(body.getTerminator());
+  auto identity = [&](Value value) {
+    return op(ac::BitsExtractOp::getOperationName(), {value}, {bit()},
+              {f("low", literal(0))})
+        ->getResult(0);
+  };
+  auto trunk = identity(rule.getResult(3));
+  identity(trunk);
+  identity(trunk);
+  for (auto [index, instance] : llvm::enumerate(states)) {
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+  }
+  EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+  EXPECT_NE(diagnostics.find("private transaction/check route has a dead end"),
+            std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
        EmptyCompanionWithoutAnyFinalWitnessFailsClosed) {
   build(false);
   expect.erase();
@@ -575,6 +1124,33 @@ TEST_F(HardwareSampledAdmissionWiringTest,
     fields.set("clock_capture", b.getI64IntegerAttr(1));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       LocalProofSuccessDoesNotBypassPhysicalOrPrivateRejection) {
+  for (bool privateEscape : {false, true}) {
+    SCOPED_TRACE(privateEscape ? "private escape" : "physical route");
+    build(true);
+    if (privateEscape)
+      addIllegalRuleCapture({rule.getResult(1)});
+    else
+      storage->setOperand(3, zero);
+    ac::HardwareAnalysis analysis(*package);
+    ac::HardwareBindings bindings;
+    bindings.owner = definition;
+    detail::SourceCheckBudget budget({1 << 20});
+    detail::SampledAdmissionValidation validation(analysis, budget);
+    ASSERT_TRUE(succeeded(capture([&] {
+      return validation.verify(rule, bindings);
+    }))) << diagnostics;
+    SmallVector<std::pair<ac::ModuleOp, ac::HardwareBindings>> scopes{
+        {definition, bindings}};
+    EXPECT_TRUE(failed(capture([&] {
+      return detail::verifyTransactionWiring(analysis, scopes, validation,
+                                             budget);
+    })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
@@ -677,6 +1253,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 
 TEST_F(HardwareSampledAdmissionWiringTest, ProofBudgetRejectsWithoutMutation) {
   build();
+  auto before = printPackage();
   auto metadata = definition->getAttr("ac.transaction_wiring");
   EXPECT_TRUE(failed(capture([&] { return verifyWiring(1); })));
   EXPECT_NE(diagnostics.find("source-check plan exceeds analysis work budget"),
@@ -684,6 +1261,128 @@ TEST_F(HardwareSampledAdmissionWiringTest, ProofBudgetRejectsWithoutMutation) {
       << diagnostics;
   EXPECT_EQ(definition->getAttr("ac.transaction_wiring"), metadata);
   EXPECT_EQ(storage->getOperand(2), rule.getResult(1));
+  EXPECT_EQ(printPackage(), before);
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       RepeatedExactRootScopesShareOneBoundedSuccessfulInvocation) {
+  build(true);
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  SmallVector<std::pair<ac::ModuleOp, ac::HardwareBindings>> scopes;
+  for (unsigned i = 0; i < 64; ++i)
+    scopes.emplace_back(definition, bindings);
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  EXPECT_TRUE(succeeded(capture([&] {
+    return detail::verifyTransactionWiring(analysis, scopes, validation,
+                                           budget);
+  }))) << diagnostics;
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       ExactRootScopeReuseDoesNotSkipMismatchedBindingOwner) {
+  build(true);
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings valid;
+  valid.owner = definition;
+  ac::HardwareBindings invalid;
+  invalid.owner = dffe.getOperation();
+  SmallVector<std::pair<ac::ModuleOp, ac::HardwareBindings>> scopes{
+      {definition, valid}, {definition, invalid}};
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  EXPECT_TRUE(failed(capture([&] {
+    return detail::verifyTransactionWiring(analysis, scopes, validation,
+                                           budget);
+  })));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       ExactRootScopeReuseDistinguishesIntegerAndTypeBindings) {
+  for (bool typeParameter : {false, true}) {
+    SCOPED_TRACE(typeParameter ? "type parameter" : "integer parameter");
+    build(true);
+    ac::HardwareBindings valid, invalid;
+    valid.owner = definition;
+    invalid.owner = definition;
+    if (typeParameter) {
+      definition->setAttr("type_parameters",
+                          b.getArrayAttr({b.getStringAttr("T")}));
+      setStatePayloadType(ac::TypeParamType::get(
+          &context, FlatSymbolRefAttr::get(&context, "Owner"),
+          b.getStringAttr("T")));
+      valid.types["T"] = bit();
+      invalid.types["T"] = ac::BitsType::get(&context, literal(2));
+    } else {
+      definition->setAttr("parameters",
+                          b.getArrayAttr({ac::getStaticParameterAttr(b, "N")}));
+      setDomainType(ac::BitsType::get(&context, parameterReference("N")));
+      valid.integers["N"] = ac::MathIntAttr::get(&context, llvm::APSInt("1"));
+      invalid.integers["N"] = ac::MathIntAttr::get(&context, llvm::APSInt("2"));
+    }
+    ac::HardwareAnalysis analysis(*package);
+    SmallVector<std::pair<ac::ModuleOp, ac::HardwareBindings>> validScope{
+        {definition, valid}};
+    detail::SourceCheckBudget validBudget({1 << 20});
+    detail::SampledAdmissionValidation validValidation(analysis, validBudget);
+    ASSERT_TRUE(succeeded(capture([&] {
+      return detail::verifyTransactionWiring(analysis, validScope,
+                                             validValidation, validBudget);
+    }))) << diagnostics;
+
+    SmallVector<std::pair<ac::ModuleOp, ac::HardwareBindings>> mixedScopes{
+        {definition, valid}, {definition, invalid}};
+    detail::SourceCheckBudget invalidBudget({1 << 20});
+    detail::SampledAdmissionValidation invalidValidation(analysis,
+                                                         invalidBudget);
+    EXPECT_TRUE(failed(capture([&] {
+      return detail::verifyTransactionWiring(analysis, mixedScopes,
+                                             invalidValidation, invalidBudget);
+    })));
+    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_EQ(
+        diagnostics.find("source-check plan exceeds analysis work budget"),
+        std::string::npos)
+        << diagnostics;
+    if (typeParameter)
+      EXPECT_NE(diagnostics.find("transaction candidate/route payload differs "
+                                 "from actual state"),
+                std::string::npos)
+          << diagnostics;
+  }
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       RepeatedSelectedRootDoesNotHideUnselectedInvalidDefinition) {
+  build(true);
+  auto system = *package->getOps<ac::SystemOp>().begin();
+  auto *copy = definition->clone();
+  copy->setAttr("sym_name", b.getStringAttr("UnselectedBad"));
+  NamedAttrList malformed(
+      copy->getAttrOfType<DictionaryAttr>("ac.transaction_wiring"));
+  malformed.erase("writers");
+  copy->setAttr("ac.transaction_wiring", malformed.getDictionary(&context));
+  package->getBody()->getOperations().insert(system->getIterator(), copy);
+  auto bad = cast<ac::ModuleOp>(copy);
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings selectedBindings;
+  selectedBindings.owner = definition;
+  ac::HardwareBindings badBindings;
+  badBindings.owner = bad;
+  SmallVector<std::pair<ac::ModuleOp, ac::HardwareBindings>> scopes;
+  for (unsigned i = 0; i < 32; ++i)
+    scopes.emplace_back(definition, selectedBindings);
+  scopes.emplace_back(bad, badBindings);
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  EXPECT_TRUE(failed(capture([&] {
+    return detail::verifyTransactionWiring(analysis, scopes, validation,
+                                           budget);
+  })));
+  EXPECT_FALSE(diagnostics.empty());
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
@@ -703,6 +1402,39 @@ TEST_F(HardwareSampledAdmissionWiringTest,
   ASSERT_EQ(plan->samplingOccurrences.size(), 1u);
   ASSERT_EQ(plan->checks.size(), 1u);
   EXPECT_EQ(plan->checks.front().samplingOccurrenceIndex, 0u);
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       DefaultBudgetAdmitsIndependentSmallSampledRules) {
+  build(false);
+  constexpr unsigned additionalRules = 10;
+  for (unsigned i = 0; i < additionalRules; ++i)
+    addIndependentSampledRule(i);
+  expectDefaultPlanAndTinyBudget(1 + additionalRules, 1);
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       IdentityChainGrowthRemainsBoundedAndAtomic) {
+  build(false);
+  growGuardIdentityChain(64);
+  expectDefaultPlanAndTinyBudget(1, 1);
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       PrivateStopInventoryGrowthRemainsBoundedAndAtomic) {
+  build(false);
+  constexpr unsigned additionalChecks = 16;
+  for (unsigned i = 0; i < additionalChecks; ++i)
+    addPlainCheck(i);
+  expectDefaultPlanAndTinyBudget(1 + additionalChecks, 1);
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       SharedPrefixDagGrowthRemainsBoundedAndAtomic) {
+  build(false);
+  constexpr unsigned guardCount = 8;
+  makeSharedPrefixGuards(guardCount);
+  expectDefaultPlanAndTinyBudget(guardCount, 1);
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
@@ -773,6 +1505,105 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
+       ValuedTotalityFollowsPublicOrdinaryChildRoutesOnlyForKnownTrue) {
+  for (unsigned kind = 0; kind < 4; ++kind) {
+    SCOPED_TRACE(kind);
+    build(false);
+    Value exported;
+    if (kind == 0)
+      exported = one;
+    else if (kind == 1)
+      exported = zero;
+    else if (kind == 2)
+      exported = definition.getBody().front().getArgument(0);
+    else {
+      b.setInsertionPoint(definition.getBody().front().getTerminator());
+      exported = op(ac::BitsCompareOp::getOperationName(),
+                    {definition.getBody().front().getArgument(0), zero},
+                    {bit()}, {f("predicate", b.getStringAttr("eq"))})
+                     ->getResult(0);
+    }
+    exportValueThroughParent(exported, false);
+    auto child = *proofRoot.getBody().front().getOps<ac::InstanceOp>().begin();
+    addValuedParentGuardedBy(child.getResult(0));
+    auto result = capture([&] { return verifyWiring(); });
+    if (kind == 0) {
+      EXPECT_TRUE(succeeded(result)) << diagnostics;
+    } else {
+      EXPECT_TRUE(failed(result)) << diagnostics;
+      EXPECT_NE(diagnostics.find("ordinary transaction results require all "
+                                 "guards proven literal true"),
+                std::string::npos)
+          << diagnostics;
+    }
+  }
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       ActualInstanceScopesDoNotShareValuedGuardProofsForOneChildSsa) {
+  for (bool dynamicRight : {false, true}) {
+    SCOPED_TRACE(dynamicRight);
+    build(false);
+    exportValueThroughParent(definition.getBody().front().getArgument(0),
+                             false);
+    auto &parentBody = proofRoot.getBody().front();
+    auto left = *parentBody.getOps<ac::InstanceOp>().begin();
+    b.setInsertionPoint(left);
+    auto parentOne = constant(1, "Parent");
+    auto parentZero = constant(0, "Parent");
+    left->setAttr("instance_name", b.getStringAttr("left"));
+    left->setOperand(0, parentOne);
+    addValuedParentGuardedBy(left.getResult(0), 0);
+    ASSERT_TRUE(succeeded(capture([&] { return verifyWiring(); })))
+        << diagnostics;
+
+    auto *copy = left->clone();
+    copy->setAttr("instance_name", b.getStringAttr("right"));
+    copy->setAttr("occurrence", occurrence(32, "Parent"));
+    copy->setOperand(0, dynamicRight ? parentBody.getArgument(0) : parentZero);
+    parentBody.getOperations().insert(parentBody.getTerminator()->getIterator(),
+                                      copy);
+    auto right = cast<ac::InstanceOp>(copy);
+    addValuedParentGuardedBy(right.getResult(0), 1);
+    EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+    EXPECT_NE(diagnostics.find("ordinary transaction results require all "
+                               "guards proven literal true"),
+              std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       KnownTruePrivateCandidateCannotLaunderValuedTotality) {
+  build(true);
+  llvm::SmallVector<Value> captures(rule.getOperands());
+  captures.push_back(one);
+  rule->setOperands(captures);
+  rule.getBody().front().addArgument(one.getType(), loc());
+  rule.getBody().front().getTerminator()->setOperand(
+      0, rule.getBody().front().getArguments().back());
+  exportValueThroughParent(rule.getResult(0), true);
+  auto child = *proofRoot.getBody().front().getOps<ac::InstanceOp>().begin();
+  addValuedParentGuardedBy(child.getResult(0));
+  EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       PlainChildCheckSuffixCannotLaunderValuedTotality) {
+  for (StringRef kind : {"assert", "range"}) {
+    SCOPED_TRACE(kind.str());
+    build(false);
+    auto privateValue = makePlainCheckedPrivateValue(kind);
+    exportValueThroughParent(privateValue, false);
+    auto child = *proofRoot.getBody().front().getOps<ac::InstanceOp>().begin();
+    addValuedParentGuardedBy(child.getResult(0));
+    EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
        ReusedDefinitionCreatesDistinctActualSamplingHistories) {
   build(false);
   instantiateSampledOwnerTwice();
@@ -795,7 +1626,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
-       EmitPreparationFailsClosedUntilSampledLifecycleExists) {
+       NativeEmitterPreparationAdmitsSampledLifecycleOnlyThroughItsOwnedGate) {
   build(false);
   auto prepare = [&](bool native) {
     ac::HardwareAnalysis analysis(*package);
@@ -803,15 +1634,11 @@ TEST_F(HardwareSampledAdmissionWiringTest,
     return native ? emitter.prepareNativeChecks() : emitter.prepare();
   };
   EXPECT_TRUE(failed(capture([&] { return prepare(false); })));
-  EXPECT_NE(diagnostics.find("sampled transaction check emission is not "
+  EXPECT_NE(diagnostics.find("hardware instrumentation emission is not "
                              "implemented"),
             std::string::npos)
       << diagnostics;
-  EXPECT_TRUE(failed(capture([&] { return prepare(true); })));
-  EXPECT_NE(diagnostics.find("sampled transaction check emission is not "
-                             "implemented"),
-            std::string::npos)
-      << diagnostics;
+  EXPECT_TRUE(succeeded(capture([&] { return prepare(true); }))) << diagnostics;
 }
 
 } // namespace

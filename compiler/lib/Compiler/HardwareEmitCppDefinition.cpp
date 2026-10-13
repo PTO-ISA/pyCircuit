@@ -1856,6 +1856,12 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     if (!child.leaf)
       out << "    " << child.name << "->__pyc_clear_check_snapshots();\n";
   out << "  }\n";
+  out << "  void __pyc_stage_sampling_reset() noexcept {\n";
+  emitCppSamplingReset(ctx, definition, out);
+  for (auto &child : *children)
+    if (!child.leaf)
+      out << "    " << child.name << "->__pyc_stage_sampling_reset();\n";
+  out << "  }\n";
   if (observes)
     out << "  // One staging entry per descriptor owned by this definition. A\n"
            "  // Gauge publishes the raw unsigned bit pattern; a one-bit "
@@ -1919,11 +1925,14 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
             << child.type << "::Outputs" << result << "; });\n";
       }
     }
-    if (method == "Xfer")
+    if (method == "Xfer") {
+      emitCppSamplingXfer(ctx, definition, out);
       out << "    __pyc_clear_check_snapshots();\n";
+    }
     out << "  }\n";
   }
-  out << "  void Reset() noexcept {\n    __pyc_clear_check_snapshots();\n";
+  out << "  void Reset() noexcept {\n    __pyc_clear_check_snapshots();\n"
+         "    __pyc_stage_sampling_reset();\n";
   WorkEmitter reset(ctx, definition, out, true);
   if (failed(reset.run()))
     return failure();

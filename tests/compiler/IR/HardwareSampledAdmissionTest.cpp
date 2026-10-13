@@ -6,6 +6,7 @@
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
@@ -204,15 +205,113 @@ protected:
     });
     return function();
   }
+  std::string printPackage() {
+    std::string text;
+    llvm::raw_string_ostream stream(text);
+    package->print(stream);
+    stream << '\n';
+    return text;
+  }
+  DictionaryAttr indexedCheckID(uint64_t registration, uint64_t check,
+                                uint64_t obligation = 0) {
+    return d({f("registration", occurrence(registration)),
+              f("check", occurrence(check)),
+              f("obligation", b.getI64IntegerAttr(obligation))});
+  }
+  DictionaryAttr wiring(ArrayRef<Attribute> writers) {
+    return d({f("states", b.getArrayAttr({})),
+              f("incoming", b.getArrayAttr({})),
+              f("writers", b.getArrayAttr(writers))});
+  }
+  ac::RuleOp cloneSampledRule(uint64_t index) {
+    auto registration = 20 + 2 * index;
+    auto id = indexedCheckID(registration, registration + 1);
+    auto *copy = rule->clone();
+    copy->setAttr("name", b.getStringAttr("tick_" + std::to_string(index)));
+    copy->setAttr("occurrence", occurrence(registration));
+    copy->setAttr("ac.required_checks",
+                  b.getArrayAttr({d({f("id", id),
+                                     f("kind", b.getStringAttr("guard_known")),
+                                     f("location", span())})}));
+    NamedAttrList sampledFields(
+        copy->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    auto rows = cast<ArrayAttr>(sampledFields.get("guards"));
+    NamedAttrList guardFields(cast<DictionaryAttr>(rows[0]));
+    guardFields.set("id", id);
+    sampledFields.set("guards",
+                      b.getArrayAttr({guardFields.getDictionary(&context)}));
+    copy->setAttr("ac.sampled_admission",
+                  sampledFields.getDictionary(&context));
+    definition.getBody().front().getOperations().insert(
+        definition.getBody().front().getTerminator()->getIterator(), copy);
+    auto clonedRule = cast<ac::RuleOp>(copy);
+    auto *expectCopy = expect->clone();
+    expectCopy->setOperands({clonedRule.getResult(1), clonedRule.getResult(2),
+                             definition.getBody().front().getArgument(1),
+                             definition.getBody().front().getArgument(2)});
+    expectCopy->setAttr("ac.check_id", id);
+    definition.getBody().front().getOperations().insert(
+        definition.getBody().front().getTerminator()->getIterator(),
+        expectCopy);
+    return clonedRule;
+  }
+  ac::RuleOp addOrdinaryCheck(StringRef kind, uint64_t index) {
+    auto registration = 40 + 2 * index;
+    auto id = indexedCheckID(registration, registration + 1);
+    auto &body = definition.getBody().front();
+    b.setInsertionPoint(body.getTerminator());
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands(body.getArgument(0));
+    state.addTypes({bit(), bit()});
+    state.addAttributes(
+        {f("name", b.getStringAttr((Twine(kind) + "_" + Twine(index)).str())),
+         f("occurrence", occurrence(registration)),
+         f("ac.required_checks",
+           b.getArrayAttr({d({f("id", id), f("kind", b.getStringAttr(kind)),
+                              f("location", span())})}))});
+    state.addRegion();
+    auto checked = cast<ac::RuleOp>(b.create(state));
+    auto *checkedBody = new Block;
+    checked.getBody().push_back(checkedBody);
+    auto value = checkedBody->addArgument(bit(), loc());
+    b.setInsertionPointToEnd(checkedBody);
+    op(ac::YieldOp::getOperationName(), {value, value});
+    b.setInsertionPoint(body.getTerminator());
+    op(ac::SourceExpectOp::getOperationName(), checked.getResults(), {},
+       {f("kind", b.getStringAttr(kind)), f("location", span()),
+        f("ac.check_id", id)});
+    return checked;
+  }
+  ac::ModuleOp addPlainDefinition() {
+    b.setInsertionPointToEnd(package->getBody());
+    OperationState state(loc(), ac::ModuleOp::getOperationName());
+    state.addAttributes(
+        {f("sym_name", b.getStringAttr("Other")),
+         f("source_owner", d({f("package", b.getStringAttr("")),
+                              f("path", b.getStringAttr("other.py"))})),
+         f("parameters", b.getArrayAttr({})),
+         f("type_parameters", b.getArrayAttr({})),
+         f("input_names", b.getArrayAttr({})),
+         f("output_names", b.getArrayAttr({})),
+         f("function_type", TypeAttr::get(b.getFunctionType({}, {})))});
+    state.addRegion();
+    auto other = cast<ac::ModuleOp>(b.create(state));
+    auto *body = new Block;
+    other.getBody().push_back(body);
+    b.setInsertionPointToEnd(body);
+    op(ac::YieldOp::getOperationName());
+    return other;
+  }
   LogicalResult verifyAdmission(uint64_t budgetLimit = 1 << 20) {
     ac::HardwareAnalysis analysis(*package);
     ac::HardwareBindings bindings;
     bindings.owner = definition;
     detail::SourceCheckBudget budget({budgetLimit});
-    auto view = detail::parseSampledAdmission(rule, analysis, bindings, budget);
+    detail::SampledAdmissionValidation validation(analysis, budget);
+    auto view = validation.verify(rule, bindings);
     if (failed(view))
       return failure();
-    return detail::proveSampledAdmission(*view, analysis, bindings, budget);
+    return validation.verifyInvocation(analysis, budget);
   }
   LogicalResult verifyDefinition() {
     return ac::HardwareAnalysis(*package).verifyDefinitionSourceChecks(
@@ -249,6 +348,290 @@ TEST_F(HardwareSampledAdmissionTest,
       EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
           << diagnostics;
     }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       OnePreparedContextProvesMultipleRulesInTheSameDefinition) {
+  build();
+  auto second = cloneSampledRule(0);
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  auto prepared =
+      capture([&] { return validation.prepare(definition, bindings); });
+  ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+  ASSERT_NE(*prepared, nullptr);
+  for (auto candidate : {rule, second}) {
+    auto view = capture([&] { return validation.verify(candidate, bindings); });
+    ASSERT_TRUE(succeeded(view)) << diagnostics;
+  }
+  auto repeatedRule =
+      capture([&] { return validation.verify(rule, bindings); });
+  ASSERT_TRUE(succeeded(repeatedRule)) << diagnostics;
+  auto repeatedPrepared =
+      capture([&] { return validation.prepare(definition, bindings); });
+  ASSERT_TRUE(succeeded(repeatedPrepared)) << diagnostics;
+  EXPECT_EQ(*repeatedPrepared, *prepared);
+  EXPECT_TRUE(succeeded(capture([&] {
+    return validation.verifyInvocation(analysis, budget);
+  }))) << diagnostics;
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       CachedValidRuleDoesNotAuthenticateDifferentInvalidRule) {
+  build();
+  auto invalid = cloneSampledRule(0);
+  auto *invalidYield = invalid.getBody().front().getTerminator();
+  invalidYield->setOperand(0, invalid.getBody().front().getArgument(2));
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  ASSERT_TRUE(succeeded(capture([&] {
+    return validation.verify(rule, bindings);
+  }))) << diagnostics;
+  ASSERT_TRUE(succeeded(capture([&] {
+    return validation.verify(rule, bindings);
+  }))) << diagnostics;
+  EXPECT_TRUE(
+      failed(capture([&] { return validation.verify(invalid, bindings); })));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       ValidationInvocationRejectsDifferentAnalysisAndBudgetIdentity) {
+  build();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareAnalysis otherAnalysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SourceCheckBudget otherBudget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  ASSERT_TRUE(succeeded(capture([&] {
+    return validation.verify(rule, bindings);
+  }))) << diagnostics;
+  EXPECT_TRUE(failed(capture(
+      [&] { return validation.verifyInvocation(otherAnalysis, budget); })));
+  EXPECT_FALSE(diagnostics.empty());
+  EXPECT_TRUE(failed(capture(
+      [&] { return validation.verifyInvocation(analysis, otherBudget); })));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       ValidationPrepareRejectsDefinitionFromForeignPackage) {
+  build();
+  mlir::OwningOpRef<mlir::ModuleOp> foreignPackage(
+      mlir::ModuleOp::create(loc()));
+  auto *copy = definition->clone();
+  copy->setAttr("sym_name", b.getStringAttr("Foreign"));
+  foreignPackage->getBody()->push_back(copy);
+  auto foreign = cast<ac::ModuleOp>(copy);
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = foreign;
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  auto prepared =
+      capture([&] { return validation.prepare(foreign, bindings); });
+  EXPECT_TRUE(failed(prepared));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       PreparedContextRejectsDifferentDefinitionAndFullBindings) {
+  build();
+  auto other = addPlainDefinition();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget prepareBudget({1 << 20});
+  auto prepared = capture([&] {
+    return detail::prepareSampledBoundaries(definition, analysis, bindings,
+                                            prepareBudget);
+  });
+  ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+  ASSERT_TRUE(prepared->has_value());
+
+  ac::HardwareBindings otherBindings;
+  otherBindings.owner = other;
+  detail::SourceCheckBudget definitionBudget({1 << 20});
+  EXPECT_TRUE(failed(capture([&] {
+    return (**prepared).verifyFor(other, otherBindings, definitionBudget);
+  })));
+  EXPECT_FALSE(diagnostics.empty());
+
+  for (bool typeBinding : {false, true}) {
+    SCOPED_TRACE(typeBinding ? "type binding" : "integer binding");
+    ac::HardwareBindings changedBindings;
+    changedBindings.owner = definition;
+    if (typeBinding)
+      changedBindings.types["T"] = bit();
+    else
+      changedBindings.integers["N"] = b.getI64IntegerAttr(1);
+    detail::SourceCheckBudget bindingsBudget({1 << 20});
+    EXPECT_TRUE(failed(capture([&] {
+      return (**prepared)
+          .verifyFor(definition, changedBindings, bindingsBudget);
+    })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       BoundaryFactoryRejectsMalformedWiringMissingWriterAndInvalidSuffix) {
+  auto rejectsFactory = [&](StringRef label, auto mutation) {
+    SCOPED_TRACE(label.str());
+    build();
+    mutation();
+    auto before = printPackage();
+    ac::HardwareAnalysis analysis(*package);
+    ac::HardwareBindings bindings;
+    bindings.owner = definition;
+    detail::SourceCheckBudget budget({1 << 20});
+    auto prepared = capture([&] {
+      return detail::prepareSampledBoundaries(definition, analysis, bindings,
+                                              budget);
+    });
+    EXPECT_TRUE(failed(prepared));
+    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_EQ(printPackage(), before);
+  };
+  rejectsFactory("malformed wiring", [&] {
+    definition->setAttr("ac.transaction_wiring", b.getDictionaryAttr({}));
+  });
+  rejectsFactory("missing writer", [&] {
+    definition->setAttr("ac.transaction_wiring", wiring({}));
+  });
+  rejectsFactory("invalid suffix", [&] {
+    auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
+    rule->setAttr("ac.required_checks",
+                  b.getArrayAttr({required[0], required[0]}));
+  });
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       PreparedBoundariesRetainFireGuardAssertAndRangeSuffixes) {
+  build();
+  auto asserted = addOrdinaryCheck("assert", 0);
+  auto ranged = addOrdinaryCheck("range", 1);
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  auto prepared = capture([&] {
+    return detail::prepareSampledBoundaries(definition, analysis, bindings,
+                                            budget);
+  });
+  ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+  ASSERT_TRUE(prepared->has_value());
+  EXPECT_EQ((**prepared).getScope().root, definition);
+  EXPECT_TRUE((**prepared).getScope().path.empty());
+  auto contains = [&](Value value) {
+    return llvm::any_of(
+        (**prepared).getBoundaries(),
+        [&](const auto &endpoint) { return endpoint.value == value; });
+  };
+  for (Value value : rule->getResults())
+    EXPECT_TRUE(contains(value));
+  for (Value value : asserted->getResults())
+    EXPECT_TRUE(contains(value));
+  for (Value value : ranged->getResults())
+    EXPECT_TRUE(contains(value));
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       OrdinaryDefinitionUsesTheSuccessfulNullPreparedFastPath) {
+  build();
+  rule->removeAttr("ac.sampled_admission");
+  auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
+  NamedAttrList requiredFields(cast<DictionaryAttr>(required[0]));
+  requiredFields.set("kind", b.getStringAttr("assert"));
+  rule->setAttr("ac.required_checks",
+                b.getArrayAttr({requiredFields.getDictionary(&context)}));
+  expect->setAttr("kind", b.getStringAttr("assert"));
+  expect->setOperands({rule.getResult(1), rule.getResult(2)});
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  auto prepared =
+      capture([&] { return validation.prepare(definition, bindings); });
+  ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+  EXPECT_EQ(*prepared, nullptr);
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       BoundaryFactoryTinyBudgetRejectsWithoutIrMutation) {
+  build();
+  auto before = printPackage();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  auto prepared =
+      capture([&] { return validation.prepare(definition, bindings); });
+  EXPECT_TRUE(failed(prepared));
+  EXPECT_NE(diagnostics.find("source-check plan exceeds analysis work budget"),
+            std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(printPackage(), before);
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       IdentityEndpointRejectsStaleResolvedTypeAndFreshCallRebuilds) {
+  build();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::HardwareIdentityScope scope{definition, bindings, {}};
+  detail::SourceCheckBudget initialBudget({1 << 20});
+  auto endpoint = capture([&] {
+    return detail::makeIdentityEndpoint(
+        definition.getBody().front().getArgument(0), scope, analysis,
+        initialBudget);
+  });
+  ASSERT_TRUE(succeeded(endpoint)) << diagnostics;
+
+  auto widened = ac::BitsType::get(&context, literal(2));
+  definition.getBody().front().getArgument(0).setType(widened);
+  SmallVector<Type> inputs(definition.getFunctionType().getInputs());
+  inputs[0] = widened;
+  definition->setAttr("function_type",
+                      TypeAttr::get(b.getFunctionType(
+                          inputs, definition.getFunctionType().getResults())));
+  detail::HardwareIdentityStopPolicy stops{
+      detail::HardwareIdentityTraversal::DefinitionLocal, {}};
+  detail::SourceCheckBudget staleBudget({1 << 20});
+  auto stale = capture([&] {
+    return detail::normalizeIdentityEndpoint(*endpoint, stops, analysis,
+                                             staleBudget);
+  });
+  EXPECT_TRUE(failed(stale));
+  EXPECT_NE(diagnostics.find("stale identity endpoint resolved type"),
+            std::string::npos)
+      << diagnostics;
+
+  detail::SourceCheckBudget freshBudget({1 << 20});
+  auto fresh = capture([&] {
+    return detail::makeIdentityEndpoint(
+        definition.getBody().front().getArgument(0), scope, analysis,
+        freshBudget);
+  });
+  ASSERT_TRUE(succeeded(fresh)) << diagnostics;
+  auto normalized = capture([&] {
+    return detail::normalizeIdentityEndpoint(*fresh, stops, analysis,
+                                             freshBudget);
+  });
+  EXPECT_TRUE(succeeded(normalized)) << diagnostics;
+  EXPECT_TRUE(
+      ac::areEquivalentHardwareTypes(normalized->resolvedType, widened));
 }
 
 TEST_F(HardwareSampledAdmissionTest,

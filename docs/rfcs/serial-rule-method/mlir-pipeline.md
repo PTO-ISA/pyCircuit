@@ -216,6 +216,11 @@ Queue 的事务内容量抵扣见[资源合同](extensions.md#queue-request-admi
 每个高层效果必须有唯一 lowering 归宿，或有经过证明的无效果解释。
 “backend 不支持所以忽略”与“结果无人使用所以删除效果”均不合法。
 
+以下首个增量的恒真 guard、E=true 条款是历史限制，用于解释演进和保留回归。
+后续实现须采用[统一采样合同](sampled-admission.md)：所有事务（含恒真/恒假、只读和无状态）
+均物化采样、guard 和完整 wiring；不得从历史增量恢复 true-only 快路。普通外层返回值的
+totality 限制继续有效。这里的演进顺序不构成后续增量已验收的声明。
+
 首个可执行切片在同一个 `ac-lower-transactions` 中物化直线、同 owner、whole-owner
 fixed Bits 状态；实际 Rule/Method guard 和 effect path 都必须证明为 true，每个 owner
 最多有一个外层事务 writer。重复或身份写仍参与冲突检查。不同事务分别从 Q0 开始，
@@ -323,7 +328,18 @@ CLI 不增加参数。验收必须把所有产物绑定到相同候选源码、�
 
 ## 效率与可扩展性
 
-分析工作应复用调用摘要和 MLIR 缓存；展开和证明均有预算。基准必须分别记录编译时间、
+分析工作应复用调用摘要和 MLIR 缓存；展开和证明均有预算。缓存 key 必须覆盖 definition、
+实际 bindings、状态版本及该证明使用的 stop policy，不能以同名、同宽或同类型代替身份。
+定义级准备可以复用，实例级 effects、物理路由和 history 仍按实际 occurrence 验证。
+复用准备数据不等于复用成功结论；变换后不得访问借用旧 IR 的计划。重叠的完整闭包验证
+应在既有 canonical owner 中收敛，同时保留 source-plan 认证和独立 final 验证两层责任。
+
+必须先对分配、展开和证明工作计费。合法但超预算的输入明确拒绝，不能通过抬高限额、
+减少候选/实例、跳过 private-use 或在测试中修复 IR 来满足既定容量用例。扩展容量先记录
+耗费阶段及结构规模，在既有 owner 消除重复准备/遍历，再证明完整正反例保持。
+容量与失效验收见 `METHOD-ANALYSIS-BOUNDS`，不额外增加作者配置或产品 profiler。
+
+基准必须分别记录编译时间、
 峰值内存、IR 大小、存储位/端口、组合深度及模拟吞吐。可用时报告同约束下的综合面积/时序。
 单独的 IR 数量、Python 行数或一个 native 运行结果不证明硬件更高效。
 

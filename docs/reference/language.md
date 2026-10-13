@@ -599,9 +599,10 @@ they do not combine gated paths with an OR that would introduce spurious X.
 Predicates use the Boolean or authoritative fixed-one-bit boundary below.
 Check IDs, ordered obligations and condition/path result pairs are verified in
 the same source-unit and common hardware flow, including under Python `-O`.
-This is source/IR support: both emitters still reject `ac.expect` until the
-execution packet is complete. Compilation or linking does not establish runtime
-assertion checking. See source-check progress (historical local record).
+Both emitters consume verified source checks. C++ uses the shared whole-system
+check lifecycle; RTL assertions require the managed lifecycle described in
+[system execution](../architecture/system-execution.md). Compilation or linking
+alone does not establish runtime assertion checking.
 
 Statement `if` in behavioral rules and conditional expressions (`a if test else
 b`) share predicate and value-join rules. A condition must be Boolean or an
@@ -1018,14 +1019,15 @@ not a clocked reset pulse or a promise to clear memory.
 
 ## Method execution and remaining capabilities
 
-Sampled-admission migration is in progress. The common final-IR verifier now
-requires explicit sampled-check and transaction-wiring contracts; the existing
-transaction lowerer has not yet migrated its outputs. Cross-instance outputs
-with internal ports therefore reject without their new companions, and both
-emitter preparation routes reject sampled plans until their lifecycle support
-lands. The executable subset described below records the last accepted
-checkpoint `44b888c5`; it is not a compatibility route or a passing result for
-this intermediate compiler state.
+Native sampled-admission lowering and both backend lifecycles are implemented
+for straight-line, same-domain transactions over whole fixed-width Bits, with
+one outer writer per actual owner. The lowerer emits sampled-check metadata and
+complete transaction-wiring records. It authenticates the detached candidate
+against the original source plan, then invokes the canonical final hardware
+verifier before atomically replacing the input. Final-IR execution has focused
+C++ workers 1/2 and four-state RTL evidence; the public dynamic-source matrix
+and Method `@system` simulation closure remain unaccepted. The prior accepted
+checkpoint `44b888c5` remains historical evidence, not current verification.
 
 The compiler independently publishes a bounded subset of `@method` and nested
 transaction syntax as verified source units. Consumers use published interfaces
@@ -1043,18 +1045,32 @@ loop, aggregate-state or general static-parameter admission.
 A guarded nested Rule also selects typed transaction capture without requiring
 a dummy Method or state. A module such as `GuardOnly(enabled: u1)` may omit its
 module return annotation and register a zero-argument nested Rule with
-`-> None`. This does not admit module `-> None`, registration arguments or
-dynamic execution. Ordinary unguarded modules keep their existing source path.
+`-> None`. This does not admit module `-> None` or registration arguments.
+Source capture alone does not establish public dynamic-guard execution.
+Ordinary unguarded modules keep their existing source path.
 
-At that accepted checkpoint, final link lowered whole scalar state represented
-by fixed-width Bits, repeated or nested Method calls through static ordinary
-instances in the same physical clock/reset domain, proven-true
-active guards and effect paths, and at most one outer Rule writer per owner.
+Native final link lowers whole scalar state represented by fixed-width Bits,
+repeated or nested Method calls through static ordinary instances in the same
+physical clock/reset domain, straight-line effects, and at most one outer Rule
+writer per actual owner.
 Calls share their outer transaction's candidate versions; saved ordinary values
 remain snapshots. Independent Rules read old Q, regardless of registration
 order. Separate structural instances retain independent state. Each state
 declaration uses one existing DFFE, preserving clock/reset, hold and discard;
 the same verified final artifact feeds C++ and Verilog.
+
+Every lowered transaction has explicit clock/reset captures, ordered guards,
+value-validity prefixes and a sampling-history binding. Literal true/false,
+state-free and read-only transactions follow the same route. Ordinary results
+escaping an outer Rule still require the conservative proof that all guards are true;
+sampling does not add a valid-result API or relax result escape restrictions.
+Each reached guard checks knownness at an active rising edge outside reset.
+A known false guard holds that transaction; an earlier reached X/Z guard
+causes whole-system zero commit even if a later guard is false. A false guard
+prevents checks for later, unreached guards. C++ and managed RTL freeze checks
+and physical pins during Work/PREPARE and commit history only after successful
+whole-system checks. Successful false-fire, held and falling samples maintain
+history; failure or Discard drops pending state and history.
 
 Cross-instance calls preserve original Module definitions and storage ownership.
 Ordinary internal ports carry old Q and lexical SSA to the caller and candidate
@@ -1072,12 +1088,12 @@ if that definition is also used by a Collection, and rejects transaction writer
 composition across a Collection. Unaffected existing Collections retain their
 original contracts; this does not add a source API for Method-owner collections.
 
-False/unknown active guards, partial or conditional
-effects, transaction resource operations and new transaction checks/observations
-still reject during lowering. Valid uncalled Method declarations remain fully
-published and checked before link removes them. This subset does not complete
-general admission, resource/causality handling, branch/partial state or Method
-`@system` simulation closure. Existing ordinary hardware and its system route
+Partial or conditional effects, transaction resource operations and new
+transaction checks/observations still reject during lowering. Valid uncalled
+Method declarations remain fully published and checked before link removes
+them. This subset does not complete public dynamic-source admission,
+resource/causality handling, branch/partial state or Method `@system` simulation
+closure. Existing ordinary hardware and its system route
 retain their current contracts and limits.
 See the
 [extension specification](../rfcs/serial-rule-method/README.md) for its target

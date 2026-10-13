@@ -18,7 +18,7 @@ Python or infers a different hardware meaning.
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
 | Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of straight-line whole-owner candidate versions, invocation snapshots and guard obligations. Link uses this before lowering packages containing source transaction operations. |
-| Lower transactions | `LowerTransactions` | Existing same-domain, proven-true producer; migration to sampled metadata and complete companion records is pending. The final verifier rejects incomplete routed outputs. Ordinary hardware retains existing verification without transaction-analysis limits. |
+| Lower transactions | `LowerTransactions` | Materialize straight-line, same-domain whole-Bits transactions with sampled metadata and complete wiring records. Authenticate against the original plan, then run canonical final verification before atomic replacement. Ordinary hardware retains existing verification without transaction-analysis limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -46,18 +46,37 @@ Guarded nested Rules now enter this typed route even without Method declarations
 or state. Native sampled admission verifies closed metadata, ordered known-one
 prefixes, real D/E and domain routes, private terminal uses, Collection limits,
 and per-occurrence sampling plans. Source bodies/interfaces cannot supply the
-final-only attributes. This is an intermediate native verification boundary:
-the existing lowerer still needs uniform metadata/original-plan materialization,
-and both emitter preparation paths explicitly reject sampled plans until
-C++/RTL check histories are implemented. Prior executable evidence below is
-bound to checkpoint `44b888c5`, not to this unfinished migration.
+final-only attributes. The common lowerer now materializes these records for
+all transactions, including literal true/false, state-free and read-only cases.
+Original-source authentication checks captures, candidate versions, guard
+identities/locations and exact affected-definition inventories before canonical
+final verification checks the retained SSA, wiring and dependency closure.
+Both proofs succeed before atomic replacement; mappings locate candidate
+objects but do not supply semantic authority. The canonical final verifier
+owns its independent budget and runs once at this lowering seam.
+
+C++ and managed RTL consume the same sampling plan, freeze physical pins and
+ordered checks during Work/PREPARE, and commit pending history only after
+whole-system success. False-fire, held and falling samples maintain legal
+history; Discard and failure preserve committed history. Focused final-IR
+execution has native workers 1/2 and four-state RTL evidence. The public
+dynamic-source matrix and Method `@system` closure remain unaccepted;
+historical checkpoint `44b888c5` does not certify the current candidate.
+
+Within one immutable check-plan invocation, `SampledAdmissionValidation` shares
+complete definition-local boundaries and successful Rule prefix proofs across
+catalog and wiring checks. Keys preserve exact definitions and full bindings;
+each query still parses the actual Rule. Actual instance routes, physical domains,
+private uses and each distinct root remain independently checked. Changed IR
+requires a new context; reuse does not change verification limits or admission.
 
 Source units can publish these typed operations and their declaration-only
 interfaces. Consumer compilation reads the interfaces, without loading provider
-Python or Method bodies. At that checkpoint, final link lowered calls through ordinary
-static instances with proven-true guards/effect paths, a shared actual clock/reset
-domain and one outer writer per physical scalar owner. Final verification
-and emission reject any residual unlowered effects.
+Python or Method bodies. Native final link lowers calls through ordinary
+static instances with straight-line effects, a shared actual clock/reset
+domain and one outer writer per physical scalar owner. Ordinary results escaping an outer Rule still
+require proven-true guards; this restriction does not exempt them from sampling.
+Final verification and emission reject any residual unlowered effects.
 
 Cross-instance lowering preserves the original Module definitions and storage.
 Definition-relative routing exports old Q and lexical SSA and carries candidate
@@ -100,12 +119,13 @@ staged hardware checks succeed before the package becomes final.
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
 its input IR. Each outer transaction starts from old Q; nested Method calls
 share that transaction's candidate versions while keeping ordinary SSA values
-as snapshots. The native analysis requires actual Method bodies, proven-true
-effect paths and paired clock/reset wire identity. False or unknown guards
-remain obligations for later admission analysis. Unsupported selectors,
+as snapshots. The native analysis requires actual Method bodies, straight-line
+effect paths and paired clock/reset wire identity. It tracks ordered guard and
+value-validity prefixes; false or unknown guards remain explicit obligations
+for sampled lowering and checks. Unsupported selectors,
 conditional effects and unproved domains reject this analysis only. No plan is
-published if any transaction fails. Branch joins, partial updates, dynamic guard
-admission and resource handling remain unfinished.
+published if any transaction fails. Branch joins, partial updates, public
+dynamic-source acceptance and resource handling remain unfinished.
 The analysis alone is not execution evidence; the bounded lowerer's public
 C++/RTL execution and the broader extension have separate acceptance scopes.
 

@@ -59,10 +59,18 @@ int compareCheck(DictionaryAttr lhs, DictionaryAttr rhs) {
   return 0;
 }
 } // namespace
-FailureOr<SmallVector<HardwareCheckBinding>> detail::definitionSourceChecks(
-    const HardwareAnalysis &analysis, ModuleOp definition,
-    const HardwareBindings &bindings, detail::SourceCheckBudget &budget) {
-  if (!definition.getBody().hasOneBlock())
+FailureOr<SmallVector<HardwareCheckBinding>>
+detail::definitionSourceChecks(const HardwareAnalysis &analysis,
+                               ModuleOp definition,
+                               const HardwareBindings &bindings,
+                               detail::SampledAdmissionValidation &validation,
+                               detail::SourceCheckBudget &budget) {
+  if (failed(validation.verifyInvocation(analysis, budget)))
+    return failure();
+  if (!definition)
+    return analysis.getPackage().emitOpError()
+           << "source checks require a Module definition";
+  if (definition->getNumRegions() != 1 || !definition.getBody().hasOneBlock())
     return definition.emitOpError()
            << "source checks require one definition graph block";
   SmallVector<HardwareCheckBinding> result;
@@ -71,56 +79,9 @@ FailureOr<SmallVector<HardwareCheckBinding>> detail::definitionSourceChecks(
         return compareCheck(lhs, rhs) < 0;
       });
   llvm::DenseMap<Operation *, detail::SampledAdmissionView> sampledRules;
-  bool sampledDefinition =
-      definition->hasAttr("ac.transaction_wiring") ||
-      llvm::any_of(
-          definition.getBody().front().getOps<RuleOp>(),
-          [](RuleOp rule) { return rule->hasAttr("ac.sampled_admission"); });
-  detail::HardwareIdentityScope identityScope;
-  if (sampledDefinition) {
-    if (failed(budget.debit(detail::SourceCheckBudget::add(
-                                detail::SourceCheckBudget::bindings(bindings),
-                                detail::SourceCheckBudget::bytes(
-                                    sizeof(detail::HardwareIdentityScope))),
-                            definition)))
-      return failure();
-    identityScope = {definition, bindings, {}};
-  }
-  SmallVector<detail::HardwareIdentityEndpoint> stopEndpoints;
-  auto addStop = [&](Value value) -> LogicalResult {
-    if (failed(budget.debit(detail::SourceCheckBudget::bytes(
-                                sizeof(detail::HardwareIdentityEndpoint)),
-                            definition)))
-      return failure();
-    auto endpoint =
-        detail::makeIdentityEndpoint(value, identityScope, analysis, budget);
-    if (failed(endpoint))
-      return failure();
-    stopEndpoints.push_back(std::move(*endpoint));
-    return success();
-  };
-  if (definition->hasAttr("ac.transaction_wiring")) {
-    auto wiring =
-        detail::parseTransactionWiring(definition, analysis, bindings, budget);
-    if (failed(wiring))
-      return failure();
-    for (auto &writer : wiring->writers)
-      for (uint64_t index = writer.ordinaryResults;
-           index < writer.rule.getNumResults(); ++index)
-        if (failed(addStop(writer.rule.getResult(index))))
-          return failure();
-  }
-  if (sampledDefinition) {
-    for (auto rule : definition.getBody().front().getOps<RuleOp>()) {
-      auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
-      if (!required || required.size() > rule.getNumResults() / 2)
-        continue;
-      for (uint64_t index = rule.getNumResults() - 2 * required.size();
-           index < rule.getNumResults(); ++index)
-        if (failed(addStop(rule.getResult(index))))
-          return failure();
-    }
-  }
+  auto prepared = validation.prepare(definition, bindings);
+  if (failed(prepared))
+    return failure();
   for (auto rule : definition.getBody().front().getOps<RuleOp>()) {
     auto error = [&] { return rule.emitOpError(); };
     if (failed(mlir::verify(rule)) ||
@@ -130,10 +91,8 @@ FailureOr<SmallVector<HardwareCheckBinding>> detail::definitionSourceChecks(
     if (rule->hasAttr("ac.required_checks") && !required)
       return error() << "ac.required_checks must be an array";
     if (rule->hasAttr("ac.sampled_admission")) {
-      auto sampled =
-          detail::parseSampledAdmission(rule, analysis, bindings, budget);
-      if (failed(sampled) || failed(detail::proveSampledAdmission(
-                                 *sampled, analysis, bindings, budget)))
+      auto sampled = validation.verify(rule, bindings);
+      if (failed(sampled))
         return failure();
       if (!required || required.size() != sampled->guards.size())
         return error() << "sampled Rule requires exactly its guard obligations";
@@ -236,13 +195,14 @@ FailureOr<SmallVector<HardwareCheckBinding>> detail::definitionSourceChecks(
       if (sampled == sampledRules.end())
         return expect.emitOpError() << "guard_known has no sampled Rule";
       detail::HardwareIdentityStopPolicy stops{
-          detail::HardwareIdentityTraversal::DefinitionLocal, stopEndpoints};
+          detail::HardwareIdentityTraversal::DefinitionLocal,
+          (*prepared)->getBoundaries()};
       const Value captures[] = {sampled->second.clock, sampled->second.reset};
       for (auto [actual, capture] : llvm::zip(expect.getSampling(), captures)) {
-        auto lhs = detail::makeIdentityEndpoint(actual, identityScope, analysis,
-                                                budget);
-        auto rhs = detail::makeIdentityEndpoint(capture, identityScope,
+        auto lhs = detail::makeIdentityEndpoint(actual, (*prepared)->getScope(),
                                                 analysis, budget);
+        auto rhs = detail::makeIdentityEndpoint(
+            capture, (*prepared)->getScope(), analysis, budget);
         if (failed(lhs) || failed(rhs))
           return failure();
         auto normalizedActual =
@@ -385,8 +345,9 @@ HardwareAnalysis::verifyDefinitionSourceChecks(ModuleOp definition) const {
   bindings.owner = definition;
   detail::SourceCheckBudget budget(HardwareSourceCheckLimits{});
   budget.setPhase("definition source checks");
-  return success(succeeded(
-      detail::definitionSourceChecks(*this, definition, bindings, budget)));
+  detail::SampledAdmissionValidation validation(*this, budget);
+  return success(succeeded(detail::definitionSourceChecks(
+      *this, definition, bindings, validation, budget)));
 }
 
 FailureOr<HardwareSourceCheckPlan>

@@ -22,6 +22,8 @@ using StateReadId = uint64_t;
 using StateWriteId = uint64_t;
 using GuardBoundaryId = uint64_t;
 using CallBindingId = uint64_t;
+/// Number of ordered guards required to admit: zero is unconditional.
+using AdmissionPrefix = uint64_t;
 
 /// A module instance relative to the transaction's lexical root. The root has
 /// no parent/allocation and an empty occurrence path. Child paths contain the
@@ -45,6 +47,7 @@ struct BoundValueRef {
   mlir::Value value;
   LexicalInstanceId anchor = 0;
   InvocationFrameId frame = 0;
+  AdmissionPrefix requiredPrefix = 0;
 };
 
 /// Callable block arguments bind separately in guard and body regions. Entries
@@ -117,6 +120,7 @@ struct StateVersion {
   std::optional<StateWriteId> write;
   BoundValueId value = 0;
   mlir::Type payloadType;
+  AdmissionPrefix requiredPrefix = 0;
 };
 
 struct StateReadBinding {
@@ -221,6 +225,7 @@ struct TransactionStateEvent {
   std::optional<StateWriteId> write;
   std::optional<GuardBoundaryId> guard;
   std::optional<CallBindingId> call;
+  AdmissionPrefix prefix = 0;
 };
 
 /// A borrowed, transaction-relative version/use-def plan. Each transaction
@@ -246,6 +251,8 @@ struct TransactionStatePlan {
   llvm::SmallVector<TransactionStateEvent, 0> events;
   llvm::SmallVector<OwnerVersionBinding> finalVersions;
   llvm::SmallVector<TransactionResultBinding, 0> results;
+  BoundValueId clockValue = 0;
+  BoundValueId resetValue = 0;
 };
 
 /// Read-only analysis of every definition transaction in a builtin ModuleOp

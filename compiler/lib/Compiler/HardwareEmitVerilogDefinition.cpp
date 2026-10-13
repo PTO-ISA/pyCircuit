@@ -14,6 +14,85 @@ public:
   LogicalResult emitSourceChecks() {
     if (!context.managesChecks())
       return success();
+    for (auto [index, binding] :
+         llvm::enumerate(context.sourceChecks().samplingBindings)) {
+      if (binding.definition != definition)
+        continue;
+      auto clock = net(binding.clock);
+      auto reset = net(binding.reset);
+      if (failed(clock) || failed(reset))
+        return failure();
+      auto name = "pyc_sampling_" + std::to_string(binding.localOrdinal);
+      samplingNames.try_emplace(index, name);
+      localCompletions.push_back(name + "_complete");
+      localSamplingErrors.push_back("(" + name + "_fault != 2'd0)");
+      // These records observe the existing managed storage transaction; they
+      // are verification instrumentation, not additional hardware state.
+      out << "`ifndef SYNTHESIS\n"
+          << "  logic " << name << "_clock = 1'b0;\n"
+          << "  logic " << name << "_pending_clock = 1'b0;\n"
+          << "  logic " << name << "_pending_valid = 1'b0;\n"
+          << "  logic " << name << "_complete = 1'b0;\n"
+          << "  logic " << name << "_sampled_clock = 1'b0;\n"
+          << "  logic " << name << "_sampled_reset = 1'b0;\n"
+          << "  logic " << name << "_rising = 1'b0;\n"
+          << "  logic " << name << "_reset_active = 1'b0;\n"
+          << "  logic [1:0] " << name << "_fault = 2'd0;\n"
+          << "  always @(pyc_phase) begin\n"
+          << "    case (pyc_phase)\n"
+          << "      3'd1: begin\n"
+          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_pending_valid = 1'b0;\n"
+          << "        " << name << "_fault = 2'd0;\n"
+          << "        " << name << "_rising = 1'b0;\n"
+          << "        " << name << "_reset_active = 1'b0;\n"
+          << "        " << name << "_sampled_clock = " << *clock << ";\n"
+          << "        " << name << "_sampled_reset = " << *reset << ";\n"
+          << "        if ($isunknown(" << name << "_sampled_clock))\n"
+          << "          " << name << "_fault = 2'd1;\n"
+          << "        else begin\n"
+          << "          " << name << "_rising = (" << name
+          << "_clock === 1'b0) && (" << name << "_sampled_clock === 1'b1);\n"
+          << "          if (" << name << "_rising && $isunknown(" << name
+          << "_sampled_reset))\n"
+          << "            " << name << "_fault = 2'd2;\n"
+          << "          else begin\n"
+          << "            " << name << "_reset_active = " << name
+          << "_rising && (" << name << "_sampled_reset === 1'b1);\n"
+          << "            " << name << "_pending_clock = " << name
+          << "_sampled_clock;\n"
+          << "            " << name << "_pending_valid = 1'b1;\n"
+          << "          end\n"
+          << "        end\n"
+          << "        " << name << "_complete = 1'b1;\n"
+          << "      end\n"
+          << "      3'd2: begin\n"
+          << "        if ((pyc_root_commit_ok === 1'b1) && (" << name
+          << "_pending_valid === 1'b1)) begin\n"
+          << "          " << name << "_clock = " << name << "_pending_clock;\n"
+          << "          " << name << "_pending_valid = 1'b0;\n"
+          << "        end\n"
+          << "        if (pyc_root_commit_ok === 1'b1)\n"
+          << "          " << name << "_complete = 1'b0;\n"
+          << "      end\n"
+          << "      3'd3, 3'd4: begin\n"
+          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_sampled_clock = 1'b0;\n"
+          << "        " << name << "_sampled_reset = 1'b0;\n"
+          << "        " << name << "_rising = 1'b0;\n"
+          << "        " << name << "_reset_active = 1'b0;\n"
+          << "        " << name << "_fault = 2'd0;\n"
+          << "        " << name << "_pending_clock = 1'b0;\n"
+          << "        " << name << "_pending_valid = (pyc_phase == 3'd4);\n"
+          << "      end\n"
+          << "      default: begin end\n"
+          << "    endcase\n"
+          << "  end\n"
+          << "`else\n"
+          << "  wire " << name << "_complete = 1'b1;\n"
+          << "  wire [1:0] " << name << "_fault = 2'd0;\n"
+          << "`endif\n";
+    }
     std::string reset = "pyc_reset_active";
     if (auto domain =
             definition->getAttrOfType<DictionaryAttr>("ac.domain_inputs")) {
@@ -38,8 +117,84 @@ public:
       if (failed(condition) || failed(path))
         return failure();
       auto name = "pyc_check_error_" + std::to_string(localErrors.size());
-      out << "  wire " << name << " = ((" << *path << " & ~" << reset << " & ~"
-          << *condition << ") !== 1'b0);\n";
+      if (binding.samplingBindingIndex) {
+        auto found = samplingNames.find(*binding.samplingBindingIndex);
+        if (found == samplingNames.end())
+          return binding.expect->emitOpError()
+                 << "RTL source check has no local sampling binding";
+        const auto &sampling = found->second;
+        localCompletions.push_back(name + "_complete");
+        out << "`ifndef SYNTHESIS\n"
+            << "  logic " << name << "_condition = 1'b0;\n"
+            << "  logic " << name << "_path = 1'b0;\n"
+            << "  logic " << name << "_complete = 1'b0;\n"
+            << "  always @(pyc_phase) begin\n"
+            << "    case (pyc_phase)\n"
+            << "      3'd1: begin\n"
+            << "        " << name << "_complete = 1'b0;\n"
+            << "        " << name << "_condition = " << *condition << ";\n"
+            << "        " << name << "_path = " << *path << ";\n"
+            << "        " << name << "_complete = 1'b1;\n"
+            << "      end\n"
+            << "      3'd2: begin\n"
+            << "        if (pyc_root_commit_ok === 1'b1)\n"
+            << "          " << name << "_complete = 1'b0;\n"
+            << "      end\n"
+            << "      3'd3, 3'd4: begin\n"
+            << "        " << name << "_complete = 1'b0;\n"
+            << "        " << name << "_condition = 1'b0;\n"
+            << "        " << name << "_path = 1'b0;\n"
+            << "      end\n"
+            << "      default: begin end\n"
+            << "    endcase\n"
+            << "  end\n"
+            << "  wire " << name << " = $isunknown(" << name << "_path) || ("
+            << sampling << "_rising && !" << sampling << "_reset_active && ("
+            << name << "_path === 1'b1) && "
+            << "$isunknown(" << name << "_condition));\n"
+            << "`else\n"
+            << "  wire " << name << "_complete = 1'b1;\n"
+            << "  wire " << name << " = 1'b0;\n"
+            << "`endif\n";
+        localErrors.push_back(std::move(name));
+        continue;
+      }
+      // Ordinary assertions retain their four-state truth table, evaluated
+      // from the same prepared inputs that participate in the root barrier.
+      localCompletions.push_back(name + "_complete");
+      out << "`ifndef SYNTHESIS\n"
+          << "  logic " << name << "_condition = 1'b0;\n"
+          << "  logic " << name << "_path = 1'b0;\n"
+          << "  logic " << name << "_reset = 1'b0;\n"
+          << "  logic " << name << "_complete = 1'b0;\n"
+          << "  always @(pyc_phase) begin\n"
+          << "    case (pyc_phase)\n"
+          << "      3'd1: begin\n"
+          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_condition = " << *condition << ";\n"
+          << "        " << name << "_path = " << *path << ";\n"
+          << "        " << name << "_reset = " << reset << ";\n"
+          << "        " << name << "_complete = 1'b1;\n"
+          << "      end\n"
+          << "      3'd2: begin\n"
+          << "        if (pyc_root_commit_ok === 1'b1)\n"
+          << "          " << name << "_complete = 1'b0;\n"
+          << "      end\n"
+          << "      3'd3, 3'd4: begin\n"
+          << "        " << name << "_complete = 1'b0;\n"
+          << "        " << name << "_condition = 1'b0;\n"
+          << "        " << name << "_path = 1'b0;\n"
+          << "        " << name << "_reset = 1'b0;\n"
+          << "      end\n"
+          << "      default: begin end\n"
+          << "    endcase\n"
+          << "  end\n"
+          << "  wire " << name << " = ((" << name << "_path & ~" << name
+          << "_reset & ~" << name << "_condition) !== 1'b0);\n"
+          << "`else\n"
+          << "  wire " << name << "_complete = 1'b1;\n"
+          << "  wire " << name << " = 1'b0;\n"
+          << "`endif\n";
       localErrors.push_back(std::move(name));
     }
     return success();
@@ -762,7 +917,7 @@ public:
         count = *size;
         i = "pyc_instance_lane_" + std::to_string(next++);
       }
-      std::string childError;
+      std::string childError, childComplete, childSamplingError;
       if (context.managesChecks()) {
         childError = "pyc_child_error_" + std::to_string(localErrors.size());
         if (collection)
@@ -771,6 +926,18 @@ public:
           out << "  wire " << childError << ";\n";
         localErrors.push_back(collection ? "(|" + childError + ")"
                                          : childError);
+        if (kind.empty()) {
+          childComplete = childError + "_complete";
+          childSamplingError = childError + "_sampling";
+          auto type = collection ? "[(" + count + ")-1:0] " : "";
+          out << "  wire " << type << childComplete << ";\n"
+              << "  wire " << type << childSamplingError << ";\n";
+          localCompletions.push_back(collection ? "(&" + childComplete + ")"
+                                                : childComplete);
+          localSamplingErrors.push_back(collection
+                                            ? "(|" + childSamplingError + ")"
+                                            : childSamplingError);
+        }
       }
       if (collection)
         out << "  for (genvar " << i << "=0; " << i << " < (" << count
@@ -817,8 +984,15 @@ public:
         };
         managedConnection("pyc_phase", "pyc_phase");
         managedConnection("pyc_root_commit_ok", "pyc_root_commit_ok");
-        if (kind.empty())
+        if (kind.empty()) {
           managedConnection("pyc_reset_active", "pyc_reset_active");
+          managedConnection("pyc_check_complete",
+                            collection ? childComplete + "[" + i + "]"
+                                       : childComplete);
+          managedConnection("pyc_sampling_error",
+                            collection ? childSamplingError + "[" + i + "]"
+                                       : childSamplingError);
+        }
         managedConnection("pyc_local_error",
                           collection ? childError + "[" + i + "]" : childError);
       }
@@ -832,11 +1006,17 @@ public:
   void emitAggregateError() {
     if (!context.managesChecks())
       return;
+    out << "  assign pyc_check_complete = "
+        << (localCompletions.empty() ? "1'b1" : join(localCompletions, " & "))
+        << ";\n"
+        << "  assign pyc_sampling_error = "
+        << (localSamplingErrors.empty() ? "1'b0"
+                                        : join(localSamplingErrors, " | "))
+        << ";\n";
     out << "  assign pyc_local_error = ";
-    if (localErrors.empty())
-      out << "1'b0";
-    else
-      out << join(localErrors, " | ");
+    out << "(pyc_check_complete !== 1'b1) | pyc_sampling_error";
+    if (!localErrors.empty())
+      out << " | " << join(localErrors, " | ");
     out << ";\n";
   }
 
@@ -846,7 +1026,10 @@ private:
   raw_ostream &out;
   llvm::DenseMap<Value, std::string> names;
   llvm::DenseSet<Operation *> instances;
+  llvm::DenseMap<uint64_t, std::string> samplingNames;
   SmallVector<std::string> localErrors;
+  SmallVector<std::string> localCompletions;
+  SmallVector<std::string> localSamplingErrors;
   unsigned next = 0;
 };
 } // namespace
@@ -913,6 +1096,8 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
         << "  input wire [2:0] pyc_phase,\n"
            "  input wire pyc_root_commit_ok,\n"
            "  input wire pyc_reset_active,\n"
+           "  output wire pyc_check_complete,\n"
+           "  output wire pyc_sampling_error,\n"
            "  output wire pyc_local_error";
     first = false;
   }

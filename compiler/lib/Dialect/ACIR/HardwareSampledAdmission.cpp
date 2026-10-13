@@ -715,22 +715,26 @@ normalizeIdentityEndpoint(const HardwareIdentityEndpoint &endpoint,
     if (failed(budget.debit(SourceCheckBudget::add(1, stops.boundaries.size()),
                             site)))
       return failure();
-    for (const auto &stop : stops.boundaries)
+    for (const auto &stop : stops.boundaries) {
+      if (stop.value != current.value)
+        continue;
       if (failed(payScope(stop.scope, budget, site)) ||
           failed(payScope(current.scope, budget, site)))
         return failure();
-    if (llvm::any_of(stops.boundaries, [&](const auto &stop) {
-          return sameEndpoint(stop, current);
-        }))
-      return current;
-    for (const auto &prior : seen)
+      if (sameEndpoint(stop, current))
+        return current;
+    }
+    for (const auto &prior : seen) {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      if (prior.value != current.value)
+        continue;
       if (failed(payScope(prior.scope, budget, site)) ||
           failed(payScope(current.scope, budget, site)))
         return failure();
-    if (llvm::any_of(seen, [&](const auto &prior) {
-          return sameEndpoint(prior, current);
-        }))
-      return site->emitOpError() << "cyclic sampled hardware identity route";
+      if (sameEndpoint(prior, current))
+        return site->emitOpError() << "cyclic sampled hardware identity route";
+    }
     if (failed(charge(budget, site, 1, sizeof(HardwareIdentityEndpoint))) ||
         failed(payScope(current.scope, budget, site)))
       return failure();
@@ -833,21 +837,29 @@ public:
       : analysis(analysis), budget(budget), policy(policy) {}
   FailureOr<HardwareIdentityEndpoint>
   normalize(Value value, const HardwareIdentityScope &scope) {
-    auto input = makeIdentityEndpoint(value, scope, analysis, budget);
-    if (failed(input))
+    if (!value)
       return failure();
+    Operation *site = valueSite(value);
     for (const auto &entry : cache) {
-      if (failed(payScope(input->scope, budget, valueSite(value))) ||
-          failed(payScope(entry.input.scope, budget, valueSite(value))))
+      if (failed(budget.debit(1, site)))
         return failure();
-      if (!sameEndpoint(entry.input, *input))
+      if (entry.input.value != value)
         continue;
-      if (failed(charge(budget, valueSite(value), 1,
-                        sizeof(HardwareIdentityEndpoint))) ||
-          failed(payScope(entry.output.scope, budget, valueSite(value))))
+      if (failed(payScope(scope, budget, site)) ||
+          failed(payScope(entry.input.scope, budget, site)))
+        return failure();
+      // Immutable IR and this memo's fixed complete stop policy make the same
+      // SSA value in the full same scope resolve to the same payload type.
+      if (!sameScope(entry.input.scope, scope))
+        continue;
+      if (failed(charge(budget, site, 1, sizeof(HardwareIdentityEndpoint))) ||
+          failed(payScope(entry.output.scope, budget, site)))
         return failure();
       return entry.output;
     }
+    auto input = makeIdentityEndpoint(value, scope, analysis, budget);
+    if (failed(input))
+      return failure();
     auto output = normalizeIdentityEndpoint(*input, policy, analysis, budget);
     if (failed(output) ||
         failed(
@@ -1109,7 +1121,65 @@ localBoundaries(ModuleOp module, const HardwareIdentityScope &scope,
 }
 } // namespace
 
+PreparedSampledBoundaries::PreparedSampledBoundaries(
+    HardwareIdentityScope &&scope,
+    SmallVector<HardwareIdentityEndpoint> &&boundaries)
+    : scope(std::move(scope)), boundaries(std::move(boundaries)) {}
+
+LogicalResult
+PreparedSampledBoundaries::verifyFor(ModuleOp definition,
+                                     const HardwareBindings &bindings,
+                                     SourceCheckBudget &budget) const {
+  Operation *site = scope.root.operator->();
+  if (failed(budget.debit(
+          SourceCheckBudget::add(
+              1, SourceCheckBudget::add(
+                     SourceCheckBudget::bindings(bindings),
+                     SourceCheckBudget::bindings(scope.rootBindings))),
+          site)))
+    return failure();
+  if (!definition || scope.root != definition || !scope.path.empty() ||
+      !sameHardwareBindings(bindings, scope.rootBindings))
+    return site->emitOpError()
+           << "prepared sampled boundaries differ from definition or bindings";
+  return success();
+}
+
+FailureOr<std::optional<PreparedSampledBoundaries>>
+prepareSampledBoundaries(ModuleOp definition, const HardwareAnalysis &analysis,
+                         const HardwareBindings &bindings,
+                         SourceCheckBudget &budget) {
+  if (!definition || !isa<ModuleOp>(definition.operator->()))
+    return analysis.getPackage().emitOpError()
+           << "sampled boundary preparation requires a Module definition";
+  if (bindings.owner != definition || definition->getNumRegions() != 1 ||
+      !definition.getBody().hasOneBlock())
+    return definition->emitOpError() << "sampled boundary preparation requires "
+                                        "its owner and one graph block";
+  bool sampledDefinition =
+      definition->hasAttr("ac.transaction_wiring") ||
+      llvm::any_of(
+          definition.getBody().front().getOps<RuleOp>(),
+          [](RuleOp rule) { return rule->hasAttr("ac.sampled_admission"); });
+  if (!sampledDefinition)
+    return std::optional<PreparedSampledBoundaries>();
+  if (failed(budget.debit(
+          SourceCheckBudget::add(
+              SourceCheckBudget::add(1, SourceCheckBudget::bytes(
+                                            sizeof(PreparedSampledBoundaries))),
+              SourceCheckBudget::bindings(bindings)),
+          definition)))
+    return failure();
+  HardwareIdentityScope scope{definition, bindings, {}};
+  auto boundaries = localBoundaries(definition, scope, analysis, budget);
+  if (failed(boundaries))
+    return failure();
+  PreparedSampledBoundaries prepared(std::move(scope), std::move(*boundaries));
+  return std::optional<PreparedSampledBoundaries>(std::move(prepared));
+}
+
 LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
+                                    const PreparedSampledBoundaries &prepared,
                                     const HardwareAnalysis &analysis,
                                     const HardwareBindings &bindings,
                                     SourceCheckBudget &budget) {
@@ -1119,15 +1189,11 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   if (!view.definition || !view.rule || view.guards.empty())
     return analysis.getPackage().emitOpError()
            << "sampled proof requires a parsed nonempty guard inventory";
-  if (failed(budget.debit(SourceCheckBudget::bindings(bindings), view.rule)))
+  if (failed(prepared.verifyFor(view.definition, bindings, budget)))
     return failure();
-  HardwareIdentityScope scope{view.definition, bindings, {}};
-  scope.rootBindings.owner = view.definition;
-  auto boundaries = localBoundaries(view.definition, scope, analysis, budget);
-  if (failed(boundaries))
-    return failure();
+  const auto &scope = prepared.getScope();
   HardwareIdentityStopPolicy policy{HardwareIdentityTraversal::DefinitionLocal,
-                                    *boundaries};
+                                    prepared.getBoundaries()};
   PrefixProof proof(analysis, budget, policy);
   Prefix expected;
   for (const auto &guard : view.guards) {
@@ -1149,6 +1215,118 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   if (failed(fire))
     return failure();
   return proof.equal(*fire, expected, view.rule);
+}
+
+struct SampledAdmissionValidation::Entry {
+  explicit Entry(PreparedSampledBoundaries &&prepared)
+      : prepared(std::move(prepared)) {}
+  PreparedSampledBoundaries prepared;
+  SmallVector<RuleOp, 0> provenRules;
+};
+
+SampledAdmissionValidation::SampledAdmissionValidation(
+    const HardwareAnalysis &analysis, SourceCheckBudget &budget)
+    : analysis(analysis), budget(budget) {}
+
+SampledAdmissionValidation::~SampledAdmissionValidation() = default;
+
+uint64_t SampledAdmissionValidation::entryStorageBytes() {
+  return sizeof(Entry) + sizeof(std::unique_ptr<Entry>);
+}
+
+LogicalResult
+SampledAdmissionValidation::verifyInvocation(const HardwareAnalysis &analysis,
+                                             SourceCheckBudget &budget) const {
+  auto package = this->analysis.getPackage();
+  if (failed(this->budget.debit(1, package)))
+    return failure();
+  if (&analysis != &this->analysis || &budget != &this->budget)
+    return package.emitOpError()
+           << "sampled validation differs from analysis or budget invocation";
+  return success();
+}
+
+FailureOr<const PreparedSampledBoundaries *>
+SampledAdmissionValidation::prepare(ModuleOp definition,
+                                    const HardwareBindings &bindings) {
+  Operation *site = definition ? definition.getOperation()
+                               : analysis.getPackage().getOperation();
+  if (failed(budget.debit(1, site)))
+    return failure();
+  if (!definition ||
+      definition->getParentOp() != analysis.getPackage().getOperation())
+    return site->emitOpError()
+           << "sampled validation definition must belong to analyzed package";
+  for (const auto &entry : entries) {
+    if (failed(budget.debit(1, site)))
+      return failure();
+    const auto &scope = entry->prepared.getScope();
+    if (scope.root != definition)
+      continue;
+    if (failed(
+            budget.debit(SourceCheckBudget::add(
+                             SourceCheckBudget::bindings(bindings),
+                             SourceCheckBudget::bindings(scope.rootBindings)),
+                         site)))
+      return failure();
+    if (sameHardwareBindings(bindings, scope.rootBindings))
+      return &entry->prepared;
+  }
+  auto prepared =
+      prepareSampledBoundaries(definition, analysis, bindings, budget);
+  if (failed(prepared))
+    return failure();
+  if (!*prepared)
+    return static_cast<const PreparedSampledBoundaries *>(nullptr);
+  if (failed(charge(budget, site, 1, entryStorageBytes())))
+    return failure();
+  entries.push_back(std::make_unique<Entry>(std::move(**prepared)));
+  return &entries.back()->prepared;
+}
+
+FailureOr<SampledAdmissionView>
+SampledAdmissionValidation::verify(RuleOp rule,
+                                   const HardwareBindings &bindings) {
+  Operation *site =
+      rule ? rule.getOperation() : analysis.getPackage().getOperation();
+  if (failed(budget.debit(1, site)))
+    return failure();
+  auto definition =
+      rule ? dyn_cast_or_null<ModuleOp>(rule->getParentOp()) : ModuleOp();
+  if (!definition)
+    return site->emitOpError()
+           << "sampled validation requires a Rule directly owned by a Module";
+  auto prepared = prepare(definition, bindings);
+  if (failed(prepared))
+    return failure();
+  if (!*prepared)
+    return rule->emitOpError()
+           << "sampled validation lacks prepared definition boundaries";
+  // Parse current IR on every call. Only a completed prefix proof is reused,
+  // under immutable IR, exact bindings and the prepared complete stop policy.
+  auto sampled = parseSampledAdmission(rule, analysis, bindings, budget);
+  if (failed(sampled))
+    return failure();
+  for (const auto &entry : entries) {
+    if (failed(budget.debit(1, rule)))
+      return failure();
+    if (&entry->prepared != *prepared)
+      continue;
+    for (auto proven : entry->provenRules) {
+      if (failed(budget.debit(1, rule)))
+        return failure();
+      if (proven == rule)
+        return std::move(*sampled);
+    }
+    if (failed(proveSampledAdmission(*sampled, entry->prepared, analysis,
+                                     bindings, budget)) ||
+        failed(charge(budget, rule, 1, sizeof(RuleOp))))
+      return failure();
+    entry->provenRules.push_back(rule);
+    return std::move(*sampled);
+  }
+  return rule->emitOpError()
+         << "sampled validation has no entry for prepared boundaries";
 }
 
 namespace {
@@ -1187,20 +1365,37 @@ struct RouteVisit {
 class WiringProof {
 public:
   WiringProof(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
-              const llvm::DenseSet<Operation *> &relevant)
-      : analysis(analysis), budget(budget), relevant(relevant) {}
+              const llvm::DenseSet<Operation *> &relevant,
+              SampledAdmissionValidation &validation)
+      : analysis(analysis), budget(budget), validation(validation),
+        relevant(relevant) {}
   LogicalResult run(ModuleOp root, const HardwareBindings &bindings) {
     if (bindings.owner != root)
       return root->emitOpError()
              << "transaction proof bindings have the wrong owner";
+    budget.setPhase("sampled wiring occurrence expansion");
     if (failed(budget.debit(SourceCheckBudget::bindings(bindings), root)))
       return failure();
     HardwareIdentityScope scope{root, bindings, {}};
     scope.rootBindings.owner = root;
-    if (failed(expand(scope, std::nullopt, {})) || failed(inventory()) ||
-        failed(writers()) || failed(externalInputs()) ||
-        failed(connections()) || failed(privateUses()))
+    if (failed(expand(scope, std::nullopt, {})))
       return failure();
+    budget.setPhase("sampled wiring state inventory");
+    if (failed(inventory()))
+      return failure();
+    budget.setPhase("sampled wiring writers");
+    if (failed(writers()))
+      return failure();
+    budget.setPhase("sampled wiring external inputs");
+    if (failed(externalInputs()))
+      return failure();
+    budget.setPhase("sampled wiring connections");
+    if (failed(connections()))
+      return failure();
+    budget.setPhase("sampled wiring private uses");
+    if (failed(privateUses()))
+      return failure();
+    budget.setPhase("sampled transaction wiring proof");
     return success();
   }
 
@@ -1310,40 +1505,44 @@ private:
   }
   LogicalResult inventory() {
     for (const auto &entry : occurrences) {
-      if (!entry.wiring)
-        continue;
-      for (const auto &record : entry.wiring->states) {
-        if (failed(charge(budget, entry.module, 1, sizeof(State))))
-          return failure();
-        auto scope = copyScope(entry.scope, budget, entry.module);
-        if (failed(scope) || failed(budget.debit(1, entry.module)))
-          return failure();
-        auto payload =
-            analysis.resolveType(record.storage->getResult(0).getType(),
-                                 entry.bindings, entry.module);
-        if (failed(payload))
-          return failure();
-        states.push_back({std::move(*scope),
-                          record.storage,
-                          *payload,
-                          {},
-                          {},
-                          {},
-                          {},
-                          {},
-                          false});
-      }
-      for (const auto &writer : entry.wiring->writers) {
-        auto sampled = parseSampledAdmission(writer.rule, analysis,
-                                             entry.bindings, budget);
-        if (failed(sampled) || failed(proveSampledAdmission(
-                                   *sampled, analysis, entry.bindings, budget)))
-          return failure();
-        for (uint64_t ordinal = writer.ordinaryResults;
-             ordinal < writer.rule->getNumResults(); ++ordinal)
-          if (failed(boundary(writer.rule->getResult(ordinal), entry.scope,
-                              stops)))
+      auto prepared = validation.prepare(entry.module, entry.bindings);
+      if (failed(prepared))
+        return failure();
+      if (entry.wiring) {
+        if (!*prepared)
+          return entry.module->emitOpError()
+                 << "transaction inventory lacks prepared boundaries";
+        for (const auto &record : entry.wiring->states) {
+          if (failed(charge(budget, entry.module, 1, sizeof(State))))
             return failure();
+          auto scope = copyScope(entry.scope, budget, entry.module);
+          if (failed(scope) || failed(budget.debit(1, entry.module)))
+            return failure();
+          auto payload =
+              analysis.resolveType(record.storage->getResult(0).getType(),
+                                   entry.bindings, entry.module);
+          if (failed(payload))
+            return failure();
+          states.push_back({std::move(*scope),
+                            record.storage,
+                            *payload,
+                            {},
+                            {},
+                            {},
+                            {},
+                            {},
+                            false});
+        }
+        for (const auto &writer : entry.wiring->writers) {
+          auto sampled = validation.verify(writer.rule, entry.bindings);
+          if (failed(sampled))
+            return failure();
+          for (uint64_t ordinal = writer.ordinaryResults;
+               ordinal < writer.rule->getNumResults(); ++ordinal)
+            if (failed(boundary(writer.rule->getResult(ordinal), entry.scope,
+                                stops)))
+              return failure();
+        }
       }
       // Non-sampled check suffixes are also immutable identity boundaries.
       for (auto rule : entry.module->getRegion(0).front().getOps<RuleOp>()) {
@@ -1412,15 +1611,8 @@ private:
         if (failed(clock) || failed(reset) || failed(fire))
           return failure();
         if (writer.ordinaryResults) {
-          auto localStops =
-              localBoundaries(entry.module, entry.scope, analysis, budget);
-          if (failed(localStops))
-            return failure();
-          HardwareIdentityStopPolicy local{
-              HardwareIdentityTraversal::DefinitionLocal, *localStops};
           for (const auto &guard : sampled->guards) {
-            auto raw = normalized(guard.predicate, entry.scope, local, analysis,
-                                  budget);
+            auto raw = normal(guard.predicate, entry.scope);
             if (failed(raw))
               return failure();
             auto known = literal(*raw, analysis, budget);
@@ -1464,6 +1656,7 @@ private:
                                 entry.scope, std::numeric_limits<size_t>::max(),
                                 PrivateRoute::Enable)))
           return failure();
+        std::optional<size_t> enableRepresentative;
         for (const auto &candidate : writer.candidates) {
           auto stateIndex = target(entry, candidate.stateID);
           auto data = normal(candidate.result, entry.scope);
@@ -1485,13 +1678,17 @@ private:
           state.enable = *fire;
           state.clock = *clock;
           state.reset = *reset;
+          if (!enableRepresentative)
+            enableRepresentative = *stateIndex;
           if (failed(privateRoute(candidate.result, entry.scope, *stateIndex,
-                                  PrivateRoute::Data)) ||
-              failed(privateRoute(writer.rule->getResult(sampled->fireResult),
-                                  entry.scope, *stateIndex,
-                                  PrivateRoute::Enable)))
+                                  PrivateRoute::Data)))
             return failure();
         }
+        if (enableRepresentative &&
+            failed(privateRoute(writer.rule->getResult(sampled->fireResult),
+                                entry.scope, *enableRepresentative,
+                                PrivateRoute::Enable)))
+          return failure();
         for (const auto &guard : sampled->guards) {
           SourceExpectOp match;
           for (auto expect :
@@ -1764,16 +1961,16 @@ private:
              << "private transaction/check route has a dead end before its "
                 "corresponding D/E or expect";
     }
-    for (const auto &entry : seen)
+    for (const auto &entry : seen) {
+      if (entry.state != route.state || entry.kind != route.kind ||
+          entry.expect != route.expect || entry.endpoint.value != endpoint.value)
+        continue;
       if (failed(payScope(entry.endpoint.scope, budget, site)) ||
           failed(payScope(endpoint.scope, budget, site)))
         return failure();
-    if (llvm::any_of(seen, [&](const auto &entry) {
-          return entry.state == route.state && entry.kind == route.kind &&
-                 entry.expect == route.expect &&
-                 sameEndpoint(entry.endpoint, endpoint);
-        }))
-      return success();
+      if (sameEndpoint(entry.endpoint, endpoint))
+        return success();
+    }
     if (failed(charge(budget, site, 1, sizeof(RouteVisit))) ||
         failed(payScope(endpoint.scope, budget, site)))
       return failure();
@@ -1922,6 +2119,7 @@ private:
   }
   const HardwareAnalysis &analysis;
   SourceCheckBudget &budget;
+  SampledAdmissionValidation &validation;
   const llvm::DenseSet<Operation *> &relevant;
   SmallVector<Occurrence, 0> occurrences;
   SmallVector<State, 0> states;
@@ -1956,7 +2154,10 @@ bool localWitness(ModuleOp module) {
 LogicalResult
 verifyTransactionWiring(const HardwareAnalysis &analysis,
                         ArrayRef<std::pair<ModuleOp, HardwareBindings>> scopes,
+                        SampledAdmissionValidation &validation,
                         SourceCheckBudget &budget) {
+  if (failed(validation.verifyInvocation(analysis, budget)))
+    return failure();
   // Unrelated ordinary hardware retains its existing analysis limits. This
   // inexpensive witness scan deliberately precedes transaction allocations.
   bool hasWitness = llvm::any_of(scopes, [](const auto &entry) {
@@ -2001,13 +2202,20 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
              << "transaction catalog requires one graph block";
     // The initial witness scan performed no allocations; account this catalog
     // scan before using its result to seed the worklist.
+    bool hasCheckBoundary = false;
     for (auto &operation : module.getBody().front()) {
       if (failed(budget.debit(1, &operation)) ||
           failed(payAttribute(operation.getAttr("ac.required_checks"), budget,
                               &operation)))
         return failure();
+      if (isa<RuleOp>(operation))
+        if (auto required = operation.getAttrOfType<ArrayAttr>("ac.required_checks"))
+          hasCheckBoundary |= !required.empty();
     }
-    if (localWitness(module) && failed(mark(module, relevant, pending)))
+    // Totality identity follows ordinary instances. Their check-only suffixes
+    // remain private boundaries without requiring transaction companions.
+    if ((localWitness(module) || hasCheckBoundary) &&
+        failed(mark(module, relevant, pending)))
       return failure();
     if (module->hasAttr("ac.transaction_wiring")) {
       auto wiring =
@@ -2086,14 +2294,39 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
              << "transaction Collection callee cannot contain a local or "
                 "descendant writer";
   }
-  for (const auto &[module, bindings] : scopes) {
+  SmallVector<const std::pair<ModuleOp, HardwareBindings> *, 0> verifiedRoots;
+  for (const auto &entry : scopes) {
+    const auto &[module, bindings] = entry;
     if (failed(budget.debit(1, module)))
       return failure();
     if (!relevant.contains(module.operator->()))
       continue;
-    WiringProof proof(analysis, budget, relevant);
+    bool verified = false;
+    for (const auto *prior : verifiedRoots) {
+      if (failed(budget.debit(1, module)))
+        return failure();
+      if (prior->first != module)
+        continue;
+      if (failed(budget.debit(SourceCheckBudget::add(
+                                  SourceCheckBudget::bindings(bindings),
+                                  SourceCheckBudget::bindings(prior->second)),
+                              module)))
+        return failure();
+      if (sameHardwareBindings(prior->second, bindings)) {
+        verified = true;
+        break;
+      }
+    }
+    if (verified)
+      continue;
+    WiringProof proof(analysis, budget, relevant, validation);
     if (failed(proof.run(module, bindings)))
       return failure();
+    // Record only completed root proofs; child visits do not prove that child
+    // as a root with its own complete occurrence and private-use checks.
+    if (failed(charge(budget, module, 1, sizeof(&entry))))
+      return failure();
+    verifiedRoots.push_back(&entry);
   }
   return success();
 }

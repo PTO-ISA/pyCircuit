@@ -17,6 +17,10 @@ void emitCppCheckStorage(HardwareEmitContext &context, ac::ModuleOp definition,
                          llvm::raw_ostream &out);
 void emitCppCheckClear(HardwareEmitContext &context, ac::ModuleOp definition,
                        llvm::raw_ostream &out);
+void emitCppSamplingXfer(HardwareEmitContext &context, ac::ModuleOp definition,
+                         llvm::raw_ostream &out);
+void emitCppSamplingReset(HardwareEmitContext &context, ac::ModuleOp definition,
+                          llvm::raw_ostream &out);
 mlir::LogicalResult emitCppCheckCapture(
     HardwareEmitContext &context, ac::ModuleOp definition,
     llvm::StringRef object, llvm::StringRef count,

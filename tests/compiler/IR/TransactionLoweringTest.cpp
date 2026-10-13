@@ -1,6 +1,8 @@
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
+#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "Dialect/ACIR/SourceTransactionSummary.h"
+#include "Transforms/LowerTransactions.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/IRMapping.h"
@@ -21,6 +23,7 @@
 #include "gtest/gtest.h"
 
 #include <algorithm>
+#include <limits>
 #include <memory>
 #include <string>
 #include <vector>
@@ -118,6 +121,14 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
 )ir";
   return text;
 }
+
+} // namespace
+
+namespace test {
+std::string transactionLoweringFixture() { return loweringFixture(); }
+} // namespace test
+
+namespace {
 
 struct InputIdentity {
   mlir::Operation *operation;
@@ -623,11 +634,43 @@ protected:
         EXPECT_EQ(field.getField(), "value");
         return evaluate(file, field->getOperand(0), scope, seed);
       }
+      auto mask = [&](mlir::Type type) {
+        HardwareAnalysis hardware(file);
+        HardwareBindings bindings;
+        bindings.owner = scope->definition;
+        auto width = hardware.getPackedWidth(type, bindings, op);
+        EXPECT_TRUE(mlir::succeeded(width));
+        if (mlir::failed(width) || !*width || *width > 64) {
+          ADD_FAILURE() << "unsupported oracle bit width";
+          return uint64_t(0);
+        }
+        return *width == 64 ? std::numeric_limits<uint64_t>::max()
+                            : (uint64_t(1) << *width) - 1;
+      };
       if (auto binary = mlir::dyn_cast<BitsBinaryOp>(op)) {
-        EXPECT_EQ(binary.getOpcode(), "add");
-        return (evaluate(file, binary->getOperand(0), scope, seed) +
-                evaluate(file, binary->getOperand(1), scope, seed)) &
-               255;
+        auto left = evaluate(file, binary->getOperand(0), scope, seed);
+        auto right = evaluate(file, binary->getOperand(1), scope, seed);
+        auto resultMask = mask(binary.getResult().getType());
+        if (binary.getOpcode() == "add")
+          return (left + right) & resultMask;
+        if (binary.getOpcode() == "and")
+          return (left & right) & resultMask;
+        ADD_FAILURE() << "unsupported oracle binary opcode "
+                      << binary.getOpcode().str();
+        return 0;
+      }
+      if (auto compare = mlir::dyn_cast<BitsCompareOp>(op)) {
+        if (compare.getPredicate() != "case_eq") {
+          ADD_FAILURE() << "unsupported oracle comparison predicate "
+                        << compare.getPredicate().str();
+          return 0;
+        }
+        auto operandMask = mask(compare->getOperand(0).getType());
+        auto left =
+            evaluate(file, compare->getOperand(0), scope, seed) & operandMask;
+        auto right =
+            evaluate(file, compare->getOperand(1), scope, seed) & operandMask;
+        return left == right;
       }
       if (auto rule = mlir::dyn_cast<RuleOp>(op))
         return evaluate(file,
@@ -784,12 +827,19 @@ TEST_F(TransactionLoweringTest,
     auto watch = named<RuleOp>(*file, "watch");
     auto count = leaf(*file, "count"), seen = leaf(*file, "seen"),
          hold = leaf(*file, "hold");
+    auto run = named<RuleOp>(*file, "run");
     EXPECT_EQ(captureActual(watch, yielded(seen)), count->getResult(0));
     EXPECT_EQ(hold->getOperand(3), hold->getResult(0));
     auto heldEnable = hold->getOperand(2).getDefiningOp<BitsConstantOp>();
-    auto writtenEnable = count->getOperand(2).getDefiningOp<BitsConstantOp>();
     ASSERT_TRUE(heldEnable);
-    ASSERT_TRUE(writtenEnable);
+    auto admission =
+        run->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
+    ASSERT_TRUE(admission);
+    auto fire = admission.getAs<mlir::IntegerAttr>("fire_result");
+    ASSERT_TRUE(fire);
+    ASSERT_GE(fire.getInt(), 0);
+    ASSERT_LT(static_cast<uint64_t>(fire.getInt()), run->getNumResults());
+    EXPECT_EQ(count->getOperand(2), run->getResult(fire.getInt()));
     HardwareAnalysis hardware(*file);
     HardwareBindings bindings;
     bindings.owner = owner(*file);
@@ -797,19 +847,13 @@ TEST_F(TransactionLoweringTest,
       return hardware.evaluateStatic(heldEnable.getValue(), bindings,
                                      heldEnable);
     });
-    auto written = capture([&] {
-      return hardware.evaluateStatic(writtenEnable.getValue(), bindings,
-                                     writtenEnable);
-    });
     ASSERT_TRUE(mlir::succeeded(held));
-    ASSERT_TRUE(mlir::succeeded(written));
     auto isTrue = [](mlir::Attribute value) {
       if (auto boolean = mlir::dyn_cast<mlir::BoolAttr>(value))
         return boolean.getValue();
       return mlir::cast<MathIntAttr>(value).getCanonicalValue() == "1";
     };
     EXPECT_FALSE(isTrue(*held));
-    EXPECT_TRUE(isTrue(*written));
     EXPECT_EQ(hold->getOperand(0),
               owner(*file).getBody().front().getArgument(1));
     EXPECT_EQ(hold->getOperand(1),
@@ -1658,9 +1702,8 @@ TEST_F(TransactionLoweringTest,
       << diagnostics;
 }
 
-TEST_F(
-    TransactionLoweringTest,
-    RepeatedIdleInstanceRoutePathsExceedMaterializationBudgetAfterValidStateAnalysis) {
+TEST_F(TransactionLoweringTest,
+       RepeatedIdleInstanceRoutePathsExceedTransactionPreparationBudget) {
   auto file = crossFixture();
   ASSERT_TRUE(file);
   auto provider = owner(*file);
@@ -1741,7 +1784,7 @@ TEST_F(
   });
   ASSERT_TRUE(analysis->isValid()) << diagnostics;
   ASSERT_NE(analysis->lookup(named<SourceTransactionOp>(root, "run")), nullptr);
-  rejects(*file, "transaction materialization");
+  rejects(*file, "transaction preparation");
   EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
 }
 
@@ -1780,14 +1823,15 @@ TEST_F(TransactionLoweringTest,
   rejects(*file, "budget");
 }
 
-TEST_F(TransactionLoweringTest,
-       ExpandedLiveInMappingBudgetFailsAfterSuccessfulStateAnalysis) {
+TEST_F(
+    TransactionLoweringTest,
+    ExplicitMaterializationBudgetRejectsAtomicallyAfterSuccessfulPreparation) {
   auto file = parse();
   ASSERT_TRUE(file);
   auto definition = owner(*file);
   auto run = named<SourceTransactionOp>(*file, "run");
   auto seed = definition.getBody().front().getArgument(0);
-  constexpr unsigned liveInCount = 600;
+  constexpr unsigned liveInCount = 4;
   builder.setInsertionPoint(run);
   mlir::OperationState fanout(definition.getLoc(), RuleOp::getOperationName());
   fanout.addOperands(seed);
@@ -1803,21 +1847,26 @@ TEST_F(TransactionLoweringTest,
   mlir::OperationState fanoutYield(pure->getLoc(), YieldOp::getOperationName());
   fanoutYield.addOperands(llvm::SmallVector<mlir::Value>(liveInCount, input));
   builder.create(fanoutYield);
-  llvm::SmallVector<mlir::Value> captures(run->getOperands());
-  captures.append(pure->result_begin(), pure->result_end());
-  run->setOperands(captures);
-  for (auto &region : run->getRegions())
-    for (unsigned i = 0; i < liveInCount; ++i)
-      region.front().addArgument(seed.getType(), run.getLoc());
   auto yes = *definition.getBody().front().getOps<BitsConstantOp>().begin();
   auto unused = named<SourceMethodOp>(*file, "uncalled");
   auto *noop = unused->clone();
   noop->setAttr("sym_name", builder.getStringAttr("noop"));
   noop->setAttr("occurrence", occurrence("Owner", 41));
   noop->setOperand(0, yes.getResult());
+  llvm::SmallVector<mlir::Value> captures(noop->getOperands());
+  captures.append(pure->result_begin(), pure->result_end());
+  noop->setOperands(captures);
+  for (auto &region : noop->getRegions())
+    for (unsigned i = 0; i < liveInCount; ++i)
+      region.front().addArgument(seed.getType(), noop->getLoc());
+  auto &noopBody = noop->getRegion(1).front();
+  builder.setInsertionPoint(noopBody.getTerminator());
+  mlir::Value used = noopBody.getArguments().take_back(liveInCount).front();
+  for (auto value : noopBody.getArguments().take_back(liveInCount).drop_front())
+    used = add(used, value, noop->getLoc()).getResult();
   definition.getBody().front().getOperations().insert(unused->getIterator(),
                                                       noop);
-  constexpr unsigned levels = 9;
+  constexpr unsigned levels = 4;
   for (unsigned i = 0; i < levels; ++i) {
     auto *copy = noop->clone();
     copy->setAttr("sym_name",
@@ -1861,10 +1910,40 @@ TEST_F(TransactionLoweringTest,
   });
   ASSERT_TRUE(analysis->isValid()) << diagnostics;
   ASSERT_NE(analysis->lookup(run), nullptr);
-  // The input/state plan is admitted. The extra cost is the complete live-in
-  // IRMapping copied for each invocation, not the source call-tree budget.
-  rejects(*file, "transaction materialization");
+  auto before = identities(*file);
+  auto text = print(file->getOperation());
+  HardwareSourceCheckLimits preparationLimits;
+  preparationLimits.maxWorkUnits = 1024 * 1024;
+  detail::SourceCheckBudget preparationBudget(preparationLimits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, *analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  HardwareSourceCheckLimits successfulLimits;
+  successfulLimits.maxWorkUnits = 1024 * 1024;
+  detail::SourceCheckBudget successfulBudget(successfulLimits);
+  auto successful = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        successfulBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(successful)) << diagnostics;
+  // The same admitted preparation must fail atomically when the caller gives
+  // materialization an explicitly insufficient independent budget.
+  HardwareSourceCheckLimits materializationLimits;
+  materializationLimits.maxWorkUnits = 1;
+  detail::SourceCheckBudget materializationBudget(materializationLimits);
+  auto candidate = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        materializationBudget);
+  });
+  EXPECT_TRUE(mlir::failed(candidate));
   EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
+  EXPECT_NE(diagnostics.find("transaction clone/materialization"),
+            std::string::npos)
+      << diagnostics;
+  unchanged(*file, before);
+  EXPECT_EQ(print(file->getOperation()), text);
 }
 
 TEST_F(TransactionLoweringTest,
@@ -2147,7 +2226,7 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
-       PredicateProofDoesNotInferFromNarrowingNonzeroLowOrUnrelatedOperations) {
+       DynamicGuardDoesNotAcquireLiteralProofAndLowersWithSampling) {
   auto file = parse();
   ASSERT_TRUE(file);
   auto definition = owner(*file);
@@ -2208,7 +2287,19 @@ TEST_F(TransactionLoweringTest,
   ASSERT_NE(plan, nullptr);
   ASSERT_EQ(plan->guards.size(), 2u);
   EXPECT_FALSE(plan->guards.back().predicateFact);
-  rejects(*file, "proven-true active guards");
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  auto lowered = named<RuleOp>(*file, "watch");
+  auto admission =
+      lowered->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
+  ASSERT_TRUE(admission);
+  auto guards = admission.getAs<mlir::ArrayAttr>("guards");
+  ASSERT_TRUE(guards);
+  EXPECT_EQ(guards.size(), 2u);
+  EXPECT_EQ(
+      lowered->getAttrOfType<mlir::ArrayAttr>("ac.required_checks").size(), 2u);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*file);
+  }))) << diagnostics;
 }
 
 TEST_F(TransactionLoweringTest,
@@ -2459,7 +2550,12 @@ TEST_F(SourceLinkStageTest,
             std::string::npos);
   EXPECT_EQ(stages.beforeTransactions.find("ac.stage = \"final\""),
             std::string::npos);
-  EXPECT_EQ(stages.afterTransactions.find("ac.transaction"), std::string::npos);
+  auto loweredStage = mlir::parseSourceString<mlir::ModuleOp>(
+      stages.afterTransactions, mlir::ParserConfig(&context, false));
+  ASSERT_TRUE(loweredStage);
+  unsigned sourceTransactions = 0;
+  loweredStage->walk([&](SourceTransactionOp) { ++sourceTransactions; });
+  EXPECT_EQ(sourceTransactions, 0u);
   EXPECT_NE(stages.afterTransactions.find("ac.stage = \"final\""),
             std::string::npos);
   EXPECT_EQ(stages.afterTransactions, print((*linked)->getOperation(), true));

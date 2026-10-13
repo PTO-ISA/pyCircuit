@@ -1,0 +1,39 @@
+# REQUIRES: iverilog, vvp
+# Final-IR backend execution. Source production is covered when the transaction
+# lowering owner emits this contract; this test independently owns F/G only.
+# RUN: %pycircuit_opt %inputs/sampled-admission.mlir --ac-verify-hardware -o %t.final.mlir
+# RUN: %pycircuit_emit %t.final.mlir --target cpp > %t.json
+# RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; %cxx -std=c++20 -pthread -I%include -I%t.dir %inputs/sampled-admission.cpp @%t.dir/sources.rsp "$RTLIB" -o %t.exe
+# RUN: %t.exe --workers 1 > %t.cpp1
+# RUN: %t.exe --workers 2 > %t.cpp2
+# RUN: diff -u %t.cpp1 %t.cpp2
+# RUN: %FileCheck %s < %t.cpp1
+# RUN: %pycircuit_emit %t.final.mlir --target verilog --format source > %t.sv
+# RUN: iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/sampled-admission.sv
+# RUN: vvp %t.vvp > %t.rtl
+# RUN: diff -u %t.cpp1 %t.rtl
+
+# CHECK: ROW RESET ok 0 0
+# CHECK-NEXT: ROW BASE ok 0 0
+# CHECK-NEXT: ROW LOCAL_HOLD ok 0 1
+# CHECK-NEXT: ROW HELD_MASK ok 0 1
+# CHECK-NEXT: ROW FALL ok 0 1
+# CHECK-NEXT: ROW INDEPENDENT_LEFT ok 1 1
+# CHECK-NEXT: ROW INDEPENDENT_RIGHT ok 1 0
+# CHECK-NEXT: ROW MASKED_RISING ok 1 0
+# CHECK-NEXT: ROW GUARD_ROLLBACK guard 1 0
+# CHECK-NEXT: ROW CLOCK_X physical 0 0
+# CHECK-NEXT: ROW CLOCK_Z physical 0 0
+# CHECK-NEXT: ROW RESET_RISING_X physical 0 0
+# CHECK-NEXT: ROW RESET_HELD_X ok 0 0
+# CHECK-NEXT: ROW RESET_FALL_X ok 0 0
+# CHECK-NEXT: ROW RESET_RISING_Z physical 0 0
+# CHECK-NEXT: ROW RESET_HELD_Z ok 0 0
+# CHECK-NEXT: ROW RESET_FALL_Z ok 0 0
+# CHECK-NEXT: ROW RESET_ACTIVE ok 0 0
+# CHECK-NEXT: ROW EXPLICIT_RESET ok 0 0
+# CHECK-NEXT: ROW FROZEN_AFTER_WORK ok 1 1
+# CHECK-NEXT: ROW DISCARDED ok 0 0
+# CHECK-NEXT: ROW DISCARD_RETRY ok 1 1
+# CHECK-NEXT: PASS sampled admission lifecycle

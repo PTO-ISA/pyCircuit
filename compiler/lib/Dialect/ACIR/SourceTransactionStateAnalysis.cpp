@@ -394,19 +394,21 @@ public:
     root.bindings = rootBindings;
     plan.frames.push_back(std::move(root));
     plan.rootFrame = 0;
-    auto clock = value(transaction.getClk(), 0, 0);
-    auto reset = value(transaction.getRst(), 0, 0);
+    auto clock = useValue(transaction.getClk(), 0, 0, transaction);
+    auto reset = useValue(transaction.getRst(), 0, 0, transaction);
     if (failed(clock) || failed(reset))
       return failure();
     auto domain = getDomain(*clock, *reset, transaction);
     if (failed(domain))
       return failure();
     plan.domain = *domain;
+    plan.clockValue = *clock;
+    plan.resetValue = *reset;
     SmallVector<BoundValueId> captures;
     if (!budget.charge(transaction, transaction.getCaptures().size()))
       return failure();
     for (Value capture : transaction.getCaptures()) {
-      auto bound = value(capture, 0, 0);
+      auto bound = useValue(capture, 0, 0, transaction);
       if (failed(bound))
         return failure();
       captures.push_back(*bound);
@@ -425,7 +427,7 @@ public:
       return failure();
     for (auto [owner, version] : llvm::enumerate(candidates))
       plan.finalVersions.push_back({owner, version});
-    if (failed(chargeDump()))
+    if (failed(verifyPrefixes()) || failed(chargeDump()))
       return failure();
     return std::move(plan);
   }
@@ -464,12 +466,58 @@ private:
     auto found = values.find(key);
     if (found != values.end())
       return found->second;
-    if (!budget.charge(plan.transaction, 2))
+    if (!budget.charge(plan.transaction, 4))
       return failure();
     BoundValueId id = plan.values.size();
     plan.values.push_back({original, anchor, frame});
+    prefixAssigned.push_back(false);
+    lexicalValues.push_back(
+        !function && original.getDefiningOp() != plan.transaction.getOperation());
     values.try_emplace(key, id);
     return id;
+  }
+
+  // Interning preserves identity only. Prefixes are assigned at the actual
+  // definition or binding, so revisiting a saved value cannot resample it.
+  LogicalResult assignPrefix(BoundValueId id, AdmissionPrefix prefix,
+                             Operation *site) {
+    if (!budget.charge(site))
+      return failure();
+    if (prefix > currentPrefix)
+      return site->emitOpError()
+             << "transaction value requires a future admission prefix";
+    if (prefixAssigned[id] && plan.values[id].requiredPrefix != prefix)
+      return site->emitOpError()
+             << "transaction value admission prefix assignment conflicts";
+    plan.values[id].requiredPrefix = prefix;
+    prefixAssigned[id] = true;
+    return success();
+  }
+
+  LogicalResult available(BoundValueId id, Operation *site) {
+    if (!budget.charge(site))
+      return failure();
+    if (!prefixAssigned[id])
+      return site->emitOpError()
+             << "transaction value is missing an admission prefix assignment";
+    if (plan.values[id].requiredPrefix > currentPrefix)
+      return site->emitOpError()
+             << "transaction operand requires a future admission prefix";
+    return success();
+  }
+
+  FailureOr<BoundValueId> useValue(Value original, LexicalInstanceId anchor,
+                                  InvocationFrameId frame, Operation *site) {
+    auto id = value(original, anchor, frame);
+    if (failed(id))
+      return failure();
+    // Other verified transaction outputs are lawful lexical live-ins. This
+    // transaction's own outputs acquire its exit prefix in bindResults.
+    if (lexicalValues[*id] && failed(assignPrefix(*id, 0, site)))
+      return failure();
+    if (failed(available(*id, site)))
+      return failure();
+    return *id;
   }
 
   LogicalResult alias(BoundValueId formal, BoundValueId actual,
@@ -508,8 +556,8 @@ private:
       if (ordinal >= allocation.getNumOperands())
         return site->emitOpError()
                << "transaction instance input binding ordinal is invalid";
-      auto actual =
-          value(allocation.getOperand(ordinal), *parent, plan.rootFrame);
+      auto actual = useValue(allocation.getOperand(ordinal), *parent,
+                             plan.rootFrame, site);
       if (failed(actual) || failed(equivalent(id, *actual, site)) ||
           failed(alias(id, *actual, site)))
         return failure();
@@ -554,7 +602,7 @@ private:
         // This helper has lexical bindings only, with no parameter-specialized
         // proof or expression evaluation. Domain normalize remains unchanged.
         return detail::getSourceLiteralPredicate(ref.value, hardware);
-      auto forwarded = value(*input, ref.anchor, ref.frame);
+      auto forwarded = useValue(*input, ref.anchor, ref.frame, site);
       if (failed(forwarded))
         return failure();
       id = *forwarded;
@@ -606,8 +654,10 @@ private:
         reset.getValue().getZExtValue() >= block.getNumArguments())
       return site->emitOpError() << "transaction Method receiver requires "
                                     "validated ac.domain_inputs";
-    auto clk = value(block.getArgument(clock.getInt()), anchor, plan.rootFrame);
-    auto rst = value(block.getArgument(reset.getInt()), anchor, plan.rootFrame);
+    auto clk = useValue(block.getArgument(clock.getInt()), anchor, plan.rootFrame,
+                        site);
+    auto rst = useValue(block.getArgument(reset.getInt()), anchor, plan.rootFrame,
+                        site);
     if (failed(clk) || failed(rst))
       return failure();
     auto bound = getDomain(*clk, *rst, site);
@@ -631,8 +681,11 @@ private:
                                   ? explicitInputs[ordinal]
                                   : captures[ordinal - explicitInputs.size()];
         auto bound = value(formal, plan.frames[frame].anchor, frame);
-        if (failed(bound) || failed(equivalent(*bound, actual, function)) ||
-            failed(alias(*bound, actual, function)))
+        if (failed(bound) || failed(available(actual, function)) ||
+            failed(equivalent(*bound, actual, function)) ||
+            failed(alias(*bound, actual, function)) ||
+            failed(assignPrefix(*bound, plan.values[actual].requiredPrefix,
+                                function)))
           return failure();
         auto &bindings = region == 0 ? plan.frames[frame].guardArguments
                                      : plan.frames[frame].bodyArguments;
@@ -653,9 +706,13 @@ private:
       return failure();
     for (auto [original, actual] : llvm::zip(originalResults, yielded)) {
       auto bound = value(original, anchor, frame);
-      if (failed(bound) ||
+      if (failed(bound) || failed(available(actual, callable(frame))) ||
           failed(equivalent(*bound, actual, callable(frame))) ||
-          failed(alias(*bound, actual, callable(frame))))
+          failed(alias(*bound, actual, callable(frame))) ||
+          failed(assignPrefix(*bound,
+                              std::max(currentPrefix,
+                                       plan.values[actual].requiredPrefix),
+                              callable(frame))))
         return failure();
       bindings.push_back({*bound, actual});
     }
@@ -664,11 +721,12 @@ private:
 
   LogicalResult event(TransactionStateEventKind kind, InvocationFrameId frame,
                       std::optional<uint64_t> record = std::nullopt) {
-    if (!budget.charge(callable(frame)))
+    if (!budget.charge(callable(frame), 2))
       return failure();
     TransactionStateEvent next;
     next.kind = kind;
     next.frame = frame;
+    next.prefix = currentPrefix;
     switch (kind) {
     case TransactionStateEventKind::Read:
       next.read = record;
@@ -713,16 +771,16 @@ private:
     auto found = owners.find(key);
     if (found != owners.end())
       return found->second;
-    auto q = value(declaration.getQ(), anchor, plan.rootFrame);
-    auto clock = value(declaration.getClk(), anchor, plan.rootFrame);
-    auto reset = value(declaration.getRst(), anchor, plan.rootFrame);
+    auto q = useValue(declaration.getQ(), anchor, plan.rootFrame, effect);
+    auto clock = useValue(declaration.getClk(), anchor, plan.rootFrame, effect);
+    auto reset = useValue(declaration.getRst(), anchor, plan.rootFrame, effect);
     if (failed(q) || failed(clock) || failed(reset))
       return failure();
     auto domain = getDomain(*clock, *reset, effect);
     auto type = payloadType(*q, effect);
     if (failed(domain) || failed(type) || failed(sameDomain(*domain, effect)) ||
         !budget.chargeOccurrence(effect, declaration.getOccurrence()) ||
-        !budget.charge(effect, 6))
+        !budget.charge(effect, 7))
       return failure();
     StateOwnerId id = plan.owners.size();
     StateVersionId q0 = plan.versions.size();
@@ -730,7 +788,7 @@ private:
                            declaration, declaration.getOccurrence(), *type,
                            *domain, *q});
     plan.versions.push_back({plan.transaction, id, 0, StateVersionKind::OldQ,
-                             std::nullopt, std::nullopt, *q, *type});
+                             std::nullopt, std::nullopt, *q, *type, 0});
     owners.try_emplace(key, id);
     q0Versions.push_back(q0);
     candidates.push_back(q0);
@@ -762,12 +820,21 @@ private:
                           operation.getIndices())))
       return failure();
     auto anchor = plan.frames[frame].anchor;
-    auto path = value(operation.getPath(), anchor, frame);
+    auto path = useValue(operation.getPath(), anchor, frame, operation);
     if (failed(path) || failed(truePath(*path, operation)))
       return failure();
     auto state = owner(operation, anchor);
     auto result = value(operation.getValue(), anchor, frame);
     if (failed(state) || failed(result))
+      return failure();
+    auto selected = candidates[*state];
+    if (plan.versions[selected].requiredPrefix > currentPrefix)
+      return operation.emitOpError()
+             << "state read requires a future admission prefix";
+    if (failed(assignPrefix(*result,
+                            std::max(currentPrefix,
+                                     plan.versions[selected].requiredPrefix),
+                            operation)))
       return failure();
     auto type = payloadType(*result, operation);
     if (failed(type))
@@ -782,7 +849,7 @@ private:
     plan.reads.push_back({operation,
                           frame,
                           *state,
-                          candidates[*state],
+                          selected,
                           *result,
                           *path,
                           operation.getSelectors(),
@@ -800,11 +867,11 @@ private:
                           operation.getIndices())))
       return failure();
     auto anchor = plan.frames[frame].anchor;
-    auto path = value(operation.getPath(), anchor, frame);
+    auto path = useValue(operation.getPath(), anchor, frame, operation);
     if (failed(path) || failed(truePath(*path, operation)))
       return failure();
     auto state = owner(operation, anchor);
-    auto rhs = value(operation.getValue(), anchor, frame);
+    auto rhs = useValue(operation.getValue(), anchor, frame, operation);
     if (failed(state) || failed(rhs))
       return failure();
     auto type = payloadType(*rhs, operation);
@@ -814,7 +881,7 @@ private:
       return operation.emitOpError()
              << "whole-owner write payload type mismatch";
     if (!budget.chargeOccurrence(operation, operation.getOccurrence()) ||
-        !budget.charge(operation, 2))
+        !budget.charge(operation, 3))
       return failure();
     StateWriteId id = plan.writes.size();
     StateVersionId version = plan.versions.size();
@@ -832,7 +899,9 @@ private:
     plan.versions.push_back({plan.transaction, *state,
                              plan.versions[predecessor].ordinal + 1,
                              StateVersionKind::Write, predecessor, id, *rhs,
-                             plan.owners[*state].payloadType});
+                             plan.owners[*state].payloadType,
+                             std::max(currentPrefix,
+                                      plan.values[*rhs].requiredPrefix)});
     candidates[*state] = version;
     if (failed(touch(touched, seen, *state, operation)))
       return failure();
@@ -922,14 +991,14 @@ private:
       return boundedError(operation)
              << "transaction invocation depth budget exceeded";
     auto callerAnchor = plan.frames[parent].anchor;
-    auto path = value(operation.getPath(), callerAnchor, parent);
+    auto path = useValue(operation.getPath(), callerAnchor, parent, operation);
     if (failed(path) || failed(truePath(*path, operation)))
       return failure();
     SmallVector<BoundValueId> actuals;
     if (!budget.charge(operation, operation.getArguments().size()))
       return failure();
     for (Value argument : operation.getArguments()) {
-      auto actual = value(argument, callerAnchor, parent);
+      auto actual = useValue(argument, callerAnchor, parent, operation);
       if (failed(actual))
         return failure();
       actuals.push_back(*actual);
@@ -1013,7 +1082,7 @@ private:
     binding.path = *path;
     binding.arguments.assign(actuals.begin(), actuals.end());
     for (Value capture : method.getCaptures()) {
-      auto bound = value(capture, *anchor, plan.rootFrame);
+      auto bound = useValue(capture, *anchor, plan.rootFrame, operation);
       if (failed(bound))
         return failure();
       binding.captures.push_back(*bound);
@@ -1054,19 +1123,29 @@ private:
       Operation *op = pending.pop_back_val();
       if (!budget.charge(op, 1 + op->getNumOperands() + op->getNumResults()))
         return failure();
-      for (Value operand : op->getOperands())
-        if (failed(value(operand, plan.frames[frame].anchor, frame)))
+      AdmissionPrefix required = currentPrefix;
+      for (Value operand : op->getOperands()) {
+        auto bound = useValue(operand, plan.frames[frame].anchor, frame, op);
+        if (failed(bound))
           return failure();
-      for (Value result : op->getResults())
-        if (failed(value(result, plan.frames[frame].anchor, frame)))
+        required = std::max(required, plan.values[*bound].requiredPrefix);
+      }
+      for (Value result : op->getResults()) {
+        auto bound = value(result, plan.frames[frame].anchor, frame);
+        if (failed(bound) || failed(assignPrefix(*bound, required, op)))
           return failure();
+      }
       for (Region &region : llvm::reverse(op->getRegions()))
         for (Block &block : llvm::reverse(region)) {
           if (!budget.charge(op, block.getNumArguments()))
             return failure();
-          for (BlockArgument argument : block.getArguments())
-            if (failed(value(argument, plan.frames[frame].anchor, frame)))
+          // Pure region arguments inherit the operation's entry and inputs,
+          // including region-generated index arguments with no actual operand.
+          for (BlockArgument argument : block.getArguments()) {
+            auto bound = value(argument, plan.frames[frame].anchor, frame);
+            if (failed(bound) || failed(assignPrefix(*bound, required, op)))
               return failure();
+          }
           for (Operation &nested : llvm::reverse(block)) {
             if (!budget.charge(op))
               return failure();
@@ -1108,6 +1187,9 @@ private:
     if (failed(snapshot(function, saved)) || !budget.charge(function))
       return failure();
     GuardBoundaryId guard = plan.guards.size();
+    if (currentPrefix != guard)
+      return function->emitOpError()
+             << "transaction guard admission prefix order is inconsistent";
     GuardBoundary boundary;
     boundary.callable = function;
     boundary.frame = frame;
@@ -1133,7 +1215,8 @@ private:
       plan.guards[guard].reads.push_back(read);
     auto guardYield = cast<YieldOp>(guardBlock.back());
     auto condition =
-        value(guardYield.getValues().front(), plan.frames[frame].anchor, frame);
+        useValue(guardYield.getValues().front(), plan.frames[frame].anchor,
+                 frame, function);
     if (failed(condition))
       return failure();
     auto fact = predicate(*condition, function);
@@ -1141,6 +1224,7 @@ private:
       return failure();
     plan.guards[guard].predicate = *condition;
     plan.guards[guard].predicateFact = *fact;
+    ++currentPrefix;
     if (failed(event(TransactionStateEventKind::GuardExit, frame, guard)))
       return failure();
     auto &bodyBlock = function->getRegion(1).front();
@@ -1150,7 +1234,7 @@ private:
     if (!budget.charge(function, yielded.size()))
       return failure();
     for (Value original : yielded) {
-      auto bound = value(original, plan.frames[frame].anchor, frame);
+      auto bound = useValue(original, plan.frames[frame].anchor, frame, function);
       if (failed(bound))
         return failure();
       result.yielded.push_back(*bound);
@@ -1158,11 +1242,51 @@ private:
     return result;
   }
 
+  LogicalResult verifyPrefixes() {
+    auto site = plan.transaction.getOperation();
+    if (!budget.charge(site))
+      return failure();
+    if (currentPrefix != plan.guards.size())
+      return site->emitOpError()
+             << "transaction exit admission prefix is inconsistent";
+    for (auto [id, ref] : llvm::enumerate(plan.values)) {
+      if (!budget.charge(site))
+        return failure();
+      if (!prefixAssigned[id] || ref.requiredPrefix > currentPrefix)
+        return site->emitOpError()
+               << "transaction value admission prefix is missing or invalid";
+    }
+    for (const auto &version : plan.versions) {
+      if (!budget.charge(site))
+        return failure();
+      if (version.requiredPrefix > currentPrefix ||
+          plan.values[version.value].requiredPrefix > version.requiredPrefix ||
+          (version.kind == StateVersionKind::OldQ && version.requiredPrefix))
+        return site->emitOpError()
+               << "transaction state version admission prefix is invalid";
+    }
+    for (const auto &event : plan.events) {
+      if (!budget.charge(site))
+        return failure();
+      if (event.prefix > currentPrefix)
+        return site->emitOpError()
+               << "transaction event admission prefix is invalid";
+    }
+    return success();
+  }
+
   LogicalResult chargeDump() {
     // Dump traverses only these records. Charge every variable-length view now,
     // so printing a valid analysis cannot discover an exhaustion halfway
     // through.
     auto site = plan.transaction.getOperation();
+    // Prepay the added decimal prefix fields and exact clock/reset identities.
+    if (!budget.charge(site, 64))
+      return failure();
+    for (uint64_t count :
+         {plan.values.size(), plan.versions.size(), plan.events.size()})
+      if (!budget.charge(site, 28 * count))
+        return failure();
     for (uint64_t count :
          {plan.instances.size(), plan.frames.size(), plan.values.size(),
           plan.owners.size(), plan.versions.size(), plan.reads.size(),
@@ -1208,6 +1332,9 @@ private:
   const PackageInventory &inventory;
   TransactionStatePlan plan;
   llvm::DenseMap<ValueKey, BoundValueId> values;
+  SmallVector<uint8_t, 0> prefixAssigned;
+  SmallVector<uint8_t, 0> lexicalValues;
+  AdmissionPrefix currentPrefix = 0;
   llvm::DenseMap<BoundValueId, BoundValueId> aliases;
   llvm::DenseMap<OwnerKey, StateOwnerId> owners;
   llvm::DenseMap<OwnerKey, LexicalInstanceId> instances;
@@ -1264,7 +1391,8 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
   out << "transaction @" << module.getSymName() << "::" << transaction.getName()
       << " occurrence=" << transaction.getOccurrence() << " clock-anchor=i"
       << plan.domain.clock.anchor << " reset-anchor=i"
-      << plan.domain.reset.anchor << '\n';
+      << plan.domain.reset.anchor << " clock=v" << plan.clockValue
+      << " reset=v" << plan.resetValue << '\n';
   for (auto [id, instance] : llvm::enumerate(plan.instances)) {
     auto definition = instance.definition;
     out << "  instance i" << id << " @" << definition.getSymName();
@@ -1295,7 +1423,7 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
   }
   for (auto [id, ref] : llvm::enumerate(plan.values)) {
     out << "  value v" << id << " instance=i" << ref.anchor << " frame=f"
-        << ref.frame;
+        << ref.frame << " prefix=" << ref.requiredPrefix;
     if (auto arg = dyn_cast<BlockArgument>(ref.value))
       out << " argument=" << arg.getArgNumber();
     else {
@@ -1317,7 +1445,8 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
         << '\n';
   for (auto [id, version] : llvm::enumerate(plan.versions)) {
     out << "  version q" << id << " owner=o" << version.owner
-        << " ordinal=" << version.ordinal << " value=v" << version.value;
+        << " ordinal=" << version.ordinal << " value=v" << version.value
+        << " prefix=" << version.requiredPrefix;
     if (version.kind == StateVersionKind::OldQ)
       out << " Q0";
     else
@@ -1371,7 +1500,7 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
   }
   for (auto [id, event] : llvm::enumerate(plan.events)) {
     out << "  event " << id << ' ' << eventName(event.kind) << " frame=f"
-        << event.frame;
+        << event.frame << " prefix=" << event.prefix;
     if (event.read)
       out << " read=r" << *event.read;
     if (event.write)

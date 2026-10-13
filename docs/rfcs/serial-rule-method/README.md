@@ -2,6 +2,8 @@
 
 状态：目标扩展规格，供后续实现任务使用；不是当前支持清单，也不是实现或测试通过声明。
 日期：2026-10-12。关联讨论：[issue #307](https://github.com/PTO-ISA/pyCircuit/issues/307)。
+交接复核：2026-10-14；main 仍为下文固定 revision。本次补充分析复用与预算验收，
+区分 Signal invalid 与 EHR 旧 Q 回退，并修正历史增量与当前内部接口的描述。
 
 本规格把简单的串行作者体验、可组合的模块操作和共同硬件 IR 联系起来。
 Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入调用者事务的组件操作，
@@ -26,10 +28,20 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 实现者必须先读源语义及其任务涉及的验收条款，再修改代码。表中的各文档共同组成
 本扩展；只完成语法识别、增加 verifier 或输出一份 IR，均不构成功能完成。
 
-2026-10-13 实现检查点更新为 `3078e75f6a354c6a947a7d31e1a7a930978d9a0a`，包含受限的
-恒真跨实例 Method lowering。下一执行入口为[扩展实施与验收矩阵](extension-roadmap.md)，
-动态 guard 的精确合同见[事务采样准入](sampled-admission.md)。后者尚未完整实现；位置和
-比较前置改动不构成动态执行验收。本次文档不改变历史测试证据的候选归属。
+历史检查点 `3078e75f6a354c6a947a7d31e1a7a930978d9a0a` 包含受限的恒真跨实例
+Method lowering，不证明后续候选通过。当前有界实现已加入直线、同域、whole Bits、
+唯一实际 writer 的统一采样 lowering、有序 validity/guard、完整接线记录，以及先对照
+原源计划认证、再执行 canonical final verifier 的验证。literal true/false、无状态、
+只读事务同样采样；外层 Rule 的普通返回值仍要求恒真证明。C++/managed RTL 共用采样计划并实现
+冻结检查与 history 的提交/丢弃。
+
+focused final-IR 回归已有 native workers 1/2 和真实四态 RTL 执行证据。2026-10-14 的
+有界候选已通过公共恒真六场景重验、短 API gate 和 examples gate；公共动态源矩阵和
+Method `@system` 闭环仍未完成。分析复用修复保持原预算及完整实际实例检查。
+这些结果只属于对应候选，不自动覆盖后续修改，也不等于 nightly 通过。
+实施与剩余验收入口为[扩展实施与验收矩阵](extension-roadmap.md)，精确合同见
+[事务采样准入](sampled-admission.md)。本次文档不改变历史证据的候选归属，也不声明
+基础 Method 或整个扩展完成。
 
 ## 适用范围与规范用语
 

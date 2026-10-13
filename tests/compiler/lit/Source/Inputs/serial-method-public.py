@@ -347,7 +347,8 @@ for mode, width, initial, first, second, bias, last in cases:
             cpp_probes.append(f"probe(*{native_owner}->{stem}_state, {native_owner}->{stem}_d, "
                               f"{native_owner}->{stem}_en);")
             rtl_probes.append(f'$write(" %b %b %b %b", {rtl_owner}.{stem}.q, '
-                              f'{rtl_owner}.{stem}.d, {rtl_owner}.{stem}.en, pyc_7079635f636c6b);')
+                              f'{rtl_owner}.{stem}.d, {rtl_owner}.{stem}.en, '
+                              f'{rtl_owner}.{stem}.managed.clock_current);')
     left = cpp_owners[0]
     injection_cpp = "\n".join(
         f'if ({token} != "-") inject(*{left}->{owner_names[owner]}_state, '
@@ -361,7 +362,14 @@ for mode, width, initial, first, second, bias, last in cases:
     driver = case / "driver.cpp"
     default_checks = []
     if mode == "root":
-        physical_inputs = re.findall(r"(?m)^  input .* (\w+),?$", owner_rtl)
+        all_rtl_inputs = re.findall(r"(?m)^  input .* (\w+),?$", owner_rtl)
+        # These are emitter-owned verification controls, not ACIR Module
+        # inputs. Their exact spellings are reserved generated names; an
+        # authored pyc_* port is injectively hex-escaped by FinalCppNames.
+        managed_inputs = {"pyc_phase", "pyc_root_commit_ok", "pyc_reset_active"}
+        assert managed_inputs <= set(all_rtl_inputs)
+        physical_inputs = [name for name in all_rtl_inputs
+                           if name not in managed_inputs]
         assert physical_inputs[:2] == ["pyc_7079635f636c6b", "pyc_7079635f727374"]
         assert len(physical_inputs) > 2
         for port in physical_inputs[2:]:

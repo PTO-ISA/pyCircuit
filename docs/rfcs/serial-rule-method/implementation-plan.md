@@ -77,7 +77,9 @@ helper grammar 限于现有已准入 typed 表达式／语句子集及 source-se
 
 **移除范围：** state SSA 接管后的私有候选版本和重复字段合并算法；移除前核对 reset/hold/discard、来源与类型。
 
-先导分析不移除执行路径、不改变 Method 公共签名、不生成硬件，也不进入默认 compile/link。
+先导分析本身不移除执行路径、不改变 Method 公共签名、不生成硬件。初始独立分析检查点
+未接入默认流程；当前 link 在含 source transaction operations 时复用它，再交由唯一
+LowerTransactions 物化。consumer compile 仍只读接口，不为该分析读取 provider body。
 它输出事务相对实例的不可变 typed plan，保持输入 IR 的对象身份和内容不变；对所有事务
 完整成功后才公开查询结果。独立测试先验证 Q0/Q1/Q2、跨调用快照、实例身份、guard 入口
 版本、有序事件、whole-owner nominal payload、同域绑定、预算和失败原子性。这个阶段
@@ -132,8 +134,9 @@ guard 首批只接纳具有完全匹配必需位置参数的 lambda；owner 在�
 首个可执行增量直接复用该 owner，按 [MLIR 事务降低合同](mlir-pipeline.md#transaction-lowering)
 完成同 owner、恒真 guard、whole-owner Bits、单外层 writer 的真实 DFFE/Rule 物化；
 不另建临时 lowerer。独立 native 用例由 `tests/compiler/IR/TransactionLoweringTest.cpp`
-及 `tests/compiler/lit/IR/transaction-lowering.mlir` 承担，公共源码 fixture 使用
-`tests/compiler/lit/Source/Inputs/serial-method/local_owner.py` 和下述已有预留 harness。
+及 `tests/compiler/lit/IR/transaction-lowering.mlir` 承担，公共源码由下述
+`tests/compiler/lit/Source/Inputs/serial-method-public.py` harness 生成；表中后续 DUT
+路径为预留，不得将尚不存在的独立源码文件当作现有执行入口。
 PM 另负责 `SourceLink.h/.cpp` 的阶段捕获与权威重验，以及 `compiler/tools/link.cpp`
 的成对诊断输出；共享六类残留事务查询由既有 `ACIRSourceContracts.h`／
 `ACIRTransactionOps.cpp` 提供。原生结构验证与公共 canonical 权威分别验收。无事务的
@@ -165,7 +168,7 @@ PM 另负责 `SourceLink.h/.cpp` 的阶段捕获与权威重验，以及 `compil
 
 ## 独立测试的文件与职责
 
-测试所有者独占以下预留文件，不编辑实现者文件；已有测试登记与共享 helper 的接线由 PM 完成。每个新增文件路径在对应派发前核对不存在冲突，并冻结实际用例及 CTest/lit 选择。表中 typed-effects 的两个文件已接入局部验证；其余是后续预留。任何局部结果都不能替代该切片的完整验收。
+测试所有者独占以下已接入或预留文件，不编辑实现者文件；已有测试登记与共享 helper 的接线由 PM 完成。每个路径在对应派发前核对实际存在状态和所有权冲突，并冻结用例及 CTest/lit 选择。typed effects、summary、state SSA 和公共 harness 已有局部入口；表中的分支、资源、优化义务仍需逐项核对实现。文件存在不表示整行需求已覆盖，任何局部结果都不能替代该切片的完整验收。
 
 | 对应切片 | 独立测试文件（精确路径） | 测试内容与移除边界 |
 | --- | --- | --- |

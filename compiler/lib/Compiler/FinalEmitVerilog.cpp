@@ -271,6 +271,8 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "  logic pyc_rst = 1'b0;\n"
          "  logic [2:0] pyc_phase = 3'd0;\n"
          "  logic pyc_root_commit_ok = 1'b0;\n"
+         "  wire pyc_check_complete;\n"
+         "  wire pyc_sampling_error;\n"
          "  wire pyc_local_error;\n"
          "  localparam longint unsigned pyc_max_cycles = "
          "64'd4611686018427387903;\n"
@@ -283,6 +285,8 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
       << "(pyc_rst),\n"
          "    .pyc_phase(pyc_phase),\n"
          "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
+         "    .pyc_check_complete(pyc_check_complete),\n"
+         "    .pyc_sampling_error(pyc_sampling_error),\n"
          "    .pyc_local_error(pyc_local_error)\n  );\n";
   for (const auto &report : reports)
     out << "  longint unsigned pyc_report_value_" << report.ordinal
@@ -417,7 +421,18 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "    begin\n"
          "      pyc_clk = level;\n"
          "      pyc_root_commit_ok = 1'b0;\n"
+         "      #1; // Settle combinational pins before the shared PREPARE edge.\n"
          "      pyc_phase = 3'd1; #1;\n"
+         "      if (pyc_check_complete !== 1'b1) begin\n"
+         "        pyc_phase = 3'd3; #1;\n"
+         "        $fatal(1, \"pycircuit_sim: incomplete check snapshot "
+         "at epoch %0d\", pyc_epoch);\n"
+         "      end\n"
+         "      if (pyc_sampling_error !== 1'b0) begin\n"
+         "        pyc_phase = 3'd3; #1;\n"
+         "        $fatal(1, \"pycircuit_sim: physical sampling check failed "
+         "at epoch %0d\", pyc_epoch);\n"
+         "      end\n"
          "      if (pyc_local_error !== 1'b0) begin\n"
          "        pyc_phase = 3'd3; #1;\n"
          "        $fatal(1, \"pycircuit_sim: source or primitive check failed "
@@ -439,6 +454,7 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "      $fatal(1, \"pycircuit_sim: +cycles requires a positive decimal "
          "value no greater than 4611686018427387903\");\n"
          "    pyc_clk = 1'b0; pyc_rst = 1'b0;\n"
+         "    #1; // Reset initializers settle before RESET_PREPARE.\n"
          "    pyc_root_commit_ok = 1'b1; pyc_phase = 3'd4; #1;\n"
          "    pyc_phase = 3'd2; #1;\n"
          "    pyc_phase = 3'd0; pyc_root_commit_ok = 1'b0;\n"
@@ -518,6 +534,8 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
     out << (first ? "\n" : ",\n")
         << "  input wire [2:0] pyc_phase,\n"
            "  input wire pyc_root_commit_ok,\n"
+           "  output wire pyc_check_complete,\n"
+           "  output wire pyc_sampling_error,\n"
            "  output wire pyc_local_error";
     first = false;
   }
@@ -576,6 +594,8 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
            "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
            "    .pyc_reset_active("
         << *reset << "),\n"
+        << "    .pyc_check_complete(pyc_check_complete),\n"
+           "    .pyc_sampling_error(pyc_sampling_error),\n"
         << "    .pyc_local_error(pyc_local_error)";
     first = false;
   }

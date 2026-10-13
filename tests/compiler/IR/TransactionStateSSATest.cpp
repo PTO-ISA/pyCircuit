@@ -251,6 +251,48 @@ protected:
         result.push_back(&read);
     return result;
   }
+  const TransactionStateEvent *
+  event(const TransactionStatePlan &plan, TransactionStateEventKind kind,
+        std::optional<uint64_t> record = std::nullopt) {
+    for (const auto &candidate : plan.events) {
+      if (candidate.kind != kind)
+        continue;
+      std::optional<uint64_t> actual;
+      switch (kind) {
+      case TransactionStateEventKind::Read:
+        actual = candidate.read;
+        break;
+      case TransactionStateEventKind::Write:
+        actual = candidate.write;
+        break;
+      case TransactionStateEventKind::GuardEnter:
+      case TransactionStateEventKind::GuardExit:
+        actual = candidate.guard;
+        break;
+      case TransactionStateEventKind::CallEnter:
+      case TransactionStateEventKind::CallExit:
+        actual = candidate.call;
+        break;
+      case TransactionStateEventKind::TransactionEnter:
+      case TransactionStateEventKind::TransactionExit:
+        break;
+      }
+      if (!record || actual == record)
+        return &candidate;
+    }
+    ADD_FAILURE() << "missing transaction event";
+    return nullptr;
+  }
+  const BoundValueRef *value(const TransactionStatePlan &plan,
+                             mlir::Value original, LexicalInstanceId anchor,
+                             InvocationFrameId frame) {
+    for (const auto &candidate : plan.values)
+      if (candidate.value == original && candidate.anchor == anchor &&
+          candidate.frame == frame)
+        return &candidate;
+    ADD_FAILURE() << "missing bound transaction value";
+    return nullptr;
+  }
   mlir::DictionaryAttr occurrence(llvm::StringRef owner, unsigned index) {
     return builder.getDictionaryAttr(
         {builder.getNamedAttr(
@@ -366,6 +408,224 @@ TEST_F(TransactionStateSSATest,
   ASSERT_EQ(relay->exitVersions.size(), 1u);
   EXPECT_EQ(ordinal(*plan, relay->entryVersions[0].version), 1u);
   EXPECT_EQ(ordinal(*plan, relay->exitVersions[0].version), 2u);
+}
+
+TEST_F(TransactionStateSSATest,
+       AdmissionPrefixesTrackNestedCallsReadsWritesAndSavedValues) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->guards.size(), 7u);
+  ASSERT_EQ(plan->calls.size(), 6u);
+
+  AdmissionPrefix previous = 0;
+  for (const auto &entry : plan->events) {
+    EXPECT_GE(entry.prefix, previous);
+    EXPECT_LE(entry.prefix, plan->guards.size());
+    previous = entry.prefix;
+  }
+  auto *transactionEnter =
+      event(*plan, TransactionStateEventKind::TransactionEnter);
+  auto *transactionExit =
+      event(*plan, TransactionStateEventKind::TransactionExit);
+  ASSERT_NE(transactionEnter, nullptr);
+  ASSERT_NE(transactionExit, nullptr);
+  EXPECT_EQ(transactionEnter->prefix, 0u);
+  EXPECT_EQ(transactionExit->prefix, plan->guards.size());
+
+  for (GuardBoundaryId id = 0; id < plan->guards.size(); ++id) {
+    auto *enter = event(*plan, TransactionStateEventKind::GuardEnter, id);
+    auto *exit = event(*plan, TransactionStateEventKind::GuardExit, id);
+    ASSERT_NE(enter, nullptr);
+    ASSERT_NE(exit, nullptr);
+    ASSERT_TRUE(plan->guards[id].predicateFact);
+    EXPECT_TRUE(plan->guards[id].predicateFact.getValue());
+    EXPECT_EQ(enter->prefix, id);
+    EXPECT_EQ(exit->prefix, id + 1);
+  }
+  for (CallBindingId id = 0; id < plan->calls.size(); ++id) {
+    auto *enter = event(*plan, TransactionStateEventKind::CallEnter, id);
+    auto *exit = event(*plan, TransactionStateEventKind::CallExit, id);
+    ASSERT_NE(enter, nullptr);
+    ASSERT_NE(exit, nullptr);
+    EXPECT_EQ(enter->prefix, plan->calls[id].guard);
+    EXPECT_GT(exit->prefix, enter->prefix);
+    for (const auto &result : plan->calls[id].results)
+      EXPECT_EQ(exit->prefix, plan->values[result.result].requiredPrefix);
+  }
+
+  for (StateReadId id = 0; id < plan->reads.size(); ++id) {
+    const auto &read = plan->reads[id];
+    auto *readEvent = event(*plan, TransactionStateEventKind::Read, id);
+    ASSERT_NE(readEvent, nullptr);
+    ASSERT_LT(read.version, plan->versions.size());
+    ASSERT_LT(read.result, plan->values.size());
+    EXPECT_EQ(plan->values[read.result].requiredPrefix,
+              std::max(readEvent->prefix,
+                       plan->versions[read.version].requiredPrefix));
+  }
+  for (StateWriteId id = 0; id < plan->writes.size(); ++id) {
+    const auto &write = plan->writes[id];
+    auto *writeEvent = event(*plan, TransactionStateEventKind::Write, id);
+    ASSERT_NE(writeEvent, nullptr);
+    ASSERT_LT(write.version, plan->versions.size());
+    ASSERT_LT(write.value, plan->values.size());
+    const auto &version = plan->versions[write.version];
+    EXPECT_EQ(
+        version.requiredPrefix,
+        std::max(writeEvent->prefix, plan->values[write.value].requiredPrefix));
+    auto *defining = plan->values[write.value].value.getDefiningOp();
+    if (defining && mlir::isa<BitsBinaryOp>(defining))
+      EXPECT_EQ(plan->values[write.value].requiredPrefix, writeEvent->prefix)
+          << "pure payload results are defined under the current admission";
+  }
+
+  auto relay = llvm::find_if(plan->calls, [&](const auto &call) {
+    return plan->frames[call.callee]
+               .method->template getAttrOfType<mlir::StringAttr>("sym_name")
+               .getValue() == "relay";
+  });
+  ASSERT_NE(relay, plan->calls.end());
+  ASSERT_EQ(relay->results.size(), 1u);
+  auto relayId = std::distance(plan->calls.begin(), relay);
+  auto *relayExit = event(*plan, TransactionStateEventKind::CallExit, relayId);
+  ASSERT_NE(relayExit, nullptr);
+  EXPECT_EQ(relayExit->prefix, 4u); // relay guard plus its nested bump guard.
+  EXPECT_EQ(plan->values[relay->results[0].yielded].requiredPrefix,
+            relayExit->prefix);
+  EXPECT_EQ(plan->values[relay->results[0].result].requiredPrefix,
+            relayExit->prefix);
+
+  auto firstResult = plan->calls.front().results.front().result;
+  EXPECT_EQ(plan->values[firstResult].requiredPrefix, 2u);
+  EXPECT_EQ(relay->arguments.front(), firstResult);
+  EXPECT_EQ(plan->values[firstResult].requiredPrefix, 2u)
+      << "later calls must not resample an already bound result";
+  ASSERT_EQ(plan->results.size(), 1u);
+  EXPECT_EQ(plan->values[plan->results.front().result].requiredPrefix,
+            plan->guards.size());
+}
+
+TEST_F(TransactionStateSSATest,
+       PrefixAliasesPinsLexicalCapturesAndOldQKeepTheirActualAuthority) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  auto root = module(*file, "Root");
+  auto &rootBlock = root.getBody().front();
+
+  ASSERT_LT(plan->clockValue, plan->values.size());
+  ASSERT_LT(plan->resetValue, plan->values.size());
+  EXPECT_EQ(plan->values[plan->clockValue].value, rootBlock.getArgument(2));
+  EXPECT_EQ(plan->values[plan->resetValue].value, rootBlock.getArgument(3));
+  EXPECT_EQ(plan->values[plan->clockValue].anchor,
+            plan->frames[plan->rootFrame].anchor);
+  EXPECT_EQ(plan->values[plan->resetValue].anchor,
+            plan->frames[plan->rootFrame].anchor);
+  EXPECT_EQ(plan->values[plan->clockValue].requiredPrefix, 0u);
+  EXPECT_EQ(plan->values[plan->resetValue].requiredPrefix, 0u);
+
+  for (const auto &version : plan->versions)
+    if (version.kind == StateVersionKind::OldQ) {
+      EXPECT_EQ(version.requiredPrefix, 0u);
+      ASSERT_LT(version.value, plan->values.size());
+      EXPECT_EQ(plan->values[version.value].requiredPrefix, 0u);
+    }
+  for (const auto &call : plan->calls)
+    for (BoundValueId capture : call.captures) {
+      ASSERT_LT(capture, plan->values.size());
+      EXPECT_EQ(plan->values[capture].requiredPrefix, 0u);
+    }
+
+  auto relay = llvm::find_if(plan->calls, [&](const auto &call) {
+    return plan->frames[call.callee]
+               .method->template getAttrOfType<mlir::StringAttr>("sym_name")
+               .getValue() == "relay";
+  });
+  ASSERT_NE(relay, plan->calls.end());
+  ASSERT_EQ(relay->arguments.size(), 1u);
+  auto actualPrefix = plan->values[relay->arguments.front()].requiredPrefix;
+  EXPECT_EQ(actualPrefix, 2u);
+  const auto &relayFrame = plan->frames[relay->callee];
+  for (const auto &binding :
+       {relayFrame.guardArguments.front(), relayFrame.bodyArguments.front()}) {
+    const auto *formal =
+        value(*plan, binding.formal, relayFrame.anchor, relay->callee);
+    ASSERT_NE(formal, nullptr);
+    EXPECT_EQ(binding.actual, relay->arguments.front());
+    EXPECT_EQ(formal->requiredPrefix, actualPrefix);
+  }
+
+  auto nested = llvm::find_if(plan->calls, [&](const auto &call) {
+    return call.caller == relay->callee;
+  });
+  ASSERT_NE(nested, plan->calls.end());
+  ASSERT_EQ(nested->arguments.size(), 1u);
+  EXPECT_EQ(plan->values[nested->arguments.front()].requiredPrefix,
+            actualPrefix);
+  const auto &nestedFrame = plan->frames[nested->callee];
+  for (const auto &binding : {nestedFrame.guardArguments.front(),
+                              nestedFrame.bodyArguments.front()}) {
+    const auto *formal =
+        value(*plan, binding.formal, nestedFrame.anchor, nested->callee);
+    ASSERT_NE(formal, nullptr);
+    EXPECT_EQ(formal->requiredPrefix, actualPrefix);
+  }
+}
+
+TEST_F(TransactionStateSSATest,
+       ConstantWriteBecomesConditionalAtItsActualWritePoint) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto root = module(*file, "Root");
+  auto zero =
+      *std::next(root.getBody().front().getOps<BitsConstantOp>().begin(), 2);
+  auto write = first<SourceStateWriteOp>(run.getBody());
+  llvm::SmallVector<mlir::Value> captures(run->getOperands());
+  captures.push_back(zero.getResult());
+  run->setOperands(captures);
+  for (auto &region : run->getRegions())
+    region.front().addArgument(zero.getResult().getType(), run.getLoc());
+  auto capturedZero = run.getBody().front().getArguments().back();
+  write->setOperand(1, capturedZero);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  auto intent = llvm::find_if(plan->writes, [&](const auto &candidate) {
+    return candidate.operation == write;
+  });
+  ASSERT_NE(intent, plan->writes.end());
+  auto id = std::distance(plan->writes.begin(), intent);
+  auto *writeEvent = event(*plan, TransactionStateEventKind::Write, id);
+  ASSERT_NE(writeEvent, nullptr);
+  EXPECT_EQ(writeEvent->prefix, 5u);
+  EXPECT_EQ(plan->values[intent->value].value, capturedZero);
+  EXPECT_EQ(plan->values[intent->value].requiredPrefix, 0u);
+  const auto &rootFrame = plan->frames[plan->rootFrame];
+  auto binding = llvm::find_if(rootFrame.bodyArguments, [&](const auto &entry) {
+    return entry.formal == capturedZero;
+  });
+  ASSERT_NE(binding, rootFrame.bodyArguments.end());
+  EXPECT_EQ(plan->values[binding->actual].value, zero.getResult());
+  EXPECT_EQ(plan->values[binding->actual].requiredPrefix, 0u);
+  EXPECT_EQ(plan->versions[intent->version].requiredPrefix, writeEvent->prefix);
+  auto laterRead = llvm::find_if(plan->reads, [&](const auto &candidate) {
+    return candidate.frame == plan->rootFrame &&
+           candidate.version == intent->version;
+  });
+  ASSERT_NE(laterRead, plan->reads.end());
+  EXPECT_EQ(plan->values[laterRead->result].requiredPrefix, writeEvent->prefix);
 }
 
 TEST_F(TransactionStateSSATest,
@@ -553,6 +813,14 @@ TEST_F(TransactionStateSSATest,
     ASSERT_EQ(plan->guards.size(), 7u);
     for (unsigned i = 1; i < plan->guards.size(); ++i)
       EXPECT_EQ(plan->guards[i].predecessor, i - 1);
+    for (GuardBoundaryId id = 0; id < plan->guards.size(); ++id) {
+      auto *enter = event(*plan, TransactionStateEventKind::GuardEnter, id);
+      auto *exit = event(*plan, TransactionStateEventKind::GuardExit, id);
+      ASSERT_NE(enter, nullptr);
+      ASSERT_NE(exit, nullptr);
+      EXPECT_EQ(enter->prefix, id);
+      EXPECT_EQ(exit->prefix, id + 1);
+    }
     auto &firstGuard = plan->guards[1];
     auto &lastGuard = plan->guards.back();
     if (falseFirst) {

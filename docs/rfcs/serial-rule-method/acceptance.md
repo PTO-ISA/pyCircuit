@@ -50,6 +50,7 @@ Method owner 是直接包含嵌套公开 `@method` 的 `@module`，首批没有�
 | `METHOD-DUAL-FINAL-IR` | source-owned 发布物与完整 link 闭包得到一个 verified final artifact，两目标消费完全相同字节 | 目标重捕获 Python、目标侧补语义、闭包缺失／重复：闭包／目标支持错误 | 公共命令、哈希、manifest |
 | `METHOD-SYSTEM-CLOSURE` | 保留 `@system` 的自主 Rule、终止边界、assert/log/report、复位、失败 discard 与双目标模拟；原生 workers 1/2 与 RTL 对照外置 oracle | 以 module-only 宿主驱动替代 system；静默丢弃观测；错误根类型：系统／根接口错误 | 现有 system 测试及扩展集成证据 |
 | `METHOD-OUTPUT-PROTECTION` | compile/link/两目标 emit 失败均保持先前发布物字节和清单；新诊断输出不能别名输入、已有文件或正式输出 | 无效 summary、非法效果、输出别名／写失败：输入验证／输出保护 | 公共失败替换与 native verifier |
+| `METHOD-ANALYSIS-BOUNDS` | 固定结构规模的合法公共源在现有限额内闭合；相同准确 scope 可共享准备，实际实例仍逐一验证；变换后重算 | 错误 definition/bindings、遗漏 private boundary、末端逃逸/死端和小预算耗尽：身份／接线／预算诊断，原 IR 与发布物不变 | native 失效/预算反例、公共 compile/link、完整阶段文件 |
 
 `METHOD-FOUR-STATE` 必须包含一对顺序反例：先到达 X required guard、后续 guard 为 false，仍全系统失败且零提交；先到达 false guard、后续 guard 为 X，则只 hold 该 Rule 而不激活后续新错误。外层 Rule guard 的 X 也不能被 body 后续 false 屏蔽。无状态写入但有 guard/check 的 Rule 必须绑定唯一采样域；未知域拒绝，不能因无写而删掉检查。
 
@@ -154,6 +155,13 @@ bash tools/run_examples.sh --tier nightly
 
 另外分别记录 capture/IR 大小、compile/link 时间与峰值内存、硬件状态／端口／mux、可用时的综合面积和时序、仿真吞吐。记录工具、机器、首次初始化与重复执行条件；没有综合工具就写未测。不得设定没有基准支持的统一速度阈值，不把 IR 操作数下降当作面积或时序通过。
 
+`METHOD-ANALYSIS-BOUNDS` 的容量样本在派发前固定 Rule 数、调用深度、实际实例数、
+候选数和 fanout，以及准确的源码与原预算。它是约定规模的编译可用性出口，不承诺无限
+展开。至少包含共享 definition 的不同实例/绑定、同 writer 多候选，以及末端非法使用的
+独立反例；完整现有公共回归不得用缩小设计或放宽预算替代。测试注入极小预算时应稳定
+失败并保持输入/输出，正常预算的合法样本则必须成功，两者不能混为同一通过条件。
+短 gate 保留有代表性的容量正反例，增长曲线和大矩阵进入既有 nightly。
+
 ## 作者与独立复核者清单
 
 作者提交前：
@@ -161,6 +169,7 @@ bash tools/run_examples.sh --tier nightly
 - [ ] 在任务包中冻结需求、输入、独占文件、新文件精确路径、依赖、移除范围、局部测试和证据边界。
 - [ ] 保持单一路径和通用 owner/effect/type 推导；无 fixture 名称规则、shim 或后端补语义。
 - [ ] 每个 mutating stage 验证输入／输出，声明分析失效并重算摘要。
+- [ ] 准备数据复用保留准确 scope/bindings，实际实例与 fanout 完整验证；容量样本在冻结预算内通过。
 - [ ] 外置 oracle 与 DUT 隔离，覆盖串行、快照、跨 Rule 旧 Q、required/optional、retry、四态和零提交。
 - [ ] 同一 final artifact 双目标、保留 system、发布失败保护均有实际候选证据。
 - [ ] 明确基线／可选 Queue／延后接口与 NOT-RUN，未把删除覆盖算作成功。
