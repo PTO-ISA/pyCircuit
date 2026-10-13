@@ -173,6 +173,19 @@ LogicalResult verifySourceSpan(DictionaryAttr value, EmitError emitError) {
   return success();
 }
 
+LogicalResult verifySourceGuardLocation(DictionaryAttr location,
+                                        DictionaryAttr sourceOwner,
+                                        EmitError emitError) {
+  if (failed(verifySourceOwner(sourceOwner, emitError)) ||
+      failed(verifySourceSpan(location, emitError)))
+    return failure();
+  if (location.getAs<StringAttr>("path") !=
+      sourceOwner.getAs<StringAttr>("path"))
+    return emitError()
+           << "guard SourceSpan path must match its declaring SourceOwner";
+  return success();
+}
+
 LogicalResult verifyPathComponent(DictionaryAttr value, EmitError emitError) {
   if (!value || value.size() != 2)
     return emitError() << "PathComponent must contain exactly two fields";

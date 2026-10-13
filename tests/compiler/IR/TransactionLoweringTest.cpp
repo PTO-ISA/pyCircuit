@@ -76,7 +76,7 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
       %next = "ac.bits.binary"(%old, %step) {opcode = "add"} : (!b8, !b8) -> !b8
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #o7} : (!b1, !b8) -> ()
       "ac.yield"(%next) : (!b8) -> ()
-    }) {sym_name = "bump", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #o4, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", occurrence = #o4} : (!b1, !b8) -> ()
+    }) {sym_name = "bump", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #o4, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #o4} : (!b1, !b8) -> ()
     "ac.method"(%yes) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
@@ -84,14 +84,14 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
     ^bb0(%delta: !b8, %path: !b1):
       %nested = "ac.method.call"(%path, %delta) {callee = @Owner::@bump, instance_path = [], occurrence = #o9} : (!b1, !b8) -> !b8
       "ac.yield"(%nested) : (!b8) -> ()
-    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #o8, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", occurrence = #o8} : (!b1) -> ()
+    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #o8, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #o8} : (!b1) -> ()
     "ac.method"(%rst) ({
     ^bb0(%admit: !b1):
       "ac.yield"(%admit) : (!b1) -> ()
     }, {
     ^bb0(%admit: !b1):
       "ac.yield"() : () -> ()
-    }) {sym_name = "uncalled", function_type = () -> (), argument_names = [], ac.parameters = [], ac.result_constraints = [], ac.return_form = "none", occurrence = #o10} : (!b1) -> ()
+    }) {sym_name = "uncalled", function_type = () -> (), argument_names = [], ac.parameters = [], ac.result_constraints = [], ac.return_form = "none", ac.guard_location = #span, occurrence = #o10} : (!b1) -> ()
     %first, %last = "ac.transaction"(%clk, %rst, %yes, %seed) ({
     ^bb0(%path: !b1, %caller_bias: !b8):
       "ac.yield"(%path) : (!b1) -> ()
@@ -101,7 +101,7 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
       %last = "ac.method.call"(%path, %first) {callee = @Owner::@relay, instance_path = [], occurrence = #o14} : (!b1, !b8) -> !b8
       "ac.state.write"(%path, %first) {state = "saved", selectors = [], occurrence = #o15} : (!b1, !b8) -> ()
       "ac.yield"(%first, %last) : (!b8, !b8) -> ()
-    }) {name = "run", declaration = #o11, occurrence = #o12} : (!b1, !b1, !b1, !b8) -> (!b8, !b8)
+    }) {name = "run", declaration = #o11, occurrence = #o12, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> (!b8, !b8)
     "ac.transaction"(%clk, %rst, %yes, %q) ({
     ^bb0(%path: !b1, %snapshot: !b8):
       "ac.yield"(%path) : (!b1) -> ()
@@ -110,7 +110,7 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
       %old = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #o18} : (!b1) -> !b8
       "ac.state.write"(%path, %old) {state = "seen", selectors = [], occurrence = #o19} : (!b1, !b8) -> ()
       "ac.yield"() : () -> ()
-    }) {name = "watch", declaration = #o16, occurrence = #o17} : (!b1, !b1, !b1, !b8) -> ()
+    }) {name = "watch", declaration = #o16, occurrence = #o17, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> ()
     "ac.yield"(%q, %first, %last, %hold) : (!b8, !b8, !b8, !b8) -> ()
   }) {sym_name = "Owner", source_owner = {package = "", path = "lower.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b1, !b1) -> (!b8, !b8, !b8, !b8), input_names = ["seed", "pyc_clk", "pyc_rst"], output_names = ["count", "first", "last", "hold"], ac.domain_inputs = {clock = 1 : i64, reset = 2 : i64}} : () -> ()
   "ac.system"() {entry = {callee = @Owner, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
@@ -451,6 +451,8 @@ protected:
                          builder.getStringAttr(side ? "right_run" : "run"));
       state.addAttribute("declaration", occurrence("Root", 2 + side * 8));
       state.addAttribute("occurrence", occurrence("Root", 3 + side * 8));
+      state.addAttribute("ac.guard_location",
+                         bump->getAttr("ac.guard_location"));
       state.addRegion();
       state.addRegion();
       auto transaction = mlir::cast<SourceTransactionOp>(builder.create(state));
@@ -504,6 +506,9 @@ protected:
     transaction.addAttribute("name", builder.getStringAttr("autonomous"));
     transaction.addAttribute("declaration", occurrence("Owner", 40));
     transaction.addAttribute("occurrence", occurrence("Owner", 41));
+    transaction.addAttribute(
+        "ac.guard_location",
+        named<SourceMethodOp>(provider, "bump")->getAttr("ac.guard_location"));
     transaction.addRegion();
     transaction.addRegion();
     auto op = mlir::cast<SourceTransactionOp>(builder.create(transaction));
@@ -733,6 +738,8 @@ TEST_F(TransactionLoweringTest,
                     owner(*file).getBody().front().getOps<InstanceOp>().end()),
       4);
   auto run = named<RuleOp>(*file, "run");
+  for (auto rule : owner(*file).getBody().front().getOps<RuleOp>())
+    EXPECT_FALSE(rule->hasAttr("ac.guard_location"));
   auto count = leaf(*file, "count"), saved = leaf(*file, "saved");
   auto final = mlir::dyn_cast<BitsBinaryOp>(yielded(count).getDefiningOp());
   auto firstCandidate =
@@ -1900,6 +1907,7 @@ TEST_F(TransactionLoweringTest,
   txn.addAttribute("name", builder.getStringAttr("stateless"));
   txn.addAttribute("declaration", occurrence("Owner", 42));
   txn.addAttribute("occurrence", occurrence("Owner", 43));
+  txn.addAttribute("ac.guard_location", noop->getAttr("ac.guard_location"));
   txn.addRegion();
   txn.addRegion();
   auto *transaction = builder.create(txn);

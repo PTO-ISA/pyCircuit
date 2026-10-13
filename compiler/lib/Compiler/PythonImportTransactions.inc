@@ -674,6 +674,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
          at.getNamedAttr(
              "ac.return_form",
              at.getStringAttr(callable.results.empty() ? "none" : "single")),
+         at.getNamedAttr("ac.guard_location",
+                         sourceSpan(at, source.path,
+                                    callable.syntax.guard
+                                        ? callable.syntax.guard
+                                        : callable.declaration)),
          at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol,
                                                         callable.declaration))},
         2);
@@ -752,6 +757,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         {at.getNamedAttr("name", at.getStringAttr(name)),
          at.getNamedAttr("declaration", sourceOccurrence(at, decl.symbol,
                                                          callable.declaration)),
+         at.getNamedAttr("ac.guard_location",
+                         sourceSpan(at, source.path,
+                                    callable.syntax.guard
+                                        ? callable.syntax.guard
+                                        : callable.declaration)),
          at.getNamedAttr("occurrence",
                          sourceOccurrence(at, decl.symbol, call))},
         2);

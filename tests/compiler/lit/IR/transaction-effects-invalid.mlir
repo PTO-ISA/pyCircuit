@@ -25,7 +25,7 @@ module {
       %old = "ac.state.read"(%path) {state = "absent", selectors = [], occurrence = #counter} : (!b1) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -57,7 +57,7 @@ module {
       %old = "ac.state.read"(%path) {state = "count", selectors = [{index = 0 : i64}], occurrence = #counter} : (!b1) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -89,7 +89,7 @@ module {
       %old = "ac.state.read"(%value) {state = "count", selectors = [], occurrence = #counter} : (!b8) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -121,7 +121,7 @@ module {
       %old = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -153,7 +153,7 @@ module {
       %old = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -185,7 +185,7 @@ module {
       %old = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -218,7 +218,7 @@ module {
       %old = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -250,7 +250,7 @@ module {
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       // expected-error @+1 {{body yield types do not match results}}
       "ac.yield"(%path) : (!b1) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }
@@ -282,7 +282,7 @@ module {
       %old = "ac.method.call"(%path, %value) {callee = @Other::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8) -> !b8, input_names = ["clk", "rst", "data"], output_names = ["out"]} : () -> ()
 }

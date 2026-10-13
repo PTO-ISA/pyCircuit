@@ -74,14 +74,14 @@ module {
       %unused = "ac.method.call"(%false, %old) {callee = @Child::@relay, instance_path = [], occurrence = #c9} : (!b1, !b8) -> !b8
       %sum = "ac.bits.binary"(%value, %captured_seed) {opcode = "add"} : (!b8, !b8) -> !b8
       "ac.yield"(%sum) : (!b8) -> ()
-    }) {sym_name = "act", function_type = (!b1, !b8, !b8) -> !b8, argument_names = ["allow", "value", "index"], ac.parameters = [{name = "allow", binding = "positional_or_keyword", constraint = #bit_constraint, default = {present = false}, origin = #c2, location = #span}, {name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c2, location = #span}, {name = "index", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c2, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #c2} : (!b1, !b1, !b1, !b8, !b8) -> ()
+    }) {sym_name = "act", function_type = (!b1, !b8, !b8) -> !b8, argument_names = ["allow", "value", "index"], ac.parameters = [{name = "allow", binding = "positional_or_keyword", constraint = #bit_constraint, default = {present = false}, origin = #c2, location = #span}, {name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c2, location = #span}, {name = "index", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c2, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #c2} : (!b1, !b1, !b1, !b8, !b8) -> ()
     "ac.method"(%yes) ({
     ^bb0(%value: !b8, %always: !b1):
       "ac.yield"(%always) : (!b1) -> ()
     }, {
     ^bb0(%value: !b8, %always: !b1):
       "ac.yield"(%value) : (!b8) -> ()
-    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c10, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #c10} : (!b1) -> ()
+    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c10, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #c10} : (!b1) -> ()
     "ac.transaction"(%clk, %no, %yes) ({
     ^bb0(%always: !b1):
       "ac.yield"(%always) : (!b1) -> ()
@@ -89,7 +89,7 @@ module {
     ^bb0(%always: !b1):
       %unused = "ac.state.read"(%always) {state = "count", selectors = [], occurrence = #c13} : (!b1) -> !b8
       "ac.yield"() : () -> ()
-    }) {name = "inspect", declaration = #c11, occurrence = #c12} : (!b1, !b1, !b1) -> ()
+    }) {name = "inspect", declaration = #c11, occurrence = #c12, ac.guard_location = #span} : (!b1, !b1, !b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Child", source_owner = {package = "", path = "summary.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b8, !b8) -> !b8, input_names = ["clk", "rst", "flag", "seed", "index"], output_names = ["count"]} : () -> ()
   "ac.module"() ({
@@ -108,7 +108,7 @@ module {
       %again = "ac.method.call"(%path, %a) {callee = @Child::@relay, instance_path = ["left"], occurrence = #r6} : (!b1, !b8) -> !b8
       %b = "ac.method.call"(%path, %path, %again, %slot) {callee = @Child::@act, instance_path = ["right"], occurrence = #r7} : (!b1, !b1, !b8, !b8) -> !b8
       "ac.yield"(%b) : (!b8) -> ()
-    }) {name = "run", declaration = #r3, occurrence = #r4} : (!b1, !b1, !b1, !b8, !b8) -> !b8
+    }) {name = "run", declaration = #r3, occurrence = #r4, ac.guard_location = #span} : (!b1, !b1, !b1, !b8, !b8) -> !b8
     "ac.transaction"(%clk, %rst, %yes, %left) ({
     ^bb0(%path: !b1, %unused_child_result: !b8):
       %guard_read = "ac.state.read"(%path) {state = "status", selectors = [], occurrence = #r10} : (!b1) -> !b8
@@ -117,7 +117,7 @@ module {
     ^bb0(%path: !b1, %unused_child_result: !b8):
       %unused = "ac.state.read"(%path) {state = "status", selectors = [], occurrence = #r11} : (!b1) -> !b8
       "ac.yield"() : () -> ()
-    }) {name = "watch", declaration = #r8, occurrence = #r9} : (!b1, !b1, !b1, !b8) -> ()
+    }) {name = "watch", declaration = #r8, occurrence = #r9, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> ()
     "ac.yield"(%answer) : (!b8) -> ()
   }) {sym_name = "Root", source_owner = {package = "", path = "summary.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b8, !b8) -> !b8, input_names = ["clk", "rst", "flag", "seed", "index"], output_names = ["answer"]} : () -> ()
 }
@@ -666,6 +666,17 @@ TEST_F(MethodSummaryAuthorityTest,
   for (const auto &[path, replacement] : childChanges)
     bodyRejects(child, dict(replace(childSummary, path, replacement)),
                 analysis);
+  auto guardLocationPath =
+      Path{std::string("methods"), 0u, std::string("guard_location")};
+  auto guardLocation = dict(at(childSummary, guardLocationPath));
+  auto changedGuardLocation =
+      changed(guardLocation, "line", builder.getI64IntegerAttr(2));
+  changedGuardLocation =
+      changed(changedGuardLocation, "end_line", builder.getI64IntegerAttr(2));
+  bodyRejects(
+      child,
+      dict(replace(childSummary, guardLocationPath, changedGuardLocation)),
+      analysis);
   auto effectsPath =
       Path{std::string("methods"), 0u, std::string("body_effects")};
   auto effects = mlir::cast<mlir::ArrayAttr>(at(childSummary, effectsPath));
@@ -690,6 +701,35 @@ TEST_F(MethodSummaryAuthorityTest,
       root,
       dict(replace(rootSummary, instanceActual, builder.getI64IntegerAttr(1))),
       analysis);
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       PublishedGuardLocationsRejectMissingMalformedAndForeignSpans) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid());
+  auto child = module(*file, "Child");
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  for (llvm::StringRef section : {"methods", "autonomous"}) {
+    auto rowPath = Path{section.str(), 0u};
+    auto callable = dict(at(published, rowPath));
+    auto location = callable.getAs<mlir::DictionaryAttr>("guard_location");
+    ASSERT_TRUE(location);
+    const mlir::Attribute replacements[] = {
+        mlir::Attribute{},
+        builder.getUnitAttr(),
+        changed(location, "end_column", {}),
+        changed(location, "path", builder.getStringAttr("foreign.py")),
+    };
+    for (auto replacement : replacements) {
+      SCOPED_TRACE(section.str());
+      structureRejects(child, dict(replace(published, rowPath,
+                                           changed(callable, "guard_location",
+                                                   replacement))));
+    }
+  }
 }
 
 TEST_F(MethodSummaryAuthorityTest,
@@ -1681,6 +1721,18 @@ TEST_F(MethodSummaryAuthorityTest,
   ASSERT_TRUE(original.isValid());
   auto published = summary(original, child);
   ASSERT_TRUE(published);
+  auto definitionView =
+      capture([&] { return lookupSourceMethod(child, "act", root); });
+  ASSERT_TRUE(mlir::succeeded(definitionView)) << diagnostics;
+  EXPECT_TRUE(definitionView->definition);
+  EXPECT_FALSE(definitionView->row);
+  EXPECT_EQ(definitionView->getGuardLocation(),
+            definitionView->definition->getAttrOfType<mlir::DictionaryAttr>(
+                "ac.guard_location"));
+  EXPECT_EQ(definitionView->getGuardLocation(),
+            namedRow(published, "methods", "act")
+                .getAs<mlir::DictionaryAttr>("guard_location"));
+  auto definitionGuardLocation = definitionView->getGuardLocation();
   auto declaration = replaceDefinition(child, published);
   ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
       << diagnostics;
@@ -1693,6 +1745,9 @@ TEST_F(MethodSummaryAuthorityTest,
   EXPECT_EQ(view->getResultConstraints(),
             array(view->row, "ac.result_constraints"));
   EXPECT_EQ(view->getReturnForm(), builder.getStringAttr("single"));
+  EXPECT_EQ(view->getGuardLocation(),
+            view->row.getAs<mlir::DictionaryAttr>("guard_location"));
+  EXPECT_EQ(view->getGuardLocation(), definitionGuardLocation);
   auto run = named<SourceTransactionOp>(root, "run");
   llvm::SmallVector<ResolvedSourceMethod> resolved;
   for (auto call : run.getBody().front().getOps<SourceMethodCallOp>()) {

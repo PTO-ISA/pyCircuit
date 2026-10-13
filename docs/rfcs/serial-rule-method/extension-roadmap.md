@@ -1,7 +1,7 @@
 # 扩展实施与验收矩阵
 
 本文件是后续 agent 的执行入口，补充[总体规格](README.md)、[实现所有权](implementation-plan.md)
-和[验收需求](acceptance.md)。状态基线为 `078c6d5716fbd954828713e4c6d7376c12015bc7`；
+和[验收需求](acceptance.md)。状态基线为 `3078e75f6a354c6a947a7d31e1a7a930978d9a0a`；
 不是移动的 main，也不是本次文档更新后的测试通过声明。
 
 ## issue #307 的取舍
@@ -33,14 +33,14 @@ fresh verification。本轮只修改规格；以下未勾选项均不是完成�
 | 纯 helper hard break | 现有 typed helper body 与 capture/import 路径 | 已有普通纯 `def` 路径 | 每次扩展维持纯度、快照、类型权威和旧入口拒绝 |
 | state SSA 分析 | SourceTransactionStateAnalysis | 直线 whole-owner typed plan，尚非完整 branch/partial SSA | 分支、selectors、条件写的精确版本与 join |
 | 同 owner 执行 | LowerTransactions | 恒真路径、whole Bits、唯一 writer | 保留实际执行、独立旧 Q 和失败原子性回归 |
-| 跨实例执行 | 同一 LowerTransactions + 现有 Module/Instance | 未完成 | [跨实例规格](cross-instance-lowering.md)全部 checklist |
-| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 一般检查只有 reset 上下文，无通用 sampled-edge 绑定 | 本文采样合同、顺序 guard 检查与多 owner 原子性 |
+| 跨实例执行 | 同一 LowerTransactions + 现有 Module/Instance | 已接入同域、恒真路径、whole Bits、唯一实际 writer 的原实例接线；Collection 限制保留 | 后续变化维持[跨实例规格](cross-instance-lowering.md)全部不变量并重新验证 |
+| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 一般检查只有 reset 上下文，无完整通用 sampled-edge 执行；精确架构已明确 | [采样准入规格](sampled-admission.md)的 schema、证明、history 生命周期与独立执行验收 |
 | 部分状态与冲突 | 既有字段/索引类型、write footprint、grant/disjointness proof | 不能由旧 behavioral 路径支持推断 Method 已支持 | whole/field/index 冲突统一，保留四态及源写意图 |
 | 资源与因果 | 既有 HardwareAnalysis、primitive 端口合同 | Method 的完整 resource closure 未完成 | 合法请求准入、明确拒绝超端口与联合环；Queue 单独验收 |
 | Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | 普通 System 回归不代表 Method System 完成 | 真实 Method `@system` 的时钟/复位、检查、观测、终止及失败闭环 |
 | 效果安全优化 | 既有 record-wire、纯 SSA 优化和 final verifier | 不能从能够生成代码推断效率达标 | 三项结构效率义务及明确样本的成本测量 |
 
-建议依赖顺序：跨实例 → 动态 guard → 分支/部分更新 → 资源/冲突/因果完整闭包 →
+建议剩余依赖顺序：保持跨实例不变量 → 动态 guard → 分支/部分更新 → 资源/冲突/因果完整闭包 →
 Method System 集成 → 效果安全优化。独立测试可以提前准备；基础因果和冲突验证必须在
 每个切片存在，不能等资源切片才开始验证。Queue、Signal/EHR 不混入基础交付。
 
@@ -51,9 +51,10 @@ Runtime Precheck/Precommit/Xfer 和 RTL commit gate。当前 `HardwareResolvedSo
 只有 reset，DFFE 的 sampled-clock history 位于 Current/Pending；不能把 reset-gated
 普通 assert 当作动态 Method guard 的完整实现。
 
-后续架构包必须在**同一检查表示**中明确以下字段的保存位置及 verifier；可以扩展现有
-结构，不能创建另一 runner 或后端私有事务检查器。本文冻结行为，尚未冻结新增 ODS/C++
-字段拼写；该切片在精确 schema、共享 API、文件所有权和独立审查补齐前不可派发实现。
+[采样准入规格](sampled-admission.md)已将这些事实固定在**同一检查表示**中：必填源
+guard span、final-only sampled/wiring 属性、expect sampling operands、共同 proof API
+和 history plan。不得创建另一 runner 或后端私有事务检查器。派发依照该文的依赖与
+所有权表冻结具体 C++ 类型/文件；不再重开一个平行 admission pass。下表概述行为。
 
 | 必须表达的事实 | 强制行为 |
 | --- | --- |

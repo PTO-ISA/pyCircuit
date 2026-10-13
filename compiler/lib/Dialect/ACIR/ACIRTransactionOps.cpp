@@ -369,8 +369,11 @@ LogicalResult SourceMethodOp::verify() {
               "ac.result_constraints and matching none/single ac.return_form";
   auto lexicalModule = (*this)->getParentOp();
   auto error = [&] { return emitOpError(); };
-  if (failed(detail::verifySourceOwner(
-          lexicalModule->getAttrOfType<DictionaryAttr>("source_owner"), error)))
+  auto sourceOwner =
+      lexicalModule->getAttrOfType<DictionaryAttr>("source_owner");
+  if (failed(detail::verifySourceGuardLocation(
+          (*this)->getAttrOfType<DictionaryAttr>("ac.guard_location"),
+          sourceOwner, error)))
     return failure();
   for (TypeRange types : {signature.getInputs(), signature.getResults()})
     for (Type type : types) {
@@ -470,6 +473,11 @@ LogicalResult SourceTransactionOp::verify() {
           moduleOccurrence(*this, getDeclaration(), "transaction declaration")))
     return failure();
   auto owner = cast<ModuleOp>((*this)->getParentOp());
+  auto error = [&] { return emitOpError(); };
+  if (failed(detail::verifySourceGuardLocation(
+          (*this)->getAttrOfType<DictionaryAttr>("ac.guard_location"),
+          owner.getSourceOwner(), error)))
+    return failure();
   for (auto other : owner.getBody().front().getOps<SourceTransactionOp>()) {
     if (other == *this)
       continue;

@@ -555,6 +555,12 @@ private:
     return array(result);
   }
   FailureOr<DictionaryAttr> callable(Operation *operation) {
+    auto guardLocation =
+        operation->getAttrOfType<DictionaryAttr>("ac.guard_location");
+    if (failed(detail::verifySourceGuardLocation(
+            guardLocation, definition.getSourceOwner(),
+            [&] { return operation->emitOpError(); })))
+      return failure();
     ValueRange captured;
     auto method = dyn_cast<SourceMethodOp>(operation);
     if (method)
@@ -573,6 +579,7 @@ private:
       return failure();
     NamedAttrList row(
         dict({{"captures", *captureRows},
+              {"guard_location", guardLocation},
               {"guard", value(guard.getValues().front(), operation)},
               {"guard_effects", *guardEffects},
               {"body_effects", *bodyEffects},
@@ -727,9 +734,10 @@ public:
     llvm::DenseSet<Attribute> declarations;
     for (Attribute raw : autonomous) {
       auto row = dyn_cast<DictionaryAttr>(raw);
-      if (failed(exact(row, {"name", "declaration", "registration", "domain",
-                             "captures", "guard", "guard_effects",
-                             "body_effects", "result_types", "results"})) ||
+      if (failed(exact(row,
+                       {"name", "declaration", "registration", "domain",
+                        "guard_location", "captures", "guard", "guard_effects",
+                        "body_effects", "result_types", "results"})) ||
           failed(nameIsIdentifier(row.getAs<StringAttr>("name"))) ||
           failed(occurrence(row.getAs<DictionaryAttr>("declaration"))) ||
           failed(occurrence(row.getAs<DictionaryAttr>("registration"))) ||
@@ -983,8 +991,8 @@ private:
     if (failed(exact(row,
                      {"name", "declaration", "function_type", "argument_names",
                       "ac.parameters", "ac.result_constraints",
-                      "ac.return_form", "captures", "guard", "guard_effects",
-                      "body_effects", "results"})) ||
+                      "ac.return_form", "guard_location", "captures", "guard",
+                      "guard_effects", "body_effects", "results"})) ||
         failed(nameIsIdentifier(row.getAs<StringAttr>("name"))) ||
         failed(occurrence(row.getAs<DictionaryAttr>("declaration"))))
       return failure();
@@ -1029,6 +1037,11 @@ private:
     return success();
   }
   LogicalResult callable(DictionaryAttr row, bool method) {
+    if (failed(detail::verifySourceGuardLocation(
+            row.getAs<DictionaryAttr>("guard_location"),
+            declaration->getAttrOfType<DictionaryAttr>("source_owner"),
+            [&] { return declaration->emitOpError(); })))
+      return failure();
     ValueScope scope;
     SmallVector<Type> outputs;
     if (method) {

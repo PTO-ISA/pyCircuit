@@ -16,6 +16,7 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 | [普通纯函数](pure-helpers.md) | Rule/helper hard break、词法快照、复用 typed body、发布 ABI 与独立验收 |
 | [MLIR 分析与变换](mlir-pipeline.md) | 中间表示、分析输入输出、变换前后条件、逐源发布与链接 |
 | [跨实例 Method 接线](cross-instance-lowering.md) | 原实例状态、内部物理端口、根 ABI、writer 组合与独立验收 |
+| [事务采样准入](sampled-admission.md) | 动态 guard 的精确 IR、双层证明、clock history、Runtime/RTL 生命周期及实施 checklist |
 | [事务接口摘要](publication-summary.md) | 闭合字段、类型与依赖作用域、直接实例组合、body 重验及预算 |
 | [资源和后续扩展](extensions.md) | Queue 准入、端口、跨事务前递及明确未开放的接口 |
 | [验收标准与 checklist](acceptance.md) | 独立 oracle、正反例、产物、性能证据和合入条件 |
@@ -25,9 +26,10 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 实现者必须先读源语义及其任务涉及的验收条款，再修改代码。表中的各文档共同组成
 本扩展；只完成语法识别、增加 verifier 或输出一份 IR，均不构成功能完成。
 
-2026-10-13 补充以 `078c6d5716fbd954828713e4c6d7376c12015bc7` 为明确实现检查点。
-下一执行入口为[扩展实施与验收矩阵](extension-roadmap.md)；新增规格与检查点已有能力
-分别列出。本次文档补充不启动产品实现，也不改变历史测试证据的候选归属。
+2026-10-13 实现检查点更新为 `3078e75f6a354c6a947a7d31e1a7a930978d9a0a`，包含受限的
+恒真跨实例 Method lowering。下一执行入口为[扩展实施与验收矩阵](extension-roadmap.md)，
+动态 guard 的精确合同见[事务采样准入](sampled-admission.md)。后者尚未完整实现；位置和
+比较前置改动不构成动态执行验收。本次文档不改变历史测试证据的候选归属。
 
 ## 适用范围与规范用语
 

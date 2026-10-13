@@ -769,6 +769,7 @@ private:
       auto predicate = llvm::StringSwitch<StringRef>(compare.getPredicate())
                            .Case("eq", "EQ")
                            .Case("ne", "NE")
+                           .Case("case_eq", "CASE_EQ")
                            .Case("ult", "ULT")
                            .Case("ule", "ULE")
                            .Case("ugt", "UGT")

@@ -95,8 +95,8 @@ LogicalResult BitsBinaryOp::verify() {
 }
 
 LogicalResult BitsCompareOp::verify() {
-  if (!isClosed(getPredicate(), {"eq", "ne", "ult", "ule", "ugt", "uge", "slt",
-                                 "sle", "sgt", "sge"}))
+  if (!isClosed(getPredicate(), {"eq", "ne", "case_eq", "ult", "ule", "ugt",
+                                 "uge", "slt", "sle", "sgt", "sge"}))
     return emitOpError() << "unknown closed bit-vector comparison predicate";
   if (!areEquivalentHardwareTypes(getLhs().getType(), getRhs().getType()))
     return emitOpError() << "comparison operands must have the same width";

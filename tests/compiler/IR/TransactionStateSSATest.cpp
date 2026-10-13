@@ -66,7 +66,7 @@ module {
       %next = "ac.bits.binary"(%old, %delta) {opcode = "add"} : (!b8, !b8) -> !b8
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #c5} : (!b1, !b8) -> ()
       "ac.yield"(%next) : (!b8) -> ()
-    }) {sym_name = "bump", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #c2, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", occurrence = #c2} : (!b1, !b8, !b1, !b1, !b1) -> ()
+    }) {sym_name = "bump", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #c2, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #c2} : (!b1, !b8, !b1, !b1, !b1) -> ()
     "ac.method"(%yes) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
@@ -74,7 +74,7 @@ module {
     ^bb0(%delta: !b8, %path: !b1):
       %nested = "ac.method.call"(%path, %delta) {callee = @Child::@bump, instance_path = [], occurrence = #c7} : (!b1, !b8) -> !b8
       "ac.yield"(%nested) : (!b8) -> ()
-    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #c6, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", occurrence = #c6} : (!b1) -> ()
+    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #c6, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #c6} : (!b1) -> ()
     "ac.method"(%yes, %q) ({
     ^bb0(%path: !b1, %snapshot: !b8):
       %guard_read = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #c9} : (!b1) -> !b8
@@ -83,14 +83,14 @@ module {
     ^bb0(%path: !b1, %snapshot: !b8):
       %unused = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #c10} : (!b1) -> !b8
       "ac.yield"(%snapshot) : (!b8) -> ()
-    }) {sym_name = "peek", function_type = () -> !b8, argument_names = [], ac.parameters = [], ac.result_constraints = [#byte], ac.return_form = "single", occurrence = #c8} : (!b1, !b8) -> ()
+    }) {sym_name = "peek", function_type = () -> !b8, argument_names = [], ac.parameters = [], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #c8} : (!b1, !b8) -> ()
     "ac.method"(%yes) ({
     ^bb0(%path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1):
       "ac.yield"() : () -> ()
-    }) {sym_name = "noop", function_type = () -> (), argument_names = [], ac.parameters = [], ac.result_constraints = [], ac.return_form = "none", occurrence = #c11} : (!b1) -> ()
+    }) {sym_name = "noop", function_type = () -> (), argument_names = [], ac.parameters = [], ac.result_constraints = [], ac.return_form = "none", ac.guard_location = #span, occurrence = #c11} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Child", source_owner = {package = "", path = "state.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b1, !b1, !b1) -> !b8, input_names = ["seed", "flag", "pyc_clk", "pyc_rst"], output_names = ["count"], ac.domain_inputs = {clock = 2 : i64, reset = 3 : i64}} : () -> ()
   "ac.module"() ({
@@ -116,7 +116,7 @@ module {
       %unused = "ac.method.call"(%path) {callee = @Child::@peek, instance_path = ["left"], occurrence = #r12} : (!b1) -> !b8
       "ac.method.call"(%path) {callee = @Child::@noop, instance_path = ["left"], occurrence = #r13} : (!b1) -> ()
       "ac.yield"(%first) : (!b8) -> ()
-    }) {name = "run", declaration = #r3, occurrence = #r4} : (!b1, !b1, !b1, !b8, !b8, !b1, !b1) -> !b8
+    }) {name = "run", declaration = #r3, occurrence = #r4, ac.guard_location = #span} : (!b1, !b1, !b1, !b8, !b8, !b1, !b1) -> !b8
     "ac.transaction"(%clk, %rst, %yes, %q) ({
     ^bb0(%path: !b1, %snapshot: !b8):
       "ac.yield"(%path) : (!b1) -> ()
@@ -125,7 +125,7 @@ module {
       %old = "ac.state.read"(%path) {state = "status", selectors = [], occurrence = #r16} : (!b1) -> !b8
       %unused = "ac.method.call"(%path) {callee = @Child::@peek, instance_path = ["left"], occurrence = #r17} : (!b1) -> !b8
       "ac.yield"() : () -> ()
-    }) {name = "watch", declaration = #r14, occurrence = #r15} : (!b1, !b1, !b1, !b8) -> ()
+    }) {name = "watch", declaration = #r14, occurrence = #r15, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> ()
     "ac.yield"(%answer) : (!b8) -> ()
   }) {sym_name = "Root", source_owner = {package = "", path = "state.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b1, !b1, !b1) -> !b8, input_names = ["seed", "flag", "pyc_clk", "pyc_rst"], output_names = ["answer"], ac.domain_inputs = {clock = 2 : i64, reset = 3 : i64}} : () -> ()
 }
@@ -268,6 +268,19 @@ protected:
                                                     index))})}))})),
          builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
   }
+  mlir::DictionaryAttr sourceOwner(llvm::StringRef path) {
+    return builder.getDictionaryAttr(
+        {builder.getNamedAttr("package", builder.getStringAttr("")),
+         builder.getNamedAttr("path", builder.getStringAttr(path))});
+  }
+  mlir::DictionaryAttr span(llvm::StringRef path, unsigned line) {
+    return builder.getDictionaryAttr(
+        {builder.getNamedAttr("path", builder.getStringAttr(path)),
+         builder.getNamedAttr("line", builder.getI64IntegerAttr(line)),
+         builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
+         builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
+         builder.getNamedAttr("end_column", builder.getI64IntegerAttr(9))});
+  }
 };
 
 TEST_F(TransactionStateSSATest,
@@ -353,6 +366,55 @@ TEST_F(TransactionStateSSATest,
   ASSERT_EQ(relay->exitVersions.size(), 1u);
   EXPECT_EQ(ordinal(*plan, relay->entryVersions[0].version), 1u);
   EXPECT_EQ(ordinal(*plan, relay->exitVersions[0].version), 2u);
+}
+
+TEST_F(TransactionStateSSATest,
+       GuardBoundariesRetainCallableSpansAcrossRepeatedCrossSourceCalls) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  child->setAttr("source_owner", sourceOwner("child.py"));
+  unsigned line = 10;
+  for (auto callable : child.getBody().front().getOps<SourceMethodOp>()) {
+    auto location = span("child.py", line++);
+    callable->setAttr("ac.guard_location", location);
+    llvm::SmallVector<mlir::Attribute> parameters;
+    for (auto raw : callable->getAttrOfType<mlir::ArrayAttr>("ac.parameters")) {
+      mlir::NamedAttrList fields(mlir::cast<mlir::DictionaryAttr>(raw));
+      fields.set("location", location);
+      parameters.push_back(fields.getDictionary(&context));
+    }
+    callable->setAttr("ac.parameters", builder.getArrayAttr(parameters));
+  }
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto run = transaction(*file);
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  auto bump = method(*file, "bump");
+  auto bumpLocation =
+      bump->getAttrOfType<mlir::DictionaryAttr>("ac.guard_location");
+  ASSERT_TRUE(bumpLocation);
+  EXPECT_EQ(bumpLocation.getAs<mlir::StringAttr>("path").getValue(),
+            "child.py");
+  EXPECT_EQ(run->getAttrOfType<mlir::DictionaryAttr>("ac.guard_location")
+                .getAs<mlir::StringAttr>("path")
+                .getValue(),
+            "state.py");
+  unsigned repeatedBumpBoundaries = 0;
+  for (const auto &boundary : plan->guards) {
+    ASSERT_NE(boundary.callable, nullptr);
+    EXPECT_EQ(boundary.location,
+              boundary.callable->getAttrOfType<mlir::DictionaryAttr>(
+                  "ac.guard_location"));
+    if (boundary.callable == bump.getOperation()) {
+      EXPECT_EQ(boundary.location, bumpLocation);
+      ++repeatedBumpBoundaries;
+    }
+  }
+  EXPECT_EQ(repeatedBumpBoundaries, 3u);
 }
 
 TEST_F(TransactionStateSSATest,

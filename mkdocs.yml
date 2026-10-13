@@ -109,6 +109,7 @@ nav:
           - Pure Helpers: rfcs/serial-rule-method/pure-helpers.md
           - MLIR Pipeline: rfcs/serial-rule-method/mlir-pipeline.md
           - Cross-instance Method Lowering: rfcs/serial-rule-method/cross-instance-lowering.md
+          - Sampled Transaction Admission: rfcs/serial-rule-method/sampled-admission.md
           - Transaction Publication Summary: rfcs/serial-rule-method/publication-summary.md
           - Resource Extensions: rfcs/serial-rule-method/extensions.md
           - Acceptance Checklist: rfcs/serial-rule-method/acceptance.md

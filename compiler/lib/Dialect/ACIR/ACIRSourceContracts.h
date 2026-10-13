@@ -101,6 +101,9 @@ mlir::FailureOr<uint32_t> decodeU32(mlir::IntegerAttr value,
 
 mlir::LogicalResult verifySourceSpan(mlir::DictionaryAttr value,
                                      EmitError emitError);
+mlir::LogicalResult verifySourceGuardLocation(mlir::DictionaryAttr location,
+                                              mlir::DictionaryAttr sourceOwner,
+                                              EmitError emitError);
 
 mlir::LogicalResult verifyPathComponent(mlir::DictionaryAttr value,
                                         EmitError emitError);

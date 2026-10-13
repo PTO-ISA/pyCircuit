@@ -1,8 +1,10 @@
 # 跨实例 Method 的共同 IR 接线规格
 
-状态：待实现扩展合同，基于 `078c6d5716fbd954828713e4c6d7376c12015bc7`。
+状态：基于 `078c6d5716fbd954828713e4c6d7376c12015bc7` 制定的扩展合同；
+受限实现已在 `3078e75f6a354c6a947a7d31e1a7a930978d9a0a` 接入。
 本文细化[事务降低](mlir-pipeline.md)，不改变[源语义](source-semantics.md)。
-已有同 owner lowering 不构成本规格通过；本文件也不声称新增接口已实现。
+后续候选仍须重新验证本文的不变量；历史实现和文档不代替 fresh verification。
+动态 guard 按[采样准入扩展](sampled-admission.md)单独验收。
 
 ## 目标与边界
 

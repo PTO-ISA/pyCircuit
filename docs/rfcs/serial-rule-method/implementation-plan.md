@@ -89,9 +89,15 @@ helper grammar 限于现有已准入 typed 表达式／语句子集及 source-se
 
 **输入／依赖：** typed guards、返回状态、state SSA、条件摘要；资源可用性先保持符号义务，等待下一切片解决。
 
-**独占现有文件：** `compiler/lib/Compiler/PythonImportBehavior.inc`、`compiler/lib/Compiler/PythonImportCaseSyntax.{h,cpp}`。
+**首批直线采样切片：** 精确 schema、共享证明、Runtime/RTL 生命周期、依赖与文件责任采用
+[事务采样准入](sampled-admission.md)。复用既有 SourceTransactionStateAnalysis、
+HardwareSourceChecks 和 LowerTransactions；不创建此前预留的
+`AnalyzeTransactionAdmission.cpp` 平行 pass。guard span/case_eq 前置完成不构成采样执行。
 
-**冻结新增文件：** `compiler/lib/Transforms/AnalyzeTransactionAdmission.cpp`。
+**后续分支切片的现有入口：** `compiler/lib/Compiler/PythonImportBehavior.inc`、
+`compiler/lib/Compiler/PythonImportCaseSyntax.{h,cpp}`；事务源接入仍由
+`PythonImportTransactions.inc` 及 native verifier/summary 拥有，派发前单独冻结分支表示与
+join proof，不以 legacy 私有环境替代 MLIR 分析。
 
 **产出与不变量：** 分开表达值有效性、外层事务 admission 和普通 accepted/success/retry。只有实际执行路径上的 required 条件参与 admission。已知 false 只 hold 所属 Rule；不能升格为全局硬错误。无效 payload 不当 false 使用；未知控制保留四态义务。optional progress、required all-or-none 与明确 prefix 策略不互相推断。
 

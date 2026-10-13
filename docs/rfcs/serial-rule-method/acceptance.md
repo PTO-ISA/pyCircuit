@@ -53,6 +53,11 @@ Method owner 是直接包含嵌套公开 `@method` 的 `@module`，首批没有�
 
 `METHOD-FOUR-STATE` 必须包含一对顺序反例：先到达 X required guard、后续 guard 为 false，仍全系统失败且零提交；先到达 false guard、后续 guard 为 X，则只 hold 该 Rule 而不激活后续新错误。外层 Rule guard 的 X 也不能被 body 后续 false 屏蔽。无状态写入但有 guard/check 的 Rule 必须绑定唯一采样域；未知域拒绝，不能因无写而删掉检查。
 
+受限直线动态 guard 的完整子矩阵见[采样准入验收](sampled-admission.md#acceptance-checklist)：
+包括所有 transaction 的 uniform sampling、false fire 的 history 提交、Discard 后同 high
+重采样、物理 clock/reset X/Z、guard span、原 plan 与独立 final 两层故障注入及预算保护。
+它细化上述需求，不另开 gate；完整 Method System 和后续分支/资源仍分别验收。
+
 上述槽队列、库存发布和槽位探测器是框架测试中的设计中立类比；不得把完整 ROB、S1、PFL consumer 代码、ISA schema 或 oracle 放入编译器。变化名、宽度、初值、槽数、语句形状与实例顺序的有界变体用于排除场景识别。变体保留相同语义义务，不要求当前尚未支持的一般参数化。
 
 ## 可选 Queue 集成的独立出口

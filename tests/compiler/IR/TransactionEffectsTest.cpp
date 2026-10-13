@@ -62,7 +62,7 @@ module {
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.state.write"(%path, %lane, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b8, !b1) -> ()
       "ac.yield"(%old) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.method"(%rst) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
@@ -70,7 +70,7 @@ module {
     ^bb0(%delta: !b8, %path: !b1):
       %result = "ac.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
       "ac.yield"(%result) : (!b8) -> ()
-    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", occurrence = #counter} : (!b1) -> ()
+    }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8, input_names = ["clk", "rst", "seed", "packet"], output_names = ["count"]} : () -> ()
   "ac.module"() ({
@@ -86,7 +86,7 @@ module {
       %again = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
       %b = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["right"], occurrence = #root} : (!b1, !b8) -> !b8
       "ac.yield"(%b) : (!b8) -> ()
-    }) {name = "step", declaration = #root, occurrence = #root} : (!b1, !b1, !b1, !b8) -> !b8
+    }) {name = "step", declaration = #root, occurrence = #root, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> !b8
     "ac.yield"(%answer) : (!b8) -> ()
   }) {sym_name = "Root", source_owner = {package = "", path = "transactions.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b8, !ac.struct<"Packet">) -> !b8, input_names = ["clk", "rst", "seed", "packet"], output_names = ["answer"]} : () -> ()
   "ac.system"() {entry = {callee = @Root, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
@@ -343,6 +343,34 @@ TEST_F(TransactionEffectsTest, DeclarationAndOccurrenceMetadataAreVerified) {
   find(*file, "ac.transaction")
       ->setAttr("declaration", builder.getDictionaryAttr({}));
   reject(*file, "Occurrence");
+}
+
+TEST_F(TransactionEffectsTest,
+       GuardLocationsAreMandatoryClosedSpansOwnedByTheLexicalSource) {
+  for (llvm::StringRef operation : {"ac.method", "ac.transaction"}) {
+    for (unsigned mutation = 0; mutation != 4; ++mutation) {
+      SCOPED_TRACE(operation.str());
+      SCOPED_TRACE(mutation);
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto *callable = find(*file, operation);
+      auto location =
+          callable->getAttrOfType<mlir::DictionaryAttr>("ac.guard_location");
+      ASSERT_TRUE(location);
+      if (mutation == 0)
+        callable->removeAttr("ac.guard_location");
+      if (mutation == 1)
+        callable->setAttr("ac.guard_location", builder.getUnitAttr());
+      if (mutation == 2)
+        callable->setAttr("ac.guard_location",
+                          changed(location, "end_column", {}));
+      if (mutation == 3)
+        callable->setAttr(
+            "ac.guard_location",
+            changed(location, "path", builder.getStringAttr("foreign.py")));
+      rejectsContract(*file);
+    }
+  }
 }
 
 TEST_F(TransactionEffectsTest,

@@ -1113,6 +1113,8 @@ private:
     boundary.frame = frame;
     boundary.predecessor = previousGuard;
     boundary.domain = domain;
+    boundary.location =
+        function->getAttrOfType<DictionaryAttr>("ac.guard_location");
     plan.guards.push_back(std::move(boundary));
     previousGuard = guard;
     if (failed(event(TransactionStateEventKind::GuardEnter, frame, guard)))

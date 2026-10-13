@@ -224,6 +224,7 @@ public:
       auto predicate = llvm::StringSwitch<StringRef>(compare.getPredicate())
                            .Case("eq", "==")
                            .Case("ne", "!=")
+                           .Case("case_eq", "===")
                            .Case("ult", "<")
                            .Case("ule", "<=")
                            .Case("ugt", ">")

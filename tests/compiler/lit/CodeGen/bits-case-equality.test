@@ -1,0 +1,13 @@
+# REQUIRES: iverilog, vvp
+# Common-IR execution only: this does not add a Python source intrinsic.
+# RUN: %pycircuit_opt %inputs/bits-case-equality.mlir -o %t.final.mlir
+# RUN: %pycircuit_emit %t.final.mlir --target cpp > %t.json
+# RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; %cxx -std=c++20 -pthread -I%include -I%t.dir %inputs/bits-case-equality.cpp @%t.dir/sources.rsp "$RTLIB" -o %t.exe
+# RUN: %t.exe --workers 1 > %t.cpp1
+# RUN: %t.exe --workers 2 > %t.cpp2
+# RUN: diff -u %t.cpp1 %t.cpp2
+# RUN: %pycircuit_emit %t.final.mlir --target verilog --format source > %t.sv
+# RUN: iverilog -g2012 -s tb -o %t.vvp %t.sv %inputs/bits-case-equality.sv
+# RUN: vvp %t.vvp > %t.rtl
+# RUN: diff -u %t.cpp1 %t.rtl

@@ -537,6 +537,62 @@ def Driver(amount: ac.u8):
 }
 
 TEST_F(SourceTransactionCaptureTest,
+       GuardLocationsUseExactLambdaAndBareFunctionDefinitionSpans) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    enabled = True
+    @ac.method(guard=lambda: enabled)
+    def explicit_method() -> None:
+        pass
+    @ac.method
+    def bare_method() -> None:
+        pass
+    @ac.rule(guard=lambda: enabled)
+    def explicit_rule() -> None:
+        pass
+    @ac.rule
+    def bare_rule() -> None:
+        pass
+    explicit_rule()
+    bare_rule()
+)py",
+                    "guard_spans.py");
+  ASSERT_TRUE(file);
+  auto expectSpan = [&](Operation *callable, unsigned line, unsigned column,
+                        unsigned endLine, unsigned endColumn) {
+    auto span = callable->getAttrOfType<DictionaryAttr>("ac.guard_location");
+    ASSERT_TRUE(span);
+    EXPECT_EQ(span.size(), 5u);
+    EXPECT_EQ(span.getAs<StringAttr>("path").getValue(), "guard_spans.py");
+    EXPECT_EQ(span.getAs<IntegerAttr>("line").getInt(), line);
+    EXPECT_EQ(span.getAs<IntegerAttr>("column").getInt(), column);
+    EXPECT_EQ(span.getAs<IntegerAttr>("end_line").getInt(), endLine);
+    EXPECT_EQ(span.getAs<IntegerAttr>("end_column").getInt(), endColumn);
+  };
+  auto methods = operations<ac::SourceMethodOp>(*file);
+  auto transactions = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(methods.size(), 2u);
+  ASSERT_EQ(transactions.size(), 2u);
+  for (auto method : methods) {
+    if (method.getSymName() == "explicit_method")
+      expectSpan(method, 5, 22, 5, 37);
+    else if (method.getSymName() == "bare_method")
+      expectSpan(method, 9, 5, 10, 13);
+    else
+      ADD_FAILURE() << "unexpected method " << method.getSymName().str();
+  }
+  for (auto transaction : transactions) {
+    if (transaction.getName() == "explicit_rule")
+      expectSpan(transaction, 11, 20, 11, 35);
+    else if (transaction.getName() == "bare_rule")
+      expectSpan(transaction, 15, 5, 16, 13);
+    else
+      ADD_FAILURE() << "unexpected transaction " << transaction.getName().str();
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
        UnitCompilationPublishesTypedEffectsWithoutMutatingCapture) {
   auto captured = capture("design.py", counterSource());
   ASSERT_TRUE(captured);
@@ -1507,8 +1563,8 @@ def Owner():
   auto methods = operations<ac::SourceMethodOp>(*reparsed);
   ASSERT_EQ(methods.size(), original.size());
   for (auto [before, after] : llvm::zip(original, methods)) {
-    for (StringRef name :
-         {"ac.parameters", "ac.result_constraints", "ac.return_form"}) {
+    for (StringRef name : {"ac.parameters", "ac.result_constraints",
+                           "ac.return_form", "ac.guard_location"}) {
       ASSERT_TRUE(before->hasAttr(name));
       EXPECT_EQ(before->getAttr(name), after->getAttr(name));
     }
@@ -1523,6 +1579,12 @@ def Owner():
     EXPECT_EQ(form.getValue(), results.empty() ? "none" : "single");
     auto owner = after->getParentOfType<ac::ModuleOp>();
     auto sourceOwner = owner.getSourceOwner();
+    auto guardLocation =
+        after->getAttrOfType<DictionaryAttr>("ac.guard_location");
+    ASSERT_TRUE(guardLocation);
+    EXPECT_EQ(guardLocation.size(), 5u);
+    EXPECT_EQ(guardLocation.getAs<StringAttr>("path"),
+              sourceOwner.getAs<StringAttr>("path"));
     for (auto [index, raw] : llvm::enumerate(parameters)) {
       auto row = dyn_cast<DictionaryAttr>(raw);
       ASSERT_TRUE(row);

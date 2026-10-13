@@ -72,6 +72,21 @@ fixed bits。零返回的 return form 为 `none`，单返回为 `single`；多�
 专属的 nominal Struct 返回限制保留在 module 验证入口。缺失契约必须拒绝，不提供旧 IR
 默认值。此要求是独立发布的前置条件，不表示发布、调用效果摘要或执行已经完成。
 
+动态采样的精确 final schema、共同 proof API、物理 wiring/history 与验收见
+[事务采样准入](sampled-admission.md)；以下位置与比较合同是其前置，不构成动态执行声明。
+
+每个 `ac.method` 和 `ac.transaction` 还必须携带 `ac.guard_location`，使用既有闭合
+SourceSpan。显式 guard 保存整个 Lambda 的捕获位置；裸 guard 保存整个 FunctionDef
+声明的位置。path 必须等于声明模块 SourceOwner 的 path，不能从 MLIR Location 或调用
+点拼出默认值。发布摘要的 `guard_location`、统一 Method view 和 GuardBoundary.location
+保留同一属性；源 body 重验拒绝被更改的摘要位置。降低到纯 Rule 时移除这个源专属属性。
+该 hard break 的位置权威是采样准入的前置条件，不表示动态 guard 已可执行。
+
+共同 IR 的 `ac.bits.compare` 接纳 `case_eq`：比较准确的 0/1/X/Z 符号，结果始终是已知
+一位，忽略未知位下面不可观察的 value 噪声。C++ 复用现有 `compare<CASE_EQ>` 和
+`FourState::parityEquivalent`，RTL 使用 `===`。普通 `eq` 的四态语义不变，包括 X/Z
+输入的 `eq(x,x)` 仍是未知。这是共同 IR 运算，不新增 Python intrinsic。
+
 path、clock、reset 都用现有 width-one Bits，不用 builtin i1 丢掉四态信息。
 `selectors` 为 `{field = "field_name"}` 或 `{index = N : i64}` 的序列；后者按顺序引用
 索引 operands，不能将动态索引塞入静态 owner identity。所有投影须验证实际名义类型。

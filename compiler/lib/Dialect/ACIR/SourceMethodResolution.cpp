@@ -56,6 +56,11 @@ DictionaryAttr SourceMethodView::getDeclaration() const {
   return definition ? definition->getAttrOfType<DictionaryAttr>("occurrence")
                     : row.getAs<DictionaryAttr>("declaration");
 }
+DictionaryAttr SourceMethodView::getGuardLocation() const {
+  return definition
+             ? definition->getAttrOfType<DictionaryAttr>("ac.guard_location")
+             : row.getAs<DictionaryAttr>("guard_location");
+}
 SymbolRefAttr SourceMethodView::getSymbol() const {
   auto name = definition ? definition->getAttrOfType<StringAttr>("sym_name")
                          : row.getAs<StringAttr>("name");

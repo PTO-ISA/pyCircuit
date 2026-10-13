@@ -166,6 +166,8 @@ struct GuardBoundary {
   llvm::SmallVector<StateReadId> reads;
   BoundValueId predicate = 0;
   mlir::BoolAttr predicateFact;
+  /// Exact declaring callable guard span, retained from verified source IR.
+  mlir::DictionaryAttr location;
 };
 
 /// A call result keeps its original SSA identity and the ordinary body yield it

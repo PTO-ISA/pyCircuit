@@ -163,11 +163,25 @@ FourState<W> urem(const FourState<W> &lhs, const FourState<W> &rhs) noexcept {
   return FourState<W>::known(urem<W>(lhs.value(), rhs.value()));
 }
 
-enum class ComparePredicate { EQ, NE, ULT, ULE, UGT, UGE, SLT, SLE, SGT, SGE };
+enum class ComparePredicate {
+  EQ,
+  NE,
+  ULT,
+  ULE,
+  UGT,
+  UGE,
+  SLT,
+  SLE,
+  SGT,
+  SGE,
+  CASE_EQ
+};
 
 template <ComparePredicate Predicate, unsigned W>
 FourState<1> compare(const FourState<W> &lhs,
                      const FourState<W> &rhs) noexcept {
+  if constexpr (Predicate == ComparePredicate::CASE_EQ)
+    return FourState<1>::known(Bits<1>{lhs.parityEquivalent(rhs) ? 1u : 0u});
   if constexpr (Predicate == ComparePredicate::EQ ||
                 Predicate == ComparePredicate::NE) {
     const auto difference =

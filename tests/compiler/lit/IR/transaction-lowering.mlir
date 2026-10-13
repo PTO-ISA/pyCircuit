@@ -10,6 +10,7 @@
 // CHECK: "ac.instance"
 // CHECK: instance_name = "count"
 // CHECK: "ac.rule"
+// CHECK-NOT: ac.guard_location
 // CHECK-NOT: "ac.state.read"
 // CHECK-NOT: "ac.state.write"
 // CHECK-NOT: "ac.method.call"
@@ -44,7 +45,7 @@ module attributes {ac.source_units = [{package = "", path = "state.py"}]} {
       %next = "ac.bits.binary"(%old, %amount) {opcode = "add"} : (!b8, !b8) -> !b8
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #write} : (!b1, !b8) -> ()
       "ac.yield"(%next) : (!b8) -> ()
-    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["amount"], ac.parameters = [{name = "amount", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #method, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", occurrence = #method} : (!b1) -> ()
+    }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["amount"], ac.parameters = [{name = "amount", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #method, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #method} : (!b1) -> ()
     "ac.transaction"(%clk, %rst, %yes, %delta, %effect) ({
     ^bb0(%path: !b1, %amount: !b8, %effect_path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
@@ -53,7 +54,7 @@ module attributes {ac.source_units = [{package = "", path = "state.py"}]} {
       %first = "ac.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call1} : (!b1, !b8) -> !b8
       %second = "ac.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call2} : (!b1, !b8) -> !b8
       "ac.yield"() : () -> ()
-    }) {name = "step", declaration = #rule, occurrence = #rule} : (!b1, !b1, !b1, !b8, !b1) -> ()
+    }) {name = "step", declaration = #rule, occurrence = #rule, ac.guard_location = #span} : (!b1, !b1, !b1, !b8, !b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "Counter", source_owner = {package = "", path = "state.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b1, !b1) -> !b8, input_names = ["delta", "pyc_clk", "pyc_rst"], output_names = ["result"], ac.domain_inputs = {clock = 1 : i64, reset = 2 : i64}} : () -> ()
   "ac.system"() {entry = {callee = @Counter, parameters = [], type_arguments = []}, domain = "default"} : () -> ()

@@ -117,6 +117,11 @@ def ACIR_BitsBinaryOp : ACIR_Op<"bits.binary", [Pure]> {
 
 def ACIR_BitsCompareOp : ACIR_Op<"bits.compare", [Pure]> {
   let summary = "Compare two same-width hardware bit vectors";
+  let description = [{
+    Ordinary comparisons preserve four-state unknown results. case_eq compares
+    the exact 0/1/X/Z symbols and returns a fully known one-bit result, ignoring
+    stored value noise beneath unknown bits. It does not change ordinary eq.
+  }];
   let arguments = (ins ACIR_BitsType:$lhs, ACIR_BitsType:$rhs,
       StrAttr:$predicate);
   let results = (outs ACIR_BitsType:$result);
@@ -327,6 +332,9 @@ def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
     Required ac.parameters, ac.result_constraints and ac.return_form metadata
     preserve source-call type authority independently of physical payload types.
     Captures are not explicit source parameters.
+    Mandatory ac.guard_location is a provider-owned SourceSpan: the entire
+    explicit guard Lambda, or the entire callable declaration for a bare guard.
+    It is not reconstructed from the MLIR location or a caller's span.
   }];
   let arguments = (ins Variadic<ACIR_HardwareType>:$captures,
       StrAttr:$sym_name, TypeAttrOf<FunctionType>:$function_type,
@@ -356,6 +364,8 @@ def ACIR_SourceTransactionOp : ACIR_Op<"transaction", [
     the body yields ordinary results. declaration identifies the source Rule;
     occurrence identifies its unique registration in the owning module.
     Admission and state SSA must be resolved before lowering to pure ac.rule.
+    Mandatory ac.guard_location has the same SourceSpan contract as ac.method;
+    it refers to the declaration's guard, never the registration call site.
   }];
   let arguments = (ins ACIR_BitsType:$clk, ACIR_BitsType:$rst,
       Variadic<ACIR_HardwareType>:$captures, StrAttr:$name,

@@ -617,7 +617,9 @@ public:
     OperationState state(staged.getLoc(), ac::RuleOp::getOperationName());
     state.addOperands(captures);
     state.addTypes(types);
-    state.addAttributes(transaction->getAttrs());
+    NamedAttrList attributes(transaction->getAttrs());
+    attributes.erase("ac.guard_location");
+    state.addAttributes(attributes);
     state.addRegion();
     auto rule = cast<ac::RuleOp>(Operation::create(state));
     staged->getBlock()->getOperations().insert(staged->getIterator(), rule);

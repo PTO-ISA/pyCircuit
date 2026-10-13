@@ -71,12 +71,22 @@ Instance OwnerRow:
 Arguments module scope, exact input arity. Preserve ALL direct instances including ordinary hardware/primitive. Names share actual state/instance namespace, occurrences unique; HardwareAnalysis owns actual static/physical binding. Structure verifies row shape; body rederivation and later registry closure verify callee binding. Preserve true op identity, no fabricated instance.
 
 MethodRow:
-`{name=StringAttr, declaration=Occurrence, function_type=TypeAttr<FunctionType>, argument_names=[StringAttr...], ac.parameters=[existing six-field parameter rows], ac.result_constraints=[existing hardware constraints], ac.return_form="none"|"single", captures=[Capture...], guard=ValueSummary, guard_effects=[EffectRow...], body_effects=[EffectRow...], results=[ValueSummary...]}`.
+`{name=StringAttr, declaration=Occurrence, function_type=TypeAttr<FunctionType>, argument_names=[StringAttr...], ac.parameters=[existing six-field parameter rows], ac.result_constraints=[existing hardware constraints], ac.return_form="none"|"single", guard_location=SourceSpan, captures=[Capture...], guard=ValueSummary, guard_effects=[EffectRow...], body_effects=[EffectRow...], results=[ValueSummary...]}`.
 Use existing shared source constraint and required-param validators. Guard/results/effects callable scope. Result count signature exact. Method inherits caller sampling domain; do not invent one. Result validity is conditional on successful return, not unconditional dataflow authority.
 
 AutonomousRow:
-`{name=StringAttr, declaration=Occurrence, registration=Occurrence, domain=Domain, captures=[Capture...], guard=ValueSummary, guard_effects=[EffectRow...], body_effects=[EffectRow...], result_types=[TypeAttr...], results=[ValueSummary...]}`.
+`{name=StringAttr, declaration=Occurrence, registration=Occurrence, domain=Domain, guard_location=SourceSpan, captures=[Capture...], guard=ValueSummary, guard_effects=[EffectRow...], body_effects=[EffectRow...], result_types=[TypeAttr...], results=[ValueSummary...]}`.
 Declaration/registration are actual distinct roles. Values zero-formal callable scope, capture inputs module scope. Preserve read-only/zero-write transactions. Do not fabricate logical result constraints not in transaction IR.
+
+Both callable rows require the existing closed SourceSpan as `guard_location`.
+Its path equals the declaring provider Module/ModuleImport SourceOwner path.
+It is derived from mandatory `ac.guard_location` on the source callable: the
+entire explicit Lambda span, or the entire FunctionDef span for a bare guard.
+Use captured coordinates, never reconstruct from MLIR Location or the caller.
+SourceMethodView exposes the same span for definitions and interface rows;
+provider body rederivation rejects stale or altered published spans. Missing old
+fields reject without defaults or aliases. This location authority does not
+itself establish dynamic guard execution.
 
 Selectors:
 

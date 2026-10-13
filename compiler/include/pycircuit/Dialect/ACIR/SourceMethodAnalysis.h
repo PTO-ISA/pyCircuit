@@ -22,6 +22,7 @@ struct SourceMethodView {
   mlir::ArrayAttr getResultConstraints() const;
   mlir::StringAttr getReturnForm() const;
   mlir::DictionaryAttr getDeclaration() const;
+  mlir::DictionaryAttr getGuardLocation() const;
   mlir::SymbolRefAttr getSymbol() const;
 };
 
