@@ -2,7 +2,7 @@
 
 编译流程为 ACPy AST → ACIR MLIR → 条件化 RuleGraph。当前支持静态编译、独立重载和依赖分析，不生成仿真代码。
 
-目标语义见 [ACIR 基础设计](../acir/basic-design.md)，当前支持的前端写法见 [ACPy 前端](../acpy/spec.md)，当前保存格式见 [ACIR v6](acir.md)。基础设计中的原生 Module／Rule／Method 等结构尚未全部实现。
+核心抽象的修订草稿见 [pyCircuit 核心抽象设计](docs/core-design.md)。目标语义见 [ACIR 基础设计](../acir/basic-design.md)，当前支持的前端写法见 [ACPy 前端](../acpy/spec.md)，当前保存格式见 [ACIR v6](acir.md)。基础设计中的原生 Module／Rule／Method 等结构尚未全部实现。
 
 ## 构建与测试
 

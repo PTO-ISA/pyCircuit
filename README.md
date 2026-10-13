@@ -4,6 +4,7 @@
 
 | 入口 | 内容 |
 | --- | --- |
+| [pyCircuit 核心抽象设计](pycircuit/docs/core-design.md) | 修订草稿：状态组件、Rule、Module、同拍顺序与 EHR |
 | [ACIR 基础设计](acir/basic-design.md) | 本轮确认的目标 primitive、组件契约和 guard 传播 |
 | [编译器构建与使用](pycircuit/README.md) | 构建、compile/analyze、产物和可视化 |
 | [ACPy 前端](acpy/spec.md) | 当前前端写法与支持范围 |
