@@ -1,0 +1,2 @@
+# REQUIRES: iverilog, vvp, rtl-four-state-parameter-types
+# RUN: %python %S/Inputs/serial-method-public.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --optimizer %pycircuit_opt --cxx %cxx --iverilog %iverilog --vvp %vvp --scratch %t.dir

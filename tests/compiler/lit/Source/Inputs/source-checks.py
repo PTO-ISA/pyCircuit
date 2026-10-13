@@ -835,11 +835,11 @@ def main():
     body.write_bytes(original_body)
     header = payload(provider_unit, "interface")
     original_header = header.read_bytes()
-    output_names = 'output_names = ["value"]'
+    output_names = 'output_names = ["result"]'
     assert output_names in original_header.decode()
     header.write_text(
         original_header.decode().replace(
-            output_names, 'output_names = ["value", "missing"]', 1
+            output_names, 'output_names = ["result", "missing"]', 1
         )
     )
     compile_unit(

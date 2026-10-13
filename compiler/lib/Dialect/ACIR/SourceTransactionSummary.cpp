@@ -10,8 +10,59 @@
 using namespace mlir;
 namespace acir::ac {
 namespace detail {
+FailureOr<Value>
+getSourcePredicateIdentityInput(Value value, const HardwareAnalysis &hardware) {
+  if (!value)
+    return Value();
+  auto extract = value.getDefiningOp<BitsExtractOp>();
+  if (!extract || extract->getNumOperands() != 1 ||
+      extract->getNumResults() != 1)
+    return Value();
+  auto input = dyn_cast<BitsType>(extract.getInput().getType());
+  auto output = dyn_cast<BitsType>(value.getType());
+  auto low = extract->getAttrOfType<StaticExprAttr>("low");
+  if (!input || !output || !low)
+    return Value();
+  HardwareBindings bindings;
+  bindings.owner = extract->getParentOfType<ModuleOp>();
+  if (!hardware.isStaticEvaluable(input.getWidth(), bindings) ||
+      !hardware.isStaticEvaluable(output.getWidth(), bindings))
+    return Value();
+  auto inputWidth = hardware.getPackedWidth(input, bindings, extract);
+  auto outputWidth = hardware.getPackedWidth(output, bindings, extract);
+  if (failed(inputWidth) || failed(outputWidth))
+    return failure();
+  if (*inputWidth != 1 || *outputWidth != 1 ||
+      !hardware.isStaticEvaluable(low, bindings))
+    return Value();
+  auto evaluated = hardware.evaluateStatic(low, bindings, extract);
+  if (failed(evaluated))
+    return failure();
+  auto integer = dyn_cast<MathIntAttr>(*evaluated);
+  if (!integer || integer.getCanonicalValue() != "0")
+    return Value();
+  return extract.getInput();
+}
+
 FailureOr<BoolAttr>
 getSourceLiteralPredicate(Value value, const HardwareAnalysis &hardware) {
+  if (!value)
+    return BoolAttr();
+  llvm::DenseSet<Value> seen;
+  for (unsigned depth = 0;; ++depth) {
+    if (depth > 128)
+      return mlir::emitError(UnknownLoc::get(value.getContext()))
+             << "source predicate identity depth budget exceeded";
+    if (!seen.insert(value).second)
+      return mlir::emitError(UnknownLoc::get(value.getContext()))
+             << "cyclic source predicate identity";
+    auto input = getSourcePredicateIdentityInput(value, hardware);
+    if (failed(input))
+      return failure();
+    if (!*input)
+      break;
+    value = *input;
+  }
   auto literal = value.getDefiningOp<BitsConstantOp>();
   if (!literal)
     return BoolAttr();
@@ -209,7 +260,16 @@ private:
     return succeeded(width) && *width == 1;
   }
   DictionaryAttr fact(Value value, Operation *scope, unsigned depth = 0) {
-    if (!budget.depth(depth) || !oneBit(value.getType()))
+    if (!budget.depth(depth))
+      return unknown();
+    auto input = detail::getSourcePredicateIdentityInput(value, hardware);
+    if (failed(input)) {
+      invalid = true;
+      return unknown();
+    }
+    if (*input)
+      return fact(*input, scope, depth + 1);
+    if (!oneBit(value.getType()))
       return unknown();
     if (auto argument = dyn_cast<BlockArgument>(value)) {
       if (!scope && argument.getOwner()->getParentOp() == definition)
@@ -336,6 +396,12 @@ private:
             {{"kind", str("input")},
              {"ordinal", builder.getI64IntegerAttr(argument.getArgNumber())}});
     }
+    // Domain publication retains direct physical endpoints. Predicate identity
+    // forwarding must not turn an extract into a direct literal domain wire.
+    if (!input.getDefiningOp<BitsConstantOp>())
+      return definition.emitOpError()
+             << "transaction publication domain endpoint requires a physical "
+                "one-bit module input or direct static literal";
     auto literal = detail::getSourceLiteralPredicate(input, hardware);
     if (failed(literal))
       return failure();

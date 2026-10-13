@@ -435,8 +435,9 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
     assert relay_body.count('"ac.instance"(') == 2, relay_body
     assert '"ac.method.call"(' in consumer_body and '"ac.transaction"(' in consumer_body
 
-    # Protect actual hardware artifacts when the admitted Method units reach
-    # the separate, deliberately unfinished transaction lowering boundary.
+    # This closure invokes Methods across instances and contains active
+    # dynamic guards. It remains outside same-owner transaction materialization.
+    # Preserve the independently published interfaces and hardware outputs.
     final = archive / "protected.ac"
     cli(
         "link",
@@ -502,6 +503,12 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
             "boolean-is-not-integer": consumer_text.replace(
                 "owner.integer(logical)", "owner.integer(permitted)"
             ),
+            "fixed-is-not-logical-integer": consumer_text.replace(
+                "owner.integer(logical)", "owner.integer(fixed)"
+            ),
+            "fixed-is-not-boolean": consumer_text.replace(
+                "owner.boolean(permitted)", "owner.boolean(fixed)"
+            ),
             "boolean-result-is-not-integer": consumer_text.replace(
                 "owner.integer(logical)", "owner.integer(owner.boolean(permitted))"
             ),
@@ -510,6 +517,15 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
             ),
             "fixed-width": consumer_text.replace(
                 "owner.fixed(fixed)", "owner.fixed(delta)"
+            ),
+            "fixed-width-integer-constant": consumer_text.replace(
+                "other.add(delta)", "other.add(256)"
+            ),
+            "fixed-width-captured-integer": consumer_text.replace(
+                "    owner = Relay()", "    too_large = 256\n    owner = Relay()"
+            ).replace("other.add(delta)", "other.add(too_large)"),
+            "logical-integer-interval": consumer_text.replace(
+                "owner.integer(logical)", "owner.integer(2)"
             ),
             "nominal": consumer_text.replace(
                 "@ac.module\ndef Consumer",
@@ -542,7 +558,14 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
                 "boolean-result-is-not-integer",
                 "integer-result-is-not-boolean",
             ):
-                diagnostic = "Boolean and Integer kinds cannot be implicitly converted"
+                expected_kind = (
+                    "Integer" if name == "boolean-result-is-not-integer" else "Boolean"
+                )
+                diagnostic = (
+                    "binding boundary requires declared "
+                    + expected_kind
+                    + " source kind"
+                )
                 assert diagnostic in fresh.stderr, fresh.stderr
                 assert diagnostic in replacement.stderr, replacement.stderr
             assert snapshot(consumer_unit) == before_unit, name
@@ -567,7 +590,7 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
     (scratch / ("method-" + args.method_checks + "-receipt.json")).write_text(
         json.dumps(
             {
-                "scope": "source publication and header authority; final transaction lowering remains rejected",
+                "scope": "source publication and header authority; cross-instance and dynamic-guard Method closure remains rejected",
                 "provider_python_unavailable": not provider_source.exists(),
                 "relay_python_unavailable": not relay_source.exists(),
                 "units": {

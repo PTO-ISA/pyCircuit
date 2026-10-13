@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
 
 using namespace mlir;
@@ -496,18 +497,29 @@ LogicalResult SourceTransactionOp::verifyRegions() {
   return region(*this, 1, getCaptures().getTypes(), getResultTypes());
 }
 
+Operation *detail::findUnloweredTransaction(Operation *root) {
+  SmallVector<Operation *> pending;
+  if (root)
+    pending.push_back(root);
+  while (!pending.empty()) {
+    Operation *operation = pending.pop_back_val();
+    if (isa<SourceStateOp, SourceStateReadOp, SourceStateWriteOp,
+            SourceMethodOp, SourceMethodCallOp, SourceTransactionOp>(operation))
+      return operation;
+    for (Region &region : llvm::reverse(operation->getRegions()))
+      for (Block &block : llvm::reverse(region))
+        for (Operation &child : llvm::reverse(block))
+          pending.push_back(&child);
+  }
+  return nullptr;
+}
+
 LogicalResult detail::verifyNoUnloweredTransactions(Operation *root) {
-  auto walk = root->walk([&](Operation *operation) {
-    if (!isa<SourceStateOp, SourceStateReadOp, SourceStateWriteOp,
-             SourceMethodOp, SourceMethodCallOp, SourceTransactionOp>(
-            operation))
-      return WalkResult::advance();
-    operation->emitOpError()
-        << "unlowered source transaction operation cannot cross the verified "
-           "hardware boundary";
-    return WalkResult::interrupt();
-  });
-  return failure(walk.wasInterrupted());
+  if (Operation *operation = findUnloweredTransaction(root))
+    return operation->emitOpError()
+           << "unlowered source transaction operation cannot cross the verified "
+              "hardware boundary";
+  return success();
 }
 
 } // namespace acir::ac

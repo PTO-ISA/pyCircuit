@@ -44,8 +44,10 @@ target_link_libraries(ACIRRecordProjectionSimplificationTests PRIVATE
   ACIRTransforms MLIRPass)
 add_acir_api_test(ACIRQueueContractsTests QueueContractsTest.cpp)
 add_acir_api_test(ACIRTransactionEffectsTests TransactionEffectsTest.cpp
-  MethodSummaryAuthorityTest.cpp TransactionStateSSATest.cpp)
-target_link_libraries(ACIRTransactionEffectsTests PRIVATE MLIRPass)
+  MethodSummaryAuthorityTest.cpp TransactionStateSSATest.cpp
+  TransactionLoweringTest.cpp)
+target_link_libraries(ACIRTransactionEffectsTests PRIVATE
+  ACIRSourceCompiler ACIRTransforms MLIRPass)
 target_link_libraries(ACIRQueueContractsTests PRIVATE
   ACIRSourceCompiler ACIRCodegen ACIRTransforms MLIRPass MLIRTransforms)
 target_compile_definitions(ACIRQueueContractsTests PRIVATE
@@ -147,7 +149,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../lit/lit.site.cfg.py.in"
   "${_lit_binary}/lit.site.cfg.py" @ONLY)
 # Complementary filters preserve the complete lit inventory without duplicates.
 # Fast verifier/pass tests plus source diagnostics and publication protection.
-set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes)\\.test)")
+set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes)\\.test)")
 add_test(NAME ACIRLitGateTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
   --filter "${_lit_gate_filter}" "${_lit_binary}")
 add_test(NAME ACIRLitNightlyTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv

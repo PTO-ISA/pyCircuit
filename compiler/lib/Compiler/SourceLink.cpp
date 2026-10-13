@@ -4,14 +4,51 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
+#include "mlir/Pass/Pass.h"
+#include "mlir/Pass/PassInstrumentation.h"
+#include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/Support/raw_ostream.h"
 
 using namespace mlir;
 
 namespace acir::compiler {
 namespace {
+
+struct TransactionStageCapture {
+  unsigned beforeCount = 0;
+  unsigned afterCount = 0;
+  SourceLinkStages stages;
+};
+
+class TransactionStageInstrumentation final : public PassInstrumentation {
+public:
+  TransactionStageInstrumentation(Pass *lower, Operation *package,
+                                  TransactionStageCapture &capture)
+      : lower(lower), package(package), capture(capture) {}
+
+  void runBeforePass(Pass *pass, Operation *operation) override {
+    if (pass == lower && operation == package && ++capture.beforeCount == 1)
+      print(operation, capture.stages.beforeTransactions);
+  }
+  void runAfterPass(Pass *pass, Operation *operation) override {
+    if (pass == lower && operation == package && ++capture.afterCount == 1)
+      print(operation, capture.stages.afterTransactions);
+  }
+
+private:
+  static void print(Operation *operation, std::string &text) {
+    llvm::raw_string_ostream output(text);
+    operation->print(output, OpPrintingFlags().enableDebugInfo());
+    output << '\n';
+  }
+  Pass *lower;
+  Operation *package;
+  TransactionStageCapture &capture;
+};
 
 LogicalResult preflightSourceLinkPair(SourceLinkUnit unit, unsigned index,
                                       ac::detail::EmitError emitError) {
@@ -94,7 +131,8 @@ admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
 
 FailureOr<OwningOpRef<ModuleOp>>
 linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
-                   ac::detail::EmitError emitError) {
+                  ac::detail::EmitError emitError,
+                  SourceLinkStages *retainedStages) {
   auto admitted = admitSourceLinkUnits(units, emitError);
   if (failed(admitted))
     return failure();
@@ -113,7 +151,8 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
     for (Operation &operation : unit.body.getBody()->getOperations()) {
       auto name = SymbolTable::getSymbolName(&operation);
       if (!name)
-        return operation.emitOpError("source-unit top-level operation must be a declaration");
+        return operation.emitOpError(
+            "source-unit top-level operation must be a declaration");
       auto prior = symbols.find(name.getValue());
       if (prior != symbols.end()) {
         bool oldDefinition = isa<ac::ModuleOp>(prior->second);
@@ -141,7 +180,8 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
             continue;
           }
         } else {
-          return operation.emitOpError("conflicting linked declaration: ") << name;
+          return operation.emitOpError("conflicting linked declaration: ")
+                 << name;
         }
       }
       Operation *copy = operation.clone();
@@ -154,46 +194,74 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
                   ? ac::ModuleOp()
                   : dyn_cast<ac::ModuleOp>(selected->second);
   if (!root)
-    return emitError() << "link top is not a supplied module definition: @" << top;
+    return emitError() << "link top is not a supplied module definition: @"
+                       << top;
   if (!root.getTypeParameters().empty())
-    return root.emitOpError("source link requires concrete root type arguments");
+    return root.emitOpError(
+        "source link requires concrete root type arguments");
   SmallVector<Attribute> arguments;
   for (Attribute raw : root.getParameters()) {
     auto parameter = cast<DictionaryAttr>(raw);
     auto value = parameter.getAs<ac::StaticExprAttr>("default");
     if (!value)
-      return root.emitOpError("source link root integer parameter requires a default");
+      return root.emitOpError(
+          "source link root integer parameter requires a default");
     arguments.push_back(value);
   }
   OperationState state(root.getLoc(), ac::SystemOp::getOperationName());
-  state.addAttribute("entry", builder.getDictionaryAttr({
-      builder.getNamedAttr("callee", FlatSymbolRefAttr::get(context, top)),
-      builder.getNamedAttr("parameters", builder.getArrayAttr(arguments)),
-      builder.getNamedAttr("type_arguments", builder.getArrayAttr({}))}));
+  state.addAttribute(
+      "entry",
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("callee", FlatSymbolRefAttr::get(context, top)),
+           builder.getNamedAttr("parameters", builder.getArrayAttr(arguments)),
+           builder.getNamedAttr("type_arguments", builder.getArrayAttr({}))}));
   state.addAttribute("domain", builder.getStringAttr("default"));
   (*linked).getBody()->push_back(Operation::create(state));
   auto residualCall = linked->walk([&](func::CallOp call) {
     if (call->getParentOfType<func::FuncOp>())
       return WalkResult::advance();
     call.emitOpError() << "source value helper calls must be expanded before "
-                         "hardware publication";
+                          "hardware publication";
     return WalkResult::interrupt();
   });
   if (residualCall.wasInterrupted())
     return failure();
   // Admission above checked all helper bodies and their source authority.
   // Hardware expressions already contain their expanded payload operations.
-  for (auto helper : llvm::make_early_inc_range(linked->getOps<func::FuncOp>())) {
+  for (auto helper :
+       llvm::make_early_inc_range(linked->getOps<func::FuncOp>())) {
     auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
     if (kind && kind.getValue() == "value")
       helper.erase();
   }
-  if (failed(ac::detail::verifyNoUnloweredTransactions(*linked)))
-    return emitError() << "transaction lowering is not yet available for final "
-                         "hardware publication";
-  (*linked)->setAttr("ac.stage", builder.getStringAttr("final"));
-  if (failed(ac::verifyHardwarePackage(*linked)))
+  // Native transformation checks IR semantics; canonical provider authority
+  // stays with the admitted source registry, including after definition merge.
+  for (auto imported : linked->getOps<ac::ModuleImportOp>())
+    if (failed(admitted->verifyModuleImport(imported, emitError)))
+      return failure();
+
+  // Capture storage outlives instrumentation. Validate before any diagnostic
+  // printing, using existing hardware limits for packages with no transactions.
+  TransactionStageCapture capture;
+  PassManager pipeline(context);
+  if (ac::detail::findUnloweredTransaction(linked->getOperation()))
+    pipeline.addPass(acir::createAnalyzeTransactionStateSSAPass());
+  else
+    pipeline.addPass(acir::createVerifyHardwarePass());
+  auto lower = acir::createLowerTransactionsPass();
+  if (retainedStages)
+    pipeline.addInstrumentation(
+        std::make_unique<TransactionStageInstrumentation>(
+            lower.get(), linked->getOperation(), capture));
+  pipeline.addPass(std::move(lower));
+  if (failed(pipeline.run(*linked)))
     return failure();
+  if (retainedStages) {
+    if (capture.beforeCount != 1 || capture.afterCount != 1)
+      return emitError()
+             << "transaction link stages were not captured exactly once";
+    *retainedStages = std::move(capture.stages);
+  }
   return std::move(linked);
 }
 

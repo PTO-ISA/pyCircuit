@@ -123,6 +123,16 @@ guard 首批只接纳具有完全匹配必需位置参数的 lambda；owner 在�
 
 **冻结新增文件：** `compiler/lib/Transforms/LowerTransactions.cpp`。
 
+首个可执行增量直接复用该 owner，按 [MLIR 事务降低合同](mlir-pipeline.md#事务降低)
+完成同 owner、恒真 guard、whole-owner Bits、单外层 writer 的真实 DFFE/Rule 物化；
+不另建临时 lowerer。独立 native 用例由 `tests/compiler/IR/TransactionLoweringTest.cpp`
+及 `tests/compiler/lit/IR/transaction-lowering.mlir` 承担，公共源码 fixture 使用
+`tests/compiler/lit/Source/Inputs/serial-method/local_owner.py` 和下述已有预留 harness。
+PM 另负责 `SourceLink.h/.cpp` 的阶段捕获与权威重验，以及 `compiler/tools/link.cpp`
+的成对诊断输出；共享六类残留事务查询由既有 `ACIRSourceContracts.h`／
+`ACIRTransactionOps.cpp` 提供。原生结构验证与公共 canonical 权威分别验收。无事务的
+普通硬件不得新增事务预算限制。这个增量通过也不勾选本切片的完整跨实例和 system 出口。
+
 **产出与不变量：** 先检查全闭包，再将已证明事务变为 fire-gated proposals、字段合并、既有 Table/Queue 操作与 D/E 连接。到这一边界才能擦除 Method/transaction effect 成为纯硬件图。两目标消费同一最终 IR；whole-system 检查先于物理 Xfer，失败不提交 Q 或 clock history。`@system` 和 compiler-generated simulation closure 必须保留。
 
 硬错误使 SimSystem 进入 sticky Failed。测试须先在恢复前观测全部 Q／clock history 不变，再使用既有 Reset／重建协议恢复；仅修正输入不能作为重试成功的承诺。

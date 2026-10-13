@@ -1,17 +1,20 @@
-#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
+#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
+#include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <optional>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -32,6 +35,8 @@ struct Options {
   std::optional<std::string> glueOutput;
   std::optional<std::string> entryOwnerOutput;
   std::optional<std::string> unitOwnerOutput;
+  std::optional<std::string> transactionInputOutput;
+  std::optional<std::string> transactionOutputOutput;
   bool verifyOnly = false;
 };
 
@@ -80,9 +85,9 @@ bool parseOptions(int argc, char **argv, Options &options) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
         arg != "--design" && arg != "--target" && arg != "--output" &&
-        arg != "--glue-output" &&
-        arg != "--entry-owner-out" && arg != "--unit-owner-out" &&
-        arg != "--verify-only") {
+        arg != "--glue-output" && arg != "--entry-owner-out" &&
+        arg != "--unit-owner-out" && arg != "--transaction-input-out" &&
+        arg != "--transaction-output-out" && arg != "--verify-only") {
       llvm::errs() << "error: unknown option '" << arg << "'\n";
       return false;
     }
@@ -123,7 +128,29 @@ bool parseOptions(int argc, char **argv, Options &options) {
     } else if (arg == "--unit-owner-out" &&
                !setOnce(options.unitOwnerOutput, value, arg)) {
       return false;
+    } else if (arg == "--transaction-input-out" &&
+               !setOnce(options.transactionInputOutput, value, arg)) {
+      return false;
+    } else if (arg == "--transaction-output-out" &&
+               !setOnce(options.transactionOutputOutput, value, arg)) {
+      return false;
     }
+  }
+
+  if (options.transactionInputOutput.has_value() !=
+      options.transactionOutputOutput.has_value()) {
+    llvm::errs()
+        << "error: --transaction-input-out and --transaction-output-out "
+           "must be supplied together\n";
+    return false;
+  }
+  if (options.transactionInputOutput &&
+      (options.verifyOnly || options.design ||
+       *options.transactionInputOutput == "-" ||
+       *options.transactionOutputOutput == "-")) {
+    llvm::errs() << "error: transaction stage outputs require final link mode "
+                    "and fresh ordinary file paths\n";
+    return false;
   }
 
   if (options.verifyOnly) {
@@ -135,8 +162,7 @@ bool parseOptions(int argc, char **argv, Options &options) {
              "one --body/--header pair\n";
       return false;
     }
-    if (options.target || options.output || options.glueOutput ||
-        options.top) {
+    if (options.target || options.output || options.glueOutput || options.top) {
       llvm::errs() << "error: --verify-only takes no --target, --output, "
                       "--glue-output or --top\n";
       return false;
@@ -255,8 +281,8 @@ bool writeReport(llvm::StringRef path, llvm::StringRef text) {
 // Report the linked root's source owner and canonical definition so the driver
 // publishes the program under the owner the linker actually selected instead of
 // inferring it from module names.
-bool writeEntryOwner(llvm::StringRef path, mlir::DictionaryAttr owner,
-                     llvm::StringRef definition) {
+bool formatEntryOwner(mlir::DictionaryAttr owner, llvm::StringRef definition,
+                      std::string &text) {
   std::string source;
   if (!jsonOwnerObject(owner, source)) {
     llvm::errs() << "error: selected root source owner is not a package/path "
@@ -264,9 +290,15 @@ bool writeEntryOwner(llvm::StringRef path, mlir::DictionaryAttr owner,
     return false;
   }
   std::string canonical = "@\"" + definition.str() + "\"";
-  std::string text = "{\"source\":" + source +
-                     ",\"definition\":" + jsonString(canonical) + "}\n";
-  return writeReport(path, text);
+  text = "{\"source\":" + source + ",\"definition\":" + jsonString(canonical) +
+         "}\n";
+  return true;
+}
+
+bool writeEntryOwner(llvm::StringRef path, mlir::DictionaryAttr owner,
+                     llvm::StringRef definition) {
+  std::string text;
+  return formatEntryOwner(owner, definition, text) && writeReport(path, text);
 }
 
 // Report both internal owners of a verified source unit so the caller can
@@ -314,37 +346,51 @@ bool publishNoClobber(llvm::StringRef path, llvm::StringRef contents) {
   return true;
 }
 
-// Publish the two role files of one Verilog emission. Both destinations are
-// checked before either is created, and a failure on the second removes the
-// first, so a rejected bundle never leaves a half-published artifact behind.
-bool publishNoClobberPair(llvm::StringRef primaryPath, llvm::StringRef primary,
-                          llvm::StringRef secondaryPath,
-                          llvm::StringRef secondary) {
-  if (llvm::sys::fs::exists(primaryPath)) {
-    llvm::errs() << "error: cannot create output '" << primaryPath
-                 << "' without replacing an existing path\n";
-    return false;
+// The final artifact, owner report and optional stage snapshots belong to one
+// successful invocation. Never overwrite an input/existing output, and roll
+// back only files created here if any later creation/write fails.
+bool publishNoClobberOutputs(
+    llvm::ArrayRef<std::pair<llvm::StringRef, llvm::StringRef>> outputs) {
+  std::set<std::string> normalizedPaths;
+  for (auto [path, contents] : outputs) {
+    llvm::SmallString<256> absolute(path);
+    if (auto error = llvm::sys::fs::make_absolute(absolute)) {
+      llvm::errs() << "error: invalid output path: " << error.message() << '\n';
+      return false;
+    }
+    llvm::sys::path::remove_dots(absolute, true);
+    if (!normalizedPaths.insert(absolute.str().str()).second) {
+      llvm::errs() << "error: output paths must be distinct: " << path << '\n';
+      return false;
+    }
+    llvm::sys::fs::file_status status;
+    auto error = llvm::sys::fs::status(path, status, /*follow=*/false);
+    if ((error && error != std::errc::no_such_file_or_directory) ||
+        (!error && llvm::sys::fs::exists(status))) {
+      llvm::errs() << "error: cannot create output '" << path
+                   << "' without replacing an existing path\n";
+      return false;
+    }
   }
-  if (llvm::sys::fs::exists(secondaryPath)) {
-    llvm::errs() << "error: cannot create output '" << secondaryPath
-                 << "' without replacing an existing path\n";
-    return false;
-  }
-  if (!publishNoClobber(primaryPath, primary))
-    return false;
-  if (!publishNoClobber(secondaryPath, secondary)) {
-    // Report a failed rollback instead of silently leaving the first role file
-    // behind while claiming the bundle was rejected.
-    if (std::error_code rollback = llvm::sys::fs::remove(primaryPath))
-      llvm::errs() << "error: failed to roll back partially published output '"
-                   << primaryPath << "': " << rollback.message() << '\n';
-    return false;
+  llvm::SmallVector<llvm::StringRef> created;
+  for (auto [path, contents] : outputs) {
+    // Exclusive creation also catches aliases through parent symlinks that
+    // lexical normalization cannot resolve before either file exists.
+    if (!publishNoClobber(path, contents)) {
+      for (llvm::StringRef previous : created)
+        if (auto error = llvm::sys::fs::remove(previous))
+          llvm::errs() << "error: failed to roll back output '" << previous
+                       << "': " << error.message() << '\n';
+      return false;
+    }
+    created.push_back(path);
   }
   return true;
 }
 
 mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
-                            std::string &result) {
+                            std::string &result, std::string &entryOwner,
+                            acir::compiler::SourceLinkStages &stages) {
   llvm::SmallVector<mlir::OwningOpRef<mlir::ModuleOp>> ownedBodies;
   llvm::SmallVector<mlir::OwningOpRef<mlir::ModuleOp>> ownedHeaders;
   llvm::SmallVector<acir::compiler::SourceLinkUnit> units;
@@ -369,7 +415,9 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
   auto emitError = [&] {
     return mlir::emitError(mlir::UnknownLoc::get(&context));
   };
-  auto program = acir::compiler::linkHardwareUnits(units, *options.top, emitError);
+  auto program = acir::compiler::linkHardwareUnits(
+      units, *options.top, emitError,
+      options.transactionInputOutput ? &stages : nullptr);
   if (mlir::failed(program))
     return mlir::failure();
   auto root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(
@@ -377,7 +425,7 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
   if (!root)
     return emitError() << "linked package has no selected root";
   if (options.entryOwnerOutput &&
-      !writeEntryOwner(*options.entryOwnerOutput, root.getSourceOwner(), root.getSymName()))
+      !formatEntryOwner(root.getSourceOwner(), root.getSymName(), entryOwner))
     return mlir::failure();
   llvm::raw_string_ostream output(result);
   (*program)->print(output, mlir::OpPrintingFlags().enableDebugInfo());
@@ -408,13 +456,15 @@ mlir::LogicalResult runVerify(const Options &options,
     if (mlir::failed(acir::ac::verifyHardwarePackage(*input)))
       return mlir::failure();
     auto systems = (*input).getOps<acir::ac::SystemOp>();
-    auto entry = (*systems.begin()).getEntry().getAs<mlir::FlatSymbolRefAttr>("callee");
+    auto entry =
+        (*systems.begin()).getEntry().getAs<mlir::FlatSymbolRefAttr>("callee");
     auto root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(
         mlir::SymbolTable::lookupSymbolIn(*input, entry.getValue()));
     if (!root)
       return emitError() << "verified artifact has no selected module";
     if (options.entryOwnerOutput &&
-        !writeEntryOwner(*options.entryOwnerOutput, root.getSourceOwner(), root.getSymName()))
+        !writeEntryOwner(*options.entryOwnerOutput, root.getSourceOwner(),
+                         root.getSymName()))
       return mlir::failure();
     return mlir::success();
   }
@@ -476,21 +526,30 @@ int main(int argc, char **argv) {
 
   std::string result;
   std::string glueResult;
+  std::string entryOwner;
+  acir::compiler::SourceLinkStages stages;
   bool sourceUnitOwnerMismatch = false;
   mlir::LogicalResult status =
       options.verifyOnly
           ? runVerify(options, context, sourceUnitOwnerMismatch)
-          : runLink(options, context, result);
+          : runLink(options, context, result, entryOwner, stages);
   if (mlir::failed(status) && sourceUnitOwnerMismatch)
     return kSourceUnitOwnerMismatchExitCode;
   if (mlir::failed(status))
     return 1;
   if (options.verifyOnly)
     return 0;
+  llvm::SmallVector<std::pair<llvm::StringRef, llvm::StringRef>> outputs;
+  outputs.emplace_back(*options.output, result);
   if (options.glueOutput)
-    return publishNoClobberPair(*options.output, result, *options.glueOutput,
-                                glueResult)
-               ? 0
-               : 1;
-  return publishNoClobber(*options.output, result) ? 0 : 1;
+    outputs.emplace_back(*options.glueOutput, glueResult);
+  if (options.entryOwnerOutput)
+    outputs.emplace_back(*options.entryOwnerOutput, entryOwner);
+  if (options.transactionInputOutput) {
+    outputs.emplace_back(*options.transactionInputOutput,
+                         stages.beforeTransactions);
+    outputs.emplace_back(*options.transactionOutputOutput,
+                         stages.afterTransactions);
+  }
+  return publishNoClobberOutputs(outputs) ? 0 : 1;
 }

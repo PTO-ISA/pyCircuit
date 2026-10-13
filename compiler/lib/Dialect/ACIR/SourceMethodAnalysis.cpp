@@ -345,6 +345,15 @@ private:
       exhausted = true;
       return PredicateFact::Unknown;
     }
+    HardwareAnalysis hardware(
+        callable.module->getParentOfType<mlir::ModuleOp>());
+    auto input = detail::getSourcePredicateIdentityInput(value, hardware);
+    if (failed(input)) {
+      exhausted = true;
+      return PredicateFact::Unknown;
+    }
+    if (*input)
+      return fact(*input, callable, arguments, depth + 1);
     if (auto argument = dyn_cast<BlockArgument>(value)) {
       if (argument.getOwner()->getParentOp() != callable.definition)
         return PredicateFact::Unknown;
@@ -364,8 +373,6 @@ private:
                     {callable.module, nullptr, {}, {}}, {}, depth + 1);
       return PredicateFact::Unknown;
     }
-    HardwareAnalysis hardware(
-        callable.module->getParentOfType<mlir::ModuleOp>());
     auto literal = detail::getSourceLiteralPredicate(value, hardware);
     if (failed(literal)) {
       exhausted = true;

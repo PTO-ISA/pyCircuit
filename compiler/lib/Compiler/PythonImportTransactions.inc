@@ -315,8 +315,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         return failure();
       Port boundaryPort{name.str(), *type, annotation,
                         annotationKind(annotation), true};
-      auto converted = boundary(*initial, boundaryPort,
-                                statement.child("value"), at, decl.symbol);
+      auto converted = applyBindingBoundary(
+          *initial, BindingBoundary{boundaryPort, true}, statement.child("value"),
+          at, decl.symbol);
       if (failed(converted))
         return failure();
       Operation *state = createOp(
@@ -555,9 +556,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                 states[name].type);
         if (failed(value))
           return failure();
-        Port statePort{
-            name.str(), states[name].type, states[name].node, {}, true};
-        auto converted = boundary(*value, statePort, rhs, inside, decl.symbol);
+        auto converted = applyBindingBoundary(
+            *value, ownerBoundary(states[name]), rhs, inside, decl.symbol);
         if (failed(converted))
           return failure();
         auto path = trueValue(statement, inside, decl.symbol);
@@ -596,8 +596,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       if (failed(value))
         return failure();
       if (expected) {
-        auto converted =
-            boundary(*value, localContract, rhs, inside, decl.symbol);
+        auto converted = applyBindingBoundary(
+            *value, BindingBoundary{localContract, true}, rhs, inside, decl.symbol);
         if (failed(converted))
           return failure();
         values[name] = *converted;
@@ -899,7 +899,10 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     auto value = expression(actual, at, owner, values, instances, port.type);
     if (failed(value))
       return failure();
-    auto converted = boundary(*value, port, actual, at, owner);
+    // Typed actuals share declared-binding authority: fixed Bits use the
+    // unsigned boundary, while logical Integer/Boolean keep strict kind checks.
+    auto converted = applyBindingBoundary(
+        *value, BindingBoundary{port, true}, actual, at, owner);
     if (failed(converted))
       return failure();
     arguments.push_back(*converted);

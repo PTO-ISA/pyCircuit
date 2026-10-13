@@ -539,13 +539,28 @@ private:
   }
 
   FailureOr<BoolAttr> predicate(BoundValueId id, Operation *site) {
-    auto bound = normalize(id, site);
-    if (failed(bound) || !budget.charge(site))
-      return failure();
-    // This helper intentionally has lexical bindings only. In particular it
-    // supplies no parameter-specialized proof or evaluation of pure payloads.
-    return detail::getSourceLiteralPredicate(plan.values[*bound].value,
-                                             hardware);
+    llvm::DenseSet<BoundValueId> seen;
+    for (unsigned depth = 0; depth <= maxDepth; ++depth) {
+      auto bound = normalize(id, site);
+      if (failed(bound) || !budget.charge(site, 2))
+        return failure();
+      if (!seen.insert(*bound).second)
+        return boundedError(site) << "cyclic transaction predicate identity";
+      auto ref = plan.values[*bound];
+      auto input = detail::getSourcePredicateIdentityInput(ref.value, hardware);
+      if (failed(input))
+        return failure();
+      if (!*input)
+        // This helper has lexical bindings only, with no parameter-specialized
+        // proof or expression evaluation. Domain normalize remains unchanged.
+        return detail::getSourceLiteralPredicate(ref.value, hardware);
+      auto forwarded = value(*input, ref.anchor, ref.frame);
+      if (failed(forwarded))
+        return failure();
+      id = *forwarded;
+    }
+    return boundedError(site)
+           << "transaction predicate identity depth budget exceeded";
   }
 
   LogicalResult truePath(BoundValueId id, Operation *site) {

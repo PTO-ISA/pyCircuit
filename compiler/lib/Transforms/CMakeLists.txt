@@ -4,6 +4,7 @@ add_acir_library(ACIRTransforms SOURCES
   SimplifyRecordWires.cpp
   AnalyzeSourceMethods.cpp
   AnalyzeTransactionStateSSA.cpp
+  LowerTransactions.cpp
   LINK_LIBRARIES
     ACIRDialect
     MLIRPass

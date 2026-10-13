@@ -39,9 +39,14 @@ import pycircuit as ac
 from pycircuit import log, report, rule
 
 
+@ac.struct
+class ChildResult:
+    out: ac.u5
+
+
 @ac.module
-def Leaf(x: ac.u5) -> {"out": ac.u5}:
-    return {"out": x}
+def Leaf(x: ac.u5) -> ChildResult:
+    return ChildResult(out=x)
 """
 
 # Behavioral module: a nominal struct return plus a module-scope @ac.rule. Any
@@ -91,16 +96,14 @@ PURE_BODY = """\
         {statement}
     observe()"""
 
-# Pure rule that also binds an instance. This is the shape whose observation
-# statement the rule-body walker defers to the module-level instrumentation pass,
-# so it is the coverage that keeps both readings of one rule body in step.
+# A direct structural instance followed by one autonomous observation rule.
+# Observing the child result preserves the instance and its input value.
 PURE_BINDING_BODY = """\
-    child = Leaf()
+    child = Leaf(value)
     @rule
-    def bind():
-        child(x=value)
+    def observe():
         {statement}
-    bind()"""
+    observe()"""
 
 PY_CALL = """\
 import pycircuit as ac
@@ -484,8 +487,7 @@ def main():
         )
 
     # ----------------------------------------------------------------------
-    # 2. The same statement reaches the same op from the pure importer. This is
-    #    the property the deferred structural site exists to preserve.
+    # 2. The same statement reaches the same op from the pure importer.
     # ----------------------------------------------------------------------
     agreement_receipts = []
     for name, (spelling, fragments) in sorted(AGREEMENT_SPELLING.items()):
@@ -637,9 +639,8 @@ def main():
         )
 
     # ----------------------------------------------------------------------
-    # 5. Pure structural sites: the module-level republish must keep covering
-    #    every site the rule-body walker deferred, and everything else stays
-    #    named-rejected.
+    # 5. Pure structural sites publish every accepted observation, and
+    #    everything else stays named-rejected.
     # ----------------------------------------------------------------------
     pure_receipts = []
     for name, statement in sorted(PURE_SITES.items()):
@@ -687,14 +688,13 @@ def main():
             }
         )
 
-    # A pure rule that binds an instance and observes: this is the site the
-    # rule-body walker defers, so it proves the module-level pass still publishes
-    # exactly the statements the walker handed over.
-    for name in ("report-deferred", "log-deferred"):
+    # Direct composition and observation share the child's actual result, while
+    # retaining exactly one observation and one structural instance.
+    for name in ("report-child-result", "log-child-result"):
         statement = (
-            'report("leaf.r.q", value)'
-            if name == "report-deferred"
-            else 'log("info", "leaf.r.q", value)'
+            'report("leaf.r.q", child.out)'
+            if name == "report-child-result"
+            else 'log("info", "leaf.r.q", child.out)'
         )
         text = PURE.replace(
             "{body}", PURE_BINDING_BODY.replace("{statement}", statement)
@@ -724,7 +724,7 @@ def main():
                 "exit_status": 0,
                 "ac_observe": 1,
                 "ac_instance": 1,
-                "deferred_site": True,
+                "direct_child_result": True,
             }
         )
 

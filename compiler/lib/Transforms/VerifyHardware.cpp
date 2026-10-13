@@ -37,6 +37,7 @@ void registerACIRPasses() {
   registerPass([] { return createSimplifyRecordWiresPass(); });
   registerPass([] { return createAnalyzeSourceMethodSummariesPass(); });
   registerPass([] { return createAnalyzeTransactionStateSSAPass(); });
+  registerPass([] { return createLowerTransactionsPass(); });
 }
 
 } // namespace acir

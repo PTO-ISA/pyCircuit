@@ -17,7 +17,8 @@ Python or infers a different hardware meaning.
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
-| Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of straight-line whole-owner candidate versions, invocation snapshots and guard obligations. This explicit analysis pass is not part of default compile/link and does not lower executable transactions. |
+| Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of straight-line whole-owner candidate versions, invocation snapshots and guard obligations. Link uses this before lowering packages containing source transaction operations. |
+| Lower transactions | `LowerTransactions` | Materialize the admitted same-owner, proven-true, whole scalar-state subset into isolated pure Rules and existing DFFE instances; verify a detached candidate before replacing the input. Ordinary hardware uses existing verification without transaction-analysis limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -38,13 +39,14 @@ retains its scalar predicate boundary until equivalent target support is
 implemented and independently verified. Backend failures must not become a
 fallback implementation or a second semantic path.
 
-The [serial Rule/Method extension](../rfcs/serial-rule-method/README.md) now has
-a bounded source-to-typed-effects producer and an IR call-summary analysis.
-These stages retain explicit state reads/writes and Method calls; they do not
-yet solve candidate state, generate admission or emit executable transactions.
+The [serial Rule/Method extension](../rfcs/serial-rule-method/README.md) has
+a bounded source-to-typed-effects producer and shared native call/state analyses.
+Source compilation retains explicit state reads/writes and Method calls.
 Source units can publish these typed operations and their declaration-only
 interfaces. Consumer compilation reads the interfaces, without loading provider
-Python or Method bodies. Final link and emission still reject unlowered effects.
+Python or Method bodies. Final link lowers same-owner calls with proven-true
+guards/effect paths and one outer writer per scalar owner. Final verification
+and emission reject any residual unlowered effects.
 
 The same Dialect analysis exposes a separately fallible direct transaction
 summary and structural/body comparison APIs. They retain ordered effects,
@@ -62,13 +64,17 @@ The two summaries are mutually exclusive, and transaction imports cannot claim
 primitive behavior. Untagged imports are rejected. Hardware dependency analysis
 rejects transaction imports throughout the actual instance closure, including
 result-free children; final package checking also rejects unused transaction
-imports. Transaction publication does not enable hardware execution.
+imports. Publication alone does not establish hardware execution.
 
 Source compilation defers the hardware-only record simplifier for packages
 retaining transaction semantics. The existing `--source-import-out` diagnostic
 still denotes lowered hardware and rejects these packages; published source
 bodies retain their actual typed IR. Link checks complete source-unit authority,
-then rejects remaining transactions before marking any candidate final.
+then applies the common transaction lowerer. It rechecks canonical primitive
+imports with the admitted registry; native transformation separately validates
+their hardware schema. Each admitted state becomes one DFFE with original
+clock/reset/init, and candidate D values come from isolated pure Rules. All
+staged hardware checks succeed before the package becomes final.
 
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
 its input IR. Each outer transaction starts from old Q; nested Method calls
@@ -77,9 +83,22 @@ as snapshots. The native analysis requires actual Method bodies, proven-true
 effect paths and paired clock/reset wire identity. False or unknown guards
 remain obligations for later admission analysis. Unsupported selectors,
 conditional effects and unproved domains reject this analysis only. No plan is
-published if any transaction fails. Branch joins, partial updates, physical
-owner wiring, admission and final hardware materialization remain unfinished;
-an analysis result is not a public Method execution claim.
+published if any transaction fails. Branch joins, partial updates, cross-instance
+owner wiring, dynamic guard admission and resource handling remain unfinished.
+The analysis alone is not execution evidence; the bounded lowerer's public
+C++/RTL execution and the broader extension have separate acceptance scopes.
+
+For exact stage evidence, the native linker accepts paired
+`--transaction-input-out PATH` and `--transaction-output-out PATH` in final-link
+mode. It captures the actual merged input after preanalysis and the same
+lowering pass's verified output. Both paths must be fresh ordinary files,
+distinct from inputs, final output and owner report. Failure removes files
+created by that invocation. The optional library `SourceLinkStages` output is
+updated only on full success. These diagnostics add no Python public CLI or
+source authority. Replaying the same body/header bytes, SourceOwner order, top
+and linker must reproduce the public final byte-for-byte; the after-stage
+snapshot equals that final serialization. Both emitters still use the public
+final artifact.
 
 Importer-local signatures are ordinary declaration attributes. They are not
 temporary published imports and do not acquire dependency authority. The

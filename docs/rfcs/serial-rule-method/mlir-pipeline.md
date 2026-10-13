@@ -199,6 +199,43 @@ Queue 的事务内容量抵扣见[资源合同](extensions.md#queue-request-admi
 每个高层效果必须有唯一 lowering 归宿，或有经过证明的无效果解释。
 “backend 不支持所以忽略”与“结果无人使用所以删除效果”均不合法。
 
+首个可执行切片在同一个 `ac-lower-transactions` 中物化直线、同 owner、whole-owner
+fixed Bits 状态；实际 Rule/Method guard 和 effect path 都必须证明为 true，每个 owner
+最多有一个外层事务 writer。重复或身份写仍参与冲突检查。不同事务分别从 Q0 开始，
+同一调用链复用候选版本。未调用 Method 先通过声明、摘要和递归验证，再在完整 link
+闭包中删除；不能通过提前删除规避检查。这个切片不关闭跨实例接线、动态 guard、部分
+更新、资源或完整 Method `@system` 验收，也不建立另一条临时 lowering 路线。
+
+输入采用现有 link 合并状态：有 `ac.source_units` 与唯一 `ac.system`，无 `ac.stage`
+和单源 envelope 属性。普通 provider imports 已解消。公共 link 通过仍存活的
+`SourceHeaderRegistry` 重验 primitive imports 的 canonical 权威；原生 pass 只验证
+DFFE 的既有 IR schema 和时间依赖，不把 schema-valid 声明当作源发布权威。
+
+先复用事务状态分析，再在 detached clone 中生成真正的 `ac.rule` 和既有 DFFE。
+每个状态声明恰好一个 storage leaf；唯一 writer 的最终候选接 D，E 为已知 true，
+未写 owner 则 D=Q、E=false。clk/reset/init、instance occurrence 和源 owner 保留。
+完成 native、无残留事务及 hardware verification 后才一次提交 clone，并使旧分析失效。
+失败保持原包对象身份、属性、值及 regions。没有 source transaction operations 的普通
+硬件通过同一 pass 的既有 hardware verification 路径进入 final，不引入事务分析的预算
+或额外 clone 限制；分类复用既有残留事务检查的六类 operation owner。
+
+新 Rule 保持 `IsolatedFromAbove`。live-ins 包含原 captures、实际 Method 词法 captures、
+隐式 owner Q 及实际纯 region 使用的模块级值；按真实 Value 身份去重，以 module block
+argument ordinal、顶层 op/result ordinal 排序，并保留精确类型。每个 invocation 有独立
+局部 IRMapping，guard/body 形参分别绑定；嵌套纯 region 参数不逃逸。模块分配和初始化
+留在模块内，候选通过内部 Rule results 返回。先建立所有 replacement，再统一替换旧
+transaction 的普通结果，不能依赖逐个删除的顺序。
+
+阶段产物由真实 SourceLink pass instrumentation 捕获：preanalysis 成功后、lowering
+之前的完整 typed 包，以及同一次 pass 成功提交后的 final 包。`SourceLinkStages` 仅在
+完整 link 成功后更新；失败保留调用者原值。原生 linker 的成对
+`--transaction-input-out`／`--transaction-output-out` 仅接受 final link 和 fresh 普通
+文件；所有输入、final、owner report 和两个诊断路径不得互相覆盖，失败回滚本次新文件。
+这不扩展 Python 公共 CLI。公共验收用相同 linker/top、按 SourceOwner 排序的相同
+body/header 字节重放同一 link，要求 replay final 与公共 final 完全一致，after-stage
+与 replay final 完全一致；不能删位置、owner 或语义属性后再比较。双目标仍消费原公共
+final。阶段文件不是另一套 source authority 或编译路线。
+
 ### 效果安全优化
 
 优化前必须检查原表示的语义合法性，避免 DCE 隐藏冲突、死环、检查或未实现操作。

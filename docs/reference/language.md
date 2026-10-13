@@ -1016,7 +1016,7 @@ The first loop builds a native runner and executes the same IR as RTL against
 independent values. It does not add a shared-library port C ABI. Host Reset is
 not a clocked reset pulse or a promise to clear memory.
 
-## Remaining source capabilities
+## Method execution and remaining capabilities
 
 The compiler independently publishes a bounded subset of `@method` and nested
 transaction syntax as verified source units. Consumers use published interfaces
@@ -1029,9 +1029,24 @@ value-call behavior.
 This source-compilation subset retains fixed scalar state, sequential local
 assignments/calls, typed scalar/Struct results, lambda guards and static
 zero-argument Method-owner construction. It does not expand effectful branch,
-loop, aggregate-state or general static-parameter admission. Final link still
-rejects these transactions: candidate state SSA, admission, resource checks and
-dual-target lowering remain unfinished. This is not executable Method support.
+loop, aggregate-state or general static-parameter admission.
+
+Final link lowers a bounded executable subset: whole scalar state represented
+by fixed-width Bits, same-owner repeated or nested Method calls, proven-true
+active guards and effect paths, and at most one outer Rule writer per owner.
+Calls share their outer transaction's candidate versions; saved ordinary values
+remain snapshots. Independent Rules read old Q, regardless of registration
+order. Separate structural instances retain independent state. Each state
+declaration uses one existing DFFE, preserving clock/reset, hold and discard;
+the same verified final artifact feeds C++ and Verilog.
+
+Cross-instance Method calls, false/unknown active guards, partial or conditional
+effects, transaction resource operations and new transaction checks/observations
+still reject during lowering. Valid uncalled Method declarations remain fully
+published and checked before link removes them. This subset does not complete
+general admission, resource/causality handling, branch/partial state or Method
+`@system` simulation closure. Existing ordinary hardware and its system route
+retain their current contracts and limits.
 See the
 [extension specification](../rfcs/serial-rule-method/README.md) for its target
 semantics and explicit implementation boundaries.

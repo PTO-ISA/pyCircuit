@@ -1765,4 +1765,137 @@ def Owner():
   }
 }
 
+TEST_F(SourceTransactionCaptureTest,
+       CapturedIntegerCrossesFixedInitializerLocalFormalAndOwnerWriteBoundaries) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    bias = 3
+    count: ac.u8 = bias
+    @ac.method
+    def put(value: ac.u8) -> ac.u8:
+        local: ac.u8 = bias
+        count = bias
+        count = local
+        return value
+    @ac.rule
+    def step() -> None:
+        unused = put(bias)
+    step()
+)py", "fixed_boundaries.py");
+  ASSERT_TRUE(file);
+  auto states = operations<ac::SourceStateOp>(*file);
+  auto methods = operations<ac::SourceMethodOp>(*file);
+  auto writes = operations<ac::SourceStateWriteOp>(*file);
+  auto calls = operations<ac::SourceMethodCallOp>(*file);
+  ASSERT_EQ(states.size(), 1u);
+  ASSERT_EQ(methods.size(), 1u);
+  ASSERT_EQ(writes.size(), 2u);
+  ASSERT_EQ(calls.size(), 1u);
+  ac::HardwareAnalysis hardware(*file);
+  ac::HardwareBindings bindings;
+  bindings.owner = states[0]->getParentOfType<ac::ModuleOp>();
+  auto fixedByteBoundary = [&](Type actual, Type expected, Operation *site) {
+    ASSERT_TRUE(isa<ac::BitsType>(actual));
+    ASSERT_TRUE(isa<ac::BitsType>(expected));
+    // Physical widths retain source-linked expression provenance. The native
+    // boundary contract compares hardware meaning, not uniqued type handles.
+    EXPECT_TRUE(ac::areEquivalentHardwareTypes(actual, expected));
+    auto actualWidth = hardware.getPackedWidth(actual, bindings, site);
+    auto expectedWidth = hardware.getPackedWidth(expected, bindings, site);
+    ASSERT_TRUE(succeeded(actualWidth));
+    ASSERT_TRUE(succeeded(expectedWidth));
+    EXPECT_EQ(*actualWidth, 8u);
+    EXPECT_EQ(*expectedWidth, 8u);
+  };
+  fixedByteBoundary(states[0].getInitial().getType(),
+                    states[0].getQ().getType(), states[0]);
+  for (auto write : writes) {
+    EXPECT_EQ(write.getState(), states[0].getInstanceName());
+    fixedByteBoundary(write.getValue().getType(), states[0].getQ().getType(),
+                      write);
+  }
+  ASSERT_EQ(calls[0].getArguments().size(), 1u);
+  fixedByteBoundary(calls[0].getArguments()[0].getType(),
+                    methods[0].getFunctionType().getInput(0), calls[0]);
+  auto parameters = methods[0]->getAttrOfType<ArrayAttr>("ac.parameters");
+  auto parameter = cast<DictionaryAttr>(parameters[0]);
+  EXPECT_EQ(parameter.getAs<DictionaryAttr>("constraint")
+                .getAs<StringAttr>("source_kind")
+                .getValue(),
+            "fixed_bits");
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       FixedBindingBoundariesKeepBooleanIntegerAndFixedKindsDistinct) {
+  const std::string positive = R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    bias = 3
+    count: ac.u8 = bias
+    @ac.method
+    def put(value: ac.u8) -> ac.u8:
+        local: ac.u8 = bias
+        count = bias
+        return value
+    @ac.rule
+    def step() -> None:
+        unused = put(bias)
+    step()
+)py";
+  const std::string cases[] = {
+      replaceOnce(positive, "count: ac.u8 = bias", "count: ac.u8 = True"),
+      replaceOnce(positive, "local: ac.u8 = bias", "local: ac.u8 = True"),
+      replaceOnce(positive, "count = bias", "count = True"),
+      replaceOnce(positive, "put(bias)", "put(True)"),
+      replaceOnce(positive, "count: ac.u8 = bias", "count: ac.u8 = 256")};
+  for (const auto &sourceText : cases) {
+    auto file = capture("wrong_fixed_boundary.py", sourceText);
+    ASSERT_TRUE(file);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*file, "wrong_fixed_boundary.py")));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+  // Fixed Bits does not become logical Boolean merely because its width is1.
+  auto wrongLogicalKind = capture("wrong_logical_kind.py", R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def require_bool(value: bool) -> None:
+        pass
+    @ac.rule
+    def step() -> None:
+        value: ac.u1 = 1
+        require_bool(value)
+    step()
+)py");
+  ASSERT_TRUE(wrongLogicalKind);
+  diagnostics.clear();
+  EXPECT_TRUE(failed(lower(*wrongLogicalKind, "wrong_logical_kind.py")));
+  EXPECT_FALSE(diagnostics.empty());
+  for (StringRef annotation : {StringRef("bool"),
+                               StringRef("Annotated[int, range(1 << 1)]")}) {
+    auto localKind = capture("wrong_local_kind.py",
+        std::string(R"py(import pycircuit as ac
+from typing import Annotated
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def consume(value: ac.u1) -> None:
+        local: )py") + annotation.str() + R"py( = value
+    @ac.rule
+    def step() -> None:
+        actual: ac.u1 = 1
+        consume(actual)
+    step()
+)py");
+    ASSERT_TRUE(localKind);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*localKind, "wrong_local_kind.py")));
+    EXPECT_NE(diagnostics.find("source kind"), std::string::npos) << diagnostics;
+  }
+}
+
 } // namespace

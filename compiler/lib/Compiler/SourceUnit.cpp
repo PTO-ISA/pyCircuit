@@ -74,7 +74,7 @@ compilePythonSourceUnit(ModuleOp transport, DictionaryAttr sourceOwner,
   if (transactions && retainSourceImport)
     return emitError()
            << "source-import diagnostic requires lowered hardware; "
-              "transaction lowering is not yet available";
+              "source transaction effects are retained until link";
   if (!transactions) {
     PassManager hardware(transport.getContext());
     auto simplify = acir::createSimplifyRecordWiresPass();
