@@ -55,7 +55,7 @@ LogicalResult definition(Operation *op) {
   bool invalid = false;
   op->getRegion(0).walk([&](Operation *nested) {
     auto name = nested->getName().getStringRef();
-    if (name.ends_with(".write") || name == "acir.signal.set" || name == "acir.queue.pop" || name == "acir.queue.push" || name == "acir.rule.call") {
+    if (name.ends_with(".write") || name == "acir.signal.set" || name == "acir.queue.pop" || name == "acir.queue.push") {
       nested->emitOpError("guard must only observe state"); invalid = true;
     }
     if (auto yield = dyn_cast<acir::GuardYieldOp>(nested))
@@ -65,37 +65,18 @@ LogicalResult definition(Operation *op) {
   });
   return failure(invalid);
 }
-LogicalResult call(Operation *op, bool rule) {
-  auto target = cast<SymbolRefAttr>(op->getAttr("target"));
-  auto *def = resolve(op, target);
-  if (!def || (rule ? !isa<acir::RuleOp>(def) : !isa<acir::MethodOp>(def))) return op->emitOpError("unknown or incorrect target symbol ") << target;
+LogicalResult call(Operation *op) {
+  auto *def = resolve(op, cast<SymbolRefAttr>(op->getAttr("target")));
+  if (!isa_and_nonnull<acir::RuleOp>(def)) return op->emitOpError("unknown Rule target");
   auto signature = cast<FunctionType>(cast<TypeAttr>(def->getAttr("function_type")).getValue());
-  if (op->getOperandTypes() != signature.getInputs()) return op->emitOpError("arguments must match target signature");
-  if (!rule && op->getResultTypes() != signature.getResults()) return op->emitOpError("results must match target signature");
-  if (rule) {
-    auto bindings = cast<ArrayAttr>(op->getAttr("output_bindings"));
-    auto outputs = def->getAttrOfType<ArrayAttr>("output_types");
-    if (!outputs || bindings.size() != outputs.size()) return op->emitOpError("output binding count must match slots");
-    for (auto [index, binding] : llvm::enumerate(bindings)) {
-      if (isa<UnitAttr>(binding) && isa<UnitAttr>(outputs[index])) continue;
-      auto reference = dyn_cast<SymbolRefAttr>(binding);
-      auto *resource = reference ? resolve(op, reference) : nullptr;
-      if (!resource) return op->emitOpError("output binding must reference a resource");
-      auto expected = dyn_cast<TypeAttr>(outputs[index]);
-      auto kind = resource->getName().getStringRef().drop_front(5);
-      Type ref = expected ? expected.getValue() : Type();
-      if (!ref || (isa<acir::QueueType>(ref) && kind != "queue") || (isa<acir::CellType>(ref) && kind != "cell") || (isa<acir::SignalType>(ref) && kind != "signal")) return op->emitOpError("output binding component kind mismatch");
-      auto source = resource->getAttrOfType<TypeAttr>("payload_type");
-      if (!source || source.getValue() != payload(ref)) return op->emitOpError("output binding payload type mismatch");
-    }
-  }
+  if (op->getOperandTypes() != signature.getInputs() || op->getResultTypes() != signature.getResults()) return op->emitOpError("call signature mismatch");
   return success();
 }
 }
 namespace {
 LogicalResult declaration(Operation *op) {
   auto name = op->getName().getStringRef();
-  if (name == "acir.cell" || name == "acir.ehr" || name == "acir.signal") {
+  if (name == "acir.cell" || name == "acir.ehr") {
     if (!op->getAttrOfType<StringAttr>("initial_fn")) return op->emitOpError("requires initialization");
     if (op->hasAttr("capacity_fn")) return op->emitOpError("has no capacity");
   }
@@ -116,37 +97,17 @@ LogicalResult acir::InstanceOp::verify() {
   if (!isa_and_nonnull<ModuleOp>(resolve(*this, getTarget()))) return emitOpError("requires a Module target");
   return success();
 }
-LogicalResult acir::InterfaceOp::verify() {
-  for (auto target : getImplementations()) {
-    auto symbol = dyn_cast<SymbolRefAttr>(target);
-    if (!symbol || !isa_and_nonnull<MethodOp>(resolve(*this, symbol))) return emitOpError("implementation must reference a Method");
-  }
-  for (auto order : getOrders()) {
-    auto data = dyn_cast<DictionaryAttr>(order);
-    auto before = data ? data.getAs<SymbolRefAttr>("before") : SymbolRefAttr();
-    auto *target = before ? resolve(*this, before) : nullptr;
-    if (!isa_and_nonnull<InterfaceOp>(target) || target->getParentOp() != (*this)->getParentOp()) return emitOpError("order must reference an interface of the same Module");
-  }
+LogicalResult acir::BodyOp::verify() {
+  if (!isa<ModuleOp>((*this)->getParentOp()) || getBody().empty() || getBody().front().getNumArguments()) return emitOpError("Module body needs an entry without arguments");
   return success();
 }
-LogicalResult acir::WorkOp::verify() {
-  if (!isa<ModuleOp>((*this)->getParentOp())) return emitOpError("Work must belong to a Module scope");
-  if (getBody().empty() || getBody().front().getNumArguments()) return emitOpError("Work requires an entry block without arguments");
-  return success();
-}
-LogicalResult acir::WorkEndOp::verify() {
-  if (!(*this)->getParentOfType<WorkOp>()) return emitOpError("must terminate Work");
-  return success();
-}
+LogicalResult acir::BodyEndOp::verify() { return success(); }
 LogicalResult acir::GuardYieldOp::verify() {
   auto *parent = (*this)->getParentOp();
-  if (!isa<RuleOp, MethodOp>(parent) || (*this)->getParentRegion() != &parent->getRegion(0)) return emitOpError("must terminate a Rule or Method guard");
-  return success();
+  return success(isa<RuleOp>(parent) && (*this)->getParentRegion() == &parent->getRegion(0));
 }
 LogicalResult acir::RuleOp::verify() { return definition(*this); }
-LogicalResult acir::MethodOp::verify() { return definition(*this); }
-LogicalResult acir::RuleCallOp::verify() { return call(*this, true); }
-LogicalResult acir::MethodCallOp::verify() { return call(*this, false); }
+LogicalResult acir::RuleCallOp::verify() { return call(*this); }
 LogicalResult acir::GetOp::verify() {
   auto *target = resolve(*this, getTarget());
   if (!target) return emitOpError("unknown resource symbol ") << getTarget();
@@ -158,25 +119,9 @@ LogicalResult acir::GetOp::verify() {
   return emitOpError("reference type must match declaration kind");
 }
 LogicalResult acir::ReturnOp::verify() {
-  if (auto rule = (*this)->getParentOfType<RuleOp>()) {
-    auto slots = (*this)->getAttrOfType<ArrayAttr>("slots");
-    auto types = rule->getAttrOfType<ArrayAttr>("output_types");
-    if (!slots || slots.size() != getValues().size() || !types) return emitOpError("requires one output slot per payload");
-    llvm::SmallDenseSet<int64_t> seen;
-    for (auto [index, slot] : llvm::enumerate(slots)) {
-      auto number = dyn_cast<IntegerAttr>(slot);
-      if (!number || number.getInt() < 0 || number.getInt() >= (int64_t)types.size() || !seen.insert(number.getInt()).second) return emitOpError("invalid or duplicate return slot");
-      auto ref = dyn_cast<TypeAttr>(types[number.getInt()]);
-      if (!ref || payload(ref.getValue()) != getValues()[index].getType()) return emitOpError("payload must match output slot type");
-    }
-    return success();
-  }
-  if (auto method = (*this)->getParentOfType<MethodOp>()) {
-    auto signature = cast<FunctionType>(method.getFunctionType());
-    if (getValues().getTypes() != signature.getResults()) return emitOpError("return must match method result types");
-    return success();
-  }
-  return emitOpError("must terminate a Rule or Method body");
+  auto rule = (*this)->getParentOfType<RuleOp>();
+  if (!rule) return emitOpError("must return from a Rule");
+  return success(getValues().getTypes() == cast<FunctionType>(rule.getFunctionType()).getResults());
 }
 #define READ_VERIFY(CLASS) LogicalResult acir::CLASS::verify() { if (failed(accessMetadata(*this))) return failure(); if (payload(getResource().getType()) != getValue().getType()) return emitOpError("result must match component payload"); return success(); }
 READ_VERIFY(QueuePeekOp)
@@ -187,11 +132,9 @@ READ_VERIFY(SignalGetOp)
 QUERY_VERIFY(QueueEmptyOp)
 QUERY_VERIFY(QueueFullOp)
 QUERY_VERIFY(QueueSizeOp)
-QUERY_VERIFY(CapacityReadOp)
 #define WRITE_VERIFY(CLASS) LogicalResult acir::CLASS::verify() { if (failed(accessMetadata(*this))) return failure(); if (payload(getResource().getType()) != getValue().getType()) return emitOpError("value must match component payload"); return success(); }
 WRITE_VERIFY(PushOp)
 WRITE_VERIFY(CellWriteOp)
 WRITE_VERIFY(EHRWriteOp)
 WRITE_VERIFY(SignalSetOp)
-LogicalResult acir::CapacityWriteOp::verify() { return success(getValue().getType().isInteger(1)); }
 LogicalResult acir::ExportOp::verify() { if (getInput().getType() != getValue().getType()) return emitOpError("export must preserve its input type"); return success(); }

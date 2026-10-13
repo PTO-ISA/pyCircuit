@@ -16,7 +16,7 @@
 
 | 阶段 | 状态 | 验证与剩余工作 |
 | --- | --- | --- |
-| 1. class Module 与统一 Rule、源语义 IR | 进行中 | 显式接口、静态构造、固定连接、作用域、赋值语法糖、迁移例子 |
+| 1. class Module 与统一 Rule、源语义 IR | 已实现 | 仓库全部示例可生成 v8 源 MLIR；2 项源层回归通过，含原生验证、作用域、赋值和旧 API 拒绝 |
 | 2. 事务提取与条件传播 | 待实施 | 调用点身份、嵌套原子性、只读依赖、分支要求、共享 SSA、消费合并 |
 | 3. MLIR 契约、EHR 与调度分析 | 待实施 | 声明传播、固定读取端口、分支合并 DAG、IR 保存顺序 |
 | 4. RTL 友好 lowering | 待实施 | 完整 fire、选择器、组件状态与 next-state、消除决策 |
@@ -31,3 +31,14 @@ Signal、EHR 可见性；OoO 分配／等待／发射／广播／退休；指令
 ## 下一步
 
 实现源接口并在现有工具链上构建验证；随后将完整事务条件和调度结果写入 MLIR。
+
+## 阶段 1 验证
+
+class Module、独立静态 __init__、固定 __call__ 连接、显式接口、隐式实例作用域与统一 Rule 已迁移。
+规则关系保存为模块内 `acir.contract`，分支仍保留 scf.if／CFG。源 MLIR 原生验证通过。
+旧 Method／函数 Module 输入明确拒绝；内部 Work 命名也已移除。
+
+迁移发现：旧 EHRSlots 的 release → available → allocate 把 available 的读取与 allocate 的写入
+放在同一个 allocate 事务的不同端口，违反核心设计 §5。保留该例及诊断，新增合法共享读取模型验收。
+最小复现为 A SB B、B SB C，C 的 guard 调用 B.read 且 C.write 同一个 EHR。
+这属于旧模型与新核心契约不一致，不能通过任意顺序或临时旁路放行。

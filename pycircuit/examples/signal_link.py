@@ -1,54 +1,63 @@
 """A Module with methods, an autonomous Rule and control exports a saved Signal."""
 from pycircuit import ac
 
-
 @ac.module
-def Producer(enabled: bool):
-    offset = ac.cell[ac.u32](initial=0)
-    count = ac.cell[ac.u32](initial=0)
-    result = ac.signal[ac.u32](initial=0)
+class Producer:
 
-    @ac.method
-    def configure(value: ac.u32):
+    def __init__() -> None:
+        offset = ac.cell[ac.u32](initial=0)
+        count = ac.cell[ac.u32](initial=0)
+        result = ac.signal[ac.u32]()
+
+    @ac.rule
+    def configure(value: ac.u32) -> None:
         offset.value = value
 
-    @ac.method
+    @ac.rule
     def peek() -> ac.u32:
         return result
 
     @ac.rule
-    def advance():
+    def advance() -> None:
         result = count.value + offset.value
         count.value = count.value + 1
 
-    if enabled and count.value < 16:
-        advance()
-    return result
-
-
-@ac.module
-def Reader(source: ac.signal[ac.u32]):
-    last = ac.cell[ac.u32](initial=0)
-    saved = source  # This local is payload SSA; source keeps its resource identity.
-    adjusted = saved + 1
-    ready = adjusted != 0
-
-    @ac.rule(guard=ready)
-    def observe(value: ac.u32):
-        last.value = value
-
-    observe(adjusted)
-    return last
-
+    def __call__(enabled: bool) -> ac.signal[ac.u32]:
+        if enabled and count.value < 16:
+            advance()
+        return result
 
 @ac.module
-def SignalLink(enabled: bool):
-    producer = Producer(enabled)
+class Reader:
+
+    def __init__() -> None:
+        last = ac.cell[ac.u32](initial=0)
 
     @ac.rule
-    def configure():
+    def observe(value: ac.u32) -> None:
+        last.value = value
+
+    def __call__(source: ac.signal[ac.u32]) -> ac.cell[ac.u32]:
+        saved = source
+        adjusted = saved + 1
+        ready = adjusted != 0
+        if ready:
+            observe(adjusted)
+        return last
+
+@ac.module
+class SignalLink:
+
+    def __init__(enabled: bool) -> None:
+        producer = Producer()
+        reader = Reader()
+
+    @ac.rule
+    def configure() -> None:
         producer.configure(4)
 
-    configure()
-    reader = Reader(producer.outputs)  # Pass the initialized resource reference.
-    return producer.outputs, reader.outputs
+    def __call__() -> tuple[ac.signal[ac.u32], ac.cell[ac.u32]]:
+        producer(enabled)
+        configure()
+        reader(producer.outputs)
+        return (producer.outputs, reader.outputs)

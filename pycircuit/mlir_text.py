@@ -88,7 +88,7 @@ def serialize(model):
         name = r['name']
         if r['kind'] in ('queue', 'qarray'):
             r['capacity_fn'] = initializer('ac_init_' + name + '_cap', 'u32', [r.pop('capacity')])
-        if r['kind'] in ('queue', 'cell', 'ehr', 'signal'):
+        if r['kind'] in ('queue', 'cell', 'ehr'):
             if r['kind'] in ('cell', 'ehr', 'signal'): r.pop('capacity', None)
             ids, sequence = r.pop('initial'), r.pop('sequence')
             result = r['type'] if r['kind'] in ('cell', 'ehr', 'signal') else construction[ids[0]]['type'] if sequence else 'vector<' + r['type'] + '>'
@@ -100,19 +100,16 @@ def serialize(model):
             fn['result'] = r['type']
             functions.append(fn)
             r['initializer_fn'] = fn['name']
+        elif r['kind'] == 'signal':
+            r.pop('initial', None); r.pop('sequence', None)
         else:
             raise ValueError('unknown resource kind: ' + r['kind'])
         resources.append(r)
     functions.extend(model['functions'])
     modules = []
     for m in model['modules']:
-        rules = []
-        for r in m['rules']:
-            fn = dict(r['function'], owner=m['name'], rule=r['name'], outputs=[{k:v for k,v in o.items() if k not in ('reference', 'capacity', 'initial', 'sequence')} if o else None for o in r['outputs']])
-            rules.append(dict(name=r['name'], function=fn['name']))
-            functions.append(fn)
-        functions.append(dict(m['work'], owner=m['name']))
-        modules.append(dict(name=m['name'], rules=rules, work=m['work']['name']))
+        functions.append(dict(m['body'], owner=m['name']))
+        modules.append(dict(name=m['name'], rules=[], work=m['body']['name']))
     intrinsics = {}
     for fn in functions:
         for block in fn['blocks']:
@@ -134,6 +131,7 @@ def serialize(model):
     module_names = list(dict.fromkeys([i['name'] for i in model.get('instances', [])] + [m['name'] for m in modules]))
     for fn in functions:
         owner = fn.get('owner') or fn.get('instance') or next((m for m in sorted(module_names, key=len, reverse=True) if fn['name'].startswith(m + '.') or fn['name'] == m + '_Work'), None)
+        if fn['kind'] not in ('rule','body'): owner = None
         fn['_scope'] = owner
         _functions[fn['name']] = fn
         if owner: _symbols[fn['name']] = (owner, fn['name'])
@@ -153,14 +151,7 @@ def serialize(model):
         for local, value in instance.get('members', {}).items():
             if isinstance(value, dict) and 'instance' in value:
                 lines.append('    acir.instance ' + sym(local) + ' = ' + sym(value['instance']))
-        for method in instance.get('methods', []):
-            implementations = [symbol(f['name']) for f in functions if f.get('instance') == name and f.get('method') == method and f['kind'] == 'method']
-            orders = []
-            for relation in contract.get('relations', []):
-                if relation['after'] != method: continue
-                data = {k:v for k,v in relation.items() if k not in ('before','after')}
-                orders.append(attr(data)[:-1] + ', before = ' + sym(name) + '::' + sym(relation['before']) + '}')
-            lines.append('    acir.interface ' + sym(method) + ' {implementations = [' + ', '.join(implementations) + '], orders = [' + ', '.join(orders) + ']}')
+        lines.append('    "acir.contract"() {relations = ' + attr(contract.get('relations', [])) + ', rules = ' + attr(contract.get('rules', [])) + '} : () -> ()')
         for r in resources:
             if _symbols[r['name']][0] != name: continue
             data = {k:v for k,v in r.items() if k not in ('kind', 'owner', 'contract', 'visibility', 'loc')}
@@ -174,19 +165,16 @@ def serialize(model):
 
         for fn in functions:
             if fn['_scope'] != name: continue
-            if fn['kind'] == 'work':
+            if fn['kind'] == 'body':
                 meta = {k:v for k,v in fn.items() if k not in ('blocks','guard','_scope') and v is not None}
-                lines.append('    acir.work attributes {acir.function = ' + attr(meta) + '} {')
-                lines.extend(region(fn, 'work'))
+                lines.append('    acir.body attributes {acir.function = ' + attr(meta) + '} {')
+                lines.extend(region(fn, 'body'))
                 lines.append('    }')
-            elif fn['kind'] in ('rule', 'method'):
+            elif fn['kind'] == 'rule':
                 meta = {k:v for k,v in fn.items() if k not in ('blocks','guard','_scope','outputs') and v is not None}
                 signature = '(' + ', '.join(typ(p['type']) for p in fn['params']) + ') -> ' + ('()' if fn['result'] == 'void' else typ(fn['result']))
-                extra = ', interface_ref = ' + sym(name) + '::' + sym(fn['method']) if fn['kind'] == 'method' and fn.get('method') else ''
-                if fn['kind'] == 'rule':
-                    output_types = [typ((o.get('kind', 'queue') + '<' + o['type'] + '>')) if o else 'unit' for o in fn['outputs']]
-                    extra = ', output_types = [' + ', '.join(output_types) + ']'
-                start = '    acir.' + fn['kind'] + ' ' + sym(fn['name']) + ' : ' + signature + ' {acir.function = ' + attr(meta) + extra + '}'
+                extra = ''
+                start = '    acir.rule ' + sym(fn['name']) + ' : ' + signature + ' {acir.function = ' + attr(meta) + extra + '}'
                 guard_blocks = fn['guard']
                 trivial = len(guard_blocks) == 1 and len(guard_blocks[0]['ops']) == 2 and guard_blocks[0]['ops'][0]['op'] == 'const' and guard_blocks[0]['ops'][0]['value'] is True
                 if trivial: lines.append(start + ' body {')
@@ -250,8 +238,7 @@ def function(fn, region_kind=None):
             stmt = f'cf.cond_br {args}, ^{o["yes"]}, ^{o["no"]}'
         elif kind == 'return':
             if region_kind:
-                ending = 'guard.yield' if region_kind == 'guard' else 'work.end' if region_kind == 'work' else 'return'
-                if region_kind == 'rule': attrs.setdefault('slots', [])
+                ending = 'guard.yield' if region_kind == 'guard' else 'body.end' if region_kind == 'body' else 'return'
                 stmt = '"acir.' + ending + '"(' + args + ') ' + attr(attrs) + f' : ({ts}) -> ()'
             elif not ids and result != 'void':
                 out.append('    %fallback_' + o['id'] + ' = "acir.aggregate"() {acir.source_type = ' + quote(result) + '} : () -> ' + typ(result) + ' loc(unknown)')
@@ -286,9 +273,13 @@ def function(fn, region_kind=None):
         elif kind == 'call':
             attrs.pop('name', None)
             target = _functions.get(o['name'])
-            if target and target['kind'] == 'method':
-                attributes = attr(attrs)[:-1] + ', target = ' + symbol(o['name']) + '}'
-                stmt = lhs + '"acir.method.call"(' + args + ') ' + attributes + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
+            if target and target['kind'] == 'rule':
+                attrs.pop('output_binding',None); attrs.pop('output_bindings',None)
+                attributes = attr(attrs)[:-1] + ', target = ' + symbol(o['name'])
+                if o.get('output_binding'): attributes += ', output_binding = ' + symbol(o['output_binding'])
+                if o.get('output_bindings'): attributes += ', output_bindings = [' + ', '.join(symbol(o['output_bindings'][i]) if i in o['output_bindings'] else 'unit' for i in range(len(target['output_type']))) + ']' 
+                attributes += '}'
+                stmt = lhs + '"acir.rule.call"(' + args + ') ' + attributes + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
             else:
                 stmt = lhs + 'func.call ' + sym(o['name']) + f'({args}) ' + attr(attrs) + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
         else:

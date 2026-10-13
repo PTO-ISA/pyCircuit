@@ -2,7 +2,7 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 
-VERSION = 7
+VERSION = 8
 SCALARS = {'bool', 'u8', 'u16', 'u32', 'u64', 'i8', 'i16', 'i32', 'i64'}
 
 
@@ -23,7 +23,7 @@ def resource(typ):
 class Instance:
     name: str
     env: dict
-    methods: dict
+    rules: dict
     outputs: object = None
     definitions: dict = field(default_factory=dict)
     parent: str | None = None
@@ -32,7 +32,7 @@ class Instance:
 
 
 @dataclass
-class Method:
+class RuleRef:
     instance: Instance
     definition: object
 

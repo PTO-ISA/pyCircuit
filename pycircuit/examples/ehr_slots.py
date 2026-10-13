@@ -1,41 +1,48 @@
 """Release capacity before allocation, with an atomic EHR guard view."""
 from pycircuit import ac
 
-
 @ac.module
-def Slot():
-    occupied = ac.ehr[bool](initial=True)
-    payload = ac.cell[ac.u32](initial=9)
+class Slot:
 
-    @ac.method
-    def release():
+    def __init__() -> None:
+        occupied = ac.ehr[bool](initial=True)
+        payload = ac.cell[ac.u32](initial=9)
+
+    @ac.rule(SB='available')
+    def release() -> None:
         occupied.value = False
 
-    @ac.method(After='release')
+    @ac.rule(SB='allocate')
     def available() -> bool:
         return not occupied.value
 
     def free(value: ac.u32) -> bool:
         return available()
 
-    @ac.method(After='available', guard=free)
-    def allocate(value: ac.u32):
+    @ac.rule(guard=free)
+    def allocate(value: ac.u32) -> None:
         occupied.value = True
         payload.value = value
 
+    def __call__() -> None:
+        pass
 
 @ac.module
-def EHRSlots(release_enabled: bool):
-    slot = Slot()
+class EHRSlots:
+
+    def __init__(release_enabled: bool) -> None:
+        slot = Slot()
 
     @ac.rule
-    def release():
+    def release() -> None:
         slot.release()
 
     @ac.rule
-    def allocate():
+    def allocate() -> None:
         slot.allocate(7)
 
-    if release_enabled:
-        release()
-    allocate()
+    def __call__() -> None:
+        slot()
+        if release_enabled:
+            release()
+        allocate()
