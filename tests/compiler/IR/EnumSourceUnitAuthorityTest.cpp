@@ -142,7 +142,8 @@ TEST_F(EnumSourceUnitAuthorityTest, GenuineProviderHasBidirectionalNominalCovera
   auto coverage = compiler::SourceHeaderRegistry::create(&context, {*header}, error());
   ASSERT_TRUE(succeeded(coverage));
   rejected([&] { return coverage->verifyBodySnapshots(*body, *header, error()); },
-           "owning header nominal declaration has no matching body definition");
+           "owning header declaration has no matching body definition: "
+           "\"authority.provider.Unused\"");
   auto mismatched = clone(*provider->body); Builder b(&context);
   auto originalField = cast<DictionaryAttr>(record(*mismatched).getFields()[0]);
   auto oldType = originalField.getAs<TypeAttr>("type");
@@ -167,7 +168,8 @@ TEST_F(EnumSourceUnitAuthorityTest, RealOwnerMutationAndMissingProviderReject) {
   removeNominalExport(*deleted); removeNominalExport(*header); record(*deleted).erase();
   rejected([&] { return compiler::admitSourceLinkUnits(
       {{*consumer->body, *consumer->interface}, {*deleted, *header}}, error()); },
-           "owning header nominal declaration has no matching body definition");
+           "owning header declaration has no matching body definition: "
+           "\"authority.provider.Unused\"");
 }
 
 TEST_F(EnumSourceUnitAuthorityTest, ActualProviderWinsEquivalentSnapshotsInEitherOrder) {

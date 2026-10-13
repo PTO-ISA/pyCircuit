@@ -405,8 +405,17 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       if (authoredInputs.contains(name))
         return error()
                << "module-local assignment cannot rebind an authored input";
+      // Ordinary module expressions capture physical old Q. Keep this view
+      // local: state initializers and callable captures retain their existing
+      // bindings, and transaction reads continue to use source effects.
+      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        ordinaryValues[entry.first()] = oldQ;
+        fixedValues.insert(oldQ);
+      }
       auto ordinary =
-          expression(value, at, decl.symbol, moduleValues, instances);
+          expression(value, at, decl.symbol, ordinaryValues, instances);
       if (failed(ordinary))
         return failure();
       moduleValues[name] = *ordinary;

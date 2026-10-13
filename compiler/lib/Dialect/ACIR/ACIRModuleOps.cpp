@@ -104,6 +104,9 @@ LogicalResult verifyModuleSignature(Operation *op) {
   if (!sig || !inputs || !outputs || inputs.size() != sig.getNumInputs() ||
       outputs.size() != sig.getNumResults())
     return error() << "port name counts must match function signature";
+  auto layout = getModulePortLayout(op);
+  if (failed(layout))
+    return failure();
   Attribute rawRootKind = op->getAttr("ac.root_kind");
   auto rootKind = dyn_cast_or_null<StringAttr>(rawRootKind);
   if (rawRootKind && (!rootKind || rootKind.getValue() != "system"))
@@ -121,8 +124,8 @@ LogicalResult verifyModuleSignature(Operation *op) {
   if (!parameters || !types)
     return error() << "module requires parameter inventories";
   if (rootKind &&
-      (!parameters.empty() || !types.empty() || sig.getNumInputs() != 2 ||
-       sig.getNumResults() != 0 || !outputs.empty() ||
+      (!parameters.empty() || !types.empty() || layout->sourceInputCount != 2 ||
+       layout->sourceOutputCount != 0 ||
        !op->getAttrOfType<DictionaryAttr>("ac.domain_inputs")))
     return error() << "source system must be a closed zero-result definition "
                       "with one inferred clock/reset domain";

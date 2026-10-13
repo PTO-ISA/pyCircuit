@@ -238,6 +238,13 @@ body/header 字节重放同一 link，要求 replay final 与公共 final 完全
 与 replay final 完全一致；不能删位置、owner 或语义属性后再比较。双目标仍消费原公共
 final。阶段文件不是另一套 source authority 或编译路线。
 
+跨实例增量继续使用这一 pass，按[专项接线合同](cross-instance-lowering.md)将实际
+owner Q/词法值向上传递、D/E 向下传递；原定义及存储保留。此增量移除上文首个切片的
+same-owner 限制，其余恒真 guard、whole Bits、同域及唯一 writer 边界保持。
+共享 `ModulePortLayout` 验证 final-only `ac.internal_ports`，source publication 不接受
+此属性。C++ selected scalar wrapper 与 RTL root wrapper 执行已验证的内部零绑定，
+普通 child 接完整物理口。涉及 Collection 的明确拒绝边界以专项规格为准。
+
 ### 效果安全优化
 
 优化前必须检查原表示的语义合法性，避免 DCE 隐藏冲突、死环、检查或未实现操作。

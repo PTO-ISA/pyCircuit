@@ -5,6 +5,69 @@
 #include "llvm/ADT/APSInt.h"
 using namespace mlir;
 namespace acir::ac {
+FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
+  auto error = [&] { return declaration->emitOpError(); };
+  auto rawType = declaration->getAttrOfType<TypeAttr>("function_type");
+  auto signature =
+      rawType ? dyn_cast<FunctionType>(rawType.getValue()) : FunctionType();
+  if (!signature)
+    return error() << "module port layout requires a physical signature";
+  ModulePortLayout layout{signature.getNumInputs(), signature.getNumResults(),
+                          ArrayAttr::get(declaration->getContext(), {})};
+  Attribute raw = declaration->getAttr("ac.internal_ports");
+  if (!raw)
+    return layout;
+  auto package = dyn_cast_or_null<mlir::ModuleOp>(declaration->getParentOp());
+  auto stage =
+      package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+  if (!isa<ModuleOp>(declaration) || !stage || stage.getValue() != "final")
+    return error() << "ac.internal_ports is permitted only on a real module "
+                      "in a final package";
+  auto fields = dyn_cast<DictionaryAttr>(raw);
+  auto inputs =
+      fields ? fields.getAs<IntegerAttr>("source_inputs") : IntegerAttr();
+  auto outputs =
+      fields ? fields.getAs<IntegerAttr>("source_outputs") : IntegerAttr();
+  auto defaults = fields ? fields.getAs<ArrayAttr>("root_inputs") : ArrayAttr();
+  auto validCount = [](IntegerAttr value, unsigned bound) {
+    return value && value.getType().isSignlessInteger(64) &&
+           !value.getValue().isNegative() &&
+           value.getValue().getZExtValue() <= bound;
+  };
+  if (!fields || fields.size() != 3 ||
+      !validCount(inputs, signature.getNumInputs()) ||
+      !validCount(outputs, signature.getNumResults()) || !defaults)
+    return error() << "ac.internal_ports requires exactly source_inputs and "
+                      "source_outputs as bounded nonnegative i64 counts and "
+                      "root_inputs as an array";
+  layout.sourceInputCount = inputs.getValue().getZExtValue();
+  layout.sourceOutputCount = outputs.getValue().getZExtValue();
+  layout.rootInputDefaults = defaults;
+  if (layout.sourceInputCount == signature.getNumInputs() &&
+      layout.sourceOutputCount == signature.getNumResults())
+    return error() << "ac.internal_ports requires an appended physical port";
+  if (defaults.size() != signature.getNumInputs() - layout.sourceInputCount)
+    return error() << "ac.internal_ports root_inputs must cover the exact "
+                      "physical input suffix";
+  HardwareAnalysis analysis(package);
+  HardwareBindings bindings;
+  bindings.owner = declaration;
+  for (auto [index, rawDefault] : llvm::enumerate(defaults)) {
+    auto value = dyn_cast<IntegerAttr>(rawDefault);
+    Type type = signature.getInput(layout.sourceInputCount + index);
+    if (!value || !value.getType().isSignlessInteger(64) ||
+        !value.getValue().isZero() || !isa<BitsType>(type))
+      return error() << "ac.internal_ports root inputs require i64 zero "
+                        "defaults and fixed Bits ports";
+    auto width = analysis.getPackedWidth(type, bindings, declaration);
+    if (failed(width))
+      return failure();
+    if (!*width)
+      return error() << "ac.internal_ports root input width must be positive";
+  }
+  return layout;
+}
+
 DictionaryAttr getStaticParameterAttr(Builder &builder, StringRef name,
                                       StaticExprAttr defaultValue) {
   NamedAttrList fields;
@@ -189,6 +252,9 @@ LogicalResult verifyRequiredSourceParameter(Attribute raw,
 }
 
 LogicalResult verifyModuleSourceCallContract(Operation *owner) {
+  auto layout = getModulePortLayout(owner);
+  if (failed(layout))
+    return failure();
   unsigned present = 0;
   for (StringRef name : {"ac.return_form", "ac.parameters",
                          "ac.result_constraints", "ac.domain_inputs"})
@@ -229,7 +295,7 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
         clock.getValue().isNegative() || reset.getValue().isNegative() ||
         clock.getValue().getZExtValue() != count ||
         reset.getValue().getZExtValue() != count + 1 ||
-        signature.getNumInputs() != count + 2)
+        layout->sourceInputCount != count + 2)
       return error() << "source module call domain must explicitly map clock "
                         "and reset after the data inputs";
     StringRef domainNames[] = {"pyc_clk", "pyc_rst"};
@@ -252,28 +318,27 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
   };
 
   if (present == 1) {
-    if (domain.empty() || signature.getNumInputs() < 2)
+    if (domain.empty() || layout->sourceInputCount < 2)
       return error() << "inferred module domain metadata requires clock and "
                         "reset inputs";
-    size_t count = signature.getNumInputs() - 2;
+    size_t count = layout->sourceInputCount - 2;
     if (failed(verifyDomain(count)))
       return failure();
-    if (system &&
-        (!integers.empty() || !types.empty() || count != 0 ||
-         signature.getNumResults() != 0))
+    if (system && (!integers.empty() || !types.empty() || count != 0 ||
+                   layout->sourceOutputCount != 0))
       return error() << "source system requires no authored parameters, "
                         "inputs, or results";
     return success();
   }
   if (present != 4 || system || !form || form.getValue() != "single" ||
-      !parameters || !results || results.size() != 1 ||
-      !integers.empty() || !types.empty() || signature.getNumResults() != 1)
+      !parameters || !results || results.size() != 1 || !integers.empty() ||
+      !types.empty() || layout->sourceOutputCount != 1)
     return error() << "source module call contract requires a concrete single "
                       "struct result and all four attributes";
 
   size_t count = parameters.size();
   if (domain.empty()) {
-    if (signature.getNumInputs() != count)
+    if (layout->sourceInputCount != count)
       return error() << "source module call input count differs from its "
                         "domain-free physical signature";
   } else if (failed(verifyDomain(count))) {

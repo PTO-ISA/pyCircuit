@@ -1699,6 +1699,19 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
                                         ac::ModuleOp definition,
                                         raw_ostream &out) {
   const auto &names = ctx.names(definition);
+  auto layout = ac::getModulePortLayout(definition);
+  auto rootBindings = ctx.rootBindings();
+  if (failed(layout) || failed(rootBindings))
+    return failure();
+  const bool selectedRoot = rootBindings->owner == definition.getOperation();
+  const unsigned scalarInputCount =
+      selectedRoot ? layout->sourceInputCount
+                   : definition.getFunctionType().getNumInputs();
+  const unsigned scalarOutputCount =
+      selectedRoot ? layout->sourceOutputCount
+                   : definition.getFunctionType().getNumResults();
+  const bool bindRootInputs =
+      selectedRoot && !layout->rootInputDefaults.empty();
   // Native observation plumbing is emitted only for a definition whose subtree
   // carries at least one `ac.observe` site, which keeps the generated code of
   // every unobserved design byte-identical.
@@ -1936,6 +1949,8 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (observes)
     out << ", pyc_sink, pyc_observation_base";
   out << ")) {\n";
+  if (bindRootInputs)
+    out << "    __pyc_bind_root_inputs();\n";
   if (cppHasRootChecks(ctx, definition) &&
       failed(emitCppCheckInstanceNames(ctx, out)))
     return failure();
@@ -1944,7 +1959,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
       << " &) = delete;\n  " << names.cppClass << " &operator=(const "
       << names.cppClass << " &) = delete;\n";
   auto scalarPorts = [&](TypeRange types,
-                         ArrayAttr portNames) -> LogicalResult {
+                         ArrayRef<Attribute> portNames) -> LogicalResult {
     for (auto [t, raw] : llvm::zip(types, portNames)) {
       auto p = ctx.cppType(t, definition);
       auto n = id(cast<StringAttr>(raw).getValue());
@@ -1954,17 +1969,23 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     }
     return success();
   };
-  if (failed(scalarPorts(definition.getFunctionType().getInputs(),
-                         definition.getInputNames())) ||
-      failed(scalarPorts(definition.getFunctionType().getResults(),
-                         definition.getOutputNames())))
+  if (failed(scalarPorts(
+          definition.getFunctionType().getInputs().take_front(scalarInputCount),
+          definition.getInputNames().getValue().take_front(
+              scalarInputCount))) ||
+      failed(scalarPorts(definition.getFunctionType().getResults().take_front(
+                             scalarOutputCount),
+                         definition.getOutputNames().getValue().take_front(
+                             scalarOutputCount))))
     return failure();
   auto bridge = [&](bool input) -> LogicalResult {
     auto types = input ? definition.getFunctionType().getInputs()
                        : definition.getFunctionType().getResults();
     auto portNames =
         input ? definition.getInputNames() : definition.getOutputNames();
-    for (auto [t, raw] : llvm::zip(types, portNames)) {
+    unsigned count = input ? scalarInputCount : scalarOutputCount;
+    for (auto [t, raw] : llvm::zip(types.take_front(count),
+                                   portNames.getValue().take_front(count))) {
       auto n = id(cast<StringAttr>(raw).getValue());
       if (failed(n))
         return failure();
@@ -1989,6 +2010,8 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   out << "  void Work() override {\n";
   if (failed(bridge(true)))
     return failure();
+  if (bindRootInputs)
+    out << "    __pyc_bind_root_inputs();\n";
   out << "    pyc_implementation->Work();\n";
   if (failed(bridge(false)))
     return failure();
@@ -2000,6 +2023,8 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
          "{\n";
   if (failed(bridge(true)))
     return failure();
+  if (bindRootInputs)
+    out << "    __pyc_bind_root_inputs();\n";
   out << "    pyc_implementation->Reset();\n  }\n  bool HasWork() const "
          "noexcept "
          "override { return true; }\n";
@@ -2007,6 +2032,21 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
       failed(emitCppRootCheckValidator(ctx, out)))
     return failure();
   out << "private:\n";
+  if (bindRootInputs) {
+    out << "  void __pyc_bind_root_inputs() noexcept {\n";
+    for (unsigned index = scalarInputCount;
+         index < definition.getFunctionType().getNumInputs(); ++index) {
+      auto type =
+          ctx.cppType(definition.getFunctionType().getInput(index), definition);
+      auto name =
+          id(cast<StringAttr>(definition.getInputNames()[index]).getValue());
+      if (failed(type) || failed(name))
+        return failure();
+      out << "    pyc_implementation->" << *name << ".element(0) = gfsim::wire<"
+          << *type << ">::known(" << *type << "{0});\n";
+    }
+    out << "  }\n";
+  }
   if (cppHasRootChecks(ctx, definition))
     out << "  std::array<std::string, " << ctx.sourceChecks().checks.size()
         << "> pyc_check_instances_;\n";

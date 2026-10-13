@@ -235,6 +235,17 @@ def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
     Instance-local wire values and leaf state belong to each occurrence,
     never to the shared definition.
 
+    In a final package only, optional ac.internal_ports records the original
+    physical prefix and appended compiler-generated wiring ports. Its exact
+    dictionary is {source_inputs: i64, source_outputs: i64, root_inputs: array}.
+    Prefix counts are nonnegative and bounded by the full signature, include
+    original hidden clock/reset ports, and leave at least one appended port.
+    root_inputs has one i64 zero per appended input, whose type must be fixed
+    Bits. The selected System occurrence binds these inputs to known zero and
+    exposes only source prefixes; ordinary instances explicitly bind every
+    physical port. Source units and imports cannot carry this attribute.
+    Absence leaves the entire physical signature as the source boundary.
+
     The body contains combination and fixed child instances. The graph's
     textual order does not define an execution schedule. SSA supplies one
     driver per signal and permits fanout. Feedback through a storage leaf is

@@ -18,7 +18,7 @@ Python or infers a different hardware meaning.
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
 | Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of straight-line whole-owner candidate versions, invocation snapshots and guard obligations. Link uses this before lowering packages containing source transaction operations. |
-| Lower transactions | `LowerTransactions` | Materialize the admitted same-owner, proven-true, whole scalar-state subset into isolated pure Rules and existing DFFE instances; verify a detached candidate before replacing the input. Ordinary hardware uses existing verification without transaction-analysis limits. |
+| Lower transactions | `LowerTransactions` | Materialize admitted same-domain, proven-true, whole scalar-state transactions across ordinary static instances into isolated pure Rules and original-owner DFFE instances; verify a detached candidate before replacing the input. Ordinary hardware uses existing verification without transaction-analysis limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -44,9 +44,20 @@ a bounded source-to-typed-effects producer and shared native call/state analyses
 Source compilation retains explicit state reads/writes and Method calls.
 Source units can publish these typed operations and their declaration-only
 interfaces. Consumer compilation reads the interfaces, without loading provider
-Python or Method bodies. Final link lowers same-owner calls with proven-true
-guards/effect paths and one outer writer per scalar owner. Final verification
+Python or Method bodies. Final link lowers repeated/nested calls through ordinary
+static instances with proven-true guards/effect paths, a shared actual clock/reset
+domain and one outer writer per physical scalar owner. Final verification
 and emission reject any residual unlowered effects.
+
+Cross-instance lowering preserves the original Module definitions and storage.
+Definition-relative routing exports old Q and lexical SSA and carries candidate
+D/E back through ordinary Instance ports. Shared final-only `ModulePortLayout`
+validation distinguishes the original physical prefix from appended internal
+ports. The selected root exposes only the original prefix and binds internal
+inputs to known zero; an ordinary child binds the complete signature. Source
+units/imports cannot supply this final-only authority. A definition needing new
+ports cannot also be used by a Collection in this slice, and transaction writer
+summaries cannot cross Collection; unaffected Collections keep their contracts.
 
 The same Dialect analysis exposes a separately fallible direct transaction
 summary and structural/body comparison APIs. They retain ordered effects,
@@ -83,8 +94,8 @@ as snapshots. The native analysis requires actual Method bodies, proven-true
 effect paths and paired clock/reset wire identity. False or unknown guards
 remain obligations for later admission analysis. Unsupported selectors,
 conditional effects and unproved domains reject this analysis only. No plan is
-published if any transaction fails. Branch joins, partial updates, cross-instance
-owner wiring, dynamic guard admission and resource handling remain unfinished.
+published if any transaction fails. Branch joins, partial updates, dynamic guard
+admission and resource handling remain unfinished.
 The analysis alone is not execution evidence; the bounded lowerer's public
 C++/RTL execution and the broader extension have separate acceptance scopes.
 

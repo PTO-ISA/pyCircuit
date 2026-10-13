@@ -121,6 +121,20 @@ detail::verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis) {
   auto package = analysis.getPackage();
   if (!package)
     return failure();
+  auto layouts = package.walk([&](Operation *operation) {
+    if (!operation->hasAttr("ac.internal_ports"))
+      return WalkResult::advance();
+    if (!isa<ModuleOp>(operation)) {
+      operation->emitOpError()
+          << "ac.internal_ports is permitted only on a real module "
+             "in a final package";
+      return WalkResult::interrupt();
+    }
+    return failed(getModulePortLayout(operation)) ? WalkResult::interrupt()
+                                                  : WalkResult::advance();
+  });
+  if (layouts.wasInterrupted())
+    return failure();
   if (failed(verifyNoUnloweredTransactions(package)))
     return failure();
   if (failed(collectFinalSourceUnits(package,

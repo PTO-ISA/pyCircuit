@@ -164,17 +164,19 @@ toolroot = Path(args.source_compiler).resolve().parent.parent
 runtime = next((p for p in (toolroot / "runtime/libpyc6_runtime.a",
                            toolroot / "lib/libpyc6_runtime.a") if p.is_file()), None)
 assert runtime is not None, "Runtime archive missing from this checkout's compiler build/install"
-owner_text = (fixtures / "serial-method/local_owner.py").read_text()
 owners = ("count", "before", "middle", "saved", "after", "old_seen", "payload",
           "copied", "held", "identity")
 summaries = []
-for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
-                                               (13, 4091, 17, 29, 7, 31)):
-    case = scratch / f"width-{width}"
+cases = [(mode, *values) for mode in ("local", "cross", "root")
+         for values in ((7, 5, 1, 2, 3, 4), (13, 4091, 17, 29, 7, 31))]
+for mode, width, initial, first, second, bias, last in cases:
+    case = scratch / f"{mode}-width-{width}"
     case.mkdir()
     source = case / "source"
     source.mkdir()
-    provider_path = source / "local_owner.py"
+    provider_name = "local_owner.py" if mode == "local" else "cross_provider.py"
+    owner_text = (fixtures / "serial-method" / provider_name).read_text()
+    provider_path = source / provider_name
     text = owner_text.replace("u7", f"u{width}").replace("= 5\n", f"= {initial}\n")
     text = text.replace("bias = 3\n", f"bias = {bias}\n")
     text = text.replace("add(1)", f"add({first})").replace("chain(2)", f"chain({second})")
@@ -182,7 +184,7 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
     if width == 13:
         text = text.replace("    step()\n    inspect()", "    inspect()\n    step()")
     provider_path.write_text(text)
-    (case / "local_owner.py").write_text(text)
+    (case / provider_name).write_text(text)
     provider = case / "provider"
     compile_unit(source, provider_path, provider)
     # Parent compilation sees only the published header and receipt. Restore
@@ -192,21 +194,54 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
     moved = (provider_path, payload(provider, "body"), payload(provider, "depfile"))
     for path in moved:
         path.rename(hidden / path.name)
-    parent_path = source / "composition.py"
-    parent_path.write_text("from pycircuit import module\n"
-                          "from serial_methods.local_owner import LocalOwner\n"
-                          "@module\ndef Top():\n"
-                          "    left = LocalOwner()\n    right = LocalOwner()\n")
+    imports = [provider]
+    if mode != "local":
+        relay_path = source / "cross_relay.py"
+        relay_text = (fixtures / "serial-method/cross_relay.py").read_text()
+        relay_text = relay_text.replace("add(1)", f"add({first})")
+        relay_text = relay_text.replace("chain(2)", f"chain({second})")
+        relay_text = relay_text.replace("add(4)", f"add({last})")
+        relay_path.write_text(relay_text)
+        (case / relay_path.name).write_text(relay_text)
+        relay = case / "relay"
+        compile_unit(source, relay_path, relay, imports)
+        relay_hidden = hidden / "relay"
+        relay_hidden.mkdir()
+        relay_moved = (relay_path, payload(relay, "body"), payload(relay, "depfile"))
+        for path in relay_moved:
+            path.rename(relay_hidden / path.name)
+        imports.append(relay)
+        parent_path = source / "cross_consumer.py"
+        parent_text = (fixtures / "serial-method/cross_consumer.py").read_text()
+        if width == 13:
+            parent_text = parent_text.replace("    advance_left()\n    advance_right()",
+                                              "    advance_right()\n    advance_left()")
+        parent_path.write_text(parent_text)
+    else:
+        parent_path = source / "composition.py"
+        parent_path.write_text("from pycircuit import module\n"
+                              "from serial_methods.local_owner import LocalOwner\n"
+                              "@module\ndef Top():\n"
+                              "    left = LocalOwner()\n    right = LocalOwner()\n")
+    (case / parent_path.name).write_text(parent_path.read_text())
     parent = case / "parent"
-    compile_unit(source, parent_path, parent, [provider])
+    compile_unit(source, parent_path, parent, imports)
     depfile = payload(parent, "depfile").read_text()
     assert str(payload(provider, "interface")) in depfile
     assert str(provider_path) not in depfile and str(payload(provider, "body")) not in depfile
     assert not provider_path.exists()
+    if mode != "local":
+        assert str(payload(relay, "interface")) in depfile
+        assert str(relay_path) not in depfile and str(payload(relay, "body")) not in depfile
+        assert not relay_path.exists()
+        for path in relay_moved[1:]:
+            (relay_hidden / path.name).rename(path)
     for path in moved[1:]:
         (hidden / path.name).rename(path)
-    units = (parent, provider)
-    top = "serial_methods.composition.Top"
+    units = (parent, *imports)
+    top = ("serial_methods.composition.Top" if mode == "local" else
+           "serial_methods.cross_provider.Counter" if mode == "root" else
+           "serial_methods.cross_consumer.Top")
     final = case / "public-final.ac"
     cli("link", *units, "--top", top, "-o", final)
     base = replay_arguments(units, top)
@@ -218,6 +253,9 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
     before_text, final_text = before.read_text(), final.read_text()
     assert '"ac.transaction"' in before_text and '"ac.method.call"' in before_text
     assert '"ac.state"' in before_text and '"ac.rule"' in final_text
+    assert before_text.count('"ac.module"') == final_text.count('"ac.module"')
+    assert final_text.count('"ac.instance"') == (before_text.count('"ac.instance"')
+                                                + before_text.count('"ac.state"'))
     assert all(f'"{operation}"' not in final_text for operation in
                ("ac.state", "ac.state.read", "ac.state.write", "ac.method",
                 "ac.method.call", "ac.transaction"))
@@ -225,17 +263,20 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
     protected_cases = protection_checks(base, case / "protection", units)
     # Diagnostic retention belongs only to native final linking. Ordinary emit
     # and verify entrances reject the paired flags before creating any output.
-    for mode, options in (("emit", ["--target", "cpp", "--output", case / "bad-emitted.cpp"]),
-                          ("verify", ["--verify-only"])):
+    for entrance, options in (("emit", ["--target", "cpp", "--output", case / "bad-emitted.cpp"]),
+                              ("verify", ["--verify-only"])):
         run([args.linker, "--design", final, *options,
              "--transaction-input-out", case / "bad-before.ac",
              "--transaction-output-out", case / "bad-after.ac"],
             accepted=False, expected_exit=2)
         assert not any((case / filename).exists() for filename in
-                       ("bad-before.ac", "bad-after.ac", "bad-emitted.cpp")), mode
-        protected_cases.append(mode + "-stage-flags")
+                       ("bad-before.ac", "bad-after.ac", "bad-emitted.cpp")), entrance
+        protected_cases.append(entrance + "-stage-flags")
     for target in ("cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", case / target)
+        groups = json.loads((case / target / "generated.json").read_text())["source_groups"]
+        assert sorted(group["source"]["path"] for group in groups) == sorted(
+            json.loads((unit / "unit.json").read_text())["source"]["path"] for unit in units)
     provider_owner = json.loads((provider / "unit.json").read_text())["source"]
     parent_owner = json.loads((parent / "unit.json").read_text())["source"]
     owner_header = emitted_source_text(case / "cpp", provider_owner, "header")
@@ -252,9 +293,27 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
         r"(?m)^\s*std::shared_ptr<[^;\n]*::pyc_family_\w+<pyc_count>>\s+(pyc_instance_\w+);",
         parent_header))
     rtl_instances = set(re.findall(r"\b(pyc_instance_\w+)\s*\(", parent_rtl))
-    assert native_instances == rtl_instances and len(native_instances) == 2
+    assert native_instances == rtl_instances and len(native_instances) == (2 if mode == "local" else 3)
     instance_names = {name: emitted_instance_name(native_instances, name)
-                      for name in ("left", "right")}
+                      for name in (("left", "right") if mode == "local" else ("left", "right", "idle"))}
+    cpp_owners = [f"family->{instance_names[side]}" for side in ("left", "right")]
+    rtl_owners = [f"dut.dut.{instance_names[side]}" for side in ("left", "right")]
+    if mode != "local":
+        relay_owner = json.loads((relay / "unit.json").read_text())["source"]
+        relay_header = emitted_source_text(case / "cpp", relay_owner, "header")
+        relay_rtl = emitted_source_text(case / "verilog", relay_owner, "rtl")
+        relay_native_instances = set(re.findall(
+            r"(?m)^\s*std::shared_ptr<[^;\n]*::pyc_family_\w+<pyc_count>>\s+(pyc_instance_\w+);",
+            relay_header))
+        relay_rtl_instances = set(re.findall(r"\b(pyc_instance_\w+)\s*\(", relay_rtl))
+        assert relay_native_instances == relay_rtl_instances and len(relay_native_instances) == 1
+        counter_name = emitted_instance_name(relay_native_instances, "counter")
+        cpp_owners = [owner + "->" + counter_name for owner in cpp_owners]
+        rtl_owners = [owner + "." + counter_name for owner in rtl_owners]
+        cpp_owners.append(f"family->{instance_names['idle']}")
+        rtl_owners.append(f"dut.dut.{instance_names['idle']}")
+        if mode == "root":
+            cpp_owners, rtl_owners = ["family"], ["dut.dut"]
     # Reuse the existing queue-source storage probe pattern. Every native
     # translation unit and the driver use the same copied headers, with only
     # standalone access specifiers changed; no mixed class definitions or
@@ -282,16 +341,14 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
                 "original_sha256": hashlib.sha256(original.encode()).hexdigest(),
                 "probe_sha256": digest(header), "access_specifier_lines": changed_lines}
     cpp_probes, rtl_probes = [], []
-    for side in ("left", "right"):
-        native_owner = f"family->{instance_names[side]}"
-        rtl_owner = f"dut.dut.{instance_names[side]}"
+    for native_owner, rtl_owner in zip(cpp_owners, rtl_owners, strict=True):
         for owner in owners:
             stem = owner_names[owner]
             cpp_probes.append(f"probe(*{native_owner}->{stem}_state, {native_owner}->{stem}_d, "
                               f"{native_owner}->{stem}_en);")
             rtl_probes.append(f'$write(" %b %b %b %b", {rtl_owner}.{stem}.q, '
                               f'{rtl_owner}.{stem}.d, {rtl_owner}.{stem}.en, pyc_7079635f636c6b);')
-    left = "family->" + instance_names["left"]
+    left = cpp_owners[0]
     injection_cpp = "\n".join(
         f'if ({token} != "-") inject(*{left}->{owner_names[owner]}_state, '
         f'{left}->{owner_names[owner]}_q, {token});'
@@ -299,11 +356,20 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
     injection_rtl = "\n".join(
         f'if ({token}_text != "-") begin\n'
         f'  if ($sscanf({token}_text, "%b", {token}_bits) != 1) $fatal(1, "invalid injection");\n'
-        f'  dut.dut.{instance_names["left"]}.{owner_names[owner]}.q_current = {token}_bits;\nend'
+        f'  {rtl_owners[0]}.{owner_names[owner]}.q_current = {token}_bits;\nend'
         for token, owner in (("count", "count"), ("payload", "payload")))
     driver = case / "driver.cpp"
+    default_checks = []
+    if mode == "root":
+        physical_inputs = re.findall(r"(?m)^  input .* (\w+),?$", owner_rtl)
+        assert physical_inputs[:2] == ["pyc_7079635f636c6b", "pyc_7079635f727374"]
+        assert len(physical_inputs) > 2
+        for port in physical_inputs[2:]:
+            default_checks.append(f"static_assert(!requires(Root value) {{ value.{port}; }});")
+            default_checks.append(f"require_zero(root.pyc_implementation->{port}.element(0));")
     driver.write_text((fixtures / "serial-method-public.cpp").read_text()
                       .replace("@WIDTH@", str(width)).replace("@INJECT@", injection_cpp)
+                      .replace("@DEFAULT_CHECKS@", "\n".join(default_checks))
                       .replace("@PROBES@", "\n".join(cpp_probes)))
     bench = case / "tb.sv"
     bench.write_text((fixtures / "serial-method-public.sv").read_text()
@@ -337,6 +403,11 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
         trace.write_text(run([executable, workers, stimuli]).stdout)
         traces.append(trace)
     assert traces[0].read_bytes() == traces[1].read_bytes()
+    if mode == "root":
+        for workers in (1, 2):
+            trace = case / f"native-direct-root-workers-{workers}.txt"
+            trace.write_text(run([executable, workers, stimuli, "direct"]).stdout)
+            traces.append(trace)
     rtl_receipt = json.loads((case / "verilog/generated.json").read_text())
     rtl = [case / "verilog" / row["path"] for row in rtl_receipt["files"] if row["role"] == "rtl"]
     rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
@@ -347,7 +418,7 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
     trace.write_text(run([args.vvp, rtl_executable, "+stimuli=" + str(stimuli)]).stdout)
     traces.append(trace)
     oracle = [sys.executable, repo / "tests/compiler/oracles/serial_method_oracle.py",
-              "--stimuli", stimuli]
+              "--stimuli", stimuli, "--mode", mode]
     for name, value in (("width", width), ("initial", initial), ("first", first),
                         ("second", second), ("bias", bias), ("last", last)):
         oracle.extend(("--" + name, value))
@@ -355,7 +426,7 @@ for width, initial, first, second, bias, last in ((7, 5, 1, 2, 3, 4),
         oracle.extend(("--trace", trace))
     run(oracle)
     assert snapshot(case / "cpp") == cpp_originals
-    summaries.append({"width": width, "frames": len(rows), "provider_python_unavailable": True,
+    summaries.append({"mode": mode, "width": width, "frames": len(rows), "provider_python_unavailable": True,
                       "provider_body_unavailable_during_consumer_compile": True,
                       "before_sha256": digest(before), "after_sha256": digest(after),
                       "public_final_sha256": digest(final), "replay_final_sha256": digest(replay),
@@ -371,7 +442,7 @@ candidate_files = {name.decode(): digest(repo / name.decode())
 candidate_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
                                 capture_output=True, text=True, check=True).stdout.strip()
 (scratch / "receipt.json").write_text(json.dumps({
-    "scope": "same-owner true-guard whole-Bits-state autonomous Rule/Method execution",
+    "scope": "same-owner and cross-instance true-guard whole-Bits Method execution with selected-root ABI",
     "cases": summaries, "candidate_head": candidate_head, "candidate_content_sha256": hashlib.sha256(
         json.dumps(candidate_files, sort_keys=True).encode()).hexdigest(),
     "candidate_files": candidate_files,

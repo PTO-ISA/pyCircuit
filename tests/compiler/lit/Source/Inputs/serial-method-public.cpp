@@ -47,17 +47,63 @@ void inject(Storage &storage, Pin &pin, const std::string &bits) {
   current.q = wire<width>(bits);
   pin.element(0) = current.q;
 }
+template <class Wire> void require_zero(const Wire &value) {
+  const auto packed = value.packed();
+  for (unsigned bit = 0; bit < Wire::width; ++bit)
+    require(packed.knownMask().bit(bit) && !packed.zMask().bit(bit) &&
+            !packed.value().bit(bit));
+}
+template <class Root> void check_defaults(const Root &root) {
+  @DEFAULT_CHECKS@
+}
+template <class Root> class DirectSystem final : public gfsim::SimSystem {
+public:
+  explicit DirectSystem(Root &root) : root_(root) {}
+private:
+  bool Precheck() noexcept override {
+    if constexpr (requires { root_.__pyc_validate_checks(failure_); })
+      return root_.__pyc_validate_checks(failure_);
+    return true;
+  }
+  Root &root_;
+  gfsim::SimFailureInfo failure_{};
+};
 int main(int argc, char **argv) {
-  require(argc == 3);
-  pyc_dut dut(std::strtoul(argv[1], nullptr, 10));
-  gfsim::SimExecutor executor(dut.system(), dut.observations(), {});
+  require(argc == 3 || (argc == 4 && std::string_view(argv[3]) == "direct"));
+  const bool direct = argc == 4;
+  const unsigned workers = std::strtoul(argv[1], nullptr, 10);
+  gfsim::WorkExecutor direct_executor(workers);
+  std::unique_ptr<pyc_dut> dut;
+  std::shared_ptr<pyc_root> root;
+  std::unique_ptr<DirectSystem<pyc_root>> direct_system;
+  std::unique_ptr<gfsim::SimExecutor> executor;
   constexpr std::string_view config =
       "{\"deadlock_window\":null,\"max_domain_cycles\":{},\"max_ticks\":64,"
       "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}";
-  require(executor.ConfigureJson(reinterpret_cast<const std::uint8_t *>(config.data()),
-                                config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
-  require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
-  const auto root = dut.root_;
+  if (direct) {
+    root = std::make_shared<pyc_root>("direct-root", &direct_executor);
+    check_defaults(*root); // Constructor must bind before any facade/Work.
+    root->pyc_7079635f636c6b = wire<1>("0");
+    root->pyc_7079635f727374 = wire<1>("1");
+    root->Reset();
+    check_defaults(*root);
+    root->DiscardNext();
+    direct_system = std::make_unique<DirectSystem<pyc_root>>(*root);
+    require(direct_system->AddModule(*root));
+    direct_system->Build();
+    direct_system->Reset();
+    require(direct_system->state() == gfsim::SimSystemState::Ready);
+  } else {
+    dut = std::make_unique<pyc_dut>(workers);
+    root = dut->root_;
+    check_defaults(*root);
+    executor = std::make_unique<gfsim::SimExecutor>(dut->system(), dut->observations(),
+        std::span<const gfsim::ReportGaugeDescriptor>{});
+    require(executor->ConfigureJson(reinterpret_cast<const std::uint8_t *>(config.data()),
+                                   config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+    require(executor->Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+  }
+  check_defaults(*root);
   const auto family = root->pyc_implementation;
   std::ifstream stimuli(argv[2]);
   require(stimuli.good());
@@ -69,17 +115,25 @@ int main(int argc, char **argv) {
     pyc_dut::Inputs in;
     in.pyc_7079635f636c6b = wire<1>(clock ? "1" : "0");
     in.pyc_7079635f727374 = wire<1>(reset ? "1" : "0");
-    dut.drive(in);
+    if (direct) {
+      root->pyc_7079635f636c6b = in.pyc_7079635f636c6b;
+      root->pyc_7079635f727374 = in.pyc_7079635f727374;
+    } else {
+      dut->drive(in);
+    }
     root->Work();
+    check_defaults(*root);
     std::cout << "WORK " << row;
     @PROBES@
     std::cout << '\n';
     if (discard) {
       root->DiscardNext();
       root->Xfer();
+    } else if (direct) {
+      require(direct_system->Step() == gfsim::SimStepResult::Running);
     } else {
       PycircuitModelStepResultV1 step{sizeof(step)};
-      require(executor.Step(&step) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+      require(executor->Step(&step) == PYCIRCUIT_MODEL_STATUS_V1_OK);
     }
     ++row;
   }

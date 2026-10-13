@@ -83,7 +83,11 @@ FailureOr<std::string> managedReset(ac::ModuleOp root) {
   if (!domain || domain.empty())
     return std::string("1'b0");
   auto reset = domain.getAs<IntegerAttr>("reset");
-  auto names = root.getInputNames();
+  auto layout = ac::getModulePortLayout(root);
+  if (failed(layout))
+    return failure();
+  auto names =
+      root.getInputNames().getValue().take_front(layout->sourceInputCount);
   if (!reset || reset.getValue().getActiveBits() > 64 ||
       reset.getValue().getZExtValue() >= names.size())
     return root.emitOpError()
@@ -96,7 +100,11 @@ FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
   auto clock = domain ? domain.getAs<IntegerAttr>("clock") : IntegerAttr();
   auto reset = domain ? domain.getAs<IntegerAttr>("reset") : IntegerAttr();
-  auto inputs = root.getInputNames();
+  auto layout = ac::getModulePortLayout(root);
+  if (failed(layout))
+    return failure();
+  auto inputs =
+      root.getInputNames().getValue().take_front(layout->sourceInputCount);
   if (!domain || domain.size() != 2 || !clock || !reset ||
       clock.getValue().getActiveBits() > 64 ||
       reset.getValue().getActiveBits() > 64)
@@ -106,7 +114,7 @@ FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   uint64_t resetIndex = reset.getValue().getZExtValue();
   if (clockIndex == resetIndex || inputs.size() != 2 ||
       clockIndex >= inputs.size() || resetIndex >= inputs.size() ||
-      !root.getOutputNames().empty())
+      layout->sourceOutputCount != 0)
     return root.emitOpError()
            << "system root must be closed except for clock/reset";
   auto legal = [&](uint64_t index) {
@@ -478,6 +486,9 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
   if (failed(bindings))
     return failure();
   auto signature = root.getFunctionType();
+  auto layout = ac::getModulePortLayout(root);
+  if (failed(layout))
+    return failure();
   bool first = true;
   auto port = [&](StringRef direction, Type type,
                   StringRef name) -> LogicalResult {
@@ -493,11 +504,13 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
     first = false;
     return success();
   };
-  for (auto [i, type] : llvm::enumerate(signature.getInputs()))
+  for (auto [i, type] : llvm::enumerate(
+           signature.getInputs().take_front(layout->sourceInputCount)))
     if (failed(port("input", type,
                     cast<StringAttr>(root.getInputNames()[i]).getValue())))
       return failure();
-  for (auto [i, type] : llvm::enumerate(signature.getResults()))
+  for (auto [i, type] : llvm::enumerate(
+           signature.getResults().take_front(layout->sourceOutputCount)))
     if (failed(port("output", type,
                     cast<StringAttr>(root.getOutputNames()[i]).getValue())))
       return failure();
@@ -516,20 +529,44 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
     return failure();
   out << "  " << callee << *parameters << " dut (";
   first = true;
-  auto connection = [&](StringRef name) -> LogicalResult {
+  auto connection = [&](StringRef name, StringRef expression) -> LogicalResult {
     auto id = legalizeIdentifier(name, [&] { return root.emitOpError(); });
     if (failed(id))
       return failure();
-    out << (first ? "\n" : ",\n") << "    ." << *id << "(" << *id << ")";
+    out << (first ? "\n" : ",\n") << "    ." << *id << "(" << expression << ")";
     first = false;
     return success();
   };
-  for (auto raw : root.getInputNames())
-    if (failed(connection(cast<StringAttr>(raw).getValue())))
+  for (auto [index, raw] : llvm::enumerate(root.getInputNames())) {
+    StringRef name = cast<StringAttr>(raw).getValue();
+    std::string expression;
+    if (index < layout->sourceInputCount) {
+      auto id = legalizeIdentifier(name, [&] { return root.emitOpError(); });
+      if (failed(id))
+        return failure();
+      expression = std::move(*id);
+    } else {
+      auto width = context.analysis.getPackedWidth(signature.getInput(index),
+                                                   *bindings, root);
+      if (failed(width))
+        return failure();
+      expression = std::to_string(*width) + "'d0";
+    }
+    if (failed(connection(name, expression)))
       return failure();
-  for (auto raw : root.getOutputNames())
-    if (failed(connection(cast<StringAttr>(raw).getValue())))
+  }
+  for (auto [index, raw] : llvm::enumerate(root.getOutputNames())) {
+    StringRef name = cast<StringAttr>(raw).getValue();
+    std::string expression;
+    if (index < layout->sourceOutputCount) {
+      auto id = legalizeIdentifier(name, [&] { return root.emitOpError(); });
+      if (failed(id))
+        return failure();
+      expression = std::move(*id);
+    }
+    if (failed(connection(name, expression)))
       return failure();
+  }
   if (context.managesChecks()) {
     auto reset = managedReset(root);
     if (failed(reset))

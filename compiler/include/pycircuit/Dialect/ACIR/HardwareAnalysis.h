@@ -14,6 +14,19 @@ namespace acir::ac {
 /// Nominal struct/enum and type-parameter owner identities remain significant.
 bool areEquivalentHardwareTypes(mlir::Type lhs, mlir::Type rhs);
 
+/// Source physical prefix and final-only compiler-generated port suffix.
+/// Counts include original hidden domain ports. Ordinary instances always bind
+/// the full signature; defaults apply only to the selected System occurrence.
+struct ModulePortLayout {
+  unsigned sourceInputCount;
+  unsigned sourceOutputCount;
+  mlir::ArrayAttr rootInputDefaults;
+};
+/// Validate the closed ac.internal_ports contract. Without it, every physical
+/// port belongs to the source boundary and rootInputDefaults is an empty array.
+mlir::FailureOr<ModulePortLayout>
+getModulePortLayout(mlir::Operation *declaration);
+
 struct EnumMember {
   mlir::StringAttr name;
   MathIntAttr code;

@@ -1032,7 +1032,8 @@ zero-argument Method-owner construction. It does not expand effectful branch,
 loop, aggregate-state or general static-parameter admission.
 
 Final link lowers a bounded executable subset: whole scalar state represented
-by fixed-width Bits, same-owner repeated or nested Method calls, proven-true
+by fixed-width Bits, repeated or nested Method calls through static ordinary
+instances in the same physical clock/reset domain, proven-true
 active guards and effect paths, and at most one outer Rule writer per owner.
 Calls share their outer transaction's candidate versions; saved ordinary values
 remain snapshots. Independent Rules read old Q, regardless of registration
@@ -1040,7 +1041,23 @@ order. Separate structural instances retain independent state. Each state
 declaration uses one existing DFFE, preserving clock/reset, hold and discard;
 the same verified final artifact feeds C++ and Verilog.
 
-Cross-instance Method calls, false/unknown active guards, partial or conditional
+Cross-instance calls preserve original Module definitions and storage ownership.
+Ordinary internal ports carry old Q and lexical SSA to the caller and candidate
+D/E back to the owner; authors do not supply these connections. Original public
+root ports remain unchanged, including when the selected root definition is
+also used as a child elsewhere in the package. An occurrence without an
+external writer receives disabled proposals. Module-local expressions can
+save old Q as ordinary lexical SSA; later Method writes do not alter that
+snapshot. Aliases of one instance share candidates, while different instances
+of the same definition remain independent. Competing autonomous writers to
+one actual owner reject, including identity writes and unused definitions.
+
+The current routing subset rejects a definition requiring extra physical ports
+if that definition is also used by a Collection, and rejects transaction writer
+composition across a Collection. Unaffected existing Collections retain their
+original contracts; this does not add a source API for Method-owner collections.
+
+False/unknown active guards, partial or conditional
 effects, transaction resource operations and new transaction checks/observations
 still reject during lowering. Valid uncalled Method declarations remain fully
 published and checked before link removes them. This subset does not complete

@@ -259,6 +259,402 @@ protected:
           result.getResultNumber());
     return value;
   }
+  ModuleOp module(mlir::ModuleOp file, llvm::StringRef name) {
+    return mlir::cast<ModuleOp>(mlir::SymbolTable::lookupSymbolIn(file, name));
+  }
+  template <typename Op> Op named(ModuleOp definition, llvm::StringRef name) {
+    for (auto op : definition.getBody().front().getOps<Op>()) {
+      auto symbol = op->template getAttrOfType<mlir::StringAttr>("sym_name");
+      auto plain = op->template getAttrOfType<mlir::StringAttr>("name");
+      if ((symbol && symbol.getValue() == name) ||
+          (plain && plain.getValue() == name))
+        return op;
+    }
+    ADD_FAILURE() << "missing " << name.str();
+    return {};
+  }
+  InstanceOp instance(ModuleOp definition, llvm::StringRef name) {
+    for (auto op : definition.getBody().front().getOps<InstanceOp>())
+      if (op.getInstanceName() == name)
+        return op;
+    ADD_FAILURE() << "missing instance " << name.str();
+    return {};
+  }
+  ModuleOp emptyModule(mlir::ModuleOp file, ModuleOp model,
+                       llvm::StringRef name, mlir::TypeRange results) {
+    builder.setInsertionPointToEnd(file.getBody());
+    mlir::OperationState state(model.getLoc(), ModuleOp::getOperationName());
+    state.addAttributes(model->getAttrs());
+    state.attributes.set("sym_name", builder.getStringAttr(name));
+    state.attributes.set("function_type",
+                         mlir::TypeAttr::get(builder.getFunctionType(
+                             model.getFunctionType().getInputs(), results)));
+    llvm::SmallVector<mlir::Attribute> names;
+    for (unsigned i = 0; i < results.size(); ++i)
+      names.push_back(builder.getStringAttr("out" + std::to_string(i)));
+    state.attributes.set("output_names", builder.getArrayAttr(names));
+    state.addRegion();
+    auto definition = mlir::cast<ModuleOp>(builder.create(state));
+    auto *block = new mlir::Block;
+    definition.getBody().push_back(block);
+    for (auto type : definition.getFunctionType().getInputs())
+      block->addArgument(type, definition.getLoc());
+    return definition;
+  }
+  InstanceOp addInstance(ModuleOp parent, ModuleOp child, llvm::StringRef name,
+                         mlir::ValueRange inputs, unsigned index) {
+    builder.setInsertionPointToEnd(&parent.getBody().front());
+    mlir::OperationState state(parent.getLoc(), InstanceOp::getOperationName());
+    state.addOperands(inputs);
+    state.addTypes(child.getFunctionType().getResults());
+    state.addAttribute(
+        "callee", mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
+    state.addAttribute("instance_name", builder.getStringAttr(name));
+    state.addAttribute("parameters", builder.getArrayAttr({}));
+    state.addAttribute("type_arguments", builder.getArrayAttr({}));
+    state.addAttribute("occurrence", occurrence(parent.getSymName(), index));
+    return mlir::cast<InstanceOp>(builder.create(state));
+  }
+  BitsBinaryOp add(mlir::Value left, mlir::Value right, mlir::Location loc) {
+    mlir::OperationState state(loc, BitsBinaryOp::getOperationName());
+    state.addOperands({left, right});
+    state.addTypes(left.getType());
+    state.addAttribute("opcode", builder.getStringAttr("add"));
+    return mlir::cast<BitsBinaryOp>(builder.create(state));
+  }
+  void yield(mlir::ValueRange values, mlir::Location loc) {
+    mlir::OperationState state(loc, YieldOp::getOperationName());
+    state.addOperands(values);
+    builder.create(state);
+  }
+  SourceMethodCallOp call(mlir::Value path, mlir::ValueRange args,
+                          ModuleOp lexical, llvm::StringRef provider,
+                          llvm::StringRef method, llvm::StringRef receiver,
+                          mlir::TypeRange results, unsigned index) {
+    mlir::OperationState state(lexical.getLoc(),
+                               SourceMethodCallOp::getOperationName());
+    state.addOperands(path);
+    state.addOperands(args);
+    state.addTypes(results);
+    state.addAttribute("callee",
+                       mlir::SymbolRefAttr::get(
+                           &context, provider,
+                           {mlir::FlatSymbolRefAttr::get(&context, method)}));
+    state.addAttribute("instance_path",
+                       builder.getArrayAttr({builder.getStringAttr(receiver)}));
+    state.addAttribute("occurrence", occurrence(lexical.getSymName(), index));
+    return mlir::cast<SourceMethodCallOp>(builder.create(state));
+  }
+  // A provider seed is a lexical ordinary value, deliberately different from
+  // the caller's delta. The same definition receives different seeds at its
+  // two occurrences. No test oracle depends on generated port names/order.
+  mlir::OwningOpRef<mlir::ModuleOp> crossFixture() {
+    auto file = parse();
+    if (!file)
+      return file;
+    auto provider = owner(*file);
+    auto &body = provider.getBody().front();
+    auto count = first<SourceStateOp>(provider.getBody());
+    body.getTerminator()->setOperands(count.getQ());
+    provider->setAttr(
+        "function_type",
+        mlir::TypeAttr::get(builder.getFunctionType(
+            provider.getFunctionType().getInputs(), {count.getQ().getType()})));
+    provider->setAttr("output_names",
+                      builder.getArrayAttr({builder.getStringAttr("count")}));
+    for (auto transaction :
+         llvm::make_early_inc_range(body.getOps<SourceTransactionOp>()))
+      transaction->erase();
+    for (auto state : llvm::make_early_inc_range(body.getOps<SourceStateOp>()))
+      if (state != count)
+        state->erase();
+    auto bump = named<SourceMethodOp>(provider, "bump");
+    bump->setOperand(1, body.getArgument(0));
+    named<SourceMethodOp>(provider, "relay")->erase();
+    auto peek = named<SourceMethodOp>(provider, "uncalled");
+    peek->setAttr("sym_name", builder.getStringAttr("peek"));
+    auto yes = *body.getOps<BitsConstantOp>().begin();
+    peek->setOperands({yes.getResult(), count.getQ()});
+    peek->setAttr("function_type", mlir::TypeAttr::get(builder.getFunctionType(
+                                       {}, {count.getQ().getType()})));
+    peek->setAttr("ac.result_constraints",
+                  bump->getAttr("ac.result_constraints"));
+    peek->setAttr("ac.return_form", builder.getStringAttr("single"));
+    for (auto &region : peek->getRegions())
+      region.front().addArgument(count.getQ().getType(), peek.getLoc());
+    peek.getBody().front().getTerminator()->setOperands(
+        peek.getBody().front().getArgument(1));
+
+    auto byte = count.getQ().getType();
+    auto relay = emptyModule(*file, provider, "Relay", {byte});
+    auto &relayBody = relay.getBody().front();
+    builder.setInsertionPointToEnd(&relayBody);
+    auto doubled =
+        add(relayBody.getArgument(0), relayBody.getArgument(0), relay.getLoc());
+    auto counter = addInstance(relay, provider, "counter",
+                               {doubled.getResult(), relayBody.getArgument(1),
+                                relayBody.getArgument(2)},
+                               0);
+    auto *relayYes = yes->clone();
+    relayBody.push_back(relayYes);
+    auto *methodCopy = bump->clone();
+    auto forward = mlir::cast<SourceMethodOp>(methodCopy);
+    forward->setAttr("sym_name", builder.getStringAttr("forward"));
+    forward->setAttr("occurrence", occurrence("Relay", 1));
+    auto parameter = mlir::cast<mlir::DictionaryAttr>(
+        forward->getAttrOfType<mlir::ArrayAttr>("ac.parameters")[0]);
+    mlir::NamedAttrList fields(parameter);
+    fields.set("origin", occurrence("Relay", 1));
+    forward->setAttr("ac.parameters",
+                     builder.getArrayAttr({fields.getDictionary(&context)}));
+    forward->setOperands(relayYes->getResults());
+    for (auto &region : forward->getRegions()) {
+      region.getBlocks().clear();
+      auto *local = new mlir::Block;
+      region.push_back(local);
+      local->addArgument(byte, relay.getLoc());
+      local->addArgument(yes.getResult().getType(), relay.getLoc());
+      builder.setInsertionPointToEnd(local);
+      if (&region == &forward.getGuard())
+        yield(local->getArgument(1), relay.getLoc());
+      else {
+        auto nested = call(local->getArgument(1), local->getArgument(0), relay,
+                           "Owner", "bump", "counter", {byte}, 2);
+        yield(nested->getResults(), relay.getLoc());
+      }
+    }
+    relayBody.push_back(methodCopy);
+    builder.setInsertionPointToEnd(&relayBody);
+    yield(counter->getResults(), relay.getLoc());
+
+    auto root = emptyModule(*file, provider, "Root", {byte, byte, byte, byte});
+    auto &rootBody = root.getBody().front();
+    builder.setInsertionPointToEnd(&rootBody);
+    auto rightSeed =
+        add(rootBody.getArgument(0), rootBody.getArgument(0), root.getLoc());
+    addInstance(root, relay, "left", rootBody.getArguments(), 0);
+    addInstance(root, relay, "right",
+                {rightSeed.getResult(), rootBody.getArgument(1),
+                 rootBody.getArgument(2)},
+                1);
+    auto *rootYes = yes->clone();
+    rootBody.push_back(rootYes);
+    llvm::SmallVector<mlir::Value> results;
+    for (unsigned side = 0; side < 2; ++side) {
+      builder.setInsertionPointToEnd(&rootBody);
+      mlir::OperationState state(root.getLoc(),
+                                 SourceTransactionOp::getOperationName());
+      state.addOperands({rootBody.getArgument(1), rootBody.getArgument(2),
+                         rootYes->getResult(0), rootBody.getArgument(0)});
+      state.addTypes(llvm::SmallVector<mlir::Type>(side ? 1 : 3, byte));
+      state.addAttribute("name",
+                         builder.getStringAttr(side ? "right_run" : "run"));
+      state.addAttribute("declaration", occurrence("Root", 2 + side * 8));
+      state.addAttribute("occurrence", occurrence("Root", 3 + side * 8));
+      state.addRegion();
+      state.addRegion();
+      auto transaction = mlir::cast<SourceTransactionOp>(builder.create(state));
+      for (auto &region : transaction->getRegions()) {
+        auto *local = new mlir::Block;
+        region.push_back(local);
+        auto path =
+            local->addArgument(yes.getResult().getType(), root.getLoc());
+        auto delta = local->addArgument(byte, root.getLoc());
+        builder.setInsertionPointToEnd(local);
+        if (&region == &transaction.getGuard()) {
+          yield(path, root.getLoc());
+          continue;
+        }
+        auto firstCall = call(path, delta, root, "Relay", "forward",
+                              side ? "right" : "left", {byte}, 4 + side * 8);
+        if (side) {
+          yield(firstCall->getResults(), root.getLoc());
+        } else {
+          auto secondCall = call(path, firstCall->getResults(), root, "Relay",
+                                 "forward", "left", {byte}, 5);
+          auto old = call(path, {}, root, "Owner", "peek", "left", {byte}, 6);
+          old->setAttr(
+              "instance_path",
+              builder.getArrayAttr({builder.getStringAttr("left"),
+                                    builder.getStringAttr("counter")}));
+          yield({firstCall->getResult(0), secondCall->getResult(0),
+                 old->getResult(0)},
+                root.getLoc());
+        }
+      }
+      results.append(transaction->result_begin(), transaction->result_end());
+    }
+    builder.setInsertionPointToEnd(&rootBody);
+    yield(results, root.getLoc());
+    auto system = *file->getOps<SystemOp>().begin();
+    mlir::NamedAttrList entry(system.getEntry());
+    entry.set("callee", mlir::FlatSymbolRefAttr::get(&context, "Root"));
+    system->setAttr("entry", entry.getDictionary(&context));
+    EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    return file;
+  }
+  SourceTransactionOp observer(ModuleOp provider, llvm::StringRef destination) {
+    auto state = first<SourceStateOp>(provider.getBody());
+    auto yes = *provider.getBody().front().getOps<BitsConstantOp>().begin();
+    builder.setInsertionPoint(provider.getBody().front().getTerminator());
+    mlir::OperationState transaction(provider.getLoc(),
+                                     SourceTransactionOp::getOperationName());
+    transaction.addOperands({state.getClk(), state.getRst(), yes.getResult()});
+    transaction.addAttribute("name", builder.getStringAttr("autonomous"));
+    transaction.addAttribute("declaration", occurrence("Owner", 40));
+    transaction.addAttribute("occurrence", occurrence("Owner", 41));
+    transaction.addRegion();
+    transaction.addRegion();
+    auto op = mlir::cast<SourceTransactionOp>(builder.create(transaction));
+    for (unsigned i = 0; i < 2; ++i) {
+      auto *local = new mlir::Block;
+      op->getRegion(i).push_back(local);
+      auto path =
+          local->addArgument(yes.getResult().getType(), provider.getLoc());
+      builder.setInsertionPointToEnd(local);
+      if (i == 1) {
+        mlir::OperationState read(provider.getLoc(),
+                                  SourceStateReadOp::getOperationName());
+        read.addOperands(path);
+        read.addTypes(state.getQ().getType());
+        read.addAttribute("state", builder.getStringAttr("count"));
+        read.addAttribute("selectors", builder.getArrayAttr({}));
+        read.addAttribute("occurrence", occurrence("Owner", 42));
+        auto *old = builder.create(read);
+        mlir::OperationState write(provider.getLoc(),
+                                   SourceStateWriteOp::getOperationName());
+        write.addOperands({path, old->getResult(0)});
+        write.addAttribute("state", builder.getStringAttr(destination));
+        write.addAttribute("selectors", builder.getArrayAttr({}));
+        write.addAttribute("occurrence", occurrence("Owner", 43));
+        builder.create(write);
+      }
+      yield(i == 0 ? mlir::ValueRange(path) : mlir::ValueRange{},
+            provider.getLoc());
+    }
+    return op;
+  }
+  CollectionOp addCollection(mlir::ModuleOp file, ModuleOp child) {
+    auto grouped = emptyModule(file, child, "Grouped", {});
+    auto yes = *owner(file).getBody().front().getOps<BitsConstantOp>().begin();
+    auto shape = builder.getArrayAttr({yes.getValue()});
+    llvm::SmallVector<mlir::Type> inputs, outputs;
+    for (auto input : child.getFunctionType().getInputs())
+      inputs.push_back(TableType::get(&context, shape, input));
+    for (auto output : child.getFunctionType().getResults())
+      outputs.push_back(TableType::get(&context, shape, output));
+    grouped->setAttr(
+        "function_type",
+        mlir::TypeAttr::get(builder.getFunctionType(inputs, outputs)));
+    grouped->removeAttr("ac.domain_inputs");
+    grouped->setAttr("output_names", child.getOutputNames());
+    for (auto [argument, type] :
+         llvm::zip_equal(grouped.getBody().front().getArguments(), inputs))
+      argument.setType(type);
+    builder.setInsertionPointToEnd(&grouped.getBody().front());
+    mlir::OperationState state(grouped.getLoc(),
+                               CollectionOp::getOperationName());
+    state.addOperands(grouped.getBody().front().getArguments());
+    state.addTypes(outputs);
+    state.addAttribute(
+        "callee", mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
+    state.addAttribute("instance_name", builder.getStringAttr("lanes"));
+    state.addAttribute("parameters", builder.getArrayAttr({}));
+    state.addAttribute("type_arguments", builder.getArrayAttr({}));
+    state.addAttribute("shape", shape);
+    state.addAttribute("occurrence", occurrence("Grouped", 0));
+    auto collection = mlir::cast<CollectionOp>(builder.create(state));
+    yield(collection->getResults(), grouped.getLoc());
+    return collection;
+  }
+  struct EvaluationScope {
+    ModuleOp definition;
+    InstanceOp via;
+    std::shared_ptr<EvaluationScope> parent;
+    std::string path;
+  };
+  // Only the existing scalar combinational primitives are evaluated. Storage Q
+  // is supplied independently per physical occurrence, never inferred from D.
+  uint64_t evaluate(mlir::ModuleOp file, mlir::Value value,
+                    const std::shared_ptr<EvaluationScope> &scope,
+                    uint64_t seed = 3) {
+    if (auto arg = mlir::dyn_cast<mlir::BlockArgument>(value)) {
+      auto *parent = arg.getOwner()->getParentOp();
+      if (mlir::isa<ModuleOp>(parent)) {
+        if (scope->via)
+          return evaluate(file, scope->via->getOperand(arg.getArgNumber()),
+                          scope->parent, seed);
+        return arg.getArgNumber() == 0 ? seed : arg.getArgNumber() == 1 ? 1 : 0;
+      }
+      if (auto rule = mlir::dyn_cast<RuleOp>(parent))
+        return evaluate(file, rule->getOperand(arg.getArgNumber()), scope,
+                        seed);
+    }
+    auto result = mlir::dyn_cast<mlir::OpResult>(value);
+    if (result) {
+      auto *op = result.getOwner();
+      if (auto constant = mlir::dyn_cast<BitsConstantOp>(op)) {
+        HardwareAnalysis hardware(file);
+        HardwareBindings bindings;
+        bindings.owner = scope->definition;
+        auto literal =
+            hardware.evaluateStatic(constant.getValue(), bindings, op);
+        EXPECT_TRUE(mlir::succeeded(literal));
+        if (mlir::succeeded(literal)) {
+          if (auto boolean = mlir::dyn_cast<mlir::BoolAttr>(*literal))
+            return boolean.getValue();
+          return std::stoull(
+              mlir::cast<MathIntAttr>(*literal).getCanonicalValue().str());
+        }
+      }
+      if (mlir::isa<TableSplatOp, TableFoldOp>(op))
+        return evaluate(file, op->getOperand(0), scope, seed);
+      if (mlir::isa<StructCreateOp>(op)) {
+        EXPECT_EQ(op->getNumOperands(), 1u);
+        return evaluate(file, op->getOperand(0), scope, seed);
+      }
+      if (auto field = mlir::dyn_cast<StructGetOp>(op)) {
+        EXPECT_EQ(field.getField(), "value");
+        return evaluate(file, field->getOperand(0), scope, seed);
+      }
+      if (auto binary = mlir::dyn_cast<BitsBinaryOp>(op)) {
+        EXPECT_EQ(binary.getOpcode(), "add");
+        return (evaluate(file, binary->getOperand(0), scope, seed) +
+                evaluate(file, binary->getOperand(1), scope, seed)) &
+               255;
+      }
+      if (auto rule = mlir::dyn_cast<RuleOp>(op))
+        return evaluate(file,
+                        rule.getBody().front().getTerminator()->getOperand(
+                            result.getResultNumber()),
+                        scope, seed);
+      if (auto child = mlir::dyn_cast<InstanceOp>(op)) {
+        auto *callee =
+            mlir::SymbolTable::lookupSymbolIn(file, child.getCallee());
+        if (auto imported = mlir::dyn_cast<ModuleImportOp>(callee)) {
+          EXPECT_EQ(imported->getAttrOfType<mlir::StringAttr>("primitive_kind")
+                        .getValue(),
+                    "dffe");
+          return scope->path == "left.counter" ? 11 : 19;
+        }
+        auto definition = mlir::cast<ModuleOp>(callee);
+        auto next = std::make_shared<EvaluationScope>(EvaluationScope{
+            definition, child, scope,
+            scope->path.empty()
+                ? child.getInstanceName().str()
+                : scope->path + "." + child.getInstanceName().str()});
+        return evaluate(
+            file,
+            definition.getBody().front().getTerminator()->getOperand(
+                result.getResultNumber()),
+            next, seed);
+      }
+    }
+    ADD_FAILURE() << "unsupported oracle input "
+                  << print(value.getParentBlock()->getParentOp());
+    return 0;
+  }
   mlir::DictionaryAttr occurrence(llvm::StringRef ownerName, unsigned index) {
     return builder.getDictionaryAttr(
         {builder.getNamedAttr(
@@ -653,74 +1049,693 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
-       CrossInstanceCallsRemainUnsupportedDespiteValidSamePhysicalDomain) {
-  auto file = parse();
+       ThreeLevelCallsKeepPhysicalOwnersLexicalAnchorsAndOldQSnapshots) {
+  auto file = crossFixture();
   ASSERT_TRUE(file);
-  auto definition = owner(*file);
-  mlir::OperationState state(definition.getLoc(), ModuleOp::getOperationName());
-  state.addAttributes(definition->getAttrs());
-  state.attributes.set("sym_name", builder.getStringAttr("Root"));
-  state.attributes.set("function_type",
-                       mlir::TypeAttr::get(builder.getFunctionType(
-                           definition.getFunctionType().getInputs(),
-                           {definition.getFunctionType().getResult(0),
-                            definition.getFunctionType().getResult(0)})));
-  state.attributes.set("output_names",
-                       builder.getArrayAttr({builder.getStringAttr("first"),
-                                             builder.getStringAttr("last")}));
-  state.addRegion();
-  builder.setInsertionPointToEnd(file->getBody());
-  auto root = mlir::cast<ModuleOp>(builder.create(state));
-  auto *block = new mlir::Block;
-  root.getBody().push_back(block);
-  mlir::IRMapping mapping;
-  for (auto argument : definition.getBody().front().getArguments())
-    mapping.map(argument,
-                block->addArgument(argument.getType(), root.getLoc()));
-  auto yes = *definition.getBody().front().getOps<BitsConstantOp>().begin();
-  auto *localYes = yes->clone();
-  block->push_back(localYes);
-  mapping.map(yes.getResult(), localYes->getResult(0));
-  builder.setInsertionPointToEnd(block);
-  mlir::OperationState instance(root.getLoc(), InstanceOp::getOperationName());
-  instance.addOperands(block->getArguments());
-  instance.addTypes(definition.getFunctionType().getResults());
-  instance.addAttribute("callee",
-                        mlir::FlatSymbolRefAttr::get(&context, "Owner"));
-  instance.addAttribute("instance_name", builder.getStringAttr("child"));
-  instance.addAttribute("parameters", builder.getArrayAttr({}));
-  instance.addAttribute("type_arguments", builder.getArrayAttr({}));
-  instance.addAttribute("occurrence", occurrence("Root", 0));
-  builder.create(instance);
-  auto *copy = named<SourceTransactionOp>(*file, "run")->clone(mapping);
-  auto run = mlir::cast<SourceTransactionOp>(copy);
-  run->setAttr("declaration", occurrence("Root", 1));
-  run->setAttr("occurrence", occurrence("Root", 2));
-  block->push_back(copy);
-  for (auto call : run.getBody().front().getOps<SourceMethodCallOp>()) {
-    call->setAttr("instance_path",
-                  builder.getArrayAttr({builder.getStringAttr("child")}));
-    call->setAttr(
-        "occurrence",
-        occurrence("Root",
-                   call->getResult(0) ==
-                           run.getBody().front().getTerminator()->getOperand(0)
-                       ? 3
-                       : 4));
-  }
-  for (auto write : llvm::make_early_inc_range(
-           run.getBody().front().getOps<SourceStateWriteOp>()))
-    write->erase();
-  builder.setInsertionPointToEnd(block);
-  mlir::OperationState yield(root.getLoc(), YieldOp::getOperationName());
-  yield.addOperands(run->getResults());
-  builder.create(yield);
+  auto provider = owner(*file);
+  auto state = first<SourceStateOp>(provider.getBody());
+  auto originalOccurrence = state.getOccurrence();
+  auto originalOwner = provider->getAttr("source_owner");
+  auto originalClock = provider.getBody().front().getArgument(1).getType();
   auto proof = capture([&] {
     return std::make_unique<SourceTransactionStateAnalysis>(
         file->getOperation());
   });
   ASSERT_TRUE(proof->isValid()) << diagnostics;
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*file);
+  }))) << diagnostics;
+  provider = owner(*file);
+  auto root = module(*file, "Root"), relay = module(*file, "Relay");
+  EXPECT_EQ(std::distance(file->getOps<ModuleOp>().begin(),
+                          file->getOps<ModuleOp>().end()),
+            3);
+  EXPECT_EQ(
+      std::distance(provider.getBody().front().getOps<InstanceOp>().begin(),
+                    provider.getBody().front().getOps<InstanceOp>().end()),
+      1);
+  EXPECT_EQ(std::distance(relay.getBody().front().getOps<InstanceOp>().begin(),
+                          relay.getBody().front().getOps<InstanceOp>().end()),
+            1);
+  EXPECT_EQ(std::distance(root.getBody().front().getOps<InstanceOp>().begin(),
+                          root.getBody().front().getOps<InstanceOp>().end()),
+            2);
+  auto storage = instance(provider, "count");
+  EXPECT_EQ(storage.getOccurrence(), originalOccurrence);
+  EXPECT_EQ(provider->getAttr("source_owner"), originalOwner);
+  EXPECT_EQ(storage->getOperand(0), provider.getBody().front().getArgument(1));
+  EXPECT_EQ(storage->getOperand(1), provider.getBody().front().getArgument(2));
+  EXPECT_EQ(storage->getOperand(0).getType(), originalClock);
+  EXPECT_EQ(instance(root, "left").getCallee(),
+            instance(root, "right").getCallee());
+  auto scope =
+      std::make_shared<EvaluationScope>(EvaluationScope{root, {}, {}, ""});
+  // Independent old Q values: left=11, right=19. Provider lexical values are
+  // 2*seed and 4*seed; the repeated left call consumes its saved first result.
+  for (uint64_t seed : {3u, 17u, 61u}) {
+    SCOPED_TRACE(seed);
+    auto *outputs = root.getBody().front().getTerminator();
+    auto firstCandidate = (11 + 3 * seed) & 255;
+    auto lastCandidate = (2 * firstCandidate + 2 * seed) & 255;
+    EXPECT_EQ(evaluate(*file, outputs->getOperand(0), scope, seed),
+              firstCandidate);
+    EXPECT_EQ(evaluate(*file, outputs->getOperand(1), scope, seed),
+              lastCandidate);
+    EXPECT_EQ(evaluate(*file, outputs->getOperand(2), scope, seed), 11u);
+    EXPECT_EQ(evaluate(*file, outputs->getOperand(3), scope, seed),
+              (19 + 5 * seed) & 255);
+    for (auto name : {"left", "right"}) {
+      auto relayScope = std::make_shared<EvaluationScope>(
+          EvaluationScope{relay, instance(root, name), scope, name});
+      auto providerScope = std::make_shared<EvaluationScope>(
+          EvaluationScope{provider, instance(relay, "counter"), relayScope,
+                          std::string(name) + ".counter"});
+      EXPECT_EQ(evaluate(*file, storage->getOperand(2), providerScope, seed),
+                1u);
+      EXPECT_EQ(evaluate(*file, storage->getOperand(3), providerScope, seed),
+                llvm::StringRef(name) == "left" ? lastCandidate
+                                                : (19 + 5 * seed) & 255);
+    }
+  }
+  for (auto definition : {provider, relay}) {
+    auto layout = capture([&] { return getModulePortLayout(definition); });
+    ASSERT_TRUE(mlir::succeeded(layout)) << diagnostics;
+    EXPECT_EQ(layout->sourceInputCount, 3u);
+    EXPECT_EQ(layout->sourceOutputCount, 1u);
+    EXPECT_EQ(definition.getInputNames()[0], builder.getStringAttr("seed"));
+    EXPECT_EQ(definition.getInputNames()[1], builder.getStringAttr("pyc_clk"));
+    EXPECT_EQ(definition.getInputNames()[2], builder.getStringAttr("pyc_rst"));
+    EXPECT_EQ(layout->rootInputDefaults.size(),
+              definition.getFunctionType().getNumInputs() - 3);
+  }
+  auto restored = mlir::parseSourceString<mlir::ModuleOp>(
+      print(file->getOperation()), &context);
+  ASSERT_TRUE(restored);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*restored);
+  }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
+       AncestorAndChildIdentityWritersConflictIncludingUnusedDefinitions) {
+  for (bool selectedProvider : {false, true}) {
+    SCOPED_TRACE(selectedProvider);
+    auto file = crossFixture();
+    ASSERT_TRUE(file);
+    auto provider = owner(*file);
+    observer(provider, "count");
+    if (selectedProvider) {
+      auto system = *file->getOps<SystemOp>().begin();
+      mlir::NamedAttrList entry(system.getEntry());
+      entry.set("callee", mlir::FlatSymbolRefAttr::get(&context, "Owner"));
+      system->setAttr("entry", entry.getDictionary(&context));
+    }
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    rejects(*file);
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       ChildAutonomousObserverReadsOldQAndWritesADifferentOwner) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto provider = owner(*file);
+  auto state = first<SourceStateOp>(provider.getBody());
+  auto *copy = state->clone();
+  copy->setAttr("instance_name", builder.getStringAttr("seen"));
+  copy->setAttr("occurrence", occurrence("Owner", 44));
+  provider.getBody().front().getOperations().insert(state->getIterator(), copy);
+  observer(provider, "seen");
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  provider = owner(*file);
+  auto root = module(*file, "Root"), relay = module(*file, "Relay");
+  auto scope =
+      std::make_shared<EvaluationScope>(EvaluationScope{root, {}, {}, ""});
+  auto seen = instance(provider, "seen");
+  for (auto name : {"left", "right"}) {
+    auto relayScope = std::make_shared<EvaluationScope>(
+        EvaluationScope{relay, instance(root, name), scope, name});
+    auto providerScope = std::make_shared<EvaluationScope>(
+        EvaluationScope{provider, instance(relay, "counter"), relayScope,
+                        std::string(name) + ".counter"});
+    EXPECT_EQ(evaluate(*file, seen->getOperand(3), providerScope),
+              llvm::StringRef(name) == "left" ? 11u : 19u);
+  }
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*file);
+  }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
+       InstanceWithNoExternalWriterReceivesExplicitKnownZeroInputs) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root"), relay = module(*file, "Relay");
+  auto *terminator = root.getBody().front().getTerminator();
+  auto idle = addInstance(root, relay, "idle",
+                          root.getBody().front().getArguments(), 50);
+  idle->moveBefore(terminator);
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  root = module(*file, "Root");
+  relay = module(*file, "Relay");
+  idle = instance(root, "idle");
+  auto layout = capture([&] { return getModulePortLayout(relay); });
+  ASSERT_TRUE(mlir::succeeded(layout)) << diagnostics;
+  auto scope =
+      std::make_shared<EvaluationScope>(EvaluationScope{root, {}, {}, ""});
+  for (auto value : idle->getOperands().drop_front(layout->sourceInputCount)) {
+    EXPECT_TRUE(value.getDefiningOp<BitsConstantOp>());
+    EXPECT_EQ(evaluate(*file, value, scope), 0u);
+  }
+  EXPECT_EQ(idle->getNumOperands(), relay.getFunctionType().getNumInputs());
+}
+
+TEST_F(TransactionLoweringTest,
+       SelectedProviderStillHasOnePhysicalDefinitionAndFullChildArity) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto system = *file->getOps<SystemOp>().begin();
+  mlir::NamedAttrList entry(system.getEntry());
+  entry.set("callee", mlir::FlatSymbolRefAttr::get(&context, "Owner"));
+  system->setAttr("entry", entry.getDictionary(&context));
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  auto provider = owner(*file);
+  auto layout = capture([&] { return getModulePortLayout(provider); });
+  ASSERT_TRUE(mlir::succeeded(layout)) << diagnostics;
+  EXPECT_EQ(layout->sourceInputCount, 3u);
+  EXPECT_EQ(layout->sourceOutputCount, 1u);
+  ASSERT_GT(layout->rootInputDefaults.size(), 0u);
+  for (auto raw : layout->rootInputDefaults)
+    EXPECT_EQ(raw, builder.getI64IntegerAttr(0));
+  auto child = instance(module(*file, "Relay"), "counter");
+  EXPECT_EQ(child->getNumOperands(), provider.getFunctionType().getNumInputs());
+  EXPECT_EQ(child->getNumResults(), provider.getFunctionType().getNumResults());
+  auto inputs = llvm::SmallVector<mlir::Value>(child->getOperands());
+  inputs.pop_back();
+  child->setOperands(inputs);
+  EXPECT_TRUE(
+      mlir::failed(capture([&] { return verifyHardwarePackage(*file); })));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(TransactionLoweringTest,
+       InternalPortLayoutStrictFieldsTypesRangesAndKnownZeroDefaults) {
+  for (unsigned mutation = 0; mutation < 14; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = crossFixture();
+    ASSERT_TRUE(file);
+    ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+    auto provider = owner(*file);
+    auto original =
+        provider->getAttrOfType<mlir::DictionaryAttr>("ac.internal_ports");
+    ASSERT_TRUE(original);
+    mlir::NamedAttrList fields(original);
+    auto defaults = llvm::SmallVector<mlir::Attribute>(
+        original.getAs<mlir::ArrayAttr>("root_inputs").getValue());
+    ASSERT_FALSE(defaults.empty());
+    if (mutation == 0)
+      fields.set("unknown", builder.getUnitAttr());
+    if (mutation == 1)
+      fields.erase("source_outputs");
+    if (mutation == 2)
+      fields.set("source_inputs", builder.getI32IntegerAttr(3));
+    if (mutation == 3)
+      fields.set("source_outputs", builder.getStringAttr("1"));
+    if (mutation == 4)
+      fields.set("source_inputs", builder.getI64IntegerAttr(-1));
+    if (mutation == 5)
+      fields.set("source_outputs", builder.getI64IntegerAttr(-1));
+    if (mutation == 6)
+      fields.set("source_inputs",
+                 builder.getI64IntegerAttr(
+                     provider.getFunctionType().getNumInputs() + 1));
+    if (mutation == 7)
+      fields.set("source_outputs",
+                 builder.getI64IntegerAttr(
+                     provider.getFunctionType().getNumResults() + 1));
+    if (mutation == 8)
+      defaults.pop_back();
+    if (mutation == 9)
+      defaults.push_back(builder.getI64IntegerAttr(0));
+    if (mutation == 10)
+      defaults[0] = builder.getI64IntegerAttr(1);
+    if (mutation == 11)
+      defaults[0] = builder.getI32IntegerAttr(0);
+    if (mutation == 12)
+      defaults[0] = builder.getStringAttr("0");
+    fields.set("root_inputs", builder.getArrayAttr(defaults));
+    if (mutation == 13) {
+      fields.set(
+          "source_inputs",
+          builder.getI64IntegerAttr(provider.getFunctionType().getNumInputs()));
+      fields.set("source_outputs",
+                 builder.getI64IntegerAttr(
+                     provider.getFunctionType().getNumResults()));
+      fields.set("root_inputs", builder.getArrayAttr({}));
+    }
+    provider->setAttr("ac.internal_ports", fields.getDictionary(&context));
+    EXPECT_TRUE(
+        mlir::failed(capture([&] { return getModulePortLayout(provider); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  auto provider = owner(*file);
+  provider->setAttr("ac.internal_ports", builder.getArrayAttr({}));
+  EXPECT_TRUE(
+      mlir::failed(capture([&] { return getModulePortLayout(provider); })));
+}
+
+TEST_F(TransactionLoweringTest,
+       InternalPortMetadataIsFinalOnlyAndForbiddenOnImportsOrOtherOperations) {
+  for (unsigned target = 0; target < 5; ++target) {
+    SCOPED_TRACE(target);
+    auto file = crossFixture();
+    ASSERT_TRUE(file);
+    ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+    auto provider = owner(*file);
+    auto metadata = provider->getAttr("ac.internal_ports");
+    ASSERT_TRUE(metadata);
+    if (target == 0) {
+      file->getOperation()->removeAttr("ac.stage");
+      EXPECT_TRUE(
+          mlir::failed(capture([&] { return getModulePortLayout(provider); })));
+    } else {
+      mlir::Operation *operation =
+          target == 1 ? (*file->getOps<ModuleImportOp>().begin()).getOperation()
+          : target == 2 ? (*file->getOps<SystemOp>().begin()).getOperation()
+          : target == 3 ? file->getOperation()
+                        : instance(provider, "count").getOperation();
+      operation->setAttr("ac.internal_ports", metadata);
+      EXPECT_TRUE(
+          mlir::failed(capture([&] { return verifyHardwarePackage(*file); })));
+    }
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       CrossInstanceLateCombinationalCyclePreservesEveryOriginalHandle) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto provider = owner(*file);
+  builder.setInsertionPoint(provider.getBody().front().getTerminator());
+  auto seed = provider.getBody().front().getArgument(0);
+  auto cycle = add(seed, seed, provider.getLoc());
+  cycle->setOperand(0, cycle.getResult());
+  // The unused cycle is a real graph defect after routing materializes. It
+  // cannot disappear through dead-result cleanup or an internal-output cut.
+  auto proof = capture([&] {
+    return std::make_unique<SourceTransactionStateAnalysis>(
+        file->getOperation());
+  });
+  ASSERT_TRUE(proof->isValid()) << diagnostics;
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
   rejects(*file);
+}
+
+TEST_F(TransactionLoweringTest,
+       CollectionSharingExtendedDefinitionRejectsBeforeAnyMutation) {
+  for (auto childName : {"Owner", "Relay"}) {
+    SCOPED_TRACE(childName);
+    auto file = crossFixture();
+    ASSERT_TRUE(file);
+    addCollection(*file, module(*file, childName));
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    rejects(*file, "Collection");
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       CollectionWriterCompositionRejectsWithoutAnySignatureExtension) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  addCollection(*file, owner(*file));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  rejects(*file, "Collection");
+}
+
+TEST_F(TransactionLoweringTest,
+       UnaffectedCollectionRetainsItsOriginalShapeAndColumnSignature) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto pure = emptyModule(*file, owner(*file), "Pure",
+                          {owner(*file).getFunctionType().getResult(0)});
+  builder.setInsertionPointToEnd(&pure.getBody().front());
+  yield(pure.getBody().front().getArgument(0), pure.getLoc());
+  auto collection = addCollection(*file, pure);
+  auto originalType = pure.getFunctionType();
+  auto shape = collection.getShape();
+  auto originalOccurrence = collection.getOccurrence();
+  auto inputs = llvm::SmallVector<mlir::Type>(collection->getOperandTypes());
+  auto outputs = llvm::SmallVector<mlir::Type>(collection->getResultTypes());
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  pure = module(*file, "Pure");
+  EXPECT_EQ(pure.getFunctionType(), originalType);
+  EXPECT_FALSE(pure->hasAttr("ac.internal_ports"));
+  auto grouped = module(*file, "Grouped");
+  ASSERT_EQ(
+      std::distance(grouped.getBody().front().getOps<CollectionOp>().begin(),
+                    grouped.getBody().front().getOps<CollectionOp>().end()),
+      1);
+  collection = *grouped.getBody().front().getOps<CollectionOp>().begin();
+  EXPECT_EQ(collection.getShape(), shape);
+  EXPECT_EQ(collection.getOccurrence(), originalOccurrence);
+  EXPECT_EQ(llvm::SmallVector<mlir::Type>(collection->getOperandTypes()),
+            inputs);
+  EXPECT_EQ(llvm::SmallVector<mlir::Type>(collection->getResultTypes()),
+            outputs);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*file);
+  }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
+       SourcePrefixMetadataAndDomainOrdinalsSurviveFullPhysicalSuffix) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto provider = owner(*file);
+  auto bump = named<SourceMethodOp>(provider, "bump");
+  auto byte = provider.getFunctionType().getInput(0);
+  auto packet = StructType::get(&context, builder.getStringAttr("Packet"));
+  builder.setInsertionPointToStart(file->getBody());
+  mlir::OperationState declaration(provider.getLoc(),
+                                   StructOp::getOperationName());
+  declaration.addAttribute("sym_name", builder.getStringAttr("Packet"));
+  declaration.addAttribute(
+      "fields",
+      builder.getArrayAttr({builder.getDictionaryAttr(
+          {builder.getNamedAttr("name", builder.getStringAttr("value")),
+           builder.getNamedAttr("type", mlir::TypeAttr::get(byte))})}));
+  builder.create(declaration);
+  auto record = [&](mlir::Value value) {
+    mlir::OperationState create(provider.getLoc(),
+                                StructCreateOp::getOperationName());
+    create.addOperands(value);
+    create.addTypes(packet);
+    return builder.create(create)->getResult(0);
+  };
+  builder.setInsertionPoint(bump);
+  auto lexical = record(provider.getBody().front().getArgument(0));
+  auto captures = llvm::SmallVector<mlir::Value>(bump->getOperands());
+  captures.push_back(lexical);
+  bump->setOperands(captures);
+  for (auto &region : bump->getRegions())
+    region.front().addArgument(packet, bump.getLoc());
+  auto step = *bump.getBody().front().getOps<BitsBinaryOp>().begin();
+  builder.setInsertionPoint(step);
+  mlir::OperationState projection(provider.getLoc(),
+                                  StructGetOp::getOperationName());
+  projection.addOperands(bump.getBody().front().getArguments().back());
+  projection.addTypes(byte);
+  projection.addAttribute("field", builder.getStringAttr("value"));
+  step->setOperand(1, builder.create(projection)->getResult(0));
+  // The full source module contract requires a nominal Struct result. Both
+  // existing forwarding instances retain that exact original source prefix.
+  auto *output = provider.getBody().front().getTerminator();
+  builder.setInsertionPoint(output);
+  output->setOperand(0, record(output->getOperand(0)));
+  for (auto definition : {provider, module(*file, "Relay")})
+    definition->setAttr(
+        "function_type",
+        mlir::TypeAttr::get(builder.getFunctionType(
+            definition.getFunctionType().getInputs(), {packet})));
+  instance(module(*file, "Relay"), "counter")->getResult(0).setType(packet);
+  for (auto name : {"left", "right"})
+    instance(module(*file, "Root"), name)->getResult(0).setType(packet);
+  auto parameter = mlir::cast<mlir::DictionaryAttr>(
+      bump->getAttrOfType<mlir::ArrayAttr>("ac.parameters")[0]);
+  mlir::NamedAttrList fields(parameter);
+  fields.set("name", builder.getStringAttr("seed"));
+  provider->setAttr("ac.parameters",
+                    builder.getArrayAttr({fields.getDictionary(&context)}));
+  provider->setAttr(
+      "ac.result_constraints",
+      builder.getArrayAttr({builder.getDictionaryAttr(
+          {builder.getNamedAttr("kind", builder.getStringAttr("hardware")),
+           builder.getNamedAttr("type", mlir::TypeAttr::get(packet)),
+           builder.getNamedAttr("source_kind",
+                                builder.getStringAttr("nominal"))})}));
+  provider->setAttr("ac.return_form", builder.getStringAttr("single"));
+  auto parameters = provider->getAttr("ac.parameters");
+  auto results = provider->getAttr("ac.result_constraints");
+  auto domain = provider->getAttr("ac.domain_inputs");
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  provider = owner(*file);
+  EXPECT_EQ(provider->getAttr("ac.parameters"), parameters);
+  EXPECT_EQ(provider->getAttr("ac.result_constraints"), results);
+  EXPECT_EQ(provider->getAttr("ac.domain_inputs"), domain);
+  EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  for (auto definition : {provider, module(*file, "Relay")}) {
+    auto layout = capture([&] { return getModulePortLayout(definition); });
+    ASSERT_TRUE(mlir::succeeded(layout)) << diagnostics;
+    EXPECT_EQ(layout->sourceOutputCount, 1u);
+    EXPECT_EQ(definition.getFunctionType().getResult(0), packet);
+    unsigned capturedRecords = 0;
+    for (auto type : definition.getFunctionType().getResults().drop_front(
+             layout->sourceOutputCount))
+      capturedRecords += type == packet;
+    EXPECT_EQ(capturedRecords, 1u);
+  }
+  auto root = module(*file, "Root");
+  auto rule = named<RuleOp>(root, "run");
+  EXPECT_TRUE(llvm::is_contained(rule->getOperandTypes(), packet));
+  auto scope =
+      std::make_shared<EvaluationScope>(EvaluationScope{root, {}, {}, ""});
+  auto *outputs = root.getBody().front().getTerminator();
+  EXPECT_EQ(evaluate(*file, outputs->getOperand(0), scope), 20u);
+  EXPECT_EQ(evaluate(*file, outputs->getOperand(1), scope), 46u);
+  EXPECT_EQ(evaluate(*file, outputs->getOperand(2), scope), 11u);
+  EXPECT_EQ(evaluate(*file, outputs->getOperand(3), scope), 34u);
+  auto arity = provider.getFunctionType().getNumInputs();
+  ASSERT_GT(arity, 3u);
+  provider->setAttr(
+      "ac.domain_inputs",
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("clock", builder.getI64IntegerAttr(arity - 2)),
+           builder.getNamedAttr("reset",
+                                builder.getI64IntegerAttr(arity - 1))}));
+  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+}
+
+TEST_F(TransactionLoweringTest,
+       InternalRootDefaultsRejectAggregateAndZeroWidthInputSuffixes) {
+  for (bool aggregate : {false, true}) {
+    SCOPED_TRACE(aggregate);
+    auto file = crossFixture();
+    ASSERT_TRUE(file);
+    ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+    auto provider = owner(*file);
+    auto layout = capture([&] { return getModulePortLayout(provider); });
+    ASSERT_TRUE(mlir::succeeded(layout)) << diagnostics;
+    auto oldType = provider.getFunctionType();
+    llvm::SmallVector<mlir::Type> inputs(oldType.getInputs());
+    auto constants = provider.getBody().front().getOps<BitsConstantOp>();
+    auto zero = *std::next(constants.begin());
+    auto one = *constants.begin();
+    inputs[layout->sourceInputCount] =
+        aggregate
+            ? mlir::Type(TableType::get(&context,
+                                        builder.getArrayAttr({one.getValue()}),
+                                        inputs[layout->sourceInputCount]))
+            : mlir::Type(BitsType::get(&context, zero.getValue()));
+    provider->setAttr("function_type",
+                      mlir::TypeAttr::get(builder.getFunctionType(
+                          inputs, oldType.getResults())));
+    EXPECT_TRUE(
+        mlir::failed(capture([&] { return getModulePortLayout(provider); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       AggregateLexicalCaptureIsRoutedAsOneTypedPayloadFromItsProvider) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto provider = owner(*file);
+  auto bump = named<SourceMethodOp>(provider, "bump");
+  auto one = *provider.getBody().front().getOps<BitsConstantOp>().begin();
+  auto shape = builder.getArrayAttr({one.getValue()});
+  auto table = TableType::get(
+      &context, shape, provider.getBody().front().getArgument(0).getType());
+  builder.setInsertionPoint(bump);
+  mlir::OperationState splat(provider.getLoc(),
+                             TableSplatOp::getOperationName());
+  splat.addOperands(provider.getBody().front().getArgument(0));
+  splat.addTypes(table);
+  splat.addAttribute("shape", shape);
+  auto *payload = builder.create(splat);
+  auto captures = llvm::SmallVector<mlir::Value>(bump->getOperands());
+  captures.push_back(payload->getResult(0));
+  bump->setOperands(captures);
+  for (auto &region : bump->getRegions())
+    region.front().addArgument(table, bump.getLoc());
+  auto step = *bump.getBody().front().getOps<BitsBinaryOp>().begin();
+  builder.setInsertionPoint(step);
+  mlir::OperationState fold(provider.getLoc(), TableFoldOp::getOperationName());
+  fold.addOperands(bump.getBody().front().getArguments().back());
+  fold.addTypes(provider.getFunctionType().getInput(0));
+  fold.addAttribute("kind", builder.getStringAttr("xor"));
+  step->setOperand(1, builder.create(fold)->getResult(0));
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  for (auto name : {"Owner", "Relay"}) {
+    auto definition = module(*file, name);
+    auto layout = capture([&] { return getModulePortLayout(definition); });
+    ASSERT_TRUE(mlir::succeeded(layout)) << diagnostics;
+    unsigned payloadPorts = 0;
+    for (auto type : definition.getFunctionType().getResults().drop_front(
+             layout->sourceOutputCount))
+      payloadPorts += type == table;
+    EXPECT_EQ(payloadPorts, 1u);
+  }
+  auto rule = named<RuleOp>(module(*file, "Root"), "run");
+  EXPECT_TRUE(llvm::is_contained(rule->getOperandTypes(), table));
+  auto root = module(*file, "Root");
+  auto scope =
+      std::make_shared<EvaluationScope>(EvaluationScope{root, {}, {}, ""});
+  auto *outputs = root.getBody().front().getTerminator();
+  EXPECT_EQ(evaluate(*file, outputs->getOperand(0), scope), 20u);
+  EXPECT_EQ(evaluate(*file, outputs->getOperand(1), scope), 46u);
+  EXPECT_EQ(evaluate(*file, outputs->getOperand(3), scope), 34u);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*file);
+  }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
+       DeepPhysicalRoutingPathBudgetRejectsWithOriginalObjectsIntact) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto provider = owner(*file);
+  auto child = provider;
+  constexpr unsigned depth = 258;
+  for (unsigned i = 0; i < depth; ++i) {
+    auto layer = emptyModule(*file, provider, "Layer" + std::to_string(i),
+                             provider.getFunctionType().getResults());
+    auto allocation = addInstance(layer, child, "node",
+                                  layer.getBody().front().getArguments(), 0);
+    builder.setInsertionPointToEnd(&layer.getBody().front());
+    yield(allocation->getResults(), layer.getLoc());
+    child = layer;
+  }
+  auto root = module(*file, "Root");
+  instance(root, "left")
+      ->setAttr("callee",
+                mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
+  llvm::SmallVector<mlir::Attribute> path{builder.getStringAttr("left")};
+  path.append(depth, builder.getStringAttr("node"));
+  for (auto call : named<SourceTransactionOp>(root, "run")
+                       .getBody()
+                       .front()
+                       .getOps<SourceMethodCallOp>()) {
+    auto method = call.getCallee().getNestedReferences().back().getValue();
+    call->setAttr("callee",
+                  mlir::SymbolRefAttr::get(
+                      &context, "Owner",
+                      {mlir::FlatSymbolRefAttr::get(
+                          &context, method == "peek" ? "peek" : "bump")}));
+    call->setAttr("instance_path", builder.getArrayAttr(path));
+  }
+  rejects(*file);
+  EXPECT_TRUE(diagnostics.find("budget") != std::string::npos ||
+              diagnostics.find("depth") != std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(
+    TransactionLoweringTest,
+    RepeatedIdleInstanceRoutePathsExceedMaterializationBudgetAfterValidStateAnalysis) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto provider = owner(*file);
+  auto child = module(*file, "Relay");
+  auto count = first<SourceStateOp>(provider.getBody());
+  auto bump = named<SourceMethodOp>(provider, "bump");
+  auto write = first<SourceStateWriteOp>(bump.getBody());
+  constexpr unsigned routedStates = 16;
+  for (unsigned i = 1; i < routedStates; ++i) {
+    auto name = "routed" + std::to_string(i);
+    auto *stateCopy = count->clone();
+    stateCopy->setAttr("instance_name", builder.getStringAttr(name));
+    stateCopy->setAttr("occurrence", occurrence("Owner", 100 + i));
+    provider.getBody().front().getOperations().insert(count->getIterator(),
+                                                      stateCopy);
+    auto *writeCopy = write->clone();
+    writeCopy->setAttr("state", builder.getStringAttr(name));
+    writeCopy->setAttr("occurrence", occurrence("Owner", 200 + i));
+    bump.getBody().front().getOperations().insert(write->getIterator(),
+                                                  writeCopy);
+  }
+  // Keep receiver resolution below its depth budget. The sole active call
+  // reaches Relay.counter through 30 ordinary wrapper definitions; every idle
+  // occurrence shares all sixteen downward state routes.
+  constexpr unsigned depth = 30;
+  for (unsigned i = 0; i < depth; ++i) {
+    auto layer = emptyModule(*file, provider, "Shared" + std::to_string(i),
+                             child.getFunctionType().getResults());
+    auto allocation = addInstance(layer, child, "node",
+                                  layer.getBody().front().getArguments(), 0);
+    builder.setInsertionPointToEnd(&layer.getBody().front());
+    yield(allocation->getResults(), layer.getLoc());
+    child = layer;
+  }
+
+  auto root = module(*file, "Root");
+  instance(root, "left")
+      ->setAttr("callee",
+                mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
+  llvm::SmallVector<mlir::Attribute> path{builder.getStringAttr("left")};
+  path.append(depth, builder.getStringAttr("node"));
+  path.push_back(builder.getStringAttr("counter"));
+  auto run = named<SourceTransactionOp>(root, "run");
+  llvm::SmallVector<SourceMethodCallOp> calls;
+  llvm::append_range(calls, run.getBody().front().getOps<SourceMethodCallOp>());
+  ASSERT_EQ(calls.size(), 3u);
+  auto active = calls.front();
+  active->setAttr(
+      "callee",
+      mlir::SymbolRefAttr::get(
+          &context, "Owner", {mlir::FlatSymbolRefAttr::get(&context, "bump")}));
+  active->setAttr("instance_path", builder.getArrayAttr(path));
+  run.getBody().front().getTerminator()->setOperands(
+      {active.getResult(0), active.getResult(0), active.getResult(0)});
+  for (unsigned i = 1; i < calls.size(); ++i)
+    calls[i].erase();
+  root.getBody().front().getTerminator()->setOperand(
+      3, root.getBody().front().getArgument(0));
+  named<SourceTransactionOp>(root, "right_run").erase();
+
+  constexpr unsigned idleDefinitions = 8;
+  constexpr unsigned instancesPerDefinition = 16;
+  for (unsigned i = 0; i < idleDefinitions; ++i) {
+    auto parent = emptyModule(*file, provider, "IdleParent" + std::to_string(i),
+                              child.getFunctionType().getResults());
+    InstanceOp idle;
+    for (unsigned j = 0; j < instancesPerDefinition; ++j)
+      idle = addInstance(parent, child, "idle" + std::to_string(j),
+                         parent.getBody().front().getArguments(), j);
+    builder.setInsertionPointToEnd(&parent.getBody().front());
+    yield(idle->getResults(), parent.getLoc());
+  }
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = capture([&] {
+    return std::make_unique<SourceTransactionStateAnalysis>(
+        file->getOperation());
+  });
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  ASSERT_NE(analysis->lookup(named<SourceTransactionOp>(root, "run")), nullptr);
+  rejects(*file, "transaction materialization");
+  EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
 }
 
 TEST_F(TransactionLoweringTest,
@@ -1377,6 +2392,50 @@ protected:
     });
   }
 };
+
+TEST_F(SourceLinkStageTest,
+       SourceBodiesAndPublishedInterfacesRejectForgedFinalPortAuthority) {
+  for (bool interface : {false, true}) {
+    for (bool imported : {false, true}) {
+      SCOPED_TRACE(interface);
+      SCOPED_TRACE(imported);
+      auto body = sourceBody();
+      ASSERT_TRUE(body);
+      auto unit = interface ? header(*body) : std::move(body);
+      ASSERT_TRUE(unit);
+      auto valid = capture([&] {
+        auto error = [&] { return mlir::emitError(builder.getUnknownLoc()); };
+        return interface ? verifySourceInterfaceStructure(*unit, error)
+                         : verifySourceBodyStructure(*unit, error);
+      });
+      ASSERT_TRUE(mlir::succeeded(valid)) << diagnostics;
+      auto *target =
+          imported ? (*unit->getOps<ModuleImportOp>().begin()).getOperation()
+                   : mlir::SymbolTable::lookupSymbolIn(*unit, "lower.Owner");
+      ASSERT_NE(target, nullptr);
+      target->setAttr(
+          "ac.internal_ports",
+          builder.getDictionaryAttr(
+              {builder.getNamedAttr("source_inputs",
+                                    builder.getI64IntegerAttr(3)),
+               builder.getNamedAttr("source_outputs",
+                                    builder.getI64IntegerAttr(4)),
+               builder.getNamedAttr("root_inputs", builder.getArrayAttr({}))}));
+      auto before = identities(*unit);
+      auto text = print(unit->getOperation());
+      auto result = capture([&] {
+        auto error = [&] { return mlir::emitError(builder.getUnknownLoc()); };
+        return interface ? verifySourceInterfaceStructure(*unit, error)
+                         : verifySourceBodyStructure(*unit, error);
+      });
+      EXPECT_TRUE(mlir::failed(result));
+      EXPECT_NE(diagnostics.find("internal_ports"), std::string::npos)
+          << diagnostics;
+      unchanged(*unit, before);
+      EXPECT_EQ(print(unit->getOperation()), text);
+    }
+  }
+}
 
 TEST_F(SourceLinkStageTest,
        CapturedStagesAreRealBoundariesOfTheSameSuccessfulLink) {

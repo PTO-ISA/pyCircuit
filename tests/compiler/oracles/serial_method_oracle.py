@@ -21,7 +21,7 @@ OWNERS = (
 )
 
 
-def expected_trace(stimuli, width, initial, first, second, bias, last):
+def expected_trace(stimuli, width, initial, first, second, bias, last, mode="local"):
     mask = (1 << width) - 1
 
     def bits(value):
@@ -31,7 +31,19 @@ def expected_trace(stimuli, width, initial, first, second, bias, last):
     initial_state.update(
         count=bits(initial), payload=bits(9), held=bits(9), identity=bits(11)
     )
-    states = [initial_state.copy(), initial_state.copy()]
+    active = {"local": [True, True], "cross": [True, True, False], "root": [False]}[
+        mode
+    ]
+    states = [initial_state.copy() for _ in active]
+    external_writes = {
+        "count",
+        "before",
+        "middle",
+        "saved",
+        "after",
+        "copied",
+        "identity",
+    }
     clock = 0
     lines = []
     for row, line in enumerate(stimuli.splitlines()):
@@ -43,30 +55,36 @@ def expected_trace(stimuli, width, initial, first, second, bias, last):
             states[0]["payload"] = inject_payload
         tokens = ["WORK", str(row)]
         candidates = []
-        for state in states:
+        for state, advancing in zip(states, active, strict=True):
             q = int(state["count"], 2)
             candidate = state.copy()
-            candidate.update(
-                count=bits(q + first + second + bias + last),
-                before=bits(q),
-                middle=bits(q + first),
-                saved=bits(q + first + second),
-                after=bits(q + first + second + bias + last),
-                old_seen=bits(q),
-                copied=state["payload"],
-            )
+            candidate["old_seen"] = bits(q)
+            if advancing:
+                candidate.update(
+                    count=bits(q + first + second + bias + last),
+                    before=bits(q),
+                    middle=bits(q + first),
+                    saved=bits(q + first + second),
+                    after=bits(q + first + second + bias + last),
+                    copied=state["payload"],
+                )
             for owner in OWNERS:
-                enable = int(owner not in ("payload", "held"))
-                tokens.extend((state[owner], candidate[owner], str(enable), str(clock)))
+                enable = int(
+                    owner == "old_seen" or (advancing and owner in external_writes)
+                )
+                # The uniform physical interface requires known-zero D/E for
+                # an occurrence with no external writer; Q still holds.
+                data = (
+                    bits(0)
+                    if not advancing and owner in external_writes
+                    else candidate[owner]
+                )
+                tokens.extend((state[owner], data, str(enable), str(clock)))
             candidates.append(candidate)
         lines.append(" ".join(tokens))
         if not discard:
             if level and not clock:
-                states = (
-                    [initial_state.copy(), initial_state.copy()]
-                    if reset
-                    else candidates
-                )
+                states = [initial_state.copy() for _ in active] if reset else candidates
             clock = level
     return lines
 
@@ -86,6 +104,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--stimuli", type=Path, required=True)
     parser.add_argument("--trace", type=Path, action="append", required=True)
+    parser.add_argument("--mode", choices=("local", "cross", "root"), default="local")
     for name in ("width", "initial", "first", "second", "bias", "last"):
         parser.add_argument("--" + name, type=int, required=True)
     args = parser.parse_args()
@@ -97,6 +116,7 @@ def main():
         args.second,
         args.bias,
         args.last,
+        args.mode,
     )
     for path in args.trace:
         check(
