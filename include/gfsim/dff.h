@@ -2,7 +2,7 @@
 #pragma once
 
 #include "gfsim/SimModule.h"
-#include "gfsim/wire.h"
+#include "gfsim/sampled_clock.h"
 
 #include <string>
 #include <utility>
@@ -39,15 +39,17 @@ template <class T = Bits<1>> struct dffe_kernel {
                    Outputs) {
     discard(current, pending);
     try {
-      if (!inputs.clk.isFullyKnown())
+      const auto clock =
+          evaluateSampledClock(current.clock, inputs.clk, inputs.rst);
+      if (clock.fault == SampledClockFault::UnknownClock)
         throw FourStateViolation("dffe clock must be known");
-      pending.clock = inputs.clk.value().toBool();
-      pending.valid = true;
-      if (current.clock || !pending.clock)
-        return;
-      if (!inputs.rst.isFullyKnown())
+      if (clock.fault == SampledClockFault::UnknownReset)
         throw FourStateViolation("dffe reset must be known at posedge");
-      if (inputs.rst.value().toBool()) {
+      pending.clock = clock.nextClock;
+      pending.valid = true;
+      if (!clock.rising)
+        return;
+      if (clock.resetActive) {
         pending.q = inputs.init;
         return;
       }

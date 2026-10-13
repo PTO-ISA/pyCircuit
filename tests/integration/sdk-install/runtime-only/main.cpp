@@ -1,4 +1,5 @@
 #include "gfsim/SimExecutor.h"
+#include "gfsim/dff.h"
 
 #include <array>
 #include <cstdint>
@@ -28,8 +29,31 @@ int main() {
 
   PycircuitModelStepResultV1 result{sizeof(PycircuitModelStepResultV1)};
   if (executor.Step(&result) != PYCIRCUIT_MODEL_STATUS_V1_OK ||
-      result.state != PYCIRCUIT_MODEL_STEP_V1_QUIESCENT || result.epoch_time != 0 ||
-      executor.cycles() != 0)
+      result.state != PYCIRCUIT_MODEL_STEP_V1_QUIESCENT ||
+      result.epoch_time != 0 || executor.cycles() != 0)
     return 5;
+
+  using Bit = gfsim::Bits<1>;
+  using Word = gfsim::Bits<9>;
+  auto control = [](bool value) {
+    return gfsim::wire<Bit>::known(Bit{value ? 1u : 0u});
+  };
+  auto word = [](unsigned value) {
+    return gfsim::wire<Word>::known(Word{value});
+  };
+  gfsim::dffe<Word> reg("runtime-only.reg");
+  reg.init = word(3);
+  reg.Reset();
+  reg.Xfer();
+  if (!reg.q.isFullyKnown() || reg.q.value() != Word{3})
+    return 6;
+  reg.clk = control(true);
+  reg.rst = control(false);
+  reg.en = control(true);
+  reg.d = word(17);
+  reg.Work();
+  reg.Xfer();
+  if (!reg.q.isFullyKnown() || reg.q.value() != Word{17})
+    return 7;
   return 0;
 }

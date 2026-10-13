@@ -121,6 +121,7 @@ function(add_gfsim_test target)
 endfunction()
 set(_runtime_tests "${CMAKE_CURRENT_LIST_DIR}/../../runtime")
 add_gfsim_test(ACIRRegRuntimeTests "${_runtime_tests}/RegRuntimeTest.cpp"
+  "${_runtime_tests}/SampledClockTest.cpp"
   "${_runtime_tests}/FourStateCompareTest.cpp"
   "${_runtime_tests}/TypedMemoryTest.cpp")
 add_gfsim_test(ACIRCollectionRuntimeTests "${_runtime_tests}/CollectionRuntimeTest.cpp")

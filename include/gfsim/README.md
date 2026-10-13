@@ -74,6 +74,14 @@ active; otherwise DFF captures d and DFFE captures only when en is true.
 Data/init retain X/Z masks. Reset() is a host initialization hook, distinct
 from the clocked rst pin; it prepares initialization for Xfer.
 
+`sampled_clock.h` provides the shared, LLVM-independent `evaluateSampledClock`
+used by the DFF/DFFE kernel. It reads borrowed clock/reset wires without changing
+history and returns an edge/reset result or a physical-control fault. Unknown
+clock always faults; reset is inspected only on a rising edge. Callers retain
+the previous clock on failure and commit successful history through their
+existing Xfer/Discard lifecycle, including samples with a false data enable.
+The helper alone does not implement transaction guard checks or check histories.
+
 Synchronous memory reads old storage before concurrent writes commit. A read
 publishes known Q; the first subsequent idle rising edge holds it and the
 second makes it unknown. Each dual-read output has its own lifetime. Writes
