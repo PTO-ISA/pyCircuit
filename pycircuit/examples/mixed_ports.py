@@ -57,7 +57,7 @@ class MixedPorts:
         router = Router()
         observer = Observer()
 
-    def __call__() -> tuple[ac.connection, ac.connection, ac.connection]:
+    def __call__() -> tuple[ac.queue[ac.u32], ac.cell[ac.u32], ac.cell[ac.u32]]:
         ledger()
         router(source, ledger, enabled)
         observer(router.outputs[2])

@@ -109,7 +109,7 @@ def serialize(model):
     modules = []
     for m in model['modules']:
         functions.append(dict(m['body'], owner=m['name']))
-        modules.append(dict(name=m['name'], rules=[], work=m['body']['name']))
+        modules.append(dict(name=m['name']))
     intrinsics = {}
     for fn in functions:
         for block in fn['blocks']:
@@ -130,7 +130,7 @@ def serialize(model):
         _symbols[r['name']] = (owner, r['name'])
     module_names = list(dict.fromkeys([i['name'] for i in model.get('instances', [])] + [m['name'] for m in modules]))
     for fn in functions:
-        owner = fn.get('owner') or fn.get('instance') or next((m for m in sorted(module_names, key=len, reverse=True) if fn['name'].startswith(m + '.') or fn['name'] == m + '_Work'), None)
+        owner = fn.get('owner') or fn.get('instance') or next((m for m in sorted(module_names, key=len, reverse=True) if fn['name'].startswith(m + '.') or fn['name'] == m + '_body'), None)
         if fn['kind'] not in ('rule','body'): owner = None
         fn['_scope'] = owner
         _functions[fn['name']] = fn
@@ -288,11 +288,6 @@ def function(fn, region_kind=None):
             if kind == 'resource':
                 attrs.pop('name', None)
                 attributes = attr(attrs)[:-1] + ', target = ' + symbol(o['name']) + '}'
-            elif kind == 'rule.call':
-                target = _functions[o['callee']]
-                bindings = [symbol(x['name']) if x else 'unit' for x in target['outputs']]
-                attrs.pop('callee', None); attrs.pop('name', None)
-                attributes = attr(attrs)[:-1] + ', target = ' + symbol(o['callee']) + ', output_bindings = [' + ', '.join(bindings) + ']}'
             else: attributes = attr(attrs)
             stmt = lhs + '"acir.' + custom.get(kind, kind) + f'"({args}) ' + attributes + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
         loc = o.get('loc',{})

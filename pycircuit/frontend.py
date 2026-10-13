@@ -306,6 +306,7 @@ class Frontend:
         for p,v in zip(fn.args.args, supplied):
             typ = self.annotation(p.annotation)
             if isinstance(v, Value) and v.type != typ: self.error(node, 'connection type mismatch: ' + p.arg)
+            if isinstance(v,Instance) and v.source_name != typ: self.error(node,'Module connection type mismatch: '+p.arg)
             env[p.arg] = v
         instance.inputs = dict(zip((p.arg for p in fn.args.args), supplied))
         instance.env = env
@@ -336,6 +337,13 @@ class Frontend:
                 if isinstance(v,Value) and not resource(v.type): self.error(returned,'Module outputs must be fixed component connections')
                 return v
             instance.outputs = export(instance.outputs)
+            def verify_output(value,typ):
+                if isinstance(typ,list):
+                    if not isinstance(value,list) or len(value)!=len(typ): self.error(returned,'Module output tuple type mismatch')
+                    for v,t in zip(value,typ): verify_output(v,t)
+                elif value is None and typ=='void': pass
+                elif not isinstance(value,Value) or value.type!=typ: self.error(returned,'Module output type mismatch')
+            verify_output(instance.outputs,self.annotation(fn.returns))
         mod['body'] = lower.function()
         mod['resources'] = sorted(mod.pop('_resources'))
         return instance.outputs
@@ -714,6 +722,7 @@ class Lower:
                 if not isinstance(index, int) or not 0 <= index < len(val): self.f.error(node, 'fixed output tuple index out of range')
                 return self.imported(val[index])
             idx = self.expr(node.slice)
+            if resource(val.type) and not val.type.startswith('qarray<'): val=self.signal_value(val,node)
             if not val.type.startswith(('array<', 'vector<', 'qarray<')):
                 self.f.error(node, f'cannot index {val.type}')
             typ = wrapped('queue', element(val.type)) if val.type.startswith('qarray<') else element(val.type)
@@ -940,18 +949,23 @@ class Lower:
             typ = self.target_type(target.value)
             if target.attr == 'value' and typ.startswith(('queue<', 'cell<', 'ehr<')):
                 return element(typ)
+            if resource(typ): typ=element(typ)
             fields = self.f.types.get(typ, [])
             field = next((f for f in fields if f['name'] == target.attr), None)
             if field:
                 return field['type']
         if isinstance(target, ast.Subscript):
             typ = self.target_type(target.value)
+            if typ.startswith(('cell<','ehr<')): typ=element(typ)
             return wrapped('queue', element(typ)) if typ.startswith('qarray<') else element(typ)
         self.f.error(target, 'unsupported assignment type')
 
     def assignment(self, target, value, node, connection=False):
         if not connection:
             existing = self.env.get(target.id) if isinstance(target, ast.Name) else self.expr(target, reference=True) if isinstance(target, ast.Attribute) and isinstance(self.expr(target.value, reference=True), Instance) else None
+            if isinstance(target,ast.Subscript):
+                probe=self.expr(target,reference=True)
+                if isinstance(probe,Value) and probe.type.startswith('queue<'): existing=probe
             if isinstance(existing, Value) and resource(existing.type) and not existing.type.startswith('qarray<') and True:
                 existing = self.imported(existing)
                 value = self.cast(self.signal_value(value,node), element(existing.type), node)
@@ -959,6 +973,7 @@ class Lower:
                 slot=producing.get('slot') if producing else None
                 if producing and producing.get('output_call'): producing=next(o for o in self.ops if o['id']==producing['output_call'])
                 if self.kind == 'body':
+                    if isinstance(target,ast.Subscript): self.f.error(node,'dynamic output binding belongs inside a Rule')
                     if producing is None or producing.get('role') != 'rule': self.f.error(node, 'Module state assignment requires a Rule component output')
                     if slot is None: producing['output_binding'] = next(iter(existing.targets))
                     else:
@@ -1001,9 +1016,12 @@ class Lower:
                     base = base.value
             if not isinstance(base, ast.Name): self.f.error(node, 'local updates require a named aggregate')
             original = self.lookup(base.id, node)
+            component=original if resource(original.type) else None
+            if component: original=self.signal_value(self.imported(component),node)
             indices = [self.expr(n) for n in indices]
             result = self.op('update', original.type, [original, value, *indices], path=path, node=node)
-            self.bind(base.id, result)
+            if component: self.op('cell.write','void',[self.imported(component),result],node=node)
+            else: self.bind(base.id, result)
             return
         self.f.error(node, 'unsupported assignment target')
 
@@ -1028,6 +1046,7 @@ class Lower:
                 typ = self.f.annotation(node.annotation) if isinstance(node, ast.AnnAssign) else None
                 if typ is None and isinstance(targets[0], (ast.Attribute, ast.Subscript)):
                     typ = self.target_type(targets[0])
+                    if resource(typ): typ=element(typ)
                 fn = self.defs.get(spelling(node.value.func), self.f.defs.get(spelling(node.value.func))) if isinstance(node.value, ast.Call) else None
                 connection = False
                 val = self.expr(node.value, typ, reference=connection)

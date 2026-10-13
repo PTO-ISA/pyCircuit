@@ -18,8 +18,8 @@
 | --- | --- | --- |
 | 1. class Module 与统一 Rule、源语义 IR | 已实现 | 仓库全部示例可生成 v8 源 MLIR；2 项源层回归通过，含原生验证、作用域、赋值和旧 API 拒绝 |
 | 2. 事务提取与条件传播 | 已实现 | C++ pass 直接读取 MLIR；调用点独立、嵌套原子、共享 SSA、失败不进入 else、按资源合并消费均通过逐拍回归 |
-| 3. MLIR 契约、EHR 与调度分析 | 进行中 | 声明传播、固定读取端口、分支合并 DAG、IR 保存顺序 |
-| 4. RTL 友好 lowering | 待实施 | 完整 fire、选择器、组件状态与 next-state、消除决策 |
+| 3. MLIR 契约、EHR 与调度分析 | 已实现 | 声明沿调用栈传播，C／SBR 同路径诊断，EHR 固定视图、未声明可见性拒绝，分支／后继与合并 DAG 保存于 IR |
+| 4. RTL 友好 lowering | 进行中 | 完整 fire、选择器、组件状态与 next-state、消除决策 |
 | 5. MLIR 执行、CLI 与清理 | 待实施 | 两层逐拍一致、独立预期、OoO、ISA CPU、优化与重载 |
 
 ## 验收
@@ -56,3 +56,14 @@ class Module、独立静态 __init__、固定 __call__ 连接、显式接口、�
 
 设计参考：[BSC AAddScheduleDefs.hs](https://github.com/B-Lang-org/bsc/blob/main/src/comp/AAddScheduleDefs.hs)
 明确／隐式条件合成 CAN_FIRE，效果使能与 WILL_FIRE 关联。本轮不仲裁，按核心设计以完整条件作为 fire。
+
+## 阶段 3 验证
+
+21 项回归通过。新增无共享资源的声明顺序、C／SBR 嵌套调用拒绝、
+release → allocate 合法 EHR guard、无声明时读取旧值、共享读取对所有使用者的依赖传播、
+拒绝端口排名引入的未声明可见性，以及 Queue 数组真实资源选择／重复消费合并。
+事务 IR 的 `acir.path` 保存分支条件 SSA，边保存源分支和目标分支集合，fire 保存后继。
+固定节点级拓扑顺序保存于 circuit；分支边合并形成环时明确拒绝。
+
+同拍端口竞争保存为 conflicts 报告，不自动仲裁。对同事务禁用关系，仅在实际路径可能重合时拒绝；
+布尔 SSA 证明无法处理过大的条件时采取保守诊断，不增加 EHR 可见性。

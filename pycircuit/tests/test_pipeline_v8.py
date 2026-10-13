@@ -373,3 +373,185 @@ class Top:
         trace, _ = self.run_example('signal_link.py', 'SignalLink', config={'enabled': True})
         self.assertEqual(trace[0]['state']['top.reader.last'], 1)
         self.assertEqual(trace[-1]['state']['top.reader.last'], 20)
+
+    def test_declared_sb_order_without_shared_resources(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        a = ac.cell[ac.u32](initial=0)
+        b = ac.cell[ac.u32](initial=0)
+    @ac.rule(SB="second")
+    def first() -> None:
+        a = 1
+    @ac.rule
+    def second() -> None:
+        b = 2
+    def __call__() -> None:
+        second()
+        first()
+'''
+        trace, graph, _ = self.run_source(source)
+        self.assertEqual(graph['schedule'], [1, 0])
+        self.assertEqual(trace[0]['state'], {'top.a': 1, 'top.b': 2})
+        for edge in graph['edges']:
+            self.assertIn('source_branch', edge)
+            self.assertIn('target_branches', edge)
+
+    def test_release_then_allocate_uses_guard_and_write_same_ehr_port(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        occupied = ac.ehr[bool](initial=True)
+        count = ac.cell[ac.u32](initial=0)
+    @ac.rule(SB="allocate")
+    def release() -> None:
+        occupied = False
+    def free() -> bool:
+        return not occupied
+    @ac.rule(guard=free)
+    def allocate() -> None:
+        occupied = True
+        count = count + 1
+    def __call__() -> None:
+        allocate()
+        release()
+'''
+        trace, graph, out = self.run_source(source)
+        self.assertEqual(trace[-1]['state']['top.count'], 4)
+        self.assertTrue(trace[-1]['state']['top.occupied'])
+        self.assertEqual(graph['schedule'], [1, 0])
+        self.assert_reloads(trace, out)
+
+    def test_sbr_and_conflict_reject_same_atomic_path(self):
+        for relation in ('SBR', 'C'):
+            source = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        a = ac.cell[ac.u32](initial=0)
+        b = ac.cell[ac.u32](initial=0)
+    @ac.rule(REL="second")
+    def first() -> None:
+        a = 1
+    @ac.rule
+    def second() -> None:
+        b = 2
+    @ac.rule
+    def outer() -> None:
+        first()
+        second()
+    def __call__() -> None:
+        outer()
+'''.replace('REL=', relation + '=')
+            with self.assertRaisesRegex(CompileError, 'forbids nested calls|incompatible operations'):
+                self.run_source(source)
+
+    def test_unrelated_ehr_writer_cannot_gain_visibility_from_rank(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        state = ac.ehr[ac.u32](initial=0)
+        seen = ac.cell[ac.u32](initial=0)
+    @ac.rule(SB="read")
+    def first() -> None:
+        state = 1
+    @ac.rule
+    def unrelated() -> None:
+        state = 2
+    @ac.rule
+    def read() -> None:
+        seen = state
+    def __call__() -> None:
+        first()
+        unrelated()
+        read()
+'''
+        with self.assertRaisesRegex(CompileError, 'undeclared visibility'):
+            self.run_source(source)
+
+    def test_guarded_read_failure_and_private_rule(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        enabled = ac.cell[bool](initial=False)
+        seen = ac.cell[ac.u32](initial=0)
+        other = ac.cell[ac.u32](initial=0)
+    def ready() -> bool:
+        return enabled
+    @ac.rule(guard=ready, public=False)
+    def read() -> ac.u32:
+        return 0
+    @ac.rule
+    def save(value: ac.u32) -> None:
+        seen = value
+    @ac.rule
+    def clock() -> None:
+        other = other + 1
+    def __call__() -> None:
+        if read() == 0:
+            save(10)
+        else:
+            save(20)
+        clock()
+'''
+        trace, _, _ = self.run_source(source)
+        self.assertEqual(trace[-1]['state']['top.seen'], 0)
+        self.assertEqual(trace[-1]['state']['top.other'], 4)
+
+    def test_static_loop_and_aggregate_cell_sugar(self):
+        source = '''from pycircuit import ac
+class Payload:
+    value: ac.u32 = 0
+@ac.module
+class Top:
+    def __init__() -> None:
+        data = ac.cell[ac.array[ac.u32, 2]](initial=[1,2])
+        record = ac.cell[Payload](initial=Payload())
+        sum = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def advance() -> None:
+        total = 0
+        for i in range(2):
+            total = total + data[i]
+        sum = total
+        record.value = total
+        data[0] = total
+    def __call__() -> None:
+        advance()
+'''
+        # 'value' is the legacy whole-payload spelling on components. Use a
+        # distinct struct field to exercise payload field syntax.
+        source = source.replace('value: ac.u32', 'amount: ac.u32').replace('record.value =', 'record.amount =')
+        trace, _, out = self.run_source(source, 2)
+        self.assertEqual(trace[0]['state']['top.sum'], 3)
+        self.assertEqual(trace[1]['state']['top.sum'], 5)
+        self.assertEqual(trace[1]['state']['top.record'], [5])
+        self.assert_reloads(trace, out)
+
+    def test_queue_array_selection_preserves_physical_identity(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Top:
+    def __init__() -> None:
+        queues = ac.array(ac.queue[ac.u32], shape=(2,), capacity=2, initial=7)
+        index = ac.cell[ac.u32](initial=0)
+        total = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def take() -> None:
+        value = queues[index]
+        again = queues[index]
+        total = total + value + again
+        index = index + 1
+    def __call__() -> None:
+        if index < 2:
+            take()
+'''
+        trace, _, out = self.run_source(source, 3)
+        self.assertEqual(trace[0]['state']['top.queues.0'], [])
+        self.assertEqual(trace[0]['state']['top.queues.1'], [7])
+        self.assertEqual(trace[-1]['state']['top.total'], 28)
+        self.assert_reloads(trace, out)

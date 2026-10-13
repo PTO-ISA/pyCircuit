@@ -165,7 +165,7 @@ class Pipeline:
         memory_stage = MemoryStage()
         writeback = Writeback()
 
-    def __call__() -> tuple[tuple[ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]], ac.cell[ac.array[ac.u32, 8]]], ac.cell[ac.array[ac.u32, 16]], tuple[ac.cell[ac.u32], ac.cell[ac.u32]]]:
+    def __call__() -> tuple[ac.cell[ac.array[ac.u32, 32]], ac.cell[ac.array[ac.u32, 16]], tuple[ac.cell[ac.u32], ac.cell[ac.u32]]]:
         rf()
         memory()
         fetch()

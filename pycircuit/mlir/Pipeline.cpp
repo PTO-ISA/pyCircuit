@@ -18,17 +18,19 @@ Operation *make(OpBuilder &b, Location loc, StringRef name, ValueRange args={},T
   OperationState state(loc,name);state.addOperands(args);state.addTypes(results);state.addAttributes(attrs);return b.create(state);
 }
 std::string text(Operation *op,StringRef key) {auto a=op->getAttrOfType<StringAttr>(key);return a?a.getValue().str():"";}
-struct Pair {Value value,ready;std::string resource;int producer=-1;};
+struct Pair {Value value,ready;std::string resource;int producer=-1;Value index;};
 struct Transaction {std::string name;Value condition,fire;std::vector<Operation*> effects;};
 struct Extractor {
   mlir::ModuleOp source,target;OpBuilder b;acir::CircuitOp circuit;Location loc;
   Value yes,no;std::vector<Transaction> txns;std::vector<std::string> frames;
-  std::map<std::string,Operation*> symbols,states;std::map<std::string,std::vector<Operation*>> accesses;
+  std::map<std::string,Operation*> symbols,states;std::map<std::string,std::vector<std::string>> arrays;std::map<std::string,std::vector<Operation*>> accesses;
   std::map<std::pair<std::string,std::string>,std::string> relations;
   std::map<std::pair<std::string,std::string>,Pair> exports;
   std::map<Operation*,bool> changes;std::set<Operation*> checking;
   int active=-1;
   std::vector<Operation*> callSites;
+  std::map<std::pair<int,const void*>,int> branches;
+  int nextBranch=0;
   Extractor(mlir::ModuleOp source):source(source),target(mlir::ModuleOp::create(source.getLoc())),b(source.getContext()),loc(source.getLoc()) {
     target->setAttrs(source->getAttrs());target->setAttr("acir.stage",b.getStringAttr("transaction"));
     source.walk([&](Operation *op){if(auto a=op->getAttrOfType<StringAttr>("sym_name")) if(!symbols.count(a.getValue().str()) || !isa<func::FuncOp>(op) || !cast<func::FuncOp>(op).isDeclaration()) symbols[a.getValue().str()]=op;});
@@ -55,21 +57,45 @@ struct Extractor {
     SmallVector<Attribute> context;for(auto &f:frames)context.push_back(b.getStringAttr(f));
     return {b.getNamedAttr("resource",b.getStringAttr(res)),b.getNamedAttr("method",b.getStringAttr(method)),b.getNamedAttr("txn",b.getI64IntegerAttr(txn)),b.getNamedAttr("port",b.getI64IntegerAttr(0)),b.getNamedAttr("frames",b.getArrayAttr(context))};
   }
+  int branch(Value path,int txn) {
+    auto key=std::make_pair(txn,path.getAsOpaquePointer());auto found=branches.find(key);if(found!=branches.end())return found->second;
+    int id=nextBranch++;branches[key]=id;
+    make(b,loc,"acir.path",path,{}, {b.getNamedAttr("txn",b.getI64IntegerAttr(txn)),b.getNamedAttr("branch",b.getI64IntegerAttr(id)),b.getNamedAttr("kind",b.getStringAttr("branch"))});return id;
+  }
   Pair read(std::string res,std::string method,Type type,Pair path) {
-    auto attrs=metadata(res,method,active);auto *op=make(b,loc,"acir.read",path.value, {type,b.getI1Type()},attrs);accesses[res].push_back(op);
+    auto attrs=metadata(res,method,active);attrs.push_back(b.getNamedAttr("branch",b.getI64IntegerAttr(branch(path.value,active))));auto *op=make(b,loc,"acir.read",path.value, {type,b.getI1Type()},attrs);accesses[res].push_back(op);
     require(path,op->getResult(1));return {op->getResult(0),op->getResult(1)};
   }
   void effect(std::string res,std::string method,Value value,Pair path,Value ready) {
     if(active<0)throw std::runtime_error("state effect outside a transaction: "+res);
     require(path,ready);
     if(method=="pop")for(auto *request:txns[active].effects)if(text(request,"resource")==res&&text(request,"method")=="pop"){
-      request->setOperand(0,disjunction(request->getOperand(0),path.value));
+      auto joined=disjunction(request->getOperand(0),path.value);request->setOperand(0,joined);request->setAttr("branch",b.getI64IntegerAttr(branch(joined,active)));
       auto available=read(res,"empty",b.getI1Type(),path);require(path,negate(available.value));return;
     }
-    auto attrs=metadata(res,method,active);SmallVector<Value> args{path.value};if(value)args.push_back(value);
+    auto attrs=metadata(res,method,active);attrs.push_back(b.getNamedAttr("branch",b.getI64IntegerAttr(branch(path.value,active))));SmallVector<Value> args{path.value};if(value)args.push_back(value);
     auto *op=make(b,loc,"acir.effect",args,{},attrs);txns[active].effects.push_back(op);if(method!="check")accesses[res].push_back(op);
     if(method=="push") {auto full=read(res,"full",b.getI1Type(),path);require(path,negate(full.value));}
     if(method=="pop") {auto available=read(res,"empty",b.getI1Type(),path);require(path,negate(available.value));}
+  }
+  Pair readReference(Pair reference,std::string method,Type type,Pair path) {
+    if(!arrays.count(reference.resource))return read(reference.resource,method,type,path);
+    if(!reference.index)throw std::runtime_error("index a Queue array before reading");
+    Pair result{make(b,loc,"acir.aggregate",{},type)->getResult(0),no};
+    for(auto [i,res]:llvm::enumerate(arrays[reference.resource])){
+      auto chosen=arith::CmpIOp::create(b,loc,arith::CmpIPredicate::eq,reference.index,constant(i));
+      auto branchPath=pathAnd(path,{chosen,reference.ready});auto value=read(res,method,type,branchPath);
+      result.value=select(chosen,value.value,result.value);result.ready=disjunction(result.ready,conjunction(chosen,value.ready));
+    }
+    result.ready=conjunction(result.ready,reference.ready);require(path,result.ready);return result;
+  }
+  void effectReference(Pair reference,std::string method,Value value,Pair path,Value ready) {
+    if(!arrays.count(reference.resource)){effect(reference.resource,method,value,path,ready);return;}
+    if(!reference.index)throw std::runtime_error("index a Queue array before writing");
+    auto valid=arith::CmpIOp::create(b,loc,arith::CmpIPredicate::ult,reference.index,constant(arrays[reference.resource].size()));require(path,conjunction(reference.ready,valid));
+    for(auto [i,res]:llvm::enumerate(arrays[reference.resource])){
+      auto chosen=arith::CmpIOp::create(b,loc,arith::CmpIPredicate::eq,reference.index,constant(i));effect(res,method,value,pathAnd(path,{chosen,reference.ready}),ready);
+    }
   }
   bool modifying(Operation *op) {
     if(auto i=changes.find(op);i!=changes.end())return i->second;
@@ -84,7 +110,7 @@ struct Extractor {
     if(values.empty())return {make(b,loc,"acir.aggregate",{},type)->getResult(0),no};
     auto result=values.back().second;Value ready=no;
     for(auto &[path,v]:values)ready=disjunction(ready,conjunction(path.value,conjunction(path.ready,v.ready)));
-    for(auto it=values.rbegin()+1;it!=values.rend();++it){if(result.resource!=it->second.resource)throw std::runtime_error("runtime resource selection is not supported; branch around operations");result.value=select(it->first.value,it->second.value,result.value);if(result.producer!=it->second.producer&&result.producer>=0)throw std::runtime_error("independent transaction values cannot be merged");}
+    for(auto it=values.rbegin()+1;it!=values.rend();++it){if(result.resource!=it->second.resource)throw std::runtime_error("runtime resource selection is not supported; branch around operations");result.value=select(it->first.value,it->second.value,result.value);if(result.index&&it->second.index)result.index=select(it->first.value,it->second.index,result.index);if(result.producer!=it->second.producer&&result.producer>=0)throw std::runtime_error("independent transaction values cannot be merged");}
     result.ready=ready;return result;
   }
   Pair run(Region &region,ArrayRef<Pair> arguments,Pair path) {
@@ -151,15 +177,17 @@ struct Extractor {
           if(fn.isDeclaration()){auto meta=fn->getAttrOfType<DictionaryAttr>("acir.function");auto intrinsic=meta.getAs<StringAttr>("intrinsic").getValue();bool sign=meta.getAs<StringAttr>("result").getValue().starts_with("i");StringRef opcode=intrinsic=="shl"?"arith.shli":intrinsic=="shr"?(sign?"arith.shrsi":"arith.shrui"):intrinsic=="div"?(sign?"arith.floordivsi":"arith.divui"):(sign?"arith.remsi":"arith.remui");SmallVector<Value> values;for(auto arg:a)values.push_back(arg.value);result={make(b,loc,opcode,values,op->getResultTypes())->getResult(0),allReady};}
           else result=run(fn.getBody(),a,current);
         }
+        else if(name=="acir.extract"&&!a[0].resource.empty()&&arrays.count(a[0].resource)){result={no,allReady,a[0].resource,-1,a[1].value};}
+        else if(name=="acir.aggregate"&&isa<acir::QueueArrayType>(op->getResult(0).getType())){auto key="array."+std::to_string(arrays.size());for(auto arg:a)arrays[key].push_back(arg.resource);result={no,allReady,key};}
         else if(name=="acir.guard") {require(current,conjunction(a[0].ready,a[0].value));continue;}
         else if(name=="acir.check") {if(active>=0)effect("","check",a[0].value,current,allReady);else {auto checked=make(b,loc,"acir.assert",a[0].value,b.getI1Type())->getResult(0);checkReady=conjunction(checkReady,disjunction(negate(current.value),conjunction(allReady,checked)));}continue;}
         else if(name=="acir.unreachable") {effect("","check",no,current,yes);continue;}
         else if(name=="acir.queue.peek"||name=="acir.cell.read"||name=="acir.ehr.read"||name=="acir.signal.get"||name=="acir.queue.empty"||name=="acir.queue.full"||name=="acir.queue.size") {
           auto method=name=="acir.queue.peek"?"peek":name=="acir.cell.read"?"read":name=="acir.ehr.read"?"ehr.read":name=="acir.signal.get"?"get":name=="acir.queue.empty"?"empty":name=="acir.queue.full"?"full":"size";
-          result=read(a[0].resource,method,op->getResult(0).getType(),current);
-          if(name=="acir.queue.peek"&&text(op,"role")=="consume")effect(a[0].resource,"pop",{},current,result.ready);
+          result=readReference(a[0],method,op->getResult(0).getType(),current);
+          if(name=="acir.queue.peek"&&text(op,"role")=="consume")effectReference(a[0],"pop",{},current,result.ready);
         }
-        else if(name=="acir.queue.push"||name=="acir.cell.write"||name=="acir.ehr.write"||name=="acir.signal.set"||name=="acir.queue.pop") {auto method=name=="acir.queue.push"?"push":name=="acir.cell.write"?"write":name=="acir.ehr.write"?"ehr.write":name=="acir.signal.set"?"set":"pop";effect(a[0].resource,method,a.size()>1?a[1].value:Value(),current,allReady);continue;}
+        else if(name=="acir.queue.push"||name=="acir.cell.write"||name=="acir.ehr.write"||name=="acir.signal.set"||name=="acir.queue.pop") {auto method=name=="acir.queue.push"?"push":name=="acir.cell.write"?"write":name=="acir.ehr.write"?"ehr.write":name=="acir.signal.set"?"set":"pop";effectReference(a[0],method,a.size()>1?a[1].value:Value(),current,allReady);continue;}
         else {
           SmallVector<Value> operands;for(auto arg:a){if(!arg.resource.empty())throw std::runtime_error("component reference in ordinary computation");operands.push_back(arg.value);}
           auto *copy=make(b,loc,name,operands,op->getResultTypes(),op->getAttrs());result={op->getNumResults()?copy->getResult(0):no,allReady};
@@ -173,7 +201,7 @@ struct Extractor {
   }
   Pair callRule(Operation *rule,ArrayRef<Pair> args,Pair path) {
     auto meta=rule->getAttrOfType<DictionaryAttr>("acir.function");auto key=meta.getAs<StringAttr>("instance").getValue().str()+":"+meta.getAs<StringAttr>("rule").getValue().str();frames.push_back(key);
-    auto attrs=metadata("Module contract","callsite",active);auto *site=make(b,loc,"acir.path",path.value,{},attrs);callSites.push_back(site);
+    auto attrs=metadata("Module contract","callsite",active);attrs.push_back(b.getNamedAttr("branch",b.getI64IntegerAttr(branch(path.value,active))));auto *site=make(b,loc,"acir.path",path.value,{},attrs);callSites.push_back(site);
     auto ready=yes;if(!rule->getRegion(0).empty()){
       bool invalid=false;rule->getRegion(0).walk([&](acir::RuleCallOp call){if(modifying(symbols.at(call.getTarget().getLeafReference().getValue().str())))invalid=true;});
       rule->getRegion(0).walk([&](func::CallOp call){auto *callee=symbols.at(call.getCallee().str());if(!cast<func::FuncOp>(callee).isDeclaration()&&modifying(callee))invalid=true;});
@@ -190,7 +218,18 @@ struct Extractor {
     SmallVector<Attribute> config;auto model=source->getAttrOfType<DictionaryAttr>("acir.model");auto cfg=source->getAttrOfType<DictionaryAttr>("acir.config");for(auto c:model.getAs<ArrayAttr>("config")){auto d=cast<DictionaryAttr>(c);auto name=d.getAs<StringAttr>("name").getValue();auto value=cfg?cfg.get(name):Attribute();if(!value)throw std::runtime_error("missing constructor configuration: "+name.str());config.push_back(value);}
     for(auto &[name,op]:symbols) {
       if(!op->hasAttr("payload_type"))continue;
-      auto kind=op->getName().getStringRef().drop_front(5);if(kind=="queue.array")throw std::runtime_error("Queue arrays require explicit fixed elements in this compiler revision");
+      auto kind=op->getName().getStringRef().drop_front(5);
+      if(kind=="queue.array"){
+        auto payload=op->getAttrOfType<TypeAttr>("payload_type").getValue();auto cap=acir::evaluateFunction(initialModule,text(op,"capacity_fn"),b.getArrayAttr(config));
+        auto iterable=cast<ArrayAttr>(acir::evaluateFunction(initialModule,text(op,"iterable_fn"),b.getArrayAttr(config)));
+        if(cast<IntegerAttr>(cap).getInt()<1)throw std::runtime_error("Queue array capacity must be positive");
+        for(auto [i,index]:llvm::enumerate(iterable)){
+          auto res=name+"."+std::to_string(i);SmallVector<Attribute> initial;
+          auto empty=op->getAttrOfType<BoolAttr>("empty_initial");if(!empty||!empty.getValue())initial.push_back(acir::evaluateFunction(initialModule,text(op,"initializer_fn"),b.getArrayAttr({index})));
+          auto *state=make(b,op->getLoc(),"acir.state",{},{},{b.getNamedAttr("sym_name",b.getStringAttr(res)),b.getNamedAttr("payload_type",TypeAttr::get(payload)),b.getNamedAttr("kind",b.getStringAttr("queue")),b.getNamedAttr("capacity",cap),b.getNamedAttr("initial",b.getArrayAttr(initial))});states[res]=state;arrays[name].push_back(res);
+        }
+        continue;
+      }
       auto type=op->getAttrOfType<TypeAttr>("payload_type").getValue();Attribute initial;
       if(kind=="signal")initial=acir::zero(type,source);else initial=acir::evaluateFunction(initialModule,text(op,"initial_fn"),b.getArrayAttr(config));
       SmallVector<NamedAttribute> attrs{b.getNamedAttr("sym_name",b.getStringAttr(name)),b.getNamedAttr("payload_type",TypeAttr::get(type)),b.getNamedAttr("kind",b.getStringAttr(kind)),b.getNamedAttr("initial",initial)};
@@ -217,7 +256,7 @@ struct Extractor {
       for(auto *a:ops)for(auto *z:ops)if(text(a,"method")=="ehr.write"&&a->getAttrOfType<IntegerAttr>("port").getInt()<z->getAttrOfType<IntegerAttr>("port").getInt()&&relation(a,z)!="SB"&&relation(a,z)!="SBR")throw std::runtime_error("EHR port would introduce undeclared visibility: "+res+" "+keys[a]+" -> "+keys[z]);
     }
     std::vector<std::set<int>> successors(txns.size());SmallVector<Attribute> edges,conflicts;
-    auto edge=[&](int a,int z,std::string res,std::string kind){if(a<0||z<0||a==z)return;successors[a].insert(z);edges.push_back(b.getDictionaryAttr({b.getNamedAttr("from",b.getI64IntegerAttr(a)),b.getNamedAttr("to",b.getI64IntegerAttr(z)),b.getNamedAttr("resource",b.getStringAttr(res)),b.getNamedAttr("relation",b.getStringAttr(kind))}));};
+    auto edge=[&](int a,int z,std::string res,std::string kind,Operation *from=nullptr,Operation *to=nullptr){if(a<0||z<0||a==z)return;successors[a].insert(z);edges.push_back(b.getDictionaryAttr({b.getNamedAttr("from",b.getI64IntegerAttr(a)),b.getNamedAttr("to",b.getI64IntegerAttr(z)),b.getNamedAttr("resource",b.getStringAttr(res)),b.getNamedAttr("relation",b.getStringAttr(kind)),b.getNamedAttr("source_branch",from?from->getAttr("branch"):b.getI64IntegerAttr(-1)),b.getNamedAttr("target_branches",b.getArrayAttr({to?to->getAttr("branch"):b.getI64IntegerAttr(-1)}))}));};
     auto users=[&](Operation *op){std::set<int> result;auto id=op->getAttrOfType<IntegerAttr>("txn").getInt();if(id>=0)result.insert(id);else {llvm::SmallPtrSet<Operation*,32> seen;std::vector<Operation*> pending{op};while(!pending.empty()){auto *v=pending.back();pending.pop_back();if(!seen.insert(v).second)continue;if(auto fire=dyn_cast<acir::FireOp>(v))result.insert(fire->getAttrOfType<IntegerAttr>("txn").getInt());for(auto *user:v->getUsers())pending.push_back(user);}}return result;};
     auto mutuallyExclusive=[&](Operation *a,Operation *z){
       // Prove path disjointness through the actual boolean SSA graph. Unknown
@@ -241,16 +280,18 @@ struct Extractor {
     for(auto &[res,ops]:accesses)for(auto *a:ops)for(auto *z:ops)if(a!=z) {
       auto x=text(a,"method"),y=text(z,"method"),kind=relation(a,z);auto component=text(states.at(res),"kind");
       bool ordered=kind=="SB"||kind=="SBR",strict=kind=="SBR",conflict=kind=="C";
+      if(component=="queue"&&x=="peek"&&y=="pop"){ordered=true;kind="Queue.peek → pop";}
       if(component=="queue"&&x=="pop"&&(y=="full"||y=="push")){ordered=true;strict=true;kind="Queue.pop → push";}
       if(component=="signal"&&x=="set"&&y=="get"){ordered=true;strict=true;kind="Signal.set → get";}
       if(component=="signal"&&x=="set"&&y=="set")conflict=true;
-      if(component=="ehr") {auto p=a->getAttrOfType<IntegerAttr>("port").getInt(),q=z->getAttrOfType<IntegerAttr>("port").getInt();if(p<q){ordered=true;strict=true;kind="EHR.port";}if(p==q&&x=="ehr.write"&&y=="ehr.write")conflict=true;}
+      if(component=="ehr") {auto p=a->getAttrOfType<IntegerAttr>("port").getInt(),q=z->getAttrOfType<IntegerAttr>("port").getInt();if(p<q){ordered=true;strict=true;kind="EHR.port";}if(p==q&&x=="ehr.read"&&y=="ehr.write"){ordered=true;kind="EHR.read → write";}if(p==q&&x=="ehr.write"&&y=="ehr.write")conflict=true;}
       for(auto ta:users(a))for(auto tz:users(z)) {
         if(ta==tz&&(strict||conflict)&&!mutuallyExclusive(a,z)) { // Same-transaction exclusions require a path satisfiability proof.
-          if(component=="queue"&&x=="pop"&&y=="full")throw std::runtime_error("same transaction uses Queue pop and capacity phase: "+res);
+          if(component=="queue"&&x=="peek"&&y=="pop"){ordered=true;kind="Queue.peek → pop";}
+      if(component=="queue"&&x=="pop"&&y=="full")throw std::runtime_error("same transaction uses Queue pop and capacity phase: "+res);
           if(component=="signal"||component=="ehr"||kind=="C"||kind=="SBR")throw std::runtime_error("incompatible operations in transaction "+txns[ta].name+" on "+res+": "+x+" / "+y);
         }
-        if(ordered)edge(ta,tz,res,kind);
+        if(ordered)edge(ta,tz,res,kind,a,z);
         if(conflict&&ta!=tz)conflicts.push_back(b.getDictionaryAttr({b.getNamedAttr("from",b.getI64IntegerAttr(ta)),b.getNamedAttr("to",b.getI64IntegerAttr(tz)),b.getNamedAttr("resource",b.getStringAttr(res))}));
       }
     }
@@ -258,7 +299,7 @@ struct Extractor {
     // when their bodies access separate resources or have no component effects.
     for(auto *a:callSites)for(auto *z:callSites)if(a!=z){auto kind=relation(a,z);auto ta=a->getAttrOfType<IntegerAttr>("txn").getInt(),tz=z->getAttrOfType<IntegerAttr>("txn").getInt();
       if(ta==tz&&ta>=0&&(kind=="C"||kind=="SBR")&&!mutuallyExclusive(a,z))throw std::runtime_error("Rule contract forbids nested calls in transaction "+txns[ta].name);
-      if(kind=="SB"||kind=="SBR")edge(ta,tz,"Module contract",kind);
+      if(kind=="SB"||kind=="SBR")edge(ta,tz,"Module contract",kind,a,z);
       if(kind=="C"&&ta>=0&&tz>=0&&ta!=tz)conflicts.push_back(b.getDictionaryAttr({b.getNamedAttr("from",b.getI64IntegerAttr(ta)),b.getNamedAttr("to",b.getI64IntegerAttr(tz)),b.getNamedAttr("resource",b.getStringAttr("Module contract"))}));
     }
     std::vector<int> degree(txns.size());for(auto &ss:successors)for(auto z:ss)++degree[z];SmallVector<Attribute> order;std::set<int> pending;for(unsigned i=0;i<degree.size();++i)if(!degree[i])pending.insert(i);
@@ -285,7 +326,7 @@ struct RTLBuilder {
   Value yes,no;
   RTLBuilder(mlir::ModuleOp module):source(module),target(mlir::ModuleOp::create(module.getLoc())),input(*module.getOps<acir::CircuitOp>().begin()),b(module.getContext()),loc(module.getLoc()) {
     target->setAttrs(source->getAttrs());target->setAttr("acir.stage",b.getStringAttr("rtl"));b.setInsertionPointToEnd(target.getBody());OperationState st(loc,"acir.circuit");st.addAttributes(input->getAttrs());st.addRegion();output=cast<acir::CircuitOp>(b.create(st));output.getBody().push_back(new Block());output->setAttr("stage",b.getStringAttr("rtl"));b.setInsertionPointToEnd(&output.getBody().front());
-    for(auto state:input.getBody().getOps<acir::StateOp>()){auto *copy=b.clone(*state);states[state.getSymName().str()]=copy;}
+    for(auto state:input.getBody().getOps<acir::StateOp>()){if(text(state,"kind")=="signal")continue;auto *copy=b.clone(*state);states[state.getSymName().str()]=copy;}
     yes=constant(1,1);no=constant(0,1);
   }
   Value constant(uint64_t n,unsigned w=32){return arith::ConstantIntOp::create(b,loc,n,w);}
@@ -313,7 +354,7 @@ struct RTLBuilder {
       auto res=text(op,"resource"),method=text(op,"method");Value data,ready=yes;
       if(method=="read")data=current(res);
       else if(method=="ehr.read") {data=current(res);int port=op->getAttrOfType<IntegerAttr>("port").getInt();for(auto *w:effects(res,"ehr.write"))if(w->getAttrOfType<IntegerAttr>("port").getInt()<port)data=select(map(w->getOperand(0)),map(w->getOperand(1)),data);}
-      else if(method=="get") {data=make(b,loc,"acir.aggregate",{},read.getValue().getType())->getResult(0);ready=no;for(auto *w:effects(res,"set")){auto en=map(w->getOperand(0));data=select(en,map(w->getOperand(1)),data);ready=or_(ready,en);}}
+      else if(method=="get") {data=make(b,loc,"acir.aggregate",{},read.getValue().getType())->getResult(0);ready=no;for(auto *w:effects(res,"set")){if(w->getAttrOfType<IntegerAttr>("txn")==op->getAttrOfType<IntegerAttr>("txn"))continue;auto en=map(w->getOperand(0));data=select(en,map(w->getOperand(1)),data);ready=or_(ready,en);}}
       else if(method=="peek"){auto storage=current(res,"storage");auto index=constant(0);data=make(b,loc,"acir.extract",{storage,index},read.getValue().getType())->getResult(0);ready=cmp(arith::CmpIPredicate::ne,current(res,"count"),constant(0));}
       else if(method=="empty")data=cmp(arith::CmpIPredicate::eq,current(res,"count"),constant(0));
       else if(method=="size")data=current(res,"count");
