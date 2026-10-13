@@ -17,6 +17,7 @@ Python or infers a different hardware meaning.
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
+| Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of straight-line whole-owner candidate versions, invocation snapshots and guard obligations. This explicit analysis pass is not part of default compile/link and does not lower executable transactions. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -68,6 +69,17 @@ retaining transaction semantics. The existing `--source-import-out` diagnostic
 still denotes lowered hardware and rejects these packages; published source
 bodies retain their actual typed IR. Link checks complete source-unit authority,
 then rejects remaining transactions before marking any candidate final.
+
+The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
+its input IR. Each outer transaction starts from old Q; nested Method calls
+share that transaction's candidate versions while keeping ordinary SSA values
+as snapshots. The native analysis requires actual Method bodies, proven-true
+effect paths and paired clock/reset wire identity. False or unknown guards
+remain obligations for later admission analysis. Unsupported selectors,
+conditional effects and unproved domains reject this analysis only. No plan is
+published if any transaction fails. Branch joins, partial updates, physical
+owner wiring, admission and final hardware materialization remain unfinished;
+an analysis result is not a public Method execution claim.
 
 Importer-local signatures are ordinary declaration attributes. They are not
 temporary published imports and do not acquire dependency authority. The

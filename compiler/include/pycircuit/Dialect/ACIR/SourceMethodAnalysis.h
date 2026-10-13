@@ -36,6 +36,12 @@ lookupSourceMethod(mlir::Operation *module, llvm::StringRef name,
                    mlir::Operation *diagnosticSite);
 mlir::FailureOr<ResolvedSourceMethod>
 resolveSourceMethodCall(SourceMethodCallOp call);
+/// Resolve an actual call under bindings for its lexical caller module.
+/// The lookup is borrowed only for this synchronous resolution. The receiver
+/// occurrence path in the result remains relative to that caller.
+mlir::FailureOr<ResolvedSourceMethod> resolveSourceMethodCall(
+    SourceMethodCallOp call, const HardwareBindings &parentBindings,
+    SourceModuleLookup lookup);
 mlir::FailureOr<ResolvedSourceMethod> resolveSourceMethodCall(
     mlir::Operation *callerModule, mlir::DictionaryAttr callRow,
     const HardwareBindings &parentBindings, SourceModuleLookup lookup,

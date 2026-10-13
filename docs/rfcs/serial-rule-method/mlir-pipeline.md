@@ -132,6 +132,30 @@ SSA 隐式改变同步读、旧队头或端口策略。
 输出应能独立检查：所有读都有唯一版本来源；分支 join 类型一致；每个更新都有 owner、
 路径及外层 Rule；不存在未绑定的候选状态。
 
+先导的原生分析出口使用 `SourceTransactionStateAnalysis`，由薄 pass
+`ac-analyze-transaction-state-ssa` 查询。它保持输入 IR 不变，给后续变换提供引用真实
+MLIR Value/Operation 的 typed plan；它本身不等于完成上述 SSA materialization。
+计划至少包含实例、调用帧、普通值绑定、owner、Q0/写版本、读写关联、guard 边界和
+统一的有序事件。相同 Method 的不同调用帧保有独立的值绑定和入口快照，沿同一外层
+事务共享 owner 候选版本；不同 Rule 分别从 old-Q 开始。纯表达式仍由原有 ACIR 表达，
+不增加值解释器或另一套执行模型。
+
+第一分析出口只接纳有真实 body 的直线调用和 whole-owner 访问。effect path 必须经
+既有 literal fact owner 证明为 true；false/unknown guard 则保留有序准入义务。
+selectors、条件效果、分支和跨域证明缺口在该分析入口拒绝，不改变现有逐源发布的
+准入范围。consumer compile 仍只使用接口，不能为了运行此分析读取 provider Python。
+
+owner 身份必须包含词法实例 anchor、实际 instance occurrence 链和 state declaration。
+普通 old-Q capture 保持原始快照；仅 `state.read` 查询当前候选。guard 固定调用入口的
+版本，Method 返回不提交状态。时钟和复位分别沿实际形参、capture 和 instance 输入
+绑定追溯，二者都必须得到相同 anchor 下相同的 SSA wire；不同常量或表达式不按值猜测
+等价。无状态/只读 Method 也从 receiver 的合法 domain metadata 检查域，不能省略。
+
+分析先有界预检、复用 native verifier 和 Method summaries，再完整构建计划；任何事务
+失败时不得暴露其他事务的部分计划。分配、调用展开、绑定边、版本、快照和事件均计费，
+IR 修改后分析必须失效。原生计划测试只证明版本来源和顺序，不证明数值、采样、X/Z
+准入或 C++/Verilog 执行；完整硬件出口仍须完成后续 materialization 与验收。
+
 ### 值有效性与事务准入
 
 至少区分三类事实：组合值的求值有效条件、Rule 能否发射、普通返回数据中的状态值。

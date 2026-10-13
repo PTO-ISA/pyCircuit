@@ -69,13 +69,19 @@ helper grammar 限于现有已准入 typed 表达式／语句子集及 source-se
 
 **输入／依赖：** 类型化 owner、调用摘要与源串行语义；原语可见性限制。
 
-**独占现有文件：** `compiler/lib/Compiler/PythonImportAssignments.inc`、`compiler/lib/Compiler/PythonImportRuleCall.inc`。
+**先导分析的独占文件：** 新增 `compiler/include/pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h`、`compiler/lib/Dialect/ACIR/SourceTransactionStateAnalysis.cpp` 和 `compiler/lib/Transforms/AnalyzeTransactionStateSSA.cpp`。仅为传递既有 parent bindings，允许在 `SourceMethodAnalysis.h`／`SourceMethodResolution.cpp` 给实际 call resolver 增加重载；不得构造假的 publication summary row。
 
-**冻结新增文件：** `compiler/lib/Transforms/LowerTransactionStateSSA.cpp`。
+**后续真正变换的预留文件：** `compiler/lib/Transforms/LowerTransactionStateSSA.cpp`。effectful branch／selector 的源码扩展由 `PythonImportTransactions.inc` 及其 native verifier/summary 所有者承担；不能用 legacy importer 的私有候选环境替代通用 MLIR 变换。
 
 **产出与不变量：** 每个独立 Rule 从旧 Q 建立候选；同一事务通过语句、分支、Method 调用线程化候选版本；局部值保持不可变快照。字段／下标更新保留精确路径和身份写。source order 只产生真实数据、状态或 effect 依赖，不能让所有纯计算串行。memory/Queue 不自动获得寄存器候选转发语义。
 
 **移除范围：** state SSA 接管后的私有候选版本和重复字段合并算法；移除前核对 reset/hold/discard、来源与类型。
+
+先导分析不移除执行路径、不改变 Method 公共签名、不生成硬件，也不进入默认 compile/link。
+它输出事务相对实例的不可变 typed plan，保持输入 IR 的对象身份和内容不变；对所有事务
+完整成功后才公开查询结果。独立测试先验证 Q0/Q1/Q2、跨调用快照、实例身份、guard 入口
+版本、有序事件、whole-owner nominal payload、同域绑定、预算和失败原子性。这个阶段
+通过不能勾选下述完整出口；分支 join、部分更新、物理 owner 接线和准入检查仍需后续包。
 
 **最小出口：** `METHOD-STATE-ORDER`、`METHOD-SNAPSHOT-OLD-Q`、`METHOD-RETRY-CURSOR`；设计中立槽队列等价 oracle、快照与独立 Rule 注册顺序变体。
 

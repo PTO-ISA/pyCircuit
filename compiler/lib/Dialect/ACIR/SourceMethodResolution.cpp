@@ -292,6 +292,16 @@ resolveSourceMethodCall(SourceMethodCallOp call) {
   auto lookup = [&](FlatSymbolRefAttr symbol) -> Operation * {
     return symbols.lookupSymbolIn(package, symbol);
   };
+  return resolveSourceMethodCall(call, parent, lookup);
+}
+FailureOr<ResolvedSourceMethod>
+resolveSourceMethodCall(SourceMethodCallOp call,
+                        const HardwareBindings &parent,
+                        SourceModuleLookup lookup) {
+  auto caller = call->getParentOfType<ModuleOp>();
+  if (!caller || parent.owner != caller.getOperation())
+    return call.emitOpError()
+           << "Method call parent bindings must belong to its lexical module";
   return resolve(caller, call.getCalleeAttr(), call.getInstancePath(), true,
                  parent, lookup, call);
 }
