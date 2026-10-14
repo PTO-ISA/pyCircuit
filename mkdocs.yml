@@ -110,6 +110,7 @@ nav:
           - MLIR Pipeline: rfcs/serial-rule-method/mlir-pipeline.md
           - Cross-instance Method Lowering: rfcs/serial-rule-method/cross-instance-lowering.md
           - Sampled Transaction Admission: rfcs/serial-rule-method/sampled-admission.md
+          - Sampled Body Effects: rfcs/serial-rule-method/sampled-body-effects.md
           - Transaction Publication Summary: rfcs/serial-rule-method/publication-summary.md
           - Observation Identity: rfcs/serial-rule-method/observation-identity.md
           - Resource Extensions: rfcs/serial-rule-method/extensions.md

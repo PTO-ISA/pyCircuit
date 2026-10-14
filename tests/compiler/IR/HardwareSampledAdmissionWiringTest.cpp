@@ -242,6 +242,8 @@ protected:
            d({f("clock_capture", b.getI64IntegerAttr(0)),
               f("reset_capture", b.getI64IntegerAttr(1)),
               f("fire_result", b.getI64IntegerAttr(fire)),
+              f("body_checks", b.getArrayAttr({})),
+              f("observations", b.getArrayAttr({})),
               f("guards",
                 b.getArrayAttr(
                     {d({f("id", id), f("invocation", b.getArrayAttr({})),
@@ -545,6 +547,8 @@ protected:
            d({f("clock_capture", b.getI64IntegerAttr(0)),
               f("reset_capture", b.getI64IntegerAttr(1)),
               f("fire_result", b.getI64IntegerAttr(1)),
+              f("body_checks", b.getArrayAttr({})),
+              f("observations", b.getArrayAttr({})),
               f("guards",
                 b.getArrayAttr(
                     {d({f("id", id), f("invocation", b.getArrayAttr({})),
@@ -735,6 +739,8 @@ protected:
                            d({f("clock_capture", b.getI64IntegerAttr(0)),
                               f("reset_capture", b.getI64IntegerAttr(1)),
                               f("fire_result", b.getI64IntegerAttr(0)),
+                              f("body_checks", b.getArrayAttr({})),
+                              f("observations", b.getArrayAttr({})),
                               f("guards", b.getArrayAttr(guards))}))});
     state.addRegion();
     rule = cast<ac::RuleOp>(b.create(state));

@@ -255,6 +255,8 @@ protected:
            d({f("clock_capture", b.getI64IntegerAttr(0)),
               f("reset_capture", b.getI64IntegerAttr(1)),
               f("fire_result", b.getI64IntegerAttr(0)),
+              f("body_checks", b.getArrayAttr({})),
+              f("observations", b.getArrayAttr({})),
               f("guards",
                 b.getArrayAttr(
                     {d({f("id", checkID), f("invocation", b.getArrayAttr({})),

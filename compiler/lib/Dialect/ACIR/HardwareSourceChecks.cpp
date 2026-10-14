@@ -51,6 +51,68 @@ FailureOr<Value> carrier(const HardwareAnalysis &analysis, Value value,
   }
   return value;
 }
+// Debit every metadata node and string traversal. The iterative work stack
+// retains capacity while visiting siblings, and prepays only actual growth.
+LogicalResult payEffectMetadata(
+    Attribute attribute, Operation *site,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  using Budget = detail::SourceCheckBudget;
+  auto pay = [&](uint64_t units) {
+    return debit ? debit(units, site) : success();
+  };
+  if (failed(pay(1)))
+    return failure();
+  if (!attribute)
+    return success();
+  if (auto text = dyn_cast<StringAttr>(attribute))
+    return pay(Budget::bytes(text.getValue().size()));
+  if (!isa<ArrayAttr, DictionaryAttr>(attribute))
+    return success();
+  SmallVector<Attribute, 0> pending;
+  auto push = [&](Attribute value) -> LogicalResult {
+    if (failed(pay(1)))
+      return failure();
+    if (pending.size() == pending.capacity()) {
+      uint64_t capacity = Budget::multiply(
+          std::max(uint64_t(1), uint64_t(pending.capacity())), 2);
+      uint64_t storage =
+          Budget::multiply(capacity - pending.capacity(), sizeof(Attribute));
+      if (capacity == std::numeric_limits<uint64_t>::max() ||
+          storage == std::numeric_limits<uint64_t>::max() ||
+          capacity > pending.max_size())
+        return site->emitOpError()
+               << "source effect metadata exceeds host stack capacity";
+      if (failed(pay(Budget::bytes(storage))))
+        return failure();
+      pending.reserve(capacity);
+    }
+    pending.push_back(value);
+    return success();
+  };
+  auto children = [&](Attribute value) -> LogicalResult {
+    if (auto array = dyn_cast<ArrayAttr>(value)) {
+      for (Attribute item : array)
+        if (failed(push(item)))
+          return failure();
+    } else if (auto dictionary = dyn_cast<DictionaryAttr>(value)) {
+      for (auto item : dictionary)
+        if (failed(push(item.getName())) || failed(push(item.getValue())))
+          return failure();
+    }
+    return success();
+  };
+  if (failed(children(attribute)))
+    return failure();
+  while (!pending.empty()) {
+    Attribute value = pending.pop_back_val();
+    if (auto text = dyn_cast_or_null<StringAttr>(value)) {
+      if (failed(pay(Budget::bytes(text.getValue().size()))))
+        return failure();
+    } else if (failed(children(value)))
+      return failure();
+  }
+  return success();
+}
 int compareCheck(DictionaryAttr lhs, DictionaryAttr rhs) {
   for (StringRef key : {"registration", "check", "obligation"})
     if (int order =
@@ -104,8 +166,8 @@ detail::verifySourceObservationStructure(SourceObserveOp observe) {
   for (auto operand : observe->getOperands().drop_front())
     if (!isa<BitsType, EnumType, TypeParamType>(operand.getType()))
       return error() << "observation value requires a scalar hardware payload";
-  return verifySourceObservationSpec(kind, spec,
-                                     observe->getNumOperands() - 1, error);
+  return verifySourceObservationSpec(kind, spec, observe->getNumOperands() - 1,
+                                     error);
 }
 
 LogicalResult detail::verifySourceObservationSpec(StringAttr kind,
@@ -182,73 +244,68 @@ LogicalResult detail::verifyModuleObservationIdentities(ModuleOp definition) {
   return success();
 }
 
-FailureOr<detail::ResolvedObservationOwner> detail::resolveObservationOwner(
-    const HardwareAnalysis &analysis, SourceObserveOp observe,
-    const HardwareBindings &physicalBindings,
+FailureOr<detail::ResolvedSourceEffectOwner> detail::resolveSourceEffectOwner(
+    const HardwareAnalysis &analysis, ModuleOp physical,
+    const HardwareBindings &physicalBindings, DictionaryAttr registration,
+    DictionaryAttr site, ArrayAttr invocation, DictionaryAttr location,
+    Operation *diagnosticSite,
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   using Budget = SourceCheckBudget;
-  auto pay = [&](uint64_t cost, Operation *site) {
-    return debit ? debit(cost, site) : success();
+  auto pay = [&](uint64_t cost, Operation *operation) {
+    return debit ? debit(cost, operation) : success();
   };
-  std::function<LogicalResult(Attribute)> metadata =
-      [&](Attribute attr) -> LogicalResult {
-    if (failed(pay(1, observe)))
-      return failure();
-    if (auto text = dyn_cast_or_null<StringAttr>(attr))
-      return pay(Budget::bytes(text.getValue().size()), observe);
-    if (auto array = dyn_cast_or_null<ArrayAttr>(attr)) {
-      for (auto item : array)
-        if (failed(metadata(item)))
-          return failure();
-    } else if (auto dictionary = dyn_cast_or_null<DictionaryAttr>(attr)) {
-      for (auto item : dictionary)
-        if (failed(metadata(item.getName())) ||
-            failed(metadata(item.getValue())))
-          return failure();
-    }
-    return success();
+  auto metadata = [&](Attribute attr) {
+    return payEffectMetadata(attr, diagnosticSite, debit);
   };
-  for (StringRef key : {"ac.observation_id", "ac.location", "spec", "kind"})
-    if (failed(metadata(observe->getAttr(key))))
+  auto error = [&] { return diagnosticSite->emitOpError(); };
+  for (Attribute attr : {Attribute(registration), Attribute(site),
+                         Attribute(invocation), Attribute(location)})
+    if (failed(metadata(attr)))
       return failure();
-  if (failed(pay(Budget::add(8, Budget::multiply(2, observe->getNumOperands())),
-                 observe)) ||
-      failed(verifySourceObservationStructure(observe)))
-    return failure();
-  auto physical = dyn_cast<ModuleOp>(observe->getParentOp());
   if (!physical || physicalBindings.owner != physical ||
-      physical->getParentOp() != analysis.getPackage().getOperation())
-    return observe.emitOpError()
-           << "observation bindings require its analyzed physical Module";
-  if (failed(pay(Budget::add(Budget::bytes(sizeof(ResolvedObservationOwner)),
-                             Budget::bindings(physicalBindings)),
-                 observe)))
+      physical->getParentOp() != analysis.getPackage().getOperation() ||
+      !physical.getBody().hasOneBlock())
+    return error()
+           << "source effect bindings require its analyzed physical Module";
+  if (failed(verifyOccurrence(registration, error)) ||
+      failed(verifyOccurrence(site, error)) ||
+      failed(verifySourceSpan(location, error)) || !invocation)
     return failure();
-  ResolvedObservationOwner result{physical, physicalBindings, {}};
-  auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
+  for (Attribute raw : invocation) {
+    auto frame = dyn_cast<DictionaryAttr>(raw);
+    if (!frame || frame.size() != 2 ||
+        failed(verifyOccurrence(frame.getAs<DictionaryAttr>("call"), error)) ||
+        failed(verifyOwnerRef(frame.getAs<DictionaryAttr>("receiver"), error)))
+      return error()
+             << "source effect invocation requires exact call/receiver frames";
+  }
+  if (failed(pay(Budget::add(Budget::bytes(sizeof(ResolvedSourceEffectOwner)),
+                             Budget::bindings(physicalBindings)),
+                 diagnosticSite)))
+    return failure();
+  ResolvedSourceEffectOwner result{physical, physicalBindings, {}};
   auto origin = [&](DictionaryAttr occurrence, ModuleOp module,
                     StringRef description) -> LogicalResult {
     if (failed(metadata(occurrence)))
       return failure();
     return verifyOriginDefinition(
         occurrence, FlatSymbolRefAttr::get(module.getSymNameAttr()),
-        description, [&] { return observe.emitOpError(); });
+        description, [&] { return diagnosticSite->emitOpError(); });
   };
-  if (failed(origin(identity.getAs<DictionaryAttr>("registration"), physical,
-                    "observation registration")) ||
-      failed(predicate(analysis, observe->getOperand(0), physicalBindings,
-                       observe)))
+  if (failed(origin(registration, physical, "source effect registration")))
     return failure();
   // Every receiver is root-relative and must extend the preceding receiver.
   auto descend = [&](ArrayAttr path) -> LogicalResult {
     if (path.size() < result.path.size())
-      return observe.emitOpError() << "observation receiver cannot ascend";
+      return diagnosticSite->emitOpError()
+             << "source effect receiver cannot ascend";
     for (size_t index = 0; index < result.path.size(); ++index) {
-      if (failed(pay(1, observe)) ||
+      if (failed(pay(1, diagnosticSite)) ||
           failed(metadata(result.path[index]->getAttr("occurrence"))))
         return failure();
       if (result.path[index]->getAttr("occurrence") != path[index])
-        return observe.emitOpError() << "observation receiver must descend";
+        return diagnosticSite->emitOpError()
+               << "source effect receiver must descend";
     }
     for (size_t index = result.path.size(); index < path.size(); ++index) {
       InstanceOp found;
@@ -264,8 +321,8 @@ FailureOr<detail::ResolvedObservationOwner> detail::resolveObservationOwner(
         if (op.getAttr("occurrence") != path[index])
           continue;
         if (isa<CollectionOp>(op) || found)
-          return observe.emitOpError()
-                 << "observation owner requires unique ordinary instances";
+          return diagnosticSite->emitOpError()
+                 << "source effect owner requires unique ordinary instances";
         found = cast<InstanceOp>(op);
       }
       auto child =
@@ -273,19 +330,19 @@ FailureOr<detail::ResolvedObservationOwner> detail::resolveObservationOwner(
                 : ModuleOp();
       if (!child || !child.getBody().hasOneBlock() ||
           !analysis.getPrimitiveKind(child).empty())
-        return observe.emitOpError()
-               << "observation owner path must resolve ordinary definitions";
+        return diagnosticSite->emitOpError()
+               << "source effect owner path must resolve ordinary definitions";
       if (failed(origin(found->getAttrOfType<DictionaryAttr>("occurrence"),
-                        result.terminal, "observation owner allocation")))
+                        result.terminal, "source effect owner allocation")))
         return failure();
       if (failed(pay(Budget::add(Budget::bytes(sizeof(InstanceOp)),
                                  Budget::bindings(result.bindings)),
-                     observe)))
+                     diagnosticSite)))
         return failure();
       auto bindings = analysis.bindInstance(found, result.bindings);
       if (failed(bindings))
         return failure();
-      if (failed(pay(Budget::bindings(*bindings), observe)))
+      if (failed(pay(Budget::bindings(*bindings), diagnosticSite)))
         return failure();
       result.path.push_back(found);
       result.terminal = child;
@@ -293,28 +350,53 @@ FailureOr<detail::ResolvedObservationOwner> detail::resolveObservationOwner(
     }
     return success();
   };
-  for (auto raw : identity.getAs<ArrayAttr>("invocation")) {
+  for (auto raw : invocation) {
     auto frame = cast<DictionaryAttr>(raw);
     if (failed(origin(frame.getAs<DictionaryAttr>("call"), result.terminal,
-                      "observation invocation call")) ||
+                      "source effect invocation call")) ||
         failed(descend(frame.getAs<DictionaryAttr>("receiver")
                            .getAs<ArrayAttr>("instance_path"))))
       return failure();
   }
-  if (failed(origin(identity.getAs<DictionaryAttr>("site"), result.terminal,
-                    "observation site")))
+  if (failed(origin(site, result.terminal, "source effect site")))
     return failure();
   auto sourceOwner =
       result.terminal->getAttrOfType<DictionaryAttr>("source_owner");
   if (failed(metadata(sourceOwner)) ||
       failed(verifySourceOwner(sourceOwner,
-                               [&] { return observe.emitOpError(); })))
+                               [&] { return diagnosticSite->emitOpError(); })))
     return failure();
-  if (observe->getAttrOfType<DictionaryAttr>("ac.location")
-          .getAs<StringAttr>("path") != sourceOwner.getAs<StringAttr>("path"))
-    return observe.emitOpError()
-           << "observation span must match logical owner SourceOwner";
+  if (location.getAs<StringAttr>("path") !=
+      sourceOwner.getAs<StringAttr>("path"))
+    return diagnosticSite->emitOpError()
+           << "source effect span must match logical owner SourceOwner";
   return std::move(result);
+}
+
+FailureOr<detail::ResolvedSourceEffectOwner> detail::resolveObservationOwner(
+    const HardwareAnalysis &analysis, SourceObserveOp observe,
+    const HardwareBindings &physicalBindings,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  using Budget = SourceCheckBudget;
+  auto pay = [&](uint64_t cost) {
+    return debit ? debit(cost, observe) : success();
+  };
+  // Pay actual terminal shape/spec validation before using its typed identity.
+  for (StringRef key : {"ac.observation_id", "ac.location", "spec", "kind"})
+    if (failed(payEffectMetadata(observe->getAttr(key), observe, debit)))
+      return failure();
+  if (failed(pay(
+          Budget::add(8, Budget::multiply(2, observe->getNumOperands())))) ||
+      failed(verifySourceObservationStructure(observe)) ||
+      failed(predicate(analysis, observe->getOperand(0), physicalBindings,
+                       observe)))
+    return failure();
+  auto id = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
+  return resolveSourceEffectOwner(
+      analysis, dyn_cast<ModuleOp>(observe->getParentOp()), physicalBindings,
+      id.getAs<DictionaryAttr>("registration"),
+      id.getAs<DictionaryAttr>("site"), id.getAs<ArrayAttr>("invocation"),
+      observe->getAttrOfType<DictionaryAttr>("ac.location"), observe, debit);
 }
 
 FailureOr<SmallVector<HardwareCheckBinding>>
@@ -352,8 +434,11 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       auto sampled = validation.verify(rule, bindings);
       if (failed(sampled))
         return failure();
-      if (!required || required.size() != sampled->guards.size())
-        return error() << "sampled Rule requires exactly its guard obligations";
+      if (!required || required.size() != detail::SourceCheckBudget::add(
+                                              sampled->guards.size(),
+                                              sampled->bodyChecks.size()))
+        return error() << "sampled Rule requires exactly its ordered "
+                          "guard/assert obligations";
       if (failed(budget.debit(
               detail::SourceCheckBudget::bytes(
                   sizeof(std::pair<Operation *, detail::SampledAdmissionView>)),
@@ -391,12 +476,22 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       if (kind.getValue() == "guard_known") {
         if (sampled == sampledRules.end())
           return error() << "guard_known requires sampled admission";
+        if (index >= sampled->second.guards.size())
+          return error() << "guard_known is outside sampled guard inventory";
         const auto &guard = sampled->second.guards[index];
         if (id != guard.id || conditionResult != guard.predicateResult ||
             pathResult != guard.reachedResult)
           return error() << "guard_known differs from sampled guard suffix";
       } else if (sampled != sampledRules.end()) {
-        return error() << "sampled admission only permits guard_known checks";
+        uint64_t guardCount = sampled->second.guards.size();
+        if (kind.getValue() != "assert" || index < guardCount ||
+            index - guardCount >= sampled->second.bodyChecks.size())
+          return error() << "sampled admission only permits ordered "
+                            "guard_known/assert checks";
+        const auto &body = sampled->second.bodyChecks[index - guardCount];
+        if (id != body.id || conditionResult != body.conditionResult ||
+            pathResult != body.pathResult)
+          return error() << "assert differs from sampled body check suffix";
       }
       if (failed(budget.debit(detail::SourceCheckBudget::bytes(
                                   sizeof(HardwareCheckBinding) +
@@ -491,8 +586,43 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
                           definition)))
     return failure();
   ordered.reserve(result.size());
-  for (const auto &[id, index] : identities)
-    ordered.push_back(result[index]);
+  // Structural order establishes registration ordering and uniqueness. Within
+  // each sampled registration replay the authenticated RequiredCheck order.
+  llvm::DenseSet<Operation *> emitted;
+  if (failed(budget.debit(
+          detail::SourceCheckBudget::multiply(
+              sampledRules.size(),
+              detail::SourceCheckBudget::bytes(sizeof(Operation *))),
+          definition)))
+    return failure();
+  for (const auto &[id, index] : identities) {
+    const auto &binding = result[index];
+    if (!sampledRules.count(binding.rule)) {
+      ordered.push_back(binding);
+      continue;
+    }
+    if (!emitted.insert(binding.rule).second)
+      continue;
+    const auto &sampled = sampledRules.find(binding.rule)->second;
+    uint64_t count = detail::SourceCheckBudget::add(sampled.guards.size(),
+                                                    sampled.bodyChecks.size());
+    if (index < binding.requiredIndex)
+      return definition.emitOpError()
+             << "sampled check ordering lost its first obligation";
+    uint64_t first = index - binding.requiredIndex;
+    if (first > result.size() || count > result.size() - first)
+      return definition.emitOpError()
+             << "sampled check ordering exceeds catalog";
+    for (uint64_t ordinal = 0; ordinal < count; ++ordinal) {
+      if (failed(budget.debit(1, definition)))
+        return failure();
+      const auto &found = result[first + ordinal];
+      if (found.rule != binding.rule || found.requiredIndex != ordinal)
+        return definition.emitOpError()
+               << "sampled check ordering lost an obligation";
+      ordered.push_back(found);
+    }
+  }
   return ordered;
 }
 bool detail::sameHardwareBindings(const HardwareBindings &lhs,
@@ -522,8 +652,7 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
   if (source) {
     if (expect->getParentRegion() != &parent->getRegion(1) ||
         expect.getKind() != "assert" || expect->hasAttr("ac.check_id") ||
-        expect->hasAttr("ac.observation_id") ||
-        !expect.getSampling().empty())
+        expect->hasAttr("ac.observation_id") || !expect.getSampling().empty())
       return error() << "source assertion requires direct Method/transaction "
                         "body placement, assert kind, no sampling and no final "
                         "identity";

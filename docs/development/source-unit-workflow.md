@@ -62,8 +62,10 @@ history; Discard and failure preserve committed history. Focused final-IR
 execution has native workers 1/2 and four-state RTL evidence. The public dynamic
 source regression additionally covers independent and cross-owner transactions,
 candidate-at-entry guards, actual state/history rollback and native sticky
-failure recovery. These module-root tests do not establish Method `@system` closure;
-historical checkpoint `44b888c5` does not certify the current candidate.
+failure recovery. Separate generated Method `@system` tests exercise direct
+body checks/observations, repeated calls, ordered identities and failed-epoch
+publication protection. Module-root probes and prior checkpoints do not replace
+that System evidence or certify later candidates.
 
 Within one immutable check-plan invocation, `SampledAdmissionValidation` shares
 complete definition-local boundaries and successful Rule prefix proofs across
@@ -81,9 +83,13 @@ State analysis now retains explicit body-check and observation records with thei
 original bound SSA values, invocation frames, source metadata and operand-derived
 validity prefixes. Assertions create no guards or state versions. The authored
 path must be proven true; false or unknown assertion conditions remain records.
-Until sampled effect lowering and authentication exist, final link explicitly
-rejects these plans before materialization. Direct clone/proof entrypoints retain
-the same barrier rather than omitting effects from a generated design. Consumer compilation reads the interfaces, without loading provider
+The lowerer saves original statement-time operands, emits the six-field sampled
+inventory and direct terminals, and authenticates their exact layout, identities,
+metadata and event order against the original plan. The final verifier proves
+final-prefix paths, exact private terminal operands and actual owner/domain
+routes. Both proofs precede replacement; unsupported nested effects still reject.
+See [body-effect contracts](../rfcs/serial-rule-method/sampled-body-effects.md).
+Consumer compilation reads the interfaces, without loading provider
 Python or Method bodies. Native final link lowers calls through ordinary
 static instances with straight-line effects, a shared actual clock/reset
 domain and one outer writer per physical scalar owner. Ordinary results escaping an outer Rule still

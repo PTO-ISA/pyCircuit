@@ -14,7 +14,8 @@
 ## 范围与作者接口
 
 继续限定直线调用、同一实际物理域、whole Bits 状态、每个实际 owner 唯一外层 writer。
-分支、部分更新、资源、事务内 assert/观测及完整 Method System 闭环属于后续切片。
+事务内 assert/观测与 Method System 闭环的精确扩展合同见
+[body effects](sampled-body-effects.md)。分支、部分更新和资源分别验收。
 不得为完成本切片偷偷开放这些能力，也不得缩减它们的最终验收要求。
 
 复用 `@module`、`@rule`、`@method` 及现有 `guard=`；不新增作者可见 valid、fire、
@@ -83,7 +84,9 @@ ac.sampled_admission = {
   clock_capture: Index, reset_capture: Index, fire_result: Index,
   guards: [{id: CheckID,
             invocation: [{call: Occurrence, receiver: OwnerRef}, ...],
-            predecessor: i64}, ...]
+            predecessor: i64}, ...],
+  body_checks: [{id: CheckID, invocation: Invocation}, ...],
+  observations: [{id: ObservationID, value_count: Index}, ...]
 }
 ```
 
@@ -94,7 +97,9 @@ ac.sampled_admission = {
 - invocation 是从外到内的完整调用 frame 链；外层 guard 为 []。每帧使用实际 call occurrence
   和相对事务根的已解析 receiver OwnerRef，不使用源码变量名。链在事务内唯一。
 - RequiredCheck 保持 `{id, kind, location}`；该 Rule 的 required_checks 精确包含按顺序
-  对应的 guard_known 行。其他普通 assert/range Rule 的合同不变。
+  对应的 guard_known 行，随后是 body assert 行。其他普通 assert/range Rule 的合同不变。
+- 六字段全部必填，空数组也必须保留；四字段旧格式直接拒绝。效果身份、完整布局与
+  重复 invocation 合同见 [body effects](sampled-body-effects.md#exact-layout)。
 
 受影响 Module 具有：
 
@@ -118,16 +123,21 @@ ac.transaction_wiring = {
 - writers 每个降低后的事务恰好一行，包括无写事务；registration 解析到一个实际 Rule。
   candidate owner 和 result ordinal 均唯一。
 
-设 O 为普通结果数、W 为 candidates 数、G 为 guards 数，结果布局必须为：
+设 O 为普通结果数、W 为 candidates 数、G 为 guards 数、A 为 body assertions，
+observation j 有 Kj 个 values，结果布局必须为：
 
 ```text
-ordinary = [0, O); candidates = [O, O+W); fire_result = O+W
-guard_i_predicate = O+W+1+2i; guard_i_reached = O+W+2+2i
-total = O+W+1+2G
+F = O+W; C = F+1+sum(j)(1+Kj)
+ordinary = [0, O); candidates = [O, F); fire_result = F
+observation_j_path = F+1+sum(t<j)(1+Kt); values follow its path
+guard_i_predicate = C+2i; guard_i_reached = C+2i+1
+assert_i_condition = C+2(G+i); assert_i_path = C+2(G+i)+1
+total = C+2(G+A)
 ```
 
 candidates 精确覆盖连续 slots；guard 的 ID 等于对应 RequiredCheck ID，恰好一个
-expect 消费其 predicate/reached suffix。non-total 必须 O=0；有值事务继续要求全部
+expect 消费其 predicate/reached suffix。body terminals 必须消费各自独立的指定结果槽。
+non-total 必须 O=0；有值事务继续要求全部
 guard 经既有 literal/identity 证明恒真。不得通过隐藏 valid state 放宽返回限制。
 
 ## 两层验证 authority
@@ -232,7 +242,7 @@ final candidate、materialized value mappings，不另造 evaluator。
 
 `PreparedSampledBoundaries` 是一次只读验证中借用 immutable IR 的准备结果，不是缓存的
 验证结论。仅 factory 可以构造；结果不可复制，公开只读 scope/boundaries。它必须包含
-该定义完整的 candidate、fire、guard、assert/range 边界，不能因本次 Rule 不使用某边界
+该定义完整的 candidate、fire、observation path/values、guard、assert/range 边界，不能因本次 Rule 不使用某边界
 而省略。普通无 sampled/wiring 定义成功返回空 optional；构造失败与空结果必须区分。
 
 消费前核对精确 definition、definition-local 空路径和完整 bindings。不同 bindings 不得
@@ -371,7 +381,7 @@ importer/emitter 位于 `compiler/lib/Compiler/`，LowerTransactions 位于
 - [ ] 运行[既有命令](acceptance.md#commands-and-gates)：本 checkout build/install 完成后，
   非空 native/lit 选择，再适用短 API/example gate；保留 raw command/status 与完整产物。
 - [ ] 独立 review 绑定最终候选内容；文档/原生 schema 通过不冒充公共源或执行通过。
-- [ ] Method `@system`、分支/partial state、resources 和效果安全优化的未完成项继续在
+- [ ] 按 [body effects checklist](sampled-body-effects.md#acceptance-checklist)验收 Method `@system`；分支/partial state、resources 和效果安全优化的未完成项继续在
   roadmap 保留；普通 System smoke 不替代 `METHOD-SYSTEM-CLOSURE`。
 - [ ] nightly、长期 mutation、综合及时序若未运行明确记 NOT-RUN；不由局部成功推断。
 

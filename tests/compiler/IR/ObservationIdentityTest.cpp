@@ -509,6 +509,18 @@ TEST_F(ObservationIdentityTest,
   ASSERT_EQ(resolvedRight->path.size(), 1u);
   EXPECT_EQ(resolvedLeft->path.front(), left);
   EXPECT_EQ(resolvedRight->path.front(), right);
+  auto leftID = leftObserve->getAttrOfType<DictionaryAttr>("ac.observation_id");
+  auto commonLeft = ac::detail::resolveSourceEffectOwner(
+      analysis, root, physical, leftID.getAs<DictionaryAttr>("registration"),
+      leftID.getAs<DictionaryAttr>("site"),
+      leftID.getAs<ArrayAttr>("invocation"),
+      leftObserve->getAttrOfType<DictionaryAttr>("ac.location"), leftObserve,
+      noCharge);
+  ASSERT_TRUE(succeeded(commonLeft)) << diagnostics;
+  EXPECT_EQ(commonLeft->terminal, resolvedLeft->terminal);
+  EXPECT_EQ(commonLeft->path, resolvedLeft->path);
+  EXPECT_TRUE(ac::detail::sameHardwareBindings(commonLeft->bindings,
+                                               resolvedLeft->bindings));
 }
 
 TEST_F(ObservationIdentityTest,
@@ -694,9 +706,9 @@ TEST_F(ObservationIdentityTest, OwnerPathCannotCrossCollection) {
   finish(root);
   system(root);
   EXPECT_TRUE(failed(plan())) << diagnostics;
-  EXPECT_NE(
-      diagnostics.find("observation owner requires unique ordinary instances"),
-      std::string::npos)
+  EXPECT_NE(diagnostics.find(
+                "source effect owner requires unique ordinary instances"),
+            std::string::npos)
       << diagnostics;
 }
 
@@ -761,7 +773,9 @@ TEST_F(ObservationIdentityTest,
       << diagnostics;
   EXPECT_NE(diagnostics.find("phase raw preflight"), std::string::npos)
       << diagnostics;
-  EXPECT_NE(diagnostics.find("'ac.module' op"), std::string::npos)
+  EXPECT_EQ(diagnostics.find("'ac.module' op"), std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(diagnostics.find("\"ac.module\""), std::string::npos)
       << diagnostics;
   EXPECT_EQ(diagnostics.find("ObservationID must contain exactly"),
             std::string::npos)
@@ -788,7 +802,9 @@ TEST_F(ObservationIdentityTest,
       << diagnostics;
   EXPECT_NE(diagnostics.find("phase raw preflight"), std::string::npos)
       << diagnostics;
-  EXPECT_NE(diagnostics.find("'ac.module' op"), std::string::npos)
+  EXPECT_EQ(diagnostics.find("'ac.module' op"), std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(diagnostics.find("\"ac.module\""), std::string::npos)
       << diagnostics;
   EXPECT_EQ(diagnostics.find("ObservationID must contain exactly"),
             std::string::npos)

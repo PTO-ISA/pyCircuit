@@ -11,8 +11,9 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
-#include <map>
 #include <functional>
+#include <limits>
+#include <map>
 
 using namespace mlir;
 
@@ -34,12 +35,6 @@ bool charge(SourceCheckBudget &budget, Operation *site, uint64_t units = 1) {
 bool product(SourceCheckBudget &budget, Operation *site, uint64_t count,
              uint64_t units) {
   return charge(budget, site, SourceCheckBudget::multiply(count, units));
-}
-
-template <typename OpTy>
-Operation *effectSite(const OpTy &operation,
-                      ac::SourceTransactionOp transaction) {
-  return operation ? operation.operator->() : transaction.operator->();
 }
 
 LogicalResult verifyClosedPurePayload(Operation *root,
@@ -77,64 +72,74 @@ LogicalResult verifyClosedPurePayload(Operation *root,
   return success();
 }
 
-LogicalResult rejectBodyEffects(const ac::TransactionStatePlan &plan,
-                                SourceCheckBudget &budget) {
-  auto transaction = plan.transaction;
-  auto reject = [&](Operation *site) -> LogicalResult {
-    return site->emitOpError()
-           << "transaction body checks/observations require sampled effect "
-              "lowering";
-  };
-  for (const auto &event : plan.events) {
-    if (!charge(budget, transaction))
-      return failure();
-    switch (event.kind) {
-    case ac::TransactionStateEventKind::TransactionEnter:
-    case ac::TransactionStateEventKind::GuardEnter:
-    case ac::TransactionStateEventKind::Read:
-    case ac::TransactionStateEventKind::GuardExit:
-    case ac::TransactionStateEventKind::Write:
-    case ac::TransactionStateEventKind::CallEnter:
-    case ac::TransactionStateEventKind::CallExit:
-    case ac::TransactionStateEventKind::TransactionExit:
-      break;
-    case ac::TransactionStateEventKind::BodyCheck:
-      return reject(event.bodyCheck && *event.bodyCheck < plan.bodyChecks.size()
-                        ? effectSite(plan.bodyChecks[*event.bodyCheck].operation,
-                                     transaction)
-                        : transaction.getOperation());
-    case ac::TransactionStateEventKind::Observe:
-      return reject(event.observation &&
-                            *event.observation < plan.observations.size()
-                        ? effectSite(
-                              plan.observations[*event.observation].operation,
-                              transaction)
-                        : transaction.getOperation());
-    }
-  }
-  for (const auto &check : plan.bodyChecks) {
-    if (!charge(budget, transaction))
-      return failure();
-    return reject(effectSite(check.operation, transaction));
-  }
-  for (const auto &observation : plan.observations) {
-    if (!charge(budget, transaction))
-      return failure();
-    return reject(effectSite(observation.operation, transaction));
-  }
-  return success();
-}
-
-LogicalResult rejectBodyEffects(const PreparedTransactionLowering &prepared,
-                                SourceCheckBudget &budget) {
-  for (const auto &transaction : prepared.transactions) {
-    if (!transaction.plan)
+LogicalResult
+verifyPreparedEffectInventory(const PreparedTransactionLowering &prepared,
+                              SourceCheckBudget &budget) {
+  for (const auto &item : prepared.transactions) {
+    if (!item.plan)
       return prepared.original->emitError()
              << "transaction lowering requires an intact prepared state plan";
-    if (!charge(budget, prepared.original))
+    const auto &plan = *item.plan;
+    auto site = plan.transaction;
+    if (!charge(budget, site,
+                8 + plan.bodyChecks.size() + plan.observations.size() +
+                    plan.events.size()))
       return failure();
-    if (failed(rejectBodyEffects(*transaction.plan, budget)))
-      return failure();
+    auto checks = item.expectedAdmission.getAs<ArrayAttr>("body_checks");
+    auto observations = item.expectedAdmission.getAs<ArrayAttr>("observations");
+    auto guards = item.expectedAdmission.getAs<ArrayAttr>("guards");
+    if (item.expectedAdmission.size() != 6 || !guards || !checks ||
+        !observations || guards.size() != plan.guards.size() ||
+        checks.size() != plan.bodyChecks.size() ||
+        observations.size() != plan.observations.size() ||
+        item.observationPathResults.size() != plan.observations.size() ||
+        item.expectedRequiredChecks.size() !=
+            plan.guards.size() + plan.bodyChecks.size())
+      return site.emitOpError()
+             << "transaction prepared body-effect inventory is inconsistent";
+    uint64_t fire = SourceCheckBudget::add(plan.transaction->getNumResults(),
+                                           item.outputs.size());
+    uint64_t next = SourceCheckBudget::add(fire, 1);
+    for (auto [id, observation] : llvm::enumerate(plan.observations)) {
+      if (item.observationPathResults[id] != next)
+        return site.emitOpError()
+               << "transaction prepared observation layout is inconsistent";
+      next = SourceCheckBudget::add(
+          next, SourceCheckBudget::add(1, observation.values.size()));
+    }
+    uint64_t total = SourceCheckBudget::add(
+        next, SourceCheckBudget::multiply(
+                  2, SourceCheckBudget::add(plan.guards.size(),
+                                            plan.bodyChecks.size())));
+    if (item.clockCapture >= item.liveIns.size() ||
+        item.resetCapture >= item.liveIns.size() ||
+        fire == std::numeric_limits<uint64_t>::max() ||
+        next == std::numeric_limits<uint64_t>::max() ||
+        total == std::numeric_limits<uint64_t>::max() ||
+        item.fireResult != fire || item.checkBase != next ||
+        item.totalResults != total ||
+        total > std::numeric_limits<size_t>::max())
+      return site.emitOpError()
+             << "transaction prepared result layout is inconsistent";
+    for (const auto &check : plan.bodyChecks)
+      if (!check.operation)
+        return site.emitOpError()
+               << "transaction prepared body-check locator is absent";
+    for (const auto &observation : plan.observations)
+      if (!observation.operation)
+        return site.emitOpError()
+               << "transaction prepared observation locator is absent";
+    for (const auto &event : plan.events) {
+      if (event.kind == ac::TransactionStateEventKind::BodyCheck &&
+          (!event.bodyCheck || *event.bodyCheck >= plan.bodyChecks.size()))
+        return site.emitOpError()
+               << "transaction prepared body-check event is inconsistent";
+      if (event.kind == ac::TransactionStateEventKind::Observe &&
+          (!event.observation ||
+           *event.observation >= plan.observations.size()))
+        return site.emitOpError()
+               << "transaction prepared observation event is inconsistent";
+    }
   }
   return success();
 }
@@ -181,11 +186,11 @@ LogicalResult prepayClone(Operation *root, SourceCheckBudget &budget) {
   pending.push_back(root);
   while (!pending.empty()) {
     Operation *op = pending.pop_back_val();
-    if (!charge(budget, op, 3 + uint64_t(op->getNumOperands()) * 2 +
-                               uint64_t(op->getNumResults()) * 2 +
-                               op->getNumRegions() +
-                               op->getRawDictionaryAttrs().size() +
-                               op->getPropertiesStorageSize()))
+    if (!charge(budget, op,
+                3 + uint64_t(op->getNumOperands()) * 2 +
+                    uint64_t(op->getNumResults()) * 2 + op->getNumRegions() +
+                    op->getRawDictionaryAttrs().size() +
+                    op->getPropertiesStorageSize()))
       return failure();
     for (Region &region : op->getRegions())
       for (Block &block : region) {
@@ -236,7 +241,9 @@ public:
                       const ac::SourceTransactionStateAnalysis &analysis,
                       SourceCheckBudget &budget)
       : hardware(package), package(package), analysis(analysis),
-        budget(budget) { original = package; }
+        budget(budget) {
+    original = package;
+  }
 
   LogicalResult run() {
     if (failed(mergedEnvelope(package)) || failed(prepayClone(package, budget)))
@@ -327,10 +334,10 @@ public:
         if (!callee)
           continue;
         const auto &child = routing(callee);
-        if (!charge(budget,
-                allocation,
-                allocation.getNumOperands() + allocation.getNumResults() +
-                    32 * (child.upward.size() + 2 * child.downward.size()) + 1))
+        if (!charge(budget, allocation,
+                    allocation.getNumOperands() + allocation.getNumResults() +
+                        32 * (child.upward.size() + 2 * child.downward.size()) +
+                        1))
           return failure();
         // Each actual occurrence prepends itself to every descendant proposal
         // path, then builds/hashes that path for candidate lookup. Definition
@@ -358,11 +365,12 @@ private:
   DictionaryAttr stateID(ArrayRef<ac::InstanceOp> path,
                          ac::SourceStateOp state) {
     Builder b(package.getContext());
-    return b.getDictionaryAttr({
-        b.getNamedAttr("owner", b.getDictionaryAttr({b.getNamedAttr(
-            "instance_path", routePath(package.getContext(), path))})),
-        b.getNamedAttr("declaration", state.getOccurrence()),
-        b.getNamedAttr("element", b.getArrayAttr({}))});
+    return b.getDictionaryAttr(
+        {b.getNamedAttr("owner", b.getDictionaryAttr({b.getNamedAttr(
+                                     "instance_path",
+                                     routePath(package.getContext(), path))})),
+         b.getNamedAttr("declaration", state.getOccurrence()),
+         b.getNamedAttr("element", b.getArrayAttr({}))});
   }
 
   LogicalResult admissionMetadata(TransactionPreparation &prepared) {
@@ -373,52 +381,141 @@ private:
                             prepared.liveIns.begin();
     prepared.resetCapture = llvm::find(prepared.liveIns, plan.resetValue) -
                             prepared.liveIns.begin();
-    prepared.fireResult = transaction->getNumResults() + prepared.outputs.size();
-    SmallVector<Attribute> guards, checks;
-    for (auto [ordinal, guard] : llvm::enumerate(plan.guards)) {
+    auto add = [&](uint64_t lhs, uint64_t rhs,
+                   StringRef description) -> FailureOr<uint64_t> {
+      if (rhs > std::numeric_limits<uint64_t>::max() - lhs) {
+        transaction.emitOpError() << description << " count overflows";
+        return failure();
+      }
+      return lhs + rhs;
+    };
+    auto invocation = [&](ac::InvocationFrameId frame) -> FailureOr<ArrayAttr> {
       SmallVector<ac::InvocationFrameId> chain;
-      auto frame = guard.frame;
       while (plan.frames[frame].parent) {
         if (!charge(budget, transaction, 16))
           return failure();
         chain.push_back(frame);
         frame = *plan.frames[frame].parent;
       }
-      SmallVector<Attribute> invocation;
+      SmallVector<Attribute> result;
       for (auto id : llvm::reverse(chain)) {
         const auto &binding = plan.frames[id];
-        invocation.push_back(b.getDictionaryAttr({
-            b.getNamedAttr("call", binding.callOccurrence),
-            b.getNamedAttr("receiver", binding.receiver)}));
+        result.push_back(b.getDictionaryAttr(
+            {b.getNamedAttr("call", binding.callOccurrence),
+             b.getNamedAttr("receiver", binding.receiver)}));
       }
-      if (!charge(budget, transaction, 48 + 2 * invocation.size()))
+      return b.getArrayAttr(result);
+    };
+    auto owner = [&](ac::InvocationFrameId frame) {
+      if (plan.frames[frame].parent)
+        return plan.frames[frame].receiver;
+      return b.getDictionaryAttr(
+          {b.getNamedAttr("instance_path", b.getArrayAttr({}))});
+    };
+    auto fire = add(transaction->getNumResults(), prepared.outputs.size(),
+                    "transaction fire result");
+    if (failed(fire))
+      return failure();
+    prepared.fireResult = *fire;
+    auto next = add(prepared.fireResult, 1, "transaction observation layout");
+    if (failed(next))
+      return failure();
+    prepared.observationPathResults.clear();
+    for (const auto &observation : plan.observations) {
+      prepared.observationPathResults.push_back(*next);
+      auto width =
+          add(1, observation.values.size(), "transaction observation payload");
+      if (failed(width))
         return failure();
-      auto id = b.getDictionaryAttr({
-          b.getNamedAttr("registration", transaction.getOccurrence()),
-          b.getNamedAttr("check", guard.callable->getAttr(
-              isa<ac::SourceTransactionOp>(guard.callable) ? "declaration" : "occurrence")),
-          b.getNamedAttr("obligation", b.getI64IntegerAttr(ordinal))});
-      guards.push_back(b.getDictionaryAttr({
-          b.getNamedAttr("id", id),
-          b.getNamedAttr("invocation", b.getArrayAttr(invocation)),
-          b.getNamedAttr("predecessor", b.getI64IntegerAttr(int64_t(ordinal)-1))}));
-      checks.push_back(b.getDictionaryAttr({
-          b.getNamedAttr("id", id),
-          b.getNamedAttr("kind", b.getStringAttr("guard_known")),
-          b.getNamedAttr("location", guard.location)}));
+      next = add(*next, *width, "transaction observation layout");
+      if (failed(next))
+        return failure();
     }
-    prepared.expectedAdmission = b.getDictionaryAttr({
-        b.getNamedAttr("clock_capture", b.getI64IntegerAttr(prepared.clockCapture)),
-        b.getNamedAttr("reset_capture", b.getI64IntegerAttr(prepared.resetCapture)),
-        b.getNamedAttr("fire_result", b.getI64IntegerAttr(prepared.fireResult)),
-        b.getNamedAttr("guards", b.getArrayAttr(guards))});
+    prepared.checkBase = *next;
+    auto checkCount = add(plan.guards.size(), plan.bodyChecks.size(),
+                          "transaction check inventory");
+    if (failed(checkCount) ||
+        *checkCount > std::numeric_limits<uint64_t>::max() / 2)
+      return transaction.emitOpError()
+             << "transaction check result count overflows";
+    auto total =
+        add(prepared.checkBase, 2 * *checkCount, "transaction result layout");
+    if (failed(total) || *total > std::numeric_limits<size_t>::max())
+      return transaction.emitOpError()
+             << "transaction result layout exceeds host capacity";
+    prepared.totalResults = *total;
+    SmallVector<Attribute> guards, bodyChecks, observations, checks;
+    for (auto [ordinal, guard] : llvm::enumerate(plan.guards)) {
+      auto frames = invocation(guard.frame);
+      if (failed(frames) ||
+          !charge(budget, transaction, 48 + 2 * frames->size()))
+        return failure();
+      auto id = b.getDictionaryAttr(
+          {b.getNamedAttr("registration", transaction.getOccurrence()),
+           b.getNamedAttr("check",
+                          guard.callable->getAttr(
+                              isa<ac::SourceTransactionOp>(guard.callable)
+                                  ? "declaration"
+                                  : "occurrence")),
+           b.getNamedAttr("obligation", b.getI64IntegerAttr(ordinal))});
+      guards.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr("id", id), b.getNamedAttr("invocation", *frames),
+           b.getNamedAttr("predecessor",
+                          b.getI64IntegerAttr(int64_t(ordinal) - 1))}));
+      checks.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr("id", id),
+           b.getNamedAttr("kind", b.getStringAttr("guard_known")),
+           b.getNamedAttr("location", guard.location)}));
+    }
+    for (auto [ordinal, check] : llvm::enumerate(plan.bodyChecks)) {
+      auto frames = invocation(check.frame);
+      if (failed(frames) || !charge(budget, transaction, 40 + frames->size()))
+        return failure();
+      auto id = b.getDictionaryAttr(
+          {b.getNamedAttr("registration", transaction.getOccurrence()),
+           b.getNamedAttr("check", check.occurrence),
+           b.getNamedAttr("obligation",
+                          b.getI64IntegerAttr(plan.guards.size() + ordinal))});
+      bodyChecks.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr("id", id), b.getNamedAttr("invocation", *frames)}));
+      checks.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr("id", id),
+           b.getNamedAttr("kind", b.getStringAttr("assert")),
+           b.getNamedAttr("location", check.location)}));
+    }
+    for (auto [ordinal, observation] : llvm::enumerate(plan.observations)) {
+      auto frames = invocation(observation.frame);
+      if (failed(frames) || !charge(budget, transaction, 48 + frames->size()))
+        return failure();
+      auto id = b.getDictionaryAttr(
+          {b.getNamedAttr("registration", transaction.getOccurrence()),
+           b.getNamedAttr("site", observation.occurrence),
+           b.getNamedAttr("ordinal", b.getI64IntegerAttr(ordinal)),
+           b.getNamedAttr("invocation", *frames),
+           b.getNamedAttr("owner", owner(observation.frame))});
+      observations.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr("id", id),
+           b.getNamedAttr("value_count",
+                          b.getI64IntegerAttr(observation.values.size()))}));
+    }
+    prepared.expectedAdmission = b.getDictionaryAttr(
+        {b.getNamedAttr("clock_capture",
+                        b.getI64IntegerAttr(prepared.clockCapture)),
+         b.getNamedAttr("reset_capture",
+                        b.getI64IntegerAttr(prepared.resetCapture)),
+         b.getNamedAttr("fire_result",
+                        b.getI64IntegerAttr(prepared.fireResult)),
+         b.getNamedAttr("guards", b.getArrayAttr(guards)),
+         b.getNamedAttr("body_checks", b.getArrayAttr(bodyChecks)),
+         b.getNamedAttr("observations", b.getArrayAttr(observations))});
     prepared.expectedRequiredChecks = b.getArrayAttr(checks);
     return success();
   }
 
   LogicalResult wiringMetadata(DefinitionRouting &definition) {
-    if (definition.stateIndices.empty() && definition.transactionIndices.empty() &&
-        definition.upward.empty() && definition.downward.empty())
+    if (definition.stateIndices.empty() &&
+        definition.transactionIndices.empty() && definition.upward.empty() &&
+        definition.downward.empty())
       return success();
     Builder b(package.getContext());
     SmallVector<Attribute> inventory, incoming, writers;
@@ -430,11 +527,16 @@ private:
     for (auto [ordinal, route] : llvm::enumerate(definition.downward)) {
       if (!charge(budget, definition.module, 32 + route.path.size() * 8))
         return failure();
-      incoming.push_back(b.getDictionaryAttr({
-          b.getNamedAttr("state", stateID(route.path,
-              route.value.getDefiningOp<ac::SourceStateOp>())),
-          b.getNamedAttr("data", b.getI64IntegerAttr(definition.sourceInputs + 2*ordinal)),
-          b.getNamedAttr("enable", b.getI64IntegerAttr(definition.sourceInputs + 2*ordinal+1))}));
+      incoming.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr(
+               "state",
+               stateID(route.path,
+                       route.value.getDefiningOp<ac::SourceStateOp>())),
+           b.getNamedAttr("data", b.getI64IntegerAttr(definition.sourceInputs +
+                                                      2 * ordinal)),
+           b.getNamedAttr("enable",
+                          b.getI64IntegerAttr(definition.sourceInputs +
+                                              2 * ordinal + 1))}));
     }
     for (auto index : definition.transactionIndices) {
       const auto &prepared = transactions[index];
@@ -445,29 +547,31 @@ private:
         auto path = anchorPath(plan, owner.anchor);
         if (!charge(budget, definition.module, 32 + path.size() * 8))
           return failure();
-        candidates.push_back(b.getDictionaryAttr({
-            b.getNamedAttr("state", stateID(path, owner.declaration)),
-            b.getNamedAttr("result", b.getI64IntegerAttr(
-                plan.transaction->getNumResults() + ordinal))}));
+        candidates.push_back(b.getDictionaryAttr(
+            {b.getNamedAttr("state", stateID(path, owner.declaration)),
+             b.getNamedAttr(
+                 "result", b.getI64IntegerAttr(
+                               plan.transaction->getNumResults() + ordinal))}));
       }
       if (!charge(budget, definition.module, 16))
         return failure();
-      writers.push_back(b.getDictionaryAttr({
-          b.getNamedAttr("registration", plan.transaction->getAttr("occurrence")),
-          b.getNamedAttr("ordinary_results", b.getI64IntegerAttr(plan.transaction->getNumResults())),
-          b.getNamedAttr("candidates", b.getArrayAttr(candidates))}));
+      writers.push_back(b.getDictionaryAttr(
+          {b.getNamedAttr("registration",
+                          plan.transaction->getAttr("occurrence")),
+           b.getNamedAttr(
+               "ordinary_results",
+               b.getI64IntegerAttr(plan.transaction->getNumResults())),
+           b.getNamedAttr("candidates", b.getArrayAttr(candidates))}));
     }
-    definition.expectedWiring = b.getDictionaryAttr({
-        b.getNamedAttr("states", b.getArrayAttr(inventory)),
-        b.getNamedAttr("incoming", b.getArrayAttr(incoming)),
-        b.getNamedAttr("writers", b.getArrayAttr(writers))});
+    definition.expectedWiring = b.getDictionaryAttr(
+        {b.getNamedAttr("states", b.getArrayAttr(inventory)),
+         b.getNamedAttr("incoming", b.getArrayAttr(incoming)),
+         b.getNamedAttr("writers", b.getArrayAttr(writers))});
     return success();
   }
 
   LogicalResult admit(const ac::TransactionStatePlan &plan) {
     auto transaction = plan.transaction;
-    if (failed(rejectBodyEffects(plan, budget)))
-      return failure();
     for (const auto &guard : plan.guards) {
       if (!charge(budget, transaction))
         return failure();
@@ -607,8 +711,8 @@ private:
     auto &summary = summaries[module];
     llvm::DenseMap<RoutingKey, unsigned> seen;
     auto add = [&](Writer writer) -> LogicalResult {
-      if (!charge(budget, module, 8 + writer.ownerPath.size() +
-                                     writer.transactionPath.size()))
+      if (!charge(budget, module,
+                  8 + writer.ownerPath.size() + writer.transactionPath.size()))
         return failure();
       auto ownerKey = key(writer.ownerPath, writer.state);
       auto found = seen.find(ownerKey);
@@ -665,8 +769,9 @@ private:
         continue;
       }
       for (const auto &childWriter : summaries[child]) {
-        if (!charge(budget, module, 3 + childWriter.ownerPath.size() +
-                                       childWriter.transactionPath.size()))
+        if (!charge(budget, module,
+                    3 + childWriter.ownerPath.size() +
+                        childWriter.transactionPath.size()))
           return failure();
         Writer writer = childWriter;
         writer.ownerPath.insert(writer.ownerPath.begin(), allocation);
@@ -685,25 +790,44 @@ private:
     auto transaction = plan.transaction;
     uint64_t storage = SourceCheckBudget::add(
         SourceCheckBudget::multiply(plan.frames.size(), sizeof(IRMapping)),
-        SourceCheckBudget::multiply(plan.values.size() + plan.versions.size(), sizeof(Value)));
+        SourceCheckBudget::multiply(plan.values.size() + plan.versions.size(),
+                                    sizeof(Value)));
+    uint64_t effectValues = 0;
+    for (const auto &observation : plan.observations)
+      effectValues =
+          SourceCheckBudget::add(effectValues, observation.values.size());
     if (!charge(budget, transaction, SourceCheckBudget::bytes(storage)) ||
-        !product(budget, transaction, plan.guards.size(), 64))
+        !product(budget, transaction, plan.guards.size(), 64) ||
+        !charge(budget, transaction,
+                SourceCheckBudget::add(
+                    SourceCheckBudget::multiply(plan.bodyChecks.size(),
+                                                SourceCheckBudget::bytes(sizeof(
+                                                    ac::TransactionBodyCheck))),
+                    SourceCheckBudget::add(
+                        SourceCheckBudget::multiply(
+                            plan.observations.size(),
+                            SourceCheckBudget::bytes(
+                                sizeof(ac::TransactionObservation))),
+                        SourceCheckBudget::multiply(
+                            effectValues,
+                            SourceCheckBudget::bytes(sizeof(Value)))))))
       return failure();
-    if (!charge(budget, transaction, plan.values.size() + plan.instances.size() +
-                                        plan.versions.size() +
-                                        plan.reads.size() + plan.writes.size() +
-                                        plan.calls.size() + plan.frames.size() +
-                                        plan.results.size() +
-                                        prepared.outputs.size()) ||
+    if (!charge(budget, transaction,
+                plan.values.size() + plan.instances.size() +
+                    plan.versions.size() + plan.reads.size() +
+                    plan.writes.size() + plan.calls.size() +
+                    plan.bodyChecks.size() + plan.observations.size() +
+                    plan.frames.size() + plan.results.size() +
+                    prepared.outputs.size()) ||
         !product(budget, transaction, plan.frames.size(),
-                        2 * prepared.liveIns.size() + 1))
+                 2 * prepared.liveIns.size() + 1))
       return failure();
     for (const auto &frame : plan.frames) {
       auto method = frame.method;
       Operation *function =
           method ? method.operator->() : transaction.operator->();
-      if (!charge(budget, function, frame.guardArguments.size() +
-                                       frame.bodyArguments.size()))
+      if (!charge(budget, function,
+                  frame.guardArguments.size() + frame.bodyArguments.size()))
         return failure();
       SmallVector<Operation *> pending;
       for (Region &region : function->getRegions())
@@ -714,14 +838,16 @@ private:
         }
       while (!pending.empty()) {
         Operation *op = pending.pop_back_val();
-        if (!charge(budget, op, 3 + uint64_t(op->getNumOperands()) * 2 +
-                                   uint64_t(op->getNumResults()) * 2 +
-                                   op->getNumRegions() +
-                                   op->getRawDictionaryAttrs().size() +
-                                   op->getPropertiesStorageSize()))
+        if (!charge(budget, op,
+                    3 + uint64_t(op->getNumOperands()) * 2 +
+                        uint64_t(op->getNumResults()) * 2 +
+                        op->getNumRegions() +
+                        op->getRawDictionaryAttrs().size() +
+                        op->getPropertiesStorageSize()))
           return failure();
         if (!isa<ac::SourceStateReadOp, ac::SourceStateWriteOp,
-                 ac::SourceMethodCallOp, ac::YieldOp>(op) &&
+                 ac::SourceMethodCallOp, ac::SourceExpectOp,
+                 ac::SourceObserveOp, ac::YieldOp>(op) &&
             !ac::detail::isCombinationalHardwareOperation(op))
           return op->emitOpError()
                  << "transaction lowering cannot materialize this operation";
@@ -757,7 +883,8 @@ struct StateStorage {
 /// signature. Original Value and Instance identities remain the lookup keys.
 class MaterializationRoutes {
 public:
-  MaterializationRoutes(const PreparedTransactionLowering &prepared, IRMapping &mapping)
+  MaterializationRoutes(const PreparedTransactionLowering &prepared,
+                        IRMapping &mapping)
       : prepared(prepared), mapping(mapping), hardware(prepared.original) {}
 
   FailureOr<Value> value(ac::ModuleOp module, ArrayRef<ac::InstanceOp> path,
@@ -769,9 +896,10 @@ public:
       return module.emitOpError()
              << "transaction lexical SSA mapping is missing";
     }
-    auto child =
-        cast<ac::ModuleOp>(hardware.resolveCallee(path.front()));
-    auto &definition = prepared.definitions[prepared.definitionIndex.lookup(child.operator->())];
+    auto child = cast<ac::ModuleOp>(hardware.resolveCallee(path.front()));
+    auto &definition =
+        prepared
+            .definitions[prepared.definitionIndex.lookup(child.operator->())];
     auto found =
         definition.upwardIndex.find(routingKey(path.drop_front(), original));
     if (found == definition.upwardIndex.end())
@@ -811,6 +939,12 @@ public:
     auto transaction = plan.transaction;
     auto staged = cast<ac::SourceTransactionOp>(
         packageMap.lookup(transaction.operator->()));
+    if (!charge(budget, transaction,
+                SourceCheckBudget::add(
+                    prepared.totalResults,
+                    SourceCheckBudget::add(plan.bodyChecks.size(),
+                                           plan.observations.size()))))
+      return failure();
     SmallVector<Value> captures;
     SmallVector<Type> types(transaction->getResultTypes());
     for (auto liveIn : prepared.liveIns) {
@@ -821,7 +955,24 @@ public:
     }
     for (auto output : prepared.outputs)
       types.push_back(plan.owners[output.owner].payloadType);
-    types.append(1 + 2 * plan.guards.size(), captures[prepared.clockCapture].getType());
+    Type predicateType = captures[prepared.clockCapture].getType();
+    types.push_back(predicateType);
+    for (const auto &observation : plan.observations) {
+      types.push_back(predicateType);
+      for (auto value : observation.values)
+        types.push_back(plan.values[value].value.getType());
+    }
+    for (const auto &guard : plan.guards) {
+      types.push_back(plan.values[guard.predicate].value.getType());
+      types.push_back(predicateType);
+    }
+    for (const auto &check : plan.bodyChecks) {
+      types.push_back(plan.values[check.condition].value.getType());
+      types.push_back(predicateType);
+    }
+    if (types.size() != prepared.totalResults)
+      return transaction.emitOpError()
+             << "transaction prepared result layout is inconsistent";
     OperationState state(staged.getLoc(), ac::RuleOp::getOperationName());
     state.addOperands(captures);
     state.addTypes(types);
@@ -860,12 +1011,27 @@ public:
       writes.try_emplace(Key{write.frame, write.operation}, &write);
     for (const auto &call : plan.calls)
       calls.try_emplace(Key{call.caller, call.operation}, &call);
+    for (auto [id, check] : llvm::enumerate(plan.bodyChecks))
+      bodyCheckPlans.try_emplace(Key{check.frame, check.operation}, id);
+    for (auto [id, observation] : llvm::enumerate(plan.observations))
+      observationPlans.try_emplace(
+          Key{observation.frame, observation.operation}, id);
+    for (const auto &event : plan.events)
+      if (event.kind == ac::TransactionStateEventKind::BodyCheck ||
+          event.kind == ac::TransactionStateEventKind::Observe)
+        effectEvents.push_back(&event);
+    savedChecks.resize(plan.bodyChecks.size());
+    savedObservations.resize(plan.observations.size());
     OpBuilder builder(rule.getContext());
     builder.setInsertionPointToEnd(block);
     prefix = bitsLiteral(captures[prepared.clockCapture].getType(),
-                         transaction.getOccurrence(), transaction.getLoc(), true, builder);
+                         transaction.getOccurrence(), transaction.getLoc(),
+                         true, builder);
     if (failed(invocation(plan.rootFrame, builder)))
       return failure();
+    if (nextEffectEvent != effectEvents.size())
+      return transaction.emitOpError()
+             << "transaction body-effect event inventory is incomplete";
     SmallVector<Value> results;
     for (const auto &result : plan.results) {
       auto value = bound(result.yielded);
@@ -880,9 +1046,47 @@ public:
       results.push_back(versions[output.version]);
     }
     results.push_back(prefix);
+    for (const auto &observation : savedObservations) {
+      if (!observation.path)
+        return transaction.emitOpError()
+               << "transaction observation payload is unmapped";
+      results.push_back(prefix);
+      llvm::append_range(results, observation.values);
+    }
     for (auto pair : guards) {
       results.push_back(pair.first);
       results.push_back(pair.second);
+    }
+    for (const auto &check : savedChecks) {
+      if (!check.first || !check.second)
+        return transaction.emitOpError()
+               << "transaction body-check payload is unmapped";
+      results.push_back(check.first);
+      results.push_back(prefix);
+    }
+    if (results.size() != prepared.totalResults)
+      return transaction.emitOpError()
+             << "transaction materialized result layout is inconsistent";
+    // Effect values are captured after formal/actual and receiver bindings have
+    // resolved their static type expressions.  Keep the Rule result boundary
+    // identical to those authenticated statement-time SSA values rather than
+    // retaining a definition-relative spelling from the source plan.
+    for (auto [id, observation] : llvm::enumerate(savedObservations)) {
+      uint64_t result = prepared.observationPathResults[id];
+      rule->getResult(result).setType(prefix.getType());
+      for (uint64_t ordinal = 0; ordinal < observation.values.size(); ++ordinal)
+        rule->getResult(result + 1 + ordinal)
+            .setType(observation.values[ordinal].getType());
+    }
+    for (auto [id, guard] : llvm::enumerate(guards)) {
+      uint64_t result = prepared.checkBase + 2 * id;
+      rule->getResult(result).setType(guard.first.getType());
+      rule->getResult(result + 1).setType(guard.second.getType());
+    }
+    for (auto [id, check] : llvm::enumerate(savedChecks)) {
+      uint64_t result = prepared.checkBase + 2 * (plan.guards.size() + id);
+      rule->getResult(result).setType(check.first.getType());
+      rule->getResult(result + 1).setType(prefix.getType());
     }
     OperationState yield(staged.getLoc(), ac::YieldOp::getOperationName());
     yield.addOperands(results);
@@ -896,7 +1100,8 @@ public:
         record.boundValues[id] = rule->getResult(ordinal);
         continue;
       }
-      // Pure path/reference nodes used only by eliminated effects need no final wire.
+      // Pure path/reference nodes used only by eliminated effects need no final
+      // wire.
       if (moduleValue(ref.value, plan.instances[ref.anchor].definition))
         record.boundValues[id] = lexical.lookup({ref.anchor, ref.value});
       else
@@ -938,7 +1143,8 @@ private:
     auto transaction = plan.transaction;
     Operation *function =
         method ? method.operator->() : transaction.operator->();
-    for (auto [regionOrdinal, region] : llvm::enumerate(function->getRegions())) {
+    for (auto [regionOrdinal, region] :
+         llvm::enumerate(function->getRegions())) {
       for (Operation &op : region.front().without_terminator()) {
         if (auto access = dyn_cast<ac::SourceStateReadOp>(op)) {
           auto found = reads.find({frame, access});
@@ -968,10 +1174,45 @@ private:
               return failure();
             frames[frame].map(plan.values[result.result].value, *value);
           }
-        } else if (isa<ac::SourceExpectOp, ac::SourceObserveOp>(op)) {
-          return op.emitOpError()
-                 << "transaction body checks/observations require sampled "
-                    "effect lowering";
+        } else if (auto check = dyn_cast<ac::SourceExpectOp>(op)) {
+          auto found = bodyCheckPlans.find({frame, check});
+          if (found == bodyCheckPlans.end() ||
+              nextEffectEvent == effectEvents.size() ||
+              effectEvents[nextEffectEvent]->kind !=
+                  ac::TransactionStateEventKind::BodyCheck ||
+              effectEvents[nextEffectEvent]->frame != frame ||
+              effectEvents[nextEffectEvent]->bodyCheck != found->second)
+            return op.emitOpError()
+                   << "transaction body-check event order is inconsistent";
+          const auto &record = plan.bodyChecks[found->second];
+          auto condition = bound(record.condition);
+          auto path = bound(record.path);
+          if (failed(condition) || failed(path))
+            return failure();
+          savedChecks[found->second] = {*condition, *path};
+          ++nextEffectEvent;
+        } else if (auto observation = dyn_cast<ac::SourceObserveOp>(op)) {
+          auto found = observationPlans.find({frame, observation});
+          if (found == observationPlans.end() ||
+              nextEffectEvent == effectEvents.size() ||
+              effectEvents[nextEffectEvent]->kind !=
+                  ac::TransactionStateEventKind::Observe ||
+              effectEvents[nextEffectEvent]->frame != frame ||
+              effectEvents[nextEffectEvent]->observation != found->second)
+            return op.emitOpError()
+                   << "transaction observation event order is inconsistent";
+          const auto &record = plan.observations[found->second];
+          auto path = bound(record.path);
+          if (failed(path))
+            return failure();
+          savedObservations[found->second].path = *path;
+          for (auto value : record.values) {
+            auto mapped = bound(value);
+            if (failed(mapped))
+              return failure();
+            savedObservations[found->second].values.push_back(*mapped);
+          }
+          ++nextEffectEvent;
         } else {
           if (failed(verifyClosedPurePayload(
                   &op, budget,
@@ -996,12 +1237,14 @@ private:
         guards.emplace_back(*raw, prefix);
         auto one = bitsLiteral(prefix.getType(), transaction.getOccurrence(),
                                function->getLoc(), true, builder);
-        OperationState known(function->getLoc(), ac::BitsCompareOp::getOperationName());
+        OperationState known(function->getLoc(),
+                             ac::BitsCompareOp::getOperationName());
         known.addOperands({*raw, one});
         known.addTypes(prefix.getType());
         known.addAttribute("predicate", builder.getStringAttr("case_eq"));
         auto k = builder.create(known)->getResult(0);
-        OperationState next(function->getLoc(), ac::BitsBinaryOp::getOperationName());
+        OperationState next(function->getLoc(),
+                            ac::BitsBinaryOp::getOperationName());
         next.addOperands({prefix, k});
         next.addTypes(prefix.getType());
         next.addAttribute("opcode", builder.getStringAttr("and"));
@@ -1015,6 +1258,10 @@ private:
   const ac::TransactionStatePlan &plan;
   IRMapping &packageMap;
   using LexicalKey = std::pair<ac::LexicalInstanceId, Value>;
+  struct SavedObservation {
+    Value path;
+    SmallVector<Value, 0> values;
+  };
   MaterializationRoutes &routes;
   SourceCheckBudget &budget;
   llvm::DenseMap<LexicalKey, Value> lexical;
@@ -1025,6 +1272,12 @@ private:
   llvm::DenseMap<Key, const ac::StateReadBinding *> reads;
   llvm::DenseMap<Key, const ac::StateWriteIntent *> writes;
   llvm::DenseMap<Key, const ac::TransactionCallBinding *> calls;
+  llvm::DenseMap<Key, ac::BodyCheckId> bodyCheckPlans;
+  llvm::DenseMap<Key, ac::ObservationId> observationPlans;
+  SmallVector<const ac::TransactionStateEvent *, 0> effectEvents;
+  size_t nextEffectEvent = 0;
+  SmallVector<std::pair<Value, Value>, 0> savedChecks;
+  SmallVector<SavedObservation, 0> savedObservations;
 };
 
 ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
@@ -1035,11 +1288,14 @@ ac::StaticExprAttr bitsLiteralAttribute(Type payload, DictionaryAttr occurrence,
       context, llvm::APSInt(llvm::APInt(1, one ? 1 : 0), true));
   auto tree = builder.getDictionaryAttr(
       {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
-       builder.getNamedAttr("value", builder.getDictionaryAttr(
-           {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
-            builder.getNamedAttr("value", literal)})),
+       builder.getNamedAttr(
+           "value",
+           builder.getDictionaryAttr(
+               {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+                builder.getNamedAttr("value", literal)})),
        builder.getNamedAttr("origin", occurrence),
-       builder.getNamedAttr("location", type.getWidth().getTree().get("location"))});
+       builder.getNamedAttr("location",
+                            type.getWidth().getTree().get("location"))});
   return ac::StaticExprAttr::get(context, tree);
 }
 
@@ -1047,15 +1303,18 @@ Value bitsLiteral(Type payload, DictionaryAttr occurrence, Location location,
                   bool one, OpBuilder &builder) {
   OperationState constant(location, ac::BitsConstantOp::getOperationName());
   constant.addTypes(payload);
-  constant.addAttribute("value", bitsLiteralAttribute(payload, occurrence,
-                                                       builder.getContext(), one));
+  constant.addAttribute(
+      "value",
+      bitsLiteralAttribute(payload, occurrence, builder.getContext(), one));
   return builder.create(constant)->getResult(0);
 }
 
 LogicalResult eraseTargetMappings(IRMapping &mapping, Operation *removed,
                                   SourceCheckBudget &budget) {
-  uint64_t entries = SourceCheckBudget::add(mapping.getOperationMap().size(),
-      SourceCheckBudget::add(mapping.getBlockMap().size(), mapping.getValueMap().size()));
+  uint64_t entries = SourceCheckBudget::add(
+      mapping.getOperationMap().size(),
+      SourceCheckBudget::add(mapping.getBlockMap().size(),
+                             mapping.getValueMap().size()));
   if (!charge(budget, removed, SourceCheckBudget::multiply(entries, 4)))
     return failure();
   auto belongs = [&](Operation *op) {
@@ -1084,8 +1343,8 @@ LogicalResult eraseTargetMappings(IRMapping &mapping, Operation *removed,
   return success();
 }
 
-LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::ModuleOp staged,
-                          IRMapping &mapping,
+LogicalResult materialize(const PreparedTransactionLowering &prepared,
+                          mlir::ModuleOp staged, IRMapping &mapping,
                           SmallVectorImpl<MaterializedTransaction> &records,
                           SourceCheckBudget &budget) {
   ac::HardwareAnalysis hardware(prepared.original);
@@ -1170,11 +1429,13 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
   for (auto &parent : prepared.definitions) {
     for (auto original :
          parent.module->getRegion(0).front().getOps<ac::InstanceOp>()) {
-      auto child = dyn_cast_or_null<ac::ModuleOp>(
-          hardware.resolveCallee(original));
+      auto child =
+          dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(original));
       if (!child)
         continue;
-      auto &definition = prepared.definitions[prepared.definitionIndex.lookup(child.operator->())];
+      auto &definition =
+          prepared
+              .definitions[prepared.definitionIndex.lookup(child.operator->())];
       if (definition.upward.empty() && definition.downward.empty())
         continue;
       auto old = cast<ac::InstanceOp>(mapping.lookup(original.operator->()));
@@ -1183,8 +1444,7 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
         return failure();
       SmallVector<Type> resultTypes(old.getResultTypes());
       for (const auto &route : definition.upward) {
-        auto type =
-            hardware.resolveType(route.type, *bindings, original);
+        auto type = hardware.resolveType(route.type, *bindings, original);
         if (failed(type))
           return failure();
         resultTypes.push_back(*type);
@@ -1192,14 +1452,15 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
       SmallVector<Value> operands(old.getOperands());
       OpBuilder builder(old);
       for (const auto &route : definition.downward) {
-        auto dType =
-            hardware.resolveType(route.type, *bindings, original);
-        auto eType = hardware.resolveType(route.enableType, *bindings,
-                                                   original);
+        auto dType = hardware.resolveType(route.type, *bindings, original);
+        auto eType =
+            hardware.resolveType(route.enableType, *bindings, original);
         if (failed(dType) || failed(eType))
           return failure();
-        auto d = bitsLiteral(*dType, original.getOccurrence(), original.getLoc(), false, builder);
-        auto e = bitsLiteral(*eType, original.getOccurrence(), original.getLoc(), false, builder);
+        auto d = bitsLiteral(*dType, original.getOccurrence(),
+                             original.getLoc(), false, builder);
+        auto e = bitsLiteral(*eType, original.getOccurrence(),
+                             original.getLoc(), false, builder);
         operands.append({d, e});
         stagingZeros.append({d, e});
       }
@@ -1222,15 +1483,16 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
 
   // State remains at its original lexical declaration, one DFFE per owner.
   for (auto original : prepared.states) {
-    auto state =
-        cast<ac::SourceStateOp>(mapping.lookup(original.operator->()));
+    auto state = cast<ac::SourceStateOp>(mapping.lookup(original.operator->()));
     OperationState leaf(state.getLoc(), ac::InstanceOp::getOperationName());
     leaf.addTypes(original.getQ().getType());
     leaf.addAttribute("instance_name", original.getInstanceNameAttr());
     leaf.addAttribute("occurrence", original.getOccurrence());
-    leaf.addAttribute("callee",
-                      FlatSymbolRefAttr::get(staged.getContext(),
-                                             prepared.dffe->getAttrOfType<StringAttr>("sym_name").getValue()));
+    leaf.addAttribute(
+        "callee",
+        FlatSymbolRefAttr::get(
+            staged.getContext(),
+            prepared.dffe->getAttrOfType<StringAttr>("sym_name").getValue()));
     leaf.addAttribute("parameters", attributes.getArrayAttr({}));
     leaf.addAttribute(
         "type_arguments",
@@ -1257,20 +1519,70 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
     auto original = transaction.plan->transaction;
     auto materializedRule = rule->rule;
     records.push_back(std::move(*rule));
+    auto &materialized = records.back();
+    materialized.bodyChecks.resize(transaction.plan->bodyChecks.size());
+    materialized.observations.resize(transaction.plan->observations.size());
     replacements.push_back({original, materializedRule});
     OpBuilder expectBuilder(materializedRule);
     expectBuilder.setInsertionPointAfter(materializedRule);
     for (auto [ordinal, guard] : llvm::enumerate(transaction.plan->guards)) {
-      auto check = cast<DictionaryAttr>(transaction.expectedRequiredChecks[ordinal]);
-      OperationState expect(original.getLoc(), ac::SourceExpectOp::getOperationName());
-      expect.addOperands({materializedRule->getResult(transaction.fireResult + 1 + 2 * ordinal),
-                          materializedRule->getResult(transaction.fireResult + 2 + 2 * ordinal),
-                          materializedRule->getOperand(transaction.clockCapture),
-                          materializedRule->getOperand(transaction.resetCapture)});
+      auto check =
+          cast<DictionaryAttr>(transaction.expectedRequiredChecks[ordinal]);
+      OperationState expect(original.getLoc(),
+                            ac::SourceExpectOp::getOperationName());
+      expect.addOperands(
+          {materializedRule->getResult(transaction.checkBase + 2 * ordinal),
+           materializedRule->getResult(transaction.checkBase + 2 * ordinal + 1),
+           materializedRule->getOperand(transaction.clockCapture),
+           materializedRule->getOperand(transaction.resetCapture)});
       expect.addAttribute("kind", expectBuilder.getStringAttr("guard_known"));
       expect.addAttribute("location", guard.location);
       expect.addAttribute("ac.check_id", check.get("id"));
       expectBuilder.create(expect);
+    }
+    auto bodyRows =
+        transaction.expectedAdmission.getAs<ArrayAttr>("body_checks");
+    auto observationRows =
+        transaction.expectedAdmission.getAs<ArrayAttr>("observations");
+    for (const auto &event : transaction.plan->events) {
+      if (!charge(budget, original))
+        return failure();
+      if (event.kind == ac::TransactionStateEventKind::BodyCheck) {
+        auto id = *event.bodyCheck;
+        const auto &source = transaction.plan->bodyChecks[id];
+        auto metadata = cast<DictionaryAttr>(bodyRows[id]);
+        uint64_t result =
+            transaction.checkBase + 2 * (transaction.plan->guards.size() + id);
+        OperationState expect(source.operation->getLoc(),
+                              ac::SourceExpectOp::getOperationName());
+        expect.addOperands({materializedRule->getResult(result),
+                            materializedRule->getResult(result + 1)});
+        expect.addAttribute("kind", expectBuilder.getStringAttr("assert"));
+        expect.addAttribute("location", source.location);
+        expect.addAttribute("ac.check_id", metadata.get("id"));
+        if (source.message)
+          expect.addAttribute("ac.message", source.message);
+        materialized.bodyChecks[id] =
+            cast<ac::SourceExpectOp>(expectBuilder.create(expect));
+      } else if (event.kind == ac::TransactionStateEventKind::Observe) {
+        auto id = *event.observation;
+        const auto &source = transaction.plan->observations[id];
+        auto metadata = cast<DictionaryAttr>(observationRows[id]);
+        uint64_t pathResult = transaction.observationPathResults[id];
+        SmallVector<Value> operands{materializedRule->getResult(pathResult)};
+        for (uint64_t ordinal = 0; ordinal < source.values.size(); ++ordinal)
+          operands.push_back(
+              materializedRule->getResult(pathResult + 1 + ordinal));
+        OperationState observe(source.operation->getLoc(),
+                               ac::SourceObserveOp::getOperationName());
+        observe.addOperands(operands);
+        observe.addAttribute("kind", source.kind);
+        observe.addAttribute("spec", source.spec);
+        observe.addAttribute("ac.location", source.location);
+        observe.addAttribute("ac.observation_id", metadata.get("id"));
+        materialized.observations[id] =
+            cast<ac::SourceObserveOp>(expectBuilder.create(observe));
+      }
     }
     unsigned ordinary = original.getNumResults();
     for (auto [ordinal, binding] : llvm::enumerate(transaction.outputs)) {
@@ -1308,7 +1620,9 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
     auto local = nextValues[module].find(key);
     if (local != nextValues[module].end())
       return local->second;
-    auto &definition = prepared.definitions[prepared.definitionIndex.lookup(module.operator->())];
+    auto &definition =
+        prepared
+            .definitions[prepared.definitionIndex.lookup(module.operator->())];
     auto found = definition.downwardIndex.find(key);
     if (found != definition.downwardIndex.end())
       return incoming[module][found->second];
@@ -1324,11 +1638,13 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
   for (auto &parent : prepared.definitions) {
     for (auto original :
          parent.module->getRegion(0).front().getOps<ac::InstanceOp>()) {
-      auto child = dyn_cast_or_null<ac::ModuleOp>(
-          hardware.resolveCallee(original));
+      auto child =
+          dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(original));
       if (!child)
         continue;
-      auto &definition = prepared.definitions[prepared.definitionIndex.lookup(child.operator->())];
+      auto &definition =
+          prepared
+              .definitions[prepared.definitionIndex.lookup(child.operator->())];
       if (definition.downward.empty())
         continue;
       auto allocation =
@@ -1388,19 +1704,20 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
     auto old = mapping.lookup(replacement.original.operator->());
     if (failed(eraseTargetMappings(mapping, old, budget)))
       return failure();
-    mapping.map(replacement.original.operator->(), replacement.rule.operator->());
+    mapping.map(replacement.original.operator->(),
+                replacement.rule.operator->());
     old->erase();
   }
   for (auto module : staged.getOps<ac::ModuleOp>())
     for (auto method : llvm::make_early_inc_range(
-             module.getBody().front().getOps<ac::SourceMethodOp>()))
-      {
-        if (failed(eraseTargetMappings(mapping, method, budget)))
-          return failure();
-        method.erase();
-      }
+             module.getBody().front().getOps<ac::SourceMethodOp>())) {
+      if (failed(eraseTargetMappings(mapping, method, budget)))
+        return failure();
+      method.erase();
+    }
   for (const auto &definition : prepared.definitions) {
-    auto module = cast<ac::ModuleOp>(mapping.lookup(definition.module.operator->()));
+    auto module =
+        cast<ac::ModuleOp>(mapping.lookup(definition.module.operator->()));
     if (definition.expectedWiring)
       module->setAttr("ac.transaction_wiring", definition.expectedWiring);
   }
@@ -1427,14 +1744,18 @@ public:
         staged->getLoc() != prepared.original->getLoc())
       return reject("original package shape differs");
     NamedAttrList expectedEnvelope(prepared.original->getAttrs());
-    expectedEnvelope.set("ac.stage", StringAttr::get(staged.getContext(), "final"));
+    expectedEnvelope.set("ac.stage",
+                         StringAttr::get(staged.getContext(), "final"));
     if (staged->getAttrs() != expectedEnvelope.getAttrs() ||
-        staged->getPropertiesAsAttribute() != prepared.original->getPropertiesAsAttribute())
+        staged->getPropertiesAsAttribute() !=
+            prepared.original->getPropertiesAsAttribute())
       return reject("original package envelope differs");
     uint64_t locatorEntries = SourceCheckBudget::add(
-        candidate.packageMap.getOperationMap().size(), SourceCheckBudget::add(
-            candidate.packageMap.getBlockMap().size(), candidate.packageMap.getValueMap().size()));
-    if (!charge(budget, prepared.original, SourceCheckBudget::multiply(locatorEntries, 4)))
+        candidate.packageMap.getOperationMap().size(),
+        SourceCheckBudget::add(candidate.packageMap.getBlockMap().size(),
+                               candidate.packageMap.getValueMap().size()));
+    if (!charge(budget, prepared.original,
+                SourceCheckBudget::multiply(locatorEntries, 4)))
       return failure();
     bool paid = true;
     staged.walk([&](Operation *op) {
@@ -1481,7 +1802,8 @@ public:
       if (failed(transactionProof(transaction, candidate.transactions[index])))
         return failure();
     // Package declarations other than module bodies retain their entire shape.
-    for (Operation &op : prepared.original->getRegion(0).front().getOperations()) {
+    for (Operation &op :
+         prepared.original->getRegion(0).front().getOperations()) {
       if (isa<ac::ModuleOp>(op))
         continue;
       auto target = candidate.packageMap.lookupOrNull(&op);
@@ -1491,8 +1813,7 @@ public:
       IRMapping authenticated;
       for (const auto &entry : candidate.packageMap.getValueMap())
         authenticated.map(entry.first, entry.second);
-      if (failed(exactClone(&op, target, authenticated,
-                            candidate.packageMap)))
+      if (failed(exactClone(&op, target, authenticated, candidate.packageMap)))
         return failure();
     }
     if (failed(routingProof()))
@@ -1504,8 +1825,8 @@ public:
         return failure();
       if (!clones.contains(op))
         return reject(isa<ac::ModuleOp>(op->getParentOp())
-            ? "original module-body operation inventory differs"
-            : "original nested operation inventory differs");
+                          ? "original module-body operation inventory differs"
+                          : "original nested operation inventory differs");
     }
     return success();
   }
@@ -1520,7 +1841,8 @@ private:
     if (!charge(budget, prepared.original, 4))
       return failure();
     if (!op || !operations.contains(op) || !clones.insert(op).second)
-      return reject("original generated operation identity is absent or duplicated");
+      return reject(
+          "original generated operation identity is absent or duplicated");
     return success();
   }
 
@@ -1530,14 +1852,18 @@ private:
                                ArrayRef<Value> operands, ArrayRef<Type> types,
                                DictionaryAttr attributes, Location location,
                                Block *parent) {
-    if (!charge(budget, prepared.original, 16 + 4 * operands.size() +
-                                               4 * types.size() + attributes.size()))
+    if (!charge(budget, prepared.original,
+                16 + 4 * operands.size() + 4 * types.size() +
+                    attributes.size()))
       return failure();
-    if (!op || !operations.contains(op) || op->getName().getStringRef() != name ||
-        op->getBlock() != parent || op->getLoc() != location ||
-        op->getNumRegions() || !llvm::equal(op->getOperands(), operands) ||
-        op->getResultTypes() != types || op->getAttrs() != attributes.getValue())
-      return reject("original generated operation shape/operands/attributes differ");
+    if (!op || !operations.contains(op) ||
+        op->getName().getStringRef() != name || op->getBlock() != parent ||
+        op->getLoc() != location || op->getNumRegions() ||
+        !llvm::equal(op->getOperands(), operands) ||
+        op->getResultTypes() != types ||
+        op->getAttrs() != attributes.getValue())
+      return reject(
+          "original generated operation shape/operands/attributes differ");
     if (Attribute raw = op->getPropertiesAsAttribute()) {
       auto properties = dyn_cast<DictionaryAttr>(raw);
       if (!properties)
@@ -1550,14 +1876,17 @@ private:
   }
 
   LogicalResult literalProof(Value value, Type type, DictionaryAttr occurrence,
-                            Location location, bool one, Block *parent) {
+                             Location location, bool one, Block *parent) {
     auto result = dyn_cast<OpResult>(value);
     if (!result || result.getResultNumber() != 0)
       return reject("original generated literal result is absent");
     Builder b(prepared.original->getContext());
-    return generatedProof(result.getOwner(), ac::BitsConstantOp::getOperationName(),
-        {}, {type}, b.getDictionaryAttr({b.getNamedAttr("value",
-            bitsLiteralAttribute(type, occurrence, b.getContext(), one))}), location, parent);
+    return generatedProof(
+        result.getOwner(), ac::BitsConstantOp::getOperationName(), {}, {type},
+        b.getDictionaryAttr({b.getNamedAttr(
+            "value",
+            bitsLiteralAttribute(type, occurrence, b.getContext(), one))}),
+        location, parent);
   }
 
   LogicalResult candidatePairProof(ac::ModuleOp originalModule,
@@ -1567,9 +1896,11 @@ private:
                                    Location location) {
     if (!charge(budget, originalModule, 16 + 8 * path.size()))
       return failure();
-    const auto &definition = prepared.definitions[
-        prepared.definitionIndex.lookup(originalModule.operator->())];
-    auto module = cast<ac::ModuleOp>(candidate.packageMap.lookup(originalModule.operator->()));
+    const auto &definition =
+        prepared.definitions[prepared.definitionIndex.lookup(
+            originalModule.operator->())];
+    auto module = cast<ac::ModuleOp>(
+        candidate.packageMap.lookup(originalModule.operator->()));
     auto key = routingKey(path, state);
     // The writer is selected from original final owner versions, never final
     // companion attributes or a self-authored candidate allowlist.
@@ -1587,7 +1918,8 @@ private:
         if (routingKey(ownerPath, declaration.getQ()) != key)
           continue;
         auto rule = candidate.transactions[index].rule;
-        if (data != rule->getResult(plan.transaction->getNumResults() + ordinal) ||
+        if (data !=
+                rule->getResult(plan.transaction->getNumResults() + ordinal) ||
             enable != rule->getResult(transaction.fireResult))
           return reject("original local candidate/fire routing pair differs");
         return success();
@@ -1597,7 +1929,8 @@ private:
     if (incoming != definition.downwardIndex.end()) {
       auto &body = module.getBody().front();
       unsigned input = definition.sourceInputs + 2 * incoming->second;
-      if (data != body.getArgument(input) || enable != body.getArgument(input + 1))
+      if (data != body.getArgument(input) ||
+          enable != body.getArgument(input + 1))
         return reject("original incoming candidate routing pair differs");
       return success();
     }
@@ -1615,30 +1948,36 @@ private:
   LogicalResult routingProof() {
     for (auto state : prepared.states) {
       auto module = state->getParentOfType<ac::ModuleOp>();
-      auto storage = cast<ac::InstanceOp>(candidate.packageMap.lookup(state.operator->()));
-      if (failed(candidatePairProof(module, {}, state.getQ(),
-          storage->getOperand(3), storage->getOperand(2),
-          state.getQ().getType(), state.getClk().getType(),
-          state.getOccurrence(), state.getLoc())))
+      auto storage =
+          cast<ac::InstanceOp>(candidate.packageMap.lookup(state.operator->()));
+      if (failed(candidatePairProof(
+              module, {}, state.getQ(), storage->getOperand(3),
+              storage->getOperand(2), state.getQ().getType(),
+              state.getClk().getType(), state.getOccurrence(), state.getLoc())))
         return failure();
     }
     for (const auto &parent : prepared.definitions) {
       auto originalModule = parent.module;
-      for (auto original : originalModule.getBody().front().getOps<ac::InstanceOp>()) {
-        auto child = dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(original));
+      for (auto original :
+           originalModule.getBody().front().getOps<ac::InstanceOp>()) {
+        auto child =
+            dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(original));
         if (!child)
           continue;
-        const auto &definition = prepared.definitions[
-            prepared.definitionIndex.lookup(child.operator->())];
+        const auto &definition =
+            prepared.definitions[prepared.definitionIndex.lookup(
+                child.operator->())];
         if (definition.downward.empty())
           continue;
         auto bindings = hardware.bindInstance(original);
         if (failed(bindings))
           return failure();
-        auto actual = cast<ac::InstanceOp>(candidate.packageMap.lookup(original.operator->()));
+        auto actual = cast<ac::InstanceOp>(
+            candidate.packageMap.lookup(original.operator->()));
         for (auto [ordinal, route] : llvm::enumerate(definition.downward)) {
           auto dType = hardware.resolveType(route.type, *bindings, original);
-          auto eType = hardware.resolveType(route.enableType, *bindings, original);
+          auto eType =
+              hardware.resolveType(route.enableType, *bindings, original);
           if (failed(dType) || failed(eType))
             return failure();
           if (!charge(budget, original, 8 + 8 * route.path.size()))
@@ -1646,9 +1985,10 @@ private:
           SmallVector<ac::InstanceOp> path{original};
           llvm::append_range(path, route.path);
           unsigned input = definition.sourceInputs + 2 * ordinal;
-          if (failed(candidatePairProof(originalModule, path, route.value,
-              actual->getOperand(input), actual->getOperand(input + 1), *dType, *eType,
-              original.getOccurrence(), original.getLoc())))
+          if (failed(candidatePairProof(
+                  originalModule, path, route.value, actual->getOperand(input),
+                  actual->getOperand(input + 1), *dType, *eType,
+                  original.getOccurrence(), original.getLoc())))
             return failure();
         }
       }
@@ -1659,28 +1999,35 @@ private:
   /// Names, properties, all attributes, result ordinals, operands and complete
   /// nested block/region shape are compared. A map is only an object locator.
   LogicalResult exactClone(Operation *source, Operation *target,
-                           IRMapping &authenticated, const IRMapping &locators) {
-    if (!charge(budget, source, 16 + 4 * source->getNumOperands() +
-                                    4 * source->getNumResults() +
-                                    source->getRawDictionaryAttrs().size() +
-                                    SourceCheckBudget::bytes(source->getPropertiesStorageSize())))
+                           IRMapping &authenticated,
+                           const IRMapping &locators) {
+    if (!charge(
+            budget, source,
+            16 + 4 * source->getNumOperands() + 4 * source->getNumResults() +
+                source->getRawDictionaryAttrs().size() +
+                SourceCheckBudget::bytes(source->getPropertiesStorageSize())))
       return failure();
     if (!target || !operations.contains(target) ||
         source->getName() != target->getName() ||
         source->getAttrs() != target->getAttrs() ||
-        source->getPropertiesAsAttribute() != target->getPropertiesAsAttribute() ||
+        source->getPropertiesAsAttribute() !=
+            target->getPropertiesAsAttribute() ||
         source->getLoc() != target->getLoc() ||
         source->getNumOperands() != target->getNumOperands() ||
         source->getResultTypes() != target->getResultTypes() ||
         source->getNumRegions() != target->getNumRegions() ||
         !clones.insert(target).second)
-      return reject("actual clone opcode/attributes/properties/type/identity differs");
-    for (auto [original, actual] : llvm::zip(source->getOperands(), target->getOperands())) {
+      return reject(
+          "actual clone opcode/attributes/properties/type/identity differs");
+    for (auto [original, actual] :
+         llvm::zip(source->getOperands(), target->getOperands())) {
       auto expected = authenticated.lookupOrNull(original);
       if (!expected || actual != expected)
-        return reject("actual clone operand differs from authenticated original SSA");
+        return reject(
+            "actual clone operand differs from authenticated original SSA");
     }
-    for (auto [original, actual] : llvm::zip(source->getResults(), target->getResults())) {
+    for (auto [original, actual] :
+         llvm::zip(source->getResults(), target->getResults())) {
       if (locators.lookupOrNull(original) != actual)
         return reject("clone result mapping has the wrong original ordinal");
       authenticated.map(original, actual);
@@ -1689,21 +2036,23 @@ private:
          llvm::zip(source->getRegions(), target->getRegions())) {
       if (sourceRegion.getBlocks().size() != targetRegion.getBlocks().size())
         return reject("clone nested region block shape differs");
-      for (auto [sourceBlock, targetBlock] : llvm::zip(sourceRegion, targetRegion)) {
+      for (auto [sourceBlock, targetBlock] :
+           llvm::zip(sourceRegion, targetRegion)) {
         if (!charge(budget, source, 8 + 4 * sourceBlock.getNumArguments()))
           return failure();
         if (locators.lookupOrNull(&sourceBlock) != &targetBlock ||
             sourceBlock.getArgumentTypes() != targetBlock.getArgumentTypes() ||
-            sourceBlock.getOperations().size() != targetBlock.getOperations().size())
+            sourceBlock.getOperations().size() !=
+                targetBlock.getOperations().size())
           return reject("clone block/argument/operation shape differs");
-        for (auto [original, actual] :
-             llvm::zip(sourceBlock.getArguments(), targetBlock.getArguments())) {
+        for (auto [original, actual] : llvm::zip(sourceBlock.getArguments(),
+                                                 targetBlock.getArguments())) {
           if (locators.lookupOrNull(original) != actual)
             return reject("clone nested block argument ordinal differs");
           authenticated.map(original, actual);
         }
-        for (auto [original, actual] :
-             llvm::zip(sourceBlock.getOperations(), targetBlock.getOperations())) {
+        for (auto [original, actual] : llvm::zip(sourceBlock.getOperations(),
+                                                 targetBlock.getOperations())) {
           if (locators.lookupOrNull(&original) != &actual ||
               failed(exactClone(&original, &actual, authenticated, locators)))
             return failure();
@@ -1723,11 +2072,15 @@ private:
     }
     if (!product(budget, module, path.size(), 8))
       return failure();
-    auto child = dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(path.front()));
+    auto child =
+        dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(path.front()));
     if (!child)
       return reject("original lexical route is not an ordinary instance");
-    const auto &definition = prepared.definitions[prepared.definitionIndex.lookup(child.operator->())];
-    auto found = definition.upwardIndex.find(routingKey(path.drop_front(), source));
+    const auto &definition =
+        prepared
+            .definitions[prepared.definitionIndex.lookup(child.operator->())];
+    auto found =
+        definition.upwardIndex.find(routingKey(path.drop_front(), source));
     auto allocation = dyn_cast_or_null<ac::InstanceOp>(
         candidate.packageMap.lookupOrNull(path.front().operator->()));
     if (found == definition.upwardIndex.end() || !allocation ||
@@ -1748,46 +2101,65 @@ private:
     if (failed(cover(module)))
       return failure();
     if (module->getAttr("ac.transaction_wiring") != definition.expectedWiring)
-      return reject("exact original affected-definition companion inventory differs");
-    auto sourceType = original.getFunctionType(), targetType = module.getFunctionType();
-    if (targetType.getNumInputs() != definition.sourceInputs + 2 * definition.downward.size() ||
-        targetType.getNumResults() != definition.sourceOutputs + definition.upward.size() ||
-        targetType.getInputs().take_front(definition.sourceInputs) != sourceType.getInputs() ||
-        targetType.getResults().take_front(definition.sourceOutputs) != sourceType.getResults() ||
-        module.getBody().front().getNumArguments() != targetType.getNumInputs() ||
-        module.getInputNames().getValue().take_front(definition.sourceInputs) != original.getInputNames().getValue() ||
-        module.getOutputNames().getValue().take_front(definition.sourceOutputs) != original.getOutputNames().getValue())
+      return reject(
+          "exact original affected-definition companion inventory differs");
+    auto sourceType = original.getFunctionType(),
+         targetType = module.getFunctionType();
+    if (targetType.getNumInputs() !=
+            definition.sourceInputs + 2 * definition.downward.size() ||
+        targetType.getNumResults() !=
+            definition.sourceOutputs + definition.upward.size() ||
+        targetType.getInputs().take_front(definition.sourceInputs) !=
+            sourceType.getInputs() ||
+        targetType.getResults().take_front(definition.sourceOutputs) !=
+            sourceType.getResults() ||
+        module.getBody().front().getNumArguments() !=
+            targetType.getNumInputs() ||
+        module.getInputNames().getValue().take_front(definition.sourceInputs) !=
+            original.getInputNames().getValue() ||
+        module.getOutputNames().getValue().take_front(
+            definition.sourceOutputs) != original.getOutputNames().getValue())
       return reject("original module port prefix/route arity differs");
     for (auto [ordinal, route] : llvm::enumerate(definition.downward))
-      if (targetType.getInput(definition.sourceInputs + 2 * ordinal) != route.type ||
-          targetType.getInput(definition.sourceInputs + 2 * ordinal + 1) != route.enableType)
+      if (targetType.getInput(definition.sourceInputs + 2 * ordinal) !=
+              route.type ||
+          targetType.getInput(definition.sourceInputs + 2 * ordinal + 1) !=
+              route.enableType)
         return reject("original appended incoming route types differ");
     for (auto [ordinal, route] : llvm::enumerate(definition.upward))
-      if (targetType.getResult(definition.sourceOutputs + ordinal) != route.type)
+      if (targetType.getResult(definition.sourceOutputs + ordinal) !=
+          route.type)
         return reject("original appended upward route type differs");
     if (definition.upward.empty() && definition.downward.empty()) {
-      if (module->getAttr("ac.internal_ports") != original->getAttr("ac.internal_ports"))
+      if (module->getAttr("ac.internal_ports") !=
+          original->getAttr("ac.internal_ports"))
         return reject("original unextended internal port metadata differs");
     } else {
       Builder b(original.getContext());
-      SmallVector<Attribute> defaults(2 * definition.downward.size(), b.getI64IntegerAttr(0));
-      auto internal = b.getDictionaryAttr({
-          b.getNamedAttr("source_inputs", b.getI64IntegerAttr(definition.sourceInputs)),
-          b.getNamedAttr("source_outputs", b.getI64IntegerAttr(definition.sourceOutputs)),
-          b.getNamedAttr("root_inputs", b.getArrayAttr(defaults))});
+      SmallVector<Attribute> defaults(2 * definition.downward.size(),
+                                      b.getI64IntegerAttr(0));
+      auto internal = b.getDictionaryAttr(
+          {b.getNamedAttr("source_inputs",
+                          b.getI64IntegerAttr(definition.sourceInputs)),
+           b.getNamedAttr("source_outputs",
+                          b.getI64IntegerAttr(definition.sourceOutputs)),
+           b.getNamedAttr("root_inputs", b.getArrayAttr(defaults))});
       if (module->getAttr("ac.internal_ports") != internal)
         return reject("original appended route/internal port metadata differs");
     }
     NamedAttrList expected(original->getAttrs()), actual(module->getAttrs());
     for (StringRef name : {"function_type", "input_names", "output_names",
-                          "ac.internal_ports", "ac.transaction_wiring"}) {
+                           "ac.internal_ports", "ac.transaction_wiring"}) {
       expected.erase(name);
       actual.erase(name);
     }
-    if (expected.getDictionary(original.getContext()) != actual.getDictionary(original.getContext()))
+    if (expected.getDictionary(original.getContext()) !=
+        actual.getDictionary(original.getContext()))
       return reject("original module identity/domain/attributes differ");
-    for (auto [source, target] : llvm::zip(original.getBody().front().getArguments(),
-         module.getBody().front().getArguments().take_front(definition.sourceInputs)))
+    for (auto [source, target] :
+         llvm::zip(original.getBody().front().getArguments(),
+                   module.getBody().front().getArguments().take_front(
+                       definition.sourceInputs)))
       if (candidate.packageMap.lookupOrNull(source) != target)
         return reject("original module argument ordinal differs");
     IRMapping authenticated;
@@ -1806,8 +2178,9 @@ private:
           target->getBlock() != &module.getBody().front() ||
           target->getNumResults() < op.getNumResults())
         return reject("original module graph operation/result locator differs");
-      if (!product(budget, &op, op.getNumResults(),
-                   SourceCheckBudget::bytes(sizeof(std::pair<Value, Value>) + 64)))
+      if (!product(
+              budget, &op, op.getNumResults(),
+              SourceCheckBudget::bytes(sizeof(std::pair<Value, Value>) + 64)))
         return failure();
       for (auto [ordinal, result] : llvm::enumerate(op.getResults())) {
         Value actualResult = target->getResult(ordinal);
@@ -1829,78 +2202,116 @@ private:
         continue;
       }
       auto target = candidate.packageMap.lookupOrNull(&op);
-      if (!target || !operations.contains(target) || target->getBlock() != &module.getBody().front())
+      if (!target || !operations.contains(target) ||
+          target->getBlock() != &module.getBody().front())
         return reject("original module-body operation owner differs");
       if (auto state = dyn_cast<ac::SourceStateOp>(op)) {
         auto storage = dyn_cast<ac::InstanceOp>(target);
         auto dffe = prepared.dffe;
-        if (!storage || storage->getNumOperands() != 5 || storage->getNumResults() != 1 ||
+        if (!storage || storage->getNumOperands() != 5 ||
+            storage->getNumResults() != 1 ||
             storage.getOccurrence() != state.getOccurrence() ||
             storage.getInstanceNameAttr() != state.getInstanceNameAttr() ||
-            storage.getCalleeAttr() != FlatSymbolRefAttr::get(original.getContext(), dffe.getSymName()) ||
-            storage.getParameters() != ArrayAttr::get(original.getContext(), {}) ||
-            storage.getTypeArguments() != ArrayAttr::get(original.getContext(), {TypeAttr::get(state.getQ().getType())}) ||
+            storage.getCalleeAttr() !=
+                FlatSymbolRefAttr::get(original.getContext(),
+                                       dffe.getSymName()) ||
+            storage.getParameters() !=
+                ArrayAttr::get(original.getContext(), {}) ||
+            storage.getTypeArguments() !=
+                ArrayAttr::get(original.getContext(),
+                               {TypeAttr::get(state.getQ().getType())}) ||
             storage->getResult(0).getType() != state.getQ().getType() ||
-            candidate.packageMap.lookupOrNull(state.getQ()) != storage->getResult(0) ||
-            storage->getOperand(0) != authenticated.lookupOrNull(state.getClk()) ||
-            storage->getOperand(1) != authenticated.lookupOrNull(state.getRst()) ||
-            storage->getOperand(4) != authenticated.lookupOrNull(state.getInitial()))
+            candidate.packageMap.lookupOrNull(state.getQ()) !=
+                storage->getResult(0) ||
+            storage->getOperand(0) !=
+                authenticated.lookupOrNull(state.getClk()) ||
+            storage->getOperand(1) !=
+                authenticated.lookupOrNull(state.getRst()) ||
+            storage->getOperand(4) !=
+                authenticated.lookupOrNull(state.getInitial()))
           return reject("original state owner/Q/type/domain/initial differs");
         Builder b(original.getContext());
-        if (failed(generatedProof(storage, ac::InstanceOp::getOperationName(),
-            {authenticated.lookup(state.getClk()), authenticated.lookup(state.getRst()),
-             storage->getOperand(2), storage->getOperand(3), authenticated.lookup(state.getInitial())},
-            {state.getQ().getType()}, b.getDictionaryAttr({
-                b.getNamedAttr("instance_name", state.getInstanceNameAttr()),
-                b.getNamedAttr("occurrence", state.getOccurrence()),
-                b.getNamedAttr("callee", FlatSymbolRefAttr::get(original.getContext(), dffe.getSymName())),
-                b.getNamedAttr("parameters", b.getArrayAttr({})),
-                b.getNamedAttr("type_arguments", b.getArrayAttr({TypeAttr::get(state.getQ().getType())}))}),
-            state.getLoc(), &module.getBody().front())))
+        if (failed(generatedProof(
+                storage, ac::InstanceOp::getOperationName(),
+                {authenticated.lookup(state.getClk()),
+                 authenticated.lookup(state.getRst()), storage->getOperand(2),
+                 storage->getOperand(3),
+                 authenticated.lookup(state.getInitial())},
+                {state.getQ().getType()},
+                b.getDictionaryAttr(
+                    {b.getNamedAttr("instance_name",
+                                    state.getInstanceNameAttr()),
+                     b.getNamedAttr("occurrence", state.getOccurrence()),
+                     b.getNamedAttr(
+                         "callee", FlatSymbolRefAttr::get(original.getContext(),
+                                                          dffe.getSymName())),
+                     b.getNamedAttr("parameters", b.getArrayAttr({})),
+                     b.getNamedAttr("type_arguments",
+                                    b.getArrayAttr({TypeAttr::get(
+                                        state.getQ().getType())}))}),
+                state.getLoc(), &module.getBody().front())))
           return failure();
         authenticated.map(state.getQ(), storage->getResult(0));
       } else if (auto allocation = dyn_cast<ac::InstanceOp>(op)) {
-        auto child = dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(allocation));
+        auto child =
+            dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(allocation));
         unsigned extraInputs = 0, extraOutputs = 0;
         if (child) {
-          const auto &routing = prepared.definitions[prepared.definitionIndex.lookup(child.operator->())];
+          const auto &routing =
+              prepared.definitions[prepared.definitionIndex.lookup(
+                  child.operator->())];
           extraInputs = 2 * routing.downward.size();
           extraOutputs = routing.upward.size();
         }
-        if (!isa<ac::InstanceOp>(target) || target->getAttrs() != op.getAttrs() ||
-            target->getPropertiesAsAttribute() != op.getPropertiesAsAttribute() ||
-            target->getLoc() != op.getLoc() || target->getNumRegions() != op.getNumRegions() ||
+        if (!isa<ac::InstanceOp>(target) ||
+            target->getAttrs() != op.getAttrs() ||
+            target->getPropertiesAsAttribute() !=
+                op.getPropertiesAsAttribute() ||
+            target->getLoc() != op.getLoc() ||
+            target->getNumRegions() != op.getNumRegions() ||
             target->getNumOperands() != op.getNumOperands() + extraInputs ||
             target->getNumResults() != op.getNumResults() + extraOutputs ||
-            target->getResults().take_front(op.getNumResults()).getTypes() != op.getResultTypes())
+            target->getResults().take_front(op.getNumResults()).getTypes() !=
+                op.getResultTypes())
           return reject("original instance identity/port prefix differs");
         if (failed(cover(target)))
           return failure();
-        for (auto [source, value] : llvm::zip(op.getOperands(), target->getOperands().take_front(op.getNumOperands())))
+        for (auto [source, value] :
+             llvm::zip(op.getOperands(),
+                       target->getOperands().take_front(op.getNumOperands())))
           if (value != authenticated.lookupOrNull(source))
             return reject("original instance input prefix differs");
-        for (auto [source, value] : llvm::zip(op.getResults(), target->getResults().take_front(op.getNumResults()))) {
+        for (auto [source, value] :
+             llvm::zip(op.getResults(),
+                       target->getResults().take_front(op.getNumResults()))) {
           if (candidate.packageMap.lookupOrNull(source) != value)
             return reject("original instance result ordinal differs");
           authenticated.map(source, value);
         }
       } else if (isa<ac::YieldOp>(op)) {
         if (!isa<ac::YieldOp>(target) || target->getAttrs() != op.getAttrs() ||
-            target->getPropertiesAsAttribute() != op.getPropertiesAsAttribute() ||
-            target->getLoc() != op.getLoc() || target->getNumRegions() || target->getNumResults() ||
-            target->getNumOperands() != definition.sourceOutputs + definition.upward.size())
+            target->getPropertiesAsAttribute() !=
+                op.getPropertiesAsAttribute() ||
+            target->getLoc() != op.getLoc() || target->getNumRegions() ||
+            target->getNumResults() ||
+            target->getNumOperands() !=
+                definition.sourceOutputs + definition.upward.size())
           return reject("original module yield prefix/route layout differs");
         if (failed(cover(target)))
           return failure();
-        for (auto [source, value] : llvm::zip(op.getOperands(), target->getOperands().take_front(definition.sourceOutputs)))
+        for (auto [source, value] : llvm::zip(
+                 op.getOperands(),
+                 target->getOperands().take_front(definition.sourceOutputs)))
           if (value != authenticated.lookupOrNull(source))
             return reject("original module yield operand differs");
         for (auto [ordinal, route] : llvm::enumerate(definition.upward)) {
           auto value = routed(original, route.path, route.value);
-          if (failed(value) || target->getOperand(definition.sourceOutputs + ordinal) != *value)
+          if (failed(value) ||
+              target->getOperand(definition.sourceOutputs + ordinal) != *value)
             return reject("original upward route endpoint differs");
         }
-      } else if (failed(exactClone(&op, target, authenticated, candidate.packageMap))) {
+      } else if (failed(exactClone(&op, target, authenticated,
+                                   candidate.packageMap))) {
         return failure();
       }
     }
@@ -1912,32 +2323,79 @@ private:
     const auto &plan = *preparation.plan;
     auto transaction = plan.transaction;
     auto rule = record.rule;
-    if (!operations.contains(rule.operator->()) || !isa<ac::RuleOp>(rule.operator->()) ||
-        candidate.packageMap.lookupOrNull(transaction.operator->()) != rule.operator->() ||
-        rule->getParentOp() != candidate.packageMap.lookupOrNull(plan.lexicalModule.operator->()) ||
-        rule->getNumRegions() != 1 || !rule.getBody().hasOneBlock() || rule.getBody().front().empty() ||
+    uint64_t expectedFire = SourceCheckBudget::add(transaction->getNumResults(),
+                                                   preparation.outputs.size());
+    uint64_t cursor = SourceCheckBudget::add(expectedFire, 1);
+    if (preparation.observationPathResults.size() != plan.observations.size())
+      return reject("original observation result inventory differs");
+    for (auto [id, observation] : llvm::enumerate(plan.observations)) {
+      if (preparation.observationPathResults[id] != cursor)
+        return reject("original observation result layout differs");
+      cursor = SourceCheckBudget::add(
+          cursor, SourceCheckBudget::add(1, observation.values.size()));
+    }
+    uint64_t expectedTotal = SourceCheckBudget::add(
+        cursor, SourceCheckBudget::multiply(
+                    2, SourceCheckBudget::add(plan.guards.size(),
+                                              plan.bodyChecks.size())));
+    auto expectedClock = llvm::find(preparation.liveIns, plan.clockValue) -
+                         preparation.liveIns.begin();
+    auto expectedReset = llvm::find(preparation.liveIns, plan.resetValue) -
+                         preparation.liveIns.begin();
+    if (preparation.clockCapture != expectedClock ||
+        preparation.resetCapture != expectedReset ||
+        preparation.fireResult != expectedFire ||
+        preparation.checkBase != cursor ||
+        preparation.totalResults != expectedTotal ||
+        preparation.expectedAdmission.size() != 6 ||
+        preparation.expectedAdmission.getAs<IntegerAttr>("clock_capture") !=
+            Builder(transaction.getContext())
+                .getI64IntegerAttr(expectedClock) ||
+        preparation.expectedAdmission.getAs<IntegerAttr>("reset_capture") !=
+            Builder(transaction.getContext())
+                .getI64IntegerAttr(expectedReset) ||
+        preparation.expectedAdmission.getAs<IntegerAttr>("fire_result") !=
+            Builder(transaction.getContext()).getI64IntegerAttr(expectedFire))
+      return reject("original transaction prepared layout differs");
+    if (!operations.contains(rule.operator->()) ||
+        !isa<ac::RuleOp>(rule.operator->()) ||
+        candidate.packageMap.lookupOrNull(transaction.operator->()) !=
+            rule.operator->() ||
+        rule->getParentOp() != candidate.packageMap.lookupOrNull(
+                                   plan.lexicalModule.operator->()) ||
+        rule->getNumRegions() != 1 || !rule.getBody().hasOneBlock() ||
+        rule.getBody().front().empty() ||
         !isa<ac::YieldOp>(rule.getBody().front().getTerminator()) ||
         rule->getNumOperands() != preparation.liveIns.size() ||
-        rule.getBody().front().getNumArguments() != preparation.liveIns.size() ||
-        rule->getNumResults() != preparation.fireResult + 1 + 2 * plan.guards.size() ||
-        rule->getAttr("ac.sampled_admission") != preparation.expectedAdmission ||
-        rule->getAttr("ac.required_checks") != preparation.expectedRequiredChecks ||
+        rule.getBody().front().getNumArguments() !=
+            preparation.liveIns.size() ||
+        rule->getNumResults() != preparation.totalResults ||
+        rule->getAttr("ac.sampled_admission") !=
+            preparation.expectedAdmission ||
+        rule->getAttr("ac.required_checks") !=
+            preparation.expectedRequiredChecks ||
         rule->hasAttr("ac.guard_location") ||
         record.boundValues.size() != plan.values.size() ||
         record.versions.size() != plan.versions.size() ||
-        record.frames.size() != plan.frames.size())
-      return reject("original transaction layout/domain/check metadata differs");
+        record.frames.size() != plan.frames.size() ||
+        record.bodyChecks.size() != plan.bodyChecks.size() ||
+        record.observations.size() != plan.observations.size())
+      return reject(
+          "original transaction layout/domain/check metadata differs");
     if (failed(cover(rule)))
       return failure();
     NamedAttrList expected(transaction->getAttrs()), actual(rule->getAttrs());
     expected.erase("ac.guard_location");
     actual.erase("ac.required_checks");
     actual.erase("ac.sampled_admission");
-    if (expected.getDictionary(transaction.getContext()) != actual.getDictionary(transaction.getContext()))
+    if (expected.getDictionary(transaction.getContext()) !=
+        actual.getDictionary(transaction.getContext()))
       return reject("original transaction registration/attributes differ");
     for (const auto &map : record.frames) {
-      uint64_t entries = SourceCheckBudget::add(map.getOperationMap().size(),
-          SourceCheckBudget::add(map.getBlockMap().size(), map.getValueMap().size()));
+      uint64_t entries = SourceCheckBudget::add(
+          map.getOperationMap().size(),
+          SourceCheckBudget::add(map.getBlockMap().size(),
+                                 map.getValueMap().size()));
       if (!charge(budget, transaction, SourceCheckBudget::multiply(entries, 4)))
         return failure();
       for (const auto &entry : map.getOperationMap())
@@ -1952,9 +2410,11 @@ private:
     }
     if (!charge(budget, transaction,
                 SourceCheckBudget::add(
-                    SourceCheckBudget::multiply(plan.frames.size(),
+                    SourceCheckBudget::multiply(
+                        plan.frames.size(),
                         SourceCheckBudget::bytes(sizeof(IRMapping))),
-                    SourceCheckBudget::multiply(plan.values.size() + plan.versions.size(), 4))))
+                    SourceCheckBudget::multiply(
+                        plan.values.size() + plan.versions.size(), 4))))
       return failure();
     SmallVector<IRMapping, 0> authenticated(plan.frames.size());
     DenseMap<std::pair<ac::LexicalInstanceId, Value>, Value> lexical;
@@ -1963,7 +2423,8 @@ private:
       auto path = anchorPath(plan, ref.anchor);
       auto capture = routed(plan.lexicalModule, path, ref.value);
       if (failed(capture) || rule->getOperand(ordinal) != *capture ||
-          rule.getBody().front().getArgument(ordinal).getType() != capture->getType())
+          rule.getBody().front().getArgument(ordinal).getType() !=
+              capture->getType())
         return reject("original lexical capture/pin route differs");
       Value argument = rule.getBody().front().getArgument(ordinal);
       lexical.try_emplace({ref.anchor, ref.value}, argument);
@@ -1987,7 +2448,48 @@ private:
           return reject("original old-Q version is absent");
       }
     Operation *last = nullptr;
+    struct SourceObservation {
+      Value path;
+      SmallVector<Value, 0> values;
+    };
+    uint64_t payloadValues = 0;
+    for (const auto &observation : plan.observations)
+      payloadValues =
+          SourceCheckBudget::add(payloadValues, observation.values.size());
+    uint64_t effectEventsCount = SourceCheckBudget::add(
+        plan.bodyChecks.size(), plan.observations.size());
+    uint64_t sourceStorage = SourceCheckBudget::add(
+        SourceCheckBudget::multiply(plan.guards.size(),
+                                    SourceCheckBudget::bytes(sizeof(Value))),
+        SourceCheckBudget::add(
+            SourceCheckBudget::multiply(
+                plan.bodyChecks.size(),
+                SourceCheckBudget::bytes(sizeof(std::pair<Value, Value>))),
+            SourceCheckBudget::add(
+                SourceCheckBudget::multiply(
+                    plan.observations.size(),
+                    SourceCheckBudget::bytes(sizeof(SourceObservation))),
+                SourceCheckBudget::add(
+                    SourceCheckBudget::multiply(
+                        payloadValues, SourceCheckBudget::bytes(sizeof(Value))),
+                    SourceCheckBudget::multiply(
+                        effectEventsCount,
+                        SourceCheckBudget::bytes(
+                            sizeof(const ac::TransactionStateEvent *)))))));
+    if (!charge(budget, transaction, sourceStorage))
+      return failure();
     SmallVector<Value> predicates;
+    SmallVector<std::pair<Value, Value>, 0> sourceChecks(
+        plan.bodyChecks.size());
+    SmallVector<SourceObservation, 0> sourceObservations(
+        plan.observations.size());
+    SmallVector<const ac::TransactionStateEvent *, 0> effectEvents;
+    effectEvents.reserve(effectEventsCount);
+    for (const auto &event : plan.events)
+      if (event.kind == ac::TransactionStateEventKind::BodyCheck ||
+          event.kind == ac::TransactionStateEventKind::Observe)
+        effectEvents.push_back(&event);
+    size_t nextEffectEvent = 0;
     std::function<LogicalResult(ac::InvocationFrameId)> invocation;
     invocation = [&](ac::InvocationFrameId frame) -> LogicalResult {
       const auto &binding = plan.frames[frame];
@@ -1996,13 +2498,16 @@ private:
             ArrayRef<ac::TransactionValueBinding>(binding.bodyArguments)})
         for (const auto &argument : arguments) {
           Value value = bound(argument.actual);
-          if (!value || record.frames[frame].lookupOrNull(argument.formal) != value)
+          if (!value ||
+              record.frames[frame].lookupOrNull(argument.formal) != value)
             return reject("original formal actual binding differs");
           authenticated[frame].map(argument.formal, value);
         }
       auto method = binding.method;
-      Operation *function = method ? method.operator->() : transaction.operator->();
-      for (auto [regionOrdinal, region] : llvm::enumerate(function->getRegions())) {
+      Operation *function =
+          method ? method.operator->() : transaction.operator->();
+      for (auto [regionOrdinal, region] :
+           llvm::enumerate(function->getRegions())) {
         for (Operation &op : region.front().without_terminator()) {
           if (!charge(budget, &op, 8))
             return failure();
@@ -2011,7 +2516,8 @@ private:
               return r.frame == frame && r.operation.operator->() == &op;
             });
             if (found == plan.reads.end() || !versions[found->version] ||
-                record.frames[frame].lookupOrNull(read.getValue()) != versions[found->version])
+                record.frames[frame].lookupOrNull(read.getValue()) !=
+                    versions[found->version])
               return reject("original read selected version differs");
             authenticated[frame].map(read.getValue(), versions[found->version]);
           } else if (isa<ac::SourceStateWriteOp>(op)) {
@@ -2023,7 +2529,8 @@ private:
             Value rhs = bound(found->value);
             const auto &version = plan.versions[found->version];
             if (!rhs || version.owner != found->owner ||
-                version.predecessor != found->predecessor || version.value != found->value)
+                version.predecessor != found->predecessor ||
+                version.value != found->value)
               return reject("original write owner/predecessor/RHS differs");
             versions[found->version] = rhs;
           } else if (isa<ac::SourceMethodCallOp>(op)) {
@@ -2039,10 +2546,63 @@ private:
                 return reject("original call yielded-result binding differs");
               authenticated[frame].map(source, value);
             }
-          } else if (isa<ac::SourceExpectOp, ac::SourceObserveOp>(op)) {
-            return op.emitOpError()
-                   << "transaction body checks/observations require sampled "
-                      "effect lowering";
+          } else if (auto check = dyn_cast<ac::SourceExpectOp>(op)) {
+            auto found = llvm::find_if(plan.bodyChecks, [&](const auto &item) {
+              return item.frame == frame && item.operation.operator->() == &op;
+            });
+            if (found == plan.bodyChecks.end() ||
+                nextEffectEvent == effectEvents.size())
+              return reject("original body-check plan/event is absent");
+            auto id = std::distance(plan.bodyChecks.begin(), found);
+            const auto *event = effectEvents[nextEffectEvent++];
+            Value condition = bound(found->condition),
+                  path = bound(found->path);
+            if (event->kind != ac::TransactionStateEventKind::BodyCheck ||
+                event->frame != frame || event->bodyCheck != id || !condition ||
+                !path || check.getKind() != "assert" ||
+                !check.getSampling().empty() ||
+                check->getAttr("occurrence") != found->occurrence ||
+                check.getLocationAttr() != found->location ||
+                check->getAttrOfType<StringAttr>("ac.message") !=
+                    found->message ||
+                check->hasAttr("ac.check_id") ||
+                check->hasAttr("ac.observation_id") ||
+                check.getCondition() != plan.values[found->condition].value ||
+                check.getPath() != plan.values[found->path].value)
+              return reject(
+                  "original body-check operation/frame/inputs differ");
+            sourceChecks[id] = {condition, path};
+          } else if (auto observation = dyn_cast<ac::SourceObserveOp>(op)) {
+            auto found =
+                llvm::find_if(plan.observations, [&](const auto &item) {
+                  return item.frame == frame &&
+                         item.operation.operator->() == &op;
+                });
+            if (found == plan.observations.end() ||
+                nextEffectEvent == effectEvents.size())
+              return reject("original observation plan/event is absent");
+            auto id = std::distance(plan.observations.begin(), found);
+            const auto *event = effectEvents[nextEffectEvent++];
+            Value path = bound(found->path);
+            if (event->kind != ac::TransactionStateEventKind::Observe ||
+                event->frame != frame || event->observation != id || !path ||
+                observation->getAttr("occurrence") != found->occurrence ||
+                observation->getAttr("ac.location") != found->location ||
+                observation.getKindAttr() != found->kind ||
+                observation.getSpec() != found->spec ||
+                observation->hasAttr("ac.check_id") ||
+                observation->hasAttr("ac.observation_id") ||
+                observation.getPath() != plan.values[found->path].value ||
+                observation.getValues().size() != found->values.size())
+              return reject("original observation operation/frame/path differ");
+            sourceObservations[id].path = path;
+            for (auto [ordinal, value] : llvm::enumerate(found->values)) {
+              Value mapped = bound(value);
+              if (!mapped ||
+                  observation.getValues()[ordinal] != plan.values[value].value)
+                return reject("original observation payload/order differs");
+              sourceObservations[id].values.push_back(mapped);
+            }
           } else {
             if (failed(verifyClosedPurePayload(
                     &op, budget,
@@ -2050,16 +2610,19 @@ private:
                     "operations")))
               return failure();
             auto actual = record.frames[frame].lookupOrNull(&op);
-            if (!actual || !operations.contains(actual) || actual->getBlock() != &rule.getBody().front() ||
+            if (!actual || !operations.contains(actual) ||
+                actual->getBlock() != &rule.getBody().front() ||
                 (last && !last->isBeforeInBlock(actual)))
               return reject("original invocation clone parent/order differs");
-            if (failed(exactClone(&op, actual, authenticated[frame], record.frames[frame])))
+            if (failed(exactClone(&op, actual, authenticated[frame],
+                                  record.frames[frame])))
               return failure();
             last = actual;
           }
         }
         if (!regionOrdinal) {
-          auto guard = llvm::find_if(plan.guards, [&](const auto &g) { return g.frame == frame; });
+          auto guard = llvm::find_if(
+              plan.guards, [&](const auto &g) { return g.frame == frame; });
           if (guard == plan.guards.end() || !bound(guard->predicate))
             return reject("original guard predicate is absent");
           predicates.push_back(bound(guard->predicate));
@@ -2069,48 +2632,59 @@ private:
     };
     if (failed(invocation(plan.rootFrame)))
       return failure();
+    if (nextEffectEvent != effectEvents.size())
+      return reject("original body-effect event inventory is incomplete");
     for (auto [id, original] : llvm::enumerate(plan.values)) {
       Value expectedValue = bound(id);
       if (record.boundValues[id] != expectedValue)
         return reject("saved bound-value map differs from original SSA");
     }
     for (auto [id, original] : llvm::enumerate(plan.versions))
-      if (!versions[id] || record.versions[id] != versions[id] || versions[id] != bound(original.value))
+      if (!versions[id] || record.versions[id] != versions[id] ||
+          versions[id] != bound(original.value))
         return reject("saved state-version map differs from original RHS");
     auto yield = cast<ac::YieldOp>(rule.getBody().front().getTerminator());
     Builder yieldAttributes(transaction.getContext());
     SmallVector<Value> yieldOperands(yield->getOperands());
-    if (failed(generatedProof(yield, ac::YieldOp::getOperationName(), yieldOperands, {},
-        yieldAttributes.getDictionaryAttr({}), transaction.getLoc(), &rule.getBody().front())))
+    if (failed(generatedProof(yield, ac::YieldOp::getOperationName(),
+                              yieldOperands, {},
+                              yieldAttributes.getDictionaryAttr({}),
+                              transaction.getLoc(), &rule.getBody().front())))
       return failure();
     if (yield->getNumOperands() != rule->getNumResults())
       return reject("original Rule yield arity differs");
     for (auto [ordinal, result] : llvm::enumerate(plan.results))
       if (yield->getOperand(ordinal) != bound(result.yielded) ||
-          candidate.packageMap.lookupOrNull(plan.values[result.result].value) != rule->getResult(ordinal))
+          candidate.packageMap.lookupOrNull(plan.values[result.result].value) !=
+              rule->getResult(ordinal))
         return reject("original ordinary result yield differs");
     for (auto [ordinal, output] : llvm::enumerate(preparation.outputs))
-      if (yield->getOperand(transaction->getNumResults() + ordinal) != versions[output.version])
+      if (yield->getOperand(transaction->getNumResults() + ordinal) !=
+          versions[output.version])
         return reject("original final candidate RHS differs");
     if (predicates.size() != plan.guards.size())
       return reject("original guard invocation order differs");
     for (auto [ordinal, predicate] : llvm::enumerate(predicates))
-      if (yield->getOperand(preparation.fireResult + 1 + 2 * ordinal) != predicate)
+      if (yield->getOperand(preparation.checkBase + 2 * ordinal) != predicate)
         return reject("original raw guard predicate differs");
     Builder b(transaction.getContext());
     Type bit = rule->getOperand(preparation.clockCapture).getType();
-    Value prefix = yield->getOperand(preparation.fireResult + 2);
-    if (failed(literalProof(prefix, bit, transaction.getOccurrence(), transaction.getLoc(), true, &rule.getBody().front())))
+    Value prefix = yield->getOperand(preparation.checkBase + 1);
+    if (failed(literalProof(prefix, bit, transaction.getOccurrence(),
+                            transaction.getLoc(), true,
+                            &rule.getBody().front())))
       return failure();
     for (auto [ordinal, guard] : llvm::enumerate(plan.guards)) {
-      if (yield->getOperand(preparation.fireResult + 2 + 2 * ordinal) != prefix)
+      if (yield->getOperand(preparation.checkBase + 2 * ordinal + 1) != prefix)
         return reject("original generated guard reached prefix differs");
-      Value next = ordinal + 1 == plan.guards.size()
-          ? yield->getOperand(preparation.fireResult)
-          : yield->getOperand(preparation.fireResult + 4 + 2 * ordinal);
+      Value next =
+          ordinal + 1 == plan.guards.size()
+              ? yield->getOperand(preparation.fireResult)
+              : yield->getOperand(preparation.checkBase + 2 * ordinal + 3);
       Operation *conjunction = next.getDefiningOp();
       if (!conjunction || conjunction->getNumOperands() != 2 ||
-          conjunction->getNumResults() != 1 || next != conjunction->getResult(0))
+          conjunction->getNumResults() != 1 ||
+          next != conjunction->getResult(0))
         return reject("original generated guard conjunction is absent");
       Value known = conjunction->getOperand(1);
       Operation *comparison = known.getDefiningOp();
@@ -2118,50 +2692,270 @@ private:
           comparison->getNumResults() != 1 || known != comparison->getResult(0))
         return reject("original generated guard knownness is absent");
       Value one = comparison->getOperand(1);
-      if (failed(literalProof(one, bit, transaction.getOccurrence(), guard.callable->getLoc(), true, &rule.getBody().front())) ||
-          failed(generatedProof(comparison, ac::BitsCompareOp::getOperationName(),
-              {predicates[ordinal], one}, {bit}, b.getDictionaryAttr({
-                  b.getNamedAttr("predicate", b.getStringAttr("case_eq"))}),
+      if (failed(literalProof(one, bit, transaction.getOccurrence(),
+                              guard.callable->getLoc(), true,
+                              &rule.getBody().front())) ||
+          failed(generatedProof(
+              comparison, ac::BitsCompareOp::getOperationName(),
+              {predicates[ordinal], one}, {bit},
+              b.getDictionaryAttr(
+                  {b.getNamedAttr("predicate", b.getStringAttr("case_eq"))}),
               guard.callable->getLoc(), &rule.getBody().front())) ||
-          failed(generatedProof(conjunction, ac::BitsBinaryOp::getOperationName(),
-              {prefix, known}, {bit}, b.getDictionaryAttr({
-                  b.getNamedAttr("opcode", b.getStringAttr("and"))}),
+          failed(generatedProof(
+              conjunction, ac::BitsBinaryOp::getOperationName(),
+              {prefix, known}, {bit},
+              b.getDictionaryAttr(
+                  {b.getNamedAttr("opcode", b.getStringAttr("and"))}),
               guard.callable->getLoc(), &rule.getBody().front())))
         return failure();
       prefix = next;
     }
+    for (auto [id, observation] : llvm::enumerate(plan.observations)) {
+      uint64_t pathResult = preparation.observationPathResults[id];
+      if (yield->getOperand(pathResult) != prefix ||
+          rule->getResult(pathResult).getType() != prefix.getType() ||
+          sourceObservations[id].path != bound(observation.path) ||
+          sourceObservations[id].values.size() != observation.values.size())
+        return reject("original observation yield/path inventory differs");
+      for (uint64_t ordinal = 0; ordinal < observation.values.size(); ++ordinal)
+        if (yield->getOperand(pathResult + 1 + ordinal) !=
+                sourceObservations[id].values[ordinal] ||
+            yield->getOperand(pathResult + 1 + ordinal).getType() !=
+                sourceObservations[id].values[ordinal].getType())
+          return reject("original observation payload yield differs");
+    }
+    for (auto [id, check] : llvm::enumerate(plan.bodyChecks)) {
+      uint64_t result = preparation.checkBase + 2 * (plan.guards.size() + id);
+      if (yield->getOperand(result) != sourceChecks[id].first ||
+          yield->getOperand(result + 1) != prefix ||
+          sourceChecks[id].second != bound(check.path) ||
+          rule->getResult(result).getType() !=
+              sourceChecks[id].first.getType() ||
+          rule->getResult(result + 1).getType() != prefix.getType())
+        return reject("original body-check yield/path inventory differs");
+    }
     // Independently match every final check against original identity/span and
     // actual Rule suffix/pins; shared proof then establishes prefix topology.
     auto module = rule->getParentOfType<ac::ModuleOp>();
+    auto invocationIdentity =
+        [&](ac::InvocationFrameId frame) -> FailureOr<ArrayAttr> {
+      uint64_t count = 0;
+      for (auto cursor = frame; plan.frames[cursor].parent;
+           cursor = *plan.frames[cursor].parent) {
+        if (!charge(budget, transaction))
+          return failure();
+        count = SourceCheckBudget::add(count, 1);
+      }
+      uint64_t storage = SourceCheckBudget::multiply(
+          count, SourceCheckBudget::add(
+                     SourceCheckBudget::bytes(sizeof(ac::InvocationFrameId)),
+                     SourceCheckBudget::bytes(sizeof(Attribute))));
+      if (!charge(budget, transaction, storage) ||
+          count > std::numeric_limits<size_t>::max())
+        return failure();
+      SmallVector<ac::InvocationFrameId> chain;
+      chain.reserve(count);
+      while (plan.frames[frame].parent) {
+        chain.push_back(frame);
+        frame = *plan.frames[frame].parent;
+      }
+      SmallVector<Attribute> rows;
+      rows.reserve(count);
+      for (auto id : llvm::reverse(chain))
+        rows.push_back(b.getDictionaryAttr(
+            {b.getNamedAttr("call", plan.frames[id].callOccurrence),
+             b.getNamedAttr("receiver", plan.frames[id].receiver)}));
+      return b.getArrayAttr(rows);
+    };
+    auto ownerIdentity = [&](ac::InvocationFrameId frame) {
+      return plan.frames[frame].parent
+                 ? plan.frames[frame].receiver
+                 : b.getDictionaryAttr(
+                       {b.getNamedAttr("instance_path", b.getArrayAttr({}))});
+    };
+    Operation *lastTerminal = rule.operator->();
     for (auto [ordinal, guard] : llvm::enumerate(plan.guards)) {
-      auto check = cast<DictionaryAttr>(preparation.expectedRequiredChecks[ordinal]);
+      auto check =
+          cast<DictionaryAttr>(preparation.expectedRequiredChecks[ordinal]);
+      auto expectedID = b.getDictionaryAttr(
+          {b.getNamedAttr("registration", transaction.getOccurrence()),
+           b.getNamedAttr("check",
+                          guard.callable->getAttr(
+                              isa<ac::SourceTransactionOp>(guard.callable)
+                                  ? "declaration"
+                                  : "occurrence")),
+           b.getNamedAttr("obligation", b.getI64IntegerAttr(ordinal))});
+      if (check != b.getDictionaryAttr(
+                       {b.getNamedAttr("id", expectedID),
+                        b.getNamedAttr("kind", b.getStringAttr("guard_known")),
+                        b.getNamedAttr("location", guard.location)}))
+        return reject("original guard required metadata differs");
+      auto guardRows = preparation.expectedAdmission.getAs<ArrayAttr>("guards");
+      auto invocation = invocationIdentity(guard.frame);
+      if (failed(invocation))
+        return failure();
+      auto expectedGuard = b.getDictionaryAttr(
+          {b.getNamedAttr("id", expectedID),
+           b.getNamedAttr("invocation", *invocation),
+           b.getNamedAttr("predecessor",
+                          b.getI64IntegerAttr(int64_t(ordinal) - 1))});
+      if (guardRows[ordinal] != expectedGuard)
+        return reject("original guard admission metadata differs");
       unsigned matches = 0;
-      for (auto expect : module.getBody().front().getOps<ac::SourceExpectOp>()) {
+      for (auto expect :
+           module.getBody().front().getOps<ac::SourceExpectOp>()) {
         if (!charge(budget, expect, 8))
           return failure();
         if (expect->getAttr("ac.check_id") != check.get("id"))
           continue;
         ++matches;
-        if (expect.getKind() != "guard_known" || expect->getAttr("location") != guard.location ||
+        if (expect.getKind() != "guard_known" ||
+            expect->getAttr("location") != guard.location ||
             expect->getNumOperands() != 4 ||
-            expect->getOperand(0) != rule->getResult(preparation.fireResult + 1 + 2 * ordinal) ||
-            expect->getOperand(1) != rule->getResult(preparation.fireResult + 2 + 2 * ordinal) ||
-            expect->getOperand(2) != rule->getOperand(preparation.clockCapture) ||
-            expect->getOperand(3) != rule->getOperand(preparation.resetCapture))
+            expect->getOperand(0) !=
+                rule->getResult(preparation.checkBase + 2 * ordinal) ||
+            expect->getOperand(1) !=
+                rule->getResult(preparation.checkBase + 2 * ordinal + 1) ||
+            expect->getOperand(2) !=
+                rule->getOperand(preparation.clockCapture) ||
+            expect->getOperand(3) !=
+                rule->getOperand(preparation.resetCapture) ||
+            !lastTerminal->isBeforeInBlock(expect))
           return reject("original guard expect span/suffix/domain differs");
-        if (failed(generatedProof(expect, ac::SourceExpectOp::getOperationName(),
-            {rule->getResult(preparation.fireResult + 1 + 2 * ordinal),
-             rule->getResult(preparation.fireResult + 2 + 2 * ordinal),
-             rule->getOperand(preparation.clockCapture), rule->getOperand(preparation.resetCapture)},
-            {}, b.getDictionaryAttr({
-                b.getNamedAttr("kind", b.getStringAttr("guard_known")),
-                b.getNamedAttr("location", guard.location),
-                b.getNamedAttr("ac.check_id", check.get("id"))}),
-            transaction.getLoc(), &module.getBody().front())))
+        if (failed(generatedProof(
+                expect, ac::SourceExpectOp::getOperationName(),
+                {rule->getResult(preparation.checkBase + 2 * ordinal),
+                 rule->getResult(preparation.checkBase + 2 * ordinal + 1),
+                 rule->getOperand(preparation.clockCapture),
+                 rule->getOperand(preparation.resetCapture)},
+                {},
+                b.getDictionaryAttr(
+                    {b.getNamedAttr("kind", b.getStringAttr("guard_known")),
+                     b.getNamedAttr("location", guard.location),
+                     b.getNamedAttr("ac.check_id", check.get("id"))}),
+                transaction.getLoc(), &module.getBody().front())))
           return failure();
+        lastTerminal = expect;
       }
       if (matches != 1)
         return reject("original guard expect inventory differs");
+    }
+    for (const auto &event : plan.events) {
+      if (event.kind == ac::TransactionStateEventKind::BodyCheck) {
+        auto id = *event.bodyCheck;
+        const auto &source = plan.bodyChecks[id];
+        auto identity = b.getDictionaryAttr(
+            {b.getNamedAttr("registration", transaction.getOccurrence()),
+             b.getNamedAttr("check", source.occurrence),
+             b.getNamedAttr("obligation",
+                            b.getI64IntegerAttr(plan.guards.size() + id))});
+        auto bodyRows =
+            preparation.expectedAdmission.getAs<ArrayAttr>("body_checks");
+        auto invocation = invocationIdentity(source.frame);
+        if (failed(invocation))
+          return failure();
+        if (bodyRows[id] !=
+            b.getDictionaryAttr({b.getNamedAttr("id", identity),
+                                 b.getNamedAttr("invocation", *invocation)}))
+          return reject("original body-check admission metadata differs");
+        if (preparation.expectedRequiredChecks[plan.guards.size() + id] !=
+            b.getDictionaryAttr(
+                {b.getNamedAttr("id", identity),
+                 b.getNamedAttr("kind", b.getStringAttr("assert")),
+                 b.getNamedAttr("location", source.location)}))
+          return reject("original body-check required metadata differs");
+        uint64_t result = preparation.checkBase + 2 * (plan.guards.size() + id);
+        ac::SourceExpectOp found;
+        unsigned matches = 0;
+        for (auto expect :
+             module.getBody().front().getOps<ac::SourceExpectOp>()) {
+          if (!charge(budget, expect, 8))
+            return failure();
+          if (expect->getAttr("ac.check_id") != identity)
+            continue;
+          ++matches;
+          found = expect;
+          NamedAttrList attrs;
+          attrs.append("kind", b.getStringAttr("assert"));
+          attrs.append("location", source.location);
+          attrs.append("ac.check_id", identity);
+          if (source.message)
+            attrs.append("ac.message", source.message);
+          if (expect.getKind() != "assert" || !expect.getSampling().empty() ||
+              expect->getNumOperands() != 2 ||
+              expect.getCondition() != rule->getResult(result) ||
+              expect.getPath() != rule->getResult(result + 1) ||
+              !lastTerminal->isBeforeInBlock(expect))
+            return reject("original body-check terminal shape/order differs");
+          if (failed(generatedProof(
+                  expect, ac::SourceExpectOp::getOperationName(),
+                  {rule->getResult(result), rule->getResult(result + 1)}, {},
+                  attrs.getDictionary(transaction.getContext()),
+                  source.operation->getLoc(), &module.getBody().front())))
+            return failure();
+          lastTerminal = expect;
+        }
+        if (matches != 1 || record.bodyChecks[id] != found)
+          return reject("original body-check terminal inventory differs");
+      } else if (event.kind == ac::TransactionStateEventKind::Observe) {
+        auto id = *event.observation;
+        const auto &source = plan.observations[id];
+        auto invocation = invocationIdentity(source.frame);
+        if (failed(invocation))
+          return failure();
+        auto identity = b.getDictionaryAttr(
+            {b.getNamedAttr("registration", transaction.getOccurrence()),
+             b.getNamedAttr("site", source.occurrence),
+             b.getNamedAttr("ordinal", b.getI64IntegerAttr(id)),
+             b.getNamedAttr("invocation", *invocation),
+             b.getNamedAttr("owner", ownerIdentity(source.frame))});
+        auto observationRows =
+            preparation.expectedAdmission.getAs<ArrayAttr>("observations");
+        if (observationRows[id] !=
+            b.getDictionaryAttr(
+                {b.getNamedAttr("id", identity),
+                 b.getNamedAttr("value_count",
+                                b.getI64IntegerAttr(source.values.size()))}))
+          return reject("original observation admission metadata differs");
+        uint64_t pathResult = preparation.observationPathResults[id];
+        if (!charge(budget, transaction,
+                    SourceCheckBudget::multiply(
+                        SourceCheckBudget::add(1, source.values.size()),
+                        SourceCheckBudget::bytes(sizeof(Value)))))
+          return failure();
+        SmallVector<Value> operands{rule->getResult(pathResult)};
+        for (uint64_t ordinal = 0; ordinal < source.values.size(); ++ordinal)
+          operands.push_back(rule->getResult(pathResult + 1 + ordinal));
+        ac::SourceObserveOp found;
+        unsigned matches = 0;
+        for (auto observe :
+             module.getBody().front().getOps<ac::SourceObserveOp>()) {
+          if (!charge(budget, observe, 8))
+            return failure();
+          if (observe->getAttr("ac.observation_id") != identity)
+            continue;
+          ++matches;
+          found = observe;
+          if (observe.getKindAttr() != source.kind ||
+              observe.getSpec() != source.spec ||
+              observe->getAttr("ac.location") != source.location ||
+              !lastTerminal->isBeforeInBlock(observe))
+            return reject("original observation terminal shape/order differs");
+          if (failed(generatedProof(
+                  observe, ac::SourceObserveOp::getOperationName(), operands,
+                  {},
+                  b.getDictionaryAttr(
+                      {b.getNamedAttr("kind", source.kind),
+                       b.getNamedAttr("spec", source.spec),
+                       b.getNamedAttr("ac.location", source.location),
+                       b.getNamedAttr("ac.observation_id", identity)}),
+                  source.operation->getLoc(), &module.getBody().front())))
+            return failure();
+          lastTerminal = observe;
+        }
+        if (matches != 1 || record.observations[id] != found)
+          return reject("original observation terminal inventory differs");
+      }
     }
     return success();
   }
@@ -2184,7 +2978,8 @@ prepareTransactionLowering(mlir::ModuleOp original,
                            SourceCheckBudget &budget) {
   budget.setPhase("transaction preparation");
   if (!analysis.isValid())
-    return original.emitError() << "transaction lowering requires a valid original plan";
+    return original.emitError()
+           << "transaction lowering requires a valid original plan";
   LoweringPreparation builder(original, analysis, budget);
   if (failed(builder.run()))
     return failure();
@@ -2195,13 +2990,15 @@ FailureOr<MaterializedTransactionLowering>
 materializeTransactionLowering(const PreparedTransactionLowering &prepared,
                                SourceCheckBudget &budget) {
   budget.setPhase("transaction clone/materialization");
-  if (failed(rejectBodyEffects(prepared, budget)) ||
+  if (failed(verifyPreparedEffectInventory(prepared, budget)) ||
       !charge(budget, prepared.original,
-              SourceCheckBudget::multiply(prepared.transactions.size(),
+              SourceCheckBudget::multiply(
+                  prepared.transactions.size(),
                   SourceCheckBudget::bytes(sizeof(MaterializedTransaction)))))
     return failure();
   MaterializedTransactionLowering result;
-  result.module = cast<mlir::ModuleOp>(prepared.original->clone(result.packageMap));
+  result.module =
+      cast<mlir::ModuleOp>(prepared.original->clone(result.packageMap));
   if (failed(materialize(prepared, *result.module, result.packageMap,
                          result.transactions, budget)))
     return failure();
@@ -2213,7 +3010,8 @@ LogicalResult verifyTransactionMaterialization(
     const MaterializedTransactionLowering &candidate,
     SourceCheckBudget &budget) {
   budget.setPhase("transaction original-source proof");
-  if (failed(rejectBodyEffects(prepared, budget)) || !candidate.module ||
+  if (failed(verifyPreparedEffectInventory(prepared, budget)) ||
+      !candidate.module ||
       failed(OriginalSourceProof(prepared, candidate, budget).run()))
     return failure();
   // The canonical verifier owns final IR admission and its independent budget.
@@ -2259,8 +3057,8 @@ public:
       return;
     }
     auto candidate = detail::materializeTransactionLowering(*prepared, budget);
-    if (failed(candidate) ||
-        failed(detail::verifyTransactionMaterialization(*prepared, *candidate, budget))) {
+    if (failed(candidate) || failed(detail::verifyTransactionMaterialization(
+                                 *prepared, *candidate, budget))) {
       signalPassFailure();
       return;
     }

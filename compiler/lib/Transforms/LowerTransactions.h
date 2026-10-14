@@ -32,6 +32,8 @@ struct TransactionPreparation {
   llvm::SmallVector<ac::BoundValueId> liveIns;
   llvm::SmallVector<ac::OwnerVersionBinding> outputs;
   uint64_t clockCapture = 0, resetCapture = 0, fireResult = 0;
+  uint64_t checkBase = 0, totalResults = 0;
+  llvm::SmallVector<uint64_t, 0> observationPathResults;
   mlir::DictionaryAttr expectedAdmission;
   mlir::ArrayAttr expectedRequiredChecks;
 };
@@ -53,6 +55,8 @@ struct MaterializedTransaction {
   llvm::SmallVector<mlir::Value, 0> boundValues;
   llvm::SmallVector<mlir::Value, 0> versions;
   llvm::SmallVector<mlir::IRMapping, 0> frames;
+  llvm::SmallVector<ac::SourceExpectOp, 0> bodyChecks;
+  llvm::SmallVector<ac::SourceObserveOp, 0> observations;
 };
 
 /// The mappings locate actual surviving candidate objects; they do not grant

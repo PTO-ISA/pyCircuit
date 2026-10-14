@@ -16,12 +16,27 @@ struct SampledGuardView {
   uint64_t predicateResult = 0, reachedResult = 0;
   mlir::Value predicate, reached;
 };
+struct SampledBodyCheckView {
+  mlir::DictionaryAttr id;
+  mlir::ArrayAttr invocation;
+  uint64_t conditionResult = 0, pathResult = 0;
+  mlir::Value condition, path;
+};
+struct SampledObservationView {
+  mlir::DictionaryAttr id;
+  uint64_t pathResult = 0, firstValueResult = 0, valueCount = 0;
+  mlir::Value path;
+  llvm::SmallVector<mlir::Value> values;
+};
 struct SampledAdmissionView {
   ModuleOp definition;
   RuleOp rule;
   uint64_t clockCapture = 0, resetCapture = 0, fireResult = 0;
+  uint64_t checkBase = 0, totalResults = 0;
   mlir::Value clock, reset, fire;
   llvm::SmallVector<SampledGuardView> guards;
+  llvm::SmallVector<SampledBodyCheckView> bodyChecks;
+  llvm::SmallVector<SampledObservationView> observations;
 };
 struct TransactionStateInventoryEntry {
   mlir::DictionaryAttr declaration;

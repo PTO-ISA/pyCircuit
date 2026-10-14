@@ -33,7 +33,7 @@ module attributes {ac.stage = "final", ac.source_units = [{package = "", path = 
       %known_second = "ac.bits.compare"(%second, %rule_one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
       %fire = "ac.bits.binary"(%known_first, %known_second) {opcode = "and"} : (!b1, !b1) -> !b1
       "ac.yield"(%candidate, %fire, %first, %rule_one, %second, %known_first) : (!b1, !b1, !b1, !b1, !b1, !b1) -> ()
-    }) {name = "toggle", occurrence = #registration, ac.required_checks = [{id = #check0, kind = "guard_known", location = #span0}, {id = #check1, kind = "guard_known", location = #span1}], ac.sampled_admission = {clock_capture = 0 : i64, reset_capture = 1 : i64, fire_result = 1 : i64, guards = [{id = #check0, invocation = [], predecessor = -1 : i64}, {id = #check1, invocation = [{call = #guard_call, receiver = {instance_path = []}}], predecessor = 0 : i64}]}} : (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1, !b1, !b1, !b1, !b1)
+    }) {name = "toggle", occurrence = #registration, ac.required_checks = [{id = #check0, kind = "guard_known", location = #span0}, {id = #check1, kind = "guard_known", location = #span1}], ac.sampled_admission = {clock_capture = 0 : i64, reset_capture = 1 : i64, fire_result = 1 : i64, body_checks = [], observations = [], guards = [{id = #check0, invocation = [], predecessor = -1 : i64}, {id = #check1, invocation = [{call = #guard_call, receiver = {instance_path = []}}], predecessor = 0 : i64}]}} : (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1, !b1, !b1, !b1, !b1)
     "ac.expect"(%transaction#2, %transaction#3, %clk, %rst) {kind = "guard_known", location = #span0, ac.check_id = #check0} : (!b1, !b1, !b1, !b1) -> ()
     "ac.expect"(%transaction#4, %transaction#5, %clk, %rst) {kind = "guard_known", location = #span1, ac.check_id = #check1} : (!b1, !b1, !b1, !b1) -> ()
     "ac.yield"(%q) : (!b1) -> ()
@@ -46,7 +46,7 @@ module attributes {ac.stage = "final", ac.source_units = [{package = "", path = 
       %rule_one = "ac.bits.constant"() {value = #w1} : () -> !b1
       %fire = "ac.bits.compare"(%rule_guard, %rule_one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
       "ac.yield"(%fire, %rule_guard, %rule_one) : (!b1, !b1, !b1) -> ()
-    }) {name = "statefree", occurrence = #top_registration, ac.required_checks = [{id = #top_check, kind = "guard_known", location = #top_span}], ac.sampled_admission = {clock_capture = 0 : i64, reset_capture = 1 : i64, fire_result = 0 : i64, guards = [{id = #top_check, invocation = [], predecessor = -1 : i64}]}} : (!b1, !b1, !b1) -> (!b1, !b1, !b1)
+    }) {name = "statefree", occurrence = #top_registration, ac.required_checks = [{id = #top_check, kind = "guard_known", location = #top_span}], ac.sampled_admission = {clock_capture = 0 : i64, reset_capture = 1 : i64, fire_result = 0 : i64, body_checks = [], observations = [], guards = [{id = #top_check, invocation = [], predecessor = -1 : i64}]}} : (!b1, !b1, !b1) -> (!b1, !b1, !b1)
     "ac.expect"(%top_transaction#1, %top_transaction#2, %clk, %rst) {kind = "guard_known", location = #top_span, ac.check_id = #top_check} : (!b1, !b1, !b1, !b1) -> ()
     "ac.yield"() : () -> ()
   }) {sym_name = "Pure", source_owner = {package = "", path = "sampled_admission.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1) -> (), input_names = ["guard", "pyc_clk", "pyc_rst"], output_names = [], ac.domain_inputs = {clock = 1 : i64, reset = 2 : i64}, ac.transaction_wiring = {states = [], incoming = [], writers = [{registration = #top_registration, ordinary_results = 0 : i64, candidates = []}]}} : () -> ()

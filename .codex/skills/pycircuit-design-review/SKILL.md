@@ -77,8 +77,11 @@ Use [the serial extension specs](../../../docs/rfcs/serial-rule-method/README.md
 for Rule/Method boundaries, guard entry snapshots, ordered validity, source-plan
 authentication and common final verification. Distinguish local false-guard hold
 from reached unknown-control failure and whole-system zero state/history commit.
-Public straight-line Method evidence does not close branches, partial writes,
-resources or Method `@system` body checks/observations.
+Public straight-line Method evidence does not close branches, partial writes or
+resources. For direct body checks/observations, inspect the six-field inventory,
+statement-time operands, final-prefix paths, exact terminal slots and both proof
+layers. Require generated Method `@system` C++ workers1/2, ordered source-derived
+identities, failure publication protection and real four-state RTL evidence.
 
 Review observation failures before commit, not only absence of emitted records.
 Incomplete active groups must reject before Xfer/COMMIT while false-path and

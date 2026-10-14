@@ -39,7 +39,7 @@ fresh verification。本表区分历史基线与当前有界实现；原生执�
 | 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 有序 validity/guard、双层证明及 C++/RTL history；已有直线公共动态源及 final-IR 执行证据 | 持续重验[采样准入规格](sampled-admission.md)的直线矩阵与输出保护；分支有效性仍单独扩展 |
 | 部分状态与冲突 | 既有字段/索引类型、write footprint、grant/disjointness proof | 不能由旧 behavioral 路径支持推断 Method 已支持 | whole/field/index 冲突统一，保留四态及源写意图 |
 | 资源与因果 | 既有 HardwareAnalysis、primitive 端口合同 | Method 的完整 resource closure 未完成 | 合法请求准入、明确拒绝超端口与联合环；Queue 单独验收 |
-| Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | 普通 System 回归不代表 Method System 完成 | 真实 Method `@system` 的时钟/复位、检查、观测、终止及失败闭环 |
+| Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | 直线 direct body effects 已有原源/final 双证明及生成 runner/四态探针 | 持续重验[body effects checklist](sampled-body-effects.md#acceptance-checklist)，不扩大到分支/资源 |
 | 效果安全优化 | 既有 record-wire、纯 SSA 优化和 final verifier | 不能从能够生成代码推断效率达标 | 三项结构效率义务及明确样本的成本测量 |
 
 建议剩余依赖顺序：保持跨实例不变量 → 公共动态 guard 验收 → 分支/部分更新 → 资源/冲突/因果完整闭包 →
@@ -54,12 +54,13 @@ detached candidate 先对照原源计划认证，再进入一次 canonical final
 成功后才原子替换。C++ 与 managed RTL 使用同一采样计划及 history 生命周期。
 
 当前 focused final-IR 和直线公共动态回归均有 native workers 1/2 与真实四态 RTL
-执行证据，不能替代 Method `@system` 闭环。动态回归包括独立 Rule 的局部 hold、同一
+执行证据；独立 generated Method `@system` 回归补充 direct body checks/observations。
+动态回归包括独立 Rule 的局部 hold、同一
 Rule 跨 owner 的原子取消、候选 guard 入口及后续覆盖、实际状态/history 零提交和恢复。
 2026-10-14 有界候选的公共恒真六场景、短
 API gate 与 examples gate 已重验通过；定义局部证明复用解决了原公共跨实例预算失败，
 保持原限额和全部实际实例证明。结果不自动覆盖后续候选；nightly 未运行，基础 Method
-checklist 仍有 System、分支/部分更新及资源等缺口，不据此宣称全范围完成。
+checklist 仍有分支/部分更新、资源和效果安全优化缺口，不据此宣称全范围完成。
 当前边界见[语言参考](../../reference/language.md#method-execution-and-remaining-capabilities)。
 
 ## 动态 guard：共同 IR 合同与剩余验收

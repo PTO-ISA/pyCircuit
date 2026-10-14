@@ -1029,8 +1029,11 @@ C++ workers 1/2 and four-state RTL evidence. Public straight-line dynamic source
 tests cover independent transactions, cross-owner atomic calls and guard-entry
 candidate snapshots through the same final IR. They check committed state and
 clock history, including failure, Discard, Reset and frozen Work inputs.
-Method `@system` simulation closure remains unaccepted. The prior accepted
-checkpoint `44b888c5` remains historical evidence, not current verification.
+Focused generated Method `@system` execution covers direct body assertions,
+logs and reports, repeated calls, statement-time candidate snapshots and failure
+before observation publication. C++ workers 1/2, generated RTL and real four-state
+assertion probes exercise this bounded route. Verification belongs to the exact
+tested candidate; prior checkpoints do not certify later changes.
 
 The compiler independently publishes a bounded subset of `@method` and nested
 transaction syntax as verified source units. Consumers use published interfaces
@@ -1096,13 +1099,19 @@ body `assert`, `log` and `report` as ordered typed effects. A log evaluates its
 payload expressions once in order; an assert does not gate later Method calls.
 State analysis retains their statement-time values and invocation identities;
 false or unknown assertion conditions do not become guards or alter candidates.
-The current analysis requires each authored effect path proven true. Execution
-still requires sampled effect lowering and source authentication; final link
-rejects effect-bearing plans at that boundary. Partial or conditional effects and transaction resource
-operations also remain unsupported. Valid uncalled
+The current analysis requires each authored effect path proven true. Final link
+materializes saved operands and checks them against the original source plan
+before canonical final verification. All body-effect paths use the transaction's
+final fire; a later false guard suppresses earlier assertions and observations.
+Body assertions retain ordinary reset masking and fail on false or unknown
+conditions, including low, held and falling epochs. They do not acquire the
+guard-known sampling binding. Observations publish only after successful
+whole-system checking and precommit; failure preserves previous gauges/events
+and the committed epoch. Partial or conditional effects and transaction resource
+operations remain unsupported. Valid uncalled
 Method declarations remain fully published and checked before link removes
-them. This subset does not complete resource/causality handling, branch/partial state
-or Method `@system` simulation closure. Existing ordinary hardware and its system route
+them. This subset does not complete resource/causality handling or branch/partial state.
+Existing ordinary hardware and its system route
 retain their current contracts and limits.
 See the
 [extension specification](../rfcs/serial-rule-method/README.md) for its target

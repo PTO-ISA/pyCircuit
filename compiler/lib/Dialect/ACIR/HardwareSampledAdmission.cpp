@@ -5,10 +5,13 @@
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
 #include <limits>
 #include <optional>
+#include <set>
+#include <tuple>
 
 using namespace mlir;
 namespace acir::ac::detail {
@@ -50,22 +53,62 @@ LogicalResult payAttribute(Attribute attr, SourceCheckBudget &budget,
     return success();
   if (auto text = dyn_cast<StringAttr>(attr))
     return budget.debit(SourceCheckBudget::bytes(text.getValue().size()), site);
-  if (auto array = dyn_cast<ArrayAttr>(attr)) {
-    for (auto item : array)
-      if (failed(payAttribute(item, budget, site)))
+  if (!isa<ArrayAttr, DictionaryAttr>(attr))
+    return success();
+  SmallVector<Attribute, 0> pending;
+  auto push = [&](Attribute value) {
+    if (failed(budget.debit(1, site)))
+      return failure();
+    if (pending.size() == pending.capacity()) {
+      uint64_t capacity = SourceCheckBudget::multiply(
+          std::max(uint64_t(1), uint64_t(pending.capacity())), 2);
+      uint64_t storage = SourceCheckBudget::multiply(
+          capacity - pending.capacity(), sizeof(Attribute));
+      if (capacity == std::numeric_limits<uint64_t>::max() ||
+          storage == std::numeric_limits<uint64_t>::max() ||
+          capacity > pending.max_size())
+        return budget.debit(std::numeric_limits<uint64_t>::max(), site);
+      if (failed(budget.debit(SourceCheckBudget::bytes(storage), site)))
         return failure();
-  } else if (auto dictionary = dyn_cast<DictionaryAttr>(attr)) {
-    for (auto item : dictionary)
-      if (failed(budget.debit(
-              SourceCheckBudget::bytes(item.getName().getValue().size()),
-              site)) ||
-          failed(payAttribute(item.getValue(), budget, site)))
+      pending.reserve(capacity);
+    }
+    pending.push_back(value);
+    return success();
+  };
+  auto children = [&](Attribute value) -> LogicalResult {
+    if (auto array = dyn_cast<ArrayAttr>(value)) {
+      for (Attribute item : array)
+        if (failed(push(item)))
+          return failure();
+    } else if (auto dictionary = dyn_cast<DictionaryAttr>(value)) {
+      for (auto item : dictionary)
+        if (failed(budget.debit(
+                SourceCheckBudget::bytes(item.getName().getValue().size()),
+                site)) ||
+            failed(push(item.getValue())))
+          return failure();
+    }
+    return success();
+  };
+  if (failed(children(attr)))
+    return failure();
+  while (!pending.empty()) {
+    Attribute value = pending.pop_back_val();
+    if (!value)
+      continue;
+    if (auto text = dyn_cast<StringAttr>(value)) {
+      if (failed(budget.debit(SourceCheckBudget::bytes(text.getValue().size()),
+                              site)))
         return failure();
+    } else if (failed(children(value)))
+      return failure();
   }
   return success();
 }
 LogicalResult payComparison(Attribute lhs, Attribute rhs,
                             SourceCheckBudget &budget, Operation *site) {
+  if (lhs == rhs)
+    return budget.debit(1, site);
   if (failed(payAttribute(lhs, budget, site)) ||
       failed(payAttribute(rhs, budget, site)))
     return failure();
@@ -74,7 +117,8 @@ LogicalResult payComparison(Attribute lhs, Attribute rhs,
 bool identical(Attribute lhs, Attribute rhs) {
   // Missing metadata never establishes logical identity. The owning closed
   // validators below reject malformed non-null attributes before comparison.
-  return lhs && rhs && compareClosedSourceStructure(lhs, rhs) == 0;
+  return lhs && rhs &&
+         (lhs == rhs || compareClosedSourceStructure(lhs, rhs) == 0);
 }
 Operation *valueSite(Value value) {
   if (auto result = dyn_cast<OpResult>(value))
@@ -270,7 +314,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto row = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
   if (!module || !rule.getBody().hasOneBlock() ||
       failed(exact(row,
-                   {"clock_capture", "reset_capture", "fire_result", "guards"},
+                   {"clock_capture", "reset_capture", "fire_result", "guards",
+                    "body_checks", "observations"},
                    rule, "ac.sampled_admission")))
     return failure();
   if (failed(payAttribute(row, budget, rule)))
@@ -279,24 +324,42 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto reset = index(row, "reset_capture", rule);
   auto fire = index(row, "fire_result", rule);
   auto guards = row.getAs<ArrayAttr>("guards");
+  auto bodyChecks = row.getAs<ArrayAttr>("body_checks");
+  auto observations = row.getAs<ArrayAttr>("observations");
   if (rule.getBody().front().empty())
     return rule->emitOpError() << "sampled Rule requires a yield terminator";
   auto yielded = dyn_cast<YieldOp>(rule.getBody().front().getTerminator());
   if (failed(clock) || failed(reset) || failed(fire))
     return failure();
-  if (!guards || guards.empty() || !yielded ||
+  if (!guards || guards.empty() || !bodyChecks || !observations || !yielded ||
       *clock >= rule->getNumOperands() || *reset >= rule->getNumOperands() ||
-      *fire >= rule->getNumResults() ||
-      SourceCheckBudget::add(*fire + 1,
-                             SourceCheckBudget::multiply(2, guards.size())) !=
-          rule->getNumResults() ||
-      yielded->getNumOperands() != rule->getNumResults())
-    return rule->emitOpError() << "sampled admission captures/guard suffix are "
-                                  "outside the exact Rule layout";
-  auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
-  if (!required || required.size() != guards.size())
+      *fire >= rule->getNumResults())
     return rule->emitOpError()
-           << "sampled admission requires exactly its guard_known obligations";
+           << "sampled admission captures/inventories are outside Rule layout";
+  uint64_t checkBase = SourceCheckBudget::add(*fire, 1);
+  for (Attribute raw : observations) {
+    auto observation = dyn_cast<DictionaryAttr>(raw);
+    if (failed(exact(observation, {"id", "value_count"}, rule,
+                     "sampled observation")))
+      return failure();
+    auto count = index(observation, "value_count", rule);
+    if (failed(count))
+      return failure();
+    checkBase =
+        SourceCheckBudget::add(checkBase, SourceCheckBudget::add(1, *count));
+  }
+  uint64_t checkCount =
+      SourceCheckBudget::add(guards.size(), bodyChecks.size());
+  uint64_t total = SourceCheckBudget::add(
+      checkBase, SourceCheckBudget::multiply(2, checkCount));
+  if (total == std::numeric_limits<uint64_t>::max() ||
+      total != rule->getNumResults() || yielded->getNumOperands() != total)
+    return rule->emitOpError() << "sampled admission requires exact "
+                                  "observation and check suffix layout";
+  auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
+  if (!required || required.size() != checkCount)
+    return rule->emitOpError() << "sampled admission requires exactly its "
+                                  "ordered guard/assert obligations";
   if (failed(
           bitOne(rule->getOperand(*clock), analysis, bindings, rule, budget)) ||
       failed(
@@ -313,6 +376,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   result.clockCapture = *clock;
   result.resetCapture = *reset;
   result.fireResult = *fire;
+  result.checkBase = checkBase;
+  result.totalResults = total;
   result.clock = rule->getOperand(*clock);
   result.reset = rule->getOperand(*reset);
   result.fire = yielded->getOperand(*fire);
@@ -369,7 +434,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
                                 [&] { return rule->emitOpError(); })))
       return rule->emitOpError()
              << "sampled guard differs from its ordered guard_known obligation";
-    uint64_t predicate = *fire + 1 + 2 * ordinal;
+    uint64_t predicate = checkBase + 2 * ordinal;
     uint64_t reached = predicate + 1;
     if (failed(bitOne(yielded->getOperand(predicate), analysis, bindings, rule,
                       budget)) ||
@@ -379,6 +444,104 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     result.guards.push_back({id, invocation, *predecessor, predicate, reached,
                              yielded->getOperand(predicate),
                              yielded->getOperand(reached)});
+  }
+  auto effectInvocation = [&](ArrayAttr invocation) -> LogicalResult {
+    if (!invocation || failed(payAttribute(invocation, budget, rule)))
+      return failure();
+    for (const auto &guard : result.guards) {
+      if (failed(payComparison(guard.invocation, invocation, budget, rule)))
+        return failure();
+      if (identical(guard.invocation, invocation))
+        return success();
+    }
+    return rule->emitOpError()
+           << "sampled effect invocation is absent from guard inventory";
+  };
+  if (failed(charge(budget, rule, bodyChecks.size(),
+                    sizeof(SampledBodyCheckView))) ||
+      failed(charge(budget, rule, observations.size(),
+                    sizeof(SampledObservationView))))
+    return failure();
+  result.bodyChecks.reserve(bodyChecks.size());
+  result.observations.reserve(observations.size());
+  for (auto [ordinal, raw] : llvm::enumerate(bodyChecks)) {
+    auto body = dyn_cast<DictionaryAttr>(raw);
+    if (failed(exact(body, {"id", "invocation"}, rule, "sampled body check")))
+      return failure();
+    auto id = body.getAs<DictionaryAttr>("id");
+    auto invocation = body.getAs<ArrayAttr>("invocation");
+    if (failed(verifyCheckID(id, [&] { return rule->emitOpError(); })) ||
+        failed(effectInvocation(invocation)))
+      return failure();
+    uint64_t obligation = guards.size() + ordinal;
+    auto actual = index(id, "obligation", rule);
+    auto record = dyn_cast<DictionaryAttr>(required[obligation]);
+    if (failed(actual) || *actual != static_cast<int64_t>(obligation) ||
+        !identical(id.get("registration"), rule->getAttr("occurrence")) ||
+        failed(exact(record, {"id", "kind", "location"}, rule,
+                     "assert RequiredCheck")))
+      return rule->emitOpError()
+             << "sampled body assertion has inconsistent identity/obligation";
+    auto kind = record.getAs<StringAttr>("kind");
+    if (!kind || kind.getValue() != "assert" ||
+        !identical(record.get("id"), id) ||
+        failed(verifySourceSpan(record.getAs<DictionaryAttr>("location"),
+                                [&] { return rule->emitOpError(); })))
+      return rule->emitOpError()
+             << "sampled body assertion differs from its ordered obligation";
+    uint64_t condition = checkBase + 2 * obligation, path = condition + 1;
+    if (failed(bitOne(yielded->getOperand(condition), analysis, bindings, rule,
+                      budget)) ||
+        failed(bitOne(yielded->getOperand(path), analysis, bindings, rule,
+                      budget)))
+      return failure();
+    result.bodyChecks.push_back({id, invocation, condition, path,
+                                 yielded->getOperand(condition),
+                                 yielded->getOperand(path)});
+  }
+  uint64_t path = *fire + 1;
+  for (auto [ordinal, raw] : llvm::enumerate(observations)) {
+    auto row = cast<DictionaryAttr>(raw);
+    auto id = row.getAs<DictionaryAttr>("id");
+    auto count = index(row, "value_count", rule);
+    if (failed(count) ||
+        failed(verifyObservationID(id, [&] { return rule->emitOpError(); })))
+      return failure();
+    auto actual = index(id, "ordinal", rule);
+    if (failed(actual) || *actual != static_cast<int64_t>(ordinal) ||
+        !identical(id.get("registration"), rule->getAttr("occurrence")) ||
+        failed(effectInvocation(id.getAs<ArrayAttr>("invocation"))))
+      return rule->emitOpError() << "sampled observation has inconsistent "
+                                    "ordinal/registration/invocation";
+    if (failed(bitOne(yielded->getOperand(path), analysis, bindings, rule,
+                      budget)) ||
+        failed(charge(budget, rule, *count, sizeof(Value))))
+      return failure();
+    SampledObservationView observation{id,
+                                       path,
+                                       path + 1,
+                                       static_cast<uint64_t>(*count),
+                                       yielded->getOperand(path),
+                                       {}};
+    observation.values.reserve(*count);
+    for (uint64_t k = 0; k < static_cast<uint64_t>(*count); ++k) {
+      Value value = yielded->getOperand(path + 1 + k);
+      auto type = analysis.resolveType(value.getType(), bindings, rule);
+      if (failed(budget.debit(1, rule)) || failed(type))
+        return failure();
+      if (!isa<BitsType, EnumType>(*type))
+        return rule->emitOpError()
+               << "sampled observation requires existing scalar payloads";
+      auto width = analysis.getPackedWidth(*type, bindings, rule);
+      if (failed(width))
+        return failure();
+      if (*width > 64)
+        return rule->emitOpError()
+               << "sampled observation exceeds 64-bit scalar slot limit";
+      observation.values.push_back(value);
+    }
+    result.observations.push_back(std::move(observation));
+    path += 1 + *count;
   }
   return result;
 }
@@ -1214,7 +1377,19 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   auto fire = proof.parse(view.fire, scope);
   if (failed(fire))
     return failure();
-  return proof.equal(*fire, expected, view.rule);
+  if (failed(proof.equal(*fire, expected, view.rule)))
+    return failure();
+  for (const auto &check : view.bodyChecks) {
+    auto path = proof.parse(check.path, scope);
+    if (failed(path) || failed(proof.equal(*path, expected, view.rule)))
+      return failure();
+  }
+  for (const auto &observation : view.observations) {
+    auto path = proof.parse(observation.path, scope);
+    if (failed(path) || failed(proof.equal(*path, expected, view.rule)))
+      return failure();
+  }
+  return success();
 }
 
 struct SampledAdmissionValidation::Entry {
@@ -1350,14 +1525,30 @@ struct State {
 struct PrivateRoute {
   HardwareIdentityEndpoint endpoint;
   size_t state = 0;
-  enum Kind { Data, Enable, Condition, Reached } kind;
-  SourceExpectOp expect;
+  enum Kind { Data, Enable, EffectOperand } kind;
+  Operation *terminal = nullptr;
+  unsigned operand = 0;
 };
-struct RouteVisit {
-  HardwareIdentityEndpoint endpoint;
-  size_t state;
-  PrivateRoute::Kind kind;
-  SourceExpectOp expect;
+// The surrounding route invocation fixes state, role, terminal and operand;
+// this index therefore stores only the exact endpoint identity.
+using RouteVisitKey = std::tuple<const void *, const void *, size_t>;
+struct EffectTerminalIndex {
+  ModuleOp definition;
+  HardwareBindings bindings;
+  SmallVector<std::pair<DictionaryAttr, SourceExpectOp>, 0> checks;
+  SmallVector<std::pair<DictionaryAttr, SourceObserveOp>, 0> observations;
+};
+struct EffectOwnerProof {
+  ModuleOp definition;
+  HardwareBindings bindings;
+  RuleOp rule;
+  Operation *terminal;
+  ArrayAttr invocation;
+  ResolvedSourceEffectOwner owner;
+};
+struct EffectProofCache {
+  SmallVector<EffectTerminalIndex, 0> terminals;
+  SmallVector<EffectOwnerProof, 0> owners;
 };
 // A proof invocation owns one actual root. The catalog caller supplies every
 // definition/binding root, including unselected definitions; no package closure
@@ -1366,9 +1557,10 @@ class WiringProof {
 public:
   WiringProof(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
               const llvm::DenseSet<Operation *> &relevant,
-              SampledAdmissionValidation &validation)
+              SampledAdmissionValidation &validation,
+              EffectProofCache &effectProofCache)
       : analysis(analysis), budget(budget), validation(validation),
-        relevant(relevant) {}
+        relevant(relevant), effectProofCache(effectProofCache) {}
   LogicalResult run(ModuleOp root, const HardwareBindings &bindings) {
     if (bindings.owner != root)
       return root->emitOpError()
@@ -1378,7 +1570,8 @@ public:
       return failure();
     HardwareIdentityScope scope{root, bindings, {}};
     scope.rootBindings.owner = root;
-    if (failed(expand(scope, std::nullopt, {})))
+    if (failed(expand(scope, std::nullopt, {})) ||
+        failed(buildOccurrenceIndex()))
       return failure();
     budget.setPhase("sampled wiring state inventory");
     if (failed(inventory()))
@@ -1400,6 +1593,44 @@ public:
   }
 
 private:
+  static uint64_t occurrenceHash(const HardwareIdentityScope &scope) {
+    llvm::hash_code hash = llvm::hash_value(scope.root.operator->());
+    for (InstanceOp instance : scope.path)
+      hash = llvm::hash_combine(hash, instance.operator->());
+    return static_cast<uint64_t>(static_cast<size_t>(hash));
+  }
+  LogicalResult buildOccurrenceIndex() {
+    for (auto [ordinal, entry] : llvm::enumerate(occurrences)) {
+      if (failed(
+              budget.debit(SourceCheckBudget::add(1, entry.scope.path.size()),
+                           entry.module)))
+        return failure();
+      uint64_t hash = occurrenceHash(entry.scope);
+      auto found = occurrenceIndex.find(hash);
+      if (found == occurrenceIndex.end()) {
+        if (failed(
+                charge(budget, entry.module, 1,
+                       sizeof(std::pair<uint64_t, SmallVector<size_t>>) + 64)))
+          return failure();
+        found = occurrenceIndex.try_emplace(hash).first;
+      }
+      for (size_t prior : found->second) {
+        const auto &priorPath = occurrences[prior].scope.path;
+        if (failed(budget.debit(
+                SourceCheckBudget::add(
+                    1, std::min(priorPath.size(), entry.scope.path.size())),
+                entry.module)))
+          return failure();
+        if (priorPath == entry.scope.path)
+          return entry.module->emitOpError()
+                 << "duplicate actual module occurrence scope";
+      }
+      if (failed(charge(budget, entry.module, 1, sizeof(size_t))))
+        return failure();
+      found->second.push_back(ordinal);
+    }
+    return success();
+  }
   LogicalResult expand(const HardwareIdentityScope &scope,
                        std::optional<size_t> parent, InstanceOp allocation) {
     ModuleOp module = scopeOwner(scope, analysis);
@@ -1475,6 +1706,13 @@ private:
     return std::move(*scope);
   }
   FailureOr<size_t> target(const Occurrence &entry, DictionaryAttr id) {
+    size_t entryOrdinal = &entry - occurrences.data();
+    if (failed(budget.debit(1, entry.module)))
+      return failure();
+    std::pair<size_t, Attribute> key{entryOrdinal, id};
+    auto proven = stateTargetProofs.find(key);
+    if (proven != stateTargetProofs.end())
+      return proven->second;
     auto relative = resolveTransactionState(entry.module, id, analysis,
                                             entry.bindings, budget);
     if (failed(relative))
@@ -1482,12 +1720,24 @@ private:
     auto scope = actualStateScope(entry, *relative);
     if (failed(scope))
       return failure();
-    for (auto [ordinal, state] : llvm::enumerate(states)) {
+    auto occurrence = occurrenceFor(*scope);
+    if (failed(occurrence) || failed(budget.debit(1, entry.module)))
+      return failure();
+    auto found =
+        stateIndex.find({*occurrence, relative->storage.getOperation()});
+    if (found != stateIndex.end()) {
+      const auto &state = states[found->second];
       if (failed(payScope(state.scope, budget, entry.module)) ||
           failed(payScope(*scope, budget, entry.module)))
         return failure();
-      if (state.storage == relative->storage && sameScope(state.scope, *scope))
-        return ordinal;
+      if (state.storage == relative->storage &&
+          sameScope(state.scope, *scope)) {
+        if (failed(charge(budget, entry.module, 1,
+                          sizeof(std::pair<decltype(key), size_t>) + 64)))
+          return failure();
+        stateTargetProofs.try_emplace(key, found->second);
+        return found->second;
+      }
     }
     return entry.module->emitOpError()
            << "transaction route target has no actual inventoried owner";
@@ -1504,7 +1754,7 @@ private:
     return success();
   }
   LogicalResult inventory() {
-    for (const auto &entry : occurrences) {
+    for (auto [occurrenceOrdinal, entry] : llvm::enumerate(occurrences)) {
       auto prepared = validation.prepare(entry.module, entry.bindings);
       if (failed(prepared))
         return failure();
@@ -1532,6 +1782,14 @@ private:
                             {},
                             {},
                             false});
+          std::pair<size_t, Operation *> key{occurrenceOrdinal, record.storage};
+          if (stateIndex.contains(key))
+            return record.storage->emitOpError()
+                   << "duplicate state terminal in actual occurrence";
+          if (failed(charge(budget, record.storage, 1,
+                            sizeof(std::pair<decltype(key), size_t>) + 64)))
+            return failure();
+          stateIndex.try_emplace(key, states.size() - 1);
         }
         for (const auto &writer : entry.wiring->writers) {
           auto sampled = validation.verify(writer.rule, entry.bindings);
@@ -1586,19 +1844,197 @@ private:
   }
   LogicalResult privateRoute(Value value, const HardwareIdentityScope &scope,
                              size_t state, PrivateRoute::Kind kind,
-                             SourceExpectOp expect = {}) {
+                             Operation *terminal = nullptr,
+                             unsigned operand = 0) {
     if (failed(charge(budget, valueSite(value), 1, sizeof(PrivateRoute))))
       return failure();
     auto endpoint = makeIdentityEndpoint(value, scope, analysis, budget);
     if (failed(endpoint))
       return failure();
-    privateRoutes.push_back({std::move(*endpoint), state, kind, expect});
+    privateRoutes.push_back(
+        {std::move(*endpoint), state, kind, terminal, operand});
     return success();
+  }
+  LogicalResult effectDomain(const Occurrence &entry,
+                             const ResolvedSourceEffectOwner &logical,
+                             const HardwareIdentityEndpoint &clock,
+                             const HardwareIdentityEndpoint &reset,
+                             Operation *terminal) {
+    auto receiver = copyScope(entry.scope, budget, terminal);
+    if (failed(receiver) || failed(charge(budget, terminal, logical.path.size(),
+                                          sizeof(InstanceOp))))
+      return failure();
+    receiver->path.append(logical.path.begin(), logical.path.end());
+    auto domain =
+        logical.terminal->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+    auto clk = domain ? index(domain, "clock", terminal)
+                      : FailureOr<int64_t>(failure());
+    auto rst = domain ? index(domain, "reset", terminal)
+                      : FailureOr<int64_t>(failure());
+    if (failed(clk) || failed(rst) ||
+        !logical.terminal->getRegion(0).hasOneBlock() ||
+        *clk >= logical.terminal->getRegion(0).front().getNumArguments() ||
+        *rst >= logical.terminal->getRegion(0).front().getNumArguments())
+      return terminal->emitOpError() << "sampled effect logical owner requires "
+                                        "declared clock/reset domain";
+    auto receiverClock = normal(
+        logical.terminal->getRegion(0).front().getArgument(*clk), *receiver);
+    auto receiverReset = normal(
+        logical.terminal->getRegion(0).front().getArgument(*rst), *receiver);
+    if (failed(receiverClock) || failed(receiverReset))
+      return failure();
+    if (!sameEndpoint(*receiverClock, clock) ||
+        !sameEndpoint(*receiverReset, reset))
+      return terminal->emitOpError()
+             << "sampled effect receiver domain differs from actual writer "
+                "physical clock/reset";
+    return success();
+  }
+  FailureOr<EffectTerminalIndex *> effectTerminals(const Occurrence &entry) {
+    for (auto &index : effectProofCache.terminals) {
+      if (failed(budget.debit(1, entry.module)))
+        return failure();
+      if (index.definition != entry.module)
+        continue;
+      if (failed(budget.debit(SourceCheckBudget::add(
+                                  SourceCheckBudget::bindings(index.bindings),
+                                  SourceCheckBudget::bindings(entry.bindings)),
+                              entry.module)))
+        return failure();
+      if (sameHardwareBindings(index.bindings, entry.bindings))
+        return &index;
+    }
+    if (failed(charge(budget, entry.module, 1, sizeof(EffectTerminalIndex))) ||
+        failed(budget.debit(SourceCheckBudget::bindings(entry.bindings),
+                            entry.module)))
+      return failure();
+    EffectTerminalIndex index{entry.module, entry.bindings, {}, {}};
+    for (auto &operation : entry.module->getRegion(0).front()) {
+      if (failed(budget.debit(1, &operation)))
+        return failure();
+      if (auto expect = dyn_cast<SourceExpectOp>(operation)) {
+        auto id = expect->getAttrOfType<DictionaryAttr>("ac.check_id");
+        if (!id)
+          continue;
+        if (failed(payAttribute(id, budget, expect)) ||
+            failed(verifyCheckID(id, [&] { return expect->emitOpError(); })) ||
+            failed(
+                verifySourceExpectOperation(analysis, expect, entry.bindings)))
+          return failure();
+        for (const auto &[prior, terminal] : index.checks) {
+          if (failed(budget.debit(1, expect)))
+            return failure();
+          if (prior == id)
+            return expect->emitOpError()
+                   << "duplicate expect for source CheckID";
+        }
+        if (failed(charge(budget, expect, 1,
+                          sizeof(std::pair<DictionaryAttr, SourceExpectOp>))))
+          return failure();
+        index.checks.push_back({id, expect});
+        continue;
+      }
+      auto observe = dyn_cast<SourceObserveOp>(operation);
+      if (!observe)
+        continue;
+      auto id = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
+      if (!id)
+        continue;
+      if (failed(payAttribute(id, budget, observe)) ||
+          failed(
+              verifyObservationID(id, [&] { return observe->emitOpError(); })))
+        return failure();
+      for (const auto &[prior, terminal] : index.observations) {
+        if (failed(budget.debit(1, observe)))
+          return failure();
+        if (prior == id)
+          return observe->emitOpError()
+                 << "duplicate terminal for source ObservationID";
+      }
+      if (failed(charge(budget, observe, 1,
+                        sizeof(std::pair<DictionaryAttr, SourceObserveOp>))))
+        return failure();
+      index.observations.push_back({id, observe});
+    }
+    effectProofCache.terminals.push_back(std::move(index));
+    return &effectProofCache.terminals.back();
+  }
+  FailureOr<SourceExpectOp> checkTerminal(EffectTerminalIndex &index,
+                                          DictionaryAttr id, Operation *site) {
+    for (const auto &[candidate, terminal] : index.checks) {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      if (candidate == id)
+        return terminal;
+    }
+    return site->emitOpError() << "sampled check has no matching expect";
+  }
+  FailureOr<SourceObserveOp> observationTerminal(EffectTerminalIndex &index,
+                                                 DictionaryAttr id,
+                                                 Operation *site) {
+    for (const auto &[candidate, terminal] : index.observations) {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      if (candidate == id)
+        return terminal;
+    }
+    return site->emitOpError()
+           << "sampled observation has no matching terminal";
+  }
+  FailureOr<const ResolvedSourceEffectOwner *> effectOwner(
+      const Occurrence &entry, RuleOp rule, Operation *terminal,
+      ArrayAttr invocation,
+      llvm::function_ref<FailureOr<ResolvedSourceEffectOwner>()> resolve) {
+    for (const auto &proof : effectProofCache.owners) {
+      if (failed(budget.debit(1, terminal)))
+        return failure();
+      if (proof.definition != entry.module || proof.rule != rule ||
+          proof.terminal != terminal || proof.invocation != invocation)
+        continue;
+      if (failed(budget.debit(SourceCheckBudget::add(
+                                  SourceCheckBudget::bindings(proof.bindings),
+                                  SourceCheckBudget::bindings(entry.bindings)),
+                              terminal)))
+        return failure();
+      if (sameHardwareBindings(proof.bindings, entry.bindings))
+        return &proof.owner;
+    }
+    auto owner = resolve();
+    if (failed(owner) ||
+        failed(charge(budget, terminal, 1, sizeof(EffectOwnerProof))) ||
+        failed(budget.debit(SourceCheckBudget::bindings(entry.bindings),
+                            terminal)))
+      return failure();
+    effectProofCache.owners.push_back({entry.module, entry.bindings, rule,
+                                       terminal, invocation,
+                                       std::move(*owner)});
+    return &effectProofCache.owners.back().owner;
+  }
+  LogicalResult checkOwner(const Occurrence &entry, DictionaryAttr id,
+                           ArrayAttr invocation, DictionaryAttr location,
+                           RuleOp rule, Operation *terminal,
+                           const HardwareIdentityEndpoint &clock,
+                           const HardwareIdentityEndpoint &reset) {
+    auto logical = effectOwner(entry, rule, terminal, invocation, [&] {
+      return resolveSourceEffectOwner(analysis, entry.module, entry.bindings,
+                                      id.getAs<DictionaryAttr>("registration"),
+                                      id.getAs<DictionaryAttr>("check"),
+                                      invocation, location, terminal,
+                                      [&](uint64_t cost, Operation *site) {
+                                        return budget.debit(cost, site);
+                                      });
+    });
+    if (failed(logical))
+      return failure();
+    return effectDomain(entry, **logical, clock, reset, terminal);
   }
   LogicalResult writers() {
     for (const auto &entry : occurrences) {
       if (!entry.wiring)
         continue;
+      auto terminals = effectTerminals(entry);
+      if (failed(terminals))
+        return failure();
       for (const auto &writer : entry.wiring->writers) {
         auto sampled = parseSampledAdmission(writer.rule, analysis,
                                              entry.bindings, budget);
@@ -1690,31 +2126,10 @@ private:
                                 PrivateRoute::Enable)))
           return failure();
         for (const auto &guard : sampled->guards) {
-          SourceExpectOp match;
-          for (auto expect :
-               entry.module->getRegion(0).front().getOps<SourceExpectOp>()) {
-            if (failed(budget.debit(1, expect)))
-              return failure();
-            auto checkID = expect->getAttrOfType<DictionaryAttr>("ac.check_id");
-            if (failed(payAttribute(checkID, budget, expect)) ||
-                failed(verifyCheckID(checkID,
-                                     [&] { return expect->emitOpError(); })) ||
-                failed(payComparison(checkID, guard.id, budget, expect)))
-              return failure();
-            if (!identical(expect->getAttrOfType<DictionaryAttr>("ac.check_id"),
-                           guard.id))
-              continue;
-            if (match)
-              return expect->emitOpError()
-                     << "duplicate expect for sampled guard";
-            match = expect;
-          }
-          if (!match)
-            return writer.rule->emitOpError()
-                   << "sampled guard has no matching expect";
-          if (failed(
-                  verifySourceExpectOperation(analysis, match, entry.bindings)))
+          auto found = checkTerminal(**terminals, guard.id, writer.rule);
+          if (failed(found))
             return failure();
+          SourceExpectOp match = *found;
           auto condition = normal(match.getCondition(), entry.scope);
           auto reached = normal(match.getPath(), entry.scope);
           auto expectedCondition = normal(
@@ -1724,7 +2139,7 @@ private:
           auto required =
               writer.rule->getAttrOfType<ArrayAttr>("ac.required_checks");
           auto record = cast<DictionaryAttr>(
-              required[(guard.predicateResult - sampled->fireResult - 1) / 2]);
+              required[(guard.predicateResult - sampled->checkBase) / 2]);
           if (failed(condition) || failed(reached) ||
               failed(expectedCondition) || failed(expectedReached))
             return failure();
@@ -1745,13 +2160,107 @@ private:
               !sameEndpoint(*sampleReset, *reset))
             return match->emitOpError()
                    << "sampled expect pins differ from owning Rule captures";
-          if (failed(privateRoute(writer.rule->getResult(guard.predicateResult),
-                                  entry.scope, 0, PrivateRoute::Condition,
-                                  match)) ||
-              failed(privateRoute(writer.rule->getResult(guard.reachedResult),
-                                  entry.scope, 0, PrivateRoute::Reached,
-                                  match)))
+          if (failed(checkOwner(entry, guard.id, guard.invocation,
+                                match.getLocationAttr(), writer.rule, match,
+                                *clock, *reset)))
             return failure();
+          if (failed(privateRoute(writer.rule->getResult(guard.predicateResult),
+                                  entry.scope, 0, PrivateRoute::EffectOperand,
+                                  match, 0)) ||
+              failed(privateRoute(writer.rule->getResult(guard.reachedResult),
+                                  entry.scope, 0, PrivateRoute::EffectOperand,
+                                  match, 1)))
+            return failure();
+        }
+        for (const auto &body : sampled->bodyChecks) {
+          auto found = checkTerminal(**terminals, body.id, writer.rule);
+          if (failed(found))
+            return failure();
+          SourceExpectOp match = *found;
+          auto condition = normal(match.getCondition(), entry.scope);
+          auto path = normal(match.getPath(), entry.scope);
+          auto expectedCondition =
+              normal(writer.rule->getResult(body.conditionResult), entry.scope);
+          auto expectedPath =
+              normal(writer.rule->getResult(body.pathResult), entry.scope);
+          auto required =
+              writer.rule->getAttrOfType<ArrayAttr>("ac.required_checks");
+          auto record = cast<DictionaryAttr>(
+              required[(body.conditionResult - sampled->checkBase) / 2]);
+          if (failed(condition) || failed(path) || failed(expectedCondition) ||
+              failed(expectedPath))
+            return failure();
+          if (match.getKind() != "assert" || !match.getSampling().empty() ||
+              match.getLocationAttr() !=
+                  record.getAs<DictionaryAttr>("location") ||
+              !sameEndpoint(*condition, *expectedCondition) ||
+              !sameEndpoint(*path, *expectedPath))
+            return match->emitOpError() << "sampled body assertion differs "
+                                           "from designated suffix/kind/span";
+          if (failed(checkOwner(entry, body.id, body.invocation,
+                                match.getLocationAttr(), writer.rule, match,
+                                *clock, *reset)) ||
+              failed(privateRoute(writer.rule->getResult(body.conditionResult),
+                                  entry.scope, 0, PrivateRoute::EffectOperand,
+                                  match, 0)) ||
+              failed(privateRoute(writer.rule->getResult(body.pathResult),
+                                  entry.scope, 0, PrivateRoute::EffectOperand,
+                                  match, 1)))
+            return failure();
+        }
+        for (const auto &observation : sampled->observations) {
+          auto found =
+              observationTerminal(**terminals, observation.id, writer.rule);
+          if (failed(found))
+            return failure();
+          SourceObserveOp match = *found;
+          auto logical =
+              effectOwner(entry, writer.rule, match,
+                          observation.id.getAs<ArrayAttr>("invocation"), [&] {
+                            return resolveObservationOwner(
+                                analysis, match, entry.bindings,
+                                [&](uint64_t cost, Operation *site) {
+                                  return budget.debit(cost, site);
+                                });
+                          });
+          if (failed(logical) ||
+              failed(effectDomain(entry, **logical, *clock, *reset, match)))
+            return failure();
+          if (match->getNumOperands() != observation.valueCount + 1)
+            return match->emitOpError()
+                   << "sampled observation value count differs from inventory";
+          for (uint64_t ordinal = 0; ordinal <= observation.valueCount;
+               ++ordinal) {
+            uint64_t slot = observation.pathResult + ordinal;
+            auto actual = normal(match->getOperand(ordinal), entry.scope);
+            auto expected = normal(writer.rule->getResult(slot), entry.scope);
+            if (failed(actual) || failed(expected))
+              return failure();
+            if (!sameEndpoint(*actual, *expected))
+              return match->emitOpError() << "sampled observation must consume "
+                                             "its designated operand slot";
+            if (failed(privateRoute(writer.rule->getResult(slot), entry.scope,
+                                    0, PrivateRoute::EffectOperand, match,
+                                    ordinal)))
+              return failure();
+          }
+        }
+        for (const auto &[id, observe] : (**terminals).observations) {
+          if (failed(payComparison(id.get("registration"), writer.registration,
+                                   budget, observe)))
+            return failure();
+          if (!identical(id.get("registration"), writer.registration))
+            continue;
+          bool present = false;
+          for (const auto &observation : sampled->observations) {
+            if (failed(payComparison(id, observation.id, budget, observe)))
+              return failure();
+            present |= identical(id, observation.id);
+          }
+          if (!present)
+            return observe->emitOpError()
+                   << "observation claims sampled registration absent from "
+                      "inventory";
         }
       }
     }
@@ -1932,21 +2441,43 @@ private:
     return sameEndpoint(*origin, *states[candidate].enable);
   }
   FailureOr<size_t> occurrenceFor(const HardwareIdentityScope &scope) {
-    for (auto [ordinal, entry] : llvm::enumerate(occurrences)) {
-      if (failed(payScope(entry.scope, budget, scope.root)) ||
-          failed(payScope(scope, budget, scope.root)))
-        return failure();
-      if (sameScope(entry.scope, scope))
-        return ordinal;
-    }
+    if (occurrences.empty())
+      return scope.root->emitOpError()
+             << "private route has no actual module occurrences";
+    const auto &root = occurrences.front().scope;
+    // Every scope reaching this private helper was created from this
+    // WiringProof's already-paid exact root bindings (copyScope/childScope).
+    // Recheck the root handle and exact path here without rescanning the same
+    // immutable bindings for every SSA use.
+    if (failed(budget.debit(1, scope.root)))
+      return failure();
+    if (root.root != scope.root)
+      return scope.root->emitOpError()
+             << "private route scope differs from its proof root";
+    if (failed(budget.debit(SourceCheckBudget::add(1, scope.path.size()),
+                            scope.root)))
+      return failure();
+    auto found = occurrenceIndex.find(occurrenceHash(scope));
+    if (found != occurrenceIndex.end())
+      for (size_t ordinal : found->second) {
+        const auto &path = occurrences[ordinal].scope.path;
+        if (failed(
+                budget.debit(SourceCheckBudget::add(
+                                 1, std::min(path.size(), scope.path.size())),
+                             scope.root)))
+          return failure();
+        if (path == scope.path)
+          return ordinal;
+      }
     return scope.root->emitOpError()
            << "private route has no actual module occurrence";
   }
   LogicalResult visitPrivate(const HardwareIdentityEndpoint &endpoint,
                              const PrivateRoute &route,
-                             SmallVectorImpl<RouteVisit> &seen) {
+                             std::set<RouteVisitKey> &seen,
+                             std::optional<size_t> knownOccurrence = {}) {
     Operation *site = valueSite(endpoint.value);
-    if (failed(budget.debit(seen.size() + 1, site)))
+    if (failed(budget.debit(1, site)))
       return failure();
     if (endpoint.value.use_empty()) {
       // A transaction with no candidates still publishes its verified fire
@@ -1961,24 +2492,28 @@ private:
              << "private transaction/check route has a dead end before its "
                 "corresponding D/E or expect";
     }
-    for (const auto &entry : seen) {
-      if (entry.state != route.state || entry.kind != route.kind ||
-          entry.expect != route.expect || entry.endpoint.value != endpoint.value)
-        continue;
-      if (failed(payScope(entry.endpoint.scope, budget, site)) ||
-          failed(payScope(endpoint.scope, budget, site)))
-        return failure();
-      if (sameEndpoint(entry.endpoint, endpoint))
-        return success();
-    }
-    if (failed(charge(budget, site, 1, sizeof(RouteVisit))) ||
-        failed(payScope(endpoint.scope, budget, site)))
+    FailureOr<size_t> resolvedOccurrence =
+        knownOccurrence ? FailureOr<size_t>(*knownOccurrence)
+                        : occurrenceFor(endpoint.scope);
+    if (failed(resolvedOccurrence))
       return failure();
-    seen.push_back({endpoint, route.state, route.kind, route.expect});
-    auto currentOccurrence = occurrenceFor(endpoint.scope);
-    if (failed(currentOccurrence))
+    size_t currentOccurrence = *resolvedOccurrence;
+    RouteVisitKey key{endpoint.value.getAsOpaquePointer(),
+                      endpoint.resolvedType.getAsOpaquePointer(),
+                      currentOccurrence};
+    uint64_t comparisons = 1;
+    for (uint64_t nodes = seen.size() + 1; nodes > 1; nodes = (nodes + 1) / 2)
+      comparisons = SourceCheckBudget::add(comparisons, 2);
+    if (failed(budget.debit(comparisons, site)))
       return failure();
-    const auto &owner = occurrences[*currentOccurrence];
+    auto insertion = seen.lower_bound(key);
+    if (insertion != seen.end() && *insertion == key)
+      return success();
+    if (failed(charge(budget, site, 1,
+                      sizeof(RouteVisitKey) + 4 * sizeof(void *))))
+      return failure();
+    seen.emplace_hint(insertion, std::move(key));
+    const auto &owner = occurrences[currentOccurrence];
     for (auto &use : endpoint.value.getUses()) {
       if (failed(budget.debit(1, use.getOwner())))
         return failure();
@@ -1996,21 +2531,20 @@ private:
         if (!sameEndpoint(*canonical, *original))
           return extract->emitOpError() << "private transaction value escapes "
                                            "through nonidentity extract";
-        if (failed(visitPrivate(*next, route, seen)))
+        if (failed(visitPrivate(*next, route, seen, currentOccurrence)))
           return failure();
         continue;
       }
-      if (auto expect = dyn_cast<SourceExpectOp>(consumer)) {
-        if (expect == route.expect &&
-            ((route.kind == PrivateRoute::Condition && operand == 0) ||
-             (route.kind == PrivateRoute::Reached && operand == 1)))
+      if (isa<SourceExpectOp, SourceObserveOp>(consumer)) {
+        if (route.kind == PrivateRoute::EffectOperand &&
+            consumer == route.terminal && operand == route.operand)
           continue;
-        return expect->emitOpError() << "private transaction/check value "
-                                        "escapes to unrelated expect operand";
+        return consumer->emitOpError()
+               << "private transaction/effect value escapes to unrelated "
+                  "terminal operand";
       }
       if (auto instance = dyn_cast<InstanceOp>(consumer)) {
-        if (route.kind == PrivateRoute::Condition ||
-            route.kind == PrivateRoute::Reached)
+        if (route.kind == PrivateRoute::EffectOperand)
           return instance->emitOpError()
                  << "check suffix escapes its corresponding expect";
         if (analysis.getPrimitiveKind(analysis.resolveCallee(instance)) ==
@@ -2019,20 +2553,23 @@ private:
               stateTerminal(endpoint.scope, instance, route.state))
             continue;
           if (route.kind == PrivateRoute::Enable && operand == 2) {
-            bool allowed = false;
-            for (auto [ordinal, state] : llvm::enumerate(states)) {
-              if (failed(payScope(state.scope, budget, instance)) ||
+            if (failed(budget.debit(1, instance)))
+              return failure();
+            auto found = stateIndex.find({currentOccurrence, instance});
+            if (found != stateIndex.end()) {
+              size_t ordinal = found->second;
+              if (failed(payScope(states[ordinal].scope, budget, instance)) ||
                   failed(payScope(endpoint.scope, budget, instance)))
                 return failure();
               if (!stateTerminal(endpoint.scope, instance, ordinal))
-                continue;
-              auto targetAllowed = enableTarget(route, ordinal);
-              if (failed(targetAllowed))
+                return instance->emitOpError()
+                       << "state terminal index differs from actual scope";
+              auto allowed = enableTarget(route, ordinal);
+              if (failed(allowed))
                 return failure();
-              allowed = *targetAllowed;
+              if (*allowed)
+                continue;
             }
-            if (allowed)
-              continue;
           }
           return instance->emitOpError() << "private candidate/fire reaches "
                                             "unrelated primitive pin or owner";
@@ -2084,13 +2621,12 @@ private:
         auto nextEndpoint =
             makeIdentityEndpoint(next, *nested, analysis, budget);
         if (failed(nextEndpoint) ||
-            failed(visitPrivate(*nextEndpoint, route, seen)))
+            failed(visitPrivate(*nextEndpoint, route, seen, *childIndex)))
           return failure();
         continue;
       }
       if (auto yielded = dyn_cast<YieldOp>(consumer)) {
-        if (route.kind == PrivateRoute::Condition ||
-            route.kind == PrivateRoute::Reached ||
+        if (route.kind == PrivateRoute::EffectOperand ||
             yielded->getParentOp() != owner.module.operator->() ||
             !owner.wiring || operand < owner.wiring->ports.sourceOutputCount ||
             !owner.parent || operand >= owner.allocation->getNumResults())
@@ -2100,7 +2636,8 @@ private:
         const auto &parent = occurrences[*owner.parent];
         auto next = makeIdentityEndpoint(owner.allocation->getResult(operand),
                                          parent.scope, analysis, budget);
-        if (failed(next) || failed(visitPrivate(*next, route, seen)))
+        if (failed(next) ||
+            failed(visitPrivate(*next, route, seen, *owner.parent)))
           return failure();
         continue;
       }
@@ -2111,10 +2648,11 @@ private:
     return success();
   }
   LogicalResult privateUses() {
-    SmallVector<RouteVisit> seen;
-    for (const auto &route : privateRoutes)
+    for (const auto &route : privateRoutes) {
+      std::set<RouteVisitKey> seen;
       if (failed(visitPrivate(route.endpoint, route, seen)))
         return failure();
+    }
     return success();
   }
   const HardwareAnalysis &analysis;
@@ -2125,6 +2663,10 @@ private:
   SmallVector<State, 0> states;
   SmallVector<HardwareIdentityEndpoint> stops;
   SmallVector<PrivateRoute> privateRoutes;
+  llvm::DenseMap<uint64_t, SmallVector<size_t>> occurrenceIndex;
+  llvm::DenseMap<std::pair<size_t, Operation *>, size_t> stateIndex;
+  llvm::DenseMap<std::pair<size_t, Attribute>, size_t> stateTargetProofs;
+  EffectProofCache &effectProofCache;
   std::optional<IdentityMemo> identity;
 };
 bool localWitness(ModuleOp module) {
@@ -2209,7 +2751,8 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
                               &operation)))
         return failure();
       if (isa<RuleOp>(operation))
-        if (auto required = operation.getAttrOfType<ArrayAttr>("ac.required_checks"))
+        if (auto required =
+                operation.getAttrOfType<ArrayAttr>("ac.required_checks"))
           hasCheckBoundary |= !required.empty();
     }
     // Totality identity follows ordinary instances. Their check-only suffixes
@@ -2295,6 +2838,7 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
                 "descendant writer";
   }
   SmallVector<const std::pair<ModuleOp, HardwareBindings> *, 0> verifiedRoots;
+  EffectProofCache effectProofCache;
   for (const auto &entry : scopes) {
     const auto &[module, bindings] = entry;
     if (failed(budget.debit(1, module)))
@@ -2319,7 +2863,7 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
     }
     if (verified)
       continue;
-    WiringProof proof(analysis, budget, relevant, validation);
+    WiringProof proof(analysis, budget, relevant, validation, effectProofCache);
     if (failed(proof.run(module, bindings)))
       return failure();
     // Record only completed root proofs; child visits do not prove that child

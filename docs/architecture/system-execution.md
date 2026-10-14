@@ -103,7 +103,13 @@ published as `instance` and used for report keys. Compiler-generated `site` is a
 canonical JSON string containing `{site, invocation, ordinal}`; `registration`
 retains its original JSON. Old three-field IDs and old generated site metadata
 have no compatibility path. Runtime opaque site strings remain unchanged.
-This identity contract does not itself admit Method body checks or observations.
+Identity validation alone does not establish Method execution. Direct Method body
+checks and observations additionally require the
+[sampled body-effect proof](../rfcs/serial-rule-method/sampled-body-effects.md)
+and original-source authentication. Generated System regression checks repeated
+invocations, saved candidates, ordered events and failed-epoch publication;
+four-state RTL probes separately check assertion failure, reset and state/history
+preservation. Branch/partial-state and resources remain separate capabilities.
 The current descriptor layout is shared per definition. Emission rejects differing
 Collection lane counts for that same definition when the child subtree carries
 observations; general binding-dependent observation geometry remains unsupported.

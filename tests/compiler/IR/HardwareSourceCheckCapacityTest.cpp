@@ -1,3 +1,4 @@
+#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -19,6 +20,7 @@
 
 namespace {
 namespace ac = acir::ac;
+namespace detail = acir::ac::detail;
 using namespace mlir;
 
 // All large families are compact declarations. Subprocess success requires
@@ -294,6 +296,51 @@ protected:
   }
 #endif
 };
+
+TEST_F(HardwareSourceCheckCapacityTest,
+       NestedRawDiagnosticScopesRestoreOrdinaryLocationsOnEveryExit) {
+  begin();
+  root = module("Root");
+  auto *site = root.getOperation();
+  auto failsAt = [&](auto function, bool expectUnknown) {
+    bool sawDiagnostic = false;
+    ScopedDiagnosticHandler handler(&context, [&](Diagnostic &error) {
+      sawDiagnostic = true;
+      EXPECT_EQ(isa<UnknownLoc>(error.getLocation()), expectUnknown);
+      if (expectUnknown)
+        EXPECT_TRUE(error.getNotes().empty());
+      llvm::raw_string_ostream stream(diagnostics);
+      error.print(stream);
+      return success();
+    });
+    diagnostics.clear();
+    EXPECT_TRUE(failed(function()));
+    EXPECT_TRUE(sawDiagnostic);
+    EXPECT_NE(diagnostics.find("analysis work budget"), std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(diagnostics.find("\"ac.module\""), std::string::npos)
+        << diagnostics;
+  };
+  detail::SourceCheckBudget budget({0});
+  {
+    detail::SourceCheckBudget::RawDiagnosticScope outer(budget);
+    failsAt([&] { return budget.debit(1, site); }, true);
+    {
+      detail::SourceCheckBudget::RawDiagnosticScope inner(budget);
+      failsAt([&] { return budget.debit(1, site); }, true);
+    }
+    failsAt([&] { return budget.debit(1, site); }, true);
+  }
+  failsAt([&] { return budget.debit(1, site); }, false);
+
+  detail::SourceCheckBudget earlyReturnBudget({0});
+  auto rawFailure = [&]() {
+    detail::SourceCheckBudget::RawDiagnosticScope scope(earlyReturnBudget);
+    return earlyReturnBudget.debit(1, site);
+  };
+  failsAt(rawFailure, true);
+  failsAt([&] { return earlyReturnBudget.debit(1, site); }, false);
+}
 
 #if GTEST_HAS_DEATH_TEST
 TEST_F(HardwareSourceCheckCapacityTest,

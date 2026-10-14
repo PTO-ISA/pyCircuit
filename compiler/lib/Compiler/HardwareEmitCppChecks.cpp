@@ -354,76 +354,82 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
         << viewLiteral("sampled reset is unknown")
         << ", {}, {}, {}};\n        return false;\n      }\n    }\n";
   }
-  for (const auto &check : plan.checks) {
-    auto owner = address(context, check.ownerOccurrence);
-    auto local = localIndex(context, check.bindingIndex);
-    if (failed(owner) || failed(local))
-      return failure();
-    const auto &binding = plan.bindings[check.bindingIndex];
-    auto location = jsonLiteral(binding.location, binding.expect);
-    auto id = jsonLiteral(binding.checkID, binding.expect);
-    if (failed(location) || failed(id))
-      return failure();
-    std::string message =
-        binding.message
-            ? binding.message.getValue().str()
-            : "source " + binding.kind.getValue().str() + " check failed";
-    auto lane = std::to_string(owner->lane);
-    auto site = std::to_string(*local);
-    if (binding.kind.getValue() == "guard_known") {
-      if (!check.samplingOccurrenceIndex)
-        return binding.expect->emitOpError()
-               << "native guard check has no sampling occurrence";
-      auto samplingLocal =
-          samplingIndex(context, *check.samplingOccurrenceIndex);
-      if (failed(samplingLocal))
+  // Guard faults precede ordinary and body assertions. Preserve the
+  // validated occurrence/registration order within each phase.
+  for (bool guardPhase : {true, false}) {
+    for (const auto &check : plan.checks) {
+      const auto &binding = plan.bindings[check.bindingIndex];
+      if ((binding.kind.getValue() == "guard_known") != guardPhase)
+        continue;
+      auto owner = address(context, check.ownerOccurrence);
+      auto local = localIndex(context, check.bindingIndex);
+      if (failed(owner) || failed(local))
         return failure();
-      const auto &sampling =
-          plan.samplingOccurrences[*check.samplingOccurrenceIndex];
-      auto samplingOwner = address(context, sampling.ownerOccurrence);
-      if (failed(samplingOwner))
+      auto location = jsonLiteral(binding.location, binding.expect);
+      auto id = jsonLiteral(binding.checkID, binding.expect);
+      if (failed(location) || failed(id))
         return failure();
-      out << "    {\n      const auto &pyc_reached = " << owner->object
-          << "->__pyc_check_path_" << site << "(" << lane << ");\n"
-          << "      if (!pyc_reached.isFullyKnown()) {\n"
-          << "        failure = {gfsim::SimFailurePhase::Check, "
-          << viewLiteral("runtime_failure") << ", "
-          << viewLiteral("sampled guard reachability is unknown")
-          << ", {}, {}, {}};\n        return false;\n      }\n"
-          << "      const auto &pyc_sampling = " << samplingOwner->object
-          << "->__pyc_sampling_evaluation_" << *samplingLocal << "("
-          << samplingOwner->lane << ");\n"
-          << "      if (pyc_sampling.rising && !pyc_sampling.resetActive && "
-             "pyc_reached.value().toBool() && !"
+      std::string message =
+          binding.message
+              ? binding.message.getValue().str()
+              : "source " + binding.kind.getValue().str() + " check failed";
+      auto lane = std::to_string(owner->lane);
+      auto site = std::to_string(*local);
+      if (binding.kind.getValue() == "guard_known") {
+        if (!check.samplingOccurrenceIndex)
+          return binding.expect->emitOpError()
+                 << "native guard check has no sampling occurrence";
+        auto samplingLocal =
+            samplingIndex(context, *check.samplingOccurrenceIndex);
+        if (failed(samplingLocal))
+          return failure();
+        const auto &sampling =
+            plan.samplingOccurrences[*check.samplingOccurrenceIndex];
+        auto samplingOwner = address(context, sampling.ownerOccurrence);
+        if (failed(samplingOwner))
+          return failure();
+        out << "    {\n      const auto &pyc_reached = " << owner->object
+            << "->__pyc_check_path_" << site << "(" << lane << ");\n"
+            << "      if (!pyc_reached.isFullyKnown()) {\n"
+            << "        failure = {gfsim::SimFailurePhase::Check, "
+            << viewLiteral("runtime_failure") << ", "
+            << viewLiteral("sampled guard reachability is unknown")
+            << ", {}, {}, {}};\n        return false;\n      }\n"
+            << "      const auto &pyc_sampling = " << samplingOwner->object
+            << "->__pyc_sampling_evaluation_" << *samplingLocal << "("
+            << samplingOwner->lane << ");\n"
+            << "      if (pyc_sampling.rising && !pyc_sampling.resetActive && "
+               "pyc_reached.value().toBool() && !"
+            << owner->object << "->__pyc_check_condition_" << site << "(" << lane
+            << ").isFullyKnown()) {\n"
+            << "        failure = {gfsim::SimFailurePhase::Check, "
+            << viewLiteral("source_check_failed") << ", " << viewLiteral(message)
+            << ", pyc_check_instances_[" << check.ordinal << "], " << *location
+            << ", " << *id << "};\n        return false;\n      }\n    }\n";
+        continue;
+      }
+      std::string reset = "gfsim::FourState<1>::known(gfsim::Bits<1>{0})";
+      if (check.reset.kind == ac::HardwareCheckResetKind::PhysicalReset) {
+        auto resetOwner = address(context, *check.reset.ownerOccurrence);
+        if (failed(resetOwner))
+          return failure();
+        auto resetLane = std::to_string(resetOwner->lane);
+        reset = resetOwner->object + "->__pyc_check_reset(" + resetLane +
+                ").packed()";
+      }
+      out << "    {\n      const auto pyc_error = gfsim::bit_and("
+             "gfsim::bit_and("
+          << owner->object << "->__pyc_check_path_" << site << "(" << lane
+          << ").packed(), gfsim::bit_not(" << reset << ")), gfsim::bit_not("
           << owner->object << "->__pyc_check_condition_" << site << "(" << lane
-          << ").isFullyKnown()) {\n"
+          << ").packed()));\n"
+          << "      if (!pyc_error.isFullyKnown() || "
+             "pyc_error.value() != gfsim::Bits<1>{0}) {\n"
           << "        failure = {gfsim::SimFailurePhase::Check, "
           << viewLiteral("source_check_failed") << ", " << viewLiteral(message)
           << ", pyc_check_instances_[" << check.ordinal << "], " << *location
           << ", " << *id << "};\n        return false;\n      }\n    }\n";
-      continue;
     }
-    std::string reset = "gfsim::FourState<1>::known(gfsim::Bits<1>{0})";
-    if (check.reset.kind == ac::HardwareCheckResetKind::PhysicalReset) {
-      auto resetOwner = address(context, *check.reset.ownerOccurrence);
-      if (failed(resetOwner))
-        return failure();
-      auto resetLane = std::to_string(resetOwner->lane);
-      reset = resetOwner->object + "->__pyc_check_reset(" + resetLane +
-              ").packed()";
-    }
-    out << "    {\n      const auto pyc_error = gfsim::bit_and("
-           "gfsim::bit_and("
-        << owner->object << "->__pyc_check_path_" << site << "(" << lane
-        << ").packed(), gfsim::bit_not(" << reset << ")), gfsim::bit_not("
-        << owner->object << "->__pyc_check_condition_" << site << "(" << lane
-        << ").packed()));\n"
-        << "      if (!pyc_error.isFullyKnown() || "
-           "pyc_error.value() != gfsim::Bits<1>{0}) {\n"
-        << "        failure = {gfsim::SimFailurePhase::Check, "
-        << viewLiteral("source_check_failed") << ", " << viewLiteral(message)
-        << ", pyc_check_instances_[" << check.ordinal << "], " << *location
-        << ", " << *id << "};\n        return false;\n      }\n    }\n";
   }
   out << "    return true;\n  }\n";
   return success();

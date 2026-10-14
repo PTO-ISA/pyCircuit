@@ -41,6 +41,12 @@ protected:
     std::string originalText;
     std::vector<mlir::Operation *> originalOperations;
   };
+  struct AuthoredEffects {
+    SourceExpectOp methodCheck;
+    SourceObserveOp methodObservation;
+    SourceExpectOp directCheck;
+    SourceObserveOp directObservation;
+  };
 
   mlir::MLIRContext context;
   mlir::OpBuilder builder{&context};
@@ -217,6 +223,79 @@ protected:
                                        "value", builder.getI64IntegerAttr(
                                                     index))})}))})),
          builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
+  }
+
+  AuthoredEffects addAuthoredEffects(mlir::ModuleOp file) {
+    auto owner = module(file);
+    auto bump = named<SourceMethodOp>(owner, "bump");
+    auto &methodBody = bump.getBody().front();
+    auto methodPath = methodBody.getArgument(1);
+    auto old = first<SourceStateReadOp>(bump.getBody()).getResult();
+    auto constants = owner.getBody().front().getOps<BitsConstantOp>();
+    auto falseCondition = (*std::next(constants.begin())).clone();
+    methodBody.getOperations().insert(methodBody.getTerminator()->getIterator(),
+                                      falseCondition.getOperation());
+    builder.setInsertionPoint(methodBody.getTerminator());
+    mlir::OperationState methodCheckState(bump.getLoc(),
+                                          SourceExpectOp::getOperationName());
+    methodCheckState.addOperands({falseCondition->getResult(0), methodPath});
+    methodCheckState.addAttribute("kind", builder.getStringAttr("assert"));
+    methodCheckState.addAttribute("location", span(20));
+    methodCheckState.addAttribute("occurrence", occurrence("Owner", 20));
+    methodCheckState.addAttribute("ac.message",
+                                  builder.getStringAttr("method-check"));
+    auto methodCheck =
+        mlir::cast<SourceExpectOp>(builder.create(methodCheckState));
+    auto valueItem = [&](unsigned ordinal) {
+      return builder.getDictionaryAttr(
+          {builder.getNamedAttr("kind", builder.getStringAttr("value")),
+           builder.getNamedAttr("ordinal",
+                                builder.getI32IntegerAttr(ordinal))});
+    };
+    mlir::OperationState methodObservationState(
+        bump.getLoc(), SourceObserveOp::getOperationName());
+    methodObservationState.addOperands(
+        {methodPath, old, methodBody.getArgument(0), old});
+    methodObservationState.addAttribute("kind", builder.getStringAttr("log"));
+    methodObservationState.addAttribute(
+        "spec",
+        builder.getDictionaryAttr(
+            {builder.getNamedAttr("level", builder.getStringAttr("info")),
+             builder.getNamedAttr("event", builder.getStringAttr("method")),
+             builder.getNamedAttr(
+                 "items", builder.getArrayAttr(
+                              {valueItem(0), valueItem(1), valueItem(2)}))}));
+    methodObservationState.addAttribute("occurrence", occurrence("Owner", 21));
+    methodObservationState.addAttribute("ac.location", span(21));
+    auto methodObservation =
+        mlir::cast<SourceObserveOp>(builder.create(methodObservationState));
+
+    auto run = named<SourceTransactionOp>(owner, "run");
+    auto &runBody = run.getBody().front();
+    auto path = runBody.getArgument(0);
+    auto calls = llvm::to_vector(runBody.getOps<SourceMethodCallOp>());
+    builder.setInsertionPoint(runBody.getTerminator());
+    mlir::OperationState directCheckState(run.getLoc(),
+                                          SourceExpectOp::getOperationName());
+    directCheckState.addOperands({path, path});
+    directCheckState.addAttribute("kind", builder.getStringAttr("assert"));
+    directCheckState.addAttribute("location", span(22));
+    directCheckState.addAttribute("occurrence", occurrence("Owner", 22));
+    auto directCheck =
+        mlir::cast<SourceExpectOp>(builder.create(directCheckState));
+    mlir::OperationState directObservationState(
+        run.getLoc(), SourceObserveOp::getOperationName());
+    directObservationState.addOperands({path, calls.front().getResult(0)});
+    directObservationState.addAttribute("kind",
+                                        builder.getStringAttr("report"));
+    directObservationState.addAttribute(
+        "spec", builder.getDictionaryAttr({builder.getNamedAttr(
+                    "name", builder.getStringAttr("direct"))}));
+    directObservationState.addAttribute("occurrence", occurrence("Owner", 23));
+    directObservationState.addAttribute("ac.location", span(23));
+    auto directObservation =
+        mlir::cast<SourceObserveOp>(builder.create(directObservationState));
+    return {methodCheck, methodObservation, directCheck, directObservation};
   }
 
   ModuleOp addPlainDefinition(mlir::ModuleOp file, llvm::StringRef name) {
@@ -411,6 +490,202 @@ TEST_F(SampledTransactionLoweringTest,
               prepared.expectedAdmission);
     EXPECT_EQ(record.rule->getAttr("ac.required_checks"),
               prepared.expectedRequiredChecks);
+  }
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       BodyEffectsMaterializeExactExpandedLayoutAndSourceIdentities) {
+  AuthoredEffects source;
+  auto staged =
+      stage([&](mlir::ModuleOp file) { source = addAuthoredEffects(file); });
+  ASSERT_TRUE(staged);
+  EXPECT_TRUE(mlir::succeeded(verify(*staged))) << diagnostics;
+  expectOriginalUnchanged(*staged);
+  auto index = transactionIndex(*staged, "run");
+  const auto &prepared = staged->prepared.transactions[index];
+  const auto &plan = *prepared.plan;
+  auto &record = staged->candidate.transactions[index];
+  ASSERT_EQ(plan.bodyChecks.size(), 3u);
+  ASSERT_EQ(plan.observations.size(), 3u);
+  ASSERT_EQ(record.bodyChecks.size(), plan.bodyChecks.size());
+  ASSERT_EQ(record.observations.size(), plan.observations.size());
+  auto metadata =
+      record.rule->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
+  ASSERT_TRUE(metadata);
+  for (llvm::StringRef field : {"clock_capture", "reset_capture", "fire_result",
+                                "guards", "body_checks", "observations"})
+    EXPECT_TRUE(metadata.get(field)) << field.str();
+  EXPECT_EQ(metadata.size(), 6u);
+  auto guardRows = metadata.getAs<mlir::ArrayAttr>("guards");
+  auto checkRows = metadata.getAs<mlir::ArrayAttr>("body_checks");
+  auto observationRows = metadata.getAs<mlir::ArrayAttr>("observations");
+  ASSERT_EQ(guardRows.size(), plan.guards.size());
+  ASSERT_EQ(checkRows.size(), plan.bodyChecks.size());
+  ASSERT_EQ(observationRows.size(), plan.observations.size());
+  EXPECT_EQ(prepared.totalResults, record.rule.getNumResults());
+  uint64_t expectedCheckBase = prepared.fireResult + 1;
+  for (const auto &observation : plan.observations)
+    expectedCheckBase += 1 + observation.values.size();
+  EXPECT_EQ(prepared.checkBase, expectedCheckBase);
+
+  uint64_t observationResult = prepared.fireResult + 1;
+  for (auto [ordinal, terminal] : llvm::enumerate(record.observations)) {
+    const auto &sourceRecord = plan.observations[ordinal];
+    EXPECT_EQ(terminal.getPath(), record.rule.getResult(observationResult));
+    EXPECT_EQ(terminal.getValues().size(), sourceRecord.values.size());
+    for (auto [valueOrdinal, value] : llvm::enumerate(terminal.getValues()))
+      EXPECT_EQ(value,
+                record.rule.getResult(observationResult + 1 + valueOrdinal));
+    auto id =
+        terminal->getAttrOfType<mlir::DictionaryAttr>("ac.observation_id");
+    ASSERT_TRUE(id);
+    EXPECT_EQ(id.getAs<mlir::IntegerAttr>("ordinal").getInt(), ordinal);
+    EXPECT_EQ(id.get("site"), sourceRecord.occurrence);
+    EXPECT_EQ(
+        id.get("registration"),
+        plan.transaction->getAttrOfType<mlir::DictionaryAttr>("occurrence"));
+    auto row = mlir::cast<mlir::DictionaryAttr>(observationRows[ordinal]);
+    auto rowID = row.getAs<mlir::DictionaryAttr>("id");
+    EXPECT_EQ(id.get("invocation"), rowID.get("invocation"));
+    EXPECT_EQ(terminal.getKindAttr(), sourceRecord.kind);
+    EXPECT_EQ(terminal.getSpec(), sourceRecord.spec);
+    EXPECT_EQ(terminal->getAttr("ac.location"), sourceRecord.location);
+    EXPECT_EQ(terminal.getLoc(), sourceRecord.operation->getLoc());
+    observationResult += 1 + sourceRecord.values.size();
+  }
+  EXPECT_EQ(observationResult, prepared.checkBase);
+
+  for (auto [ordinal, terminal] : llvm::enumerate(record.bodyChecks)) {
+    const auto &sourceRecord = plan.bodyChecks[ordinal];
+    auto conditionResult =
+        prepared.checkBase + 2 * (plan.guards.size() + ordinal);
+    EXPECT_EQ(terminal.getCondition(), record.rule.getResult(conditionResult));
+    EXPECT_EQ(terminal.getPath(), record.rule.getResult(conditionResult + 1));
+    EXPECT_TRUE(terminal.getSampling().empty());
+    auto id = terminal->getAttrOfType<mlir::DictionaryAttr>("ac.check_id");
+    ASSERT_TRUE(id);
+    EXPECT_EQ(id.getAs<mlir::IntegerAttr>("obligation").getInt(),
+              plan.guards.size() + ordinal);
+    EXPECT_EQ(id.get("check"), sourceRecord.occurrence);
+    EXPECT_EQ(
+        id.get("registration"),
+        plan.transaction->getAttrOfType<mlir::DictionaryAttr>("occurrence"));
+    EXPECT_EQ(terminal->getAttr("location"), sourceRecord.location);
+    EXPECT_EQ(terminal->getAttrOfType<mlir::StringAttr>("ac.message"),
+              sourceRecord.message);
+    EXPECT_EQ(terminal.getLoc(), sourceRecord.operation->getLoc());
+  }
+  EXPECT_EQ(plan.bodyChecks[0].operation, source.methodCheck);
+  EXPECT_EQ(plan.bodyChecks[1].operation, source.methodCheck);
+  EXPECT_EQ(plan.bodyChecks[2].operation, source.directCheck);
+  EXPECT_EQ(plan.observations[0].operation, source.methodObservation);
+  EXPECT_EQ(plan.observations[1].operation, source.methodObservation);
+  EXPECT_EQ(plan.observations[2].operation, source.directObservation);
+  auto firstInvocation = mlir::cast<mlir::DictionaryAttr>(checkRows[0])
+                             .getAs<mlir::ArrayAttr>("invocation");
+  auto secondInvocation = mlir::cast<mlir::DictionaryAttr>(checkRows[1])
+                              .getAs<mlir::ArrayAttr>("invocation");
+  auto directInvocation = mlir::cast<mlir::DictionaryAttr>(checkRows[2])
+                              .getAs<mlir::ArrayAttr>("invocation");
+  EXPECT_FALSE(firstInvocation.empty());
+  EXPECT_FALSE(secondInvocation.empty());
+  EXPECT_NE(firstInvocation, secondInvocation);
+  EXPECT_TRUE(directInvocation.empty());
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       BodyEffectSourceAuthorityRejectsIndependentTerminalMutations) {
+  for (unsigned mutation = 0; mutation < 14; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto staged = stage([&](mlir::ModuleOp file) { addAuthoredEffects(file); });
+    ASSERT_TRUE(staged);
+    auto index = transactionIndex(*staged, "run");
+    const auto &prepared = staged->prepared.transactions[index];
+    auto &record = staged->candidate.transactions[index];
+    ASSERT_GE(record.bodyChecks.size(), 3u);
+    ASSERT_GE(record.observations.size(), 3u);
+    auto check = record.bodyChecks[0];
+    auto observation = record.observations[0];
+    if (mutation == 0)
+      check->setOperand(0, check.getPath());
+    if (mutation == 1)
+      observation->setOperand(2, observation->getOperand(1));
+    if (mutation == 2)
+      observation->setAttr("kind", builder.getStringAttr("report"));
+    if (mutation == 3)
+      observation->setAttr("spec",
+                           builder.getDictionaryAttr({builder.getNamedAttr(
+                               "name", builder.getStringAttr("forged"))}));
+    if (mutation == 4)
+      check->setAttr("ac.message", builder.getStringAttr("forged"));
+    if (mutation == 5)
+      observation->setAttr("ac.location", span(99));
+    if (mutation == 6)
+      observation->setLoc(
+          mlir::FileLineColLoc::get(&context, "forged.py", 9, 3));
+    if (mutation >= 7 && mutation <= 9) {
+      auto id =
+          observation->getAttrOfType<mlir::DictionaryAttr>("ac.observation_id");
+      mlir::NamedAttrList fields(id);
+      if (mutation == 7)
+        fields.set("ordinal", builder.getI64IntegerAttr(99));
+      if (mutation == 8)
+        fields.set("owner",
+                   builder.getDictionaryAttr({builder.getNamedAttr(
+                       "instance_path",
+                       builder.getArrayAttr({occurrence("Owner", 99)}))}));
+      if (mutation == 9)
+        fields.set("registration", occurrence("Owner", 99));
+      observation->setAttr("ac.observation_id", fields.getDictionary(&context));
+    }
+    if (mutation == 10)
+      record.observations[0] = {};
+    if (mutation == 11)
+      std::swap(record.observations[0], record.observations[1]);
+    if (mutation == 12)
+      observation->setOperand(0, record.rule.getResult(prepared.fireResult));
+    if (mutation == 13) {
+      auto metadata = record.rule->getAttrOfType<mlir::DictionaryAttr>(
+          "ac.sampled_admission");
+      llvm::SmallVector<mlir::Attribute> rows(
+          metadata.getAs<mlir::ArrayAttr>("body_checks").begin(),
+          metadata.getAs<mlir::ArrayAttr>("body_checks").end());
+      mlir::NamedAttrList changed(mlir::cast<mlir::DictionaryAttr>(rows[0]));
+      changed.set("invocation", builder.getArrayAttr({}));
+      rows[0] = changed.getDictionary(&context);
+      mlir::NamedAttrList fields(metadata);
+      fields.set("body_checks", builder.getArrayAttr(rows));
+      record.rule->setAttr("ac.sampled_admission",
+                           fields.getDictionary(&context));
+    }
+    rejects(*staged, "transaction original-source proof failed");
+  }
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       BodyEffectTerminalInventoryRejectsMissingExtraAndReorderedOperations) {
+  for (unsigned mutation = 0; mutation < 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto staged = stage([&](mlir::ModuleOp file) { addAuthoredEffects(file); });
+    ASSERT_TRUE(staged);
+    auto index = transactionIndex(*staged, "run");
+    auto &record = staged->candidate.transactions[index];
+    auto owner = record.rule->getParentOfType<ModuleOp>();
+    if (mutation == 0)
+      record.bodyChecks.front().erase();
+    if (mutation == 1) {
+      auto *copy = record.bodyChecks.front()->clone();
+      owner.getBody().front().getOperations().insert(
+          owner.getBody().front().getTerminator()->getIterator(), copy);
+    }
+    if (mutation == 2)
+      record.observations.front().erase();
+    if (mutation == 3) {
+      auto first = record.bodyChecks[0].getOperation();
+      auto second = record.observations[0].getOperation();
+      first->moveAfter(second);
+    }
+    rejects(*staged, "transaction original-source proof failed");
   }
 }
 

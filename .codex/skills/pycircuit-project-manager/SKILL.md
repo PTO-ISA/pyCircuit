@@ -86,8 +86,10 @@ Read [the extension matrix](../../../docs/rfcs/serial-rule-method/extension-road
 before assigning Method work. An autonomous Rule owns the transaction; Method
 calls share its candidate versions and commit decision. Ordinary pure `def`
 replaces callable Rule helpers. Independent Rules retain old-Q visibility.
-Current straight-line, same-domain, whole-Bits execution does not establish
-branch/partial-state, resource, or full Method `@system` check/observation support.
+Current straight-line, same-domain, whole-Bits execution includes direct body
+assert/log/report materialization. Require both source authentication and final
+private-route proof plus generated Method `@system` workers1/2 and RTL evidence.
+This does not establish branch/partial-state or resource support.
 A generated System smoke is not that closure; an identity proposal is not admission.
 
 Observation groups must validate before any state/history Xfer or managed RTL

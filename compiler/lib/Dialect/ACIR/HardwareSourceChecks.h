@@ -18,12 +18,19 @@ struct ObservationLocalKey {
 };
 mlir::LogicalResult verifySourceObservationStructure(SourceObserveOp observe);
 mlir::LogicalResult verifyModuleObservationIdentities(ModuleOp definition);
-struct ResolvedObservationOwner {
+struct ResolvedSourceEffectOwner {
   ModuleOp terminal;
   HardwareBindings bindings;
   llvm::SmallVector<InstanceOp> path;
 };
-mlir::FailureOr<ResolvedObservationOwner> resolveObservationOwner(
+mlir::FailureOr<ResolvedSourceEffectOwner> resolveSourceEffectOwner(
+    const HardwareAnalysis &analysis, ModuleOp physical,
+    const HardwareBindings &physicalBindings,
+    mlir::DictionaryAttr registration, mlir::DictionaryAttr site,
+    mlir::ArrayAttr invocation, mlir::DictionaryAttr location,
+    mlir::Operation *diagnosticSite,
+    const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
+mlir::FailureOr<ResolvedSourceEffectOwner> resolveObservationOwner(
     const HardwareAnalysis &analysis, SourceObserveOp observe,
     const HardwareBindings &physicalBindings,
     const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)>

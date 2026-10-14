@@ -1107,7 +1107,7 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
-       PlannedBodyEffectsStopAtTheSampledEffectLoweringBarrier) {
+       PlannedBodyEffectsMaterializeAndPassOriginalSourceAuthentication) {
   for (llvm::StringRef kind : {"expect", "observe"}) {
     auto file = parse();
     ASSERT_TRUE(file);
@@ -1148,17 +1148,39 @@ TEST_F(TransactionLoweringTest,
       return acir::detail::prepareTransactionLowering(*file, analysis,
                                                       preparationBudget);
     });
-    EXPECT_TRUE(mlir::failed(prepared));
-    EXPECT_NE(diagnostics.find("sampled effect lowering"), std::string::npos)
-        << diagnostics;
+    ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+    detail::SourceCheckBudget materializationBudget(limits);
+    auto materialized = capture([&] {
+      return acir::detail::materializeTransactionLowering(
+          *prepared, materializationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+    detail::SourceCheckBudget proofBudget(limits);
+    EXPECT_TRUE(mlir::succeeded(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *materialized, proofBudget);
+    }))) << diagnostics;
+    auto preparedIndex =
+        llvm::find_if(prepared->transactions, [&](const auto &entry) {
+          return entry.plan->transaction == run;
+        });
+    ASSERT_NE(preparedIndex, prepared->transactions.end());
+    auto index = std::distance(prepared->transactions.begin(), preparedIndex);
+    EXPECT_EQ(materialized->transactions[index].bodyChecks.size(),
+              kind == "expect" ? 1u : 0u);
+    EXPECT_EQ(materialized->transactions[index].observations.size(),
+              kind == "observe" ? 1u : 0u);
     unchanged(*file, before);
     EXPECT_EQ(text, print(file->getOperation()));
-    rejects(*file, "sampled effect lowering");
+    EXPECT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+    unsigned remainingTransactions = 0;
+    file->walk([&](SourceTransactionOp) { ++remainingTransactions; });
+    EXPECT_EQ(remainingTransactions, 0u);
   }
 }
 
 TEST_F(TransactionLoweringTest,
-       DirectLoweringSeamsRejectEffectPlansAndForgedEffectEvents) {
+       DirectLoweringSeamsAcceptAuthenticatedBodyEffectPlans) {
   auto effectFile = parse();
   ASSERT_TRUE(effectFile);
   auto effectRun = named<SourceTransactionOp>(*effectFile, "run");
@@ -1191,107 +1213,35 @@ TEST_F(TransactionLoweringTest,
   ASSERT_EQ(effectPlan->observations.size(), 1u);
   ASSERT_EQ(effectPlan->bodyChecks.size(), 1u);
 
-  auto clean = parse();
-  ASSERT_TRUE(clean);
-  SourceTransactionStateAnalysis cleanAnalysis(clean->getOperation());
-  ASSERT_TRUE(cleanAnalysis.isValid()) << diagnostics;
-  auto cleanRun = named<SourceTransactionOp>(*clean, "run");
-  auto *cleanPlan = cleanAnalysis.lookup(cleanRun);
-  ASSERT_NE(cleanPlan, nullptr);
-  auto before = identities(*clean);
-  auto text = print(clean->getOperation());
-  HardwareSourceCheckLimits limits;
-  detail::SourceCheckBudget prepareBudget(limits);
-  auto prepared = capture([&] {
-    return acir::detail::prepareTransactionLowering(*clean, cleanAnalysis,
-                                                    prepareBudget);
+  HardwareSourceCheckLimits effectLimits;
+  detail::SourceCheckBudget effectPrepareBudget(effectLimits);
+  auto authenticPrepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*effectFile, effectAnalysis,
+                                                    effectPrepareBudget);
   });
-  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
-  detail::SourceCheckBudget materializeBudget(limits);
-  auto materialized = capture([&] {
-    return acir::detail::materializeTransactionLowering(*prepared,
-                                                        materializeBudget);
+  ASSERT_TRUE(mlir::succeeded(authenticPrepared)) << diagnostics;
+  detail::SourceCheckBudget effectMaterializeBudget(effectLimits);
+  auto authenticMaterialized = capture([&] {
+    return acir::detail::materializeTransactionLowering(
+        *authenticPrepared, effectMaterializeBudget);
   });
-  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
-
-  auto effectPrepared = *prepared;
-  ASSERT_FALSE(effectPrepared.transactions.empty());
-  effectPrepared.transactions[0].plan = effectPlan;
-  detail::SourceCheckBudget effectBudget(limits);
-  EXPECT_TRUE(mlir::failed(capture([&] {
-    return acir::detail::materializeTransactionLowering(effectPrepared,
-                                                        effectBudget);
-  })));
-  EXPECT_NE(diagnostics.find("sampled effect lowering"), std::string::npos)
-      << diagnostics;
-  unchanged(*clean, before);
-  EXPECT_EQ(text, print(clean->getOperation()));
-
-  for (bool nullCheck : {true, false}) {
-    TransactionStatePlan nullPlan = *effectPlan;
-    if (nullCheck) {
-      nullPlan.bodyChecks[0].operation = {};
-      nullPlan.observations.clear();
-      llvm::erase_if(nullPlan.events, [](const auto &entry) {
-        return entry.kind == TransactionStateEventKind::Observe;
+  ASSERT_TRUE(mlir::succeeded(authenticMaterialized)) << diagnostics;
+  detail::SourceCheckBudget effectProofBudget(effectLimits);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *authenticPrepared, *authenticMaterialized, effectProofBudget);
+  }))) << diagnostics;
+  auto effectEntry =
+      llvm::find_if(authenticPrepared->transactions, [&](const auto &entry) {
+        return entry.plan->transaction == effectRun;
       });
-    } else {
-      nullPlan.observations[0].operation = {};
-      nullPlan.bodyChecks.clear();
-      llvm::erase_if(nullPlan.events, [](const auto &entry) {
-        return entry.kind == TransactionStateEventKind::BodyCheck;
-      });
-    }
-    auto nullPrepared = *prepared;
-    nullPrepared.transactions[0].plan = &nullPlan;
-    detail::SourceCheckBudget nullMaterializeBudget(limits);
-    EXPECT_TRUE(mlir::failed(capture([&] {
-      return acir::detail::materializeTransactionLowering(
-          nullPrepared, nullMaterializeBudget);
-    })));
-    EXPECT_NE(diagnostics.find("sampled effect lowering"), std::string::npos)
-        << diagnostics;
-    detail::SourceCheckBudget nullVerifyBudget(limits);
-    EXPECT_TRUE(mlir::failed(capture([&] {
-      return acir::detail::verifyTransactionMaterialization(
-          nullPrepared, *materialized, nullVerifyBudget);
-    })));
-    EXPECT_NE(diagnostics.find("sampled effect lowering"), std::string::npos)
-        << diagnostics;
-  }
-  unchanged(*clean, before);
-  EXPECT_EQ(text, print(clean->getOperation()));
-
-  auto *mutablePlan = const_cast<TransactionStatePlan *>(cleanPlan);
-  for (auto kind : {TransactionStateEventKind::BodyCheck,
-                    TransactionStateEventKind::Observe}) {
-    TransactionStateEvent forged;
-    forged.kind = kind;
-    forged.frame = mutablePlan->rootFrame;
-    forged.prefix = 0;
-    if (kind == TransactionStateEventKind::BodyCheck)
-      forged.bodyCheck = 0;
-    else
-      forged.observation = 0;
-    mutablePlan->events.push_back(forged);
-    detail::SourceCheckBudget verifyBudget(limits);
-    EXPECT_TRUE(mlir::failed(capture([&] {
-      return acir::detail::verifyTransactionMaterialization(
-          *prepared, *materialized, verifyBudget);
-    })));
-    EXPECT_NE(diagnostics.find("sampled effect lowering"), std::string::npos)
-        << diagnostics;
-    detail::SourceCheckBudget forgedMaterializeBudget(limits);
-    EXPECT_TRUE(mlir::failed(capture([&] {
-      return acir::detail::materializeTransactionLowering(
-          *prepared, forgedMaterializeBudget);
-    })));
-    EXPECT_NE(diagnostics.find("sampled effect lowering"), std::string::npos)
-        << diagnostics;
-    mutablePlan->events.pop_back();
-  }
-  unchanged(*clean, before);
-  EXPECT_EQ(text, print(clean->getOperation()));
+  ASSERT_NE(effectEntry, authenticPrepared->transactions.end());
+  auto effectIndex =
+      std::distance(authenticPrepared->transactions.begin(), effectEntry);
+  EXPECT_EQ(authenticMaterialized->transactions[effectIndex].bodyChecks.size(),
+            1u);
+  EXPECT_EQ(
+      authenticMaterialized->transactions[effectIndex].observations.size(), 1u);
 }
 
 TEST_F(TransactionLoweringTest,

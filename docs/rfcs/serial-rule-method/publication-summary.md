@@ -138,10 +138,11 @@ Body assert 是后续 whole-system commit check，不能被解释为 Method 的 
 实际 lowering 必须使用最终 fire，guard-known 检查则保留有序 reached prefix。Report 名字冲突
 按实际展开的 logical owner 检查，不能在发布未调用声明时伪造调用次数。
 
-本阶段的 source/publication 通过不等于执行支持。在 state plan 尚无显式 check/observation
-records 时，通用 payload 路径必须拒绝这些效果，并保持原 IR/输出。不得先丢弃效果以生成
-可执行 final。完整 [Method System 验收](acceptance.md)仍要求 state plan、源计划认证、
-共同 lowering、C++/Verilog 和生成 runner 的实际执行。
+source/publication 通过不等于执行支持。已有显式 state-plan records 的直线效果还须通过
+[sampled body-effect 合同](sampled-body-effects.md)的语句时刻 operands、源计划认证、
+共同 final proof 与生成 runner 的实际执行。未表示或不支持的效果继续原子拒绝；不得
+先丢弃效果以生成可执行 final。完整 [Method System 验收](acceptance.md)使用同一
+compile/link/emit 和 C++/Verilog flow。
 
 ## Derivation
 

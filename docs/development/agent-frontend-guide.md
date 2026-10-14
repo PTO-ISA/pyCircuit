@@ -323,6 +323,25 @@ Use canonical output paths without symlink components. Build artifacts stay
 outside the source tree. Publication preserves existing managed outputs when
 compilation, validation or emission fails.
 
+## Method body checks and observations
+
+Within the supported straight-line Method route, use ordinary `assert`, `log`
+and `report` in the direct body. A saved local value remains the candidate value
+at that statement; later writes do not change it. Assertions check the completed
+outer transaction and do not control later calls. All body effects use the final
+transaction fire, so a later false guard suppresses earlier body effects too.
+Put unrelated autonomous work in another registered Rule.
+
+Source capture reuses expect/observe operations; MLIR owns the state versions,
+invocation identities, six-field sampled inventory and physical wiring. Authors
+do not supply final IDs or transaction ports. A closed `@system` keeps its
+compiler-generated clocks, resets and `pycircuit_sim` harness. Verification must
+include actual generated C++/RTL execution and failed-epoch publication checks;
+publication alone is insufficient. Conditional effects, branch/partial updates
+and transaction resources remain separate unsupported extensions. See the
+[language boundary](../reference/language.md#method-execution-and-remaining-capabilities)
+and [body-effect contract](../rfcs/serial-rule-method/sampled-body-effects.md).
+
 ## Typed DUT and runner
 
 C++ emission provides source modules and `pycircuit_system.hpp` with `pyc_root`

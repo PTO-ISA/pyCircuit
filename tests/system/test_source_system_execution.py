@@ -229,6 +229,364 @@ def _assert_closed_observation_identities(rows):
             stable[key] = value
 
 
+def _method_program(tmp_path):
+    source = tmp_path / "method system sources"
+    source.mkdir()
+    for filename in ("method_effects_provider.py", "method_effects_bench.py"):
+        shutil.copy2(FIXTURE / filename, source)
+    provider = tmp_path / "method provider unit"
+    consumer = tmp_path / "method consumer unit"
+    _ok(_compile(source, "method_effects_provider.py", provider))
+    (source / "method_effects_provider.py").unlink()
+    receipt = json.loads((provider / "unit.json").read_text())
+    provider_body = provider / receipt["files"]["body"]
+    hidden_body = tmp_path / "unavailable provider body.ac"
+    provider_body.rename(hidden_body)
+    try:
+        assert not provider_body.exists()
+        _ok(_compile(source, "method_effects_bench.py", consumer, [provider]))
+    finally:
+        hidden_body.rename(provider_body)
+    assert not (source / "method_effects_provider.py").exists()
+
+    transaction_input = tmp_path / "method transaction input.ac"
+    transaction_output = tmp_path / "method transaction output.ac"
+    final = tmp_path / "method system.ac"
+    linker = os.environ.get("PYCIRCUIT_LINKER")
+    assert linker, "set PYCIRCUIT_LINKER to this candidate's native linker"
+    arguments = [linker]
+    for unit in (provider, consumer):
+        receipt = json.loads((unit / "unit.json").read_text())
+        arguments += [
+            "--body",
+            str(unit / receipt["files"]["body"]),
+            "--header",
+            str(unit / receipt["files"]["interface"]),
+        ]
+    arguments += [
+        "--top",
+        "checks.method_effects_bench.ExerciseMethodEffects",
+        "--target",
+        "final",
+        "--output",
+        str(final),
+        "--transaction-input-out",
+        str(transaction_input),
+        "--transaction-output-out",
+        str(transaction_output),
+    ]
+    _ok(_run(arguments))
+    assert transaction_input.is_file() and transaction_output.is_file()
+    input_text = transaction_input.read_text()
+    output_text = transaction_output.read_text()
+    final_text = final.read_text()
+    assert '"ac.method.call"' in input_text
+    assert "ac.sampled_admission" in output_text
+    assert '"ac.method.call"' not in output_text
+    assert output_text != input_text
+    assert final_text.count('"ac.observe"(') == 6
+    assert final_text.count("ac.observation_id") == 6
+    assert final_text.count('kind = "assert"') >= 2
+    assert "invocation" in final_text and "owner" in final_text
+    return final, transaction_input, transaction_output
+
+
+def _source_occurrence(definition, *path):
+    ast_path = []
+    for kind, value in path:
+        ast_path.append({"kind": kind, "value" if kind == "index" else "name": value})
+    return {
+        "expansion": [],
+        "site": {"ast_path": ast_path, "definition": definition},
+    }
+
+
+def _method_expected_identities():
+    bench = "checks.method_effects_bench.ExerciseMethodEffects"
+    provider = "checks.method_effects_provider.MethodCounter"
+
+    def field(name):
+        return ("field", name)
+
+    def index(value):
+        return ("index", value)
+
+    owner = _source_occurrence(bench, field("body"), index(2), field("body"), index(0))
+    registration = _source_occurrence(
+        bench,
+        field("body"),
+        index(2),
+        field("body"),
+        index(4),
+        field("value"),
+    )
+
+    def called(call_index, ordinal, site):
+        return {
+            "invocation": [
+                {
+                    "call": _source_occurrence(
+                        bench,
+                        field("body"),
+                        index(2),
+                        field("body"),
+                        index(2),
+                        field("body"),
+                        index(call_index),
+                        field("value"),
+                    ),
+                    "receiver": {"instance_path": [owner]},
+                }
+            ],
+            "ordinal": ordinal,
+            "site": site,
+        }
+
+    bump_site = _source_occurrence(
+        provider,
+        field("body"),
+        index(1),
+        field("body"),
+        index(1),
+        field("body"),
+        index(2),
+    )
+    report_site = _source_occurrence(
+        provider,
+        field("body"),
+        index(1),
+        field("body"),
+        index(3),
+        field("body"),
+        index(0),
+    )
+    return registration, [
+        called(0, 0, bump_site),
+        called(1, 1, bump_site),
+        called(3, 2, report_site),
+        {
+            "invocation": [],
+            "ordinal": 3,
+            "site": _source_occurrence(
+                bench,
+                field("body"),
+                index(2),
+                field("body"),
+                index(2),
+                field("body"),
+                index(4),
+            ),
+        },
+        {
+            "invocation": [],
+            "ordinal": 4,
+            "site": _source_occurrence(
+                bench,
+                field("body"),
+                index(2),
+                field("body"),
+                index(2),
+                field("body"),
+                index(5),
+            ),
+        },
+    ]
+
+
+def _method_identity(row, expected, registration):
+    assert json.loads(row["registration"]) == registration
+    identity = json.loads(row["site"])
+    assert identity == expected
+    assert row["instance"] == ("root/owner" if expected["invocation"] else "root")
+    return identity
+
+
+def _assert_method_effect_rows(rows):
+    observations = [row for row in rows if row["kind"] != "result"]
+    assert len(observations) == 30
+    assert all(
+        int(row["commit_epoch"]) == int(row["evaluation_epoch"]) + 1
+        for row in observations
+    )
+    assert not any(row["spec"].get("event") == "suppressed" for row in observations)
+
+    registration, expected_identities = _method_expected_identities()
+    stable_identities = None
+    for epoch in range(6):
+        old = 3 * (epoch // 2)
+        current = [row for row in observations if int(row["evaluation_epoch"]) == epoch]
+        assert len(current) == 5
+        assert [
+            (row["kind"], row["spec"].get("event", row["spec"].get("name")))
+            for row in current
+        ] == [
+            ("log", "bump"),
+            ("log", "bump"),
+            ("report", "method count"),
+            ("log", "saved candidates"),
+            ("log", "literal only"),
+        ]
+        identities = [row["site"] for row in current]
+        if stable_identities is None:
+            stable_identities = identities
+        else:
+            assert identities == stable_identities
+        bumps = [
+            row
+            for row in current
+            if row["kind"] == "log" and row["spec"].get("event") == "bump"
+        ]
+        assert len(bumps) == 2
+        assert [[int(value["value"]) for value in row["values"]] for row in bumps] == [
+            [old, 1, old + 1],
+            [old + 1, 2, old + 3],
+        ]
+        bump_ids = [
+            _method_identity(row, expected, registration)
+            for row, expected in zip(bumps, expected_identities[:2], strict=True)
+        ]
+        assert bump_ids[0]["site"] == bump_ids[1]["site"]
+        assert bump_ids[0]["invocation"] != bump_ids[1]["invocation"]
+
+        reports = [row for row in current if row["kind"] == "report"]
+        assert len(reports) == 1
+        assert reports[0]["spec"] == {"name": "method count"}
+        assert [int(value["value"]) for value in reports[0]["values"]] == [old + 3]
+        _method_identity(reports[0], expected_identities[2], registration)
+
+        saved = [
+            row for row in current if row["spec"].get("event") == "saved candidates"
+        ]
+        assert len(saved) == 1 and saved[0]["instance"] == "root"
+        assert [int(value["value"]) for value in saved[0]["values"]] == [old, old + 1]
+        _method_identity(saved[0], expected_identities[3], registration)
+
+        literal = [row for row in current if row["spec"].get("event") == "literal only"]
+        assert len(literal) == 1 and literal[0]["values"] == []
+        assert literal[0]["spec"]["items"] == [{"kind": "literal", "text": "fixed"}]
+        _method_identity(literal[0], expected_identities[4], registration)
+
+    terminal = [row for row in rows if row["kind"] == "result"]
+    assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED"
+    assert int(terminal[0]["epoch_time"]) == 6
+    gauges = [row for row in terminal[0]["statistics"] if row["name"] == "method count"]
+    assert len(gauges) == 1
+    assert gauges[0]["object_path"] == "root/owner"
+    assert int(gauges[0]["last_update"]["time"]) == 6
+    assert int(gauges[0]["value"]) == 9
+
+
+def _method_four_state_rtl(generated, tmp_path):
+    testbench = tmp_path / "method_effects_four_state.sv"
+    testbench.write_text(
+        """
+module method_effects_four_state;
+  logic clk=0, rst=0;
+  logic [2:0] phase=0;
+  logic permit=0;
+  wire complete, sampling_error, error;
+  pyc_root dut(.pyc_7079635f636c6b(clk), .pyc_7079635f727374(rst),
+    .pyc_phase(phase), .pyc_root_commit_ok(permit),
+    .pyc_check_complete(complete), .pyc_sampling_error(sampling_error),
+    .pyc_local_error(error));
+
+  task automatic check_owner(input logic [7:0] q, input logic history);
+    if (dut.dut.pyc_instance_owner.pyc_instance_count.q_current !== q ||
+        dut.dut.pyc_instance_owner.pyc_instance_count.managed.clock_current !== history)
+      $fatal(1, "committed Method owner state/history changed");
+  endtask
+
+  task automatic idle;
+    phase=3; #1; phase=0; permit=0; #1;
+  endtask
+
+  task automatic reset_model;
+    clk=0; rst=0; permit=1; phase=4; #1;
+    phase=2; #1; phase=0; permit=0; #1;
+    check_owner(8'd0, 1'b0);
+  endtask
+
+  task automatic deny(input logic [7:0] q, input logic history);
+    permit=0; phase=2; #1; check_owner(q, history); idle();
+  endtask
+
+  initial begin
+    #1;
+    // A false body assertion is checked on low, held and falling epochs. A
+    // denied commit preserves both Q and the prior sampled-clock history.
+    reset_model();
+    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'd9;
+    clk=0; rst=0; phase=1; #1;
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "low body assertion did not fail");
+    deny(8'd9, 1'b0);
+
+    reset_model();
+    clk=1; rst=1; phase=1; #1;
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "reset did not mask body assertion");
+    permit=1; phase=2; #1; phase=0; permit=0; rst=0; #1;
+    check_owner(8'd0, 1'b1);
+    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'd9;
+    clk=1; phase=1; #1;
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "held body assertion did not fail");
+    deny(8'd9, 1'b1);
+
+    reset_model();
+    clk=1; rst=1; phase=1; #1; permit=1; phase=2; #1;
+    phase=0; permit=0; rst=0; #1; check_owner(8'd0, 1'b1);
+    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'd9;
+    clk=0; phase=1; #1;
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "falling body assertion did not fail");
+    deny(8'd9, 1'b1);
+
+    // X and Z in the statement-time assertion condition both fail closed at
+    // an active edge, while denial retains the exact four-state Q and history.
+    reset_model();
+    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'hxx;
+    clk=1; rst=0; phase=1; #1;
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "X body assertion did not fail");
+    deny(8'hxx, 1'b0);
+
+    reset_model();
+    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'hzz;
+    clk=1; rst=0; phase=1; #1;
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "Z body assertion did not fail");
+    deny(8'hzz, 1'b0);
+
+    // Reset masks even an unknown body condition and commits the initializer.
+    reset_model();
+    dut.dut.pyc_instance_owner.pyc_instance_count.q_current = 8'hxx;
+    clk=1; rst=1; phase=1; #1;
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "reset did not mask unknown assertion");
+    permit=1; phase=2; #1; check_owner(8'd0, 1'b1);
+    $display("METHOD_EFFECTS_FOUR_STATE_OK");
+    $finish;
+  end
+endmodule
+"""
+    )
+    binary = tmp_path / "method_effects_four_state"
+    _ok(
+        _run(
+            [
+                "iverilog",
+                "-g2012",
+                "-s",
+                "method_effects_four_state",
+                "-o",
+                str(binary),
+                str(_install() / "include/verilog/dffe.v"),
+                str(generated / "design_top.sv"),
+                str(generated / "sources/checks/method_effects_provider.v"),
+                str(generated / "sources/checks/method_effects_bench.v"),
+                str(testbench),
+            ]
+        )
+    )
+    stdout = _ok(_run(["vvp", str(binary)], timeout=20))
+    assert "METHOD_EFFECTS_FOUR_STATE_OK" in stdout
+    assert _records(stdout) == []
+
+
 def _assert_run_receipt(build, target, status="success"):
     receipt = json.loads((build / "run-execution.json").read_text())
     assert receipt["status"] == status
@@ -1031,6 +1389,71 @@ def test_closed_system_generated_cpp_and_verilator_observations(
                 else:
                     assert "check failed at epoch 8" in wide.stdout + wide.stderr
     assert transcripts[0] == transcripts[1] == transcripts[2]
+
+
+def test_method_system_effects_execute_atomically_from_one_final_artifact(tmp_path):
+    final, transaction_input, transaction_output = _method_program(tmp_path)
+    final_digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    stage_digests = {
+        "input": hashlib.sha256(transaction_input.read_bytes()).hexdigest(),
+        "output": hashlib.sha256(transaction_output.read_bytes()).hexdigest(),
+    }
+    transcripts = []
+    failures = []
+    manifests = {}
+    for target in ("cpp", "verilog"):
+        target_root = tmp_path / ("method-" + target)
+        target_root.mkdir()
+        binary = _bundle(final, target_root, target)
+        manifest = json.loads((target_root / target / "generated.json").read_text())
+        manifests[target] = manifest
+        workers = (1, 2) if target == "cpp" else (1,)
+        for count in workers:
+            arguments = (
+                ["--cycles", "3", "--workers", str(count)]
+                if target == "cpp"
+                else ["+cycles=3"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
+            _assert_method_effect_rows(rows)
+            transcripts.append([row for row in rows if row["kind"] != "result"])
+
+        failure_arguments = (
+            ["--cycles", "4", "--workers", "2"] if target == "cpp" else ["+cycles=4"]
+        )
+        failed = _run([str(binary), *failure_arguments], timeout=20)
+        assert failed.returncode != 0, failed.stdout + failed.stderr
+        failed_rows = _records(failed.stdout)
+        # The candidate value 12 fails before publication at evaluation epoch
+        # six. Earlier events and the report gauge remain exactly committed.
+        failures.append([row for row in failed_rows if row["kind"] != "result"])
+        assert failures[-1] == transcripts[-1]
+        failed_terminal = [row for row in failed_rows if row["kind"] == "result"]
+        if failed_terminal:
+            assert len(failed_terminal) == 1
+            assert failed_terminal[0]["status"] == "FAILED"
+            assert int(failed_terminal[0]["epoch_time"]) == 6
+            gauges = [
+                row
+                for row in failed_terminal[0]["statistics"]
+                if row["name"] == "method count"
+            ]
+            assert len(gauges) == 1
+            assert int(gauges[0]["last_update"]["time"]) == 6
+            assert int(gauges[0]["value"]) == 9
+        else:
+            assert "check failed at epoch 6" in failed.stdout + failed.stderr
+        if target == "verilog":
+            _method_four_state_rtl(target_root / target, target_root)
+
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert failures[0] == failures[1] == transcripts[0]
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == final_digest
+    assert {
+        "input": hashlib.sha256(transaction_input.read_bytes()).hexdigest(),
+        "output": hashlib.sha256(transaction_output.read_bytes()).hexdigest(),
+    } == stage_digests
+    assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
 
 
 @pytest.mark.parametrize(

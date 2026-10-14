@@ -1,5 +1,6 @@
 #include "Dialect/ACIR/HardwareSampledAdmission.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/HardwareSourceChecks.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -12,6 +13,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <limits>
 #include <optional>
 #include <string>
 
@@ -29,6 +31,8 @@ protected:
   ac::RuleOp rule;
   ac::SourceExpectOp expect;
   SmallVector<ac::SourceExpectOp> expects;
+  SmallVector<ac::SourceExpectOp> bodyExpects;
+  SmallVector<ac::SourceObserveOp> observations;
   ac::BitsCompareOp known;
   std::string diagnostics;
 
@@ -58,6 +62,12 @@ protected:
   DictionaryAttr checkID(uint64_t ordinal = 0) {
     return d({f("registration", occurrence(2)), f("check", occurrence(5)),
               f("obligation", b.getI64IntegerAttr(ordinal))});
+  }
+  DictionaryAttr observationID(uint64_t ordinal, uint64_t site) {
+    return d({f("registration", occurrence(2)), f("site", occurrence(site)),
+              f("ordinal", b.getI64IntegerAttr(ordinal)),
+              f("invocation", b.getArrayAttr({})),
+              f("owner", d({f("instance_path", b.getArrayAttr({}))}))});
   }
   ac::StaticExprAttr literal(uint64_t value) {
     std::string text =
@@ -89,7 +99,9 @@ protected:
     return d({f("clock_capture", b.getI64IntegerAttr(clock)),
               f("reset_capture", b.getI64IntegerAttr(reset)),
               f("fire_result", b.getI64IntegerAttr(fire)),
-              f("guards", b.getArrayAttr(guards))});
+              f("guards", b.getArrayAttr(guards)),
+              f("body_checks", b.getArrayAttr({})),
+              f("observations", b.getArrayAttr({}))});
   }
   DictionaryAttr guard(uint64_t ordinal = 0, int64_t predecessor = -1,
                        ArrayAttr invocation = {}) {
@@ -195,6 +207,128 @@ protected:
     }
     expect = expects.front();
     op(ac::YieldOp::getOperationName());
+  }
+  void buildMixedEffects() {
+    build();
+    auto oldRule = rule;
+    auto &moduleBody = definition.getBody().front();
+    auto guardID = checkID(0), firstCheckID = checkID(1),
+         secondCheckID = checkID(2);
+    auto firstObservationID = observationID(0, 20);
+    auto secondObservationID = observationID(1, 21);
+    auto guardRows =
+        oldRule->getAttrOfType<DictionaryAttr>("ac.sampled_admission")
+            .getAs<ArrayAttr>("guards");
+    auto metadata = d(
+        {f("clock_capture", b.getI64IntegerAttr(0)),
+         f("reset_capture", b.getI64IntegerAttr(1)),
+         f("fire_result", b.getI64IntegerAttr(0)), f("guards", guardRows),
+         f("body_checks",
+           b.getArrayAttr(
+               {d({f("id", firstCheckID), f("invocation", b.getArrayAttr({}))}),
+                d({f("id", secondCheckID),
+                   f("invocation", b.getArrayAttr({}))})})),
+         f("observations",
+           b.getArrayAttr({d({f("id", firstObservationID),
+                              f("value_count", b.getI64IntegerAttr(0))}),
+                           d({f("id", secondObservationID),
+                              f("value_count", b.getI64IntegerAttr(3))})}))});
+    auto required = b.getArrayAttr(
+        {d({f("id", guardID), f("kind", b.getStringAttr("guard_known")),
+            f("location", span())}),
+         d({f("id", firstCheckID), f("kind", b.getStringAttr("assert")),
+            f("location", span())}),
+         d({f("id", secondCheckID), f("kind", b.getStringAttr("assert")),
+            f("location", span())})});
+
+    b.setInsertionPoint(oldRule);
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands(oldRule.getOperands());
+    state.addTypes(SmallVector<Type>(12, bit()));
+    state.addAttributes({f("name", oldRule.getNameAttr()),
+                         f("occurrence", oldRule.getOccurrence()),
+                         f("ac.required_checks", required),
+                         f("ac.sampled_admission", metadata)});
+    state.addRegion();
+    rule = cast<ac::RuleOp>(b.create(state));
+    auto *body = new Block;
+    rule.getBody().push_back(body);
+    for (auto argument : oldRule.getBody().front().getArguments())
+      body->addArgument(argument.getType(), argument.getLoc());
+    b.setInsertionPointToEnd(body);
+    auto raw = body->getArgument(2);
+    auto one = constant(1);
+    auto sampled = cast<ac::BitsCompareOp>(
+        op(ac::BitsCompareOp::getOperationName(), {raw, one}, {bit()},
+           {f("predicate", b.getStringAttr("case_eq"))}));
+    auto fire = sampled.getResult();
+    op(ac::YieldOp::getOperationName(),
+       {fire, fire, fire, raw, one, raw, raw, one, raw, fire, one, fire});
+
+    for (auto terminal : expects)
+      terminal.erase();
+    oldRule.erase();
+    b.setInsertionPoint(moduleBody.getTerminator());
+    expects.clear();
+    expect = cast<ac::SourceExpectOp>(
+        op(ac::SourceExpectOp::getOperationName(),
+           {rule.getResult(6), rule.getResult(7), moduleBody.getArgument(1),
+            moduleBody.getArgument(2)},
+           {},
+           {f("kind", b.getStringAttr("guard_known")), f("location", span()),
+            f("ac.check_id", guardID)}));
+    expects.push_back(expect);
+    bodyExpects.clear();
+    bodyExpects.push_back(cast<ac::SourceExpectOp>(
+        op(ac::SourceExpectOp::getOperationName(),
+           {rule.getResult(8), rule.getResult(9)}, {},
+           {f("kind", b.getStringAttr("assert")), f("location", span()),
+            f("ac.check_id", firstCheckID)})));
+    bodyExpects.push_back(cast<ac::SourceExpectOp>(
+        op(ac::SourceExpectOp::getOperationName(),
+           {rule.getResult(10), rule.getResult(11)}, {},
+           {f("kind", b.getStringAttr("assert")), f("location", span()),
+            f("ac.check_id", secondCheckID),
+            f("ac.message", b.getStringAttr("second"))})));
+    auto literalItem = d({f("kind", b.getStringAttr("literal")),
+                          f("text", b.getStringAttr("only"))});
+    auto valueItem = [&](unsigned ordinal) {
+      return d({f("kind", b.getStringAttr("value")),
+                f("ordinal", b.getI32IntegerAttr(ordinal))});
+    };
+    observations.clear();
+    observations.push_back(cast<ac::SourceObserveOp>(
+        op(ac::SourceObserveOp::getOperationName(), {rule.getResult(1)}, {},
+           {f("kind", b.getStringAttr("log")),
+            f("spec", d({f("level", b.getStringAttr("debug")),
+                         f("event", b.getStringAttr("literal")),
+                         f("items", b.getArrayAttr({literalItem}))})),
+            f("ac.observation_id", firstObservationID),
+            f("ac.location", span())})));
+    observations.push_back(cast<ac::SourceObserveOp>(
+        op(ac::SourceObserveOp::getOperationName(),
+           {rule.getResult(2), rule.getResult(3), rule.getResult(4),
+            rule.getResult(5)},
+           {},
+           {f("kind", b.getStringAttr("log")),
+            f("spec", d({f("level", b.getStringAttr("info")),
+                         f("event", b.getStringAttr("values")),
+                         f("items", b.getArrayAttr({valueItem(0), valueItem(1),
+                                                    valueItem(2)}))})),
+            f("ac.observation_id", secondObservationID),
+            f("ac.location", span())})));
+    definition->setAttr(
+        "ac.transaction_wiring",
+        wiring({d({f("registration", occurrence(2)),
+                   f("ordinary_results", b.getI64IntegerAttr(0)),
+                   f("candidates", b.getArrayAttr({}))})}));
+    b.setInsertionPointToEnd(package->getBody());
+    op(ac::SystemOp::getOperationName(), {}, {},
+       {f("domain", b.getStringAttr("default")),
+        f("entry", d({f("callee", mlir::FlatSymbolRefAttr::get(
+                                      &context, definition.getSymName())),
+                      f("parameters", b.getArrayAttr({})),
+                      f("type_arguments", b.getArrayAttr({}))}))});
   }
   template <typename Function> auto capture(Function function) {
     diagnostics.clear();
@@ -711,8 +845,11 @@ TEST_F(HardwareSampledAdmissionTest,
     ASSERT_TRUE(succeeded(capture([&] { return verifyDefinition(); })))
         << diagnostics;
     mutation();
-    EXPECT_TRUE(failed(capture([&] { return verifyDefinition(); })))
-        << "invalid sampling operands admitted: " << label.str();
+    EXPECT_TRUE(failed(capture([&] {
+      ac::HardwareAnalysis analysis(*package);
+      return analysis.getSourceCheckPlan();
+    }))) << "invalid sampling operands admitted: "
+         << label.str();
   };
   rejectsDefinition("missing reset sampling pin", [&] {
     expect->setOperands(expect->getOperands().drop_back());
@@ -767,6 +904,22 @@ TEST_F(HardwareSampledAdmissionTest,
 }
 
 TEST_F(HardwareSampledAdmissionTest, ExactClosedSchemaAndIndexTypesFailClosed) {
+  rejects("old four-field schema", [&] {
+    auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+    rule->setAttr("ac.sampled_admission",
+                  d({f("clock_capture", metadata.get("clock_capture")),
+                     f("reset_capture", metadata.get("reset_capture")),
+                     f("fire_result", metadata.get("fire_result")),
+                     f("guards", metadata.get("guards"))}));
+  });
+  for (StringRef field : {"body_checks", "observations"}) {
+    rejects((Twine("missing ") + field).str(), [&] {
+      NamedAttrList fields(
+          rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+      fields.erase(field);
+      rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
+    });
+  }
   rejects("missing guards", [&] {
     NamedAttrList fields(
         rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
@@ -873,6 +1026,168 @@ TEST_F(HardwareSampledAdmissionTest,
     auto yield = cast<ac::YieldOp>(rule.getBody().front().back());
     yield->setOperand(2, rule.getBody().front().getArgument(2));
   });
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       MixedGuardAssertionsAndObservationsUseExactFinalLayout) {
+  buildMixedEffects();
+  ASSERT_TRUE(succeeded(capture([&] { return mlir::verify(*package); })))
+      << diagnostics;
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  auto view = capture([&] {
+    return detail::parseSampledAdmission(rule, analysis, bindings, budget);
+  });
+  ASSERT_TRUE(succeeded(view)) << diagnostics;
+  EXPECT_EQ(view->fireResult, 0u);
+  EXPECT_EQ(view->checkBase, 6u);
+  EXPECT_EQ(view->totalResults, 12u);
+  ASSERT_EQ(view->guards.size(), 1u);
+  ASSERT_EQ(view->bodyChecks.size(), 2u);
+  ASSERT_EQ(view->observations.size(), 2u);
+  EXPECT_EQ(view->observations[0].pathResult, 1u);
+  EXPECT_EQ(view->observations[0].valueCount, 0u);
+  EXPECT_EQ(view->observations[1].pathResult, 2u);
+  EXPECT_EQ(view->observations[1].firstValueResult, 3u);
+  EXPECT_EQ(view->observations[1].valueCount, 3u);
+  EXPECT_EQ(view->guards[0].predicateResult, 6u);
+  EXPECT_EQ(view->guards[0].reachedResult, 7u);
+  EXPECT_EQ(view->bodyChecks[0].conditionResult, 8u);
+  EXPECT_EQ(view->bodyChecks[0].pathResult, 9u);
+  EXPECT_EQ(view->bodyChecks[1].conditionResult, 10u);
+  EXPECT_EQ(view->bodyChecks[1].pathResult, 11u);
+  auto yielded = mlir::cast<ac::YieldOp>(rule.getBody().front().back());
+  EXPECT_EQ(view->fire, yielded.getOperand(0));
+  EXPECT_EQ(view->bodyChecks[0].condition, yielded.getOperand(8));
+  EXPECT_EQ(view->bodyChecks[0].path, yielded.getOperand(9));
+  EXPECT_NE(view->bodyChecks[0].condition, view->fire);
+  EXPECT_EQ(view->bodyChecks[0].path, view->fire);
+  EXPECT_EQ(view->bodyChecks[1].path, view->fire);
+  for (auto terminal : bodyExpects)
+    EXPECT_TRUE(terminal.getSampling().empty());
+  auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
+  ASSERT_EQ(required.size(), 3u);
+  EXPECT_EQ(
+      cast<DictionaryAttr>(required[0]).getAs<StringAttr>("kind").getValue(),
+      "guard_known");
+  EXPECT_EQ(
+      cast<DictionaryAttr>(required[1]).getAs<StringAttr>("kind").getValue(),
+      "assert");
+  EXPECT_EQ(
+      cast<DictionaryAttr>(required[2]).getAs<StringAttr>("kind").getValue(),
+      "assert");
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  auto prepared = validation.prepare(definition, bindings);
+  ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+  ASSERT_NE(*prepared, nullptr);
+  EXPECT_TRUE(succeeded(detail::proveSampledAdmission(
+      *view, **prepared, analysis, bindings, budget)))
+      << diagnostics;
+  auto checkBindings = capture([&] {
+    return detail::definitionSourceChecks(analysis, definition, bindings,
+                                          validation, budget);
+  });
+  ASSERT_TRUE(succeeded(checkBindings)) << diagnostics;
+  ASSERT_EQ(checkBindings->size(), 3u);
+  EXPECT_EQ((*checkBindings)[0].kind.getValue(), "guard_known");
+  EXPECT_EQ((*checkBindings)[0].requiredIndex, 0u);
+  EXPECT_FALSE((*checkBindings)[0].samplingBindingIndex);
+  for (unsigned index = 1; index < 3; ++index) {
+    EXPECT_EQ((*checkBindings)[index].kind.getValue(), "assert");
+    EXPECT_EQ((*checkBindings)[index].requiredIndex, index);
+    EXPECT_FALSE((*checkBindings)[index].samplingBindingIndex);
+  }
+  auto fullPlan = capture([&] { return analysis.getSourceCheckPlan(); });
+  ASSERT_TRUE(succeeded(fullPlan)) << diagnostics;
+  ASSERT_EQ(fullPlan->bindings.size(), 3u);
+  ASSERT_TRUE(fullPlan->bindings[0].samplingBindingIndex);
+  EXPECT_FALSE(fullPlan->bindings[1].samplingBindingIndex);
+  EXPECT_FALSE(fullPlan->bindings[2].samplingBindingIndex);
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       BodyEffectSlotsAndTerminalAssociationsFailClosed) {
+  auto rejectsMixed = [&](StringRef label,
+                          const std::function<void()> &mutate) {
+    SCOPED_TRACE(label.str());
+    buildMixedEffects();
+    mutate();
+    EXPECT_TRUE(failed(capture([&] {
+      auto plan = ac::HardwareAnalysis(*package).getSourceCheckPlan();
+      return success(succeeded(plan));
+    }))) << "mutation unexpectedly admitted: "
+         << label.str();
+    EXPECT_FALSE(diagnostics.empty());
+  };
+  rejectsMixed("direct fire substituted for asserted path",
+               [&] { bodyExpects[0]->setOperand(1, rule.getResult(0)); });
+  rejectsMixed("assertion condition and path roles swapped", [&] {
+    auto condition = bodyExpects[0].getCondition();
+    bodyExpects[0]->setOperand(0, bodyExpects[0].getPath());
+    bodyExpects[0]->setOperand(1, condition);
+  });
+  rejectsMixed("direct fire substituted for observation path",
+               [&] { observations[0]->setOperand(0, rule.getResult(0)); });
+  rejectsMixed("assertion acquired sampling pins", [&] {
+    bodyExpects[0]->insertOperands(
+        2, {definition.getBody().front().getArgument(1),
+            definition.getBody().front().getArgument(2)});
+  });
+  rejectsMixed("observation payload roles share one result", [&] {
+    observations[1]->setOperand(2, observations[1]->getOperand(1));
+  });
+  rejectsMixed("observation payload order swapped", [&] {
+    auto first = observations[1]->getOperand(1);
+    observations[1]->setOperand(1, observations[1]->getOperand(2));
+    observations[1]->setOperand(2, first);
+  });
+  rejectsMixed("missing body assertion terminal",
+               [&] { bodyExpects[0].erase(); });
+  rejectsMixed("extra body assertion terminal", [&] {
+    auto *copy = bodyExpects[0]->clone();
+    definition.getBody().front().getOperations().insert(
+        definition.getBody().front().getTerminator()->getIterator(), copy);
+  });
+  rejectsMixed("effect payload escapes into unrelated computation", [&] {
+    b.setInsertionPoint(definition.getBody().front().getTerminator());
+    op(ac::BitsBinaryOp::getOperationName(),
+       {rule.getResult(3), rule.getResult(3)}, {bit()},
+       {f("opcode", b.getStringAttr("add"))});
+  });
+  rejectsMixed("observation value count disagrees", [&] {
+    auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+    SmallVector<Attribute> rows(
+        metadata.getAs<ArrayAttr>("observations").begin(),
+        metadata.getAs<ArrayAttr>("observations").end());
+    NamedAttrList changed(cast<DictionaryAttr>(rows[1]));
+    changed.set("value_count", b.getI64IntegerAttr(2));
+    rows[1] = changed.getDictionary(&context);
+    NamedAttrList fields(metadata);
+    fields.set("observations", b.getArrayAttr(rows));
+    rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
+  });
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       EnormousDeclaredEffectCountsRejectBeforeLayoutIteration) {
+  buildMixedEffects();
+  auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+  SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("observations").begin(),
+                              metadata.getAs<ArrayAttr>("observations").end());
+  NamedAttrList changed(cast<DictionaryAttr>(rows[1]));
+  changed.set("value_count",
+              b.getI64IntegerAttr(std::numeric_limits<int64_t>::max()));
+  rows[1] = changed.getDictionary(&context);
+  NamedAttrList fields(metadata);
+  fields.set("observations", b.getArrayAttr(rows));
+  rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
+  auto before = printPackage();
+  EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })));
+  EXPECT_FALSE(diagnostics.empty());
+  EXPECT_LT(diagnostics.size(), 4096u);
+  EXPECT_EQ(before, printPackage());
 }
 
 TEST_F(HardwareSampledAdmissionTest, BudgetRejectsBeforeLateProofWork) {
