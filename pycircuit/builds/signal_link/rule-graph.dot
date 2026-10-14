@@ -1,8 +1,8 @@
 digraph Transactions {
   rankdir=LR;
   node [shape=box];
-  t0 [label="top.configure#0"];
-  t1 [label="top.producer.advance#1"];
+  t0 [label="top.producer.advance#0"];
+  t1 [label="top.configure#1"];
   t2 [label="top.reader.observe#2"];
-  t1 -> t2 [label="top.result\nSignal.set \u2192 get"];
+  t0 -> t2 [label="top.result\nSignal.set \u2192 get"];
 }

@@ -1,0 +1,65 @@
+{
+  "conflicts": [],
+  "diagnostics": [],
+  "edges": [
+    {
+      "from": 5,
+      "relation": "Queue.pop → push",
+      "resource": "top.output",
+      "source_branch": 26,
+      "target_branches": [
+        16
+      ],
+      "to": 3
+    },
+    {
+      "from": 5,
+      "relation": "Queue.pop → push",
+      "resource": "top.output",
+      "source_branch": 26,
+      "target_branches": [
+        16
+      ],
+      "to": 3
+    }
+  ],
+  "nodes": [
+    {
+      "id": "top.allocate#0",
+      "txn": 0
+    },
+    {
+      "id": "top.allocate#1",
+      "txn": 1
+    },
+    {
+      "id": "top.allocate#2",
+      "txn": 2
+    },
+    {
+      "id": "top.issue#3",
+      "txn": 3
+    },
+    {
+      "id": "top.slots.2.wake#4",
+      "txn": 4
+    },
+    {
+      "id": "top.drain#5",
+      "txn": 5
+    },
+    {
+      "id": "top.clock#6",
+      "txn": 6
+    }
+  ],
+  "schedule": [
+    0,
+    1,
+    2,
+    4,
+    5,
+    3,
+    6
+  ]
+}

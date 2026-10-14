@@ -1,94 +1,65 @@
-module attributes {acir.model = {config = [], constants = {}, exports = {}, format_version = 8 : i64, top = "DualChannel", type_order = [], types = {}}, acir.stage = "transaction"} {
+module attributes {acir.model = {config = [], constants = {}, format_version = 9 : i64, top = "DualChannel", type_order = [], types = {}}, acir.stage = "transaction"} {
+  %c2_i32 = arith.constant 2 : i32
+  %c0_i32 = arith.constant {acir.source_type = "u32"} 0 : i32
+  %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32
+  %false = arith.constant false
+  %true = arith.constant true
   acir.circuit attributes {conflicts = [], edges = [], schedule = [0, 1], stage = "transaction"} {
-    %true = arith.constant true
-    %false = arith.constant false
     acir.state @top.left_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
     acir.state @top.right_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
     acir.state @top.source : i32 {capacity = 1 : i64, initial = [7 : i32], kind = "queue"}
-    %c0_i32 = arith.constant {acir.source_type = "u32"} 0 : i32 loc(#loc1)
-    %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc2)
-    acir.path %true {branch = 0 : i64, kind = "branch", txn = -1 : i64} loc(#loc3)
-    acir.path %true {branch = 0 : i64, frames = ["top.observer:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = -1 : i64} loc(#loc3)
-    %value, %ready = acir.read(%true) {branch = 0 : i64, frames = ["top.observer:peek"], method = "peek", port = 0 : i64, resource = "top.source", txn = -1 : i64} : (i1) -> (i32, i1) loc(#loc4)
-    %0 = arith.addi %value, %c1_i32 {acir.id = "v4", acir.source_type = "u32"} : i32 loc(#loc3)
-    %1 = arith.cmpi ne, %0, %c0_i32 {acir.id = "v6", acir.source_type = "bool"} : i32 loc(#loc5)
-    %2 = arith.xori %1, %true : i1
-    %3 = arith.xori %1, %true : i1
-    %4 = arith.ori %3, %ready : i1
-    %5 = arith.andi %4, %ready : i1 loc(#loc6)
-    %6 = arith.andi %1, %5 : i1 loc(#loc6)
-    acir.path %1 {branch = 1 : i64, kind = "branch", txn = 0 : i64} loc(#loc6)
-    acir.path %1 {branch = 1 : i64, frames = ["top:left"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 0 : i64} loc(#loc6)
-    %7 = arith.xori %1, %true : i1 loc(#loc6)
-    %8 = arith.ori %7, %4 : i1 loc(#loc6)
-    %9 = arith.andi %4, %ready : i1 loc(#loc6)
-    %10 = arith.andi %1, %9 : i1 loc(#loc6)
-    %11 = arith.andi %8, %10 : i1 loc(#loc7)
-    %12 = arith.andi %1, %11 : i1 loc(#loc7)
-    %13 = arith.andi %1, %12 : i1 loc(#loc7)
-    %14 = arith.xori %13, %true : i1 loc(#loc7)
-    %15 = arith.ori %14, %4 : i1 loc(#loc7)
-    %16 = arith.andi %6, %15 : i1 loc(#loc7)
-    acir.path %13 {branch = 2 : i64, kind = "branch", txn = 0 : i64} loc(#loc7)
-    %value_0, %ready_1 = acir.read(%13) {branch = 2 : i64, frames = [], method = "full", port = 0 : i64, resource = "top.left_out", txn = 0 : i64} : (i1) -> (i1, i1) loc(#loc7)
-    %17 = arith.xori %13, %true : i1 loc(#loc7)
-    %18 = arith.andi %4, %ready_1 : i1 loc(#loc7)
-    %19 = arith.ori %17, %18 : i1 loc(#loc7)
-    %20 = arith.andi %16, %19 : i1 loc(#loc7)
-    %21 = arith.xori %value_0, %true : i1 loc(#loc7)
-    %22 = arith.xori %13, %true : i1 loc(#loc7)
-    %23 = arith.andi %4, %21 : i1 loc(#loc7)
-    %24 = arith.ori %22, %23 : i1 loc(#loc7)
-    %25 = arith.andi %20, %24 : i1 loc(#loc7)
-    %26 = acir.fire "top.left#0" %25 {successors = [], txn = 0 : i64} loc(#loc7)
-    %27 = arith.andi %26, %13 : i1 loc(#loc7)
-    acir.effect %27(%0) {branch = 2 : i64, frames = [], method = "push", port = 0 : i64, resource = "top.left_out", txn = 0 : i64} : (i1, i32) -> () loc(#loc7)
-    %28 = arith.andi %4, %ready : i1 loc(#loc8)
-    %29 = arith.andi %1, %28 : i1 loc(#loc8)
-    acir.path %1 {branch = 3 : i64, kind = "branch", txn = 1 : i64} loc(#loc8)
-    acir.path %1 {branch = 3 : i64, frames = ["top:right"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 1 : i64} loc(#loc8)
-    %30 = arith.xori %1, %true : i1 loc(#loc8)
-    %31 = arith.ori %30, %4 : i1 loc(#loc8)
-    %32 = arith.andi %4, %ready : i1 loc(#loc8)
-    %33 = arith.andi %1, %32 : i1 loc(#loc8)
-    %c1_i32_2 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc9)
-    %34 = arith.addi %0, %c1_i32_2 {acir.id = "v5", acir.source_type = "u32"} : i32 loc(#loc10)
-    %35 = arith.andi %31, %33 : i1 loc(#loc11)
-    %36 = arith.andi %1, %35 : i1 loc(#loc11)
-    %37 = arith.andi %1, %36 : i1 loc(#loc11)
-    %38 = arith.xori %37, %true : i1 loc(#loc11)
-    %39 = arith.ori %38, %4 : i1 loc(#loc11)
-    %40 = arith.andi %29, %39 : i1 loc(#loc11)
-    acir.path %37 {branch = 4 : i64, kind = "branch", txn = 1 : i64} loc(#loc11)
-    %value_3, %ready_4 = acir.read(%37) {branch = 4 : i64, frames = [], method = "full", port = 0 : i64, resource = "top.right_out", txn = 1 : i64} : (i1) -> (i1, i1) loc(#loc11)
-    %41 = arith.xori %37, %true : i1 loc(#loc11)
-    %42 = arith.andi %4, %ready_4 : i1 loc(#loc11)
-    %43 = arith.ori %41, %42 : i1 loc(#loc11)
-    %44 = arith.andi %40, %43 : i1 loc(#loc11)
-    %45 = arith.xori %value_3, %true : i1 loc(#loc11)
-    %46 = arith.xori %37, %true : i1 loc(#loc11)
-    %47 = arith.andi %4, %45 : i1 loc(#loc11)
-    %48 = arith.ori %46, %47 : i1 loc(#loc11)
-    %49 = arith.andi %44, %48 : i1 loc(#loc11)
-    %50 = acir.fire "top.right#1" %49 {successors = [], txn = 1 : i64} loc(#loc11)
-    %51 = arith.andi %50, %37 : i1 loc(#loc11)
-    acir.effect %51(%34) {branch = 4 : i64, frames = [], method = "push", port = 0 : i64, resource = "top.right_out", txn = 1 : i64} : (i1, i32) -> () loc(#loc11)
-    %52 = arith.xori %2, %true : i1
-    %53 = arith.ori %52, %ready : i1
-    %54 = arith.ori %2, %1 : i1
-    %55 = arith.xori %1, %true : i1
-    %56 = arith.ori %55, %4 : i1
-    %57 = arith.andi %53, %56 : i1
+    acir.path %true {branch = 0 : i64, kind = "branch", txn = -1 : i64} loc(#loc1)
+    acir.path %true {branch = 0 : i64, frames = ["top.observer:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = -1 : i64} loc(#loc1)
+    %value, %ready = acir.read(%true) {branch = 0 : i64, frames = ["top.observer:peek"], method = "peek", port = 0 : i64, resource = "top.source", txn = -1 : i64} : (i1) -> (i32, i1) loc(#loc2)
+    %0 = acir.unary %false "not" {acir.source_type = "bool"} : i1 -> i1
+    %1 = acir.assert %0
+    %2 = arith.andi %ready, %1 : i1
+    %3 = arith.addi %value, %c1_i32 {acir.id = "v5", acir.source_type = "u32"} : i32 loc(#loc1)
+    %4 = arith.cmpi ne, %3, %c0_i32 {acir.id = "v7", acir.source_type = "bool"} : i32 loc(#loc3)
+    %5 = arith.cmpi eq, %3, %c0_i32 : i32 loc(#loc3)
+    %6 = arith.ori %5, %2 : i1
+    %7 = arith.andi %6, %2 : i1 loc(#loc4)
+    %8 = arith.andi %4, %7 : i1 loc(#loc4)
+    acir.path %4 {branch = 1 : i64, kind = "branch", txn = 0 : i64} loc(#loc4)
+    acir.path %4 {branch = 1 : i64, frames = ["top:left"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 0 : i64} loc(#loc4)
+    %9 = arith.ori %5, %6 : i1 loc(#loc4)
+    %10 = arith.andi %9, %8 : i1
+    %11 = arith.andi %4, %10 : i1
+    %12 = arith.xori %11, %true : i1
+    %13 = arith.ori %12, %6 : i1
+    %14 = arith.andi %8, %13 : i1
+    acir.path %11 {branch = 2 : i64, kind = "branch", txn = 0 : i64}
+    %value_0, %ready_1 = acir.read(%11) {branch = 2 : i64, frames = [], method = "full", port = 0 : i64, resource = "top.left_out", txn = 0 : i64} : (i1) -> (i1, i1)
+    %15 = arith.andi %6, %ready_1 : i1
+    %16 = arith.ori %12, %15 : i1
+    %17 = arith.andi %14, %16 : i1
+    %18 = arith.xori %value_0, %true : i1
+    %19 = arith.andi %6, %18 : i1
+    %20 = arith.ori %12, %19 : i1
+    %21 = arith.andi %17, %20 : i1
+    %22 = acir.fire "top.left#0" %21 {successors = [], txn = 0 : i64}
+    %23 = arith.andi %22, %11 : i1
+    acir.effect %23(%3) {branch = 2 : i64, frames = [], method = "push", port = 0 : i64, resource = "top.left_out", txn = 0 : i64} : (i1, i32) -> ()
+    acir.path %4 {branch = 3 : i64, kind = "branch", txn = 1 : i64} loc(#loc5)
+    acir.path %4 {branch = 3 : i64, frames = ["top:right"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 1 : i64} loc(#loc5)
+    %24 = arith.addi %value, %c2_i32 : i32 loc(#loc6)
+    acir.path %11 {branch = 4 : i64, kind = "branch", txn = 1 : i64}
+    %value_2, %ready_3 = acir.read(%11) {branch = 4 : i64, frames = [], method = "full", port = 0 : i64, resource = "top.right_out", txn = 1 : i64} : (i1) -> (i1, i1)
+    %25 = arith.andi %6, %ready_3 : i1
+    %26 = arith.ori %12, %25 : i1
+    %27 = arith.andi %14, %26 : i1
+    %28 = arith.xori %value_2, %true : i1
+    %29 = arith.andi %6, %28 : i1
+    %30 = arith.ori %12, %29 : i1
+    %31 = arith.andi %27, %30 : i1
+    %32 = acir.fire "top.right#1" %31 {successors = [], txn = 1 : i64}
+    %33 = arith.andi %32, %11 : i1
+    acir.effect %33(%24) {branch = 4 : i64, frames = [], method = "push", port = 0 : i64, resource = "top.right_out", txn = 1 : i64} : (i1, i32) -> ()
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":36:22)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:42)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:18)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":15:16)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":36:12)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":37:24)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":28:9)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":38:25)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:24)
-#loc10 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:16)
-#loc11 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:9)
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":35:18)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":15:16)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":36:12)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":37:24)
+#loc5 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":38:25)
+#loc6 = loc("/home/lc/tmp/pycircuit/examples/dual_channel.py":32:16)

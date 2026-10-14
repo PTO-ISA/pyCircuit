@@ -1,346 +1,343 @@
-module attributes {acir.config = {choose_left = true}, acir.model = {config = [{name = "choose_left", type = "bool"}], constants = {}, exports = {}, format_version = 8 : i64, top = "SharedState", type_order = [], types = {}}, acir.stage = "rtl"} {
-  acir.circuit attributes {conflicts = [], edges = [], schedule = [0, 1, 2], stage = "rtl"} {
-    acir.state @top.first : i32 {capacity = 1 : i64, initial = [3 : i32], kind = "queue"}
-    acir.state @top.independent_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
-    acir.state @top.left_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
-    acir.state @top.right_out : i32 {capacity = 1 : i64, initial = [], kind = "queue"}
-    acir.state @top.second : i32 {capacity = 1 : i64, initial = [5 : i32], kind = "queue"}
-    acir.state @top.separate.total : i32 {initial = 0 : i32, kind = "cell"}
-    acir.state @top.shared.total : i32 {initial = 0 : i32, kind = "cell"}
-    acir.state @top.third : i32 {capacity = 1 : i64, initial = [9 : i32], kind = "queue"}
+module attributes {acir.config = {choose_left = true}, acir.model = {config = [{name = "choose_left", type = "bool"}], constants = {}, format_version = 9 : i64, top = "SharedState", type_order = [], types = {}}, acir.stage = "rtl"} {
+  acir.circuit attributes {conflicts = [], edges = [], logical_states = [{count = "top.first$count", kind = "queue", name = "top.first", parts = [{path = [0], resource = "top.first$storage$0"}], prototype = [3 : i32]}, {count = "top.independent_out$count", kind = "queue", name = "top.independent_out", parts = [{path = [0], resource = "top.independent_out$storage$0"}], prototype = [0 : i32]}, {count = "top.left_out$count", kind = "queue", name = "top.left_out", parts = [{path = [0], resource = "top.left_out$storage$0"}], prototype = [0 : i32]}, {count = "top.right_out$count", kind = "queue", name = "top.right_out", parts = [{path = [0], resource = "top.right_out$storage$0"}], prototype = [0 : i32]}, {count = "top.second$count", kind = "queue", name = "top.second", parts = [{path = [0], resource = "top.second$storage$0"}], prototype = [5 : i32]}, {kind = "cell", name = "top.separate.total", parts = [{path = [], resource = "top.separate.total$value"}], prototype = 0 : i32}, {kind = "cell", name = "top.shared.total", parts = [{path = [], resource = "top.shared.total$value"}], prototype = 0 : i32}, {count = "top.third$count", kind = "queue", name = "top.third", parts = [{path = [0], resource = "top.third$storage$0"}], prototype = [9 : i32]}], schedule = [0, 1, 2], stage = "rtl"} {
+    acir.state @top.first$count : i32 {initial = 1 : i32, kind = "cell"}
+    acir.state @top.first$storage$0 : i32 {initial = 3 : i32, kind = "cell"}
+    acir.state @top.independent_out$count : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.independent_out$storage$0 : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.left_out$count : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.left_out$storage$0 : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.right_out$count : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.right_out$storage$0 : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.second$count : i32 {initial = 1 : i32, kind = "cell"}
+    acir.state @top.second$storage$0 : i32 {initial = 5 : i32, kind = "cell"}
+    acir.state @top.separate.total$value : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.shared.total$value : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.third$count : i32 {initial = 1 : i32, kind = "cell"}
+    acir.state @top.third$storage$0 : i32 {initial = 9 : i32, kind = "cell"}
     %true = arith.constant true
-    %false = arith.constant false
-    %true_0 = arith.constant true loc(#loc1)
-    %0 = acir.export %true_0 {acir.id = "v3", acir.source_type = "bool"} : i1 -> i1 loc(#loc1)
-    %true_1 = arith.constant true
-    %1 = arith.xori %0, %true_1 : i1
-    %2 = acir.current {aspect = "value", resource = "top.shared.total"} : i32 loc(#loc2)
-    %3 = arith.ori %1, %true : i1 loc(#loc2)
-    %4 = arith.andi %0, %3 : i1 loc(#loc2)
-    %5 = arith.xori %0, %true_1 : i1 loc(#loc3)
-    %6 = acir.current {aspect = "storage", resource = "top.first"} : !acir.array<i32, 1> loc(#loc3)
-    %c0_i32 = arith.constant 0 : i32 loc(#loc3)
-    %7 = acir.extract %6[%c0_i32] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc3)
-    %8 = acir.current {aspect = "count", resource = "top.first"} : i32 loc(#loc3)
+    %0 = acir.export %true {acir.id = "v4", acir.source_type = "bool"} : i1 -> i1
+    %1 = arith.xori %0, %true : i1 loc(#loc1)
+    %true_0 = arith.constant true
+    %2 = arith.ori %1, %true_0 : i1
+    %3 = arith.andi %0, %2 : i1
+    %4 = acir.current {aspect = "value", resource = "top.first$count"} : i32 loc(#loc2)
+    %c0_i32 = arith.constant 0 : i32 loc(#loc2)
+    %5 = arith.cmpi ne, %4, %c0_i32 : i32 loc(#loc2)
+    %6 = arith.ori %1, %5 : i1 loc(#loc2)
+    %7 = arith.andi %3, %6 : i1 loc(#loc2)
+    %8 = arith.andi %7, %6 : i1 loc(#loc2)
+    %9 = arith.ori %1, %true_0 : i1 loc(#loc2)
+    %10 = arith.andi %8, %9 : i1 loc(#loc2)
+    %c0_i32_1 = arith.constant 0 : i32 loc(#loc2)
+    %11 = arith.cmpi eq, %4, %c0_i32_1 : i32 loc(#loc2)
+    %12 = arith.xori %11, %true : i1 loc(#loc2)
+    %13 = arith.ori %1, %12 : i1 loc(#loc2)
+    %14 = arith.andi %10, %13 : i1 loc(#loc2)
+    %15 = arith.andi %true_0, %5 : i1 loc(#loc1)
+    %16 = arith.ori %1, %15 : i1 loc(#loc1)
+    %17 = arith.andi %14, %16 : i1 loc(#loc1)
+    %18 = arith.andi %17, %6 : i1 loc(#loc1)
+    %19 = arith.andi %18, %6 : i1 loc(#loc1)
+    %20 = arith.ori %1, %true_0 : i1 loc(#loc3)
+    %21 = arith.andi %19, %20 : i1 loc(#loc3)
     %c0_i32_2 = arith.constant 0 : i32 loc(#loc3)
-    %9 = arith.cmpi ne, %8, %c0_i32_2 : i32 loc(#loc3)
-    %10 = arith.ori %5, %9 : i1 loc(#loc3)
-    %11 = arith.andi %4, %10 : i1 loc(#loc3)
-    %12 = arith.xori %0, %true_1 : i1 loc(#loc3)
-    %13 = arith.ori %12, %9 : i1 loc(#loc3)
-    %14 = arith.andi %11, %13 : i1 loc(#loc3)
-    %15 = arith.xori %0, %true_1 : i1 loc(#loc3)
-    %c0_i32_3 = arith.constant 0 : i32 loc(#loc3)
-    %16 = arith.cmpi eq, %8, %c0_i32_3 : i32 loc(#loc3)
-    %17 = arith.ori %15, %true : i1 loc(#loc3)
-    %18 = arith.andi %14, %17 : i1 loc(#loc3)
-    %19 = arith.xori %0, %true_1 : i1 loc(#loc3)
-    %20 = arith.xori %16, %true_1 : i1 loc(#loc3)
-    %21 = arith.ori %19, %20 : i1 loc(#loc3)
-    %22 = arith.andi %18, %21 : i1 loc(#loc3)
-    %23 = arith.xori %0, %true_1 : i1 loc(#loc4)
-    %24 = arith.andi %true, %9 : i1 loc(#loc2)
-    %25 = arith.ori %23, %24 : i1 loc(#loc2)
-    %26 = arith.andi %22, %25 : i1 loc(#loc2)
-    %27 = arith.xori %0, %true_1 : i1 loc(#loc5)
-    %c0_i32_4 = arith.constant 0 : i32 loc(#loc5)
-    %28 = acir.extract %6[%c0_i32_4] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc5)
-    %c0_i32_5 = arith.constant 0 : i32 loc(#loc5)
-    %29 = arith.cmpi ne, %8, %c0_i32_5 : i32 loc(#loc5)
-    %30 = arith.ori %27, %29 : i1 loc(#loc5)
-    %31 = arith.andi %26, %30 : i1 loc(#loc5)
-    %32 = arith.xori %0, %true_1 : i1 loc(#loc5)
-    %33 = arith.ori %32, %29 : i1 loc(#loc5)
-    %34 = arith.andi %31, %33 : i1 loc(#loc5)
-    %35 = arith.xori %0, %true_1 : i1 loc(#loc5)
-    %c0_i32_6 = arith.constant 0 : i32 loc(#loc5)
-    %36 = arith.cmpi eq, %8, %c0_i32_6 : i32 loc(#loc5)
-    %37 = arith.ori %35, %true : i1 loc(#loc5)
-    %38 = arith.andi %34, %37 : i1 loc(#loc5)
-    %39 = arith.xori %0, %true_1 : i1 loc(#loc5)
-    %40 = arith.xori %36, %true_1 : i1 loc(#loc5)
-    %41 = arith.ori %39, %40 : i1 loc(#loc5)
-    %42 = arith.andi %38, %41 : i1 loc(#loc5)
-    %43 = arith.andi %0, %29 : i1 loc(#loc6)
-    %44 = arith.andi %0, %43 : i1 loc(#loc6)
-    %45 = arith.andi %0, %44 : i1 loc(#loc6)
-    %46 = arith.xori %45, %true_1 : i1 loc(#loc6)
-    %47 = acir.current {aspect = "count", resource = "top.left_out"} : i32 loc(#loc7)
-    %c0_i32_7 = arith.constant 0 : i32 loc(#loc7)
-    %48 = arith.subi %47, %c0_i32_7 : i32 loc(#loc7)
-    %c1_i32 = arith.constant 1 : i32 loc(#loc7)
-    %49 = arith.cmpi uge, %48, %c1_i32 : i32 loc(#loc7)
-    %50 = arith.ori %46, %true : i1 loc(#loc7)
-    %51 = arith.andi %42, %50 : i1 loc(#loc7)
-    %52 = arith.xori %45, %true_1 : i1 loc(#loc7)
-    %53 = arith.xori %49, %true_1 : i1 loc(#loc7)
-    %54 = arith.ori %52, %53 : i1 loc(#loc7)
-    %55 = arith.andi %51, %54 : i1 loc(#loc7)
-    %56 = acir.fire "top.left.transfer#0" %55 {successors = [], txn = 0 : i64} loc(#loc7)
-    %57 = acir.unary %true_0 "not" {acir.id = "v5", acir.source_type = "bool"} : i1 -> i1 loc(#loc8)
-    %58 = acir.export %57 {acir.id = "v6", acir.source_type = "bool"} : i1 -> i1 loc(#loc8)
-    %59 = arith.xori %58, %true_1 : i1 loc(#loc2)
-    %60 = arith.ori %59, %true : i1 loc(#loc2)
-    %61 = arith.andi %58, %60 : i1 loc(#loc2)
-    %62 = arith.xori %58, %true_1 : i1 loc(#loc3)
-    %63 = acir.current {aspect = "storage", resource = "top.second"} : !acir.array<i32, 1> loc(#loc3)
-    %c0_i32_8 = arith.constant 0 : i32 loc(#loc3)
-    %64 = acir.extract %63[%c0_i32_8] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc3)
-    %65 = acir.current {aspect = "count", resource = "top.second"} : i32 loc(#loc3)
-    %c0_i32_9 = arith.constant 0 : i32 loc(#loc3)
-    %66 = arith.cmpi ne, %65, %c0_i32_9 : i32 loc(#loc3)
-    %67 = arith.ori %62, %66 : i1 loc(#loc3)
-    %68 = arith.andi %61, %67 : i1 loc(#loc3)
-    %69 = arith.xori %58, %true_1 : i1 loc(#loc3)
-    %70 = arith.ori %69, %66 : i1 loc(#loc3)
-    %71 = arith.andi %68, %70 : i1 loc(#loc3)
-    %72 = arith.xori %58, %true_1 : i1 loc(#loc3)
-    %c0_i32_10 = arith.constant 0 : i32 loc(#loc3)
-    %73 = arith.cmpi eq, %65, %c0_i32_10 : i32 loc(#loc3)
-    %74 = arith.ori %72, %true : i1 loc(#loc3)
-    %75 = arith.andi %71, %74 : i1 loc(#loc3)
-    %76 = arith.xori %58, %true_1 : i1 loc(#loc3)
-    %77 = arith.xori %73, %true_1 : i1 loc(#loc3)
-    %78 = arith.ori %76, %77 : i1 loc(#loc3)
-    %79 = arith.andi %75, %78 : i1 loc(#loc3)
-    %80 = arith.xori %58, %true_1 : i1 loc(#loc4)
-    %81 = arith.andi %true, %66 : i1 loc(#loc2)
-    %82 = arith.ori %80, %81 : i1 loc(#loc2)
-    %83 = arith.andi %79, %82 : i1 loc(#loc2)
-    %84 = arith.xori %58, %true_1 : i1 loc(#loc5)
-    %c0_i32_11 = arith.constant 0 : i32 loc(#loc5)
-    %85 = acir.extract %63[%c0_i32_11] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc5)
-    %c0_i32_12 = arith.constant 0 : i32 loc(#loc5)
-    %86 = arith.cmpi ne, %65, %c0_i32_12 : i32 loc(#loc5)
-    %87 = arith.ori %84, %86 : i1 loc(#loc5)
-    %88 = arith.andi %83, %87 : i1 loc(#loc5)
-    %89 = arith.xori %58, %true_1 : i1 loc(#loc5)
-    %90 = arith.ori %89, %86 : i1 loc(#loc5)
-    %91 = arith.andi %88, %90 : i1 loc(#loc5)
-    %92 = arith.xori %58, %true_1 : i1 loc(#loc5)
-    %c0_i32_13 = arith.constant 0 : i32 loc(#loc5)
-    %93 = arith.cmpi eq, %65, %c0_i32_13 : i32 loc(#loc5)
-    %94 = arith.ori %92, %true : i1 loc(#loc5)
-    %95 = arith.andi %91, %94 : i1 loc(#loc5)
-    %96 = arith.xori %58, %true_1 : i1 loc(#loc5)
-    %97 = arith.xori %93, %true_1 : i1 loc(#loc5)
-    %98 = arith.ori %96, %97 : i1 loc(#loc5)
-    %99 = arith.andi %95, %98 : i1 loc(#loc5)
-    %100 = arith.andi %58, %86 : i1 loc(#loc6)
-    %101 = arith.andi %58, %100 : i1 loc(#loc6)
-    %102 = arith.andi %58, %101 : i1 loc(#loc6)
-    %103 = arith.xori %102, %true_1 : i1 loc(#loc6)
-    %104 = acir.current {aspect = "count", resource = "top.right_out"} : i32 loc(#loc7)
-    %c0_i32_14 = arith.constant 0 : i32 loc(#loc7)
-    %105 = arith.subi %104, %c0_i32_14 : i32 loc(#loc7)
-    %c1_i32_15 = arith.constant 1 : i32 loc(#loc7)
-    %106 = arith.cmpi uge, %105, %c1_i32_15 : i32 loc(#loc7)
-    %107 = arith.ori %103, %true : i1 loc(#loc7)
-    %108 = arith.andi %99, %107 : i1 loc(#loc7)
-    %109 = arith.xori %102, %true_1 : i1 loc(#loc7)
-    %110 = arith.xori %106, %true_1 : i1 loc(#loc7)
-    %111 = arith.ori %109, %110 : i1 loc(#loc7)
-    %112 = arith.andi %108, %111 : i1 loc(#loc7)
-    %113 = acir.fire "top.right.transfer#1" %112 {successors = [], txn = 1 : i64} loc(#loc7)
-    %true_16 = arith.constant {acir.source_type = "bool"} true loc(#loc9)
-    %114 = acir.export %true_16 {acir.id = "v9", acir.source_type = "bool"} : i1 -> i1 loc(#loc9)
-    %115 = arith.xori %114, %true_1 : i1 loc(#loc2)
-    %116 = acir.current {aspect = "value", resource = "top.separate.total"} : i32 loc(#loc2)
-    %117 = arith.ori %115, %true : i1 loc(#loc2)
-    %118 = arith.andi %114, %117 : i1 loc(#loc2)
-    %119 = arith.xori %114, %true_1 : i1 loc(#loc3)
-    %120 = acir.current {aspect = "storage", resource = "top.third"} : !acir.array<i32, 1> loc(#loc3)
-    %c0_i32_17 = arith.constant 0 : i32 loc(#loc3)
-    %121 = acir.extract %120[%c0_i32_17] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc3)
-    %122 = acir.current {aspect = "count", resource = "top.third"} : i32 loc(#loc3)
-    %c0_i32_18 = arith.constant 0 : i32 loc(#loc3)
-    %123 = arith.cmpi ne, %122, %c0_i32_18 : i32 loc(#loc3)
-    %124 = arith.ori %119, %123 : i1 loc(#loc3)
-    %125 = arith.andi %118, %124 : i1 loc(#loc3)
-    %126 = arith.xori %114, %true_1 : i1 loc(#loc3)
-    %127 = arith.ori %126, %123 : i1 loc(#loc3)
-    %128 = arith.andi %125, %127 : i1 loc(#loc3)
-    %129 = arith.xori %114, %true_1 : i1 loc(#loc3)
-    %c0_i32_19 = arith.constant 0 : i32 loc(#loc3)
-    %130 = arith.cmpi eq, %122, %c0_i32_19 : i32 loc(#loc3)
-    %131 = arith.ori %129, %true : i1 loc(#loc3)
-    %132 = arith.andi %128, %131 : i1 loc(#loc3)
-    %133 = arith.xori %114, %true_1 : i1 loc(#loc3)
-    %134 = arith.xori %130, %true_1 : i1 loc(#loc3)
-    %135 = arith.ori %133, %134 : i1 loc(#loc3)
-    %136 = arith.andi %132, %135 : i1 loc(#loc3)
-    %137 = arith.xori %114, %true_1 : i1 loc(#loc4)
-    %138 = arith.andi %true, %123 : i1 loc(#loc2)
-    %139 = arith.ori %137, %138 : i1 loc(#loc2)
-    %140 = arith.andi %136, %139 : i1 loc(#loc2)
-    %141 = arith.xori %114, %true_1 : i1 loc(#loc5)
-    %c0_i32_20 = arith.constant 0 : i32 loc(#loc5)
-    %142 = acir.extract %120[%c0_i32_20] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc5)
-    %c0_i32_21 = arith.constant 0 : i32 loc(#loc5)
-    %143 = arith.cmpi ne, %122, %c0_i32_21 : i32 loc(#loc5)
-    %144 = arith.ori %141, %143 : i1 loc(#loc5)
-    %145 = arith.andi %140, %144 : i1 loc(#loc5)
-    %146 = arith.xori %114, %true_1 : i1 loc(#loc5)
-    %147 = arith.ori %146, %143 : i1 loc(#loc5)
-    %148 = arith.andi %145, %147 : i1 loc(#loc5)
-    %149 = arith.xori %114, %true_1 : i1 loc(#loc5)
-    %c0_i32_22 = arith.constant 0 : i32 loc(#loc5)
-    %150 = arith.cmpi eq, %122, %c0_i32_22 : i32 loc(#loc5)
-    %151 = arith.ori %149, %true : i1 loc(#loc5)
-    %152 = arith.andi %148, %151 : i1 loc(#loc5)
-    %153 = arith.xori %114, %true_1 : i1 loc(#loc5)
-    %154 = arith.xori %150, %true_1 : i1 loc(#loc5)
-    %155 = arith.ori %153, %154 : i1 loc(#loc5)
-    %156 = arith.andi %152, %155 : i1 loc(#loc5)
-    %157 = arith.andi %114, %143 : i1 loc(#loc6)
-    %158 = arith.andi %114, %157 : i1 loc(#loc6)
-    %159 = arith.andi %114, %158 : i1 loc(#loc6)
-    %160 = arith.xori %159, %true_1 : i1 loc(#loc6)
-    %161 = acir.current {aspect = "count", resource = "top.independent_out"} : i32 loc(#loc7)
-    %c0_i32_23 = arith.constant 0 : i32 loc(#loc7)
-    %162 = arith.subi %161, %c0_i32_23 : i32 loc(#loc7)
-    %c1_i32_24 = arith.constant 1 : i32 loc(#loc7)
-    %163 = arith.cmpi uge, %162, %c1_i32_24 : i32 loc(#loc7)
-    %164 = arith.ori %160, %true : i1 loc(#loc7)
-    %165 = arith.andi %156, %164 : i1 loc(#loc7)
-    %166 = arith.xori %159, %true_1 : i1 loc(#loc7)
-    %167 = arith.xori %163, %true_1 : i1 loc(#loc7)
-    %168 = arith.ori %166, %167 : i1 loc(#loc7)
-    %169 = arith.andi %165, %168 : i1 loc(#loc7)
-    %170 = acir.fire "top.independent.transfer#2" %169 {successors = [], txn = 2 : i64} loc(#loc7)
-    %171 = arith.ori %0, %0 : i1 loc(#loc5)
-    %172 = arith.andi %56, %171 : i1 loc(#loc5)
-    %c0_i32_25 = arith.constant 0 : i32 loc(#loc5)
-    %c1_i32_26 = arith.constant 1 : i32 loc(#loc5)
-    %c0_i32_27 = arith.constant 0 : i32 loc(#loc5)
-    %173 = arith.select %172, %c1_i32_26, %c0_i32_27 : i32 loc(#loc5)
-    %174 = arith.addi %c0_i32_25, %173 : i32 loc(#loc5)
-    %175 = arith.subi %8, %174 : i32 loc(#loc5)
-    %176 = acir.aggregate() : () -> i32 loc(#loc5)
-    %c0_i32_28 = arith.constant 0 : i32 loc(#loc5)
-    %177 = acir.extract %6[%c0_i32_28] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc5)
-    %c0_i32_29 = arith.constant 0 : i32 loc(#loc5)
-    %178 = arith.cmpi eq, %174, %c0_i32_29 : i32 loc(#loc5)
-    %179 = arith.select %178, %177, %176 : i32 loc(#loc5)
-    %180 = acir.aggregate(%179) : (i32) -> !acir.array<i32, 1> loc(#loc5)
-    acir.next %180 {aspect = "storage", resource = "top.first"} : !acir.array<i32, 1> loc(#loc5)
-    acir.next %175 {aspect = "count", resource = "top.first"} : i32 loc(#loc5)
-    %181 = acir.current {aspect = "storage", resource = "top.independent_out"} : !acir.array<i32, 1> loc(#loc5)
-    %c0_i32_30 = arith.constant 0 : i32 loc(#loc5)
-    %182 = arith.subi %161, %c0_i32_30 : i32 loc(#loc5)
-    %183 = acir.aggregate() : () -> i32 loc(#loc5)
-    %c0_i32_31 = arith.constant 0 : i32 loc(#loc5)
-    %184 = acir.extract %181[%c0_i32_31] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc5)
-    %c0_i32_32 = arith.constant 0 : i32 loc(#loc5)
-    %185 = arith.cmpi eq, %c0_i32_30, %c0_i32_32 : i32 loc(#loc5)
-    %186 = arith.select %185, %184, %183 : i32 loc(#loc5)
-    %187 = acir.aggregate(%186) : (i32) -> !acir.array<i32, 1> loc(#loc5)
-    %188 = arith.andi %170, %159 : i1 loc(#loc7)
-    %c0_i32_33 = arith.constant 0 : i32 loc(#loc7)
-    %189 = arith.select %188, %182, %c0_i32_33 : i32 loc(#loc7)
-    %190 = acir.update %187, %142[%189] {path = [unit]} : (!acir.array<i32, 1>, i32, i32) -> !acir.array<i32, 1> loc(#loc7)
-    %191 = arith.select %188, %190, %187 : !acir.array<i32, 1> loc(#loc7)
-    %c1_i32_34 = arith.constant 1 : i32 loc(#loc7)
-    %c0_i32_35 = arith.constant 0 : i32 loc(#loc7)
-    %192 = arith.select %188, %c1_i32_34, %c0_i32_35 : i32 loc(#loc7)
-    %193 = arith.addi %182, %192 : i32 loc(#loc7)
-    acir.next %191 {aspect = "storage", resource = "top.independent_out"} : !acir.array<i32, 1> loc(#loc7)
-    acir.next %193 {aspect = "count", resource = "top.independent_out"} : i32 loc(#loc7)
-    %194 = acir.current {aspect = "storage", resource = "top.left_out"} : !acir.array<i32, 1> loc(#loc7)
-    %c0_i32_36 = arith.constant 0 : i32 loc(#loc7)
-    %195 = arith.subi %47, %c0_i32_36 : i32 loc(#loc7)
-    %196 = acir.aggregate() : () -> i32 loc(#loc7)
-    %c0_i32_37 = arith.constant 0 : i32 loc(#loc7)
-    %197 = acir.extract %194[%c0_i32_37] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc7)
-    %c0_i32_38 = arith.constant 0 : i32 loc(#loc7)
-    %198 = arith.cmpi eq, %c0_i32_36, %c0_i32_38 : i32 loc(#loc7)
-    %199 = arith.select %198, %197, %196 : i32 loc(#loc7)
-    %200 = acir.aggregate(%199) : (i32) -> !acir.array<i32, 1> loc(#loc7)
-    %201 = arith.andi %56, %45 : i1 loc(#loc7)
-    %c0_i32_39 = arith.constant 0 : i32 loc(#loc7)
-    %202 = arith.select %201, %195, %c0_i32_39 : i32 loc(#loc7)
-    %203 = acir.update %200, %28[%202] {path = [unit]} : (!acir.array<i32, 1>, i32, i32) -> !acir.array<i32, 1> loc(#loc7)
-    %204 = arith.select %201, %203, %200 : !acir.array<i32, 1> loc(#loc7)
-    %c1_i32_40 = arith.constant 1 : i32 loc(#loc7)
-    %c0_i32_41 = arith.constant 0 : i32 loc(#loc7)
-    %205 = arith.select %201, %c1_i32_40, %c0_i32_41 : i32 loc(#loc7)
-    %206 = arith.addi %195, %205 : i32 loc(#loc7)
-    acir.next %204 {aspect = "storage", resource = "top.left_out"} : !acir.array<i32, 1> loc(#loc7)
-    acir.next %206 {aspect = "count", resource = "top.left_out"} : i32 loc(#loc7)
-    %207 = acir.current {aspect = "storage", resource = "top.right_out"} : !acir.array<i32, 1> loc(#loc7)
-    %c0_i32_42 = arith.constant 0 : i32 loc(#loc7)
-    %208 = arith.subi %104, %c0_i32_42 : i32 loc(#loc7)
-    %209 = acir.aggregate() : () -> i32 loc(#loc7)
-    %c0_i32_43 = arith.constant 0 : i32 loc(#loc7)
-    %210 = acir.extract %207[%c0_i32_43] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc7)
-    %c0_i32_44 = arith.constant 0 : i32 loc(#loc7)
-    %211 = arith.cmpi eq, %c0_i32_42, %c0_i32_44 : i32 loc(#loc7)
-    %212 = arith.select %211, %210, %209 : i32 loc(#loc7)
-    %213 = acir.aggregate(%212) : (i32) -> !acir.array<i32, 1> loc(#loc7)
-    %214 = arith.andi %113, %102 : i1 loc(#loc7)
-    %c0_i32_45 = arith.constant 0 : i32 loc(#loc7)
-    %215 = arith.select %214, %208, %c0_i32_45 : i32 loc(#loc7)
-    %216 = acir.update %213, %85[%215] {path = [unit]} : (!acir.array<i32, 1>, i32, i32) -> !acir.array<i32, 1> loc(#loc7)
-    %217 = arith.select %214, %216, %213 : !acir.array<i32, 1> loc(#loc7)
-    %c1_i32_46 = arith.constant 1 : i32 loc(#loc7)
-    %c0_i32_47 = arith.constant 0 : i32 loc(#loc7)
-    %218 = arith.select %214, %c1_i32_46, %c0_i32_47 : i32 loc(#loc7)
-    %219 = arith.addi %208, %218 : i32 loc(#loc7)
-    acir.next %217 {aspect = "storage", resource = "top.right_out"} : !acir.array<i32, 1> loc(#loc7)
-    acir.next %219 {aspect = "count", resource = "top.right_out"} : i32 loc(#loc7)
-    %220 = arith.ori %58, %58 : i1 loc(#loc5)
-    %221 = arith.andi %113, %220 : i1 loc(#loc5)
-    %c0_i32_48 = arith.constant 0 : i32 loc(#loc5)
-    %c1_i32_49 = arith.constant 1 : i32 loc(#loc5)
-    %c0_i32_50 = arith.constant 0 : i32 loc(#loc5)
-    %222 = arith.select %221, %c1_i32_49, %c0_i32_50 : i32 loc(#loc5)
-    %223 = arith.addi %c0_i32_48, %222 : i32 loc(#loc5)
-    %224 = arith.subi %65, %223 : i32 loc(#loc5)
-    %225 = acir.aggregate() : () -> i32 loc(#loc5)
-    %c0_i32_51 = arith.constant 0 : i32 loc(#loc5)
-    %226 = acir.extract %63[%c0_i32_51] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc5)
-    %c0_i32_52 = arith.constant 0 : i32 loc(#loc5)
-    %227 = arith.cmpi eq, %223, %c0_i32_52 : i32 loc(#loc5)
-    %228 = arith.select %227, %226, %225 : i32 loc(#loc5)
-    %229 = acir.aggregate(%228) : (i32) -> !acir.array<i32, 1> loc(#loc5)
-    acir.next %229 {aspect = "storage", resource = "top.second"} : !acir.array<i32, 1> loc(#loc5)
-    acir.next %224 {aspect = "count", resource = "top.second"} : i32 loc(#loc5)
-    %230 = arith.andi %170, %114 : i1 loc(#loc7)
-    %231 = arith.addi %116, %121 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc2)
-    %232 = arith.select %230, %231, %116 : i32 loc(#loc2)
-    acir.next %232 {aspect = "value", resource = "top.separate.total"} : i32 loc(#loc2)
-    %233 = arith.andi %56, %0 : i1 loc(#loc7)
-    %234 = arith.addi %2, %7 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc2)
-    %235 = arith.select %233, %234, %2 : i32 loc(#loc2)
-    %236 = arith.andi %113, %58 : i1 loc(#loc7)
-    %237 = arith.addi %2, %64 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc2)
-    %238 = arith.select %236, %237, %235 : i32 loc(#loc2)
-    acir.next %238 {aspect = "value", resource = "top.shared.total"} : i32 loc(#loc2)
-    %239 = arith.ori %114, %114 : i1 loc(#loc5)
-    %240 = arith.andi %170, %239 : i1 loc(#loc5)
-    %c0_i32_53 = arith.constant 0 : i32 loc(#loc5)
-    %c1_i32_54 = arith.constant 1 : i32 loc(#loc5)
-    %c0_i32_55 = arith.constant 0 : i32 loc(#loc5)
-    %241 = arith.select %240, %c1_i32_54, %c0_i32_55 : i32 loc(#loc5)
-    %242 = arith.addi %c0_i32_53, %241 : i32 loc(#loc5)
-    %243 = arith.subi %122, %242 : i32 loc(#loc5)
-    %244 = acir.aggregate() : () -> i32 loc(#loc5)
-    %c0_i32_56 = arith.constant 0 : i32 loc(#loc5)
-    %245 = acir.extract %120[%c0_i32_56] : (!acir.array<i32, 1>, i32) -> i32 loc(#loc5)
-    %c0_i32_57 = arith.constant 0 : i32 loc(#loc5)
-    %246 = arith.cmpi eq, %242, %c0_i32_57 : i32 loc(#loc5)
-    %247 = arith.select %246, %245, %244 : i32 loc(#loc5)
-    %248 = acir.aggregate(%247) : (i32) -> !acir.array<i32, 1> loc(#loc5)
-    acir.next %248 {aspect = "storage", resource = "top.third"} : !acir.array<i32, 1> loc(#loc5)
-    acir.next %243 {aspect = "count", resource = "top.third"} : i32 loc(#loc5)
+    %22 = arith.cmpi eq, %4, %c0_i32_2 : i32 loc(#loc3)
+    %23 = arith.xori %22, %true : i1 loc(#loc3)
+    %24 = arith.ori %1, %23 : i1 loc(#loc3)
+    %25 = arith.andi %21, %24 : i1 loc(#loc3)
+    %26 = arith.andi %0, %5 : i1
+    %27 = arith.xori %26, %true : i1
+    %28 = arith.ori %27, %true_0 : i1
+    %29 = arith.andi %25, %28 : i1
+    %30 = acir.current {aspect = "value", resource = "top.left_out$count"} : i32
+    %c0_i32_3 = arith.constant 0 : i32
+    %31 = arith.subi %30, %c0_i32_3 : i32
+    %c1_i32 = arith.constant 1 : i32
+    %32 = arith.cmpi uge, %31, %c1_i32 : i32
+    %33 = arith.xori %32, %true : i1
+    %34 = arith.ori %27, %33 : i1
+    %35 = arith.andi %29, %34 : i1
+    %36 = acir.fire "top.left.transfer#0" %35 {successors = [], txn = 0 : i64}
+    %37 = acir.unary %true "not" {acir.id = "v7", acir.source_type = "bool"} : i1 -> i1 loc(#loc4)
+    %38 = acir.export %37 {acir.id = "v8", acir.source_type = "bool"} : i1 -> i1 loc(#loc4)
+    %39 = arith.xori %38, %true : i1 loc(#loc1)
+    %40 = arith.ori %39, %true_0 : i1 loc(#loc1)
+    %41 = arith.andi %38, %40 : i1 loc(#loc1)
+    %42 = acir.current {aspect = "value", resource = "top.second$count"} : i32 loc(#loc2)
+    %c0_i32_4 = arith.constant 0 : i32 loc(#loc2)
+    %43 = arith.cmpi ne, %42, %c0_i32_4 : i32 loc(#loc2)
+    %44 = arith.ori %39, %43 : i1 loc(#loc2)
+    %45 = arith.andi %41, %44 : i1 loc(#loc2)
+    %46 = arith.andi %45, %44 : i1 loc(#loc2)
+    %47 = arith.ori %39, %true_0 : i1 loc(#loc2)
+    %48 = arith.andi %46, %47 : i1 loc(#loc2)
+    %c0_i32_5 = arith.constant 0 : i32 loc(#loc2)
+    %49 = arith.cmpi eq, %42, %c0_i32_5 : i32 loc(#loc2)
+    %50 = arith.xori %49, %true : i1 loc(#loc2)
+    %51 = arith.ori %39, %50 : i1 loc(#loc2)
+    %52 = arith.andi %48, %51 : i1 loc(#loc2)
+    %53 = arith.andi %true_0, %43 : i1 loc(#loc1)
+    %54 = arith.ori %39, %53 : i1 loc(#loc1)
+    %55 = arith.andi %52, %54 : i1 loc(#loc1)
+    %56 = arith.andi %55, %44 : i1 loc(#loc1)
+    %57 = arith.andi %56, %44 : i1 loc(#loc1)
+    %58 = arith.ori %39, %true_0 : i1 loc(#loc3)
+    %59 = arith.andi %57, %58 : i1 loc(#loc3)
+    %c0_i32_6 = arith.constant 0 : i32 loc(#loc3)
+    %60 = arith.cmpi eq, %42, %c0_i32_6 : i32 loc(#loc3)
+    %61 = arith.xori %60, %true : i1 loc(#loc3)
+    %62 = arith.ori %39, %61 : i1 loc(#loc3)
+    %63 = arith.andi %59, %62 : i1 loc(#loc3)
+    %64 = arith.andi %38, %43 : i1
+    %65 = arith.xori %64, %true : i1
+    %66 = arith.ori %65, %true_0 : i1
+    %67 = arith.andi %63, %66 : i1
+    %68 = acir.current {aspect = "value", resource = "top.right_out$count"} : i32
+    %c0_i32_7 = arith.constant 0 : i32
+    %69 = arith.subi %68, %c0_i32_7 : i32
+    %c1_i32_8 = arith.constant 1 : i32
+    %70 = arith.cmpi uge, %69, %c1_i32_8 : i32
+    %71 = arith.xori %70, %true : i1
+    %72 = arith.ori %65, %71 : i1
+    %73 = arith.andi %67, %72 : i1
+    %74 = acir.fire "top.right.transfer#1" %73 {successors = [], txn = 1 : i64}
+    %75 = acir.export %true {acir.id = "v12", acir.source_type = "bool"} : i1 -> i1
+    %76 = arith.xori %75, %true : i1 loc(#loc1)
+    %77 = arith.ori %76, %true_0 : i1 loc(#loc1)
+    %78 = arith.andi %75, %77 : i1 loc(#loc1)
+    %79 = acir.current {aspect = "value", resource = "top.third$count"} : i32 loc(#loc2)
+    %c0_i32_9 = arith.constant 0 : i32 loc(#loc2)
+    %80 = arith.cmpi ne, %79, %c0_i32_9 : i32 loc(#loc2)
+    %81 = arith.ori %76, %80 : i1 loc(#loc2)
+    %82 = arith.andi %78, %81 : i1 loc(#loc2)
+    %83 = arith.andi %82, %81 : i1 loc(#loc2)
+    %84 = arith.ori %76, %true_0 : i1 loc(#loc2)
+    %85 = arith.andi %83, %84 : i1 loc(#loc2)
+    %c0_i32_10 = arith.constant 0 : i32 loc(#loc2)
+    %86 = arith.cmpi eq, %79, %c0_i32_10 : i32 loc(#loc2)
+    %87 = arith.xori %86, %true : i1 loc(#loc2)
+    %88 = arith.ori %76, %87 : i1 loc(#loc2)
+    %89 = arith.andi %85, %88 : i1 loc(#loc2)
+    %90 = arith.andi %true_0, %80 : i1 loc(#loc1)
+    %91 = arith.ori %76, %90 : i1 loc(#loc1)
+    %92 = arith.andi %89, %91 : i1 loc(#loc1)
+    %93 = arith.andi %92, %81 : i1 loc(#loc1)
+    %94 = arith.andi %93, %81 : i1 loc(#loc1)
+    %95 = arith.ori %76, %true_0 : i1 loc(#loc3)
+    %96 = arith.andi %94, %95 : i1 loc(#loc3)
+    %c0_i32_11 = arith.constant 0 : i32 loc(#loc3)
+    %97 = arith.cmpi eq, %79, %c0_i32_11 : i32 loc(#loc3)
+    %98 = arith.xori %97, %true : i1 loc(#loc3)
+    %99 = arith.ori %76, %98 : i1 loc(#loc3)
+    %100 = arith.andi %96, %99 : i1 loc(#loc3)
+    %101 = arith.andi %75, %80 : i1
+    %102 = arith.xori %101, %true : i1
+    %103 = arith.ori %102, %true_0 : i1
+    %104 = arith.andi %100, %103 : i1
+    %105 = acir.current {aspect = "value", resource = "top.independent_out$count"} : i32
+    %c0_i32_12 = arith.constant 0 : i32
+    %106 = arith.subi %105, %c0_i32_12 : i32
+    %c1_i32_13 = arith.constant 1 : i32
+    %107 = arith.cmpi uge, %106, %c1_i32_13 : i32
+    %108 = arith.xori %107, %true : i1
+    %109 = arith.ori %102, %108 : i1
+    %110 = arith.andi %104, %109 : i1
+    %111 = acir.fire "top.independent.transfer#2" %110 {successors = [], txn = 2 : i64}
+    %c0_i32_14 = arith.constant 0 : i32
+    %112 = arith.andi %36, %0 : i1
+    %c1_i32_15 = arith.constant 1 : i32
+    %c0_i32_16 = arith.constant 0 : i32
+    %113 = arith.select %112, %c1_i32_15, %c0_i32_16 : i32
+    %114 = arith.addi %c0_i32_14, %113 : i32
+    %c0_i32_17 = arith.constant 0 : i32
+    %115 = arith.cmpi eq, %114, %c0_i32_17 : i32
+    %116 = acir.current {aspect = "value", resource = "top.first$storage$0"} : i32 loc(#loc2)
+    %117 = acir.aggregate(%116) : (i32) -> tuple<i32> loc(#loc2)
+    %c0_i32_18 = arith.constant 0 : i32
+    %c0_i32_19 = arith.constant 0 : i32
+    %118 = acir.extract %117[%c0_i32_19] : (tuple<i32>, i32) -> i32
+    %c0_i32_20 = arith.constant 0 : i32
+    %119 = arith.select %115, %118, %c0_i32_20 : i32
+    %120 = acir.aggregate(%119) : (i32) -> tuple<i32>
+    %c0_i32_21 = arith.constant 0 : i32
+    %121 = acir.extract %120[%c0_i32_21] : (tuple<i32>, i32) -> i32
+    acir.next %121 {aspect = "value", resource = "top.first$storage$0"} : i32
+    %122 = arith.subi %4, %114 : i32
+    acir.next %122 {aspect = "value", resource = "top.first$count"} : i32
+    %123 = arith.andi %111, %101 : i1
+    %c0_i32_22 = arith.constant 0 : i32
+    %c0_i32_23 = arith.constant 0 : i32
+    %124 = arith.cmpi eq, %c0_i32_22, %c0_i32_23 : i32
+    %125 = acir.current {aspect = "value", resource = "top.independent_out$storage$0"} : i32
+    %126 = acir.aggregate(%125) : (i32) -> tuple<i32>
+    %c0_i32_24 = arith.constant 0 : i32
+    %c0_i32_25 = arith.constant 0 : i32
+    %127 = acir.extract %126[%c0_i32_25] : (tuple<i32>, i32) -> i32
+    %c0_i32_26 = arith.constant 0 : i32
+    %128 = arith.select %124, %127, %c0_i32_26 : i32
+    %129 = acir.aggregate(%128) : (i32) -> tuple<i32>
+    %130 = acir.current {aspect = "value", resource = "top.third$storage$0"} : i32 loc(#loc2)
+    %131 = acir.aggregate(%130) : (i32) -> tuple<i32> loc(#loc2)
+    %c0_i32_27 = arith.constant 0 : i32 loc(#loc2)
+    %c0_i32_28 = arith.constant 0 : i32 loc(#loc2)
+    %132 = acir.extract %131[%c0_i32_28] : (tuple<i32>, i32) -> i32 loc(#loc2)
+    %133 = arith.subi %105, %c0_i32_22 : i32
+    %c0_i32_29 = arith.constant 0 : i32
+    %134 = arith.select %123, %133, %c0_i32_29 : i32
+    %c0_i32_30 = arith.constant 0 : i32
+    %135 = acir.extract %129[%c0_i32_30] : (tuple<i32>, i32) -> i32
+    %c0_i32_31 = arith.constant 0 : i32
+    %136 = arith.cmpi eq, %134, %c0_i32_31 : i32
+    %137 = arith.select %136, %132, %135 : i32
+    %138 = acir.aggregate(%137) : (i32) -> tuple<i32>
+    %c0_i32_32 = arith.constant 0 : i32
+    %139 = acir.extract %138[%c0_i32_32] : (tuple<i32>, i32) -> i32
+    %c0_i32_33 = arith.constant 0 : i32
+    %140 = acir.extract %129[%c0_i32_33] : (tuple<i32>, i32) -> i32
+    %141 = arith.select %123, %139, %140 : i32
+    %142 = acir.aggregate(%141) : (i32) -> tuple<i32>
+    %c0_i32_34 = arith.constant 0 : i32
+    %143 = acir.extract %142[%c0_i32_34] : (tuple<i32>, i32) -> i32
+    acir.next %143 {aspect = "value", resource = "top.independent_out$storage$0"} : i32
+    %c1_i32_35 = arith.constant 1 : i32
+    %c0_i32_36 = arith.constant 0 : i32
+    %144 = arith.select %123, %c1_i32_35, %c0_i32_36 : i32
+    %145 = arith.addi %133, %144 : i32
+    acir.next %145 {aspect = "value", resource = "top.independent_out$count"} : i32
+    %146 = arith.andi %36, %26 : i1
+    %c0_i32_37 = arith.constant 0 : i32
+    %c0_i32_38 = arith.constant 0 : i32
+    %147 = arith.cmpi eq, %c0_i32_37, %c0_i32_38 : i32
+    %148 = acir.current {aspect = "value", resource = "top.left_out$storage$0"} : i32
+    %149 = acir.aggregate(%148) : (i32) -> tuple<i32>
+    %c0_i32_39 = arith.constant 0 : i32
+    %c0_i32_40 = arith.constant 0 : i32
+    %150 = acir.extract %149[%c0_i32_40] : (tuple<i32>, i32) -> i32
+    %c0_i32_41 = arith.constant 0 : i32
+    %151 = arith.select %147, %150, %c0_i32_41 : i32
+    %152 = acir.aggregate(%151) : (i32) -> tuple<i32>
+    %c0_i32_42 = arith.constant 0 : i32 loc(#loc2)
+    %c0_i32_43 = arith.constant 0 : i32 loc(#loc2)
+    %153 = acir.extract %117[%c0_i32_43] : (tuple<i32>, i32) -> i32 loc(#loc2)
+    %154 = arith.subi %30, %c0_i32_37 : i32
+    %c0_i32_44 = arith.constant 0 : i32
+    %155 = arith.select %146, %154, %c0_i32_44 : i32
+    %c0_i32_45 = arith.constant 0 : i32
+    %156 = acir.extract %152[%c0_i32_45] : (tuple<i32>, i32) -> i32
+    %c0_i32_46 = arith.constant 0 : i32
+    %157 = arith.cmpi eq, %155, %c0_i32_46 : i32
+    %158 = arith.select %157, %153, %156 : i32
+    %159 = acir.aggregate(%158) : (i32) -> tuple<i32>
+    %c0_i32_47 = arith.constant 0 : i32
+    %160 = acir.extract %159[%c0_i32_47] : (tuple<i32>, i32) -> i32
+    %c0_i32_48 = arith.constant 0 : i32
+    %161 = acir.extract %152[%c0_i32_48] : (tuple<i32>, i32) -> i32
+    %162 = arith.select %146, %160, %161 : i32
+    %163 = acir.aggregate(%162) : (i32) -> tuple<i32>
+    %c0_i32_49 = arith.constant 0 : i32
+    %164 = acir.extract %163[%c0_i32_49] : (tuple<i32>, i32) -> i32
+    acir.next %164 {aspect = "value", resource = "top.left_out$storage$0"} : i32
+    %c1_i32_50 = arith.constant 1 : i32
+    %c0_i32_51 = arith.constant 0 : i32
+    %165 = arith.select %146, %c1_i32_50, %c0_i32_51 : i32
+    %166 = arith.addi %154, %165 : i32
+    acir.next %166 {aspect = "value", resource = "top.left_out$count"} : i32
+    %167 = arith.andi %74, %64 : i1
+    %c0_i32_52 = arith.constant 0 : i32
+    %c0_i32_53 = arith.constant 0 : i32
+    %168 = arith.cmpi eq, %c0_i32_52, %c0_i32_53 : i32
+    %169 = acir.current {aspect = "value", resource = "top.right_out$storage$0"} : i32
+    %170 = acir.aggregate(%169) : (i32) -> tuple<i32>
+    %c0_i32_54 = arith.constant 0 : i32
+    %c0_i32_55 = arith.constant 0 : i32
+    %171 = acir.extract %170[%c0_i32_55] : (tuple<i32>, i32) -> i32
+    %c0_i32_56 = arith.constant 0 : i32
+    %172 = arith.select %168, %171, %c0_i32_56 : i32
+    %173 = acir.aggregate(%172) : (i32) -> tuple<i32>
+    %174 = acir.current {aspect = "value", resource = "top.second$storage$0"} : i32 loc(#loc2)
+    %175 = acir.aggregate(%174) : (i32) -> tuple<i32> loc(#loc2)
+    %c0_i32_57 = arith.constant 0 : i32 loc(#loc2)
+    %c0_i32_58 = arith.constant 0 : i32 loc(#loc2)
+    %176 = acir.extract %175[%c0_i32_58] : (tuple<i32>, i32) -> i32 loc(#loc2)
+    %177 = arith.subi %68, %c0_i32_52 : i32
+    %c0_i32_59 = arith.constant 0 : i32
+    %178 = arith.select %167, %177, %c0_i32_59 : i32
+    %c0_i32_60 = arith.constant 0 : i32
+    %179 = acir.extract %173[%c0_i32_60] : (tuple<i32>, i32) -> i32
+    %c0_i32_61 = arith.constant 0 : i32
+    %180 = arith.cmpi eq, %178, %c0_i32_61 : i32
+    %181 = arith.select %180, %176, %179 : i32
+    %182 = acir.aggregate(%181) : (i32) -> tuple<i32>
+    %c0_i32_62 = arith.constant 0 : i32
+    %183 = acir.extract %182[%c0_i32_62] : (tuple<i32>, i32) -> i32
+    %c0_i32_63 = arith.constant 0 : i32
+    %184 = acir.extract %173[%c0_i32_63] : (tuple<i32>, i32) -> i32
+    %185 = arith.select %167, %183, %184 : i32
+    %186 = acir.aggregate(%185) : (i32) -> tuple<i32>
+    %c0_i32_64 = arith.constant 0 : i32
+    %187 = acir.extract %186[%c0_i32_64] : (tuple<i32>, i32) -> i32
+    acir.next %187 {aspect = "value", resource = "top.right_out$storage$0"} : i32
+    %c1_i32_65 = arith.constant 1 : i32
+    %c0_i32_66 = arith.constant 0 : i32
+    %188 = arith.select %167, %c1_i32_65, %c0_i32_66 : i32
+    %189 = arith.addi %177, %188 : i32
+    acir.next %189 {aspect = "value", resource = "top.right_out$count"} : i32
+    %c0_i32_67 = arith.constant 0 : i32
+    %190 = arith.andi %74, %38 : i1
+    %c1_i32_68 = arith.constant 1 : i32
+    %c0_i32_69 = arith.constant 0 : i32
+    %191 = arith.select %190, %c1_i32_68, %c0_i32_69 : i32
+    %192 = arith.addi %c0_i32_67, %191 : i32
+    %c0_i32_70 = arith.constant 0 : i32
+    %193 = arith.cmpi eq, %192, %c0_i32_70 : i32
+    %c0_i32_71 = arith.constant 0 : i32
+    %c0_i32_72 = arith.constant 0 : i32
+    %194 = acir.extract %175[%c0_i32_72] : (tuple<i32>, i32) -> i32
+    %c0_i32_73 = arith.constant 0 : i32
+    %195 = arith.select %193, %194, %c0_i32_73 : i32
+    %196 = acir.aggregate(%195) : (i32) -> tuple<i32>
+    %c0_i32_74 = arith.constant 0 : i32
+    %197 = acir.extract %196[%c0_i32_74] : (tuple<i32>, i32) -> i32
+    acir.next %197 {aspect = "value", resource = "top.second$storage$0"} : i32
+    %198 = arith.subi %42, %192 : i32
+    acir.next %198 {aspect = "value", resource = "top.second$count"} : i32
+    %199 = arith.andi %111, %75 : i1
+    %200 = acir.current {aspect = "value", resource = "top.separate.total$value"} : i32 loc(#loc1)
+    %201 = arith.addi %200, %132 {acir.id = "v10", acir.source_type = "u32"} : i32 loc(#loc1)
+    %202 = arith.select %199, %201, %200 : i32 loc(#loc1)
+    acir.next %202 {aspect = "value", resource = "top.separate.total$value"} : i32 loc(#loc1)
+    %203 = acir.current {aspect = "value", resource = "top.shared.total$value"} : i32 loc(#loc1)
+    %204 = arith.addi %203, %176 {acir.id = "v10", acir.source_type = "u32"} : i32 loc(#loc1)
+    %205 = arith.addi %203, %153 {acir.id = "v10", acir.source_type = "u32"} : i32 loc(#loc1)
+    %206 = arith.select %112, %205, %203 : i32 loc(#loc1)
+    %207 = arith.select %190, %204, %206 : i32 loc(#loc1)
+    acir.next %207 {aspect = "value", resource = "top.shared.total$value"} : i32 loc(#loc1)
+    %c0_i32_75 = arith.constant 0 : i32 loc(#loc1)
+    %c1_i32_76 = arith.constant 1 : i32 loc(#loc1)
+    %c0_i32_77 = arith.constant 0 : i32 loc(#loc1)
+    %208 = arith.select %199, %c1_i32_76, %c0_i32_77 : i32 loc(#loc1)
+    %209 = arith.addi %c0_i32_75, %208 : i32 loc(#loc1)
+    %c0_i32_78 = arith.constant 0 : i32 loc(#loc1)
+    %210 = arith.cmpi eq, %209, %c0_i32_78 : i32 loc(#loc1)
+    %c0_i32_79 = arith.constant 0 : i32 loc(#loc1)
+    %c0_i32_80 = arith.constant 0 : i32 loc(#loc1)
+    %211 = acir.extract %131[%c0_i32_80] : (tuple<i32>, i32) -> i32 loc(#loc1)
+    %c0_i32_81 = arith.constant 0 : i32 loc(#loc1)
+    %212 = arith.select %210, %211, %c0_i32_81 : i32 loc(#loc1)
+    %213 = acir.aggregate(%212) : (i32) -> tuple<i32> loc(#loc1)
+    %c0_i32_82 = arith.constant 0 : i32 loc(#loc1)
+    %214 = acir.extract %213[%c0_i32_82] : (tuple<i32>, i32) -> i32 loc(#loc1)
+    acir.next %214 {aspect = "value", resource = "top.third$storage$0"} : i32 loc(#loc1)
+    %215 = arith.subi %79, %209 : i32 loc(#loc1)
+    acir.next %215 {aspect = "value", resource = "top.third$count"} : i32 loc(#loc1)
+    %false = arith.constant false
+    %216 = acir.unary %false "not" {acir.source_type = "bool"} : i1 -> i1
+    acir.effect %112(%216) {branch = 0 : i64, frames = ["top.left:transfer", "top.shared:add"], method = "check", port = 0 : i64, resource = "", txn = 0 : i64} : (i1, i1) -> ()
+    acir.effect %190(%216) {branch = 3 : i64, frames = ["top.right:transfer", "top.shared:add"], method = "check", port = 0 : i64, resource = "", txn = 1 : i64} : (i1, i1) -> ()
+    acir.effect %199(%216) {branch = 6 : i64, frames = ["top.independent:transfer", "top.separate:add"], method = "check", port = 0 : i64, resource = "", txn = 2 : i64} : (i1, i1) -> ()
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":32:18)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:17)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:25)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:9)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":13:16)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":13:9)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":23:9)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":47:43)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":48:56)
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:17)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":12:25)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":13:16)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/shared_state.py":47:43)

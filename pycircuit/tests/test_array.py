@@ -1,6 +1,6 @@
 """Array values, selection domains and physical resource identities."""
 import unittest
-import test_pipeline_v8 as pipeline
+import test_pipeline as pipeline
 from pycircuit.ir import CompileError
 
 class ArrayTests(unittest.TestCase):

@@ -32,7 +32,9 @@ class Top:
 ```
 
 `__init__` 只表达静态构造；`__call__` 绑定固定接口，保存组合计算与调用选择。
-实例只绑定一次；运行时分支不创建组件／子实例。输出组件在父 Module 的 `__init__` 中明确声明，
+实例只绑定一次；运行时分支不创建组件／子实例。组件只能在 __init__ 中构造，禁止文件级状态。
+可以在 __init__ 绑定已有实例依赖，或在 __call__ 绑定固定接口；编译器先收集全部静态绑定再展开行为，允许互相引用，禁止递归调用。
+运行时 if 中的子 Module 调用保留为 module.call，将路径条件及有效性传播到内部事务；不创建 Module 级原子事务。输出组件在父 Module 的 `__init__` 中明确声明，
 用 `out = stage(source)` 绑定目的地，赋值后 out 仍是同一个 Queue。`__call__` 的组件返回类型
 声明输出接口，主体返回对应 Rule 的输出；允许条件化 return／None，未选择路径不提出输出效果。
 输出写入与 Rule 的 guard、消费和状态修改属于同一个原子事务，不额外建立转发事务。
@@ -81,14 +83,18 @@ def send(value: ac.u32) -> None:
     destination = value
 ```
 
-guard 可以是布尔表达式或接收对应参数并返回 bool 的函数，只允许观察状态。
+guard 可以是 bool 表达式或接收对应参数并返回 bool 的只读 Rule／payload helper。
+helper 不因用于 guard 获得状态访问权限；需要状态时使用只读 Rule，或先观察状态再把 payload 交给 helper。
 完整条件包含 Module 选择路径、自身／嵌套 guard、实际组件就绪要求，以及实参和控制值的读取条件。
 未执行分支不增加要求。读取／guard 失败不作为 False 进入 else，也不阻塞合流后的无关事务。
 
+Rule 参数可接收 payload 或基础组件引用；Module 实例依赖通过 __init__／__call__ 静态绑定，不作为 Rule 参数传递。
 普通返回值可以用于只读计算或同事务嵌套调用。独立事务之间通过组件传值；
 修改性调用的普通返回值不能传给另一个独立事务。组件类型返回值绑定为固定输出资源的效果。
 混合输出用显式 tuple 类型，各槽位的 None 省略该效果；省略输出仍保留该路径上的其它修改。
-Cell／Signal／Queue 输出均绑定此前明确声明的对象；赋值连接不创建新组件或改变身份。
+Cell／Signal／Queue 输出均绑定此前明确声明的对象，组件种类与 payload 类型必须一致。
+Module 主体不能把普通 u32 返回值绑定到 Queue；Rule 内显式写 Queue 可以使用普通 payload。
+禁止所有链式赋值；多输出使用显式 tuple 绑定。赋值连接不创建新组件或改变身份。
 
 ## Rule 关系
 
@@ -126,11 +132,20 @@ EHR 端口由声明约束分配；固定读取观察低端口获准写入中端�
 
 ## 普通类型与控制流
 
-bool、定宽整数、声明字段的 struct、`ac.array[T, N]`、tuple 和 `ac.var[T]` 表示组合 payload。
-普通 helper 使用显式接口，组合进调用者的求值／事务上下文。算术复用标准 MLIR 方言。
-if、短路与合流保留实际 SSA 和路径，不提前计算不同可见性视图的读取。
+bool、定宽整数、声明字段的 struct、tuple 和 `ac.array(T, shape=(...))` 的 payload 形式表示组合值。
+普通 helper 只接收和返回 payload，不接收组件／Module 引用，不隐式捕获运行时状态，不调用 Rule。
+值的类型和位宽严格匹配；字面量按目标类型定宽，不提供 ac.u32(value)、bool(value) 或隐式扩展／截断。
+if、guard、短路与条件表达式的条件严格为 bool，整数非零判断写 `value != 0`。
+前端直接生成 scf.if，SSA 合流不提前求值不同视图的读取；所有循环必须在编译期静态展开。
+禁止函数主体中的嵌套声明，多余／重复／未知调用参数明确诊断。
 
-`ac.array(ac.queue[T], shape=(N,), ...)` 为固定一维 Queue 资源数组，运行时下标选择已有元素。
-字面量固定循环静态展开；不能静态展开的循环保留在源层并在有限 RTL lowering 中明确诊断。
+array 是固定正数 shape 的容器，不是 Module。使用完整嵌套列表或静态推导式构造，禁止直接 array of array；struct 可以含 array。
+`a[i,j]` 使用普通整数坐标，`a[mask]` 保留原 shape／元素身份并与已有选取取交集。
+`match(lambda item: predicate)` 或命名 payload helper 只计算临时 mask，不隐式读取组件；`mask[i,j]` 查询 bool 选取位。
+对外传选取后的 array，helper 仅能接收 payload array，选取域经调用和合流保留。
+`cells[mask] = value` 在同一事务内向选中组件写同一 payload；无批量读取。
+空 mask 正常，仲裁返回 `(found, position)`；需要失败时明确把 found 纳入 guard。
+静态越界报错，动态越界／访问未选元素传播未就绪。选取后的 array 或 mask 不可跨拍存储。
+Queue[array] 从空队列开始；完整构造、状态初值及 MLIR 重载均校验 shape。详见 [array 设计](../pycircuit/docs/array-design.md)。
 
-不支持旧 `@ac.module def`、`@ac.method` 或 After。无自动仲裁、SystemVerilog、激活调度与跨拍缓存。
+不支持旧 array/vector/qarray/ref/var、`@ac.module def`、`@ac.method` 或 After。无自动仲裁、SystemVerilog、激活调度与跨拍缓存。

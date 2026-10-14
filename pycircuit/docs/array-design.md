@@ -1,6 +1,6 @@
 # pyCircuit array 设计
 
-本设计定义首版 array 的前端语义、事务分析、MLIR 表示和执行要求，替代旧 array、vector、qarray 及其专用构造，不保留兼容路径。设计已确认，实现尚未迁移。基础组件与 Rule 的语义沿用[核心设计](core-design.md)。
+本设计定义首版 array 的前端语义、事务分析、MLIR 表示和执行要求，替代旧 array、vector、qarray 及其专用构造，不保留兼容路径。实现和验收记录见[编译路线图](compiler-roadmap.md)。基础组件与 Rule 的语义沿用[核心设计](core-design.md)。
 
 ## 1. 类型与构造
 
@@ -158,6 +158,6 @@ enable_B[k] = fire_B AND path_B AND coordinate_in_range AND (coordinate == k)
 
 验收覆盖多维构造、子数组更新、空选取、连续选取、调用传递与跨拍保存拒绝；越界访问取消与 found 分支跳过；动态别名、重复消费、Queue 反压、EHR 共享视图、保守顺序环和实际竞争；仲裁状态更新与实际提交一致。
 
-事务与 RTL 执行器必须逐拍一致，并对照独立预期。优化开关和各阶段 MLIR 保存重载保持行为一致，轨迹保留原数组坐标。JSON 只用于报告。上述为实施验收要求，尚未运行新设计测试。
+事务与 RTL 执行器必须逐拍一致，并对照独立预期。优化开关和各阶段 MLIR 保存重载保持行为一致，轨迹保留原数组坐标。JSON 只用于报告。已运行的回归、独立预期和示例验收结果见编译路线图。
 
 参考：[BSV Vector 文档](https://github.com/B-Lang-org/bsc/blob/main/doc/libraries_ref_guide/LibDoc/Vector.tex)、[库实现](https://github.com/B-Lang-org/bsc/blob/main/src/Libraries/Base1/Vector.bs)、[香山 AgeDetector](https://docs.xiangshan.cc/projects/design/en/kunminghu-v3/backend/Schedule_And_Issue/IssueQueue/)。

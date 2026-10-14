@@ -1,6 +1,6 @@
 """Module calls are execution sites, not unconditional body declarations."""
 import unittest
-import test_pipeline_v8 as pipeline
+import test_pipeline as pipeline
 
 class ModulePathTests(unittest.TestCase):
     setUp = pipeline.PipelineTests.setUp

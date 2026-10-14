@@ -10,7 +10,7 @@
 | [编译路线图](pycircuit/docs/compiler-roadmap.md) | 阶段进度、基线保存、验证证据、问题与下一步 |
 | [构建与使用](pycircuit/README.md) | 编译、分层重载、逐拍执行和 CLI |
 | [ACPy 语法](acpy/spec.md) | class Module、显式类型、固定连接与 Rule 关系 |
-| [ACIR v8](pycircuit/acir.md) | 源语义、事务和 RTL 三层 MLIR |
+| [ACIR v9](pycircuit/acir.md) | 源语义、事务和 RTL 三层 MLIR |
 | [编译意图](pycircuit/docs/compiler-intent.md) | 各阶段必须保留的语义 |
 | [示例与验收](pycircuit/examples/README.md) | Queue、共享计算、OoO 和指令 CPU |
 

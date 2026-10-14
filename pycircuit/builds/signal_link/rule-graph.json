@@ -3,10 +3,10 @@
   "diagnostics": [],
   "edges": [
     {
-      "from": 1,
+      "from": 0,
       "relation": "Signal.set → get",
       "resource": "top.result",
-      "source_branch": 3,
+      "source_branch": 2,
       "target_branches": [
         4
       ],
@@ -15,11 +15,11 @@
   ],
   "nodes": [
     {
-      "id": "top.configure#0",
+      "id": "top.producer.advance#0",
       "txn": 0
     },
     {
-      "id": "top.producer.advance#1",
+      "id": "top.configure#1",
       "txn": 1
     },
     {

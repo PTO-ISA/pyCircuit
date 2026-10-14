@@ -1,100 +1,77 @@
-module attributes {acir.config = {enabled = true}, acir.model = {config = [{name = "enabled", type = "bool"}], constants = {}, exports = {}, format_version = 8 : i64, top = "SignalLink", type_order = [], types = {}}, acir.stage = "rtl"} {
-  acir.circuit attributes {conflicts = [], edges = [{from = 1 : i64, relation = "Signal.set \E2\86\92 get", resource = "top.result", source_branch = 3 : i64, target_branches = [4], to = 2 : i64}], schedule = [0, 1, 2], stage = "rtl"} {
-    acir.state @top.producer.count : i32 {initial = 0 : i32, kind = "cell"}
-    acir.state @top.producer.offset : i32 {initial = 0 : i32, kind = "cell"}
-    acir.state @top.reader.last : i32 {initial = 0 : i32, kind = "cell"}
+module attributes {acir.config = {enabled = true}, acir.model = {config = [{name = "enabled", type = "bool"}], constants = {}, format_version = 9 : i64, top = "SignalLink", type_order = [], types = {}}, acir.stage = "rtl"} {
+  acir.circuit attributes {conflicts = [], edges = [{from = 0 : i64, relation = "Signal.set \E2\86\92 get", resource = "top.result", source_branch = 2 : i64, target_branches = [4], to = 2 : i64}], logical_states = [{kind = "cell", name = "top.producer.count", parts = [{path = [], resource = "top.producer.count$value"}], prototype = 0 : i32}, {kind = "cell", name = "top.producer.offset", parts = [{path = [], resource = "top.producer.offset$value"}], prototype = 0 : i32}, {kind = "cell", name = "top.reader.last", parts = [{path = [], resource = "top.reader.last$value"}], prototype = 0 : i32}], schedule = [0, 1, 2], stage = "rtl"} {
+    acir.state @top.producer.count$value : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.producer.offset$value : i32 {initial = 0 : i32, kind = "cell"}
+    acir.state @top.reader.last$value : i32 {initial = 0 : i32, kind = "cell"}
     %true = arith.constant true
-    %false = arith.constant false
-    %true_0 = arith.constant true
-    %0 = acir.fire "top.configure#0" %true_0 {successors = [], txn = 0 : i64}
-    %true_1 = arith.constant true loc(#loc1)
-    %1 = acir.export %true_1 {acir.id = "v2", acir.source_type = "bool"} : i1 -> i1 loc(#loc1)
-    %2 = arith.xori %1, %true_0 : i1 loc(#loc1)
-    %false_2 = arith.constant {acir.source_type = "bool"} false
-    %3 = acir.current {aspect = "value", resource = "top.producer.count"} : i32 loc(#loc2)
+    %0 = acir.export %true {acir.id = "v3", acir.source_type = "bool"} : i1 -> i1
+    %1 = acir.current {aspect = "value", resource = "top.producer.count$value"} : i32 loc(#loc1)
     %c16_i32 = arith.constant {acir.source_type = "u32"} 16 : i32
-    %4 = arith.cmpi ult, %3, %c16_i32 {acir.id = "v6", acir.source_type = "bool"} : i32
-    %5 = arith.select %2, %false_2, %4 : i1
-    %6 = arith.xori %5, %true_0 : i1
-    %7 = arith.andi %1, %true : i1
-    %8 = arith.ori %2, %7 : i1
-    %9 = arith.ori %6, %8 : i1
-    %10 = arith.andi %5, %9 : i1
-    %11 = arith.xori %5, %true_0 : i1 loc(#loc3)
-    %12 = arith.xori %5, %true_0 : i1 loc(#loc4)
-    %13 = arith.ori %12, %9 : i1 loc(#loc4)
-    %14 = arith.andi %13, %true : i1 loc(#loc3)
-    %15 = arith.ori %11, %14 : i1 loc(#loc3)
-    %16 = arith.andi %10, %15 : i1 loc(#loc3)
-    %17 = arith.xori %5, %true_0 : i1 loc(#loc5)
-    %18 = acir.current {aspect = "value", resource = "top.producer.offset"} : i32 loc(#loc5)
-    %19 = arith.andi %13, %true : i1 loc(#loc5)
-    %20 = arith.ori %17, %19 : i1 loc(#loc5)
-    %21 = arith.andi %16, %20 : i1 loc(#loc5)
-    %22 = arith.xori %5, %true_0 : i1 loc(#loc6)
-    %23 = arith.andi %13, %true : i1 loc(#loc6)
-    %24 = arith.ori %22, %23 : i1 loc(#loc6)
-    %25 = arith.andi %21, %24 : i1 loc(#loc6)
-    %26 = arith.xori %5, %true_0 : i1 loc(#loc7)
-    %27 = arith.andi %13, %true : i1 loc(#loc7)
-    %28 = arith.ori %26, %27 : i1 loc(#loc7)
-    %29 = arith.andi %25, %28 : i1 loc(#loc7)
-    %30 = arith.andi %true, %true : i1 loc(#loc3)
-    %31 = arith.andi %13, %30 : i1 loc(#loc3)
-    %32 = arith.andi %5, %31 : i1 loc(#loc3)
-    %33 = arith.andi %5, %32 : i1 loc(#loc3)
-    %34 = arith.xori %33, %true_0 : i1 loc(#loc3)
-    %35 = arith.ori %34, %9 : i1 loc(#loc3)
-    %36 = arith.andi %29, %35 : i1 loc(#loc3)
-    %37 = acir.fire "top.producer.advance#1" %36 {successors = [2], txn = 1 : i64} loc(#loc3)
-    %38 = acir.aggregate() : () -> i32 loc(#loc8)
-    %39 = arith.andi %37, %33 : i1 loc(#loc9)
-    %40 = arith.addi %3, %18 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc3)
-    %41 = arith.select %39, %40, %38 : i32 loc(#loc3)
-    %42 = arith.ori %false, %39 : i1 loc(#loc3)
-    %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc10)
-    %43 = arith.addi %41, %c1_i32 {acir.id = "v4", acir.source_type = "u32"} : i32 loc(#loc10)
-    %c0_i32 = arith.constant {acir.source_type = "u32"} 0 : i32 loc(#loc11)
-    %44 = arith.cmpi ne, %43, %c0_i32 {acir.id = "v6", acir.source_type = "bool"} : i32 loc(#loc11)
-    %45 = arith.xori %44, %true_0 : i1
-    %46 = arith.ori %45, %42 : i1
-    %47 = arith.andi %46, %42 : i1
-    %48 = arith.andi %44, %47 : i1
-    %49 = arith.xori %44, %true_0 : i1 loc(#loc12)
-    %50 = arith.xori %44, %true_0 : i1 loc(#loc13)
-    %51 = arith.ori %50, %46 : i1 loc(#loc13)
-    %52 = arith.andi %46, %42 : i1 loc(#loc13)
-    %53 = arith.andi %44, %52 : i1 loc(#loc13)
-    %54 = arith.andi %51, %53 : i1 loc(#loc13)
-    %55 = arith.ori %49, %54 : i1 loc(#loc13)
-    %56 = arith.andi %48, %55 : i1 loc(#loc13)
-    %57 = acir.fire "top.reader.observe#2" %56 {successors = [], txn = 2 : i64} loc(#loc13)
-    %58 = arith.andi %37, %5 : i1 loc(#loc9)
-    %c1_i32_3 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc14)
-    %59 = arith.addi %3, %c1_i32_3 {acir.id = "v11", acir.source_type = "u32"} : i32 loc(#loc14)
-    %60 = arith.select %58, %59, %3 : i32 loc(#loc14)
-    acir.next %60 {aspect = "value", resource = "top.producer.count"} : i32 loc(#loc14)
-    %c4_i32 = arith.constant {acir.source_type = "u32"} 4 : i32 loc(#loc15)
-    %61 = arith.select %0, %c4_i32, %18 : i32 loc(#loc15)
-    acir.next %61 {aspect = "value", resource = "top.producer.offset"} : i32 loc(#loc15)
-    %62 = acir.current {aspect = "value", resource = "top.reader.last"} : i32 loc(#loc15)
-    %63 = arith.andi %57, %44 : i1
-    %64 = arith.select %63, %43, %62 : i32
-    acir.next %64 {aspect = "value", resource = "top.reader.last"} : i32
+    %2 = arith.cmpi ult, %1, %c16_i32 {acir.id = "v6", acir.source_type = "bool"} : i32
+    %false = arith.constant false
+    %3 = arith.select %0, %2, %false : i1
+    %4 = arith.xori %3, %true : i1 loc(#loc2)
+    %5 = arith.xori %0, %true : i1
+    %true_0 = arith.constant true
+    %6 = arith.andi %0, %true_0 : i1
+    %7 = arith.ori %5, %6 : i1
+    %8 = arith.ori %4, %7 : i1
+    %9 = arith.andi %3, %8 : i1
+    %10 = arith.ori %4, %8 : i1 loc(#loc2)
+    %11 = arith.andi %10, %true_0 : i1 loc(#loc2)
+    %12 = arith.ori %4, %11 : i1 loc(#loc2)
+    %13 = arith.andi %9, %12 : i1 loc(#loc2)
+    %14 = arith.andi %10, %true_0 : i1 loc(#loc3)
+    %15 = arith.ori %4, %14 : i1 loc(#loc3)
+    %16 = arith.andi %13, %15 : i1 loc(#loc3)
+    %17 = arith.andi %16, %12 : i1 loc(#loc3)
+    %18 = arith.andi %17, %12 : i1 loc(#loc3)
+    %19 = arith.andi %true_0, %true_0 : i1 loc(#loc4)
+    %20 = arith.andi %10, %19 : i1 loc(#loc4)
+    %21 = arith.andi %3, %20 : i1 loc(#loc4)
+    %22 = arith.xori %21, %true : i1 loc(#loc4)
+    %23 = arith.ori %22, %8 : i1 loc(#loc4)
+    %24 = arith.andi %18, %23 : i1 loc(#loc4)
+    %25 = acir.fire "top.producer.advance#0" %24 {successors = [2], txn = 0 : i64} loc(#loc4)
+    %26 = acir.fire "top.configure#1" %true {successors = [], txn = 1 : i64}
+    %27 = arith.andi %25, %21 : i1
+    %28 = acir.current {aspect = "value", resource = "top.producer.offset$value"} : i32 loc(#loc3)
+    %29 = arith.addi %1, %28 {acir.id = "v10", acir.source_type = "u32"} : i32 loc(#loc3)
+    %c0_i32 = arith.constant 0 : i32 loc(#loc5)
+    %30 = arith.select %27, %29, %c0_i32 : i32 loc(#loc5)
+    %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32
+    %31 = arith.addi %30, %c1_i32 {acir.id = "v5", acir.source_type = "u32"} : i32
+    %c0_i32_1 = arith.constant {acir.source_type = "u32"} 0 : i32
+    %32 = arith.cmpi ne, %31, %c0_i32_1 {acir.id = "v7", acir.source_type = "bool"} : i32
+    %33 = arith.cmpi eq, %31, %c0_i32_1 : i32 loc(#loc6)
+    %false_2 = arith.constant false
+    %34 = arith.ori %false_2, %27 : i1
+    %35 = arith.ori %33, %34 : i1
+    %36 = arith.andi %35, %34 : i1
+    %37 = arith.andi %32, %36 : i1
+    %38 = arith.ori %33, %35 : i1 loc(#loc7)
+    %39 = arith.andi %38, %37 : i1 loc(#loc7)
+    %40 = arith.ori %33, %39 : i1 loc(#loc7)
+    %41 = arith.andi %37, %40 : i1 loc(#loc7)
+    %42 = acir.fire "top.reader.observe#2" %41 {successors = [], txn = 2 : i64} loc(#loc7)
+    %43 = arith.andi %25, %3 : i1
+    %44 = arith.addi %1, %c1_i32 {acir.id = "v14", acir.source_type = "u32"} : i32 loc(#loc8)
+    %45 = arith.select %43, %44, %1 : i32 loc(#loc8)
+    acir.next %45 {aspect = "value", resource = "top.producer.count$value"} : i32 loc(#loc8)
+    %c4_i32 = arith.constant {acir.source_type = "u32"} 4 : i32
+    %46 = arith.select %26, %c4_i32, %28 : i32
+    acir.next %46 {aspect = "value", resource = "top.producer.offset$value"} : i32
+    %47 = arith.andi %42, %32 : i1
+    %48 = acir.current {aspect = "value", resource = "top.reader.last$value"} : i32
+    %49 = arith.select %47, %31, %48 : i32
+    acir.next %49 {aspect = "value", resource = "top.reader.last$value"} : i32
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":49:18)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":26:24)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":21:17)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":27:20)
-#loc5 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":21:25)
-#loc6 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":22:17)
-#loc7 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":22:9)
-#loc8 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":40:17)
-#loc9 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":23:9)
-#loc10 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":41:28)
-#loc11 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":42:29)
-#loc12 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":37:9)
-#loc13 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":44:13)
-#loc14 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":22:25)
-#loc15 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":56:28)
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":26:24)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":27:20)
+#loc3 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":21:25)
+#loc4 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":21:17)
+#loc5 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":40:17)
+#loc6 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":42:17)
+#loc7 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":44:13)
+#loc8 = loc("/home/lc/tmp/pycircuit/examples/signal_link.py":22:17)

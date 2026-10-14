@@ -1,26 +1,20 @@
-module attributes {acir.model = {config = [], constants = {}, exports = {}, format_version = 8 : i64, top = "CellFeedback", type_order = [], types = {}}, acir.stage = "rtl"} {
-  acir.circuit attributes {conflicts = [], edges = [], schedule = [0, 1], stage = "rtl"} {
-    acir.state @top.a : i32 {initial = 1 : i32, kind = "cell"}
-    acir.state @top.b : i32 {initial = 2 : i32, kind = "cell"}
+module attributes {acir.model = {config = [], constants = {}, format_version = 9 : i64, top = "CellFeedback", type_order = [], types = {}}, acir.stage = "rtl"} {
+  acir.circuit attributes {conflicts = [], edges = [], logical_states = [{kind = "cell", name = "top.a", parts = [{path = [], resource = "top.a$value"}], prototype = 1 : i32}, {kind = "cell", name = "top.b", parts = [{path = [], resource = "top.b$value"}], prototype = 2 : i32}], schedule = [0, 1], stage = "rtl"} {
+    acir.state @top.a$value : i32 {initial = 1 : i32, kind = "cell"}
+    acir.state @top.b$value : i32 {initial = 2 : i32, kind = "cell"}
     %true = arith.constant true
-    %false = arith.constant false
-    %0 = acir.current {aspect = "value", resource = "top.b"} : i32 loc(#loc1)
-    %1 = arith.andi %true, %true : i1 loc(#loc1)
-    %2 = acir.fire "top.update_a#0" %1 {successors = [], txn = 0 : i64} loc(#loc1)
-    %3 = acir.current {aspect = "value", resource = "top.a"} : i32 loc(#loc2)
-    %4 = arith.andi %true, %true : i1 loc(#loc2)
-    %5 = acir.fire "top.update_b#1" %4 {successors = [], txn = 1 : i64} loc(#loc2)
-    %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc3)
-    %6 = arith.addi %0, %c1_i32 {acir.id = "v6", acir.source_type = "u32"} : i32 loc(#loc3)
-    %7 = arith.select %2, %6, %3 : i32 loc(#loc3)
-    acir.next %7 {aspect = "value", resource = "top.a"} : i32 loc(#loc3)
-    %c1_i32_0 = arith.constant {acir.source_type = "u32"} 1 : i32 loc(#loc4)
-    %8 = arith.addi %3, %c1_i32_0 {acir.id = "v6", acir.source_type = "u32"} : i32 loc(#loc4)
-    %9 = arith.select %5, %8, %0 : i32 loc(#loc4)
-    acir.next %9 {aspect = "value", resource = "top.b"} : i32 loc(#loc4)
+    %0 = acir.fire "top.update_a#0" %true {successors = [], txn = 0 : i64}
+    %1 = acir.fire "top.update_b#1" %true {successors = [], txn = 1 : i64} loc(#loc1)
+    %2 = acir.current {aspect = "value", resource = "top.b$value"} : i32 loc(#loc2)
+    %c1_i32 = arith.constant {acir.source_type = "u32"} 1 : i32
+    %3 = arith.addi %2, %c1_i32 {acir.id = "v7", acir.source_type = "u32"} : i32
+    %4 = acir.current {aspect = "value", resource = "top.a$value"} : i32 loc(#loc1)
+    %5 = arith.select %0, %3, %4 : i32 loc(#loc1)
+    acir.next %5 {aspect = "value", resource = "top.a$value"} : i32 loc(#loc1)
+    %6 = arith.addi %4, %c1_i32 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc1)
+    %7 = arith.select %1, %6, %2 : i32 loc(#loc1)
+    acir.next %7 {aspect = "value", resource = "top.b$value"} : i32 loc(#loc1)
   }
 }
-#loc1 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":13:13)
-#loc2 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":17:13)
-#loc3 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":13:17)
-#loc4 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":17:17)
+#loc1 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":17:13)
+#loc2 = loc("/home/lc/tmp/pycircuit/examples/dependency_cycles.py":13:13)

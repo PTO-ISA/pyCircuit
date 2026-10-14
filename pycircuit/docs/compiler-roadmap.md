@@ -14,6 +14,8 @@
 
 ## 阶段记录
 
+当前版本：ACIR v9。2026-10-14 前端收紧与 array 实施已完成，53 项回归、CTest 1/1、9 个示例各 32 拍通过；详见本文末尾实施记录。下表及中间章节保留先前 v8 重构的阶段证据。
+
 | 阶段 | 状态 | 验证与剩余工作 |
 | --- | --- | --- |
 | 1. class Module 与统一 Rule、源语义 IR | 已实现 | 仓库全部示例可生成 v8 源 MLIR；2 项源层回归通过，含原生验证、作用域、赋值和旧 API 拒绝 |
@@ -167,3 +169,9 @@ OoO 退休次序继续通过。基线、名字映射、对照结果、日志和 
 事务层保留 array/selected/mask 及 shape，记录 Module 数组和资源数组的真实身份；实际访问只要求所选资源就绪。新增 Wires.cpp 在 RTL lowering 展开全部聚合状态、Queue 固定存储与占用、选取使能和 mux。执行轨迹由 MLIR 内的逻辑状态映射恢复原坐标，无 JSON 编译输入。
 
 52 项回归通过。新增覆盖 shape/初值及损坏 MLIR 的 verifier、选取穿过 helper/struct、多维 SSA 更新、动态越界原子取消、Queue[array]、空 mask、别名重复消费、EHR 数组固定共享视图、Signal 数组选取，以及 age matrix 发射的反压原子取消。测试发现动态组件引用被再次导入为构造引用的问题，已按 SSA 对象身份修复，保留回归；未使用的文件级组件构造也明确拒绝。9 个示例各 32 拍的两层执行、优化开关和三阶段重载已通过，最终文档及生成产物清理待下一阶段提交。
+
+阶段五完成：增加 tuple 返回、struct 字段更新和 struct 数组中选取域保留的回归，禁止借助聚合包装绕过跨拍存储限制。53 项回归通过，最终 CTest 1/1 通过；9 个示例各 32 拍的事务／RTL、优化开关和 source／transaction／rtl 独立重载全部一致。CPU 的独立 ISA、定向退休周期与 OoO 顺序退休预期继续通过。三项故意非法模型仍报告 EHR 跨端口或 branch-union 环。
+
+最终证据：`builds/benchmarks/array-ctest.log`、`array-ctest.xml`、`array-acceptance.log` 和 `compiler-acceptance/summary.json`；完整逐拍轨迹在同目录的各模型 raw／opt 子目录。示例输出重新生成，新增 `builds/array_arbiter/`，删除 model.acir.mlir 重复产物。删除未使用的旧 transfer 模型，测试文件移除 v8 命名；ACPy、ACIR、核心设计、array、使用说明和示例说明已同步。
+
+实施提交：`45441c6` 严格前端，`3b839df` Module 调用路径传播，`994eda7` 多维 array 核心，`15fd507` 结构化前端及数组到标量 RTL。基线仍保存在 `50dae6c`。本轮不引入公开 index 类型、is_selected、独立 mask 接口、类型转换或旧语法兼容；Queue[array] 首版空初始化，不自动推断 RAM，不实现自动仲裁、SystemVerilog、激活调度或跨拍缓存。

@@ -2,7 +2,7 @@
 
 编译链路：ACPy → 源语义 MLIR → 事务 MLIR → RTL 友好 MLIR → 逐拍轨迹。
 语义见 [核心设计](docs/core-design.md)，阶段进度与问题见 [路线图](docs/compiler-roadmap.md)。
-新 array 的正式目标设计见 [array 设计](docs/array-design.md)，尚未迁移到实现。
+多维 array、match、选取和仲裁接口见 [array 设计](docs/array-design.md)。
 
 ## 构建与测试
 
@@ -23,7 +23,7 @@ python -m pycircuit.tests.run_acceptance
 
 Python 仅解析 ACPy 和调用编译器。事务提取、条件传播、契约／端口分析、调度、RTL lowering
 以及两个通用执行器直接读取 MLIR，在 C++ 中完成。JSON 仅为分析／执行报告。
-验收脚本复现 8 个示例的 32 拍执行、优化开关和三阶段重载，并更新示例输出。
+验收脚本复现 9 个示例的 32 拍执行、优化开关和三阶段重载，并更新示例输出。
 轨迹与汇总位于 `builds/benchmarks/compiler-acceptance/`；回归包含独立 ISA 和定向周期预期。
 
 ## 编译、阶段输出与执行
@@ -44,13 +44,13 @@ python -m pycircuit run pycircuit/builds/benchmarks/cpu/model.rtl.mlir \
 
 | 文件 | 内容 |
 | --- | --- |
-| `model.source.mlir` | v8 静态实例、组件、统一 Rule 的 guard／body、SSA、SCF／CFG、契约 |
+| `model.source.mlir` | v9 静态实例、组件、统一 Rule 的 guard／body、SSA、scf.if、module.call、array／选取和契约 |
 | `model.transaction.mlir` | 每调用点独立 fire、路径条件、条件化效果、共享 SSA、固定端口、后继与无环顺序 |
 | `model.rtl.mlir` | 完整组合 fire／选择器、固定 Queue 存储和占用、current／next-state；Signal 为组合 data／valid |
 | `rule-graph.json` | 事务节点、分支边、端口竞争和固定调度的查看报告 |
 | `transaction-trace.json`、`rtl-trace.json` | 每拍 fire 与提交后的状态；Signal 不列为跨拍状态 |
 
-`model.acir.mlir` 是源层文件的同内容别名。v7 及更早文件需从 ACPy 重新编译。
+阶段文件仅有 source、transaction、rtl，不再输出同内容别名。旧格式需从 ACPy 重新编译；不提供 v8 或旧前端兼容。
 也可直接使用原生 pass：
 
 ```bash
@@ -80,9 +80,14 @@ Signal 只在本拍成功 set 后有效；EHR 读取固定端口之前的成功�
 EHR 端口不能因任意拓扑排序而增加未声明可见性。竞争报告不进行自动仲裁，
 未处理的端口竞争结果不保证。RTL 层已无 Rule 调用、隐式就绪条件或待定调度。
 
-固定 Queue 数组支持运行时下标选择，Cell 支持字段／数组更新，字面量固定循环静态展开。
-依赖运行时数据、无法静态展开的循环保留在源层，但事务／RTL lowering 明确诊断循环 CFG；
-当前执行目标是有限组合逻辑。无 SystemVerilog 后端、激活调度或跨拍缓存优化。
+统一使用 `ac.array(T, shape=(...))`，元素可以是 payload、组件或固定 Module 实例。
+`array[mask]` 保留 shape 和身份，`match` 产生临时 mask；普通整数坐标单选，仲裁返回 `(found, position)`。
+动态越界或访问未选元素向实际使用者传播未就绪。部分选取不能跨拍保存；没有公开 index 类型。
+源／事务层保留结构，RTL 层物理展开为标量状态、比较、mux 和使能，轨迹恢复逻辑坐标。
+
+条件严格要求 bool，helper 只处理 payload，组件构造只允许在 __init__，循环必须静态展开。
+不支持 var/ref/vector/qarray、通用类型转换、链式赋值或嵌套声明。
+无 SystemVerilog 后端、自动仲裁、激活调度或跨拍缓存优化。
 
 ## 示例与可视化
 

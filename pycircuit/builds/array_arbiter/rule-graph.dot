@@ -1,0 +1,12 @@
+digraph Transactions {
+  rankdir=LR;
+  node [shape=box];
+  t0 [label="top.allocate#0"];
+  t1 [label="top.allocate#1"];
+  t2 [label="top.allocate#2"];
+  t3 [label="top.issue#3"];
+  t4 [label="top.slots.2.wake#4"];
+  t5 [label="top.drain#5"];
+  t6 [label="top.clock#6"];
+  t5 -> t3 [label="top.output\nQueue.pop \u2192 push"];
+}
