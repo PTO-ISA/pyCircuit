@@ -45,10 +45,10 @@ elaboration remains pending; this constraint does not itself ban parameterized
 historical examples or establish support for nonempty static arguments. Record
 the unresolved policy explicitly rather than choosing it through implementation.
 
-The user ended migration expansion on 2026-10-07. Keep the retained supported
-examples and API tests in `examples/catalog.json`; remove uncovered historical
-drafts instead of reopening migration work. Removal never counts as a passing
-result. Long oracle and coverage matrices use the existing nightly entrypoints.
+Use the current user-assigned migration scope and `examples/catalog.json`;
+do not turn the historical 93-root inventory into a current acceptance count.
+Removal or deferral never counts as a passing result. Long coverage and oracle
+matrices use the existing nightly entrypoints when requested or scheduled.
 Local migration logs/work packets/reviews are ignored, not test dependencies.
 
 Use descriptive compiler responsibility names. The
@@ -70,3 +70,25 @@ Hardware-oriented frontend constructs are legitimate; fixture names, widths,
 constants or recipe shapes do not determine admission. Preserve prior hardware
 behavior in rewritten examples and repair actual framework gaps through shared
 IR semantics; do not grow an unrelated Python interpreter to claim genericity.
+
+## Transaction and observation review
+
+Use [the serial extension specs](../../../docs/rfcs/serial-rule-method/README.md)
+for Rule/Method boundaries, guard entry snapshots, ordered validity, source-plan
+authentication and common final verification. Distinguish local false-guard hold
+from reached unknown-control failure and whole-system zero state/history commit.
+Public straight-line Method evidence does not close branches, partial writes,
+resources or Method `@system` body checks/observations.
+
+Review observation failures before commit, not only absence of emitted records.
+Incomplete active groups must reject before Xfer/COMMIT while false-path and
+all-invalid groups preserve their documented inactive behavior. Check the actual
+snapshot, prior events/gauges and epoch. Native X/Z value-plane tests and real
+four-state RTL serve different obligations; two-state simulation cannot replace
+the latter. Output sink I/O failures after commit cannot promise rollback.
+
+Analysis reuse must preserve exact definition/bindings/occurrence identity and
+complete private boundaries. Cache only successful facts within immutable IR
+lifetimes; transformations invalidate them. Budget fixes remove repeated work,
+not checks, input scale or limits. Review raw prepayment against actual verifier
+traversals before accepting a larger scope.

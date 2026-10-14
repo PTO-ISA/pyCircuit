@@ -22,9 +22,8 @@ NO HARDCODE and NO SHIM. Current `pycircuit compile/link/emit`, source-owned
 `.ac` groups, current typed module/standard-leaf/Work-Xfer profile and Runtime
 export remain current until exact cutover. The portless/default-clock/empty-static
 source-unit cutover profile is historical; current admission is in the active language reference.
-Naming,
-full capability coverage, exact Python basenames, and flat one-design example
-migration must be verified rather than inferred from the target. Preserve retained supported examples and hardware oracles. Report detected
+Full capability coverage, source ownership and example migration must be verified
+rather than inferred from the target. Preserve retained supported examples and hardware oracles. Report detected
 discrepancies immediately and assign concrete corrective work.
 
 For complex changes use the real `architect` preset and a separate decomposition
@@ -55,10 +54,10 @@ elaboration remains pending; this constraint does not itself ban parameterized
 historical examples or establish support for nonempty static arguments. Record
 the unresolved policy explicitly rather than choosing it through implementation.
 
-The user ended migration expansion on 2026-10-07. Keep the retained supported
-examples and API tests in `examples/catalog.json`; remove uncovered historical
-drafts instead of reopening migration work. Removal never counts as a passing
-result. Long oracle and coverage matrices use the existing nightly entrypoints.
+Use the current user-assigned migration scope and `examples/catalog.json`.
+The historical 93-root inventory is not a current acceptance count. Removal or
+deferral never counts as a passing result. Long oracle and coverage matrices use
+the existing nightly entrypoints and run only when requested or scheduled.
 Local migration logs/work packets/reviews are ignored, not test dependencies.
 
 Use descriptive compiler responsibility names. The
@@ -80,3 +79,24 @@ Hardware-oriented frontend constructs are legitimate; fixture names, widths,
 constants or recipe shapes do not determine admission. Preserve prior hardware
 behavior in rewritten examples and repair actual framework gaps through shared
 IR semantics; do not grow an unrelated Python interpreter to claim genericity.
+
+## Serial Method delivery boundaries
+
+Read [the extension matrix](../../../docs/rfcs/serial-rule-method/extension-roadmap.md)
+before assigning Method work. An autonomous Rule owns the transaction; Method
+calls share its candidate versions and commit decision. Ordinary pure `def`
+replaces callable Rule helpers. Independent Rules retain old-Q visibility.
+Current straight-line, same-domain, whole-Bits execution does not establish
+branch/partial-state, resource, or full Method `@system` check/observation support.
+A generated System smoke is not that closure; an identity proposal is not admission.
+
+Observation groups must validate before any state/history Xfer or managed RTL
+COMMIT. Preserve inactive-group semantics and prior committed observations on
+failure. Runtime descriptors require explicit group membership; old shapes
+must fail closed. See [System execution](../../../docs/architecture/system-execution.md).
+
+Install the current build with an explicit `--prefix` matching
+`PYC_TOOLCHAIN_ROOT`; do not assume a reused CMake cache has the intended prefix.
+After an explicit delivery request, preserve incomplete work in a recoverable
+separate snapshot and label it unverified. Merge only a coherent tested candidate,
+record the remote result, and keep unfinished extension requirements open.
