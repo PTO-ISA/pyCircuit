@@ -6,6 +6,7 @@
 #include <array>
 #include <atomic>
 #include <cstdlib>
+#include <functional>
 #include <new>
 #include <vector>
 
@@ -30,12 +31,16 @@ namespace {
 
 gfsim::ObservationDescriptor descriptor(uint32_t ordinal, uint64_t owner,
                                         uint64_t registration, uint64_t site,
-                                        gfsim::ObservationKind kind) {
+                                        gfsim::ObservationKind kind,
+                                        uint32_t groupIndex = 0,
+                                        uint32_t groupSize = 1) {
   return {.stableOrdinal = ordinal,
           .ownerKey = owner,
           .registrationKey = registration,
           .siteKey = site,
-          .kind = kind};
+          .kind = kind,
+          .groupIndex = groupIndex,
+          .groupSize = groupSize};
 }
 
 struct StagePlan {
@@ -55,7 +60,8 @@ public:
   SlotModule(std::string name, gfsim::ObservationSlots &slots,
              std::vector<StagePlan> plans, int initial = 3)
       : gfsim::SimModule(std::move(name)), slots_(slots),
-        plans_(std::move(plans)), initial_(initial), current_(initial), next_(initial) {}
+        plans_(std::move(plans)), initial_(initial), current_(initial),
+        next_(initial) {}
 
   void Build() override {}
   void Work() override {
@@ -76,11 +82,15 @@ public:
       ++xferCalls;
       current_ = next_;
     }
-    if (resetPending_) current_ = next_;
+    if (resetPending_)
+      current_ = next_;
     resetPending_ = false;
     workSlotsReady_ = false;
   }
-  void Reset() noexcept override { next_ = initial_; resetPending_ = true; }
+  void Reset() noexcept override {
+    next_ = initial_;
+    resetPending_ = true;
+  }
   void ReportStat() override {}
   bool HasWork() const noexcept override { return true; }
 
@@ -137,6 +147,169 @@ TEST(ObservationTest, ConfigureRequiresStableOrderAndUniqueDescriptors) {
   const std::array duplicate{
       sorted[0], descriptor(3, 1, 1, 3, gfsim::ObservationKind::Event)};
   EXPECT_FALSE(duplicateOrdinal.Configure(duplicate, 2));
+}
+
+TEST(ObservationTest,
+     ConfigureRejectsMalformedGroupsKindsAndMissingAppendedFieldsAtomically) {
+  const std::vector<gfsim::ObservationDescriptor> valid{
+      descriptor(10, 1, 2, 3, gfsim::ObservationKind::Event, 0, 2),
+      descriptor(11, 1, 2, 3, gfsim::ObservationKind::Event, 1, 2),
+      descriptor(20, 2, 4, 5, gfsim::ObservationKind::Gauge, 0, 1),
+  };
+  const std::vector<
+      std::function<void(std::vector<gfsim::ObservationDescriptor> &)>>
+      mutations{
+          [](auto &rows) { rows[0].groupSize = 0; },
+          [](auto &rows) { rows[0].groupIndex = 1; },
+          [](auto &rows) { rows[1].groupIndex = 0; },
+          [](auto &rows) { rows[1].groupIndex = 2; },
+          [](auto &rows) { rows[1].groupSize = 3; },
+          [](auto &rows) { rows[1].ownerKey = 9; },
+          [](auto &rows) { rows[1].registrationKey = 9; },
+          [](auto &rows) { rows[1].siteKey = 9; },
+          [](auto &rows) { rows[1].kind = gfsim::ObservationKind::Gauge; },
+          [](auto &rows) {
+            rows.pop_back();
+            rows.pop_back();
+          },
+          [](auto &rows) {
+            rows[0].kind = static_cast<gfsim::ObservationKind>(99);
+            rows[0].groupSize = 1;
+            rows.erase(rows.begin() + 1);
+          },
+          [](auto &rows) {
+            rows[0].kind = gfsim::ObservationKind::Gauge;
+            rows[1].kind = gfsim::ObservationKind::Gauge;
+          },
+      };
+  for (std::size_t index = 0; index < mutations.size(); ++index) {
+    SCOPED_TRACE(index);
+    auto malformed = valid;
+    mutations[index](malformed);
+    gfsim::ObservationSlots slots;
+    EXPECT_FALSE(slots.Configure(malformed, 4));
+    EXPECT_TRUE(slots.Configure(valid, 4))
+        << "failed Configure must not partially mutate the slot table";
+  }
+
+  const std::array omittedAppendedFields{
+      gfsim::ObservationDescriptor{1, 1, 1, 1, gfsim::ObservationKind::Event}};
+  gfsim::ObservationSlots omitted;
+  EXPECT_FALSE(omitted.Configure(omittedAppendedFields, 1));
+}
+
+TEST(ObservationTest, GroupCheckAndPrecommitImplementTheCompleteTruthTable) {
+  const std::array descriptors{
+      descriptor(0, 1, 1, 1, gfsim::ObservationKind::Event, 0, 2),
+      descriptor(1, 1, 1, 1, gfsim::ObservationKind::Event, 1, 2),
+  };
+  auto configured = [&] {
+    gfsim::ObservationSlots slots;
+    EXPECT_TRUE(slots.Configure(descriptors, 2));
+    return slots;
+  };
+
+  {
+    auto slots = configured();
+    EXPECT_TRUE(slots.Check());
+    EXPECT_TRUE(slots.Precommit(0));
+  }
+  {
+    auto slots = configured();
+    ASSERT_TRUE(slots.Stage(0, gfsim::SlotValue::Unsigned(1), true, false, 0));
+    EXPECT_FALSE(slots.Check());
+    EXPECT_FALSE(slots.Precommit(0));
+  }
+  {
+    auto slots = configured();
+    ASSERT_TRUE(slots.Stage(0, gfsim::SlotValue::Unsigned(1), true, true, 1));
+    ASSERT_TRUE(slots.Stage(1, gfsim::SlotValue::Unsigned(2), true, true, 1));
+    EXPECT_TRUE(slots.Check());
+    EXPECT_FALSE(slots.Precommit(0));
+  }
+  {
+    auto slots = configured();
+    ASSERT_TRUE(slots.Stage(0, gfsim::SlotValue::Unsigned(1), true, false, 0));
+    ASSERT_TRUE(slots.Stage(1, gfsim::SlotValue::Unsigned(2), true, true, 0));
+    EXPECT_FALSE(slots.Check());
+    EXPECT_FALSE(slots.Precommit(0));
+  }
+  {
+    auto slots = configured();
+    ASSERT_TRUE(slots.Stage(0, gfsim::SlotValue::Unsigned(1), true, false, 0));
+    ASSERT_TRUE(slots.Stage(1, gfsim::SlotValue::Signed(-2), false, false, 0));
+    EXPECT_TRUE(slots.Check());
+    EXPECT_TRUE(slots.Precommit(0));
+    slots.Xfer(1);
+    EXPECT_TRUE(slots.Events().empty());
+  }
+  {
+    auto slots = configured();
+    ASSERT_TRUE(slots.Stage(0, gfsim::SlotValue::Unsigned(1), false, true, 0));
+    ASSERT_TRUE(slots.Stage(1, gfsim::SlotValue::Signed(-2), false, true, 0));
+    EXPECT_TRUE(slots.Check());
+    EXPECT_TRUE(slots.Precommit(0));
+    slots.Xfer(1);
+    EXPECT_TRUE(slots.Events().empty());
+  }
+  {
+    auto slots = configured();
+    ASSERT_TRUE(slots.Stage(0, gfsim::SlotValue::Unsigned(1), true, true, 0));
+    ASSERT_TRUE(slots.Stage(1, gfsim::SlotValue::Signed(-2), false, true, 0));
+    EXPECT_FALSE(slots.Check());
+    EXPECT_FALSE(slots.Precommit(0));
+  }
+}
+
+TEST(ObservationTest, ActiveGroupKindsGaugeContractAndCapacityFailClosed) {
+  const std::array eventDescriptors{
+      descriptor(0, 1, 1, 1, gfsim::ObservationKind::Event, 0, 3),
+      descriptor(1, 1, 1, 1, gfsim::ObservationKind::Event, 1, 3),
+      descriptor(2, 1, 1, 1, gfsim::ObservationKind::Event, 2, 3),
+  };
+  gfsim::ObservationSlots accepted;
+  ASSERT_TRUE(accepted.Configure(eventDescriptors, 3));
+  ASSERT_TRUE(accepted.Stage(0, gfsim::SlotValue::Bool(true), true, true, 0));
+  ASSERT_TRUE(accepted.Stage(1, gfsim::SlotValue::Signed(-7), true, true, 0));
+  ASSERT_TRUE(accepted.Stage(2, gfsim::SlotValue::Unsigned(9), true, true, 0));
+  EXPECT_TRUE(accepted.Check());
+  EXPECT_TRUE(accepted.Precommit(0));
+
+  gfsim::ObservationSlots invalidEventKind;
+  ASSERT_TRUE(invalidEventKind.Configure(eventDescriptors, 3));
+  auto invalidValue = gfsim::SlotValue::Unsigned(1);
+  invalidValue.kind = static_cast<gfsim::SlotValueKind>(99);
+  ASSERT_TRUE(invalidEventKind.Stage(0, invalidValue, true, true, 0));
+  ASSERT_TRUE(
+      invalidEventKind.Stage(1, gfsim::SlotValue::Signed(-7), true, true, 0));
+  ASSERT_TRUE(
+      invalidEventKind.Stage(2, gfsim::SlotValue::Unsigned(9), true, true, 0));
+  EXPECT_FALSE(invalidEventKind.Check());
+  EXPECT_FALSE(invalidEventKind.Precommit(0));
+
+  gfsim::ObservationSlots capacity;
+  ASSERT_TRUE(capacity.Configure(eventDescriptors, 2));
+  ASSERT_TRUE(capacity.Stage(0, gfsim::SlotValue::Bool(true), true, true, 0));
+  ASSERT_TRUE(capacity.Stage(1, gfsim::SlotValue::Signed(-7), true, true, 0));
+  ASSERT_TRUE(capacity.Stage(2, gfsim::SlotValue::Unsigned(9), true, true, 0));
+  EXPECT_FALSE(capacity.Check());
+  EXPECT_FALSE(capacity.Precommit(0));
+
+  const std::array gaugeDescriptor{
+      descriptor(3, 2, 2, 2, gfsim::ObservationKind::Gauge, 0, 1)};
+  gfsim::ObservationSlots gauge;
+  ASSERT_TRUE(gauge.Configure(gaugeDescriptor, 0));
+  ASSERT_TRUE(gauge.Stage(0, gfsim::SlotValue::Unsigned(17), true, true, 0));
+  EXPECT_TRUE(gauge.Check());
+  EXPECT_TRUE(gauge.Precommit(0));
+  gauge.DiscardNext();
+  ASSERT_TRUE(gauge.Stage(0, gfsim::SlotValue::Bool(true), true, true, 0));
+  EXPECT_FALSE(gauge.Check());
+  EXPECT_FALSE(gauge.Precommit(0));
+  gauge.DiscardNext();
+  ASSERT_TRUE(gauge.Stage(0, gfsim::SlotValue::Signed(-1), true, true, 0));
+  EXPECT_FALSE(gauge.Check());
+  EXPECT_FALSE(gauge.Precommit(0));
 }
 
 TEST(ObservationTest, SystemPublishesOldQInStableDescriptorOrder) {
@@ -283,10 +456,12 @@ TEST(ObservationTest, StageCheckAndXferDoNotAllocate) {
   trackAllocations.store(true, std::memory_order_relaxed);
   bool staged = slots.Stage(0, gfsim::SlotValue::Unsigned(4), true, true, 0);
   bool checked = slots.Check();
+  bool precommitted = slots.Precommit(0);
   slots.Xfer(1);
   trackAllocations.store(false, std::memory_order_relaxed);
   EXPECT_TRUE(staged);
   EXPECT_TRUE(checked);
+  EXPECT_TRUE(precommitted);
   EXPECT_EQ(allocationCount.load(std::memory_order_relaxed), before);
 }
 

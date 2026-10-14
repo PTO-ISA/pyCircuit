@@ -24,11 +24,11 @@
 # These properties hold textually as well as at run time: the emitted DUT configures the
 # generated table, and the table maps `report` to Gauge and `log` to Event.
 # CHECK: static constexpr gfsim::ObservationDescriptor pyc_observation_descriptors[5] = {
-# CHECK-NEXT: {0, 0, 0, 0, gfsim::ObservationKind::Gauge},
-# CHECK-NEXT: {1, 0, 0, 1, gfsim::ObservationKind::Gauge},
-# CHECK-NEXT: {2, 0, 0, 2, gfsim::ObservationKind::Event},
-# CHECK-NEXT: {3, 0, 0, 2, gfsim::ObservationKind::Event},
-# CHECK-NEXT: {4, 0, 0, 3, gfsim::ObservationKind::Event},
+# CHECK-NEXT: {0, 0, 0, 0, gfsim::ObservationKind::Gauge, 0, 1},
+# CHECK-NEXT: {1, 0, 0, 1, gfsim::ObservationKind::Gauge, 0, 1},
+# CHECK-NEXT: {2, 0, 0, 2, gfsim::ObservationKind::Event, 0, 2},
+# CHECK-NEXT: {3, 0, 0, 2, gfsim::ObservationKind::Event, 1, 2},
+# CHECK-NEXT: {4, 0, 0, 3, gfsim::ObservationKind::Event, 0, 1},
 # CHECK: observations_.Configure(pyc_observation_descriptors, 3)
 # CHECK-NOT: observations_.Configure({}, 0)
 # RUN: %FileCheck %s --check-prefix=CHECK < %t.dir/cpp/pycircuit_system.hpp
@@ -46,6 +46,8 @@
 # NATIVE: ok   stable ordinals are globally unique
 # NATIVE: ok   report maps to Gauge
 # NATIVE: ok   log maps to Event
+# NATIVE: ok   gauges are explicit scalar groups
+# NATIVE: ok   logs use explicit grouped and scalar boundaries
 # NATIVE: ok   commit_epoch == evaluation_epoch + 1 == 1
 # NATIVE: ok   gauge_a advanced to 0x34 at epoch 2
 # NATIVE: ok   event batch is the epoch 2 batch with commit_epoch 2

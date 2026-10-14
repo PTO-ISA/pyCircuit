@@ -93,8 +93,25 @@ Each report name identifies one observation site within its owning module;
 duplicate names across rule registrations reject during common-IR verification.
 Separate instances may use the same report name.
 Partially active, incomplete or inconsistent operand groups reject before any
-observations from that epoch are published. This grouping does not extend the
-supported scalar widths or introduce four-state observation transport.
+hardware Xfer or RTL COMMIT. The failure preserves committed state, clock history,
+epoch count and the previous event batch and gauges. A later invalid group cannot
+commit an earlier scalar event or another module's state. Output sink I/O errors
+after a successful commit cannot undo hardware state or bytes already written.
+
+Runtime `ObservationDescriptor` requires explicit `groupIndex` and `groupSize`.
+The index is a member ordinal within a contiguous group; scalar observations,
+literal-only logs and reports use index zero and size one. Missing fields leave
+size zero and are rejected, with no compatibility default. Equal owner/rule/site
+keys do not implicitly join two scalar groups. Configuration validates the complete
+membership before accepting any descriptors; runner metadata must match it.
+
+Precommit checks complete snapshots and their epoch before checking paths and
+payload validity. An entirely unstaged group is inactive. A partially staged group
+or inconsistent paths fail. A fully staged false-path group is inactive even when
+payload validity differs. On a true path, all-invalid is inactive, partially valid
+fails, and all-valid proceeds to type and capacity checks. Authored X/Z paths stay
+inactive in both targets, including native unknown values with nonzero value bits.
+These rules do not extend scalar widths or introduce four-state observation output.
 
 ## Acceptance and example adaptation
 

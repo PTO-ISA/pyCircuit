@@ -217,15 +217,28 @@ public:
       auto type = context.rtlType(observed.getType(), observe);
       if (failed(path) || failed(value) || failed(type))
         return failure();
-      out << "  " << *type << " pyc_observation_value_" << index << ";\n"
-          << "  logic pyc_observation_valid_" << index << ";\n"
-          << "  logic pyc_observation_path_" << index << ";\n"
-          << "  always @(pyc_phase) if (pyc_phase == 3'd1) begin\n"
-          << "    pyc_observation_value_" << index << " = " << *value << ";\n"
-          << "    pyc_observation_valid_" << index << " = !$isunknown("
+      out << "  " << *type << " pyc_observation_value_" << index << " = '0;\n"
+          << "  logic pyc_observation_pending_" << index << " = 1'b0;\n"
+          << "  logic pyc_observation_valid_" << index << " = 1'b0;\n"
+          << "  logic pyc_observation_path_" << index << " = 1'b0;\n"
+          << "  always @(pyc_phase) begin\n"
+          << "    case (pyc_phase)\n"
+          << "      3'd1: begin\n"
+          << "        pyc_observation_value_" << index << " = " << *value
+          << ";\n"
+          << "        pyc_observation_valid_" << index << " = !$isunknown("
           << *value << ") && !$isunknown(" << *path << ");\n"
-          << "    pyc_observation_path_" << index << " = (" << *path
+          << "        pyc_observation_path_" << index << " = (" << *path
           << " === 1'b1);\n"
+          << "        pyc_observation_pending_" << index << " = 1'b1;\n"
+          << "      end\n"
+          << "      3'd0, 3'd3, 3'd4: begin\n"
+          << "        pyc_observation_pending_" << index << " = 1'b0;\n"
+          << "        pyc_observation_valid_" << index << " = 1'b0;\n"
+          << "        pyc_observation_path_" << index << " = 1'b0;\n"
+          << "        pyc_observation_value_" << index << " = '0;\n"
+          << "      end\n"
+          << "    endcase\n"
           << "  end\n";
     }
     return success();

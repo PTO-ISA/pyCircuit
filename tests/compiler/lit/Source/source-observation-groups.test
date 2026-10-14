@@ -1,2 +1,2 @@
-# REQUIRES: verilator
-# RUN: %python %S/Inputs/source-observation-groups.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --scratch %t.dir
+# REQUIRES: verilator, iverilog, vvp, rtl-four-state-parameter-types
+# RUN: %python %S/Inputs/source-observation-groups.py --repo %src --source-compiler %pycircuit_source_unit --linker %pycircuit_link --emitter %pycircuit_emit --cxx %cxx --verilator %verilator --iverilog %iverilog --vvp %vvp --scratch %t.dir

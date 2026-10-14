@@ -11,27 +11,40 @@ protected:
 };
 
 int main() {
+  const std::array explicitDescriptors{gfsim::ObservationDescriptor{
+      0, 1, 1, 1, gfsim::ObservationKind::Event, 0, 1}};
+  gfsim::ObservationSlots explicitObservations;
+  if (!explicitObservations.Configure(explicitDescriptors, 1) ||
+      !explicitObservations.Stage(0, gfsim::SlotValue::Bool(true), true, true,
+                                  0) ||
+      !explicitObservations.Check() || !explicitObservations.Precommit(0))
+    return 1;
+  explicitObservations.Xfer(1);
+  if (explicitObservations.Events().size() != 1 ||
+      explicitObservations.Events()[0].value != gfsim::SlotValue::Bool(true))
+    return 2;
+
   gfsim::ObservationSlots observations;
   if (!observations.Configure({}, 0))
-    return 1;
+    return 3;
   EmptySystem system;
   if (!system.AttachObservations(observations))
-    return 2;
+    return 4;
   gfsim::SimExecutor executor(system, observations, {});
   if (!executor.created())
-    return 3;
+    return 5;
   constexpr std::string_view config = "{}";
   if (executor.ConfigureJson(
           reinterpret_cast<const std::uint8_t *>(config.data()),
           config.size()) != PYCIRCUIT_MODEL_STATUS_V1_OK ||
       executor.Reset() != PYCIRCUIT_MODEL_STATUS_V1_OK)
-    return 4;
+    return 6;
 
   PycircuitModelStepResultV1 result{sizeof(PycircuitModelStepResultV1)};
   if (executor.Step(&result) != PYCIRCUIT_MODEL_STATUS_V1_OK ||
       result.state != PYCIRCUIT_MODEL_STEP_V1_QUIESCENT ||
       result.epoch_time != 0 || executor.cycles() != 0)
-    return 5;
+    return 7;
 
   using Bit = gfsim::Bits<1>;
   using Word = gfsim::Bits<9>;
@@ -46,7 +59,7 @@ int main() {
   reg.Reset();
   reg.Xfer();
   if (!reg.q.isFullyKnown() || reg.q.value() != Word{3})
-    return 6;
+    return 8;
   reg.clk = control(true);
   reg.rst = control(false);
   reg.en = control(true);
@@ -54,6 +67,6 @@ int main() {
   reg.Work();
   reg.Xfer();
   if (!reg.q.isFullyKnown() || reg.q.value() != Word{17})
-    return 7;
+    return 9;
   return 0;
 }

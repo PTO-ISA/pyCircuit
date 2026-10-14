@@ -1596,11 +1596,15 @@ cppObservationDescriptorTable(HardwareEmitContext &context) {
   out << "static constexpr gfsim::ObservationDescriptor "
          "pyc_observation_descriptors["
       << plan->table.size() << "] = {";
-  for (const auto &entry : plan->table)
+  for (auto [index, entry] : llvm::enumerate(plan->table)) {
+    const auto &occurrence = plan->occurrences[index];
+    auto observe = cast<ac::SourceObserveOp>(occurrence.site.op);
     out << "\n    {" << entry[0] << ", " << entry[1] << ", " << entry[2] << ", "
         << entry[3]
         << ", gfsim::ObservationKind::" << (entry[4] ? "Gauge" : "Event")
-        << "},";
+        << ", " << occurrence.site.valueIndex << ", "
+        << std::max<std::size_t>(1, observe.getValues().size()) << "},";
+  }
   out << "\n};\n";
   out.flush();
   return text;
@@ -1701,7 +1705,8 @@ cppObservationStaging(HardwareEmitContext &context, ac::ModuleOp definition,
         << ">(pyc_lane, " << index
         << ", pyc_observed.value().value(), pyc_observed.isFullyKnown() && "
            "pyc_observed_path.isFullyKnown(), "
-        << "static_cast<bool>(pyc_observed_path.value().value() & 1u));\n"
+        << "pyc_observed_path.isFullyKnown() && "
+           "static_cast<bool>(pyc_observed_path.value().value() & 1u));\n"
         << "    }\n";
   }
   return success();

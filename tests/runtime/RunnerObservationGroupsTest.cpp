@@ -88,14 +88,14 @@ struct GroupFixture {
   // A scalar precedes the group. A later malformed group must prevent even
   // this earlier scalar from being published for that epoch.
   std::vector<gfsim::ObservationDescriptor> descriptors{
-      {2, 1, 1, 1, gfsim::ObservationKind::Event},
-      {7, 1, 1, 2, gfsim::ObservationKind::Event},
-      {8, 1, 1, 2, gfsim::ObservationKind::Event},
-      {9, 1, 1, 2, gfsim::ObservationKind::Event},
-      {20, 1, 1, 3, gfsim::ObservationKind::Event},
-      {30, 1, 1, 4, gfsim::ObservationKind::Event},
-      {31, 1, 1, 4, gfsim::ObservationKind::Event},
-      {40, 1, 1, 5, gfsim::ObservationKind::Gauge},
+      {2, 1, 1, 1, gfsim::ObservationKind::Event, 0, 1},
+      {7, 1, 1, 2, gfsim::ObservationKind::Event, 0, 3},
+      {8, 1, 1, 2, gfsim::ObservationKind::Event, 1, 3},
+      {9, 1, 1, 2, gfsim::ObservationKind::Event, 2, 3},
+      {20, 1, 1, 3, gfsim::ObservationKind::Event, 0, 1},
+      {30, 1, 1, 4, gfsim::ObservationKind::Event, 0, 1},
+      {31, 1, 1, 4, gfsim::ObservationKind::Event, 0, 1},
+      {40, 1, 1, 5, gfsim::ObservationKind::Gauge, 0, 1},
   };
   std::vector<gfsim::RunnerObservation> entries{
       metadata(2, std::string(scalarSpec)),
@@ -121,6 +121,7 @@ struct GroupFixture {
   GroupModule module{slots, plans};
   GroupSystem system;
   unsigned limit = 1;
+  bool configured = false;
   std::function<void(std::uint64_t)> beforeDrive;
 
   explicit GroupFixture(
@@ -132,7 +133,11 @@ struct GroupFixture {
     entries[7].reportName = "progress";
     if (mutate)
       mutate(descriptors);
-    EXPECT_TRUE(slots.Configure(descriptors, descriptors.size()));
+    configured = slots.Configure(descriptors, descriptors.size());
+    if (!mutate)
+      EXPECT_TRUE(configured);
+    if (!configured)
+      return;
     EXPECT_TRUE(system.AttachObservations(slots));
     EXPECT_TRUE(system.AddModule(module));
     module.system = &system;
@@ -190,15 +195,8 @@ std::string record(std::string_view kind, std::string_view spec,
 TEST(RunnerObservationGroupsTest,
      GroupsValuesInCanonicalOrderWithoutMergingScalars) {
   GroupFixture fixture;
-  // Existing scalar metadata initializers rely on the appended field defaults.
-  fixture.entries[5] = {30,           "log",
-                        "root.child", "registration",
-                        "site",       std::string(scalarSpec),
-                        true,         ""};
-  fixture.entries[6] = {31,           "log",
-                        "root.child", "registration",
-                        "site",       std::string(scalarSpec),
-                        true,         ""};
+  fixture.entries[5] = metadata(30, std::string(scalarSpec), 0, 1);
+  fixture.entries[6] = metadata(31, std::string(scalarSpec), 0, 1);
   const auto result = run(fixture);
   ASSERT_EQ(result.status, 0);
   ASSERT_EQ(result.lines.size(), 7u); // Six observations and the final result.
@@ -257,7 +255,11 @@ TEST(RunnerObservationGroupsTest, MetadataTableOrderDoesNotReorderBoundLanes) {
 }
 
 TEST(RunnerObservationGroupsTest, MultipleGroupsKeepTheirOwnValueArrays) {
-  GroupFixture fixture;
+  GroupFixture fixture([](auto &descriptors) {
+    descriptors[5].groupSize = descriptors[6].groupSize = 2;
+    descriptors[6].groupIndex = 1;
+  });
+  ASSERT_TRUE(fixture.configured);
   const std::string pairSpec =
       R"({"event":"pair","items":[{"kind":"value","ordinal":0},{"kind":"value","ordinal":1}],"level":"info"})";
   fixture.entries[5].specJson = fixture.entries[6].specJson = pairSpec;
@@ -316,10 +318,13 @@ TEST(RunnerObservationGroupsTest, PartialGroupsRefuseBeforeAnyEpochOutput) {
     if (mode == 2)
       fixture.plans[2].path = false;
     const auto result = run(fixture);
-    EXPECT_EQ(result.status, 2);
-    EXPECT_TRUE(result.lines.empty());
-    EXPECT_EQ(fixture.system.cycle(), 1u);
-    EXPECT_EQ(fixture.module.committedWrites, 1u);
+    EXPECT_EQ(result.status, 1);
+    ASSERT_EQ(result.lines.size(), 1u);
+    EXPECT_NE(result.lines[0].find(
+                  R"("kind":"result","status":"FAILED","epoch_time":"0")"),
+              std::string::npos);
+    EXPECT_EQ(fixture.system.cycle(), 0u);
+    EXPECT_EQ(fixture.module.committedWrites, 0u);
   }
 }
 
@@ -377,9 +382,7 @@ TEST(RunnerObservationGroupsTest,
   for (std::size_t index = 0; index < mutations.size(); ++index) {
     SCOPED_TRACE(index);
     GroupFixture fixture(mutations[index]);
-    const auto result = run(fixture);
-    EXPECT_EQ(result.status, 2);
-    EXPECT_TRUE(result.lines.empty());
+    EXPECT_FALSE(fixture.configured);
     EXPECT_EQ(fixture.module.builds, 0u);
     EXPECT_EQ(fixture.module.works, 0u);
     EXPECT_EQ(fixture.system.cycle(), 0u);
@@ -395,14 +398,24 @@ TEST(RunnerObservationGroupsTest,
       fixture.plans[2].path = false;
   };
   const auto result = run(fixture);
-  EXPECT_EQ(result.status, 2);
-  ASSERT_EQ(result.lines.size(), 6u);
+  EXPECT_EQ(result.status, 1);
+  ASSERT_EQ(result.lines.size(), 7u);
   EXPECT_TRUE(std::all_of(
-      result.lines.begin(), result.lines.end(), [](const auto &line) {
+      result.lines.begin(), result.lines.begin() + 6, [](const auto &line) {
         return line.find(R"("evaluation_epoch":"0","commit_epoch":"1")") !=
                std::string::npos;
       }));
-  EXPECT_EQ(fixture.system.cycle(), 2u);
+  EXPECT_NE(result.lines.back().find(
+                R"("kind":"result","status":"FAILED","epoch_time":"1")"),
+            std::string::npos);
+  EXPECT_EQ(fixture.system.cycle(), 1u);
+  EXPECT_EQ(fixture.module.committedWrites, 1u);
+  ASSERT_EQ(fixture.slots.Gauges().size(), 1u);
+  EXPECT_EQ(fixture.slots.Gauges()[0].value, gfsim::SlotValue::Unsigned(42));
+  EXPECT_EQ(fixture.slots.Gauges()[0].lastUpdate, 1u);
+  ASSERT_FALSE(fixture.slots.Events().empty());
+  for (const auto &event : fixture.slots.Events())
+    EXPECT_EQ(event.epoch, 1u);
 }
 
 TEST(RunnerObservationGroupsTest,

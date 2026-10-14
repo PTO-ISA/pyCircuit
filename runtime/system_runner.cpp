@@ -128,6 +128,8 @@ bool metadataMatches(std::span<const RunnerObservation> metadata,
     const bool isReport = entry.kind == "report";
     if ((!isReport && entry.kind != "print" && entry.kind != "log") ||
         (isReport != (descriptor->kind == ObservationKind::Gauge)) ||
+        descriptor->groupIndex != entry.groupIndex ||
+        descriptor->groupSize != entry.groupSize ||
         (isReport && !entry.hasValue))
       return false;
     if (isReport) {
@@ -549,9 +551,9 @@ int SystemRunner::Run(SimSystem &system, ObservationSlots &observations,
                   [](const OutputItem &left, const OutputItem &right) {
                     return left.descriptorOrder < right.descriptorOrder;
                   });
-        // Validate and serialize every active group before publishing any
-        // event from this epoch. An incomplete later group cannot leak an
-        // earlier scalar event. Entirely inactive groups produce no slots.
+        // Precommit already validated the frozen groups before hardware Xfer.
+        // Retain these defensive serialization invariants before publishing
+        // any record. Entirely inactive groups produce no committed slots.
         std::vector<std::string> records;
         for (std::size_t begin = 0; begin < outputItems.size();) {
           const OutputItem &first = outputItems[begin];

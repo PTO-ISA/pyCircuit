@@ -10,7 +10,8 @@ template <unsigned W> auto known(std::uint64_t v) {
 int failures = 0;
 void require(bool ok, const std::string &what) {
   std::cout << (ok ? "ok   " : "FAIL ") << what << "\n";
-  if (!ok) ++failures;
+  if (!ok)
+    ++failures;
 }
 int main() {
   pyc_dut dut(1);
@@ -28,10 +29,10 @@ int main() {
   bool increasing = true, unique = true;
   for (std::size_t i = 1; i < obs.Descriptors().size(); ++i) {
     const auto &p = obs.Descriptors()[i - 1], &c = obs.Descriptors()[i];
-    increasing &= std::tie(p.ownerKey, p.registrationKey, p.siteKey,
-                           p.stableOrdinal, p.kind) <
-                  std::tie(c.ownerKey, c.registrationKey, c.siteKey,
-                           c.stableOrdinal, c.kind);
+    increasing &=
+        std::tie(p.ownerKey, p.registrationKey, p.siteKey, p.stableOrdinal,
+                 p.kind) < std::tie(c.ownerKey, c.registrationKey, c.siteKey,
+                                    c.stableOrdinal, c.kind);
     unique &= p.stableOrdinal != c.stableOrdinal;
   }
   require(increasing, "descriptors strictly increase by key");
@@ -43,12 +44,25 @@ int main() {
               obs.Descriptors()[3].kind == gfsim::ObservationKind::Event &&
               obs.Descriptors()[4].kind == gfsim::ObservationKind::Event,
           "log maps to Event");
+  require(obs.Descriptors()[0].groupIndex == 0 &&
+              obs.Descriptors()[0].groupSize == 1 &&
+              obs.Descriptors()[1].groupIndex == 0 &&
+              obs.Descriptors()[1].groupSize == 1,
+          "gauges are explicit scalar groups");
+  require(obs.Descriptors()[2].groupIndex == 0 &&
+              obs.Descriptors()[3].groupIndex == 1 &&
+              obs.Descriptors()[2].groupSize == 2 &&
+              obs.Descriptors()[3].groupSize == 2 &&
+              obs.Descriptors()[4].groupIndex == 0 &&
+              obs.Descriptors()[4].groupSize == 1,
+          "logs use explicit grouped and scalar boundaries");
   require(obs.Descriptors()[0].stableOrdinal == 0 &&
               obs.Descriptors()[4].stableOrdinal == 4,
           "stable ordinals are the configured slot indices");
 
   // Two epochs each publish exactly their own evaluation epoch.
-  require(dut.system().Step() == gfsim::SimStepResult::Running, "epoch 1 running");
+  require(dut.system().Step() == gfsim::SimStepResult::Running,
+          "epoch 1 running");
   require(obs.Gauges().size() == 2, "two gauges");
   require(obs.Gauges()[0].value.bits == 0x12 && obs.Gauges()[0].lastUpdate == 1,
           "gauge_a committed 0x12 at epoch 1");
@@ -67,7 +81,8 @@ int main() {
   in.value = known<8>(0x34);
   in.second = known<4>(0xA);
   dut.drive(in);
-  require(dut.system().Step() == gfsim::SimStepResult::Running, "epoch 2 running");
+  require(dut.system().Step() == gfsim::SimStepResult::Running,
+          "epoch 2 running");
   require(dut.system().cycle() == 2, "cycle 2 committed");
   require(obs.Gauges()[0].value.bits == 0x34 && obs.Gauges()[0].lastUpdate == 2,
           "gauge_a advanced to 0x34 at epoch 2");
@@ -82,13 +97,15 @@ int main() {
   dut.drive(in);
   require(obs.Stage(0, gfsim::SlotValue::Unsigned(0x99), true, true, 99),
           "fault injected into slot 0");
-  require(dut.system().Step() == gfsim::SimStepResult::Failed, "epoch 3 failed");
+  require(dut.system().Step() == gfsim::SimStepResult::Failed,
+          "epoch 3 failed");
   require(dut.system().failureInfo().phase == gfsim::SimFailurePhase::Check,
           "failure phase is Check, so Work staged its observations first");
   require(obs.Events().size() == 3 && obs.Events()[0].epoch == 2 &&
               obs.Events()[0].value.bits == 0x34,
           "Events keeps the previously committed batch");
-  require(obs.Gauges()[0].lastUpdate == 2 && obs.Gauges()[0].value.bits == 0x34 &&
+  require(obs.Gauges()[0].lastUpdate == 2 &&
+              obs.Gauges()[0].value.bits == 0x34 &&
               obs.Gauges()[1].lastUpdate == 2,
           "Gauge lastUpdate did not advance");
   require(obs.Stage(0, gfsim::SlotValue::Unsigned(1), true, true, 2),

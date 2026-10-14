@@ -17,7 +17,7 @@ std::string bufferText(const PycircuitModelBufferV1 &buffer) {
 }
 
 PycircuitModelStatusV1 configure(gfsim::SimExecutor &executor,
-                               const std::string &json) {
+                                 const std::string &json) {
   return executor.ConfigureJson(
       reinterpret_cast<const std::uint8_t *>(json.data()), json.size());
 }
@@ -25,7 +25,8 @@ PycircuitModelStatusV1 configure(gfsim::SimExecutor &executor,
 class ExecutorModule final : public gfsim::SimModule {
 public:
   ExecutorModule(gfsim::ObservationSlots &slots, int initial = 3)
-      : SimModule("executor-module"), slots_(slots), initial_(initial), current_(initial), next_(initial) {}
+      : SimModule("executor-module"), slots_(slots), initial_(initial),
+        current_(initial), next_(initial) {}
 
   int value() const noexcept { return current_; }
 
@@ -88,9 +89,7 @@ public:
   ExecutorModule *module;
 
 private:
-  bool Precheck() noexcept override {
-    return !module || module->checkPasses;
-  }
+  bool Precheck() noexcept override { return !module || module->checkPasses; }
 };
 
 struct Fixture {
@@ -98,7 +97,7 @@ struct Fixture {
       : module(slots), system(withModule ? &module : nullptr) {
     module.system = &system;
     const std::array descriptors{gfsim::ObservationDescriptor{
-        9, 1, 1, 1, gfsim::ObservationKind::Gauge}};
+        9, 1, 1, 1, gfsim::ObservationKind::Gauge, 0, 1}};
     EXPECT_TRUE(slots.Configure(descriptors, 0));
     EXPECT_TRUE(system.AttachObservations(attachExpectedSlots ? slots : other));
     if (withModule)
@@ -287,7 +286,8 @@ TEST(SimExecutorTest, OldQCommitDiscardFailureAndResetRecovery) {
   EXPECT_EQ(bufferText(repeatedError), committedError);
   PycircuitModelStepResultV1 wrongLayout{7, 71, 72, 73, 74};
   const auto wrongLayoutBefore = wrongLayout;
-  EXPECT_EQ(executor.Step(&wrongLayout), PYCIRCUIT_MODEL_STATUS_V1_ABI_MISMATCH);
+  EXPECT_EQ(executor.Step(&wrongLayout),
+            PYCIRCUIT_MODEL_STATUS_V1_ABI_MISMATCH);
   EXPECT_EQ(wrongLayout.state, wrongLayoutBefore.state);
   EXPECT_EQ(wrongLayout.epoch_time, wrongLayoutBefore.epoch_time);
   ASSERT_EQ(executor.LastError(&repeatedError), PYCIRCUIT_MODEL_STATUS_V1_OK);
@@ -373,7 +373,8 @@ TEST(SimExecutorTest, StatisticsSnapshotReportResetAndBufferLifetime) {
   fixture.module.checkPasses = false;
   EXPECT_EQ(executor.Step(&result), PYCIRCUIT_MODEL_STATUS_V1_RUNTIME_FAILURE);
   PycircuitModelBufferV1 afterFailure{};
-  ASSERT_EQ(executor.StatisticsJson(&afterFailure), PYCIRCUIT_MODEL_STATUS_V1_OK);
+  ASSERT_EQ(executor.StatisticsJson(&afterFailure),
+            PYCIRCUIT_MODEL_STATUS_V1_OK);
   EXPECT_EQ(bufferText(afterFailure), committed);
 
   ASSERT_EQ(executor.Reset(), PYCIRCUIT_MODEL_STATUS_V1_OK);

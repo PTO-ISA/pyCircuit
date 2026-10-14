@@ -38,6 +38,8 @@ struct ObservationDescriptor {
   std::uint64_t registrationKey = 0;
   std::uint64_t siteKey = 0;
   ObservationKind kind = ObservationKind::Event;
+  std::uint32_t groupIndex = 0;
+  std::uint32_t groupSize = 0;
 
   bool operator==(const ObservationDescriptor &) const = default;
 };
@@ -72,12 +74,33 @@ public:
       return false;
     for (std::size_t index = 0; index < descriptors.size(); ++index) {
       const ObservationDescriptor &current = descriptors[index];
+      if (current.kind != ObservationKind::Event &&
+          current.kind != ObservationKind::Gauge)
+        return false;
       auto currentKey = key(current);
       if (index != 0 && !(key(descriptors[index - 1]) < currentKey))
         return false;
       for (std::size_t previous = 0; previous < index; ++previous)
         if (descriptors[previous].stableOrdinal == current.stableOrdinal)
           return false;
+    }
+    for (std::size_t begin = 0; begin < descriptors.size();) {
+      const auto &first = descriptors[begin];
+      const std::size_t size = first.groupSize;
+      if (first.groupIndex != 0 || size == 0 ||
+          size > descriptors.size() - begin ||
+          (first.kind == ObservationKind::Gauge && size != 1))
+        return false;
+      for (std::size_t member = 0; member < size; ++member) {
+        const auto &descriptor = descriptors[begin + member];
+        if (descriptor.groupIndex != member || descriptor.groupSize != size ||
+            descriptor.ownerKey != first.ownerKey ||
+            descriptor.registrationKey != first.registrationKey ||
+            descriptor.siteKey != first.siteKey ||
+            descriptor.kind != first.kind)
+          return false;
+      }
+      begin += size;
     }
 
     descriptors_.assign(descriptors.begin(), descriptors.end());
@@ -109,46 +132,10 @@ public:
     return true;
   }
 
-  bool Check() const noexcept {
-    if (!configured_)
-      return false;
-    std::size_t additions = 0;
-    for (std::size_t index = 0; index < slots_.size(); ++index) {
-      const ObservationSlot &slot = slots_[index];
-      if (!slot.pending || !slot.valid || !slot.path)
-        continue;
-      if (descriptors_[index].kind == ObservationKind::Gauge) {
-        if (slot.value.kind != SlotValueKind::Unsigned)
-          return false;
-      } else {
-        ++additions;
-      }
-    }
-    return additions <= eventCapacity_;
-  }
+  bool Check() const noexcept { return checkGroups(nullptr); }
 
   bool Precommit(std::uint64_t evaluationEpoch) const noexcept {
-    if (!configured_)
-      return false;
-
-    std::size_t additions = 0;
-    for (std::size_t index = 0; index < slots_.size(); ++index) {
-      const ObservationSlot &slot = slots_[index];
-      if (!slot.pending)
-        continue;
-      if (slot.evaluationEpoch != evaluationEpoch)
-        return false;
-      if (!slot.valid || !slot.path)
-        continue;
-      if (descriptors_[index].kind == ObservationKind::Gauge) {
-        if (slot.value.kind != SlotValueKind::Unsigned ||
-            gaugeIndexBySlot_[index] == kNoGauge)
-          return false;
-      } else {
-        ++additions;
-      }
-    }
-    return additions <= eventCapacity_;
+    return checkGroups(&evaluationEpoch);
   }
 
   void DiscardNext() noexcept {
@@ -197,6 +184,60 @@ public:
 private:
   static constexpr std::size_t kNoGauge =
       std::numeric_limits<std::size_t>::max();
+
+  bool checkGroups(const std::uint64_t *evaluationEpoch) const noexcept {
+    if (!configured_)
+      return false;
+    std::size_t additions = 0;
+    // Configure established complete, nonempty groups and immutable boundaries.
+    for (std::size_t begin = 0; begin < slots_.size();
+         begin += descriptors_[begin].groupSize) {
+      const auto &descriptor = descriptors_[begin];
+      const std::size_t end = begin + descriptor.groupSize;
+      bool anyPending = false;
+      bool allPending = true;
+      for (std::size_t index = begin; index < end; ++index) {
+        anyPending |= slots_[index].pending;
+        allPending &= slots_[index].pending;
+      }
+      if (!anyPending)
+        continue;
+      if (!allPending)
+        return false;
+      const auto &first = slots_[begin];
+      for (std::size_t index = begin; index < end; ++index) {
+        const auto &slot = slots_[index];
+        if ((evaluationEpoch && slot.evaluationEpoch != *evaluationEpoch) ||
+            slot.path != first.path)
+          return false;
+      }
+      // An inactive path suppresses payload knownness differences, but cannot
+      // conceal missing snapshots or an incorrect evaluation epoch.
+      if (!first.path)
+        continue;
+      for (std::size_t index = begin; index < end; ++index)
+        if (slots_[index].valid != first.valid)
+          return false;
+      if (!first.valid)
+        continue;
+      for (std::size_t index = begin; index < end; ++index) {
+        const auto kind = slots_[index].value.kind;
+        if (descriptor.kind == ObservationKind::Gauge) {
+          if (kind != SlotValueKind::Unsigned ||
+              gaugeIndexBySlot_[index] == kNoGauge)
+            return false;
+        } else {
+          if (kind != SlotValueKind::Bool && kind != SlotValueKind::Signed &&
+              kind != SlotValueKind::Unsigned)
+            return false;
+          if (additions == eventCapacity_)
+            return false;
+          ++additions;
+        }
+      }
+    }
+    return true;
+  }
 
   using DescriptorKey = std::tuple<std::uint64_t, std::uint64_t, std::uint64_t,
                                    std::uint32_t, ObservationKind>;
