@@ -22,8 +22,10 @@ namespace {
 
 using ac::detail::SourceCheckBudget;
 using detail::DefinitionRouting;
+using detail::MaterializedBranchResult;
 using detail::MaterializedTransaction;
 using detail::MaterializedTransactionLowering;
+using detail::MaterializedVersion;
 using detail::PreparedTransactionLowering;
 using detail::Route;
 using detail::RoutingKey;
@@ -35,6 +37,32 @@ bool charge(SourceCheckBudget &budget, Operation *site, uint64_t units = 1) {
 bool product(SourceCheckBudget &budget, Operation *site, uint64_t count,
              uint64_t units) {
   return charge(budget, site, SourceCheckBudget::multiply(count, units));
+}
+
+// IRMapping does not expose reservation. Prepay the actual value-map growth
+// before adding a branch result; arm SSA shares this one invocation map.
+bool prepayValueMapping(SourceCheckBudget &budget, Operation *site,
+                        const IRMapping &mapping, Value key) {
+  const auto &values = mapping.getValueMap();
+  if (values.contains(key))
+    return charge(budget, site);
+  using Entry = llvm::DenseMap<Value, Value>::value_type;
+  uint64_t memory = values.getMemorySize();
+  uint64_t buckets = memory / sizeof(Entry);
+  uint64_t entries = SourceCheckBudget::add(values.size(), 1);
+  uint64_t fee = 1 + SourceCheckBudget::bytes(sizeof(Entry));
+  if (SourceCheckBudget::multiply(entries, 4) >=
+      SourceCheckBudget::multiply(buckets, 3)) {
+    uint64_t grown =
+        std::max<uint64_t>(64, SourceCheckBudget::multiply(buckets, 2));
+    uint64_t bytes = SourceCheckBudget::multiply(grown, sizeof(Entry));
+    if (bytes < memory || bytes == std::numeric_limits<uint64_t>::max())
+      return charge(budget, site, std::numeric_limits<uint64_t>::max());
+    fee = SourceCheckBudget::add(
+        fee, SourceCheckBudget::add(SourceCheckBudget::bytes(bytes - memory),
+                                    values.size()));
+  }
+  return charge(budget, site, fee);
 }
 
 LogicalResult verifyClosedPurePayload(Operation *root,
@@ -97,8 +125,9 @@ verifyPreparedEffectInventory(const PreparedTransactionLowering &prepared,
             plan.guards.size() + plan.bodyChecks.size())
       return site.emitOpError()
              << "transaction prepared body-effect inventory is inconsistent";
-    uint64_t fire = SourceCheckBudget::add(plan.transaction->getNumResults(),
-                                           item.outputs.size());
+    uint64_t fire = SourceCheckBudget::add(
+        plan.transaction->getNumResults(),
+        SourceCheckBudget::multiply(2, item.outputs.size()));
     uint64_t next = SourceCheckBudget::add(fire, 1);
     for (auto [id, observation] : llvm::enumerate(plan.observations)) {
       if (item.observationPathResults[id] != next)
@@ -121,6 +150,14 @@ verifyPreparedEffectInventory(const PreparedTransactionLowering &prepared,
         total > std::numeric_limits<size_t>::max())
       return site.emitOpError()
              << "transaction prepared result layout is inconsistent";
+    for (auto [ordinal, output] : llvm::enumerate(item.outputs))
+      if (output.binding.owner >= plan.owners.size() ||
+          output.binding.version >= plan.versions.size() ||
+          output.dataResult !=
+              plan.transaction->getNumResults() + 2 * ordinal ||
+          output.enableResult != output.dataResult + 1)
+        return site.emitOpError()
+               << "transaction prepared candidate layout is inconsistent";
     for (const auto &check : plan.bodyChecks)
       if (!check.operation)
         return site.emitOpError()
@@ -412,7 +449,8 @@ private:
       return b.getDictionaryAttr(
           {b.getNamedAttr("instance_path", b.getArrayAttr({}))});
     };
-    auto fire = add(transaction->getNumResults(), prepared.outputs.size(),
+    auto fire = add(transaction->getNumResults(),
+                    SourceCheckBudget::multiply(2, prepared.outputs.size()),
                     "transaction fire result");
     if (failed(fire))
       return failure();
@@ -440,7 +478,8 @@ private:
              << "transaction check result count overflows";
     auto total =
         add(prepared.checkBase, 2 * *checkCount, "transaction result layout");
-    if (failed(total) || *total > std::numeric_limits<size_t>::max())
+    if (failed(total) || *total > SmallVector<Value>().max_size() ||
+        *total > SmallVector<Type>().max_size())
       return transaction.emitOpError()
              << "transaction result layout exceeds host capacity";
     prepared.totalResults = *total;
@@ -543,15 +582,15 @@ private:
       const auto &plan = *prepared.plan;
       SmallVector<Attribute> candidates;
       for (auto [ordinal, output] : llvm::enumerate(prepared.outputs)) {
-        const auto &owner = plan.owners[output.owner];
+        const auto &owner = plan.owners[output.binding.owner];
         auto path = anchorPath(plan, owner.anchor);
         if (!charge(budget, definition.module, 32 + path.size() * 8))
           return failure();
         candidates.push_back(b.getDictionaryAttr(
             {b.getNamedAttr("state", stateID(path, owner.declaration)),
-             b.getNamedAttr(
-                 "result", b.getI64IntegerAttr(
-                               plan.transaction->getNumResults() + ordinal))}));
+             b.getNamedAttr("data", b.getI64IntegerAttr(output.dataResult)),
+             b.getNamedAttr("enable",
+                            b.getI64IntegerAttr(output.enableResult))}));
       }
       if (!charge(budget, definition.module, 16))
         return failure();
@@ -679,10 +718,31 @@ private:
     for (auto binding : plan.finalVersions) {
       if (!charge(budget, plan.transaction))
         return failure();
-      if (plan.versions[binding.version].kind != ac::StateVersionKind::Write)
+      bool written = false;
+      for (const auto &write : plan.writes) {
+        if (!charge(budget, plan.transaction))
+          return failure();
+        written |= write.owner == binding.owner;
+      }
+      if (!written)
         continue;
-      prepared.outputs.push_back(binding);
+      if (!charge(budget, plan.transaction,
+                  1 + SourceCheckBudget::bytes(
+                          sizeof(detail::TransactionCandidatePreparation))))
+        return failure();
+      uint64_t data = SourceCheckBudget::add(
+          plan.transaction->getNumResults(),
+          SourceCheckBudget::multiply(2, prepared.outputs.size()));
+      uint64_t enable = SourceCheckBudget::add(data, 1);
+      if (enable == std::numeric_limits<uint64_t>::max())
+        return plan.transaction->emitOpError()
+               << "transaction candidate result count overflows";
+      prepared.outputs.push_back({binding, data, enable});
       const auto &owner = plan.owners[binding.owner];
+      if (!charge(budget, plan.transaction, prepared.liveIns.size()) ||
+          !llvm::is_contained(prepared.liveIns, owner.oldQ))
+        return plan.transaction->emitOpError()
+               << "transaction state old-Q capture is missing";
       auto declaration = owner.declaration;
       if (failed(propagate(plan, owner.anchor, declaration.getQ(), true)))
         return failure();
@@ -788,10 +848,23 @@ private:
   LogicalResult expansion(const TransactionPreparation &prepared) {
     const auto &plan = *prepared.plan;
     auto transaction = plan.transaction;
+    if (plan.versions.size() >
+            SmallVector<MaterializedVersion, 0>().max_size() ||
+        plan.branchResults.size() >
+            SmallVector<MaterializedBranchResult, 0>().max_size() ||
+        plan.frames.size() > SmallVector<IRMapping, 0>().max_size())
+      return transaction.emitOpError()
+             << "transaction materialization storage exceeds host capacity";
     uint64_t storage = SourceCheckBudget::add(
         SourceCheckBudget::multiply(plan.frames.size(), sizeof(IRMapping)),
-        SourceCheckBudget::multiply(plan.values.size() + plan.versions.size(),
-                                    sizeof(Value)));
+        SourceCheckBudget::add(
+            SourceCheckBudget::multiply(plan.values.size(), sizeof(Value)),
+            SourceCheckBudget::add(
+                SourceCheckBudget::multiply(plan.versions.size(),
+                                            sizeof(MaterializedVersion)),
+                SourceCheckBudget::multiply(
+                    plan.branchResults.size(),
+                    sizeof(MaterializedBranchResult)))));
     uint64_t effectValues = 0;
     for (const auto &observation : plan.observations)
       effectValues =
@@ -818,7 +891,7 @@ private:
                     plan.writes.size() + plan.calls.size() +
                     plan.bodyChecks.size() + plan.observations.size() +
                     plan.frames.size() + plan.results.size() +
-                    prepared.outputs.size()) ||
+                    plan.branchResults.size() + prepared.outputs.size()) ||
         !product(budget, transaction, plan.frames.size(),
                  2 * prepared.liveIns.size() + 1))
       return failure();
@@ -847,7 +920,7 @@ private:
           return failure();
         if (!isa<ac::SourceStateReadOp, ac::SourceStateWriteOp,
                  ac::SourceMethodCallOp, ac::SourceExpectOp,
-                 ac::SourceObserveOp, ac::YieldOp>(op) &&
+                 ac::SourceObserveOp, ac::SourceBranchOp, ac::YieldOp>(op) &&
             !ac::detail::isCombinationalHardwareOperation(op))
           return op->emitOpError()
                  << "transaction lowering cannot materialize this operation";
@@ -933,17 +1006,21 @@ public:
                    SourceCheckBudget &budget)
       : prepared(prepared), plan(*prepared.plan), packageMap(packageMap),
         routes(routes), budget(budget), frames(plan.frames.size()),
-        versions(plan.versions.size()) {}
+        versions(plan.versions.size()),
+        branchResults(plan.branchResults.size()) {}
 
   FailureOr<MaterializedTransaction> run() {
     auto transaction = plan.transaction;
     auto staged = cast<ac::SourceTransactionOp>(
         packageMap.lookup(transaction.operator->()));
-    if (!charge(budget, transaction,
-                SourceCheckBudget::add(
+    if (!charge(
+            budget, transaction,
+            SourceCheckBudget::add(
+                SourceCheckBudget::multiply(
                     prepared.totalResults,
-                    SourceCheckBudget::add(plan.bodyChecks.size(),
-                                           plan.observations.size()))))
+                    1 + SourceCheckBudget::bytes(sizeof(Value) + sizeof(Type))),
+                SourceCheckBudget::add(plan.bodyChecks.size(),
+                                       plan.observations.size()))))
       return failure();
     SmallVector<Value> captures;
     SmallVector<Type> types(transaction->getResultTypes());
@@ -953,9 +1030,11 @@ public:
         return failure();
       captures.push_back(*capture);
     }
-    for (auto output : prepared.outputs)
-      types.push_back(plan.owners[output.owner].payloadType);
     Type predicateType = captures[prepared.clockCapture].getType();
+    for (auto output : prepared.outputs) {
+      types.push_back(plan.owners[output.binding.owner].payloadType);
+      types.push_back(predicateType);
+    }
     types.push_back(predicateType);
     for (const auto &observation : plan.observations) {
       types.push_back(predicateType);
@@ -998,13 +1077,6 @@ public:
         if (ref.anchor == binding.anchor)
           frames[frame].map(ref.value, lexical.lookup({ref.anchor, ref.value}));
       }
-    for (auto [id, version] : llvm::enumerate(plan.versions))
-      if (version.kind == ac::StateVersionKind::OldQ) {
-        auto value = bound(version.value);
-        if (failed(value))
-          return failure();
-        versions[id] = *value;
-      }
     for (const auto &read : plan.reads)
       reads.try_emplace(Key{read.frame, read.operation}, &read);
     for (const auto &write : plan.writes)
@@ -1024,6 +1096,10 @@ public:
     savedObservations.resize(plan.observations.size());
     OpBuilder builder(rule.getContext());
     builder.setInsertionPointToEnd(block);
+    for (auto [id, version] : llvm::enumerate(plan.versions))
+      if (version.kind == ac::StateVersionKind::OldQ)
+        if (failed(ensureVersion(id, predicateType, builder)))
+          return failure();
     prefix = bitsLiteral(captures[prepared.clockCapture].getType(),
                          transaction.getOccurrence(), transaction.getLoc(),
                          true, builder);
@@ -1040,10 +1116,20 @@ public:
       results.push_back(*value);
     }
     for (auto output : prepared.outputs) {
-      if (!versions[output.version])
+      if (!versions[output.binding.version].data ||
+          !versions[output.binding.version].rawIntent)
         return transaction.emitOpError()
                << "transaction final candidate is unmapped";
-      results.push_back(versions[output.version]);
+      results.push_back(versions[output.binding.version].data);
+      if (!charge(budget, transaction,
+                  3 + 2 * 2 + 2 + 1 + sizeof(ac::BitsBinaryOp::Properties)))
+        return failure();
+      OperationState enable(transaction.getLoc(),
+                            ac::BitsBinaryOp::getOperationName());
+      enable.addOperands({prefix, versions[output.binding.version].rawIntent});
+      enable.addTypes(predicateType);
+      enable.addAttribute("opcode", builder.getStringAttr("and"));
+      results.push_back(builder.create(enable)->getResult(0));
     }
     results.push_back(prefix);
     for (const auto &observation : savedObservations) {
@@ -1108,6 +1194,7 @@ public:
         record.boundValues[id] = frames[ref.frame].lookupOrNull(ref.value);
     }
     record.versions = std::move(versions);
+    record.branchResults = std::move(branchResults);
     record.frames = std::move(frames);
     return record;
   }
@@ -1128,6 +1215,198 @@ private:
     return result;
   }
 
+  FailureOr<Value> intentLiteral(Type type, bool one, Location location,
+                                 OpBuilder &builder) {
+    if (!charge(budget, plan.transaction, 3 + 2 + 1 + 16))
+      return failure();
+    return bitsLiteral(
+        type, plan.transaction->getAttrOfType<DictionaryAttr>("occurrence"),
+        location, one, builder);
+  }
+
+  LogicalResult ensureVersion(ac::StateVersionId id, Type intentType,
+                              OpBuilder &builder) {
+    if (id >= plan.versions.size() || id >= versions.size())
+      return plan.transaction->emitOpError()
+             << "transaction state version is out of range";
+    if (versions[id].data && versions[id].rawIntent)
+      return success();
+    if (versions[id].data || versions[id].rawIntent)
+      return plan.transaction->emitOpError()
+             << "transaction state version is partially mapped";
+    const auto &version = plan.versions[id];
+    if (version.kind != ac::StateVersionKind::OldQ || !version.value ||
+        version.owner >= plan.owners.size() ||
+        *version.value != plan.owners[version.owner].oldQ)
+      return plan.transaction->emitOpError()
+             << "transaction state version is unmapped";
+    auto value = bound(*version.value);
+    auto intent =
+        intentLiteral(intentType, false, plan.transaction->getLoc(), builder);
+    if (failed(value) || failed(intent))
+      return failure();
+    versions[id] = {*value, *intent};
+    return success();
+  }
+
+  FailureOr<ac::BitsSelectOp> select(Value condition, Value whenTrue,
+                                     Value whenFalse, Type resultType,
+                                     Location location, OpBuilder &builder) {
+    if (!condition || !whenTrue || !whenFalse || !resultType ||
+        !ac::areEquivalentHardwareTypes(whenTrue.getType(), resultType) ||
+        !ac::areEquivalentHardwareTypes(whenFalse.getType(), resultType))
+      return plan.transaction->emitOpError()
+             << "transaction branch selection inputs are unmapped";
+    if (!charge(budget, plan.transaction, 3 + 2 * 3 + 2))
+      return failure();
+    OperationState state(location, ac::BitsSelectOp::getOperationName());
+    state.addOperands({condition, whenTrue, whenFalse});
+    state.addTypes(resultType);
+    return cast<ac::BitsSelectOp>(builder.create(state));
+  }
+
+  LogicalResult statements(Block &source, ac::InvocationFrameId frame,
+                           OpBuilder &builder, unsigned depth = 0) {
+    if (depth > 128)
+      return plan.transaction->emitOpError()
+             << "transaction branch depth budget exceeded";
+    if (!charge(budget, plan.transaction,
+                1 + SourceCheckBudget::bytes(sizeof(Block *) + sizeof(frame) +
+                                             sizeof(depth))))
+      return failure();
+    for (Operation &op : source.without_terminator()) {
+      if (auto access = dyn_cast<ac::SourceStateReadOp>(op)) {
+        auto found = reads.find({frame, access});
+        if (found == reads.end() || !versions[found->second->version].data)
+          return access.emitOpError() << "transaction read version is unmapped";
+        frames[frame].map(access.getValue(),
+                          versions[found->second->version].data);
+      } else if (auto intent = dyn_cast<ac::SourceStateWriteOp>(op)) {
+        auto found = writes.find({frame, intent});
+        if (found == writes.end())
+          return intent.emitOpError() << "transaction write plan is missing";
+        auto rhs = bound(found->second->value);
+        if (failed(rhs))
+          return failure();
+        auto rawIntent =
+            intentLiteral(prefix.getType(), true, op.getLoc(), builder);
+        if (failed(rawIntent))
+          return failure();
+        versions[found->second->version] = {*rhs, *rawIntent};
+      } else if (auto split = dyn_cast<ac::SourceBranchOp>(op)) {
+        if (!charge(budget, split, plan.branches.size()))
+          return failure();
+        auto found = llvm::find_if(plan.branches, [&](const auto &branch) {
+          return branch.frame == frame && branch.operation == split;
+        });
+        if (found == plan.branches.end())
+          return split.emitOpError() << "transaction branch plan is missing";
+        auto condition = bound(found->condition);
+        if (failed(condition) ||
+            failed(statements(split.getThenRegion().front(), frame, builder,
+                              depth + 1)) ||
+            failed(statements(split.getElseRegion().front(), frame, builder,
+                              depth + 1)))
+          return failure();
+        for (auto id : found->joins) {
+          const auto &join = plan.joins[id];
+          if (failed(ensureVersion(join.whenTrue, prefix.getType(), builder)) ||
+              failed(ensureVersion(join.whenFalse, prefix.getType(), builder)))
+            return failure();
+          auto data =
+              select(*condition, versions[join.whenTrue].data,
+                     versions[join.whenFalse].data,
+                     plan.owners[join.owner].payloadType, op.getLoc(), builder);
+          auto intent = select(*condition, versions[join.whenTrue].rawIntent,
+                               versions[join.whenFalse].rawIntent,
+                               prefix.getType(), op.getLoc(), builder);
+          if (failed(data) || failed(intent))
+            return failure();
+          versions[join.result] = {data->getResult(), intent->getResult()};
+        }
+        for (auto id : found->results) {
+          const auto &result = plan.branchResults[id];
+          auto whenTrue = bound(result.whenTrue);
+          auto whenFalse = bound(result.whenFalse);
+          if (failed(whenTrue) || failed(whenFalse))
+            return failure();
+          auto joined = select(*condition, *whenTrue, *whenFalse,
+                               result.payloadType, op.getLoc(), builder);
+          if (failed(joined))
+            return failure();
+          Value original = plan.values[result.result].value;
+          if (!prepayValueMapping(budget, split, frames[frame], original))
+            return failure();
+          frames[frame].map(original, joined->getResult());
+          branchResults[id].select = *joined;
+        }
+      } else if (auto call = dyn_cast<ac::SourceMethodCallOp>(op)) {
+        auto found = calls.find({frame, call});
+        if (found == calls.end())
+          return call.emitOpError() << "transaction call plan is missing";
+        const auto &callee = *found->second;
+        if (failed(invocation(callee.callee, builder)))
+          return failure();
+        for (const auto &result : callee.results) {
+          auto value = bound(result.yielded);
+          if (failed(value))
+            return failure();
+          frames[frame].map(plan.values[result.result].value, *value);
+        }
+      } else if (auto check = dyn_cast<ac::SourceExpectOp>(op)) {
+        auto found = bodyCheckPlans.find({frame, check});
+        if (found == bodyCheckPlans.end() ||
+            nextEffectEvent == effectEvents.size() ||
+            effectEvents[nextEffectEvent]->kind !=
+                ac::TransactionStateEventKind::BodyCheck ||
+            effectEvents[nextEffectEvent]->frame != frame ||
+            effectEvents[nextEffectEvent]->bodyCheck != found->second)
+          return op.emitOpError()
+                 << "transaction body-check event order is inconsistent";
+        const auto &record = plan.bodyChecks[found->second];
+        auto condition = bound(record.condition);
+        auto path = bound(record.path);
+        if (failed(condition) || failed(path))
+          return failure();
+        savedChecks[found->second] = {*condition, *path};
+        ++nextEffectEvent;
+      } else if (auto observation = dyn_cast<ac::SourceObserveOp>(op)) {
+        auto found = observationPlans.find({frame, observation});
+        if (found == observationPlans.end() ||
+            nextEffectEvent == effectEvents.size() ||
+            effectEvents[nextEffectEvent]->kind !=
+                ac::TransactionStateEventKind::Observe ||
+            effectEvents[nextEffectEvent]->frame != frame ||
+            effectEvents[nextEffectEvent]->observation != found->second)
+          return op.emitOpError()
+                 << "transaction observation event order is inconsistent";
+        const auto &record = plan.observations[found->second];
+        auto path = bound(record.path);
+        if (failed(path))
+          return failure();
+        savedObservations[found->second].path = *path;
+        for (auto value : record.values) {
+          auto mapped = bound(value);
+          if (failed(mapped))
+            return failure();
+          savedObservations[found->second].values.push_back(*mapped);
+        }
+        ++nextEffectEvent;
+      } else {
+        if (failed(verifyClosedPurePayload(
+                &op, budget,
+                "transaction invocation requires closed pure payload "
+                "operations")))
+          return failure();
+        for (Value operand : op.getOperands())
+          if (!frames[frame].contains(operand))
+            return op.emitOpError() << "transaction pure operand is unmapped";
+        builder.clone(op, frames[frame]);
+      }
+    }
+    return success();
+  }
+
   LogicalResult invocation(ac::InvocationFrameId frame, OpBuilder &builder) {
     const auto &binding = plan.frames[frame];
     for (ArrayRef<ac::TransactionValueBinding> arguments :
@@ -1145,86 +1424,8 @@ private:
         method ? method.operator->() : transaction.operator->();
     for (auto [regionOrdinal, region] :
          llvm::enumerate(function->getRegions())) {
-      for (Operation &op : region.front().without_terminator()) {
-        if (auto access = dyn_cast<ac::SourceStateReadOp>(op)) {
-          auto found = reads.find({frame, access});
-          if (found == reads.end() || !versions[found->second->version])
-            return access.emitOpError()
-                   << "transaction read version is unmapped";
-          frames[frame].map(access.getValue(),
-                            versions[found->second->version]);
-        } else if (auto intent = dyn_cast<ac::SourceStateWriteOp>(op)) {
-          auto found = writes.find({frame, intent});
-          if (found == writes.end())
-            return intent.emitOpError() << "transaction write plan is missing";
-          auto rhs = bound(found->second->value);
-          if (failed(rhs))
-            return failure();
-          versions[found->second->version] = *rhs;
-        } else if (auto call = dyn_cast<ac::SourceMethodCallOp>(op)) {
-          auto found = calls.find({frame, call});
-          if (found == calls.end())
-            return call.emitOpError() << "transaction call plan is missing";
-          const auto &callee = *found->second;
-          if (failed(invocation(callee.callee, builder)))
-            return failure();
-          for (const auto &result : callee.results) {
-            auto value = bound(result.yielded);
-            if (failed(value))
-              return failure();
-            frames[frame].map(plan.values[result.result].value, *value);
-          }
-        } else if (auto check = dyn_cast<ac::SourceExpectOp>(op)) {
-          auto found = bodyCheckPlans.find({frame, check});
-          if (found == bodyCheckPlans.end() ||
-              nextEffectEvent == effectEvents.size() ||
-              effectEvents[nextEffectEvent]->kind !=
-                  ac::TransactionStateEventKind::BodyCheck ||
-              effectEvents[nextEffectEvent]->frame != frame ||
-              effectEvents[nextEffectEvent]->bodyCheck != found->second)
-            return op.emitOpError()
-                   << "transaction body-check event order is inconsistent";
-          const auto &record = plan.bodyChecks[found->second];
-          auto condition = bound(record.condition);
-          auto path = bound(record.path);
-          if (failed(condition) || failed(path))
-            return failure();
-          savedChecks[found->second] = {*condition, *path};
-          ++nextEffectEvent;
-        } else if (auto observation = dyn_cast<ac::SourceObserveOp>(op)) {
-          auto found = observationPlans.find({frame, observation});
-          if (found == observationPlans.end() ||
-              nextEffectEvent == effectEvents.size() ||
-              effectEvents[nextEffectEvent]->kind !=
-                  ac::TransactionStateEventKind::Observe ||
-              effectEvents[nextEffectEvent]->frame != frame ||
-              effectEvents[nextEffectEvent]->observation != found->second)
-            return op.emitOpError()
-                   << "transaction observation event order is inconsistent";
-          const auto &record = plan.observations[found->second];
-          auto path = bound(record.path);
-          if (failed(path))
-            return failure();
-          savedObservations[found->second].path = *path;
-          for (auto value : record.values) {
-            auto mapped = bound(value);
-            if (failed(mapped))
-              return failure();
-            savedObservations[found->second].values.push_back(*mapped);
-          }
-          ++nextEffectEvent;
-        } else {
-          if (failed(verifyClosedPurePayload(
-                  &op, budget,
-                  "transaction invocation requires closed pure payload "
-                  "operations")))
-            return failure();
-          for (Value operand : op.getOperands())
-            if (!frames[frame].contains(operand))
-              return op.emitOpError() << "transaction pure operand is unmapped";
-          builder.clone(op, frames[frame]);
-        }
-      }
+      if (failed(statements(region.front(), frame, builder)))
+        return failure();
       if (regionOrdinal == 0) {
         auto found = llvm::find_if(plan.guards, [&](const auto &guard) {
           return guard.frame == frame;
@@ -1266,7 +1467,8 @@ private:
   SourceCheckBudget &budget;
   llvm::DenseMap<LexicalKey, Value> lexical;
   SmallVector<IRMapping, 0> frames;
-  SmallVector<Value, 0> versions;
+  SmallVector<MaterializedVersion, 0> versions;
+  SmallVector<MaterializedBranchResult, 0> branchResults;
   Value prefix;
   SmallVector<std::pair<Value, Value>> guards;
   llvm::DenseMap<Key, const ac::StateReadBinding *> reads;
@@ -1584,15 +1786,14 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared,
             cast<ac::SourceObserveOp>(expectBuilder.create(observe));
       }
     }
-    unsigned ordinary = original.getNumResults();
-    for (auto [ordinal, binding] : llvm::enumerate(transaction.outputs)) {
-      const auto &owner = transaction.plan->owners[binding.owner];
+    for (auto binding : transaction.outputs) {
+      const auto &owner = transaction.plan->owners[binding.binding.owner];
       auto path = anchorPath(*transaction.plan, owner.anchor);
       auto declaration = owner.declaration;
       nextValues[transaction.plan->lexicalModule].try_emplace(
           routingKey(path, declaration.getQ()),
-          std::make_pair(materializedRule->getResult(ordinary + ordinal),
-                         materializedRule->getResult(transaction.fireResult)));
+          std::make_pair(materializedRule->getResult(binding.dataResult),
+                         materializedRule->getResult(binding.enableResult)));
     }
   }
   // All Rules exist before ordinary transaction results disappear. Captures
@@ -1877,6 +2078,8 @@ private:
 
   LogicalResult literalProof(Value value, Type type, DictionaryAttr occurrence,
                              Location location, bool one, Block *parent) {
+    if (!charge(budget, prepared.original, 16))
+      return failure();
     auto result = dyn_cast<OpResult>(value);
     if (!result || result.getResultNumber() != 0)
       return reject("original generated literal result is absent");
@@ -1910,7 +2113,7 @@ private:
       for (auto [ordinal, output] : llvm::enumerate(transaction.outputs)) {
         if (!charge(budget, originalModule, 8))
           return failure();
-        const auto &owner = plan.owners[output.owner];
+        const auto &owner = plan.owners[output.binding.owner];
         auto declaration = owner.declaration;
         if (!product(budget, originalModule, owner.instancePath.size(), 8))
           return failure();
@@ -1918,9 +2121,8 @@ private:
         if (routingKey(ownerPath, declaration.getQ()) != key)
           continue;
         auto rule = candidate.transactions[index].rule;
-        if (data !=
-                rule->getResult(plan.transaction->getNumResults() + ordinal) ||
-            enable != rule->getResult(transaction.fireResult))
+        if (data != rule->getResult(output.dataResult) ||
+            enable != rule->getResult(output.enableResult))
           return reject("original local candidate/fire routing pair differs");
         return success();
       }
@@ -2323,8 +2525,9 @@ private:
     const auto &plan = *preparation.plan;
     auto transaction = plan.transaction;
     auto rule = record.rule;
-    uint64_t expectedFire = SourceCheckBudget::add(transaction->getNumResults(),
-                                                   preparation.outputs.size());
+    uint64_t expectedFire = SourceCheckBudget::add(
+        transaction->getNumResults(),
+        SourceCheckBudget::multiply(2, preparation.outputs.size()));
     uint64_t cursor = SourceCheckBudget::add(expectedFire, 1);
     if (preparation.observationPathResults.size() != plan.observations.size())
       return reject("original observation result inventory differs");
@@ -2377,6 +2580,7 @@ private:
         rule->hasAttr("ac.guard_location") ||
         record.boundValues.size() != plan.values.size() ||
         record.versions.size() != plan.versions.size() ||
+        record.branchResults.size() != plan.branchResults.size() ||
         record.frames.size() != plan.frames.size() ||
         record.bodyChecks.size() != plan.bodyChecks.size() ||
         record.observations.size() != plan.observations.size())
@@ -2432,7 +2636,16 @@ private:
         if (binding.anchor == ref.anchor)
           authenticated[frame].map(ref.value, argument);
     }
-    SmallVector<Value, 0> versions(plan.versions.size());
+    if (!product(budget, transaction, plan.versions.size(),
+                 1 + SourceCheckBudget::bytes(sizeof(MaterializedVersion))) ||
+        !product(
+            budget, transaction, plan.owners.size(),
+            3 * (1 + SourceCheckBudget::bytes(sizeof(ac::StateVersionId)))))
+      return failure();
+    SmallVector<MaterializedVersion, 0> versions(plan.versions.size());
+    SmallVector<ac::StateVersionId, 0> environment(plan.owners.size());
+    SmallVector<uint64_t, 0> ordinals(plan.owners.size(), 0);
+    SmallVector<bool, 0> originalWriters(plan.owners.size(), false);
     auto bound = [&](ac::BoundValueId id) -> Value {
       const auto &ref = plan.values[id];
       if (ref.value.getDefiningOp() == transaction.operator->())
@@ -2443,8 +2656,19 @@ private:
     };
     for (auto [id, version] : llvm::enumerate(plan.versions))
       if (version.kind == ac::StateVersionKind::OldQ) {
-        versions[id] = bound(version.value);
-        if (!versions[id])
+        if (!version.value || version.predecessor || version.write ||
+            version.join || version.ordinal != 0 ||
+            version.owner >= plan.owners.size() ||
+            *version.value != plan.owners[version.owner].oldQ)
+          return reject("original old-Q version shape differs");
+        versions[id] = {bound(*version.value), record.versions[id].rawIntent};
+        environment[version.owner] = id;
+        if (!versions[id].data ||
+            failed(literalProof(
+                versions[id].rawIntent,
+                rule->getOperand(preparation.clockCapture).getType(),
+                transaction.getOccurrence(), transaction.getLoc(), false,
+                &rule.getBody().front())))
           return reject("original old-Q version is absent");
       }
     Operation *last = nullptr;
@@ -2491,6 +2715,480 @@ private:
         effectEvents.push_back(&event);
     size_t nextEffectEvent = 0;
     std::function<LogicalResult(ac::InvocationFrameId)> invocation;
+    Type bit = rule->getOperand(preparation.clockCapture).getType();
+    uint64_t eventIndex = 0, readIndex = 0, writeIndex = 0, callIndex = 0,
+             branchIndex = 0, joinIndex = 0, resultIndex = 0, guardIndex = 0;
+    ac::AdmissionPrefix admission = 0;
+    auto event =
+        [&](ac::TransactionStateEventKind kind, ac::InvocationFrameId frame,
+            std::optional<uint64_t> id = std::nullopt) -> LogicalResult {
+      if (!charge(budget, transaction, 12) || eventIndex == plan.events.size())
+        return reject("original event inventory is incomplete");
+      const auto &actual = plan.events[eventIndex++];
+      ac::TransactionStateEvent expected;
+      expected.kind = kind;
+      expected.frame = frame;
+      expected.prefix = admission;
+      using K = ac::TransactionStateEventKind;
+      switch (kind) {
+      case K::Read:
+        expected.read = id;
+        break;
+      case K::Write:
+        expected.write = id;
+        break;
+      case K::GuardEnter:
+      case K::GuardExit:
+        expected.guard = id;
+        break;
+      case K::CallEnter:
+      case K::CallExit:
+        expected.call = id;
+        break;
+      case K::BodyCheck:
+        expected.bodyCheck = id;
+        break;
+      case K::Observe:
+        expected.observation = id;
+        break;
+      case K::StateJoin:
+        expected.join = id;
+        break;
+      case K::BranchResult:
+        expected.branchResult = id;
+        break;
+      case K::BranchEnter:
+      case K::ThenEnter:
+      case K::ThenExit:
+      case K::ElseEnter:
+      case K::ElseExit:
+      case K::BranchExit:
+        expected.branch = id;
+        break;
+      case K::TransactionEnter:
+      case K::TransactionExit:
+        break;
+      }
+      if (actual.kind != expected.kind || actual.frame != expected.frame ||
+          actual.prefix != expected.prefix || actual.read != expected.read ||
+          actual.write != expected.write || actual.guard != expected.guard ||
+          actual.call != expected.call ||
+          actual.bodyCheck != expected.bodyCheck ||
+          actual.observation != expected.observation ||
+          actual.branch != expected.branch || actual.join != expected.join ||
+          actual.branchResult != expected.branchResult)
+        return reject("original event order/reference/prefix differs");
+      return success();
+    };
+    auto ownerProof = [&](Operation *effect, ac::InvocationFrameId frame,
+                          ac::StateOwnerId id, Value path, Value payload,
+                          ArrayAttr selectors, ValueRange indices,
+                          DictionaryAttr occurrence) -> LogicalResult {
+      if (id >= plan.owners.size() || !selectors.empty() || !indices.empty() ||
+          !path || !payload)
+        return reject("original whole-state access shape differs");
+      const auto &owner = plan.owners[id];
+      auto anchor = plan.frames[frame].anchor;
+      auto module = plan.instances[anchor].definition;
+      ac::SourceStateOp declaration;
+      for (Operation &op : module.getBody().front()) {
+        if (!charge(budget, effect))
+          return failure();
+        auto state = dyn_cast<ac::SourceStateOp>(op);
+        if (state && state.getInstanceNameAttr() == effect->getAttr("state")) {
+          if (declaration)
+            return reject("original state access owner is ambiguous");
+          declaration = state;
+        }
+      }
+      if (!declaration || owner.anchor != anchor ||
+          owner.declaration != declaration ||
+          effect->getAttr("occurrence") != occurrence)
+        return reject("original state access declaration/anchor differs");
+      auto type = hardware.resolveType(payload.getType(),
+                                       plan.frames[frame].bindings, effect);
+      auto expected =
+          hardware.resolveType(declaration.getQ().getType(),
+                               plan.instances[owner.anchor].bindings, effect);
+      if (failed(type) || failed(expected) ||
+          !ac::areEquivalentHardwareTypes(*expected, owner.payloadType) ||
+          !ac::areEquivalentHardwareTypes(*type, *expected))
+        return reject("original state access payload type differs");
+      return success();
+    };
+    auto selectProof = [&](Value selected, Value condition, Value whenTrue,
+                           Value whenFalse, Type resultType,
+                           Location location) -> LogicalResult {
+      Builder b(transaction.getContext());
+      if (!selected || !condition || !whenTrue || !whenFalse || !resultType ||
+          !ac::areEquivalentHardwareTypes(whenTrue.getType(), resultType) ||
+          !ac::areEquivalentHardwareTypes(whenFalse.getType(), resultType) ||
+          failed(generatedProof(
+              selected.getDefiningOp(), ac::BitsSelectOp::getOperationName(),
+              {condition, whenTrue, whenFalse}, {resultType},
+              b.getDictionaryAttr({}), location, &rule.getBody().front())))
+        return reject("original branch select operands/type differ");
+      auto actual = selected.getDefiningOp();
+      if (actual->getResult(0) != selected ||
+          (last && !last->isBeforeInBlock(actual)))
+        return reject("original branch select result/order differs");
+      last = actual;
+      return success();
+    };
+    std::function<LogicalResult(Block &, ac::InvocationFrameId,
+                                SmallVectorImpl<bool> &,
+                                std::optional<ac::BranchId>, unsigned)>
+        statements;
+    statements = [&](Block &source, ac::InvocationFrameId frame,
+                     SmallVectorImpl<bool> &touched,
+                     std::optional<ac::BranchId> parentBranch,
+                     unsigned depth) -> LogicalResult {
+      if (depth > 128 ||
+          !charge(budget, transaction,
+                  1 + SourceCheckBudget::bytes(sizeof(frame) + sizeof(depth) +
+                                               sizeof(Block *))))
+        return reject("original branch proof depth/budget exceeded");
+      for (Operation &op : source.without_terminator()) {
+        if (!charge(budget, &op, 8))
+          return failure();
+        if (auto read = dyn_cast<ac::SourceStateReadOp>(op)) {
+          if (readIndex == plan.reads.size())
+            return reject("original read inventory differs");
+          auto found = plan.reads.begin() + readIndex++;
+          if (found->frame != frame || found->operation != read ||
+              found->owner >= environment.size() ||
+              found->version != environment[found->owner] ||
+              found->selectors != read.getSelectors() ||
+              bound(found->path) !=
+                  authenticated[frame].lookupOrNull(read.getPath()) ||
+              failed(ownerProof(read, frame, found->owner, read.getPath(),
+                                read.getValue(), read.getSelectors(),
+                                read.getIndices(), found->occurrence)) ||
+              !versions[found->version].data ||
+              record.frames[frame].lookupOrNull(read.getValue()) !=
+                  versions[found->version].data ||
+              failed(event(ac::TransactionStateEventKind::Read, frame,
+                           readIndex - 1)))
+            return reject("original read selected version differs");
+          touched[found->owner] = true;
+          authenticated[frame].map(read.getValue(),
+                                   versions[found->version].data);
+        } else if (auto write = dyn_cast<ac::SourceStateWriteOp>(op)) {
+          if (writeIndex == plan.writes.size())
+            return reject("original write inventory differs");
+          auto found = plan.writes.begin() + writeIndex++;
+          if (found->frame != frame || found->operation != write)
+            return reject("original write intent is absent");
+          Value rhs = bound(found->value);
+          const auto &version = plan.versions[found->version];
+          if (!rhs || found->owner >= environment.size() ||
+              version.kind != ac::StateVersionKind::Write || version.join ||
+              version.write != writeIndex - 1 ||
+              version.owner != found->owner ||
+              found->predecessor != environment[found->owner] ||
+              version.predecessor != found->predecessor ||
+              version.value != found->value ||
+              version.ordinal != ++ordinals[found->owner] ||
+              found->selectors != write.getSelectors() ||
+              bound(found->path) !=
+                  authenticated[frame].lookupOrNull(write.getPath()) ||
+              failed(ownerProof(write, frame, found->owner, write.getPath(),
+                                write.getValue(), write.getSelectors(),
+                                write.getIndices(), found->occurrence)) ||
+              rhs != authenticated[frame].lookupOrNull(write.getValue()) ||
+              failed(event(ac::TransactionStateEventKind::Write, frame,
+                           writeIndex - 1)))
+            return reject("original write owner/predecessor/RHS differs");
+          Value intent = record.versions[found->version].rawIntent;
+          if (failed(literalProof(intent, bit, transaction.getOccurrence(),
+                                  op.getLoc(), true, &rule.getBody().front())))
+            return failure();
+          versions[found->version] = {rhs, intent};
+          environment[found->owner] = found->version;
+          originalWriters[found->owner] = true;
+          touched[found->owner] = true;
+        } else if (auto split = dyn_cast<ac::SourceBranchOp>(op)) {
+          if (branchIndex == plan.branches.size() ||
+              split->getNumRegions() != 2 ||
+              !split.getThenRegion().hasOneBlock() ||
+              !split.getElseRegion().hasOneBlock())
+            return reject("original branch inventory/regions differ");
+          ac::BranchId id = branchIndex++;
+          const auto &branch = plan.branches[id];
+          const auto &conditionRef = plan.values[branch.condition];
+          Value condition =
+              authenticated[frame].lookupOrNull(split.getCondition());
+          if (!condition || branch.operation != split ||
+              split.getOccurrence() != branch.occurrence ||
+              split.getConditionLocation() != branch.conditionLocation)
+            return reject("original branch source metadata differs");
+          if (branch.frame != frame || branch.parentBranch != parentBranch ||
+              branch.entryPrefix != admission ||
+              conditionRef.value != split.getCondition() ||
+              bound(branch.condition) != condition ||
+              failed(event(ac::TransactionStateEventKind::BranchEnter, frame,
+                           id)) ||
+              failed(
+                  event(ac::TransactionStateEventKind::ThenEnter, frame, id)))
+            return reject("original branch selector/frame/entry differs");
+          auto resolvedCondition = hardware.resolveType(
+              split.getCondition().getType(),
+              plan.instances[conditionRef.anchor].bindings, split);
+          if (failed(resolvedCondition) ||
+              !ac::areEquivalentHardwareTypes(*resolvedCondition,
+                                              condition.getType()))
+            return reject("original branch selector type differs");
+          auto width = hardware.getPackedWidth(
+              *resolvedCondition, plan.instances[conditionRef.anchor].bindings,
+              split);
+          if (failed(width) || *width != 1)
+            return reject("original branch selector width differs");
+          if (!product(budget, split, environment.size(),
+                       3 * (1 + SourceCheckBudget::bytes(
+                                    sizeof(ac::StateVersionId))) +
+                           1 + SourceCheckBudget::bytes(sizeof(bool))))
+            return failure();
+          SmallVector<ac::StateVersionId, 0> entry(environment);
+          SmallVector<bool, 0> armTouched(environment.size(), false);
+          if (failed(statements(split.getThenRegion().front(), frame,
+                                armTouched, id, depth + 1)) ||
+              failed(event(ac::TransactionStateEventKind::ThenExit, frame, id)))
+            return failure();
+          SmallVector<ac::StateVersionId, 0> whenTrue(environment);
+          if (!charge(budget, split, environment.size()))
+            return failure();
+          llvm::copy(entry, environment.begin());
+          if (failed(
+                  event(ac::TransactionStateEventKind::ElseEnter, frame, id)) ||
+              failed(statements(split.getElseRegion().front(), frame,
+                                armTouched, id, depth + 1)) ||
+              failed(event(ac::TransactionStateEventKind::ElseExit, frame, id)))
+            return failure();
+          uint64_t touchedIndex = 0, branchJoinIndex = 0;
+          for (auto [owner, wasTouched] : llvm::enumerate(armTouched)) {
+            if (!charge(budget, split))
+              return failure();
+            if (!wasTouched)
+              continue;
+            touched[owner] = true;
+            if (touchedIndex >= branch.entryVersions.size() ||
+                touchedIndex >= branch.thenVersions.size() ||
+                touchedIndex >= branch.elseVersions.size())
+              return reject("original branch candidate inventory differs");
+            auto expectedBinding = [&](const auto &binding,
+                                       ac::StateVersionId value) {
+              return binding.owner == owner && binding.version == value;
+            };
+            if (!expectedBinding(branch.entryVersions[touchedIndex],
+                                 entry[owner]) ||
+                !expectedBinding(branch.thenVersions[touchedIndex],
+                                 whenTrue[owner]) ||
+                !expectedBinding(branch.elseVersions[touchedIndex],
+                                 environment[owner]))
+              return reject("original branch arm entry/exit versions differ");
+            ++touchedIndex;
+            if (whenTrue[owner] == entry[owner] &&
+                environment[owner] == entry[owner])
+              continue;
+            if (branchJoinIndex == branch.joins.size() ||
+                joinIndex == plan.joins.size() ||
+                branch.joins[branchJoinIndex++] != joinIndex)
+              return reject("original state join inventory differs");
+            const auto &join = plan.joins[joinIndex];
+            if (join.branch != id || join.owner != owner ||
+                join.entry != entry[owner] ||
+                join.whenTrue != whenTrue[owner] ||
+                join.whenFalse != environment[owner] ||
+                join.result >= plan.versions.size())
+              return reject("original state join inputs differ");
+            const auto &version = plan.versions[join.result];
+            if (version.kind != ac::StateVersionKind::Join || version.value ||
+                version.write || version.join != joinIndex ||
+                version.owner != owner || version.predecessor != entry[owner] ||
+                version.ordinal != ++ordinals[owner] ||
+                join.whenTrue >= join.result || join.whenFalse >= join.result ||
+                !ac::areEquivalentHardwareTypes(version.payloadType,
+                                                plan.owners[owner].payloadType))
+              return reject("original state join version differs");
+            const auto &actual = record.versions[join.result];
+            if (failed(selectProof(
+                    actual.data, condition, versions[join.whenTrue].data,
+                    versions[join.whenFalse].data,
+                    plan.owners[owner].payloadType, split.getLoc())) ||
+                failed(selectProof(actual.rawIntent, condition,
+                                   versions[join.whenTrue].rawIntent,
+                                   versions[join.whenFalse].rawIntent, bit,
+                                   split.getLoc())) ||
+                failed(event(ac::TransactionStateEventKind::StateJoin, frame,
+                             joinIndex)))
+              return failure();
+            versions[join.result] = actual;
+            environment[owner] = join.result;
+            ++joinIndex;
+          }
+          if (touchedIndex != branch.entryVersions.size() ||
+              touchedIndex != branch.thenVersions.size() ||
+              touchedIndex != branch.elseVersions.size() ||
+              branchJoinIndex != branch.joins.size() ||
+              branch.results.size() != split.getNumResults())
+            return reject("original branch arm/join/result inventory differs");
+          auto trueYield =
+              cast<ac::YieldOp>(split.getThenRegion().front().back());
+          auto falseYield =
+              cast<ac::YieldOp>(split.getElseRegion().front().back());
+          if (trueYield.getNumOperands() != split.getNumResults() ||
+              falseYield.getNumOperands() != split.getNumResults())
+            return reject("original branch yield arity differs");
+          for (auto [ordinal, original] : llvm::enumerate(split.getResults())) {
+            if (!charge(budget, split, 8) ||
+                resultIndex == plan.branchResults.size() ||
+                branch.results[ordinal] != resultIndex)
+              return reject("original branch result inventory differs");
+            const auto &result = plan.branchResults[resultIndex];
+            Value trueValue = authenticated[frame].lookupOrNull(
+                trueYield.getOperand(ordinal));
+            Value falseValue = authenticated[frame].lookupOrNull(
+                falseYield.getOperand(ordinal));
+            auto actual = record.branchResults[resultIndex].select;
+            const auto &resultRef = plan.values[result.result];
+            auto type = hardware.resolveType(
+                original.getType(), plan.instances[resultRef.anchor].bindings,
+                split);
+            if (result.branch != id || result.frame != frame ||
+                result.ordinal != ordinal ||
+                plan.values[result.result].value != original ||
+                result.requiredPrefix > admission || failed(type) ||
+                !ac::areEquivalentHardwareTypes(result.payloadType, *type) ||
+                !actual || trueValue != bound(result.whenTrue) ||
+                falseValue != bound(result.whenFalse) ||
+                actual.getResult().getType() != result.payloadType ||
+                record.frames[frame].lookupOrNull(original) !=
+                    actual.getResult() ||
+                failed(selectProof(actual.getResult(), condition, trueValue,
+                                   falseValue, result.payloadType,
+                                   split.getLoc())) ||
+                failed(event(ac::TransactionStateEventKind::BranchResult, frame,
+                             resultIndex)))
+              return reject("original branch yielded-result binding differs");
+            if (!prepayValueMapping(budget, split, authenticated[frame],
+                                    original))
+              return failure();
+            authenticated[frame].map(original, actual.getResult());
+            ++resultIndex;
+          }
+          if (failed(
+                  event(ac::TransactionStateEventKind::BranchExit, frame, id)))
+            return failure();
+        } else if (isa<ac::SourceMethodCallOp>(op)) {
+          if (parentBranch || callIndex == plan.calls.size())
+            return reject("original call inventory differs");
+          auto found = plan.calls.begin() + callIndex++;
+          if (found->caller != frame || found->operation.operator->() != &op ||
+              failed(event(ac::TransactionStateEventKind::CallEnter, frame,
+                           callIndex - 1)) ||
+              failed(invocation(found->callee)) ||
+              failed(event(ac::TransactionStateEventKind::CallExit, frame,
+                           std::distance(plan.calls.begin(), found))))
+            return failure();
+          auto callee = plan.frames[found->callee].method;
+          auto yielded =
+              cast<ac::YieldOp>(callee.getBody().front().getTerminator());
+          if (found->results.size() != yielded.getNumOperands())
+            return reject("original call result arity differs");
+          for (auto [ordinal, result] : llvm::enumerate(found->results)) {
+            Value value = bound(result.yielded);
+            Value source = plan.values[result.result].value;
+            if (value != authenticated[found->callee].lookupOrNull(
+                             yielded.getOperand(ordinal)))
+              return reject("original Method body yield differs");
+            if (!value || record.frames[frame].lookupOrNull(source) != value)
+              return reject("original call yielded-result binding differs");
+            authenticated[frame].map(source, value);
+          }
+        } else if (auto check = dyn_cast<ac::SourceExpectOp>(op)) {
+          if (!charge(budget, check, plan.bodyChecks.size()))
+            return failure();
+          auto found = llvm::find_if(plan.bodyChecks, [&](const auto &item) {
+            return item.frame == frame && item.operation.operator->() == &op;
+          });
+          if (found == plan.bodyChecks.end() ||
+              nextEffectEvent == effectEvents.size())
+            return reject("original body-check plan/event is absent");
+          auto id = std::distance(plan.bodyChecks.begin(), found);
+          const auto *effectEvent = effectEvents[nextEffectEvent++];
+          Value condition = bound(found->condition), path = bound(found->path);
+          if (effectEvent->kind != ac::TransactionStateEventKind::BodyCheck ||
+              effectEvent->frame != frame || effectEvent->bodyCheck != id ||
+              !condition || !path || check.getKind() != "assert" ||
+              !check.getSampling().empty() ||
+              check->getAttr("occurrence") != found->occurrence ||
+              check.getLocationAttr() != found->location ||
+              check->getAttrOfType<StringAttr>("ac.message") !=
+                  found->message ||
+              check->hasAttr("ac.check_id") ||
+              check->hasAttr("ac.observation_id") ||
+              check.getCondition() != plan.values[found->condition].value ||
+              check.getPath() != plan.values[found->path].value)
+            return reject("original body-check operation/frame/inputs differ");
+          if (parentBranch ||
+              failed(
+                  event(ac::TransactionStateEventKind::BodyCheck, frame, id)))
+            return reject("original body-check placement/event differs");
+          sourceChecks[id] = {condition, path};
+        } else if (auto observation = dyn_cast<ac::SourceObserveOp>(op)) {
+          if (!charge(budget, observation, plan.observations.size()))
+            return failure();
+          auto found = llvm::find_if(plan.observations, [&](const auto &item) {
+            return item.frame == frame && item.operation.operator->() == &op;
+          });
+          if (found == plan.observations.end() ||
+              nextEffectEvent == effectEvents.size())
+            return reject("original observation plan/event is absent");
+          auto id = std::distance(plan.observations.begin(), found);
+          const auto *effectEvent = effectEvents[nextEffectEvent++];
+          Value path = bound(found->path);
+          if (effectEvent->kind != ac::TransactionStateEventKind::Observe ||
+              effectEvent->frame != frame || effectEvent->observation != id ||
+              !path ||
+              observation->getAttr("occurrence") != found->occurrence ||
+              observation->getAttr("ac.location") != found->location ||
+              observation.getKindAttr() != found->kind ||
+              observation.getSpec() != found->spec ||
+              observation->hasAttr("ac.check_id") ||
+              observation->hasAttr("ac.observation_id") ||
+              observation.getPath() != plan.values[found->path].value ||
+              observation.getValues().size() != found->values.size())
+            return reject("original observation operation/frame/path differ");
+          if (parentBranch ||
+              failed(event(ac::TransactionStateEventKind::Observe, frame, id)))
+            return reject("original observation placement/event differs");
+          sourceObservations[id].path = path;
+          for (auto [ordinal, value] : llvm::enumerate(found->values)) {
+            Value mapped = bound(value);
+            if (!mapped ||
+                observation.getValues()[ordinal] != plan.values[value].value)
+              return reject("original observation payload/order differs");
+            sourceObservations[id].values.push_back(mapped);
+          }
+        } else {
+          if (failed(verifyClosedPurePayload(
+                  &op, budget,
+                  "transaction source proof requires closed pure payload "
+                  "operations")))
+            return failure();
+          auto actual = record.frames[frame].lookupOrNull(&op);
+          if (!actual || !operations.contains(actual) ||
+              actual->getBlock() != &rule.getBody().front() ||
+              (last && !last->isBeforeInBlock(actual)))
+            return reject("original invocation clone parent/order differs");
+          if (failed(exactClone(&op, actual, authenticated[frame],
+                                record.frames[frame])))
+            return failure();
+          last = actual;
+        }
+      }
+      return success();
+    };
     invocation = [&](ac::InvocationFrameId frame) -> LogicalResult {
       const auto &binding = plan.frames[frame];
       for (ArrayRef<ac::TransactionValueBinding> arguments :
@@ -2506,132 +3204,76 @@ private:
       auto method = binding.method;
       Operation *function =
           method ? method.operator->() : transaction.operator->();
+      if (guardIndex == plan.guards.size())
+        return reject("original guard inventory differs");
+      uint64_t guardId = guardIndex++;
+      const auto &guardPlan = plan.guards[guardId];
+      if (guardPlan.frame != frame || guardPlan.callable != function ||
+          failed(
+              event(ac::TransactionStateEventKind::GuardEnter, frame, guardId)))
+        return reject("original guard frame/event differs");
       for (auto [regionOrdinal, region] :
            llvm::enumerate(function->getRegions())) {
-        for (Operation &op : region.front().without_terminator()) {
-          if (!charge(budget, &op, 8))
-            return failure();
-          if (auto read = dyn_cast<ac::SourceStateReadOp>(op)) {
-            auto found = llvm::find_if(plan.reads, [&](const auto &r) {
-              return r.frame == frame && r.operation.operator->() == &op;
-            });
-            if (found == plan.reads.end() || !versions[found->version] ||
-                record.frames[frame].lookupOrNull(read.getValue()) !=
-                    versions[found->version])
-              return reject("original read selected version differs");
-            authenticated[frame].map(read.getValue(), versions[found->version]);
-          } else if (isa<ac::SourceStateWriteOp>(op)) {
-            auto found = llvm::find_if(plan.writes, [&](const auto &w) {
-              return w.frame == frame && w.operation.operator->() == &op;
-            });
-            if (found == plan.writes.end())
-              return reject("original write intent is absent");
-            Value rhs = bound(found->value);
-            const auto &version = plan.versions[found->version];
-            if (!rhs || version.owner != found->owner ||
-                version.predecessor != found->predecessor ||
-                version.value != found->value)
-              return reject("original write owner/predecessor/RHS differs");
-            versions[found->version] = rhs;
-          } else if (isa<ac::SourceMethodCallOp>(op)) {
-            auto found = llvm::find_if(plan.calls, [&](const auto &c) {
-              return c.caller == frame && c.operation.operator->() == &op;
-            });
-            if (found == plan.calls.end() || failed(invocation(found->callee)))
-              return failure();
-            for (const auto &result : found->results) {
-              Value value = bound(result.yielded);
-              Value source = plan.values[result.result].value;
-              if (!value || record.frames[frame].lookupOrNull(source) != value)
-                return reject("original call yielded-result binding differs");
-              authenticated[frame].map(source, value);
-            }
-          } else if (auto check = dyn_cast<ac::SourceExpectOp>(op)) {
-            auto found = llvm::find_if(plan.bodyChecks, [&](const auto &item) {
-              return item.frame == frame && item.operation.operator->() == &op;
-            });
-            if (found == plan.bodyChecks.end() ||
-                nextEffectEvent == effectEvents.size())
-              return reject("original body-check plan/event is absent");
-            auto id = std::distance(plan.bodyChecks.begin(), found);
-            const auto *event = effectEvents[nextEffectEvent++];
-            Value condition = bound(found->condition),
-                  path = bound(found->path);
-            if (event->kind != ac::TransactionStateEventKind::BodyCheck ||
-                event->frame != frame || event->bodyCheck != id || !condition ||
-                !path || check.getKind() != "assert" ||
-                !check.getSampling().empty() ||
-                check->getAttr("occurrence") != found->occurrence ||
-                check.getLocationAttr() != found->location ||
-                check->getAttrOfType<StringAttr>("ac.message") !=
-                    found->message ||
-                check->hasAttr("ac.check_id") ||
-                check->hasAttr("ac.observation_id") ||
-                check.getCondition() != plan.values[found->condition].value ||
-                check.getPath() != plan.values[found->path].value)
-              return reject(
-                  "original body-check operation/frame/inputs differ");
-            sourceChecks[id] = {condition, path};
-          } else if (auto observation = dyn_cast<ac::SourceObserveOp>(op)) {
-            auto found =
-                llvm::find_if(plan.observations, [&](const auto &item) {
-                  return item.frame == frame &&
-                         item.operation.operator->() == &op;
-                });
-            if (found == plan.observations.end() ||
-                nextEffectEvent == effectEvents.size())
-              return reject("original observation plan/event is absent");
-            auto id = std::distance(plan.observations.begin(), found);
-            const auto *event = effectEvents[nextEffectEvent++];
-            Value path = bound(found->path);
-            if (event->kind != ac::TransactionStateEventKind::Observe ||
-                event->frame != frame || event->observation != id || !path ||
-                observation->getAttr("occurrence") != found->occurrence ||
-                observation->getAttr("ac.location") != found->location ||
-                observation.getKindAttr() != found->kind ||
-                observation.getSpec() != found->spec ||
-                observation->hasAttr("ac.check_id") ||
-                observation->hasAttr("ac.observation_id") ||
-                observation.getPath() != plan.values[found->path].value ||
-                observation.getValues().size() != found->values.size())
-              return reject("original observation operation/frame/path differ");
-            sourceObservations[id].path = path;
-            for (auto [ordinal, value] : llvm::enumerate(found->values)) {
-              Value mapped = bound(value);
-              if (!mapped ||
-                  observation.getValues()[ordinal] != plan.values[value].value)
-                return reject("original observation payload/order differs");
-              sourceObservations[id].values.push_back(mapped);
-            }
-          } else {
-            if (failed(verifyClosedPurePayload(
-                    &op, budget,
-                    "transaction source proof requires closed pure payload "
-                    "operations")))
-              return failure();
-            auto actual = record.frames[frame].lookupOrNull(&op);
-            if (!actual || !operations.contains(actual) ||
-                actual->getBlock() != &rule.getBody().front() ||
-                (last && !last->isBeforeInBlock(actual)))
-              return reject("original invocation clone parent/order differs");
-            if (failed(exactClone(&op, actual, authenticated[frame],
-                                  record.frames[frame])))
-              return failure();
-            last = actual;
-          }
-        }
+        if (!product(budget, transaction, plan.owners.size(),
+                     1 + SourceCheckBudget::bytes(sizeof(bool))))
+          return failure();
+        SmallVector<bool, 0> touched(plan.owners.size(), false);
+        if (failed(statements(region.front(), frame, touched, std::nullopt, 0)))
+          return failure();
         if (!regionOrdinal) {
-          auto guard = llvm::find_if(
-              plan.guards, [&](const auto &g) { return g.frame == frame; });
-          if (guard == plan.guards.end() || !bound(guard->predicate))
+          auto yielded = cast<ac::YieldOp>(region.front().getTerminator());
+          Value predicate =
+              authenticated[frame].lookupOrNull(yielded.getOperand(0));
+          if (!predicate || predicate != bound(guardPlan.predicate))
             return reject("original guard predicate is absent");
-          predicates.push_back(bound(guard->predicate));
+          for (auto binding : guardPlan.entryVersions) {
+            if (!charge(budget, transaction) ||
+                binding.owner >= environment.size() ||
+                !touched[binding.owner] ||
+                binding.version != environment[binding.owner])
+              return reject("original guard entry candidate differs");
+          }
+          if (llvm::count(touched, true) != guardPlan.entryVersions.size())
+            return reject("original guard entry candidate inventory differs");
+          predicates.push_back(predicate);
+          ++admission;
+          if (failed(event(ac::TransactionStateEventKind::GuardExit, frame,
+                           guardId)))
+            return failure();
         }
       }
       return success();
     };
-    if (failed(invocation(plan.rootFrame)))
+    if (failed(event(ac::TransactionStateEventKind::TransactionEnter,
+                     plan.rootFrame)) ||
+        failed(invocation(plan.rootFrame)) ||
+        failed(event(ac::TransactionStateEventKind::TransactionExit,
+                     plan.rootFrame)))
       return failure();
+    if (eventIndex != plan.events.size() || readIndex != plan.reads.size() ||
+        writeIndex != plan.writes.size() || callIndex != plan.calls.size() ||
+        branchIndex != plan.branches.size() || joinIndex != plan.joins.size() ||
+        resultIndex != plan.branchResults.size() ||
+        guardIndex != plan.guards.size())
+      return reject("original transaction event/record inventory differs");
+    if (plan.finalVersions.size() != environment.size())
+      return reject("original final owner inventory differs");
+    for (auto [owner, binding] : llvm::enumerate(plan.finalVersions))
+      if (!charge(budget, transaction) || binding.owner != owner ||
+          binding.version != environment[owner])
+        return reject("original final owner environment differs");
+    uint64_t outputIndex = 0;
+    for (auto [owner, written] : llvm::enumerate(originalWriters)) {
+      if (!charge(budget, transaction))
+        return failure();
+      if (!written)
+        continue;
+      if (outputIndex == preparation.outputs.size() ||
+          preparation.outputs[outputIndex++].binding.owner != owner)
+        return reject("original potential-writer output owner order differs");
+    }
+    if (outputIndex != preparation.outputs.size())
+      return reject("original potential-writer output inventory differs");
     if (nextEffectEvent != effectEvents.size())
       return reject("original body-effect event inventory is incomplete");
     for (auto [id, original] : llvm::enumerate(plan.values)) {
@@ -2640,11 +3282,16 @@ private:
         return reject("saved bound-value map differs from original SSA");
     }
     for (auto [id, original] : llvm::enumerate(plan.versions))
-      if (!versions[id] || record.versions[id] != versions[id] ||
-          versions[id] != bound(original.value))
+      if (!versions[id].data || !versions[id].rawIntent ||
+          record.versions[id].data != versions[id].data ||
+          record.versions[id].rawIntent != versions[id].rawIntent ||
+          (original.value && versions[id].data != bound(*original.value)))
         return reject("saved state-version map differs from original RHS");
     auto yield = cast<ac::YieldOp>(rule.getBody().front().getTerminator());
     Builder yieldAttributes(transaction.getContext());
+    if (!product(budget, transaction, yield->getNumOperands(),
+                 1 + SourceCheckBudget::bytes(sizeof(Value))))
+      return failure();
     SmallVector<Value> yieldOperands(yield->getOperands());
     if (failed(generatedProof(yield, ac::YieldOp::getOperationName(),
                               yieldOperands, {},
@@ -2653,14 +3300,25 @@ private:
       return failure();
     if (yield->getNumOperands() != rule->getNumResults())
       return reject("original Rule yield arity differs");
+    auto sourceYield =
+        cast<ac::YieldOp>(transaction.getBody().front().getTerminator());
+    if (plan.results.size() != sourceYield.getNumOperands())
+      return reject("original ordinary result inventory differs");
     for (auto [ordinal, result] : llvm::enumerate(plan.results))
-      if (yield->getOperand(ordinal) != bound(result.yielded) ||
+      if (bound(result.yielded) != authenticated[plan.rootFrame].lookupOrNull(
+                                       sourceYield.getOperand(ordinal)) ||
+          yield->getOperand(ordinal) != bound(result.yielded) ||
           candidate.packageMap.lookupOrNull(plan.values[result.result].value) !=
               rule->getResult(ordinal))
         return reject("original ordinary result yield differs");
     for (auto [ordinal, output] : llvm::enumerate(preparation.outputs))
-      if (yield->getOperand(transaction->getNumResults() + ordinal) !=
-          versions[output.version])
+      if (output.dataResult != transaction->getNumResults() + 2 * ordinal ||
+          output.enableResult != output.dataResult + 1 ||
+          output.binding.owner >= environment.size() ||
+          output.binding.version != environment[output.binding.owner] ||
+          !originalWriters[output.binding.owner] ||
+          yield->getOperand(output.dataResult) !=
+              versions[output.binding.version].data)
         return reject("original final candidate RHS differs");
     if (predicates.size() != plan.guards.size())
       return reject("original guard invocation order differs");
@@ -2668,7 +3326,6 @@ private:
       if (yield->getOperand(preparation.checkBase + 2 * ordinal) != predicate)
         return reject("original raw guard predicate differs");
     Builder b(transaction.getContext());
-    Type bit = rule->getOperand(preparation.clockCapture).getType();
     Value prefix = yield->getOperand(preparation.checkBase + 1);
     if (failed(literalProof(prefix, bit, transaction.getOccurrence(),
                             transaction.getLoc(), true,
@@ -2709,6 +3366,22 @@ private:
               guard.callable->getLoc(), &rule.getBody().front())))
         return failure();
       prefix = next;
+    }
+    if (!rule->getResult(preparation.fireResult).use_empty())
+      return reject("original internal fire result has external users");
+    if (llvm::count(originalWriters, true) != preparation.outputs.size())
+      return reject("original potential-writer candidate inventory differs");
+    for (const auto &output : preparation.outputs) {
+      Value enable = yield->getOperand(output.enableResult);
+      if (!enable ||
+          failed(generatedProof(
+              enable.getDefiningOp(), ac::BitsBinaryOp::getOperationName(),
+              {prefix, versions[output.binding.version].rawIntent}, {bit},
+              b.getDictionaryAttr(
+                  {b.getNamedAttr("opcode", b.getStringAttr("and"))}),
+              transaction.getLoc(), &rule.getBody().front())) ||
+          enable.getDefiningOp()->getResult(0) != enable)
+        return reject("original effective enable fire/intent differs");
     }
     for (auto [id, observation] : llvm::enumerate(plan.observations)) {
       uint64_t pathResult = preparation.observationPathResults[id];

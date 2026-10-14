@@ -173,6 +173,12 @@ void physicalFault(unsigned workers, char clock, std::string_view name) {
   row(name, h.step(false), *h.root, 0, 0);
 }
 
+void intentUnknownRollback(unsigned workers) {
+  Harness h(workers);
+  h.drive('z', '0', '1', '1', '1', '0', '1', '0');
+  row("INTENT_Z_ROLLBACK", h.step(false), *h.root, 0, 0);
+}
+
 void resetScenarios(unsigned workers, char unknown, std::string_view suffix) {
   Harness rising(workers);
   rising.drive('1', '1', '1', '1', '0', '0', '0', '0');
@@ -253,6 +259,7 @@ int main(int argc, char **argv) {
       static_cast<unsigned>(std::strtoul(argv[2], nullptr, 10));
   require(workers == 1 || workers == 2);
   committedScenarios(workers);
+  intentUnknownRollback(workers);
   physicalFault(workers, 'x', "CLOCK_X");
   physicalFault(workers, 'z', "CLOCK_Z");
   resetScenarios(workers, 'x', "X");

@@ -398,11 +398,11 @@ protected:
                            leaf.getBody().front().getArgument(2),
                            leaf.getBody().front().getArgument(0),
                            state.getResult(0)});
-    ruleState.addTypes({bits(1), bits(1), bits(1), bits(1)});
+    ruleState.addTypes({bits(1), bits(1), bits(1), bits(1), bits(1)});
     NamedAttrList attrs(oldRule->getAttrs());
     NamedAttrList sampled(
         oldRule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
-    sampled.set("fire_result", b.getI64IntegerAttr(1));
+    sampled.set("fire_result", b.getI64IntegerAttr(2));
     attrs.set("ac.sampled_admission", sampled.getDictionary(&context));
     ruleState.addAttributes(attrs);
     ruleState.addRegion();
@@ -417,14 +417,17 @@ protected:
     auto known = op(ac::BitsCompareOp::getOperationName(),
                     {ruleBody->getArgument(2), one}, {bits(1)},
                     {f("predicate", b.getStringAttr("case_eq"))});
+    auto enabled =
+        op(ac::BitsBinaryOp::getOperationName(), {known->getResult(0), one},
+           {bits(1)}, {f("opcode", b.getStringAttr("and"))});
     op(ac::YieldOp::getOperationName(),
-       {ruleBody->getArgument(3), known->getResult(0), ruleBody->getArgument(2),
-        one});
+       {ruleBody->getArgument(3), enabled->getResult(0), known->getResult(0),
+        ruleBody->getArgument(2), one});
     state->setOperands({leaf.getBody().front().getArgument(1),
                         leaf.getBody().front().getArgument(2),
                         replacement.getResult(1), replacement.getResult(0),
                         zero});
-    expect->setOperands({replacement.getResult(2), replacement.getResult(3),
+    expect->setOperands({replacement.getResult(3), replacement.getResult(4),
                          leaf.getBody().front().getArgument(1),
                          leaf.getBody().front().getArgument(2)});
     oldRule.erase();
@@ -439,7 +442,8 @@ protected:
                      f("candidates",
                        b.getArrayAttr(
                            {d({f("state", stateID()),
-                               f("result", b.getI64IntegerAttr(0))})}))})}))}));
+                               f("data", b.getI64IntegerAttr(0)),
+                               f("enable", b.getI64IntegerAttr(1))})}))})}))}));
   }
   ac::ModuleOp addRelay() {
     auto relay = domainModule("Relay");

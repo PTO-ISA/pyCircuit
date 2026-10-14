@@ -949,7 +949,7 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
                       << node.kind() << "'";
 }
 
-LogicalResult Importer::reserveLoopEnvironmentCopies(
+LogicalResult Importer::reserveSourceEnvironmentCopies(
     const AstNode &site, const BranchEnvironment &incoming,
     const BranchEnvironment *yes, const BranchEnvironment *no) {
   TableQueryCharge charge;
@@ -1047,10 +1047,16 @@ LogicalResult Importer::reserveLoopEnvironmentCopies(
             TableQueryBudget::add(charge, TableQueryResource::Work, 2);
   }
   std::string reason;
-  if (!fits || !queryBudget.reserve(charge, reason))
-    return mlir::emitError(site.location(b.getContext(), source.path))
-           << "bounded for iteration " << activeLoop->iteration << " " << phase
-           << ": " << (fits ? reason : "copy storage counter exhausted");
+  if (!fits || !queryBudget.reserve(charge, reason)) {
+    auto diagnostic = mlir::emitError(site.location(b.getContext(), source.path));
+    if (activeLoop)
+      diagnostic << "bounded for iteration " << activeLoop->iteration << " ";
+    else
+      diagnostic << "source branch ";
+    diagnostic << phase << ": "
+               << (fits ? reason : "copy storage counter exhausted");
+    return failure();
+  }
   return success();
 }
 
@@ -1192,7 +1198,7 @@ FailureOr<LoopStatementEnvelope> Importer::reserveLoopJoin(
     const AstNode &statement, const BranchEnvironment &incoming,
     const BranchEnvironment &yes, const BranchEnvironment &no) {
   LoopStatementEnvelope envelope;
-  if (failed(reserveLoopEnvironmentCopies(statement, incoming, &yes, &no)))
+  if (failed(reserveSourceEnvironmentCopies(statement, incoming, &yes, &no)))
     return failure();
   for (const auto &item : yes.values) {
     auto other = no.values.find(item.first());
@@ -1411,7 +1417,7 @@ LogicalResult Importer::loopStatements(const AstNode &parent, StringRef field,
       auto predicate = predicateView(*guard, statement.child("test"), symbol);
       if (failed(predicate))
         return failure();
-      if (failed(reserveLoopEnvironmentCopies(statement, environment)))
+      if (failed(reserveSourceEnvironmentCopies(statement, environment)))
         return failure();
       auto yes = environment, no = environment;
       if (environment.continuation) {

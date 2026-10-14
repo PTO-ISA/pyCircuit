@@ -25,19 +25,22 @@ module attributes {ac.stage = "final", ac.source_units = [{package = "", path = 
   ^bb0(%guard_first: !b1, %guard_second: !b1, %clk: !b1, %rst: !b1):
     %zero = "ac.bits.constant"() {value = #w0} : () -> !b1
     %q = "ac.instance"(%clk, %rst, %transaction#1, %transaction#0, %zero) {instance_name = "state", callee = @storage, parameters = [], type_arguments = [!b1], occurrence = #state} : (!b1, !b1, !b1, !b1, !b1) -> !b1
-    %transaction:6 = "ac.rule"(%clk, %rst, %guard_first, %guard_second, %q) ({
+    %transaction:7 = "ac.rule"(%clk, %rst, %guard_first, %guard_second, %q) ({
     ^bb0(%rule_clk: !b1, %rule_rst: !b1, %first: !b1, %second: !b1, %old_q: !b1):
       %rule_one = "ac.bits.constant"() {value = #w1} : () -> !b1
+      %rule_zero = "ac.bits.constant"() {value = #w0} : () -> !b1
       %candidate = "ac.bits.unary"(%old_q) {opcode = "not"} : (!b1) -> !b1
       %known_first = "ac.bits.compare"(%first, %rule_one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
       %known_second = "ac.bits.compare"(%second, %rule_one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
       %fire = "ac.bits.binary"(%known_first, %known_second) {opcode = "and"} : (!b1, !b1) -> !b1
-      "ac.yield"(%candidate, %fire, %first, %rule_one, %second, %known_first) : (!b1, !b1, !b1, !b1, !b1, !b1) -> ()
-    }) {name = "toggle", occurrence = #registration, ac.required_checks = [{id = #check0, kind = "guard_known", location = #span0}, {id = #check1, kind = "guard_known", location = #span1}], ac.sampled_admission = {clock_capture = 0 : i64, reset_capture = 1 : i64, fire_result = 1 : i64, body_checks = [], observations = [], guards = [{id = #check0, invocation = [], predecessor = -1 : i64}, {id = #check1, invocation = [{call = #guard_call, receiver = {instance_path = []}}], predecessor = 0 : i64}]}} : (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1, !b1, !b1, !b1, !b1)
-    "ac.expect"(%transaction#2, %transaction#3, %clk, %rst) {kind = "guard_known", location = #span0, ac.check_id = #check0} : (!b1, !b1, !b1, !b1) -> ()
-    "ac.expect"(%transaction#4, %transaction#5, %clk, %rst) {kind = "guard_known", location = #span1, ac.check_id = #check1} : (!b1, !b1, !b1, !b1) -> ()
+      %intent = "ac.bits.select"(%first, %rule_one, %rule_zero) : (!b1, !b1, !b1) -> !b1
+      %effective_enable = "ac.bits.binary"(%fire, %intent) {opcode = "and"} : (!b1, !b1) -> !b1
+      "ac.yield"(%candidate, %effective_enable, %fire, %first, %rule_one, %second, %known_first) : (!b1, !b1, !b1, !b1, !b1, !b1, !b1) -> ()
+    }) {name = "toggle", occurrence = #registration, ac.required_checks = [{id = #check0, kind = "guard_known", location = #span0}, {id = #check1, kind = "guard_known", location = #span1}], ac.sampled_admission = {clock_capture = 0 : i64, reset_capture = 1 : i64, fire_result = 2 : i64, body_checks = [], observations = [], guards = [{id = #check0, invocation = [], predecessor = -1 : i64}, {id = #check1, invocation = [{call = #guard_call, receiver = {instance_path = []}}], predecessor = 0 : i64}]}} : (!b1, !b1, !b1, !b1, !b1) -> (!b1, !b1, !b1, !b1, !b1, !b1, !b1)
+    "ac.expect"(%transaction#3, %transaction#4, %clk, %rst) {kind = "guard_known", location = #span0, ac.check_id = #check0} : (!b1, !b1, !b1, !b1) -> ()
+    "ac.expect"(%transaction#5, %transaction#6, %clk, %rst) {kind = "guard_known", location = #span1, ac.check_id = #check1} : (!b1, !b1, !b1, !b1) -> ()
     "ac.yield"(%q) : (!b1) -> ()
-  }) {sym_name = "Owner", source_owner = {package = "", path = "sampled_admission.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b1) -> !b1, input_names = ["guard_first", "guard_second", "pyc_clk", "pyc_rst"], output_names = ["q"], ac.domain_inputs = {clock = 2 : i64, reset = 3 : i64}, ac.transaction_wiring = {states = [#state], incoming = [], writers = [{registration = #registration, ordinary_results = 0 : i64, candidates = [{state = {owner = {instance_path = []}, declaration = #state, element = []}, result = 0 : i64}]}]}} : () -> ()
+  }) {sym_name = "Owner", source_owner = {package = "", path = "sampled_admission.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b1) -> !b1, input_names = ["guard_first", "guard_second", "pyc_clk", "pyc_rst"], output_names = ["q"], ac.domain_inputs = {clock = 2 : i64, reset = 3 : i64}, ac.transaction_wiring = {states = [#state], incoming = [], writers = [{registration = #registration, ordinary_results = 0 : i64, candidates = [{state = {owner = {instance_path = []}, declaration = #state, element = []}, data = 0 : i64, enable = 1 : i64}]}]}} : () -> ()
 
   "ac.module"() ({
   ^bb0(%guard: !b1, %clk: !b1, %rst: !b1):

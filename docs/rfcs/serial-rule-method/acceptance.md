@@ -23,6 +23,11 @@ Method owner 是直接包含嵌套公开 `@method` 的 `@module`，首批没有�
 跨实例执行还必须关闭[专项 checklist](cross-instance-lowering.md#cross-instance-checklist)
 中的六个 `METHOD-*` 需求组；它们细化实例身份、物理根 ABI 和接线原子性，不替代本表。
 每项剩余能力的前置合同与接单检查见[实施矩阵](extension-roadmap.md)。
+whole-Bits statement branch 与 scalar local join 还必须关闭
+[branch-state checklist](branch-state-ssa.md#acceptance-checklist)。该 checklist 细化
+`METHOD-STATE-ORDER`、`METHOD-SNAPSHOT-OLD-Q`、`METHOD-FOUR-STATE`、
+`METHOD-SUMMARY-AUTHORITY`、`METHOD-EFFECT-RETENTION` 和
+`METHOD-ANALYSIS-BOUNDS`，不开放 conditional calls/effects 或 partial state。
 
 | 需求标识 | 正例与独立期望 | 负例／边界与预期诊断类别 | 最小证据层 |
 | --- | --- | --- | --- |
@@ -57,7 +62,8 @@ Method owner 是直接包含嵌套公开 `@method` 的 `@module`，首批没有�
 受限直线动态 guard 的完整子矩阵见[采样准入验收](sampled-admission.md#acceptance-checklist)：
 包括所有 transaction 的 uniform sampling、false fire 的 history 提交、Discard 后同 high
 重采样、物理 clock/reset X/Z、guard span、原 plan 与独立 final 两层故障注入及预算保护。
-它细化上述需求，不另开 gate；完整 Method System 和后续分支/资源仍分别验收。
+它细化上述需求，不另开 gate；完整 Method System、whole-Bits branch 和后续资源仍分别
+按各自 checklist 验收。
 
 上述槽队列、库存发布和槽位探测器是框架测试中的设计中立类比；不得把完整 ROB、S1、PFL consumer 代码、ISA schema 或 oracle 放入编译器。变化名、宽度、初值、槽数、语句形状与实例顺序的有界变体用于排除场景识别。变体保留相同语义义务，不要求当前尚未支持的一般参数化。
 

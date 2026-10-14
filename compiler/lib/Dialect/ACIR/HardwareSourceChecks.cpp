@@ -124,6 +124,8 @@ int compareCheck(DictionaryAttr lhs, DictionaryAttr rhs) {
 LogicalResult
 detail::verifySourceObservationStructure(SourceObserveOp observe) {
   auto error = [&] { return observe.emitOpError(); };
+  if (observe->getParentOfType<SourceBranchOp>())
+    return error() << "source observations in branch arms are unsupported";
   auto kind = observe->getAttrOfType<StringAttr>("kind");
   auto spec = observe->getAttrOfType<DictionaryAttr>("spec");
   auto *parent = observe->getParentOp();
@@ -422,6 +424,11 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
   auto prepared = validation.prepare(definition, bindings);
   if (failed(prepared))
     return failure();
+  if (definition->hasAttr("ac.transaction_wiring")) {
+    auto wiring = validation.wiring(definition, bindings);
+    if (failed(wiring))
+      return failure();
+  }
   for (auto rule : definition.getBody().front().getOps<RuleOp>()) {
     auto error = [&] { return rule.emitOpError(); };
     if (failed(mlir::verify(rule)) ||
@@ -647,6 +654,8 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
                                           SourceExpectOp expect,
                                           const HardwareBindings &bindings) {
   auto error = [&] { return expect.emitOpError(); };
+  if (expect->getParentOfType<SourceBranchOp>())
+    return error() << "source assertions in branch arms are unsupported";
   auto *parent = expect->getParentOp();
   bool source = isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent);
   if (source) {

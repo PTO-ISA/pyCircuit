@@ -19,6 +19,7 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 | [MLIR 分析与变换](mlir-pipeline.md) | 中间表示、分析输入输出、变换前后条件、逐源发布与链接 |
 | [跨实例 Method 接线](cross-instance-lowering.md) | 原实例状态、内部物理端口、根 ABI、writer 组合与独立验收 |
 | [事务采样准入](sampled-admission.md) | 动态 guard 的精确 IR、双层证明、clock history、Runtime/RTL 生命周期及实施 checklist |
+| [whole-Bits 分支状态与标量 SSA](branch-state-ssa.md) | statement branch、D/raw-intent join、D/E schema hard break、双层证明及独立验收 |
 | [事务 body effects](sampled-body-effects.md) | 六字段 schema、语句时刻 SSA、效果私有路由、源认证、预算与 generated Method System 验收 |
 | [事务接口摘要](publication-summary.md) | 闭合字段、body checks/observations、类型与依赖作用域、body 重验及预算 |
 | [观测身份与逻辑 owner](observation-identity.md) | 共同身份验证、紧凑 ReportID 证明、完整日志组和双目标 metadata hard break |
@@ -31,7 +32,8 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 本扩展；只完成语法识别、增加 verifier 或输出一份 IR，均不构成功能完成。
 
 历史检查点 `3078e75f6a354c6a947a7d31e1a7a930978d9a0a` 包含受限的恒真跨实例
-Method lowering，不证明后续候选通过。当前有界实现已加入直线、同域、whole Bits、
+Method lowering，不证明后续候选通过。当前有界实现已加入直线与 bounded statement
+branch、同域、whole Bits、
 唯一实际 writer 的统一采样 lowering、有序 validity/guard、完整接线记录，以及先对照
 原源计划认证、再执行 canonical final verifier 的验证。literal true/false、无状态、
 只读事务同样采样；外层 Rule 的普通返回值仍要求恒真证明。C++/managed RTL 共用采样计划并实现
@@ -45,6 +47,10 @@ focused final-IR 回归已有 native workers 1/2 和真实四态 RTL 执行证�
 focused Method `@system` 回归验证生成 runner、重复调用、完整观测身份/顺序和失败 epoch。
 分析复用必须保持原预算及完整实际实例检查。
 这些结果只属于对应候选，不自动覆盖后续修改，也不等于 nightly 通过。
+whole-Bits statement branch 与 scalar local join 的冻结合同见
+[branch state SSA](branch-state-ssa.md)。它把候选 wiring hard break 为 D/E 两个 slots，
+并保留 conditional calls/effects、partial state 和 resources 的明确拒绝。该规格和实现
+文件本身不证明分支候选已通过验收。
 实施与剩余验收入口为[扩展实施与验收矩阵](extension-roadmap.md)，精确合同见
 [事务采样准入](sampled-admission.md)。本次文档不改变历史证据的候选归属，也不声明
 基础 Method 或整个扩展完成。

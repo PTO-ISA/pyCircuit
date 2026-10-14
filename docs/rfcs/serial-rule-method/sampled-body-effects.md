@@ -14,9 +14,9 @@
 false guard 时，该事务 hold，assert 与 observations 均不激活。已到达的 X/Z guard
 仍按采样准入合同失败，后续 false guard 不能屏蔽它。独立 Rule 继续读取旧 Q。
 
-本切片只接纳直接 body、直线、同物理域、whole Bits、既有 scalar observation 的
+本切片只接纳 direct、unconditional body effects、同物理域、whole Bits 和既有 scalar observation 的
 情况。authored effect path 必须证明 true。嵌套 pure region、guard、纯 helper 和未表示
-的效果继续拒绝；分支、部分更新、资源端口与冲突闭包分别验收。
+的效果继续拒绝；branch arm 内 effects、partial state、资源端口与冲突闭包分别验收。
 
 ## 六字段 schema 与精确结果布局 {#exact-layout}
 
@@ -37,16 +37,18 @@ observation j 的 ordinal 为 j。registration 来自外层 Rule 注册；site/c
 语句；invocation 保存完整 call/receiver 链，owner 为最后 receiver，根 body 为 self。
 效果 invocation 必须存在于 guard inventory；同一 invocation 的多个效果合法。
 
-设 O 为普通结果，W 为候选，G 为 guards，A 为 assertions，N 为 observations，
+设 O 为普通结果，W 为候选 owner，G 为 guards，A 为 assertions，N 为 observations，
 Kj 为 observation j 的 value 数量：
 
 ```text
-F = O + W
+D_i = O + 2i
+E_i = O + 2i + 1
+F = O + 2W
 Pj = F + 1 + sum(t < j)(1 + Kt)
 C = F + 1 + sum(j)(1 + Kj)
 T = C + 2 * (G + A)
 
-ordinary: [0, O); candidates: [O, F); fire: F
+ordinary: [0, O); candidate i: data D_i, enable E_i; fire: F
 observation j: path Pj; values [Pj+1, Pj+1+Kj)
 guard i: raw C+2i; reached C+2i+1
 assertion i: condition C+2(G+i); path C+2(G+i)+1
@@ -59,7 +61,11 @@ assertion i: condition C+2(G+i); path C+2(G+i)+1
 
 `ac.required_checks` 精确按 G 个 guard_known、A 个 assert 排列，构成 trailing pair
 suffix。assert 不获得 samplingBindingIndex 或 samplingOccurrenceIndex；guard_known
-才消费 `[clock, reset]`。`transaction_wiring` 的普通结果与 candidates 合同保持。
+才消费 `[clock, reset]`。`transaction_wiring.candidates` 精确使用
+`{state,data,enable}`。旧的 `{state,result}` 形状拒绝。candidate data 保存 D；
+candidate enable 保存 `bit_and(internal_final_fire, raw_write_intent)` 的 E，不能把
+未知 intent 转为 false。外部 fire result 必须零使用；每个 observation/assertion
+仍使用自己的私有 result slot，即使该 path 在内部等于 final fire。
 
 ## 两层证明与 terminal 私有路由
 
@@ -138,5 +144,6 @@ PREPARE/COMMIT/DISCARD/RESET 与全系统 barrier。assert 使用普通 reset ma
 - [ ] 独立 review、短 API/examples 和文档 checks 绑定最终候选；nightly、综合及时序单列
   NOT-RUN，未执行不得视为通过。
 
-完整基础 Method 仍需[剩余矩阵](extension-roadmap.md)的 branch/partial state、resources/
-conflicts/causality 与效果安全优化。这个切片完成不能关闭整个 issue #307。
+完整基础 Method 仍需[剩余矩阵](extension-roadmap.md)的 conditional calls/effects、
+partial state、resources/conflicts/causality 与效果安全优化。whole-Bits 分支的独立合同
+见[branch state SSA](branch-state-ssa.md)。这个切片完成不能关闭整个 issue #307。

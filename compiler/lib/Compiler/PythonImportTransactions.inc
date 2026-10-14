@@ -477,205 +477,316 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       return yielded;
     }
     AstNode returned;
-    for (size_t i = 0; i < callable.declaration.array("body").size(); ++i) {
-      AstNode statement = callable.declaration.item("body", i);
-      if (returned)
-        return error() << "declaration after Method/Rule return is unsupported";
-      if (statement.kind() == "If")
-        return error() << "effectful branch in Method/Rule is unsupported";
-      if (statement.kind() == "For" || statement.kind() == "While")
-        return error() << "effectful loop in Method/Rule is unsupported";
-      if (statement.kind() == "FunctionDef")
-        return error() << "nested Rule/Method declaration is unsupported";
-      if (statement.kind() == "Pass")
-        continue;
-      if (statement.kind() == "Return") {
-        returned = statement;
-        if (statement.child("value")) {
-          if (callable.results.size() != 1)
-            return error() << "None Method/Rule cannot return a value";
-          auto value = expression(statement.child("value"), inside, decl.symbol,
-                                  values, instances, callable.results.front());
+    BranchEnvironment environment;
+    environment.values.swap(values);
+    auto restoreValues = llvm::scope_exit([&] {
+      environment.values.swap(values);
+    });
+    std::function<LogicalResult(const AstNode &, StringRef, OpBuilder &,
+                                BranchEnvironment &, bool)> emitBody;
+    emitBody = [&](const AstNode &parent, StringRef field, OpBuilder &inside,
+                   BranchEnvironment &environment,
+                   bool conditional) -> LogicalResult {
+      auto &values = environment.values;
+      bool savedConditional = context.conditional;
+      context.conditional = conditional;
+      auto restoreConditional = llvm::scope_exit([&] {
+        context.conditional = savedConditional;
+      });
+      for (size_t i = 0; i < parent.array(field).size(); ++i) {
+        AstNode statement = parent.item(field, i);
+        if (returned)
+          return error() << "declaration after Method/Rule return is unsupported";
+        if (statement.kind() == "If") {
+          std::string reason;
+          if (!queryBudget.enter(reason))
+            return mlir::emitError(statement.location(b.getContext(), source.path))
+                   << "source branch: " << reason;
+          auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
+          if (failed(chargeLoopDescriptorWork(statement,
+                                              "source branch statement")))
+            return failure();
+          // Evaluate the test with the same pure-call restriction as the arms.
+          context.conditional = true;
+          auto test = expression(statement.child("test"), inside, decl.symbol,
+                                 values, instances);
+          context.conditional = conditional;
+          if (failed(test))
+            return failure();
+          auto predicate = predicateView(*test, statement.child("test"), decl.symbol);
+          if (failed(predicate))
+            return failure();
+          // Seed capture boundaries before any environment copies. Captures
+          // retain their original authority, including unchanged aggregates.
+          for (const auto &binding : values) {
+            if (environment.boundaries.contains(binding.first()))
+              continue;
+            TableQueryCharge charge;
+            bool fits = TableQueryBudget::add(charge, TableQueryResource::Slots, 16) &&
+                        TableQueryBudget::add(charge, TableQueryResource::Work, 2) &&
+                        TableQueryBudget::addProduct(
+                            charge, TableQueryResource::ConstantBytes, 2,
+                            binding.first().size());
+            for (const AstStep &step : statement.path)
+              fits &= TableQueryBudget::add(charge, TableQueryResource::Slots, 8) &&
+                      TableQueryBudget::add(charge, TableQueryResource::Work, 1) &&
+                      TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
+                                            step.field.size());
+            if (!fits || !queryBudget.reserve(charge, reason))
+              return mlir::emitError(statement.location(b.getContext(), source.path))
+                     << "source branch capture binding: "
+                     << (fits ? reason : "binding storage counter exhausted");
+            environment.boundaries[binding.first()] =
+                inferredBoundary(binding.first(), binding.second, statement);
+          }
+          if (failed(reserveSourceEnvironmentCopies(statement, environment)))
+            return failure();
+          BranchEnvironment yes = environment, no = environment;
+          TableQueryCharge charge;
+          bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
+                      TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
+                      TableQueryBudget::add(charge, TableQueryResource::Slots, 12) &&
+                      TableQueryBudget::add(charge, TableQueryResource::Work, 4);
+          if (!fits || !queryBudget.reserve(charge, reason))
+            return mlir::emitError(statement.location(b.getContext(), source.path))
+                   << "source branch construction: "
+                   << (fits ? reason : "operation storage counter exhausted");
+          auto branch = cast<ac::SourceBranchOp>(createOp(
+              inside, statement.location(b.getContext(), source.path),
+              ac::SourceBranchOp::getOperationName(), {predicate->value}, {},
+              {inside.getNamedAttr("occurrence",
+                                   sourceOccurrence(inside, decl.symbol, statement)),
+               inside.getNamedAttr("ac.condition_location",
+                                   sourceSpan(inside, source.path,
+                                              statement.child("test")))}, 2));
+          branch.getThenRegion().push_back(new Block());
+          branch.getElseRegion().push_back(new Block());
+          OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
+          OpBuilder elseAt = OpBuilder::atBlockEnd(&branch.getElseRegion().front());
+          if (failed(emitBody(statement, "body", thenAt, yes, true)) ||
+              failed(emitBody(statement, "orelse", elseAt, no, true)) ||
+              failed(reserveSourceEnvironmentCopies(statement, environment, &yes, &no)))
+            return failure();
+          auto joined = joinBranches(*predicate, environment, yes, no, statement,
+                                      inside, decl.symbol, branch);
+          if (failed(joined))
+            return failure();
+          environment = std::move(*joined);
+          continue;
+        }
+        if (statement.kind() == "For" || statement.kind() == "While")
+          return error() << "effectful loop in Method/Rule is unsupported";
+        if (statement.kind() == "FunctionDef")
+          return error() << "nested Rule/Method declaration is unsupported";
+        if (statement.kind() == "Pass")
+          continue;
+        if (statement.kind() == "Return") {
+          if (conditional)
+            return error() << "return in a Method/Rule branch is unsupported";
+          returned = statement;
+          if (statement.child("value")) {
+            if (callable.results.size() != 1)
+              return error() << "None Method/Rule cannot return a value";
+            auto value = expression(statement.child("value"), inside, decl.symbol,
+                                    values, instances, callable.results.front());
+            if (failed(value))
+              return failure();
+            const Port &contract = callable.resultContracts.front();
+            auto converted = applyBindingBoundary(
+                *value, BindingBoundary{contract, true}, statement.child("value"),
+                inside, decl.symbol);
+            if (failed(converted))
+              return failure();
+            if (converted->getType() != contract.type &&
+                isa<ac::BitsType>(converted->getType()) &&
+                isa<ac::BitsType>(contract.type) &&
+                ac::areEquivalentHardwareTypes(converted->getType(),
+                                               contract.type))
+              converted = boundaryBitsIdentity(*converted, contract.type,
+                                               statement.child("value"), inside,
+                                               decl.symbol);
+            yielded.push_back(*converted);
+          }
+          continue;
+        }
+        if (statement.kind() == "Assert") {
+          if (conditional)
+            return error() << "assert in a Method/Rule branch is unsupported";
+          auto message = sourceAssertMessage(statement);
+          if (failed(message))
+            return failure();
+          auto condition = expression(statement.child("test"), inside,
+                                      decl.symbol, values, instances);
+          if (failed(condition))
+            return failure();
+          auto predicate =
+              predicateView(*condition, statement.child("test"), decl.symbol);
+          auto path = trueValue(statement, inside, decl.symbol);
+          if (failed(predicate) || failed(path))
+            return failure();
+          SmallVector<NamedAttribute> attrs{
+              inside.getNamedAttr("kind", inside.getStringAttr("assert")),
+              inside.getNamedAttr("location",
+                                  sourceSpan(inside, source.path, statement)),
+              inside.getNamedAttr(
+                  "occurrence",
+                  sourceOccurrence(inside, decl.symbol, statement))};
+          if (*message)
+            attrs.push_back(inside.getNamedAttr("ac.message", *message));
+          createOp(inside, statement.location(b.getContext(), source.path),
+                   ac::SourceExpectOp::getOperationName(),
+                   ValueRange{predicate->value, *path}, TypeRange{}, attrs);
+          continue;
+        }
+        if (statement.kind() == "Expr") {
+          SmallVector<AstNode, 4> valueItems;
+          DictionaryAttr spec;
+          StringRef observationKind;
+          AstNode expressionNode = statement.child("value");
+          bool observation =
+              expressionNode.kind() == "Call" &&
+              (intrinsic(expressionNode.child("func"), "log") ||
+               intrinsic(expressionNode.child("func"), "report"));
+          if (observation) {
+            if (conditional)
+              return error() << "log/report in a Method/Rule branch is unsupported";
+            if (failed(buildObservation(statement, valueItems, spec,
+                                        observationKind)))
+              return failure();
+            auto path = trueValue(statement, inside, decl.symbol);
+            if (failed(path))
+              return failure();
+            SmallVector<Value> operands{*path};
+            for (const AstNode &item : valueItems) {
+              auto value =
+                  expression(item, inside, decl.symbol, values, instances);
+              if (failed(value))
+                return failure();
+              operands.push_back(*value);
+            }
+            createOp(
+                inside, statement.location(b.getContext(), source.path),
+                ac::SourceObserveOp::getOperationName(), operands, TypeRange{},
+                {inside.getNamedAttr("kind",
+                                     inside.getStringAttr(observationKind)),
+                 inside.getNamedAttr("spec", spec),
+                 inside.getNamedAttr(
+                     "occurrence",
+                     sourceOccurrence(inside, decl.symbol, statement)),
+                 inside.getNamedAttr("ac.location",
+                                     sourceSpan(inside, source.path, statement))});
+            continue;
+          }
+        }
+        AstNode target, rhs;
+        if (statement.kind() == "Assign" &&
+            statement.array("targets").size() == 1) {
+          target = statement.item("targets", 0);
+          rhs = statement.child("value");
+        } else if (statement.kind() == "AnnAssign") {
+          target = statement.child("target");
+          rhs = statement.child("value");
+        } else if (statement.kind() == "Expr") {
+          AstNode expressionNode = statement.child("value");
+          if (expressionNode.kind() == "Call" &&
+              expressionNode.child("func").kind() == "Name" &&
+              rules.contains(expressionNode.child("func").string("id")))
+            return error() << "nested Rule calls are unsupported";
+          auto helper = expressionNode.kind() == "Call" ? resolveValueHelper(expressionNode.child("func"), decl.symbol)
+                                                      : FailureOr<ValueHelperDecl *>(static_cast<ValueHelperDecl *>(nullptr));
+          if (failed(helper)) return failure();
+          if (*helper) {
+            if (failed(valueHelperCall(expressionNode, inside, decl.symbol, values, instances))) return failure();
+            continue;
+          }
+          auto results = sourceMethodCall(statement.child("value"), inside,
+                                          decl.symbol, values, instances);
+          if (failed(results))
+            return error()
+                   << "Rule/Method expression requires a direct Method call";
+          continue;
+        } else {
+          return error() << "unsupported Method/Rule statement";
+        }
+        if (target.kind() != "Name" || !rhs)
+          return error() << "Method/Rule assignment requires a direct Name";
+        StringRef name = target.string("id");
+        if (rhs.kind() == "Call" && rhs.child("func").kind() == "Name" &&
+            rules.contains(rhs.child("func").string("id")))
+          return error() << "nested Rule calls are unsupported";
+        if (rhs.kind() == "Attribute" && rhs.child("value").kind() == "Name" &&
+            instances.contains(rhs.child("value").string("id")))
+          return error() << "indirect Method values are unsupported";
+        if (states.contains(name)) {
+          if (statement.kind() == "AnnAssign")
+            return error() << "owner shadow declaration is unsupported";
+          auto value = expression(rhs, inside, decl.symbol, values, instances,
+                                  states[name].type);
           if (failed(value))
             return failure();
-          const Port &contract = callable.resultContracts.front();
           auto converted = applyBindingBoundary(
-              *value, BindingBoundary{contract, true}, statement.child("value"),
-              inside, decl.symbol);
+              *value, ownerBoundary(states[name]), rhs, inside, decl.symbol);
           if (failed(converted))
-            return failure();
-          if (converted->getType() != contract.type &&
-              isa<ac::BitsType>(converted->getType()) &&
-              isa<ac::BitsType>(contract.type) &&
-              ac::areEquivalentHardwareTypes(converted->getType(),
-                                             contract.type))
-            converted = boundaryBitsIdentity(*converted, contract.type,
-                                             statement.child("value"), inside,
-                                             decl.symbol);
-          yielded.push_back(*converted);
-        }
-        continue;
-      }
-      if (statement.kind() == "Assert") {
-        auto message = sourceAssertMessage(statement);
-        if (failed(message))
-          return failure();
-        auto condition = expression(statement.child("test"), inside,
-                                    decl.symbol, values, instances);
-        if (failed(condition))
-          return failure();
-        auto predicate =
-            predicateView(*condition, statement.child("test"), decl.symbol);
-        auto path = trueValue(statement, inside, decl.symbol);
-        if (failed(predicate) || failed(path))
-          return failure();
-        SmallVector<NamedAttribute> attrs{
-            inside.getNamedAttr("kind", inside.getStringAttr("assert")),
-            inside.getNamedAttr("location",
-                                sourceSpan(inside, source.path, statement)),
-            inside.getNamedAttr(
-                "occurrence",
-                sourceOccurrence(inside, decl.symbol, statement))};
-        if (*message)
-          attrs.push_back(inside.getNamedAttr("ac.message", *message));
-        createOp(inside, statement.location(b.getContext(), source.path),
-                 ac::SourceExpectOp::getOperationName(),
-                 ValueRange{predicate->value, *path}, TypeRange{}, attrs);
-        continue;
-      }
-      if (statement.kind() == "Expr") {
-        SmallVector<AstNode, 4> valueItems;
-        DictionaryAttr spec;
-        StringRef observationKind;
-        AstNode expressionNode = statement.child("value");
-        bool observation =
-            expressionNode.kind() == "Call" &&
-            (intrinsic(expressionNode.child("func"), "log") ||
-             intrinsic(expressionNode.child("func"), "report"));
-        if (observation) {
-          if (failed(buildObservation(statement, valueItems, spec,
-                                      observationKind)))
             return failure();
           auto path = trueValue(statement, inside, decl.symbol);
           if (failed(path))
             return failure();
-          SmallVector<Value> operands{*path};
-          for (const AstNode &item : valueItems) {
-            auto value =
-                expression(item, inside, decl.symbol, values, instances);
-            if (failed(value))
-              return failure();
-            operands.push_back(*value);
-          }
-          createOp(
-              inside, statement.location(b.getContext(), source.path),
-              ac::SourceObserveOp::getOperationName(), operands, TypeRange{},
-              {inside.getNamedAttr("kind",
-                                   inside.getStringAttr(observationKind)),
-               inside.getNamedAttr("spec", spec),
-               inside.getNamedAttr(
-                   "occurrence",
-                   sourceOccurrence(inside, decl.symbol, statement)),
-               inside.getNamedAttr("ac.location",
-                                   sourceSpan(inside, source.path, statement))});
+          createOp(inside, statement.location(b.getContext(), source.path),
+                   ac::SourceStateWriteOp::getOperationName(),
+                   ValueRange{*path, *converted}, TypeRange{},
+                   {inside.getNamedAttr("state", inside.getStringAttr(name)),
+                    inside.getNamedAttr("selectors", inside.getArrayAttr({})),
+                    inside.getNamedAttr(
+                        "occurrence",
+                        sourceOccurrence(inside, decl.symbol, statement))});
           continue;
         }
-      }
-      AstNode target, rhs;
-      if (statement.kind() == "Assign" &&
-          statement.array("targets").size() == 1) {
-        target = statement.item("targets", 0);
-        rhs = statement.child("value");
-      } else if (statement.kind() == "AnnAssign") {
-        target = statement.child("target");
-        rhs = statement.child("value");
-      } else if (statement.kind() == "Expr") {
-        AstNode expressionNode = statement.child("value");
-        if (expressionNode.kind() == "Call" &&
-            expressionNode.child("func").kind() == "Name" &&
-            rules.contains(expressionNode.child("func").string("id")))
-          return error() << "nested Rule calls are unsupported";
-        auto helper = expressionNode.kind() == "Call" ? resolveValueHelper(expressionNode.child("func"), decl.symbol)
-                                                    : FailureOr<ValueHelperDecl *>(static_cast<ValueHelperDecl *>(nullptr));
-        if (failed(helper)) return failure();
-        if (*helper) {
-          if (failed(valueHelperCall(expressionNode, inside, decl.symbol, values, instances))) return failure();
-          continue;
-        }
-        auto results = sourceMethodCall(statement.child("value"), inside,
-                                        decl.symbol, values, instances);
-        if (failed(results))
+        if (boundHardwareIdentity(name))
           return error()
-                 << "Rule/Method expression requires a direct Method call";
-        continue;
-      } else {
-        return error() << "unsupported Method/Rule statement";
-      }
-      if (target.kind() != "Name" || !rhs)
-        return error() << "Method/Rule assignment requires a direct Name";
-      StringRef name = target.string("id");
-      if (rhs.kind() == "Call" && rhs.child("func").kind() == "Name" &&
-          rules.contains(rhs.child("func").string("id")))
-        return error() << "nested Rule calls are unsupported";
-      if (rhs.kind() == "Attribute" && rhs.child("value").kind() == "Name" &&
-          instances.contains(rhs.child("value").string("id")))
-        return error() << "indirect Method values are unsupported";
-      if (states.contains(name)) {
-        if (statement.kind() == "AnnAssign")
-          return error() << "owner shadow declaration is unsupported";
-        auto value = expression(rhs, inside, decl.symbol, values, instances,
-                                states[name].type);
+                 << "Method/Rule local shadows a bound callable, instance, "
+                    "import or type declaration";
+        if (statement.kind() == "AnnAssign" && values.contains(name))
+          return error()
+                 << "Method/Rule local annotation cannot redeclare a binding";
+        std::optional<Type> expected;
+        Port localContract;
+        if (statement.kind() == "AnnAssign") {
+          auto type = portType(statement.child("annotation"), decl.symbol);
+          if (failed(type))
+            return failure();
+          expected = *type;
+          localContract = {name.str(), *type, statement.child("annotation"),
+                           annotationKind(statement.child("annotation")),
+                           fixedAnnotation(statement.child("annotation"))};
+        }
+        auto value =
+            expression(rhs, inside, decl.symbol, values, instances, expected);
         if (failed(value))
           return failure();
-        auto converted = applyBindingBoundary(
-            *value, ownerBoundary(states[name]), rhs, inside, decl.symbol);
-        if (failed(converted))
-          return failure();
-        auto path = trueValue(statement, inside, decl.symbol);
-        if (failed(path))
-          return failure();
-        createOp(inside, statement.location(b.getContext(), source.path),
-                 ac::SourceStateWriteOp::getOperationName(),
-                 ValueRange{*path, *converted}, TypeRange{},
-                 {inside.getNamedAttr("state", inside.getStringAttr(name)),
-                  inside.getNamedAttr("selectors", inside.getArrayAttr({})),
-                  inside.getNamedAttr(
-                      "occurrence",
-                      sourceOccurrence(inside, decl.symbol, statement))});
-        continue;
+        if (expected) {
+          auto converted = applyBindingBoundary(
+              *value, BindingBoundary{localContract, true}, rhs, inside, decl.symbol);
+          if (failed(converted))
+            return failure();
+          values[name] = *converted;
+          environment.boundaries[name] = BindingBoundary{localContract, true};
+        } else {
+          auto binding = environment.boundaries.find(name);
+          if (binding != environment.boundaries.end()) {
+            auto converted = applyBindingBoundary(*value, binding->second, rhs,
+                                                   inside, decl.symbol);
+            if (failed(converted))
+              return failure();
+            values[name] = *converted;
+          } else {
+            values[name] = *value;
+          }
+        }
       }
-      if (boundHardwareIdentity(name))
-        return error()
-               << "Method/Rule local shadows a bound callable, instance, "
-                  "import or type declaration";
-      if (statement.kind() == "AnnAssign" && values.contains(name))
-        return error()
-               << "Method/Rule local annotation cannot redeclare a binding";
-      std::optional<Type> expected;
-      Port localContract;
-      if (statement.kind() == "AnnAssign") {
-        auto type = portType(statement.child("annotation"), decl.symbol);
-        if (failed(type))
-          return failure();
-        expected = *type;
-        localContract = {name.str(), *type, statement.child("annotation"),
-                         annotationKind(statement.child("annotation")),
-                         fixedAnnotation(statement.child("annotation"))};
-      }
-      auto value =
-          expression(rhs, inside, decl.symbol, values, instances, expected);
-      if (failed(value))
-        return failure();
-      if (expected) {
-        auto converted = applyBindingBoundary(
-            *value, BindingBoundary{localContract, true}, rhs, inside, decl.symbol);
-        if (failed(converted))
-          return failure();
-        values[name] = *converted;
-      } else {
-        values[name] = *value;
-      }
-    }
+      return success();
+    };
+    if (failed(emitBody(callable.declaration, "body", inside, environment, false)))
+      return failure();
     if (callable.results.size() != yielded.size())
       return error() << "Method/Rule result requires one final return";
     return yielded;
@@ -948,6 +1059,8 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     return failure();
   if (activeSourceEffects->guard)
     return error() << "guard cannot call a Method";
+  if (activeSourceEffects->conditional)
+    return error() << "Method call in a branch or branch test is unsupported";
 
   SmallVector<Port> importedInputs, importedResults;
   SmallVector<Type> importedResultTypes;

@@ -25,8 +25,8 @@ bool isCombinationalHardwareOperation(Operation *operation) {
              BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
              StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
              EnumFromBitsOp, TableCreateOp, TableSplatOp, TableMapOp,
-             TableViewOp, TableIndexOp, TableGetOp, TableMatchOp,
-             TableChooseOp, TableFoldOp, ValueMergeOp>(operation);
+             TableViewOp, TableIndexOp, TableGetOp, TableMatchOp, TableChooseOp,
+             TableFoldOp, ValueMergeOp>(operation);
 }
 
 LogicalResult verifyHardwareTypeScope(Type type, Operation *owner);
@@ -158,7 +158,8 @@ LogicalResult verifyModuleSignature(Operation *op) {
     if (failed(detail::verifyHardwareTypeScope(t, op)))
       return failure();
   for (auto raw : parameters)
-    if (failed(detail::verifyHardwareAttributeScope(cast<DictionaryAttr>(raw).get("default"), op)))
+    if (failed(detail::verifyHardwareAttributeScope(
+            cast<DictionaryAttr>(raw).get("default"), op)))
       return failure();
   for (Type t : sig.getInputs())
     if (!hardware(t))
@@ -234,7 +235,8 @@ LogicalResult InstanceOp::verify() {
   if (!parent || getInstanceName().empty())
     return emitOpError() << "instance requires named direct module placement";
   for (Operation &other : parent.getBody().front())
-    if (&other != getOperation() && isa<InstanceOp, CollectionOp, QueueOp>(other) &&
+    if (&other != getOperation() &&
+        isa<InstanceOp, CollectionOp, QueueOp>(other) &&
         other.getAttrOfType<StringAttr>("instance_name") ==
             getInstanceNameAttr())
       return emitOpError() << "instance_name must be unique within parent";
@@ -249,10 +251,10 @@ LogicalResult InstanceOp::verifySymbolUses(SymbolTableCollection &) {
 }
 LogicalResult YieldOp::verify() {
   if (!isa_and_nonnull<ModuleOp, RuleOp, TableMapOp, TableMatchOp,
-                      SourceMethodOp, SourceTransactionOp>(
+                       SourceMethodOp, SourceTransactionOp, SourceBranchOp>(
           (*this)->getParentOp()))
     return emitOpError() << "must terminate a module, rule, table region, "
-                           "Method or transaction";
+                            "Method, transaction or source branch";
   return success();
 }
 LogicalResult ModuleImportOp::verify() {

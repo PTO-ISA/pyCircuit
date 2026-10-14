@@ -11,6 +11,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLExtras.h"
+#include <limits>
 
 using namespace mlir;
 
@@ -18,6 +19,16 @@ namespace acir::ac {
 namespace {
 
 constexpr unsigned maxDepth = 128;
+
+uint64_t saturatedMultiply(uint64_t left, uint64_t right) {
+  constexpr uint64_t maximum = std::numeric_limits<uint64_t>::max();
+  return right && left > maximum / right ? maximum : left * right;
+}
+
+uint64_t saturatedAdd(uint64_t left, uint64_t right) {
+  constexpr uint64_t maximum = std::numeric_limits<uint64_t>::max();
+  return right > maximum - left ? maximum : left + right;
+}
 
 // A rejected raw graph must not be printed as an operation note, and its
 // location has not necessarily passed preflight either. Keep these diagnostics
@@ -39,6 +50,36 @@ public:
       return false;
     }
     work += units;
+    return true;
+  }
+
+  template <typename T> bool chargeStorage(Operation *site, uint64_t count) {
+    // A(n,T) = n * (1 + ceil(sizeof(T)/8)), saturating before allocation.
+    constexpr uint64_t units = 1 + (sizeof(T) + 7) / 8;
+    return charge(site, saturatedMultiply(count, units));
+  }
+
+  template <typename Vector>
+  bool reserve(Operation *site, Vector &storage, uint64_t additional) {
+    if (additional > storage.max_size() - storage.size())
+      return charge(site, std::numeric_limits<uint64_t>::max());
+    uint64_t count = storage.size() + additional;
+    if (count <= storage.capacity())
+      return true;
+    // Reserve the full growth explicitly. Per-record A fees already paid the
+    // logical new slots; charge only spare capacity bytes and retained moves.
+    uint64_t capacity = std::max(
+        count,
+        std::min(uint64_t(storage.max_size()),
+                 saturatedAdd(saturatedMultiply(storage.capacity(), 2), 1)));
+    uint64_t spare = capacity - storage.capacity();
+    spare = spare > additional ? spare - additional : 0;
+    uint64_t bytes =
+        saturatedMultiply(spare, sizeof(typename Vector::value_type));
+    uint64_t fee = saturatedAdd(storage.size(), bytes / 8 + (bytes % 8 != 0));
+    if (!charge(site, fee))
+      return false;
+    storage.reserve(capacity);
     return true;
   }
 
@@ -476,8 +517,8 @@ private:
     BoundValueId id = plan.values.size();
     plan.values.push_back({original, anchor, frame});
     prefixAssigned.push_back(false);
-    lexicalValues.push_back(
-        !function && original.getDefiningOp() != plan.transaction.getOperation());
+    lexicalValues.push_back(!function && original.getDefiningOp() !=
+                                             plan.transaction.getOperation());
     values.try_emplace(key, id);
     return id;
   }
@@ -512,7 +553,7 @@ private:
   }
 
   FailureOr<BoundValueId> useValue(Value original, LexicalInstanceId anchor,
-                                  InvocationFrameId frame, Operation *site) {
+                                   InvocationFrameId frame, Operation *site) {
     auto id = value(original, anchor, frame);
     if (failed(id))
       return failure();
@@ -659,10 +700,10 @@ private:
         reset.getValue().getZExtValue() >= block.getNumArguments())
       return site->emitOpError() << "transaction Method receiver requires "
                                     "validated ac.domain_inputs";
-    auto clk = useValue(block.getArgument(clock.getInt()), anchor, plan.rootFrame,
-                        site);
-    auto rst = useValue(block.getArgument(reset.getInt()), anchor, plan.rootFrame,
-                        site);
+    auto clk = useValue(block.getArgument(clock.getInt()), anchor,
+                        plan.rootFrame, site);
+    auto rst = useValue(block.getArgument(reset.getInt()), anchor,
+                        plan.rootFrame, site);
     if (failed(clk) || failed(rst))
       return failure();
     auto bound = getDomain(*clk, *rst, site);
@@ -714,10 +755,10 @@ private:
       if (failed(bound) || failed(available(actual, callable(frame))) ||
           failed(equivalent(*bound, actual, callable(frame))) ||
           failed(alias(*bound, actual, callable(frame))) ||
-          failed(assignPrefix(*bound,
-                              std::max(currentPrefix,
-                                       plan.values[actual].requiredPrefix),
-                              callable(frame))))
+          failed(assignPrefix(
+              *bound,
+              std::max(currentPrefix, plan.values[actual].requiredPrefix),
+              callable(frame))))
         return failure();
       bindings.push_back({*bound, actual});
     }
@@ -726,7 +767,9 @@ private:
 
   LogicalResult event(TransactionStateEventKind kind, InvocationFrameId frame,
                       std::optional<uint64_t> record = std::nullopt) {
-    if (!budget.charge(callable(frame), 2))
+    if (!budget.charge(callable(frame), 2) ||
+        !budget.chargeStorage<TransactionStateEvent>(callable(frame), 1) ||
+        !budget.reserve(callable(frame), plan.events, 1))
       return failure();
     TransactionStateEvent next;
     next.kind = kind;
@@ -752,6 +795,20 @@ private:
     case TransactionStateEventKind::CallEnter:
     case TransactionStateEventKind::CallExit:
       next.call = record;
+      break;
+    case TransactionStateEventKind::BranchEnter:
+    case TransactionStateEventKind::ThenEnter:
+    case TransactionStateEventKind::ThenExit:
+    case TransactionStateEventKind::ElseEnter:
+    case TransactionStateEventKind::ElseExit:
+    case TransactionStateEventKind::BranchExit:
+      next.branch = record;
+      break;
+    case TransactionStateEventKind::StateJoin:
+      next.join = record;
+      break;
+    case TransactionStateEventKind::BranchResult:
+      next.branchResult = record;
       break;
     case TransactionStateEventKind::TransactionEnter:
     case TransactionStateEventKind::TransactionExit:
@@ -791,7 +848,9 @@ private:
     auto type = payloadType(*q, effect);
     if (failed(domain) || failed(type) || failed(sameDomain(*domain, effect)) ||
         !budget.chargeOccurrence(effect, declaration.getOccurrence()) ||
-        !budget.charge(effect, 7))
+        !budget.charge(effect, 7) ||
+        !budget.chargeStorage<uint64_t>(effect, 1) ||
+        !budget.reserve(effect, ownerOrdinals, 1))
       return failure();
     StateOwnerId id = plan.owners.size();
     StateVersionId q0 = plan.versions.size();
@@ -799,10 +858,12 @@ private:
                            declaration, declaration.getOccurrence(), *type,
                            *domain, *q});
     plan.versions.push_back({plan.transaction, id, 0, StateVersionKind::OldQ,
-                             std::nullopt, std::nullopt, *q, *type, 0});
+                             std::nullopt, std::nullopt, std::nullopt, *q,
+                             *type, 0});
     owners.try_emplace(key, id);
     q0Versions.push_back(q0);
     candidates.push_back(q0);
+    ownerOrdinals.push_back(0);
     return id;
   }
 
@@ -819,8 +880,13 @@ private:
                       Operation *site) {
     if (!budget.charge(site, 2))
       return failure();
-    if (seen.insert(id).second)
+    if (!seen.contains(id)) {
+      if (!budget.chargeStorage<StateOwnerId>(site, 2) ||
+          !budget.reserve(site, touched, 1))
+        return failure();
+      seen.insert(id);
       touched.push_back(id);
+    }
     return success();
   }
 
@@ -842,10 +908,10 @@ private:
     if (plan.versions[selected].requiredPrefix > currentPrefix)
       return operation.emitOpError()
              << "state read requires a future admission prefix";
-    if (failed(assignPrefix(*result,
-                            std::max(currentPrefix,
-                                     plan.versions[selected].requiredPrefix),
-                            operation)))
+    if (failed(assignPrefix(
+            *result,
+            std::max(currentPrefix, plan.versions[selected].requiredPrefix),
+            operation)))
       return failure();
     auto type = payloadType(*result, operation);
     if (failed(type))
@@ -907,12 +973,11 @@ private:
                            operation.getSelectors(),
                            {},
                            operation.getOccurrence()});
-    plan.versions.push_back({plan.transaction, *state,
-                             plan.versions[predecessor].ordinal + 1,
-                             StateVersionKind::Write, predecessor, id, *rhs,
-                             plan.owners[*state].payloadType,
-                             std::max(currentPrefix,
-                                      plan.values[*rhs].requiredPrefix)});
+    plan.versions.push_back(
+        {plan.transaction, *state, ++ownerOrdinals[*state],
+         StateVersionKind::Write, predecessor, id, std::nullopt, *rhs,
+         plan.owners[*state].payloadType,
+         std::max(currentPrefix, plan.values[*rhs].requiredPrefix)});
     candidates[*state] = version;
     if (failed(touch(touched, seen, *state, operation)))
       return failure();
@@ -929,14 +994,12 @@ private:
     if (!subelements.check(operation, operation.getCondition().getType()) ||
         !subelements.check(operation, operation.getPath().getType()))
       return failure();
-    auto occurrence =
-        operation->getAttrOfType<DictionaryAttr>("occurrence");
+    auto occurrence = operation->getAttrOfType<DictionaryAttr>("occurrence");
     if (!budget.charge(operation, 8) ||
         !budget.chargeOccurrence(operation, occurrence) ||
         !budget.chargeAttribute(operation, operation.getLocationAttr()) ||
         (operation->hasAttr("ac.message") &&
-         !budget.chargeAttribute(operation,
-                                 operation->getAttr("ac.message"))))
+         !budget.chargeAttribute(operation, operation->getAttr("ac.message"))))
       return failure();
     AdmissionPrefix required = 0;
     for (BoundValueId input : {*condition, *path}) {
@@ -946,14 +1009,9 @@ private:
     }
     BodyCheckId id = plan.bodyChecks.size();
     plan.bodyChecks.push_back(
-        {operation,
-         frame,
-         *condition,
-         *path,
-         occurrence,
+        {operation, frame, *condition, *path, occurrence,
          operation.getLocationAttr(),
-         operation->getAttrOfType<StringAttr>("ac.message"),
-         required});
+         operation->getAttrOfType<StringAttr>("ac.message"), required});
     return event(TransactionStateEventKind::BodyCheck, frame, id);
   }
 
@@ -973,11 +1031,9 @@ private:
         return failure();
       values.push_back(*bound);
     }
-    auto occurrence =
-        operation->getAttrOfType<DictionaryAttr>("occurrence");
+    auto occurrence = operation->getAttrOfType<DictionaryAttr>("occurrence");
     if (!budget.chargeOccurrence(operation, occurrence) ||
-        !budget.chargeAttribute(operation,
-                                operation->getAttr("ac.location")) ||
+        !budget.chargeAttribute(operation, operation->getAttr("ac.location")) ||
         !budget.chargeAttribute(operation, operation.getKindAttr()) ||
         !budget.chargeAttribute(operation, operation.getSpec()))
       return failure();
@@ -991,15 +1047,9 @@ private:
     }
     ObservationId id = plan.observations.size();
     plan.observations.push_back(
-        {operation,
-         frame,
-         *path,
-         std::move(values),
-         occurrence,
+        {operation, frame, *path, std::move(values), occurrence,
          operation->getAttrOfType<DictionaryAttr>("ac.location"),
-         operation.getKindAttr(),
-         operation.getSpec(),
-         required});
+         operation.getKindAttr(), operation.getSpec(), required});
     return event(TransactionStateEventKind::Observe, frame, id);
   }
 
@@ -1063,7 +1113,8 @@ private:
 
   LogicalResult snapshot(Operation *site,
                          SmallVectorImpl<StateVersionId> &saved) {
-    if (!budget.charge(site, candidates.size()))
+    if (!budget.chargeStorage<StateVersionId>(site, candidates.size()) ||
+        !budget.reserve(site, saved, candidates.size()))
       return failure();
     saved.assign(candidates.begin(), candidates.end());
     return success();
@@ -1218,8 +1269,7 @@ private:
       Operation *op = pending.pop_back_val();
       if (!budget.charge(op, 1 + op->getNumOperands() + op->getNumResults()))
         return failure();
-      if (!isa<YieldOp>(op) &&
-          !detail::isCombinationalHardwareOperation(op))
+      if (!isa<YieldOp>(op) && !detail::isCombinationalHardwareOperation(op))
         return op->emitOpError()
                << "transaction state plan cannot omit an unrepresented "
                   "payload effect";
@@ -1256,9 +1306,216 @@ private:
     return success();
   }
 
-  LogicalResult region(Block &block, InvocationFrameId frame, unsigned depth,
+  LogicalResult restore(Operation *site, ArrayRef<StateVersionId> entry) {
+    // Owners discovered in either arm have one transaction-local Q0. A missing
+    // entry is never another arm's final candidate.
+    for (auto [id, candidate] : llvm::enumerate(candidates)) {
+      if (!budget.charge(site))
+        return failure();
+      candidate = id < entry.size() ? entry[id] : q0Versions[id];
+    }
+    return success();
+  }
+
+  LogicalResult armResults(SourceBranchOp operation, Block &block,
+                           InvocationFrameId frame,
+                           SmallVectorImpl<BoundValueId> &result) {
+    auto yielded = cast<YieldOp>(block.back()).getValues();
+    if (yielded.size() != operation.getNumResults())
+      return operation.emitOpError() << "branch result arity is invalid";
+    if (!budget.chargeStorage<BoundValueId>(operation, yielded.size()) ||
+        !budget.reserve(operation, result, yielded.size()))
+      return failure();
+    for (Value original : yielded) {
+      if (!budget.charge(operation))
+        return failure();
+      auto bound =
+          useValue(original, plan.frames[frame].anchor, frame, operation);
+      if (failed(bound))
+        return failure();
+      result.push_back(*bound);
+    }
+    return success();
+  }
+
+  LogicalResult branch(SourceBranchOp operation, InvocationFrameId frame,
+                       unsigned depth, std::optional<BranchId> parentBranch,
                        SmallVectorImpl<StateOwnerId> &touched,
                        llvm::DenseSet<StateOwnerId> &seen) {
+    if (depth >= maxDepth)
+      return boundedError(operation)
+             << "transaction branch depth budget exceeded";
+    auto anchor = plan.frames[frame].anchor;
+    auto condition =
+        useValue(operation.getCondition(), anchor, frame, operation);
+    if (failed(condition))
+      return failure();
+    auto conditionType = payloadType(*condition, operation);
+    if (failed(conditionType) || !isa<BitsType>(*conditionType))
+      return operation.emitOpError()
+             << "branch condition requires width-one Bits";
+    auto width = hardware.getPackedWidth(
+        *conditionType, plan.frames[frame].bindings, operation);
+    if (failed(width) || *width != 1)
+      return operation.emitOpError()
+             << "branch condition requires width-one Bits";
+    if (!budget.chargeOccurrence(operation, operation.getOccurrence()) ||
+        !budget.chargeAttribute(operation, operation.getConditionLocation()) ||
+        !budget.chargeStorage<TransactionBranch>(operation, 1) ||
+        !budget.reserve(operation, plan.branches, 1))
+      return failure();
+    SmallVector<StateVersionId, 0> entry, thenEnd;
+    if (failed(snapshot(operation, entry)))
+      return failure();
+    AdmissionPrefix entryPrefix = currentPrefix;
+    BranchId id = plan.branches.size();
+    plan.branches.push_back({operation,
+                             frame,
+                             *condition,
+                             parentBranch,
+                             entryPrefix,
+                             {},
+                             {},
+                             {},
+                             {},
+                             {},
+                             operation.getOccurrence(),
+                             operation.getConditionLocation()});
+    if (failed(event(TransactionStateEventKind::BranchEnter, frame, id)) ||
+        failed(event(TransactionStateEventKind::ThenEnter, frame, id)))
+      return failure();
+    SmallVector<StateOwnerId> armTouched;
+    llvm::DenseSet<StateOwnerId> armSeen;
+    SmallVector<BoundValueId, 0> whenTrue, whenFalse;
+    if (failed(region(operation.getThenRegion().front(), frame, depth + 1,
+                      armTouched, armSeen, false, id)) ||
+        failed(armResults(operation, operation.getThenRegion().front(), frame,
+                          whenTrue)) ||
+        currentPrefix != entryPrefix || failed(snapshot(operation, thenEnd)) ||
+        failed(event(TransactionStateEventKind::ThenExit, frame, id)) ||
+        failed(restore(operation, entry)) ||
+        failed(event(TransactionStateEventKind::ElseEnter, frame, id)))
+      return failure();
+    if (failed(region(operation.getElseRegion().front(), frame, depth + 1,
+                      armTouched, armSeen, false, id)) ||
+        failed(armResults(operation, operation.getElseRegion().front(), frame,
+                          whenFalse)) ||
+        currentPrefix != entryPrefix ||
+        failed(event(TransactionStateEventKind::ElseExit, frame, id)))
+      return failure();
+    // Owner IDs already encode deterministic first discovery. Sorting this
+    // union keeps join ordering independent of which arm first touched a state.
+    uint64_t sortDepth = 0;
+    for (uint64_t count = armTouched.size(); count > 1; count = (count + 1) / 2)
+      ++sortDepth;
+    if (!budget.charge(operation,
+                       saturatedMultiply(armTouched.size(), 2 * sortDepth + 1)))
+      return failure();
+    llvm::sort(armTouched);
+    uint64_t joinCount = 0;
+    for (StateOwnerId owner : armTouched) {
+      if (!budget.charge(operation))
+        return failure();
+      StateVersionId initial =
+          owner < entry.size() ? entry[owner] : q0Versions[owner];
+      StateVersionId trueVersion =
+          owner < thenEnd.size() ? thenEnd[owner] : q0Versions[owner];
+      if (trueVersion != initial || candidates[owner] != initial)
+        ++joinCount;
+    }
+    uint64_t resultCount = operation.getNumResults();
+    // Exact persistent record fees, in addition to ordinary value/type/edge
+    // work. Events pay their own fee immediately before each append.
+    if (!budget.chargeStorage<OwnerVersionBinding>(
+            operation, saturatedMultiply(3, armTouched.size())) ||
+        !budget.chargeStorage<TransactionStateJoin>(operation, joinCount) ||
+        !budget.chargeStorage<StateVersion>(operation, joinCount) ||
+        !budget.chargeStorage<StateJoinId>(operation, joinCount) ||
+        !budget.chargeStorage<TransactionBranchResult>(operation,
+                                                       resultCount) ||
+        !budget.chargeStorage<BranchResultId>(operation, resultCount) ||
+        !budget.reserve(operation, plan.joins, joinCount) ||
+        !budget.reserve(operation, plan.versions, joinCount) ||
+        !budget.reserve(operation, plan.branchResults, resultCount))
+      return failure();
+    auto &record = plan.branches[id];
+    if (!budget.reserve(operation, record.entryVersions, armTouched.size()) ||
+        !budget.reserve(operation, record.thenVersions, armTouched.size()) ||
+        !budget.reserve(operation, record.elseVersions, armTouched.size()) ||
+        !budget.reserve(operation, record.joins, joinCount) ||
+        !budget.reserve(operation, record.results, resultCount))
+      return failure();
+    for (StateOwnerId owner : armTouched) {
+      if (!budget.charge(operation) ||
+          failed(touch(touched, seen, owner, operation)))
+        return failure();
+      StateVersionId initial =
+          owner < entry.size() ? entry[owner] : q0Versions[owner];
+      StateVersionId trueVersion =
+          owner < thenEnd.size() ? thenEnd[owner] : q0Versions[owner];
+      StateVersionId falseVersion = candidates[owner];
+      record.entryVersions.push_back({owner, initial});
+      record.thenVersions.push_back({owner, trueVersion});
+      record.elseVersions.push_back({owner, falseVersion});
+      if (trueVersion == initial && falseVersion == initial)
+        continue;
+      StateJoinId join = plan.joins.size();
+      StateVersionId version = plan.versions.size();
+      AdmissionPrefix required =
+          std::max({entryPrefix, plan.values[*condition].requiredPrefix,
+                    plan.versions[trueVersion].requiredPrefix,
+                    plan.versions[falseVersion].requiredPrefix});
+      if (required > entryPrefix)
+        return operation.emitOpError()
+               << "branch state requires a future admission prefix";
+      plan.joins.push_back(
+          {id, owner, initial, trueVersion, falseVersion, version});
+      plan.versions.push_back({plan.transaction, owner, ++ownerOrdinals[owner],
+                               StateVersionKind::Join, initial, std::nullopt,
+                               join, std::nullopt,
+                               plan.owners[owner].payloadType, required});
+      record.joins.push_back(join);
+      candidates[owner] = version;
+      if (failed(event(TransactionStateEventKind::StateJoin, frame, join)))
+        return failure();
+    }
+    for (auto [ordinal, original] : llvm::enumerate(operation.getResults())) {
+      if (!budget.charge(operation))
+        return failure();
+      auto bound = value(original, anchor, frame);
+      if (failed(bound) ||
+          failed(equivalent(*bound, whenTrue[ordinal], operation)) ||
+          failed(equivalent(*bound, whenFalse[ordinal], operation)))
+        return failure();
+      auto type = payloadType(*bound, operation);
+      if (failed(type) || !isa<BitsType>(*type))
+        return operation.emitOpError() << "branch results require scalar Bits";
+      AdmissionPrefix required =
+          std::max({entryPrefix, plan.values[*condition].requiredPrefix,
+                    plan.values[whenTrue[ordinal]].requiredPrefix,
+                    plan.values[whenFalse[ordinal]].requiredPrefix});
+      if (required > entryPrefix ||
+          failed(assignPrefix(*bound, required, operation)))
+        return operation.emitOpError()
+               << "branch result requires a future admission prefix";
+      BranchResultId result = plan.branchResults.size();
+      plan.branchResults.push_back({id, frame, ordinal, *bound,
+                                    whenTrue[ordinal], whenFalse[ordinal],
+                                    *type, required});
+      record.results.push_back(result);
+      // No alias: the result denotes a selection, never either arm's yield.
+      if (failed(event(TransactionStateEventKind::BranchResult, frame, result)))
+        return failure();
+    }
+    return event(TransactionStateEventKind::BranchExit, frame, id);
+  }
+
+  LogicalResult region(Block &block, InvocationFrameId frame, unsigned depth,
+                       SmallVectorImpl<StateOwnerId> &touched,
+                       llvm::DenseSet<StateOwnerId> &seen, bool guard = false,
+                       std::optional<BranchId> parentBranch = std::nullopt) {
+    if (!budget.charge(block.getParentOp()))
+      return failure();
     for (Operation &op : block.without_terminator()) {
       if (!budget.charge(&op))
         return failure();
@@ -1268,13 +1525,27 @@ private:
       } else if (auto intent = dyn_cast<SourceStateWriteOp>(op)) {
         if (failed(write(intent, frame, touched, seen)))
           return failure();
+      } else if (auto split = dyn_cast<SourceBranchOp>(op)) {
+        if (guard)
+          return split.emitOpError() << "branches are not admitted in guards";
+        if (failed(branch(split, frame, depth, parentBranch, touched, seen)))
+          return failure();
       } else if (auto method = dyn_cast<SourceMethodCallOp>(op)) {
+        if (parentBranch)
+          return method.emitOpError()
+                 << "Method calls are not admitted in branch arms";
         if (failed(call(method, frame, depth, touched, seen)))
           return failure();
       } else if (auto check = dyn_cast<SourceExpectOp>(op)) {
+        if (parentBranch)
+          return check.emitOpError()
+                 << "body checks are not admitted in branch arms";
         if (failed(bodyCheck(check, frame)))
           return failure();
       } else if (auto observation = dyn_cast<SourceObserveOp>(op)) {
+        if (parentBranch)
+          return observation.emitOpError()
+                 << "observations are not admitted in branch arms";
         if (failed(observe(observation, frame)))
           return failure();
       } else if (failed(payload(&op, frame)))
@@ -1312,7 +1583,7 @@ private:
     llvm::DenseSet<StateOwnerId> seen;
     StateReadId firstRead = plan.reads.size();
     auto &guardBlock = function->getRegion(0).front();
-    if (failed(region(guardBlock, frame, depth, result.touched, seen)) ||
+    if (failed(region(guardBlock, frame, depth, result.touched, seen, true)) ||
         failed(entryVersions(function, result.touched, saved,
                              plan.guards[guard].entryVersions)) ||
         !budget.charge(function, plan.reads.size() - firstRead))
@@ -1320,9 +1591,8 @@ private:
     for (StateReadId read = firstRead; read != plan.reads.size(); ++read)
       plan.guards[guard].reads.push_back(read);
     auto guardYield = cast<YieldOp>(guardBlock.back());
-    auto condition =
-        useValue(guardYield.getValues().front(), plan.frames[frame].anchor,
-                 frame, function);
+    auto condition = useValue(guardYield.getValues().front(),
+                              plan.frames[frame].anchor, frame, function);
     if (failed(condition))
       return failure();
     auto fact = predicate(*condition, function);
@@ -1340,7 +1610,8 @@ private:
     if (!budget.charge(function, yielded.size()))
       return failure();
     for (Value original : yielded) {
-      auto bound = useValue(original, plan.frames[frame].anchor, frame, function);
+      auto bound =
+          useValue(original, plan.frames[frame].anchor, frame, function);
       if (failed(bound))
         return failure();
       result.yielded.push_back(*bound);
@@ -1362,14 +1633,94 @@ private:
         return site->emitOpError()
                << "transaction value admission prefix is missing or invalid";
     }
-    for (const auto &version : plan.versions) {
+    for (auto [id, version] : llvm::enumerate(plan.versions)) {
       if (!budget.charge(site))
         return failure();
-      if (version.requiredPrefix > currentPrefix ||
-          plan.values[version.value].requiredPrefix > version.requiredPrefix ||
-          (version.kind == StateVersionKind::OldQ && version.requiredPrefix))
+      bool invalid = version.owner >= plan.owners.size() ||
+                     version.requiredPrefix > currentPrefix;
+      switch (version.kind) {
+      case StateVersionKind::OldQ:
+        invalid |= !version.value || version.predecessor || version.write ||
+                   version.join || version.ordinal || version.requiredPrefix;
+        break;
+      case StateVersionKind::Write:
+        invalid |= !version.value || !version.predecessor || !version.write ||
+                   version.join || !version.ordinal;
+        if (version.write)
+          invalid |= *version.write >= plan.writes.size() ||
+                     plan.writes[*version.write].version != id;
+        break;
+      case StateVersionKind::Join:
+        invalid |= version.value.has_value() || !version.predecessor ||
+                   version.write.has_value() || !version.join ||
+                   !version.ordinal;
+        if (version.join)
+          invalid |= *version.join >= plan.joins.size() ||
+                     plan.joins[*version.join].result != id;
+        break;
+      }
+      if (version.value)
+        invalid |=
+            *version.value >= plan.values.size() ||
+            plan.values[*version.value].requiredPrefix > version.requiredPrefix;
+      if (version.predecessor)
+        invalid |= *version.predecessor >= id ||
+                   plan.versions[*version.predecessor].owner != version.owner;
+      if (invalid)
         return site->emitOpError()
                << "transaction state version admission prefix is invalid";
+    }
+    for (auto [id, join] : llvm::enumerate(plan.joins)) {
+      if (!budget.charge(site, 5))
+        return failure();
+      if (join.branch >= plan.branches.size() ||
+          join.owner >= plan.owners.size() ||
+          join.result >= plan.versions.size())
+        return site->emitOpError()
+               << "transaction state join binding is invalid";
+      const auto &result = plan.versions[join.result];
+      if (result.kind != StateVersionKind::Join || result.join != id ||
+          result.owner != join.owner || result.predecessor != join.entry ||
+          result.requiredPrefix > plan.branches[join.branch].entryPrefix)
+        return site->emitOpError()
+               << "transaction state join result is invalid";
+      for (StateVersionId input : {join.entry, join.whenTrue, join.whenFalse}) {
+        if (!budget.charge(site))
+          return failure();
+        if (input >= join.result || plan.versions[input].owner != join.owner ||
+            !areEquivalentHardwareTypes(plan.versions[input].payloadType,
+                                        result.payloadType) ||
+            plan.versions[input].requiredPrefix > result.requiredPrefix)
+          return site->emitOpError()
+                 << "transaction state join input is invalid";
+      }
+    }
+    for (const auto &result : plan.branchResults) {
+      if (!budget.charge(site, 5))
+        return failure();
+      if (result.branch >= plan.branches.size() ||
+          result.frame >= plan.frames.size() ||
+          result.result >= plan.values.size() ||
+          result.whenTrue >= plan.values.size() ||
+          result.whenFalse >= plan.values.size())
+        return site->emitOpError()
+               << "transaction branch result binding is invalid";
+      const auto &branch = plan.branches[result.branch];
+      auto operation = branch.operation;
+      AdmissionPrefix required = std::max(
+          {branch.entryPrefix, plan.values[branch.condition].requiredPrefix,
+           plan.values[result.whenTrue].requiredPrefix,
+           plan.values[result.whenFalse].requiredPrefix});
+      const auto &bound = plan.values[result.result];
+      if (result.frame != branch.frame || bound.frame != result.frame ||
+          bound.anchor != plan.frames[result.frame].anchor ||
+          result.ordinal >= operation.getNumResults() ||
+          bound.value != operation.getResult(result.ordinal) ||
+          aliases.contains(result.result) ||
+          result.requiredPrefix != required ||
+          bound.requiredPrefix != required || required > branch.entryPrefix)
+        return site->emitOpError()
+               << "transaction branch result admission prefix is invalid";
     }
     for (const auto &check : plan.bodyChecks) {
       if (!budget.charge(site, 4) || check.frame >= plan.frames.size() ||
@@ -1409,12 +1760,14 @@ private:
       if (event.frame >= plan.frames.size() || event.prefix > currentPrefix)
         return site->emitOpError()
                << "transaction event admission prefix is invalid";
-      unsigned references = unsigned(event.read.has_value()) +
-                            unsigned(event.write.has_value()) +
-                            unsigned(event.guard.has_value()) +
-                            unsigned(event.call.has_value()) +
-                            unsigned(event.bodyCheck.has_value()) +
-                            unsigned(event.observation.has_value());
+      unsigned references =
+          unsigned(event.read.has_value()) + unsigned(event.write.has_value()) +
+          unsigned(event.guard.has_value()) + unsigned(event.call.has_value()) +
+          unsigned(event.bodyCheck.has_value()) +
+          unsigned(event.observation.has_value()) +
+          unsigned(event.branch.has_value()) +
+          unsigned(event.join.has_value()) +
+          unsigned(event.branchResult.has_value());
       switch (event.kind) {
       case TransactionStateEventKind::TransactionEnter:
       case TransactionStateEventKind::TransactionExit:
@@ -1441,6 +1794,33 @@ private:
       case TransactionStateEventKind::CallExit:
         if (references != 1 || !event.call || *event.call >= plan.calls.size())
           return site->emitOpError() << "transaction call event is invalid";
+        break;
+      case TransactionStateEventKind::BranchEnter:
+      case TransactionStateEventKind::ThenEnter:
+      case TransactionStateEventKind::ThenExit:
+      case TransactionStateEventKind::ElseEnter:
+      case TransactionStateEventKind::ElseExit:
+      case TransactionStateEventKind::BranchExit:
+        if (references != 1 || !event.branch ||
+            *event.branch >= plan.branches.size() ||
+            plan.branches[*event.branch].frame != event.frame ||
+            plan.branches[*event.branch].entryPrefix != event.prefix)
+          return site->emitOpError()
+                 << "transaction branch boundary event is invalid";
+        break;
+      case TransactionStateEventKind::StateJoin:
+        if (references != 1 || !event.join ||
+            *event.join >= plan.joins.size() ||
+            plan.branches[plan.joins[*event.join].branch].frame != event.frame)
+          return site->emitOpError()
+                 << "transaction state join event is invalid";
+        break;
+      case TransactionStateEventKind::BranchResult:
+        if (references != 1 || !event.branchResult ||
+            *event.branchResult >= plan.branchResults.size() ||
+            plan.branchResults[*event.branchResult].frame != event.frame)
+          return site->emitOpError()
+                 << "transaction branch result event is invalid";
         break;
       case TransactionStateEventKind::BodyCheck:
         if (references != 1 || !event.bodyCheck ||
@@ -1482,14 +1862,15 @@ private:
     for (uint64_t count :
          {plan.values.size(), plan.versions.size(), plan.bodyChecks.size(),
           plan.observations.size(), plan.events.size()})
-      if (!budget.charge(site, 28 * count))
+      if (!budget.charge(site, saturatedMultiply(28, count)))
         return failure();
     for (uint64_t count :
          {plan.instances.size(), plan.frames.size(), plan.values.size(),
           plan.owners.size(), plan.versions.size(), plan.reads.size(),
           plan.writes.size(), plan.guards.size(), plan.calls.size(),
           plan.bodyChecks.size(), plan.observations.size(), plan.events.size(),
-          plan.finalVersions.size(), plan.results.size()})
+          plan.finalVersions.size(), plan.results.size(), plan.branches.size(),
+          plan.joins.size(), plan.branchResults.size()})
       if (!budget.charge(site, count))
         return failure();
     if (!budget.chargeOccurrence(site, plan.transaction.getOccurrence()) ||
@@ -1521,6 +1902,22 @@ private:
                                    call.exitVersions.size() +
                                    call.results.size()))
         return failure();
+    for (const auto &branch : plan.branches) {
+      auto operation = branch.operation;
+      if (!budget.charge(site, 160) ||
+          !budget.charge(site,
+                         saturatedMultiply(28, branch.entryVersions.size() +
+                                                   branch.thenVersions.size() +
+                                                   branch.elseVersions.size() +
+                                                   branch.joins.size() +
+                                                   branch.results.size())) ||
+          !budget.chargeOccurrence(site, branch.occurrence) ||
+          !budget.chargeAttribute(site, branch.conditionLocation))
+        return failure();
+    }
+    if (!budget.charge(site, saturatedMultiply(160, plan.joins.size())) ||
+        !budget.charge(site, saturatedMultiply(160, plan.branchResults.size())))
+      return failure();
     for (const auto &check : plan.bodyChecks)
       if (!budget.charge(site, 8) ||
           !budget.chargeOccurrence(site, check.occurrence) ||
@@ -1553,6 +1950,7 @@ private:
   llvm::DenseMap<OwnerKey, ResolvedSourceMethod> resolutions;
   SmallVector<StateVersionId, 0> candidates;
   SmallVector<StateVersionId, 0> q0Versions;
+  SmallVector<uint64_t, 0> ownerOrdinals;
   std::optional<GuardBoundaryId> previousGuard;
 };
 
@@ -1576,6 +1974,22 @@ StringRef eventName(TransactionStateEventKind kind) {
     return "call-enter";
   case TransactionStateEventKind::CallExit:
     return "call-exit";
+  case TransactionStateEventKind::BranchEnter:
+    return "branch-enter";
+  case TransactionStateEventKind::ThenEnter:
+    return "then-enter";
+  case TransactionStateEventKind::ThenExit:
+    return "then-exit";
+  case TransactionStateEventKind::ElseEnter:
+    return "else-enter";
+  case TransactionStateEventKind::ElseExit:
+    return "else-exit";
+  case TransactionStateEventKind::StateJoin:
+    return "state-join";
+  case TransactionStateEventKind::BranchResult:
+    return "branch-result";
+  case TransactionStateEventKind::BranchExit:
+    return "branch-exit";
   case TransactionStateEventKind::TransactionExit:
     return "transaction-exit";
   }
@@ -1607,8 +2021,8 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
   out << "transaction @" << module.getSymName() << "::" << transaction.getName()
       << " occurrence=" << transaction.getOccurrence() << " clock-anchor=i"
       << plan.domain.clock.anchor << " reset-anchor=i"
-      << plan.domain.reset.anchor << " clock=v" << plan.clockValue
-      << " reset=v" << plan.resetValue << '\n';
+      << plan.domain.reset.anchor << " clock=v" << plan.clockValue << " reset=v"
+      << plan.resetValue << '\n';
   for (auto [id, instance] : llvm::enumerate(plan.instances)) {
     auto definition = instance.definition;
     out << "  instance i" << id << " @" << definition.getSymName();
@@ -1661,13 +2075,24 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
         << '\n';
   for (auto [id, version] : llvm::enumerate(plan.versions)) {
     out << "  version q" << id << " owner=o" << version.owner
-        << " ordinal=" << version.ordinal << " value=v" << version.value
+        << " ordinal=" << version.ordinal
         << " prefix=" << version.requiredPrefix;
-    if (version.kind == StateVersionKind::OldQ)
-      out << " Q0";
-    else
-      out << " predecessor=q" << *version.predecessor << " write=w"
-          << *version.write;
+    switch (version.kind) {
+    case StateVersionKind::OldQ:
+      out << " value=v" << *version.value << " Q0";
+      break;
+    case StateVersionKind::Write:
+      out << " value=v" << *version.value << " predecessor=q"
+          << *version.predecessor << " write=w" << *version.write;
+      break;
+    case StateVersionKind::Join: {
+      const auto &join = plan.joins[*version.join];
+      out << " predecessor=q" << *version.predecessor << " join=j"
+          << *version.join << " branch=h" << join.branch << " true=q"
+          << join.whenTrue << " false=q" << join.whenFalse;
+      break;
+    }
+    }
     out << '\n';
   }
   for (auto [id, read] : llvm::enumerate(plan.reads))
@@ -1714,12 +2139,43 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
     printResults(out, call.results);
     out << '\n';
   }
+  for (auto [id, branch] : llvm::enumerate(plan.branches)) {
+    auto operation = branch.operation;
+    out << "  branch h" << id << " frame=f" << branch.frame << " condition=v"
+        << branch.condition << " prefix=" << branch.entryPrefix;
+    if (branch.parentBranch)
+      out << " parent=h" << *branch.parentBranch;
+    out << " entry=";
+    printVersions(out, branch.entryVersions);
+    out << " then=";
+    printVersions(out, branch.thenVersions);
+    out << " else=";
+    printVersions(out, branch.elseVersions);
+    out << " joins=[";
+    llvm::interleaveComma(branch.joins, out,
+                          [&](StateJoinId join) { out << 'j' << join; });
+    out << "] results=[";
+    llvm::interleaveComma(branch.results, out,
+                          [&](BranchResultId result) { out << 'b' << result; });
+    out << "] occurrence=" << branch.occurrence
+        << " location=" << branch.conditionLocation << '\n';
+  }
+  for (auto [id, join] : llvm::enumerate(plan.joins))
+    out << "  join j" << id << " branch=h" << join.branch << " owner=o"
+        << join.owner << " entry=q" << join.entry << " true=q" << join.whenTrue
+        << " false=q" << join.whenFalse << " result=q" << join.result << '\n';
+  for (auto [id, result] : llvm::enumerate(plan.branchResults))
+    out << "  branch-result b" << id << " branch=h" << result.branch
+        << " frame=f" << result.frame << " ordinal=" << result.ordinal
+        << " result=v" << result.result << " true=v" << result.whenTrue
+        << " false=v" << result.whenFalse << " prefix=" << result.requiredPrefix
+        << '\n';
   for (auto [id, check] : llvm::enumerate(plan.bodyChecks)) {
-    out << "  body-check b" << id << " frame=f" << check.frame
-        << " condition=v" << check.condition << " path=v" << check.path
+    out << "  body-check b" << id << " frame=f" << check.frame << " condition=v"
+        << check.condition << " path=v" << check.path
         << " prefix=" << check.requiredPrefix
-        << " occurrence=" << check.occurrence
-        << " location=" << check.location << " message=";
+        << " occurrence=" << check.occurrence << " location=" << check.location
+        << " message=";
     if (check.message)
       out << check.message;
     else
@@ -1727,14 +2183,14 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
     out << '\n';
   }
   for (auto [id, observation] : llvm::enumerate(plan.observations)) {
-    out << "  observe o" << id << " frame=f" << observation.frame
-        << " path=v" << observation.path
-        << " prefix=" << observation.requiredPrefix << " values=[";
+    out << "  observe o" << id << " frame=f" << observation.frame << " path=v"
+        << observation.path << " prefix=" << observation.requiredPrefix
+        << " values=[";
     llvm::interleaveComma(observation.values, out,
                           [&](BoundValueId value) { out << 'v' << value; });
     out << "] occurrence=" << observation.occurrence
-        << " location=" << observation.location << " kind="
-        << observation.kind << " spec=" << observation.spec << '\n';
+        << " location=" << observation.location << " kind=" << observation.kind
+        << " spec=" << observation.spec << '\n';
   }
   for (auto [id, event] : llvm::enumerate(plan.events)) {
     out << "  event " << id << ' ' << eventName(event.kind) << " frame=f"
@@ -1751,6 +2207,12 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
       out << " body-check=b" << *event.bodyCheck;
     if (event.observation)
       out << " observation=o" << *event.observation;
+    if (event.branch)
+      out << " branch=h" << *event.branch;
+    if (event.join)
+      out << " join=j" << *event.join;
+    if (event.branchResult)
+      out << " branch-result=b" << *event.branchResult;
     out << '\n';
   }
   out << "  final=";

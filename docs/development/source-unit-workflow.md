@@ -17,8 +17,8 @@ Python or infers a different hardware meaning.
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
-| Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of straight-line whole-owner candidate versions, invocation snapshots and guard obligations. Link uses this before lowering packages containing source transaction operations. |
-| Lower transactions | `LowerTransactions` | Materialize straight-line, same-domain whole-Bits transactions with sampled metadata and complete wiring records. Authenticate against the original plan, then run canonical final verification before atomic replacement. Ordinary hardware retains existing verification without transaction-analysis limits. |
+| Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of whole-Bits candidate data/write-intent pairs, bounded branch joins, scalar local joins, invocation snapshots and guard obligations. Link uses this before lowering packages containing source transaction operations. |
+| Lower transactions | `LowerTransactions` | Materialize same-domain whole-Bits transactions, including bounded statement branches, with sampled metadata and complete D/E wiring records. Authenticate against the original plan, then run canonical final verification before atomic replacement. Ordinary hardware retains existing verification without transaction-analysis limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -91,7 +91,7 @@ routes. Both proofs precede replacement; unsupported nested effects still reject
 See [body-effect contracts](../rfcs/serial-rule-method/sampled-body-effects.md).
 Consumer compilation reads the interfaces, without loading provider
 Python or Method bodies. Native final link lowers calls through ordinary
-static instances with straight-line effects, a shared actual clock/reset
+static instances with straight-line effects, bounded whole-Bits branches, a shared actual clock/reset
 domain and one outer writer per physical scalar owner. Ordinary results escaping an outer Rule still
 require proven-true guards; this restriction does not exempt them from sampling.
 Final verification and emission reject any residual unlowered effects.
@@ -137,12 +137,16 @@ staged hardware checks succeed before the package becomes final.
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
 its input IR. Each outer transaction starts from old Q; nested Method calls
 share that transaction's candidate versions while keeping ordinary SSA values
-as snapshots. The native analysis requires actual Method bodies, straight-line
-effect paths and paired clock/reset wire identity. It tracks ordered guard and
+as snapshots. A bounded branch forks the same incoming data/raw-intent pair into
+both arms and joins both components with the original four-state selector.
+Missing writes inherit the branch-entry pair; identity writes remain in the
+writer inventory. The native analysis requires actual Method bodies,
+unconditional effect paths and paired clock/reset wire identity. It tracks ordered guard and
 value-validity prefixes; false or unknown guards remain explicit obligations
-for sampled lowering and checks. Unsupported selectors,
-conditional effects and unproved domains reject this analysis only. No plan is
-published if any transaction fails. Branch joins, partial updates and resource handling remain unfinished.
+for sampled lowering and checks. Unsupported predicate types, conditional calls or
+effects, partial or aggregate state, changed aggregate local joins, resources
+and unproved domains reject this analysis, including when the invalid operation
+is in a constant-false arm. No plan is published if any transaction fails.
 The analysis alone is not execution evidence; the bounded lowerer's public
 C++/RTL execution and the broader extension have separate acceptance scopes.
 

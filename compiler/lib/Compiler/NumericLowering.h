@@ -26,11 +26,29 @@ struct NumericLoweringSite {
   mlir::DictionaryAttr origin, sourceSpan;
 };
 
-// Optional result facts only; this never changes a physical select or its inputs.
+enum class SelectArm { Then, Else };
+struct PreparedIntegerSelect {
+  NumericValue whenTrue, whenFalse;
+  ac::BitsType resultType;
+  IntegerInterval resultInterval;
+  unsigned trueWidth, falseWidth, resultWidth;
+};
+
+mlir::FailureOr<PreparedIntegerSelect> prepareExactIntegerSelect(
+    mlir::OpBuilder &typeBuilder, const NumericLoweringSite &site,
+    const NumericValue &condition, const NumericValue &whenTrue,
+    const NumericValue &whenFalse);
+mlir::FailureOr<mlir::Value> materializeExactIntegerSelectArm(
+    mlir::OpBuilder &at, const NumericLoweringSite &site,
+    const PreparedIntegerSelect &prepared, SelectArm arm);
+
+// Optional result facts only; this never changes a physical select or its
+// inputs.
 std::optional<IntegerInterval> refineUnsignedSelectInterval(
-    const NumericLoweringSite &, llvm::StringRef predicate, bool selectedWhenTrue,
-    const std::optional<IntegerInterval> &original, uint64_t literalWidth,
-    const llvm::APSInt &comparisonConstant, const llvm::APSInt &fallbackConstant);
+    const NumericLoweringSite &, llvm::StringRef predicate,
+    bool selectedWhenTrue, const std::optional<IntegerInterval> &original,
+    uint64_t literalWidth, const llvm::APSInt &comparisonConstant,
+    const llvm::APSInt &fallbackConstant);
 
 mlir::FailureOr<NumericValue>
 lowerExactIntegerBinary(mlir::OpBuilder &, const NumericLoweringSite &,

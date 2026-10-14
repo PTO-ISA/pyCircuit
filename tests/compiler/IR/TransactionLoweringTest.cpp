@@ -721,6 +721,58 @@ protected:
                                                     index))})}))})),
          builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
   }
+  mlir::DictionaryAttr span(unsigned line) {
+    return builder.getDictionaryAttr(
+        {builder.getNamedAttr("path", builder.getStringAttr("lower.py")),
+         builder.getNamedAttr("line", builder.getI64IntegerAttr(line)),
+         builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
+         builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
+         builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
+  }
+  SourceBranchOp addBranchScenario(mlir::ModuleOp file) {
+    auto definition = owner(file);
+    auto run = named<SourceTransactionOp>(file, "run");
+    auto &body = run.getBody().front();
+    auto constants = definition.getBody().front().getOps<BitsConstantOp>();
+    auto zero = *std::next(constants.begin(), 3);
+    llvm::SmallVector<mlir::Value> captures(run->getOperands());
+    captures.push_back(zero.getResult());
+    run->setOperands(captures);
+    for (auto &region : run->getRegions())
+      region.front().addArgument(zero.getResult().getType(), run.getLoc());
+
+    mlir::OperationState state(run.getLoc(),
+                               SourceBranchOp::getOperationName());
+    state.addOperands(body.getArgument(0));
+    state.addTypes(body.getArgument(1).getType());
+    state.addAttribute("occurrence", occurrence("Owner", 24));
+    state.addAttribute("ac.condition_location", span(24));
+    state.addRegion();
+    state.addRegion();
+    builder.setInsertionPointToStart(&body);
+    auto split = mlir::cast<SourceBranchOp>(builder.create(state));
+    for (unsigned arm = 0; arm != 2; ++arm) {
+      auto *block = new mlir::Block;
+      split->getRegion(arm).push_back(block);
+      builder.setInsertionPointToEnd(block);
+      auto value = arm == 0 ? body.getArgument(1) : body.getArguments().back();
+      mlir::OperationState write(run.getLoc(),
+                                 SourceStateWriteOp::getOperationName());
+      write.addOperands({body.getArgument(0), value});
+      write.addAttribute("state", builder.getStringAttr("saved"));
+      write.addAttribute("selectors", builder.getArrayAttr({}));
+      write.addAttribute("occurrence", occurrence("Owner", 25 + arm));
+      builder.create(write);
+      yield(value, run.getLoc());
+    }
+    auto firstCall = *body.getOps<SourceMethodCallOp>().begin();
+    firstCall->setOperand(1, split.getResult(0));
+    for (auto write :
+         llvm::make_early_inc_range(body.getOps<SourceStateWriteOp>()))
+      if (write.getState() == "saved")
+        write.erase();
+    return split;
+  }
 };
 
 mlir::Value extractChain(mlir::OpBuilder &builder, mlir::Value input,
@@ -817,6 +869,42 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
+       NativePassLowersBranchDataIntentAndScalarResultFromOneSourceHistory) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto branch = addBranchScenario(*file);
+  ASSERT_TRUE(branch);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto before = print(file->getOperation());
+  EXPECT_NE(before.find("ac.branch"), std::string::npos);
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+
+  unsigned residualBranches = 0;
+  file->walk([&](SourceBranchOp) { ++residualBranches; });
+  EXPECT_EQ(residualBranches, 0u);
+  auto saved = leaf(*file, "saved");
+  auto data = mlir::dyn_cast<BitsSelectOp>(yielded(saved, 3).getDefiningOp());
+  auto enable = mlir::dyn_cast<BitsBinaryOp>(yielded(saved, 2).getDefiningOp());
+  ASSERT_TRUE(data);
+  ASSERT_TRUE(enable);
+  EXPECT_EQ(enable.getOpcode(), "and");
+  auto intent =
+      mlir::dyn_cast<BitsSelectOp>(enable->getOperand(1).getDefiningOp());
+  ASSERT_TRUE(intent);
+  EXPECT_EQ(data.getCondition(), intent.getCondition());
+  EXPECT_NE(data->getOperand(1), data->getOperand(2));
+  EXPECT_NE(intent->getOperand(1), intent->getOperand(2));
+
+  unsigned selects = 0;
+  owner(*file).walk([&](BitsSelectOp) { ++selects; });
+  EXPECT_GE(selects, 3u); // joined D, joined E, and escaped scalar result.
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*file);
+  }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
        IndependentReadonlyRuleAndUnwrittenOwnerKeepOldQ) {
   for (bool reverse : {false, true}) {
     auto file = parse();
@@ -840,7 +928,13 @@ TEST_F(TransactionLoweringTest,
     ASSERT_TRUE(fire);
     ASSERT_GE(fire.getInt(), 0);
     ASSERT_LT(static_cast<uint64_t>(fire.getInt()), run->getNumResults());
-    EXPECT_EQ(count->getOperand(2), run->getResult(fire.getInt()));
+    auto effective =
+        mlir::dyn_cast<BitsBinaryOp>(yielded(count, 2).getDefiningOp());
+    ASSERT_TRUE(effective);
+    EXPECT_EQ(effective.getOpcode(), "and");
+    EXPECT_EQ(effective->getOperand(0),
+              run.getBody().front().getTerminator()->getOperand(fire.getInt()));
+    EXPECT_TRUE(run->getResult(fire.getInt()).use_empty());
     HardwareAnalysis hardware(*file);
     HardwareBindings bindings;
     bindings.owner = owner(*file);

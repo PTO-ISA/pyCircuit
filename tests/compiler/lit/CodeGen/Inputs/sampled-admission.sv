@@ -147,6 +147,11 @@ module tb;
 
     drive(1, 1, 1, 1, 0, 0, 0, 0);
     reset_design();
+    drive(1'bz, 0, 1, 1, 1, 0, 1, 0);
+    step("INTENT_Z_ROLLBACK", 1, 0, 0);
+
+    drive(1, 1, 1, 1, 0, 0, 0, 0);
+    reset_design();
     drive(1, 1, 1, 1, 1'bx, 0, 1'bx, 0);
     left_clk = 0;
     right_clk = 0;

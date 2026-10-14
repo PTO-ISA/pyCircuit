@@ -12,8 +12,11 @@
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
+#include <array>
 #include <memory>
+#include <optional>
 #include <string>
+#include <tuple>
 #include <vector>
 
 namespace acir::ac {
@@ -279,6 +282,20 @@ protected:
       case TransactionStateEventKind::Observe:
         actual = candidate.observation;
         break;
+      case TransactionStateEventKind::BranchEnter:
+      case TransactionStateEventKind::ThenEnter:
+      case TransactionStateEventKind::ThenExit:
+      case TransactionStateEventKind::ElseEnter:
+      case TransactionStateEventKind::ElseExit:
+      case TransactionStateEventKind::BranchExit:
+        actual = candidate.branch;
+        break;
+      case TransactionStateEventKind::StateJoin:
+        actual = candidate.join;
+        break;
+      case TransactionStateEventKind::BranchResult:
+        actual = candidate.branchResult;
+        break;
       case TransactionStateEventKind::TransactionEnter:
       case TransactionStateEventKind::TransactionExit:
         break;
@@ -329,6 +346,38 @@ protected:
          builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
          builder.getNamedAttr("end_column", builder.getI64IntegerAttr(9))});
   }
+  SourceBranchOp branch(mlir::Block &block, mlir::Block::iterator where,
+                        mlir::Value condition,
+                        std::optional<mlir::Value> whenTrue,
+                        std::optional<mlir::Value> whenFalse,
+                        unsigned occurrenceIndex,
+                        llvm::StringRef owner = "Root") {
+    EXPECT_EQ(whenTrue.has_value(), whenFalse.has_value());
+    mlir::OperationState state(condition.getLoc(),
+                               SourceBranchOp::getOperationName());
+    state.addOperands(condition);
+    if (whenTrue)
+      state.addTypes((*whenTrue).getType());
+    state.addAttribute("occurrence", occurrence(owner, occurrenceIndex));
+    state.addAttribute("ac.condition_location",
+                       span("state.py", occurrenceIndex));
+    state.addRegion();
+    state.addRegion();
+    builder.setInsertionPoint(&block, where);
+    auto split = mlir::cast<SourceBranchOp>(builder.create(state));
+    for (auto [region, value] : llvm::zip(
+             split->getRegions(),
+             std::array<std::optional<mlir::Value>, 2>{whenTrue, whenFalse})) {
+      auto *arm = new mlir::Block;
+      region.push_back(arm);
+      builder.setInsertionPointToEnd(arm);
+      mlir::OperationState yield(split.getLoc(), YieldOp::getOperationName());
+      if (value)
+        yield.addOperands(*value);
+      builder.create(yield);
+    }
+    return split;
+  }
 };
 
 TEST_F(TransactionStateSSATest,
@@ -351,20 +400,25 @@ TEST_F(TransactionStateSSATest,
       EXPECT_EQ(version.ordinal, 0u);
       EXPECT_FALSE(version.predecessor);
       EXPECT_FALSE(version.write);
+      EXPECT_FALSE(version.join);
       EXPECT_EQ(version.value, plan->owners[version.owner].oldQ);
-    } else {
+    } else if (version.kind == StateVersionKind::Write) {
       ASSERT_TRUE(version.predecessor);
       ASSERT_TRUE(version.write);
+      EXPECT_FALSE(version.join);
+      ASSERT_TRUE(version.value);
       auto &previous = plan->versions[*version.predecessor];
       auto &intent = plan->writes[*version.write];
       EXPECT_EQ(previous.owner, version.owner);
       EXPECT_EQ(previous.ordinal + 1, version.ordinal);
       EXPECT_EQ(intent.version, i);
       EXPECT_EQ(intent.predecessor, *version.predecessor);
-      EXPECT_EQ(intent.value, version.value);
+      EXPECT_EQ(intent.value, *version.value);
       EXPECT_EQ(intent.occurrence, intent.operation->getAttr("occurrence"));
       EXPECT_TRUE(intent.selectors.empty());
       EXPECT_TRUE(intent.indices.empty());
+    } else {
+      ADD_FAILURE() << "straight-line fixture unexpectedly produced a join";
     }
   }
   std::vector<const TransactionCallBinding *> bumps;
@@ -414,6 +468,270 @@ TEST_F(TransactionStateSSATest,
   ASSERT_EQ(relay->exitVersions.size(), 1u);
   EXPECT_EQ(ordinal(*plan, relay->entryVersions[0].version), 1u);
   EXPECT_EQ(ordinal(*plan, relay->exitVersions[0].version), 2u);
+}
+
+TEST_F(TransactionStateSSATest,
+       BranchStateJoinsPreserveBothArmVersionsAndDistinctSelectedSSA) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto &body = run.getBody().front();
+  auto split = branch(body, body.begin(), body.getArgument(0),
+                      body.getArgument(1), body.getArgument(2), 20);
+  auto originalWrite = first<SourceStateWriteOp>(run.getBody());
+  for (auto [arm, value, index] :
+       {std::tuple<mlir::Region *, mlir::Value, unsigned>(
+            &split.getThenRegion(), body.getArgument(1), 21),
+        std::tuple<mlir::Region *, mlir::Value, unsigned>(
+            &split.getElseRegion(), body.getArgument(2), 22)}) {
+    auto *write = originalWrite->clone();
+    write->setOperand(0, body.getArgument(0));
+    write->setOperand(1, value);
+    write->setAttr("occurrence", occurrence("Root", index));
+    arm->front().getOperations().insert(
+        arm->front().getTerminator()->getIterator(), write);
+  }
+  auto firstCall = *body.getOps<SourceMethodCallOp>().begin();
+  firstCall->setOperand(1, split.getResult(0));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->branches.size(), 1u);
+  ASSERT_EQ(plan->joins.size(), 1u);
+  ASSERT_EQ(plan->branchResults.size(), 1u);
+  const auto &record = plan->branches[0];
+  EXPECT_EQ(record.operation, split);
+  EXPECT_EQ(record.frame, plan->rootFrame);
+  EXPECT_FALSE(record.parentBranch);
+  ASSERT_EQ(record.entryVersions.size(), 1u);
+  ASSERT_EQ(record.thenVersions.size(), 1u);
+  ASSERT_EQ(record.elseVersions.size(), 1u);
+  ASSERT_EQ(record.joins.size(), 1u);
+  ASSERT_EQ(record.results.size(), 1u);
+  const auto &join = plan->joins[record.joins[0]];
+  EXPECT_EQ(join.branch, 0u);
+  EXPECT_EQ(join.owner, record.entryVersions[0].owner);
+  EXPECT_EQ(join.entry, record.entryVersions[0].version);
+  EXPECT_EQ(join.whenTrue, record.thenVersions[0].version);
+  EXPECT_EQ(join.whenFalse, record.elseVersions[0].version);
+  EXPECT_NE(join.whenTrue, join.whenFalse);
+  ASSERT_LT(join.result, plan->versions.size());
+  const auto &joined = plan->versions[join.result];
+  EXPECT_EQ(joined.kind, StateVersionKind::Join);
+  EXPECT_EQ(joined.predecessor, join.entry);
+  EXPECT_FALSE(joined.write);
+  EXPECT_EQ(joined.join, record.joins[0]);
+  EXPECT_FALSE(joined.value);
+  EXPECT_GT(joined.ordinal, plan->versions[join.whenTrue].ordinal);
+  EXPECT_GT(joined.ordinal, plan->versions[join.whenFalse].ordinal);
+
+  const auto &selected = plan->branchResults[record.results[0]];
+  EXPECT_EQ(selected.branch, 0u);
+  EXPECT_EQ(selected.ordinal, 0u);
+  EXPECT_EQ(plan->values[selected.result].value, split.getResult(0));
+  EXPECT_EQ(plan->values[selected.whenTrue].value, body.getArgument(1));
+  EXPECT_EQ(plan->values[selected.whenFalse].value, body.getArgument(2));
+  EXPECT_NE(selected.result, selected.whenTrue);
+  EXPECT_NE(selected.result, selected.whenFalse);
+  EXPECT_EQ(selected.requiredPrefix, record.entryPrefix);
+  ASSERT_FALSE(plan->calls.empty());
+  ASSERT_FALSE(plan->calls.front().arguments.empty());
+  EXPECT_EQ(plan->calls.front().operation, firstCall);
+  EXPECT_EQ(plan->calls.front().arguments.front(), selected.result);
+
+  std::vector<TransactionStateEventKind> branchEvents;
+  for (const auto &entry : plan->events)
+    if (entry.branch == 0 || entry.join == record.joins[0] ||
+        entry.branchResult == record.results[0])
+      branchEvents.push_back(entry.kind);
+  const std::vector<TransactionStateEventKind> expected = {
+      TransactionStateEventKind::BranchEnter,
+      TransactionStateEventKind::ThenEnter,
+      TransactionStateEventKind::ThenExit,
+      TransactionStateEventKind::ElseEnter,
+      TransactionStateEventKind::ElseExit,
+      TransactionStateEventKind::StateJoin,
+      TransactionStateEventKind::BranchResult,
+      TransactionStateEventKind::BranchExit};
+  EXPECT_EQ(branchEvents, expected);
+}
+
+TEST_F(TransactionStateSSATest,
+       SingleArmWriteJoinsEntryIntentAndIdentityWriteRemainsVisible) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto &body = run.getBody().front();
+  auto firstRead = *body.getOps<SourceStateReadOp>().begin();
+  auto split = branch(body, std::next(firstRead->getIterator()),
+                      body.getArgument(0), std::nullopt, std::nullopt, 20);
+  auto originalWrite = first<SourceStateWriteOp>(run.getBody());
+  auto *identity = originalWrite->clone();
+  identity->setOperand(0, body.getArgument(0));
+  identity->setOperand(1, firstRead.getResult());
+  identity->setAttr("occurrence", occurrence("Root", 21));
+  split.getThenRegion().front().getOperations().insert(
+      split.getThenRegion().front().getTerminator()->getIterator(), identity);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->branches.size(), 1u);
+  ASSERT_EQ(plan->joins.size(), 1u);
+  const auto &record = plan->branches[0];
+  const auto &join = plan->joins[record.joins[0]];
+  EXPECT_NE(join.whenTrue, join.entry);
+  EXPECT_EQ(join.whenFalse, join.entry);
+  auto intent = llvm::find_if(plan->writes, [&](const auto &write) {
+    return write.operation.operator->() == identity;
+  });
+  ASSERT_NE(intent, plan->writes.end());
+  EXPECT_NE(intent->version, intent->predecessor);
+  EXPECT_EQ(intent->value, *plan->versions[intent->version].getSourceValue());
+}
+
+TEST_F(TransactionStateSSATest,
+       NestedEmptyBranchesKeepParentageAndDepthFailureIsAtomic) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto &body = run.getBody().front();
+  auto outer = branch(body, body.begin(), body.getArgument(0), std::nullopt,
+                      std::nullopt, 20);
+  auto &thenBlock = outer.getThenRegion().front();
+  branch(thenBlock, thenBlock.getTerminator()->getIterator(),
+         body.getArgument(0), std::nullopt, std::nullopt, 21);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->branches.size(), 2u);
+  EXPECT_FALSE(plan->branches[0].parentBranch);
+  EXPECT_EQ(plan->branches[1].parentBranch, 0u);
+  EXPECT_TRUE(plan->branches[0].joins.empty());
+  EXPECT_TRUE(plan->branches[0].results.empty());
+  EXPECT_TRUE(plan->branches[1].joins.empty());
+  EXPECT_TRUE(plan->branches[1].results.empty());
+
+  auto tooDeep = parse();
+  ASSERT_TRUE(tooDeep);
+  auto deepRun = transaction(*tooDeep);
+  auto *block = &deepRun.getBody().front();
+  for (unsigned depth = 0; depth != 129; ++depth) {
+    auto nested = branch(*block, block->getTerminator()->getIterator(),
+                         deepRun.getBody().front().getArgument(0), std::nullopt,
+                         std::nullopt, 20 + depth);
+    block = &nested.getThenRegion().front();
+  }
+  reject(*tooDeep);
+  EXPECT_NE(llvm::StringRef(diagnostics).lower().find("depth"),
+            std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(TransactionStateSSATest,
+       RepeatedMethodBranchesUseInvocationLocalJoinsAndOwnerOrdinals) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto bump = method(*file);
+  auto &body = bump.getBody().front();
+  auto split = branch(body, body.begin(), body.getArgument(5), std::nullopt,
+                      std::nullopt, 20, "Child");
+  auto originalWrite = first<SourceStateWriteOp>(bump.getBody());
+  auto *conditional = originalWrite->clone();
+  conditional->setOperand(0, body.getArgument(1));
+  conditional->setOperand(1, body.getArgument(0));
+  conditional->setAttr("occurrence", occurrence("Child", 21));
+  split.getThenRegion().front().getOperations().insert(
+      split.getThenRegion().front().getTerminator()->getIterator(),
+      conditional);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->branches.size(), 3u);
+  ASSERT_EQ(plan->joins.size(), 3u);
+  EXPECT_EQ(plan->branches[0].operation, split);
+  EXPECT_EQ(plan->branches[1].operation, split);
+  EXPECT_EQ(plan->branches[2].operation, split);
+  EXPECT_NE(plan->branches[0].frame, plan->branches[1].frame);
+  EXPECT_NE(plan->branches[1].frame, plan->branches[2].frame);
+  auto left0 = plan->joins[plan->branches[0].joins[0]].owner;
+  auto left1 = plan->joins[plan->branches[1].joins[0]].owner;
+  auto right = plan->joins[plan->branches[2].joins[0]].owner;
+  EXPECT_EQ(left0, left1);
+  EXPECT_NE(left0, right);
+  auto leftFirst = plan->joins[plan->branches[0].joins[0]].result;
+  auto leftSecond = plan->joins[plan->branches[1].joins[0]].result;
+  EXPECT_LT(plan->versions[leftFirst].ordinal,
+            plan->versions[leftSecond].ordinal);
+  for (const auto &record : plan->branches) {
+    ASSERT_EQ(record.joins.size(), 1u);
+    auto version = plan->joins[record.joins[0]].result;
+    EXPECT_EQ(plan->versions[version].kind, StateVersionKind::Join);
+    EXPECT_FALSE(plan->versions[version].value);
+    EXPECT_TRUE(plan->versions[version].join);
+  }
+}
+
+TEST_F(TransactionStateSSATest,
+       ConstantFalseBranchCannotHideCallsChecksOrObservations) {
+  for (llvm::StringRef effect : {"call", "check", "observe"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto root = module(*file, "Root");
+    auto constants = root.getBody().front().getOps<BitsConstantOp>();
+    auto no = *std::next(constants.begin());
+    auto run = transaction(*file);
+    llvm::SmallVector<mlir::Value> operands(run->getOperands());
+    operands.push_back(no.getResult());
+    run->setOperands(operands);
+    for (auto &region : run->getRegions())
+      region.front().addArgument(no.getResult().getType(), run.getLoc());
+    auto &body = run.getBody().front();
+    auto split = branch(body, body.begin(), body.getArguments().back(),
+                        std::nullopt, std::nullopt, 20);
+    auto &arm = split.getThenRegion().front();
+    builder.setInsertionPoint(arm.getTerminator());
+    if (effect == "call") {
+      auto call = *body.getOps<SourceMethodCallOp>().begin();
+      arm.getOperations().insert(arm.getTerminator()->getIterator(),
+                                 call->clone());
+    } else if (effect == "check") {
+      mlir::OperationState check(run.getLoc(),
+                                 SourceExpectOp::getOperationName());
+      check.addOperands({body.getArguments().back(), body.getArgument(0)});
+      check.addAttribute("kind", builder.getStringAttr("assert"));
+      check.addAttribute("location", span("state.py", 21));
+      check.addAttribute("occurrence", occurrence("Root", 21));
+      builder.create(check);
+    } else {
+      mlir::OperationState observe(run.getLoc(),
+                                   SourceObserveOp::getOperationName());
+      observe.addOperands(body.getArgument(0));
+      observe.addAttribute("kind", builder.getStringAttr("report"));
+      observe.addAttribute("spec",
+                           builder.getDictionaryAttr({builder.getNamedAttr(
+                               "name", builder.getStringAttr("conditional"))}));
+      observe.addAttribute("occurrence", occurrence("Root", 21));
+      observe.addAttribute("ac.location", span("state.py", 21));
+      builder.create(observe);
+    }
+    reject(*file);
+    EXPECT_NE(llvm::StringRef(diagnostics).lower().find("branch"),
+              std::string::npos)
+        << diagnostics;
+  }
 }
 
 TEST_F(TransactionStateSSATest,
@@ -540,8 +858,9 @@ TEST_F(TransactionStateSSATest,
   for (const auto &version : plan->versions)
     if (version.kind == StateVersionKind::OldQ) {
       EXPECT_EQ(version.requiredPrefix, 0u);
-      ASSERT_LT(version.value, plan->values.size());
-      EXPECT_EQ(plan->values[version.value].requiredPrefix, 0u);
+      ASSERT_TRUE(version.value);
+      ASSERT_LT(*version.value, plan->values.size());
+      EXPECT_EQ(plan->values[*version.value].requiredPrefix, 0u);
     }
   for (const auto &call : plan->calls)
     for (BoundValueId capture : call.captures) {
@@ -905,7 +1224,8 @@ TEST_F(TransactionStateSSATest,
       ++aggregateWrites;
       auto &version = plan->versions[intent.version];
       EXPECT_EQ(version.payloadType, packet.getQ().getType());
-      EXPECT_EQ(version.value, intent.value);
+      ASSERT_TRUE(version.value);
+      EXPECT_EQ(*version.value, intent.value);
       EXPECT_EQ(plan->values[intent.value].value, read->getResult(0));
       EXPECT_TRUE(intent.selectors.empty());
       EXPECT_TRUE(intent.indices.empty());
@@ -1497,14 +1817,15 @@ TEST_F(TransactionStateSSATest,
   falsePeek->setAttr("sym_name", builder.getStringAttr("peek_false"));
   falsePeek->setAttr("occurrence", occurrence("Child", 30));
   for (auto &region : falsePeek->getRegions())
-    for (auto read : llvm::make_early_inc_range(
-             region.front().getOps<SourceStateReadOp>()))
+    for (auto read :
+         llvm::make_early_inc_range(region.front().getOps<SourceStateReadOp>()))
       read->erase();
   auto &falseGuard = falsePeek->getRegion(0).front();
   auto *falsePredicate = no->clone();
   falseGuard.getOperations().insert(falseGuard.begin(), falsePredicate);
   falseGuard.getTerminator()->setOperand(0, falsePredicate->getResult(0));
-  child.getBody().front().getOperations().insert(peek->getIterator(), falsePeek);
+  child.getBody().front().getOperations().insert(peek->getIterator(),
+                                                 falsePeek);
   call->setAttr("callee",
                 mlir::SymbolRefAttr::get(
                     &context, "Child",
@@ -1928,12 +2249,11 @@ TEST_F(TransactionStateSSATest,
     builder.setInsertionPoint(bumpBody.getTerminator());
     mlir::OperationState observation(bump.getLoc(),
                                      SourceObserveOp::getOperationName());
-    observation.addOperands(
-        {bumpBody.getArgument(1), bumpBody.getArgument(0)});
+    observation.addOperands({bumpBody.getArgument(1), bumpBody.getArgument(0)});
     observation.addAttribute("kind", builder.getStringAttr("report"));
-    observation.addAttribute(
-        "spec", builder.getDictionaryAttr({builder.getNamedAttr(
-                    "name", builder.getStringAttr("expanded"))}));
+    observation.addAttribute("spec",
+                             builder.getDictionaryAttr({builder.getNamedAttr(
+                                 "name", builder.getStringAttr("expanded"))}));
     observation.addAttribute("occurrence", occurrence("Child", 90));
     observation.addAttribute("ac.location", span("state.py", 90));
     builder.create(observation);

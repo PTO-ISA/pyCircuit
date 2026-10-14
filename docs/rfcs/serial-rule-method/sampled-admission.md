@@ -13,9 +13,11 @@
 
 ## 范围与作者接口
 
-继续限定直线调用、同一实际物理域、whole Bits 状态、每个实际 owner 唯一外层 writer。
+继续限定同一实际物理域、whole Bits 状态、每个实际 owner 唯一外层 writer。调用和
+effects 保持无条件；whole-Bits statement branch 的 D/E 扩展见
+[branch state SSA](branch-state-ssa.md)。
 事务内 assert/观测与 Method System 闭环的精确扩展合同见
-[body effects](sampled-body-effects.md)。分支、部分更新和资源分别验收。
+[body effects](sampled-body-effects.md)。条件调用/effects、部分更新和资源分别验收。
 不得为完成本切片偷偷开放这些能力，也不得缩减它们的最终验收要求。
 
 复用 `@module`、`@rule`、`@method` 及现有 `guard=`；不新增作者可见 valid、fire、
@@ -108,7 +110,7 @@ ac.transaction_wiring = {
   states: [Occurrence, ...],
   incoming: [{state: StateID, data: Index, enable: Index}, ...],
   writers: [{registration: Occurrence, ordinary_results: Index,
-             candidates: [{state: StateID, result: Index}, ...]}, ...]
+             candidates: [{state: StateID, data: Index, enable: Index}, ...]}, ...]
 }
 ```
 
@@ -121,21 +123,27 @@ ac.transaction_wiring = {
   覆盖所有 appended 输入且无缺口、重复或额外项。保留 `ac.internal_ports` 原前缀及根
   默认值合同，不改变公共根 ABI。
 - writers 每个降低后的事务恰好一行，包括无写事务；registration 解析到一个实际 Rule。
-  candidate owner 和 result ordinal 均唯一。
+  candidate owner、data ordinal 和 enable ordinal 均唯一。旧的 `{state,result}` 形状
+  直接拒绝，不提供默认值、别名或兼容读取。
 
 设 O 为普通结果数、W 为 candidates 数、G 为 guards 数、A 为 body assertions，
 observation j 有 Kj 个 values，结果布局必须为：
 
 ```text
-F = O+W; C = F+1+sum(j)(1+Kj)
-ordinary = [0, O); candidates = [O, F); fire_result = F
+D_i = O+2i; E_i = O+2i+1; F = O+2W
+C = F+1+sum(j)(1+Kj)
+ordinary = [0, O); candidate i = (D_i, E_i); fire_result = F
 observation_j_path = F+1+sum(t<j)(1+Kt); values follow its path
 guard_i_predicate = C+2i; guard_i_reached = C+2i+1
 assert_i_condition = C+2(G+i); assert_i_path = C+2(G+i)+1
 total = C+2(G+A)
 ```
 
-candidates 精确覆盖连续 slots；guard 的 ID 等于对应 RequiredCheck ID，恰好一个
+candidates 精确覆盖连续 D/E slots。D 是最终候选数据；E 是
+`bit_and(internal_final_fire, raw_write_intent)` 的四态有效写使能，不得用
+KnownOne、case-equality 或 constant fold 删除该 AND。外部 fire result 在所有事务中都
+必须零使用，包括无状态和有 body effects 的事务；内部 fire 仍被证明并作为 yield
+返回。guard 的 ID 等于对应 RequiredCheck ID，恰好一个
 expect 消费其 predicate/reached suffix。body terminals 必须消费各自独立的指定结果槽。
 non-total 必须 O=0；有值事务继续要求全部
 guard 经既有 literal/identity 证明恒真。不得通过隐藏 valid state 放宽返回限制。
@@ -144,8 +152,10 @@ guard 经既有 literal/identity 证明恒真。不得通过隐藏 valid state �
 
 **源到最终的验证**从完整原始、已验证的 state plan 和 summaries 构造预期事实。
 `LoweringPreparation` 必须保持原 plan 存活至 detached candidate 验证成功，逐项比较：
-predicate suffix 与映射后的原 guard、candidate 与最终版本 RHS、state read 与计划版本、
-call result 与计划 yielded value、物理 captures 与原 domain、metadata 与独立构造的身份。
+predicate suffix 与映射后的原 guard、candidate D/raw-intent 与最终 plan version pair、
+state read 与计划版本、call result 与计划 yielded value、物理 captures 与原 domain、
+metadata 与独立构造的身份。OldQ/Write 分别验证 Q0/statement-time RHS；Join 没有 RHS，
+必须验证 condition、entry/true/false version 和两个四态 select。
 包括 guard span 和完整 inventories，不以候选自己声明的 metadata 证明自己。
 
 所有定义（含未选中定义）的 companion 集合必须精确等于：直接转换 SourceState、直接
@@ -170,7 +180,7 @@ identity endpoint 包含实际 SSA、实例上下文和解析后的类型。只�
 
 1. 同宽、静态 low=0 的 bits.extract。
 2. Rule argument 到对应 capture。
-3. Rule result 到对应 yield，但在 candidate/fire/check 边界停止。
+3. Rule result 到对应 yield，但在 candidate D/E、fire/effect/check 边界停止。
 4. 普通 Instance result 到对应 Module yield。
 5. callee Module argument 到实际 Instance operand。
 
@@ -197,16 +207,18 @@ call result 使用含内部 guard 的退出前缀；纯消费者保留最晚必�
 
 物理验证必须覆盖全部 inventoried owners、候选及 unwritten hold：
 
-- 每个实际 DFFE/child incoming pair 只来自对应本地 candidate+fire、对应 incoming pair，
+- 每个实际 DFFE/child incoming pair 只来自对应本地 candidate D/E、对应 incoming pair，
   或 E=0 的合法 hold（本地 D=Q；未使用外部 D=0）。D 与 E 都通过 identity 追踪到规定
-  stop slots；正确 fire 不能掩盖错误 D、交换 owner、漏路由或伪造常量 E。
+  stop slots；E 必须是对应 finalFire 与原 raw intent 的四态 AND。正确 fire 不能掩盖
+  错误 D、交换 owner、漏路由、KnownOne/case-equality intent 或伪造常量 E。
 - 按普通 Instance 自底向上组合实际 owner writer；zero pair 不构成 writer。包括子级
   本地写入在内，不同外层 writer 冲突必须拒绝，不从未使用或 identity write 推导无写。
 - 每个 writer 的 clock/reset 必须与所有目标 DFFE 的真实 pins identity 一致；DFFE pin
   ordinal 来自已验证 primitive 合同。无状态事务对齐所属 Module 的 domain_inputs，
   不借用任意 DFFE history 或祖先 reset。
-- 单独检查 candidate/fire/private routes 的 use；终端必须恰好是对应 D/E，check suffix
-  终端是对应 expects。原公共 Module 输出、无关 Rule capture、未声明 primitive pin 等
+- 单独检查 candidate D/E、fire 和 effect/private routes 的 use；D/E 终端必须恰好是
+  对应 storage/child route，external fire 必须零使用，check suffix 终端是对应 expects。
+  原公共 Module 输出、无关 Rule capture、未声明 primitive pin 等
   私有值逃逸拒绝；已声明并验证的 appended internal routing 是允许的传递路径。
 - 继承[跨实例 Collection 限制](cross-instance-lowering.md)，不因采样扩展自动解除。
   已准入 check-only Collection 必须有逐 occurrence/lane 的独立 history。
@@ -233,6 +245,7 @@ resolveTransactionState(module, StateID, analysis, bindings, budget) -> Physical
 normalizeIdentityEndpoint(endpoint, stopBoundaries, analysis, budget) -> NormalizedEndpoint
 prepareSampledBoundaries(definition, analysis, bindings, budget) -> optional PreparedSampledBoundaries
 proveSampledAdmission(view, prepared, analysis, bindings, budget) -> LogicalResult
+SampledAdmissionValidation.verifyCandidateEnables(writer, bindings) -> [CheckedCandidateEnable]
 verifyTransactionWiring(analysis, scopes, validation, budget) -> LogicalResult
 ```
 
@@ -242,7 +255,7 @@ final candidate、materialized value mappings，不另造 evaluator。
 
 `PreparedSampledBoundaries` 是一次只读验证中借用 immutable IR 的准备结果，不是缓存的
 验证结论。仅 factory 可以构造；结果不可复制，公开只读 scope/boundaries。它必须包含
-该定义完整的 candidate、fire、observation path/values、guard、assert/range 边界，不能因本次 Rule 不使用某边界
+该定义完整的 candidate D/E、fire、observation path/values、guard、assert/range 边界，不能因本次 Rule 不使用某边界
 而省略。普通无 sampled/wiring 定义成功返回空 optional；构造失败与空结果必须区分。
 
 消费前核对精确 definition、definition-local 空路径和完整 bindings。不同 bindings 不得
@@ -266,9 +279,12 @@ Builder 将同一个 validation 贯穿 catalog、绑定检查和 wiring；独立
 context 查找、完整 bindings 比较、entry/Rule 存储均提前计费；native raw preflight
 保留既有上界并覆盖新增记账，不通过减少限额预付来使样本通过。
 
-同一 writer 的候选均已逐项验证目标、类型、域、冲突及其规范化 enable 等于 fire 后，
-允许对该 fire 的完整 Enable 扇出只遍历一次；每条 Data 路由仍须验证。该复用不跨 writer
-或实际 occurrence，不删 incoming Enable、末端、逃逸、环和 dead-end 检查。
+同一 writer 的候选均须逐项验证目标、类型、域、冲突及
+`E=bit_and(finalFire,rawIntent)`。不同 owner 的 raw intent 可不同，不能把 fire fanout
+验证一次后当作全部 E 的证明。只有精确 normalized E identity 相同且完整 scope/bindings
+一致时才能复用已完成的节点事实；每个 candidate root、AND、raw intent grammar、Data
+route、incoming Enable、末端、逃逸、环和 dead-end 仍分别检查。该复用不跨 writer 或
+实际 occurrence。
 
 扩展既有 HardwareAnalysis 数据：
 
@@ -381,8 +397,10 @@ importer/emitter 位于 `compiler/lib/Compiler/`，LowerTransactions 位于
 - [ ] 运行[既有命令](acceptance.md#commands-and-gates)：本 checkout build/install 完成后，
   非空 native/lit 选择，再适用短 API/example gate；保留 raw command/status 与完整产物。
 - [ ] 独立 review 绑定最终候选内容；文档/原生 schema 通过不冒充公共源或执行通过。
-- [ ] 按 [body effects checklist](sampled-body-effects.md#acceptance-checklist)验收 Method `@system`；分支/partial state、resources 和效果安全优化的未完成项继续在
-  roadmap 保留；普通 System smoke 不替代 `METHOD-SYSTEM-CLOSURE`。
+- [ ] 按 [body effects checklist](sampled-body-effects.md#acceptance-checklist)与
+  [branch checklist](branch-state-ssa.md#acceptance-checklist)验收对应 Method `@system`；
+  conditional calls/effects、partial state、resources 和效果安全优化继续在 roadmap
+  保留；普通 System smoke 不替代 `METHOD-SYSTEM-CLOSURE`。
 - [ ] nightly、长期 mutation、综合及时序若未运行明确记 NOT-RUN；不由局部成功推断。
 
 本切片完成仅关闭上述受限 sampled admission。它不代表完整基础 Method、资源扩展，

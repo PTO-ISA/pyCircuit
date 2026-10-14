@@ -291,6 +291,401 @@ def _method_program(tmp_path):
     return final, transaction_input, transaction_output
 
 
+def _branch_method_units(tmp_path):
+    source = tmp_path / "branch method system sources"
+    source.mkdir()
+    for filename in ("method_branch_provider.py", "method_branch_bench.py"):
+        shutil.copy2(FIXTURE / filename, source)
+    provider = tmp_path / "branch method provider unit"
+    consumer = tmp_path / "branch method consumer unit"
+    _ok(_compile(source, "method_branch_provider.py", provider))
+    provider_source = source / "method_branch_provider.py"
+    provider_source.unlink()
+    receipt = json.loads((provider / "unit.json").read_text())
+    provider_body = provider / receipt["files"]["body"]
+    hidden_body = tmp_path / "unavailable branch provider body.ac"
+    provider_body.rename(hidden_body)
+    try:
+        assert not provider_body.exists()
+        _ok(_compile(source, "method_branch_bench.py", consumer, [provider]))
+    finally:
+        hidden_body.rename(provider_body)
+    assert not provider_source.exists()
+    return source, provider, consumer
+
+
+def _branch_method_program(tmp_path):
+    source, provider, consumer = _branch_method_units(tmp_path)
+    transaction_input = tmp_path / "branch method transaction input.ac"
+    transaction_output = tmp_path / "branch method transaction output.ac"
+    final = tmp_path / "branch method system.ac"
+    linker = os.environ.get("PYCIRCUIT_LINKER")
+    assert linker, "set PYCIRCUIT_LINKER to this candidate's native linker"
+    arguments = [linker]
+    for unit in (provider, consumer):
+        receipt = json.loads((unit / "unit.json").read_text())
+        arguments += [
+            "--body",
+            str(unit / receipt["files"]["body"]),
+            "--header",
+            str(unit / receipt["files"]["interface"]),
+        ]
+    arguments += [
+        "--top",
+        "checks.method_branch_bench.ExerciseMethodBranches",
+        "--target",
+        "final",
+        "--output",
+        str(final),
+        "--transaction-input-out",
+        str(transaction_input),
+        "--transaction-output-out",
+        str(transaction_output),
+    ]
+    _ok(_run(arguments))
+    assert transaction_input.is_file() and transaction_output.is_file()
+    before = transaction_input.read_text()
+    after = transaction_output.read_text()
+    final_text = final.read_text()
+    assert '"ac.method.call"' in before
+    assert "ac.branch" in before
+    assert "ac.sampled_admission" in after
+    assert '"ac.method.call"' not in after
+    assert "ac.branch" not in after
+    assert final_text.count('"ac.observe"(') == 6
+    assert final_text.count("ac.observation_id") == 6
+    assert final_text.count('kind = "assert"') >= 2
+    assert "invocation" in final_text and "owner" in final_text
+    return source, provider, consumer, final, transaction_input, transaction_output
+
+
+def _branch_probe_program(tmp_path, mode):
+    source, provider, _ = _branch_method_units(tmp_path)
+    calls = {
+        "one": "owner.one_arm(selector, data)\n        owner.snapshot()",
+        "both": "owner.both_arms(selector, data)",
+        "prior": "owner.prior_write(selector, data)",
+        "identity": "owner.identity(selector)",
+        "masked": "owner.guarded_one_arm(0, selector, data)",
+        "ordered": "owner.guarded_identity(selector)\n        owner.guarded_identity(0)",
+    }
+    assert mode in calls
+    probe = source / "branch_probe.py"
+    probe.write_text(
+        "import pycircuit as ac\n"
+        "from checks.method_branch_provider import BranchProbeOwner\n\n"
+        "@ac.system\n"
+        "def BranchProbe():\n"
+        "    selector: ac.u1 = 0\n"
+        "    data: ac.u8 = 9\n"
+        "    owner = BranchProbeOwner()\n\n"
+        "    @ac.rule\n"
+        "    def drive() -> None:\n"
+        f"        {calls[mode]}\n\n"
+        "    drive()\n"
+    )
+    consumer = tmp_path / f"branch {mode} consumer unit"
+    _ok(_compile(source, probe.name, consumer, [provider]))
+    final = tmp_path / f"branch {mode} probe.ac"
+    _ok(
+        _cli(
+            "link",
+            str(provider),
+            str(consumer),
+            "--top",
+            "checks.branch_probe.BranchProbe",
+            "-o",
+            str(final),
+        )
+    )
+    return final
+
+
+def _emit_branch_probe_rtl(final, tmp_path):
+    generated = tmp_path / "verilog"
+    _ok(_cli("emit", str(final), "--target", "verilog", "-o", str(generated)))
+    receipt = json.loads((generated / "generated.json").read_text())
+    rtl = [
+        generated / row["path"]
+        for row in receipt["files"]
+        if row["path"].endswith((".v", ".sv"))
+    ]
+    assert generated / "simulation_top.sv" in rtl
+    return generated, rtl
+
+
+def _branch_probe_manual_rtl(final, tmp_path, mode):
+    generated, rtl = _emit_branch_probe_rtl(final, tmp_path)
+    body = {
+        "one": r"""
+    reset_model();
+    `selector_q = 1'bx; clk=1; rst=0; prepare();
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "one-arm X enable did not fail");
+    deny(8'd5, 1'b0);
+
+    reset_model();
+    `selector_q = 1'b1; clk=1; rst=0; prepare(); commit(); check_owner(8'd9, 1'b1);
+    `selector_q = 1'bx; clk=1; prepare();
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "held clock changed intent semantics");
+    commit(); check_owner(8'd9, 1'b1);
+    clk=0; prepare();
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "falling edge changed intent semantics");
+    commit(); check_owner(8'd9, 1'b0);
+    clk=1; prepare();
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "later active X enable did not fail");
+    deny(8'd9, 1'b0);
+
+    reset_model();
+    `selector_q = 1'bz; clk=1; rst=1; prepare();
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "reset did not mask Z enable");
+    commit(); check_owner(8'd5, 1'b1);
+""",
+        "both": r"""
+    reset_model();
+    `selector_q = 1'bx; `data_q = 8'bz0x10101; clk=1; rst=0; prepare();
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "both-arm E1 rejected unknown data");
+    commit(); check_owner(8'bz0x10101, 1'b1);
+""",
+        "prior": r"""
+    reset_model();
+    `selector_q = 1'bz; `data_q = 8'bz0x10101; clk=1; rst=0; prepare();
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "prior E1 rejected unknown data");
+    commit();
+    if (`owner_q !== 8'bx0xx01xx || `owner_history !== 1'b1)
+      $fatal(1, "prior-write branch did not preserve shared known bits");
+""",
+        "identity": r"""
+    reset_model();
+    `selector_q = 1'bx; clk=1; rst=0; prepare();
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "identity write lost intent");
+    deny(8'd5, 1'b0);
+""",
+        "masked": r"""
+    reset_model();
+    `selector_q = 1'bx; `data_q = 8'hxx; clk=1; rst=0; prepare();
+    if (error !== 1'b0 || sampling_error !== 1'b0) $fatal(1, "false fire did not mask unknown E");
+    commit(); check_owner(8'd5, 1'b1);
+""",
+        "ordered": r"""
+    reset_model();
+    `selector_q = 1'bx; clk=1; rst=0; prepare();
+    if (error !== 1'b1 || sampling_error !== 1'b0) $fatal(1, "reached unknown guard was masked by later false guard");
+    deny(8'd5, 1'b0);
+""",
+    }[mode]
+    testbench = tmp_path / f"branch_{mode}_four_state.sv"
+    testbench.write_text(
+        f"""
+module branch_{mode}_four_state;
+  logic clk=0, rst=0;
+  logic [2:0] phase=0;
+  logic permit=0;
+  wire complete, sampling_error, error;
+  pyc_root dut(.pyc_7079635f636c6b(clk), .pyc_7079635f727374(rst),
+    .pyc_phase(phase), .pyc_root_commit_ok(permit),
+    .pyc_check_complete(complete), .pyc_sampling_error(sampling_error),
+    .pyc_local_error(error));
+
+  `define ROOT dut.dut
+  `define OWNER `ROOT.pyc_instance_owner.pyc_instance_value
+  `define SELECTOR `ROOT.pyc_instance_selector
+  `define DATA `ROOT.pyc_instance_data
+  `define owner_q `OWNER.q_current
+  `define owner_history `OWNER.managed.clock_current
+  `define selector_q `SELECTOR.q_current
+  `define data_q `DATA.q_current
+
+  task automatic check_owner(input logic [7:0] q, input logic history);
+    if (`owner_q !== q || `owner_history !== history)
+      $fatal(1, "branch owner state/history changed");
+  endtask
+  task automatic prepare; #1; phase=1; #1; endtask
+  task automatic commit;
+    permit=1; phase=2; #1; phase=0; permit=0; #1;
+  endtask
+  task automatic deny(input logic [7:0] q, input logic history);
+    permit=0; phase=2; #1; phase=3; #1; phase=0; #1; check_owner(q, history);
+  endtask
+  task automatic reset_model;
+    clk=0; rst=0; permit=1; phase=4; #1; phase=2; #1;
+    phase=0; permit=0; #1; check_owner(8'd5, 1'b0);
+  endtask
+
+  initial begin
+    #1;
+{body}
+    $display("BRANCH_{mode.upper()}_FOUR_STATE_OK");
+    $finish;
+  end
+endmodule
+"""
+    )
+    binary = tmp_path / f"branch_{mode}_four_state"
+    design_rtl = [path for path in rtl if path.name != "simulation_top.sv"]
+    _ok(
+        _run(
+            [
+                "iverilog",
+                "-g2012",
+                "-s",
+                f"branch_{mode}_four_state",
+                "-o",
+                str(binary),
+                str(_install() / "include/verilog/dffe.v"),
+                *map(str, design_rtl),
+                str(testbench),
+            ]
+        )
+    )
+    stdout = _ok(_run(["vvp", str(binary)], timeout=20))
+    assert f"BRANCH_{mode.upper()}_FOUR_STATE_OK" in stdout
+    assert _records(stdout) == []
+    return generated
+
+
+def _branch_probe_system_precommit(final, tmp_path):
+    generated, rtl = _emit_branch_probe_rtl(final, tmp_path)
+    simulation = generated / "simulation_top.sv"
+    text = simulation.read_text()
+    reports = re.findall(r"longint unsigned pyc_report_value_(\d+) =", text)
+    assert len(reports) == 1
+    report = reports[0]
+    monitor = tmp_path / "branch_system_precommit.sv"
+    monitor.write_text(
+        f"""
+module branch_system_precommit;
+  logic captured = 1'b0;
+  logic [7:0] owner_q, data_q;
+  logic owner_history, selector_history, data_history;
+  longint unsigned report_value, report_update;
+  initial begin
+    wait (pycircuit_sim.pyc_epoch == 1 && pycircuit_sim.pyc_phase == 0);
+    pycircuit_sim.dut.dut.pyc_instance_selector.q_current = 1'bx;
+    #0;
+    owner_q = pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.q_current;
+    owner_history = pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.managed.clock_current;
+    selector_history = pycircuit_sim.dut.dut.pyc_instance_selector.managed.clock_current;
+    data_q = pycircuit_sim.dut.dut.pyc_instance_data.q_current;
+    data_history = pycircuit_sim.dut.dut.pyc_instance_data.managed.clock_current;
+    report_value = pycircuit_sim.pyc_report_value_{report};
+    report_update = pycircuit_sim.pyc_report_update_{report};
+    captured = 1'b1;
+  end
+  final begin
+    if (captured !== 1'b1 || pycircuit_sim.pyc_epoch !== 1 ||
+        pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.q_current !== owner_q ||
+        pycircuit_sim.dut.dut.pyc_instance_owner.pyc_instance_value.managed.clock_current !== owner_history ||
+        pycircuit_sim.dut.dut.pyc_instance_selector.q_current !== 1'bx ||
+        pycircuit_sim.dut.dut.pyc_instance_selector.managed.clock_current !== selector_history ||
+        pycircuit_sim.dut.dut.pyc_instance_data.q_current !== data_q ||
+        pycircuit_sim.dut.dut.pyc_instance_data.managed.clock_current !== data_history ||
+        pycircuit_sim.pyc_report_value_{report} !== report_value ||
+        pycircuit_sim.pyc_report_update_{report} !== report_update)
+      $display("BRANCH-SYSTEM-PRECOMMIT-FAIL");
+    else
+      $display("BRANCH-SYSTEM-PRECOMMIT-PASS");
+  end
+endmodule
+"""
+    )
+    binary = tmp_path / "branch_system_precommit"
+    _ok(
+        _run(
+            [
+                "iverilog",
+                "-g2012",
+                "-s",
+                "pycircuit_sim",
+                "-s",
+                "branch_system_precommit",
+                "-o",
+                str(binary),
+                str(_install() / "include/verilog/dffe.v"),
+                *map(str, rtl),
+                str(monitor),
+            ]
+        )
+    )
+    failed = _run(["vvp", str(binary), "+cycles=3"], timeout=20)
+    assert failed.returncode != 0, failed.stdout + failed.stderr
+    assert "BRANCH-SYSTEM-PRECOMMIT-PASS" in failed.stdout
+    rows = _records(failed.stdout)
+    assert [row["kind"] for row in rows] == ["log", "report"]
+    assert [int(row["evaluation_epoch"]) for row in rows] == [0, 0]
+    assert [int(row["commit_epoch"]) for row in rows] == [1, 1]
+    assert [[int(value["value"]) for value in row["values"]] for row in rows] == [
+        [5],
+        [5],
+    ]
+
+
+def _assert_branch_method_rows(rows):
+    observations = [row for row in rows if row["kind"] != "result"]
+    assert len(observations) == 24
+    assert all(
+        int(row["commit_epoch"]) == int(row["evaluation_epoch"]) + 1
+        for row in observations
+    )
+    stable = None
+    for epoch, old in enumerate((5, 5, 17, 17)):
+        current = [row for row in observations if int(row["evaluation_epoch"]) == epoch]
+        assert [
+            (row["kind"], row["spec"].get("event", row["spec"].get("name")))
+            for row in current
+        ] == [
+            ("log", "reader before"),
+            ("log", "branch advance"),
+            ("log", "branch advance"),
+            ("report", "branch count"),
+            ("log", "branch saved"),
+            ("log", "reader after"),
+        ]
+        identities = [row["site"] for row in current]
+        if stable is None:
+            stable = identities
+        else:
+            assert identities == stable
+
+        assert [int(value["value"]) for value in current[0]["values"]] == [old]
+        assert [int(value["value"]) for value in current[1]["values"]] == [
+            old,
+            old + 11,
+            old + 1,
+            old + 5,
+        ]
+        assert [int(value["value"]) for value in current[2]["values"]] == [
+            old + 5,
+            old + 6,
+            old + 8,
+            old + 12,
+        ]
+        assert [int(value["value"]) for value in current[3]["values"]] == [old + 12]
+        assert [int(value["value"]) for value in current[4]["values"]] == [
+            old + 11,
+            old + 6,
+        ]
+        assert [int(value["value"]) for value in current[5]["values"]] == [old]
+
+        called = [json.loads(row["site"]) for row in current[1:4]]
+        assert all(identity["invocation"] for identity in called)
+        assert called[0]["site"] == called[1]["site"]
+        assert called[0]["invocation"] != called[1]["invocation"]
+        assert current[1]["instance"] == current[2]["instance"] == "root/owner"
+        assert current[3]["instance"] == "root/owner"
+        for row in (current[0], current[4], current[5]):
+            assert json.loads(row["site"])["invocation"] == []
+            assert row["instance"] == "root"
+
+    terminal = [row for row in rows if row["kind"] == "result"]
+    assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED"
+    assert int(terminal[0]["epoch_time"]) == 4
+    gauges = [row for row in terminal[0]["statistics"] if row["name"] == "branch count"]
+    assert len(gauges) == 1
+    assert gauges[0]["object_path"] == "root/owner"
+    assert int(gauges[0]["last_update"]["time"]) == 4
+    assert int(gauges[0]["value"]) == 29
+
+
 def _source_occurrence(definition, *path):
     ast_path = []
     for kind, value in path:
@@ -1454,6 +1849,90 @@ def test_method_system_effects_execute_atomically_from_one_final_artifact(tmp_pa
         "output": hashlib.sha256(transaction_output.read_bytes()).hexdigest(),
     } == stage_digests
     assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
+
+
+def test_method_branch_system_executes_shared_candidates_from_one_final_artifact(
+    tmp_path,
+):
+    (
+        _,
+        _,
+        _,
+        final,
+        transaction_input,
+        transaction_output,
+    ) = _branch_method_program(tmp_path)
+    final_digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    stage_digests = {
+        "input": hashlib.sha256(transaction_input.read_bytes()).hexdigest(),
+        "output": hashlib.sha256(transaction_output.read_bytes()).hexdigest(),
+    }
+    transcripts = []
+    failures = []
+    manifests = {}
+    for target in ("cpp", "verilog"):
+        target_root = tmp_path / ("branch-method-" + target)
+        target_root.mkdir()
+        binary = _bundle(final, target_root, target)
+        manifests[target] = json.loads(
+            (target_root / target / "generated.json").read_text()
+        )
+        workers = (1, 2) if target == "cpp" else (1,)
+        for count in workers:
+            arguments = (
+                ["--cycles", "2", "--workers", str(count)]
+                if target == "cpp"
+                else ["+cycles=2"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
+            _assert_branch_method_rows(rows)
+            transcripts.append([row for row in rows if row["kind"] != "result"])
+
+        failure_arguments = (
+            ["--cycles", "3", "--workers", "2"] if target == "cpp" else ["+cycles=3"]
+        )
+        failed = _run([str(binary), *failure_arguments], timeout=20)
+        assert failed.returncode != 0, failed.stdout + failed.stderr
+        failed_rows = _records(failed.stdout)
+        failures.append([row for row in failed_rows if row["kind"] != "result"])
+        assert failures[-1] == transcripts[-1]
+        terminal = [row for row in failed_rows if row["kind"] == "result"]
+        if terminal:
+            assert len(terminal) == 1 and terminal[0]["status"] == "FAILED"
+            assert int(terminal[0]["epoch_time"]) == 4
+            gauges = [
+                row
+                for row in terminal[0]["statistics"]
+                if row["name"] == "branch count"
+            ]
+            assert len(gauges) == 1
+            assert int(gauges[0]["last_update"]["time"]) == 4
+            assert int(gauges[0]["value"]) == 29
+        else:
+            assert "check failed at epoch 4" in failed.stdout + failed.stderr
+
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert failures[0] == failures[1] == transcripts[0]
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == final_digest
+    assert {
+        "input": hashlib.sha256(transaction_input.read_bytes()).hexdigest(),
+        "output": hashlib.sha256(transaction_output.read_bytes()).hexdigest(),
+    } == stage_digests
+    assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
+
+
+def test_method_branch_four_state_intent_and_system_precommit(tmp_path):
+    for mode in ("one", "both", "prior", "identity", "masked", "ordered"):
+        case = tmp_path / mode
+        case.mkdir()
+        final = _branch_probe_program(case, mode)
+        manual = case / "manual"
+        manual.mkdir()
+        _branch_probe_manual_rtl(final, manual, mode)
+        if mode == "one":
+            system = case / "system"
+            system.mkdir()
+            _branch_probe_system_precommit(final, system)
 
 
 @pytest.mark.parametrize(

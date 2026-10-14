@@ -9,6 +9,7 @@
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
 #include <limits>
+#include <map>
 #include <optional>
 #include <set>
 #include <tuple>
@@ -381,6 +382,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   result.clock = rule->getOperand(*clock);
   result.reset = rule->getOperand(*reset);
   result.fire = yielded->getOperand(*fire);
+  if (!rule->getResult(*fire).use_empty())
+    return rule->emitOpError() << "sampled external fire must have zero users";
   result.guards.reserve(guards.size());
   for (auto [ordinal, raw] : llvm::enumerate(guards)) {
     auto guard = dyn_cast<DictionaryAttr>(raw);
@@ -586,6 +589,10 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
   TransactionWiringView result;
   result.definition = module;
   result.ports = *ports;
+  if (states.size() > result.states.max_size() ||
+      incoming.size() > result.incoming.max_size() ||
+      writers.size() > result.writers.max_size())
+    return budget.debit(std::numeric_limits<uint64_t>::max(), module);
   result.states.reserve(states.size());
   result.incoming.reserve(incoming.size());
   result.writers.reserve(writers.size());
@@ -623,8 +630,12 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     auto enable = index(entry, "enable", module);
     if (failed(data) || failed(enable) || failed(wholeStateID(state, module)))
       return failure();
-    if (*data != ports->sourceInputCount + 2 * ordinal ||
-        *enable != *data + 1 || *enable >= body.getNumArguments())
+    uint64_t expected = SourceCheckBudget::add(
+        ports->sourceInputCount, SourceCheckBudget::multiply(2, ordinal));
+    if (expected == std::numeric_limits<uint64_t>::max() ||
+        static_cast<uint64_t>(*data) != expected ||
+        static_cast<uint64_t>(*enable) != SourceCheckBudget::add(expected, 1) ||
+        static_cast<uint64_t>(*enable) >= body.getNumArguments())
       return module->emitOpError()
              << "transaction incoming D/E must occupy its exact appended pair";
     for (const auto &prior : result.incoming) {
@@ -683,7 +694,8 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     auto sampled = parseSampledAdmission(rule, analysis, bindings, budget);
     if (failed(sampled))
       return failure();
-    if (SourceCheckBudget::add(*ordinary, candidates.size()) !=
+    if (SourceCheckBudget::add(
+            *ordinary, SourceCheckBudget::multiply(2, candidates.size())) !=
         sampled->fireResult)
       return rule->emitOpError() << "transaction candidate slots must precede "
                                     "fire in exact result layout";
@@ -694,19 +706,28 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     writer.registration = registration;
     writer.rule = rule;
     writer.ordinaryResults = *ordinary;
+    if (candidates.size() > writer.candidates.max_size())
+      return budget.debit(std::numeric_limits<uint64_t>::max(), rule);
     writer.candidates.reserve(candidates.size());
     for (auto [ordinal, candidateRaw] : llvm::enumerate(candidates)) {
       auto candidate = dyn_cast<DictionaryAttr>(candidateRaw);
-      if (failed(exact(candidate, {"state", "result"}, rule,
+      if (failed(exact(candidate, {"state", "data", "enable"}, rule,
                        "transaction candidate")))
         return failure();
       auto state = candidate.getAs<DictionaryAttr>("state");
-      auto slot = index(candidate, "result", rule);
-      if (failed(slot) || failed(wholeStateID(state, rule)))
+      auto data = index(candidate, "data", rule);
+      auto enable = index(candidate, "enable", rule);
+      if (failed(data) || failed(enable) || failed(wholeStateID(state, rule)))
         return failure();
-      if (*slot != *ordinary + ordinal || *slot >= rule->getNumResults())
+      uint64_t expected = SourceCheckBudget::add(
+          *ordinary, SourceCheckBudget::multiply(2, ordinal));
+      if (expected == std::numeric_limits<uint64_t>::max() ||
+          static_cast<uint64_t>(*data) != expected ||
+          static_cast<uint64_t>(*enable) !=
+              SourceCheckBudget::add(expected, 1) ||
+          static_cast<uint64_t>(*enable) >= sampled->fireResult)
         return rule->emitOpError()
-               << "candidate result must cover its exact continuous slot";
+               << "candidate D/E must cover its exact continuous pair";
       for (const auto &prior : writer.candidates) {
         if (failed(payComparison(prior.stateID, state, budget, rule)))
           return failure();
@@ -714,8 +735,13 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
           return rule->emitOpError()
                  << "duplicate candidate owner within transaction";
       }
-      writer.candidates.push_back({state, static_cast<uint64_t>(*slot),
-                                   cast<OpResult>(rule->getResult(*slot))});
+      if (failed(bitOne(rule->getResult(*enable), analysis, bindings, rule,
+                        budget)))
+        return failure();
+      writer.candidates.push_back({state, static_cast<uint64_t>(*data),
+                                   static_cast<uint64_t>(*enable),
+                                   cast<OpResult>(rule->getResult(*data)),
+                                   cast<OpResult>(rule->getResult(*enable))});
     }
     result.writers.push_back(std::move(writer));
   }
@@ -1054,10 +1080,11 @@ struct PrefixCache {
 // This cache belongs to exactly one normalizer, whose complete stop policy is
 // immutable. Entries compare actual root/path/bindings/value/resolved type;
 // the borrowed boundary array's address is never an identity key.
-class PrefixProof {
+class OrderedPrefixProof {
 public:
-  PrefixProof(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
-              HardwareIdentityStopPolicy policy)
+  OrderedPrefixProof(const HardwareAnalysis &analysis,
+                     SourceCheckBudget &budget,
+                     HardwareIdentityStopPolicy policy)
       : analysis(analysis), budget(budget), policy(policy),
         identity(analysis, budget, policy) {}
   FailureOr<Prefix> parse(Value value, const HardwareIdentityScope &scope) {
@@ -1238,6 +1265,175 @@ private:
   IdentityMemo identity;
   SmallVector<PrefixCache, 0> cache;
 };
+// One context fixes the immutable package, analysis, budget, definition, full
+// bindings, complete stop policy and Rule. Normalized SSA plus resolved type
+// supplies the remaining node key; actual occurrence routing is never cached.
+class IntentProof {
+  using Key = std::pair<const void *, const void *>;
+  struct Less {
+    bool operator()(const Key &a, const Key &b) const {
+      std::less<const void *> less;
+      return less(a.first, b.first) ||
+             (a.first == b.first && less(a.second, b.second));
+    }
+  };
+  enum class State { Active, Complete };
+  struct Frame {
+    HardwareIdentityEndpoint endpoint;
+    BitsSelectOp select;
+    unsigned child = 0;
+  };
+
+public:
+  IntentProof(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
+              const PreparedSampledBoundaries &prepared, RuleOp rule)
+      : analysis(analysis), budget(budget), prepared(prepared), rule(rule),
+        policy{HardwareIdentityTraversal::DefinitionLocal,
+               prepared.getBoundaries()},
+        identity(analysis, budget, policy) {}
+
+  static uint64_t nodeStorageBytes() {
+    return sizeof(std::pair<const Key, State>) + 4 * sizeof(void *);
+  }
+  static uint64_t rootStorageBytes() {
+    return sizeof(Key) + 4 * sizeof(void *);
+  }
+  static uint64_t frameStorageBytes() { return sizeof(Frame); }
+  FailureOr<HardwareIdentityEndpoint> normalize(Value value) {
+    return identity.normalize(value, prepared.getScope());
+  }
+  LogicalResult prove(Value value) {
+    auto root = normalize(value);
+    if (failed(root))
+      return failure();
+    Key rootKey = key(*root);
+    if (failed(lookup(roots.size(), valueSite(value))))
+      return failure();
+    if (roots.count(rootKey))
+      return success();
+    SmallVector<Frame, 0> pending;
+    auto push = [&](HardwareIdentityEndpoint endpoint) -> LogicalResult {
+      Operation *site = valueSite(endpoint.value);
+      if (failed(bitOne(endpoint.value, analysis,
+                        prepared.getScope().rootBindings, site, budget)) ||
+          failed(lookup(nodes.size(), site)))
+        return failure();
+      auto found = nodes.find(key(endpoint));
+      if (found != nodes.end()) {
+        if (found->second == State::Active)
+          return site->emitOpError() << "cyclic transaction write intent";
+        return success();
+      }
+      if (failed(
+              charge(budget, site, 1,
+                     sizeof(std::pair<const Key, State>) + 4 * sizeof(void *))))
+        return failure();
+      if (failed(lookup(nodes.size(), site)))
+        return failure();
+      nodes.emplace(key(endpoint), State::Active);
+      auto constant = endpoint.value.getDefiningOp<BitsConstantOp>();
+      if (constant) {
+        if (failed(analysis.verifyResolvedOperation(
+                constant, prepared.getScope().rootBindings)))
+          return failure();
+        auto known = literal(endpoint, analysis, budget);
+        if (failed(known))
+          return failure();
+        if (!known->has_value())
+          return constant->emitOpError() << "transaction intent literal must "
+                                            "be known Bits1 zero or one";
+        if (failed(lookup(nodes.size(), site)))
+          return failure();
+        nodes.find(key(endpoint))->second = State::Complete;
+        return success();
+      }
+      auto select = endpoint.value.getDefiningOp<BitsSelectOp>();
+      if (!select)
+        return site->emitOpError() << "transaction intent admits only known "
+                                      "Bits1 zero/one and select";
+      if (failed(analysis.verifyResolvedOperation(
+              select, prepared.getScope().rootBindings)) ||
+          failed(budget.debit(1, select)))
+        return failure();
+      auto selector = normalize(select.getCondition());
+      if (failed(selector) ||
+          failed(bitOne(selector->value, analysis,
+                        prepared.getScope().rootBindings, select, budget)))
+        return failure();
+      // The selector is Bits1 data and may be unknown. It is not an intent or
+      // known-one guard, and contributes no admission obligation.
+      if (pending.size() == pending.capacity()) {
+        uint64_t capacity = SourceCheckBudget::multiply(
+            std::max(uint64_t(1), uint64_t(pending.capacity())), 2);
+        uint64_t bytes = SourceCheckBudget::multiply(
+            capacity - pending.capacity(), sizeof(Frame));
+        if (capacity == std::numeric_limits<uint64_t>::max() ||
+            bytes == std::numeric_limits<uint64_t>::max() ||
+            capacity > pending.max_size())
+          return budget.debit(std::numeric_limits<uint64_t>::max(), site);
+        if (failed(budget.debit(
+                SourceCheckBudget::add(SourceCheckBudget::bytes(bytes),
+                                       pending.size()),
+                site)))
+          return failure();
+        pending.reserve(capacity);
+      }
+      if (failed(budget.debit(1, site)) ||
+          failed(payScope(endpoint.scope, budget, site)))
+        return failure();
+      pending.push_back({std::move(endpoint), select, 0});
+      return success();
+    };
+    if (failed(push(std::move(*root))))
+      return failure();
+    while (!pending.empty()) {
+      auto &frame = pending.back();
+      if (failed(budget.debit(1, frame.select)))
+        return failure();
+      if (frame.child < 2) {
+        Value child = frame.child++ == 0 ? frame.select.getTrueValue()
+                                         : frame.select.getFalseValue();
+        if (failed(budget.debit(1, frame.select)))
+          return failure();
+        auto normalized = normalize(child);
+        if (failed(normalized) || failed(push(std::move(*normalized))))
+          return failure();
+      } else {
+        if (failed(lookup(nodes.size(), frame.select)))
+          return failure();
+        nodes.find(key(frame.endpoint))->second = State::Complete;
+        pending.pop_back();
+      }
+    }
+    if (failed(lookup(roots.size(), valueSite(value))) ||
+        failed(charge(budget, valueSite(value), 1,
+                      sizeof(Key) + 4 * sizeof(void *))))
+      return failure();
+    roots.insert(rootKey); // Only successful roots are reusable.
+    return success();
+  }
+
+private:
+  static Key key(const HardwareIdentityEndpoint &endpoint) {
+    return {endpoint.value.getAsOpaquePointer(),
+            endpoint.resolvedType.getAsOpaquePointer()};
+  }
+  LogicalResult lookup(uint64_t count, Operation *site) {
+    uint64_t comparisons = 1;
+    for (uint64_t n = SourceCheckBudget::add(count, 1); n > 1;
+         n = n / 2 + n % 2)
+      comparisons = SourceCheckBudget::add(comparisons, 2);
+    return budget.debit(comparisons, site);
+  }
+  const HardwareAnalysis &analysis;
+  SourceCheckBudget &budget;
+  const PreparedSampledBoundaries &prepared;
+  RuleOp rule;
+  HardwareIdentityStopPolicy policy;
+  IdentityMemo identity;
+  std::map<Key, State, Less> nodes;
+  std::set<Key, Less> roots;
+};
 FailureOr<SmallVector<HardwareIdentityEndpoint>>
 localBoundaries(ModuleOp module, const HardwareIdentityScope &scope,
                 const HardwareAnalysis &analysis, SourceCheckBudget &budget) {
@@ -1255,14 +1451,24 @@ localBoundaries(ModuleOp module, const HardwareIdentityScope &scope,
   for (auto rule : module.getBody().front().getOps<RuleOp>()) {
     uint64_t first = rule->getNumResults();
     if (rule->hasAttr("ac.sampled_admission")) {
-      auto sampled = parseSampledAdmission(rule, analysis, *bindings, budget);
-      if (failed(sampled))
-        return failure();
-      first = sampled->fireResult;
-      if (wiring)
-        for (const auto &writer : wiring->writers)
-          if (writer.rule == rule)
-            first = writer.ordinaryResults;
+      if (wiring) {
+        const TransactionWriterView *writer = nullptr;
+        for (const auto &candidate : wiring->writers) {
+          if (failed(budget.debit(1, rule)))
+            return failure();
+          if (candidate.rule == rule)
+            writer = &candidate;
+        }
+        if (!writer)
+          return rule->emitOpError()
+                 << "sampled Rule lacks its transaction writer";
+        first = writer->ordinaryResults;
+      } else {
+        auto sampled = parseSampledAdmission(rule, analysis, *bindings, budget);
+        if (failed(sampled))
+          return failure();
+        first = sampled->fireResult;
+      }
     } else if (auto required =
                    rule->getAttrOfType<ArrayAttr>("ac.required_checks")) {
       if (required.size() > rule->getNumResults() / 2)
@@ -1357,7 +1563,7 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   const auto &scope = prepared.getScope();
   HardwareIdentityStopPolicy policy{HardwareIdentityTraversal::DefinitionLocal,
                                     prepared.getBoundaries()};
-  PrefixProof proof(analysis, budget, policy);
+  OrderedPrefixProof proof(analysis, budget, policy);
   Prefix expected;
   for (const auto &guard : view.guards) {
     auto reached = proof.parse(guard.reached, scope);
@@ -1379,12 +1585,30 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
     return failure();
   if (failed(proof.equal(*fire, expected, view.rule)))
     return failure();
+  auto exactFire = normalized(view.fire, scope, policy, analysis, budget);
+  if (failed(exactFire))
+    return failure();
+  auto exactEffectPath = [&](Value value) -> LogicalResult {
+    auto endpoint = normalized(value, scope, policy, analysis, budget);
+    if (failed(endpoint) ||
+        failed(payScope(endpoint->scope, budget, view.rule)) ||
+        failed(payScope(exactFire->scope, budget, view.rule)))
+      return failure();
+    if (!sameEndpoint(*endpoint, *exactFire))
+      return view.rule->emitOpError()
+             << "sampled effect path must be internal final fire";
+    return success();
+  };
   for (const auto &check : view.bodyChecks) {
+    if (failed(exactEffectPath(check.path)))
+      return failure();
     auto path = proof.parse(check.path, scope);
     if (failed(path) || failed(proof.equal(*path, expected, view.rule)))
       return failure();
   }
   for (const auto &observation : view.observations) {
+    if (failed(exactEffectPath(observation.path)))
+      return failure();
     auto path = proof.parse(observation.path, scope);
     if (failed(path) || failed(proof.equal(*path, expected, view.rule)))
       return failure();
@@ -1396,7 +1620,9 @@ struct SampledAdmissionValidation::Entry {
   explicit Entry(PreparedSampledBoundaries &&prepared)
       : prepared(std::move(prepared)) {}
   PreparedSampledBoundaries prepared;
+  std::optional<TransactionWiringView> wiring;
   SmallVector<RuleOp, 0> provenRules;
+  SmallVector<std::pair<RuleOp, std::unique_ptr<IntentProof>>, 0> intentProofs;
 };
 
 SampledAdmissionValidation::SampledAdmissionValidation(
@@ -1407,6 +1633,20 @@ SampledAdmissionValidation::~SampledAdmissionValidation() = default;
 
 uint64_t SampledAdmissionValidation::entryStorageBytes() {
   return sizeof(Entry) + sizeof(std::unique_ptr<Entry>);
+}
+
+uint64_t SampledAdmissionValidation::intentProofStorageBytes() {
+  return sizeof(IntentProof) +
+         sizeof(std::pair<RuleOp, std::unique_ptr<IntentProof>>);
+}
+uint64_t SampledAdmissionValidation::intentNodeStorageBytes() {
+  return IntentProof::nodeStorageBytes();
+}
+uint64_t SampledAdmissionValidation::intentRootStorageBytes() {
+  return IntentProof::rootStorageBytes();
+}
+uint64_t SampledAdmissionValidation::intentFrameStorageBytes() {
+  return IntentProof::frameStorageBytes();
 }
 
 LogicalResult
@@ -1459,9 +1699,47 @@ SampledAdmissionValidation::prepare(ModuleOp definition,
   return &entries.back()->prepared;
 }
 
-FailureOr<SampledAdmissionView>
-SampledAdmissionValidation::verify(RuleOp rule,
+FailureOr<const TransactionWiringView *>
+SampledAdmissionValidation::wiring(ModuleOp definition,
                                    const HardwareBindings &bindings) {
+  auto prepared = prepare(definition, bindings);
+  if (failed(prepared))
+    return failure();
+  if (!*prepared)
+    return definition->emitOpError()
+           << "wiring validation lacks complete definition boundaries";
+  for (auto &entry : entries) {
+    if (failed(budget.debit(1, definition)))
+      return failure();
+    if (&entry->prepared != *prepared)
+      continue;
+    if (!entry->wiring) {
+      auto parsed =
+          parseTransactionWiring(definition, analysis, bindings, budget);
+      if (failed(parsed))
+        return failure();
+      uint64_t moveWork = SourceCheckBudget::add(
+          1, SourceCheckBudget::add(
+                 parsed->states.size(),
+                 SourceCheckBudget::add(parsed->incoming.size(),
+                                        parsed->writers.size())));
+      for (const auto &writer : parsed->writers)
+        moveWork = SourceCheckBudget::add(moveWork, writer.candidates.size());
+      if (failed(budget.debit(moveWork, definition)))
+        return failure();
+      entry->wiring = std::move(*parsed);
+    }
+    // Definition, complete bindings and private boundaries are fixed by Entry.
+    // This is immutable schema preparation, never an occurrence/root verdict.
+    return &*entry->wiring;
+  }
+  return definition->emitOpError()
+         << "wiring validation has no exact definition entry";
+}
+
+FailureOr<SampledAdmissionView>
+SampledAdmissionValidation::verifySampledAdmissionImpl(
+    RuleOp rule, const HardwareBindings &bindings) {
   Operation *site =
       rule ? rule.getOperation() : analysis.getPackage().getOperation();
   if (failed(budget.debit(1, site)))
@@ -1504,12 +1782,219 @@ SampledAdmissionValidation::verify(RuleOp rule,
          << "sampled validation has no entry for prepared boundaries";
 }
 
+FailureOr<SampledAdmissionView>
+SampledAdmissionValidation::verify(RuleOp rule,
+                                   const HardwareBindings &bindings) {
+  auto sampled = verifySampledAdmissionImpl(rule, bindings);
+  if (failed(sampled))
+    return failure();
+  if (sampled->definition->hasAttr("ac.transaction_wiring")) {
+    auto view = wiring(sampled->definition, bindings);
+    if (failed(view))
+      return failure();
+    const TransactionWriterView *writer = nullptr;
+    for (const auto &candidate : (*view)->writers) {
+      if (failed(budget.debit(1, rule)))
+        return failure();
+      if (candidate.rule == rule)
+        writer = &candidate;
+    }
+    if (!writer)
+      return rule->emitOpError() << "sampled Rule lacks its transaction writer";
+    auto enables = verifyCandidateEnablesImpl(*writer, *sampled, bindings);
+    if (failed(enables))
+      return failure();
+  }
+  return std::move(*sampled);
+}
+
+FailureOr<SmallVector<CheckedCandidateEnable, 0>>
+SampledAdmissionValidation::verifyCandidateEnables(
+    const TransactionWriterView &writer, const HardwareBindings &bindings) {
+  auto sampled = verifySampledAdmissionImpl(writer.rule, bindings);
+  if (failed(sampled))
+    return failure();
+  return verifyCandidateEnablesImpl(writer, *sampled, bindings);
+}
+
+FailureOr<SmallVector<CheckedCandidateEnable, 0>>
+SampledAdmissionValidation::verifyCandidateEnablesImpl(
+    const TransactionWriterView &writer,
+    const SampledAdmissionView &freshSampled,
+    const HardwareBindings &bindings) {
+  const SampledAdmissionView *sampled = &freshSampled;
+  // Reparse this exact writer, not every unrelated inventory and writer in
+  // the definition. Full wiring admission remains the caller's independent
+  // owner; this typed query authenticates its current closed row and slots.
+  auto wiring = sampled->definition->getAttrOfType<DictionaryAttr>(
+      "ac.transaction_wiring");
+  if (failed(exact(wiring, {"states", "incoming", "writers"}, writer.rule,
+                   "ac.transaction_wiring")))
+    return failure();
+  auto rows = wiring.getAs<ArrayAttr>("writers");
+  if (!rows || !wiring.getAs<ArrayAttr>("states") ||
+      !wiring.getAs<ArrayAttr>("incoming"))
+    return writer.rule->emitOpError()
+           << "transaction wiring requires array inventories";
+  DictionaryAttr actual;
+  auto registration = writer.rule->getAttrOfType<DictionaryAttr>("occurrence");
+  for (Attribute raw : rows) {
+    if (failed(budget.debit(1, writer.rule)))
+      return failure();
+    auto row = dyn_cast<DictionaryAttr>(raw);
+    if (!row || row.get("registration") != registration)
+      continue;
+    if (actual)
+      return writer.rule->emitOpError()
+             << "duplicate transaction writer registration";
+    actual = row;
+  }
+  if (!actual || failed(payAttribute(actual, budget, writer.rule)) ||
+      failed(exact(actual, {"registration", "ordinary_results", "candidates"},
+                   writer.rule, "transaction writer")))
+    return failure();
+  auto ordinary = index(actual, "ordinary_results", writer.rule);
+  auto candidates = actual.getAs<ArrayAttr>("candidates");
+  if (failed(ordinary) || !candidates ||
+      actual.get("registration") != writer.registration ||
+      static_cast<uint64_t>(*ordinary) != writer.ordinaryResults ||
+      candidates.size() != writer.candidates.size() ||
+      SourceCheckBudget::add(
+          *ordinary, SourceCheckBudget::multiply(2, candidates.size())) !=
+          sampled->fireResult)
+    return writer.rule->emitOpError()
+           << "candidate enable writer differs from actual wiring";
+  for (auto [i, raw] : llvm::enumerate(candidates)) {
+    if (failed(budget.debit(1, writer.rule)))
+      return failure();
+    auto row = dyn_cast<DictionaryAttr>(raw);
+    if (failed(exact(row, {"state", "data", "enable"}, writer.rule,
+                     "transaction candidate")))
+      return failure();
+    auto state = row.getAs<DictionaryAttr>("state");
+    auto data = index(row, "data", writer.rule);
+    auto enable = index(row, "enable", writer.rule);
+    uint64_t expected =
+        SourceCheckBudget::add(*ordinary, SourceCheckBudget::multiply(2, i));
+    if (failed(data) || failed(enable) ||
+        failed(wholeStateID(state, writer.rule)))
+      return failure();
+    const auto &view = writer.candidates[i];
+    if (expected == std::numeric_limits<uint64_t>::max() ||
+        static_cast<uint64_t>(*data) != expected ||
+        static_cast<uint64_t>(*enable) != SourceCheckBudget::add(expected, 1) ||
+        static_cast<uint64_t>(*enable) >= sampled->fireResult ||
+        state != view.stateID ||
+        static_cast<uint64_t>(*data) != view.dataIndex ||
+        static_cast<uint64_t>(*enable) != view.enableIndex ||
+        writer.rule->getResult(*data) != view.data ||
+        writer.rule->getResult(*enable) != view.enable)
+      return writer.rule->emitOpError()
+             << "candidate enable query differs from actual slots";
+    if (failed(bitOne(view.enable, analysis, bindings, writer.rule, budget)))
+      return failure();
+    for (uint64_t j = 0; j < i; ++j) {
+      if (failed(payComparison(writer.candidates[j].stateID, state, budget,
+                               writer.rule)))
+        return failure();
+      if (identical(writer.candidates[j].stateID, state))
+        return writer.rule->emitOpError()
+               << "duplicate candidate owner within transaction";
+    }
+  }
+  auto prepared = prepare(sampled->definition, bindings);
+  if (failed(prepared) || !*prepared)
+    return failure();
+  IntentProof *proof = nullptr;
+  for (auto &entry : entries) {
+    if (failed(budget.debit(1, writer.rule)))
+      return failure();
+    if (&entry->prepared != *prepared)
+      continue;
+    for (auto &existing : entry->intentProofs) {
+      if (failed(budget.debit(1, writer.rule)))
+        return failure();
+      if (existing.first == writer.rule)
+        proof = existing.second.get();
+    }
+    if (!proof) {
+      if (failed(charge(budget, writer.rule, 1, sizeof(IntentProof))))
+        return failure();
+      if (entry->intentProofs.size() == entry->intentProofs.capacity()) {
+        uint64_t capacity = SourceCheckBudget::multiply(
+            std::max(uint64_t(1), uint64_t(entry->intentProofs.capacity())), 2);
+        uint64_t bytes = SourceCheckBudget::multiply(
+            capacity - entry->intentProofs.capacity(),
+            sizeof(std::pair<RuleOp, std::unique_ptr<IntentProof>>));
+        if (capacity == std::numeric_limits<uint64_t>::max() ||
+            bytes == std::numeric_limits<uint64_t>::max() ||
+            capacity > entry->intentProofs.max_size())
+          return budget.debit(std::numeric_limits<uint64_t>::max(),
+                              writer.rule);
+        if (failed(budget.debit(
+                SourceCheckBudget::add(SourceCheckBudget::bytes(bytes),
+                                       entry->intentProofs.size()),
+                writer.rule)))
+          return failure();
+        entry->intentProofs.reserve(capacity);
+      }
+      if (failed(budget.debit(1, writer.rule)))
+        return failure();
+      entry->intentProofs.emplace_back(
+          writer.rule, std::make_unique<IntentProof>(
+                           analysis, budget, entry->prepared, writer.rule));
+      proof = entry->intentProofs.back().second.get();
+    }
+    break;
+  }
+  if (!proof)
+    return writer.rule->emitOpError()
+           << "candidate intent lacks exact proof context";
+  SmallVector<CheckedCandidateEnable, 0> result;
+  if (writer.candidates.size() > result.max_size() ||
+      failed(charge(budget, writer.rule, writer.candidates.size(),
+                    sizeof(CheckedCandidateEnable))))
+    return failure();
+  result.reserve(writer.candidates.size());
+  auto yielded =
+      cast<YieldOp>(writer.rule->getRegion(0).front().getTerminator());
+  auto fire = proof->normalize(sampled->fire);
+  if (failed(fire))
+    return failure();
+  for (const auto &candidate : writer.candidates) {
+    // Enter through the exact validated internal yield slot, before identity
+    // normalization. Complete private D/E/fire boundaries remain unchanged.
+    auto enabled = proof->normalize(yielded.getOperand(candidate.enableIndex));
+    if (failed(enabled))
+      return failure();
+    auto binary = enabled->value.getDefiningOp<BitsBinaryOp>();
+    if (!binary || binary.getOpcode() != "and")
+      return writer.rule->emitOpError()
+             << "candidate enable requires exact AND(final fire, intent)";
+    if (failed(budget.debit(1, binary)) ||
+        failed(analysis.verifyResolvedOperation(binary, bindings)))
+      return failure();
+    auto lhs = proof->normalize(binary.getLhs());
+    if (failed(lhs) || failed(payScope(lhs->scope, budget, binary)) ||
+        failed(payScope(fire->scope, budget, binary)))
+      return failure();
+    if (!sameEndpoint(*lhs, *fire))
+      return binary->emitOpError()
+             << "candidate enable left operand must be internal final fire";
+    if (failed(budget.debit(1, binary)) ||
+        failed(proof->prove(binary.getRhs())))
+      return failure();
+    result.push_back({enabled->value, binary.getRhs()});
+  }
+  return result;
+}
+
 namespace {
 struct Occurrence {
   HardwareIdentityScope scope;
   HardwareBindings bindings;
   ModuleOp module;
-  std::optional<TransactionWiringView> wiring;
+  const TransactionWiringView *wiring = nullptr;
   std::optional<size_t> parent;
   InstanceOp allocation;
 };
@@ -1670,15 +2155,14 @@ private:
       return module->emitOpError() << "sampled/check/internal-port witness "
                                       "requires transaction_wiring companion";
     if (module->hasAttr("ac.transaction_wiring")) {
-      auto wiring =
-          parseTransactionWiring(module, analysis, entry.bindings, budget);
+      auto wiring = validation.wiring(module, entry.bindings);
       if (failed(wiring))
         return failure();
-      if (!witness && wiring->states.empty() && wiring->incoming.empty() &&
-          wiring->writers.empty())
+      if (!witness && (*wiring)->states.empty() &&
+          (*wiring)->incoming.empty() && (*wiring)->writers.empty())
         return module->emitOpError() << "empty transaction_wiring has no "
                                         "sampled/check/internal-port witness";
-      entry.wiring = std::move(*wiring);
+      entry.wiring = *wiring;
     }
     size_t position = occurrences.size();
     occurrences.push_back(std::move(entry));
@@ -1792,9 +2276,6 @@ private:
           stateIndex.try_emplace(key, states.size() - 1);
         }
         for (const auto &writer : entry.wiring->writers) {
-          auto sampled = validation.verify(writer.rule, entry.bindings);
-          if (failed(sampled))
-            return failure();
           for (uint64_t ordinal = writer.ordinaryResults;
                ordinal < writer.rule->getNumResults(); ++ordinal)
             if (failed(boundary(writer.rule->getResult(ordinal), entry.scope,
@@ -2036,15 +2517,12 @@ private:
       if (failed(terminals))
         return failure();
       for (const auto &writer : entry.wiring->writers) {
-        auto sampled = parseSampledAdmission(writer.rule, analysis,
-                                             entry.bindings, budget);
+        auto sampled = validation.verify(writer.rule, entry.bindings);
         if (failed(sampled))
           return failure();
         auto clock = normal(sampled->clock, entry.scope);
         auto reset = normal(sampled->reset, entry.scope);
-        auto fire =
-            normal(writer.rule->getResult(sampled->fireResult), entry.scope);
-        if (failed(clock) || failed(reset) || failed(fire))
+        if (failed(clock) || failed(reset))
           return failure();
         if (writer.ordinaryResults) {
           for (const auto &guard : sampled->guards) {
@@ -2087,16 +2565,11 @@ private:
                    << "statefree sampled pins differ from its owning module "
                       "domain";
         }
-        if (writer.candidates.empty() &&
-            failed(privateRoute(writer.rule->getResult(sampled->fireResult),
-                                entry.scope, std::numeric_limits<size_t>::max(),
-                                PrivateRoute::Enable)))
-          return failure();
-        std::optional<size_t> enableRepresentative;
         for (const auto &candidate : writer.candidates) {
           auto stateIndex = target(entry, candidate.stateID);
-          auto data = normal(candidate.result, entry.scope);
-          if (failed(stateIndex) || failed(data))
+          auto data = normal(candidate.data, entry.scope);
+          auto enable = normal(candidate.enable, entry.scope);
+          if (failed(stateIndex) || failed(data) || failed(enable))
             return failure();
           auto &state = states[*stateIndex];
           if (state.writer)
@@ -2105,26 +2578,21 @@ private:
           if (failed(typeMatches(*data, state.payload, writer.rule)))
             return failure();
           if (failed(payScope(data->scope, budget, writer.rule)) ||
-              failed(payScope(fire->scope, budget, writer.rule)) ||
+              failed(payScope(enable->scope, budget, writer.rule)) ||
               failed(payScope(clock->scope, budget, writer.rule)) ||
               failed(payScope(reset->scope, budget, writer.rule)))
             return failure();
           state.writer = writer.rule;
           state.data = *data;
-          state.enable = *fire;
+          state.enable = *enable;
           state.clock = *clock;
           state.reset = *reset;
-          if (!enableRepresentative)
-            enableRepresentative = *stateIndex;
-          if (failed(privateRoute(candidate.result, entry.scope, *stateIndex,
-                                  PrivateRoute::Data)))
+          if (failed(privateRoute(candidate.data, entry.scope, *stateIndex,
+                                  PrivateRoute::Data)) ||
+              failed(privateRoute(candidate.enable, entry.scope, *stateIndex,
+                                  PrivateRoute::Enable)))
             return failure();
         }
-        if (enableRepresentative &&
-            failed(privateRoute(writer.rule->getResult(sampled->fireResult),
-                                entry.scope, *enableRepresentative,
-                                PrivateRoute::Enable)))
-          return failure();
         for (const auto &guard : sampled->guards) {
           auto found = checkTerminal(**terminals, guard.id, writer.rule);
           if (failed(found))
@@ -2374,7 +2842,7 @@ private:
         !sameEndpoint(*enable, *state.enable))
       return site->emitOpError()
              << "transaction D/E origin differs from corresponding "
-                "candidate/fire or incoming pair";
+                "candidate D/E or incoming pair";
     return success();
   }
   LogicalResult connections() {
@@ -2480,14 +2948,6 @@ private:
     if (failed(budget.debit(1, site)))
       return failure();
     if (endpoint.value.use_empty()) {
-      // A transaction with no candidates still publishes its verified fire
-      // suffix, even though it has no physical enable terminal. Only that
-      // original root is intentionally unused; identity forks and internal
-      // output carriers must reach their prescribed terminal on every branch.
-      if (route.kind == PrivateRoute::Enable &&
-          route.state == std::numeric_limits<size_t>::max() &&
-          sameEndpoint(endpoint, route.endpoint))
-        return success();
       return site->emitOpError()
              << "private transaction/check route has a dead end before its "
                 "corresponding D/E or expect";
@@ -2571,7 +3031,7 @@ private:
                 continue;
             }
           }
-          return instance->emitOpError() << "private candidate/fire reaches "
+          return instance->emitOpError() << "private candidate D/E reaches "
                                             "unrelated primitive pin or owner";
         }
         auto child =
@@ -2761,11 +3221,10 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
         failed(mark(module, relevant, pending)))
       return failure();
     if (module->hasAttr("ac.transaction_wiring")) {
-      auto wiring =
-          parseTransactionWiring(module, analysis, entry.second, budget);
+      auto wiring = validation.wiring(module, entry.second);
       if (failed(wiring))
         return failure();
-      for (const auto &writer : wiring->writers) {
+      for (const auto &writer : (*wiring)->writers) {
         if (failed(budget.debit(1, writer.rule)))
           return failure();
         // Ownership records preserve write intent even when fire is known

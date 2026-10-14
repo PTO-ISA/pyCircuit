@@ -325,19 +325,34 @@ compilation, validation or emission fails.
 
 ## Method body checks and observations
 
-Within the supported straight-line Method route, use ordinary `assert`, `log`
-and `report` in the direct body. A saved local value remains the candidate value
+Within the supported Method route, use ordinary `assert`, `log` and `report` in
+the direct body. A saved local value remains the candidate value
 at that statement; later writes do not change it. Assertions check the completed
 outer transaction and do not control later calls. All body effects use the final
 transaction fire, so a later false guard suppresses earlier body effects too.
 Put unrelated autonomous work in another registered Rule.
+
+Rule and Method transaction bodies may use bounded statement `if`/`elif`/`else`
+and `pass` for whole fixed-width Bits state and scalar local values. Both arms
+start from the same incoming candidate. A missing write preserves that candidate
+and its write intent, including a write made before the branch. A changed local
+read after the join must be bound on both arms. Joins select data and raw write
+intent with the original four-state predicate; an identity assignment remains a
+write. Unconditional Method calls and direct effects may appear before or after
+the branch.
+
+Do not put a Method call, `assert`, `log` or `report` inside a branch arm; a
+constant-false arm does not waive this check. Partial or aggregate state writes,
+resources and changed Struct/Table/Enum locals escaping a join remain rejected.
+See the [whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md)
+for the exact source and hardware boundary.
 
 Source capture reuses expect/observe operations; MLIR owns the state versions,
 invocation identities, six-field sampled inventory and physical wiring. Authors
 do not supply final IDs or transaction ports. A closed `@system` keeps its
 compiler-generated clocks, resets and `pycircuit_sim` harness. Verification must
 include actual generated C++/RTL execution and failed-epoch publication checks;
-publication alone is insufficient. Conditional effects, branch/partial updates
+publication alone is insufficient. Effects or calls inside branches, partial updates
 and transaction resources remain separate unsupported extensions. See the
 [language boundary](../reference/language.md#method-execution-and-remaining-capabilities)
 and [body-effect contract](../rfcs/serial-rule-method/sampled-body-effects.md).

@@ -77,8 +77,17 @@ Use [the serial extension specs](../../../docs/rfcs/serial-rule-method/README.md
 for Rule/Method boundaries, guard entry snapshots, ordered validity, source-plan
 authentication and common final verification. Distinguish local false-guard hold
 from reached unknown-control failure and whole-system zero state/history commit.
-Public straight-line Method evidence does not close branches, partial writes or
-resources. For direct body checks/observations, inspect the six-field inventory,
+Public straight-line Method evidence does not close the bounded branch slice.
+Review branch candidates against
+[`branch-state-ssa.md`](../../../docs/rfcs/serial-rule-method/branch-state-ssa.md):
+both arms inherit one entry candidate, data and raw intent use four-state joins,
+the effective E is finalFire AND rawIntent, identity writes retain intent, and
+the `{state,data,enable}` hard break is complete. Require external fire zero-use,
+actual Rule parsing for every query, branch source replay, independent final
+D/E proof, generated Method System workers1/2 and real four-state rollback.
+This bounded slice does not establish conditional calls/effects, partial state,
+resources or changed aggregate joins. For direct body checks/observations,
+inspect the six-field inventory,
 statement-time operands, final-prefix paths, exact terminal slots and both proof
 layers. Require generated Method `@system` C++ workers1/2, ordered source-derived
 identities, failure publication protection and real four-state RTL evidence.
@@ -93,5 +102,6 @@ the latter. Output sink I/O failures after commit cannot promise rollback.
 Analysis reuse must preserve exact definition/bindings/occurrence identity and
 complete private boundaries. Cache only successful facts within immutable IR
 lifetimes; transformations invalidate them. Budget fixes remove repeated work,
-not checks, input scale or limits. Review raw prepayment against actual verifier
+not checks, input scale or limits. Reused immutable attribute identity does not
+replace parsing and validating the actual Rule. Review raw prepayment against actual verifier
 traversals before accepting a larger scope.

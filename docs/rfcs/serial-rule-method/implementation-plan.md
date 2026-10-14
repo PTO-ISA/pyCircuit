@@ -71,7 +71,7 @@ helper grammar 限于现有已准入 typed 表达式／语句子集及 source-se
 
 **先导分析的独占文件：** 新增 `compiler/include/pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h`、`compiler/lib/Dialect/ACIR/SourceTransactionStateAnalysis.cpp` 和 `compiler/lib/Transforms/AnalyzeTransactionStateSSA.cpp`。仅为传递既有 parent bindings，允许在 `SourceMethodAnalysis.h`／`SourceMethodResolution.cpp` 给实际 call resolver 增加重载；不得构造假的 publication summary row。
 
-**真正变换的既有 owner：** `compiler/lib/Transforms/LowerTransactions.cpp`，同 owner 的有界执行已接入。后续跨实例继续扩展这一 pass，精确合同见[跨实例接线](cross-instance-lowering.md)；不再创建先前预留的 `LowerTransactionStateSSA.cpp` 平行物化路径。effectful branch／selector 的源码扩展由 `PythonImportTransactions.inc` 及其 native verifier/summary 所有者承担；不能用 legacy importer 的私有候选环境替代通用 MLIR 变换。
+**真正变换的既有 owner：** `compiler/lib/Transforms/LowerTransactions.cpp`，同 owner、跨实例和 bounded whole-Bits branch 的有界执行都扩展这一 pass，精确合同见[跨实例接线](cross-instance-lowering.md)与[branch state SSA](branch-state-ssa.md)；不再创建先前预留的 `LowerTransactionStateSSA.cpp` 平行物化路径。conditional call/effect、partial state 和 resource 的后续扩展仍由实际 source/state/lowering owner 承担；不能用 legacy importer 的私有候选环境替代通用 MLIR 变换。
 
 **产出与不变量：** 每个独立 Rule 从旧 Q 建立候选；同一事务通过语句、分支、Method 调用线程化候选版本；局部值保持不可变快照。字段／下标更新保留精确路径和身份写。source order 只产生真实数据、状态或 effect 依赖，不能让所有纯计算串行。memory/Queue 不自动获得寄存器候选转发语义。
 
@@ -83,7 +83,8 @@ LowerTransactions 物化。consumer compile 仍只读接口，不为该分析读
 它输出事务相对实例的不可变 typed plan，保持输入 IR 的对象身份和内容不变；对所有事务
 完整成功后才公开查询结果。独立测试先验证 Q0/Q1/Q2、跨调用快照、实例身份、guard 入口
 版本、有序事件、whole-owner nominal payload、同域绑定、预算和失败原子性。这个阶段
-通过不能勾选下述完整出口；分支 join、部分更新、物理 owner 接线和准入检查仍需后续包。
+通过不能勾选下述完整出口；branch join 按独立 checklist 验收，partial state、资源、
+物理 owner 接线和准入检查仍分别保持自己的退出条件。
 
 **最小出口：** `METHOD-STATE-ORDER`、`METHOD-SNAPSHOT-OLD-Q`、`METHOD-RETRY-CURSOR`；设计中立槽队列等价 oracle、快照与独立 Rule 注册顺序变体。
 
@@ -96,10 +97,11 @@ LowerTransactions 物化。consumer compile 仍只读接口，不为该分析读
 HardwareSourceChecks 和 LowerTransactions；不创建此前预留的
 `AnalyzeTransactionAdmission.cpp` 平行 pass。guard span/case_eq 前置完成不构成采样执行。
 
-**后续分支切片的现有入口：** `compiler/lib/Compiler/PythonImportBehavior.inc`、
+**whole-Bits 分支切片的现有入口：** `compiler/lib/Compiler/PythonImportBehavior.inc`、
 `compiler/lib/Compiler/PythonImportCaseSyntax.{h,cpp}`；事务源接入仍由
-`PythonImportTransactions.inc` 及 native verifier/summary 拥有，派发前单独冻结分支表示与
-join proof，不以 legacy 私有环境替代 MLIR 分析。
+`PythonImportTransactions.inc` 及 native verifier/summary 拥有，冻结表示、join proof、
+D/E ABI 和验收见[branch state SSA](branch-state-ssa.md)，不以 legacy 私有环境替代 MLIR
+分析。conditional calls/effects 与 partial state 不从该切片推断支持。
 
 **产出与不变量：** 分开表达值有效性、外层事务 admission 和普通 accepted/success/retry。只有实际执行路径上的 required 条件参与 admission。已知 false 只 hold 所属 Rule；不能升格为全局硬错误。无效 payload 不当 false 使用；未知控制保留四态义务。optional progress、required all-or-none 与明确 prefix 策略不互相推断。
 
@@ -168,7 +170,7 @@ PM 另负责 `SourceLink.h/.cpp` 的阶段捕获与权威重验，以及 `compil
 
 ## 独立测试的文件与职责
 
-测试所有者独占以下已接入或预留文件，不编辑实现者文件；已有测试登记与共享 helper 的接线由 PM 完成。每个路径在对应派发前核对实际存在状态和所有权冲突，并冻结用例及 CTest/lit 选择。typed effects、summary、state SSA 和公共 harness 已有局部入口；表中的分支、资源、优化义务仍需逐项核对实现。文件存在不表示整行需求已覆盖，任何局部结果都不能替代该切片的完整验收。
+测试所有者独占以下已接入或预留文件，不编辑实现者文件；已有测试登记与共享 helper 的接线由 PM 完成。每个路径在对应派发前核对实际存在状态和所有权冲突，并冻结用例及 CTest/lit 选择。typed effects、summary、state SSA 和公共 harness 已有局部入口；bounded branch、conditional effects、partial state、资源和优化义务仍需按各自 checklist 逐项核对。文件存在不表示整行需求已覆盖，任何局部结果都不能替代该切片的完整验收。
 
 | 对应切片 | 独立测试文件（精确路径） | 测试内容与移除边界 |
 | --- | --- | --- |

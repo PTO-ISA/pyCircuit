@@ -49,8 +49,8 @@ struct TransactionIncomingView {
 };
 struct TransactionCandidateView {
   mlir::DictionaryAttr stateID;
-  uint64_t resultIndex = 0;
-  mlir::OpResult result;
+  uint64_t dataIndex = 0, enableIndex = 0;
+  mlir::OpResult data, enable;
 };
 struct TransactionWriterView {
   mlir::DictionaryAttr registration;
@@ -64,6 +64,10 @@ struct TransactionWiringView {
   llvm::SmallVector<TransactionStateInventoryEntry> states;
   llvm::SmallVector<TransactionIncomingView> incoming;
   llvm::SmallVector<TransactionWriterView> writers;
+};
+
+struct CheckedCandidateEnable {
+  mlir::Value effectiveEnable, rawIntent;
 };
 struct HardwareIdentityScope {
   ModuleOp root;
@@ -137,14 +141,31 @@ public:
 
   mlir::FailureOr<const PreparedSampledBoundaries *>
   prepare(ModuleOp definition, const HardwareBindings &bindings);
+  /// Borrow immutable definition schema; physical occurrence proofs are separate.
+  mlir::FailureOr<const TransactionWiringView *>
+  wiring(ModuleOp definition, const HardwareBindings &bindings);
   mlir::FailureOr<SampledAdmissionView>
   verify(RuleOp rule, const HardwareBindings &bindings);
+  mlir::FailureOr<llvm::SmallVector<CheckedCandidateEnable, 0>>
+  verifyCandidateEnables(const TransactionWriterView &writer,
+                         const HardwareBindings &bindings);
   mlir::LogicalResult verifyInvocation(const HardwareAnalysis &analysis,
                                        SourceCheckBudget &budget) const;
   /// Stable entry plus its owning container slot, for shared budget accounting.
   static uint64_t entryStorageBytes();
+  /// Opaque intent context/records, shared with raw prepayment accounting.
+  static uint64_t intentProofStorageBytes();
+  static uint64_t intentNodeStorageBytes();
+  static uint64_t intentRootStorageBytes();
+  static uint64_t intentFrameStorageBytes();
 
 private:
+  mlir::FailureOr<SampledAdmissionView>
+  verifySampledAdmissionImpl(RuleOp rule, const HardwareBindings &bindings);
+  mlir::FailureOr<llvm::SmallVector<CheckedCandidateEnable, 0>>
+  verifyCandidateEnablesImpl(const TransactionWriterView &writer,
+                            const SampledAdmissionView &sampled,
+                            const HardwareBindings &bindings);
   struct Entry;
   const HardwareAnalysis &analysis;
   SourceCheckBudget &budget;

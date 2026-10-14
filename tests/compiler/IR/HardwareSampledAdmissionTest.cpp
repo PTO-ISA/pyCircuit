@@ -1042,6 +1042,7 @@ TEST_F(HardwareSampledAdmissionTest,
   });
   ASSERT_TRUE(succeeded(view)) << diagnostics;
   EXPECT_EQ(view->fireResult, 0u);
+  EXPECT_TRUE(rule.getResult(view->fireResult).use_empty());
   EXPECT_EQ(view->checkBase, 6u);
   EXPECT_EQ(view->totalResults, 12u);
   ASSERT_EQ(view->guards.size(), 1u);

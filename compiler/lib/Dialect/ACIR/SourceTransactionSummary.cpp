@@ -110,6 +110,12 @@ public:
     work += units;
     return true;
   }
+  bool storage(uint64_t count, uint64_t bytes) {
+    uint64_t units = 1 + bytes / 8 + (bytes % 8 != 0);
+    if (count > (maxWork - work) / units)
+      return charge(maxWork + 1);
+    return charge(count * units);
+  }
   bool depth(unsigned depth) {
     if (exhausted)
       return false;
@@ -179,18 +185,21 @@ public:
         auto domain = getDomain(state.getClk(), state.getRst());
         if (failed(domain))
           return failure();
-        owners.push_back(dict({{"kind", str("state")},
-                               {"name", state.getInstanceNameAttr()},
-                               {"state", stateRef(state)},
-                               {"type", TypeAttr::get(state.getQ().getType())},
-                               {"domain", *domain}}));
+        auto row = dict({{"kind", str("state")},
+                         {"name", state.getInstanceNameAttr()},
+                         {"state", stateRef(state)},
+                         {"type", TypeAttr::get(state.getQ().getType())},
+                         {"domain", *domain}});
+        if (!row)
+          return failure();
+        owners.push_back(row);
       } else if (auto instance = dyn_cast<InstanceOp>(operation)) {
         if (failed(hardware.verifyInstance(instance)))
           return failure();
         auto arguments = values(instance.getInputs(), nullptr);
         if (failed(arguments))
           return failure();
-        owners.push_back(
+        auto row =
             dict({{"kind", str("instance")},
                   {"name", instance.getInstanceNameAttr()},
                   {"occurrence", instance.getOccurrence()},
@@ -199,7 +208,10 @@ public:
                   {"type_arguments", instance.getTypeArguments()},
                   {"input_types", types(instance.getInputs().getTypes())},
                   {"arguments", *arguments},
-                  {"result_types", types(instance.getResultTypes())}}));
+                  {"result_types", types(instance.getResultTypes())}});
+        if (!row)
+          return failure();
+        owners.push_back(row);
       } else if (auto method = dyn_cast<SourceMethodOp>(operation)) {
         auto row = callable(method);
         if (failed(row))
@@ -218,6 +230,8 @@ public:
       } else if (failed(scanPure(&operation, 0))) {
         return failure();
       }
+      if (invalid || !budget.ok())
+        return failure();
     }
     auto ownerIdentity = [](Attribute raw) {
       auto row = cast<DictionaryAttr>(raw);
@@ -241,24 +255,38 @@ public:
     auto summary = dict({{"owners", array(owners)},
                          {"methods", array(methods)},
                          {"autonomous", array(autonomous)}});
-    if (!budget.ok() ||
+    if (!summary || invalid || !budget.ok() ||
         failed(verifySourceTransactionSummary(definition, summary)))
       return failure();
     return summary;
   }
 
 private:
-  StringAttr str(StringRef value) { return builder.getStringAttr(value); }
+  StringAttr str(StringRef value) {
+    return budget.ok() ? builder.getStringAttr(value) : StringAttr();
+  }
   DictionaryAttr
   dict(std::initializer_list<std::pair<StringRef, Attribute>> fields) {
-    budget.charge(1 + fields.size());
+    if (!budget.charge(1 + fields.size()))
+      return {};
+    for (auto field : fields)
+      if (!field.second) {
+        invalid = true;
+        return {};
+      }
     NamedAttrList result;
     for (auto field : fields)
       result.append(field.first, field.second);
     return result.getDictionary(builder.getContext());
   }
   ArrayAttr array(ArrayRef<Attribute> attributes) {
-    budget.charge(1 + attributes.size());
+    if (!budget.charge(1 + attributes.size()))
+      return {};
+    for (Attribute attribute : attributes)
+      if (!attribute) {
+        invalid = true;
+        return {};
+      }
     return builder.getArrayAttr(attributes);
   }
   LogicalResult metadata(Attribute attr, unsigned depth = 0) {
@@ -302,7 +330,7 @@ private:
     SmallVector<Attribute> result;
     for (Type type : inputs) {
       if (!budget.charge())
-        break;
+        return {};
       result.push_back(TypeAttr::get(type));
     }
     return array(result);
@@ -357,6 +385,8 @@ private:
                      {"ordinal", builder.getI64IntegerAttr(index)}});
       if (scope && index - formals < captures.size()) {
         auto lifted = fact(captures[index - formals], nullptr, depth + 1);
+        if (!lifted)
+          return {};
         if (lifted.getAs<StringAttr>("kind").getValue() == "constant")
           return lifted;
       }
@@ -404,6 +434,8 @@ private:
       } else {
         for (Value operand : operation->getOperands()) {
           auto dependency = dependencies(operand, scope, depth + 1);
+          if (!dependency)
+            return {};
           if (dependency.getAs<StringAttr>("kind").getValue() == "unknown") {
             known = false;
             break;
@@ -421,20 +453,27 @@ private:
         }
       }
     }
-    if (!known)
-      return dependencyCache[key] = unknown();
+    if (!known) {
+      auto row = unknown();
+      if (!row)
+        return {};
+      return dependencyCache[key] = row;
+    }
     auto ordinals = [&](const std::set<uint64_t> &set) {
       SmallVector<Attribute> result;
       for (uint64_t ordinal : set) {
         if (!budget.charge())
-          break;
+          return ArrayAttr();
         result.push_back(builder.getI64IntegerAttr(ordinal));
       }
       return array(result);
     };
-    return dependencyCache[key] = dict({{"kind", str("known")},
-                                        {"arguments", ordinals(arguments)},
-                                        {"captures", ordinals(captures)}});
+    auto row = dict({{"kind", str("known")},
+                     {"arguments", ordinals(arguments)},
+                     {"captures", ordinals(captures)}});
+    if (!row)
+      return {};
+    return dependencyCache[key] = row;
   }
   DictionaryAttr value(Value value, Operation *scope) {
     return dict({{"fact", fact(value, scope)},
@@ -443,23 +482,30 @@ private:
   FailureOr<ArrayAttr> values(ValueRange inputs, Operation *scope) {
     SmallVector<Attribute> result;
     for (Value input : inputs) {
-      result.push_back(value(input, scope));
+      auto item = value(input, scope);
+      if (!item)
+        return failure();
+      result.push_back(item);
       if (invalid || !budget.ok())
         return failure();
     }
     if (invalid || !budget.ok())
       return failure();
-    return array(result);
+    auto rows = array(result);
+    return rows ? FailureOr<ArrayAttr>(rows) : FailureOr<ArrayAttr>(failure());
   }
   FailureOr<DictionaryAttr> endpoint(Value input) {
     if (!budget.charge())
       return failure();
     if (auto argument = dyn_cast<BlockArgument>(input)) {
       if (argument.getOwner()->getParentOp() == definition &&
-          oneBit(input.getType()))
-        return dict(
+          oneBit(input.getType())) {
+        auto row = dict(
             {{"kind", str("input")},
              {"ordinal", builder.getI64IntegerAttr(argument.getArgNumber())}});
+        return row ? FailureOr<DictionaryAttr>(row)
+                   : FailureOr<DictionaryAttr>(failure());
+      }
     }
     // Domain publication retains direct physical endpoints. Predicate identity
     // forwarding must not turn an extract into a direct literal domain wire.
@@ -470,8 +516,11 @@ private:
     auto literal = detail::getSourceLiteralPredicate(input, hardware);
     if (failed(literal))
       return failure();
-    if (*literal)
-      return dict({{"kind", str("constant")}, {"value", *literal}});
+    if (*literal) {
+      auto row = dict({{"kind", str("constant")}, {"value", *literal}});
+      return row ? FailureOr<DictionaryAttr>(row)
+                 : FailureOr<DictionaryAttr>(failure());
+    }
     return definition.emitOpError()
            << "transaction publication domain endpoint requires a physical "
               "one-bit module input or direct static literal";
@@ -480,7 +529,9 @@ private:
     auto c = endpoint(clock), r = endpoint(reset);
     if (failed(c) || failed(r))
       return failure();
-    return dict({{"clock", *c}, {"reset", *r}});
+    auto row = dict({{"clock", *c}, {"reset", *r}});
+    return row ? FailureOr<DictionaryAttr>(row)
+               : FailureOr<DictionaryAttr>(failure());
   }
   LogicalResult scanPure(Operation *operation, unsigned depth) {
     if (!budget.depth(depth) || !budget.charge(operation->getNumOperands() +
@@ -531,33 +582,40 @@ private:
   FailureOr<ArrayAttr> captures(ValueRange inputs) {
     SmallVector<Attribute> result;
     for (Value input : inputs) {
-      result.push_back(dict({{"type", TypeAttr::get(input.getType())},
-                             {"value", value(input, nullptr)}}));
+      auto item = dict({{"type", TypeAttr::get(input.getType())},
+                        {"value", value(input, nullptr)}});
+      if (!item)
+        return failure();
+      result.push_back(item);
       if (invalid || !budget.ok())
         return failure();
     }
     if (invalid || !budget.ok())
       return failure();
-    return array(result);
+    auto rows = array(result);
+    return rows ? FailureOr<ArrayAttr>(rows) : FailureOr<ArrayAttr>(failure());
   }
   FailureOr<ArrayAttr> selectors(ArrayAttr selectors, ValueRange indices,
                                  Operation *scope) {
     SmallVector<Attribute> result;
     for (Attribute raw : selectors) {
       auto selector = cast<DictionaryAttr>(raw);
+      DictionaryAttr item;
       if (auto field = selector.getAs<StringAttr>("field"))
-        result.push_back(dict({{"kind", str("field")}, {"name", field}}));
+        item = dict({{"kind", str("field")}, {"name", field}});
       else {
         auto ordinal = selector.getAs<IntegerAttr>("index").getInt();
         auto index = indices[ordinal];
-        result.push_back(dict({{"kind", str("any_element")},
-                               {"index_type", TypeAttr::get(index.getType())},
-                               {"index", value(index, scope)}}));
+        item = dict({{"kind", str("any_element")},
+                     {"index_type", TypeAttr::get(index.getType())},
+                     {"index", value(index, scope)}});
       }
-      if (invalid || !budget.ok())
+      if (!item || invalid || !budget.ok())
         return failure();
+      result.push_back(item);
     }
-    return array(result);
+    auto rows = array(result);
+    return rows ? FailureOr<ArrayAttr>(rows) : FailureOr<ArrayAttr>(failure());
   }
   FailureOr<DictionaryAttr> receiver(SourceMethodCallOp call) {
     auto resolved = resolveSourceMethodCall(call);
@@ -565,23 +623,98 @@ private:
       return failure();
     return resolved->receiver;
   }
-  FailureOr<ArrayAttr> effects(Region &region, Operation *scope) {
+  FailureOr<DictionaryAttr> branchEffect(SourceBranchOp branch,
+                                         Operation *scope, unsigned depth) {
+    if (!budget.depth(depth) || failed(metadata(branch.getOccurrence())) ||
+        failed(metadata(branch.getConditionLocation())))
+      return failure();
+    auto condition = value(branch.getCondition(), scope);
+    if (!condition)
+      return failure();
+    auto whenTrue = effects(branch.getThenRegion(), scope, depth + 1, true);
+    if (failed(whenTrue))
+      return failure();
+    auto whenFalse = effects(branch.getElseRegion(), scope, depth + 1, true);
+    if (failed(whenFalse))
+      return failure();
+    SmallVector<Attribute> results;
+    auto trueValues =
+        cast<YieldOp>(branch.getThenRegion().front().back()).getValues();
+    auto falseValues =
+        cast<YieldOp>(branch.getElseRegion().front().back()).getValues();
+    uint64_t count = branch.getNumResults();
+    if (count > results.max_size() || !budget.storage(count, sizeof(Attribute)))
+      return failure();
+    results.reserve(count);
+    for (auto [type, left, right] :
+         llvm::zip(branch.getResultTypes(), trueValues, falseValues)) {
+      auto physical = TypeAttr::get(type);
+      if (failed(metadata(physical)))
+        return failure();
+      auto item = dict({{"type", physical},
+                        {"when_true", value(left, scope)},
+                        {"when_false", value(right, scope)}});
+      if (!item)
+        return failure();
+      results.push_back(item);
+    }
+    auto row = dict({{"kind", str("branch")},
+                     {"occurrence", branch.getOccurrence()},
+                     {"condition_location", branch.getConditionLocation()},
+                     {"condition", condition},
+                     {"then_effects", *whenTrue},
+                     {"else_effects", *whenFalse},
+                     {"results", array(results)}});
+    return row ? FailureOr<DictionaryAttr>(row)
+               : FailureOr<DictionaryAttr>(failure());
+  }
+  FailureOr<ArrayAttr> effects(Region &region, Operation *scope,
+                               unsigned depth = 0, bool arm = false) {
+    if (!budget.depth(depth))
+      return failure();
     SmallVector<Attribute> result;
+    uint64_t count = 0;
+    for (Operation &operation : region.front().without_terminator()) {
+      if (!budget.charge())
+        return failure();
+      if (isa<SourceBranchOp, SourceMethodCallOp, SourceExpectOp,
+              SourceObserveOp, SourceStateReadOp, SourceStateWriteOp>(
+              operation))
+        ++count;
+    }
+    if (count > result.max_size() || !budget.storage(count, sizeof(Attribute)))
+      return failure();
+    result.reserve(count);
     for (Operation &operation : region.front().without_terminator()) {
       if (!budget.charge(1 + operation.getNumOperands() +
                          operation.getNumResults()))
         return failure();
-      if (auto call = dyn_cast<SourceMethodCallOp>(operation)) {
+      if (arm &&
+          isa<SourceMethodCallOp, SourceExpectOp, SourceObserveOp>(operation))
+        return operation.emitOpError() << "source branch arms cannot contain "
+                                          "calls, checks or observations";
+      if (auto branch = dyn_cast<SourceBranchOp>(operation)) {
+        if (&region == &scope->getRegion(0))
+          return branch.emitOpError()
+                 << "source branches are forbidden in guards";
+        auto row = branchEffect(branch, scope, depth + 1);
+        if (failed(row))
+          return failure();
+        result.push_back(*row);
+      } else if (auto call = dyn_cast<SourceMethodCallOp>(operation)) {
         auto actuals = values(call.getArguments(), scope);
         auto owner = receiver(call);
         if (failed(actuals) || failed(owner))
           return failure();
-        result.push_back(dict({{"kind", str("call")},
-                               {"occurrence", call.getOccurrence()},
-                               {"path", fact(call.getPath(), scope)},
-                               {"callee", call.getCalleeAttr()},
-                               {"receiver", *owner},
-                               {"arguments", *actuals}}));
+        auto row = dict({{"kind", str("call")},
+                         {"occurrence", call.getOccurrence()},
+                         {"path", fact(call.getPath(), scope)},
+                         {"callee", call.getCalleeAttr()},
+                         {"receiver", *owner},
+                         {"arguments", *actuals}});
+        if (!row)
+          return failure();
+        result.push_back(row);
       } else if (auto check = dyn_cast<SourceExpectOp>(operation)) {
         if (failed(metadata(check->getAttr("occurrence"))) ||
             failed(metadata(check.getLocationAttr())) ||
@@ -589,16 +722,18 @@ private:
             (check->hasAttr("ac.message") &&
              failed(metadata(check->getAttr("ac.message")))))
           return failure();
-        result.push_back(dict(
-            {{"kind", str("check")},
-             {"occurrence", check->getAttr("occurrence")},
-             {"path", fact(check.getPath(), scope)},
-             {"check_kind", check.getKindAttr()},
-             {"condition", value(check.getCondition(), scope)},
-             {"location", check.getLocationAttr()},
-             {"message", check->getAttr("ac.message")
-                             ? check->getAttr("ac.message")
-                             : Attribute(builder.getUnitAttr())}}));
+        auto row = dict({{"kind", str("check")},
+                         {"occurrence", check->getAttr("occurrence")},
+                         {"path", fact(check.getPath(), scope)},
+                         {"check_kind", check.getKindAttr()},
+                         {"condition", value(check.getCondition(), scope)},
+                         {"location", check.getLocationAttr()},
+                         {"message", check->getAttr("ac.message")
+                                         ? check->getAttr("ac.message")
+                                         : Attribute(builder.getUnitAttr())}});
+        if (!row)
+          return failure();
+        result.push_back(row);
       } else if (auto observe = dyn_cast<SourceObserveOp>(operation)) {
         if (failed(metadata(observe->getAttr("occurrence"))) ||
             failed(metadata(observe.getKindAttr())) ||
@@ -610,17 +745,21 @@ private:
           auto type = TypeAttr::get(input.getType());
           if (failed(metadata(type)))
             return failure();
-          observed.push_back(dict({{"type", type},
-                                   {"value", value(input, scope)}}));
+          auto item = dict({{"type", type}, {"value", value(input, scope)}});
+          if (!item)
+            return failure();
+          observed.push_back(item);
         }
-        result.push_back(dict(
-            {{"kind", str("observe")},
-             {"occurrence", observe->getAttr("occurrence")},
-             {"path", fact(observe.getPath(), scope)},
-             {"observation_kind", observe.getKindAttr()},
-             {"spec", observe.getSpec()},
-             {"location", observe->getAttr("ac.location")},
-             {"values", array(observed)}}));
+        auto row = dict({{"kind", str("observe")},
+                         {"occurrence", observe->getAttr("occurrence")},
+                         {"path", fact(observe.getPath(), scope)},
+                         {"observation_kind", observe.getKindAttr()},
+                         {"spec", observe.getSpec()},
+                         {"location", observe->getAttr("ac.location")},
+                         {"values", array(observed)}});
+        if (!row)
+          return failure();
+        result.push_back(row);
       } else if (isa<SourceStateReadOp, SourceStateWriteOp>(operation)) {
         auto stateName = operation.getAttrOfType<StringAttr>("state");
         SourceStateOp state;
@@ -635,28 +774,45 @@ private:
           return operation.emitOpError()
                  << "publication requires an actual local state";
         bool write = isa<SourceStateWriteOp>(operation);
+        auto selectedRows = operation.getAttrOfType<ArrayAttr>("selectors");
+        if (arm &&
+            (!selectedRows.empty() || !isa<BitsType>(state.getQ().getType())))
+          return operation.emitOpError()
+                 << "source branch arms require whole Bits state accesses";
         ValueRange indices = operation.getOperands().drop_front(write ? 2 : 1);
         auto selected = selectors(
             operation.getAttrOfType<ArrayAttr>("selectors"), indices, scope);
         if (failed(selected))
           return failure();
-        NamedAttrList row(dict({{"kind", str(write ? "write" : "read")},
-                                {"occurrence", operation.getAttr("occurrence")},
-                                {"path", fact(operation.getOperand(0), scope)},
-                                {"state", stateRef(state)},
-                                {"selectors", *selected}}));
-        if (write)
-          row.append("value", value(operation.getOperand(1), scope));
+        auto base = dict({{"kind", str(write ? "write" : "read")},
+                          {"occurrence", operation.getAttr("occurrence")},
+                          {"path", fact(operation.getOperand(0), scope)},
+                          {"state", stateRef(state)},
+                          {"selectors", *selected}});
+        if (!base || !budget.charge(write ? 2 : 1))
+          return failure();
+        NamedAttrList row(base);
+        if (write) {
+          auto written = value(operation.getOperand(1), scope);
+          if (!written)
+            return failure();
+          row.append("value", written);
+        }
+        if (!budget.ok() || invalid)
+          return failure();
         result.push_back(row.getDictionary(builder.getContext()));
       } else if (!detail::isCombinationalHardwareOperation(&operation)) {
         return operation.emitOpError()
                << "transaction publication cannot omit this callable operation";
-      } else if (failed(scanPure(&operation, 0)))
+      } else if (failed(scanPure(&operation, depth)))
+        return failure();
+      if (invalid || !budget.ok())
         return failure();
     }
     if (invalid || !budget.ok())
       return failure();
-    return array(result);
+    auto rows = array(result);
+    return rows ? FailureOr<ArrayAttr>(rows) : FailureOr<ArrayAttr>(failure());
   }
   FailureOr<DictionaryAttr> callable(Operation *operation) {
     auto guardLocation =
@@ -681,13 +837,15 @@ private:
     if (failed(captureRows) || failed(guardEffects) || failed(bodyEffects) ||
         failed(results))
       return failure();
-    NamedAttrList row(
-        dict({{"captures", *captureRows},
-              {"guard_location", guardLocation},
-              {"guard", value(guard.getValues().front(), operation)},
-              {"guard_effects", *guardEffects},
-              {"body_effects", *bodyEffects},
-              {"results", *results}}));
+    auto base = dict({{"captures", *captureRows},
+                      {"guard_location", guardLocation},
+                      {"guard", value(guard.getValues().front(), operation)},
+                      {"guard_effects", *guardEffects},
+                      {"body_effects", *bodyEffects},
+                      {"results", *results}});
+    if (!base || !budget.charge(method ? 7 : 5))
+      return failure();
+    NamedAttrList row(base);
     if (method) {
       row.append("name", method.getSymNameAttr());
       row.append("declaration", method.getOccurrence());
@@ -705,11 +863,15 @@ private:
       row.append("declaration", transaction.getDeclaration());
       row.append("registration", transaction.getOccurrence());
       row.append("domain", *domain);
-      row.append("result_types", types(transaction.getResultTypes()));
+      auto resultTypes = types(transaction.getResultTypes());
+      if (!resultTypes)
+        return failure();
+      row.append("result_types", resultTypes);
     }
     if (invalid || !budget.ok())
       return failure();
-    budget.charge(row.getAttrs().size());
+    if (!budget.charge(row.getAttrs().size()))
+      return failure();
     return row.getDictionary(builder.getContext());
   }
   ModuleOp definition;
@@ -1329,14 +1491,61 @@ private:
     }
     return success();
   }
-  LogicalResult effects(ArrayAttr rows, const ValueScope &scope, bool guard) {
+  LogicalResult effects(ArrayAttr rows, const ValueScope &scope, bool guard,
+                        unsigned depth = 0, bool arm = false) {
+    if (!rows || !budget.depth(depth))
+      return failure();
     for (Attribute raw : rows) {
+      if (!budget.charge())
+        return failure();
       auto row = dyn_cast<DictionaryAttr>(raw);
       auto kind = row ? row.getAs<StringAttr>("kind") : StringAttr();
       if (!kind)
         return error("effect kind must be a string");
       if (failed(occurrence(row.getAs<DictionaryAttr>("occurrence"))))
         return failure();
+      // A branch owns its condition and both ordered arms; it has no path row.
+      if (kind.getValue() == "branch") {
+        if (guard)
+          return error("guard effects permit reads only");
+        if (failed(exact(row, {"kind", "occurrence", "condition_location",
+                               "condition", "then_effects", "else_effects",
+                               "results"})))
+          return failure();
+        if (failed(detail::verifySourceEffectMetadata(
+                row.getAs<DictionaryAttr>("occurrence"),
+                row.getAs<DictionaryAttr>("condition_location"), declaration,
+                [&] { return declaration->emitOpError(); })) ||
+            failed(value(row.get("condition"), scope)))
+          return failure();
+        auto trueEffects = row.getAs<ArrayAttr>("then_effects");
+        auto falseEffects = row.getAs<ArrayAttr>("else_effects");
+        auto results = row.getAs<ArrayAttr>("results");
+        if (!trueEffects || !falseEffects || !results)
+          return error("branch arms and results must be arrays");
+        if (failed(effects(trueEffects, scope, false, depth + 1, true)) ||
+            failed(effects(falseEffects, scope, false, depth + 1, true)))
+          return failure();
+        for (Attribute rawResult : results) {
+          auto result = dyn_cast<DictionaryAttr>(rawResult);
+          if (!budget.charge() ||
+              failed(exact(result, {"type", "when_true", "when_false"})) ||
+              failed(type(result.get("type"))))
+            return failure();
+          auto physical = result.getAs<TypeAttr>("type").getValue();
+          if (!isa<BitsType>(physical))
+            return error("branch results require Bits types");
+          if (failed(value(result.get("when_true"), scope, physical)) ||
+              failed(value(result.get("when_false"), scope, physical)))
+            return failure();
+        }
+        continue;
+      }
+      if (arm &&
+          llvm::is_contained(ArrayRef<StringRef>{"call", "check", "observe"},
+                             kind.getValue()))
+        return error(
+            "branch arms cannot contain calls, checks or observations");
       if (failed(fact(row.get("path"), scope)))
         return failure();
       if (kind.getValue() == "call") {
@@ -1365,9 +1574,8 @@ private:
       } else if (kind.getValue() == "observe") {
         if (guard)
           return error("guard effects permit reads only");
-        if (failed(exact(row, {"kind", "occurrence", "path",
-                               "observation_kind", "spec", "location",
-                               "values"})))
+        if (failed(exact(row, {"kind", "occurrence", "path", "observation_kind",
+                               "spec", "location", "values"})))
           return failure();
         auto observationKind = row.getAs<StringAttr>("observation_kind");
         auto spec = row.getAs<DictionaryAttr>("spec");
@@ -1415,6 +1623,8 @@ private:
         auto selected = selectedType(state, selectors, scope);
         if (failed(selected))
           return failure();
+        if (arm && (!selectors.empty() || !isa<BitsType>(*selected)))
+          return error("branch arms require whole Bits state accesses");
         if (write && failed(value(row.get("value"), scope, *selected)))
           return failure();
       } else

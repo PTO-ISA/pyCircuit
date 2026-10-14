@@ -1126,6 +1126,232 @@ TEST_F(SourceTransactionCaptureTest, EffectfulControlFlowFailsClosed) {
          "loop");
 }
 
+TEST_F(SourceTransactionCaptureTest,
+       StatementBranchesPreserveFixedBooleanElifPassAndMissingElse) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 5
+    @ac.method
+    def choose(fixed: ac.u1, logical: bool) -> None:
+        if fixed:
+            count = count + 1
+        if logical:
+            count = count + 2
+        elif fixed:
+            pass
+        else:
+            count = count + 3
+    @ac.rule
+    def step() -> None:
+        choose(0, True)
+    step()
+)py",
+                    "statement_branches.py");
+  ASSERT_TRUE(file);
+  auto branches = operations<ac::SourceBranchOp>(*file);
+  ASSERT_EQ(branches.size(), 3u);
+  EXPECT_EQ(operations<ac::SourceStateWriteOp>(*file).size(), 3u);
+  ac::HardwareAnalysis hardware(*file);
+  for (auto branch : branches) {
+    ac::HardwareBindings bindings;
+    bindings.owner = branch->getParentOfType<ac::ModuleOp>();
+    auto width = hardware.getPackedWidth(branch.getCondition().getType(),
+                                         bindings, branch);
+    ASSERT_TRUE(succeeded(width));
+    EXPECT_EQ(*width, 1u);
+    EXPECT_TRUE(branch.getConditionLocation());
+    EXPECT_TRUE(branch.getOccurrence());
+    ASSERT_TRUE(branch.getThenRegion().hasOneBlock());
+    ASSERT_TRUE(branch.getElseRegion().hasOneBlock());
+    EXPECT_TRUE(
+        isa<ac::YieldOp>(branch.getThenRegion().front().getTerminator()));
+    EXPECT_TRUE(
+        isa<ac::YieldOp>(branch.getElseRegion().front().getTerminator()));
+  }
+  unsigned emptyArms = 0;
+  for (auto branch : branches)
+    for (Region *arm : {&branch.getThenRegion(), &branch.getElseRegion()})
+      if (arm->front().getOperations().size() == 1)
+        ++emptyArms;
+  EXPECT_EQ(emptyArms, 2u) << "pass and the missing else remain explicit arms";
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       ScalarBranchJoinsUseCompleteIntegerRepresentationsAndAnnotations) {
+  auto file = typed(R"py(import pycircuit as ac
+from typing import Annotated
+@ac.module
+def Owner():
+    narrow: ac.u8 = 0
+    wide: ac.bits[72] = 0
+    @ac.method
+    def choose(fixed: ac.u1, logical: bool) -> None:
+        if logical:
+            signed = 0 - 1
+        else:
+            signed = 2
+        narrow = signed + 2
+        if fixed:
+            large = 1 << 70
+        else:
+            large = 3
+        wide = large
+        bounded: Annotated[int, range(1 << 3)] = 0
+        if fixed:
+            bounded = 7
+        else:
+            bounded = 1
+        narrow = bounded
+    @ac.rule
+    def step() -> None:
+        choose(0, True)
+    step()
+)py",
+                    "numeric_branch_joins.py");
+  ASSERT_TRUE(file);
+  auto branches = operations<ac::SourceBranchOp>(*file);
+  ASSERT_EQ(branches.size(), 3u);
+  bool sawSmall = false, sawWide = false;
+  ac::HardwareAnalysis hardware(*file);
+  for (auto branch : branches) {
+    ASSERT_EQ(branch.getNumResults(), 1u);
+    ac::HardwareBindings bindings;
+    bindings.owner = branch->getParentOfType<ac::ModuleOp>();
+    auto width = hardware.getPackedWidth(branch.getResult(0).getType(),
+                                         bindings, branch);
+    ASSERT_TRUE(succeeded(width));
+    sawSmall |= *width <= 8;
+    sawWide |= *width >= 71;
+  }
+  EXPECT_TRUE(sawSmall);
+  EXPECT_TRUE(sawWide);
+  EXPECT_EQ(operations<ac::SourceStateWriteOp>(*file).size(), 3u);
+
+  auto overflow =
+      capture("numeric_branch_overflow.py", R"py(import pycircuit as ac
+from typing import Annotated
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def choose(flag: ac.u1) -> None:
+        local: Annotated[int, range(1 << 3)] = 0
+        if flag:
+            local = 8
+        else:
+            local = 1
+        count = local
+    @ac.rule
+    def step() -> None:
+        choose(0)
+    step()
+)py");
+  ASSERT_TRUE(overflow);
+  diagnostics.clear();
+  EXPECT_TRUE(failed(lower(*overflow, "numeric_branch_overflow.py")));
+  EXPECT_NE(StringRef(diagnostics).lower().find("bound"), std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       BranchLocalsRequireDefiniteAssignmentAndScalarEscape) {
+  reject(R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def choose(flag: ac.u1) -> None:
+        if flag:
+            selected = count
+        else:
+            pass
+        count = selected
+    @ac.rule
+    def step() -> None:
+        choose(0)
+    step()
+)py",
+         "selected");
+
+  reject(R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def choose(flag: ac.u1) -> None:
+        packet = Packet(value=count)
+        if flag:
+            packet = Packet(value=count + 1)
+        else:
+            pass
+        count = packet.value
+    @ac.rule
+    def step() -> None:
+        choose(0)
+    step()
+)py",
+         "scalar");
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       ConditionalCallsEffectsAndReturnsFailClosedInConstantFalseArms) {
+  constexpr StringLiteral sourceText = R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def predicate() -> ac.u1:
+        return count[:1]
+    @ac.method
+    def update() -> None:
+        count = count + 1
+    @ac.rule
+    def step() -> None:
+        BODY
+    step()
+)py";
+  const std::pair<StringRef, StringRef> cases[] = {
+      {"if False:\n            update()", "branch"},
+      {"if predicate():\n            pass", "branch"},
+      {"if False:\n            assert count != 0", "branch"},
+      {"if False:\n            ac.log(\"info\", \"hidden\", count)", "branch"},
+      {"if False:\n            ac.report(\"hidden\", count)", "branch"},
+      {"if False:\n            return", "return"}};
+  for (auto [body, category] : cases)
+    reject(replaceOnce(sourceText.str(), "BODY", body), category);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       PureConditionalExpressionRemainsStraightLineWithAggregateLocals) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    left: ac.u8
+    right: ac.u8
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def choose(flag: ac.u1) -> None:
+        packet = Packet(left=count, right=count + 1)
+        selected = packet.left if flag else packet.right
+        count = selected
+    @ac.rule
+    def step() -> None:
+        choose(0)
+    step()
+)py",
+                    "pure_select.py");
+  ASSERT_TRUE(file);
+  EXPECT_TRUE(operations<ac::SourceBranchOp>(*file).empty());
+  EXPECT_EQ(operations<ac::BitsSelectOp>(*file).size(), 1u);
+  EXPECT_EQ(operations<ac::SourceStateWriteOp>(*file).size(), 1u);
+}
+
 TEST_F(SourceTransactionCaptureTest, MethodCallsRequireDirectTransactionScope) {
   reject(
       replaceOnce(counterSource(), "    @ac.rule\n    def advance",
@@ -1196,9 +1422,11 @@ def Parent)py");
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       LogicalIntegerMethodResultIsNotAPredicate) {
-  for (StringRef expression :
-       {"not owner.value()", "1 if owner.value() else 0"}) {
+       LogicalIntegerMethodResultAndConditionalCallsFailClosed) {
+  for (auto [expression, diagnostic] :
+       {std::pair<StringRef, StringRef>(
+            "not owner.value()", "Boolean source condition, not Integer"),
+        {"1 if owner.value() else 0", "Method call in a branch or branch test"}}) {
     auto text = R"py(import pycircuit as ac
 from typing import Annotated
 @ac.module
@@ -1220,8 +1448,7 @@ def Parent():
     ASSERT_TRUE(captured);
     diagnostics.clear();
     EXPECT_TRUE(failed(lower(*captured, "integer.py")));
-    EXPECT_NE(diagnostics.find("Boolean source condition, not Integer"),
-              std::string::npos)
+    EXPECT_NE(diagnostics.find(diagnostic.str()), std::string::npos)
         << diagnostics;
     EXPECT_EQ(diagnostics.find("unexpected operation"), std::string::npos);
   }

@@ -1020,8 +1020,10 @@ not a clocked reset pulse or a promise to clear memory.
 ## Method execution and remaining capabilities
 
 Native sampled-admission lowering and both backend lifecycles are implemented
-for straight-line, same-domain transactions over whole fixed-width Bits, with
-one outer writer per actual owner. The lowerer emits sampled-check metadata and
+for same-domain transactions over whole fixed-width Bits, with one outer writer
+per actual owner. Transaction bodies may be straight-line or use bounded
+statement `if`/`elif`/`else`/`pass` branches with finite nesting. The lowerer
+emits sampled-check metadata and
 complete transaction-wiring records. It authenticates the detached candidate
 against the original source plan, then invokes the canonical final hardware
 verifier before atomically replacing the input. Final-IR execution has focused
@@ -1045,8 +1047,14 @@ value-call behavior.
 
 This source-compilation subset retains fixed scalar state, sequential local
 assignments/calls, typed scalar/Struct results, lambda guards and static
-zero-argument Method-owner construction. It does not expand effectful branch,
-loop, aggregate-state or general static-parameter admission.
+zero-argument Method-owner construction. A branch may update whole fixed-width
+Bits owners and may join changed scalar locals. A changed local used after the
+join must be defined on both arms; an omitted owner assignment inherits the
+candidate and write intent that entered the branch. Unconditional Method calls
+may appear before or after a branch. Calls, assertions, logs and reports inside
+either arm remain rejected, including in a statically false arm. Loops, partial
+or aggregate state updates, transaction resources and changed aggregate locals
+escaping the join remain outside this subset.
 
 A guarded nested Rule also selects typed transaction capture without requiring
 a dummy Method or state. A module such as `GuardOnly(enabled: u1)` may omit its
@@ -1057,8 +1065,8 @@ Ordinary unguarded modules keep their existing source path.
 
 Native final link lowers whole scalar state represented by fixed-width Bits,
 repeated or nested Method calls through static ordinary instances in the same
-physical clock/reset domain, straight-line effects, and at most one outer Rule
-writer per actual owner.
+physical clock/reset domain, bounded whole-Bits branches, straight-line effects,
+and at most one outer Rule writer per actual owner.
 Calls share their outer transaction's candidate versions; saved ordinary values
 remain snapshots. Independent Rules read old Q, regardless of registration
 order. Separate structural instances retain independent state. Each state
@@ -1070,6 +1078,14 @@ value-validity prefixes and a sampling-history binding. Literal true/false,
 state-free and read-only transactions follow the same route. Ordinary results
 escaping an outer Rule still require the conservative proof that all guards are true;
 sampling does not add a valid-result API or relax result escape restrictions.
+Both branch arms start from the same incoming candidate data and raw write
+intent. The join uses the original four-state selector for both components.
+Missing writes inherit the branch-entry pair rather than returning to old Q;
+identity writes retain intent. The physical storage enable is the four-state
+AND of final transaction fire and joined raw intent. It is never converted by a
+known-one or case-equality test, so unknown single-sided intent reaches the
+existing active-edge failure and whole-system discard contract. Direct body
+effects use final transaction fire, not an individual state's enable.
 Each reached guard checks knownness at an active rising edge outside reset.
 A known false guard holds that transaction; an earlier reached X/Z guard
 causes whole-system zero commit even if a later guard is false. A false guard
@@ -1107,15 +1123,18 @@ Body assertions retain ordinary reset masking and fail on false or unknown
 conditions, including low, held and falling epochs. They do not acquire the
 guard-known sampling binding. Observations publish only after successful
 whole-system checking and precommit; failure preserves previous gauges/events
-and the committed epoch. Partial or conditional effects and transaction resource
+and the committed epoch. Effects inside a branch and transaction resource
 operations remain unsupported. Valid uncalled
 Method declarations remain fully published and checked before link removes
-them. This subset does not complete resource/causality handling or branch/partial state.
+them. This subset does not complete partial or aggregate state, conditional
+Method calls, resource/conflict/causality handling or effect-safe optimization.
 Existing ordinary hardware and its system route
 retain their current contracts and limits.
 See the
-[extension specification](../rfcs/serial-rule-method/README.md) for its target
-semantics and explicit implementation boundaries.
+[whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md) and
+[extension specification](../rfcs/serial-rule-method/README.md) for exact
+semantics, rejection boundaries and acceptance obligations. These documents do
+not by themselves establish that a particular candidate passed those checks.
 
 IR support for [Table/collections](spec-collections.md), packed structs and
 memory does not establish a Python authoring API for every operation. Beyond the

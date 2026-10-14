@@ -157,10 +157,13 @@ MLIR Value/Operation 的 typed plan；它本身不等于完成上述 SSA materia
 事务共享 owner 候选版本；不同 Rule 分别从 old-Q 开始。纯表达式仍由原有 ACIR 表达，
 不增加值解释器或另一套执行模型。
 
-第一分析出口只接纳有真实 body 的直线调用和 whole-owner 访问。effect path 必须经
-既有 literal fact owner 证明为 true；false/unknown guard 则保留有序准入义务。
-selectors、条件效果、分支和跨域证明缺口在该分析入口拒绝，不改变现有逐源发布的
-准入范围。consumer compile 仍只使用接口，不能为了运行此分析读取 provider Python。
+分析出口接纳有真实 body 的无条件调用、whole-Bits owner 访问和 bounded statement
+branch。effect path 必须经既有 literal fact owner 证明为 true；false/unknown guard
+则保留有序准入义务。branch state plan 同时版本化 data 与 raw intent，未写 arm 继承
+entry pair。conditional calls/effects、partial/aggregate state、changed aggregate join
+和跨域证明缺口仍拒绝。consumer compile 只使用接口，不能为了运行此分析读取 provider
+Python。精确 SourceBranch、join、D/E layout 和验收见
+[branch state SSA](branch-state-ssa.md)。
 
 owner 身份必须包含词法实例 anchor、实际 instance occurrence 链和 state declaration。
 普通 old-Q capture 保持原始快照；仅 `state.read` 查询当前候选。guard 固定调用入口的
@@ -227,6 +230,14 @@ fixed Bits 状态；实际 Rule/Method guard 和 effect path 都必须证明为 
 同一调用链复用候选版本。未调用 Method 先通过声明、摘要和递归验证，再在完整 link
 闭包中删除；不能通过提前删除规避检查。这个切片不关闭跨实例接线、动态 guard、部分
 更新、资源或完整 Method `@system` 验收，也不建立另一条临时 lowering 路线。
+
+当前 whole-Bits branch 增量仍使用同一个 state analysis 和
+`ac-lower-transactions`。`ac.branch` 只保存 source effect history；analysis 为 OldQ、
+Write、Join 建立 `(data,rawIntent)` 版本，lowering 为每个 Join 生成两个四态 select，
+再生成 `effectiveEnable = bit_and(finalFire,rawIntent)`。最终 candidate ABI 使用 D/E
+两个 slots，旧单 result schema hard break。原源认证 replay branch history，随后 final
+verifier 独立证明 D/E、domain 和 private routes。精确合同见
+[branch state SSA](branch-state-ssa.md)；它不开放 arm 内调用/effect、partial state 或资源。
 
 输入采用现有 link 合并状态：有 `ac.source_units` 与唯一 `ac.system`，无 `ac.stage`
 和单源 envelope 属性。普通 provider imports 已解消。公共 link 通过仍存活的

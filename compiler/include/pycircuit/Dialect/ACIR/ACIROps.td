@@ -321,6 +321,29 @@ def ACIR_SourceStateWriteOp : ACIR_Op<"state.write", [
   let hasVerifier = 1;
 }
 
+def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
+    RecursiveMemoryEffects]> {
+  let summary = "Preserve source branch arms and scalar SSA results";
+  let description = [{
+    Both arms start from the same transaction candidate environment. Each arm
+    has no block arguments and terminates with ac.yield. The condition is
+    ordinary four-state data, not a required guard. The required
+    ac.condition_location attribute is the original provider-owned SourceSpan.
+    This source operation must be materialized and cannot remain in final IR.
+  }];
+  let arguments = (ins ACIR_BitsType:$condition, DictionaryAttr:$occurrence);
+  let results = (outs Variadic<ACIR_BitsType>:$results);
+  let regions = (region AnyRegion:$then_region, AnyRegion:$else_region);
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::DictionaryAttr getConditionLocation() {
+      return (*this)->getAttrOfType<::mlir::DictionaryAttr>(
+          "ac.condition_location");
+    }
+  }];
+}
+
 def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
     SingleBlock, RecursiveMemoryEffects]> {
   let summary = "Define an instance operation with entry guard and ordered body";

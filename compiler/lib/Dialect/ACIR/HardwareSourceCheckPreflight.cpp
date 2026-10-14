@@ -193,6 +193,9 @@ private:
   struct RawSampledRuleWork {
     uint64_t prefixValues = 0, andNodes = 0, comparisons = 0;
     uint64_t andOperands = 0, guards = 0, effects = 0, identityLength = 0;
+    uint64_t intentValues = 0, intentSelects = 0, intentEdges = 0, enables = 0;
+    uint64_t intentIdentityInputs = 0, effectiveValues = 0,
+             intentIdentityLength = 0;
   };
   static uint64_t sampledRuleProofCost(const RawSampledRuleWork &work,
                                        uint64_t stops) {
@@ -213,25 +216,48 @@ private:
     uint64_t atoms = std::max(work.guards, work.comparisons);
     uint64_t prefixQueries =
         add(add(add(work.guards, 1), work.effects), work.andOperands);
+    uint64_t intentQueries =
+        add(1, add(work.intentEdges, multiply(3, work.enables)));
+    // Dedicated body-effect paths have their own non-memoized exact-fire
+    // identity checks, separate from both prefix and intent memo contexts.
+    uint64_t exactPathQueries = add(1, work.effects);
     uint64_t queries = add(prefixQueries, add(multiply(2, work.comparisons),
                                               multiply(5, work.guards)));
-    uint64_t length = work.identityLength;
-    // Definition-local Value matches have the same full scope/type. The
-    // prefilters stop each list at its first match or cycle: at most one scope
-    // pair per stop/seen/memo list, plus the copied endpoint scopes.
-    uint64_t normalStep =
-        add(add(1, stops), add(add(e, b), add(f, multiply(6, s))));
-    uint64_t normal = add(f, multiply(length, normalStep));
-    if (length) {
-      uint64_t left = length, right = length - 1;
-      if (left % 2 == 0)
-        left /= 2;
-      else
-        right /= 2;
-      normal = add(normal, multiply(left, right));
-    }
+    // Each memo context pays only chains it actually normalizes. Intent
+    // selectors and D/E carriers cannot lengthen ordered-prefix walks.
+    auto normalizationCost = [&](uint64_t length) {
+      uint64_t normalStep =
+          add(add(1, stops), add(add(e, b), add(f, multiply(6, s))));
+      uint64_t normal = add(f, multiply(length, normalStep));
+      if (length) {
+        uint64_t left = length, right = length - 1;
+        if (left % 2 == 0)
+          left /= 2;
+        else
+          right /= 2;
+        normal = add(normal, multiply(left, right));
+      }
+      return normal;
+    };
+    uint64_t normal = normalizationCost(work.identityLength);
+    uint64_t intentNormal = normalizationCost(work.intentIdentityLength);
     uint64_t identity = multiply(
         queries, add(add(add(f, queries), normal), add(m, multiply(4, s))));
+    // IntentProof has a different immutable IdentityMemo from the prefix
+    // prover. Repeated fire and shared literal-intent queries are memo hits;
+    // only distinct effective enables, intent nodes and selectors can miss.
+    uint64_t intentEntries =
+        add(work.effectiveValues,
+            add(work.intentValues, work.intentIdentityInputs));
+    uint64_t intentMisses = std::min(intentQueries, intentEntries);
+    uint64_t intentIdentity =
+        multiply(intentQueries, add(intentEntries, add(e, multiply(3, s))));
+    intentIdentity = add(intentIdentity,
+                         multiply(intentMisses, add(add(f, intentNormal),
+                                                    add(m, multiply(2, s)))));
+    identity = add(identity, intentIdentity);
+    identity = add(identity, multiply(exactPathQueries, add(f, normal)));
+    identity = add(identity, multiply(work.effects, multiply(2, s)));
     uint64_t copy = add(h, multiply(atoms, add(e, s)));
     uint64_t atomStep =
         add(add(atoms, 1), add(multiply(multiply(2, s), atoms), add(e, s)));
@@ -251,20 +277,69 @@ private:
                               add(add(multiply(2, b), 2), add(e, s))));
     cost = add(cost, multiply(work.andNodes, joinGeneral));
     cost = add(cost, multiply(work.guards, joinSingleton));
-    return add(cost, multiply(add(add(work.guards, 1), work.effects), equal));
+    cost = add(cost, multiply(add(add(work.guards, 1), work.effects), equal));
+    // The separate intent grammar owns completed-root and Active/Complete node
+    // memo storage plus explicit DFS frames. Reserve actual raw nodes/edges;
+    // selectors remain ordinary Bits1 identity queries, never guard atoms.
+    uint64_t intentLookup = 1;
+    for (uint64_t n = add(work.intentValues, work.enables); n > 1;
+         n = n / 2 + n % 2)
+      intentLookup = add(intentLookup, 2);
+    cost = add(
+        cost,
+        multiply(
+            work.intentValues,
+            add(1, Budget::bytes(
+                       SampledAdmissionValidation::intentNodeStorageBytes()))));
+    cost = add(
+        cost,
+        multiply(
+            work.enables,
+            add(1, Budget::bytes(
+                       SampledAdmissionValidation::intentRootStorageBytes()))));
+    // Geometric frame growth reserves less than twice the visited select count;
+    // old-element move work is separately prepaid.
+    cost = add(
+        cost,
+        multiply(
+            multiply(2, work.intentSelects),
+            add(2,
+                Budget::bytes(
+                    SampledAdmissionValidation::intentFrameStorageBytes()))));
+    cost = add(cost,
+               multiply(add(work.intentEdges,
+                            multiply(4, add(work.intentValues, work.enables))),
+                        intentLookup));
+    cost =
+        add(cost, multiply(work.intentValues, add(add(multiply(2, b), 3), s)));
+    cost =
+        add(cost, multiply(work.intentSelects, add(add(multiply(2, b), 4), s)));
+    return add(cost, multiply(work.enables, add(3, multiply(2, s))));
   }
   FailureOr<uint64_t> sampledProofCost(Operation *definition, uint64_t stops) {
     llvm::DenseSet<Value> boundaries;
     SmallVector<Operation *> rules;
-    SmallVector<std::pair<Value, bool>> pending;
-    auto seed = [&](Value value, bool prefix) -> LogicalResult {
+    SmallVector<std::pair<Value, unsigned>> pending;
+    auto seed = [&](Value value, unsigned mode) -> LogicalResult {
       if (!value)
         return success();
-      if (failed(budget.debit(
-              Budget::add(1, Budget::bytes(sizeof(std::pair<Value, bool>))),
-              definition)))
+      if (failed(budget.debit(1, definition)))
         return failure();
-      pending.emplace_back(value, prefix);
+      if (pending.size() == pending.capacity()) {
+        uint64_t capacity = Budget::multiply(
+            std::max(uint64_t(1), uint64_t(pending.capacity())), 2);
+        uint64_t bytes = Budget::multiply(capacity - pending.capacity(),
+                                          sizeof(std::pair<Value, unsigned>));
+        if (capacity == std::numeric_limits<uint64_t>::max() ||
+            bytes == std::numeric_limits<uint64_t>::max() ||
+            capacity > pending.max_size())
+          return budget.debit(std::numeric_limits<uint64_t>::max(), definition);
+        if (failed(budget.debit(
+                Budget::add(Budget::bytes(bytes), pending.size()), definition)))
+          return failure();
+        pending.reserve(capacity);
+      }
+      pending.emplace_back(value, mode);
       return success();
     };
     auto boundary = [&](Value value) -> LogicalResult {
@@ -295,9 +370,36 @@ private:
           !op->getRegion(0).hasOneBlock() || op->getRegion(0).front().empty())
         return success();
       Operation &yielded = op->getRegion(0).front().back();
-      if (*fire < yielded.getNumOperands() &&
-          failed(seed(yielded.getOperand(*fire), true)))
-        return failure();
+      if (*fire < yielded.getNumOperands()) {
+        if (failed(seed(yielded.getOperand(*fire), true)) ||
+            failed(seed(yielded.getOperand(*fire), 4)))
+          return failure();
+      }
+      auto wiring =
+          definition->getAttrOfType<DictionaryAttr>("ac.transaction_wiring");
+      auto writers = wiring ? wiring.getAs<ArrayAttr>("writers") : ArrayAttr();
+      if (writers) {
+        for (Attribute raw : writers) {
+          if (failed(budget.debit(1, definition)))
+            return failure();
+          auto writer = dyn_cast<DictionaryAttr>(raw);
+          if (!writer ||
+              writer.get("registration") != op->getAttr("occurrence"))
+            continue;
+          auto candidates = writer.getAs<ArrayAttr>("candidates");
+          if (!candidates)
+            continue;
+          for (Attribute candidateRaw : candidates) {
+            if (failed(budget.debit(1, definition)))
+              return failure();
+            auto candidate = dyn_cast<DictionaryAttr>(candidateRaw);
+            if (auto enable =
+                    ordinal(candidate, "enable", yielded.getNumOperands()))
+              if (failed(seed(yielded.getOperand(*enable), 3)))
+                return failure();
+          }
+        }
+      }
       uint64_t checkBase = Budget::add(*fire, 1);
       if (auto observations = sampled.getAs<ArrayAttr>("observations")) {
         for (Attribute raw : observations) {
@@ -418,10 +520,13 @@ private:
       llvm::DenseMap<Value, unsigned> visited;
       RawSampledRuleWork result;
       while (!pending.empty()) {
-        auto [value, prefix] = pending.pop_back_val();
+        auto [value, modeIndex] = pending.pop_back_val();
+        bool prefix = modeIndex == 1;
+        bool intent = modeIndex == 2;
+        bool effective = modeIndex == 3;
         if (failed(budget.debit(1, definition)))
           return failure();
-        unsigned mode = prefix ? 2 : 1;
+        unsigned mode = 1u << modeIndex;
         auto known = visited.find(value);
         if (known != visited.end() && (known->second & mode))
           continue;
@@ -435,15 +540,37 @@ private:
         known->second |= mode;
         if (prefix)
           result.prefixValues = Budget::add(result.prefixValues, 1);
+        if (intent)
+          result.intentValues = Budget::add(result.intentValues, 1);
+        if (effective)
+          result.effectiveValues = Budget::add(result.effectiveValues, 1);
+        if (modeIndex == 4)
+          result.intentIdentityInputs =
+              Budget::add(result.intentIdentityInputs, 1);
         if (Value next = identityNext(value)) {
-          if (failed(seed(next, prefix)))
+          if (failed(seed(next, modeIndex)))
             return failure();
           continue;
         }
         if (boundaries.contains(value))
           continue;
         Operation *owner = value.getDefiningOp();
-        if (prefix && owner && isa<BitsBinaryOp>(owner)) {
+        if (effective && owner && isa<BitsBinaryOp>(owner)) {
+          result.enables = Budget::add(result.enables, 1);
+          if (owner->getNumOperands() > 0 &&
+              failed(seed(owner->getOperand(0), 4)))
+            return failure();
+          if (owner->getNumOperands() > 1 &&
+              failed(seed(owner->getOperand(1), 2)))
+            return failure();
+        } else if (intent && owner && isa<BitsSelectOp>(owner)) {
+          result.intentSelects = Budget::add(result.intentSelects, 1);
+          result.intentEdges =
+              Budget::add(result.intentEdges, owner->getNumOperands());
+          for (auto [i, operand] : llvm::enumerate(owner->getOperands()))
+            if (failed(seed(operand, i == 0 ? 4 : 2)))
+              return failure();
+        } else if (prefix && owner && isa<BitsBinaryOp>(owner)) {
           auto opcode = owner->getAttrOfType<StringAttr>("opcode");
           if (opcode && opcode.getValue() == "and") {
             result.andNodes = Budget::add(result.andNodes, 1);
@@ -504,7 +631,11 @@ private:
             length = Budget::add(length, 1);
           lengths.find(chain.pop_back_val())->second = {length, true, cycle};
         }
-        result.identityLength = std::max(result.identityLength, length);
+        if (entry.second & 3u)
+          result.identityLength = std::max(result.identityLength, length);
+        if (entry.second & 28u)
+          result.intentIdentityLength =
+              std::max(result.intentIdentityLength, length);
       }
       return result;
     };
@@ -680,7 +811,8 @@ private:
         right /= 2;
       cost = add(cost, multiply(left, right));
     }
-    cost = add(cost, add(local.incoming, local.sampledSchema));
+    cost = add(cost,
+               add(add(local.incoming, local.candidates), local.sampledSchema));
     return add(cost, multiply(local.rules, add(local.writers, 1)));
   }
   static uint64_t nativeSampledSchemaCost(const RawDefinitionWork &local) {
@@ -693,8 +825,11 @@ private:
     uint64_t prepared =
         add(1, Budget::bytes(sizeof(PreparedSampledBoundaries)));
     uint64_t validate = add(1, multiply(2, b));
-    uint64_t cost =
-        add(wiringSchemaCost(local), multiply(2, local.sampledSchema));
+    // Without wiring there is no parsed writer from which boundary slots can
+    // be obtained, so both boundary preparation and the actual Rule query
+    // parse.
+    uint64_t cost = add(wiringSchemaCost(local),
+                        multiply(local.hasWiring ? 1 : 2, local.sampledSchema));
     cost = add(cost, add(prepared, multiply(2, b)));
     cost = add(cost, multiply(local.ruleResults, add(e, f)));
     cost = add(cost, multiply(add(local.sampledRules, 1), validate));
@@ -703,6 +838,30 @@ private:
     cost = add(cost, multiply(local.sampledRules, map));
     cost = add(cost, multiply(2, local.operations));
     cost = add(cost, multiply(local.rules, local.writers));
+    // Complete boundary and immutable wiring preparation each parse once;
+    // the single actual Rule query above always reparses its six closed fields.
+    // One additional full wiring parse serves all typed writer queries. Their
+    // row revalidation visits only the actual row metadata and candidate slots;
+    // it never rebuilds unrelated state/Rule inventories per writer.
+    cost = add(cost, wiringSchemaCost(local));
+    cost = add(cost, add(1, add(local.states,
+                                add(local.incoming,
+                                    add(local.writers, local.candidates)))));
+    uint64_t writerRows = std::max(uint64_t(1), local.maxCandidates);
+    cost = add(cost, multiply(writerRows, local.wiringMetadata));
+    cost = add(
+        cost,
+        multiply(
+            multiply(2, local.writers),
+            add(2,
+                Budget::bytes(
+                    SampledAdmissionValidation::intentProofStorageBytes()))));
+    cost = add(cost, multiply(local.candidates,
+                              schemaRecordCost<CheckedCandidateEnable>()));
+    cost = add(cost, multiply(local.candidates, add(2, f)));
+    cost = add(cost, multiply(3, multiply(local.writers, local.writers)));
+    cost = add(cost, multiply(local.writers, add(4, multiply(4, b))));
+    cost = add(cost, multiply(local.candidates, add(2, local.maxCandidates)));
     // The native definition verifier owns a fresh validation context: one
     // initial prepare, then one prepare and entry lookup per sampled Rule.
     // Keep the prior schema/proof reserve and add all context bookkeeping.

@@ -33,16 +33,16 @@ fresh verification。本表区分历史基线与当前有界实现；原生执�
 | --- | --- | --- | --- |
 | 类型、效果与独立发布 | SourceEffects、SourceMethodAnalysis、SourceTransactionSummary、SourceMethodResolution | 有 typed 方法、闭包/摘要验证及 source-unit 入口 | 后续变化重验 body/summary 和接口-only consumer，不增加第二 authority |
 | 纯 helper hard break | 现有 typed helper body 与 capture/import 路径 | 已有普通纯 `def` 路径 | 每次扩展维持纯度、快照、类型权威和旧入口拒绝 |
-| state SSA 分析 | SourceTransactionStateAnalysis | 直线 whole-owner typed plan，尚非完整 branch/partial SSA | 分支、selectors、条件写的精确版本与 join |
-| 同 owner 执行 | LowerTransactions | 直线、同域、whole Bits、唯一实际 writer 的统一采样 lowering | 保留实际执行、独立旧 Q 和失败原子性回归；补齐公共源验收 |
+| state SSA 分析 | SourceTransactionStateAnalysis | whole-Bits 版本、bounded branch D/raw-intent join 和 scalar local join；partial/aggregate state 未开放 | 按[branch checklist](branch-state-ssa.md#acceptance-checklist)重验 entry inheritance、四态 intent、source history 和预算 |
+| 同 owner 执行 | LowerTransactions | 同域、whole Bits、唯一实际 writer 的统一采样 lowering；bounded branch 使用 D/E slots | 保留实际执行、独立旧 Q 和失败原子性回归；conditional calls/effects 与 partial state 另行验收 |
 | 跨实例执行 | 同一 LowerTransactions + 现有 Module/Instance | 原实例接线已生成完整 companion，统一采样；Collection 限制保留 | 维持[跨实例规格](cross-instance-lowering.md)全部不变量并重验公共源 |
-| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 有序 validity/guard、双层证明及 C++/RTL history；已有直线公共动态源及 final-IR 执行证据 | 持续重验[采样准入规格](sampled-admission.md)的直线矩阵与输出保护；分支有效性仍单独扩展 |
+| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 有序 validity/guard、双层证明及 C++/RTL history；bounded branch 只承载 state/local selection | 持续重验[采样准入规格](sampled-admission.md)的顺序矩阵与输出保护；conditional call/effect path 仍单独扩展 |
 | 部分状态与冲突 | 既有字段/索引类型、write footprint、grant/disjointness proof | 不能由旧 behavioral 路径支持推断 Method 已支持 | whole/field/index 冲突统一，保留四态及源写意图 |
 | 资源与因果 | 既有 HardwareAnalysis、primitive 端口合同 | Method 的完整 resource closure 未完成 | 合法请求准入、明确拒绝超端口与联合环；Queue 单独验收 |
-| Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | 直线 direct body effects 已有原源/final 双证明及生成 runner/四态探针 | 持续重验[body effects checklist](sampled-body-effects.md#acceptance-checklist)，不扩大到分支/资源 |
+| Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | direct body effects 与 bounded whole-Bits branch 共用原源/final 双证明；arm 内 effects 仍拒绝 | 持续重验[body effects](sampled-body-effects.md#acceptance-checklist)及[branch](branch-state-ssa.md#acceptance-checklist) checklist，不扩大到 conditional effects/resources |
 | 效果安全优化 | 既有 record-wire、纯 SSA 优化和 final verifier | 不能从能够生成代码推断效率达标 | 三项结构效率义务及明确样本的成本测量 |
 
-建议剩余依赖顺序：保持跨实例不变量 → 公共动态 guard 验收 → 分支/部分更新 → 资源/冲突/因果完整闭包 →
+建议剩余依赖顺序：保持跨实例和 bounded branch 不变量 → conditional calls/effects → partial 更新 → 资源/冲突/因果完整闭包 →
 Method System 集成 → 效果安全优化。独立测试可以提前准备；基础因果和冲突验证必须在
 每个切片存在，不能等资源切片才开始验证。Queue、Signal/EHR 不混入基础交付。
 
@@ -60,7 +60,9 @@ Rule 跨 owner 的原子取消、候选 guard 入口及后续覆盖、实际状�
 2026-10-14 有界候选的公共恒真六场景、短
 API gate 与 examples gate 已重验通过；定义局部证明复用解决了原公共跨实例预算失败，
 保持原限额和全部实际实例证明。结果不自动覆盖后续候选；nightly 未运行，基础 Method
-checklist 仍有分支/部分更新、资源和效果安全优化缺口，不据此宣称全范围完成。
+checklist 仍有 conditional calls/effects、partial state、资源和效果安全优化缺口，不据此
+宣称全范围完成。whole-Bits branch 候选的 fresh evidence 与独立 review 另行绑定，不能
+由此前直线候选的结果推断。
 当前边界见[语言参考](../../reference/language.md#method-execution-and-remaining-capabilities)。
 
 ## 动态 guard：共同 IR 合同与剩余验收
@@ -111,7 +113,8 @@ clock history，包括 held/falling 输入。仅全系统硬失败或 Discard �
 
 ## 分支、部分状态与资源的实现约束
 
-分支 join 必须从每个进入路径的 candidate 生成；未写路径保持进入该分支的候选，
+whole-Bits 分支的精确合同和验收见[branch state SSA](branch-state-ssa.md)。分支 join
+必须从每个进入路径的 candidate 生成；未写路径保持进入该分支的候选，
 而非无条件退回最初 Q。字段/元素更新保留 nominal type、完整索引宽度、未触及字段、
 写意图和条件 footprint。不能用整记录最后写覆盖其他事务的已证明独立字段。
 未知索引的读/写遵循既有类型与四态原语合同，不由新 Method lowering 私自统一为失败。

@@ -24,6 +24,9 @@ using GuardBoundaryId = uint64_t;
 using CallBindingId = uint64_t;
 using BodyCheckId = uint64_t;
 using ObservationId = uint64_t;
+using BranchId = uint64_t;
+using BranchResultId = uint64_t;
+using StateJoinId = uint64_t;
 /// Number of ordered guards required to admit: zero is unconditional.
 using AdmissionPrefix = uint64_t;
 
@@ -108,11 +111,12 @@ struct TransactionStateOwner {
   BoundValueId oldQ = 0;
 };
 
-enum class StateVersionKind { OldQ, Write };
+enum class StateVersionKind { OldQ, Write, Join };
 
 /// Each owner's ordinal zero is its Q0 version, with no predecessor/write and
-/// value equal to the owner's explicit old-Q value. A write version has both
-/// predecessor and write references, and retains the bound assignment RHS.
+/// value equal to the owner's explicit old-Q value. A write version retains
+/// its statement-time RHS. A join has its entry predecessor and join reference,
+/// with no source RHS; its data and write intent select the two arm versions.
 struct StateVersion {
   SourceTransactionOp transaction;
   StateOwnerId owner = 0;
@@ -120,9 +124,13 @@ struct StateVersion {
   StateVersionKind kind = StateVersionKind::OldQ;
   std::optional<StateVersionId> predecessor;
   std::optional<StateWriteId> write;
-  BoundValueId value = 0;
+  std::optional<StateJoinId> join;
+  std::optional<BoundValueId> value;
   mlir::Type payloadType;
   AdmissionPrefix requiredPrefix = 0;
+
+  std::optional<BoundValueId> getSourceValue() const { return value; }
+  std::optional<StateJoinId> getJoinId() const { return join; }
 };
 
 struct StateReadBinding {
@@ -154,6 +162,37 @@ struct StateWriteIntent {
 struct OwnerVersionBinding {
   StateOwnerId owner = 0;
   StateVersionId version = 0;
+};
+
+/// Structured source result, independent of either arm's original yield SSA.
+struct TransactionBranchResult {
+  BranchId branch;
+  InvocationFrameId frame;
+  uint64_t ordinal;
+  BoundValueId result, whenTrue, whenFalse;
+  mlir::Type payloadType;
+  AdmissionPrefix requiredPrefix;
+};
+
+struct TransactionStateJoin {
+  BranchId branch;
+  StateOwnerId owner;
+  StateVersionId entry, whenTrue, whenFalse, result;
+};
+
+/// Both arms start at the same candidate environment and admission prefix.
+struct TransactionBranch {
+  SourceBranchOp operation;
+  InvocationFrameId frame;
+  BoundValueId condition;
+  std::optional<BranchId> parentBranch;
+  AdmissionPrefix entryPrefix;
+  llvm::SmallVector<OwnerVersionBinding> entryVersions, thenVersions,
+      elseVersions;
+  llvm::SmallVector<StateJoinId> joins;
+  llvm::SmallVector<BranchResultId> results;
+  /// Frozen source provenance; borrowed operation handles grant no authority.
+  mlir::DictionaryAttr occurrence, conditionLocation;
 };
 
 /// Ordered admission obligations retain known-false and unknown guards alike.
@@ -243,6 +282,14 @@ enum class TransactionStateEventKind {
   Observe,
   CallEnter,
   CallExit,
+  BranchEnter,
+  ThenEnter,
+  ThenExit,
+  ElseEnter,
+  ElseExit,
+  StateJoin,
+  BranchResult,
+  BranchExit,
   TransactionExit
 };
 
@@ -250,8 +297,8 @@ enum class TransactionStateEventKind {
 /// different invocation frames. Only the matching kind's record reference is
 /// set; transaction boundaries carry a frame and no record reference.
 /// CallEnter/CallExit use the caller frame; the call record identifies the
-/// callee. Guard/read/write/body-effect events use the invocation that owns their
-/// operation, and transaction boundaries use rootFrame.
+/// callee. Guard/read/write/body-effect events use the invocation that owns
+/// their operation, and transaction boundaries use rootFrame.
 struct TransactionStateEvent {
   TransactionStateEventKind kind = TransactionStateEventKind::TransactionEnter;
   InvocationFrameId frame = 0;
@@ -262,6 +309,9 @@ struct TransactionStateEvent {
   AdmissionPrefix prefix = 0;
   std::optional<BodyCheckId> bodyCheck;
   std::optional<ObservationId> observation;
+  std::optional<BranchId> branch;
+  std::optional<StateJoinId> join;
+  std::optional<BranchResultId> branchResult;
 };
 
 /// A borrowed, transaction-relative version/use-def plan. Each transaction
@@ -286,6 +336,9 @@ struct TransactionStatePlan {
   llvm::SmallVector<TransactionCallBinding, 0> calls;
   llvm::SmallVector<TransactionBodyCheck, 0> bodyChecks;
   llvm::SmallVector<TransactionObservation, 0> observations;
+  llvm::SmallVector<TransactionBranch, 0> branches;
+  llvm::SmallVector<TransactionStateJoin, 0> joins;
+  llvm::SmallVector<TransactionBranchResult, 0> branchResults;
   llvm::SmallVector<TransactionStateEvent, 0> events;
   llvm::SmallVector<OwnerVersionBinding> finalVersions;
   llvm::SmallVector<TransactionResultBinding, 0> results;

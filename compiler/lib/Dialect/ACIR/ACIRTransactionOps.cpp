@@ -73,12 +73,19 @@ bool equivalentTypes(TypeRange left, TypeRange right) {
   return true;
 }
 
-LogicalResult transactionPlacement(Operation *operation, bool allowGuard) {
-  auto *parent = operation->getParentOp();
+LogicalResult transactionPlacement(Operation *operation, bool allowGuard,
+                                   bool allowBranch = false) {
+  auto *placed = operation;
+  auto *parent = placed->getParentOp();
+  while (allowBranch && isa_and_nonnull<SourceBranchOp>(parent)) {
+    placed = parent;
+    parent = placed->getParentOp();
+  }
   if (!isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent))
-    return operation->emitOpError()
-           << "requires direct method or transaction region placement";
-  if (!allowGuard && operation->getParentRegion() != &parent->getRegion(1))
+    return operation->emitOpError() << "requires direct method or transaction "
+                                       "region placement, or legal branch arms";
+  if ((!allowGuard || placed != operation) &&
+      placed->getParentRegion() != &parent->getRegion(1))
     return operation->emitOpError()
            << "state writes and method calls are forbidden in guards";
   return occurrence(operation);
@@ -109,9 +116,8 @@ LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
   for (Operation &nested : block.without_terminator()) {
     if (isa<SourceStateReadOp>(nested))
       continue;
-    if (!guard &&
-        isa<SourceStateWriteOp, SourceMethodCallOp, SourceExpectOp,
-            SourceObserveOp>(nested))
+    if (!guard && isa<SourceStateWriteOp, SourceMethodCallOp, SourceExpectOp,
+                      SourceObserveOp, SourceBranchOp>(nested))
       continue;
     if (!detail::isCombinationalHardwareOperation(&nested))
       return nested.emitOpError()
@@ -134,6 +140,45 @@ LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
     if (walk.wasInterrupted())
       return failure();
   }
+  return success();
+}
+
+// Structured arms are the only nested regions that can carry state effects.
+// Pure collection regions remain closed even when enclosed by a branch.
+LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
+                            uint64_t &work) {
+  if (depth > 128 || ++work > 1024 * 1024)
+    return operation->emitOpError()
+           << "source branch verification budget exceeded";
+  if (arm && isa<SourceBranchOp>(operation)) {
+    for (Region &nested : operation->getRegions())
+      for (Block &block : nested)
+        for (Operation &child : block)
+          if (failed(branchPayload(&child, true, depth + 1, work)))
+            return failure();
+    return success();
+  }
+  if (arm && isa<SourceStateReadOp, SourceStateWriteOp>(operation)) {
+    auto selectors = operation->getAttrOfType<ArrayAttr>("selectors");
+    Value payload = isa<SourceStateReadOp>(operation)
+                        ? operation->getResult(0)
+                        : operation->getOperand(1);
+    if (!selectors || !selectors.empty() || !isa<BitsType>(payload.getType()))
+      return operation->emitOpError()
+             << "source branch arms require whole Bits state accesses";
+    return success();
+  }
+  if (!isa<YieldOp>(operation) &&
+      !detail::isCombinationalHardwareOperation(operation))
+    return operation->emitOpError()
+           << "source branch arms accept only closed pure payload operations, "
+              "whole Bits state accesses and nested branches; calls, checks "
+              "and observations are unsupported";
+  for (Region &nested : operation->getRegions())
+    for (Block &block : nested)
+      for (Operation &child : block)
+        if (failed(branchPayload(&child, false, depth + 1, work)))
+          return failure();
   return success();
 }
 
@@ -312,7 +357,7 @@ LogicalResult SourceStateOp::verify() {
 }
 
 LogicalResult SourceStateReadOp::verify() {
-  if (failed(transactionPlacement(*this, true)))
+  if (failed(transactionPlacement(*this, true, true)))
     return failure();
   HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
   if (failed(predicate(analysis, getPath(), scope(*this), *this,
@@ -328,7 +373,7 @@ LogicalResult SourceStateReadOp::verify() {
 }
 
 LogicalResult SourceStateWriteOp::verify() {
-  if (failed(transactionPlacement(*this, false)))
+  if (failed(transactionPlacement(*this, false, true)))
     return failure();
   HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
   if (failed(predicate(analysis, getPath(), scope(*this), *this,
@@ -340,6 +385,49 @@ LogicalResult SourceStateWriteOp::verify() {
   if (!areEquivalentHardwareTypes(*selected, getValue().getType()))
     return emitOpError()
            << "state write value must match selected payload type";
+  return success();
+}
+
+LogicalResult SourceBranchOp::verify() {
+  if (failed(transactionPlacement(*this, false, true)))
+    return failure();
+  auto owner = (*this)->getParentOfType<ModuleOp>();
+  if (failed(detail::verifySourceEffectMetadata(getOccurrence(),
+                                                getConditionLocation(), owner,
+                                                [&] { return emitOpError(); })))
+    return failure();
+  HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
+  return predicate(analysis, getCondition(), scope(*this), *this,
+                   "source branch condition");
+}
+
+LogicalResult SourceBranchOp::verifyRegions() {
+  HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
+  auto bindings = scope(*this);
+  uint64_t work = 0;
+  for (Region *arm : {&getThenRegion(), &getElseRegion()}) {
+    if (!arm->hasOneBlock() || arm->front().empty() ||
+        arm->front().getNumArguments() || !isa<YieldOp>(arm->front().back()))
+      return emitOpError() << "source branch arm requires one block, no "
+                              "arguments and final ac.yield";
+    auto &yield = arm->front().back();
+    if (yield.getNumOperands() != getNumResults())
+      return yield.emitOpError()
+             << "source branch yield arity must match results";
+    for (auto [actual, expected] :
+         llvm::zip(yield.getOperandTypes(), getResultTypes())) {
+      auto left = analysis.resolveType(actual, bindings, &yield);
+      auto right = analysis.resolveType(expected, bindings, *this);
+      if (failed(left) || failed(right))
+        return failure();
+      if (!isa<BitsType>(*left) || !areEquivalentHardwareTypes(*left, *right))
+        return yield.emitOpError()
+               << "source branch yields require matching Bits results";
+    }
+    for (Operation &operation : arm->front().without_terminator())
+      if (failed(branchPayload(&operation, true, 0, work)))
+        return failure();
+  }
   return success();
 }
 
@@ -514,7 +602,8 @@ Operation *detail::findUnloweredTransaction(Operation *root) {
   while (!pending.empty()) {
     Operation *operation = pending.pop_back_val();
     if (isa<SourceStateOp, SourceStateReadOp, SourceStateWriteOp,
-            SourceMethodOp, SourceMethodCallOp, SourceTransactionOp>(operation))
+            SourceMethodOp, SourceMethodCallOp, SourceTransactionOp,
+            SourceBranchOp>(operation))
       return operation;
     for (Region &region : llvm::reverse(operation->getRegions()))
       for (Block &block : llvm::reverse(region))
@@ -526,9 +615,9 @@ Operation *detail::findUnloweredTransaction(Operation *root) {
 
 LogicalResult detail::verifyNoUnloweredTransactions(Operation *root) {
   if (Operation *operation = findUnloweredTransaction(root))
-    return operation->emitOpError()
-           << "unlowered source transaction operation cannot cross the verified "
-              "hardware boundary";
+    return operation->emitOpError() << "unlowered source transaction operation "
+                                       "cannot cross the verified "
+                                       "hardware boundary";
   return success();
 }
 

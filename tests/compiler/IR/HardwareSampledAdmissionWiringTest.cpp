@@ -11,6 +11,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
+#include <functional>
 #include <string>
 
 namespace {
@@ -145,8 +146,10 @@ protected:
               f("ordinary_results", b.getI64IntegerAttr(0)),
               f("candidates", b.getArrayAttr(candidates))});
   }
-  DictionaryAttr candidate(DictionaryAttr state, uint64_t result = 0) {
-    return d({f("state", state), f("result", b.getI64IntegerAttr(result))});
+  DictionaryAttr candidate(DictionaryAttr state, uint64_t data = 0,
+                           uint64_t enable = 1) {
+    return d({f("state", state), f("data", b.getI64IntegerAttr(data)),
+              f("enable", b.getI64IntegerAttr(enable))});
   }
   DictionaryAttr incoming(DictionaryAttr state, uint64_t data,
                           uint64_t enable) {
@@ -230,8 +233,8 @@ protected:
     if (withState)
       captures.push_back(storage.getResult(0));
     ruleState.addOperands(captures);
-    ruleState.addTypes(SmallVector<Type>(withState ? 4 : 3, bit()));
-    uint64_t fire = withState ? 1 : 0;
+    ruleState.addTypes(SmallVector<Type>(withState ? 5 : 3, bit()));
+    uint64_t fire = withState ? 2 : 0;
     ruleState.addAttributes(
         {f("name", b.getStringAttr("tick")), f("occurrence", occurrence(7)),
          f("ac.required_checks",
@@ -260,8 +263,12 @@ protected:
                       {ruleBody->getArgument(2), ruleOne}, {bit()},
                       {f("predicate", b.getStringAttr("case_eq"))});
     SmallVector<Value> yielded;
-    if (withState)
-      yielded.push_back(ruleBody->getArgument(3));
+    if (withState) {
+      auto enabled = op(ac::BitsBinaryOp::getOperationName(),
+                        {compare->getResult(0), ruleOne}, {bit()},
+                        {f("opcode", b.getStringAttr("and"))});
+      yielded.append({ruleBody->getArgument(3), enabled->getResult(0)});
+    }
     yielded.append({compare->getResult(0), ruleBody->getArgument(2), ruleOne});
     op(ac::YieldOp::getOperationName(), yielded);
     if (withState)
@@ -309,7 +316,7 @@ protected:
     NamedAttrList attributes(rule->getAttrs());
     NamedAttrList sampled(
         rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
-    sampled.set("fire_result", b.getI64IntegerAttr(3));
+    sampled.set("fire_result", b.getI64IntegerAttr(6));
     attributes.set("ac.sampled_admission", sampled.getDictionary(&context));
     b.setInsertionPoint(rule);
     OperationState state(loc(), ac::RuleOp::getOperationName());
@@ -317,7 +324,7 @@ protected:
     captures.push_back(states[1].getResult(0));
     captures.push_back(states[2].getResult(0));
     state.addOperands(captures);
-    state.addTypes(SmallVector<Type>(6, bit()));
+    state.addTypes(SmallVector<Type>(9, bit()));
     state.addAttributes(attributes);
     state.addRegion();
     auto replacement = cast<ac::RuleOp>(b.create(state));
@@ -331,24 +338,32 @@ protected:
         op(ac::BitsCompareOp::getOperationName(),
            {replacementBody->getArgument(2), knownOne}, {bit()},
            {f("predicate", b.getStringAttr("case_eq"))}));
-    op(ac::YieldOp::getOperationName(),
-       {replacementBody->getArgument(3), replacementBody->getArgument(4),
-        replacementBody->getArgument(5), known.getResult(),
-        replacementBody->getArgument(2), knownOne});
+    SmallVector<Value> yielded;
+    for (unsigned i = 0; i != 3; ++i) {
+      auto enabled = op(ac::BitsBinaryOp::getOperationName(),
+                        {known.getResult(), knownOne}, {bit()},
+                        {f("opcode", b.getStringAttr("and"))});
+      yielded.append(
+          {replacementBody->getArgument(3 + i), enabled->getResult(0)});
+    }
+    yielded.append(
+        {known.getResult(), replacementBody->getArgument(2), knownOne});
+    op(ac::YieldOp::getOperationName(), yielded);
 
     for (auto [index, instance] : llvm::enumerate(states))
       instance->setOperands({body.getArgument(1), body.getArgument(2),
-                             replacement.getResult(3),
-                             replacement.getResult(index), zero});
-    expect->setOperands({replacement.getResult(4), replacement.getResult(5),
+                             replacement.getResult(2 * index + 1),
+                             replacement.getResult(2 * index), zero});
+    expect->setOperands({replacement.getResult(7), replacement.getResult(8),
                          body.getArgument(1), body.getArgument(2)});
     rule.erase();
     rule = replacement;
     definition->setAttr(
         "ac.transaction_wiring",
-        wiring({occurrence(20), occurrence(21), occurrence(22)}, {},
-               {writer({candidate(stateID(20), 0), candidate(stateID(21), 1),
-                        candidate(stateID(22), 2)})}));
+        wiring(
+            {occurrence(20), occurrence(21), occurrence(22)}, {},
+            {writer({candidate(stateID(20), 0, 1), candidate(stateID(21), 2, 3),
+                     candidate(stateID(22), 4, 5)})}));
     return states;
   }
   ac::RuleOp addIllegalRuleCapture(ValueRange captures,
@@ -917,9 +932,41 @@ TEST_F(HardwareSampledAdmissionWiringTest,
         (**prepared).getBoundaries(),
         [&](const auto &endpoint) { return endpoint.value == value; });
   };
-  ASSERT_EQ(rule->getNumResults(), 4u);
+  ASSERT_EQ(rule->getNumResults(), 5u);
   for (Value value : rule->getResults())
     EXPECT_TRUE(contains(value));
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       ParsedCandidatePairsUseExactOPlusTwoWLayout) {
+  build(true);
+  expandToThreeCandidates();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  auto wiring = capture([&] {
+    return detail::parseTransactionWiring(definition, analysis, bindings,
+                                          budget);
+  });
+  ASSERT_TRUE(succeeded(wiring)) << diagnostics;
+  ASSERT_EQ(wiring->writers.size(), 1u);
+  const auto &writer = wiring->writers.front();
+  EXPECT_EQ(writer.ordinaryResults, 0u);
+  ASSERT_EQ(writer.candidates.size(), 3u);
+  for (auto [ordinal, candidate] : llvm::enumerate(writer.candidates)) {
+    EXPECT_EQ(candidate.dataIndex, 2 * ordinal);
+    EXPECT_EQ(candidate.enableIndex, 2 * ordinal + 1);
+    EXPECT_EQ(candidate.data, rule.getResult(2 * ordinal));
+    EXPECT_EQ(candidate.enable, rule.getResult(2 * ordinal + 1));
+  }
+  ac::HardwareBindings ruleBindings = bindings;
+  auto sampled = capture([&] {
+    return detail::parseSampledAdmission(rule, analysis, ruleBindings, budget);
+  });
+  ASSERT_TRUE(succeeded(sampled)) << diagnostics;
+  EXPECT_EQ(sampled->fireResult, 6u);
+  EXPECT_TRUE(rule.getResult(sampled->fireResult).use_empty());
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
@@ -960,13 +1007,14 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
-       ThreeCandidatesRetainEveryDataRouteAndOneSharedFire) {
+       ThreeCandidatesRetainEveryDataEnablePairAndOneInternalFire) {
   build(true);
   auto states = expandToThreeCandidates();
   ASSERT_EQ(states.size(), 3u);
+  EXPECT_TRUE(rule.getResult(6).use_empty());
   for (auto [index, instance] : llvm::enumerate(states)) {
-    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
-    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(2 * index + 1));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(2 * index));
   }
   EXPECT_TRUE(succeeded(capture([&] { return verifyWiring(); })))
       << diagnostics;
@@ -977,10 +1025,10 @@ TEST_F(HardwareSampledAdmissionWiringTest,
   build(true);
   auto states = expandToThreeCandidates();
   ASSERT_EQ(states.size(), 3u);
-  addIllegalRuleCapture({rule.getResult(3)});
+  addIllegalRuleCapture({rule.getResult(6)});
   for (auto [index, instance] : llvm::enumerate(states)) {
-    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
-    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(2 * index + 1));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(2 * index));
   }
   EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
   EXPECT_FALSE(diagnostics.empty());
@@ -998,20 +1046,20 @@ TEST_F(HardwareSampledAdmissionWiringTest,
               {f("low", literal(0))})
         ->getResult(0);
   };
-  auto trunk = identity(rule.getResult(3));
+  auto trunk = identity(rule.getResult(6));
   auto left = identity(trunk);
   auto right = identity(trunk);
   addIllegalRuleCapture({left, right}, "illegal_fork");
   for (auto [index, instance] : llvm::enumerate(states)) {
-    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
-    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(2 * index + 1));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(2 * index));
   }
   EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
   EXPECT_FALSE(diagnostics.empty());
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
-       LateSharedFireIdentityForkWithDeadEndsRejects) {
+       LateCandidateEnableIdentityForkWithDeadEndsRejects) {
   build(true);
   auto states = expandToThreeCandidates();
   ASSERT_EQ(states.size(), 3u);
@@ -1022,12 +1070,12 @@ TEST_F(HardwareSampledAdmissionWiringTest,
               {f("low", literal(0))})
         ->getResult(0);
   };
-  auto trunk = identity(rule.getResult(3));
+  auto trunk = identity(rule.getResult(1));
   identity(trunk);
   identity(trunk);
   for (auto [index, instance] : llvm::enumerate(states)) {
-    EXPECT_EQ(instance->getOperand(2), rule.getResult(3));
-    EXPECT_EQ(instance->getOperand(3), rule.getResult(index));
+    EXPECT_EQ(instance->getOperand(2), rule.getResult(2 * index + 1));
+    EXPECT_EQ(instance->getOperand(3), rule.getResult(2 * index));
   }
   EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
   EXPECT_NE(diagnostics.find("private transaction/check route has a dead end"),
@@ -1100,6 +1148,19 @@ TEST_F(HardwareSampledAdmissionWiringTest,
 
 TEST_F(HardwareSampledAdmissionWiringTest,
        CandidateAndPhysicalEnableMustReachTheirDeclaredSlots) {
+  rejects("old candidate result schema", [&] {
+    auto metadata =
+        definition->getAttrOfType<DictionaryAttr>("ac.transaction_wiring");
+    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("writers")[0]);
+    NamedAttrList changed(row);
+    changed.set("candidates",
+                b.getArrayAttr({d({f("state", stateID()),
+                                   f("result", b.getI64IntegerAttr(0))})}));
+    NamedAttrList fields(metadata);
+    fields.set("writers", b.getArrayAttr({changed.getDictionary(&context)}));
+    definition->setAttr("ac.transaction_wiring",
+                        fields.getDictionary(&context));
+  });
   rejects(
       "candidate slot skips zero",
       [&] {
@@ -1108,16 +1169,31 @@ TEST_F(HardwareSampledAdmissionWiringTest,
         auto row =
             cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("writers")[0]);
         NamedAttrList changed(row);
-        changed.set("candidates", b.getArrayAttr({candidate(stateID(), 1)}));
+        changed.set("candidates", b.getArrayAttr({candidate(stateID(), 1, 2)}));
         NamedAttrList fields(metadata);
         fields.set("writers",
                    b.getArrayAttr({changed.getDictionary(&context)}));
         definition->setAttr("ac.transaction_wiring",
                             fields.getDictionary(&context));
       },
-      "candidate result");
+      "candidate D/E");
+  rejects("candidate D/E metadata is swapped", [&] {
+    auto metadata =
+        definition->getAttrOfType<DictionaryAttr>("ac.transaction_wiring");
+    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("writers")[0]);
+    NamedAttrList changed(row);
+    changed.set("candidates", b.getArrayAttr({candidate(stateID(), 1, 0)}));
+    NamedAttrList fields(metadata);
+    fields.set("writers", b.getArrayAttr({changed.getDictionary(&context)}));
+    definition->setAttr("ac.transaction_wiring",
+                        fields.getDictionary(&context));
+  });
   rejects("D bypasses candidate", [&] { storage->setOperand(3, zero); });
-  rejects("E bypasses fire", [&] { storage->setOperand(2, one); });
+  rejects("D uses candidate enable",
+          [&] { storage->setOperand(3, rule.getResult(1)); });
+  rejects("E bypasses effective enable", [&] { storage->setOperand(2, one); });
+  rejects("E uses candidate data",
+          [&] { storage->setOperand(2, rule.getResult(0)); });
   rejects("clock uses unrelated pin", [&] {
     storage->setOperand(0, definition.getBody().front().getArgument(0));
   });
@@ -1130,6 +1206,124 @@ TEST_F(HardwareSampledAdmissionWiringTest,
     fields.set("clock_capture", b.getI64IntegerAttr(1));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       CandidatePairsCannotSubstituteAnotherOwnerRoutes) {
+  build(true);
+  auto states = expandToThreeCandidates();
+  ASSERT_EQ(states.size(), 3u);
+  states[0]->setOperand(2, rule.getResult(3));
+  EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+  EXPECT_FALSE(diagnostics.empty());
+
+  build(true);
+  states = expandToThreeCandidates();
+  ASSERT_EQ(states.size(), 3u);
+  states[0]->setOperand(3, rule.getResult(2));
+  EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       CandidateEnableRequiresExactFireAndIntentGrammar) {
+  auto replaceEnable = [&](std::function<Value(Value, Value, Value)> make) {
+    auto &body = rule.getBody().front();
+    auto *yield = body.getTerminator();
+    b.setInsertionPoint(yield);
+    auto fire = yield->getOperand(2);
+    auto selector = body.getArgument(2);
+    auto intent = make(fire, selector, constant(1));
+    yield->setOperand(1, intent);
+  };
+
+  rejects("missing candidate enable AND", [&] {
+    rule.getBody().front().getTerminator()->setOperand(
+        1, rule.getBody().front().getTerminator()->getOperand(2));
+  });
+  rejects("dynamic value is not raw intent", [&] {
+    replaceEnable([&](Value fire, Value selector, Value) {
+      return op(ac::BitsBinaryOp::getOperationName(), {fire, selector}, {bit()},
+                {f("opcode", b.getStringAttr("and"))})
+          ->getResult(0);
+    });
+  });
+  rejects("KnownOne conversion is not raw intent", [&] {
+    replaceEnable([&](Value fire, Value selector, Value knownOne) {
+      auto known =
+          op(ac::BitsCompareOp::getOperationName(), {selector, knownOne},
+             {bit()}, {f("predicate", b.getStringAttr("case_eq"))})
+              ->getResult(0);
+      return op(ac::BitsBinaryOp::getOperationName(), {fire, known}, {bit()},
+                {f("opcode", b.getStringAttr("and"))})
+          ->getResult(0);
+    });
+  });
+  rejects("candidate enable AND operands are ordered", [&] {
+    replaceEnable([&](Value fire, Value, Value knownOne) {
+      return op(ac::BitsBinaryOp::getOperationName(), {knownOne, fire}, {bit()},
+                {f("opcode", b.getStringAttr("and"))})
+          ->getResult(0);
+    });
+  });
+  rejects("candidate intent OR is illegal", [&] {
+    replaceEnable([&](Value fire, Value selector, Value knownOne) {
+      auto intent =
+          op(ac::BitsBinaryOp::getOperationName(), {selector, knownOne},
+             {bit()}, {f("opcode", b.getStringAttr("or"))})
+              ->getResult(0);
+      return op(ac::BitsBinaryOp::getOperationName(), {fire, intent}, {bit()},
+                {f("opcode", b.getStringAttr("and"))})
+          ->getResult(0);
+    });
+  });
+  rejects("candidate intent tree cycle", [&] {
+    replaceEnable([&](Value fire, Value selector, Value knownOne) {
+      auto zeroIntent = constant(0);
+      auto *select = op(ac::BitsSelectOp::getOperationName(),
+                        {selector, knownOne, zeroIntent}, {bit()});
+      select->setOperand(1, select->getResult(0));
+      return op(ac::BitsBinaryOp::getOperationName(),
+                {fire, select->getResult(0)}, {bit()},
+                {f("opcode", b.getStringAttr("and"))})
+          ->getResult(0);
+    });
+  });
+}
+
+TEST_F(HardwareSampledAdmissionWiringTest,
+       FourStateSelectIntentIsAdmittedWithoutKnownSelectorProof) {
+  build(true);
+  auto &body = rule.getBody().front();
+  auto *yield = body.getTerminator();
+  b.setInsertionPoint(yield);
+  auto knownOne = constant(1);
+  auto knownZero = constant(0);
+  auto *intent = op(ac::BitsSelectOp::getOperationName(),
+                    {body.getArgument(2), knownOne, knownZero}, {bit()});
+  auto *enabled = op(ac::BitsBinaryOp::getOperationName(),
+                     {yield->getOperand(2), intent->getResult(0)}, {bit()},
+                     {f("opcode", b.getStringAttr("and"))});
+  yield->setOperand(1, enabled->getResult(0));
+  EXPECT_TRUE(succeeded(capture([&] { return verifyWiring(); })))
+      << diagnostics;
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  auto wiring = capture([&] {
+    return detail::parseTransactionWiring(definition, analysis, bindings,
+                                          budget);
+  });
+  ASSERT_TRUE(succeeded(wiring)) << diagnostics;
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  auto checked = capture([&] {
+    return validation.verifyCandidateEnables(wiring->writers.front(), bindings);
+  });
+  ASSERT_TRUE(succeeded(checked)) << diagnostics;
+  ASSERT_EQ(checked->size(), 1u);
+  EXPECT_EQ(checked->front().effectiveEnable, enabled->getResult(0));
+  EXPECT_EQ(checked->front().rawIntent, intent->getResult(0));
 }
 
 TEST_F(HardwareSampledAdmissionWiringTest,
@@ -1190,6 +1384,8 @@ TEST_F(HardwareSampledAdmissionWiringTest,
   });
   rejects("candidate escapes through unrelated capture",
           [&] { rule->insertOperands(0, rule.getResult(0)); });
+  rejects("candidate enable escapes through unrelated capture",
+          [&] { rule->insertOperands(0, rule.getResult(1)); });
   rejects("candidate has unused identity branch", [&] {
     b.setInsertionPoint(definition.getBody().front().getTerminator());
     op(ac::BitsExtractOp::getOperationName(), {rule.getResult(0)}, {bit()},
@@ -1197,7 +1393,7 @@ TEST_F(HardwareSampledAdmissionWiringTest,
   });
   rejects("check suffix has unused identity branch", [&] {
     b.setInsertionPoint(definition.getBody().front().getTerminator());
-    op(ac::BitsExtractOp::getOperationName(), {rule.getResult(2)}, {bit()},
+    op(ac::BitsExtractOp::getOperationName(), {rule.getResult(3)}, {bit()},
        {f("low", literal(0))});
   });
 }

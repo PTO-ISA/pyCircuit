@@ -94,6 +94,17 @@ Selectors:
 - `{kind="any_element", index_type=TypeAttr<BitsType>, index=ValueSummary}`
 ALL Table indices conservatively wildcard, even literals. Preserve full index type and corresponding index value; check actual nominal field/Table axis types. Do not fold false-path effects away.
 
+Branch EffectRow has exactly seven fields and intentionally has no `path`:
+`{kind="branch", occurrence=Occurrence, condition_location=SourceSpan,
+condition=ValueSummary, then_effects=[EffectRow...], else_effects=[EffectRow...],
+results=[{type=TypeAttr, when_true=ValueSummary, when_false=ValueSummary}...]}`.
+Dispatch `kind="branch"` before validating the `path` required by leaf rows.
+Both arrays preserve source order and may contain admitted whole-state read/write
+rows or nested branch rows. Calls, checks and observations inside either arm
+reject. Result types are scalar Bits and match both arm summaries exactly.
+Recursion, vectors and result dictionaries are charged before allocation under
+the existing publication work/depth bounds.
+
 Read EffectRow:
 `{kind="read", occurrence=Occurrence, path=PredicateFact, state=StateRef, selectors=[Selector...]}`.
 Write EffectRow same fields plus `value=ValueSummary`, kind="write".
@@ -112,7 +123,7 @@ variants require exact fields and reuse the existing observation spec validator.
 Spec item ordinals retain the existing decodeU32 contract; they are distinct from
 summary reference ordinals and final ObservationID ordinals.
 
-Guard/body effect arrays preserve exact respective IR order; guard permits reads only per existing op admission. Keep read checks/write intent/call control even unused or known-false. Do not sort, dedup, inline or conjunction-reduce effects.
+Guard/body effect arrays preserve exact respective IR order; guard permits reads only per existing op admission. Branch rows preserve their nested arm order and all writes, including identity and known-false-arm writes. Keep read checks/write intent/call control even unused or known-false. Do not sort, dedup, inline or conjunction-reduce effects.
 
 ## Source body checks and observations
 
@@ -138,7 +149,8 @@ Body assert 是后续 whole-system commit check，不能被解释为 Method 的 
 实际 lowering 必须使用最终 fire，guard-known 检查则保留有序 reached prefix。Report 名字冲突
 按实际展开的 logical owner 检查，不能在发布未调用声明时伪造调用次数。
 
-source/publication 通过不等于执行支持。已有显式 state-plan records 的直线效果还须通过
+source/publication 通过不等于执行支持。已有显式 state-plan records 的 direct
+unconditional effects 还须通过
 [sampled body-effect 合同](sampled-body-effects.md)的语句时刻 operands、源计划认证、
 共同 final proof 与生成 runner 的实际执行。未表示或不支持的效果继续原子拒绝；不得
 先丢弃效果以生成可执行 final。完整 [Method System 验收](acceptance.md)使用同一

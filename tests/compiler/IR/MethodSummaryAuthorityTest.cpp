@@ -12,10 +12,12 @@
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
+#include <array>
 #include <functional>
 #include <iterator>
 #include <memory>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -400,6 +402,33 @@ protected:
     auto declaration = mlir::cast<ModuleImportOp>(builder.create(state));
     definition->erase();
     return declaration;
+  }
+
+  SourceBranchOp branch(SourceMethodOp callable, mlir::Block::iterator where,
+                        mlir::Value condition, mlir::Value whenTrue,
+                        mlir::Value whenFalse, unsigned ordinal) {
+    mlir::OperationState state(callable.getLoc(),
+                               SourceBranchOp::getOperationName());
+    state.addOperands(condition);
+    state.addTypes(whenTrue.getType());
+    state.addAttribute("occurrence", occurrence("Child", ordinal));
+    state.addAttribute("ac.condition_location",
+                       callable->getAttr("ac.guard_location"));
+    state.addRegion();
+    state.addRegion();
+    builder.setInsertionPoint(&callable.getBody().front(), where);
+    auto split = mlir::cast<SourceBranchOp>(builder.create(state));
+    for (auto [region, value] :
+         llvm::zip(split->getRegions(),
+                   std::array<mlir::Value, 2>{whenTrue, whenFalse})) {
+      auto *arm = new mlir::Block;
+      region.push_back(arm);
+      builder.setInsertionPointToEnd(arm);
+      mlir::OperationState yield(split.getLoc(), YieldOp::getOperationName());
+      yield.addOperands(value);
+      builder.create(yield);
+    }
+    return split;
   }
 };
 
@@ -1403,14 +1432,13 @@ TEST_F(MethodSummaryAuthorityTest,
   auto guardEffects = array(method, "guard_effects");
   auto guardEffectsPath =
       Path{std::string("methods"), 0u, std::string("guard_effects")};
-  for (auto forbidden : {mlir::Attribute(checkRow),
-                         mlir::Attribute(observeRow)}) {
+  for (auto forbidden :
+       {mlir::Attribute(checkRow), mlir::Attribute(observeRow)}) {
     llvm::SmallVector<mlir::Attribute> moved(guardEffects.begin(),
                                              guardEffects.end());
     moved.push_back(forbidden);
-    structureRejects(
-        child,
-        dict(replace(published, guardEffectsPath, builder.getArrayAttr(moved))));
+    structureRejects(child, dict(replace(published, guardEffectsPath,
+                                         builder.getArrayAttr(moved))));
   }
   bodyRejects(
       child,
@@ -1444,9 +1472,9 @@ TEST_F(MethodSummaryAuthorityTest,
                    changedPath)),
       analysis);
   auto effectLocation = dict(checkRow.get("location"));
-  auto changedLocation = changed(
-      changed(effectLocation, "line", builder.getI64IntegerAttr(2)),
-      "end_line", builder.getI64IntegerAttr(2));
+  auto changedLocation =
+      changed(changed(effectLocation, "line", builder.getI64IntegerAttr(2)),
+              "end_line", builder.getI64IntegerAttr(2));
   ASSERT_NE(changedLocation, effectLocation);
   bodyRejects(
       child,
@@ -1457,8 +1485,8 @@ TEST_F(MethodSummaryAuthorityTest,
       analysis);
   auto changedDependencies = builder.getDictionaryAttr(
       {builder.getNamedAttr("kind", builder.getStringAttr("unknown"))});
-  if (changedDependencies == condition.getAs<mlir::DictionaryAttr>(
-                                 "dependencies"))
+  if (changedDependencies ==
+      condition.getAs<mlir::DictionaryAttr>("dependencies"))
     changedDependencies = builder.getDictionaryAttr(
         {builder.getNamedAttr("kind", builder.getStringAttr("known")),
          builder.getNamedAttr("arguments", builder.getArrayAttr({})),
@@ -1526,27 +1554,133 @@ TEST_F(MethodSummaryAuthorityTest,
     EXPECT_EQ(published, summary(analysis, child));
   };
 
-  budgetRejects(dict(replace(
-      published,
-      {std::string("methods"), 0u, std::string("body_effects"), checkIndex,
-       std::string("occurrence"), std::string("site"),
-       std::string("definition")},
-      mlir::FlatSymbolRefAttr::get(&context, hugeSpelling))));
+  budgetRejects(
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    checkIndex, std::string("occurrence"), std::string("site"),
+                    std::string("definition")},
+                   mlir::FlatSymbolRefAttr::get(&context, hugeSpelling))));
 
-  auto observedTypePath =
-      Path{std::string("methods"), 0u, std::string("body_effects"),
-           observeIndex, std::string("values"), 0u, std::string("type")};
+  auto observedTypePath = Path{
+      std::string("methods"), 0u, std::string("body_effects"), observeIndex,
+      std::string("values"),  0u, std::string("type")};
   for (mlir::Type type :
        {mlir::Type(EnumType::get(&context, hugeName)),
         mlir::Type(TypeParamType::get(
             &context, mlir::FlatSymbolRefAttr::get(&context, "Owner"),
             hugeName)),
         mlir::Type(TypeParamType::get(
-            &context,
-            mlir::FlatSymbolRefAttr::get(&context, hugeSpelling),
+            &context, mlir::FlatSymbolRefAttr::get(&context, hugeSpelling),
             builder.getStringAttr("T")))})
-    budgetRejects(dict(replace(published, observedTypePath,
-                               mlir::TypeAttr::get(type))));
+    budgetRejects(
+        dict(replace(published, observedTypePath, mlir::TypeAttr::get(type))));
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       BranchRowsHaveSevenFieldsOrderedArmsAndAuthenticatedResults) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto act = named<SourceMethodOp>(child, "act");
+  auto &body = act.getBody().front();
+  auto split =
+      branch(act, body.getTerminator()->getIterator(), body.getArgument(5),
+             body.getArgument(1), body.getArgument(6), 19);
+  auto originalWrite = *body.getOps<SourceStateWriteOp>().begin();
+  for (auto [arm, value, ordinal] :
+       {std::tuple<mlir::Region *, mlir::Value, unsigned>(
+            &split.getThenRegion(), body.getArgument(1), 20),
+        std::tuple<mlir::Region *, mlir::Value, unsigned>(
+            &split.getElseRegion(), body.getArgument(6), 21)}) {
+    auto *copy = originalWrite->clone();
+    copy->setOperand(0, body.getArgument(0));
+    copy->setOperand(1, value);
+    copy->setAttr("occurrence", occurrence("Child", ordinal));
+    arm->front().getOperations().insert(
+        arm->front().getTerminator()->getIterator(), copy);
+  }
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  auto methodRow = namedRow(published, "methods", "act");
+  auto effects = array(methodRow, "body_effects");
+  ASSERT_FALSE(effects.empty());
+  unsigned branchIndex = effects.size() - 1;
+  auto row = dict(effects[branchIndex]);
+  EXPECT_EQ(kind(row), "branch");
+  EXPECT_EQ(row.size(), 7u);
+  EXPECT_FALSE(row.get("path"));
+  EXPECT_EQ(row.get("occurrence"), split.getOccurrence());
+  EXPECT_EQ(row.get("condition_location"), split.getConditionLocation());
+  ASSERT_EQ(array(row, "then_effects").size(), 1u);
+  ASSERT_EQ(array(row, "else_effects").size(), 1u);
+  EXPECT_EQ(kind(dict(array(row, "then_effects")[0])), "write");
+  EXPECT_EQ(kind(dict(array(row, "else_effects")[0])), "write");
+  EXPECT_EQ(dict(array(row, "then_effects")[0]).get("occurrence"),
+            occurrence("Child", 20));
+  EXPECT_EQ(dict(array(row, "else_effects")[0]).get("occurrence"),
+            occurrence("Child", 21));
+  auto results = array(row, "results");
+  ASSERT_EQ(results.size(), 1u);
+  auto result = dict(results[0]);
+  EXPECT_EQ(result.size(), 3u);
+  EXPECT_TRUE(result.get("type"));
+  EXPECT_TRUE(result.get("when_true"));
+  EXPECT_TRUE(result.get("when_false"));
+  structureAccepts(child, published);
+
+  auto branchPath = Path{std::string("methods"), 0u,
+                         std::string("body_effects"), branchIndex};
+  for (llvm::StringRef field :
+       {"kind", "occurrence", "condition_location", "condition", "then_effects",
+        "else_effects", "results"})
+    structureRejects(
+        child, dict(replace(published, branchPath, changed(row, field, {}))));
+  structureRejects(child,
+                   dict(replace(published, branchPath,
+                                changed(row, "path", constantFact(true)))));
+
+  auto swapped = changed(changed(row, "then_effects", row.get("else_effects")),
+                         "else_effects", row.get("then_effects"));
+  bodyRejects(child, dict(replace(published, branchPath, swapped)), analysis);
+  auto changedResult = changed(result, "when_true", result.get("when_false"));
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    branchIndex, std::string("results"), 0u},
+                   changedResult)),
+      analysis);
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       DeclarationOnlyImportCarriesClosedBranchRowsWithoutBodyAuthority) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto act = named<SourceMethodOp>(child, "act");
+  auto &body = act.getBody().front();
+  branch(act, body.getTerminator()->getIterator(), body.getArgument(5),
+         body.getArgument(1), body.getArgument(6), 19);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  SourceMethodSummariesAnalysis provider(file->getOperation());
+  ASSERT_TRUE(provider.isValid());
+  auto published = summary(provider, child);
+  ASSERT_TRUE(published);
+  auto declaration = replaceDefinition(child, published);
+  structureAccepts(declaration, published);
+  EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  SourceMethodSummariesAnalysis consumer(file->getOperation());
+  EXPECT_TRUE(consumer.isValid()) << diagnostics;
+  // A declaration supplies its closed header. It cannot be passed to the
+  // provider-body rederivation API, whose type requires an actual ModuleOp.
+  EXPECT_EQ(declaration->getAttr("transaction_summary"), published);
 }
 
 TEST_F(MethodSummaryAuthorityTest,

@@ -47,6 +47,10 @@ protected:
     SourceExpectOp directCheck;
     SourceObserveOp directObservation;
   };
+  struct AuthoredBranch {
+    SourceBranchOp operation;
+    SourceStateWriteOp whenTrue, whenFalse;
+  };
 
   mlir::MLIRContext context;
   mlir::OpBuilder builder{&context};
@@ -459,6 +463,55 @@ protected:
     builder.create(yield);
     return mapped;
   }
+
+  AuthoredBranch addAuthoredBranch(mlir::ModuleOp file) {
+    auto owner = module(file);
+    auto run = named<SourceTransactionOp>(owner, "run");
+    auto &body = run.getBody().front();
+    auto constants = owner.getBody().front().getOps<BitsConstantOp>();
+    auto zero = *std::next(constants.begin(), 3);
+    llvm::SmallVector<mlir::Value> captures(run->getOperands());
+    captures.push_back(zero.getResult());
+    run->setOperands(captures);
+    for (auto &region : run->getRegions())
+      region.front().addArgument(zero.getResult().getType(), run.getLoc());
+
+    mlir::OperationState state(run.getLoc(),
+                               SourceBranchOp::getOperationName());
+    state.addOperands(body.getArgument(0));
+    state.addTypes(body.getArgument(1).getType());
+    state.addAttribute("occurrence", occurrence("Owner", 24));
+    state.addAttribute("ac.condition_location", span(24));
+    state.addRegion();
+    state.addRegion();
+    builder.setInsertionPointToStart(&body);
+    auto split = mlir::cast<SourceBranchOp>(builder.create(state));
+    SourceStateWriteOp writes[2];
+    for (unsigned arm = 0; arm != 2; ++arm) {
+      auto *block = new mlir::Block;
+      split->getRegion(arm).push_back(block);
+      builder.setInsertionPointToEnd(block);
+      mlir::Value value =
+          arm == 0 ? body.getArgument(1) : body.getArguments().back();
+      mlir::OperationState write(run.getLoc(),
+                                 SourceStateWriteOp::getOperationName());
+      write.addOperands({body.getArgument(0), value});
+      write.addAttribute("state", builder.getStringAttr("saved"));
+      write.addAttribute("selectors", builder.getArrayAttr({}));
+      write.addAttribute("occurrence", occurrence("Owner", 25 + arm));
+      writes[arm] = mlir::cast<SourceStateWriteOp>(builder.create(write));
+      mlir::OperationState yield(run.getLoc(), YieldOp::getOperationName());
+      yield.addOperands(value);
+      builder.create(yield);
+    }
+    auto firstCall = *body.getOps<SourceMethodCallOp>().begin();
+    firstCall->setOperand(1, split.getResult(0));
+    for (auto write :
+         llvm::make_early_inc_range(body.getOps<SourceStateWriteOp>()))
+      if (write.getState() == "saved")
+        write.erase();
+    return {split, writes[0], writes[1]};
+  }
 };
 
 TEST_F(SampledTransactionLoweringTest,
@@ -761,6 +814,133 @@ TEST_F(SampledTransactionLoweringTest,
   ASSERT_TRUE(replacement);
   yield->setOperand(candidateIndex, replacement);
   rejects(*staged, "original final candidate RHS differs");
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       BranchDataIntentAndResultSelectionsRemainSourceAuthenticated) {
+  for (unsigned mutation = 0; mutation != 10; ++mutation) {
+    SCOPED_TRACE(mutation);
+    AuthoredBranch source;
+    auto staged =
+        stage([&](mlir::ModuleOp file) { source = addAuthoredBranch(file); });
+    ASSERT_TRUE(staged);
+    auto index = transactionIndex(*staged, "run");
+    auto &prepared = staged->prepared.transactions[index];
+    const auto &plan = *prepared.plan;
+    auto &record = staged->candidate.transactions[index];
+    ASSERT_EQ(plan.branches.size(), 1u);
+    ASSERT_EQ(plan.joins.size(), 1u);
+    ASSERT_EQ(plan.branchResults.size(), 1u);
+    const auto &join = plan.joins.front();
+    auto data = mlir::cast<BitsSelectOp>(
+        record.versions[join.result].data.getDefiningOp());
+    auto intent = mlir::cast<BitsSelectOp>(
+        record.versions[join.result].rawIntent.getDefiningOp());
+    auto result = record.branchResults.front().select;
+    ASSERT_TRUE(data);
+    ASSERT_TRUE(intent);
+    ASSERT_TRUE(result);
+    EXPECT_EQ(data.getCondition(), intent.getCondition());
+    EXPECT_EQ(data.getCondition(), result.getCondition());
+    EXPECT_EQ(data->getOperand(1), record.versions[join.whenTrue].data);
+    EXPECT_EQ(data->getOperand(2), record.versions[join.whenFalse].data);
+    EXPECT_EQ(intent->getOperand(1), record.versions[join.whenTrue].rawIntent);
+    EXPECT_EQ(intent->getOperand(2), record.versions[join.whenFalse].rawIntent);
+
+    if (mutation == 0) {
+      mlir::Value replacement;
+      for (auto argument : record.rule.getBody().front().getArguments())
+        if (argument.getType() == data.getCondition().getType() &&
+            argument != data.getCondition()) {
+          replacement = argument;
+          break;
+        }
+      ASSERT_TRUE(replacement);
+      data->setOperand(0, replacement);
+    } else if (mutation == 1) {
+      data->setOperands(
+          {data.getCondition(), data->getOperand(2), data->getOperand(1)});
+    } else if (mutation == 2) {
+      intent->setOperands({intent.getCondition(), intent->getOperand(2),
+                           intent->getOperand(1)});
+    } else if (mutation == 3) {
+      result->setOperands({result.getCondition(), result->getOperand(2),
+                           result->getOperand(1)});
+    } else if (mutation == 4) {
+      auto original = plan.branchResults.front().result;
+      record.frames[plan.branchResults.front().frame].map(
+          plan.values[original].value, data.getResult());
+      record.boundValues[original] = data.getResult();
+      record.branchResults.front().select = data;
+    } else {
+      auto output = llvm::find_if(prepared.outputs, [&](const auto &candidate) {
+        return candidate.binding.owner == join.owner;
+      });
+      ASSERT_NE(output, prepared.outputs.end());
+      auto *yield = record.rule.getBody().front().getTerminator();
+      if (mutation == 5) {
+        yield->setOperand(output->enableResult,
+                          record.versions[join.result].rawIntent);
+      } else if (mutation == 6) {
+        yield->setOperand(output->enableResult,
+                          yield->getOperand(prepared.fireResult));
+      } else if (mutation == 7) {
+        auto knownOne = record.versions[join.whenTrue].rawIntent;
+        record.versions[join.result].rawIntent.replaceAllUsesWith(knownOne);
+        record.versions[join.result].rawIntent = knownOne;
+      } else if (mutation == 8) {
+        prepared.outputs.erase(output);
+      } else {
+        auto replacement =
+            llvm::find_if(prepared.outputs, [&](const auto &candidate) {
+              return candidate.binding.owner != join.owner;
+            });
+        ASSERT_NE(replacement, prepared.outputs.end());
+        output->binding = replacement->binding;
+      }
+    }
+    rejects(*staged, "");
+  }
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       BranchPreparationBudgetFailurePreservesOriginalPackage) {
+  auto original = parse();
+  ASSERT_TRUE(original);
+  addAuthoredBranch(*original);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*original); })))
+      << diagnostics;
+  auto originalText = print(original->getOperation());
+  auto originalOperations = operations(*original);
+  SourceTransactionStateAnalysis analysis(original->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  HardwareSourceCheckLimits limits;
+  limits.maxWorkUnits = 1;
+  detail::SourceCheckBudget budget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*original, analysis,
+                                                    budget);
+  });
+  EXPECT_TRUE(mlir::failed(prepared));
+  EXPECT_FALSE(diagnostics.empty());
+  EXPECT_EQ(print(original->getOperation()), originalText);
+  EXPECT_EQ(operations(*original), originalOperations);
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       FinalProofCannotReplaceOriginalBranchHistory) {
+  AuthoredBranch source;
+  auto staged =
+      stage([&](mlir::ModuleOp file) { source = addAuthoredBranch(file); });
+  ASSERT_TRUE(staged);
+  expectStandaloneFinalValid(*staged);
+  source.operation->setAttr("ac.condition_location", span(91));
+  auto changed = print(staged->original.get().getOperation());
+  EXPECT_TRUE(mlir::failed(verify(*staged)));
+  EXPECT_NE(diagnostics.find("original branch"), std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(print(staged->original.get().getOperation()), changed);
+  expectStandaloneFinalValid(*staged);
 }
 
 TEST_F(SampledTransactionLoweringTest,

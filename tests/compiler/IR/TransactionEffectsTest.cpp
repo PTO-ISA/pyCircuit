@@ -14,6 +14,8 @@
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
 
+#include <array>
+#include <optional>
 #include <string>
 
 namespace acir::ac {
@@ -164,6 +166,40 @@ protected:
     EXPECT_FALSE(mlir::isMemoryEffectFree(op));
     EXPECT_FALSE(mlir::isSpeculatable(op));
     EXPECT_FALSE(mlir::isOpTriviallyDead(op));
+  }
+  SourceBranchOp branch(mlir::Block &block, mlir::Block::iterator where,
+                        mlir::Value condition,
+                        std::optional<mlir::Value> whenTrue = std::nullopt,
+                        std::optional<mlir::Value> whenFalse = std::nullopt) {
+    EXPECT_EQ(whenTrue.has_value(), whenFalse.has_value());
+    auto transaction = mlir::dyn_cast<SourceTransactionOp>(block.getParentOp());
+    if (!transaction)
+      transaction = block.getParentOp()->getParentOfType<SourceTransactionOp>();
+    EXPECT_TRUE(transaction);
+    mlir::OperationState state(transaction.getLoc(),
+                               SourceBranchOp::getOperationName());
+    state.addOperands(condition);
+    if (whenTrue)
+      state.addTypes((*whenTrue).getType());
+    state.addAttribute("occurrence", transaction->getAttr("occurrence"));
+    state.addAttribute("ac.condition_location",
+                       transaction->getAttr("ac.guard_location"));
+    state.addRegion();
+    state.addRegion();
+    builder.setInsertionPoint(&block, where);
+    auto result = mlir::cast<SourceBranchOp>(builder.create(state));
+    for (auto [region, value] : llvm::zip(
+             result->getRegions(),
+             std::array<std::optional<mlir::Value>, 2>{whenTrue, whenFalse})) {
+      auto *arm = new mlir::Block;
+      region.push_back(arm);
+      builder.setInsertionPointToEnd(arm);
+      mlir::OperationState yield(result.getLoc(), YieldOp::getOperationName());
+      if (value)
+        yield.addOperands(*value);
+      builder.create(yield);
+    }
+    return result;
   }
 };
 
@@ -584,21 +620,21 @@ TEST_F(TransactionEffectsTest,
     EXPECT_FALSE(diagnostics.empty());
   }
 
-  for (llvm::StringRef mutation : {"sampling", "path-type",
-                                   "foreign-location", "missing-occurrence"}) {
+  for (llvm::StringRef mutation :
+       {"sampling", "path-type", "foreign-location", "missing-occurrence"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     auto *method = find(*file, "ac.method");
     auto &body = method->getRegion(1).front();
     auto path = body.getArgument(1);
     mlir::OperationState effect(method->getLoc(), "ac.expect");
-    effect.addOperands({path,
-                        mutation == "path-type" ? body.getArgument(0) : path});
+    effect.addOperands(
+        {path, mutation == "path-type" ? body.getArgument(0) : path});
     if (mutation == "sampling")
       effect.addOperands(path);
     effect.addAttribute("kind", builder.getStringAttr("assert"));
-    auto location = method->getAttrOfType<mlir::DictionaryAttr>(
-        "ac.guard_location");
+    auto location =
+        method->getAttrOfType<mlir::DictionaryAttr>("ac.guard_location");
     if (mutation == "foreign-location")
       location = changed(location, "path", builder.getStringAttr("other.py"));
     effect.addAttribute("location", location);
@@ -954,6 +990,117 @@ TEST_F(TransactionEffectsTest, MalformedCalleeMetadataRejectsDuringSymbolUse) {
           capture([&] { return call.verifySymbolUses(symbols); })));
       EXPECT_FALSE(diagnostics.empty());
     }
+  }
+}
+
+TEST_F(TransactionEffectsTest,
+       SourceBranchRequiresClosedTypedArmsAndRetainsDistinctResultSSA) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto transaction =
+      mlir::cast<SourceTransactionOp>(find(*file, "ac.transaction"));
+  auto &body = transaction.getBody().front();
+  auto split = branch(body, body.begin(), body.getArgument(0),
+                      body.getArgument(1), body.getArgument(1));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  EXPECT_NE(split.getResult(0), body.getArgument(1));
+  EXPECT_EQ(split.getResult(0).getType(), body.getArgument(1).getType());
+  EXPECT_TRUE(split.getThenRegion().hasOneBlock());
+  EXPECT_TRUE(split.getElseRegion().hasOneBlock());
+  EXPECT_TRUE(split.getThenRegion().front().getArguments().empty());
+  EXPECT_TRUE(split.getElseRegion().front().getArguments().empty());
+
+  for (unsigned mutation = 0; mutation != 5; ++mutation) {
+    auto malformed = parse();
+    ASSERT_TRUE(malformed);
+    auto tx =
+        mlir::cast<SourceTransactionOp>(find(*malformed, "ac.transaction"));
+    auto &block = tx.getBody().front();
+    auto candidate = branch(block, block.begin(), block.getArgument(0),
+                            block.getArgument(1), block.getArgument(1));
+    if (mutation == 0)
+      candidate->removeAttr("occurrence");
+    if (mutation == 1)
+      candidate->removeAttr("ac.condition_location");
+    if (mutation == 2)
+      candidate.getThenRegion().front().addArgument(
+          block.getArgument(0).getType(), candidate.getLoc());
+    if (mutation == 3)
+      candidate.getThenRegion().front().getTerminator()->setOperand(
+          0, block.getArgument(0));
+    if (mutation == 4) {
+      auto *extra = new mlir::Block;
+      candidate.getElseRegion().push_back(extra);
+    }
+    rejectsContract(*malformed);
+  }
+}
+
+TEST_F(TransactionEffectsTest,
+       EmptyPassAndNestedBranchesVerifyButGuardBranchesFailClosed) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto transaction =
+      mlir::cast<SourceTransactionOp>(find(*file, "ac.transaction"));
+  auto &body = transaction.getBody().front();
+  auto outer = branch(body, body.begin(), body.getArgument(0));
+  auto &thenBlock = outer.getThenRegion().front();
+  auto nested =
+      branch(thenBlock, thenBlock.getTerminator()->getIterator(),
+             body.getArgument(0), body.getArgument(1), body.getArgument(1));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  EXPECT_TRUE(outer.getResults().empty());
+  EXPECT_EQ(nested->getParentOp(), outer.getOperation());
+
+  auto malformed = parse();
+  ASSERT_TRUE(malformed);
+  auto tx = mlir::cast<SourceTransactionOp>(find(*malformed, "ac.transaction"));
+  auto &guard = tx.getGuard().front();
+  branch(guard, guard.getTerminator()->getIterator(), guard.getArgument(0));
+  rejectsContract(*malformed);
+}
+
+TEST_F(TransactionEffectsTest,
+       BranchArmsRejectCallsChecksAndObservationsOnEveryPath) {
+  for (llvm::StringRef effect : {"ac.method.call", "ac.expect", "ac.observe"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto transaction =
+        mlir::cast<SourceTransactionOp>(find(*file, "ac.transaction"));
+    auto &body = transaction.getBody().front();
+    auto split = branch(body, body.begin(), body.getArgument(0));
+    auto &arm = split.getThenRegion().front();
+    builder.setInsertionPoint(arm.getTerminator());
+    if (effect == "ac.method.call") {
+      auto *copy = find(*file, effect)->clone();
+      arm.getOperations().insert(arm.getTerminator()->getIterator(), copy);
+    } else if (effect == "ac.expect") {
+      mlir::OperationState check(split.getLoc(),
+                                 SourceExpectOp::getOperationName());
+      check.addOperands({body.getArgument(0), body.getArgument(0)});
+      check.addAttribute("kind", builder.getStringAttr("assert"));
+      check.addAttribute("location", transaction->getAttr("ac.guard_location"));
+      check.addAttribute("occurrence", transaction->getAttr("occurrence"));
+      builder.create(check);
+    } else {
+      mlir::OperationState observe(split.getLoc(),
+                                   SourceObserveOp::getOperationName());
+      observe.addOperands(body.getArgument(0));
+      observe.addAttribute("kind", builder.getStringAttr("log"));
+      observe.addAttribute(
+          "spec",
+          builder.getDictionaryAttr(
+              {builder.getNamedAttr("level", builder.getStringAttr("info")),
+               builder.getNamedAttr("event", builder.getStringAttr("branch")),
+               builder.getNamedAttr("items", builder.getArrayAttr({}))}));
+      observe.addAttribute("occurrence", transaction->getAttr("occurrence"));
+      observe.addAttribute("ac.location",
+                           transaction->getAttr("ac.guard_location"));
+      builder.create(observe);
+    }
+    rejectsContract(*file);
   }
 }
 

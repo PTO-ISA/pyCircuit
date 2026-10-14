@@ -213,20 +213,67 @@ private:
     if (callable.symbol)
       methods.try_emplace(callable.symbol);
     if (callable.definition) {
+      std::function<LogicalResult(Operation *, unsigned, bool)> visit =
+          [&](Operation *operation, unsigned depth,
+              bool inBranch) -> LogicalResult {
+        if (!charge(operation))
+          return failure();
+        if (depth > maxDepth)
+          return operation->emitOpError()
+                 << "source Method callable traversal depth exceeded";
+        if (auto call = dyn_cast<SourceMethodCallOp>(operation)) {
+          if (inBranch)
+            return call.emitOpError()
+                   << "source branch arms cannot contain Method calls";
+          if (operation->getParentOp() != callable.definition)
+            return call.emitOpError()
+                   << "Method calls require direct callable region placement";
+          return add(call, {});
+        }
+        inBranch |= isa<SourceBranchOp>(operation);
+        for (Region &region : operation->getRegions())
+          for (Block &block : region)
+            for (Operation &child : block)
+              if (failed(visit(&child, depth + 1, inBranch)))
+                return failure();
+        return success();
+      };
       for (unsigned region : {0u, 1u})
-        for (auto call : callable.definition->getRegion(region)
-                             .front()
-                             .getOps<SourceMethodCallOp>())
-          if (failed(add(call, {})))
+        for (Operation &operation :
+             callable.definition->getRegion(region).front())
+          if (failed(visit(&operation, 0, false)))
             return failure();
     } else {
-      for (StringRef field : {"guard_effects", "body_effects"})
-        for (Attribute raw : callable.row.getAs<ArrayAttr>(field)) {
-          auto row = cast<DictionaryAttr>(raw);
-          if (row.getAs<StringAttr>("kind").getValue() == "call" &&
-              failed(add(nullptr, row)))
+      std::function<LogicalResult(ArrayAttr, unsigned, bool)> visit =
+          [&](ArrayAttr rows, unsigned depth, bool inBranch) -> LogicalResult {
+        if (!charge(callable.module))
+          return failure();
+        if (depth > maxDepth)
+          return callable.module->emitOpError()
+                 << "source Method summary traversal depth exceeded";
+        for (Attribute raw : rows) {
+          if (!charge(callable.module))
             return failure();
+          auto row = cast<DictionaryAttr>(raw);
+          auto kind = row.getAs<StringAttr>("kind").getValue();
+          if (kind == "call") {
+            if (inBranch)
+              return callable.module->emitOpError()
+                     << "source branch summary arms cannot contain Method "
+                        "calls";
+            if (failed(add(nullptr, row)))
+              return failure();
+          } else if (kind == "branch") {
+            for (StringRef arm : {"then_effects", "else_effects"})
+              if (failed(visit(row.getAs<ArrayAttr>(arm), depth + 1, true)))
+                return failure();
+          }
         }
+        return success();
+      };
+      for (StringRef field : {"guard_effects", "body_effects"})
+        if (failed(visit(callable.row.getAs<ArrayAttr>(field), 0, false)))
+          return failure();
     }
     return success();
   }

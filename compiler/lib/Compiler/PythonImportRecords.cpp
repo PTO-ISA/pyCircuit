@@ -117,6 +117,7 @@ struct SourceEffectContext {
   llvm::StringMap<Instance *> *instances = nullptr;
   llvm::StringMap<SourceCallableDecl> *methods = nullptr;
   bool guard = false;
+  bool conditional = false;
 };
 struct SliceShape {
   Type type;
@@ -240,6 +241,18 @@ struct ClosedSourceConstant {
 struct SourceChoice {
   Value value;
   std::optional<ClosedSourceConstant> constant;
+};
+// Private importer facts for a scalar join. Preparation emits only each arm's
+// representation conversions; the owner decides whether to select or yield.
+struct PreparedScalarJoin {
+  Value whenTrue, whenFalse;
+  ac::BitsType resultType;
+  std::optional<ac::detail::ValueKind> sourceKind;
+  std::optional<IntegerInterval> interval;
+  Attribute closedSourceConstant;
+  bool fixedBits = false, mathematical = false;
+  std::optional<BindingBoundary> resultBoundary;
+  Value refinementTrue, refinementFalse;
 };
 struct EnumMemberRef {
   ac::EnumType type;
@@ -850,7 +863,7 @@ private:
   reserveLoopJoin(const AstNode &statement, const BranchEnvironment &incoming,
                   const BranchEnvironment &yes, const BranchEnvironment &no);
   LogicalResult
-  reserveLoopEnvironmentCopies(const AstNode &site,
+  reserveSourceEnvironmentCopies(const AstNode &site,
                                const BranchEnvironment &incoming,
                                const BranchEnvironment *yes = nullptr,
                                const BranchEnvironment *no = nullptr);
@@ -1044,6 +1057,14 @@ private:
   FailureOr<SourceChoice> sourceChoice(Value value, const AstNode &node);
   void refineSelectFacts(Value result, Value condition, Value yes, Value no,
                          const AstNode &node, FlatSymbolRefAttr owner);
+  FailureOr<PreparedScalarJoin> prepareScalarJoin(
+      const NumericValue &condition, SourceChoice yes, SourceChoice no,
+      std::optional<BindingBoundary> binding, const AstNode &node,
+      OpBuilder &thenAt, OpBuilder &elseAt, FlatSymbolRefAttr ownerSymbol);
+  FailureOr<Value> finishScalarJoin(
+      Value selected, const PreparedScalarJoin &prepared,
+      const NumericValue &condition, const AstNode &node, OpBuilder &after,
+      FlatSymbolRefAttr ownerSymbol);
   FailureOr<Value> joinSourceValues(const NumericValue &condition,
                                     SourceChoice yes, SourceChoice no,
                                     const AstNode &node, OpBuilder &at,
@@ -1055,7 +1076,8 @@ private:
   FailureOr<BranchEnvironment>
   joinBranches(const NumericValue &condition, const BranchEnvironment &incoming,
                const BranchEnvironment &yes, const BranchEnvironment &no,
-               const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner);
+               const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
+               ac::SourceBranchOp sourceBranch = {});
   LogicalResult propagateClosed(Value result, ac::detail::ValueOpcode opcode,
                                 ArrayRef<Value> operands, const AstNode &node);
   LogicalResult recordClosed(Value result, Attribute constant,
@@ -1658,16 +1680,27 @@ void Importer::refineSelectFacts(Value result, Value condition, Value yes,
   numericValues[result] = std::move(info);
 }
 
-FailureOr<Value> Importer::joinSourceValues(const NumericValue &condition,
-                                            SourceChoice yes, SourceChoice no,
-                                            const AstNode &node, OpBuilder &at,
-                                            FlatSymbolRefAttr ownerSymbol) {
+FailureOr<PreparedScalarJoin> Importer::prepareScalarJoin(
+    const NumericValue &condition, SourceChoice yes, SourceChoice no,
+    std::optional<BindingBoundary> binding, const AstNode &node,
+    OpBuilder &thenAt, OpBuilder &elseAt, FlatSymbolRefAttr ownerSymbol) {
   using ac::detail::ValueKind;
-  if (yes.value == no.value)
-    return yes.value;
+  if (binding) {
+    auto a = applyBindingBoundary(yes.value, *binding, node, thenAt, ownerSymbol);
+    auto c = applyBindingBoundary(no.value, *binding, node, elseAt, ownerSymbol);
+    if (failed(a) || failed(c))
+      return failure();
+    auto trueChoice = sourceChoice(*a, node);
+    auto falseChoice = sourceChoice(*c, node);
+    if (failed(trueChoice) || failed(falseChoice))
+      return failure();
+    yes = *trueChoice;
+    no = *falseChoice;
+  }
   if (!isa<ac::BitsType>(yes.value.getType()) ||
       !isa<ac::BitsType>(no.value.getType()))
-    return select(condition.value, yes.value, no.value, node, at, ownerSymbol);
+    return mlir::emitError(node.location(b.getContext(), source.path))
+           << "changed branch local requires a scalar Bits representation";
   bool yesFixed = fixedValues.contains(yes.value);
   bool noFixed = fixedValues.contains(no.value);
   if (yesFixed != noFixed) {
@@ -1681,62 +1714,111 @@ FailureOr<Value> Importer::joinSourceValues(const NumericValue &condition,
         !ac::areEquivalentHardwareTypes(target, bits(1, node, ownerSymbol)))
       return mlir::emitError(node.location(b.getContext(), source.path))
              << "closed Boolean branch requires a bits[1] peer";
-    auto converted =
-        unsignedBoundary(constant.value, target, node, at, ownerSymbol);
+    auto converted = unsignedBoundary(constant.value, target, node,
+                                      yesFixed ? elseAt : thenAt, ownerSymbol);
     if (failed(converted))
       return failure();
     constant.value = *converted;
     yesFixed = noFixed = true;
   }
-  if (yesFixed && noFixed)
-    return select(condition.value, yes.value, no.value, node, at, ownerSymbol);
-
+  PreparedScalarJoin prepared;
+  prepared.whenTrue = prepared.refinementTrue = yes.value;
+  prepared.whenFalse = prepared.refinementFalse = no.value;
+  prepared.resultBoundary = std::move(binding);
+  prepared.fixedBits = yesFixed && noFixed;
+  if (prepared.fixedBits) {
+    if (!ac::areEquivalentHardwareTypes(yes.value.getType(), no.value.getType()))
+      return error() << "branch values require equal hardware types";
+    prepared.resultType = cast<ac::BitsType>(yes.value.getType());
+    return prepared;
+  }
   auto a = valueInfo(yes.value), c = valueInfo(no.value);
   if (a.sourceKind && c.sourceKind && a.sourceKind != c.sourceKind)
     return mlir::emitError(node.location(b.getContext(), source.path))
            << "conditional branches have different known Boolean and Integer "
               "kinds";
-  bool mathematical = arithmeticValues.contains(yes.value) ||
-                      arithmeticValues.contains(no.value) ||
-                      (a.interval && a.interval->lower.isNegative()) ||
-                      (c.interval && c.interval->lower.isNegative());
-  auto closeSelection = [&](Value result) -> FailureOr<Value> {
-    refineSelectFacts(result, condition.value, yes.value, no.value, node,
-                      ownerSymbol);
-    auto guard = dyn_cast_or_null<BoolAttr>(condition.closedSourceConstant);
-    if (guard && yes.constant && no.constant &&
-        failed(recordClosed(
-            result, guard.getValue() ? yes.constant->value : no.constant->value,
-            node)))
+  prepared.mathematical = arithmeticValues.contains(yes.value) ||
+                          arithmeticValues.contains(no.value) ||
+                          (a.interval && a.interval->lower.isNegative()) ||
+                          (c.interval && c.interval->lower.isNegative()) ||
+                          !ac::areEquivalentHardwareTypes(yes.value.getType(),
+                                                         no.value.getType());
+  if (prepared.mathematical) {
+    auto numeric = prepareExactIntegerSelect(thenAt, numericSite(node, ownerSymbol),
+                                            condition, a, c);
+    if (failed(numeric))
       return failure();
-    return result;
-  };
-  if (mathematical || !ac::areEquivalentHardwareTypes(yes.value.getType(),
-                                                      no.value.getType())) {
-    auto result = lowerExactIntegerSelect(at, numericSite(node, ownerSymbol),
-                                          condition, a, c);
-    if (failed(result))
+    auto yesArm = materializeExactIntegerSelectArm(
+        thenAt, numericSite(node, ownerSymbol), *numeric, SelectArm::Then);
+    auto noArm = materializeExactIntegerSelectArm(
+        elseAt, numericSite(node, ownerSymbol), *numeric, SelectArm::Else);
+    if (failed(yesArm) || failed(noArm))
       return failure();
-    numericValues[result->value] = *result;
-    arithmeticValues.insert(result->value);
-    return closeSelection(result->value);
+    prepared.whenTrue = *yesArm;
+    prepared.whenFalse = *noArm;
+    prepared.resultType = numeric->resultType;
+    prepared.sourceKind = ValueKind::Integer;
+    prepared.interval = std::move(numeric->resultInterval);
+  } else {
+    prepared.resultType = cast<ac::BitsType>(yes.value.getType());
+    prepared.sourceKind = a.sourceKind == c.sourceKind ? a.sourceKind : std::nullopt;
+    if (a.interval && c.interval)
+      prepared.interval = IntegerInterval{
+          llvm::APSInt::compareValues(a.interval->lower, c.interval->lower) < 0
+              ? a.interval->lower : c.interval->lower,
+          llvm::APSInt::compareValues(a.interval->upper, c.interval->upper) > 0
+              ? a.interval->upper : c.interval->upper};
   }
-  auto result =
-      select(condition.value, yes.value, no.value, node, at, ownerSymbol);
+  auto guard = dyn_cast_or_null<BoolAttr>(condition.closedSourceConstant);
+  if (guard && yes.constant && no.constant)
+    prepared.closedSourceConstant = guard.getValue() ? yes.constant->value
+                                                   : no.constant->value;
+  return prepared;
+}
+
+FailureOr<Value> Importer::finishScalarJoin(
+    Value selected, const PreparedScalarJoin &prepared,
+    const NumericValue &condition, const AstNode &node, OpBuilder &after,
+    FlatSymbolRefAttr ownerSymbol) {
+  if (!selected || !ac::areEquivalentHardwareTypes(selected.getType(),
+                                                  prepared.resultType))
+    return error() << "scalar join result type disagrees with prepared arms";
+  if (prepared.fixedBits)
+    fixedValues.insert(selected);
+  else {
+    remember(selected, prepared.sourceKind, prepared.interval);
+    if (prepared.mathematical)
+      arithmeticValues.insert(selected);
+  }
+  refineSelectFacts(selected, condition.value, prepared.refinementTrue,
+                    prepared.refinementFalse, node, ownerSymbol);
+  if (prepared.closedSourceConstant &&
+      failed(recordClosed(selected, prepared.closedSourceConstant, node)))
+    return failure();
+  if (prepared.resultBoundary)
+    return applyBindingBoundary(selected, *prepared.resultBoundary, node, after,
+                                ownerSymbol);
+  return selected;
+}
+
+FailureOr<Value> Importer::joinSourceValues(const NumericValue &condition,
+                                            SourceChoice yes, SourceChoice no,
+                                            const AstNode &node, OpBuilder &at,
+                                            FlatSymbolRefAttr ownerSymbol) {
+  if (yes.value == no.value)
+    return yes.value;
+  if (!isa<ac::BitsType>(yes.value.getType()) ||
+      !isa<ac::BitsType>(no.value.getType()))
+    return select(condition.value, yes.value, no.value, node, at, ownerSymbol);
+  auto prepared = prepareScalarJoin(condition, yes, no, std::nullopt, node, at,
+                                    at, ownerSymbol);
+  if (failed(prepared))
+    return failure();
+  auto result = select(condition.value, prepared->whenTrue, prepared->whenFalse,
+                       node, at, ownerSymbol);
   if (failed(result))
     return failure();
-  std::optional<IntegerInterval> interval;
-  if (a.interval && c.interval)
-    interval = IntegerInterval{
-        llvm::APSInt::compareValues(a.interval->lower, c.interval->lower) < 0
-            ? a.interval->lower
-            : c.interval->lower,
-        llvm::APSInt::compareValues(a.interval->upper, c.interval->upper) > 0
-            ? a.interval->upper
-            : c.interval->upper};
-  remember(*result, a.sourceKind == c.sourceKind ? a.sourceKind : std::nullopt,
-           interval);
-  return closeSelection(*result);
+  return finishScalarJoin(*result, *prepared, condition, node, at, ownerSymbol);
 }
 
 BindingBoundary Importer::inferredBoundary(StringRef name, Value value,
@@ -1853,7 +1935,8 @@ bool Importer::hasUnchangedIncomingBinding(StringRef name,
 FailureOr<BranchEnvironment> Importer::joinBranches(
     const NumericValue &condition, const BranchEnvironment &incoming,
     const BranchEnvironment &yes, const BranchEnvironment &no,
-    const AstNode &node, OpBuilder &at, FlatSymbolRefAttr ownerSymbol) {
+    const AstNode &node, OpBuilder &at, FlatSymbolRefAttr ownerSymbol,
+    ac::SourceBranchOp sourceBranch) {
   BranchEnvironment joined;
   joined.boundaries = incoming.boundaries;
   joined.ambient = incoming.ambient;
@@ -1881,21 +1964,60 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
                << "branch declarations have incompatible binding boundaries";
       joined.boundaries[item.first()] = item.second;
     }
-  for (const auto &item : yes.values) {
-    auto opposite = no.values.find(item.first());
+  SmallVector<PreparedScalarJoin> prepared;
+  SmallVector<StringRef> resultNames;
+  std::optional<OpBuilder> thenAt, elseAt;
+  if (sourceBranch) {
+    thenAt.emplace(OpBuilder::atBlockEnd(&sourceBranch.getThenRegion().front()));
+    elseAt.emplace(OpBuilder::atBlockEnd(&sourceBranch.getElseRegion().front()));
+  }
+  auto joinBinding = [&](StringRef name, Value yesValue) -> LogicalResult {
+    auto opposite = no.values.find(name);
     if (opposite == no.values.end())
-      continue;
-    if (hasUnchangedIncomingBinding(item.first(), incoming, yes, no)) {
-      joined.values[item.first()] = incoming.values.lookup(item.first());
-      continue;
+      return success();
+    if (hasUnchangedIncomingBinding(name, incoming, yes, no)) {
+      joined.values[name] = incoming.values.lookup(name);
+      return success();
     }
-    Value yesValue = item.second, noValue = opposite->second;
-    auto binding = joined.boundaries.find(item.first());
+    Value noValue = opposite->second;
+    auto binding = joined.boundaries.find(name);
+    if (sourceBranch || (isa<ac::BitsType>(yesValue.getType()) &&
+                         isa<ac::BitsType>(noValue.getType()))) {
+      auto a = sourceChoice(yesValue, node);
+      auto c = sourceChoice(noValue, node);
+      if (failed(a) || failed(c))
+        return failure();
+      auto scalar = prepareScalarJoin(
+          condition, *a, *c,
+          binding == joined.boundaries.end()
+              ? std::nullopt : std::optional<BindingBoundary>(binding->second),
+          node, sourceBranch ? *thenAt : at, sourceBranch ? *elseAt : at,
+          ownerSymbol);
+      if (failed(scalar))
+        return failure();
+      if (sourceBranch) {
+        prepared.push_back(std::move(*scalar));
+        resultNames.push_back(name);
+      } else {
+        auto selected = select(condition.value, scalar->whenTrue,
+                               scalar->whenFalse, node, at, ownerSymbol);
+        if (failed(selected))
+          return failure();
+        auto value = finishScalarJoin(*selected, *scalar, condition, node, at,
+                                      ownerSymbol);
+        if (failed(value))
+          return failure();
+        joined.values[name] = *value;
+        if (binding == joined.boundaries.end())
+          joined.boundaries[name] = inferredBoundary(name, *value, node);
+      }
+      return success();
+    }
     if (binding != joined.boundaries.end()) {
       auto a = applyBindingBoundary(yesValue, binding->second, node, at,
                                     ownerSymbol);
-      auto c =
-          applyBindingBoundary(noValue, binding->second, node, at, ownerSymbol);
+      auto c = applyBindingBoundary(noValue, binding->second, node, at,
+                                    ownerSymbol);
       if (failed(a) || failed(c))
         return failure();
       yesValue = *a;
@@ -1909,16 +2031,88 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     if (failed(value))
       return failure();
     if (binding != joined.boundaries.end()) {
-      auto converted =
-          applyBindingBoundary(*value, binding->second, node, at, ownerSymbol);
+      auto converted = applyBindingBoundary(*value, binding->second, node, at,
+                                             ownerSymbol);
       if (failed(converted))
         return failure();
       value = *converted;
     } else {
-      joined.boundaries[item.first()] =
-          inferredBoundary(item.first(), *value, node);
+      joined.boundaries[name] = inferredBoundary(name, *value, node);
     }
-    joined.values[item.first()] = *value;
+    joined.values[name] = *value;
+    return success();
+  };
+  if (sourceBranch) {
+    // The two arm environments have separate existing copy fees. Reserve the
+    // temporary join facts and arm/yield/result handles before allocation.
+    TableQueryCharge charge;
+    std::string reason;
+    uint64_t resultCount = 0;
+    for (const auto &item : yes.values) {
+      if (failed(chargeLoopDescriptorWork(node, "source join binding measurement")))
+        return failure();
+      if (no.values.contains(item.first()) &&
+          !hasUnchangedIncomingBinding(item.first(), incoming, yes, no))
+        ++resultCount;
+    }
+    constexpr uint64_t resultSlots = (sizeof(PreparedScalarJoin) + 7) / 8 + 5;
+    bool fits = TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
+                                             resultCount, resultSlots) &&
+                TableQueryBudget::addProduct(charge, TableQueryResource::Work,
+                                             resultCount, 4);
+    if (!fits || !queryBudget.reserve(charge, reason))
+      return mlir::emitError(node.location(b.getContext(), source.path))
+             << "source branch scalar result preparation: "
+             << (fits ? reason : "result storage counter exhausted");
+    SmallVector<StringRef> names;
+    names.reserve(resultCount);
+    prepared.reserve(resultCount);
+    resultNames.reserve(resultCount);
+    for (const auto &item : yes.values) {
+      if (!no.values.contains(item.first()))
+        continue;
+      if (hasUnchangedIncomingBinding(item.first(), incoming, yes, no)) {
+        if (failed(joinBinding(item.first(), item.second)))
+          return failure();
+      } else {
+        names.push_back(item.first());
+      }
+    }
+    llvm::sort(names);
+    for (StringRef name : names)
+      if (failed(joinBinding(name, yes.values.lookup(name))))
+        return failure();
+    SmallVector<Value> trueValues, falseValues;
+    SmallVector<Type> resultTypes;
+    for (const PreparedScalarJoin &scalar : prepared) {
+      trueValues.push_back(scalar.whenTrue);
+      falseValues.push_back(scalar.whenFalse);
+      resultTypes.push_back(scalar.resultType);
+    }
+    auto loc = node.location(b.getContext(), source.path);
+    createOp(*thenAt, loc, ac::YieldOp::getOperationName(), trueValues, {}, {});
+    createOp(*elseAt, loc, ac::YieldOp::getOperationName(), falseValues, {}, {});
+    OperationState state(loc, ac::SourceBranchOp::getOperationName());
+    state.addOperands(sourceBranch.getCondition());
+    state.addTypes(resultTypes);
+    state.addAttributes(sourceBranch->getAttrs());
+    state.addRegion()->takeBody(sourceBranch.getThenRegion());
+    state.addRegion()->takeBody(sourceBranch.getElseRegion());
+    Operation *complete = at.create(state);
+    sourceBranch.erase();
+    for (auto [index, name] : llvm::enumerate(resultNames)) {
+      auto value = finishScalarJoin(complete->getResult(index), prepared[index],
+                                    condition, node, at, ownerSymbol);
+      if (failed(value))
+        return failure();
+      joined.values[name] = *value;
+      if (!joined.boundaries.contains(name))
+        joined.boundaries[name] = inferredBoundary(name, *value, node);
+    }
+  } else {
+    for (const auto &item : yes.values)
+      if (failed(joinBinding(item.first(), item.second)))
+        return failure();
   }
   for (const auto &item : incoming.writes) {
     auto value = select(condition.value, yes.writes.lookup(item.first()),
@@ -3377,6 +3571,16 @@ FailureOr<Value> Importer::expression(
                                ownerSymbol);
   }
   if (node.kind() == "IfExp") {
+    // Both alternatives are conditional even when the test is a source
+    // constant. Preserve the pure expression path while rejecting Method
+    // effects anywhere inside an expression choice.
+    bool conditional = activeSourceEffects && activeSourceEffects->conditional;
+    if (activeSourceEffects)
+      activeSourceEffects->conditional = true;
+    auto restore = llvm::scope_exit([&] {
+      if (activeSourceEffects)
+        activeSourceEffects->conditional = conditional;
+    });
     auto cond = expression(node.child("test"), at, ownerSymbol, values,
                            instances, {}, captures);
     if (failed(cond))

@@ -354,7 +354,7 @@ FailureOr<NumericValue> lowerExactIntegerBinary(OpBuilder &builder,
   return NumericValue{value, ValueKind::Integer, std::move(result)};
 }
 
-FailureOr<NumericValue> lowerExactIntegerSelect(OpBuilder &builder,
+FailureOr<PreparedIntegerSelect> prepareExactIntegerSelect(OpBuilder &builder,
                                                 const NumericLoweringSite &site,
                                                 const NumericValue &condition,
                                                 const NumericValue &whenTrue,
@@ -403,13 +403,42 @@ FailureOr<NumericValue> lowerExactIntegerSelect(OpBuilder &builder,
        !ac::areEquivalentHardwareTypes(whenFalse.value.getType(), fullType)))
     return diagnostic(site)() << "integer select representation proof requires "
                                  "normalized equal-width types";
-  Value yes = widen(builder, site, whenTrue, *trueWidth, fullWidth);
-  Value no = widen(builder, site, whenFalse, *falseWidth, fullWidth);
+  return PreparedIntegerSelect{whenTrue, whenFalse, fullType, std::move(result),
+                               *trueWidth, *falseWidth, fullWidth};
+}
+
+FailureOr<Value> materializeExactIntegerSelectArm(
+    OpBuilder &at, const NumericLoweringSite &site,
+    const PreparedIntegerSelect &prepared, SelectArm arm) {
+  if (failed(verifySite(site)))
+    return failure();
+  const NumericValue &input = arm == SelectArm::Then ? prepared.whenTrue
+                                                    : prepared.whenFalse;
+  unsigned width = arm == SelectArm::Then ? prepared.trueWidth
+                                         : prepared.falseWidth;
+  return widen(at, site, input, width, prepared.resultWidth);
+}
+
+FailureOr<NumericValue> lowerExactIntegerSelect(
+    OpBuilder &builder, const NumericLoweringSite &site,
+    const NumericValue &condition, const NumericValue &whenTrue,
+    const NumericValue &whenFalse) {
+  auto prepared = prepareExactIntegerSelect(builder, site, condition, whenTrue,
+                                           whenFalse);
+  if (failed(prepared))
+    return failure();
+  auto yes = materializeExactIntegerSelectArm(builder, site, *prepared,
+                                             SelectArm::Then);
+  auto no = materializeExactIntegerSelectArm(builder, site, *prepared,
+                                            SelectArm::Else);
+  if (failed(yes) || failed(no))
+    return failure();
   OperationState state(site.location, ac::BitsSelectOp::getOperationName());
-  state.addOperands({condition.value, yes, no});
-  state.addTypes(fullType);
+  state.addOperands({condition.value, *yes, *no});
+  state.addTypes(prepared->resultType);
   Value value = builder.create(state)->getResult(0);
-  return NumericValue{value, ValueKind::Integer, std::move(result)};
+  return NumericValue{value, ValueKind::Integer,
+                      std::move(prepared->resultInterval)};
 }
 
 FailureOr<NumericValue>
