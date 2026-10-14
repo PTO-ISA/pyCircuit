@@ -126,8 +126,7 @@ effect paths and paired clock/reset wire identity. It tracks ordered guard and
 value-validity prefixes; false or unknown guards remain explicit obligations
 for sampled lowering and checks. Unsupported selectors,
 conditional effects and unproved domains reject this analysis only. No plan is
-published if any transaction fails. Branch joins, partial updates, public
-dynamic-source acceptance and resource handling remain unfinished.
+published if any transaction fails. Branch joins, partial updates and resource handling remain unfinished.
 The analysis alone is not execution evidence; the bounded lowerer's public
 C++/RTL execution and the broader extension have separate acceptance scopes.
 

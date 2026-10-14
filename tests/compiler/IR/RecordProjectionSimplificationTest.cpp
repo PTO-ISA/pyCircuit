@@ -470,7 +470,7 @@ TEST_F(RecordProjectionSimplificationTest, OriginalUnusedScalarsExtractsRulesAnd
     }) {name = "actual_check", occurrence = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}, ac.required_checks = [{id = {registration = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}, check = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}, obligation = 0 : i64}, kind = "assert", location = {path = "unit.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}]} : (!b1) -> (!b1, !b1)
     %r = ac.struct.create(%b, %a, %on) : (!b3, !b8, !b1) -> !ac.struct<"unit.Parcel">
     %get = ac.struct.get %r["alpha"] : (!ac.struct<"unit.Parcel">) -> !b8
-    "ac.observe"(%on, %get) {kind = "report", spec = {name = "retained"}} : (!b1, !b8) -> ()
+    "ac.observe"(%on, %get) {kind = "report", spec = {name = "retained"}, ac.location = {path = "unit.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, ac.observation_id = {registration = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}, site = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 3 : i64}]}, expansion = []}, ordinal = 0 : i64, invocation = [], owner = {instance_path = []}}} : (!b1, !b8) -> ()
     "ac.expect"(%check#0, %check#1) {kind = "assert", location = {path = "unit.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, ac.check_id = {registration = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}, check = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}, obligation = 0 : i64}} : (!b1, !b1) -> ()
     "ac.yield"(%get) : (!b8) -> ()
   )mlir", "(!b8, !b3, !b1) -> !b8", "[\"a\", \"b\", \"on\"]", "[\"get\"]"));
@@ -507,8 +507,8 @@ TEST_F(RecordProjectionSimplificationTest, OriginalUnusedScalarsExtractsRulesAnd
 TEST_F(RecordProjectionSimplificationTest,
        DuplicateReportNamesRejectInCommonIR) {
   const std::string body = R"mlir(^bb0(%on: !b1, %value: !b8):
-    "ac.observe"(%on, %value) {kind = "report", spec = {name = "shared"}} : (!b1, !b8) -> ()
-    "ac.observe"(%on, %value) {kind = "report", spec = {name = "shared"}} : (!b1, !b8) -> ()
+    "ac.observe"(%on, %value) {kind = "report", spec = {name = "shared"}, ac.location = {path = "unit.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, ac.observation_id = {registration = {site = {definition = @unit.DuplicateReports, ast_path = [{kind = "index", value = 0 : i64}]}, expansion = []}, site = {site = {definition = @unit.DuplicateReports, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}, ordinal = 0 : i64, invocation = [], owner = {instance_path = []}}} : (!b1, !b8) -> ()
+    "ac.observe"(%on, %value) {kind = "report", spec = {name = "shared"}, ac.location = {path = "unit.py", line = 2 : i64, column = 1 : i64, end_line = 2 : i64, end_column = 2 : i64}, ac.observation_id = {registration = {site = {definition = @unit.DuplicateReports, ast_path = [{kind = "index", value = 0 : i64}]}, expansion = []}, site = {site = {definition = @unit.DuplicateReports, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}, ordinal = 1 : i64, invocation = [], owner = {instance_path = []}}} : (!b1, !b8) -> ()
     "ac.yield"() : () -> ()
   )mlir";
   const std::string text = preamble() + "module {\n" +
@@ -525,7 +525,7 @@ TEST_F(RecordProjectionSimplificationTest,
   });
   EXPECT_TRUE(failed(mlir::verify(*unit)));
   EXPECT_NE(
-      diagnostics.find("report name must be unique within module: shared"),
+      diagnostics.find("report name must be unique within logical owner: shared"),
       std::string::npos)
       << diagnostics;
 }

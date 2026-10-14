@@ -148,6 +148,8 @@ mlir::LogicalResult verifyUseID(mlir::DictionaryAttr value,
                                 EmitError emitError);
 mlir::LogicalResult verifyCheckID(mlir::DictionaryAttr value,
                                   EmitError emitError);
+mlir::LogicalResult verifyObservationID(mlir::DictionaryAttr value,
+                                        EmitError emitError);
 mlir::LogicalResult verifyProofScope(mlir::DictionaryAttr value,
                                      EmitError emitError);
 mlir::LogicalResult verifyOwnerRef(mlir::DictionaryAttr value,

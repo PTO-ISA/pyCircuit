@@ -76,7 +76,13 @@ def system_events(stdout, entry, values):
         ]
         assert int(event["evaluation_epoch"]) == epoch
         assert int(event["commit_epoch"]) == epoch + 1
-        assert json.loads(event["site"])["site"]["definition"] == entry
+        identity = json.loads(event["site"])
+        assert set(identity) == {"site", "invocation", "ordinal"}, identity
+        assert identity["invocation"] == [], identity
+        # `inspect` retains its authored statement positions: the assertion is
+        # ordinal zero and this following log is ordinal one.
+        assert identity["ordinal"] == 1, identity
+        assert identity["site"]["site"]["definition"] == entry
     terminal = records[-1]
     assert terminal["kind"] == "result" and terminal["status"] == "TERMINATED"
     assert int(terminal["epoch_time"]) == 16
@@ -317,7 +323,9 @@ def main():
                     else (
                         [binary, "+cycles=8"]
                         if is_system
-                        else [binary, str(workers)] if target == "cpp" else [binary]
+                        else [binary, str(workers)]
+                        if target == "cpp"
+                        else [binary]
                     )
                 )
                 stdout, _ = run(f"{name}-{target}-{workers}", command)
@@ -497,7 +505,10 @@ def main():
             "--replace",
             failure=True,
         )
-        assert "unsupported hardware expression 'Call'" in stderr, stderr
+        # Adding the nested behavioral rule changes the provider's admission
+        # class. Its retained static width parameter must reject at that earlier
+        # boundary, before expression lowering considers the nested call.
+        assert "behavioral module static parameters are unsupported" in stderr, stderr
         assert published == {path: digest(Path(path)) for path in published}
         negative_cases.append(
             {

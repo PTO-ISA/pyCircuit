@@ -81,17 +81,32 @@ Recovery tests therefore identify host-Reset segments and their independent
 expectations separately from the original physical-reset history.
 
 Observations use a shared occurrence layout for both backends. The system
-publishes them only after a successful epoch, in deterministic instance/rule/
-site order. C++ worker count must not change that order. Unsupported payloads
+publishes them only after a successful epoch. Within each physical instance,
+whole observation groups sort by registration first-encounter order, authored
+ordinal, then full-identity first-encounter order. Values remain contiguous
+within their group. C++ worker count must not change that order. Unsupported payloads
 or independently driven domains fail explicitly rather than losing effects.
 One authored log with several supported scalar operands produces one event
 whose `values` array retains their order. A literal-only log has an empty array;
 a report retains its scalar statistic. An entire inactive log emits nothing.
 Event names, report names and literal log items are preserved as authored text
 in both backends, including percent signs and format-like marker strings.
-Each report name identifies one observation site within its owning module;
-duplicate names across rule registrations reject during common-IR verification.
+Each report name identifies one site within its actual logical owner; duplicate
+names across rule registrations or a relocated parent/child observation reject
+during common-IR verification, including false paths and unselected definitions.
 Separate instances may use the same report name.
+
+Final observations require the closed five-field
+[ObservationID](../rfcs/serial-rule-method/observation-identity.md). The shared
+plan retains the physical snapshot path separately from the logical owner path
+published as `instance` and used for report keys. Compiler-generated `site` is a
+canonical JSON string containing `{site, invocation, ordinal}`; `registration`
+retains its original JSON. Old three-field IDs and old generated site metadata
+have no compatibility path. Runtime opaque site strings remain unchanged.
+This identity contract does not itself admit Method body checks or observations.
+The current descriptor layout is shared per definition. Emission rejects differing
+Collection lane counts for that same definition when the child subtree carries
+observations; general binding-dependent observation geometry remains unsupported.
 Partially active, incomplete or inconsistent operand groups reject before any
 hardware Xfer or RTL COMMIT. The failure preserves committed state, clock history,
 epoch count and the previous event batch and gauges. A later invalid group cannot

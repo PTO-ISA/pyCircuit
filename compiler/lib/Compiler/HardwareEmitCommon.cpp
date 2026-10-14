@@ -1,5 +1,8 @@
 #include "HardwareEmitCommon.h"
+#include "../Dialect/ACIR/ACIRSourceContracts.h"
+#include "../Dialect/ACIR/HardwareSourceChecks.h"
 #include "FinalCppNames.h"
+#include "mlir/IR/Builders.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallString.h"
@@ -315,47 +318,61 @@ buildObservationPlan(HardwareEmitContext &context) {
   if (failed(root))
     return failure();
   llvm::DenseMap<Attribute, uint64_t> registrationKeys;
-  llvm::DenseMap<Attribute, uint64_t> siteKeys;
+  llvm::DenseMap<Attribute, uint64_t> identityKeys;
+  uint64_t nextSiteKey = 0;
   llvm::SetVector<Operation *> reached;
   std::function<LogicalResult(ac::ModuleOp, const ac::HardwareBindings &)>
       collect = [&](ac::ModuleOp definition,
                     const ac::HardwareBindings &bindings) -> LogicalResult {
     if (!reached.insert(definition))
       return success();
+    if (failed(ac::detail::verifyModuleObservationIdentities(definition)))
+      return failure();
+    struct Group {
+      ac::SourceObserveOp observe;
+      uint64_t registrationRank, ordinal, identityRank, valueCount;
+    };
+    SmallVector<Group> groups;
     SmallVector<ObservationEmissionSite> sites;
     for (Operation &op : definition.getBody().front()) {
       auto observe = dyn_cast<ac::SourceObserveOp>(op);
       if (!observe)
         continue;
       auto identity = op.getAttrOfType<DictionaryAttr>("ac.observation_id");
-      auto key = [&](llvm::StringRef name,
+      auto key = [&](Attribute value,
                      llvm::DenseMap<Attribute, uint64_t> &table) {
-        Attribute value = identity ? identity.get(name) : Attribute();
         auto found = table.find(value);
         if (found == table.end())
           found = table.try_emplace(value, table.size()).first;
         return found->second;
       };
-      uint64_t registrationKey = key("registration", registrationKeys);
-      uint64_t siteKey = key("site", siteKeys);
+      uint64_t registrationKey =
+          key(identity.get("registration"), registrationKeys);
+      uint64_t identityKey = key(identity, identityKeys);
+      groups.push_back({observe, registrationKey,
+                        static_cast<uint64_t>(
+                            identity.getAs<IntegerAttr>("ordinal").getInt()),
+                        identityKey,
+                        std::max<std::size_t>(1, observe.getValues().size())});
+    }
+    llvm::sort(groups, [](const Group &a, const Group &b) {
+      return std::tie(a.registrationRank, a.ordinal, a.identityRank) <
+             std::tie(b.registrationRank, b.ordinal, b.identityRank);
+    });
+    for (const auto &group : groups) {
+      auto observe = group.observe;
+      uint64_t siteKey = nextSiteKey++;
       // A site with no hardware value operand still publishes once, which is
       // the same placeholder rule the source importer applies to a
       // literal-only `log`.
-      uint64_t groups = std::max<std::size_t>(1, observe.getValues().size());
       bool gauge = observe.getKind() == "report";
-      for (uint64_t index = 0; index < groups; ++index)
-        sites.push_back({&op, static_cast<unsigned>(index),
+      for (uint64_t index = 0; index < group.valueCount; ++index)
+        sites.push_back({observe, static_cast<unsigned>(index),
                          index < observe.getValues().size(), gauge,
-                         registrationKey, siteKey});
+                         group.registrationRank, siteKey});
     }
-    llvm::stable_sort(sites, [](const ObservationEmissionSite &a,
-                                const ObservationEmissionSite &b) {
-      return std::tie(a.registrationKey, a.siteKey, a.valueIndex) <
-             std::tie(b.registrationKey, b.siteKey, b.valueIndex);
-    });
     plan.definitions[definition] = std::move(sites);
-    ac::HardwareBindings parent;
-    parent.owner = definition;
+    const auto &parent = bindings;
     for (Operation &op : definition.getBody().front()) {
       if (!isa<ac::InstanceOp, ac::CollectionOp>(op))
         continue;
@@ -394,7 +411,8 @@ buildObservationPlan(HardwareEmitContext &context) {
     }
     return success();
   };
-  if (failed(collect(*root, ac::HardwareBindings())))
+  auto rootBindings = context.rootBindings();
+  if (failed(rootBindings) || failed(collect(*root, *rootBindings)))
     return failure();
   llvm::DenseSet<Operation *> active;
   std::function<FailureOr<uint64_t>(Operation *)> width =
@@ -431,19 +449,35 @@ buildObservationPlan(HardwareEmitContext &context) {
     return failure();
   uint64_t ownerKey = 0;
   using InstancePath = SmallVector<std::pair<Operation *, uint64_t>>;
-  std::function<LogicalResult(ac::ModuleOp, ArrayRef<InstancePath>)> layout =
-      [&](ac::ModuleOp definition,
-          ArrayRef<InstancePath> paths) -> LogicalResult {
+  std::function<LogicalResult(ac::ModuleOp, ArrayRef<InstancePath>,
+                              const ac::HardwareBindings &)>
+      layout = [&](ac::ModuleOp definition, ArrayRef<InstancePath> paths,
+                   const ac::HardwareBindings &bindings) -> LogicalResult {
     uint64_t lanes = paths.size();
     auto sites = plan.definitions.find(definition);
     uint64_t units = sites == plan.definitions.end() ? 0 : sites->second.size();
+    llvm::DenseMap<Operation *, SmallVector<ac::InstanceOp>> logicalSuffixes;
+    if (sites != plan.definitions.end())
+      for (const auto &site : sites->second) {
+        if (logicalSuffixes.contains(site.op))
+          continue;
+        auto logical = ac::detail::resolveObservationOwner(
+            context.analysis, cast<ac::SourceObserveOp>(site.op), bindings, {});
+        if (failed(logical))
+          return failure();
+        logicalSuffixes.try_emplace(site.op, std::move(logical->path));
+      }
     for (uint64_t lane = 0; lane < lanes; ++lane) {
       if (sites != plan.definitions.end())
         for (const ObservationEmissionSite &site : sites->second) {
           if (plan.table.size() >= std::numeric_limits<std::uint32_t>::max())
             return definition.emitOpError()
                    << "native observation ordinal exceeds u32";
-          plan.occurrences.push_back({site, plan.table.size(), paths[lane]});
+          InstancePath logicalPath(paths[lane]);
+          for (auto instance : logicalSuffixes.find(site.op)->second)
+            logicalPath.push_back({instance, 0});
+          plan.occurrences.push_back(
+              {site, plan.table.size(), paths[lane], std::move(logicalPath)});
           plan.table.push_back({plan.table.size(), ownerKey,
                                 site.registrationKey, site.siteKey,
                                 site.gauge ? 1u : 0u});
@@ -454,6 +488,26 @@ buildObservationPlan(HardwareEmitContext &context) {
     }
     auto &bases = plan.childBaseUnits[definition];
     for (const ObservationEmissionChild &child : plan.children[definition]) {
+      // Geometry remains definition-local. Actual binding-dependent shape
+      // changes cannot reuse the first layout for an observed subtree.
+      if (auto collection = dyn_cast<ac::CollectionOp>(child.op);
+          collection && plan.subtreeWidth.lookup(child.definition) != 0) {
+        auto extents = context.analysis.resolveShape(collection.getShape(),
+                                                     bindings, collection);
+        if (failed(extents))
+          return failure();
+        uint64_t shape = 1;
+        for (auto extent : *extents) {
+          if (extent != 0 &&
+              shape > std::numeric_limits<uint64_t>::max() / extent)
+            return collection.emitOpError()
+                   << "native observation lane count overflows";
+          shape *= extent;
+        }
+        if (shape != child.shape)
+          return collection.emitOpError()
+                 << "binding-dependent observation geometry is unsupported";
+      }
       bases.push_back(units);
       uint64_t block = child.shape * plan.subtreeWidth.lookup(child.definition);
       if (block > std::numeric_limits<uint64_t>::max() - units)
@@ -467,14 +521,21 @@ buildObservationPlan(HardwareEmitContext &context) {
             childPaths.push_back(path);
             childPaths.back().emplace_back(child.op, lane);
           }
-        if (failed(layout(child.definition, childPaths)))
+        auto childBindings =
+            isa<ac::InstanceOp>(child.op)
+                ? context.analysis.bindInstance(cast<ac::InstanceOp>(child.op),
+                                                bindings)
+                : context.analysis.bindInstance(
+                      cast<ac::CollectionOp>(child.op), bindings);
+        if (failed(childBindings) ||
+            failed(layout(child.definition, childPaths, *childBindings)))
           return failure();
       }
     }
     return success();
   };
   const InstancePath rootPath;
-  if (failed(layout(*root, ArrayRef<InstancePath>(rootPath))))
+  if (failed(layout(*root, ArrayRef<InstancePath>(rootPath), *rootBindings)))
     return failure();
   for (std::size_t index = 1; index < plan.table.size(); ++index) {
     const auto &previous = plan.table[index - 1];
@@ -1785,6 +1846,20 @@ FailureOr<std::string> emissionMetadataJson(Attribute value, Operation *site) {
   return text;
 }
 FailureOr<std::string>
+observationSiteMetadataJson(ac::SourceObserveOp observe) {
+  auto identity = observe->getAttrOfType<DictionaryAttr>("ac.observation_id");
+  if (failed(ac::detail::verifyObservationID(
+          identity, [&] { return observe.emitOpError(); })))
+    return failure();
+  Builder builder(observe.getContext());
+  return emissionMetadataJson(
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("site", identity.get("site")),
+           builder.getNamedAttr("invocation", identity.get("invocation")),
+           builder.getNamedAttr("ordinal", identity.get("ordinal"))}),
+      observe);
+}
+FailureOr<std::string>
 cppObservationRunnerMetadata(HardwareEmitContext &context) {
   auto plan = buildObservationPlan(context);
   auto root = observationRoot(context);
@@ -1806,12 +1881,12 @@ cppObservationRunnerMetadata(HardwareEmitContext &context) {
       return observe.emitOpError() << "observation identity is missing";
     auto registration =
         emissionMetadataJson(identity.get("registration"), observe);
-    auto site = emissionMetadataJson(identity.get("site"), observe);
+    auto site = observationSiteMetadataJson(observe);
     auto spec = emissionMetadataJson(observe.getSpec(), observe);
     if (failed(registration) || failed(site) || failed(spec))
       return failure();
     std::string instance = "root";
-    for (auto [operation, lane] : entry.path) {
+    for (auto [operation, lane] : entry.logicalOwnerPath) {
       auto name = operation->getAttrOfType<StringAttr>("instance_name");
       if (!name)
         return operation->emitOpError() << "instance has no name";

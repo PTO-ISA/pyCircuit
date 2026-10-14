@@ -20,6 +20,7 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 | [跨实例 Method 接线](cross-instance-lowering.md) | 原实例状态、内部物理端口、根 ABI、writer 组合与独立验收 |
 | [事务采样准入](sampled-admission.md) | 动态 guard 的精确 IR、双层证明、clock history、Runtime/RTL 生命周期及实施 checklist |
 | [事务接口摘要](publication-summary.md) | 闭合字段、类型与依赖作用域、直接实例组合、body 重验及预算 |
+| [观测身份与逻辑 owner](observation-identity.md) | 共同身份验证、紧凑 ReportID 证明、完整日志组和双目标 metadata hard break |
 | [资源和后续扩展](extensions.md) | Queue 准入、端口、跨事务前递及明确未开放的接口 |
 | [验收标准与 checklist](acceptance.md) | 独立 oracle、正反例、产物、性能证据和合入条件 |
 | [实现分解与 agent 交接](implementation-plan.md) | 有界任务、依赖、独占文件、角色分离和退出条件 |

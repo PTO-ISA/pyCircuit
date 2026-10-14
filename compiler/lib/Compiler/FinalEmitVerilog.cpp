@@ -249,7 +249,7 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
     if (!name)
       return observe.emitOpError() << "report observation has no name";
     std::string instance = "root";
-    for (auto [operation, lane] : occurrence.path) {
+    for (auto [operation, lane] : occurrence.logicalOwnerPath) {
       auto allocation = operation->getAttrOfType<StringAttr>("instance_name");
       if (!allocation)
         return operation->emitOpError() << "instance has no name";
@@ -401,12 +401,12 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
       return observe.emitOpError() << "observation identity is missing";
     auto registration =
         emissionMetadataJson(identity.get("registration"), observe);
-    auto site = emissionMetadataJson(identity.get("site"), observe);
+    auto site = observationSiteMetadataJson(observe);
     auto spec = emissionMetadataJson(observe.getSpec(), observe);
     if (failed(registration) || failed(site) || failed(spec))
       return failure();
     std::string instance = "root";
-    for (auto [operation, lane] : occurrence.path) {
+    for (auto [operation, lane] : occurrence.logicalOwnerPath) {
       auto name = operation->getAttrOfType<StringAttr>("instance_name");
       instance += "/" + name.getValue().str();
       if (isa<ac::CollectionOp>(operation))

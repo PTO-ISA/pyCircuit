@@ -1094,9 +1094,8 @@ original contracts; this does not add a source API for Method-owner collections.
 Partial or conditional effects, transaction resource operations and new
 transaction checks/observations still reject during lowering. Valid uncalled
 Method declarations remain fully published and checked before link removes
-them. This subset does not complete public dynamic-source admission,
-resource/causality handling, branch/partial state or Method `@system` simulation
-closure. Existing ordinary hardware and its system route
+them. This subset does not complete resource/causality handling, branch/partial state
+or Method `@system` simulation closure. Existing ordinary hardware and its system route
 retain their current contracts and limits.
 See the
 [extension specification](../rfcs/serial-rule-method/README.md) for its target

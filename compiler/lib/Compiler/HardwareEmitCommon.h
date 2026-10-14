@@ -111,6 +111,7 @@ struct ObservationEmissionOccurrence {
   ObservationEmissionSite site;
   uint64_t ordinal = 0;
   llvm::SmallVector<std::pair<mlir::Operation *, uint64_t>> path;
+  llvm::SmallVector<std::pair<mlir::Operation *, uint64_t>> logicalOwnerPath;
 };
 struct ObservationEmissionPlan {
   llvm::DenseMap<mlir::Operation *, llvm::SmallVector<ObservationEmissionSite>> definitions;
@@ -125,6 +126,8 @@ mlir::FailureOr<ObservationEmissionPlan>
 observationEmissionPlan(HardwareEmitContext &context);
 mlir::FailureOr<std::string> emissionMetadataJson(mlir::Attribute value,
                                                mlir::Operation *site);
+mlir::FailureOr<std::string>
+observationSiteMetadataJson(ac::SourceObserveOp observe);
 mlir::FailureOr<std::string>
 cppObservationRunnerMetadata(HardwareEmitContext &context);
 mlir::FailureOr<std::string>

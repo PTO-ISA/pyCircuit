@@ -218,8 +218,8 @@ std::string noisyObservationFinal() {
 module attributes {ac.stage = "final", ac.source_units = [{package = "", path = "noisy.py"}]} {
   "ac.module"() ({
   ^bb0(%ok: !b1):
-    "ac.observe"(%ok, %ok) {kind = "log", spec = {event = "noisy", items = [{kind = "value", ordinal = 0 : i32}], level = "info"}, ac.location = #span, ac.observation_id = {registration = #registration, site = #log_site, ordinal = 0 : i64}} : (!b1, !b1) -> ()
-    "ac.observe"(%ok, %ok) {kind = "report", spec = {name = "noisy_gauge"}, ac.location = #span, ac.observation_id = {registration = #registration, site = #report_site, ordinal = 1 : i64}} : (!b1, !b1) -> ()
+    "ac.observe"(%ok, %ok) {kind = "log", spec = {event = "noisy", items = [{kind = "value", ordinal = 0 : i32}], level = "info"}, ac.location = #span, ac.observation_id = {registration = #registration, site = #log_site, ordinal = 0 : i64, invocation = [], owner = {instance_path = []}}} : (!b1, !b1) -> ()
+    "ac.observe"(%ok, %ok) {kind = "report", spec = {name = "noisy_gauge"}, ac.location = #span, ac.observation_id = {registration = #registration, site = #report_site, ordinal = 1 : i64, invocation = [], owner = {instance_path = []}}} : (!b1, !b1) -> ()
     "ac.yield"() : () -> ()
   }) {sym_name = "Noisy", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b1) -> (), input_names = ["ok"], output_names = []} : () -> ()
   "ac.system"() {entry = {callee = @Noisy, parameters = [], type_arguments = []}, domain = "default"} : () -> ()

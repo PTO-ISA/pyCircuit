@@ -35,6 +35,25 @@ def log_spec(event, *sequence):
     return {"event": event, "items": items(*sequence), "level": "info"}
 
 
+def observation_identity(record, definition_prefix):
+    registration = json.loads(record["registration"])
+    assert registration["site"]["definition"].startswith(definition_prefix), (
+        registration
+    )
+    assert registration["site"]["ast_path"], registration
+    assert "expansion" in registration, registration
+    identity = json.loads(record["site"])
+    assert set(identity) == {"site", "invocation", "ordinal"}, identity
+    assert identity["invocation"] == [], identity
+    assert isinstance(identity["ordinal"], int) and identity["ordinal"] >= 0, identity
+    assert identity["site"]["site"]["definition"].startswith(definition_prefix), (
+        identity
+    )
+    assert identity["site"]["site"]["ast_path"], identity
+    assert "expansion" in identity["site"], identity
+    return registration, identity
+
+
 # Literal arrays are independent of compiler results and hardware source state.
 ROWS = (
     (0, (False, 17, 51, 93, 119), 119, (0, 17, True), (0, 51, False)),
@@ -95,16 +114,16 @@ def observations(stdout, epochs):
             (record["instance"], record["kind"], record["spec"], record["values"])
             for record in actual
         ] == expected_epoch(epoch), (epoch, actual)
+        identities = []
         for record in actual:
             assert int(record["evaluation_epoch"]) == epoch
             assert int(record["commit_epoch"]) == epoch + 1
-            for field in ("registration", "site"):
-                identity = json.loads(record[field])
-                assert identity["site"]["definition"].startswith(
-                    "observation_groups.source_observation_groups."
-                ), identity
-                assert identity["site"]["ast_path"], identity
-                assert "expansion" in identity, identity
+            identities.append(
+                observation_identity(
+                    record, "observation_groups.source_observation_groups."
+                )[1]
+            )
+        assert [identity["ordinal"] for identity in identities] == [0, 1, 2, 3, 4, 0, 0]
     return records, events
 
 
@@ -139,13 +158,19 @@ def arithmetic_observations(stdout, instance):
         assert [
             (item["kind"], item["spec"], item["values"]) for item in actual
         ] == expected, (epoch, actual)
+        identities = []
         for item in actual:
             assert item["instance"] == instance
             assert int(item["evaluation_epoch"]) == epoch
             assert int(item["commit_epoch"]) == epoch + 1
-            assert json.loads(item["site"])["site"]["definition"].startswith(
-                "observation_groups.source_observation_groups."
+            identities.append(
+                observation_identity(
+                    item, "observation_groups.source_observation_groups."
+                )[1]
             )
+        # The authored assert is statement ordinal zero in both arithmetic
+        # rules; the three following observations retain ordinals 1, 2 and 3.
+        assert [identity["ordinal"] for identity in identities] == [1, 2, 3]
     return records, events
 
 
@@ -177,17 +202,50 @@ def only_observations(stdout, epochs, symbol):
         if identities is None:
             identities = current
         assert current == identities, (epoch, current, identities)
+        parsed = []
         for item in actual:
             assert int(item["evaluation_epoch"]) == epoch
             assert int(item["commit_epoch"]) == epoch + 1
-            for field in ("registration", "site"):
-                identity = json.loads(item[field])
-                assert identity["site"]["definition"].startswith(
-                    "observation_groups.source_observation_groups." + symbol
-                ), identity
-                assert identity["site"]["ast_path"], identity
-                assert "expansion" in identity, identity
+            parsed.append(
+                observation_identity(
+                    item, "observation_groups.source_observation_groups." + symbol
+                )[1]
+            )
+        assert [identity["ordinal"] for identity in parsed] == [0, 1, 0]
     return records, events
+
+
+def relocated_observations(stdout, epochs):
+    records = [json.loads(line) for line in stdout.splitlines() if line.startswith("{")]
+    events = [record for record in records if record["kind"] != "result"]
+    assert len(events) == epochs * 7, events
+    for epoch in range(epochs):
+        actual = events[epoch * 7 : (epoch + 1) * 7]
+        ticks = next(
+            item
+            for item in actual
+            if item["kind"] == "report" and item["spec"] == {"name": "ticks"}
+        )
+        assert ticks["instance"] == "root/left", ticks
+        assert ticks["values"] == [value(ROWS[epoch // 2][0])], ticks
+        identity = json.loads(ticks["site"])
+        assert set(identity) == {"site", "invocation", "ordinal"}, identity
+        assert identity["ordinal"] == 4, identity
+        assert len(identity["invocation"]) == 1, identity
+        receiver = identity["invocation"][0]["receiver"]
+        assert receiver["instance_path"], receiver
+        assert identity["site"]["site"]["definition"].endswith(".GroupLeaf"), identity
+        assert actual[0]["instance"] == "root"
+        leaf = next(
+            item
+            for item in actual
+            if item["kind"] == "log"
+            and item["spec"]["event"] == "leaf"
+            and item["instance"] == "root/left"
+        )
+        if epoch >= 2:
+            assert ticks["values"] != leaf["values"][:1], (ticks, leaf)
+    return events
 
 
 def four_state_precommit_monitor(simulation_top):
@@ -229,7 +287,7 @@ endmodule
 
 
 def native_precommit_driver():
-    return r'''#include "gfsim/SimExecutor.h"
+    return r"""#include "gfsim/SimExecutor.h"
 #include "pycircuit_system.hpp"
 #include <cstdlib>
 #include <iostream>
@@ -321,7 +379,7 @@ int main(int argc, char **argv) {
               dut.observations().Gauges().begin(),
               dut.observations().Gauges().end()) == previousGauges);
 }
-'''
+"""
 
 
 def expose_access_only_headers(root):
@@ -330,13 +388,13 @@ def expose_access_only_headers(root):
         original = header.read_text()
         lines = original.splitlines(keepends=True)
         exposed = "".join(
-            line.replace("private:", "public:")
-            if line.strip() == "private:"
-            else line
+            line.replace("private:", "public:") if line.strip() == "private:" else line
             for line in lines
         )
         if exposed != original:
-            for before, after in zip(lines, exposed.splitlines(keepends=True), strict=True):
+            for before, after in zip(
+                lines, exposed.splitlines(keepends=True), strict=True
+            ):
                 assert before == after or (
                     before.strip() == "private:" and after.strip() == "public:"
                 )
@@ -346,6 +404,77 @@ def expose_access_only_headers(root):
                 "exposed": hashlib.sha256(exposed.encode()).hexdigest(),
             }
     return changed
+
+
+def balanced_dictionary(text, marker, start=0):
+    marker_at = text.index(marker, start)
+    begin = text.index("{", marker_at + len(marker))
+    depth, quoted, escaped = 0, False, False
+    for index in range(begin, len(text)):
+        char = text[index]
+        if quoted:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == '"':
+                quoted = False
+            continue
+        if char == '"':
+            quoted = True
+        elif char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return text[begin : index + 1], index + 1
+    raise AssertionError((marker, text[marker_at : marker_at + 200]))
+
+
+def relocate_ticks_to_left(final):
+    text = final.read_text()
+    lines = text.splitlines(keepends=True)
+    left_line = next(line for line in lines if 'instance_name = "left"' in line)
+    leaf_line = next(
+        line for line in lines if '"ac.observe"' in line and 'event = "leaf"' in line
+    )
+    ticks_line = next(
+        line for line in lines if '"ac.observe"' in line and 'name = "ticks"' in line
+    )
+    left_occurrence, _ = balanced_dictionary(left_line, "occurrence = ")
+    leaf_identity, _ = balanced_dictionary(leaf_line, "ac.observation_id = ")
+    _, leaf_registration_end = balanced_dictionary(leaf_identity, "registration = ")
+    leaf_site, _ = balanced_dictionary(leaf_identity, "site = ", leaf_registration_end)
+    leaf_location, _ = balanced_dictionary(leaf_line, "ac.location = ")
+    ticks_identity, _ = balanced_dictionary(ticks_line, "ac.observation_id = ")
+    ticks_registration, ticks_registration_end = balanced_dictionary(
+        ticks_identity, "registration = "
+    )
+    balanced_dictionary(ticks_identity, "site = ", ticks_registration_end)
+    ordinal = re.search(r"ordinal = ([^,}]+)", ticks_identity)
+    assert ordinal, ticks_identity
+    owner = "{instance_path = [" + left_occurrence + "]}"
+    relocated_identity = (
+        "{registration = "
+        + ticks_registration
+        + ", site = "
+        + leaf_site
+        + ", ordinal = "
+        + ordinal.group(1)
+        + ", invocation = [{call = "
+        + left_occurrence
+        + ", receiver = "
+        + owner
+        + "}], owner = "
+        + owner
+        + "}"
+    )
+    old_identity, identity_end = balanced_dictionary(ticks_line, "ac.observation_id = ")
+    rewritten = ticks_line.replace(old_identity, relocated_identity, 1)
+    old_location, _ = balanced_dictionary(rewritten, "ac.location = ")
+    rewritten = rewritten.replace(old_location, leaf_location, 1)
+    assert rewritten != ticks_line and identity_end > 0
+    final.write_text(text.replace(ticks_line, rewritten, 1))
 
 
 def main():
@@ -525,7 +654,9 @@ def main():
                     failure=failing,
                 )
                 records, events = (
-                    only_observations(result.stdout, 4 if failing else cycles * 2, symbol)
+                    only_observations(
+                        result.stdout, 4 if failing else cycles * 2, symbol
+                    )
                     if observation_only
                     else arithmetic_observations(
                         result.stdout,
@@ -558,7 +689,9 @@ def main():
                         gauge_name = (
                             "observation_sample"
                             if observation_only
-                            else "arithmetic_progress" if arithmetic else "ticks"
+                            else "arithmetic_progress"
+                            if arithmetic
+                            else "ticks"
                         )
                         gauge = [
                             item
@@ -578,9 +711,7 @@ def main():
             assert native_visibility
             native_driver = output / "native-precommit-driver.cpp"
             native_driver.write_text(native_precommit_driver())
-            native_manifest = json.loads(
-                (native_probe / "generated.json").read_text()
-            )
+            native_manifest = json.loads((native_probe / "generated.json").read_text())
             native_sources = [
                 native_probe / item["path"]
                 for item in native_manifest["files"]
@@ -649,7 +780,9 @@ def main():
                     failure=True,
                 )
                 output_text = four_state.stdout + four_state.stderr
-                assert "inconsistent observation group at epoch 1" in output_text, output_text
+                assert "inconsistent observation group at epoch 1" in output_text, (
+                    output_text
+                )
                 assert "FOURSTATE-PRECOMMIT-PASS" in output_text, output_text
                 assert "FOURSTATE-PRECOMMIT-FAIL" not in output_text, output_text
                 records = [
@@ -657,9 +790,7 @@ def main():
                     for line in four_state.stdout.splitlines()
                     if line.startswith("{")
                 ]
-                events = [
-                    record for record in records if record["kind"] != "result"
-                ]
+                events = [record for record in records if record["kind"] != "result"]
                 assert len(events) == 7, events
                 assert [
                     (
@@ -732,15 +863,114 @@ def main():
                 "complete_observations_equal": True,
                 "observation_only_rules": observation_only,
                 "native_precommit_rollback": symbol == "ObservationGroupsFailure",
-                "actual_four_state_precommit": symbol
-                == "ObservationGroupsFailure",
+                "actual_four_state_precommit": symbol == "ObservationGroupsFailure",
             }
         )
+    relocated_output = work / "RelocatedObservationOwner"
+    relocated_output.mkdir()
+    relocated_entry = "observation_groups.source_observation_groups.ObservationGroups"
+    relocated_base = relocated_output / "system.ac"
+    cli(
+        "relocated-owner-link",
+        "link",
+        unit,
+        "--top",
+        relocated_entry,
+        "-o",
+        relocated_base,
+    )
+    relocated_base_hash = digest(relocated_base)
+    relocated_final = relocated_output / "relocated.ac"
+    shutil.copy2(relocated_base, relocated_final)
+    relocate_ticks_to_left(relocated_final)
+    relocated_variant_hash = digest(relocated_final)
+    assert relocated_variant_hash != relocated_base_hash
+    relocated_transcripts = []
+    for target in ("cpp", "verilog"):
+        generated = relocated_output / target
+        cli(
+            "relocated-owner-emit-" + target,
+            "emit",
+            relocated_final,
+            "--target",
+            target,
+            "-o",
+            generated,
+        )
+        assert digest(relocated_base) == relocated_base_hash
+        assert digest(relocated_final) == relocated_variant_hash
+        manifest = json.loads((generated / "generated.json").read_text())
+        binary = relocated_output / ("simulation-" + target)
+        if target == "cpp":
+            run(
+                "relocated-owner-build-cpp",
+                [
+                    args.cxx,
+                    "-std=c++20",
+                    "-pthread",
+                    "-I" + str(repo / "include"),
+                    "-I" + str(generated),
+                    *[
+                        generated / item["path"]
+                        for item in manifest["files"]
+                        if item["path"].endswith(".cpp")
+                    ],
+                    runtime,
+                    "-o",
+                    binary,
+                ],
+            )
+            for workers in (1, 2):
+                result = run(
+                    f"relocated-owner-cpp-{workers}",
+                    [binary, "--cycles", "2", "--workers", str(workers)],
+                )
+                relocated_transcripts.append(relocated_observations(result.stdout, 4))
+        else:
+            rtl_sources = [
+                generated / item["path"]
+                for item in manifest["files"]
+                if item["role"] in ("rtl", "runtime-glue")
+                and item["path"].endswith((".v", ".sv"))
+            ]
+            run(
+                "relocated-owner-build-iverilog",
+                [
+                    args.iverilog,
+                    "-g2012",
+                    "-s",
+                    "pycircuit_sim",
+                    "-o",
+                    binary,
+                    repo / "include/verilog/dffe.v",
+                    *rtl_sources,
+                ],
+            )
+            result = run(
+                "relocated-owner-iverilog",
+                [args.vvp, binary, "+cycles=2"],
+            )
+            relocated_transcripts.append(relocated_observations(result.stdout, 4))
+    assert relocated_transcripts[0] == relocated_transcripts[1]
+    assert relocated_transcripts[0] == relocated_transcripts[2]
+    cases.append(
+        {
+            "entry": relocated_entry,
+            "source_checks": 2,
+            "failed_work": False,
+            "epochs": 4,
+            "native_workers": [1, 2],
+            "rtl": "iverilog-pass",
+            "complete_observations_equal": True,
+            "relocated_physical_payload_logical_owner": True,
+        }
+    )
     protected_paths = [
         path
         for folder in (
             unit,
             *[work / case["entry"].rsplit(".", 1)[-1] for case in cases],
+            relocated_output,
         )
         for path in folder.rglob("*")
         if path.is_file()
@@ -799,7 +1029,7 @@ def main():
             source_path.write_text(original_source)
     log_statement = (
         '        log("info", "only_log", "old", sample, phase + 7, '
-        'sample == 20, 17 + sample)'
+        "sample == 20, 17 + sample)"
     )
     report_statement = '        report("observation_sample", sample)'
     for label, original, replacement, diagnostic in (
@@ -812,8 +1042,7 @@ def main():
         (
             "nested-captured-report",
             report_statement,
-            '        saved = report("observation_sample", sample)\n'
-            + report_statement,
+            '        saved = report("observation_sample", sample)\n' + report_statement,
             "unsupported hardware expression 'Call'",
         ),
         (
