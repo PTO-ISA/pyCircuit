@@ -49,6 +49,11 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [Symbol]> {
   let assemblyFormat = "$sym_name `=` $target attr-dict";
   let hasVerifier = 1;
 }
+def ACIR_ModuleCallOp : ACIR_Op<"module.call", [MemoryEffects<[MemRead, MemWrite]>]> {
+  let arguments = (ins SymbolRefAttr:$target);
+  let assemblyFormat = "$target attr-dict";
+  let hasVerifier = 1;
+}
 def ACIR_ContractOp : ACIR_Op<"contract"> {
   let arguments = (ins ArrayAttr:$relations, ArrayAttr:$rules);
   let assemblyFormat = "attr-dict";
@@ -221,7 +226,7 @@ def ACIR_ReadOp : ACIR_Op<"read", [MemoryEffects<[MemRead]>]> {
   let assemblyFormat = "`(` $inputs `)` attr-dict `:` functional-type(operands, results)";
   let hasVerifier = 1;
 }
-def ACIR_FireOp : ACIR_Op<"fire", [Pure]> {
+def ACIR_FireOp : ACIR_Op<"fire", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins I1:$condition, StrAttr:$name);
   let results = (outs I1:$fire);
   let assemblyFormat = "$name $condition attr-dict";

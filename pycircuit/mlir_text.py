@@ -230,9 +230,11 @@ def function(fn, region_kind=None):
         attrs['acir.source_type'] = t
         if o.get('loc', {}).get('line') or kind in ('export', 'rule.call'): attrs['acir.id'] = o['id']
         custom = {'resource': 'ref', 'signal.read': 'signal.get', 'signal.write': 'signal.set', 'queue.read': 'queue.peek', 'field': 'extract', 'index': 'extract', 'length': 'length', 'aggregate': 'aggregate', 'update': 'update', 'array.update': 'update', 'zero':'aggregate'}
-        if kind == 'param':
+        if kind == 'module.call':
+            stmt = '"acir.module.call"() {target = ' + sym(o['target']) + '} : () -> ()'
+        elif kind == 'param':
             return
-        if kind == 'br':
+        elif kind == 'br':
             stmt = 'cf.br ^' + o['dest'] + (f'({args} : {ts})' if ids else '')
         elif kind == 'cond_br':
             stmt = f'cf.cond_br {args}, ^{o["yes"]}, ^{o["no"]}'

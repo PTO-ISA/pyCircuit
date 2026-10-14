@@ -308,7 +308,7 @@ class Frontend:
         for fn in instance.definitions.values(): self.closures[instance.name, id(fn)] = (env, definitions, instance.name)
         return instance
 
-    def connect(self, instance, args, keywords, builder, node, outputs=None):
+    def connect(self, instance, args, keywords, builder, node, outputs=None, caller=None):
         fn = instance.definitions.get('__call__')
         if fn is None: self.error(node, 'Module has no __call__; invoke its public Rules directly')
         if getattr(instance, 'connected', False): self.error(node, 'Module __call__ binds fixed connections once')
@@ -342,6 +342,7 @@ class Frontend:
         lower.statements(fn.body)
         mod['body'] = lower.function()
         mod['resources'] = sorted(mod.pop('_resources'))
+        if caller is not None: caller.op('module.call', 'void', target=instance.name, node=node)
 
     def expand_loops(self, body):
         import copy
@@ -830,7 +831,7 @@ class Lower:
             instance = self.env[node.func.id]
             args = [self.expr(x, reference=True) for x in node.args]
             keywords = {k.arg:self.expr(k.value, reference=True) for k in node.keywords}
-            return self.f.connect(instance, args, keywords, self.builder, node, outputs=outputs)
+            return self.f.connect(instance, args, keywords, self.builder, node, outputs=outputs, caller=self)
         bound = None
         fn = self.defs.get(name, self.f.defs.get(name))
         if not fn and isinstance(node.func, ast.Attribute):

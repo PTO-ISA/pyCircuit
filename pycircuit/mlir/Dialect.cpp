@@ -132,6 +132,14 @@ LogicalResult acir::InstanceOp::verify() {
     return emitOpError("requires a Module target");
   return success();
 }
+LogicalResult acir::ModuleCallOp::verify() {
+  auto target = dyn_cast_or_null<ModuleOp>(resolve(*this, getTarget()));
+  if (!target || target.getDeclarations().getOps<BodyOp>().empty())
+    return emitOpError("requires a Module with a body");
+  if (!(*this)->getParentOfType<BodyOp>())
+    return emitOpError("Module calls belong to Module bodies");
+  return success();
+}
 LogicalResult acir::BodyOp::verify() {
   if (!isa<ModuleOp>((*this)->getParentOp()) || getBody().empty() ||
       getBody().front().getNumArguments())

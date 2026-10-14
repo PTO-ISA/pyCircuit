@@ -256,13 +256,6 @@ int acir::compileMain(int argc, char **argv) {
                                  config.begin()->first);
       (*module)->setAttr("acir.config", attrs.getDictionary(&context));
     }
-    if (optimize) {
-      PassManager pm(&context);
-      pm.addPass(createCanonicalizerPass());
-      pm.addPass(createCSEPass());
-      if (failed(pm.run(*module)))
-        return 1;
-    }
     cleanLocations(*module, argv[1]);
     std::filesystem::path directory(argv[2]);
     std::filesystem::create_directories(directory);
@@ -281,6 +274,13 @@ int acir::compileMain(int argc, char **argv) {
       if (failed(pm.run(*module)))
         return 1;
       current = "transaction";
+    }
+    if (optimize) {
+      PassManager pm(&context);
+      pm.addPass(createCanonicalizerPass());
+      pm.addPass(createCSEPass());
+      if (failed(pm.run(*module)))
+        return 1;
     }
     if (current == "transaction") {
       save(*module, directory / "model.transaction.mlir");

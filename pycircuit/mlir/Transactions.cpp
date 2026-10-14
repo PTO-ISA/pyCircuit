@@ -461,7 +461,7 @@ struct Extractor {
           auto key = std::make_pair(external.getSource().str(),
                                     external.getIdentity().str());
           if (!exports.count(key))
-            runBody(external.getSource());
+            throw std::runtime_error("shared computation must dominate its use: " + external.getSource().str());
           result = exports.at(key);
         } else if (name == "acir.config") {
           auto config = source->getAttrOfType<DictionaryAttr>("acir.config");
@@ -473,6 +473,10 @@ struct Extractor {
                                               op->getResult(0).getType(),
                                               cast<TypedAttr>(value)),
                     yes};
+        } else if (auto call = dyn_cast<acir::ModuleCallOp>(op)) {
+          auto instance = call.getTarget().getLeafReference().getValue();
+          runBody(instance.str() + "_body", current);
+          continue;
         } else if (auto call = dyn_cast<acir::RuleCallOp>(op)) {
           auto *callee =
               symbols.at(call.getTarget().getLeafReference().getValue().str());
@@ -693,15 +697,15 @@ struct Extractor {
     return result;
   }
   std::set<Operation *> doneBodies;
-  void runBody(StringRef name) {
+  void runBody(StringRef name, Pair path) {
     for (auto scope : source.getOps<acir::ModuleOp>())
       for (auto body : scope.getDeclarations().getOps<acir::BodyOp>())
         if (body->getAttrOfType<DictionaryAttr>("acir.function")
                 .getAs<StringAttr>("name")
                 .getValue() == name) {
           if (!doneBodies.insert(body).second)
-            return;
-          run(body.getBody(), {}, {yes, yes});
+            throw std::runtime_error("repeated or recursive Module call: " + name.str());
+          run(body.getBody(), {}, path);
           return;
         }
     throw std::runtime_error("shared body not found");
@@ -792,10 +796,10 @@ struct Extractor {
     }
     initialModule.erase();
     for (auto scope : source.getOps<acir::ModuleOp>())
-      for (auto body : scope.getDeclarations().getOps<acir::BodyOp>())
-        runBody(body->getAttrOfType<DictionaryAttr>("acir.function")
-                    .getAs<StringAttr>("name")
-                    .getValue());
+      if (scope.getSymName() == "top")
+        for (auto body : scope.getDeclarations().getOps<acir::BodyOp>())
+          runBody(body->getAttrOfType<DictionaryAttr>("acir.function")
+                      .getAs<StringAttr>("name").getValue(), {yes, yes});
     schedule();
     return target;
   }
