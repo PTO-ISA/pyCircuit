@@ -131,6 +131,7 @@ private:
     uint64_t ruleResults = 0, instanceMetadata = 0, ruleMetadata = 0;
     uint64_t wiringMetadata = 0, states = 0, incoming = 0, writers = 0;
     uint64_t candidates = 0, maxCandidates = 0, sampledSchema = 0;
+    uint64_t observations = 0, observationOperands = 0, observationMetadata = 0;
     bool hasSamplingMetadata = false, hasWiring = false;
   };
   FailureOr<uint64_t> rawCarrierCost(Value value, Operation *site) {
@@ -626,6 +627,18 @@ private:
       if (directInstance)
         local.instances = Budget::add(local.instances, 1);
       local.operands = Budget::add(local.operands, op->getNumOperands());
+      if (isa<SourceObserveOp>(op)) {
+        local.observations = Budget::add(local.observations, 1);
+        local.observationOperands =
+            Budget::add(local.observationOperands, op->getNumOperands());
+        for (StringRef key : {"ac.observation_id", "ac.location", "spec", "kind"}) {
+          auto cost = structureCost(op->getAttr(key), op);
+          if (failed(cost))
+            return WalkResult::interrupt();
+          local.observationMetadata =
+              Budget::add(local.observationMetadata, *cost);
+        }
+      }
       for (StringRef key :
            {"occurrence", "ac.required_checks", "ac.check_id", "location",
             "ac.message", "ac.sampled_admission", "ac.transaction_wiring"}) {
@@ -691,6 +704,23 @@ private:
           Budget::add(records,
                       Budget::add(Budget::multiply(comparisons, local.metadata),
                                   local.carriers)));
+      const uint64_t n = local.observations;
+      const uint64_t j = local.observationMetadata;
+      const uint64_t s = Budget::add(
+          j, Budget::add(Budget::multiply(2, local.observationOperands),
+                         Budget::multiply(8, n)));
+      uint64_t left = n, right = n ? n - 1 : 0;
+      if (left % 2 == 0)
+        left /= 2;
+      else
+        right /= 2;
+      const uint64_t pairs = Budget::multiply(left, right);
+      const uint64_t observationReserve = Budget::add(
+          Budget::add(Budget::multiply(2, s), j),
+          Budget::add(
+              Budget::multiply(n, schemaRecordCost<ObservationLocalKey>()),
+              Budget::add(Budget::multiply(6, pairs), Budget::multiply(2, n))));
+      cost = Budget::add(cost, observationReserve);
       // Native Module verification runs before the builder can share its
       // budget with the local verifier. Prepay a conservative bound for the
       // sampled schema, stop endpoints, identity walks and prefix atom sets.

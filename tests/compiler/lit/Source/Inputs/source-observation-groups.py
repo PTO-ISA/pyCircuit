@@ -35,6 +35,21 @@ def log_spec(event, *sequence):
     return {"event": event, "items": items(*sequence), "level": "info"}
 
 
+def observation_identity(record, definition_prefix):
+    registration = json.loads(record["registration"])
+    assert registration["site"]["definition"].startswith(definition_prefix), registration
+    assert registration["site"]["ast_path"], registration
+    assert "expansion" in registration, registration
+    identity = json.loads(record["site"])
+    assert set(identity) == {"site", "invocation", "ordinal"}, identity
+    assert identity["invocation"] == [], identity
+    assert isinstance(identity["ordinal"], int) and identity["ordinal"] >= 0, identity
+    assert identity["site"]["site"]["definition"].startswith(definition_prefix), identity
+    assert identity["site"]["site"]["ast_path"], identity
+    assert "expansion" in identity["site"], identity
+    return registration, identity
+
+
 # Literal arrays are independent of compiler results and hardware source state.
 ROWS = (
     (0, (False, 17, 51, 93, 119), 119, (0, 17, True), (0, 51, False)),
@@ -98,13 +113,9 @@ def observations(stdout, epochs):
         for record in actual:
             assert int(record["evaluation_epoch"]) == epoch
             assert int(record["commit_epoch"]) == epoch + 1
-            for field in ("registration", "site"):
-                identity = json.loads(record[field])
-                assert identity["site"]["definition"].startswith(
-                    "observation_groups.source_observation_groups."
-                ), identity
-                assert identity["site"]["ast_path"], identity
-                assert "expansion" in identity, identity
+            observation_identity(
+                record, "observation_groups.source_observation_groups."
+            )
     return records, events
 
 
@@ -143,8 +154,8 @@ def arithmetic_observations(stdout, instance):
             assert item["instance"] == instance
             assert int(item["evaluation_epoch"]) == epoch
             assert int(item["commit_epoch"]) == epoch + 1
-            assert json.loads(item["site"])["site"]["definition"].startswith(
-                "observation_groups.source_observation_groups."
+            observation_identity(
+                item, "observation_groups.source_observation_groups."
             )
     return records, events
 
@@ -180,13 +191,9 @@ def only_observations(stdout, epochs, symbol):
         for item in actual:
             assert int(item["evaluation_epoch"]) == epoch
             assert int(item["commit_epoch"]) == epoch + 1
-            for field in ("registration", "site"):
-                identity = json.loads(item[field])
-                assert identity["site"]["definition"].startswith(
-                    "observation_groups.source_observation_groups." + symbol
-                ), identity
-                assert identity["site"]["ast_path"], identity
-                assert "expansion" in identity, identity
+            observation_identity(
+                item, "observation_groups.source_observation_groups." + symbol
+            )
     return records, events
 
 

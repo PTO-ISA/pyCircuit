@@ -27,11 +27,17 @@ struct Engine {
   LogicalResult charge(uint64_t units, Operation *site) const {
     return debit ? debit(units, site) : success();
   }
+  struct LocalReport {
+    SourceObserveOp observe;
+    StringAttr name;
+    SmallVector<InstanceOp, 0> ownerPath;
+  };
   struct CompletedModule {
     ModuleOp module;
     HardwareBindings bindings;
     bool operational;
     ModuleAnalysis result;
+    SmallVector<LocalReport, 0> reports;
   };
   // A result depends on the definition and its full binding environment, not on
   // the parent occurrence. Keep it only for this immutable analysis traversal.
@@ -454,9 +460,44 @@ struct Engine {
     if (!active.insert(module).second)
       return module.emitOpError() << "recursive hardware instance hierarchy";
     llvm::scope_exit cleanup([&] { active.erase(module); });
+    // Declaration authority is checked on every invocation, including before
+    // a completed dependency proof can be reused for these exact bindings.
+    SmallVector<LocalReport, 0> reports;
+    for (auto observe : module.getBody().front().getOps<SourceObserveOp>()) {
+      auto owner = detail::resolveObservationOwner(
+          analysis, observe, bindings,
+          [&](uint64_t units, Operation *site) { return charge(units, site); });
+      if (failed(owner))
+        return failure();
+      if (observe.getKind() != "report")
+        continue;
+      auto name = observe.getSpec().getAs<StringAttr>("name");
+      for (const auto &prior : reports) {
+        if (failed(charge(detail::SourceCheckBudget::add(
+                              2, std::max(prior.ownerPath.size(), owner->path.size())),
+                          observe)))
+          return failure();
+        if (prior.name == name && ArrayRef<InstanceOp>(prior.ownerPath) ==
+                                      ArrayRef<InstanceOp>(owner->path))
+          return observe.emitOpError()
+                 << "duplicate report name at logical owner";
+      }
+      if (failed(charge(detail::SourceCheckBudget::add(
+                            detail::SourceCheckBudget::bytes(sizeof(LocalReport)),
+                            detail::SourceCheckBudget::multiply(
+                                owner->path.size(),
+                                detail::SourceCheckBudget::bytes(sizeof(InstanceOp)))),
+                        observe)))
+        return failure();
+      reports.push_back({observe, name,
+                         SmallVector<InstanceOp, 0>(owner->path.begin(),
+                                                    owner->path.end())});
+    }
     for (const auto &cached : completed) {
       if (failed(charge(detail::SourceCheckBudget::add(
-                            1, detail::SourceCheckBudget::bindings(bindings)),
+                            1, detail::SourceCheckBudget::add(
+                                   detail::SourceCheckBudget::bindings(bindings),
+                                   detail::SourceCheckBudget::bindings(cached.bindings))),
                         module)))
         return failure();
       if (cached.module == module && cached.operational == operational &&
@@ -464,6 +505,55 @@ struct Engine {
         if (failed(charge(resultCost(cached.result), module)))
           return failure();
         return cached.result;
+      }
+    }
+    // A local downward owner can collide only with a direct report declared
+    // at one of its ancestor-prefix children. Child proofs already establish
+    // their complete subtrees, including each Collection once per bindings.
+    for (const auto &report : reports) {
+      HardwareBindings bound = bindings;
+      if (failed(charge(detail::SourceCheckBudget::bindings(bound), report.observe)))
+        return failure();
+      for (size_t index = 0; index < report.ownerPath.size(); ++index) {
+        auto instance = report.ownerPath[index];
+        if (failed(charge(detail::SourceCheckBudget::add(
+                              1, detail::SourceCheckBudget::bindings(bound)), instance)))
+          return failure();
+        auto childBindings = analysis.bindInstance(instance, bound);
+        if (failed(childBindings))
+          return failure();
+        auto child = dyn_cast<ModuleOp>(childBindings->owner);
+        if (!child || failed(analyze(child, *childBindings)))
+          return failure();
+        const CompletedModule *proof = nullptr;
+        for (const auto &cached : completed) {
+          if (failed(charge(detail::SourceCheckBudget::add(
+                                2, detail::SourceCheckBudget::add(
+                                       detail::SourceCheckBudget::bindings(*childBindings),
+                                       detail::SourceCheckBudget::bindings(cached.bindings))),
+                            instance)))
+            return failure();
+          if (cached.module == child && cached.operational == operational &&
+              sameBindings(cached.bindings, *childBindings)) {
+            proof = &cached;
+            break;
+          }
+        }
+        if (!proof)
+          return report.observe.emitOpError() << "report child proof is incomplete";
+        ArrayRef<InstanceOp> suffix(report.ownerPath.data() + index + 1,
+                                    report.ownerPath.size() - index - 1);
+        for (const auto &local : proof->reports) {
+          if (failed(charge(detail::SourceCheckBudget::add(
+                                2, std::max(local.ownerPath.size(), suffix.size())),
+                            report.observe)))
+            return failure();
+          if (local.name == report.name &&
+              ArrayRef<InstanceOp>(local.ownerPath) == suffix)
+            return report.observe.emitOpError()
+                   << "duplicate report name at logical owner across instances";
+        }
+        bound = std::move(*childBindings);
       }
     }
     if (failed(charge(detail::SourceCheckBudget::add(
@@ -789,7 +879,10 @@ struct Engine {
                 detail::SourceCheckBudget::multiply(2, resultCost(result))),
             module)))
       return failure();
-    completed.push_back({module, bindings, operational, result});
+    if (failed(charge(detail::SourceCheckBudget::bytes(sizeof(CompletedModule)),
+                      module)))
+      return failure();
+    completed.push_back({module, bindings, operational, result, std::move(reports)});
     return result;
   }
 };

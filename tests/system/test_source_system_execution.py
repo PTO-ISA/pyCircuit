@@ -210,6 +210,25 @@ def _observations(rows, kind, name):
     ]
 
 
+def _assert_closed_observation_identities(rows):
+    stable = {}
+    for row in rows:
+        if row["kind"] == "result":
+            continue
+        registration = json.loads(row["registration"])
+        assert set(registration) == {"site", "expansion"}, registration
+        identity = json.loads(row["site"])
+        assert set(identity) == {"site", "invocation", "ordinal"}, identity
+        assert identity["invocation"] == [], identity
+        assert isinstance(identity["ordinal"], int) and identity["ordinal"] >= 0
+        key = (row["instance"], row["kind"], json.dumps(row["spec"], sort_keys=True))
+        value = (row["registration"], row["site"])
+        if key in stable:
+            assert stable[key] == value, (key, stable[key], value)
+        else:
+            stable[key] = value
+
+
 def _assert_run_receipt(build, target, status="success"):
     receipt = json.loads((build / "run-execution.json").read_text())
     assert receipt["status"] == status
@@ -246,6 +265,7 @@ def _assert_success(rows):
     assert int(results[0]["epoch_time"]) == 8
     progress = [row for row in results[0]["statistics"] if row["name"] == "progress"]
     assert len(progress) == 1 and int(progress[0]["value"]) == 3
+    _assert_closed_observation_identities(rows)
 
 
 def test_hello_counter_preserves_original_five_cycle_logs(tmp_path):

@@ -15,7 +15,7 @@
 namespace acir::ac {
 class HardwareAnalysis;
 class ModuleImportOp;
-}
+} // namespace acir::ac
 
 namespace acir::ac::detail {
 
@@ -31,8 +31,7 @@ bool isCombinationalHardwareOperation(mlir::Operation *operation);
 // Optional source-call authority on existing hardware module declarations.
 mlir::LogicalResult verifyModuleSourceCallContract(mlir::Operation *owner);
 mlir::LogicalResult verifyModuleSignature(mlir::Operation *declaration);
-mlir::LogicalResult verifyModuleImportSummarySelection(
-    ModuleImportOp imported);
+mlir::LogicalResult verifyModuleImportSummarySelection(ModuleImportOp imported);
 
 // Callable constraints resolve hardware in the lexical module; diagnostics
 // belong to the module or Method whose source contract is being checked.
@@ -52,9 +51,9 @@ mlir::LogicalResult verifyRequiredSourceParameter(
 // Validate original hardware syntax against its lexical module inventories.
 // Bound forwarded actuals are resolved separately by HardwareAnalysis.
 mlir::LogicalResult verifyHardwareAttributeScope(mlir::Attribute attribute,
-                                               mlir::Operation *owner);
+                                                 mlir::Operation *owner);
 mlir::LogicalResult verifyHardwareTypeScope(mlir::Type type,
-                                          mlir::Operation *owner);
+                                            mlir::Operation *owner);
 
 mlir::DictionaryAttr declarationSourceOwner(mlir::Operation *operation);
 bool hasQualifiedDeclarationIdentityForOwner(mlir::Operation *operation,
@@ -148,6 +147,8 @@ mlir::LogicalResult verifyUseID(mlir::DictionaryAttr value,
                                 EmitError emitError);
 mlir::LogicalResult verifyCheckID(mlir::DictionaryAttr value,
                                   EmitError emitError);
+mlir::LogicalResult verifyObservationID(mlir::DictionaryAttr value,
+                                        EmitError emitError);
 mlir::LogicalResult verifyProofScope(mlir::DictionaryAttr value,
                                      EmitError emitError);
 mlir::LogicalResult verifyOwnerRef(mlir::DictionaryAttr value,

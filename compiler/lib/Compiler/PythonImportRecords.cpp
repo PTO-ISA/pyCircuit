@@ -3894,7 +3894,10 @@ LogicalResult Importer::publishSourceChecks(Operation *rule,
                          sourceOccurrence(at, symbol, check.observationRule)),
          at.getNamedAttr("site", sourceOccurrence(at, symbol, check.statement)),
          at.getNamedAttr("ordinal",
-                         at.getI64IntegerAttr(observationOrdinal++))});
+                         at.getI64IntegerAttr(observationOrdinal++)),
+         at.getNamedAttr("invocation", at.getArrayAttr({})),
+         at.getNamedAttr("owner", at.getDictionaryAttr(
+             {at.getNamedAttr("instance_path", at.getArrayAttr({}))}))});
     createOp(at, check.statement.location(b.getContext(), source.path),
              ac::SourceObserveOp::getOperationName(), operands, {},
              {at.getNamedAttr("kind", check.observationKind),
@@ -4116,7 +4119,10 @@ LogicalResult Importer::emitInstrumentation(
   DictionaryAttr identity = b.getDictionaryAttr(
       {b.getNamedAttr("registration", sourceOccurrence(b, module.symbol, rule)),
        b.getNamedAttr("site", sourceOccurrence(b, module.symbol, statement)),
-       b.getNamedAttr("ordinal", b.getI64IntegerAttr(ordinal))});
+       b.getNamedAttr("ordinal", b.getI64IntegerAttr(ordinal)),
+       b.getNamedAttr("invocation", b.getArrayAttr({})),
+       b.getNamedAttr("owner", b.getDictionaryAttr(
+           {b.getNamedAttr("instance_path", b.getArrayAttr({}))}))});
   {
     SmallVector<Value> operands{ruleOp->getResult(0)};
     for (unsigned i = 1; i < ruleOp->getNumResults(); ++i)

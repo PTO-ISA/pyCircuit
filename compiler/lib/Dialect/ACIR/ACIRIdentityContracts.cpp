@@ -302,6 +302,44 @@ LogicalResult verifyCheckID(DictionaryAttr value, EmitError emitError) {
              : failure();
 }
 
+LogicalResult verifyObservationID(DictionaryAttr value, EmitError emitError) {
+  if (failed(requireExactFields(value, 5, "ObservationID", emitError)) ||
+      failed(verifyDictionaryField(value, "registration", "ObservationID",
+                                   verifyOccurrence, emitError)) ||
+      failed(verifyDictionaryField(value, "site", "ObservationID",
+                                   verifyOccurrence, emitError)) ||
+      failed(verifyDictionaryField(value, "owner", "ObservationID",
+                                   verifyOwnerRef, emitError)))
+    return failure();
+  auto ordinal = value.getAs<IntegerAttr>("ordinal");
+  auto type = ordinal ? dyn_cast<IntegerType>(ordinal.getType()) : IntegerType();
+  if (!type || !type.isSignless() || type.getWidth() != 64 ||
+      ordinal.getInt() < 0)
+    return emitError()
+           << "ObservationID ordinal must be a nonnegative signless i64";
+  auto invocation = value.getAs<ArrayAttr>("invocation");
+  if (!invocation)
+    return emitError() << "ObservationID invocation must be an ArrayAttr";
+  for (auto raw : invocation) {
+    auto frame = dyn_cast<DictionaryAttr>(raw);
+    if (failed(requireExactFields(frame, 2, "observation invocation", emitError)) ||
+        failed(verifyDictionaryField(frame, "call", "observation invocation",
+                                     verifyOccurrence, emitError)) ||
+        failed(verifyDictionaryField(frame, "receiver", "observation invocation",
+                                     verifyOwnerRef, emitError)))
+      return failure();
+  }
+  auto owner = value.getAs<DictionaryAttr>("owner");
+  if (invocation.empty()) {
+    if (!owner.getAs<ArrayAttr>("instance_path").empty())
+      return emitError() << "empty observation invocation requires self owner";
+  } else if (cast<DictionaryAttr>(invocation.back()).getAs<DictionaryAttr>(
+                 "receiver") != owner) {
+    return emitError() << "observation owner must equal final receiver";
+  }
+  return success();
+}
+
 LogicalResult verifyProofScope(DictionaryAttr value, EmitError emitError) {
   if (failed(requireExactFields(value, 2, "ProofScope", emitError)))
     return failure();

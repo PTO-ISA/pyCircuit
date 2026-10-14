@@ -76,7 +76,11 @@ def system_events(stdout, entry, values):
         ]
         assert int(event["evaluation_epoch"]) == epoch
         assert int(event["commit_epoch"]) == epoch + 1
-        assert json.loads(event["site"])["site"]["definition"] == entry
+        identity = json.loads(event["site"])
+        assert set(identity) == {"site", "invocation", "ordinal"}, identity
+        assert identity["invocation"] == [], identity
+        assert identity["ordinal"] == 0, identity
+        assert identity["site"]["site"]["definition"] == entry
     terminal = records[-1]
     assert terminal["kind"] == "result" and terminal["status"] == "TERMINATED"
     assert int(terminal["epoch_time"]) == 16

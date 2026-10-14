@@ -201,15 +201,8 @@ LogicalResult ModuleOp::verifyRegions() {
   if (failed(body(*this, getFunctionType().getInputs(),
                   getFunctionType().getResults())))
     return failure();
-  llvm::StringSet<> reportNames;
-  for (auto observe : getBody().front().getOps<SourceObserveOp>()) {
-    if (observe.getKind() != "report")
-      continue;
-    auto name = observe.getSpec().getAs<StringAttr>("name");
-    if (name && !reportNames.insert(name.getValue()).second)
-      return observe.emitOpError()
-             << "report name must be unique within module: " << name.getValue();
-  }
+  if (failed(detail::verifyModuleObservationIdentities(*this)))
+    return failure();
   auto result = walk([&](Operation *op) {
     for (Type type : op->getOperandTypes())
       if (failed(detail::verifyHardwareTypeScope(type, *this)))
@@ -281,12 +274,7 @@ LogicalResult ModuleImportOp::verify() {
       .verifyImport(*this);
 }
 LogicalResult SourceObserveOp::verify() {
-  if (!isa<ModuleOp>((*this)->getParentOp()) ||
-      !llvm::is_contained(ArrayRef<StringRef>{"print", "log", "report"},
-                          getKind()))
-    return emitOpError()
-           << "observation requires module placement and known kind";
-  return success();
+  return detail::verifySourceObservationStructure(*this);
 }
 LogicalResult SourceExpectOp::verify() {
   HardwareBindings bindings;

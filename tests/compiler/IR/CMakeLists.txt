@@ -62,6 +62,7 @@ add_acir_api_test(ACIRHardwareSourceChecksTests
   FILTER "-HardwareSourceChecksExecution.*"
   HardwareSourceChecksTest.cpp HardwareSourceCheckOccurrencesTest.cpp
   HardwareSampledAdmissionTest.cpp HardwareSampledAdmissionWiringTest.cpp
+  ObservationIdentityTest.cpp
   HardwareSourceCheckCapacityTest.cpp HardwareSourceCheckValidationBudgetTest.cpp
   HardwareDependencyModeReuseTest.cpp
   HardwareSourceChecksExecutionTest.cpp)
