@@ -36,6 +36,18 @@ def descriptor(typ):
     return typ
 
 
+def tuple_items(typ):
+    inside = typ[6:-1]
+    if not inside: return []
+    values, begin, depth = [], 0, 0
+    for i, char in enumerate(inside):
+        depth += (char == '<') - (char == '>')
+        if char == ',' and depth == 0:
+            values.append(descriptor(inside[begin:i])); begin = i + 1
+    values.append(descriptor(inside[begin:]))
+    return values
+
+
 def element(typ):
     typ = descriptor(typ)
     if isinstance(typ, ArrayType): return typ.item
@@ -52,12 +64,6 @@ def resource(typ):
     return isinstance(typ, str) and typ.startswith(('queue<', 'cell<', 'ehr<', 'signal<'))
 
 
-def payload(typ):
-    if resource(typ): return False
-    if isinstance(typ, str) and typ.startswith('selected<'): return payload(element(typ))
-    a = array_type(typ)
-    return payload(a.item) if isinstance(a, ArrayType) else typ in SCALARS or isinstance(typ,str) and not typ.startswith('mask<')
-
 
 @dataclass
 class Instance:
@@ -67,7 +73,6 @@ class Instance:
     definitions: dict = field(default_factory=dict)
     parent: str | None = None
     source_name: str = ''
-    inputs: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -77,11 +82,28 @@ class RuleRef:
 
 
 @dataclass
+class ModuleArray:
+    type: ArrayType
+    # One candidate list per logical coordinate. None means unconditional.
+    slots: list
+
+
+@dataclass
+class ModuleChoice:
+    candidates: list
+
+
+@dataclass
+class ChoiceRule:
+    choice: ModuleChoice
+    name: str
+
+
+@dataclass
 class Value:
     id: str
     type: str
     targets: set = field(default_factory=set)
-    consume: bool = False
 
 
 class CompileError(ValueError):

@@ -352,12 +352,35 @@ struct Extractor {
       ready = disjunction(
           ready, conjunction(path.value, conjunction(path.ready, v.ready)));
     for (auto it = values.rbegin() + 1; it != values.rend(); ++it) {
-      if (result.resource != it->second.resource)
-        throw std::runtime_error("runtime resource selection is not supported; "
-                                 "branch around operations");
-      result.value = select(it->first.value, it->second.value, result.value);
-      if (result.index && it->second.index)
-        result.index = select(it->first.value, it->second.index, result.index);
+      auto previous = it->second;
+      if (result.resource != previous.resource) {
+        if (result.resource.empty() || previous.resource.empty())
+          throw std::runtime_error("cannot merge payload and resource references");
+        auto left = arrays.count(previous.resource) ? arrays.at(previous.resource) : std::vector<std::string>{previous.resource};
+        auto right = arrays.count(result.resource) ? arrays.at(result.resource) : std::vector<std::string>{result.resource};
+        auto key = "merged.array." + std::to_string(arrays.size());
+        arrays[key] = left; arrays[key].insert(arrays[key].end(),right.begin(),right.end());
+        auto offset = [&](Value index) -> Value {
+          if (!index) return constant(0,64);
+          if (index.getType().isInteger(64)) return index;
+          return arith::ExtUIOp::create(b,loc,b.getI64Type(),index);
+        };
+        auto z = arith::AddIOp::create(b,loc,offset(result.index),constant(left.size(),64));
+        result.index = select(it->first.value,offset(previous.index),z);
+        std::vector<Value> bits;
+        for (unsigned i=0;i<left.size();++i)bits.push_back(previous.selected.empty()?yes:previous.selected[i]);
+        for (unsigned i=0;i<right.size();++i)bits.push_back(result.selected.empty()?yes:result.selected[i]);
+        result.selected=bits;result.resource=key;
+      } else {
+        if (result.index && previous.index) result.index=select(it->first.value,previous.index,result.index);
+        if (!result.selected.empty() || !previous.selected.empty()) {
+          std::vector<Value> bits;
+          for (unsigned i=0;i<arrays.at(result.resource).size();++i)
+            bits.push_back(select(it->first.value,previous.selected.empty()?yes:previous.selected[i],result.selected.empty()?yes:result.selected[i]));
+          result.selected=bits;
+        }
+      }
+      result.value = select(it->first.value, previous.value, result.value);
       if (result.producer != it->second.producer && result.producer >= 0)
         throw std::runtime_error(
             "independent transaction values cannot be merged");
@@ -619,6 +642,8 @@ struct Extractor {
                       allReady};
           } else
             result = run(fn.getBody(), a, current);
+        } else if (name == "acir.optional") {
+          result = a[0]; result.ready = conjunction(allReady, a[1].value);
         } else if (name == "acir.array.domain" && !a[0].resource.empty()) {
           auto shape = cast<acir::MaskType>(op->getResult(0).getType()).getShape();
           if (!a[0].selected.empty()) throw std::runtime_error("match requires payload, not resource array");
@@ -664,6 +689,11 @@ struct Extractor {
           auto shape = array ? array.getShape() : mask.getShape();
           auto index = a[1].value;
           auto width = cast<IntegerType>(index.getType()).getWidth();
+          if (width < 64) {
+            auto signedIndex = op->getAttrOfType<BoolAttr>("signed_index");
+            index = signedIndex && signedIndex.getValue() ? Value(arith::ExtSIOp::create(b,loc,b.getI64Type(),index)) : Value(arith::ExtUIOp::create(b,loc,b.getI64Type(),index));
+            width = 64;
+          }
           auto valid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
                                             index, constant(shape.front(), width));
           if (!a[0].resource.empty()) {
@@ -702,6 +732,12 @@ struct Extractor {
               auto array = cast<acir::ArrayType>(type);
               auto index = a[dynamic++].value;
               auto width = cast<IntegerType>(index.getType()).getWidth();
+              if (width < 64) {
+                auto signs = op->getAttrOfType<ArrayAttr>("signed_indices");
+                bool sign = signs && cast<BoolAttr>(signs[dynamic-3]).getValue();
+                index = sign ? Value(arith::ExtSIOp::create(b,loc,b.getI64Type(),index)) : Value(arith::ExtUIOp::create(b,loc,b.getI64Type(),index));
+                width = 64;
+              }
               auto inRange = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
                 index, constant(array.getShape().front(), width));
               valid = conjunction(valid, inRange);
@@ -733,6 +769,12 @@ struct Extractor {
               arrays[key].insert(arrays[key].end(), nested.begin(), nested.end());
             } else arrays[key].push_back(arg.resource);
           }
+          auto type = cast<acir::ArrayType>(op->getResult(0).getType());
+          SmallVector<Attribute> resources;
+          for (auto &res:arrays[key]) resources.push_back(b.getStringAttr(res));
+          auto name = text(op,"array_name");
+          make(b,loc,"acir.resource.array",{},{},{b.getNamedAttr("name",b.getStringAttr(name.empty()?key:name)),
+               b.getNamedAttr("shape",b.getI64ArrayAttr(type.getShape())),b.getNamedAttr("resources",b.getArrayAttr(resources))});
           result = {no, allReady, key};
         } else if (name == "acir.guard") {
           require(current, conjunction(a[0].ready, a[0].value));

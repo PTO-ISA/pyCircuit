@@ -60,3 +60,65 @@ class Top:
                     traces.append(trace)
                 self.assertEqual(traces[0], traces[1])
 
+    def test_mutual_static_bindings_precede_behavior_generation(self):
+        trace,_,out=self.run_source('''from pycircuit import ac
+@ac.module
+class A:
+    def __init__() -> None:
+        state = ac.cell[ac.u32](initial=1)
+    @ac.rule
+    def read() -> ac.u32:
+        return state
+    @ac.rule
+    def advance() -> None:
+        state = b.read()+1
+    def __call__(b: B) -> None:
+        advance()
+@ac.module
+class B:
+    def __init__() -> None:
+        state = ac.cell[ac.u32](initial=2)
+    @ac.rule
+    def read() -> ac.u32:
+        return state+a.read()
+    @ac.rule
+    def advance() -> None:
+        state = a.read()
+    def __call__(a: A) -> None:
+        advance()
+@ac.module
+class Top:
+    def __init__() -> None:
+        a = A()
+        b = B()
+    def __call__() -> None:
+        a(b)
+        b(a)
+''',1)
+        self.assertEqual(trace[0]['state']['top.a.state'],4)
+        self.assertEqual(trace[0]['state']['top.b.state'],1)
+        self.assert_reloads(trace,out)
+
+    def test_module_array_outputs_bind_static_parent_resources(self):
+        trace,_,out=self.run_source('''from pycircuit import ac
+@ac.module
+class Stage:
+    def __init__(value: ac.u32) -> None:
+        initial = value
+    @ac.rule
+    def produce() -> ac.queue[ac.u32]:
+        return initial
+    def __call__() -> ac.queue[ac.u32]:
+        return produce()
+@ac.module
+class Top:
+    def __init__() -> None:
+        stages: ac.array(Stage, shape=(2,)) = [Stage(i) for i in range(2)]
+        outputs: ac.array(ac.queue[ac.u32], shape=(2,)) = [ac.queue[ac.u32]() for i in range(2)]
+    def __call__() -> None:
+        for i in range(2):
+            outputs[i] = stages[i]()
+''',1)
+        self.assertEqual(trace[0]['state']['top.outputs.0'],[0])
+        self.assertEqual(trace[0]['state']['top.outputs.1'],[1])
+        self.assert_reloads(trace,out)

@@ -94,7 +94,7 @@ class OutOfOrder:
         mul_done = ac.queue[Completion]()
         event = ac.signal[Completion]()
         rob = ReorderBuffer()
-        rf = RegisterFile()
+        rf = RegisterFile(rob)
         left = ReservationStation()
         right = ReservationStation()
         scheduler = Scheduler()
@@ -106,7 +106,6 @@ class OutOfOrder:
         audit = CompletionAudit()
 
     def __call__() -> None:
-        rf(rob)
         add_requests, mul_requests = scheduler(left, right)
         add_done = adder(add_requests)
         mul_done = multiplier(mul_requests)

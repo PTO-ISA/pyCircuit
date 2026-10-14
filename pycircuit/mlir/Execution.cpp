@@ -170,7 +170,7 @@ Attribute acir::calculate(Operation *op, ArrayRef<Attribute> a,
       throw std::runtime_error("aggregate comparison requires == or !=");
     return b.getBoolAttr((a[0] == a[1]) == (cmp == "=="));
   }
-  if (name == "acir.cast" || name == "arith.extui" || name == "arith.trunci")
+  if (name == "arith.extui" || name == "arith.trunci")
     return integer(number(a[0]));
   if (name == "arith.extsi")
     return IntegerAttr::get(type, cast<IntegerAttr>(a[0]).getValue().sext(
@@ -539,9 +539,35 @@ llvm::json::Object acir::execute(mlir::ModuleOp module, unsigned cycles) {
     }
     state = next;
     llvm::json::Object states;
-    for (auto &[name, value] : state)
-      if (str(declarations[name], "kind") != "signal")
-        states[name] = jsonAttribute(value);
+    if (auto logical = circuit->getAttrOfType<ArrayAttr>("logical_states")) {
+      std::function<Attribute(Attribute, ArrayRef<Attribute>, Attribute)> set =
+        [&](Attribute root, ArrayRef<Attribute> path, Attribute value) -> Attribute {
+          if (path.empty()) return value;
+          SmallVector<Attribute> entries(cast<ArrayAttr>(root).getValue());
+          auto index = cast<IntegerAttr>(path.front()).getInt();
+          entries[index] = set(entries[index], path.drop_front(), value);
+          return b.getArrayAttr(entries);
+        };
+      for (auto item : logical) {
+        auto entry = cast<DictionaryAttr>(item);
+        Attribute value = entry.get("prototype");
+        for (auto part : entry.getAs<ArrayAttr>("parts")) {
+          auto data = cast<DictionaryAttr>(part);
+          value = set(value, data.getAs<ArrayAttr>("path").getValue(), state.at(data.getAs<StringAttr>("resource").getValue().str()));
+        }
+        if (auto count = entry.getAs<StringAttr>("count")) {
+          auto size = number(state.at(count.getValue().str()));
+          auto slots = cast<ArrayAttr>(value);
+          if (size > slots.size()) throw std::runtime_error("Queue overflow");
+          value = b.getArrayAttr(slots.getValue().take_front(size));
+        }
+        states[entry.getAs<StringAttr>("name").getValue().str()] = jsonAttribute(value);
+      }
+    } else {
+      for (auto &[name, value] : state)
+        if (str(declarations[name], "kind") != "signal")
+          states[name] = jsonAttribute(value);
+    }
     trace.push_back(llvm::json::Object{{"tick", tick},
                                        {"fire", std::move(fires)},
                                        {"state", std::move(states)}});

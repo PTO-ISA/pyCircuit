@@ -1,5 +1,8 @@
 #include "Dialect.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include <limits>
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectImplementation.h"
 #include "mlir/IR/SymbolTable.h"
@@ -24,6 +27,11 @@ LogicalResult acir::ArrayType::verify(function_ref<InFlightDiagnostic()> error,
                                       Type element, ArrayRef<int64_t> shape) {
   if (shape.empty() || llvm::any_of(shape, [](int64_t d) { return d <= 0; }))
     return error() << "array shape requires positive dimensions";
+  int64_t size = 1;
+  for (auto d : shape) {
+    if (size > std::numeric_limits<int64_t>::max() / d) return error() << "array shape product overflows";
+    size *= d;
+  }
   if (isa<acir::ArrayType>(element))
     return error() << "nested array element type is unsupported; use shape";
   return success();
@@ -85,6 +93,7 @@ LogicalResult definition(Operation *op) {
   return failure(invalid);
 }
 LogicalResult call(Operation *op) {
+  if (op->getParentOfType<func::FuncOp>()) return op->emitOpError("payload helper cannot call a Rule");
   auto *def = resolve(op, cast<SymbolRefAttr>(op->getAttr("target")));
   if (!isa_and_nonnull<acir::RuleOp>(def))
     return op->emitOpError("unknown Rule target");
@@ -113,6 +122,7 @@ LogicalResult declaration(Operation *op) {
   return success();
 }
 LogicalResult accessMetadata(Operation *op) {
+  if (op->getParentOfType<func::FuncOp>()) return op->emitOpError("payload helper cannot access state");
   if (op->hasAttr("port") || op->hasAttr("ports") || op->hasAttr("aspect") ||
       op->hasAttr("view"))
     return op->emitOpError(
@@ -154,6 +164,7 @@ LogicalResult acir::GuardYieldOp::verify() {
 LogicalResult acir::RuleOp::verify() { return definition(*this); }
 LogicalResult acir::RuleCallOp::verify() { return call(*this); }
 LogicalResult acir::GetOp::verify() {
+  if (failed(accessMetadata(*this))) return failure();
   auto *target = resolve(*this, getTarget());
   if (!target)
     return emitOpError("unknown resource symbol ") << getTarget();
@@ -189,7 +200,7 @@ READ_VERIFY(CellReadOp)
 READ_VERIFY(EHRReadOp)
 READ_VERIFY(SignalGetOp)
 #define QUERY_VERIFY(CLASS)                                                    \
-  LogicalResult acir::CLASS::verify() { return success(); }
+  LogicalResult acir::CLASS::verify() { return accessMetadata(*this); }
 QUERY_VERIFY(QueueEmptyOp)
 QUERY_VERIFY(QueueFullOp)
 QUERY_VERIFY(QueueSizeOp)
@@ -265,7 +276,7 @@ LogicalResult acir::CircuitOp::verify() {
   if (stage.getValue() == "rtl")
     getBody().walk([&](Operation *op) {
       auto name = op->getName().getStringRef();
-      if (isa<ReadOp, RuleCallOp>(op) || name.starts_with("scf.") ||
+      if (isa<ReadOp, RuleCallOp, ModuleCallOp>(op) || name.starts_with("acir.array.") || name == "acir.update" || name.starts_with("scf.") ||
           name.starts_with("cf.") || name.starts_with("func.")) {
         op->emitOpError("unresolved operation in RTL stage");
         invalid = true;
@@ -278,7 +289,57 @@ LogicalResult acir::CircuitOp::verify() {
     });
   return failure(invalid);
 }
+namespace {
+SmallVector<Type> aggregateTypes(Type type, Operation *op) {
+  auto *ctx = op->getContext();
+  if (auto a = dyn_cast<acir::ArrayType>(type)) {
+    Type t = a.getShape().size() == 1 ? a.getElementType() : acir::ArrayType::get(ctx,a.getElementType(),a.getShape().drop_front());
+    return SmallVector<Type>(a.getShape().front(),t);
+  }
+  if (auto m = dyn_cast<acir::MaskType>(type)) {
+    Type t = m.getShape().size() == 1 ? IntegerType::get(ctx,1) : Type(acir::MaskType::get(ctx,m.getShape().drop_front()));
+    return SmallVector<Type>(m.getShape().front(),t);
+  }
+  if (auto a = dyn_cast<acir::SelectedType>(type)) {
+    auto base = dyn_cast<acir::ArrayType>(a.getElementType());
+    if (!base) return {};
+    return {base,acir::MaskType::get(ctx,base.getShape())};
+  }
+  if (auto tuple = dyn_cast<TupleType>(type)) return SmallVector<Type>(tuple.getTypes());
+  SmallVector<Type> result;
+  if (auto structure = dyn_cast<acir::StructType>(type)) {
+    auto root=op->getParentOfType<mlir::ModuleOp>();
+    auto model=root->getAttrOfType<DictionaryAttr>("acir.model");
+    auto types=model?model.getAs<DictionaryAttr>("types"):DictionaryAttr();
+    auto fields=types?types.getAs<ArrayAttr>(structure.getName()):ArrayAttr();
+    if (fields) for (auto f:fields) {
+      auto d=dyn_cast<DictionaryAttr>(f);auto t=d?d.getAs<TypeAttr>("payload_type"):TypeAttr();
+      if (!t) return {};
+      result.push_back(t.getValue());
+    }
+  }
+  return result;
+}
+bool stateValue(Type type, Attribute value, Operation *op) {
+  if (auto i=dyn_cast<IntegerType>(type)) { auto a=dyn_cast<IntegerAttr>(value); return a && a.getType()==i; }
+  if (!isa<acir::ArrayType,acir::StructType,TupleType>(type)) return false;
+  auto array=dyn_cast<ArrayAttr>(value); auto members=aggregateTypes(type,op);
+  if (!array || array.size()!=members.size()) return false;
+  for (auto [t,v]:llvm::zip(members,array)) if (!stateValue(t,v,op)) return false;
+  return true;
+}
+bool completePayload(Type type, Operation *op) {
+  if (isa<IntegerType>(type)) return true;
+  if (!isa<acir::ArrayType, acir::StructType, TupleType>(type)) return false;
+  if (auto array = dyn_cast<acir::ArrayType>(type))
+    return completePayload(array.getElementType(), op);
+  return llvm::all_of(aggregateTypes(type, op),
+                     [&](Type member) { return completePayload(member, op); });
+}
+}
 LogicalResult acir::StateOp::verify() {
+  if (!completePayload(getPayloadType(), *this))
+    return emitOpError("state requires complete payload types");
   auto kind = (*this)->getAttrOfType<StringAttr>("kind");
   if (!kind || !(kind.getValue() == "cell" || kind.getValue() == "ehr" ||
                  kind.getValue() == "queue" || kind.getValue() == "signal"))
@@ -292,6 +353,12 @@ LogicalResult acir::StateOp::verify() {
         init.size() > (uint64_t)cap.getInt())
       return emitOpError("invalid fixed Queue storage");
   }
+  auto initial = (*this)->getAttr("initial");
+  if (kind.getValue() == "queue") {
+    for (auto value : cast<ArrayAttr>(initial))
+      if (!stateValue(getPayloadType(),value,*this)) return emitOpError("Queue message must match complete payload type");
+  } else if (!stateValue(getPayloadType(),initial,*this))
+    return emitOpError("initial state must match complete payload type and shape");
   auto circuit = (*this)->getParentOfType<CircuitOp>();
   if (circuit &&
       circuit->getAttrOfType<StringAttr>("stage").getValue() == "rtl" &&
@@ -424,5 +491,115 @@ LogicalResult acir::ArrayIndexOp::verify() {
       Type(MaskType::get(getContext(), shape.drop_front()));
   } else return emitOpError("requires array or mask");
   if (getValue().getType() != expected) return emitOpError("index result type mismatch");
+  if (auto constant = getIndex().getDefiningOp<arith::ConstantOp>()) {
+    auto integer = dyn_cast<IntegerAttr>(constant.getValue());
+    if (!integer || integer.getValue().getLimitedValue() >= uint64_t(shape.front()))
+      return emitOpError("static array index out of bounds");
+  }
+  return success();
+}
+
+LogicalResult acir::AggregateOp::verify() {
+  if (getElements().empty()) return success(); // Explicit internal zero value.
+  auto members=aggregateTypes(getValue().getType(),*this);
+  if (getElements().getTypes()!=ArrayRef<Type>(members)) return emitOpError("aggregate elements must exactly match shape and types");
+  return success();
+}
+LogicalResult acir::ExtractOp::verify() {
+  auto members=aggregateTypes(getAggregate().getType(),*this);
+  if (getField()) {
+    auto type=dyn_cast<StructType>(getAggregate().getType());
+    if (!type) return emitOpError("field requires struct");
+    auto root=(*this)->getParentOfType<mlir::ModuleOp>();
+    auto fields=root->getAttrOfType<DictionaryAttr>("acir.model").getAs<DictionaryAttr>("types").getAs<ArrayAttr>(type.getName());
+    for (auto [i,f]:llvm::enumerate(fields))
+      if (cast<DictionaryAttr>(f).getAs<StringAttr>("name").getValue()==*getField())
+        return success(getValue().getType()==members[i]);
+    return emitOpError("unknown struct field");
+  }
+  if (getIndices().size()!=1 || members.empty()) return emitOpError("requires one aggregate index");
+  if (auto constant=getIndices()[0].getDefiningOp<arith::ConstantOp>()) {
+    auto index=cast<IntegerAttr>(constant.getValue()).getValue().getZExtValue();
+    if (index>=members.size()) return emitOpError("static aggregate index out of bounds");
+    if (getValue().getType()!=members[index]) return emitOpError("extract result type mismatch");
+  } else if (llvm::any_of(members,[&](Type t){return t!=getValue().getType();}))
+    return emitOpError("dynamic indexing requires homogeneous element types");
+  return success();
+}
+LogicalResult acir::UpdateOp::verify() {
+  if (getValue().getType()!=getAggregate().getType()) return emitOpError("update must preserve aggregate type");
+  Type type = getAggregate().getType();
+  if (auto selected = dyn_cast<SelectedType>(type)) type = selected.getElementType();
+  unsigned index = 0;
+  if (getPath().empty()) return emitOpError("update requires a nonempty path");
+  for (Attribute step : getPath()) {
+    auto members = aggregateTypes(type, *this);
+    if (isa<UnitAttr>(step)) {
+      auto array = dyn_cast<ArrayType>(type);
+      if (!array || index >= getIndices().size())
+        return emitOpError("update coordinate requires an array and an integer index");
+      Value coordinate = getIndices()[index++];
+      if (!isa<IntegerType>(coordinate.getType()) || coordinate.getType().isInteger(1))
+        return emitOpError("update coordinate must be an integer");
+      if (auto constant = coordinate.getDefiningOp<arith::ConstantOp>())
+        if (cast<IntegerAttr>(constant.getValue()).getValue().getLimitedValue() >= uint64_t(array.getShape().front()))
+          return emitOpError("static update index out of bounds");
+      type = members.front();
+    } else if (auto field = dyn_cast<StringAttr>(step)) {
+      auto structure = dyn_cast<StructType>(type);
+      if (!structure) return emitOpError("update field requires a struct");
+      auto model = (*this)->getParentOfType<mlir::ModuleOp>()->getAttrOfType<DictionaryAttr>("acir.model");
+      auto fields = model.getAs<DictionaryAttr>("types").getAs<ArrayAttr>(structure.getName());
+      bool found = false;
+      for (auto [i, item] : llvm::enumerate(fields)) {
+        if (cast<DictionaryAttr>(item).getAs<StringAttr>("name") == field) {
+          type = members[i]; found = true; break;
+        }
+      }
+      if (!found) return emitOpError("unknown update field");
+    } else return emitOpError("invalid update path step");
+  }
+  if (index != getIndices().size()) return emitOpError("update index count does not match path");
+  if (getOperand(1).getType() != type) return emitOpError("update payload type mismatch");
+  return success();
+}
+LogicalResult acir::OptionalOp::verify() {
+  if(getValue().getType()!=getResult().getType())return emitOpError("optional result type mismatch");
+  return success();
+}
+LogicalResult acir::ArrayWriteOp::verify() {
+  Type type=getArray().getType();if(auto selected=dyn_cast<SelectedType>(type))type=selected.getElementType();
+  auto array=dyn_cast<ArrayType>(type);
+  if(!array || payload(array.getElementType())!=getValue().getType())return emitOpError("array write needs component references and matching payload");
+  return accessMetadata(*this);
+}
+
+namespace {
+int64_t shapeSize(ArrayAttr shape) {
+  if (shape.empty()) return -1;
+  int64_t count=1;
+  for(auto dimension:shape) {
+    auto d=dyn_cast<IntegerAttr>(dimension);
+    if(!d || d.getInt()<=0 || count>std::numeric_limits<int64_t>::max()/d.getInt())return -1;
+    count*=d.getInt();
+  }
+  return count;
+}
+}
+LogicalResult acir::InstanceArrayOp::verify() {
+  if(shapeSize(getShape())!=int64_t(getTargets().size()))return emitOpError("instance array shape mismatch");
+  for(auto target:getTargets()) {
+    auto ref=dyn_cast<SymbolRefAttr>(target);
+    if(!ref || !isa_and_nonnull<ModuleOp>(resolve(*this,ref)))return emitOpError("invalid Module array instance");
+  }
+  return success();
+}
+LogicalResult acir::ResourceArrayOp::verify() {
+  if(shapeSize(getShape())!=int64_t(getResources().size()))return emitOpError("resource array shape mismatch");
+  auto circuit=(*this)->getParentOfType<CircuitOp>();
+  for(auto resource:getResources()) {
+    auto ref=dyn_cast<StringAttr>(resource);
+    if(!ref || !circuit || !isa_and_nonnull<StateOp>(SymbolTable::lookupSymbolIn(circuit,ref.getValue())))return emitOpError("unknown array resource");
+  }
   return success();
 }

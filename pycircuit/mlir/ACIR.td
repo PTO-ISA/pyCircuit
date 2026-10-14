@@ -64,6 +64,14 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [Symbol]> {
   let assemblyFormat = "$sym_name `=` $target attr-dict";
   let hasVerifier = 1;
 }
+def ACIR_InstanceArrayOp : ACIR_Op<"instance.array"> {
+  let arguments = (ins StrAttr:$name, ArrayAttr:$shape, ArrayAttr:$targets);
+  let hasVerifier = 1;
+}
+def ACIR_ResourceArrayOp : ACIR_Op<"resource.array"> {
+  let arguments = (ins StrAttr:$name, ArrayAttr:$shape, ArrayAttr:$resources);
+  let hasVerifier = 1;
+}
 def ACIR_ModuleCallOp : ACIR_Op<"module.call", [MemoryEffects<[MemRead, MemWrite]>]> {
   let arguments = (ins SymbolRefAttr:$target);
   let assemblyFormat = "$target attr-dict";
@@ -174,19 +182,28 @@ def ACIR_AggregateOp : ACIR_Op<"aggregate", [NoMemoryEffect]> {
   let arguments = (ins Variadic<AnyType>:$elements);
   let results = (outs AnyType:$value);
   let assemblyFormat = "`(` $elements `)` attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
 }
 def ACIR_ExtractOp : ACIR_Op<"extract", [NoMemoryEffect]> {
   let arguments = (ins AnyType:$aggregate, Variadic<AnyInteger>:$indices, OptionalAttr<StrAttr>:$field);
   let results = (outs AnyType:$value);
   let assemblyFormat = "$aggregate (`[` $indices^ `]`)? attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
 }
 def ACIR_UpdateOp : ACIR_Op<"update", [NoMemoryEffect]> {
   let arguments = (ins AnyType:$aggregate, AnyType:$replacement, Variadic<AnyInteger>:$indices, ArrayAttr:$path);
   let results = (outs AnyType:$value);
   let assemblyFormat = "$aggregate `,` $replacement (`[` $indices^ `]`)? attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
+}
+def ACIR_OptionalOp : ACIR_Op<"optional", [Pure]> {
+  let arguments = (ins AnyType:$value, I1:$present);
+  let results = (outs AnyType:$result);
+  let hasVerifier = 1;
 }
 def ACIR_ArrayWriteOp : ACIR_Op<"array.write", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins AnyType:$array, AnyType:$value);
+  let hasVerifier = 1;
 }
 def ACIR_ArrayIndexOp : ACIR_Op<"array.index", [NoMemoryEffect]> {
   let arguments = (ins AnyType:$array, AnyInteger:$index);
@@ -207,11 +224,6 @@ def ACIR_LengthOp : ACIR_Op<"length", [Pure]> {
   let arguments = (ins AnyType:$aggregate);
   let results = (outs I32:$length);
   let assemblyFormat = "$aggregate attr-dict `:` type($aggregate)";
-}
-def ACIR_CastOp : ACIR_Op<"cast", [Pure]> {
-  let arguments = (ins AnyInteger:$input);
-  let results = (outs AnyInteger:$value);
-  let assemblyFormat = "$input attr-dict `:` type($input) `->` type($value)";
 }
 def ACIR_UnaryOp : ACIR_Op<"unary", [Pure]> {
   let arguments = (ins AnyInteger:$input, StrAttr:$operator_name);

@@ -31,7 +31,7 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(txn, rtl)
         self.assertFalse((out / 'program.json').exists())
         ir = (out / 'model.rtl.mlir').read_text()
-        for forbidden in ('acir.rule.call', 'acir.read ', 'acir.queue.', 'acir.signal.', 'acir.ehr.', 'scf.if', 'cf.cond_br'):
+        for forbidden in ('acir.rule.call', 'acir.array.', 'acir.update', 'acir.read ', 'acir.queue.', 'acir.signal.', 'acir.ehr.', 'scf.if', 'cf.cond_br'):
             self.assertNotIn(forbidden, ir)
         return txn, graph, out
 

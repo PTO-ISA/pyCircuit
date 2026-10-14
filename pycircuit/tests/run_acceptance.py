@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[2]
 BUILDS = ROOT / 'pycircuit/builds'
 EVIDENCE = BUILDS / 'benchmarks/compiler-acceptance'
 MODELS = [
+    ('array_arbiter', 'examples/array_arbiter.py', 'ArrayArbiter', {}),
     ('dual_channel', 'examples/dual_channel.py', 'DualChannel', {}),
     ('shared_state', 'examples/shared_state.py', 'SharedState', {'choose_left': 1}),
     ('mixed_ports', 'examples/mixed_ports.py', 'MixedPorts', {'enabled': 1}),

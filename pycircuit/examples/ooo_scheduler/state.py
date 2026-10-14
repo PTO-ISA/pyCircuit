@@ -157,7 +157,7 @@ class ReorderBuffer:
 @ac.module
 class RegisterFile:
 
-    def __init__() -> None:
+    def __init__(rob: ReorderBuffer) -> None:
         registers = ac.cell[ac.array(ac.u32, shape=(8,))](initial=[0, 0, 6, 7, 0, 0, 0, 0])
         renamed = ac.cell[ac.array(ac.u32, shape=(8,))](initial=[0, 0, 0, 0, 0, 0, 0, 0])
         committed = ac.cell[ac.array(ac.u32, shape=(8,))](initial=[0, 0, 0, 0, 0, 0, 0, 0])
@@ -186,6 +186,3 @@ class RegisterFile:
         if entry.rd != 0:
             registers[entry.rd] = entry.value
             committed[entry.rd] = entry.tag
-
-    def __call__(rob: ReorderBuffer) -> None:
-        pass

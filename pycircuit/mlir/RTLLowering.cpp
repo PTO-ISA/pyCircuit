@@ -13,6 +13,7 @@
 #include <set>
 #include <stdexcept>
 using namespace mlir;
+mlir::ModuleOp acirLowerWires(mlir::ModuleOp source);
 namespace {
 Operation *make(OpBuilder &b, Location loc, StringRef name,
                 ValueRange args = {}, TypeRange results = {},
@@ -264,7 +265,9 @@ struct RTL : PassWrapper<RTL, OperationPass<mlir::ModuleOp>> {
     auto module = getOperation();
     try {
       RTLBuilder lower(module);
-      auto result = lower.lower();
+      auto logical = lower.lower();
+      auto result = acirLowerWires(logical);
+      logical.erase();
       module.getBodyRegion().takeBody(result.getBodyRegion());
       module->setAttrs(result->getAttrs());
       result.erase();

@@ -6,6 +6,14 @@ from pycircuit import compile_source
 from pycircuit.ir import CompileError
 
 class TightCoreTests(unittest.TestCase):
+    def test_unused_global_hardware_is_rejected(self):
+        for declaration in ('unused = ac.cell[ac.u32](initial=0)','unused = Top()'):
+            with self.subTest(declaration=declaration), tempfile.TemporaryDirectory() as tmp:
+                path=Path(tmp)/'source.py'
+                path.write_text('from pycircuit import ac\n@ac.module\nclass Top:\n    def __init__() -> None:\n        pass\n'+declaration+'\n')
+                with self.assertRaisesRegex(CompileError,'only be constructed in __init__'):
+                    compile_source(path,'Top')
+
     def reject(self, body, diagnostic, members='', methods=''):
         source = f'''from pycircuit import ac
 @ac.module
