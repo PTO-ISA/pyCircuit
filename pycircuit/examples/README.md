@@ -36,6 +36,8 @@ CPU 执行 addi／add／sub／sw／lw，独立 ISA 解释器验证寄存器及�
 建议先看 array_arbiter.py，理解 array、mask 与仲裁；再看 ehr_shared.py 的固定共享视图；
 最后看 riscv_pipeline/model.py 的顶层流水线连接，以及 ooo_scheduler/model.py 的完整调度。
 OoO RegisterFile 通过构造函数绑定 ROB，无空 __call__ 或额外 rf()。
+ROB 使用 `ac.array(RobSlot, shape=(4,))` 构造槽位，按 tag 下标调用分配、查询、完成和退休 Rule，
+每个槽位保留独立状态及 guard，无需逐槽位书写分支。
 
 编译／执行示例：
 

@@ -86,10 +86,7 @@ class RobSlot:
 class ReorderBuffer:
 
     def __init__() -> None:
-        slot0 = RobSlot()
-        slot1 = RobSlot()
-        slot2 = RobSlot()
-        slot3 = RobSlot()
+        slots: ac.array(RobSlot, shape=(4,)) = [RobSlot() for i in range(4)]
         head = ac.cell[ac.u32](initial=1)
         tail = ac.cell[ac.u32](initial=1)
 
@@ -104,53 +101,22 @@ class ReorderBuffer:
     @ac.rule(guard=room)
     def allocate(rd: ac.u32) -> ac.u32:
         tag = tail
-        index = tag - 1 & 3
-        if index == 0:
-            slot0.allocate(tag, rd)
-        elif index == 1:
-            slot1.allocate(tag, rd)
-        elif index == 2:
-            slot2.allocate(tag, rd)
-        else:
-            slot3.allocate(tag, rd)
+        slots[(tag - 1) & 3].allocate(tag, rd)
         tail = tag + 1
         return tag
 
     @ac.rule
     def lookup(tag: ac.u32) -> RobEntry:
-        index = tag - 1 & 3
-        if index == 0:
-            return slot0.peek()
-        elif index == 1:
-            return slot1.peek()
-        elif index == 2:
-            return slot2.peek()
-        return slot3.peek()
+        return slots[(tag - 1) & 3].peek()
 
     @ac.rule
     def complete(tag: ac.u32, value: ac.u32) -> None:
-        index = tag - 1 & 3
-        if index == 0:
-            slot0.complete(tag, value)
-        elif index == 1:
-            slot1.complete(tag, value)
-        elif index == 2:
-            slot2.complete(tag, value)
-        else:
-            slot3.complete(tag, value)
+        slots[(tag - 1) & 3].complete(tag, value)
 
     @ac.rule
     def retire() -> RobEntry:
         tag = head
-        index = tag - 1 & 3
-        if index == 0:
-            entry = slot0.retire(tag)
-        elif index == 1:
-            entry = slot1.retire(tag)
-        elif index == 2:
-            entry = slot2.retire(tag)
-        else:
-            entry = slot3.retire(tag)
+        entry = slots[(tag - 1) & 3].retire(tag)
         head = tag + 1
         return entry
 

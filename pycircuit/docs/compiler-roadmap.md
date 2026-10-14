@@ -175,3 +175,9 @@ OoO 退休次序继续通过。基线、名字映射、对照结果、日志和 
 最终证据：`builds/benchmarks/array-ctest.log`、`array-ctest.xml`、`array-acceptance.log` 和 `compiler-acceptance/summary.json`；完整逐拍轨迹在同目录的各模型 raw／opt 子目录。示例输出重新生成，新增 `builds/array_arbiter/`，删除 model.acir.mlir 重复产物。删除未使用的旧 transfer 模型，测试文件移除 v8 命名；ACPy、ACIR、核心设计、array、使用说明和示例说明已同步。
 
 实施提交：`45441c6` 严格前端，`3b839df` Module 调用路径传播，`994eda7` 多维 array 核心，`15fd507` 结构化前端及数组到标量 RTL。基线仍保存在 `50dae6c`。本轮不引入公开 index 类型、is_selected、独立 mask 接口、类型转换或旧语法兼容；Queue[array] 首版空初始化，不自动推断 RAM，不实现自动仲裁、SystemVerilog、激活调度或跨拍缓存。
+
+## 示例简化：ROB 槽位数组
+
+2026-10-14：OoO 的四个 RobSlot 改为 `ac.array(RobSlot, shape=(4,))`，使用 `slots[(tag - 1) & 3]` 调用公开 Rule，删除分配、查询、完成和退休中的四组逐槽位分支。各槽位独立状态、guard 和外层事务原子性保持不变，无需修改编译器。
+
+保存改写前 32 拍基线，仅将 `top.rob.slotN.state` 映射为 `top.rob.slots.N.state` 后，全部状态及 fire 逐拍一致；事务／RTL、优化开关及三个阶段重载全部一致。现有 OoO 定向回归通过，最终寄存器和 1、2、3、4 退休顺序不变。三层示例产物及图报告已重新生成；证据位于 `builds/benchmarks/ooo-rob-array/`。

@@ -27,10 +27,10 @@ module attributes {acir.model = {config = [], constants = {src_payloads_25ebcaa7
     acir.state @top.rf.renamed : !acir.array<i32, [8]> {initial = [0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
     acir.state @top.right.slot : !acir.struct<"src_payloads_25ebcaa7.Entry"> {initial = [false, 0 : i32, 0 : i32, 0 : i32, [false, 0 : i32, 0 : i32], [false, 0 : i32, 0 : i32]], kind = "cell"}
     acir.state @top.rob.head : i32 {initial = 1 : i32, kind = "cell"}
-    acir.state @top.rob.slot0.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
-    acir.state @top.rob.slot1.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
-    acir.state @top.rob.slot2.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
-    acir.state @top.rob.slot3.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
+    acir.state @top.rob.slots.0.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
+    acir.state @top.rob.slots.1.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
+    acir.state @top.rob.slots.2.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
+    acir.state @top.rob.slots.3.state : !acir.struct<"src_payloads_25ebcaa7.RobEntry"> {initial = [false, false, 0 : i32, 0 : i32, 0 : i32], kind = "cell"}
     acir.state @top.rob.tail : i32 {initial = 1 : i32, kind = "cell"}
     acir.state @top.source : !acir.struct<"src_payloads_25ebcaa7.MicroOp"> {capacity = 4 : i64, initial = [[1 : i32, 1 : i32, 2 : i32, 3 : i32], [0 : i32, 4 : i32, 1 : i32, 2 : i32], [0 : i32, 5 : i32, 2 : i32, 3 : i32], [0 : i32, 6 : i32, 4 : i32, 5 : i32]], kind = "queue"}
     acir.path %true {branch = 0 : i64, kind = "branch", txn = -1 : i64} loc(#loc1)
@@ -777,2010 +777,2299 @@ module attributes {acir.model = {config = [], constants = {src_payloads_25ebcaa7
     %656 = acir.extract %654 {acir.id = "v16", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc65)
     acir.path %true {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.rob:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc66)
     %657 = arith.subi %655, %c1_i32 {acir.id = "v7", acir.source_type = "u32"} : i32 loc(#loc67)
-    %658 = arith.andi %657, %c3_i32 {acir.id = "v9", acir.source_type = "u32"} : i32 loc(#loc67)
-    %659 = arith.cmpi eq, %658, %c0_i32 {acir.id = "v11", acir.source_type = "bool"} : i32 loc(#loc68)
-    %660 = arith.andi %650, %653 : i1
-    %661 = arith.cmpi ne, %658, %c0_i32 : i32 loc(#loc68)
-    %662 = arith.cmpi eq, %658, %c0_i32 : i32 loc(#loc68)
-    %663 = arith.ori %662, %653 : i1
-    %664 = arith.cmpi eq, %658, %c1_i32 {acir.id = "v14", acir.source_type = "bool"} : i32 loc(#loc69)
-    %665 = arith.andi %663, %653 : i1
-    %666 = arith.ori %662, %665 : i1
-    %667 = arith.andi %660, %666 : i1
-    %668 = arith.andi %661, %664 : i1
-    %669 = arith.cmpi ne, %658, %c1_i32 : i32 loc(#loc69)
-    %670 = arith.andi %661, %669 : i1
-    %671 = arith.xori %670, %true : i1
-    %672 = arith.ori %671, %665 : i1
-    %673 = arith.cmpi eq, %658, %c2_i32 {acir.id = "v17", acir.source_type = "bool"} : i32 loc(#loc70)
-    %674 = arith.andi %672, %653 : i1
-    %675 = arith.ori %671, %674 : i1
-    %676 = arith.andi %667, %675 : i1
-    %677 = arith.andi %670, %673 : i1
-    %678 = arith.cmpi ne, %658, %c2_i32 : i32 loc(#loc70)
-    %679 = arith.andi %670, %678 : i1
-    %680 = arith.xori %679, %true : i1 loc(#loc71)
-    %681 = arith.ori %680, %674 : i1
-    acir.path %679 {branch = 19 : i64, kind = "branch", txn = 5 : i64} loc(#loc71)
-    acir.path %679 {branch = 19 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot3:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc71)
-    %682 = arith.ori %680, %681 : i1 loc(#loc71)
-    %683 = arith.andi %681, %653 : i1 loc(#loc71)
-    %684 = arith.andi %679, %683 : i1 loc(#loc71)
-    %value_52, %ready_53 = acir.read(%679) {branch = 19 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot3:complete"], method = "read", port = 0 : i64, resource = "top.rob.slot3.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc72)
-    %685 = arith.andi %682, %ready_53 : i1 loc(#loc72)
-    %686 = arith.ori %680, %685 : i1 loc(#loc72)
-    %687 = arith.andi %676, %686 : i1 loc(#loc72)
-    %688 = acir.extract %value_52 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc73)
-    %689 = arith.andi %687, %686 : i1
-    %690 = arith.andi %679, %688 : i1
-    %691 = arith.xori %688, %true : i1
-    %692 = arith.andi %679, %691 : i1
-    %693 = arith.xori %692, %true : i1
-    %694 = arith.ori %693, %685 : i1
-    %695 = arith.xori %690, %true : i1
-    %696 = arith.ori %695, %685 : i1
-    %697 = acir.extract %value_52 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc74)
-    %698 = acir.unary %697 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc75)
-    %699 = arith.andi %692, %694 : i1
-    %700 = arith.andi %696, %ready_53 : i1
-    %701 = arith.andi %690, %700 : i1
-    %702 = arith.ori %699, %701 : i1
-    %703 = arith.select %692, %false, %698 : i1
-    %704 = arith.ori %680, %682 : i1
-    %705 = arith.andi %704, %702 : i1
-    %706 = arith.ori %680, %705 : i1
-    %707 = arith.andi %689, %706 : i1
-    %708 = arith.andi %679, %703 : i1
-    %709 = arith.xori %703, %true : i1
-    %710 = arith.andi %679, %709 : i1
-    %711 = arith.xori %710, %true : i1
-    %712 = arith.ori %711, %705 : i1
-    %713 = arith.xori %708, %true : i1
-    %714 = arith.ori %713, %705 : i1
-    %715 = acir.extract %value_52 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
-    %716 = arith.andi %ready_53, %684 : i1 loc(#loc76)
-    %717 = arith.cmpi eq, %715, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc76)
-    %718 = arith.andi %710, %712 : i1
-    %719 = arith.andi %714, %716 : i1
-    %720 = arith.andi %708, %719 : i1
-    %721 = arith.ori %718, %720 : i1
-    %722 = arith.select %710, %false, %717 : i1
-    %723 = arith.ori %680, %704 : i1
-    %724 = arith.andi %723, %721 : i1
-    %725 = arith.ori %680, %724 : i1
-    %726 = arith.andi %707, %725 : i1
-    %727 = arith.andi %679, %722 : i1
-    %728 = arith.xori %727, %true : i1 loc(#loc77)
-    %729 = arith.ori %728, %724 : i1
-    %730 = acir.extract %value_52 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc78)
-    %731 = acir.extract %value_52 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %732 = acir.extract %value_52 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %733 = acir.extract %value_52 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %734 = acir.aggregate(%730, %true, %731, %732, %733) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc78)
-    %735 = acir.extract %734 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %736 = acir.extract %734 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %737 = acir.extract %734 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %738 = acir.extract %734 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %739 = acir.aggregate(%735, %736, %737, %738, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc79)
-    %740 = arith.andi %729, %716 : i1 loc(#loc77)
-    %741 = arith.ori %728, %740 : i1 loc(#loc77)
-    %742 = arith.andi %726, %741 : i1 loc(#loc77)
-    acir.path %727 {branch = 20 : i64, kind = "branch", txn = 5 : i64} loc(#loc77)
-    %743 = arith.xori %677, %true : i1 loc(#loc80)
-    %744 = arith.ori %743, %674 : i1
-    acir.path %677 {branch = 21 : i64, kind = "branch", txn = 5 : i64} loc(#loc80)
-    acir.path %677 {branch = 21 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot2:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc80)
-    %745 = arith.ori %743, %744 : i1 loc(#loc80)
-    %746 = arith.andi %744, %653 : i1 loc(#loc80)
-    %747 = arith.andi %677, %746 : i1 loc(#loc80)
-    %value_54, %ready_55 = acir.read(%677) {branch = 21 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot2:complete"], method = "read", port = 0 : i64, resource = "top.rob.slot2.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc72)
-    %748 = arith.andi %745, %ready_55 : i1 loc(#loc72)
-    %749 = arith.ori %743, %748 : i1 loc(#loc72)
-    %750 = arith.andi %742, %749 : i1 loc(#loc72)
-    %751 = acir.extract %value_54 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc73)
-    %752 = arith.andi %750, %749 : i1
-    %753 = arith.andi %677, %751 : i1
-    %754 = arith.xori %751, %true : i1
-    %755 = arith.andi %677, %754 : i1
-    %756 = arith.xori %755, %true : i1
-    %757 = arith.ori %756, %748 : i1
-    %758 = arith.xori %753, %true : i1
-    %759 = arith.ori %758, %748 : i1
-    %760 = acir.extract %value_54 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc74)
-    %761 = acir.unary %760 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc75)
-    %762 = arith.andi %755, %757 : i1
-    %763 = arith.andi %759, %ready_55 : i1
-    %764 = arith.andi %753, %763 : i1
-    %765 = arith.ori %762, %764 : i1
-    %766 = arith.select %755, %false, %761 : i1
-    %767 = arith.ori %743, %745 : i1
-    %768 = arith.andi %767, %765 : i1
-    %769 = arith.ori %743, %768 : i1
-    %770 = arith.andi %752, %769 : i1
-    %771 = arith.andi %677, %766 : i1
-    %772 = arith.xori %766, %true : i1
-    %773 = arith.andi %677, %772 : i1
-    %774 = arith.xori %773, %true : i1
-    %775 = arith.ori %774, %768 : i1
-    %776 = arith.xori %771, %true : i1
-    %777 = arith.ori %776, %768 : i1
-    %778 = acir.extract %value_54 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
-    %779 = arith.andi %ready_55, %747 : i1 loc(#loc76)
-    %780 = arith.cmpi eq, %778, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc76)
-    %781 = arith.andi %773, %775 : i1
-    %782 = arith.andi %777, %779 : i1
-    %783 = arith.andi %771, %782 : i1
-    %784 = arith.ori %781, %783 : i1
-    %785 = arith.select %773, %false, %780 : i1
-    %786 = arith.ori %743, %767 : i1
-    %787 = arith.andi %786, %784 : i1
-    %788 = arith.ori %743, %787 : i1
-    %789 = arith.andi %770, %788 : i1
-    %790 = arith.andi %677, %785 : i1
-    %791 = arith.xori %790, %true : i1 loc(#loc77)
-    %792 = arith.ori %791, %787 : i1
-    %793 = acir.extract %value_54 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc78)
-    %794 = acir.extract %value_54 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %795 = acir.extract %value_54 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %796 = acir.extract %value_54 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %797 = acir.aggregate(%793, %true, %794, %795, %796) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc78)
-    %798 = acir.extract %797 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %799 = acir.extract %797 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %800 = acir.extract %797 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %801 = acir.extract %797 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %802 = acir.aggregate(%798, %799, %800, %801, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc79)
-    %803 = arith.andi %792, %779 : i1 loc(#loc77)
-    %804 = arith.ori %791, %803 : i1 loc(#loc77)
-    %805 = arith.andi %789, %804 : i1 loc(#loc77)
-    acir.path %790 {branch = 22 : i64, kind = "branch", txn = 5 : i64} loc(#loc77)
-    %806 = arith.xori %668, %true : i1 loc(#loc81)
-    %807 = arith.ori %806, %665 : i1
-    acir.path %668 {branch = 23 : i64, kind = "branch", txn = 5 : i64} loc(#loc81)
-    acir.path %668 {branch = 23 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot1:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc81)
-    %808 = arith.ori %806, %807 : i1 loc(#loc81)
-    %809 = arith.andi %807, %653 : i1 loc(#loc81)
-    %810 = arith.andi %668, %809 : i1 loc(#loc81)
-    %value_56, %ready_57 = acir.read(%668) {branch = 23 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot1:complete"], method = "read", port = 0 : i64, resource = "top.rob.slot1.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc72)
-    %811 = arith.andi %808, %ready_57 : i1 loc(#loc72)
-    %812 = arith.ori %806, %811 : i1 loc(#loc72)
-    %813 = arith.andi %805, %812 : i1 loc(#loc72)
-    %814 = acir.extract %value_56 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc73)
-    %815 = arith.andi %813, %812 : i1
-    %816 = arith.andi %668, %814 : i1
-    %817 = arith.xori %814, %true : i1
-    %818 = arith.andi %668, %817 : i1
-    %819 = arith.xori %818, %true : i1
-    %820 = arith.ori %819, %811 : i1
-    %821 = arith.xori %816, %true : i1
-    %822 = arith.ori %821, %811 : i1
-    %823 = acir.extract %value_56 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc74)
-    %824 = acir.unary %823 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc75)
-    %825 = arith.andi %818, %820 : i1
-    %826 = arith.andi %822, %ready_57 : i1
-    %827 = arith.andi %816, %826 : i1
-    %828 = arith.ori %825, %827 : i1
-    %829 = arith.select %818, %false, %824 : i1
-    %830 = arith.ori %806, %808 : i1
-    %831 = arith.andi %830, %828 : i1
-    %832 = arith.ori %806, %831 : i1
-    %833 = arith.andi %815, %832 : i1
-    %834 = arith.andi %668, %829 : i1
-    %835 = arith.xori %829, %true : i1
-    %836 = arith.andi %668, %835 : i1
-    %837 = arith.xori %836, %true : i1
-    %838 = arith.ori %837, %831 : i1
-    %839 = arith.xori %834, %true : i1
-    %840 = arith.ori %839, %831 : i1
-    %841 = acir.extract %value_56 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
-    %842 = arith.andi %ready_57, %810 : i1 loc(#loc76)
-    %843 = arith.cmpi eq, %841, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc76)
-    %844 = arith.andi %836, %838 : i1
-    %845 = arith.andi %840, %842 : i1
-    %846 = arith.andi %834, %845 : i1
-    %847 = arith.ori %844, %846 : i1
-    %848 = arith.select %836, %false, %843 : i1
-    %849 = arith.ori %806, %830 : i1
-    %850 = arith.andi %849, %847 : i1
-    %851 = arith.ori %806, %850 : i1
-    %852 = arith.andi %833, %851 : i1
-    %853 = arith.andi %668, %848 : i1
-    %854 = arith.xori %853, %true : i1 loc(#loc77)
-    %855 = arith.ori %854, %850 : i1
-    %856 = acir.extract %value_56 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc78)
-    %857 = acir.extract %value_56 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %858 = acir.extract %value_56 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %859 = acir.extract %value_56 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %860 = acir.aggregate(%856, %true, %857, %858, %859) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc78)
-    %861 = acir.extract %860 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %862 = acir.extract %860 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %863 = acir.extract %860 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %864 = acir.extract %860 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %865 = acir.aggregate(%861, %862, %863, %864, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc79)
-    %866 = arith.andi %855, %842 : i1 loc(#loc77)
-    %867 = arith.ori %854, %866 : i1 loc(#loc77)
-    %868 = arith.andi %852, %867 : i1 loc(#loc77)
-    acir.path %853 {branch = 24 : i64, kind = "branch", txn = 5 : i64} loc(#loc77)
-    %869 = arith.ori %661, %653 : i1
-    acir.path %659 {branch = 25 : i64, kind = "branch", txn = 5 : i64} loc(#loc82)
-    acir.path %659 {branch = 25 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot0:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc82)
-    %870 = arith.ori %661, %869 : i1 loc(#loc82)
-    %871 = arith.andi %869, %653 : i1 loc(#loc82)
-    %872 = arith.andi %659, %871 : i1 loc(#loc82)
-    %value_58, %ready_59 = acir.read(%659) {branch = 25 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot0:complete"], method = "read", port = 0 : i64, resource = "top.rob.slot0.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc72)
-    %873 = arith.andi %870, %ready_59 : i1 loc(#loc72)
-    %874 = arith.ori %661, %873 : i1 loc(#loc72)
-    %875 = arith.andi %868, %874 : i1 loc(#loc72)
-    %876 = acir.extract %value_58 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc73)
-    %877 = arith.andi %875, %874 : i1
-    %878 = arith.andi %659, %876 : i1
-    %879 = arith.xori %876, %true : i1
-    %880 = arith.andi %659, %879 : i1
-    %881 = arith.xori %880, %true : i1
-    %882 = arith.ori %881, %873 : i1
-    %883 = arith.xori %878, %true : i1
-    %884 = arith.ori %883, %873 : i1
-    %885 = acir.extract %value_58 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc74)
-    %886 = acir.unary %885 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc75)
-    %887 = arith.andi %880, %882 : i1
-    %888 = arith.andi %884, %ready_59 : i1
-    %889 = arith.andi %878, %888 : i1
-    %890 = arith.ori %887, %889 : i1
-    %891 = arith.select %880, %false, %886 : i1
-    %892 = arith.ori %661, %870 : i1
-    %893 = arith.andi %892, %890 : i1
-    %894 = arith.ori %661, %893 : i1
-    %895 = arith.andi %877, %894 : i1
-    %896 = arith.andi %659, %891 : i1
-    %897 = arith.xori %891, %true : i1
-    %898 = arith.andi %659, %897 : i1
-    %899 = arith.xori %898, %true : i1
-    %900 = arith.ori %899, %893 : i1
-    %901 = arith.xori %896, %true : i1
-    %902 = arith.ori %901, %893 : i1
-    %903 = acir.extract %value_58 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
-    %904 = arith.andi %ready_59, %872 : i1 loc(#loc76)
-    %905 = arith.cmpi eq, %903, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc76)
-    %906 = arith.andi %898, %900 : i1
-    %907 = arith.andi %902, %904 : i1
-    %908 = arith.andi %896, %907 : i1
-    %909 = arith.ori %906, %908 : i1
-    %910 = arith.select %898, %false, %905 : i1
-    %911 = arith.ori %661, %892 : i1
-    %912 = arith.andi %911, %909 : i1
-    %913 = arith.ori %661, %912 : i1
-    %914 = arith.andi %895, %913 : i1
-    %915 = arith.andi %659, %910 : i1
-    %916 = arith.xori %915, %true : i1 loc(#loc77)
-    %917 = arith.ori %916, %912 : i1
-    %918 = acir.extract %value_58 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc78)
-    %919 = acir.extract %value_58 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %920 = acir.extract %value_58 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %921 = acir.extract %value_58 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc78)
-    %922 = acir.aggregate(%918, %true, %919, %920, %921) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc78)
-    %923 = acir.extract %922 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %924 = acir.extract %922 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc79)
-    %925 = acir.extract %922 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %926 = acir.extract %922 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc79)
-    %927 = acir.aggregate(%923, %924, %925, %926, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc79)
-    %928 = arith.andi %917, %904 : i1 loc(#loc77)
-    %929 = arith.ori %916, %928 : i1 loc(#loc77)
-    %930 = arith.andi %914, %929 : i1 loc(#loc77)
-    acir.path %915 {branch = 26 : i64, kind = "branch", txn = 5 : i64} loc(#loc77)
-    %931 = acir.extract %654 {acir.id = "v18", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc83)
-    %932 = acir.extract %654 {acir.id = "v19", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc84)
-    acir.path %true {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.left:wakeup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc85)
-    %value_60, %ready_61 = acir.read(%true) {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.left:wakeup"], method = "read", port = 0 : i64, resource = "top.left.slot", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc86)
-    %933 = arith.andi %930, %ready_61 : i1 loc(#loc86)
-    %934 = acir.extract %value_60 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc87)
+    %658 = arith.andi %657, %c3_i32 {acir.id = "v9", acir.source_type = "u32"} : i32 loc(#loc68)
+    %659 = arith.cmpi eq, %658, %c0_i32 {acir.id = "v11", acir.source_type = "bool"} : i32 loc(#loc69)
+    %660 = arith.cmpi eq, %658, %c1_i32 {acir.id = "v13", acir.source_type = "bool"} : i32 loc(#loc69)
+    %661 = arith.cmpi eq, %658, %c2_i32 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc69)
+    %662 = arith.cmpi eq, %658, %c3_i32 {acir.id = "v17", acir.source_type = "bool"} : i32 loc(#loc69)
+    acir.path %true {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc69)
+    %663 = arith.andi %650, %653 : i1
+    %664 = arith.cmpi ne, %658, %c0_i32 : i32 loc(#loc69)
+    %665 = arith.cmpi eq, %658, %c0_i32 : i32 loc(#loc69)
+    %666 = arith.ori %665, %653 : i1
+    %667 = arith.ori %664, %653 : i1
+    %668 = arith.andi %666, %653 : i1
+    %669 = arith.andi %664, %668 : i1
+    %670 = arith.andi %659, %667 : i1
+    %671 = arith.ori %669, %670 : i1
+    %672 = arith.select %664, %660, %true : i1
+    %673 = arith.andi %663, %671 : i1
+    %674 = arith.xori %672, %true : i1
+    %675 = arith.ori %672, %671 : i1
+    %676 = arith.ori %674, %671 : i1
+    %677 = arith.andi %675, %653 : i1
+    %678 = arith.andi %674, %677 : i1
+    %679 = arith.andi %672, %676 : i1
+    %680 = arith.ori %678, %679 : i1
+    %681 = arith.select %672, %true, %661 : i1
+    %682 = arith.andi %673, %680 : i1
+    %683 = arith.xori %681, %true : i1
+    %684 = arith.ori %681, %680 : i1
+    %685 = arith.ori %683, %680 : i1
+    %686 = arith.andi %684, %653 : i1
+    %687 = arith.andi %683, %686 : i1
+    %688 = arith.andi %681, %685 : i1
+    %689 = arith.ori %687, %688 : i1
+    %690 = arith.select %681, %true, %662 : i1
+    %691 = arith.andi %689, %690 : i1 loc(#loc69)
+    %692 = arith.andi %682, %691 : i1 loc(#loc69)
+    %693 = arith.andi %691, %653 : i1 loc(#loc69)
+    %694 = arith.andi %692, %693 : i1
+    %695 = arith.ori %665, %693 : i1
+    %696 = arith.andi %695, %693 : i1
+    %697 = arith.ori %665, %696 : i1
+    %698 = arith.andi %694, %697 : i1
+    %699 = arith.andi %664, %660 : i1
+    %700 = arith.cmpi ne, %658, %c1_i32 : i32 loc(#loc69)
+    %701 = arith.andi %664, %700 : i1
+    %702 = arith.xori %701, %true : i1
+    %703 = arith.ori %702, %696 : i1
+    %704 = arith.andi %703, %693 : i1
+    %705 = arith.ori %702, %704 : i1
+    %706 = arith.andi %698, %705 : i1
+    %707 = arith.andi %701, %661 : i1
+    %708 = arith.cmpi ne, %658, %c2_i32 : i32 loc(#loc69)
+    %709 = arith.andi %701, %708 : i1
+    %710 = arith.xori %709, %true : i1
+    %711 = arith.ori %710, %704 : i1
+    %712 = arith.andi %711, %693 : i1
+    %713 = arith.ori %710, %712 : i1
+    %714 = arith.andi %706, %713 : i1
+    %715 = arith.andi %709, %662 : i1
+    %716 = arith.xori %715, %true : i1 loc(#loc69)
+    %717 = arith.ori %716, %712 : i1
+    acir.path %715 {branch = 19 : i64, kind = "branch", txn = 5 : i64} loc(#loc69)
+    acir.path %715 {branch = 19 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.3:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc69)
+    %718 = arith.ori %716, %717 : i1 loc(#loc69)
+    %719 = arith.andi %717, %693 : i1 loc(#loc69)
+    %720 = arith.andi %715, %719 : i1 loc(#loc69)
+    %value_52, %ready_53 = acir.read(%715) {branch = 19 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.3:complete"], method = "read", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc70)
+    %721 = arith.andi %718, %ready_53 : i1 loc(#loc70)
+    %722 = arith.ori %716, %721 : i1 loc(#loc70)
+    %723 = arith.andi %714, %722 : i1 loc(#loc70)
+    %724 = acir.extract %value_52 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc71)
+    %725 = arith.andi %723, %722 : i1
+    %726 = arith.andi %715, %724 : i1
+    %727 = arith.xori %724, %true : i1
+    %728 = arith.andi %715, %727 : i1
+    %729 = arith.xori %728, %true : i1
+    %730 = arith.ori %729, %721 : i1
+    %731 = arith.xori %726, %true : i1
+    %732 = arith.ori %731, %721 : i1
+    %733 = acir.extract %value_52 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc72)
+    %734 = acir.unary %733 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc73)
+    %735 = arith.andi %728, %730 : i1
+    %736 = arith.andi %732, %ready_53 : i1
+    %737 = arith.andi %726, %736 : i1
+    %738 = arith.ori %735, %737 : i1
+    %739 = arith.select %728, %false, %734 : i1
+    %740 = arith.ori %716, %718 : i1
+    %741 = arith.andi %740, %738 : i1
+    %742 = arith.ori %716, %741 : i1
+    %743 = arith.andi %725, %742 : i1
+    %744 = arith.andi %715, %739 : i1
+    %745 = arith.xori %739, %true : i1
+    %746 = arith.andi %715, %745 : i1
+    %747 = arith.xori %746, %true : i1
+    %748 = arith.ori %747, %741 : i1
+    %749 = arith.xori %744, %true : i1
+    %750 = arith.ori %749, %741 : i1
+    %751 = acir.extract %value_52 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc74)
+    %752 = arith.andi %ready_53, %720 : i1 loc(#loc74)
+    %753 = arith.cmpi eq, %751, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc74)
+    %754 = arith.andi %746, %748 : i1
+    %755 = arith.andi %750, %752 : i1
+    %756 = arith.andi %744, %755 : i1
+    %757 = arith.ori %754, %756 : i1
+    %758 = arith.select %746, %false, %753 : i1
+    %759 = arith.ori %716, %740 : i1
+    %760 = arith.andi %759, %757 : i1
+    %761 = arith.ori %716, %760 : i1
+    %762 = arith.andi %743, %761 : i1
+    %763 = arith.andi %715, %758 : i1
+    %764 = arith.xori %763, %true : i1 loc(#loc75)
+    %765 = arith.ori %764, %760 : i1
+    %766 = acir.extract %value_52 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc76)
+    %767 = acir.extract %value_52 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %768 = acir.extract %value_52 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %769 = acir.extract %value_52 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %770 = acir.aggregate(%766, %true, %767, %768, %769) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc76)
+    %771 = acir.extract %770 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %772 = acir.extract %770 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %773 = acir.extract %770 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %774 = acir.extract %770 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %775 = acir.aggregate(%771, %772, %773, %774, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc77)
+    %776 = arith.andi %765, %752 : i1 loc(#loc75)
+    %777 = arith.ori %764, %776 : i1 loc(#loc75)
+    %778 = arith.andi %762, %777 : i1 loc(#loc75)
+    acir.path %763 {branch = 20 : i64, kind = "branch", txn = 5 : i64} loc(#loc75)
+    %779 = arith.xori %707, %true : i1 loc(#loc69)
+    %780 = arith.ori %779, %704 : i1
+    acir.path %707 {branch = 21 : i64, kind = "branch", txn = 5 : i64} loc(#loc69)
+    acir.path %707 {branch = 21 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.2:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc69)
+    %781 = arith.ori %779, %780 : i1 loc(#loc69)
+    %782 = arith.andi %780, %693 : i1 loc(#loc69)
+    %783 = arith.andi %707, %782 : i1 loc(#loc69)
+    %value_54, %ready_55 = acir.read(%707) {branch = 21 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.2:complete"], method = "read", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc70)
+    %784 = arith.andi %781, %ready_55 : i1 loc(#loc70)
+    %785 = arith.ori %779, %784 : i1 loc(#loc70)
+    %786 = arith.andi %778, %785 : i1 loc(#loc70)
+    %787 = acir.extract %value_54 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc71)
+    %788 = arith.andi %786, %785 : i1
+    %789 = arith.andi %707, %787 : i1
+    %790 = arith.xori %787, %true : i1
+    %791 = arith.andi %707, %790 : i1
+    %792 = arith.xori %791, %true : i1
+    %793 = arith.ori %792, %784 : i1
+    %794 = arith.xori %789, %true : i1
+    %795 = arith.ori %794, %784 : i1
+    %796 = acir.extract %value_54 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc72)
+    %797 = acir.unary %796 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc73)
+    %798 = arith.andi %791, %793 : i1
+    %799 = arith.andi %795, %ready_55 : i1
+    %800 = arith.andi %789, %799 : i1
+    %801 = arith.ori %798, %800 : i1
+    %802 = arith.select %791, %false, %797 : i1
+    %803 = arith.ori %779, %781 : i1
+    %804 = arith.andi %803, %801 : i1
+    %805 = arith.ori %779, %804 : i1
+    %806 = arith.andi %788, %805 : i1
+    %807 = arith.andi %707, %802 : i1
+    %808 = arith.xori %802, %true : i1
+    %809 = arith.andi %707, %808 : i1
+    %810 = arith.xori %809, %true : i1
+    %811 = arith.ori %810, %804 : i1
+    %812 = arith.xori %807, %true : i1
+    %813 = arith.ori %812, %804 : i1
+    %814 = acir.extract %value_54 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc74)
+    %815 = arith.andi %ready_55, %783 : i1 loc(#loc74)
+    %816 = arith.cmpi eq, %814, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc74)
+    %817 = arith.andi %809, %811 : i1
+    %818 = arith.andi %813, %815 : i1
+    %819 = arith.andi %807, %818 : i1
+    %820 = arith.ori %817, %819 : i1
+    %821 = arith.select %809, %false, %816 : i1
+    %822 = arith.ori %779, %803 : i1
+    %823 = arith.andi %822, %820 : i1
+    %824 = arith.ori %779, %823 : i1
+    %825 = arith.andi %806, %824 : i1
+    %826 = arith.andi %707, %821 : i1
+    %827 = arith.xori %826, %true : i1 loc(#loc75)
+    %828 = arith.ori %827, %823 : i1
+    %829 = acir.extract %value_54 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc76)
+    %830 = acir.extract %value_54 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %831 = acir.extract %value_54 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %832 = acir.extract %value_54 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %833 = acir.aggregate(%829, %true, %830, %831, %832) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc76)
+    %834 = acir.extract %833 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %835 = acir.extract %833 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %836 = acir.extract %833 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %837 = acir.extract %833 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %838 = acir.aggregate(%834, %835, %836, %837, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc77)
+    %839 = arith.andi %828, %815 : i1 loc(#loc75)
+    %840 = arith.ori %827, %839 : i1 loc(#loc75)
+    %841 = arith.andi %825, %840 : i1 loc(#loc75)
+    acir.path %826 {branch = 22 : i64, kind = "branch", txn = 5 : i64} loc(#loc75)
+    %842 = arith.xori %699, %true : i1 loc(#loc69)
+    %843 = arith.ori %842, %696 : i1
+    acir.path %699 {branch = 23 : i64, kind = "branch", txn = 5 : i64} loc(#loc69)
+    acir.path %699 {branch = 23 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.1:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc69)
+    %844 = arith.ori %842, %843 : i1 loc(#loc69)
+    %845 = arith.andi %843, %693 : i1 loc(#loc69)
+    %846 = arith.andi %699, %845 : i1 loc(#loc69)
+    %value_56, %ready_57 = acir.read(%699) {branch = 23 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.1:complete"], method = "read", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc70)
+    %847 = arith.andi %844, %ready_57 : i1 loc(#loc70)
+    %848 = arith.ori %842, %847 : i1 loc(#loc70)
+    %849 = arith.andi %841, %848 : i1 loc(#loc70)
+    %850 = acir.extract %value_56 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc71)
+    %851 = arith.andi %849, %848 : i1
+    %852 = arith.andi %699, %850 : i1
+    %853 = arith.xori %850, %true : i1
+    %854 = arith.andi %699, %853 : i1
+    %855 = arith.xori %854, %true : i1
+    %856 = arith.ori %855, %847 : i1
+    %857 = arith.xori %852, %true : i1
+    %858 = arith.ori %857, %847 : i1
+    %859 = acir.extract %value_56 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc72)
+    %860 = acir.unary %859 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc73)
+    %861 = arith.andi %854, %856 : i1
+    %862 = arith.andi %858, %ready_57 : i1
+    %863 = arith.andi %852, %862 : i1
+    %864 = arith.ori %861, %863 : i1
+    %865 = arith.select %854, %false, %860 : i1
+    %866 = arith.ori %842, %844 : i1
+    %867 = arith.andi %866, %864 : i1
+    %868 = arith.ori %842, %867 : i1
+    %869 = arith.andi %851, %868 : i1
+    %870 = arith.andi %699, %865 : i1
+    %871 = arith.xori %865, %true : i1
+    %872 = arith.andi %699, %871 : i1
+    %873 = arith.xori %872, %true : i1
+    %874 = arith.ori %873, %867 : i1
+    %875 = arith.xori %870, %true : i1
+    %876 = arith.ori %875, %867 : i1
+    %877 = acir.extract %value_56 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc74)
+    %878 = arith.andi %ready_57, %846 : i1 loc(#loc74)
+    %879 = arith.cmpi eq, %877, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc74)
+    %880 = arith.andi %872, %874 : i1
+    %881 = arith.andi %876, %878 : i1
+    %882 = arith.andi %870, %881 : i1
+    %883 = arith.ori %880, %882 : i1
+    %884 = arith.select %872, %false, %879 : i1
+    %885 = arith.ori %842, %866 : i1
+    %886 = arith.andi %885, %883 : i1
+    %887 = arith.ori %842, %886 : i1
+    %888 = arith.andi %869, %887 : i1
+    %889 = arith.andi %699, %884 : i1
+    %890 = arith.xori %889, %true : i1 loc(#loc75)
+    %891 = arith.ori %890, %886 : i1
+    %892 = acir.extract %value_56 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc76)
+    %893 = acir.extract %value_56 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %894 = acir.extract %value_56 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %895 = acir.extract %value_56 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %896 = acir.aggregate(%892, %true, %893, %894, %895) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc76)
+    %897 = acir.extract %896 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %898 = acir.extract %896 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %899 = acir.extract %896 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %900 = acir.extract %896 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %901 = acir.aggregate(%897, %898, %899, %900, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc77)
+    %902 = arith.andi %891, %878 : i1 loc(#loc75)
+    %903 = arith.ori %890, %902 : i1 loc(#loc75)
+    %904 = arith.andi %888, %903 : i1 loc(#loc75)
+    acir.path %889 {branch = 24 : i64, kind = "branch", txn = 5 : i64} loc(#loc75)
+    %905 = arith.ori %664, %693 : i1
+    acir.path %659 {branch = 25 : i64, kind = "branch", txn = 5 : i64} loc(#loc69)
+    acir.path %659 {branch = 25 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.0:complete"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc69)
+    %906 = arith.ori %664, %905 : i1 loc(#loc69)
+    %907 = arith.andi %905, %693 : i1 loc(#loc69)
+    %908 = arith.andi %659, %907 : i1 loc(#loc69)
+    %value_58, %ready_59 = acir.read(%659) {branch = 25 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.0:complete"], method = "read", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc70)
+    %909 = arith.andi %906, %ready_59 : i1 loc(#loc70)
+    %910 = arith.ori %664, %909 : i1 loc(#loc70)
+    %911 = arith.andi %904, %910 : i1 loc(#loc70)
+    %912 = acir.extract %value_58 {acir.id = "v8", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc71)
+    %913 = arith.andi %911, %910 : i1
+    %914 = arith.andi %659, %912 : i1
+    %915 = arith.xori %912, %true : i1
+    %916 = arith.andi %659, %915 : i1
+    %917 = arith.xori %916, %true : i1
+    %918 = arith.ori %917, %909 : i1
+    %919 = arith.xori %914, %true : i1
+    %920 = arith.ori %919, %909 : i1
+    %921 = acir.extract %value_58 {acir.id = "v9", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc72)
+    %922 = acir.unary %921 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc73)
+    %923 = arith.andi %916, %918 : i1
+    %924 = arith.andi %920, %ready_59 : i1
+    %925 = arith.andi %914, %924 : i1
+    %926 = arith.ori %923, %925 : i1
+    %927 = arith.select %916, %false, %922 : i1
+    %928 = arith.ori %664, %906 : i1
+    %929 = arith.andi %928, %926 : i1
+    %930 = arith.ori %664, %929 : i1
+    %931 = arith.andi %913, %930 : i1
+    %932 = arith.andi %659, %927 : i1
+    %933 = arith.xori %927, %true : i1
+    %934 = arith.andi %659, %933 : i1
     %935 = arith.xori %934, %true : i1
-    %936 = arith.ori %934, %ready_61 : i1
-    %937 = arith.ori %935, %ready_61 : i1
-    %938 = acir.extract %value_60 {acir.id = "v10", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc88)
-    %939 = acir.extract %938 {acir.id = "v11", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc88)
-    %940 = acir.unary %939 "not" {acir.id = "v12", acir.source_type = "bool"} : i1 -> i1 loc(#loc89)
-    %941 = arith.andi %937, %ready_61 : i1
-    %942 = arith.ori %935, %941 : i1
-    %943 = arith.andi %933, %942 : i1
-    %944 = arith.andi %934, %940 : i1
-    %945 = arith.xori %940, %true : i1
-    %946 = arith.andi %934, %945 : i1
-    %947 = arith.xori %946, %true : i1
-    %948 = arith.ori %947, %941 : i1
-    %949 = arith.xori %944, %true : i1
-    %950 = arith.ori %949, %941 : i1
-    %951 = acir.extract %value_60 {acir.id = "v13", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc90)
-    %952 = acir.extract %951 {acir.id = "v14", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc90)
-    %953 = arith.andi %ready_61, %653 : i1 loc(#loc90)
-    %954 = arith.cmpi eq, %952, %931 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc90)
-    %955 = arith.andi %946, %948 : i1
-    %956 = arith.andi %950, %953 : i1
-    %957 = arith.andi %944, %956 : i1
-    %958 = arith.ori %955, %957 : i1
-    %959 = arith.select %946, %false, %954 : i1
-    %960 = arith.ori %935, %937 : i1
-    %961 = arith.andi %960, %958 : i1
-    %962 = arith.ori %935, %961 : i1
-    %963 = arith.andi %943, %962 : i1
-    %964 = arith.andi %934, %959 : i1
-    %965 = arith.xori %959, %true : i1
-    %966 = arith.andi %934, %965 : i1
-    %967 = arith.xori %966, %true : i1
-    %968 = arith.ori %967, %961 : i1
-    %969 = arith.xori %964, %true : i1
-    %970 = arith.ori %969, %961 : i1
-    %971 = acir.aggregate(%true, %931, %932) {acir.id = "v22", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc91)
-    %972 = acir.extract %value_60 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc92)
-    %973 = acir.extract %value_60 {acir.id = "v24", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
-    %974 = acir.extract %value_60 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
-    %975 = acir.extract %value_60 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
-    %976 = acir.extract %value_60 {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc92)
-    %977 = acir.aggregate(%972, %973, %974, %975, %971, %976) {acir.id = "v29", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc92)
-    %978 = arith.andi %966, %968 : i1
-    %979 = arith.andi %964, %970 : i1
-    %980 = arith.ori %978, %979 : i1
-    %981 = arith.andi %968, %ready_61 : i1
-    %982 = arith.andi %966, %981 : i1
-    %983 = arith.andi %970, %953 : i1
-    %984 = arith.andi %964, %983 : i1
-    %985 = arith.ori %982, %984 : i1
-    %986 = arith.select %966, %value_60, %977 : !acir.struct<"src_payloads_25ebcaa7.Entry">
-    %987 = arith.ori %935, %960 : i1
-    %988 = acir.extract %986 {acir.id = "v36", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc93)
-    %989 = acir.extract %988 {acir.id = "v37", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc93)
-    %990 = acir.unary %989 "not" {acir.id = "v38", acir.source_type = "bool"} : i1 -> i1 loc(#loc94)
-    %991 = arith.andi %987, %985 : i1
-    %992 = arith.ori %935, %991 : i1
-    %993 = arith.andi %963, %992 : i1
-    %994 = arith.andi %934, %990 : i1
-    %995 = arith.xori %990, %true : i1
-    %996 = arith.andi %934, %995 : i1
-    %997 = arith.xori %996, %true : i1
-    %998 = arith.ori %997, %991 : i1
-    %999 = arith.xori %994, %true : i1
-    %1000 = arith.ori %999, %991 : i1
-    %1001 = acir.extract %986 {acir.id = "v39", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc95)
-    %1002 = acir.extract %1001 {acir.id = "v40", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc95)
-    %1003 = arith.andi %985, %653 : i1 loc(#loc95)
-    %1004 = arith.cmpi eq, %1002, %931 {acir.id = "v41", acir.source_type = "bool"} : i32 loc(#loc95)
-    %1005 = arith.andi %996, %998 : i1
-    %1006 = arith.andi %1000, %1003 : i1
-    %1007 = arith.andi %994, %1006 : i1
-    %1008 = arith.ori %1005, %1007 : i1
-    %1009 = arith.select %996, %false, %1004 : i1
-    %1010 = arith.ori %935, %987 : i1
-    %1011 = arith.andi %1010, %1008 : i1
-    %1012 = arith.ori %935, %1011 : i1
-    %1013 = arith.andi %993, %1012 : i1
-    %1014 = arith.andi %934, %1009 : i1
-    %1015 = arith.xori %1009, %true : i1
-    %1016 = arith.andi %934, %1015 : i1
-    %1017 = arith.xori %1016, %true : i1
-    %1018 = arith.ori %1017, %1011 : i1
-    %1019 = arith.xori %1014, %true : i1
-    %1020 = arith.ori %1019, %1011 : i1
-    %1021 = acir.aggregate(%true, %931, %932) {acir.id = "v48", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc96)
-    %1022 = acir.extract %986 {acir.id = "v49", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc97)
-    %1023 = acir.extract %986 {acir.id = "v50", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc97)
-    %1024 = acir.extract %986 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc97)
-    %1025 = acir.extract %986 {acir.id = "v52", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc97)
-    %1026 = acir.extract %986 {acir.id = "v53", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc97)
-    %1027 = acir.aggregate(%1022, %1023, %1024, %1025, %1026, %1021) {acir.id = "v55", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc97)
-    %1028 = arith.andi %1018, %980 : i1
-    %1029 = arith.andi %1016, %1028 : i1
-    %1030 = arith.andi %1014, %1020 : i1
-    %1031 = arith.ori %1029, %1030 : i1
-    %1032 = arith.select %1016, %967, %true : i1
-    %1033 = arith.andi %1018, %985 : i1
-    %1034 = arith.andi %1016, %1033 : i1
-    %1035 = arith.andi %1020, %1003 : i1
-    %1036 = arith.andi %1014, %1035 : i1
-    %1037 = arith.ori %1034, %1036 : i1
-    %1038 = arith.select %1016, %986, %1027 : !acir.struct<"src_payloads_25ebcaa7.Entry">
-    %1039 = arith.ori %935, %1010 : i1
-    %1040 = arith.andi %935, %936 : i1
-    %1041 = arith.andi %1039, %1031 : i1
-    %1042 = arith.andi %934, %1041 : i1
-    %1043 = arith.ori %1040, %1042 : i1
-    %1044 = arith.select %934, %1032, %false : i1
-    %1045 = arith.andi %936, %ready_61 : i1
-    %1046 = arith.andi %935, %1045 : i1
-    %1047 = arith.andi %1039, %1037 : i1
-    %1048 = arith.andi %934, %1047 : i1
-    %1049 = arith.ori %1046, %1048 : i1
-    %1050 = arith.select %934, %1038, %value_60 : !acir.struct<"src_payloads_25ebcaa7.Entry">
-    %1051 = arith.andi %1013, %1043 : i1
-    %1052 = arith.xori %1044, %true : i1 loc(#loc98)
-    %1053 = arith.ori %1052, %1043 : i1
-    %1054 = arith.andi %1053, %1049 : i1 loc(#loc98)
-    %1055 = arith.ori %1052, %1054 : i1 loc(#loc98)
-    %1056 = arith.andi %1051, %1055 : i1 loc(#loc98)
-    acir.path %1044 {branch = 27 : i64, kind = "branch", txn = 5 : i64} loc(#loc98)
-    %1057 = acir.extract %654 {acir.id = "v21", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc99)
-    %1058 = acir.extract %654 {acir.id = "v22", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc100)
-    acir.path %true {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.right:wakeup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc101)
-    %value_62, %ready_63 = acir.read(%true) {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.right:wakeup"], method = "read", port = 0 : i64, resource = "top.right.slot", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc86)
-    %1059 = arith.andi %1056, %ready_63 : i1 loc(#loc86)
-    %1060 = acir.extract %value_62 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc87)
-    %1061 = arith.xori %1060, %true : i1
-    %1062 = arith.ori %1060, %ready_63 : i1
-    %1063 = arith.ori %1061, %ready_63 : i1
-    %1064 = acir.extract %value_62 {acir.id = "v10", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc88)
-    %1065 = acir.extract %1064 {acir.id = "v11", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc88)
-    %1066 = acir.unary %1065 "not" {acir.id = "v12", acir.source_type = "bool"} : i1 -> i1 loc(#loc89)
-    %1067 = arith.andi %1063, %ready_63 : i1
-    %1068 = arith.ori %1061, %1067 : i1
-    %1069 = arith.andi %1059, %1068 : i1
-    %1070 = arith.andi %1060, %1066 : i1
-    %1071 = arith.xori %1066, %true : i1
-    %1072 = arith.andi %1060, %1071 : i1
-    %1073 = arith.xori %1072, %true : i1
-    %1074 = arith.ori %1073, %1067 : i1
-    %1075 = arith.xori %1070, %true : i1
-    %1076 = arith.ori %1075, %1067 : i1
-    %1077 = acir.extract %value_62 {acir.id = "v13", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc90)
-    %1078 = acir.extract %1077 {acir.id = "v14", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc90)
-    %1079 = arith.andi %ready_63, %653 : i1 loc(#loc90)
-    %1080 = arith.cmpi eq, %1078, %1057 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc90)
-    %1081 = arith.andi %1072, %1074 : i1
-    %1082 = arith.andi %1076, %1079 : i1
-    %1083 = arith.andi %1070, %1082 : i1
-    %1084 = arith.ori %1081, %1083 : i1
-    %1085 = arith.select %1072, %false, %1080 : i1
-    %1086 = arith.ori %1061, %1063 : i1
-    %1087 = arith.andi %1086, %1084 : i1
-    %1088 = arith.ori %1061, %1087 : i1
-    %1089 = arith.andi %1069, %1088 : i1
-    %1090 = arith.andi %1060, %1085 : i1
-    %1091 = arith.xori %1085, %true : i1
-    %1092 = arith.andi %1060, %1091 : i1
-    %1093 = arith.xori %1092, %true : i1
-    %1094 = arith.ori %1093, %1087 : i1
-    %1095 = arith.xori %1090, %true : i1
-    %1096 = arith.ori %1095, %1087 : i1
-    %1097 = acir.aggregate(%true, %1057, %1058) {acir.id = "v22", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc91)
-    %1098 = acir.extract %value_62 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc92)
-    %1099 = acir.extract %value_62 {acir.id = "v24", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
-    %1100 = acir.extract %value_62 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
-    %1101 = acir.extract %value_62 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
-    %1102 = acir.extract %value_62 {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc92)
-    %1103 = acir.aggregate(%1098, %1099, %1100, %1101, %1097, %1102) {acir.id = "v29", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc92)
-    %1104 = arith.andi %1092, %1094 : i1
-    %1105 = arith.andi %1090, %1096 : i1
-    %1106 = arith.ori %1104, %1105 : i1
-    %1107 = arith.andi %1094, %ready_63 : i1
-    %1108 = arith.andi %1092, %1107 : i1
-    %1109 = arith.andi %1096, %1079 : i1
-    %1110 = arith.andi %1090, %1109 : i1
-    %1111 = arith.ori %1108, %1110 : i1
-    %1112 = arith.select %1092, %value_62, %1103 : !acir.struct<"src_payloads_25ebcaa7.Entry">
-    %1113 = arith.ori %1061, %1086 : i1
-    %1114 = acir.extract %1112 {acir.id = "v36", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc93)
-    %1115 = acir.extract %1114 {acir.id = "v37", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc93)
-    %1116 = acir.unary %1115 "not" {acir.id = "v38", acir.source_type = "bool"} : i1 -> i1 loc(#loc94)
-    %1117 = arith.andi %1113, %1111 : i1
-    %1118 = arith.ori %1061, %1117 : i1
-    %1119 = arith.andi %1089, %1118 : i1
-    %1120 = arith.andi %1060, %1116 : i1
-    %1121 = arith.xori %1116, %true : i1
-    %1122 = arith.andi %1060, %1121 : i1
-    %1123 = arith.xori %1122, %true : i1
-    %1124 = arith.ori %1123, %1117 : i1
-    %1125 = arith.xori %1120, %true : i1
-    %1126 = arith.ori %1125, %1117 : i1
-    %1127 = acir.extract %1112 {acir.id = "v39", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc95)
-    %1128 = acir.extract %1127 {acir.id = "v40", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc95)
-    %1129 = arith.andi %1111, %653 : i1 loc(#loc95)
-    %1130 = arith.cmpi eq, %1128, %1057 {acir.id = "v41", acir.source_type = "bool"} : i32 loc(#loc95)
-    %1131 = arith.andi %1122, %1124 : i1
-    %1132 = arith.andi %1126, %1129 : i1
-    %1133 = arith.andi %1120, %1132 : i1
-    %1134 = arith.ori %1131, %1133 : i1
-    %1135 = arith.select %1122, %false, %1130 : i1
-    %1136 = arith.ori %1061, %1113 : i1
-    %1137 = arith.andi %1136, %1134 : i1
-    %1138 = arith.ori %1061, %1137 : i1
-    %1139 = arith.andi %1119, %1138 : i1
-    %1140 = arith.andi %1060, %1135 : i1
-    %1141 = arith.xori %1135, %true : i1
-    %1142 = arith.andi %1060, %1141 : i1
-    %1143 = arith.xori %1142, %true : i1
-    %1144 = arith.ori %1143, %1137 : i1
-    %1145 = arith.xori %1140, %true : i1
-    %1146 = arith.ori %1145, %1137 : i1
-    %1147 = acir.aggregate(%true, %1057, %1058) {acir.id = "v48", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc96)
-    %1148 = acir.extract %1112 {acir.id = "v49", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc97)
-    %1149 = acir.extract %1112 {acir.id = "v50", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc97)
-    %1150 = acir.extract %1112 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc97)
-    %1151 = acir.extract %1112 {acir.id = "v52", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc97)
-    %1152 = acir.extract %1112 {acir.id = "v53", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc97)
-    %1153 = acir.aggregate(%1148, %1149, %1150, %1151, %1152, %1147) {acir.id = "v55", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc97)
-    %1154 = arith.andi %1144, %1106 : i1
-    %1155 = arith.andi %1142, %1154 : i1
-    %1156 = arith.andi %1140, %1146 : i1
-    %1157 = arith.ori %1155, %1156 : i1
-    %1158 = arith.select %1142, %1093, %true : i1
-    %1159 = arith.andi %1144, %1111 : i1
-    %1160 = arith.andi %1142, %1159 : i1
-    %1161 = arith.andi %1146, %1129 : i1
-    %1162 = arith.andi %1140, %1161 : i1
-    %1163 = arith.ori %1160, %1162 : i1
-    %1164 = arith.select %1142, %1112, %1153 : !acir.struct<"src_payloads_25ebcaa7.Entry">
-    %1165 = arith.ori %1061, %1136 : i1
-    %1166 = arith.andi %1061, %1062 : i1
-    %1167 = arith.andi %1165, %1157 : i1
-    %1168 = arith.andi %1060, %1167 : i1
-    %1169 = arith.ori %1166, %1168 : i1
-    %1170 = arith.select %1060, %1158, %false : i1
-    %1171 = arith.andi %1062, %ready_63 : i1
-    %1172 = arith.andi %1061, %1171 : i1
-    %1173 = arith.andi %1165, %1163 : i1
-    %1174 = arith.andi %1060, %1173 : i1
-    %1175 = arith.ori %1172, %1174 : i1
-    %1176 = arith.select %1060, %1164, %value_62 : !acir.struct<"src_payloads_25ebcaa7.Entry">
-    %1177 = arith.andi %1139, %1169 : i1
-    %1178 = arith.xori %1170, %true : i1 loc(#loc98)
-    %1179 = arith.ori %1178, %1169 : i1
-    %1180 = arith.andi %1179, %1175 : i1 loc(#loc98)
-    %1181 = arith.ori %1178, %1180 : i1 loc(#loc98)
-    %1182 = arith.andi %1177, %1181 : i1 loc(#loc98)
-    acir.path %1170 {branch = 28 : i64, kind = "branch", txn = 5 : i64} loc(#loc98)
-    acir.path %653 {branch = 29 : i64, kind = "branch", txn = 5 : i64}
-    %1183 = acir.fire "top.cdb.broadcast#5" %1182 {successors = [2, 4, 8], txn = 5 : i64}
-    %1184 = arith.andi %1183, %626 : i1
-    acir.effect %1184() {branch = 17 : i64, frames = ["top.cdb:broadcast"], method = "pop", port = 0 : i64, resource = "top.mul_done", txn = 5 : i64} : (i1) -> () loc(#loc63)
-    %1185 = arith.andi %1183, %625 : i1
-    acir.effect %1185() {branch = 18 : i64, frames = ["top.cdb:broadcast"], method = "pop", port = 0 : i64, resource = "top.add_done", txn = 5 : i64} : (i1) -> () loc(#loc62)
-    %1186 = arith.andi %1183, %727 : i1
-    acir.effect %1186(%739) {branch = 20 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot3:complete"], method = "write", port = 0 : i64, resource = "top.rob.slot3.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc77)
-    %1187 = arith.andi %1183, %790 : i1
-    acir.effect %1187(%802) {branch = 22 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot2:complete"], method = "write", port = 0 : i64, resource = "top.rob.slot2.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc77)
-    %1188 = arith.andi %1183, %853 : i1
-    acir.effect %1188(%865) {branch = 24 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot1:complete"], method = "write", port = 0 : i64, resource = "top.rob.slot1.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc77)
-    %1189 = arith.andi %1183, %915 : i1
-    acir.effect %1189(%927) {branch = 26 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob.slot0:complete"], method = "write", port = 0 : i64, resource = "top.rob.slot0.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc77)
-    %1190 = arith.andi %1183, %1044 : i1
-    acir.effect %1190(%1050) {branch = 27 : i64, frames = ["top.cdb:broadcast", "top.left:wakeup"], method = "write", port = 0 : i64, resource = "top.left.slot", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc98)
-    %1191 = arith.andi %1183, %1170 : i1
-    acir.effect %1191(%1176) {branch = 28 : i64, frames = ["top.cdb:broadcast", "top.right:wakeup"], method = "write", port = 0 : i64, resource = "top.right.slot", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc98)
-    %1192 = arith.andi %1183, %653 : i1
-    acir.effect %1192(%654) {branch = 29 : i64, frames = [], method = "set", port = 0 : i64, resource = "top.event", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Completion">) -> ()
-    %value_64, %ready_65 = acir.read(%true) {branch = 0 : i64, frames = [], method = "empty", port = 0 : i64, resource = "top.add_done", txn = -1 : i64} : (i1) -> (i1, i1) loc(#loc102)
-    %1193 = arith.xori %value_64, %true : i1
-    %1194 = arith.ori %value_64, %ready_65 : i1
-    %1195 = arith.ori %1193, %ready_65 : i1
-    acir.path %value_64 {branch = 30 : i64, kind = "branch", txn = -1 : i64} loc(#loc103)
-    %value_66, %ready_67 = acir.read(%value_64) {branch = 30 : i64, frames = [], method = "empty", port = 0 : i64, resource = "top.mul_done", txn = -1 : i64} : (i1) -> (i1, i1) loc(#loc103)
-    %1196 = arith.andi %1193, %1194 : i1
-    %1197 = arith.andi %1195, %ready_67 : i1
-    %1198 = arith.andi %value_64, %1197 : i1
+    %936 = arith.ori %935, %929 : i1
+    %937 = arith.xori %932, %true : i1
+    %938 = arith.ori %937, %929 : i1
+    %939 = acir.extract %value_58 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc74)
+    %940 = arith.andi %ready_59, %908 : i1 loc(#loc74)
+    %941 = arith.cmpi eq, %939, %655 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc74)
+    %942 = arith.andi %934, %936 : i1
+    %943 = arith.andi %938, %940 : i1
+    %944 = arith.andi %932, %943 : i1
+    %945 = arith.ori %942, %944 : i1
+    %946 = arith.select %934, %false, %941 : i1
+    %947 = arith.ori %664, %928 : i1
+    %948 = arith.andi %947, %945 : i1
+    %949 = arith.ori %664, %948 : i1
+    %950 = arith.andi %931, %949 : i1
+    %951 = arith.andi %659, %946 : i1
+    %952 = arith.xori %951, %true : i1 loc(#loc75)
+    %953 = arith.ori %952, %948 : i1
+    %954 = acir.extract %value_58 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc76)
+    %955 = acir.extract %value_58 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %956 = acir.extract %value_58 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %957 = acir.extract %value_58 {acir.id = "v27", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc76)
+    %958 = acir.aggregate(%954, %true, %955, %956, %957) {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc76)
+    %959 = acir.extract %958 {acir.id = "v30", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %960 = acir.extract %958 {acir.id = "v31", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc77)
+    %961 = acir.extract %958 {acir.id = "v32", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %962 = acir.extract %958 {acir.id = "v33", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc77)
+    %963 = acir.aggregate(%959, %960, %961, %962, %656) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc77)
+    %964 = arith.andi %953, %940 : i1 loc(#loc75)
+    %965 = arith.ori %952, %964 : i1 loc(#loc75)
+    %966 = arith.andi %950, %965 : i1 loc(#loc75)
+    acir.path %951 {branch = 26 : i64, kind = "branch", txn = 5 : i64} loc(#loc75)
+    %967 = acir.extract %654 {acir.id = "v18", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc78)
+    %968 = acir.extract %654 {acir.id = "v19", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc79)
+    acir.path %true {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.left:wakeup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc80)
+    %value_60, %ready_61 = acir.read(%true) {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.left:wakeup"], method = "read", port = 0 : i64, resource = "top.left.slot", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc81)
+    %969 = arith.andi %966, %ready_61 : i1 loc(#loc81)
+    %970 = acir.extract %value_60 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc82)
+    %971 = arith.xori %970, %true : i1
+    %972 = arith.ori %970, %ready_61 : i1
+    %973 = arith.ori %971, %ready_61 : i1
+    %974 = acir.extract %value_60 {acir.id = "v10", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc83)
+    %975 = acir.extract %974 {acir.id = "v11", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc83)
+    %976 = acir.unary %975 "not" {acir.id = "v12", acir.source_type = "bool"} : i1 -> i1 loc(#loc84)
+    %977 = arith.andi %973, %ready_61 : i1
+    %978 = arith.ori %971, %977 : i1
+    %979 = arith.andi %969, %978 : i1
+    %980 = arith.andi %970, %976 : i1
+    %981 = arith.xori %976, %true : i1
+    %982 = arith.andi %970, %981 : i1
+    %983 = arith.xori %982, %true : i1
+    %984 = arith.ori %983, %977 : i1
+    %985 = arith.xori %980, %true : i1
+    %986 = arith.ori %985, %977 : i1
+    %987 = acir.extract %value_60 {acir.id = "v13", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc85)
+    %988 = acir.extract %987 {acir.id = "v14", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc85)
+    %989 = arith.andi %ready_61, %653 : i1 loc(#loc85)
+    %990 = arith.cmpi eq, %988, %967 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc85)
+    %991 = arith.andi %982, %984 : i1
+    %992 = arith.andi %986, %989 : i1
+    %993 = arith.andi %980, %992 : i1
+    %994 = arith.ori %991, %993 : i1
+    %995 = arith.select %982, %false, %990 : i1
+    %996 = arith.ori %971, %973 : i1
+    %997 = arith.andi %996, %994 : i1
+    %998 = arith.ori %971, %997 : i1
+    %999 = arith.andi %979, %998 : i1
+    %1000 = arith.andi %970, %995 : i1
+    %1001 = arith.xori %995, %true : i1
+    %1002 = arith.andi %970, %1001 : i1
+    %1003 = arith.xori %1002, %true : i1
+    %1004 = arith.ori %1003, %997 : i1
+    %1005 = arith.xori %1000, %true : i1
+    %1006 = arith.ori %1005, %997 : i1
+    %1007 = acir.aggregate(%true, %967, %968) {acir.id = "v22", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc86)
+    %1008 = acir.extract %value_60 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc87)
+    %1009 = acir.extract %value_60 {acir.id = "v24", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc87)
+    %1010 = acir.extract %value_60 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc87)
+    %1011 = acir.extract %value_60 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc87)
+    %1012 = acir.extract %value_60 {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc87)
+    %1013 = acir.aggregate(%1008, %1009, %1010, %1011, %1007, %1012) {acir.id = "v29", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc87)
+    %1014 = arith.andi %1002, %1004 : i1
+    %1015 = arith.andi %1000, %1006 : i1
+    %1016 = arith.ori %1014, %1015 : i1
+    %1017 = arith.andi %1004, %ready_61 : i1
+    %1018 = arith.andi %1002, %1017 : i1
+    %1019 = arith.andi %1006, %989 : i1
+    %1020 = arith.andi %1000, %1019 : i1
+    %1021 = arith.ori %1018, %1020 : i1
+    %1022 = arith.select %1002, %value_60, %1013 : !acir.struct<"src_payloads_25ebcaa7.Entry">
+    %1023 = arith.ori %971, %996 : i1
+    %1024 = acir.extract %1022 {acir.id = "v36", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc88)
+    %1025 = acir.extract %1024 {acir.id = "v37", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc88)
+    %1026 = acir.unary %1025 "not" {acir.id = "v38", acir.source_type = "bool"} : i1 -> i1 loc(#loc89)
+    %1027 = arith.andi %1023, %1021 : i1
+    %1028 = arith.ori %971, %1027 : i1
+    %1029 = arith.andi %999, %1028 : i1
+    %1030 = arith.andi %970, %1026 : i1
+    %1031 = arith.xori %1026, %true : i1
+    %1032 = arith.andi %970, %1031 : i1
+    %1033 = arith.xori %1032, %true : i1
+    %1034 = arith.ori %1033, %1027 : i1
+    %1035 = arith.xori %1030, %true : i1
+    %1036 = arith.ori %1035, %1027 : i1
+    %1037 = acir.extract %1022 {acir.id = "v39", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc90)
+    %1038 = acir.extract %1037 {acir.id = "v40", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc90)
+    %1039 = arith.andi %1021, %653 : i1 loc(#loc90)
+    %1040 = arith.cmpi eq, %1038, %967 {acir.id = "v41", acir.source_type = "bool"} : i32 loc(#loc90)
+    %1041 = arith.andi %1032, %1034 : i1
+    %1042 = arith.andi %1036, %1039 : i1
+    %1043 = arith.andi %1030, %1042 : i1
+    %1044 = arith.ori %1041, %1043 : i1
+    %1045 = arith.select %1032, %false, %1040 : i1
+    %1046 = arith.ori %971, %1023 : i1
+    %1047 = arith.andi %1046, %1044 : i1
+    %1048 = arith.ori %971, %1047 : i1
+    %1049 = arith.andi %1029, %1048 : i1
+    %1050 = arith.andi %970, %1045 : i1
+    %1051 = arith.xori %1045, %true : i1
+    %1052 = arith.andi %970, %1051 : i1
+    %1053 = arith.xori %1052, %true : i1
+    %1054 = arith.ori %1053, %1047 : i1
+    %1055 = arith.xori %1050, %true : i1
+    %1056 = arith.ori %1055, %1047 : i1
+    %1057 = acir.aggregate(%true, %967, %968) {acir.id = "v48", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc91)
+    %1058 = acir.extract %1022 {acir.id = "v49", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc92)
+    %1059 = acir.extract %1022 {acir.id = "v50", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
+    %1060 = acir.extract %1022 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
+    %1061 = acir.extract %1022 {acir.id = "v52", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
+    %1062 = acir.extract %1022 {acir.id = "v53", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc92)
+    %1063 = acir.aggregate(%1058, %1059, %1060, %1061, %1062, %1057) {acir.id = "v55", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc92)
+    %1064 = arith.andi %1054, %1016 : i1
+    %1065 = arith.andi %1052, %1064 : i1
+    %1066 = arith.andi %1050, %1056 : i1
+    %1067 = arith.ori %1065, %1066 : i1
+    %1068 = arith.select %1052, %1003, %true : i1
+    %1069 = arith.andi %1054, %1021 : i1
+    %1070 = arith.andi %1052, %1069 : i1
+    %1071 = arith.andi %1056, %1039 : i1
+    %1072 = arith.andi %1050, %1071 : i1
+    %1073 = arith.ori %1070, %1072 : i1
+    %1074 = arith.select %1052, %1022, %1063 : !acir.struct<"src_payloads_25ebcaa7.Entry">
+    %1075 = arith.ori %971, %1046 : i1
+    %1076 = arith.andi %971, %972 : i1
+    %1077 = arith.andi %1075, %1067 : i1
+    %1078 = arith.andi %970, %1077 : i1
+    %1079 = arith.ori %1076, %1078 : i1
+    %1080 = arith.select %970, %1068, %false : i1
+    %1081 = arith.andi %972, %ready_61 : i1
+    %1082 = arith.andi %971, %1081 : i1
+    %1083 = arith.andi %1075, %1073 : i1
+    %1084 = arith.andi %970, %1083 : i1
+    %1085 = arith.ori %1082, %1084 : i1
+    %1086 = arith.select %970, %1074, %value_60 : !acir.struct<"src_payloads_25ebcaa7.Entry">
+    %1087 = arith.andi %1049, %1079 : i1
+    %1088 = arith.xori %1080, %true : i1 loc(#loc93)
+    %1089 = arith.ori %1088, %1079 : i1
+    %1090 = arith.andi %1089, %1085 : i1 loc(#loc93)
+    %1091 = arith.ori %1088, %1090 : i1 loc(#loc93)
+    %1092 = arith.andi %1087, %1091 : i1 loc(#loc93)
+    acir.path %1080 {branch = 27 : i64, kind = "branch", txn = 5 : i64} loc(#loc93)
+    %1093 = acir.extract %654 {acir.id = "v21", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc94)
+    %1094 = acir.extract %654 {acir.id = "v22", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc95)
+    acir.path %true {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.right:wakeup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 5 : i64} loc(#loc96)
+    %value_62, %ready_63 = acir.read(%true) {branch = 16 : i64, frames = ["top.cdb:broadcast", "top.right:wakeup"], method = "read", port = 0 : i64, resource = "top.right.slot", txn = 5 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc81)
+    %1095 = arith.andi %1092, %ready_63 : i1 loc(#loc81)
+    %1096 = acir.extract %value_62 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc82)
+    %1097 = arith.xori %1096, %true : i1
+    %1098 = arith.ori %1096, %ready_63 : i1
+    %1099 = arith.ori %1097, %ready_63 : i1
+    %1100 = acir.extract %value_62 {acir.id = "v10", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc83)
+    %1101 = acir.extract %1100 {acir.id = "v11", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc83)
+    %1102 = acir.unary %1101 "not" {acir.id = "v12", acir.source_type = "bool"} : i1 -> i1 loc(#loc84)
+    %1103 = arith.andi %1099, %ready_63 : i1
+    %1104 = arith.ori %1097, %1103 : i1
+    %1105 = arith.andi %1095, %1104 : i1
+    %1106 = arith.andi %1096, %1102 : i1
+    %1107 = arith.xori %1102, %true : i1
+    %1108 = arith.andi %1096, %1107 : i1
+    %1109 = arith.xori %1108, %true : i1
+    %1110 = arith.ori %1109, %1103 : i1
+    %1111 = arith.xori %1106, %true : i1
+    %1112 = arith.ori %1111, %1103 : i1
+    %1113 = acir.extract %value_62 {acir.id = "v13", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc85)
+    %1114 = acir.extract %1113 {acir.id = "v14", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc85)
+    %1115 = arith.andi %ready_63, %653 : i1 loc(#loc85)
+    %1116 = arith.cmpi eq, %1114, %1093 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc85)
+    %1117 = arith.andi %1108, %1110 : i1
+    %1118 = arith.andi %1112, %1115 : i1
+    %1119 = arith.andi %1106, %1118 : i1
+    %1120 = arith.ori %1117, %1119 : i1
+    %1121 = arith.select %1108, %false, %1116 : i1
+    %1122 = arith.ori %1097, %1099 : i1
+    %1123 = arith.andi %1122, %1120 : i1
+    %1124 = arith.ori %1097, %1123 : i1
+    %1125 = arith.andi %1105, %1124 : i1
+    %1126 = arith.andi %1096, %1121 : i1
+    %1127 = arith.xori %1121, %true : i1
+    %1128 = arith.andi %1096, %1127 : i1
+    %1129 = arith.xori %1128, %true : i1
+    %1130 = arith.ori %1129, %1123 : i1
+    %1131 = arith.xori %1126, %true : i1
+    %1132 = arith.ori %1131, %1123 : i1
+    %1133 = acir.aggregate(%true, %1093, %1094) {acir.id = "v22", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc86)
+    %1134 = acir.extract %value_62 {acir.id = "v23", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc87)
+    %1135 = acir.extract %value_62 {acir.id = "v24", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc87)
+    %1136 = acir.extract %value_62 {acir.id = "v25", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc87)
+    %1137 = acir.extract %value_62 {acir.id = "v26", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc87)
+    %1138 = acir.extract %value_62 {acir.id = "v28", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc87)
+    %1139 = acir.aggregate(%1134, %1135, %1136, %1137, %1133, %1138) {acir.id = "v29", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc87)
+    %1140 = arith.andi %1128, %1130 : i1
+    %1141 = arith.andi %1126, %1132 : i1
+    %1142 = arith.ori %1140, %1141 : i1
+    %1143 = arith.andi %1130, %ready_63 : i1
+    %1144 = arith.andi %1128, %1143 : i1
+    %1145 = arith.andi %1132, %1115 : i1
+    %1146 = arith.andi %1126, %1145 : i1
+    %1147 = arith.ori %1144, %1146 : i1
+    %1148 = arith.select %1128, %value_62, %1139 : !acir.struct<"src_payloads_25ebcaa7.Entry">
+    %1149 = arith.ori %1097, %1122 : i1
+    %1150 = acir.extract %1148 {acir.id = "v36", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc88)
+    %1151 = acir.extract %1150 {acir.id = "v37", acir.source_type = "bool", field = "ready"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i1 loc(#loc88)
+    %1152 = acir.unary %1151 "not" {acir.id = "v38", acir.source_type = "bool"} : i1 -> i1 loc(#loc89)
+    %1153 = arith.andi %1149, %1147 : i1
+    %1154 = arith.ori %1097, %1153 : i1
+    %1155 = arith.andi %1125, %1154 : i1
+    %1156 = arith.andi %1096, %1152 : i1
+    %1157 = arith.xori %1152, %true : i1
+    %1158 = arith.andi %1096, %1157 : i1
+    %1159 = arith.xori %1158, %true : i1
+    %1160 = arith.ori %1159, %1153 : i1
+    %1161 = arith.xori %1156, %true : i1
+    %1162 = arith.ori %1161, %1153 : i1
+    %1163 = acir.extract %1148 {acir.id = "v39", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "rhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc90)
+    %1164 = acir.extract %1163 {acir.id = "v40", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Operand">) -> i32 loc(#loc90)
+    %1165 = arith.andi %1147, %653 : i1 loc(#loc90)
+    %1166 = arith.cmpi eq, %1164, %1093 {acir.id = "v41", acir.source_type = "bool"} : i32 loc(#loc90)
+    %1167 = arith.andi %1158, %1160 : i1
+    %1168 = arith.andi %1162, %1165 : i1
+    %1169 = arith.andi %1156, %1168 : i1
+    %1170 = arith.ori %1167, %1169 : i1
+    %1171 = arith.select %1158, %false, %1166 : i1
+    %1172 = arith.ori %1097, %1149 : i1
+    %1173 = arith.andi %1172, %1170 : i1
+    %1174 = arith.ori %1097, %1173 : i1
+    %1175 = arith.andi %1155, %1174 : i1
+    %1176 = arith.andi %1096, %1171 : i1
+    %1177 = arith.xori %1171, %true : i1
+    %1178 = arith.andi %1096, %1177 : i1
+    %1179 = arith.xori %1178, %true : i1
+    %1180 = arith.ori %1179, %1173 : i1
+    %1181 = arith.xori %1176, %true : i1
+    %1182 = arith.ori %1181, %1173 : i1
+    %1183 = acir.aggregate(%true, %1093, %1094) {acir.id = "v48", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc91)
+    %1184 = acir.extract %1148 {acir.id = "v49", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc92)
+    %1185 = acir.extract %1148 {acir.id = "v50", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
+    %1186 = acir.extract %1148 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
+    %1187 = acir.extract %1148 {acir.id = "v52", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i32 loc(#loc92)
+    %1188 = acir.extract %1148 {acir.id = "v53", acir.source_type = "src_payloads_25ebcaa7.Operand", field = "lhs"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc92)
+    %1189 = acir.aggregate(%1184, %1185, %1186, %1187, %1188, %1183) {acir.id = "v55", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc92)
+    %1190 = arith.andi %1180, %1142 : i1
+    %1191 = arith.andi %1178, %1190 : i1
+    %1192 = arith.andi %1176, %1182 : i1
+    %1193 = arith.ori %1191, %1192 : i1
+    %1194 = arith.select %1178, %1129, %true : i1
+    %1195 = arith.andi %1180, %1147 : i1
+    %1196 = arith.andi %1178, %1195 : i1
+    %1197 = arith.andi %1182, %1165 : i1
+    %1198 = arith.andi %1176, %1197 : i1
     %1199 = arith.ori %1196, %1198 : i1
-    %1200 = arith.select %value_64, %value_66, %false : i1
-    %1201 = arith.xori %1200, %true : i1 loc(#loc104)
-    %1202 = arith.ori %1201, %1199 : i1
-    %1203 = arith.andi %1200, %1202 : i1 loc(#loc104)
-    acir.path %1200 {branch = 31 : i64, kind = "branch", txn = 6 : i64} loc(#loc104)
-    acir.path %1200 {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc104)
-    %1204 = arith.ori %1201, %1202 : i1 loc(#loc104)
-    %value_68, %ready_69 = acir.read(%1200) {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "peek", port = 0 : i64, resource = "top.source", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.MicroOp">, i1) loc(#loc105)
-    %1205 = arith.andi %1204, %ready_69 : i1 loc(#loc105)
-    %1206 = arith.ori %1201, %1205 : i1 loc(#loc105)
-    %1207 = arith.andi %1203, %1206 : i1 loc(#loc105)
-    %1208 = arith.andi %1207, %1206 : i1 loc(#loc105)
-    %value_70, %ready_71 = acir.read(%1200) {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "empty", port = 0 : i64, resource = "top.source", txn = 6 : i64} : (i1) -> (i1, i1) loc(#loc105)
-    %1209 = arith.andi %1204, %ready_71 : i1 loc(#loc105)
-    %1210 = arith.ori %1201, %1209 : i1 loc(#loc105)
-    %1211 = arith.andi %1208, %1210 : i1 loc(#loc105)
-    %1212 = arith.xori %value_70, %true : i1 loc(#loc105)
-    %1213 = arith.andi %1204, %1212 : i1 loc(#loc105)
-    %1214 = arith.ori %1201, %1213 : i1 loc(#loc105)
-    %1215 = arith.andi %1211, %1214 : i1 loc(#loc105)
-    %1216 = acir.extract %value_68 {acir.id = "v6", acir.source_type = "u32", field = "rs1"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc106)
-    acir.path %1200 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc107)
-    %1217 = arith.ori %1201, %1204 : i1 loc(#loc107)
-    %1218 = arith.andi %1200, %1205 : i1 loc(#loc107)
-    %1219 = acir.aggregate() {acir.source_type = "src_payloads_25ebcaa7.Operand"} : () -> !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1220 = arith.cmpi ult, %1216, %c8_i32 {acir.id = "v8", acir.source_type = "bool"} : i32 loc(#loc108)
-    %1221 = arith.andi %1217, %1218 : i1 loc(#loc109)
-    %1222 = arith.ori %1201, %1221 : i1 loc(#loc109)
-    %1223 = arith.andi %1215, %1222 : i1 loc(#loc109)
-    %1224 = arith.cmpi eq, %1216, %c0_i32 {acir.id = "v11", acir.source_type = "bool"} : i32 loc(#loc110)
-    %1225 = arith.andi %1223, %1222 : i1
-    %1226 = arith.andi %1200, %1224 : i1
-    %1227 = arith.cmpi ne, %1216, %c0_i32 : i32 loc(#loc110)
-    %1228 = arith.andi %1200, %1227 : i1
-    %1229 = arith.xori %1228, %true : i1 loc(#loc111)
-    %1230 = arith.ori %1229, %1221 : i1
-    %1231 = arith.xori %1226, %true : i1
-    %1232 = arith.ori %1231, %1221 : i1
-    %1233 = acir.aggregate(%true, %c0_i32, %c0_i32) {acir.id = "v15", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc112)
-    %1234 = arith.andi %1228, %1230 : i1
-    %1235 = arith.andi %1226, %1232 : i1
-    %1236 = arith.ori %1234, %1235 : i1
-    %1237 = arith.select %1228, %1219, %1233 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1238 = arith.ori %1201, %1217 : i1 loc(#loc113)
-    %1239 = arith.andi %1238, %1236 : i1
-    %1240 = arith.ori %1201, %1239 : i1
-    %1241 = arith.andi %1225, %1240 : i1
-    %1242 = arith.andi %1200, %1229 : i1
-    %1243 = arith.xori %1242, %true : i1
-    %1244 = arith.ori %1243, %1239 : i1
-    %1245 = arith.ori %1229, %1239 : i1
-    acir.path %1228 {branch = 32 : i64, kind = "branch", txn = 6 : i64} loc(#loc111)
-    %value_72, %ready_73 = acir.read(%1228) {branch = 32 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc111)
-    %1246 = arith.andi %1245, %ready_73 : i1 loc(#loc111)
-    %1247 = arith.ori %1229, %1246 : i1 loc(#loc111)
-    %1248 = arith.andi %1241, %1247 : i1 loc(#loc111)
-    %1249 = arith.andi %ready_73, %1218 : i1 loc(#loc111)
-    %1250 = arith.extui %1216 : i32 to i64 loc(#loc111)
-    %1251 = arith.cmpi ult, %1250, %c8_i64 : i64 loc(#loc111)
-    %1252 = arith.select %1251, %1250, %c0_i64 : i64 loc(#loc111)
-    %1253 = arith.andi %1249, %1251 : i1 loc(#loc111)
-    %1254 = "acir.array.index"(%value_72, %1252) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc111)
-    %value_74, %ready_75 = acir.read(%1228) {branch = 32 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.committed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc114)
-    %1255 = arith.andi %1245, %ready_75 : i1 loc(#loc114)
-    %1256 = arith.ori %1229, %1255 : i1 loc(#loc114)
-    %1257 = arith.andi %1248, %1256 : i1 loc(#loc114)
-    %1258 = arith.andi %ready_75, %1218 : i1 loc(#loc114)
-    %1259 = arith.andi %1258, %1251 : i1 loc(#loc114)
-    %1260 = "acir.array.index"(%value_74, %1252) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc114)
-    %1261 = arith.andi %1253, %1259 : i1 loc(#loc115)
-    %1262 = arith.cmpi eq, %1254, %1260 {acir.id = "v30", acir.source_type = "bool"} : i32 loc(#loc115)
-    %1263 = arith.andi %1245, %1261 : i1
-    %1264 = arith.ori %1229, %1263 : i1
-    %1265 = arith.andi %1257, %1264 : i1
-    %1266 = arith.andi %1228, %1262 : i1
-    %1267 = arith.cmpi ne, %1254, %1260 : i32 loc(#loc115)
-    %1268 = arith.andi %1228, %1267 : i1
-    %1269 = arith.xori %1268, %true : i1
-    %1270 = arith.ori %1269, %1263 : i1
-    %1271 = arith.xori %1266, %true : i1 loc(#loc116)
-    %1272 = arith.ori %1271, %1263 : i1
-    acir.path %1266 {branch = 33 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
-    %value_76, %ready_77 = acir.read(%1266) {branch = 33 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.registers", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc116)
-    %1273 = arith.andi %1272, %ready_77 : i1 loc(#loc116)
-    %1274 = arith.ori %1271, %1273 : i1 loc(#loc116)
-    %1275 = arith.andi %1265, %1274 : i1 loc(#loc116)
-    %1276 = arith.andi %ready_77, %1218 : i1 loc(#loc116)
-    %1277 = arith.andi %1276, %1251 : i1 loc(#loc116)
-    %1278 = "acir.array.index"(%value_76, %1252) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc116)
-    %1279 = arith.andi %1253, %1277 : i1 loc(#loc117)
-    %1280 = acir.aggregate(%true, %1254, %1278) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc117)
-    %1281 = arith.andi %1270, %1236 : i1
-    %1282 = arith.andi %1268, %1281 : i1
-    %1283 = arith.andi %1266, %1272 : i1
-    %1284 = arith.ori %1282, %1283 : i1
-    %1285 = arith.select %1268, %1228, %false : i1
-    %1286 = arith.andi %1272, %1279 : i1
-    %1287 = arith.andi %1266, %1286 : i1
-    %1288 = arith.ori %1282, %1287 : i1
-    %1289 = arith.select %1268, %1237, %1280 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1290 = arith.ori %1229, %1245 : i1
-    %1291 = arith.andi %1290, %1284 : i1
-    %1292 = arith.ori %1229, %1291 : i1
-    %1293 = arith.andi %1275, %1292 : i1
-    %1294 = arith.andi %1228, %1285 : i1
-    %1295 = arith.xori %1285, %true : i1
-    %1296 = arith.andi %1228, %1295 : i1
-    %1297 = arith.xori %1296, %true : i1
-    %1298 = arith.ori %1297, %1291 : i1
-    %1299 = arith.xori %1294, %true : i1 loc(#loc118)
-    %1300 = arith.ori %1299, %1291 : i1
-    acir.path %1294 {branch = 34 : i64, kind = "branch", txn = 6 : i64} loc(#loc118)
-    acir.path %1294 {branch = 34 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc118)
-    %1301 = arith.ori %1299, %1300 : i1 loc(#loc118)
-    %1302 = arith.andi %1300, %1253 : i1 loc(#loc118)
-    %1303 = arith.andi %1294, %1302 : i1 loc(#loc118)
-    %1304 = acir.aggregate() {acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : () -> !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1305 = arith.subi %1254, %c1_i32 {acir.id = "v8", acir.source_type = "u32"} : i32 loc(#loc119)
-    %1306 = arith.andi %1305, %c3_i32 {acir.id = "v10", acir.source_type = "u32"} : i32 loc(#loc119)
-    %1307 = arith.cmpi eq, %1306, %c0_i32 {acir.id = "v12", acir.source_type = "bool"} : i32 loc(#loc120)
-    %1308 = arith.andi %1301, %1303 : i1
-    %1309 = arith.ori %1299, %1308 : i1
-    %1310 = arith.andi %1293, %1309 : i1
-    %1311 = arith.andi %1294, %1307 : i1
-    %1312 = arith.cmpi ne, %1306, %c0_i32 : i32 loc(#loc120)
-    %1313 = arith.andi %1294, %1312 : i1
-    %1314 = arith.xori %1313, %true : i1
-    %1315 = arith.ori %1314, %1308 : i1
-    %1316 = arith.cmpi eq, %1306, %c1_i32 {acir.id = "v17", acir.source_type = "bool"} : i32 loc(#loc121)
-    %1317 = arith.andi %1315, %1303 : i1
-    %1318 = arith.ori %1314, %1317 : i1
-    %1319 = arith.andi %1310, %1318 : i1
-    %1320 = arith.andi %1313, %1316 : i1
-    %1321 = arith.cmpi ne, %1306, %c1_i32 : i32 loc(#loc121)
-    %1322 = arith.andi %1313, %1321 : i1
-    %1323 = arith.xori %1322, %true : i1
-    %1324 = arith.ori %1323, %1317 : i1
-    %1325 = arith.cmpi eq, %1306, %c2_i32 {acir.id = "v22", acir.source_type = "bool"} : i32 loc(#loc122)
-    %1326 = arith.andi %1324, %1303 : i1
-    %1327 = arith.ori %1323, %1326 : i1
-    %1328 = arith.andi %1319, %1327 : i1
-    %1329 = arith.andi %1322, %1325 : i1
-    %1330 = arith.cmpi ne, %1306, %c2_i32 : i32 loc(#loc122)
-    %1331 = arith.andi %1322, %1330 : i1
-    %1332 = arith.xori %1331, %true : i1
-    %1333 = arith.ori %1332, %1326 : i1
-    %1334 = arith.xori %1329, %true : i1 loc(#loc123)
-    %1335 = arith.ori %1334, %1326 : i1
-    acir.path %1329 {branch = 35 : i64, kind = "branch", txn = 6 : i64} loc(#loc123)
-    acir.path %1329 {branch = 35 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot2:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc123)
-    %1336 = arith.ori %1334, %1335 : i1 loc(#loc123)
-    %value_78, %ready_79 = acir.read(%1329) {branch = 35 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot2:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot2.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1337 = arith.andi %1336, %ready_79 : i1 loc(#loc124)
-    %1338 = arith.ori %1334, %1337 : i1 loc(#loc124)
-    %1339 = arith.andi %1328, %1338 : i1 loc(#loc124)
-    %1340 = arith.ori %1334, %1336 : i1
-    %1341 = arith.andi %1339, %1340 : i1
-    %1342 = arith.andi %1329, %1337 : i1
-    %1343 = arith.andi %1331, %1333 : i1
-    %1344 = arith.andi %1329, %1335 : i1
-    %1345 = arith.ori %1343, %1344 : i1
-    %1346 = arith.andi %1335, %1342 : i1
-    %1347 = arith.andi %1329, %1346 : i1
-    %1348 = arith.ori %1343, %1347 : i1
-    %1349 = arith.select %1331, %1304, %value_78 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1350 = arith.ori %1323, %1324 : i1
-    %1351 = arith.xori %1320, %true : i1 loc(#loc125)
-    %1352 = arith.ori %1351, %1317 : i1
-    acir.path %1320 {branch = 36 : i64, kind = "branch", txn = 6 : i64} loc(#loc125)
-    acir.path %1320 {branch = 36 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot1:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc125)
-    %1353 = arith.ori %1351, %1352 : i1 loc(#loc125)
-    %value_80, %ready_81 = acir.read(%1320) {branch = 36 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot1:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot1.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1354 = arith.andi %1353, %ready_81 : i1 loc(#loc124)
-    %1355 = arith.ori %1351, %1354 : i1 loc(#loc124)
-    %1356 = arith.andi %1341, %1355 : i1 loc(#loc124)
-    %1357 = arith.ori %1351, %1353 : i1
-    %1358 = arith.andi %1356, %1357 : i1
-    %1359 = arith.andi %1320, %1354 : i1
-    %1360 = arith.andi %1350, %1345 : i1
-    %1361 = arith.andi %1322, %1360 : i1
-    %1362 = arith.andi %1320, %1352 : i1
-    %1363 = arith.ori %1361, %1362 : i1
-    %1364 = arith.select %1322, %1331, %false : i1
-    %1365 = arith.andi %1350, %1348 : i1
-    %1366 = arith.andi %1322, %1365 : i1
-    %1367 = arith.andi %1352, %1359 : i1
-    %1368 = arith.andi %1320, %1367 : i1
-    %1369 = arith.ori %1366, %1368 : i1
-    %1370 = arith.select %1322, %1349, %value_80 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1371 = arith.ori %1314, %1315 : i1
-    %1372 = arith.xori %1311, %true : i1 loc(#loc126)
-    %1373 = arith.ori %1372, %1308 : i1
-    acir.path %1311 {branch = 37 : i64, kind = "branch", txn = 6 : i64} loc(#loc126)
-    acir.path %1311 {branch = 37 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot0:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc126)
-    %1374 = arith.ori %1372, %1373 : i1 loc(#loc126)
-    %value_82, %ready_83 = acir.read(%1311) {branch = 37 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot0:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot0.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1375 = arith.andi %1374, %ready_83 : i1 loc(#loc124)
-    %1376 = arith.ori %1372, %1375 : i1 loc(#loc124)
-    %1377 = arith.andi %1358, %1376 : i1 loc(#loc124)
-    %1378 = arith.ori %1372, %1374 : i1
-    %1379 = arith.andi %1377, %1378 : i1
-    %1380 = arith.andi %1311, %1375 : i1
-    %1381 = arith.andi %1371, %1363 : i1
-    %1382 = arith.andi %1313, %1381 : i1
-    %1383 = arith.andi %1311, %1373 : i1
-    %1384 = arith.ori %1382, %1383 : i1
-    %1385 = arith.select %1313, %1364, %false : i1
-    %1386 = arith.andi %1371, %1369 : i1
-    %1387 = arith.andi %1313, %1386 : i1
-    %1388 = arith.andi %1373, %1380 : i1
-    %1389 = arith.andi %1311, %1388 : i1
-    %1390 = arith.ori %1387, %1389 : i1
-    %1391 = arith.select %1313, %1370, %value_82 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1392 = arith.ori %1299, %1301 : i1
-    %1393 = arith.andi %1392, %1384 : i1
-    %1394 = arith.ori %1299, %1393 : i1
-    %1395 = arith.andi %1379, %1394 : i1
-    %1396 = arith.andi %1294, %1385 : i1
-    %1397 = arith.xori %1385, %true : i1
-    %1398 = arith.andi %1294, %1397 : i1
-    %1399 = arith.xori %1398, %true : i1
-    %1400 = arith.ori %1399, %1393 : i1
-    %1401 = arith.xori %1396, %true : i1 loc(#loc127)
-    %1402 = arith.ori %1401, %1393 : i1
-    acir.path %1396 {branch = 38 : i64, kind = "branch", txn = 6 : i64} loc(#loc127)
-    acir.path %1396 {branch = 38 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot3:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc127)
-    %1403 = arith.ori %1401, %1402 : i1 loc(#loc127)
-    %value_84, %ready_85 = acir.read(%1396) {branch = 38 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot3:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot3.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1404 = arith.andi %1403, %ready_85 : i1 loc(#loc124)
-    %1405 = arith.ori %1401, %1404 : i1 loc(#loc124)
-    %1406 = arith.andi %1395, %1405 : i1 loc(#loc124)
-    %1407 = arith.ori %1401, %1403 : i1
-    %1408 = arith.andi %1406, %1407 : i1
-    %1409 = arith.andi %1396, %1404 : i1
-    %1410 = arith.andi %1400, %1384 : i1
-    %1411 = arith.andi %1398, %1410 : i1
-    %1412 = arith.andi %1396, %1402 : i1
-    %1413 = arith.ori %1411, %1412 : i1
-    %1414 = arith.select %1398, %1385, %false : i1
-    %1415 = arith.andi %1400, %1390 : i1
-    %1416 = arith.andi %1398, %1415 : i1
-    %1417 = arith.andi %1402, %1409 : i1
-    %1418 = arith.andi %1396, %1417 : i1
+    %1200 = arith.select %1178, %1148, %1189 : !acir.struct<"src_payloads_25ebcaa7.Entry">
+    %1201 = arith.ori %1097, %1172 : i1
+    %1202 = arith.andi %1097, %1098 : i1
+    %1203 = arith.andi %1201, %1193 : i1
+    %1204 = arith.andi %1096, %1203 : i1
+    %1205 = arith.ori %1202, %1204 : i1
+    %1206 = arith.select %1096, %1194, %false : i1
+    %1207 = arith.andi %1098, %ready_63 : i1
+    %1208 = arith.andi %1097, %1207 : i1
+    %1209 = arith.andi %1201, %1199 : i1
+    %1210 = arith.andi %1096, %1209 : i1
+    %1211 = arith.ori %1208, %1210 : i1
+    %1212 = arith.select %1096, %1200, %value_62 : !acir.struct<"src_payloads_25ebcaa7.Entry">
+    %1213 = arith.andi %1175, %1205 : i1
+    %1214 = arith.xori %1206, %true : i1 loc(#loc93)
+    %1215 = arith.ori %1214, %1205 : i1
+    %1216 = arith.andi %1215, %1211 : i1 loc(#loc93)
+    %1217 = arith.ori %1214, %1216 : i1 loc(#loc93)
+    %1218 = arith.andi %1213, %1217 : i1 loc(#loc93)
+    acir.path %1206 {branch = 28 : i64, kind = "branch", txn = 5 : i64} loc(#loc93)
+    acir.path %653 {branch = 29 : i64, kind = "branch", txn = 5 : i64}
+    %1219 = acir.fire "top.cdb.broadcast#5" %1218 {successors = [2, 4, 8], txn = 5 : i64}
+    %1220 = arith.andi %1219, %626 : i1
+    acir.effect %1220() {branch = 17 : i64, frames = ["top.cdb:broadcast"], method = "pop", port = 0 : i64, resource = "top.mul_done", txn = 5 : i64} : (i1) -> () loc(#loc63)
+    %1221 = arith.andi %1219, %625 : i1
+    acir.effect %1221() {branch = 18 : i64, frames = ["top.cdb:broadcast"], method = "pop", port = 0 : i64, resource = "top.add_done", txn = 5 : i64} : (i1) -> () loc(#loc62)
+    %1222 = arith.andi %1219, %763 : i1
+    acir.effect %1222(%775) {branch = 20 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.3:complete"], method = "write", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc75)
+    %1223 = arith.andi %1219, %826 : i1
+    acir.effect %1223(%838) {branch = 22 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.2:complete"], method = "write", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc75)
+    %1224 = arith.andi %1219, %889 : i1
+    acir.effect %1224(%901) {branch = 24 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.1:complete"], method = "write", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc75)
+    %1225 = arith.andi %1219, %951 : i1
+    acir.effect %1225(%963) {branch = 26 : i64, frames = ["top.cdb:broadcast", "top.rob:complete", "top.rob:$dispatch11", "top.rob.slots.0:complete"], method = "write", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc75)
+    %1226 = arith.andi %1219, %1080 : i1
+    acir.effect %1226(%1086) {branch = 27 : i64, frames = ["top.cdb:broadcast", "top.left:wakeup"], method = "write", port = 0 : i64, resource = "top.left.slot", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc93)
+    %1227 = arith.andi %1219, %1206 : i1
+    acir.effect %1227(%1212) {branch = 28 : i64, frames = ["top.cdb:broadcast", "top.right:wakeup"], method = "write", port = 0 : i64, resource = "top.right.slot", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc93)
+    %1228 = arith.andi %1219, %653 : i1
+    acir.effect %1228(%654) {branch = 29 : i64, frames = [], method = "set", port = 0 : i64, resource = "top.event", txn = 5 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Completion">) -> ()
+    %value_64, %ready_65 = acir.read(%true) {branch = 0 : i64, frames = [], method = "empty", port = 0 : i64, resource = "top.add_done", txn = -1 : i64} : (i1) -> (i1, i1) loc(#loc97)
+    %1229 = arith.xori %value_64, %true : i1
+    %1230 = arith.ori %value_64, %ready_65 : i1
+    %1231 = arith.ori %1229, %ready_65 : i1
+    acir.path %value_64 {branch = 30 : i64, kind = "branch", txn = -1 : i64} loc(#loc98)
+    %value_66, %ready_67 = acir.read(%value_64) {branch = 30 : i64, frames = [], method = "empty", port = 0 : i64, resource = "top.mul_done", txn = -1 : i64} : (i1) -> (i1, i1) loc(#loc98)
+    %1232 = arith.andi %1229, %1230 : i1
+    %1233 = arith.andi %1231, %ready_67 : i1
+    %1234 = arith.andi %value_64, %1233 : i1
+    %1235 = arith.ori %1232, %1234 : i1
+    %1236 = arith.select %value_64, %value_66, %false : i1
+    %1237 = arith.xori %1236, %true : i1 loc(#loc99)
+    %1238 = arith.ori %1237, %1235 : i1
+    %1239 = arith.andi %1236, %1238 : i1 loc(#loc99)
+    acir.path %1236 {branch = 31 : i64, kind = "branch", txn = 6 : i64} loc(#loc99)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc99)
+    %1240 = arith.ori %1237, %1238 : i1 loc(#loc99)
+    %value_68, %ready_69 = acir.read(%1236) {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "peek", port = 0 : i64, resource = "top.source", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.MicroOp">, i1) loc(#loc100)
+    %1241 = arith.andi %1240, %ready_69 : i1 loc(#loc100)
+    %1242 = arith.ori %1237, %1241 : i1 loc(#loc100)
+    %1243 = arith.andi %1239, %1242 : i1 loc(#loc100)
+    %1244 = arith.andi %1243, %1242 : i1 loc(#loc100)
+    %value_70, %ready_71 = acir.read(%1236) {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "empty", port = 0 : i64, resource = "top.source", txn = 6 : i64} : (i1) -> (i1, i1) loc(#loc100)
+    %1245 = arith.andi %1240, %ready_71 : i1 loc(#loc100)
+    %1246 = arith.ori %1237, %1245 : i1 loc(#loc100)
+    %1247 = arith.andi %1244, %1246 : i1 loc(#loc100)
+    %1248 = arith.xori %value_70, %true : i1 loc(#loc100)
+    %1249 = arith.andi %1240, %1248 : i1 loc(#loc100)
+    %1250 = arith.ori %1237, %1249 : i1 loc(#loc100)
+    %1251 = arith.andi %1247, %1250 : i1 loc(#loc100)
+    %1252 = acir.extract %value_68 {acir.id = "v6", acir.source_type = "u32", field = "rs1"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc101)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc102)
+    %1253 = arith.ori %1237, %1240 : i1 loc(#loc102)
+    %1254 = arith.andi %1236, %1241 : i1 loc(#loc102)
+    %1255 = acir.aggregate() {acir.source_type = "src_payloads_25ebcaa7.Operand"} : () -> !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1256 = arith.cmpi ult, %1252, %c8_i32 {acir.id = "v8", acir.source_type = "bool"} : i32 loc(#loc103)
+    %1257 = arith.andi %1253, %1254 : i1 loc(#loc104)
+    %1258 = arith.ori %1237, %1257 : i1 loc(#loc104)
+    %1259 = arith.andi %1251, %1258 : i1 loc(#loc104)
+    %1260 = arith.cmpi eq, %1252, %c0_i32 {acir.id = "v11", acir.source_type = "bool"} : i32 loc(#loc105)
+    %1261 = arith.andi %1259, %1258 : i1
+    %1262 = arith.andi %1236, %1260 : i1
+    %1263 = arith.cmpi ne, %1252, %c0_i32 : i32 loc(#loc105)
+    %1264 = arith.andi %1236, %1263 : i1
+    %1265 = arith.xori %1264, %true : i1 loc(#loc106)
+    %1266 = arith.ori %1265, %1257 : i1
+    %1267 = arith.xori %1262, %true : i1
+    %1268 = arith.ori %1267, %1257 : i1
+    %1269 = acir.aggregate(%true, %c0_i32, %c0_i32) {acir.id = "v15", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc107)
+    %1270 = arith.andi %1264, %1266 : i1
+    %1271 = arith.andi %1262, %1268 : i1
+    %1272 = arith.ori %1270, %1271 : i1
+    %1273 = arith.select %1264, %1255, %1269 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1274 = arith.ori %1237, %1253 : i1 loc(#loc108)
+    %1275 = arith.andi %1274, %1272 : i1
+    %1276 = arith.ori %1237, %1275 : i1
+    %1277 = arith.andi %1261, %1276 : i1
+    %1278 = arith.andi %1236, %1265 : i1
+    %1279 = arith.xori %1278, %true : i1
+    %1280 = arith.ori %1279, %1275 : i1
+    %1281 = arith.ori %1265, %1275 : i1
+    acir.path %1264 {branch = 32 : i64, kind = "branch", txn = 6 : i64} loc(#loc106)
+    %value_72, %ready_73 = acir.read(%1264) {branch = 32 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc106)
+    %1282 = arith.andi %1281, %ready_73 : i1 loc(#loc106)
+    %1283 = arith.ori %1265, %1282 : i1 loc(#loc106)
+    %1284 = arith.andi %1277, %1283 : i1 loc(#loc106)
+    %1285 = arith.andi %ready_73, %1254 : i1 loc(#loc106)
+    %1286 = arith.extui %1252 : i32 to i64 loc(#loc106)
+    %1287 = arith.cmpi ult, %1286, %c8_i64 : i64 loc(#loc106)
+    %1288 = arith.select %1287, %1286, %c0_i64 : i64 loc(#loc106)
+    %1289 = arith.andi %1285, %1287 : i1 loc(#loc106)
+    %1290 = "acir.array.index"(%value_72, %1288) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc106)
+    %value_74, %ready_75 = acir.read(%1264) {branch = 32 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.committed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc109)
+    %1291 = arith.andi %1281, %ready_75 : i1 loc(#loc109)
+    %1292 = arith.ori %1265, %1291 : i1 loc(#loc109)
+    %1293 = arith.andi %1284, %1292 : i1 loc(#loc109)
+    %1294 = arith.andi %ready_75, %1254 : i1 loc(#loc109)
+    %1295 = arith.andi %1294, %1287 : i1 loc(#loc109)
+    %1296 = "acir.array.index"(%value_74, %1288) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc109)
+    %1297 = arith.andi %1289, %1295 : i1 loc(#loc110)
+    %1298 = arith.cmpi eq, %1290, %1296 {acir.id = "v30", acir.source_type = "bool"} : i32 loc(#loc110)
+    %1299 = arith.andi %1281, %1297 : i1
+    %1300 = arith.ori %1265, %1299 : i1
+    %1301 = arith.andi %1293, %1300 : i1
+    %1302 = arith.andi %1264, %1298 : i1
+    %1303 = arith.cmpi ne, %1290, %1296 : i32 loc(#loc110)
+    %1304 = arith.andi %1264, %1303 : i1
+    %1305 = arith.xori %1304, %true : i1
+    %1306 = arith.ori %1305, %1299 : i1
+    %1307 = arith.xori %1302, %true : i1 loc(#loc111)
+    %1308 = arith.ori %1307, %1299 : i1
+    acir.path %1302 {branch = 33 : i64, kind = "branch", txn = 6 : i64} loc(#loc111)
+    %value_76, %ready_77 = acir.read(%1302) {branch = 33 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.registers", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc111)
+    %1309 = arith.andi %1308, %ready_77 : i1 loc(#loc111)
+    %1310 = arith.ori %1307, %1309 : i1 loc(#loc111)
+    %1311 = arith.andi %1301, %1310 : i1 loc(#loc111)
+    %1312 = arith.andi %ready_77, %1254 : i1 loc(#loc111)
+    %1313 = arith.andi %1312, %1287 : i1 loc(#loc111)
+    %1314 = "acir.array.index"(%value_76, %1288) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc111)
+    %1315 = arith.andi %1289, %1313 : i1 loc(#loc112)
+    %1316 = acir.aggregate(%true, %1290, %1314) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc112)
+    %1317 = arith.andi %1306, %1272 : i1
+    %1318 = arith.andi %1304, %1317 : i1
+    %1319 = arith.andi %1302, %1308 : i1
+    %1320 = arith.ori %1318, %1319 : i1
+    %1321 = arith.select %1304, %1264, %false : i1
+    %1322 = arith.andi %1308, %1315 : i1
+    %1323 = arith.andi %1302, %1322 : i1
+    %1324 = arith.ori %1318, %1323 : i1
+    %1325 = arith.select %1304, %1273, %1316 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1326 = arith.ori %1265, %1281 : i1
+    %1327 = arith.andi %1326, %1320 : i1
+    %1328 = arith.ori %1265, %1327 : i1
+    %1329 = arith.andi %1311, %1328 : i1
+    %1330 = arith.andi %1264, %1321 : i1
+    %1331 = arith.xori %1321, %true : i1
+    %1332 = arith.andi %1264, %1331 : i1
+    %1333 = arith.xori %1332, %true : i1
+    %1334 = arith.ori %1333, %1327 : i1
+    %1335 = arith.xori %1330, %true : i1 loc(#loc113)
+    %1336 = arith.ori %1335, %1327 : i1
+    acir.path %1330 {branch = 34 : i64, kind = "branch", txn = 6 : i64} loc(#loc113)
+    acir.path %1330 {branch = 34 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc113)
+    %1337 = arith.ori %1335, %1336 : i1 loc(#loc113)
+    %1338 = arith.andi %1336, %1289 : i1 loc(#loc113)
+    %1339 = arith.andi %1330, %1338 : i1 loc(#loc113)
+    %1340 = arith.subi %1290, %c1_i32 {acir.id = "v20", acir.source_type = "u32"} : i32 loc(#loc114)
+    %1341 = arith.andi %1340, %c3_i32 {acir.id = "v22", acir.source_type = "u32"} : i32 loc(#loc115)
+    %1342 = arith.cmpi eq, %1341, %c0_i32 {acir.id = "v24", acir.source_type = "bool"} : i32 loc(#loc116)
+    %1343 = arith.cmpi eq, %1341, %c1_i32 {acir.id = "v26", acir.source_type = "bool"} : i32 loc(#loc116)
+    %1344 = arith.cmpi eq, %1341, %c2_i32 {acir.id = "v28", acir.source_type = "bool"} : i32 loc(#loc116)
+    %1345 = arith.cmpi eq, %1341, %c3_i32 {acir.id = "v30", acir.source_type = "bool"} : i32 loc(#loc116)
+    acir.path %1330 {branch = 34 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1346 = arith.ori %1335, %1337 : i1 loc(#loc116)
+    %1347 = arith.andi %1337, %1339 : i1 loc(#loc116)
+    %1348 = arith.andi %1330, %1347 : i1 loc(#loc116)
+    %1349 = arith.andi %1346, %1348 : i1
+    %1350 = arith.ori %1335, %1349 : i1
+    %1351 = arith.andi %1329, %1350 : i1
+    %1352 = arith.andi %1330, %1342 : i1
+    %1353 = arith.cmpi ne, %1341, %c0_i32 : i32 loc(#loc116)
+    %1354 = arith.andi %1330, %1353 : i1
+    %1355 = arith.xori %1354, %true : i1
+    %1356 = arith.ori %1355, %1349 : i1
+    %1357 = arith.xori %1352, %true : i1 loc(#loc116)
+    %1358 = arith.ori %1357, %1349 : i1
+    %1359 = arith.andi %1356, %1348 : i1
+    %1360 = arith.andi %1354, %1359 : i1
+    %1361 = arith.andi %1352, %1358 : i1
+    %1362 = arith.ori %1360, %1361 : i1
+    %1363 = arith.select %1354, %1343, %true : i1
+    %1364 = arith.ori %1335, %1346 : i1
+    %1365 = arith.andi %1364, %1362 : i1
+    %1366 = arith.ori %1335, %1365 : i1
+    %1367 = arith.andi %1351, %1366 : i1
+    %1368 = arith.andi %1330, %1363 : i1
+    %1369 = arith.xori %1363, %true : i1
+    %1370 = arith.andi %1330, %1369 : i1
+    %1371 = arith.xori %1370, %true : i1
+    %1372 = arith.ori %1371, %1365 : i1
+    %1373 = arith.xori %1368, %true : i1
+    %1374 = arith.ori %1373, %1365 : i1
+    %1375 = arith.andi %1372, %1348 : i1
+    %1376 = arith.andi %1370, %1375 : i1
+    %1377 = arith.andi %1368, %1374 : i1
+    %1378 = arith.ori %1376, %1377 : i1
+    %1379 = arith.select %1370, %1344, %true : i1
+    %1380 = arith.ori %1335, %1364 : i1
+    %1381 = arith.andi %1380, %1378 : i1
+    %1382 = arith.ori %1335, %1381 : i1
+    %1383 = arith.andi %1367, %1382 : i1
+    %1384 = arith.andi %1330, %1379 : i1
+    %1385 = arith.xori %1379, %true : i1
+    %1386 = arith.andi %1330, %1385 : i1
+    %1387 = arith.xori %1386, %true : i1
+    %1388 = arith.ori %1387, %1381 : i1
+    %1389 = arith.xori %1384, %true : i1
+    %1390 = arith.ori %1389, %1381 : i1
+    %1391 = arith.andi %1388, %1348 : i1
+    %1392 = arith.andi %1386, %1391 : i1
+    %1393 = arith.andi %1384, %1390 : i1
+    %1394 = arith.ori %1392, %1393 : i1
+    %1395 = arith.select %1386, %1345, %true : i1
+    %1396 = arith.ori %1335, %1380 : i1
+    %1397 = arith.andi %1396, %1394 : i1 loc(#loc116)
+    %1398 = arith.andi %1330, %1397 : i1 loc(#loc116)
+    %1399 = arith.andi %1398, %1395 : i1 loc(#loc116)
+    %1400 = arith.andi %1337, %1399 : i1 loc(#loc116)
+    %1401 = arith.ori %1335, %1400 : i1 loc(#loc116)
+    %1402 = arith.andi %1383, %1401 : i1 loc(#loc116)
+    %1403 = arith.andi %1400, %1339 : i1 loc(#loc116)
+    %1404 = arith.andi %1330, %1403 : i1 loc(#loc116)
+    %1405 = acir.aggregate() {acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : () -> !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1406 = arith.andi %1401, %1404 : i1
+    %1407 = arith.ori %1335, %1406 : i1
+    %1408 = arith.andi %1402, %1407 : i1
+    %1409 = arith.ori %1355, %1406 : i1
+    %1410 = arith.andi %1409, %1404 : i1
+    %1411 = arith.ori %1355, %1410 : i1
+    %1412 = arith.andi %1408, %1411 : i1
+    %1413 = arith.andi %1354, %1343 : i1
+    %1414 = arith.cmpi ne, %1341, %c1_i32 : i32 loc(#loc116)
+    %1415 = arith.andi %1354, %1414 : i1
+    %1416 = arith.xori %1415, %true : i1
+    %1417 = arith.ori %1416, %1410 : i1
+    %1418 = arith.andi %1417, %1404 : i1
     %1419 = arith.ori %1416, %1418 : i1
-    %1420 = arith.select %1398, %1391, %value_84 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1421 = arith.ori %1299, %1392 : i1
-    %1422 = acir.unary %1414 "not" {acir.source_type = "bool"} : i1 -> i1
-    %1423 = arith.andi %1421, %1413 : i1
-    %1424 = arith.ori %1299, %1423 : i1
-    %1425 = arith.andi %1408, %1424 : i1
-    %1426 = arith.andi %1421, %1419 : i1
-    %1427 = arith.andi %1294, %1426 : i1
-    %1428 = acir.extract %1420 {acir.id = "v45", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc128)
-    %1429 = arith.andi %1300, %1427 : i1
-    %1430 = arith.ori %1299, %1429 : i1
-    %1431 = arith.andi %1425, %1430 : i1
-    %1432 = arith.andi %1294, %1428 : i1
-    %1433 = arith.xori %1428, %true : i1
-    %1434 = arith.andi %1294, %1433 : i1
-    %1435 = arith.xori %1434, %true : i1
-    %1436 = arith.ori %1435, %1429 : i1
-    %1437 = arith.xori %1432, %true : i1
-    %1438 = arith.ori %1437, %1429 : i1
-    %1439 = acir.extract %1420 {acir.id = "v46", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc129)
-    %1440 = arith.andi %1434, %1436 : i1
-    %1441 = arith.andi %1438, %1427 : i1
-    %1442 = arith.andi %1432, %1441 : i1
-    %1443 = arith.ori %1440, %1442 : i1
-    %1444 = arith.select %1434, %false, %1439 : i1
-    %1445 = arith.andi %1301, %1443 : i1
-    %1446 = arith.ori %1299, %1445 : i1
-    %1447 = arith.andi %1431, %1446 : i1
-    %1448 = arith.andi %1294, %1444 : i1
-    %1449 = arith.xori %1444, %true : i1
-    %1450 = arith.andi %1294, %1449 : i1
-    %1451 = arith.xori %1450, %true : i1
-    %1452 = arith.ori %1451, %1445 : i1
-    %1453 = arith.xori %1448, %true : i1
-    %1454 = arith.ori %1453, %1445 : i1
-    %1455 = acir.extract %1420 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc130)
-    %1456 = arith.andi %1427, %1253 : i1 loc(#loc130)
-    %1457 = arith.cmpi eq, %1455, %1254 {acir.id = "v52", acir.source_type = "bool"} : i32 loc(#loc130)
-    %1458 = arith.andi %1450, %1452 : i1
-    %1459 = arith.andi %1454, %1456 : i1
-    %1460 = arith.andi %1448, %1459 : i1
-    %1461 = arith.ori %1458, %1460 : i1
-    %1462 = arith.select %1450, %false, %1457 : i1
-    %1463 = arith.andi %1392, %1461 : i1
-    %1464 = arith.ori %1299, %1463 : i1
-    %1465 = arith.andi %1447, %1464 : i1
-    %1466 = arith.andi %1294, %1462 : i1
-    %1467 = arith.xori %1462, %true : i1
-    %1468 = arith.andi %1294, %1467 : i1
-    %1469 = arith.xori %1468, %true : i1
-    %1470 = arith.ori %1469, %1463 : i1
-    %1471 = arith.xori %1466, %true : i1
-    %1472 = arith.ori %1471, %1463 : i1
-    %1473 = acir.extract %1420 {acir.id = "v58", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc131)
-    %1474 = acir.aggregate(%true, %1254, %1473) {acir.id = "v59", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc132)
-    %1475 = arith.andi %1470, %1284 : i1
-    %1476 = arith.andi %1468, %1475 : i1
-    %1477 = arith.andi %1466, %1472 : i1
-    %1478 = arith.ori %1476, %1477 : i1
-    %1479 = arith.select %1468, %1285, %false : i1
-    %1480 = arith.andi %1470, %1288 : i1
-    %1481 = arith.andi %1468, %1480 : i1
-    %1482 = arith.andi %1472, %1456 : i1
-    %1483 = arith.andi %1466, %1482 : i1
-    %1484 = arith.ori %1481, %1483 : i1
-    %1485 = arith.select %1468, %1289, %1474 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1486 = arith.andi %1421, %1478 : i1
-    %1487 = arith.ori %1299, %1486 : i1
-    %1488 = arith.andi %1465, %1487 : i1
-    %1489 = arith.andi %1294, %1479 : i1
-    %1490 = arith.xori %1479, %true : i1
-    %1491 = arith.andi %1294, %1490 : i1
-    %1492 = arith.xori %1491, %true : i1
-    %1493 = arith.ori %1492, %1486 : i1
-    %1494 = arith.xori %1489, %true : i1
-    %1495 = arith.ori %1494, %1486 : i1
-    %1496 = acir.aggregate(%false, %1254, %c0_i32) {acir.id = "v70", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc133)
-    %1497 = arith.andi %1493, %1478 : i1
-    %1498 = arith.andi %1491, %1497 : i1
-    %1499 = arith.andi %1489, %1495 : i1
-    %1500 = arith.ori %1498, %1499 : i1
-    %1501 = arith.select %1491, %1479, %false : i1
-    %1502 = arith.andi %1493, %1484 : i1
-    %1503 = arith.andi %1491, %1502 : i1
-    %1504 = arith.andi %1495, %1253 : i1
-    %1505 = arith.andi %1489, %1504 : i1
-    %1506 = arith.ori %1503, %1505 : i1
-    %1507 = arith.select %1491, %1485, %1496 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1508 = arith.ori %1299, %1421 : i1
-    %1509 = arith.andi %1298, %1284 : i1
-    %1510 = arith.andi %1296, %1509 : i1
-    %1511 = arith.andi %1508, %1500 : i1
-    %1512 = arith.andi %1294, %1511 : i1
-    %1513 = arith.ori %1510, %1512 : i1
-    %1514 = arith.select %1296, %1285, %1501 : i1
-    %1515 = arith.andi %1298, %1288 : i1
-    %1516 = arith.andi %1296, %1515 : i1
-    %1517 = arith.andi %1508, %1506 : i1
-    %1518 = arith.andi %1294, %1517 : i1
-    %1519 = arith.ori %1516, %1518 : i1
-    %1520 = arith.select %1296, %1289, %1507 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1521 = arith.ori %1229, %1290 : i1
-    %1522 = arith.andi %1244, %1236 : i1
-    %1523 = arith.andi %1242, %1522 : i1
-    %1524 = arith.andi %1521, %1513 : i1
-    %1525 = arith.andi %1228, %1524 : i1
-    %1526 = arith.ori %1523, %1525 : i1
-    %1527 = arith.select %1242, %1228, %1514 : i1
-    %1528 = arith.andi %1521, %1519 : i1
-    %1529 = arith.andi %1228, %1528 : i1
-    %1530 = arith.ori %1523, %1529 : i1
-    %1531 = arith.select %1242, %1237, %1520 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1532 = arith.ori %1201, %1238 : i1
-    %1533 = acir.unary %1527 "not" {acir.source_type = "bool"} : i1 -> i1
-    %1534 = arith.andi %1532, %1526 : i1
-    %1535 = arith.ori %1201, %1534 : i1
-    %1536 = arith.andi %1488, %1535 : i1
-    %1537 = arith.andi %1532, %1530 : i1
-    %1538 = arith.andi %1200, %1537 : i1
-    %1539 = acir.extract %value_68 {acir.id = "v8", acir.source_type = "u32", field = "rs2"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc134)
-    acir.path %1200 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc135)
-    %1540 = arith.cmpi ult, %1539, %c8_i32 {acir.id = "v8", acir.source_type = "bool"} : i32 loc(#loc108)
-    %1541 = arith.andi %1536, %1222 : i1 loc(#loc109)
-    %1542 = arith.cmpi eq, %1539, %c0_i32 {acir.id = "v11", acir.source_type = "bool"} : i32 loc(#loc110)
-    %1543 = arith.andi %1541, %1222 : i1
-    %1544 = arith.andi %1200, %1542 : i1
-    %1545 = arith.cmpi ne, %1539, %c0_i32 : i32 loc(#loc110)
-    %1546 = arith.andi %1200, %1545 : i1
-    %1547 = arith.xori %1546, %true : i1 loc(#loc111)
-    %1548 = arith.ori %1547, %1221 : i1
-    %1549 = arith.xori %1544, %true : i1
-    %1550 = arith.ori %1549, %1221 : i1
-    %1551 = arith.andi %1546, %1548 : i1
-    %1552 = arith.andi %1544, %1550 : i1
-    %1553 = arith.ori %1551, %1552 : i1
-    %1554 = arith.select %1546, %1219, %1233 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1555 = arith.andi %1238, %1553 : i1
-    %1556 = arith.ori %1201, %1555 : i1
-    %1557 = arith.andi %1543, %1556 : i1
-    %1558 = arith.andi %1200, %1547 : i1
-    %1559 = arith.xori %1558, %true : i1
-    %1560 = arith.ori %1559, %1555 : i1
-    %1561 = arith.ori %1547, %1555 : i1
-    acir.path %1546 {branch = 39 : i64, kind = "branch", txn = 6 : i64} loc(#loc111)
-    %value_86, %ready_87 = acir.read(%1546) {branch = 39 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc111)
-    %1562 = arith.andi %1561, %ready_87 : i1 loc(#loc111)
-    %1563 = arith.ori %1547, %1562 : i1 loc(#loc111)
-    %1564 = arith.andi %1557, %1563 : i1 loc(#loc111)
-    %1565 = arith.andi %ready_87, %1218 : i1 loc(#loc111)
-    %1566 = arith.extui %1539 : i32 to i64 loc(#loc111)
-    %1567 = arith.cmpi ult, %1566, %c8_i64 : i64 loc(#loc111)
-    %1568 = arith.select %1567, %1566, %c0_i64 : i64 loc(#loc111)
-    %1569 = arith.andi %1565, %1567 : i1 loc(#loc111)
-    %1570 = "acir.array.index"(%value_86, %1568) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc111)
-    %value_88, %ready_89 = acir.read(%1546) {branch = 39 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.committed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc114)
-    %1571 = arith.andi %1561, %ready_89 : i1 loc(#loc114)
-    %1572 = arith.ori %1547, %1571 : i1 loc(#loc114)
-    %1573 = arith.andi %1564, %1572 : i1 loc(#loc114)
-    %1574 = arith.andi %ready_89, %1218 : i1 loc(#loc114)
-    %1575 = arith.andi %1574, %1567 : i1 loc(#loc114)
-    %1576 = "acir.array.index"(%value_88, %1568) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc114)
-    %1577 = arith.andi %1569, %1575 : i1 loc(#loc115)
-    %1578 = arith.cmpi eq, %1570, %1576 {acir.id = "v30", acir.source_type = "bool"} : i32 loc(#loc115)
-    %1579 = arith.andi %1561, %1577 : i1
-    %1580 = arith.ori %1547, %1579 : i1
-    %1581 = arith.andi %1573, %1580 : i1
-    %1582 = arith.andi %1546, %1578 : i1
-    %1583 = arith.cmpi ne, %1570, %1576 : i32 loc(#loc115)
-    %1584 = arith.andi %1546, %1583 : i1
-    %1585 = arith.xori %1584, %true : i1
-    %1586 = arith.ori %1585, %1579 : i1
-    %1587 = arith.xori %1582, %true : i1 loc(#loc116)
-    %1588 = arith.ori %1587, %1579 : i1
-    acir.path %1582 {branch = 40 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
-    %value_90, %ready_91 = acir.read(%1582) {branch = 40 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.registers", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc116)
-    %1589 = arith.andi %1588, %ready_91 : i1 loc(#loc116)
-    %1590 = arith.ori %1587, %1589 : i1 loc(#loc116)
-    %1591 = arith.andi %1581, %1590 : i1 loc(#loc116)
-    %1592 = arith.andi %ready_91, %1218 : i1 loc(#loc116)
-    %1593 = arith.andi %1592, %1567 : i1 loc(#loc116)
-    %1594 = "acir.array.index"(%value_90, %1568) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc116)
-    %1595 = arith.andi %1569, %1593 : i1 loc(#loc117)
-    %1596 = acir.aggregate(%true, %1570, %1594) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc117)
-    %1597 = arith.andi %1586, %1553 : i1
-    %1598 = arith.andi %1584, %1597 : i1
-    %1599 = arith.andi %1582, %1588 : i1
-    %1600 = arith.ori %1598, %1599 : i1
-    %1601 = arith.select %1584, %1546, %false : i1
-    %1602 = arith.andi %1588, %1595 : i1
-    %1603 = arith.andi %1582, %1602 : i1
-    %1604 = arith.ori %1598, %1603 : i1
-    %1605 = arith.select %1584, %1554, %1596 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1606 = arith.ori %1547, %1561 : i1
-    %1607 = arith.andi %1606, %1600 : i1
-    %1608 = arith.ori %1547, %1607 : i1
-    %1609 = arith.andi %1591, %1608 : i1
-    %1610 = arith.andi %1546, %1601 : i1
-    %1611 = arith.xori %1601, %true : i1
-    %1612 = arith.andi %1546, %1611 : i1
-    %1613 = arith.xori %1612, %true : i1
-    %1614 = arith.ori %1613, %1607 : i1
-    %1615 = arith.xori %1610, %true : i1 loc(#loc118)
-    %1616 = arith.ori %1615, %1607 : i1
-    acir.path %1610 {branch = 41 : i64, kind = "branch", txn = 6 : i64} loc(#loc118)
-    acir.path %1610 {branch = 41 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc118)
-    %1617 = arith.ori %1615, %1616 : i1 loc(#loc118)
-    %1618 = arith.andi %1616, %1569 : i1 loc(#loc118)
-    %1619 = arith.andi %1610, %1618 : i1 loc(#loc118)
-    %1620 = arith.subi %1570, %c1_i32 {acir.id = "v8", acir.source_type = "u32"} : i32 loc(#loc119)
-    %1621 = arith.andi %1620, %c3_i32 {acir.id = "v10", acir.source_type = "u32"} : i32 loc(#loc119)
-    %1622 = arith.cmpi eq, %1621, %c0_i32 {acir.id = "v12", acir.source_type = "bool"} : i32 loc(#loc120)
-    %1623 = arith.andi %1617, %1619 : i1
-    %1624 = arith.ori %1615, %1623 : i1
-    %1625 = arith.andi %1609, %1624 : i1
-    %1626 = arith.andi %1610, %1622 : i1
-    %1627 = arith.cmpi ne, %1621, %c0_i32 : i32 loc(#loc120)
-    %1628 = arith.andi %1610, %1627 : i1
-    %1629 = arith.xori %1628, %true : i1
-    %1630 = arith.ori %1629, %1623 : i1
-    %1631 = arith.cmpi eq, %1621, %c1_i32 {acir.id = "v17", acir.source_type = "bool"} : i32 loc(#loc121)
-    %1632 = arith.andi %1630, %1619 : i1
-    %1633 = arith.ori %1629, %1632 : i1
-    %1634 = arith.andi %1625, %1633 : i1
-    %1635 = arith.andi %1628, %1631 : i1
-    %1636 = arith.cmpi ne, %1621, %c1_i32 : i32 loc(#loc121)
-    %1637 = arith.andi %1628, %1636 : i1
-    %1638 = arith.xori %1637, %true : i1
-    %1639 = arith.ori %1638, %1632 : i1
-    %1640 = arith.cmpi eq, %1621, %c2_i32 {acir.id = "v22", acir.source_type = "bool"} : i32 loc(#loc122)
-    %1641 = arith.andi %1639, %1619 : i1
-    %1642 = arith.ori %1638, %1641 : i1
-    %1643 = arith.andi %1634, %1642 : i1
-    %1644 = arith.andi %1637, %1640 : i1
-    %1645 = arith.cmpi ne, %1621, %c2_i32 : i32 loc(#loc122)
-    %1646 = arith.andi %1637, %1645 : i1
-    %1647 = arith.xori %1646, %true : i1
-    %1648 = arith.ori %1647, %1641 : i1
-    %1649 = arith.xori %1644, %true : i1 loc(#loc123)
-    %1650 = arith.ori %1649, %1641 : i1
-    acir.path %1644 {branch = 42 : i64, kind = "branch", txn = 6 : i64} loc(#loc123)
-    acir.path %1644 {branch = 42 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot2:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc123)
-    %1651 = arith.ori %1649, %1650 : i1 loc(#loc123)
-    %value_92, %ready_93 = acir.read(%1644) {branch = 42 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot2:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot2.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1652 = arith.andi %1651, %ready_93 : i1 loc(#loc124)
-    %1653 = arith.ori %1649, %1652 : i1 loc(#loc124)
-    %1654 = arith.andi %1643, %1653 : i1 loc(#loc124)
-    %1655 = arith.ori %1649, %1651 : i1
-    %1656 = arith.andi %1654, %1655 : i1
-    %1657 = arith.andi %1644, %1652 : i1
-    %1658 = arith.andi %1646, %1648 : i1
-    %1659 = arith.andi %1644, %1650 : i1
-    %1660 = arith.ori %1658, %1659 : i1
-    %1661 = arith.andi %1650, %1657 : i1
-    %1662 = arith.andi %1644, %1661 : i1
-    %1663 = arith.ori %1658, %1662 : i1
-    %1664 = arith.select %1646, %1304, %value_92 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1665 = arith.ori %1638, %1639 : i1
-    %1666 = arith.xori %1635, %true : i1 loc(#loc125)
-    %1667 = arith.ori %1666, %1632 : i1
-    acir.path %1635 {branch = 43 : i64, kind = "branch", txn = 6 : i64} loc(#loc125)
-    acir.path %1635 {branch = 43 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot1:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc125)
-    %1668 = arith.ori %1666, %1667 : i1 loc(#loc125)
-    %value_94, %ready_95 = acir.read(%1635) {branch = 43 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot1:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot1.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1669 = arith.andi %1668, %ready_95 : i1 loc(#loc124)
-    %1670 = arith.ori %1666, %1669 : i1 loc(#loc124)
-    %1671 = arith.andi %1656, %1670 : i1 loc(#loc124)
-    %1672 = arith.ori %1666, %1668 : i1
-    %1673 = arith.andi %1671, %1672 : i1
-    %1674 = arith.andi %1635, %1669 : i1
-    %1675 = arith.andi %1665, %1660 : i1
-    %1676 = arith.andi %1637, %1675 : i1
-    %1677 = arith.andi %1635, %1667 : i1
-    %1678 = arith.ori %1676, %1677 : i1
-    %1679 = arith.select %1637, %1646, %false : i1
-    %1680 = arith.andi %1665, %1663 : i1
-    %1681 = arith.andi %1637, %1680 : i1
-    %1682 = arith.andi %1667, %1674 : i1
-    %1683 = arith.andi %1635, %1682 : i1
-    %1684 = arith.ori %1681, %1683 : i1
-    %1685 = arith.select %1637, %1664, %value_94 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1686 = arith.ori %1629, %1630 : i1
-    %1687 = arith.xori %1626, %true : i1 loc(#loc126)
-    %1688 = arith.ori %1687, %1623 : i1
-    acir.path %1626 {branch = 44 : i64, kind = "branch", txn = 6 : i64} loc(#loc126)
-    acir.path %1626 {branch = 44 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot0:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc126)
-    %1689 = arith.ori %1687, %1688 : i1 loc(#loc126)
-    %value_96, %ready_97 = acir.read(%1626) {branch = 44 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot0:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot0.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1690 = arith.andi %1689, %ready_97 : i1 loc(#loc124)
-    %1691 = arith.ori %1687, %1690 : i1 loc(#loc124)
-    %1692 = arith.andi %1673, %1691 : i1 loc(#loc124)
-    %1693 = arith.ori %1687, %1689 : i1
-    %1694 = arith.andi %1692, %1693 : i1
-    %1695 = arith.andi %1626, %1690 : i1
-    %1696 = arith.andi %1686, %1678 : i1
-    %1697 = arith.andi %1628, %1696 : i1
-    %1698 = arith.andi %1626, %1688 : i1
-    %1699 = arith.ori %1697, %1698 : i1
-    %1700 = arith.select %1628, %1679, %false : i1
-    %1701 = arith.andi %1686, %1684 : i1
-    %1702 = arith.andi %1628, %1701 : i1
-    %1703 = arith.andi %1688, %1695 : i1
-    %1704 = arith.andi %1626, %1703 : i1
-    %1705 = arith.ori %1702, %1704 : i1
-    %1706 = arith.select %1628, %1685, %value_96 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1707 = arith.ori %1615, %1617 : i1
-    %1708 = arith.andi %1707, %1699 : i1
-    %1709 = arith.ori %1615, %1708 : i1
-    %1710 = arith.andi %1694, %1709 : i1
-    %1711 = arith.andi %1610, %1700 : i1
-    %1712 = arith.xori %1700, %true : i1
-    %1713 = arith.andi %1610, %1712 : i1
-    %1714 = arith.xori %1713, %true : i1
-    %1715 = arith.ori %1714, %1708 : i1
-    %1716 = arith.xori %1711, %true : i1 loc(#loc127)
-    %1717 = arith.ori %1716, %1708 : i1
-    acir.path %1711 {branch = 45 : i64, kind = "branch", txn = 6 : i64} loc(#loc127)
-    acir.path %1711 {branch = 45 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot3:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc127)
-    %1718 = arith.ori %1716, %1717 : i1 loc(#loc127)
-    %value_98, %ready_99 = acir.read(%1711) {branch = 45 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot3:peek"], method = "read", port = 0 : i64, resource = "top.rob.slot3.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc124)
-    %1719 = arith.andi %1718, %ready_99 : i1 loc(#loc124)
-    %1720 = arith.ori %1716, %1719 : i1 loc(#loc124)
-    %1721 = arith.andi %1710, %1720 : i1 loc(#loc124)
-    %1722 = arith.ori %1716, %1718 : i1
-    %1723 = arith.andi %1721, %1722 : i1
-    %1724 = arith.andi %1711, %1719 : i1
-    %1725 = arith.andi %1715, %1699 : i1
-    %1726 = arith.andi %1713, %1725 : i1
-    %1727 = arith.andi %1711, %1717 : i1
-    %1728 = arith.ori %1726, %1727 : i1
-    %1729 = arith.select %1713, %1700, %false : i1
-    %1730 = arith.andi %1715, %1705 : i1
-    %1731 = arith.andi %1713, %1730 : i1
-    %1732 = arith.andi %1717, %1724 : i1
-    %1733 = arith.andi %1711, %1732 : i1
-    %1734 = arith.ori %1731, %1733 : i1
-    %1735 = arith.select %1713, %1706, %value_98 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %1736 = arith.ori %1615, %1707 : i1
-    %1737 = acir.unary %1729 "not" {acir.source_type = "bool"} : i1 -> i1
-    %1738 = arith.andi %1736, %1728 : i1
-    %1739 = arith.ori %1615, %1738 : i1
-    %1740 = arith.andi %1723, %1739 : i1
-    %1741 = arith.andi %1736, %1734 : i1
-    %1742 = arith.andi %1610, %1741 : i1
-    %1743 = acir.extract %1735 {acir.id = "v45", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc128)
-    %1744 = arith.andi %1616, %1742 : i1
-    %1745 = arith.ori %1615, %1744 : i1
-    %1746 = arith.andi %1740, %1745 : i1
-    %1747 = arith.andi %1610, %1743 : i1
-    %1748 = arith.xori %1743, %true : i1
-    %1749 = arith.andi %1610, %1748 : i1
-    %1750 = arith.xori %1749, %true : i1
-    %1751 = arith.ori %1750, %1744 : i1
-    %1752 = arith.xori %1747, %true : i1
-    %1753 = arith.ori %1752, %1744 : i1
-    %1754 = acir.extract %1735 {acir.id = "v46", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc129)
-    %1755 = arith.andi %1749, %1751 : i1
-    %1756 = arith.andi %1753, %1742 : i1
-    %1757 = arith.andi %1747, %1756 : i1
-    %1758 = arith.ori %1755, %1757 : i1
-    %1759 = arith.select %1749, %false, %1754 : i1
-    %1760 = arith.andi %1617, %1758 : i1
-    %1761 = arith.ori %1615, %1760 : i1
-    %1762 = arith.andi %1746, %1761 : i1
-    %1763 = arith.andi %1610, %1759 : i1
-    %1764 = arith.xori %1759, %true : i1
-    %1765 = arith.andi %1610, %1764 : i1
-    %1766 = arith.xori %1765, %true : i1
-    %1767 = arith.ori %1766, %1760 : i1
-    %1768 = arith.xori %1763, %true : i1
-    %1769 = arith.ori %1768, %1760 : i1
-    %1770 = acir.extract %1735 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc130)
-    %1771 = arith.andi %1742, %1569 : i1 loc(#loc130)
-    %1772 = arith.cmpi eq, %1770, %1570 {acir.id = "v52", acir.source_type = "bool"} : i32 loc(#loc130)
-    %1773 = arith.andi %1765, %1767 : i1
-    %1774 = arith.andi %1769, %1771 : i1
-    %1775 = arith.andi %1763, %1774 : i1
-    %1776 = arith.ori %1773, %1775 : i1
-    %1777 = arith.select %1765, %false, %1772 : i1
-    %1778 = arith.andi %1707, %1776 : i1
-    %1779 = arith.ori %1615, %1778 : i1
-    %1780 = arith.andi %1762, %1779 : i1
-    %1781 = arith.andi %1610, %1777 : i1
-    %1782 = arith.xori %1777, %true : i1
-    %1783 = arith.andi %1610, %1782 : i1
-    %1784 = arith.xori %1783, %true : i1
-    %1785 = arith.ori %1784, %1778 : i1
-    %1786 = arith.xori %1781, %true : i1
-    %1787 = arith.ori %1786, %1778 : i1
-    %1788 = acir.extract %1735 {acir.id = "v58", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc131)
-    %1789 = acir.aggregate(%true, %1570, %1788) {acir.id = "v59", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc132)
-    %1790 = arith.andi %1785, %1600 : i1
-    %1791 = arith.andi %1783, %1790 : i1
-    %1792 = arith.andi %1781, %1787 : i1
-    %1793 = arith.ori %1791, %1792 : i1
-    %1794 = arith.select %1783, %1601, %false : i1
-    %1795 = arith.andi %1785, %1604 : i1
-    %1796 = arith.andi %1783, %1795 : i1
-    %1797 = arith.andi %1787, %1771 : i1
-    %1798 = arith.andi %1781, %1797 : i1
-    %1799 = arith.ori %1796, %1798 : i1
-    %1800 = arith.select %1783, %1605, %1789 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1801 = arith.andi %1736, %1793 : i1
-    %1802 = arith.ori %1615, %1801 : i1
-    %1803 = arith.andi %1780, %1802 : i1
-    %1804 = arith.andi %1610, %1794 : i1
-    %1805 = arith.xori %1794, %true : i1
-    %1806 = arith.andi %1610, %1805 : i1
-    %1807 = arith.xori %1806, %true : i1
-    %1808 = arith.ori %1807, %1801 : i1
-    %1809 = arith.xori %1804, %true : i1
-    %1810 = arith.ori %1809, %1801 : i1
-    %1811 = acir.aggregate(%false, %1570, %c0_i32) {acir.id = "v70", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc133)
-    %1812 = arith.andi %1808, %1793 : i1
-    %1813 = arith.andi %1806, %1812 : i1
-    %1814 = arith.andi %1804, %1810 : i1
-    %1815 = arith.ori %1813, %1814 : i1
-    %1816 = arith.select %1806, %1794, %false : i1
-    %1817 = arith.andi %1808, %1799 : i1
-    %1818 = arith.andi %1806, %1817 : i1
-    %1819 = arith.andi %1810, %1569 : i1
-    %1820 = arith.andi %1804, %1819 : i1
-    %1821 = arith.ori %1818, %1820 : i1
-    %1822 = arith.select %1806, %1800, %1811 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1823 = arith.ori %1615, %1736 : i1
-    %1824 = arith.andi %1614, %1600 : i1
-    %1825 = arith.andi %1612, %1824 : i1
-    %1826 = arith.andi %1823, %1815 : i1
-    %1827 = arith.andi %1610, %1826 : i1
-    %1828 = arith.ori %1825, %1827 : i1
-    %1829 = arith.select %1612, %1601, %1816 : i1
-    %1830 = arith.andi %1614, %1604 : i1
-    %1831 = arith.andi %1612, %1830 : i1
-    %1832 = arith.andi %1823, %1821 : i1
-    %1833 = arith.andi %1610, %1832 : i1
-    %1834 = arith.ori %1831, %1833 : i1
-    %1835 = arith.select %1612, %1605, %1822 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1836 = arith.ori %1547, %1606 : i1
-    %1837 = arith.andi %1560, %1553 : i1
-    %1838 = arith.andi %1558, %1837 : i1
-    %1839 = arith.andi %1836, %1828 : i1
-    %1840 = arith.andi %1546, %1839 : i1
-    %1841 = arith.ori %1838, %1840 : i1
-    %1842 = arith.select %1558, %1546, %1829 : i1
-    %1843 = arith.andi %1836, %1834 : i1
-    %1844 = arith.andi %1546, %1843 : i1
-    %1845 = arith.ori %1838, %1844 : i1
-    %1846 = arith.select %1558, %1554, %1835 : !acir.struct<"src_payloads_25ebcaa7.Operand">
-    %1847 = acir.unary %1842 "not" {acir.source_type = "bool"} : i1 -> i1
-    %1848 = arith.andi %1532, %1841 : i1
-    %1849 = arith.ori %1201, %1848 : i1
-    %1850 = arith.andi %1803, %1849 : i1
-    %1851 = arith.andi %1532, %1845 : i1
-    %1852 = arith.andi %1200, %1851 : i1
-    %1853 = acir.extract %value_68 {acir.id = "v10", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc136)
-    acir.path %1200 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc113)
-    acir.path %1200 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc113)
-    %value_100, %ready_101 = acir.read(%1200) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "read", port = 0 : i64, resource = "top.rob.tail", txn = 6 : i64} : (i1) -> (i32, i1) loc(#loc137)
-    %1854 = arith.andi %1238, %ready_101 : i1 loc(#loc137)
-    %1855 = arith.ori %1201, %1854 : i1 loc(#loc137)
-    %1856 = arith.andi %1850, %1855 : i1 loc(#loc137)
-    %value_102, %ready_103 = acir.read(%1200) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "read", port = 0 : i64, resource = "top.rob.head", txn = 6 : i64} : (i1) -> (i32, i1) loc(#loc138)
-    %1857 = arith.andi %1238, %ready_103 : i1 loc(#loc138)
-    %1858 = arith.ori %1201, %1857 : i1 loc(#loc138)
-    %1859 = arith.andi %1856, %1858 : i1 loc(#loc138)
-    %1860 = arith.andi %ready_101, %ready_103 : i1 loc(#loc137)
-    %1861 = arith.subi %value_100, %value_102 {acir.id = "v11", acir.source_type = "u32"} : i32 loc(#loc137)
-    %1862 = arith.cmpi ult, %1861, %c4_i32 {acir.id = "v13", acir.source_type = "bool"} : i32 loc(#loc137)
-    %1863 = arith.andi %1859, %1532 : i1
-    %1864 = arith.andi %1238, %1860 : i1
-    %1865 = arith.andi %1200, %1864 : i1
-    %1866 = arith.andi %1217, %1865 : i1 loc(#loc139)
-    %1867 = arith.andi %1200, %1866 : i1 loc(#loc139)
-    %1868 = arith.andi %1867, %1862 : i1 loc(#loc139)
-    %1869 = arith.andi %1204, %1868 : i1 loc(#loc139)
-    %1870 = arith.ori %1201, %1869 : i1 loc(#loc139)
-    %1871 = arith.andi %1863, %1870 : i1 loc(#loc139)
-    %1872 = arith.andi %1869, %ready_69 : i1 loc(#loc139)
-    %1873 = arith.andi %1200, %1872 : i1 loc(#loc139)
-    %value_104, %ready_105 = acir.read(%1200) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "read", port = 0 : i64, resource = "top.rob.tail", txn = 6 : i64} : (i1) -> (i32, i1) loc(#loc140)
-    %1874 = arith.andi %1870, %ready_105 : i1 loc(#loc140)
-    %1875 = arith.ori %1201, %1874 : i1 loc(#loc140)
-    %1876 = arith.andi %1871, %1875 : i1 loc(#loc140)
-    %1877 = arith.subi %value_104, %c1_i32 {acir.id = "v11", acir.source_type = "u32"} : i32 loc(#loc141)
-    %1878 = arith.andi %1877, %c3_i32 {acir.id = "v13", acir.source_type = "u32"} : i32 loc(#loc141)
-    %1879 = arith.cmpi eq, %1878, %c0_i32 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc142)
-    %1880 = arith.andi %1876, %1875 : i1
-    %1881 = arith.andi %1200, %1879 : i1
-    %1882 = arith.cmpi ne, %1878, %c0_i32 : i32 loc(#loc142)
-    %1883 = arith.andi %1200, %1882 : i1
-    %1884 = arith.xori %1883, %true : i1
-    %1885 = arith.ori %1884, %1874 : i1
-    %1886 = arith.cmpi eq, %1878, %c1_i32 {acir.id = "v18", acir.source_type = "bool"} : i32 loc(#loc143)
-    %1887 = arith.andi %1885, %ready_105 : i1
-    %1888 = arith.ori %1884, %1887 : i1
-    %1889 = arith.andi %1880, %1888 : i1
-    %1890 = arith.andi %1883, %1886 : i1
-    %1891 = arith.cmpi ne, %1878, %c1_i32 : i32 loc(#loc143)
-    %1892 = arith.andi %1883, %1891 : i1
-    %1893 = arith.xori %1892, %true : i1
-    %1894 = arith.ori %1893, %1887 : i1
-    %1895 = arith.cmpi eq, %1878, %c2_i32 {acir.id = "v21", acir.source_type = "bool"} : i32 loc(#loc144)
-    %1896 = arith.andi %1894, %ready_105 : i1
-    %1897 = arith.ori %1893, %1896 : i1
-    %1898 = arith.andi %1889, %1897 : i1
-    %1899 = arith.andi %1892, %1895 : i1
-    %1900 = arith.cmpi ne, %1878, %c2_i32 : i32 loc(#loc144)
-    %1901 = arith.andi %1892, %1900 : i1
-    %1902 = arith.xori %1901, %true : i1 loc(#loc145)
-    %1903 = arith.ori %1902, %1896 : i1
-    acir.path %1901 {branch = 46 : i64, kind = "branch", txn = 6 : i64} loc(#loc145)
-    acir.path %1901 {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot3:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc145)
-    %1904 = arith.ori %1902, %1903 : i1 loc(#loc145)
-    acir.path %1901 {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot3:allocate", "top.rob.slot3:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc145)
-    %1905 = arith.ori %1902, %1904 : i1 loc(#loc145)
-    %value_106, %ready_107 = acir.read(%1901) {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot3:allocate", "top.rob.slot3:free"], method = "read", port = 0 : i64, resource = "top.rob.slot3.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc146)
-    %1906 = arith.andi %1905, %ready_107 : i1 loc(#loc146)
-    %1907 = arith.ori %1902, %1906 : i1 loc(#loc146)
-    %1908 = arith.andi %1898, %1907 : i1 loc(#loc146)
-    %1909 = acir.extract %value_106 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc146)
-    %1910 = acir.unary %1909 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc147)
-    %1911 = arith.ori %1902, %1905 : i1
-    %1912 = arith.andi %1908, %1911 : i1
-    %1913 = arith.andi %1901, %1906 : i1
-    %1914 = arith.andi %1904, %1913 : i1 loc(#loc148)
-    %1915 = arith.andi %1901, %1914 : i1 loc(#loc148)
-    %1916 = arith.andi %1915, %1910 : i1 loc(#loc148)
-    %1917 = arith.andi %1903, %1916 : i1 loc(#loc148)
-    %1918 = arith.ori %1902, %1917 : i1 loc(#loc148)
-    %1919 = arith.andi %1912, %1918 : i1 loc(#loc148)
-    %1920 = arith.andi %1917, %ready_105 : i1 loc(#loc148)
-    %1921 = arith.andi %1901, %1920 : i1 loc(#loc148)
-    %1922 = arith.andi %1917, %1873 : i1 loc(#loc148)
-    %1923 = arith.andi %1901, %1922 : i1 loc(#loc148)
-    %1924 = arith.andi %1921, %1923 : i1 loc(#loc149)
-    %1925 = acir.aggregate(%true, %false, %value_104, %1853, %c0_i32) {acir.id = "v10", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc149)
-    %1926 = arith.andi %1918, %1924 : i1 loc(#loc150)
-    %1927 = arith.ori %1902, %1926 : i1 loc(#loc150)
-    %1928 = arith.andi %1919, %1927 : i1 loc(#loc150)
-    %1929 = arith.xori %1899, %true : i1 loc(#loc151)
-    %1930 = arith.ori %1929, %1896 : i1
-    acir.path %1899 {branch = 47 : i64, kind = "branch", txn = 6 : i64} loc(#loc151)
-    acir.path %1899 {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot2:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc151)
-    %1931 = arith.ori %1929, %1930 : i1 loc(#loc151)
-    acir.path %1899 {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot2:allocate", "top.rob.slot2:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc151)
-    %1932 = arith.ori %1929, %1931 : i1 loc(#loc151)
-    %value_108, %ready_109 = acir.read(%1899) {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot2:allocate", "top.rob.slot2:free"], method = "read", port = 0 : i64, resource = "top.rob.slot2.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc146)
-    %1933 = arith.andi %1932, %ready_109 : i1 loc(#loc146)
-    %1934 = arith.ori %1929, %1933 : i1 loc(#loc146)
-    %1935 = arith.andi %1928, %1934 : i1 loc(#loc146)
-    %1936 = acir.extract %value_108 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc146)
-    %1937 = acir.unary %1936 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc147)
-    %1938 = arith.ori %1929, %1932 : i1
-    %1939 = arith.andi %1935, %1938 : i1
-    %1940 = arith.andi %1899, %1933 : i1
-    %1941 = arith.andi %1931, %1940 : i1 loc(#loc148)
-    %1942 = arith.andi %1899, %1941 : i1 loc(#loc148)
-    %1943 = arith.andi %1942, %1937 : i1 loc(#loc148)
-    %1944 = arith.andi %1930, %1943 : i1 loc(#loc148)
-    %1945 = arith.ori %1929, %1944 : i1 loc(#loc148)
-    %1946 = arith.andi %1939, %1945 : i1 loc(#loc148)
-    %1947 = arith.andi %1944, %ready_105 : i1 loc(#loc148)
-    %1948 = arith.andi %1899, %1947 : i1 loc(#loc148)
-    %1949 = arith.andi %1944, %1873 : i1 loc(#loc148)
-    %1950 = arith.andi %1899, %1949 : i1 loc(#loc148)
-    %1951 = arith.andi %1948, %1950 : i1 loc(#loc149)
-    %1952 = arith.andi %1945, %1951 : i1 loc(#loc150)
-    %1953 = arith.ori %1929, %1952 : i1 loc(#loc150)
-    %1954 = arith.andi %1946, %1953 : i1 loc(#loc150)
-    %1955 = arith.xori %1890, %true : i1 loc(#loc152)
-    %1956 = arith.ori %1955, %1887 : i1
-    acir.path %1890 {branch = 48 : i64, kind = "branch", txn = 6 : i64} loc(#loc152)
-    acir.path %1890 {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot1:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc152)
-    %1957 = arith.ori %1955, %1956 : i1 loc(#loc152)
-    acir.path %1890 {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot1:allocate", "top.rob.slot1:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc152)
-    %1958 = arith.ori %1955, %1957 : i1 loc(#loc152)
-    %value_110, %ready_111 = acir.read(%1890) {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot1:allocate", "top.rob.slot1:free"], method = "read", port = 0 : i64, resource = "top.rob.slot1.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc146)
-    %1959 = arith.andi %1958, %ready_111 : i1 loc(#loc146)
-    %1960 = arith.ori %1955, %1959 : i1 loc(#loc146)
-    %1961 = arith.andi %1954, %1960 : i1 loc(#loc146)
-    %1962 = acir.extract %value_110 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc146)
-    %1963 = acir.unary %1962 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc147)
-    %1964 = arith.ori %1955, %1958 : i1
-    %1965 = arith.andi %1961, %1964 : i1
-    %1966 = arith.andi %1890, %1959 : i1
-    %1967 = arith.andi %1957, %1966 : i1 loc(#loc148)
-    %1968 = arith.andi %1890, %1967 : i1 loc(#loc148)
-    %1969 = arith.andi %1968, %1963 : i1 loc(#loc148)
-    %1970 = arith.andi %1956, %1969 : i1 loc(#loc148)
-    %1971 = arith.ori %1955, %1970 : i1 loc(#loc148)
-    %1972 = arith.andi %1965, %1971 : i1 loc(#loc148)
-    %1973 = arith.andi %1970, %ready_105 : i1 loc(#loc148)
-    %1974 = arith.andi %1890, %1973 : i1 loc(#loc148)
-    %1975 = arith.andi %1970, %1873 : i1 loc(#loc148)
-    %1976 = arith.andi %1890, %1975 : i1 loc(#loc148)
-    %1977 = arith.andi %1974, %1976 : i1 loc(#loc149)
-    %1978 = arith.andi %1971, %1977 : i1 loc(#loc150)
-    %1979 = arith.ori %1955, %1978 : i1 loc(#loc150)
-    %1980 = arith.andi %1972, %1979 : i1 loc(#loc150)
-    %1981 = arith.xori %1881, %true : i1 loc(#loc153)
-    %1982 = arith.ori %1981, %1874 : i1
-    acir.path %1881 {branch = 49 : i64, kind = "branch", txn = 6 : i64} loc(#loc153)
-    acir.path %1881 {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot0:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc153)
-    %1983 = arith.ori %1981, %1982 : i1 loc(#loc153)
-    acir.path %1881 {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot0:allocate", "top.rob.slot0:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc153)
-    %1984 = arith.ori %1981, %1983 : i1 loc(#loc153)
-    %value_112, %ready_113 = acir.read(%1881) {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot0:allocate", "top.rob.slot0:free"], method = "read", port = 0 : i64, resource = "top.rob.slot0.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc146)
-    %1985 = arith.andi %1984, %ready_113 : i1 loc(#loc146)
-    %1986 = arith.ori %1981, %1985 : i1 loc(#loc146)
-    %1987 = arith.andi %1980, %1986 : i1 loc(#loc146)
-    %1988 = acir.extract %value_112 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc146)
-    %1989 = acir.unary %1988 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc147)
-    %1990 = arith.ori %1981, %1984 : i1
-    %1991 = arith.andi %1987, %1990 : i1
-    %1992 = arith.andi %1881, %1985 : i1
-    %1993 = arith.andi %1983, %1992 : i1 loc(#loc148)
-    %1994 = arith.andi %1881, %1993 : i1 loc(#loc148)
-    %1995 = arith.andi %1994, %1989 : i1 loc(#loc148)
-    %1996 = arith.andi %1982, %1995 : i1 loc(#loc148)
-    %1997 = arith.ori %1981, %1996 : i1 loc(#loc148)
-    %1998 = arith.andi %1991, %1997 : i1 loc(#loc148)
-    %1999 = arith.andi %1996, %ready_105 : i1 loc(#loc148)
-    %2000 = arith.andi %1881, %1999 : i1 loc(#loc148)
-    %2001 = arith.andi %1996, %1873 : i1 loc(#loc148)
-    %2002 = arith.andi %1881, %2001 : i1 loc(#loc148)
-    %2003 = arith.andi %2000, %2002 : i1 loc(#loc149)
-    %2004 = arith.andi %1997, %2003 : i1 loc(#loc150)
-    %2005 = arith.ori %1981, %2004 : i1 loc(#loc150)
-    %2006 = arith.andi %1998, %2005 : i1 loc(#loc150)
-    %2007 = arith.addi %value_104, %c1_i32 {acir.id = "v34", acir.source_type = "u32"} : i32 loc(#loc154)
-    %2008 = arith.andi %2006, %1875 : i1 loc(#loc155)
-    %2009 = arith.ori %1201, %1870 : i1
-    %2010 = arith.andi %2008, %2009 : i1
-    %2011 = arith.andi %1200, %1874 : i1
-    %2012 = arith.andi %2011, %1868 : i1
-    %2013 = acir.extract %value_68 {acir.id = "v12", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc156)
-    acir.path %1200 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc157)
-    %2014 = arith.andi %1204, %2012 : i1 loc(#loc157)
-    %2015 = arith.andi %1200, %2014 : i1 loc(#loc157)
-    %2016 = arith.cmpi ult, %2013, %c8_i32 {acir.id = "v7", acir.source_type = "bool"} : i32 loc(#loc158)
-    %2017 = arith.andi %2010, %1222 : i1 loc(#loc159)
-    %2018 = arith.cmpi ne, %2013, %c0_i32 {acir.id = "v10", acir.source_type = "bool"} : i32 loc(#loc160)
-    %2019 = arith.andi %2017, %1222 : i1
-    %2020 = arith.andi %1200, %2018 : i1
-    %2021 = arith.xori %2020, %true : i1 loc(#loc161)
-    %2022 = arith.ori %2021, %1221 : i1
-    acir.path %2020 {branch = 50 : i64, kind = "branch", txn = 6 : i64} loc(#loc161)
-    %value_114, %ready_115 = acir.read(%2020) {branch = 50 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "read", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc161)
-    %2023 = arith.andi %2022, %ready_115 : i1 loc(#loc161)
-    %2024 = arith.ori %2021, %2023 : i1 loc(#loc161)
-    %2025 = arith.andi %2019, %2024 : i1 loc(#loc161)
-    %2026 = arith.andi %ready_115, %2015 : i1 loc(#loc161)
-    %2027 = arith.andi %2026, %1218 : i1 loc(#loc161)
-    %2028 = arith.extui %2013 : i32 to i64 loc(#loc161)
-    %2029 = arith.cmpi ult, %2028, %c8_i64 : i64 loc(#loc161)
-    %2030 = arith.andi %2027, %2029 : i1 loc(#loc161)
-    %2031 = arith.select %2029, %2028, %c0_i64 : i64 loc(#loc161)
-    %2032 = acir.update %value_114, %value_104[%2031] {acir.id = "v15", acir.source_type = "array<u32;8>", path = [unit], signed_indices = [false]} : (!acir.array<i32, [8]>, i32, i64) -> !acir.array<i32, [8]> loc(#loc161)
-    %2033 = arith.andi %2022, %2030 : i1 loc(#loc161)
-    %2034 = arith.ori %2021, %2033 : i1 loc(#loc161)
-    %2035 = arith.andi %2025, %2034 : i1 loc(#loc161)
-    %2036 = acir.extract %value_68 {acir.id = "v15", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc162)
-    %2037 = acir.extract %value_68 {acir.id = "v16", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc163)
-    %2038 = arith.andi %ready_69, %2012 : i1 loc(#loc164)
-    %2039 = arith.andi %2038, %1538 : i1 loc(#loc164)
-    %2040 = arith.andi %2039, %1852 : i1 loc(#loc164)
-    %2041 = acir.aggregate(%true, %2036, %value_104, %2037, %1531, %1846) {acir.id = "v17", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc164)
-    acir.path %1200 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.left:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc165)
-    %value_116, %ready_117 = acir.read(%1200) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.left:peek"], method = "read", port = 0 : i64, resource = "top.left.slot", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc2)
-    %2042 = arith.andi %1217, %ready_117 : i1 loc(#loc2)
-    %2043 = arith.ori %1201, %2042 : i1 loc(#loc2)
-    %2044 = arith.andi %2035, %2043 : i1 loc(#loc2)
-    %2045 = arith.andi %2044, %1238 : i1
-    %2046 = arith.andi %1200, %2042 : i1
-    %2047 = acir.extract %value_116 {acir.id = "v19", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc165)
-    %2048 = acir.unary %2047 "not" {acir.id = "v20", acir.source_type = "bool"} : i1 -> i1 loc(#loc166)
-    %2049 = arith.andi %1204, %2046 : i1
-    %2050 = arith.ori %1201, %2049 : i1
-    %2051 = arith.andi %2045, %2050 : i1
-    %2052 = arith.andi %1200, %2048 : i1
-    %2053 = arith.xori %2048, %true : i1
-    %2054 = arith.andi %1200, %2053 : i1
-    %2055 = arith.xori %2054, %true : i1 loc(#loc167)
-    %2056 = arith.ori %2055, %2049 : i1
-    acir.path %2054 {branch = 51 : i64, kind = "branch", txn = 6 : i64} loc(#loc167)
-    acir.path %2054 {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc167)
-    %2057 = arith.ori %2055, %2056 : i1 loc(#loc167)
-    acir.path %2054 {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place", "top.right:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc167)
-    %2058 = arith.ori %2055, %2057 : i1 loc(#loc167)
-    %value_118, %ready_119 = acir.read(%2054) {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place", "top.right:free"], method = "read", port = 0 : i64, resource = "top.right.slot", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc168)
-    %2059 = arith.andi %2058, %ready_119 : i1 loc(#loc168)
-    %2060 = arith.ori %2055, %2059 : i1 loc(#loc168)
-    %2061 = arith.andi %2051, %2060 : i1 loc(#loc168)
-    %2062 = acir.extract %value_118 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc168)
-    %2063 = acir.unary %2062 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc169)
-    %2064 = arith.ori %2055, %2058 : i1
-    %2065 = arith.andi %2061, %2064 : i1
-    %2066 = arith.andi %2054, %2059 : i1
-    %2067 = arith.andi %2057, %2066 : i1 loc(#loc170)
-    %2068 = arith.andi %2054, %2067 : i1 loc(#loc170)
-    %2069 = arith.andi %2068, %2063 : i1 loc(#loc170)
-    %2070 = arith.andi %2056, %2069 : i1 loc(#loc170)
-    %2071 = arith.ori %2055, %2070 : i1 loc(#loc170)
-    %2072 = arith.andi %2065, %2071 : i1 loc(#loc170)
-    %2073 = arith.andi %2070, %2040 : i1 loc(#loc170)
-    %2074 = arith.andi %2054, %2073 : i1 loc(#loc170)
-    %2075 = arith.andi %2071, %2074 : i1 loc(#loc171)
-    %2076 = arith.ori %2055, %2075 : i1 loc(#loc171)
-    %2077 = arith.andi %2072, %2076 : i1 loc(#loc171)
-    %2078 = arith.xori %2052, %true : i1 loc(#loc172)
-    %2079 = arith.ori %2078, %2049 : i1
-    acir.path %2052 {branch = 52 : i64, kind = "branch", txn = 6 : i64} loc(#loc172)
-    acir.path %2052 {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc172)
-    %2080 = arith.ori %2078, %2079 : i1 loc(#loc172)
-    acir.path %2052 {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place", "top.left:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc172)
-    %2081 = arith.ori %2078, %2080 : i1 loc(#loc172)
-    %value_120, %ready_121 = acir.read(%2052) {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place", "top.left:free"], method = "read", port = 0 : i64, resource = "top.left.slot", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc168)
-    %2082 = arith.andi %2081, %ready_121 : i1 loc(#loc168)
-    %2083 = arith.ori %2078, %2082 : i1 loc(#loc168)
-    %2084 = arith.andi %2077, %2083 : i1 loc(#loc168)
-    %2085 = acir.extract %value_120 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc168)
-    %2086 = acir.unary %2085 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc169)
-    %2087 = arith.ori %2078, %2081 : i1
-    %2088 = arith.andi %2084, %2087 : i1
-    %2089 = arith.andi %2052, %2082 : i1
-    %2090 = arith.andi %2080, %2089 : i1 loc(#loc170)
-    %2091 = arith.andi %2052, %2090 : i1 loc(#loc170)
-    %2092 = arith.andi %2091, %2086 : i1 loc(#loc170)
-    %2093 = arith.andi %2079, %2092 : i1 loc(#loc170)
-    %2094 = arith.ori %2078, %2093 : i1 loc(#loc170)
-    %2095 = arith.andi %2088, %2094 : i1 loc(#loc170)
-    %2096 = arith.andi %2093, %2040 : i1 loc(#loc170)
-    %2097 = arith.andi %2052, %2096 : i1 loc(#loc170)
-    %2098 = arith.andi %2094, %2097 : i1 loc(#loc171)
-    %2099 = arith.ori %2078, %2098 : i1 loc(#loc171)
-    %2100 = arith.andi %2095, %2099 : i1 loc(#loc171)
-    %2101 = acir.fire "top.dispatch.dispatch#6" %2100 {successors = [], txn = 6 : i64}
-    %2102 = arith.andi %2101, %1200 : i1
-    acir.effect %2102() {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "pop", port = 0 : i64, resource = "top.source", txn = 6 : i64} : (i1) -> () loc(#loc105)
-    acir.effect %2102(%1220) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> () loc(#loc109)
-    %2103 = arith.andi %2101, %1329 : i1
-    acir.effect %2103(%0) {branch = 35 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot2:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2104 = arith.andi %2101, %1320 : i1
-    acir.effect %2104(%0) {branch = 36 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot1:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2105 = arith.andi %2101, %1311 : i1
-    acir.effect %2105(%0) {branch = 37 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot0:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2106 = arith.andi %2101, %1396 : i1
-    acir.effect %2106(%0) {branch = 38 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot3:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2107 = arith.andi %2101, %1294 : i1
-    acir.effect %2107(%1422) {branch = 34 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2102(%1533) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2102(%1540) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> () loc(#loc109)
-    %2108 = arith.andi %2101, %1644 : i1
-    acir.effect %2108(%0) {branch = 42 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot2:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2109 = arith.andi %2101, %1635 : i1
-    acir.effect %2109(%0) {branch = 43 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot1:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2110 = arith.andi %2101, %1626 : i1
-    acir.effect %2110(%0) {branch = 44 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot0:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2111 = arith.andi %2101, %1711 : i1
-    acir.effect %2111(%0) {branch = 45 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob.slot3:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2112 = arith.andi %2101, %1610 : i1
-    acir.effect %2112(%1737) {branch = 41 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2102(%1847) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2102(%0) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2113 = arith.andi %2101, %1901 : i1
-    acir.effect %2113(%0) {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot3:allocate", "top.rob.slot3:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2113(%1925) {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot3:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slot3.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc150)
-    %2114 = arith.andi %2101, %1899 : i1
-    acir.effect %2114(%0) {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot2:allocate", "top.rob.slot2:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2114(%1925) {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot2:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slot2.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc150)
-    %2115 = arith.andi %2101, %1890 : i1
-    acir.effect %2115(%0) {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot1:allocate", "top.rob.slot1:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2115(%1925) {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot1:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slot1.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc150)
-    %2116 = arith.andi %2101, %1881 : i1
-    acir.effect %2116(%0) {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot0:allocate", "top.rob.slot0:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2116(%1925) {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob.slot0:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slot0.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc150)
-    acir.effect %2102(%2007) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "write", port = 0 : i64, resource = "top.rob.tail", txn = 6 : i64} : (i1, i32) -> () loc(#loc155)
-    acir.effect %2102(%0) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2102(%2016) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> () loc(#loc159)
-    %2117 = arith.andi %2101, %2020 : i1
-    acir.effect %2117(%2032) {branch = 50 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "write", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1, !acir.array<i32, [8]>) -> () loc(#loc161)
-    acir.effect %2102(%0) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.left:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    %2118 = arith.andi %2101, %2054 : i1
-    acir.effect %2118(%0) {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place", "top.right:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2118(%2041) {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place"], method = "write", port = 0 : i64, resource = "top.right.slot", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc171)
-    %2119 = arith.andi %2101, %2052 : i1
-    acir.effect %2119(%0) {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place", "top.left:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
-    acir.effect %2119(%2041) {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place"], method = "write", port = 0 : i64, resource = "top.left.slot", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc171)
-    acir.path %true {branch = 53 : i64, kind = "branch", txn = 7 : i64} loc(#loc173)
-    acir.path %true {branch = 53 : i64, frames = ["top.commit:commit"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc173)
-    acir.path %true {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc174)
-    %value_122, %ready_123 = acir.read(%true) {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "read", port = 0 : i64, resource = "top.rob.head", txn = 7 : i64} : (i1) -> (i32, i1) loc(#loc175)
-    %2120 = arith.subi %value_122, %c1_i32 {acir.id = "v9", acir.source_type = "u32"} : i32 loc(#loc176)
-    %2121 = arith.andi %2120, %c3_i32 {acir.id = "v11", acir.source_type = "u32"} : i32 loc(#loc176)
-    %2122 = arith.cmpi eq, %2121, %c0_i32 {acir.id = "v13", acir.source_type = "bool"} : i32 loc(#loc177)
-    %2123 = arith.cmpi ne, %2121, %c0_i32 : i32 loc(#loc177)
-    %2124 = arith.cmpi eq, %2121, %c0_i32 : i32 loc(#loc177)
-    %2125 = arith.ori %2124, %ready_123 : i1
-    %2126 = arith.cmpi eq, %2121, %c1_i32 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc178)
-    %2127 = arith.andi %2125, %ready_123 : i1
-    %2128 = arith.ori %2124, %2127 : i1
-    %2129 = arith.andi %ready_123, %2128 : i1
-    %2130 = arith.andi %2123, %2126 : i1
-    %2131 = arith.cmpi ne, %2121, %c1_i32 : i32 loc(#loc178)
-    %2132 = arith.andi %2123, %2131 : i1
-    %2133 = arith.xori %2132, %true : i1
-    %2134 = arith.ori %2133, %2127 : i1
-    %2135 = arith.cmpi eq, %2121, %c2_i32 {acir.id = "v19", acir.source_type = "bool"} : i32 loc(#loc179)
-    %2136 = arith.andi %2134, %ready_123 : i1
-    %2137 = arith.ori %2133, %2136 : i1
-    %2138 = arith.andi %2129, %2137 : i1
-    %2139 = arith.andi %2132, %2135 : i1
-    %2140 = arith.cmpi ne, %2121, %c2_i32 : i32 loc(#loc179)
-    %2141 = arith.andi %2132, %2140 : i1
-    %2142 = arith.xori %2141, %true : i1 loc(#loc180)
-    %2143 = arith.ori %2142, %2136 : i1
-    acir.path %2141 {branch = 54 : i64, kind = "branch", txn = 7 : i64} loc(#loc180)
-    acir.path %2141 {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot3:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc180)
-    %2144 = arith.ori %2142, %2143 : i1 loc(#loc180)
-    %2145 = arith.andi %2143, %ready_123 : i1 loc(#loc180)
-    %2146 = arith.andi %2141, %2145 : i1 loc(#loc180)
-    acir.path %2141 {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot3:retire", "top.rob.slot3:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc180)
-    %2147 = arith.ori %2142, %2144 : i1 loc(#loc180)
-    %2148 = arith.andi %2144, %2146 : i1 loc(#loc180)
-    %2149 = arith.andi %2141, %2148 : i1 loc(#loc180)
-    %value_124, %ready_125 = acir.read(%2141) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot3:retire", "top.rob.slot3:completed"], method = "read", port = 0 : i64, resource = "top.rob.slot3.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc181)
-    %2150 = arith.andi %2147, %ready_125 : i1 loc(#loc181)
-    %2151 = arith.ori %2142, %2150 : i1 loc(#loc181)
-    %2152 = arith.andi %2138, %2151 : i1 loc(#loc181)
-    %2153 = acir.extract %value_124 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc182)
-    %2154 = arith.andi %2152, %2151 : i1
-    %2155 = arith.andi %2141, %2153 : i1
-    %2156 = arith.xori %2153, %true : i1
-    %2157 = arith.andi %2141, %2156 : i1
-    %2158 = arith.xori %2157, %true : i1
-    %2159 = arith.ori %2158, %2150 : i1
-    %2160 = arith.xori %2155, %true : i1
-    %2161 = arith.ori %2160, %2150 : i1
-    %2162 = acir.extract %value_124 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc183)
-    %2163 = arith.andi %2157, %2159 : i1
-    %2164 = arith.andi %2161, %ready_125 : i1
-    %2165 = arith.andi %2155, %2164 : i1
-    %2166 = arith.ori %2163, %2165 : i1
-    %2167 = arith.select %2157, %false, %2162 : i1
-    %2168 = arith.ori %2142, %2147 : i1
-    %2169 = arith.andi %2168, %2166 : i1
-    %2170 = arith.ori %2142, %2169 : i1
-    %2171 = arith.andi %2154, %2170 : i1
-    %2172 = arith.andi %2141, %2167 : i1
-    %2173 = arith.xori %2167, %true : i1
-    %2174 = arith.andi %2141, %2173 : i1
-    %2175 = arith.xori %2174, %true : i1
-    %2176 = arith.ori %2175, %2169 : i1
-    %2177 = arith.xori %2172, %true : i1
-    %2178 = arith.ori %2177, %2169 : i1
-    %2179 = acir.extract %value_124 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc184)
-    %2180 = arith.andi %ready_125, %2149 : i1 loc(#loc184)
-    %2181 = arith.cmpi eq, %2179, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc184)
-    %2182 = arith.andi %2174, %2176 : i1
-    %2183 = arith.andi %2178, %2180 : i1
-    %2184 = arith.andi %2172, %2183 : i1
-    %2185 = arith.ori %2182, %2184 : i1
-    %2186 = arith.select %2174, %false, %2181 : i1
-    %2187 = arith.ori %2142, %2168 : i1
-    %2188 = arith.ori %2142, %2187 : i1
-    %2189 = arith.andi %2171, %2188 : i1
-    %2190 = arith.andi %2187, %2185 : i1
-    %2191 = arith.andi %2141, %2190 : i1
-    %2192 = arith.andi %2144, %2191 : i1 loc(#loc185)
-    %2193 = arith.andi %2141, %2192 : i1 loc(#loc185)
-    %2194 = arith.andi %2193, %2186 : i1 loc(#loc185)
-    %2195 = arith.andi %2143, %2194 : i1 loc(#loc185)
-    %2196 = arith.ori %2142, %2195 : i1 loc(#loc185)
-    %2197 = arith.andi %2189, %2196 : i1 loc(#loc185)
-    %value_126, %ready_127 = acir.read(%2141) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot3:retire"], method = "read", port = 0 : i64, resource = "top.rob.slot3.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc186)
-    %2198 = arith.andi %2196, %ready_127 : i1 loc(#loc186)
-    %2199 = arith.ori %2142, %2198 : i1 loc(#loc186)
-    %2200 = arith.andi %2197, %2199 : i1 loc(#loc186)
-    %2201 = acir.aggregate(%false, %false, %c0_i32, %c0_i32, %c0_i32) {acir.id = "v15", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc187)
-    %2202 = arith.ori %2142, %2196 : i1 loc(#loc188)
-    %2203 = arith.andi %2200, %2202 : i1 loc(#loc188)
-    %2204 = arith.andi %2203, %2202 : i1
-    %2205 = arith.andi %2141, %2198 : i1
-    %2206 = arith.andi %2205, %2194 : i1
-    %2207 = arith.xori %2139, %true : i1 loc(#loc189)
-    %2208 = arith.ori %2207, %2136 : i1
-    acir.path %2139 {branch = 55 : i64, kind = "branch", txn = 7 : i64} loc(#loc189)
-    acir.path %2139 {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot2:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc189)
-    %2209 = arith.ori %2207, %2208 : i1 loc(#loc189)
-    %2210 = arith.andi %2208, %ready_123 : i1 loc(#loc189)
-    %2211 = arith.andi %2139, %2210 : i1 loc(#loc189)
-    acir.path %2139 {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot2:retire", "top.rob.slot2:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc189)
-    %2212 = arith.ori %2207, %2209 : i1 loc(#loc189)
-    %2213 = arith.andi %2209, %2211 : i1 loc(#loc189)
-    %2214 = arith.andi %2139, %2213 : i1 loc(#loc189)
-    %value_128, %ready_129 = acir.read(%2139) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot2:retire", "top.rob.slot2:completed"], method = "read", port = 0 : i64, resource = "top.rob.slot2.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc181)
-    %2215 = arith.andi %2212, %ready_129 : i1 loc(#loc181)
-    %2216 = arith.ori %2207, %2215 : i1 loc(#loc181)
-    %2217 = arith.andi %2204, %2216 : i1 loc(#loc181)
-    %2218 = acir.extract %value_128 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc182)
-    %2219 = arith.andi %2217, %2216 : i1
-    %2220 = arith.andi %2139, %2218 : i1
-    %2221 = arith.xori %2218, %true : i1
-    %2222 = arith.andi %2139, %2221 : i1
-    %2223 = arith.xori %2222, %true : i1
-    %2224 = arith.ori %2223, %2215 : i1
-    %2225 = arith.xori %2220, %true : i1
-    %2226 = arith.ori %2225, %2215 : i1
-    %2227 = acir.extract %value_128 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc183)
-    %2228 = arith.andi %2222, %2224 : i1
-    %2229 = arith.andi %2226, %ready_129 : i1
-    %2230 = arith.andi %2220, %2229 : i1
-    %2231 = arith.ori %2228, %2230 : i1
-    %2232 = arith.select %2222, %false, %2227 : i1
-    %2233 = arith.ori %2207, %2212 : i1
-    %2234 = arith.andi %2233, %2231 : i1
-    %2235 = arith.ori %2207, %2234 : i1
-    %2236 = arith.andi %2219, %2235 : i1
-    %2237 = arith.andi %2139, %2232 : i1
-    %2238 = arith.xori %2232, %true : i1
-    %2239 = arith.andi %2139, %2238 : i1
-    %2240 = arith.xori %2239, %true : i1
-    %2241 = arith.ori %2240, %2234 : i1
-    %2242 = arith.xori %2237, %true : i1
-    %2243 = arith.ori %2242, %2234 : i1
-    %2244 = acir.extract %value_128 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc184)
-    %2245 = arith.andi %ready_129, %2214 : i1 loc(#loc184)
-    %2246 = arith.cmpi eq, %2244, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc184)
-    %2247 = arith.andi %2239, %2241 : i1
-    %2248 = arith.andi %2243, %2245 : i1
-    %2249 = arith.andi %2237, %2248 : i1
-    %2250 = arith.ori %2247, %2249 : i1
-    %2251 = arith.select %2239, %false, %2246 : i1
-    %2252 = arith.ori %2207, %2233 : i1
-    %2253 = arith.ori %2207, %2252 : i1
-    %2254 = arith.andi %2236, %2253 : i1
-    %2255 = arith.andi %2252, %2250 : i1
-    %2256 = arith.andi %2139, %2255 : i1
-    %2257 = arith.andi %2209, %2256 : i1 loc(#loc185)
-    %2258 = arith.andi %2139, %2257 : i1 loc(#loc185)
-    %2259 = arith.andi %2258, %2251 : i1 loc(#loc185)
-    %2260 = arith.andi %2208, %2259 : i1 loc(#loc185)
-    %2261 = arith.ori %2207, %2260 : i1 loc(#loc185)
-    %2262 = arith.andi %2254, %2261 : i1 loc(#loc185)
-    %value_130, %ready_131 = acir.read(%2139) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot2:retire"], method = "read", port = 0 : i64, resource = "top.rob.slot2.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc186)
-    %2263 = arith.andi %2261, %ready_131 : i1 loc(#loc186)
-    %2264 = arith.ori %2207, %2263 : i1 loc(#loc186)
-    %2265 = arith.andi %2262, %2264 : i1 loc(#loc186)
-    %2266 = arith.ori %2207, %2261 : i1 loc(#loc188)
-    %2267 = arith.andi %2265, %2266 : i1 loc(#loc188)
-    %2268 = arith.andi %2267, %2266 : i1
-    %2269 = arith.andi %2139, %2263 : i1
-    %2270 = arith.andi %2269, %2259 : i1
-    %2271 = arith.andi %2143, %2206 : i1
-    %2272 = arith.andi %2141, %2271 : i1
-    %2273 = arith.andi %2208, %2270 : i1
-    %2274 = arith.andi %2139, %2273 : i1
-    %2275 = arith.ori %2272, %2274 : i1
-    %2276 = arith.select %2141, %value_126, %value_130 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %2277 = arith.ori %2133, %2134 : i1
-    %2278 = arith.xori %2130, %true : i1 loc(#loc190)
-    %2279 = arith.ori %2278, %2127 : i1
-    acir.path %2130 {branch = 56 : i64, kind = "branch", txn = 7 : i64} loc(#loc190)
-    acir.path %2130 {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot1:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc190)
-    %2280 = arith.ori %2278, %2279 : i1 loc(#loc190)
-    %2281 = arith.andi %2279, %ready_123 : i1 loc(#loc190)
-    %2282 = arith.andi %2130, %2281 : i1 loc(#loc190)
-    acir.path %2130 {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot1:retire", "top.rob.slot1:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc190)
-    %2283 = arith.ori %2278, %2280 : i1 loc(#loc190)
-    %2284 = arith.andi %2280, %2282 : i1 loc(#loc190)
-    %2285 = arith.andi %2130, %2284 : i1 loc(#loc190)
-    %value_132, %ready_133 = acir.read(%2130) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot1:retire", "top.rob.slot1:completed"], method = "read", port = 0 : i64, resource = "top.rob.slot1.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc181)
-    %2286 = arith.andi %2283, %ready_133 : i1 loc(#loc181)
-    %2287 = arith.ori %2278, %2286 : i1 loc(#loc181)
-    %2288 = arith.andi %2268, %2287 : i1 loc(#loc181)
-    %2289 = acir.extract %value_132 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc182)
-    %2290 = arith.andi %2288, %2287 : i1
-    %2291 = arith.andi %2130, %2289 : i1
-    %2292 = arith.xori %2289, %true : i1
-    %2293 = arith.andi %2130, %2292 : i1
-    %2294 = arith.xori %2293, %true : i1
-    %2295 = arith.ori %2294, %2286 : i1
-    %2296 = arith.xori %2291, %true : i1
-    %2297 = arith.ori %2296, %2286 : i1
-    %2298 = acir.extract %value_132 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc183)
-    %2299 = arith.andi %2293, %2295 : i1
-    %2300 = arith.andi %2297, %ready_133 : i1
-    %2301 = arith.andi %2291, %2300 : i1
-    %2302 = arith.ori %2299, %2301 : i1
-    %2303 = arith.select %2293, %false, %2298 : i1
-    %2304 = arith.ori %2278, %2283 : i1
-    %2305 = arith.andi %2304, %2302 : i1
-    %2306 = arith.ori %2278, %2305 : i1
-    %2307 = arith.andi %2290, %2306 : i1
-    %2308 = arith.andi %2130, %2303 : i1
-    %2309 = arith.xori %2303, %true : i1
-    %2310 = arith.andi %2130, %2309 : i1
-    %2311 = arith.xori %2310, %true : i1
-    %2312 = arith.ori %2311, %2305 : i1
-    %2313 = arith.xori %2308, %true : i1
-    %2314 = arith.ori %2313, %2305 : i1
-    %2315 = acir.extract %value_132 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc184)
-    %2316 = arith.andi %ready_133, %2285 : i1 loc(#loc184)
-    %2317 = arith.cmpi eq, %2315, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc184)
-    %2318 = arith.andi %2310, %2312 : i1
-    %2319 = arith.andi %2314, %2316 : i1
-    %2320 = arith.andi %2308, %2319 : i1
-    %2321 = arith.ori %2318, %2320 : i1
-    %2322 = arith.select %2310, %false, %2317 : i1
-    %2323 = arith.ori %2278, %2304 : i1
-    %2324 = arith.ori %2278, %2323 : i1
-    %2325 = arith.andi %2307, %2324 : i1
-    %2326 = arith.andi %2323, %2321 : i1
-    %2327 = arith.andi %2130, %2326 : i1
-    %2328 = arith.andi %2280, %2327 : i1 loc(#loc185)
-    %2329 = arith.andi %2130, %2328 : i1 loc(#loc185)
-    %2330 = arith.andi %2329, %2322 : i1 loc(#loc185)
-    %2331 = arith.andi %2279, %2330 : i1 loc(#loc185)
-    %2332 = arith.ori %2278, %2331 : i1 loc(#loc185)
-    %2333 = arith.andi %2325, %2332 : i1 loc(#loc185)
-    %value_134, %ready_135 = acir.read(%2130) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot1:retire"], method = "read", port = 0 : i64, resource = "top.rob.slot1.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc186)
-    %2334 = arith.andi %2332, %ready_135 : i1 loc(#loc186)
-    %2335 = arith.ori %2278, %2334 : i1 loc(#loc186)
-    %2336 = arith.andi %2333, %2335 : i1 loc(#loc186)
-    %2337 = arith.ori %2278, %2332 : i1 loc(#loc188)
-    %2338 = arith.andi %2336, %2337 : i1 loc(#loc188)
-    %2339 = arith.andi %2338, %2337 : i1
-    %2340 = arith.andi %2130, %2334 : i1
-    %2341 = arith.andi %2340, %2330 : i1
-    %2342 = arith.andi %2277, %2275 : i1
-    %2343 = arith.andi %2132, %2342 : i1
-    %2344 = arith.andi %2279, %2341 : i1
-    %2345 = arith.andi %2130, %2344 : i1
-    %2346 = arith.ori %2343, %2345 : i1
-    %2347 = arith.select %2132, %2276, %value_134 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %2348 = arith.ori %2124, %2125 : i1
-    %2349 = arith.ori %2123, %ready_123 : i1
-    acir.path %2122 {branch = 57 : i64, kind = "branch", txn = 7 : i64} loc(#loc191)
-    acir.path %2122 {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot0:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc191)
-    %2350 = arith.ori %2123, %2349 : i1 loc(#loc191)
-    %2351 = arith.andi %2349, %ready_123 : i1 loc(#loc191)
-    %2352 = arith.andi %2122, %2351 : i1 loc(#loc191)
-    acir.path %2122 {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot0:retire", "top.rob.slot0:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc191)
-    %2353 = arith.ori %2123, %2350 : i1 loc(#loc191)
-    %2354 = arith.andi %2350, %2352 : i1 loc(#loc191)
-    %2355 = arith.andi %2122, %2354 : i1 loc(#loc191)
-    %value_136, %ready_137 = acir.read(%2122) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot0:retire", "top.rob.slot0:completed"], method = "read", port = 0 : i64, resource = "top.rob.slot0.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc181)
-    %2356 = arith.andi %2353, %ready_137 : i1 loc(#loc181)
-    %2357 = arith.ori %2123, %2356 : i1 loc(#loc181)
-    %2358 = arith.andi %2339, %2357 : i1 loc(#loc181)
-    %2359 = acir.extract %value_136 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc182)
-    %2360 = arith.andi %2358, %2357 : i1
-    %2361 = arith.andi %2122, %2359 : i1
-    %2362 = arith.xori %2359, %true : i1
-    %2363 = arith.andi %2122, %2362 : i1
-    %2364 = arith.xori %2363, %true : i1
-    %2365 = arith.ori %2364, %2356 : i1
-    %2366 = arith.xori %2361, %true : i1
-    %2367 = arith.ori %2366, %2356 : i1
-    %2368 = acir.extract %value_136 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc183)
-    %2369 = arith.andi %2363, %2365 : i1
-    %2370 = arith.andi %2367, %ready_137 : i1
-    %2371 = arith.andi %2361, %2370 : i1
-    %2372 = arith.ori %2369, %2371 : i1
-    %2373 = arith.select %2363, %false, %2368 : i1
-    %2374 = arith.ori %2123, %2353 : i1
-    %2375 = arith.andi %2374, %2372 : i1
-    %2376 = arith.ori %2123, %2375 : i1
-    %2377 = arith.andi %2360, %2376 : i1
-    %2378 = arith.andi %2122, %2373 : i1
-    %2379 = arith.xori %2373, %true : i1
-    %2380 = arith.andi %2122, %2379 : i1
-    %2381 = arith.xori %2380, %true : i1
-    %2382 = arith.ori %2381, %2375 : i1
-    %2383 = arith.xori %2378, %true : i1
-    %2384 = arith.ori %2383, %2375 : i1
-    %2385 = acir.extract %value_136 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc184)
-    %2386 = arith.andi %ready_137, %2355 : i1 loc(#loc184)
-    %2387 = arith.cmpi eq, %2385, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc184)
-    %2388 = arith.andi %2380, %2382 : i1
-    %2389 = arith.andi %2384, %2386 : i1
-    %2390 = arith.andi %2378, %2389 : i1
-    %2391 = arith.ori %2388, %2390 : i1
-    %2392 = arith.select %2380, %false, %2387 : i1
-    %2393 = arith.ori %2123, %2374 : i1
-    %2394 = arith.ori %2123, %2393 : i1
-    %2395 = arith.andi %2377, %2394 : i1
-    %2396 = arith.andi %2393, %2391 : i1
-    %2397 = arith.andi %2122, %2396 : i1
-    %2398 = arith.andi %2350, %2397 : i1 loc(#loc185)
-    %2399 = arith.andi %2122, %2398 : i1 loc(#loc185)
-    %2400 = arith.andi %2399, %2392 : i1 loc(#loc185)
-    %2401 = arith.andi %2349, %2400 : i1 loc(#loc185)
-    %2402 = arith.ori %2123, %2401 : i1 loc(#loc185)
-    %2403 = arith.andi %2395, %2402 : i1 loc(#loc185)
-    %value_138, %ready_139 = acir.read(%2122) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot0:retire"], method = "read", port = 0 : i64, resource = "top.rob.slot0.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc186)
-    %2404 = arith.andi %2402, %ready_139 : i1 loc(#loc186)
-    %2405 = arith.ori %2123, %2404 : i1 loc(#loc186)
-    %2406 = arith.andi %2403, %2405 : i1 loc(#loc186)
-    %2407 = arith.ori %2123, %2402 : i1 loc(#loc188)
-    %2408 = arith.andi %2406, %2407 : i1 loc(#loc188)
-    %2409 = arith.andi %2408, %2407 : i1
-    %2410 = arith.andi %2122, %2404 : i1
-    %2411 = arith.andi %2410, %2400 : i1
-    %2412 = arith.andi %2348, %2346 : i1
-    %2413 = arith.andi %2123, %2412 : i1
-    %2414 = arith.andi %2349, %2411 : i1
-    %2415 = arith.andi %2122, %2414 : i1
-    %2416 = arith.ori %2413, %2415 : i1
-    %2417 = arith.select %2123, %2347, %value_138 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
-    %2418 = arith.addi %value_122, %c1_i32 {acir.id = "v35", acir.source_type = "u32"} : i32 loc(#loc192)
-    %2419 = arith.andi %2409, %ready_123 : i1 loc(#loc193)
-    acir.path %true {branch = 53 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc194)
-    %2420 = acir.extract %2417 {acir.id = "v5", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc195)
-    %2421 = arith.cmpi ne, %2420, %c0_i32 {acir.id = "v7", acir.source_type = "bool"} : i32 loc(#loc195)
-    %2422 = arith.andi %2419, %2416 : i1
-    %2423 = arith.cmpi eq, %2420, %c0_i32 : i32 loc(#loc195)
-    %2424 = arith.ori %2423, %2416 : i1
-    %2425 = acir.extract %2417 {acir.id = "v9", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc196)
-    acir.path %2421 {branch = 58 : i64, kind = "branch", txn = 7 : i64} loc(#loc197)
-    %value_140, %ready_141 = acir.read(%2421) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "read", port = 0 : i64, resource = "top.rf.registers", txn = 7 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc197)
-    %2426 = arith.andi %2424, %ready_141 : i1 loc(#loc197)
-    %2427 = arith.ori %2423, %2426 : i1 loc(#loc197)
-    %2428 = arith.andi %2422, %2427 : i1 loc(#loc197)
-    %2429 = acir.extract %2417 {acir.id = "v13", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc198)
-    %2430 = arith.andi %ready_141, %2416 : i1 loc(#loc197)
-    %2431 = arith.extui %2429 : i32 to i64 loc(#loc197)
-    %2432 = arith.cmpi ult, %2431, %c8_i64 : i64 loc(#loc197)
-    %2433 = arith.andi %2430, %2432 : i1 loc(#loc197)
-    %2434 = arith.select %2432, %2431, %c0_i64 : i64 loc(#loc197)
-    %2435 = acir.update %value_140, %2425[%2434] {acir.id = "v14", acir.source_type = "array<u32;8>", path = [unit], signed_indices = [false]} : (!acir.array<i32, [8]>, i32, i64) -> !acir.array<i32, [8]> loc(#loc197)
-    %2436 = arith.andi %2424, %2433 : i1 loc(#loc197)
-    %2437 = arith.ori %2423, %2436 : i1 loc(#loc197)
-    %2438 = arith.andi %2428, %2437 : i1 loc(#loc197)
-    %2439 = acir.extract %2417 {acir.id = "v17", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc199)
-    %value_142, %ready_143 = acir.read(%2421) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "read", port = 0 : i64, resource = "top.rf.committed", txn = 7 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc200)
-    %2440 = arith.andi %2424, %ready_143 : i1 loc(#loc200)
-    %2441 = arith.ori %2423, %2440 : i1 loc(#loc200)
-    %2442 = arith.andi %2438, %2441 : i1 loc(#loc200)
-    %2443 = acir.extract %2417 {acir.id = "v21", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc201)
-    %2444 = arith.andi %ready_143, %2416 : i1 loc(#loc200)
-    %2445 = arith.extui %2443 : i32 to i64 loc(#loc200)
-    %2446 = arith.cmpi ult, %2445, %c8_i64 : i64 loc(#loc200)
-    %2447 = arith.andi %2444, %2446 : i1 loc(#loc200)
-    %2448 = arith.select %2446, %2445, %c0_i64 : i64 loc(#loc200)
-    %2449 = acir.update %value_142, %2439[%2448] {acir.id = "v22", acir.source_type = "array<u32;8>", path = [unit], signed_indices = [false]} : (!acir.array<i32, [8]>, i32, i64) -> !acir.array<i32, [8]> loc(#loc200)
-    %2450 = arith.andi %2424, %2447 : i1 loc(#loc200)
-    %2451 = arith.ori %2423, %2450 : i1 loc(#loc200)
-    %2452 = arith.andi %2442, %2451 : i1 loc(#loc200)
-    %value_144, %ready_145 = acir.read(%true) {branch = 53 : i64, frames = ["top.commit:commit"], method = "read", port = 0 : i64, resource = "top.commit.retired", txn = 7 : i64} : (i1) -> (i32, i1) loc(#loc202)
-    %2453 = arith.andi %2452, %ready_145 : i1 loc(#loc202)
-    %2454 = arith.addi %value_144, %c1_i32 {acir.id = "v9", acir.source_type = "u32"} : i32 loc(#loc202)
-    %2455 = acir.extract %2417 {acir.id = "v12", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc203)
-    %2456 = arith.andi %2453, %2416 : i1 loc(#loc204)
-    %2457 = acir.fire "top.commit.commit#7" %2456 {successors = [], txn = 7 : i64}
-    %2458 = arith.andi %2457, %2141 : i1
-    acir.effect %2458(%0) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot3:retire", "top.rob.slot3:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    acir.effect %2458(%2201) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot3:retire"], method = "write", port = 0 : i64, resource = "top.rob.slot3.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc188)
-    acir.effect %2458(%0) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot3:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    %2459 = arith.andi %2457, %2139 : i1
-    acir.effect %2459(%0) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot2:retire", "top.rob.slot2:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    acir.effect %2459(%2201) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot2:retire"], method = "write", port = 0 : i64, resource = "top.rob.slot2.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc188)
-    acir.effect %2459(%0) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot2:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    %2460 = arith.andi %2457, %2130 : i1
-    acir.effect %2460(%0) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot1:retire", "top.rob.slot1:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    acir.effect %2460(%2201) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot1:retire"], method = "write", port = 0 : i64, resource = "top.rob.slot1.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc188)
-    acir.effect %2460(%0) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot1:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    %2461 = arith.andi %2457, %2122 : i1
-    acir.effect %2461(%0) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot0:retire", "top.rob.slot0:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    acir.effect %2461(%2201) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot0:retire"], method = "write", port = 0 : i64, resource = "top.rob.slot0.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc188)
-    acir.effect %2461(%0) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob.slot0:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    acir.effect %2457(%2418) {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "write", port = 0 : i64, resource = "top.rob.head", txn = 7 : i64} : (i1, i32) -> () loc(#loc193)
-    acir.effect %2457(%0) {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
-    %2462 = arith.andi %2457, %2421 : i1
-    acir.effect %2462(%2435) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "write", port = 0 : i64, resource = "top.rf.registers", txn = 7 : i64} : (i1, !acir.array<i32, [8]>) -> () loc(#loc197)
-    acir.effect %2462(%2449) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "write", port = 0 : i64, resource = "top.rf.committed", txn = 7 : i64} : (i1, !acir.array<i32, [8]>) -> () loc(#loc200)
-    acir.effect %2457(%2454) {branch = 53 : i64, frames = ["top.commit:commit"], method = "write", port = 0 : i64, resource = "top.commit.retired", txn = 7 : i64} : (i1, i32) -> () loc(#loc205)
-    acir.effect %2457(%2455) {branch = 53 : i64, frames = ["top.commit:commit"], method = "write", port = 0 : i64, resource = "top.commit.last_tag", txn = 7 : i64} : (i1, i32) -> () loc(#loc204)
-    acir.path %true {branch = 59 : i64, kind = "branch", txn = 8 : i64} loc(#loc206)
-    acir.path %true {branch = 59 : i64, frames = ["top.audit:observe"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 8 : i64} loc(#loc206)
-    %value_146, %ready_147 = acir.read(%true) {branch = 59 : i64, frames = ["top.audit:observe"], method = "get", port = 0 : i64, resource = "top.event", txn = 8 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Completion">, i1) loc(#loc207)
-    %2463 = acir.extract %value_146 {acir.id = "v6", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc208)
-    %2464 = acir.fire "top.audit.observe#8" %ready_147 {successors = [], txn = 8 : i64}
-    acir.effect %2464(%2463) {branch = 59 : i64, frames = ["top.audit:observe"], method = "write", port = 0 : i64, resource = "top.audit.last_tag", txn = 8 : i64} : (i1, i32) -> () loc(#loc209)
+    %1420 = arith.andi %1412, %1419 : i1
+    %1421 = arith.andi %1415, %1344 : i1
+    %1422 = arith.cmpi ne, %1341, %c2_i32 : i32 loc(#loc116)
+    %1423 = arith.andi %1415, %1422 : i1
+    %1424 = arith.xori %1423, %true : i1
+    %1425 = arith.ori %1424, %1418 : i1
+    %1426 = arith.andi %1425, %1404 : i1
+    %1427 = arith.ori %1424, %1426 : i1
+    %1428 = arith.andi %1420, %1427 : i1
+    %1429 = arith.andi %1423, %1345 : i1
+    %1430 = arith.cmpi ne, %1341, %c3_i32 : i32 loc(#loc116)
+    %1431 = arith.andi %1423, %1430 : i1
+    %1432 = arith.xori %1431, %true : i1
+    %1433 = arith.ori %1432, %1426 : i1
+    %1434 = arith.xori %1429, %true : i1 loc(#loc116)
+    %1435 = arith.ori %1434, %1426 : i1
+    acir.path %1429 {branch = 35 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1429 {branch = 35 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.3:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1436 = arith.ori %1434, %1435 : i1 loc(#loc116)
+    %value_78, %ready_79 = acir.read(%1429) {branch = 35 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.3:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1437 = arith.andi %1436, %ready_79 : i1 loc(#loc117)
+    %1438 = arith.ori %1434, %1437 : i1 loc(#loc117)
+    %1439 = arith.andi %1428, %1438 : i1 loc(#loc117)
+    %1440 = arith.ori %1434, %1436 : i1
+    %1441 = arith.andi %1439, %1440 : i1
+    %1442 = arith.andi %1429, %1437 : i1
+    %1443 = arith.andi %1431, %1433 : i1
+    %1444 = arith.andi %1429, %1435 : i1
+    %1445 = arith.ori %1443, %1444 : i1
+    %1446 = arith.andi %1435, %1442 : i1
+    %1447 = arith.andi %1429, %1446 : i1
+    %1448 = arith.ori %1443, %1447 : i1
+    %1449 = arith.select %1431, %1405, %value_78 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1450 = arith.ori %1424, %1425 : i1
+    %1451 = arith.xori %1421, %true : i1 loc(#loc116)
+    %1452 = arith.ori %1451, %1418 : i1
+    acir.path %1421 {branch = 36 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1421 {branch = 36 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.2:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1453 = arith.ori %1451, %1452 : i1 loc(#loc116)
+    %value_80, %ready_81 = acir.read(%1421) {branch = 36 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.2:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1454 = arith.andi %1453, %ready_81 : i1 loc(#loc117)
+    %1455 = arith.ori %1451, %1454 : i1 loc(#loc117)
+    %1456 = arith.andi %1441, %1455 : i1 loc(#loc117)
+    %1457 = arith.ori %1451, %1453 : i1
+    %1458 = arith.andi %1456, %1457 : i1
+    %1459 = arith.andi %1421, %1454 : i1
+    %1460 = arith.andi %1450, %1445 : i1
+    %1461 = arith.andi %1423, %1460 : i1
+    %1462 = arith.andi %1421, %1452 : i1
+    %1463 = arith.ori %1461, %1462 : i1
+    %1464 = arith.select %1423, %1431, %false : i1
+    %1465 = arith.andi %1450, %1448 : i1
+    %1466 = arith.andi %1423, %1465 : i1
+    %1467 = arith.andi %1452, %1459 : i1
+    %1468 = arith.andi %1421, %1467 : i1
+    %1469 = arith.ori %1466, %1468 : i1
+    %1470 = arith.select %1423, %1449, %value_80 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1471 = arith.ori %1416, %1417 : i1
+    %1472 = arith.xori %1413, %true : i1 loc(#loc116)
+    %1473 = arith.ori %1472, %1410 : i1
+    acir.path %1413 {branch = 37 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1413 {branch = 37 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.1:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1474 = arith.ori %1472, %1473 : i1 loc(#loc116)
+    %value_82, %ready_83 = acir.read(%1413) {branch = 37 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.1:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1475 = arith.andi %1474, %ready_83 : i1 loc(#loc117)
+    %1476 = arith.ori %1472, %1475 : i1 loc(#loc117)
+    %1477 = arith.andi %1458, %1476 : i1 loc(#loc117)
+    %1478 = arith.ori %1472, %1474 : i1
+    %1479 = arith.andi %1477, %1478 : i1
+    %1480 = arith.andi %1413, %1475 : i1
+    %1481 = arith.andi %1471, %1463 : i1
+    %1482 = arith.andi %1415, %1481 : i1
+    %1483 = arith.andi %1413, %1473 : i1
+    %1484 = arith.ori %1482, %1483 : i1
+    %1485 = arith.select %1415, %1464, %false : i1
+    %1486 = arith.andi %1471, %1469 : i1
+    %1487 = arith.andi %1415, %1486 : i1
+    %1488 = arith.andi %1473, %1480 : i1
+    %1489 = arith.andi %1413, %1488 : i1
+    %1490 = arith.ori %1487, %1489 : i1
+    %1491 = arith.select %1415, %1470, %value_82 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1492 = arith.ori %1355, %1409 : i1
+    %1493 = arith.ori %1357, %1406 : i1
+    acir.path %1352 {branch = 38 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1352 {branch = 38 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.0:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1494 = arith.ori %1357, %1493 : i1 loc(#loc116)
+    %value_84, %ready_85 = acir.read(%1352) {branch = 38 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.0:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1495 = arith.andi %1494, %ready_85 : i1 loc(#loc117)
+    %1496 = arith.ori %1357, %1495 : i1 loc(#loc117)
+    %1497 = arith.andi %1479, %1496 : i1 loc(#loc117)
+    %1498 = arith.ori %1357, %1494 : i1
+    %1499 = arith.andi %1497, %1498 : i1
+    %1500 = arith.andi %1352, %1495 : i1
+    %1501 = arith.andi %1492, %1484 : i1
+    %1502 = arith.andi %1354, %1501 : i1
+    %1503 = arith.andi %1352, %1493 : i1
+    %1504 = arith.ori %1502, %1503 : i1
+    %1505 = arith.select %1354, %1485, %false : i1
+    %1506 = arith.andi %1492, %1490 : i1
+    %1507 = arith.andi %1354, %1506 : i1
+    %1508 = arith.andi %1493, %1500 : i1
+    %1509 = arith.andi %1352, %1508 : i1
+    %1510 = arith.ori %1507, %1509 : i1
+    %1511 = arith.select %1354, %1491, %value_84 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1512 = arith.ori %1335, %1401 : i1
+    %1513 = acir.unary %1505 "not" {acir.source_type = "bool"} : i1 -> i1
+    %1514 = arith.andi %1512, %1504 : i1
+    %1515 = arith.ori %1335, %1514 : i1
+    %1516 = arith.andi %1499, %1515 : i1
+    %1517 = arith.andi %1512, %1510 : i1
+    %1518 = arith.andi %1330, %1517 : i1
+    %1519 = arith.andi %1518, %1399 : i1
+    %1520 = arith.andi %1516, %1346 : i1
+    %1521 = arith.andi %1337, %1519 : i1
+    %1522 = arith.andi %1330, %1521 : i1
+    %1523 = acir.extract %1511 {acir.id = "v45", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc118)
+    %1524 = arith.andi %1336, %1522 : i1
+    %1525 = arith.ori %1335, %1524 : i1
+    %1526 = arith.andi %1520, %1525 : i1
+    %1527 = arith.andi %1330, %1523 : i1
+    %1528 = arith.xori %1523, %true : i1
+    %1529 = arith.andi %1330, %1528 : i1
+    %1530 = arith.xori %1529, %true : i1
+    %1531 = arith.ori %1530, %1524 : i1
+    %1532 = arith.xori %1527, %true : i1
+    %1533 = arith.ori %1532, %1524 : i1
+    %1534 = acir.extract %1511 {acir.id = "v46", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc119)
+    %1535 = arith.andi %1529, %1531 : i1
+    %1536 = arith.andi %1533, %1522 : i1
+    %1537 = arith.andi %1527, %1536 : i1
+    %1538 = arith.ori %1535, %1537 : i1
+    %1539 = arith.select %1529, %false, %1534 : i1
+    %1540 = arith.andi %1337, %1538 : i1
+    %1541 = arith.ori %1335, %1540 : i1
+    %1542 = arith.andi %1526, %1541 : i1
+    %1543 = arith.andi %1330, %1539 : i1
+    %1544 = arith.xori %1539, %true : i1
+    %1545 = arith.andi %1330, %1544 : i1
+    %1546 = arith.xori %1545, %true : i1
+    %1547 = arith.ori %1546, %1540 : i1
+    %1548 = arith.xori %1543, %true : i1
+    %1549 = arith.ori %1548, %1540 : i1
+    %1550 = acir.extract %1511 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc120)
+    %1551 = arith.andi %1522, %1289 : i1 loc(#loc120)
+    %1552 = arith.cmpi eq, %1550, %1290 {acir.id = "v52", acir.source_type = "bool"} : i32 loc(#loc120)
+    %1553 = arith.andi %1545, %1547 : i1
+    %1554 = arith.andi %1549, %1551 : i1
+    %1555 = arith.andi %1543, %1554 : i1
+    %1556 = arith.ori %1553, %1555 : i1
+    %1557 = arith.select %1545, %false, %1552 : i1
+    %1558 = arith.andi %1346, %1556 : i1
+    %1559 = arith.ori %1335, %1558 : i1
+    %1560 = arith.andi %1542, %1559 : i1
+    %1561 = arith.andi %1330, %1557 : i1
+    %1562 = arith.xori %1557, %true : i1
+    %1563 = arith.andi %1330, %1562 : i1
+    %1564 = arith.xori %1563, %true : i1
+    %1565 = arith.ori %1564, %1558 : i1
+    %1566 = arith.xori %1561, %true : i1
+    %1567 = arith.ori %1566, %1558 : i1
+    %1568 = acir.extract %1511 {acir.id = "v58", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc121)
+    %1569 = acir.aggregate(%true, %1290, %1568) {acir.id = "v59", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc122)
+    %1570 = arith.andi %1565, %1320 : i1
+    %1571 = arith.andi %1563, %1570 : i1
+    %1572 = arith.andi %1561, %1567 : i1
+    %1573 = arith.ori %1571, %1572 : i1
+    %1574 = arith.select %1563, %1321, %false : i1
+    %1575 = arith.andi %1565, %1324 : i1
+    %1576 = arith.andi %1563, %1575 : i1
+    %1577 = arith.andi %1567, %1551 : i1
+    %1578 = arith.andi %1561, %1577 : i1
+    %1579 = arith.ori %1576, %1578 : i1
+    %1580 = arith.select %1563, %1325, %1569 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1581 = arith.andi %1364, %1573 : i1
+    %1582 = arith.ori %1335, %1581 : i1
+    %1583 = arith.andi %1560, %1582 : i1
+    %1584 = arith.andi %1330, %1574 : i1
+    %1585 = arith.xori %1574, %true : i1
+    %1586 = arith.andi %1330, %1585 : i1
+    %1587 = arith.xori %1586, %true : i1
+    %1588 = arith.ori %1587, %1581 : i1
+    %1589 = arith.xori %1584, %true : i1
+    %1590 = arith.ori %1589, %1581 : i1
+    %1591 = acir.aggregate(%false, %1290, %c0_i32) {acir.id = "v70", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc123)
+    %1592 = arith.andi %1588, %1573 : i1
+    %1593 = arith.andi %1586, %1592 : i1
+    %1594 = arith.andi %1584, %1590 : i1
+    %1595 = arith.ori %1593, %1594 : i1
+    %1596 = arith.select %1586, %1574, %false : i1
+    %1597 = arith.andi %1588, %1579 : i1
+    %1598 = arith.andi %1586, %1597 : i1
+    %1599 = arith.andi %1590, %1289 : i1
+    %1600 = arith.andi %1584, %1599 : i1
+    %1601 = arith.ori %1598, %1600 : i1
+    %1602 = arith.select %1586, %1580, %1591 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1603 = arith.andi %1334, %1320 : i1
+    %1604 = arith.andi %1332, %1603 : i1
+    %1605 = arith.andi %1380, %1595 : i1
+    %1606 = arith.andi %1330, %1605 : i1
+    %1607 = arith.ori %1604, %1606 : i1
+    %1608 = arith.select %1332, %1321, %1596 : i1
+    %1609 = arith.andi %1334, %1324 : i1
+    %1610 = arith.andi %1332, %1609 : i1
+    %1611 = arith.andi %1380, %1601 : i1
+    %1612 = arith.andi %1330, %1611 : i1
+    %1613 = arith.ori %1610, %1612 : i1
+    %1614 = arith.select %1332, %1325, %1602 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1615 = arith.ori %1265, %1326 : i1
+    %1616 = arith.andi %1280, %1272 : i1
+    %1617 = arith.andi %1278, %1616 : i1
+    %1618 = arith.andi %1615, %1607 : i1
+    %1619 = arith.andi %1264, %1618 : i1
+    %1620 = arith.ori %1617, %1619 : i1
+    %1621 = arith.select %1278, %1264, %1608 : i1
+    %1622 = arith.andi %1615, %1613 : i1
+    %1623 = arith.andi %1264, %1622 : i1
+    %1624 = arith.ori %1617, %1623 : i1
+    %1625 = arith.select %1278, %1273, %1614 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1626 = arith.ori %1237, %1274 : i1
+    %1627 = acir.unary %1621 "not" {acir.source_type = "bool"} : i1 -> i1
+    %1628 = arith.andi %1626, %1620 : i1
+    %1629 = arith.ori %1237, %1628 : i1
+    %1630 = arith.andi %1583, %1629 : i1
+    %1631 = arith.andi %1626, %1624 : i1
+    %1632 = arith.andi %1236, %1631 : i1
+    %1633 = acir.extract %value_68 {acir.id = "v8", acir.source_type = "u32", field = "rs2"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc124)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc125)
+    %1634 = arith.cmpi ult, %1633, %c8_i32 {acir.id = "v8", acir.source_type = "bool"} : i32 loc(#loc103)
+    %1635 = arith.andi %1630, %1258 : i1 loc(#loc104)
+    %1636 = arith.cmpi eq, %1633, %c0_i32 {acir.id = "v11", acir.source_type = "bool"} : i32 loc(#loc105)
+    %1637 = arith.andi %1635, %1258 : i1
+    %1638 = arith.andi %1236, %1636 : i1
+    %1639 = arith.cmpi ne, %1633, %c0_i32 : i32 loc(#loc105)
+    %1640 = arith.andi %1236, %1639 : i1
+    %1641 = arith.xori %1640, %true : i1 loc(#loc106)
+    %1642 = arith.ori %1641, %1257 : i1
+    %1643 = arith.xori %1638, %true : i1
+    %1644 = arith.ori %1643, %1257 : i1
+    %1645 = arith.andi %1640, %1642 : i1
+    %1646 = arith.andi %1638, %1644 : i1
+    %1647 = arith.ori %1645, %1646 : i1
+    %1648 = arith.select %1640, %1255, %1269 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1649 = arith.andi %1274, %1647 : i1
+    %1650 = arith.ori %1237, %1649 : i1
+    %1651 = arith.andi %1637, %1650 : i1
+    %1652 = arith.andi %1236, %1641 : i1
+    %1653 = arith.xori %1652, %true : i1
+    %1654 = arith.ori %1653, %1649 : i1
+    %1655 = arith.ori %1641, %1649 : i1
+    acir.path %1640 {branch = 39 : i64, kind = "branch", txn = 6 : i64} loc(#loc106)
+    %value_86, %ready_87 = acir.read(%1640) {branch = 39 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc106)
+    %1656 = arith.andi %1655, %ready_87 : i1 loc(#loc106)
+    %1657 = arith.ori %1641, %1656 : i1 loc(#loc106)
+    %1658 = arith.andi %1651, %1657 : i1 loc(#loc106)
+    %1659 = arith.andi %ready_87, %1254 : i1 loc(#loc106)
+    %1660 = arith.extui %1633 : i32 to i64 loc(#loc106)
+    %1661 = arith.cmpi ult, %1660, %c8_i64 : i64 loc(#loc106)
+    %1662 = arith.select %1661, %1660, %c0_i64 : i64 loc(#loc106)
+    %1663 = arith.andi %1659, %1661 : i1 loc(#loc106)
+    %1664 = "acir.array.index"(%value_86, %1662) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc106)
+    %value_88, %ready_89 = acir.read(%1640) {branch = 39 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.committed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc109)
+    %1665 = arith.andi %1655, %ready_89 : i1 loc(#loc109)
+    %1666 = arith.ori %1641, %1665 : i1 loc(#loc109)
+    %1667 = arith.andi %1658, %1666 : i1 loc(#loc109)
+    %1668 = arith.andi %ready_89, %1254 : i1 loc(#loc109)
+    %1669 = arith.andi %1668, %1661 : i1 loc(#loc109)
+    %1670 = "acir.array.index"(%value_88, %1662) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc109)
+    %1671 = arith.andi %1663, %1669 : i1 loc(#loc110)
+    %1672 = arith.cmpi eq, %1664, %1670 {acir.id = "v30", acir.source_type = "bool"} : i32 loc(#loc110)
+    %1673 = arith.andi %1655, %1671 : i1
+    %1674 = arith.ori %1641, %1673 : i1
+    %1675 = arith.andi %1667, %1674 : i1
+    %1676 = arith.andi %1640, %1672 : i1
+    %1677 = arith.cmpi ne, %1664, %1670 : i32 loc(#loc110)
+    %1678 = arith.andi %1640, %1677 : i1
+    %1679 = arith.xori %1678, %true : i1
+    %1680 = arith.ori %1679, %1673 : i1
+    %1681 = arith.xori %1676, %true : i1 loc(#loc111)
+    %1682 = arith.ori %1681, %1673 : i1
+    acir.path %1676 {branch = 40 : i64, kind = "branch", txn = 6 : i64} loc(#loc111)
+    %value_90, %ready_91 = acir.read(%1676) {branch = 40 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "read", port = 0 : i64, resource = "top.rf.registers", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc111)
+    %1683 = arith.andi %1682, %ready_91 : i1 loc(#loc111)
+    %1684 = arith.ori %1681, %1683 : i1 loc(#loc111)
+    %1685 = arith.andi %1675, %1684 : i1 loc(#loc111)
+    %1686 = arith.andi %ready_91, %1254 : i1 loc(#loc111)
+    %1687 = arith.andi %1686, %1661 : i1 loc(#loc111)
+    %1688 = "acir.array.index"(%value_90, %1662) : (!acir.array<i32, [8]>, i64) -> i32 loc(#loc111)
+    %1689 = arith.andi %1663, %1687 : i1 loc(#loc112)
+    %1690 = acir.aggregate(%true, %1664, %1688) {acir.id = "v35", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc112)
+    %1691 = arith.andi %1680, %1647 : i1
+    %1692 = arith.andi %1678, %1691 : i1
+    %1693 = arith.andi %1676, %1682 : i1
+    %1694 = arith.ori %1692, %1693 : i1
+    %1695 = arith.select %1678, %1640, %false : i1
+    %1696 = arith.andi %1682, %1689 : i1
+    %1697 = arith.andi %1676, %1696 : i1
+    %1698 = arith.ori %1692, %1697 : i1
+    %1699 = arith.select %1678, %1648, %1690 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1700 = arith.ori %1641, %1655 : i1
+    %1701 = arith.andi %1700, %1694 : i1
+    %1702 = arith.ori %1641, %1701 : i1
+    %1703 = arith.andi %1685, %1702 : i1
+    %1704 = arith.andi %1640, %1695 : i1
+    %1705 = arith.xori %1695, %true : i1
+    %1706 = arith.andi %1640, %1705 : i1
+    %1707 = arith.xori %1706, %true : i1
+    %1708 = arith.ori %1707, %1701 : i1
+    %1709 = arith.xori %1704, %true : i1 loc(#loc113)
+    %1710 = arith.ori %1709, %1701 : i1
+    acir.path %1704 {branch = 41 : i64, kind = "branch", txn = 6 : i64} loc(#loc113)
+    acir.path %1704 {branch = 41 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc113)
+    %1711 = arith.ori %1709, %1710 : i1 loc(#loc113)
+    %1712 = arith.andi %1710, %1663 : i1 loc(#loc113)
+    %1713 = arith.andi %1704, %1712 : i1 loc(#loc113)
+    %1714 = arith.subi %1664, %c1_i32 {acir.id = "v20", acir.source_type = "u32"} : i32 loc(#loc114)
+    %1715 = arith.andi %1714, %c3_i32 {acir.id = "v22", acir.source_type = "u32"} : i32 loc(#loc115)
+    %1716 = arith.cmpi eq, %1715, %c0_i32 {acir.id = "v24", acir.source_type = "bool"} : i32 loc(#loc116)
+    %1717 = arith.cmpi eq, %1715, %c1_i32 {acir.id = "v26", acir.source_type = "bool"} : i32 loc(#loc116)
+    %1718 = arith.cmpi eq, %1715, %c2_i32 {acir.id = "v28", acir.source_type = "bool"} : i32 loc(#loc116)
+    %1719 = arith.cmpi eq, %1715, %c3_i32 {acir.id = "v30", acir.source_type = "bool"} : i32 loc(#loc116)
+    acir.path %1704 {branch = 41 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1720 = arith.ori %1709, %1711 : i1 loc(#loc116)
+    %1721 = arith.andi %1711, %1713 : i1 loc(#loc116)
+    %1722 = arith.andi %1704, %1721 : i1 loc(#loc116)
+    %1723 = arith.andi %1720, %1722 : i1
+    %1724 = arith.ori %1709, %1723 : i1
+    %1725 = arith.andi %1703, %1724 : i1
+    %1726 = arith.andi %1704, %1716 : i1
+    %1727 = arith.cmpi ne, %1715, %c0_i32 : i32 loc(#loc116)
+    %1728 = arith.andi %1704, %1727 : i1
+    %1729 = arith.xori %1728, %true : i1
+    %1730 = arith.ori %1729, %1723 : i1
+    %1731 = arith.xori %1726, %true : i1 loc(#loc116)
+    %1732 = arith.ori %1731, %1723 : i1
+    %1733 = arith.andi %1730, %1722 : i1
+    %1734 = arith.andi %1728, %1733 : i1
+    %1735 = arith.andi %1726, %1732 : i1
+    %1736 = arith.ori %1734, %1735 : i1
+    %1737 = arith.select %1728, %1717, %true : i1
+    %1738 = arith.ori %1709, %1720 : i1
+    %1739 = arith.andi %1738, %1736 : i1
+    %1740 = arith.ori %1709, %1739 : i1
+    %1741 = arith.andi %1725, %1740 : i1
+    %1742 = arith.andi %1704, %1737 : i1
+    %1743 = arith.xori %1737, %true : i1
+    %1744 = arith.andi %1704, %1743 : i1
+    %1745 = arith.xori %1744, %true : i1
+    %1746 = arith.ori %1745, %1739 : i1
+    %1747 = arith.xori %1742, %true : i1
+    %1748 = arith.ori %1747, %1739 : i1
+    %1749 = arith.andi %1746, %1722 : i1
+    %1750 = arith.andi %1744, %1749 : i1
+    %1751 = arith.andi %1742, %1748 : i1
+    %1752 = arith.ori %1750, %1751 : i1
+    %1753 = arith.select %1744, %1718, %true : i1
+    %1754 = arith.ori %1709, %1738 : i1
+    %1755 = arith.andi %1754, %1752 : i1
+    %1756 = arith.ori %1709, %1755 : i1
+    %1757 = arith.andi %1741, %1756 : i1
+    %1758 = arith.andi %1704, %1753 : i1
+    %1759 = arith.xori %1753, %true : i1
+    %1760 = arith.andi %1704, %1759 : i1
+    %1761 = arith.xori %1760, %true : i1
+    %1762 = arith.ori %1761, %1755 : i1
+    %1763 = arith.xori %1758, %true : i1
+    %1764 = arith.ori %1763, %1755 : i1
+    %1765 = arith.andi %1762, %1722 : i1
+    %1766 = arith.andi %1760, %1765 : i1
+    %1767 = arith.andi %1758, %1764 : i1
+    %1768 = arith.ori %1766, %1767 : i1
+    %1769 = arith.select %1760, %1719, %true : i1
+    %1770 = arith.ori %1709, %1754 : i1
+    %1771 = arith.andi %1770, %1768 : i1 loc(#loc116)
+    %1772 = arith.andi %1704, %1771 : i1 loc(#loc116)
+    %1773 = arith.andi %1772, %1769 : i1 loc(#loc116)
+    %1774 = arith.andi %1711, %1773 : i1 loc(#loc116)
+    %1775 = arith.ori %1709, %1774 : i1 loc(#loc116)
+    %1776 = arith.andi %1757, %1775 : i1 loc(#loc116)
+    %1777 = arith.andi %1774, %1713 : i1 loc(#loc116)
+    %1778 = arith.andi %1704, %1777 : i1 loc(#loc116)
+    %1779 = arith.andi %1775, %1778 : i1
+    %1780 = arith.ori %1709, %1779 : i1
+    %1781 = arith.andi %1776, %1780 : i1
+    %1782 = arith.ori %1729, %1779 : i1
+    %1783 = arith.andi %1782, %1778 : i1
+    %1784 = arith.ori %1729, %1783 : i1
+    %1785 = arith.andi %1781, %1784 : i1
+    %1786 = arith.andi %1728, %1717 : i1
+    %1787 = arith.cmpi ne, %1715, %c1_i32 : i32 loc(#loc116)
+    %1788 = arith.andi %1728, %1787 : i1
+    %1789 = arith.xori %1788, %true : i1
+    %1790 = arith.ori %1789, %1783 : i1
+    %1791 = arith.andi %1790, %1778 : i1
+    %1792 = arith.ori %1789, %1791 : i1
+    %1793 = arith.andi %1785, %1792 : i1
+    %1794 = arith.andi %1788, %1718 : i1
+    %1795 = arith.cmpi ne, %1715, %c2_i32 : i32 loc(#loc116)
+    %1796 = arith.andi %1788, %1795 : i1
+    %1797 = arith.xori %1796, %true : i1
+    %1798 = arith.ori %1797, %1791 : i1
+    %1799 = arith.andi %1798, %1778 : i1
+    %1800 = arith.ori %1797, %1799 : i1
+    %1801 = arith.andi %1793, %1800 : i1
+    %1802 = arith.andi %1796, %1719 : i1
+    %1803 = arith.cmpi ne, %1715, %c3_i32 : i32 loc(#loc116)
+    %1804 = arith.andi %1796, %1803 : i1
+    %1805 = arith.xori %1804, %true : i1
+    %1806 = arith.ori %1805, %1799 : i1
+    %1807 = arith.xori %1802, %true : i1 loc(#loc116)
+    %1808 = arith.ori %1807, %1799 : i1
+    acir.path %1802 {branch = 42 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1802 {branch = 42 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.3:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1809 = arith.ori %1807, %1808 : i1 loc(#loc116)
+    %value_92, %ready_93 = acir.read(%1802) {branch = 42 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.3:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1810 = arith.andi %1809, %ready_93 : i1 loc(#loc117)
+    %1811 = arith.ori %1807, %1810 : i1 loc(#loc117)
+    %1812 = arith.andi %1801, %1811 : i1 loc(#loc117)
+    %1813 = arith.ori %1807, %1809 : i1
+    %1814 = arith.andi %1812, %1813 : i1
+    %1815 = arith.andi %1802, %1810 : i1
+    %1816 = arith.andi %1804, %1806 : i1
+    %1817 = arith.andi %1802, %1808 : i1
+    %1818 = arith.ori %1816, %1817 : i1
+    %1819 = arith.andi %1808, %1815 : i1
+    %1820 = arith.andi %1802, %1819 : i1
+    %1821 = arith.ori %1816, %1820 : i1
+    %1822 = arith.select %1804, %1405, %value_92 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1823 = arith.ori %1797, %1798 : i1
+    %1824 = arith.xori %1794, %true : i1 loc(#loc116)
+    %1825 = arith.ori %1824, %1791 : i1
+    acir.path %1794 {branch = 43 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1794 {branch = 43 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.2:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1826 = arith.ori %1824, %1825 : i1 loc(#loc116)
+    %value_94, %ready_95 = acir.read(%1794) {branch = 43 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.2:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1827 = arith.andi %1826, %ready_95 : i1 loc(#loc117)
+    %1828 = arith.ori %1824, %1827 : i1 loc(#loc117)
+    %1829 = arith.andi %1814, %1828 : i1 loc(#loc117)
+    %1830 = arith.ori %1824, %1826 : i1
+    %1831 = arith.andi %1829, %1830 : i1
+    %1832 = arith.andi %1794, %1827 : i1
+    %1833 = arith.andi %1823, %1818 : i1
+    %1834 = arith.andi %1796, %1833 : i1
+    %1835 = arith.andi %1794, %1825 : i1
+    %1836 = arith.ori %1834, %1835 : i1
+    %1837 = arith.select %1796, %1804, %false : i1
+    %1838 = arith.andi %1823, %1821 : i1
+    %1839 = arith.andi %1796, %1838 : i1
+    %1840 = arith.andi %1825, %1832 : i1
+    %1841 = arith.andi %1794, %1840 : i1
+    %1842 = arith.ori %1839, %1841 : i1
+    %1843 = arith.select %1796, %1822, %value_94 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1844 = arith.ori %1789, %1790 : i1
+    %1845 = arith.xori %1786, %true : i1 loc(#loc116)
+    %1846 = arith.ori %1845, %1783 : i1
+    acir.path %1786 {branch = 44 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1786 {branch = 44 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.1:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1847 = arith.ori %1845, %1846 : i1 loc(#loc116)
+    %value_96, %ready_97 = acir.read(%1786) {branch = 44 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.1:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1848 = arith.andi %1847, %ready_97 : i1 loc(#loc117)
+    %1849 = arith.ori %1845, %1848 : i1 loc(#loc117)
+    %1850 = arith.andi %1831, %1849 : i1 loc(#loc117)
+    %1851 = arith.ori %1845, %1847 : i1
+    %1852 = arith.andi %1850, %1851 : i1
+    %1853 = arith.andi %1786, %1848 : i1
+    %1854 = arith.andi %1844, %1836 : i1
+    %1855 = arith.andi %1788, %1854 : i1
+    %1856 = arith.andi %1786, %1846 : i1
+    %1857 = arith.ori %1855, %1856 : i1
+    %1858 = arith.select %1788, %1837, %false : i1
+    %1859 = arith.andi %1844, %1842 : i1
+    %1860 = arith.andi %1788, %1859 : i1
+    %1861 = arith.andi %1846, %1853 : i1
+    %1862 = arith.andi %1786, %1861 : i1
+    %1863 = arith.ori %1860, %1862 : i1
+    %1864 = arith.select %1788, %1843, %value_96 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1865 = arith.ori %1729, %1782 : i1
+    %1866 = arith.ori %1731, %1779 : i1
+    acir.path %1726 {branch = 45 : i64, kind = "branch", txn = 6 : i64} loc(#loc116)
+    acir.path %1726 {branch = 45 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.0:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc116)
+    %1867 = arith.ori %1731, %1866 : i1 loc(#loc116)
+    %value_98, %ready_99 = acir.read(%1726) {branch = 45 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.0:peek"], method = "read", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc117)
+    %1868 = arith.andi %1867, %ready_99 : i1 loc(#loc117)
+    %1869 = arith.ori %1731, %1868 : i1 loc(#loc117)
+    %1870 = arith.andi %1852, %1869 : i1 loc(#loc117)
+    %1871 = arith.ori %1731, %1867 : i1
+    %1872 = arith.andi %1870, %1871 : i1
+    %1873 = arith.andi %1726, %1868 : i1
+    %1874 = arith.andi %1865, %1857 : i1
+    %1875 = arith.andi %1728, %1874 : i1
+    %1876 = arith.andi %1726, %1866 : i1
+    %1877 = arith.ori %1875, %1876 : i1
+    %1878 = arith.select %1728, %1858, %false : i1
+    %1879 = arith.andi %1865, %1863 : i1
+    %1880 = arith.andi %1728, %1879 : i1
+    %1881 = arith.andi %1866, %1873 : i1
+    %1882 = arith.andi %1726, %1881 : i1
+    %1883 = arith.ori %1880, %1882 : i1
+    %1884 = arith.select %1728, %1864, %value_98 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %1885 = arith.ori %1709, %1775 : i1
+    %1886 = acir.unary %1878 "not" {acir.source_type = "bool"} : i1 -> i1
+    %1887 = arith.andi %1885, %1877 : i1
+    %1888 = arith.ori %1709, %1887 : i1
+    %1889 = arith.andi %1872, %1888 : i1
+    %1890 = arith.andi %1885, %1883 : i1
+    %1891 = arith.andi %1704, %1890 : i1
+    %1892 = arith.andi %1891, %1773 : i1
+    %1893 = arith.andi %1889, %1720 : i1
+    %1894 = arith.andi %1711, %1892 : i1
+    %1895 = arith.andi %1704, %1894 : i1
+    %1896 = acir.extract %1884 {acir.id = "v45", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc118)
+    %1897 = arith.andi %1710, %1895 : i1
+    %1898 = arith.ori %1709, %1897 : i1
+    %1899 = arith.andi %1893, %1898 : i1
+    %1900 = arith.andi %1704, %1896 : i1
+    %1901 = arith.xori %1896, %true : i1
+    %1902 = arith.andi %1704, %1901 : i1
+    %1903 = arith.xori %1902, %true : i1
+    %1904 = arith.ori %1903, %1897 : i1
+    %1905 = arith.xori %1900, %true : i1
+    %1906 = arith.ori %1905, %1897 : i1
+    %1907 = acir.extract %1884 {acir.id = "v46", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc119)
+    %1908 = arith.andi %1902, %1904 : i1
+    %1909 = arith.andi %1906, %1895 : i1
+    %1910 = arith.andi %1900, %1909 : i1
+    %1911 = arith.ori %1908, %1910 : i1
+    %1912 = arith.select %1902, %false, %1907 : i1
+    %1913 = arith.andi %1711, %1911 : i1
+    %1914 = arith.ori %1709, %1913 : i1
+    %1915 = arith.andi %1899, %1914 : i1
+    %1916 = arith.andi %1704, %1912 : i1
+    %1917 = arith.xori %1912, %true : i1
+    %1918 = arith.andi %1704, %1917 : i1
+    %1919 = arith.xori %1918, %true : i1
+    %1920 = arith.ori %1919, %1913 : i1
+    %1921 = arith.xori %1916, %true : i1
+    %1922 = arith.ori %1921, %1913 : i1
+    %1923 = acir.extract %1884 {acir.id = "v51", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc120)
+    %1924 = arith.andi %1895, %1663 : i1 loc(#loc120)
+    %1925 = arith.cmpi eq, %1923, %1664 {acir.id = "v52", acir.source_type = "bool"} : i32 loc(#loc120)
+    %1926 = arith.andi %1918, %1920 : i1
+    %1927 = arith.andi %1922, %1924 : i1
+    %1928 = arith.andi %1916, %1927 : i1
+    %1929 = arith.ori %1926, %1928 : i1
+    %1930 = arith.select %1918, %false, %1925 : i1
+    %1931 = arith.andi %1720, %1929 : i1
+    %1932 = arith.ori %1709, %1931 : i1
+    %1933 = arith.andi %1915, %1932 : i1
+    %1934 = arith.andi %1704, %1930 : i1
+    %1935 = arith.xori %1930, %true : i1
+    %1936 = arith.andi %1704, %1935 : i1
+    %1937 = arith.xori %1936, %true : i1
+    %1938 = arith.ori %1937, %1931 : i1
+    %1939 = arith.xori %1934, %true : i1
+    %1940 = arith.ori %1939, %1931 : i1
+    %1941 = acir.extract %1884 {acir.id = "v58", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc121)
+    %1942 = acir.aggregate(%true, %1664, %1941) {acir.id = "v59", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc122)
+    %1943 = arith.andi %1938, %1694 : i1
+    %1944 = arith.andi %1936, %1943 : i1
+    %1945 = arith.andi %1934, %1940 : i1
+    %1946 = arith.ori %1944, %1945 : i1
+    %1947 = arith.select %1936, %1695, %false : i1
+    %1948 = arith.andi %1938, %1698 : i1
+    %1949 = arith.andi %1936, %1948 : i1
+    %1950 = arith.andi %1940, %1924 : i1
+    %1951 = arith.andi %1934, %1950 : i1
+    %1952 = arith.ori %1949, %1951 : i1
+    %1953 = arith.select %1936, %1699, %1942 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1954 = arith.andi %1738, %1946 : i1
+    %1955 = arith.ori %1709, %1954 : i1
+    %1956 = arith.andi %1933, %1955 : i1
+    %1957 = arith.andi %1704, %1947 : i1
+    %1958 = arith.xori %1947, %true : i1
+    %1959 = arith.andi %1704, %1958 : i1
+    %1960 = arith.xori %1959, %true : i1
+    %1961 = arith.ori %1960, %1954 : i1
+    %1962 = arith.xori %1957, %true : i1
+    %1963 = arith.ori %1962, %1954 : i1
+    %1964 = acir.aggregate(%false, %1664, %c0_i32) {acir.id = "v70", acir.source_type = "src_payloads_25ebcaa7.Operand"} : (i1, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.Operand"> loc(#loc123)
+    %1965 = arith.andi %1961, %1946 : i1
+    %1966 = arith.andi %1959, %1965 : i1
+    %1967 = arith.andi %1957, %1963 : i1
+    %1968 = arith.ori %1966, %1967 : i1
+    %1969 = arith.select %1959, %1947, %false : i1
+    %1970 = arith.andi %1961, %1952 : i1
+    %1971 = arith.andi %1959, %1970 : i1
+    %1972 = arith.andi %1963, %1663 : i1
+    %1973 = arith.andi %1957, %1972 : i1
+    %1974 = arith.ori %1971, %1973 : i1
+    %1975 = arith.select %1959, %1953, %1964 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1976 = arith.andi %1708, %1694 : i1
+    %1977 = arith.andi %1706, %1976 : i1
+    %1978 = arith.andi %1754, %1968 : i1
+    %1979 = arith.andi %1704, %1978 : i1
+    %1980 = arith.ori %1977, %1979 : i1
+    %1981 = arith.select %1706, %1695, %1969 : i1
+    %1982 = arith.andi %1708, %1698 : i1
+    %1983 = arith.andi %1706, %1982 : i1
+    %1984 = arith.andi %1754, %1974 : i1
+    %1985 = arith.andi %1704, %1984 : i1
+    %1986 = arith.ori %1983, %1985 : i1
+    %1987 = arith.select %1706, %1699, %1975 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1988 = arith.ori %1641, %1700 : i1
+    %1989 = arith.andi %1654, %1647 : i1
+    %1990 = arith.andi %1652, %1989 : i1
+    %1991 = arith.andi %1988, %1980 : i1
+    %1992 = arith.andi %1640, %1991 : i1
+    %1993 = arith.ori %1990, %1992 : i1
+    %1994 = arith.select %1652, %1640, %1981 : i1
+    %1995 = arith.andi %1988, %1986 : i1
+    %1996 = arith.andi %1640, %1995 : i1
+    %1997 = arith.ori %1990, %1996 : i1
+    %1998 = arith.select %1652, %1648, %1987 : !acir.struct<"src_payloads_25ebcaa7.Operand">
+    %1999 = acir.unary %1994 "not" {acir.source_type = "bool"} : i1 -> i1
+    %2000 = arith.andi %1626, %1993 : i1
+    %2001 = arith.ori %1237, %2000 : i1
+    %2002 = arith.andi %1956, %2001 : i1
+    %2003 = arith.andi %1626, %1997 : i1
+    %2004 = arith.andi %1236, %2003 : i1
+    %2005 = acir.extract %value_68 {acir.id = "v10", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc126)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc108)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc108)
+    %value_100, %ready_101 = acir.read(%1236) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "read", port = 0 : i64, resource = "top.rob.tail", txn = 6 : i64} : (i1) -> (i32, i1) loc(#loc127)
+    %2006 = arith.andi %1274, %ready_101 : i1 loc(#loc127)
+    %2007 = arith.ori %1237, %2006 : i1 loc(#loc127)
+    %2008 = arith.andi %2002, %2007 : i1 loc(#loc127)
+    %value_102, %ready_103 = acir.read(%1236) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "read", port = 0 : i64, resource = "top.rob.head", txn = 6 : i64} : (i1) -> (i32, i1) loc(#loc128)
+    %2009 = arith.andi %1274, %ready_103 : i1 loc(#loc128)
+    %2010 = arith.ori %1237, %2009 : i1 loc(#loc128)
+    %2011 = arith.andi %2008, %2010 : i1 loc(#loc128)
+    %2012 = arith.andi %ready_101, %ready_103 : i1 loc(#loc127)
+    %2013 = arith.subi %value_100, %value_102 {acir.id = "v11", acir.source_type = "u32"} : i32 loc(#loc127)
+    %2014 = arith.cmpi ult, %2013, %c4_i32 {acir.id = "v13", acir.source_type = "bool"} : i32 loc(#loc127)
+    %2015 = arith.andi %2011, %1626 : i1
+    %2016 = arith.andi %1274, %2012 : i1
+    %2017 = arith.andi %1236, %2016 : i1
+    %2018 = arith.andi %1253, %2017 : i1 loc(#loc129)
+    %2019 = arith.andi %1236, %2018 : i1 loc(#loc129)
+    %2020 = arith.andi %2019, %2014 : i1 loc(#loc129)
+    %2021 = arith.andi %1240, %2020 : i1 loc(#loc129)
+    %2022 = arith.ori %1237, %2021 : i1 loc(#loc129)
+    %2023 = arith.andi %2015, %2022 : i1 loc(#loc129)
+    %2024 = arith.andi %2021, %ready_69 : i1 loc(#loc129)
+    %2025 = arith.andi %1236, %2024 : i1 loc(#loc129)
+    %value_104, %ready_105 = acir.read(%1236) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "read", port = 0 : i64, resource = "top.rob.tail", txn = 6 : i64} : (i1) -> (i32, i1) loc(#loc130)
+    %2026 = arith.andi %2022, %ready_105 : i1 loc(#loc130)
+    %2027 = arith.ori %1237, %2026 : i1 loc(#loc130)
+    %2028 = arith.andi %2023, %2027 : i1 loc(#loc130)
+    %2029 = arith.subi %value_104, %c1_i32 {acir.id = "v11", acir.source_type = "u32"} : i32 loc(#loc131)
+    %2030 = arith.andi %2029, %c3_i32 {acir.id = "v13", acir.source_type = "u32"} : i32 loc(#loc132)
+    %2031 = arith.cmpi eq, %2030, %c0_i32 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc133)
+    %2032 = arith.cmpi eq, %2030, %c1_i32 {acir.id = "v17", acir.source_type = "bool"} : i32 loc(#loc133)
+    %2033 = arith.cmpi eq, %2030, %c2_i32 {acir.id = "v19", acir.source_type = "bool"} : i32 loc(#loc133)
+    %2034 = arith.cmpi eq, %2030, %c3_i32 {acir.id = "v21", acir.source_type = "bool"} : i32 loc(#loc133)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2035 = arith.ori %1237, %2022 : i1 loc(#loc133)
+    %2036 = arith.andi %1236, %2026 : i1 loc(#loc133)
+    %2037 = arith.andi %2035, %2036 : i1
+    %2038 = arith.ori %1237, %2037 : i1
+    %2039 = arith.andi %2028, %2038 : i1
+    %2040 = arith.andi %1236, %2031 : i1
+    %2041 = arith.cmpi ne, %2030, %c0_i32 : i32 loc(#loc133)
+    %2042 = arith.andi %1236, %2041 : i1
+    %2043 = arith.xori %2042, %true : i1
+    %2044 = arith.ori %2043, %2037 : i1
+    %2045 = arith.xori %2040, %true : i1 loc(#loc133)
+    %2046 = arith.ori %2045, %2037 : i1
+    %2047 = arith.andi %2044, %2036 : i1
+    %2048 = arith.andi %2042, %2047 : i1
+    %2049 = arith.andi %2040, %2046 : i1
+    %2050 = arith.ori %2048, %2049 : i1
+    %2051 = arith.select %2042, %2032, %true : i1
+    %2052 = arith.ori %1237, %2035 : i1
+    %2053 = arith.andi %2052, %2050 : i1
+    %2054 = arith.ori %1237, %2053 : i1
+    %2055 = arith.andi %2039, %2054 : i1
+    %2056 = arith.andi %1236, %2051 : i1
+    %2057 = arith.xori %2051, %true : i1
+    %2058 = arith.andi %1236, %2057 : i1
+    %2059 = arith.xori %2058, %true : i1
+    %2060 = arith.ori %2059, %2053 : i1
+    %2061 = arith.xori %2056, %true : i1
+    %2062 = arith.ori %2061, %2053 : i1
+    %2063 = arith.andi %2060, %2036 : i1
+    %2064 = arith.andi %2058, %2063 : i1
+    %2065 = arith.andi %2056, %2062 : i1
+    %2066 = arith.ori %2064, %2065 : i1
+    %2067 = arith.select %2058, %2033, %true : i1
+    %2068 = arith.ori %1237, %2052 : i1
+    %2069 = arith.andi %2068, %2066 : i1
+    %2070 = arith.ori %1237, %2069 : i1
+    %2071 = arith.andi %2055, %2070 : i1
+    %2072 = arith.andi %1236, %2067 : i1
+    %2073 = arith.xori %2067, %true : i1
+    %2074 = arith.andi %1236, %2073 : i1
+    %2075 = arith.xori %2074, %true : i1
+    %2076 = arith.ori %2075, %2069 : i1
+    %2077 = arith.xori %2072, %true : i1
+    %2078 = arith.ori %2077, %2069 : i1
+    %2079 = arith.andi %2076, %2036 : i1
+    %2080 = arith.andi %2074, %2079 : i1
+    %2081 = arith.andi %2072, %2078 : i1
+    %2082 = arith.ori %2080, %2081 : i1
+    %2083 = arith.select %2074, %2034, %true : i1
+    %2084 = arith.ori %1237, %2068 : i1
+    %2085 = arith.andi %2084, %2082 : i1 loc(#loc133)
+    %2086 = arith.andi %1236, %2085 : i1 loc(#loc133)
+    %2087 = arith.andi %2086, %2083 : i1 loc(#loc133)
+    %2088 = arith.andi %2022, %2087 : i1 loc(#loc133)
+    %2089 = arith.ori %1237, %2088 : i1 loc(#loc133)
+    %2090 = arith.andi %2071, %2089 : i1 loc(#loc133)
+    %2091 = arith.andi %2088, %ready_105 : i1 loc(#loc133)
+    %2092 = arith.andi %1236, %2091 : i1 loc(#loc133)
+    %2093 = arith.andi %2088, %2025 : i1 loc(#loc133)
+    %2094 = arith.andi %1236, %2093 : i1 loc(#loc133)
+    %2095 = arith.andi %2089, %2092 : i1
+    %2096 = arith.ori %1237, %2095 : i1
+    %2097 = arith.andi %2090, %2096 : i1
+    %2098 = arith.ori %2043, %2095 : i1
+    %2099 = arith.andi %2098, %2092 : i1
+    %2100 = arith.ori %2043, %2099 : i1
+    %2101 = arith.andi %2097, %2100 : i1
+    %2102 = arith.andi %2042, %2032 : i1
+    %2103 = arith.cmpi ne, %2030, %c1_i32 : i32 loc(#loc133)
+    %2104 = arith.andi %2042, %2103 : i1
+    %2105 = arith.xori %2104, %true : i1
+    %2106 = arith.ori %2105, %2099 : i1
+    %2107 = arith.andi %2106, %2092 : i1
+    %2108 = arith.ori %2105, %2107 : i1
+    %2109 = arith.andi %2101, %2108 : i1
+    %2110 = arith.andi %2104, %2033 : i1
+    %2111 = arith.cmpi ne, %2030, %c2_i32 : i32 loc(#loc133)
+    %2112 = arith.andi %2104, %2111 : i1
+    %2113 = arith.xori %2112, %true : i1
+    %2114 = arith.ori %2113, %2107 : i1
+    %2115 = arith.andi %2114, %2092 : i1
+    %2116 = arith.ori %2113, %2115 : i1
+    %2117 = arith.andi %2109, %2116 : i1
+    %2118 = arith.andi %2112, %2034 : i1
+    %2119 = arith.xori %2118, %true : i1 loc(#loc133)
+    %2120 = arith.ori %2119, %2115 : i1
+    acir.path %2118 {branch = 46 : i64, kind = "branch", txn = 6 : i64} loc(#loc133)
+    acir.path %2118 {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.3:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2121 = arith.ori %2119, %2120 : i1 loc(#loc133)
+    acir.path %2118 {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.3:allocate", "top.rob.slots.3:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2122 = arith.ori %2119, %2121 : i1 loc(#loc133)
+    %value_106, %ready_107 = acir.read(%2118) {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.3:allocate", "top.rob.slots.3:free"], method = "read", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc134)
+    %2123 = arith.andi %2122, %ready_107 : i1 loc(#loc134)
+    %2124 = arith.ori %2119, %2123 : i1 loc(#loc134)
+    %2125 = arith.andi %2117, %2124 : i1 loc(#loc134)
+    %2126 = acir.extract %value_106 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc134)
+    %2127 = acir.unary %2126 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc135)
+    %2128 = arith.ori %2119, %2122 : i1
+    %2129 = arith.andi %2125, %2128 : i1
+    %2130 = arith.andi %2118, %2123 : i1
+    %2131 = arith.andi %2121, %2130 : i1 loc(#loc136)
+    %2132 = arith.andi %2118, %2131 : i1 loc(#loc136)
+    %2133 = arith.andi %2132, %2127 : i1 loc(#loc136)
+    %2134 = arith.andi %2120, %2133 : i1 loc(#loc136)
+    %2135 = arith.ori %2119, %2134 : i1 loc(#loc136)
+    %2136 = arith.andi %2129, %2135 : i1 loc(#loc136)
+    %2137 = arith.andi %2134, %2092 : i1 loc(#loc136)
+    %2138 = arith.andi %2118, %2137 : i1 loc(#loc136)
+    %2139 = arith.andi %2134, %2094 : i1 loc(#loc136)
+    %2140 = arith.andi %2118, %2139 : i1 loc(#loc136)
+    %2141 = arith.andi %2138, %2140 : i1 loc(#loc137)
+    %2142 = acir.aggregate(%true, %false, %value_104, %2005, %c0_i32) {acir.id = "v10", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc137)
+    %2143 = arith.andi %2135, %2141 : i1 loc(#loc138)
+    %2144 = arith.ori %2119, %2143 : i1 loc(#loc138)
+    %2145 = arith.andi %2136, %2144 : i1 loc(#loc138)
+    %2146 = arith.xori %2110, %true : i1 loc(#loc133)
+    %2147 = arith.ori %2146, %2107 : i1
+    acir.path %2110 {branch = 47 : i64, kind = "branch", txn = 6 : i64} loc(#loc133)
+    acir.path %2110 {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.2:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2148 = arith.ori %2146, %2147 : i1 loc(#loc133)
+    acir.path %2110 {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.2:allocate", "top.rob.slots.2:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2149 = arith.ori %2146, %2148 : i1 loc(#loc133)
+    %value_108, %ready_109 = acir.read(%2110) {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.2:allocate", "top.rob.slots.2:free"], method = "read", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc134)
+    %2150 = arith.andi %2149, %ready_109 : i1 loc(#loc134)
+    %2151 = arith.ori %2146, %2150 : i1 loc(#loc134)
+    %2152 = arith.andi %2145, %2151 : i1 loc(#loc134)
+    %2153 = acir.extract %value_108 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc134)
+    %2154 = acir.unary %2153 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc135)
+    %2155 = arith.ori %2146, %2149 : i1
+    %2156 = arith.andi %2152, %2155 : i1
+    %2157 = arith.andi %2110, %2150 : i1
+    %2158 = arith.andi %2148, %2157 : i1 loc(#loc136)
+    %2159 = arith.andi %2110, %2158 : i1 loc(#loc136)
+    %2160 = arith.andi %2159, %2154 : i1 loc(#loc136)
+    %2161 = arith.andi %2147, %2160 : i1 loc(#loc136)
+    %2162 = arith.ori %2146, %2161 : i1 loc(#loc136)
+    %2163 = arith.andi %2156, %2162 : i1 loc(#loc136)
+    %2164 = arith.andi %2161, %2092 : i1 loc(#loc136)
+    %2165 = arith.andi %2110, %2164 : i1 loc(#loc136)
+    %2166 = arith.andi %2161, %2094 : i1 loc(#loc136)
+    %2167 = arith.andi %2110, %2166 : i1 loc(#loc136)
+    %2168 = arith.andi %2165, %2167 : i1 loc(#loc137)
+    %2169 = arith.andi %2162, %2168 : i1 loc(#loc138)
+    %2170 = arith.ori %2146, %2169 : i1 loc(#loc138)
+    %2171 = arith.andi %2163, %2170 : i1 loc(#loc138)
+    %2172 = arith.xori %2102, %true : i1 loc(#loc133)
+    %2173 = arith.ori %2172, %2099 : i1
+    acir.path %2102 {branch = 48 : i64, kind = "branch", txn = 6 : i64} loc(#loc133)
+    acir.path %2102 {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.1:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2174 = arith.ori %2172, %2173 : i1 loc(#loc133)
+    acir.path %2102 {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.1:allocate", "top.rob.slots.1:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2175 = arith.ori %2172, %2174 : i1 loc(#loc133)
+    %value_110, %ready_111 = acir.read(%2102) {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.1:allocate", "top.rob.slots.1:free"], method = "read", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc134)
+    %2176 = arith.andi %2175, %ready_111 : i1 loc(#loc134)
+    %2177 = arith.ori %2172, %2176 : i1 loc(#loc134)
+    %2178 = arith.andi %2171, %2177 : i1 loc(#loc134)
+    %2179 = acir.extract %value_110 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc134)
+    %2180 = acir.unary %2179 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc135)
+    %2181 = arith.ori %2172, %2175 : i1
+    %2182 = arith.andi %2178, %2181 : i1
+    %2183 = arith.andi %2102, %2176 : i1
+    %2184 = arith.andi %2174, %2183 : i1 loc(#loc136)
+    %2185 = arith.andi %2102, %2184 : i1 loc(#loc136)
+    %2186 = arith.andi %2185, %2180 : i1 loc(#loc136)
+    %2187 = arith.andi %2173, %2186 : i1 loc(#loc136)
+    %2188 = arith.ori %2172, %2187 : i1 loc(#loc136)
+    %2189 = arith.andi %2182, %2188 : i1 loc(#loc136)
+    %2190 = arith.andi %2187, %2092 : i1 loc(#loc136)
+    %2191 = arith.andi %2102, %2190 : i1 loc(#loc136)
+    %2192 = arith.andi %2187, %2094 : i1 loc(#loc136)
+    %2193 = arith.andi %2102, %2192 : i1 loc(#loc136)
+    %2194 = arith.andi %2191, %2193 : i1 loc(#loc137)
+    %2195 = arith.andi %2188, %2194 : i1 loc(#loc138)
+    %2196 = arith.ori %2172, %2195 : i1 loc(#loc138)
+    %2197 = arith.andi %2189, %2196 : i1 loc(#loc138)
+    %2198 = arith.ori %2045, %2095 : i1
+    acir.path %2040 {branch = 49 : i64, kind = "branch", txn = 6 : i64} loc(#loc133)
+    acir.path %2040 {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.0:allocate"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2199 = arith.ori %2045, %2198 : i1 loc(#loc133)
+    acir.path %2040 {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.0:allocate", "top.rob.slots.0:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc133)
+    %2200 = arith.ori %2045, %2199 : i1 loc(#loc133)
+    %value_112, %ready_113 = acir.read(%2040) {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.0:allocate", "top.rob.slots.0:free"], method = "read", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc134)
+    %2201 = arith.andi %2200, %ready_113 : i1 loc(#loc134)
+    %2202 = arith.ori %2045, %2201 : i1 loc(#loc134)
+    %2203 = arith.andi %2197, %2202 : i1 loc(#loc134)
+    %2204 = acir.extract %value_112 {acir.id = "v10", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc134)
+    %2205 = acir.unary %2204 "not" {acir.id = "v11", acir.source_type = "bool"} : i1 -> i1 loc(#loc135)
+    %2206 = arith.ori %2045, %2200 : i1
+    %2207 = arith.andi %2203, %2206 : i1
+    %2208 = arith.andi %2040, %2201 : i1
+    %2209 = arith.andi %2199, %2208 : i1 loc(#loc136)
+    %2210 = arith.andi %2040, %2209 : i1 loc(#loc136)
+    %2211 = arith.andi %2210, %2205 : i1 loc(#loc136)
+    %2212 = arith.andi %2198, %2211 : i1 loc(#loc136)
+    %2213 = arith.ori %2045, %2212 : i1 loc(#loc136)
+    %2214 = arith.andi %2207, %2213 : i1 loc(#loc136)
+    %2215 = arith.andi %2212, %2092 : i1 loc(#loc136)
+    %2216 = arith.andi %2040, %2215 : i1 loc(#loc136)
+    %2217 = arith.andi %2212, %2094 : i1 loc(#loc136)
+    %2218 = arith.andi %2040, %2217 : i1 loc(#loc136)
+    %2219 = arith.andi %2216, %2218 : i1 loc(#loc137)
+    %2220 = arith.andi %2213, %2219 : i1 loc(#loc138)
+    %2221 = arith.ori %2045, %2220 : i1 loc(#loc138)
+    %2222 = arith.andi %2214, %2221 : i1 loc(#loc138)
+    %2223 = arith.addi %value_104, %c1_i32 {acir.id = "v24", acir.source_type = "u32"} : i32 loc(#loc139)
+    %2224 = arith.andi %2222, %2027 : i1 loc(#loc140)
+    %2225 = arith.andi %2224, %2035 : i1
+    %2226 = arith.andi %2036, %2020 : i1
+    %2227 = acir.extract %value_68 {acir.id = "v12", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc141)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc142)
+    %2228 = arith.andi %1240, %2226 : i1 loc(#loc142)
+    %2229 = arith.andi %1236, %2228 : i1 loc(#loc142)
+    %2230 = arith.cmpi ult, %2227, %c8_i32 {acir.id = "v7", acir.source_type = "bool"} : i32 loc(#loc143)
+    %2231 = arith.andi %2225, %1258 : i1 loc(#loc144)
+    %2232 = arith.cmpi ne, %2227, %c0_i32 {acir.id = "v10", acir.source_type = "bool"} : i32 loc(#loc145)
+    %2233 = arith.andi %2231, %1258 : i1
+    %2234 = arith.andi %1236, %2232 : i1
+    %2235 = arith.xori %2234, %true : i1 loc(#loc146)
+    %2236 = arith.ori %2235, %1257 : i1
+    acir.path %2234 {branch = 50 : i64, kind = "branch", txn = 6 : i64} loc(#loc146)
+    %value_114, %ready_115 = acir.read(%2234) {branch = 50 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "read", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc146)
+    %2237 = arith.andi %2236, %ready_115 : i1 loc(#loc146)
+    %2238 = arith.ori %2235, %2237 : i1 loc(#loc146)
+    %2239 = arith.andi %2233, %2238 : i1 loc(#loc146)
+    %2240 = arith.andi %ready_115, %2229 : i1 loc(#loc146)
+    %2241 = arith.andi %2240, %1254 : i1 loc(#loc146)
+    %2242 = arith.extui %2227 : i32 to i64 loc(#loc146)
+    %2243 = arith.cmpi ult, %2242, %c8_i64 : i64 loc(#loc146)
+    %2244 = arith.andi %2241, %2243 : i1 loc(#loc146)
+    %2245 = arith.select %2243, %2242, %c0_i64 : i64 loc(#loc146)
+    %2246 = acir.update %value_114, %value_104[%2245] {acir.id = "v15", acir.source_type = "array<u32;8>", path = [unit], signed_indices = [false]} : (!acir.array<i32, [8]>, i32, i64) -> !acir.array<i32, [8]> loc(#loc146)
+    %2247 = arith.andi %2236, %2244 : i1 loc(#loc146)
+    %2248 = arith.ori %2235, %2247 : i1 loc(#loc146)
+    %2249 = arith.andi %2239, %2248 : i1 loc(#loc146)
+    %2250 = acir.extract %value_68 {acir.id = "v15", acir.source_type = "u32", field = "kind"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc147)
+    %2251 = acir.extract %value_68 {acir.id = "v16", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.MicroOp">) -> i32 loc(#loc148)
+    %2252 = arith.andi %ready_69, %2226 : i1 loc(#loc149)
+    %2253 = arith.andi %2252, %1632 : i1 loc(#loc149)
+    %2254 = arith.andi %2253, %2004 : i1 loc(#loc149)
+    %2255 = acir.aggregate(%true, %2250, %value_104, %2251, %1625, %1998) {acir.id = "v17", acir.source_type = "src_payloads_25ebcaa7.Entry"} : (i1, i32, i32, i32, !acir.struct<"src_payloads_25ebcaa7.Operand">, !acir.struct<"src_payloads_25ebcaa7.Operand">) -> !acir.struct<"src_payloads_25ebcaa7.Entry"> loc(#loc149)
+    acir.path %1236 {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.left:peek"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc150)
+    %value_116, %ready_117 = acir.read(%1236) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.left:peek"], method = "read", port = 0 : i64, resource = "top.left.slot", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc2)
+    %2256 = arith.andi %1253, %ready_117 : i1 loc(#loc2)
+    %2257 = arith.ori %1237, %2256 : i1 loc(#loc2)
+    %2258 = arith.andi %2249, %2257 : i1 loc(#loc2)
+    %2259 = arith.andi %2258, %1274 : i1
+    %2260 = arith.andi %1236, %2256 : i1
+    %2261 = acir.extract %value_116 {acir.id = "v19", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc150)
+    %2262 = acir.unary %2261 "not" {acir.id = "v20", acir.source_type = "bool"} : i1 -> i1 loc(#loc151)
+    %2263 = arith.andi %1240, %2260 : i1
+    %2264 = arith.ori %1237, %2263 : i1
+    %2265 = arith.andi %2259, %2264 : i1
+    %2266 = arith.andi %1236, %2262 : i1
+    %2267 = arith.xori %2262, %true : i1
+    %2268 = arith.andi %1236, %2267 : i1
+    %2269 = arith.xori %2268, %true : i1 loc(#loc152)
+    %2270 = arith.ori %2269, %2263 : i1
+    acir.path %2268 {branch = 51 : i64, kind = "branch", txn = 6 : i64} loc(#loc152)
+    acir.path %2268 {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc152)
+    %2271 = arith.ori %2269, %2270 : i1 loc(#loc152)
+    acir.path %2268 {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place", "top.right:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc152)
+    %2272 = arith.ori %2269, %2271 : i1 loc(#loc152)
+    %value_118, %ready_119 = acir.read(%2268) {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place", "top.right:free"], method = "read", port = 0 : i64, resource = "top.right.slot", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc153)
+    %2273 = arith.andi %2272, %ready_119 : i1 loc(#loc153)
+    %2274 = arith.ori %2269, %2273 : i1 loc(#loc153)
+    %2275 = arith.andi %2265, %2274 : i1 loc(#loc153)
+    %2276 = acir.extract %value_118 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc153)
+    %2277 = acir.unary %2276 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc154)
+    %2278 = arith.ori %2269, %2272 : i1
+    %2279 = arith.andi %2275, %2278 : i1
+    %2280 = arith.andi %2268, %2273 : i1
+    %2281 = arith.andi %2271, %2280 : i1 loc(#loc155)
+    %2282 = arith.andi %2268, %2281 : i1 loc(#loc155)
+    %2283 = arith.andi %2282, %2277 : i1 loc(#loc155)
+    %2284 = arith.andi %2270, %2283 : i1 loc(#loc155)
+    %2285 = arith.ori %2269, %2284 : i1 loc(#loc155)
+    %2286 = arith.andi %2279, %2285 : i1 loc(#loc155)
+    %2287 = arith.andi %2284, %2254 : i1 loc(#loc155)
+    %2288 = arith.andi %2268, %2287 : i1 loc(#loc155)
+    %2289 = arith.andi %2285, %2288 : i1 loc(#loc156)
+    %2290 = arith.ori %2269, %2289 : i1 loc(#loc156)
+    %2291 = arith.andi %2286, %2290 : i1 loc(#loc156)
+    %2292 = arith.xori %2266, %true : i1 loc(#loc157)
+    %2293 = arith.ori %2292, %2263 : i1
+    acir.path %2266 {branch = 52 : i64, kind = "branch", txn = 6 : i64} loc(#loc157)
+    acir.path %2266 {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc157)
+    %2294 = arith.ori %2292, %2293 : i1 loc(#loc157)
+    acir.path %2266 {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place", "top.left:free"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 6 : i64} loc(#loc157)
+    %2295 = arith.ori %2292, %2294 : i1 loc(#loc157)
+    %value_120, %ready_121 = acir.read(%2266) {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place", "top.left:free"], method = "read", port = 0 : i64, resource = "top.left.slot", txn = 6 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Entry">, i1) loc(#loc153)
+    %2296 = arith.andi %2295, %ready_121 : i1 loc(#loc153)
+    %2297 = arith.ori %2292, %2296 : i1 loc(#loc153)
+    %2298 = arith.andi %2291, %2297 : i1 loc(#loc153)
+    %2299 = acir.extract %value_120 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.Entry">) -> i1 loc(#loc153)
+    %2300 = acir.unary %2299 "not" {acir.id = "v10", acir.source_type = "bool"} : i1 -> i1 loc(#loc154)
+    %2301 = arith.ori %2292, %2295 : i1
+    %2302 = arith.andi %2298, %2301 : i1
+    %2303 = arith.andi %2266, %2296 : i1
+    %2304 = arith.andi %2294, %2303 : i1 loc(#loc155)
+    %2305 = arith.andi %2266, %2304 : i1 loc(#loc155)
+    %2306 = arith.andi %2305, %2300 : i1 loc(#loc155)
+    %2307 = arith.andi %2293, %2306 : i1 loc(#loc155)
+    %2308 = arith.ori %2292, %2307 : i1 loc(#loc155)
+    %2309 = arith.andi %2302, %2308 : i1 loc(#loc155)
+    %2310 = arith.andi %2307, %2254 : i1 loc(#loc155)
+    %2311 = arith.andi %2266, %2310 : i1 loc(#loc155)
+    %2312 = arith.andi %2308, %2311 : i1 loc(#loc156)
+    %2313 = arith.ori %2292, %2312 : i1 loc(#loc156)
+    %2314 = arith.andi %2309, %2313 : i1 loc(#loc156)
+    %2315 = acir.fire "top.dispatch.dispatch#6" %2314 {successors = [], txn = 6 : i64}
+    %2316 = arith.andi %2315, %1236 : i1
+    acir.effect %2316() {branch = 31 : i64, frames = ["top.dispatch:dispatch"], method = "pop", port = 0 : i64, resource = "top.source", txn = 6 : i64} : (i1) -> () loc(#loc100)
+    acir.effect %2316(%1256) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> () loc(#loc104)
+    %2317 = arith.andi %2315, %1429 : i1
+    acir.effect %2317(%0) {branch = 35 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.3:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2318 = arith.andi %2315, %1421 : i1
+    acir.effect %2318(%0) {branch = 36 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.2:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2319 = arith.andi %2315, %1413 : i1
+    acir.effect %2319(%0) {branch = 37 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.1:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2320 = arith.andi %2315, %1352 : i1
+    acir.effect %2320(%0) {branch = 38 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.0:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2321 = arith.andi %2315, %1330 : i1
+    acir.effect %2321(%1513) {branch = 34 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2321(%0) {branch = 34 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2316(%1627) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2316(%1634) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> () loc(#loc104)
+    %2322 = arith.andi %2315, %1802 : i1
+    acir.effect %2322(%0) {branch = 42 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.3:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2323 = arith.andi %2315, %1794 : i1
+    acir.effect %2323(%0) {branch = 43 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.2:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2324 = arith.andi %2315, %1786 : i1
+    acir.effect %2324(%0) {branch = 44 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.1:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2325 = arith.andi %2315, %1726 : i1
+    acir.effect %2325(%0) {branch = 45 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20", "top.rob.slots.0:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2326 = arith.andi %2315, %1704 : i1
+    acir.effect %2326(%1886) {branch = 41 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup", "top.rob:$dispatch20"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2326(%0) {branch = 41 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand", "top.rob:lookup"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2316(%1999) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:operand"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2316(%0) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:room"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2327 = arith.andi %2315, %2118 : i1
+    acir.effect %2327(%0) {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.3:allocate", "top.rob.slots.3:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2327(%2142) {branch = 46 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.3:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc138)
+    %2328 = arith.andi %2315, %2110 : i1
+    acir.effect %2328(%0) {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.2:allocate", "top.rob.slots.2:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2328(%2142) {branch = 47 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.2:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc138)
+    %2329 = arith.andi %2315, %2102 : i1
+    acir.effect %2329(%0) {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.1:allocate", "top.rob.slots.1:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2329(%2142) {branch = 48 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.1:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc138)
+    %2330 = arith.andi %2315, %2040 : i1
+    acir.effect %2330(%0) {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.0:allocate", "top.rob.slots.0:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2330(%2142) {branch = 49 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate", "top.rob:$dispatch28", "top.rob.slots.0:allocate"], method = "write", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc138)
+    acir.effect %2316(%2223) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "write", port = 0 : i64, resource = "top.rob.tail", txn = 6 : i64} : (i1, i32) -> () loc(#loc140)
+    acir.effect %2316(%0) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rob:allocate"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2316(%2230) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> () loc(#loc144)
+    %2331 = arith.andi %2315, %2234 : i1
+    acir.effect %2331(%2246) {branch = 50 : i64, frames = ["top.dispatch:dispatch", "top.rf:rename"], method = "write", port = 0 : i64, resource = "top.rf.renamed", txn = 6 : i64} : (i1, !acir.array<i32, [8]>) -> () loc(#loc146)
+    acir.effect %2316(%0) {branch = 31 : i64, frames = ["top.dispatch:dispatch", "top.left:peek"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    %2332 = arith.andi %2315, %2268 : i1
+    acir.effect %2332(%0) {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place", "top.right:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2332(%2255) {branch = 51 : i64, frames = ["top.dispatch:dispatch", "top.right:place"], method = "write", port = 0 : i64, resource = "top.right.slot", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc156)
+    %2333 = arith.andi %2315, %2266 : i1
+    acir.effect %2333(%0) {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place", "top.left:free"], method = "check", port = 0 : i64, resource = "", txn = 6 : i64} : (i1, i1) -> ()
+    acir.effect %2333(%2255) {branch = 52 : i64, frames = ["top.dispatch:dispatch", "top.left:place"], method = "write", port = 0 : i64, resource = "top.left.slot", txn = 6 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.Entry">) -> () loc(#loc156)
+    acir.path %true {branch = 53 : i64, kind = "branch", txn = 7 : i64} loc(#loc158)
+    acir.path %true {branch = 53 : i64, frames = ["top.commit:commit"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc158)
+    acir.path %true {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc159)
+    %value_122, %ready_123 = acir.read(%true) {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "read", port = 0 : i64, resource = "top.rob.head", txn = 7 : i64} : (i1) -> (i32, i1) loc(#loc160)
+    %2334 = arith.subi %value_122, %c1_i32 {acir.id = "v9", acir.source_type = "u32"} : i32 loc(#loc161)
+    %2335 = arith.andi %2334, %c3_i32 {acir.id = "v11", acir.source_type = "u32"} : i32 loc(#loc162)
+    %2336 = arith.cmpi eq, %2335, %c0_i32 {acir.id = "v13", acir.source_type = "bool"} : i32 loc(#loc163)
+    %2337 = arith.cmpi eq, %2335, %c1_i32 {acir.id = "v15", acir.source_type = "bool"} : i32 loc(#loc163)
+    %2338 = arith.cmpi eq, %2335, %c2_i32 {acir.id = "v17", acir.source_type = "bool"} : i32 loc(#loc163)
+    %2339 = arith.cmpi eq, %2335, %c3_i32 {acir.id = "v19", acir.source_type = "bool"} : i32 loc(#loc163)
+    acir.path %true {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2340 = arith.cmpi ne, %2335, %c0_i32 : i32 loc(#loc163)
+    %2341 = arith.cmpi eq, %2335, %c0_i32 : i32 loc(#loc163)
+    %2342 = arith.ori %2341, %ready_123 : i1
+    %2343 = arith.ori %2340, %ready_123 : i1
+    %2344 = arith.andi %2342, %ready_123 : i1
+    %2345 = arith.andi %2340, %2344 : i1
+    %2346 = arith.andi %2336, %2343 : i1
+    %2347 = arith.ori %2345, %2346 : i1
+    %2348 = arith.select %2340, %2337, %true : i1
+    %2349 = arith.andi %ready_123, %2347 : i1
+    %2350 = arith.xori %2348, %true : i1
+    %2351 = arith.ori %2348, %2347 : i1
+    %2352 = arith.ori %2350, %2347 : i1
+    %2353 = arith.andi %2351, %ready_123 : i1
+    %2354 = arith.andi %2350, %2353 : i1
+    %2355 = arith.andi %2348, %2352 : i1
+    %2356 = arith.ori %2354, %2355 : i1
+    %2357 = arith.select %2348, %true, %2338 : i1
+    %2358 = arith.andi %2349, %2356 : i1
+    %2359 = arith.xori %2357, %true : i1
+    %2360 = arith.ori %2357, %2356 : i1
+    %2361 = arith.ori %2359, %2356 : i1
+    %2362 = arith.andi %2360, %ready_123 : i1
+    %2363 = arith.andi %2359, %2362 : i1
+    %2364 = arith.andi %2357, %2361 : i1
+    %2365 = arith.ori %2363, %2364 : i1
+    %2366 = arith.select %2357, %true, %2339 : i1
+    %2367 = arith.andi %2365, %2366 : i1 loc(#loc163)
+    %2368 = arith.andi %2358, %2367 : i1 loc(#loc163)
+    %2369 = arith.andi %2367, %ready_123 : i1 loc(#loc163)
+    %2370 = arith.andi %2368, %2369 : i1
+    %2371 = arith.ori %2341, %2369 : i1
+    %2372 = arith.andi %2371, %2369 : i1
+    %2373 = arith.ori %2341, %2372 : i1
+    %2374 = arith.andi %2370, %2373 : i1
+    %2375 = arith.andi %2340, %2337 : i1
+    %2376 = arith.cmpi ne, %2335, %c1_i32 : i32 loc(#loc163)
+    %2377 = arith.andi %2340, %2376 : i1
+    %2378 = arith.xori %2377, %true : i1
+    %2379 = arith.ori %2378, %2372 : i1
+    %2380 = arith.andi %2379, %2369 : i1
+    %2381 = arith.ori %2378, %2380 : i1
+    %2382 = arith.andi %2374, %2381 : i1
+    %2383 = arith.andi %2377, %2338 : i1
+    %2384 = arith.cmpi ne, %2335, %c2_i32 : i32 loc(#loc163)
+    %2385 = arith.andi %2377, %2384 : i1
+    %2386 = arith.xori %2385, %true : i1
+    %2387 = arith.ori %2386, %2380 : i1
+    %2388 = arith.andi %2387, %2369 : i1
+    %2389 = arith.ori %2386, %2388 : i1
+    %2390 = arith.andi %2382, %2389 : i1
+    %2391 = arith.andi %2385, %2339 : i1
+    %2392 = arith.cmpi ne, %2335, %c3_i32 : i32 loc(#loc163)
+    %2393 = arith.andi %2385, %2392 : i1
+    %2394 = arith.xori %2393, %true : i1
+    %2395 = arith.ori %2394, %2388 : i1
+    %2396 = arith.xori %2391, %true : i1 loc(#loc163)
+    %2397 = arith.ori %2396, %2388 : i1
+    acir.path %2391 {branch = 54 : i64, kind = "branch", txn = 7 : i64} loc(#loc163)
+    acir.path %2391 {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.3:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2398 = arith.ori %2396, %2397 : i1 loc(#loc163)
+    %2399 = arith.andi %2397, %2369 : i1 loc(#loc163)
+    %2400 = arith.andi %2391, %2399 : i1 loc(#loc163)
+    acir.path %2391 {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.3:retire", "top.rob.slots.3:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2401 = arith.ori %2396, %2398 : i1 loc(#loc163)
+    %2402 = arith.andi %2398, %2400 : i1 loc(#loc163)
+    %2403 = arith.andi %2391, %2402 : i1 loc(#loc163)
+    %value_124, %ready_125 = acir.read(%2391) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.3:retire", "top.rob.slots.3:completed"], method = "read", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc164)
+    %2404 = arith.andi %2401, %ready_125 : i1 loc(#loc164)
+    %2405 = arith.ori %2396, %2404 : i1 loc(#loc164)
+    %2406 = arith.andi %2390, %2405 : i1 loc(#loc164)
+    %2407 = acir.extract %value_124 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc165)
+    %2408 = arith.andi %2406, %2405 : i1
+    %2409 = arith.andi %2391, %2407 : i1
+    %2410 = arith.xori %2407, %true : i1
+    %2411 = arith.andi %2391, %2410 : i1
+    %2412 = arith.xori %2411, %true : i1
+    %2413 = arith.ori %2412, %2404 : i1
+    %2414 = arith.xori %2409, %true : i1
+    %2415 = arith.ori %2414, %2404 : i1
+    %2416 = acir.extract %value_124 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc166)
+    %2417 = arith.andi %2411, %2413 : i1
+    %2418 = arith.andi %2415, %ready_125 : i1
+    %2419 = arith.andi %2409, %2418 : i1
+    %2420 = arith.ori %2417, %2419 : i1
+    %2421 = arith.select %2411, %false, %2416 : i1
+    %2422 = arith.ori %2396, %2401 : i1
+    %2423 = arith.andi %2422, %2420 : i1
+    %2424 = arith.ori %2396, %2423 : i1
+    %2425 = arith.andi %2408, %2424 : i1
+    %2426 = arith.andi %2391, %2421 : i1
+    %2427 = arith.xori %2421, %true : i1
+    %2428 = arith.andi %2391, %2427 : i1
+    %2429 = arith.xori %2428, %true : i1
+    %2430 = arith.ori %2429, %2423 : i1
+    %2431 = arith.xori %2426, %true : i1
+    %2432 = arith.ori %2431, %2423 : i1
+    %2433 = acir.extract %value_124 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc167)
+    %2434 = arith.andi %ready_125, %2403 : i1 loc(#loc167)
+    %2435 = arith.cmpi eq, %2433, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc167)
+    %2436 = arith.andi %2428, %2430 : i1
+    %2437 = arith.andi %2432, %2434 : i1
+    %2438 = arith.andi %2426, %2437 : i1
+    %2439 = arith.ori %2436, %2438 : i1
+    %2440 = arith.select %2428, %false, %2435 : i1
+    %2441 = arith.ori %2396, %2422 : i1
+    %2442 = arith.ori %2396, %2441 : i1
+    %2443 = arith.andi %2425, %2442 : i1
+    %2444 = arith.andi %2441, %2439 : i1
+    %2445 = arith.andi %2391, %2444 : i1
+    %2446 = arith.andi %2398, %2445 : i1 loc(#loc168)
+    %2447 = arith.andi %2391, %2446 : i1 loc(#loc168)
+    %2448 = arith.andi %2447, %2440 : i1 loc(#loc168)
+    %2449 = arith.andi %2397, %2448 : i1 loc(#loc168)
+    %2450 = arith.ori %2396, %2449 : i1 loc(#loc168)
+    %2451 = arith.andi %2443, %2450 : i1 loc(#loc168)
+    %value_126, %ready_127 = acir.read(%2391) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.3:retire"], method = "read", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc169)
+    %2452 = arith.andi %2450, %ready_127 : i1 loc(#loc169)
+    %2453 = arith.ori %2396, %2452 : i1 loc(#loc169)
+    %2454 = arith.andi %2451, %2453 : i1 loc(#loc169)
+    %2455 = acir.aggregate(%false, %false, %c0_i32, %c0_i32, %c0_i32) {acir.id = "v15", acir.source_type = "src_payloads_25ebcaa7.RobEntry"} : (i1, i1, i32, i32, i32) -> !acir.struct<"src_payloads_25ebcaa7.RobEntry"> loc(#loc170)
+    %2456 = arith.ori %2396, %2450 : i1 loc(#loc171)
+    %2457 = arith.andi %2454, %2456 : i1 loc(#loc171)
+    %2458 = arith.andi %2457, %2456 : i1
+    %2459 = arith.andi %2391, %2452 : i1
+    %2460 = arith.andi %2459, %2448 : i1
+    %2461 = arith.andi %2393, %2395 : i1
+    %2462 = arith.andi %2391, %2397 : i1
+    %2463 = arith.ori %2461, %2462 : i1
+    %2464 = arith.andi %2397, %2460 : i1
+    %2465 = arith.andi %2391, %2464 : i1
+    %2466 = arith.ori %2461, %2465 : i1
+    %2467 = arith.select %2393, %1405, %value_126 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %2468 = arith.ori %2386, %2387 : i1
+    %2469 = arith.xori %2383, %true : i1 loc(#loc163)
+    %2470 = arith.ori %2469, %2380 : i1
+    acir.path %2383 {branch = 55 : i64, kind = "branch", txn = 7 : i64} loc(#loc163)
+    acir.path %2383 {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.2:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2471 = arith.ori %2469, %2470 : i1 loc(#loc163)
+    %2472 = arith.andi %2470, %2369 : i1 loc(#loc163)
+    %2473 = arith.andi %2383, %2472 : i1 loc(#loc163)
+    acir.path %2383 {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.2:retire", "top.rob.slots.2:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2474 = arith.ori %2469, %2471 : i1 loc(#loc163)
+    %2475 = arith.andi %2471, %2473 : i1 loc(#loc163)
+    %2476 = arith.andi %2383, %2475 : i1 loc(#loc163)
+    %value_128, %ready_129 = acir.read(%2383) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.2:retire", "top.rob.slots.2:completed"], method = "read", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc164)
+    %2477 = arith.andi %2474, %ready_129 : i1 loc(#loc164)
+    %2478 = arith.ori %2469, %2477 : i1 loc(#loc164)
+    %2479 = arith.andi %2458, %2478 : i1 loc(#loc164)
+    %2480 = acir.extract %value_128 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc165)
+    %2481 = arith.andi %2479, %2478 : i1
+    %2482 = arith.andi %2383, %2480 : i1
+    %2483 = arith.xori %2480, %true : i1
+    %2484 = arith.andi %2383, %2483 : i1
+    %2485 = arith.xori %2484, %true : i1
+    %2486 = arith.ori %2485, %2477 : i1
+    %2487 = arith.xori %2482, %true : i1
+    %2488 = arith.ori %2487, %2477 : i1
+    %2489 = acir.extract %value_128 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc166)
+    %2490 = arith.andi %2484, %2486 : i1
+    %2491 = arith.andi %2488, %ready_129 : i1
+    %2492 = arith.andi %2482, %2491 : i1
+    %2493 = arith.ori %2490, %2492 : i1
+    %2494 = arith.select %2484, %false, %2489 : i1
+    %2495 = arith.ori %2469, %2474 : i1
+    %2496 = arith.andi %2495, %2493 : i1
+    %2497 = arith.ori %2469, %2496 : i1
+    %2498 = arith.andi %2481, %2497 : i1
+    %2499 = arith.andi %2383, %2494 : i1
+    %2500 = arith.xori %2494, %true : i1
+    %2501 = arith.andi %2383, %2500 : i1
+    %2502 = arith.xori %2501, %true : i1
+    %2503 = arith.ori %2502, %2496 : i1
+    %2504 = arith.xori %2499, %true : i1
+    %2505 = arith.ori %2504, %2496 : i1
+    %2506 = acir.extract %value_128 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc167)
+    %2507 = arith.andi %ready_129, %2476 : i1 loc(#loc167)
+    %2508 = arith.cmpi eq, %2506, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc167)
+    %2509 = arith.andi %2501, %2503 : i1
+    %2510 = arith.andi %2505, %2507 : i1
+    %2511 = arith.andi %2499, %2510 : i1
+    %2512 = arith.ori %2509, %2511 : i1
+    %2513 = arith.select %2501, %false, %2508 : i1
+    %2514 = arith.ori %2469, %2495 : i1
+    %2515 = arith.ori %2469, %2514 : i1
+    %2516 = arith.andi %2498, %2515 : i1
+    %2517 = arith.andi %2514, %2512 : i1
+    %2518 = arith.andi %2383, %2517 : i1
+    %2519 = arith.andi %2471, %2518 : i1 loc(#loc168)
+    %2520 = arith.andi %2383, %2519 : i1 loc(#loc168)
+    %2521 = arith.andi %2520, %2513 : i1 loc(#loc168)
+    %2522 = arith.andi %2470, %2521 : i1 loc(#loc168)
+    %2523 = arith.ori %2469, %2522 : i1 loc(#loc168)
+    %2524 = arith.andi %2516, %2523 : i1 loc(#loc168)
+    %value_130, %ready_131 = acir.read(%2383) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.2:retire"], method = "read", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc169)
+    %2525 = arith.andi %2523, %ready_131 : i1 loc(#loc169)
+    %2526 = arith.ori %2469, %2525 : i1 loc(#loc169)
+    %2527 = arith.andi %2524, %2526 : i1 loc(#loc169)
+    %2528 = arith.ori %2469, %2523 : i1 loc(#loc171)
+    %2529 = arith.andi %2527, %2528 : i1 loc(#loc171)
+    %2530 = arith.andi %2529, %2528 : i1
+    %2531 = arith.andi %2383, %2525 : i1
+    %2532 = arith.andi %2531, %2521 : i1
+    %2533 = arith.andi %2468, %2463 : i1
+    %2534 = arith.andi %2385, %2533 : i1
+    %2535 = arith.andi %2383, %2470 : i1
+    %2536 = arith.ori %2534, %2535 : i1
+    %2537 = arith.select %2385, %2393, %false : i1
+    %2538 = arith.andi %2468, %2466 : i1
+    %2539 = arith.andi %2385, %2538 : i1
+    %2540 = arith.andi %2470, %2532 : i1
+    %2541 = arith.andi %2383, %2540 : i1
+    %2542 = arith.ori %2539, %2541 : i1
+    %2543 = arith.select %2385, %2467, %value_130 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %2544 = arith.ori %2378, %2379 : i1
+    %2545 = arith.xori %2375, %true : i1 loc(#loc163)
+    %2546 = arith.ori %2545, %2372 : i1
+    acir.path %2375 {branch = 56 : i64, kind = "branch", txn = 7 : i64} loc(#loc163)
+    acir.path %2375 {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.1:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2547 = arith.ori %2545, %2546 : i1 loc(#loc163)
+    %2548 = arith.andi %2546, %2369 : i1 loc(#loc163)
+    %2549 = arith.andi %2375, %2548 : i1 loc(#loc163)
+    acir.path %2375 {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.1:retire", "top.rob.slots.1:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2550 = arith.ori %2545, %2547 : i1 loc(#loc163)
+    %2551 = arith.andi %2547, %2549 : i1 loc(#loc163)
+    %2552 = arith.andi %2375, %2551 : i1 loc(#loc163)
+    %value_132, %ready_133 = acir.read(%2375) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.1:retire", "top.rob.slots.1:completed"], method = "read", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc164)
+    %2553 = arith.andi %2550, %ready_133 : i1 loc(#loc164)
+    %2554 = arith.ori %2545, %2553 : i1 loc(#loc164)
+    %2555 = arith.andi %2530, %2554 : i1 loc(#loc164)
+    %2556 = acir.extract %value_132 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc165)
+    %2557 = arith.andi %2555, %2554 : i1
+    %2558 = arith.andi %2375, %2556 : i1
+    %2559 = arith.xori %2556, %true : i1
+    %2560 = arith.andi %2375, %2559 : i1
+    %2561 = arith.xori %2560, %true : i1
+    %2562 = arith.ori %2561, %2553 : i1
+    %2563 = arith.xori %2558, %true : i1
+    %2564 = arith.ori %2563, %2553 : i1
+    %2565 = acir.extract %value_132 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc166)
+    %2566 = arith.andi %2560, %2562 : i1
+    %2567 = arith.andi %2564, %ready_133 : i1
+    %2568 = arith.andi %2558, %2567 : i1
+    %2569 = arith.ori %2566, %2568 : i1
+    %2570 = arith.select %2560, %false, %2565 : i1
+    %2571 = arith.ori %2545, %2550 : i1
+    %2572 = arith.andi %2571, %2569 : i1
+    %2573 = arith.ori %2545, %2572 : i1
+    %2574 = arith.andi %2557, %2573 : i1
+    %2575 = arith.andi %2375, %2570 : i1
+    %2576 = arith.xori %2570, %true : i1
+    %2577 = arith.andi %2375, %2576 : i1
+    %2578 = arith.xori %2577, %true : i1
+    %2579 = arith.ori %2578, %2572 : i1
+    %2580 = arith.xori %2575, %true : i1
+    %2581 = arith.ori %2580, %2572 : i1
+    %2582 = acir.extract %value_132 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc167)
+    %2583 = arith.andi %ready_133, %2552 : i1 loc(#loc167)
+    %2584 = arith.cmpi eq, %2582, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc167)
+    %2585 = arith.andi %2577, %2579 : i1
+    %2586 = arith.andi %2581, %2583 : i1
+    %2587 = arith.andi %2575, %2586 : i1
+    %2588 = arith.ori %2585, %2587 : i1
+    %2589 = arith.select %2577, %false, %2584 : i1
+    %2590 = arith.ori %2545, %2571 : i1
+    %2591 = arith.ori %2545, %2590 : i1
+    %2592 = arith.andi %2574, %2591 : i1
+    %2593 = arith.andi %2590, %2588 : i1
+    %2594 = arith.andi %2375, %2593 : i1
+    %2595 = arith.andi %2547, %2594 : i1 loc(#loc168)
+    %2596 = arith.andi %2375, %2595 : i1 loc(#loc168)
+    %2597 = arith.andi %2596, %2589 : i1 loc(#loc168)
+    %2598 = arith.andi %2546, %2597 : i1 loc(#loc168)
+    %2599 = arith.ori %2545, %2598 : i1 loc(#loc168)
+    %2600 = arith.andi %2592, %2599 : i1 loc(#loc168)
+    %value_134, %ready_135 = acir.read(%2375) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.1:retire"], method = "read", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc169)
+    %2601 = arith.andi %2599, %ready_135 : i1 loc(#loc169)
+    %2602 = arith.ori %2545, %2601 : i1 loc(#loc169)
+    %2603 = arith.andi %2600, %2602 : i1 loc(#loc169)
+    %2604 = arith.ori %2545, %2599 : i1 loc(#loc171)
+    %2605 = arith.andi %2603, %2604 : i1 loc(#loc171)
+    %2606 = arith.andi %2605, %2604 : i1
+    %2607 = arith.andi %2375, %2601 : i1
+    %2608 = arith.andi %2607, %2597 : i1
+    %2609 = arith.andi %2544, %2536 : i1
+    %2610 = arith.andi %2377, %2609 : i1
+    %2611 = arith.andi %2375, %2546 : i1
+    %2612 = arith.ori %2610, %2611 : i1
+    %2613 = arith.select %2377, %2537, %false : i1
+    %2614 = arith.andi %2544, %2542 : i1
+    %2615 = arith.andi %2377, %2614 : i1
+    %2616 = arith.andi %2546, %2608 : i1
+    %2617 = arith.andi %2375, %2616 : i1
+    %2618 = arith.ori %2615, %2617 : i1
+    %2619 = arith.select %2377, %2543, %value_134 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %2620 = arith.ori %2341, %2371 : i1
+    %2621 = arith.ori %2340, %2369 : i1
+    acir.path %2336 {branch = 57 : i64, kind = "branch", txn = 7 : i64} loc(#loc163)
+    acir.path %2336 {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.0:retire"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2622 = arith.ori %2340, %2621 : i1 loc(#loc163)
+    %2623 = arith.andi %2621, %2369 : i1 loc(#loc163)
+    %2624 = arith.andi %2336, %2623 : i1 loc(#loc163)
+    acir.path %2336 {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.0:retire", "top.rob.slots.0:completed"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc163)
+    %2625 = arith.ori %2340, %2622 : i1 loc(#loc163)
+    %2626 = arith.andi %2622, %2624 : i1 loc(#loc163)
+    %2627 = arith.andi %2336, %2626 : i1 loc(#loc163)
+    %value_136, %ready_137 = acir.read(%2336) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.0:retire", "top.rob.slots.0:completed"], method = "read", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc164)
+    %2628 = arith.andi %2625, %ready_137 : i1 loc(#loc164)
+    %2629 = arith.ori %2340, %2628 : i1 loc(#loc164)
+    %2630 = arith.andi %2606, %2629 : i1 loc(#loc164)
+    %2631 = acir.extract %value_136 {acir.id = "v9", acir.source_type = "bool", field = "valid"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc165)
+    %2632 = arith.andi %2630, %2629 : i1
+    %2633 = arith.andi %2336, %2631 : i1
+    %2634 = arith.xori %2631, %true : i1
+    %2635 = arith.andi %2336, %2634 : i1
+    %2636 = arith.xori %2635, %true : i1
+    %2637 = arith.ori %2636, %2628 : i1
+    %2638 = arith.xori %2633, %true : i1
+    %2639 = arith.ori %2638, %2628 : i1
+    %2640 = acir.extract %value_136 {acir.id = "v10", acir.source_type = "bool", field = "done"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i1 loc(#loc166)
+    %2641 = arith.andi %2635, %2637 : i1
+    %2642 = arith.andi %2639, %ready_137 : i1
+    %2643 = arith.andi %2633, %2642 : i1
+    %2644 = arith.ori %2641, %2643 : i1
+    %2645 = arith.select %2635, %false, %2640 : i1
+    %2646 = arith.ori %2340, %2625 : i1
+    %2647 = arith.andi %2646, %2644 : i1
+    %2648 = arith.ori %2340, %2647 : i1
+    %2649 = arith.andi %2632, %2648 : i1
+    %2650 = arith.andi %2336, %2645 : i1
+    %2651 = arith.xori %2645, %true : i1
+    %2652 = arith.andi %2336, %2651 : i1
+    %2653 = arith.xori %2652, %true : i1
+    %2654 = arith.ori %2653, %2647 : i1
+    %2655 = arith.xori %2650, %true : i1
+    %2656 = arith.ori %2655, %2647 : i1
+    %2657 = acir.extract %value_136 {acir.id = "v15", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc167)
+    %2658 = arith.andi %ready_137, %2627 : i1 loc(#loc167)
+    %2659 = arith.cmpi eq, %2657, %value_122 {acir.id = "v16", acir.source_type = "bool"} : i32 loc(#loc167)
+    %2660 = arith.andi %2652, %2654 : i1
+    %2661 = arith.andi %2656, %2658 : i1
+    %2662 = arith.andi %2650, %2661 : i1
+    %2663 = arith.ori %2660, %2662 : i1
+    %2664 = arith.select %2652, %false, %2659 : i1
+    %2665 = arith.ori %2340, %2646 : i1
+    %2666 = arith.ori %2340, %2665 : i1
+    %2667 = arith.andi %2649, %2666 : i1
+    %2668 = arith.andi %2665, %2663 : i1
+    %2669 = arith.andi %2336, %2668 : i1
+    %2670 = arith.andi %2622, %2669 : i1 loc(#loc168)
+    %2671 = arith.andi %2336, %2670 : i1 loc(#loc168)
+    %2672 = arith.andi %2671, %2664 : i1 loc(#loc168)
+    %2673 = arith.andi %2621, %2672 : i1 loc(#loc168)
+    %2674 = arith.ori %2340, %2673 : i1 loc(#loc168)
+    %2675 = arith.andi %2667, %2674 : i1 loc(#loc168)
+    %value_138, %ready_139 = acir.read(%2336) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.0:retire"], method = "read", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 7 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.RobEntry">, i1) loc(#loc169)
+    %2676 = arith.andi %2674, %ready_139 : i1 loc(#loc169)
+    %2677 = arith.ori %2340, %2676 : i1 loc(#loc169)
+    %2678 = arith.andi %2675, %2677 : i1 loc(#loc169)
+    %2679 = arith.ori %2340, %2674 : i1 loc(#loc171)
+    %2680 = arith.andi %2678, %2679 : i1 loc(#loc171)
+    %2681 = arith.andi %2680, %2679 : i1
+    %2682 = arith.andi %2336, %2676 : i1
+    %2683 = arith.andi %2682, %2672 : i1
+    %2684 = arith.andi %2620, %2612 : i1
+    %2685 = arith.andi %2340, %2684 : i1
+    %2686 = arith.andi %2336, %2621 : i1
+    %2687 = arith.ori %2685, %2686 : i1
+    %2688 = arith.select %2340, %2613, %false : i1
+    %2689 = arith.andi %2620, %2618 : i1
+    %2690 = arith.andi %2340, %2689 : i1
+    %2691 = arith.andi %2621, %2683 : i1
+    %2692 = arith.andi %2336, %2691 : i1
+    %2693 = arith.ori %2690, %2692 : i1
+    %2694 = arith.select %2340, %2619, %value_138 : !acir.struct<"src_payloads_25ebcaa7.RobEntry">
+    %2695 = acir.unary %2688 "not" {acir.source_type = "bool"} : i1 -> i1
+    %2696 = arith.andi %2367, %2687 : i1
+    %2697 = arith.andi %2681, %2696 : i1
+    %2698 = arith.andi %2367, %2693 : i1
+    %2699 = arith.addi %value_122, %c1_i32 {acir.id = "v22", acir.source_type = "u32"} : i32 loc(#loc172)
+    %2700 = arith.andi %2697, %ready_123 : i1 loc(#loc173)
+    acir.path %true {branch = 53 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 7 : i64} loc(#loc174)
+    %2701 = acir.extract %2694 {acir.id = "v5", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc175)
+    %2702 = arith.cmpi ne, %2701, %c0_i32 {acir.id = "v7", acir.source_type = "bool"} : i32 loc(#loc175)
+    %2703 = arith.andi %2700, %2698 : i1
+    %2704 = arith.cmpi eq, %2701, %c0_i32 : i32 loc(#loc175)
+    %2705 = arith.ori %2704, %2698 : i1
+    %2706 = acir.extract %2694 {acir.id = "v9", acir.source_type = "u32", field = "value"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc176)
+    acir.path %2702 {branch = 58 : i64, kind = "branch", txn = 7 : i64} loc(#loc177)
+    %value_140, %ready_141 = acir.read(%2702) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "read", port = 0 : i64, resource = "top.rf.registers", txn = 7 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc177)
+    %2707 = arith.andi %2705, %ready_141 : i1 loc(#loc177)
+    %2708 = arith.ori %2704, %2707 : i1 loc(#loc177)
+    %2709 = arith.andi %2703, %2708 : i1 loc(#loc177)
+    %2710 = acir.extract %2694 {acir.id = "v13", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc178)
+    %2711 = arith.andi %ready_141, %2698 : i1 loc(#loc177)
+    %2712 = arith.extui %2710 : i32 to i64 loc(#loc177)
+    %2713 = arith.cmpi ult, %2712, %c8_i64 : i64 loc(#loc177)
+    %2714 = arith.andi %2711, %2713 : i1 loc(#loc177)
+    %2715 = arith.select %2713, %2712, %c0_i64 : i64 loc(#loc177)
+    %2716 = acir.update %value_140, %2706[%2715] {acir.id = "v14", acir.source_type = "array<u32;8>", path = [unit], signed_indices = [false]} : (!acir.array<i32, [8]>, i32, i64) -> !acir.array<i32, [8]> loc(#loc177)
+    %2717 = arith.andi %2705, %2714 : i1 loc(#loc177)
+    %2718 = arith.ori %2704, %2717 : i1 loc(#loc177)
+    %2719 = arith.andi %2709, %2718 : i1 loc(#loc177)
+    %2720 = acir.extract %2694 {acir.id = "v17", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc179)
+    %value_142, %ready_143 = acir.read(%2702) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "read", port = 0 : i64, resource = "top.rf.committed", txn = 7 : i64} : (i1) -> (!acir.array<i32, [8]>, i1) loc(#loc180)
+    %2721 = arith.andi %2705, %ready_143 : i1 loc(#loc180)
+    %2722 = arith.ori %2704, %2721 : i1 loc(#loc180)
+    %2723 = arith.andi %2719, %2722 : i1 loc(#loc180)
+    %2724 = acir.extract %2694 {acir.id = "v21", acir.source_type = "u32", field = "rd"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc181)
+    %2725 = arith.andi %ready_143, %2698 : i1 loc(#loc180)
+    %2726 = arith.extui %2724 : i32 to i64 loc(#loc180)
+    %2727 = arith.cmpi ult, %2726, %c8_i64 : i64 loc(#loc180)
+    %2728 = arith.andi %2725, %2727 : i1 loc(#loc180)
+    %2729 = arith.select %2727, %2726, %c0_i64 : i64 loc(#loc180)
+    %2730 = acir.update %value_142, %2720[%2729] {acir.id = "v22", acir.source_type = "array<u32;8>", path = [unit], signed_indices = [false]} : (!acir.array<i32, [8]>, i32, i64) -> !acir.array<i32, [8]> loc(#loc180)
+    %2731 = arith.andi %2705, %2728 : i1 loc(#loc180)
+    %2732 = arith.ori %2704, %2731 : i1 loc(#loc180)
+    %2733 = arith.andi %2723, %2732 : i1 loc(#loc180)
+    %value_144, %ready_145 = acir.read(%true) {branch = 53 : i64, frames = ["top.commit:commit"], method = "read", port = 0 : i64, resource = "top.commit.retired", txn = 7 : i64} : (i1) -> (i32, i1) loc(#loc182)
+    %2734 = arith.andi %2733, %ready_145 : i1 loc(#loc182)
+    %2735 = arith.addi %value_144, %c1_i32 {acir.id = "v9", acir.source_type = "u32"} : i32 loc(#loc182)
+    %2736 = acir.extract %2694 {acir.id = "v12", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> i32 loc(#loc183)
+    %2737 = arith.andi %2734, %2698 : i1 loc(#loc184)
+    %2738 = acir.fire "top.commit.commit#7" %2737 {successors = [], txn = 7 : i64}
+    %2739 = arith.andi %2738, %2391 : i1
+    acir.effect %2739(%0) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.3:retire", "top.rob.slots.3:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    acir.effect %2739(%2455) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.3:retire"], method = "write", port = 0 : i64, resource = "top.rob.slots.3.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc171)
+    acir.effect %2739(%0) {branch = 54 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.3:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    %2740 = arith.andi %2738, %2383 : i1
+    acir.effect %2740(%0) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.2:retire", "top.rob.slots.2:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    acir.effect %2740(%2455) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.2:retire"], method = "write", port = 0 : i64, resource = "top.rob.slots.2.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc171)
+    acir.effect %2740(%0) {branch = 55 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.2:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    %2741 = arith.andi %2738, %2375 : i1
+    acir.effect %2741(%0) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.1:retire", "top.rob.slots.1:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    acir.effect %2741(%2455) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.1:retire"], method = "write", port = 0 : i64, resource = "top.rob.slots.1.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc171)
+    acir.effect %2741(%0) {branch = 56 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.1:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    %2742 = arith.andi %2738, %2336 : i1
+    acir.effect %2742(%0) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.0:retire", "top.rob.slots.0:completed"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    acir.effect %2742(%2455) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.0:retire"], method = "write", port = 0 : i64, resource = "top.rob.slots.0.state", txn = 7 : i64} : (i1, !acir.struct<"src_payloads_25ebcaa7.RobEntry">) -> () loc(#loc171)
+    acir.effect %2742(%0) {branch = 57 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44", "top.rob.slots.0:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    acir.effect %2738(%2695) {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire", "top.rob:$dispatch44"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    acir.effect %2738(%2699) {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "write", port = 0 : i64, resource = "top.rob.head", txn = 7 : i64} : (i1, i32) -> () loc(#loc173)
+    acir.effect %2738(%0) {branch = 53 : i64, frames = ["top.commit:commit", "top.rob:retire"], method = "check", port = 0 : i64, resource = "", txn = 7 : i64} : (i1, i1) -> ()
+    %2743 = arith.andi %2738, %2702 : i1
+    acir.effect %2743(%2716) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "write", port = 0 : i64, resource = "top.rf.registers", txn = 7 : i64} : (i1, !acir.array<i32, [8]>) -> () loc(#loc177)
+    acir.effect %2743(%2730) {branch = 58 : i64, frames = ["top.commit:commit", "top.rf:commit"], method = "write", port = 0 : i64, resource = "top.rf.committed", txn = 7 : i64} : (i1, !acir.array<i32, [8]>) -> () loc(#loc180)
+    acir.effect %2738(%2735) {branch = 53 : i64, frames = ["top.commit:commit"], method = "write", port = 0 : i64, resource = "top.commit.retired", txn = 7 : i64} : (i1, i32) -> () loc(#loc185)
+    acir.effect %2738(%2736) {branch = 53 : i64, frames = ["top.commit:commit"], method = "write", port = 0 : i64, resource = "top.commit.last_tag", txn = 7 : i64} : (i1, i32) -> () loc(#loc184)
+    acir.path %true {branch = 59 : i64, kind = "branch", txn = 8 : i64} loc(#loc186)
+    acir.path %true {branch = 59 : i64, frames = ["top.audit:observe"], method = "callsite", port = 0 : i64, resource = "Module contract", txn = 8 : i64} loc(#loc186)
+    %value_146, %ready_147 = acir.read(%true) {branch = 59 : i64, frames = ["top.audit:observe"], method = "get", port = 0 : i64, resource = "top.event", txn = 8 : i64} : (i1) -> (!acir.struct<"src_payloads_25ebcaa7.Completion">, i1) loc(#loc187)
+    %2744 = acir.extract %value_146 {acir.id = "v6", acir.source_type = "u32", field = "tag"} : (!acir.struct<"src_payloads_25ebcaa7.Completion">) -> i32 loc(#loc188)
+    %2745 = acir.fire "top.audit.observe#8" %ready_147 {successors = [], txn = 8 : i64}
+    acir.effect %2745(%2744) {branch = 59 : i64, frames = ["top.audit:observe"], method = "write", port = 0 : i64, resource = "top.audit.last_tag", txn = 8 : i64} : (i1, i32) -> () loc(#loc189)
   }
 }
 #loc1 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/execution.py":25:13)
@@ -2849,146 +3138,126 @@ module attributes {acir.model = {config = [], constants = {src_payloads_25ebcaa7
 #loc64 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":46:22)
 #loc65 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":46:34)
 #loc66 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":46:9)
-#loc67 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":132:17)
-#loc68 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":133:12)
-#loc69 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":135:14)
-#loc70 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":137:14)
-#loc71 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":140:13)
-#loc72 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":64:17)
-#loc73 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:12)
-#loc74 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:33)
-#loc75 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:29)
-#loc76 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:50)
-#loc77 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":68:13)
-#loc78 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":66:13)
-#loc79 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":67:13)
-#loc80 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":138:13)
-#loc81 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":136:13)
-#loc82 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":134:13)
-#loc83 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":47:21)
-#loc84 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":47:33)
-#loc85 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":47:9)
-#loc86 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":32:17)
-#loc87 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":34:12)
-#loc88 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":35:20)
-#loc89 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":35:16)
-#loc90 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":35:40)
-#loc91 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":36:29)
-#loc92 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":36:17)
-#loc93 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":38:20)
-#loc94 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":38:16)
-#loc95 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":38:40)
-#loc96 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":39:29)
-#loc97 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":39:17)
-#loc98 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":42:13)
-#loc99 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":48:22)
-#loc100 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":48:34)
-#loc101 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":48:9)
-#loc102 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":31:12)
-#loc103 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":31:33)
-#loc104 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":32:13)
-#loc105 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":19:16)
-#loc106 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":20:26)
-#loc107 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":20:15)
-#loc108 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":167:16)
-#loc109 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":167:9)
-#loc110 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":168:12)
-#loc111 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":170:15)
-#loc112 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":169:20)
-#loc113 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":22:15)
-#loc114 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":171:19)
-#loc115 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":171:12)
-#loc116 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":172:39)
-#loc117 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":172:20)
-#loc118 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":173:17)
-#loc119 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":121:17)
-#loc120 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":122:12)
-#loc121 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":124:14)
-#loc122 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":126:14)
-#loc123 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":127:20)
-#loc124 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":72:16)
-#loc125 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":125:20)
-#loc126 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":123:20)
-#loc127 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":128:16)
-#loc128 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":174:12)
-#loc129 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":174:28)
-#loc130 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":174:44)
-#loc131 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":175:39)
-#loc132 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":175:20)
-#loc133 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":176:16)
-#loc134 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":21:26)
-#loc135 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":21:15)
-#loc136 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":22:28)
-#loc137 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":102:16)
-#loc138 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":102:23)
-#loc139 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":104:20)
-#loc140 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":106:15)
-#loc141 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":107:17)
-#loc142 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":108:12)
-#loc143 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":110:14)
-#loc144 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":112:14)
-#loc145 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":115:13)
-#loc146 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":56:20)
-#loc147 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":56:16)
-#loc148 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":58:20)
-#loc149 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":60:17)
-#loc150 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":60:9)
-#loc151 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":113:13)
-#loc152 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":111:13)
-#loc153 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":109:13)
-#loc154 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":116:16)
-#loc155 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":116:9)
-#loc156 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":23:19)
-#loc157 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":23:9)
-#loc158 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":180:16)
-#loc159 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":180:9)
-#loc160 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":181:12)
-#loc161 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":182:13)
-#loc162 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":24:29)
-#loc163 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":24:45)
-#loc164 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":24:17)
-#loc165 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":25:16)
-#loc166 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":25:12)
-#loc167 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":28:13)
-#loc168 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":13:20)
-#loc169 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":13:16)
-#loc170 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":15:20)
-#loc171 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":17:9)
-#loc172 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":26:13)
-#loc173 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":70:9)
-#loc174 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":64:17)
-#loc175 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":144:15)
-#loc176 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":145:17)
-#loc177 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":146:12)
-#loc178 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":148:14)
-#loc179 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":150:14)
-#loc180 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":153:21)
-#loc181 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":76:17)
-#loc182 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":77:16)
-#loc183 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":77:32)
-#loc184 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":77:48)
-#loc185 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":79:20)
-#loc186 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":81:17)
-#loc187 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":82:17)
-#loc188 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":82:9)
-#loc189 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":151:21)
-#loc190 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":149:21)
-#loc191 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":147:21)
-#loc192 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":154:16)
-#loc193 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":154:9)
-#loc194 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":65:9)
-#loc195 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":186:12)
-#loc196 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":187:35)
-#loc197 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":187:13)
-#loc198 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":187:23)
-#loc199 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":188:35)
-#loc200 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":188:13)
-#loc201 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":188:23)
-#loc202 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":66:19)
-#loc203 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":67:20)
-#loc204 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":67:9)
-#loc205 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":66:9)
-#loc206 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":84:9)
-#loc207 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":80:17)
-#loc208 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":81:20)
-#loc209 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":81:9)
+#loc67 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":114:16)
+#loc68 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":114:15)
+#loc69 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":114:9)
+#loc70 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":64:17)
+#loc71 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:12)
+#loc72 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:33)
+#loc73 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:29)
+#loc74 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":65:50)
+#loc75 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":68:13)
+#loc76 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":66:13)
+#loc77 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":67:13)
+#loc78 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":47:21)
+#loc79 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":47:33)
+#loc80 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":47:9)
+#loc81 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":32:17)
+#loc82 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":34:12)
+#loc83 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":35:20)
+#loc84 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":35:16)
+#loc85 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":35:40)
+#loc86 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":36:29)
+#loc87 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":36:17)
+#loc88 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":38:20)
+#loc89 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":38:16)
+#loc90 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":38:40)
+#loc91 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":39:29)
+#loc92 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":39:17)
+#loc93 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":42:13)
+#loc94 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":48:22)
+#loc95 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":48:34)
+#loc96 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":48:9)
+#loc97 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":31:12)
+#loc98 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":31:33)
+#loc99 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":32:13)
+#loc100 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":19:16)
+#loc101 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":20:26)
+#loc102 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":20:15)
+#loc103 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":133:16)
+#loc104 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":133:9)
+#loc105 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":134:12)
+#loc106 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":136:15)
+#loc107 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":135:20)
+#loc108 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":22:15)
+#loc109 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":137:19)
+#loc110 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":137:12)
+#loc111 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":138:39)
+#loc112 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":138:20)
+#loc113 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":139:17)
+#loc114 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":110:23)
+#loc115 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":110:22)
+#loc116 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":110:16)
+#loc117 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":72:16)
+#loc118 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":140:12)
+#loc119 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":140:28)
+#loc120 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":140:44)
+#loc121 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":141:39)
+#loc122 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":141:20)
+#loc123 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":142:16)
+#loc124 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":21:26)
+#loc125 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":21:15)
+#loc126 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":22:28)
+#loc127 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":99:16)
+#loc128 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":99:23)
+#loc129 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":101:20)
+#loc130 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":103:15)
+#loc131 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":104:16)
+#loc132 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":104:15)
+#loc133 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":104:9)
+#loc134 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":56:20)
+#loc135 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":56:16)
+#loc136 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":58:20)
+#loc137 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":60:17)
+#loc138 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":60:9)
+#loc139 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":105:16)
+#loc140 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":105:9)
+#loc141 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":23:19)
+#loc142 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":23:9)
+#loc143 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":146:16)
+#loc144 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":146:9)
+#loc145 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":147:12)
+#loc146 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":148:13)
+#loc147 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":24:29)
+#loc148 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":24:45)
+#loc149 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":24:17)
+#loc150 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":25:16)
+#loc151 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":25:12)
+#loc152 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":28:13)
+#loc153 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":13:20)
+#loc154 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":13:16)
+#loc155 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":15:20)
+#loc156 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":17:9)
+#loc157 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":26:13)
+#loc158 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":70:9)
+#loc159 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":64:17)
+#loc160 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":118:15)
+#loc161 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":119:24)
+#loc162 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":119:23)
+#loc163 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":119:17)
+#loc164 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":76:17)
+#loc165 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":77:16)
+#loc166 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":77:32)
+#loc167 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":77:48)
+#loc168 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":79:20)
+#loc169 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":81:17)
+#loc170 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":82:17)
+#loc171 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":82:9)
+#loc172 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":120:16)
+#loc173 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":120:9)
+#loc174 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":65:9)
+#loc175 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":152:12)
+#loc176 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":153:35)
+#loc177 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":153:13)
+#loc178 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":153:23)
+#loc179 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":154:35)
+#loc180 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":154:13)
+#loc181 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/state.py":154:23)
+#loc182 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":66:19)
+#loc183 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":67:20)
+#loc184 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":67:9)
+#loc185 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":66:9)
+#loc186 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":84:9)
+#loc187 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":80:17)
+#loc188 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":81:20)
+#loc189 = loc("/home/lc/tmp/pycircuit/examples/ooo_scheduler/model.py":81:9)
