@@ -104,6 +104,9 @@ mlir::LogicalResult verifySourceSpan(mlir::DictionaryAttr value,
 mlir::LogicalResult verifySourceGuardLocation(mlir::DictionaryAttr location,
                                               mlir::DictionaryAttr sourceOwner,
                                               EmitError emitError);
+mlir::LogicalResult verifySourceEffectMetadata(
+    mlir::DictionaryAttr occurrence, mlir::DictionaryAttr location,
+    mlir::Operation *lexicalModule, EmitError emitError);
 
 mlir::LogicalResult verifyPathComponent(mlir::DictionaryAttr value,
                                         EmitError emitError);

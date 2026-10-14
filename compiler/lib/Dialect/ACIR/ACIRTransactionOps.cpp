@@ -109,14 +109,16 @@ LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
   for (Operation &nested : block.without_terminator()) {
     if (isa<SourceStateReadOp>(nested))
       continue;
-    if (!guard && isa<SourceStateWriteOp, SourceMethodCallOp>(nested))
+    if (!guard &&
+        isa<SourceStateWriteOp, SourceMethodCallOp, SourceExpectOp,
+            SourceObserveOp>(nested))
       continue;
     if (!detail::isCombinationalHardwareOperation(&nested))
       return nested.emitOpError()
              << (guard ? "guard accepts only closed pure payload operations "
                          "and state reads"
                        : "body accepts only closed payload operations, state "
-                         "accesses and method calls");
+                         "accesses, method calls, checks and observations");
     // Pure nested collection regions do not open another effect placement.
     auto walk =
         nested.walk([&](Operation *child) {

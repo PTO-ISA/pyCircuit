@@ -1,12 +1,16 @@
 #ifndef PYCIRCUIT_HARDWARE_SOURCE_CHECKS_H
 #define PYCIRCUIT_HARDWARE_SOURCE_CHECKS_H
 
+#include "ACIRSourceContracts.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include <functional>
 
 namespace acir::ac::detail {
 class SourceCheckBudget;
 class SampledAdmissionValidation;
+mlir::LogicalResult verifySourceObservationSpec(
+    mlir::StringAttr kind, mlir::DictionaryAttr spec, uint64_t valueCount,
+    EmitError emitError);
 struct ObservationLocalKey {
   mlir::DictionaryAttr identity;
   mlir::DictionaryAttr owner;

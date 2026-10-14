@@ -1335,6 +1335,241 @@ TEST_F(MethodSummaryAuthorityTest,
 }
 
 TEST_F(MethodSummaryAuthorityTest,
+       ChecksAndObservationsPublishClosedOrderedBodyEffects) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto act = named<SourceMethodOp>(child, "act");
+  auto &body = act.getBody().front();
+  auto path = body.getArgument(0);
+  auto value = body.getArgument(1);
+  auto sourceCondition = body.getArgument(5);
+  auto location = act->getAttr("ac.guard_location");
+  builder.setInsertionPoint(body.getTerminator());
+
+  mlir::OperationState check(act.getLoc(), SourceExpectOp::getOperationName());
+  check.addOperands({sourceCondition, path});
+  check.addAttribute("kind", builder.getStringAttr("assert"));
+  check.addAttribute("location", location);
+  check.addAttribute("occurrence", occurrence("Child", 20));
+  builder.create(check);
+
+  auto valueItem = builder.getDictionaryAttr(
+      {builder.getNamedAttr("kind", builder.getStringAttr("value")),
+       builder.getNamedAttr("ordinal", builder.getI32IntegerAttr(0))});
+  mlir::OperationState observe(act.getLoc(),
+                               SourceObserveOp::getOperationName());
+  observe.addOperands({path, value});
+  observe.addAttribute("kind", builder.getStringAttr("log"));
+  observe.addAttribute(
+      "spec",
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("level", builder.getStringAttr("info")),
+           builder.getNamedAttr("event", builder.getStringAttr("act")),
+           builder.getNamedAttr("items", builder.getArrayAttr({valueItem}))}));
+  observe.addAttribute("occurrence", occurrence("Child", 21));
+  observe.addAttribute("ac.location", location);
+  builder.create(observe);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  structureAccepts(child, published);
+  auto method = namedRow(published, "methods", "act");
+  auto effects = array(method, "body_effects");
+  ASSERT_GE(effects.size(), 2u);
+  auto checkRow = dict(effects[effects.size() - 2]);
+  auto observeRow = dict(effects[effects.size() - 1]);
+  EXPECT_EQ(kind(checkRow), "check");
+  EXPECT_EQ(checkRow.getAs<mlir::StringAttr>("check_kind").getValue(),
+            "assert");
+  EXPECT_TRUE(mlir::isa<mlir::UnitAttr>(checkRow.get("message")));
+  EXPECT_TRUE(checkRow.get("condition"));
+  EXPECT_TRUE(checkRow.get("path"));
+  EXPECT_FALSE(checkRow.get("ac.check_id"));
+  EXPECT_EQ(kind(observeRow), "observe");
+  EXPECT_EQ(observeRow.getAs<mlir::StringAttr>("observation_kind").getValue(),
+            "log");
+  EXPECT_EQ(array(observeRow, "values").size(), 1u);
+  EXPECT_FALSE(observeRow.get("ac.observation_id"));
+
+  auto effectsPath =
+      Path{std::string("methods"), 0u, std::string("body_effects")};
+  unsigned checkIndex = effects.size() - 2;
+  unsigned observeIndex = effects.size() - 1;
+  auto guardEffects = array(method, "guard_effects");
+  auto guardEffectsPath =
+      Path{std::string("methods"), 0u, std::string("guard_effects")};
+  for (auto forbidden : {mlir::Attribute(checkRow),
+                         mlir::Attribute(observeRow)}) {
+    llvm::SmallVector<mlir::Attribute> moved(guardEffects.begin(),
+                                             guardEffects.end());
+    moved.push_back(forbidden);
+    structureRejects(
+        child,
+        dict(replace(published, guardEffectsPath, builder.getArrayAttr(moved))));
+  }
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    checkIndex, std::string("message")},
+                   builder.getStringAttr(""))),
+      analysis);
+  auto condition = dict(checkRow.get("condition"));
+  auto changedCondition = changed(condition, "fact", constantFact(true));
+  if (changedCondition == condition)
+    changedCondition = changed(condition, "fact", constantFact(false));
+  ASSERT_NE(changedCondition, condition);
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    checkIndex, std::string("condition")},
+                   changedCondition)),
+      analysis);
+  auto pathFact = dict(checkRow.get("path"));
+  auto changedPath = constantFact(true);
+  if (changedPath == pathFact)
+    changedPath = constantFact(false);
+  ASSERT_NE(changedPath, pathFact);
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    checkIndex, std::string("path")},
+                   changedPath)),
+      analysis);
+  auto effectLocation = dict(checkRow.get("location"));
+  auto changedLocation = changed(
+      changed(effectLocation, "line", builder.getI64IntegerAttr(2)),
+      "end_line", builder.getI64IntegerAttr(2));
+  ASSERT_NE(changedLocation, effectLocation);
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    checkIndex, std::string("location")},
+                   changedLocation)),
+      analysis);
+  auto changedDependencies = builder.getDictionaryAttr(
+      {builder.getNamedAttr("kind", builder.getStringAttr("unknown"))});
+  if (changedDependencies == condition.getAs<mlir::DictionaryAttr>(
+                                 "dependencies"))
+    changedDependencies = builder.getDictionaryAttr(
+        {builder.getNamedAttr("kind", builder.getStringAttr("known")),
+         builder.getNamedAttr("arguments", builder.getArrayAttr({})),
+         builder.getNamedAttr("captures", builder.getArrayAttr({}))});
+  auto conditionWithChangedDependencies =
+      changed(condition, "dependencies", changedDependencies);
+  ASSERT_NE(conditionWithChangedDependencies, condition);
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    checkIndex, std::string("condition")},
+                   conditionWithChangedDependencies)),
+      analysis);
+  auto changedSpec = changed(dict(observeRow.get("spec")), "event",
+                             builder.getStringAttr("different"));
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    observeIndex, std::string("spec")},
+                   changedSpec)),
+      analysis);
+  auto changedValue = changed(row(observeRow, "values"), "type",
+                              mlir::TypeAttr::get(path.getType()));
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    observeIndex, std::string("values"), 0u},
+                   changedValue)),
+      analysis);
+  llvm::SmallVector<mlir::Attribute> reordered(effects.begin(), effects.end());
+  std::swap(reordered[checkIndex], reordered[observeIndex]);
+  bodyRejects(
+      child,
+      dict(replace(published, effectsPath, builder.getArrayAttr(reordered))),
+      analysis);
+
+  for (auto invalid :
+       {changed(checkRow, "message", {}),
+        changed(checkRow, "extra", builder.getUnitAttr()),
+        changed(checkRow, "check_kind", builder.getStringAttr("range")),
+        changed(observeRow, "values", builder.getArrayAttr({})),
+        changed(observeRow, "observation_kind",
+                builder.getStringAttr("trace"))}) {
+    llvm::SmallVector<mlir::Attribute> malformed(effects.begin(),
+                                                 effects.end());
+    unsigned index = kind(invalid) == "check" ? checkIndex : observeIndex;
+    malformed[index] = invalid;
+    structureRejects(child, dict(replace(published, effectsPath,
+                                         builder.getArrayAttr(malformed))));
+  }
+
+  std::string hugeSpelling(16 * 1024 * 1024, 'x');
+  auto hugeName = builder.getStringAttr(hugeSpelling);
+  auto budgetRejects = [&](mlir::DictionaryAttr candidate) {
+    structureRejects(child, candidate);
+    auto message = llvm::StringRef(diagnostics).lower();
+    EXPECT_NE(message.find("budget"), std::string::npos) << diagnostics;
+    for (llvm::StringRef laterError :
+         {"source owner", "nominal", "unexpected field", "unknown field"})
+      EXPECT_EQ(message.find(laterError.str()), std::string::npos)
+          << diagnostics;
+    EXPECT_EQ(published, summary(analysis, child));
+  };
+
+  budgetRejects(dict(replace(
+      published,
+      {std::string("methods"), 0u, std::string("body_effects"), checkIndex,
+       std::string("occurrence"), std::string("site"),
+       std::string("definition")},
+      mlir::FlatSymbolRefAttr::get(&context, hugeSpelling))));
+
+  auto observedTypePath =
+      Path{std::string("methods"), 0u, std::string("body_effects"),
+           observeIndex, std::string("values"), 0u, std::string("type")};
+  for (mlir::Type type :
+       {mlir::Type(EnumType::get(&context, hugeName)),
+        mlir::Type(TypeParamType::get(
+            &context, mlir::FlatSymbolRefAttr::get(&context, "Owner"),
+            hugeName)),
+        mlir::Type(TypeParamType::get(
+            &context,
+            mlir::FlatSymbolRefAttr::get(&context, hugeSpelling),
+            builder.getStringAttr("T")))})
+    budgetRejects(dict(replace(published, observedTypePath,
+                               mlir::TypeAttr::get(type))));
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       EffectMetadataStringsConsumePublicationBudgetBeforeSchemaErrors) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid());
+  auto child = module(*file, "Child");
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  std::string huge(16 * 1024 * 1024, 'x');
+  structureRejects(
+      child, changed(published, "unexpected", builder.getStringAttr(huge)));
+  EXPECT_NE(llvm::StringRef(diagnostics).lower().find("budget"),
+            std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(llvm::StringRef(diagnostics).lower().find("unexpected field"),
+            std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(MethodSummaryAuthorityTest,
        PublicationWorkBudgetIsIndependentOfTotalityBudget) {
   auto file = parse();
   ASSERT_TRUE(file);

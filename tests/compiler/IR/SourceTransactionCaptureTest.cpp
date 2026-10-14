@@ -927,6 +927,141 @@ TEST_F(SourceTransactionCaptureTest, GuardsCannotCallMethodsOrCreateEffects) {
          "guard");
 }
 
+TEST_F(SourceTransactionCaptureTest,
+       MethodChecksAndObservationsPreserveSourceOrderAndSnapshots) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Meter():
+    count: ac.u8 = 0
+    @ac.method
+    def read() -> ac.u8:
+        return count
+    @ac.method
+    def add(delta: ac.u8) -> ac.u8:
+        count = count + delta
+        return count
+    @ac.method
+    def instrument(delta: ac.u8) -> ac.u8:
+        before = read()
+        assert before != delta
+        ac.log("info", "step", "before", before, add(delta))
+        assert before != delta, ""
+        ac.log("debug", "literal", "fixed")
+        ac.report("after", count)
+        return before
+    @ac.rule
+    def run() -> None:
+        unused = instrument(1)
+    run()
+)py");
+  ASSERT_TRUE(file) << diagnostics;
+  ac::SourceMethodOp instrument;
+  for (auto method : operations<ac::SourceMethodOp>(*file))
+    if (method.getSymName() == "instrument")
+      instrument = method;
+  ASSERT_TRUE(instrument);
+
+  auto calls = direct<ac::SourceMethodCallOp>(instrument.getBody());
+  auto checks = direct<ac::SourceExpectOp>(instrument.getBody());
+  auto observations = direct<ac::SourceObserveOp>(instrument.getBody());
+  ASSERT_EQ(calls.size(), 2u);
+  ASSERT_EQ(checks.size(), 2u);
+  ASSERT_EQ(observations.size(), 3u);
+  EXPECT_TRUE(calls[0]->isBeforeInBlock(checks[0]));
+  EXPECT_TRUE(checks[0]->isBeforeInBlock(calls[1]));
+  EXPECT_TRUE(calls[1]->isBeforeInBlock(observations[0]));
+  EXPECT_TRUE(observations[0]->isBeforeInBlock(checks[1]));
+  EXPECT_TRUE(checks[1]->isBeforeInBlock(observations[1]));
+  EXPECT_TRUE(observations[1]->isBeforeInBlock(observations[2]));
+  EXPECT_EQ(calls[0].getCalleeAttr().getLeafReference(), "read");
+  EXPECT_EQ(calls[1].getCalleeAttr().getLeafReference(), "add");
+  EXPECT_NE(calls[1].getPath(), checks[0].getCondition());
+
+  EXPECT_FALSE(checks[0]->hasAttr("ac.message"));
+  auto empty = checks[1]->getAttrOfType<StringAttr>("ac.message");
+  ASSERT_TRUE(empty);
+  EXPECT_TRUE(empty.getValue().empty());
+  for (auto check : checks) {
+    EXPECT_EQ(check.getKind(), "assert");
+    EXPECT_TRUE(check.getSampling().empty());
+    EXPECT_TRUE(check->hasAttr("occurrence"));
+    EXPECT_FALSE(check->hasAttr("ac.check_id"));
+    EXPECT_TRUE(check.getPath().getDefiningOp<ac::BitsConstantOp>());
+  }
+
+  EXPECT_EQ(observations[0].getKind(), "log");
+  EXPECT_EQ(observations[0].getValues().size(), 2u);
+  EXPECT_EQ(observations[1].getKind(), "log");
+  EXPECT_TRUE(observations[1].getValues().empty());
+  EXPECT_EQ(observations[2].getKind(), "report");
+  EXPECT_EQ(observations[2].getValues().size(), 1u);
+  for (auto observe : observations) {
+    EXPECT_TRUE(observe->hasAttr("occurrence"));
+    EXPECT_TRUE(observe->hasAttr("ac.location"));
+    EXPECT_FALSE(observe->hasAttr("ac.observation_id"));
+    EXPECT_TRUE(observe.getPath().getDefiningOp<ac::BitsConstantOp>());
+  }
+
+  // The first value remains the SSA captured before add(delta). Later source
+  // reads cannot retroactively replace that operand with the candidate state.
+  EXPECT_EQ(observations[0].getValues()[0], calls[0].getResult(0));
+  EXPECT_EQ(observations[0].getValues()[1], calls[1].getResult(0));
+  EXPECT_NE(observations[2].getValues()[0], observations[0].getValues()[0]);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       MethodInstrumentationRejectsDynamicMetadataAndMalformedSpecs) {
+  const char *base = R"py(import pycircuit as ac
+@ac.module
+def Meter():
+    count: ac.u8 = 0
+    @ac.method
+    def sample(delta: ac.u8) -> ac.u8:
+        BODY
+        return count
+    @ac.rule
+    def run() -> None:
+        unused = sample(1)
+    run()
+)py";
+  for (auto [body, category] :
+       {std::pair<StringRef, StringRef>("assert count != delta, delta",
+                                       "message"),
+        {"ac.log(\"verbose\", \"event\", count)", "log"},
+        {"ac.log(\"info\", \"\", count)", "log"},
+        {"ac.report(\"\", count)", "report"},
+        {"ac.report(\"name\", count, delta)", "report"}}) {
+    reject(replaceOnce(base, "BODY", body), category);
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       InvalidObservationMetadataRejectsBeforePayloadCallsAreLowered) {
+  auto captured = capture("invalid_observation.py", R"py(import pycircuit as ac
+@ac.module
+def Meter():
+    count: ac.u8 = 0
+    @ac.method
+    def add(delta: ac.u8) -> ac.u8:
+        count = count + delta
+        return count
+    @ac.method
+    def sample(delta: ac.u8) -> ac.u8:
+        ac.log("verbose", "event", add(delta))
+        return count
+    @ac.rule
+    def run() -> None:
+        unused = sample(1)
+    run()
+)py");
+  ASSERT_TRUE(captured);
+  diagnostics.clear();
+  EXPECT_TRUE(failed(lower(*captured, "invalid_observation.py")));
+  EXPECT_NE(StringRef(diagnostics).lower().find("log"), std::string::npos)
+      << diagnostics;
+  EXPECT_TRUE(operations<ac::SourceMethodCallOp>(*captured).empty());
+}
+
 TEST_F(SourceTransactionCaptureTest, OwnerNamesCannotBeShadowed) {
   reject(replaceOnce(counterSource(), "def add(delta: ac.bits[8])",
                      "def add(count: ac.bits[8])"),

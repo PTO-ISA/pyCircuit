@@ -1091,8 +1091,13 @@ if that definition is also used by a Collection, and rejects transaction writer
 composition across a Collection. Unaffected existing Collections retain their
 original contracts; this does not add a source API for Method-owner collections.
 
-Partial or conditional effects, transaction resource operations and new
-transaction checks/observations still reject during lowering. Valid uncalled
+Source compilation and independent interfaces can retain straight-line Method/Rule
+body `assert`, `log` and `report` as ordered typed effects. A log evaluates its
+payload expressions once in order; an assert does not gate later Method calls.
+This source/publication support does not yet provide execution: state analysis
+rejects reachable body checks/observations until explicit effect records and
+lowering are implemented. Partial or conditional effects and transaction resource
+operations also remain unsupported. Valid uncalled
 Method declarations remain fully published and checked before link removes
 them. This subset does not complete resource/causality handling, branch/partial state
 or Method `@system` simulation closure. Existing ordinary hardware and its system route

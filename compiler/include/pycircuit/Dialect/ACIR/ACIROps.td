@@ -378,7 +378,13 @@ def ACIR_SourceTransactionOp : ACIR_Op<"transaction", [
 
 def ACIR_SourceObserveOp : ACIR_Op<"observe", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
-  let summary = "Record one source observation without runtime side effects";
+  let summary = "Retain one source observation for managed publication";
+  let description = [{
+    Module-level observations carry their final ObservationID. A direct source
+    Method or transaction body may contain log/report with an original statement
+    occurrence and source span, before invocation identity is materialized.
+    Observations retain effects and cannot appear in guards or pure regions.
+  }];
   let arguments = (ins ACIR_BitsType:$path, Variadic<AnyType>:$values, StrAttr:$kind,
       DictionaryAttr:$spec);
   let hasVerifier = 1;
@@ -393,6 +399,9 @@ def ACIR_SourceExpectOp : ACIR_Op<"expect", [
     two one-bit sampling operands, clock then reset, associated with the owning
     sampled Rule. Condition is the raw guard, path is its reached prefix.
     Checks retain effects until whole-system validation; they are not pure data.
+    A direct source Method or transaction body permits assert without sampling
+    operands, with its original statement occurrence and source span. Source
+    body assertions have no final CheckID and do not alter the guard prefix.
   }];
   let arguments = (ins ACIR_BitsType:$condition, ACIR_BitsType:$path,
       Variadic<ACIR_BitsType>:$sampling, StrAttr:$kind,

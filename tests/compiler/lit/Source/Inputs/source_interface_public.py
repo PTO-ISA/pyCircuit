@@ -297,7 +297,13 @@ def Counter():
         return count
     @ac.method
     def add(delta: ac.u8) -> ac.u8:
+        before = count
+        assert before == count
+        ac.log("info", "add", "before", before, delta)
+        assert before == count, ""
+        ac.log("debug", "literal", "fixed")
         count = count + delta
+        ac.report("count", count)
         return count
     @ac.method
     def chain(delta: ac.u8) -> ac.u8:
@@ -429,15 +435,28 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
     provider_header = payload(provider_unit, "interface").read_text()
     for kind in ("boolean", "integer", "fixed_bits", "nominal"):
         assert f'source_kind = "{kind}"' in provider_header, provider_header
+    assert provider_header.count('kind = "check"') == 2, provider_header
+    assert provider_header.count('kind = "observe"') == 3, provider_header
+    assert 'check_kind = "assert"' in provider_header, provider_header
+    assert 'observation_kind = "log"' in provider_header, provider_header
+    assert 'observation_kind = "report"' in provider_header, provider_header
+    assert "ac.check_id" not in provider_header, provider_header
+    assert "ac.observation_id" not in provider_header, provider_header
+    provider_body = payload(provider_unit, "body").read_text()
+    assert provider_body.count('"ac.expect"') == 2, provider_body
+    assert provider_body.count('"ac.observe"') == 3, provider_body
+    assert "ac.check_id" not in provider_body, provider_body
+    assert "ac.observation_id" not in provider_body, provider_body
     consumer_body = payload(consumer_unit, "body").read_text()
     relay_body = payload(relay_unit, "body").read_text()
     assert consumer_body.count('"ac.instance"(') == 2, consumer_body
     assert relay_body.count('"ac.instance"(') == 2, relay_body
     assert '"ac.method.call"(' in consumer_body and '"ac.transaction"(' in consumer_body
 
-    # This closure invokes Methods across instances and contains active
-    # dynamic guards. It remains outside same-owner transaction materialization.
-    # Preserve the independently published interfaces and hardware outputs.
+    # Publication now retains the provider's checks and observations, but the
+    # state plan has no execution records for those effects in this slice.
+    # Link must fail at that seam and preserve independent publication and the
+    # already-produced hardware outputs.
     final = archive / "protected.ac"
     cli(
         "link",
@@ -466,8 +485,8 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
         accepted=False,
     )
     diagnostic = rejected.stderr.lower()
-    assert "lower" in diagnostic and (
-        "method" in diagnostic or "transaction" in diagnostic
+    assert "state" in diagnostic and (
+        "effect" in diagnostic or "plan" in diagnostic
     ), rejected.stderr
     assert (
         "unresolved" not in diagnostic and "missing" not in diagnostic

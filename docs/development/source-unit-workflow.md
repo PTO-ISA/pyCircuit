@@ -73,7 +73,12 @@ private uses and each distinct root remain independently checked. Changed IR
 requires a new context; reuse does not change verification limits or admission.
 
 Source units can publish these typed operations and their declaration-only
-interfaces. Consumer compilation reads the interfaces, without loading provider
+interfaces. Direct callable-body assert/log/report reuse the existing expect/observe
+operations, original source occurrence/span and closed ordered summary variants.
+They cannot supply final CheckID/ObservationID. Shared spec and provenance validators
+serve definitions and interfaces; provider body rederivation remains authoritative.
+Until state-plan effect records and lowering exist, reachable body effects explicitly
+fail state analysis/link rather than being omitted from a generated design. Consumer compilation reads the interfaces, without loading provider
 Python or Method bodies. Native final link lowers calls through ordinary
 static instances with straight-line effects, a shared actual clock/reset
 domain and one outer writer per physical scalar owner. Ordinary results escaping an outer Rule still

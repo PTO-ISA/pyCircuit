@@ -516,6 +516,71 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         }
         continue;
       }
+      if (statement.kind() == "Assert") {
+        auto message = sourceAssertMessage(statement);
+        if (failed(message))
+          return failure();
+        auto condition = expression(statement.child("test"), inside,
+                                    decl.symbol, values, instances);
+        if (failed(condition))
+          return failure();
+        auto predicate =
+            predicateView(*condition, statement.child("test"), decl.symbol);
+        auto path = trueValue(statement, inside, decl.symbol);
+        if (failed(predicate) || failed(path))
+          return failure();
+        SmallVector<NamedAttribute> attrs{
+            inside.getNamedAttr("kind", inside.getStringAttr("assert")),
+            inside.getNamedAttr("location",
+                                sourceSpan(inside, source.path, statement)),
+            inside.getNamedAttr(
+                "occurrence",
+                sourceOccurrence(inside, decl.symbol, statement))};
+        if (*message)
+          attrs.push_back(inside.getNamedAttr("ac.message", *message));
+        createOp(inside, statement.location(b.getContext(), source.path),
+                 ac::SourceExpectOp::getOperationName(),
+                 ValueRange{predicate->value, *path}, TypeRange{}, attrs);
+        continue;
+      }
+      if (statement.kind() == "Expr") {
+        SmallVector<AstNode, 4> valueItems;
+        DictionaryAttr spec;
+        StringRef observationKind;
+        AstNode expressionNode = statement.child("value");
+        bool observation =
+            expressionNode.kind() == "Call" &&
+            (intrinsic(expressionNode.child("func"), "log") ||
+             intrinsic(expressionNode.child("func"), "report"));
+        if (observation) {
+          if (failed(buildObservation(statement, valueItems, spec,
+                                      observationKind)))
+            return failure();
+          auto path = trueValue(statement, inside, decl.symbol);
+          if (failed(path))
+            return failure();
+          SmallVector<Value> operands{*path};
+          for (const AstNode &item : valueItems) {
+            auto value =
+                expression(item, inside, decl.symbol, values, instances);
+            if (failed(value))
+              return failure();
+            operands.push_back(*value);
+          }
+          createOp(
+              inside, statement.location(b.getContext(), source.path),
+              ac::SourceObserveOp::getOperationName(), operands, TypeRange{},
+              {inside.getNamedAttr("kind",
+                                   inside.getStringAttr(observationKind)),
+               inside.getNamedAttr("spec", spec),
+               inside.getNamedAttr(
+                   "occurrence",
+                   sourceOccurrence(inside, decl.symbol, statement)),
+               inside.getNamedAttr("ac.location",
+                                   sourceSpan(inside, source.path, statement))});
+          continue;
+        }
+      }
       AstNode target, rhs;
       if (statement.kind() == "Assign" &&
           statement.array("targets").size() == 1) {

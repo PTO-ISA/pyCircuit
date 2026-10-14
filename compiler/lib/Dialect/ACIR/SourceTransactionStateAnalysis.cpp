@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
 
+#include "ACIRSourceContracts.h"
 #include "SourceTransactionSummary.h"
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/BuiltinTypes.h"
@@ -1123,6 +1124,11 @@ private:
       Operation *op = pending.pop_back_val();
       if (!budget.charge(op, 1 + op->getNumOperands() + op->getNumResults()))
         return failure();
+      if (!isa<YieldOp>(op) &&
+          !detail::isCombinationalHardwareOperation(op))
+        return op->emitOpError()
+               << "transaction state plan cannot omit an unrepresented "
+                  "payload effect";
       AdmissionPrefix required = currentPrefix;
       for (Value operand : op->getOperands()) {
         auto bound = useValue(operand, plan.frames[frame].anchor, frame, op);

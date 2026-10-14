@@ -278,7 +278,10 @@ LogicalResult SourceObserveOp::verify() {
 }
 LogicalResult SourceExpectOp::verify() {
   HardwareBindings bindings;
-  bindings.owner = (*this)->getParentOp();
+  auto *parent = (*this)->getParentOp();
+  bindings.owner = isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent)
+                       ? parent->getParentOp()
+                       : parent;
   return detail::verifySourceExpectOperation(
       HardwareAnalysis((*this)->getParentOfType<mlir::ModuleOp>()), *this,
       bindings);

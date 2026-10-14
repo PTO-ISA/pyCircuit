@@ -1,5 +1,6 @@
 #include "SourceTransactionSummary.h"
 #include "ACIRSourceContracts.h"
+#include "HardwareSourceChecks.h"
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
 #include "llvm/ADT/DenseSet.h"
@@ -129,6 +130,33 @@ private:
   bool exhausted = false;
 };
 
+LogicalResult chargeAttributeSpelling(PublicationBudget &budget,
+                                      Attribute attribute) {
+  if (auto text = dyn_cast_or_null<StringAttr>(attribute))
+    return budget.charge(text.getValue().size()) ? success() : failure();
+  if (auto symbol = dyn_cast_or_null<SymbolRefAttr>(attribute)) {
+    if (!budget.charge(symbol.getRootReference().getValue().size()))
+      return failure();
+    for (FlatSymbolRefAttr nested : symbol.getNestedReferences())
+      if (!budget.charge(nested.getValue().size()))
+        return failure();
+  }
+  return success();
+}
+
+LogicalResult chargeTypeSpelling(PublicationBudget &budget, Type type) {
+  if (auto record = dyn_cast<StructType>(type))
+    return chargeAttributeSpelling(budget, record.getName());
+  if (auto enumeration = dyn_cast<EnumType>(type))
+    return chargeAttributeSpelling(budget, enumeration.getName());
+  if (auto formal = dyn_cast<TypeParamType>(type)) {
+    if (failed(chargeAttributeSpelling(budget, formal.getOwner())))
+      return failure();
+    return chargeAttributeSpelling(budget, formal.getName());
+  }
+  return success();
+}
+
 struct ValueScope {
   SmallVector<Type> arguments, captures;
 };
@@ -232,6 +260,43 @@ private:
   ArrayAttr array(ArrayRef<Attribute> attributes) {
     budget.charge(1 + attributes.size());
     return builder.getArrayAttr(attributes);
+  }
+  LogicalResult metadata(Attribute attr, unsigned depth = 0) {
+    if (!attr || !budget.depth(depth))
+      return failure();
+    if (failed(chargeAttributeSpelling(budget, attr)))
+      return failure();
+    if (auto dict = dyn_cast<DictionaryAttr>(attr)) {
+      for (NamedAttribute field : dict) {
+        if (!budget.charge(field.getName().getValue().size()) ||
+            failed(metadata(field.getValue(), depth + 1)))
+          return failure();
+      }
+    } else if (auto values = dyn_cast<ArrayAttr>(attr)) {
+      for (Attribute value : values)
+        if (failed(metadata(value, depth + 1)))
+          return failure();
+    } else if (auto type = dyn_cast<TypeAttr>(attr)) {
+      return metadataType(type.getValue(), depth + 1);
+    }
+    return success();
+  }
+  LogicalResult metadataType(Type type, unsigned depth) {
+    if (!budget.depth(depth) || failed(chargeTypeSpelling(budget, type)))
+      return failure();
+    if (auto bits = dyn_cast<BitsType>(type))
+      return metadata(bits.getWidth(), depth + 1);
+    if (auto table = dyn_cast<TableType>(type)) {
+      if (failed(metadata(table.getShape(), depth + 1)))
+        return failure();
+      return metadataType(table.getElementType(), depth + 1);
+    }
+    if (auto function = dyn_cast<FunctionType>(type))
+      for (TypeRange types : {function.getInputs(), function.getResults()})
+        for (Type nested : types)
+          if (failed(metadataType(nested, depth + 1)))
+            return failure();
+    return success();
   }
   ArrayAttr types(TypeRange inputs) {
     SmallVector<Attribute> result;
@@ -517,6 +582,45 @@ private:
                                {"callee", call.getCalleeAttr()},
                                {"receiver", *owner},
                                {"arguments", *actuals}}));
+      } else if (auto check = dyn_cast<SourceExpectOp>(operation)) {
+        if (failed(metadata(check->getAttr("occurrence"))) ||
+            failed(metadata(check.getLocationAttr())) ||
+            failed(metadata(check.getKindAttr())) ||
+            (check->hasAttr("ac.message") &&
+             failed(metadata(check->getAttr("ac.message")))))
+          return failure();
+        result.push_back(dict(
+            {{"kind", str("check")},
+             {"occurrence", check->getAttr("occurrence")},
+             {"path", fact(check.getPath(), scope)},
+             {"check_kind", check.getKindAttr()},
+             {"condition", value(check.getCondition(), scope)},
+             {"location", check.getLocationAttr()},
+             {"message", check->getAttr("ac.message")
+                             ? check->getAttr("ac.message")
+                             : Attribute(builder.getUnitAttr())}}));
+      } else if (auto observe = dyn_cast<SourceObserveOp>(operation)) {
+        if (failed(metadata(observe->getAttr("occurrence"))) ||
+            failed(metadata(observe.getKindAttr())) ||
+            failed(metadata(observe.getSpec())) ||
+            failed(metadata(observe->getAttr("ac.location"))))
+          return failure();
+        SmallVector<Attribute> observed;
+        for (Value input : observe.getValues()) {
+          auto type = TypeAttr::get(input.getType());
+          if (failed(metadata(type)))
+            return failure();
+          observed.push_back(dict({{"type", type},
+                                   {"value", value(input, scope)}}));
+        }
+        result.push_back(dict(
+            {{"kind", str("observe")},
+             {"occurrence", observe->getAttr("occurrence")},
+             {"path", fact(observe.getPath(), scope)},
+             {"observation_kind", observe.getKindAttr()},
+             {"spec", observe.getSpec()},
+             {"location", observe->getAttr("ac.location")},
+             {"values", array(observed)}}));
       } else if (isa<SourceStateReadOp, SourceStateWriteOp>(operation)) {
         auto stateName = operation.getAttrOfType<StringAttr>("state");
         SourceStateOp state;
@@ -773,10 +877,15 @@ private:
   LogicalResult preflight(Attribute attr, unsigned depth) {
     if (!attr || !budget.depth(depth))
       return failure();
+    if (failed(chargeAttributeSpelling(budget, attr)))
+      return failure();
     if (auto dict = dyn_cast<DictionaryAttr>(attr)) {
-      for (auto field : dict)
+      for (auto field : dict) {
+        if (!budget.charge(field.getName().getValue().size()))
+          return failure();
         if (failed(preflight(field.getValue(), depth + 1)))
           return failure();
+      }
     } else if (auto array = dyn_cast<ArrayAttr>(attr)) {
       for (Attribute raw : array)
         if (failed(preflight(raw, depth + 1)))
@@ -797,7 +906,7 @@ private:
     return success();
   }
   LogicalResult preflightType(Type type, unsigned depth) {
-    if (!budget.depth(depth))
+    if (!budget.depth(depth) || failed(chargeTypeSpelling(budget, type)))
       return failure();
     auto emit = [&] { return declaration->emitOpError(); };
     if (auto bits = dyn_cast<BitsType>(type)) {
@@ -1235,6 +1344,59 @@ private:
           return error("guard effects permit reads only");
         if (failed(call(row, scope)))
           return failure();
+      } else if (kind.getValue() == "check") {
+        if (guard)
+          return error("guard effects permit reads only");
+        if (failed(exact(row, {"kind", "occurrence", "path", "check_kind",
+                               "condition", "location", "message"})))
+          return failure();
+        auto checkKind = row.getAs<StringAttr>("check_kind");
+        Attribute message = row.get("message");
+        if (!checkKind || checkKind.getValue() != "assert")
+          return error("check effect kind must be assert");
+        if (!isa<StringAttr>(message) && !isa<UnitAttr>(message))
+          return error("check effect message must be StringAttr or UnitAttr");
+        if (failed(detail::verifySourceEffectMetadata(
+                row.getAs<DictionaryAttr>("occurrence"),
+                row.getAs<DictionaryAttr>("location"), declaration,
+                [&] { return declaration->emitOpError(); })) ||
+            failed(value(row.get("condition"), scope)))
+          return failure();
+      } else if (kind.getValue() == "observe") {
+        if (guard)
+          return error("guard effects permit reads only");
+        if (failed(exact(row, {"kind", "occurrence", "path",
+                               "observation_kind", "spec", "location",
+                               "values"})))
+          return failure();
+        auto observationKind = row.getAs<StringAttr>("observation_kind");
+        auto spec = row.getAs<DictionaryAttr>("spec");
+        auto observed = row.getAs<ArrayAttr>("values");
+        if (!observationKind ||
+            !llvm::is_contained(ArrayRef<StringRef>{"log", "report"},
+                                observationKind.getValue()))
+          return error("observation effect kind must be log or report");
+        if (!observed)
+          return error("observation effect values must be an array");
+        if (failed(detail::verifySourceEffectMetadata(
+                row.getAs<DictionaryAttr>("occurrence"),
+                row.getAs<DictionaryAttr>("location"), declaration,
+                [&] { return declaration->emitOpError(); })) ||
+            failed(detail::verifySourceObservationSpec(
+                observationKind, spec, observed.size(),
+                [&] { return declaration->emitOpError(); })))
+          return failure();
+        for (Attribute rawValue : observed) {
+          auto item = dyn_cast<DictionaryAttr>(rawValue);
+          if (failed(exact(item, {"type", "value"})) ||
+              failed(type(item.get("type"))))
+            return failure();
+          Type physical = item.getAs<TypeAttr>("type").getValue();
+          if (!isa<BitsType, EnumType, TypeParamType>(physical))
+            return error("observation values require scalar hardware types");
+          if (failed(value(item.get("value"), scope, physical)))
+            return failure();
+        }
       } else if (kind.getValue() == "read" || kind.getValue() == "write") {
         bool write = kind.getValue() == "write";
         if (guard && write)

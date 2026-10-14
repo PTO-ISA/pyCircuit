@@ -100,9 +100,53 @@ Write EffectRow same fields plus `value=ValueSummary`, kind="write".
 Call EffectRow:
 `{kind="call", occurrence=Occurrence, path=PredicateFact, callee=SymbolRefAttr @Module::@method, receiver=OwnerRef, arguments=[ValueSummary...]}`.
 OwnerRef existing `{instance_path=[Occurrence...]}`; empty=self. Each receiver occurrence comes from validated real instance path, never string fabrication. Call actuals explicit order. All calls required; no required=true flag.
+Check EffectRow:
+`{kind="check", occurrence=Occurrence, path=PredicateFact, check_kind="assert", condition=ValueSummary, location=SourceSpan, message=StringAttr|UnitAttr}`.
+Observe EffectRow:
+`{kind="observe", occurrence=Occurrence, path=PredicateFact, observation_kind="log"|"report", spec=DictionaryAttr, location=SourceSpan, values=[{type=TypeAttr, value=ValueSummary}...]}`.
+The check condition has the same implicit one-bit contract as a guard summary;
+shape/scope validation does not replace provider body type authority. Absent assert
+message is UnitAttr; an authored empty string remains StringAttr. Observation value
+rows preserve their actual scalar types and callable argument/capture scope. Both
+variants require exact fields and reuse the existing observation spec validator.
+Spec item ordinals retain the existing decodeU32 contract; they are distinct from
+summary reference ordinals and final ObservationID ordinals.
+
 Guard/body effect arrays preserve exact respective IR order; guard permits reads only per existing op admission. Keep read checks/write intent/call control even unused or known-false. Do not sort, dedup, inline or conjunction-reduce effects.
 
+## Source body checks and observations
+
+`ac.method` 与 `ac.transaction` 的直接 body 使用已有 `ac.expect` / `ac.observe`。
+Source assert 只允许 assert kind、condition/path 两个 Bits1 和空 sampling；source
+observation 只允许 log/report、Bits1 path 和现有 scalar payload。Guard、纯 helper、
+普通纯 Rule 及嵌套 pure region 不因此获得效果权限。
+
+Source form 必须有原语句 `occurrence`，assert 使用既有 `location`，observation 使用
+`ac.location`。Occurrence 的 definition 与 lexical Module 一致，SourceSpan 的 path 与
+其 SourceOwner 一致。Source body 不得提供 `ac.check_id` 或 `ac.observation_id`；独立
+发布时尚未确定 outer registration 与 invocation。Module-level final forms 保持其必需 ID。
+Summary 结构验证使用实际 Module/ModuleImport 声明，不构造临时 op 或读取 provider body。
+
+Producer 先验证静态 message/spec，再通过已有 expression owner 按参数顺序求值一次。
+Method call 和 state read 形成在消费效果前的显式 op；后续表达式不能改写先前 SSA snapshot。
+一条 log 产生一个 observe，literal-only log 保持零 value，report 恰好一个 value。
+新事务 assert 的 authored path 为 true，不把 condition 合入后续调用或 guard 的 continuation。
+已有普通 behavioral Rule 的 continuation 合同保持。`SourceMethodCallOp`、
+`SourceTransactionOp` 和叶 observe 保留 observation resource write；effects 不因结果未用而删除。
+
+Body assert 是后续 whole-system commit check，不能被解释为 Method 的 mayBlock guard。
+实际 lowering 必须使用最终 fire，guard-known 检查则保留有序 reached prefix。Report 名字冲突
+按实际展开的 logical owner 检查，不能在发布未调用声明时伪造调用次数。
+
+本阶段的 source/publication 通过不等于执行支持。在 state plan 尚无显式 check/observation
+records 时，通用 payload 路径必须拒绝这些效果，并保持原 IR/输出。不得先丢弃效果以生成
+可执行 final。完整 [Method System 验收](acceptance.md)仍要求 state plan、源计划认证、
+共同 lowering、C++/Verilog 和生成 runner 的实际执行。
+
 ## Derivation
+
+Publication 的 1,048,576 work units 和 depth 128 上限保持。新 spec、items、message、
+provenance 字符串及记录遍历/复制使用同一预算；不得给大字符串只计一个固定节点成本。
 
 Reuse existing verified typed IR, HardwareAnalysis, shared source contracts and existing literal/static fact logic. Do not add AST analysis, a constant interpreter, or a second semantic compiler.
 

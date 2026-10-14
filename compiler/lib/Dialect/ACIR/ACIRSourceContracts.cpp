@@ -1,4 +1,5 @@
 #include "ACIRSourceContracts.h"
+#include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/ACIRTypes.h"
 
 #include "mlir/IR/DialectImplementation.h"
@@ -183,6 +184,33 @@ LogicalResult verifySourceGuardLocation(DictionaryAttr location,
       sourceOwner.getAs<StringAttr>("path"))
     return emitError()
            << "guard SourceSpan path must match its declaring SourceOwner";
+  return success();
+}
+
+LogicalResult verifySourceEffectMetadata(DictionaryAttr occurrence,
+                                         DictionaryAttr location,
+                                         Operation *lexicalModule,
+                                         EmitError emitError) {
+  if (!lexicalModule || !isa<ModuleOp, ModuleImportOp>(lexicalModule))
+    return emitError()
+           << "source effect requires a lexical module declaration";
+  auto symbol = lexicalModule->getAttrOfType<StringAttr>("sym_name");
+  auto sourceOwner =
+      lexicalModule->getAttrOfType<DictionaryAttr>("source_owner");
+  if (!symbol || failed(verifyOccurrence(occurrence, emitError)) ||
+      failed(verifyOriginDefinition(
+          occurrence,
+          FlatSymbolRefAttr::get(lexicalModule->getContext(),
+                                 symbol.getValue()),
+          "source effect", emitError)) ||
+      failed(verifySourceOwner(sourceOwner, emitError)) ||
+      failed(verifySourceSpan(location, emitError)))
+    return failure();
+  if (location.getAs<StringAttr>("path") !=
+      sourceOwner.getAs<StringAttr>("path"))
+    return emitError()
+           << "source effect SourceSpan path must match its declaring "
+              "SourceOwner";
   return success();
 }
 

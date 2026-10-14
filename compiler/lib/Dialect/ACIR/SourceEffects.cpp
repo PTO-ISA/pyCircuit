@@ -40,6 +40,8 @@ void SourceMethodCallOp::getEffects(
                        SourceStateResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(),
                        SourceCheckResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceObservationResource::get());
 }
 void SourceTransactionOp::getEffects(
     llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
@@ -49,5 +51,7 @@ void SourceTransactionOp::getEffects(
                        SourceStateResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(),
                        SourceCheckResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceObservationResource::get());
 }
 } // namespace acir::ac

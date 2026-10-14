@@ -215,6 +215,8 @@ TEST_F(TransactionEffectsTest, CallsAndTransactionsRetainConservativeEffects) {
     EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Read>(op, "source.state")));
     EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(op, "source.state")));
     EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(op, "source.check")));
+    EXPECT_TRUE(
+        (hasEffect<mlir::MemoryEffects::Write>(op, "source.observation")));
     retained(op);
   }
   auto *call = find(*file, "ac.method.call", 1);
@@ -488,7 +490,7 @@ TEST_F(TransactionEffectsTest, CallsAndOrdinaryReturnsKeepExactSignature) {
 
 TEST_F(TransactionEffectsTest,
        EffectsAndUnknownOperationsCannotHideInPayloads) {
-  for (llvm::StringRef name : {"ac.expect", "ac.observe", "test.unknown"}) {
+  for (llvm::StringRef name : {"test.unknown"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     context.allowUnregisteredDialects();
@@ -496,17 +498,116 @@ TEST_F(TransactionEffectsTest,
     auto &body = method->getRegion(1).front();
     builder.setInsertionPoint(body.getTerminator());
     mlir::OperationState effect(method->getLoc(), name);
-    if (name == "ac.expect") {
-      effect.addOperands({body.getArgument(1), body.getArgument(1)});
-      effect.addAttribute("kind", builder.getStringAttr("assert"));
-      effect.addAttribute("location", builder.getDictionaryAttr({}));
-    } else if (name == "ac.observe") {
-      effect.addOperands(body.getArgument(1));
-      effect.addAttribute("kind", builder.getStringAttr("report"));
-      effect.addAttribute("spec", builder.getDictionaryAttr({}));
-    }
     builder.create(effect);
     EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(TransactionEffectsTest,
+       SourceChecksAndObservationsAreOrderedBodyEffects) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *method = find(*file, "ac.method");
+  auto &body = method->getRegion(1).front();
+  auto path = body.getArgument(1);
+  auto occurrence = method->getAttr("occurrence");
+  auto location = method->getAttr("ac.guard_location");
+  builder.setInsertionPoint(body.getTerminator());
+
+  mlir::OperationState check(method->getLoc(), "ac.expect");
+  check.addOperands({path, path});
+  check.addAttribute("kind", builder.getStringAttr("assert"));
+  check.addAttribute("location", location);
+  check.addAttribute("occurrence", occurrence);
+  check.addAttribute("ac.message", builder.getStringAttr(""));
+  auto *checkOp = builder.create(check);
+
+  mlir::OperationState observe(method->getLoc(), "ac.observe");
+  observe.addOperands({path, body.getArgument(0)});
+  observe.addAttribute("kind", builder.getStringAttr("report"));
+  observe.addAttribute("spec", builder.getDictionaryAttr({builder.getNamedAttr(
+                                   "name", builder.getStringAttr("value"))}));
+  observe.addAttribute("occurrence", occurrence);
+  observe.addAttribute("ac.location", location);
+  auto *observeOp = builder.create(observe);
+
+  EXPECT_TRUE(checkOp->isBeforeInBlock(observeOp));
+  EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(checkOp, "source.check")));
+  EXPECT_TRUE(
+      (hasEffect<mlir::MemoryEffects::Write>(observeOp, "source.observation")));
+  retained(checkOp);
+  retained(observeOp);
+}
+
+TEST_F(TransactionEffectsTest,
+       SourceEffectsRejectGuardPlacementFinalIdentityAndWrongKinds) {
+  for (llvm::StringRef mutation : {"guard", "check-id", "observation-id",
+                                   "check-kind", "observation-kind"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *method = find(*file, "ac.method");
+    auto &region = method->getRegion(mutation == "guard" ? 0 : 1).front();
+    auto path = region.getArgument(1);
+    auto occurrence = method->getAttr("occurrence");
+    auto location = method->getAttr("ac.guard_location");
+    builder.setInsertionPoint(region.getTerminator());
+    bool observation = mutation.starts_with("observation");
+    mlir::OperationState effect(method->getLoc(),
+                                observation ? "ac.observe" : "ac.expect");
+    if (observation) {
+      effect.addOperands({path, region.getArgument(0)});
+      effect.addAttribute(
+          "kind", builder.getStringAttr(
+                      mutation == "observation-kind" ? "trace" : "report"));
+      effect.addAttribute("spec",
+                          builder.getDictionaryAttr({builder.getNamedAttr(
+                              "name", builder.getStringAttr("value"))}));
+      effect.addAttribute("ac.location", location);
+      if (mutation == "observation-id")
+        effect.addAttribute("ac.observation_id", occurrence);
+    } else {
+      effect.addOperands({path, path});
+      effect.addAttribute(
+          "kind",
+          builder.getStringAttr(mutation == "check-kind" ? "range" : "assert"));
+      effect.addAttribute("location", location);
+      if (mutation == "check-id")
+        effect.addAttribute("ac.check_id", occurrence);
+    }
+    effect.addAttribute("occurrence", occurrence);
+    builder.create(effect);
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })))
+        << mutation.str();
+    EXPECT_FALSE(diagnostics.empty());
+  }
+
+  for (llvm::StringRef mutation : {"sampling", "path-type",
+                                   "foreign-location", "missing-occurrence"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto *method = find(*file, "ac.method");
+    auto &body = method->getRegion(1).front();
+    auto path = body.getArgument(1);
+    mlir::OperationState effect(method->getLoc(), "ac.expect");
+    effect.addOperands({path,
+                        mutation == "path-type" ? body.getArgument(0) : path});
+    if (mutation == "sampling")
+      effect.addOperands(path);
+    effect.addAttribute("kind", builder.getStringAttr("assert"));
+    auto location = method->getAttrOfType<mlir::DictionaryAttr>(
+        "ac.guard_location");
+    if (mutation == "foreign-location")
+      location = changed(location, "path", builder.getStringAttr("other.py"));
+    effect.addAttribute("location", location);
+    if (mutation != "missing-occurrence")
+      effect.addAttribute("occurrence", method->getAttr("occurrence"));
+    builder.setInsertionPoint(body.getTerminator());
+    builder.create(effect);
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })))
+        << mutation.str();
     EXPECT_FALSE(diagnostics.empty());
   }
 }

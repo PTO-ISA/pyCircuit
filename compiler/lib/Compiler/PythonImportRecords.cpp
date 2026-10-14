@@ -1135,13 +1135,14 @@ private:
   LogicalResult enterCheckBranch(BranchEnvironment &environment, Value demand,
                                  const AstNode &node, OpBuilder &at,
                                  FlatSymbolRefAttr owner);
+  FailureOr<StringAttr> sourceAssertMessage(const AstNode &statement);
   LogicalResult captureSourceCheck(const AstNode &statement, OpBuilder &at,
                                    FlatSymbolRefAttr owner,
                                    BranchEnvironment &environment);
   // Capture one rule-body `log`/`report` site onto the rule result suffix. The
   // observation is published as `ac.observe` at module scope by
-  // publishSourceChecks once the rule operation exists, exactly like a source
-  // assertion, because `ac.observe` requires module placement.
+  // publishSourceChecks once the ordinary behavioral/final rule operation
+  // exists, exactly like a source assertion on that path.
   LogicalResult captureRuleObservation(const AstNode &rule,
                                        const AstNode &statement, OpBuilder &at,
                                        FlatSymbolRefAttr owner,
@@ -3761,24 +3762,34 @@ LogicalResult Importer::captureSourceCheck(const AstNode &statement,
   if (failed(condition) ||
       failed(predicateView(*condition, statement.child("test"), symbol)))
     return failure();
-  StringAttr message;
-  if (AstNode node = statement.child("msg")) {
-    message = node.kind() == "Constant"
-                  ? dyn_cast_or_null<StringAttr>(node.get("value"))
-                  : StringAttr();
-    if (!message)
-      return mlir::emitError(node.location(b.getContext(), source.path))
-             << "assert message must be a static string";
-  }
+  auto message = sourceAssertMessage(statement);
+  if (failed(message))
+    return failure();
   auto path = checkAnd(environment.ambient, environment.continuation, statement,
                        at, symbol);
   auto continued =
       checkAnd(environment.continuation, *condition, statement, at, symbol);
   if (failed(path) || failed(continued))
     return failure();
-  activeRule->checks.push_back({statement, *condition, *path, message});
+  activeRule->checks.push_back({statement, *condition, *path, *message});
   environment.continuation = *continued;
   return success();
+}
+
+FailureOr<StringAttr>
+Importer::sourceAssertMessage(const AstNode &statement) {
+  AstNode node = statement.child("msg");
+  if (!node)
+    return StringAttr();
+  auto message = node.kind() == "Constant"
+                     ? dyn_cast_or_null<StringAttr>(node.get("value"))
+                     : StringAttr();
+  if (!message) {
+    mlir::emitError(node.location(b.getContext(), source.path))
+        << "assert message must be a static string";
+    return failure();
+  }
+  return message;
 }
 
 LogicalResult Importer::captureRuleObservation(const AstNode &rule,

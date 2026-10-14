@@ -1138,6 +1138,43 @@ TEST_F(TransactionStateSSATest,
 }
 
 TEST_F(TransactionStateSSATest,
+       UnplannedChecksAndObservationsFailBeforePublishingAnyStatePlan) {
+  for (llvm::StringRef kind : {"expect", "observe"}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto run = transaction(*file);
+    auto &body = run.getBody().front();
+    auto path = body.getArgument(0);
+    builder.setInsertionPoint(body.getTerminator());
+    mlir::OperationState effect(
+        run.getLoc(), kind == "expect" ? SourceExpectOp::getOperationName()
+                                       : SourceObserveOp::getOperationName());
+    if (kind == "expect") {
+      effect.addOperands({path, path});
+      effect.addAttribute("kind", builder.getStringAttr("assert"));
+      effect.addAttribute("location", span("state.py", 30));
+    } else {
+      effect.addOperands({path, body.getArgument(1)});
+      effect.addAttribute("kind", builder.getStringAttr("report"));
+      effect.addAttribute("spec",
+                          builder.getDictionaryAttr({builder.getNamedAttr(
+                              "name", builder.getStringAttr("candidate"))}));
+      effect.addAttribute("ac.location", span("state.py", 30));
+    }
+    effect.addAttribute("occurrence", occurrence("Root", 30));
+    builder.create(effect);
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+
+    reject(*file);
+    EXPECT_TRUE(diagnostics.find("effect") != std::string::npos ||
+                diagnostics.find("plan") != std::string::npos ||
+                diagnostics.find("unsupported") != std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(TransactionStateSSATest,
        StaticGrandchildCallsComposeOccurrencePathsAndInputDomains) {
   auto file = parse();
   ASSERT_TRUE(file);

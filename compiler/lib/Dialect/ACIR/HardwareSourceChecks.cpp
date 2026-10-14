@@ -64,31 +64,62 @@ detail::verifySourceObservationStructure(SourceObserveOp observe) {
   auto error = [&] { return observe.emitOpError(); };
   auto kind = observe->getAttrOfType<StringAttr>("kind");
   auto spec = observe->getAttrOfType<DictionaryAttr>("spec");
-  if (!isa<ModuleOp>(observe->getParentOp()) || !kind ||
-      !llvm::is_contained(ArrayRef<StringRef>{"print", "log", "report"},
-                          kind.getValue()))
-    return error() << "observation requires module placement and known kind";
-  if (failed(verifyObservationID(
-          observe->getAttrOfType<DictionaryAttr>("ac.observation_id"),
-          error)) ||
-      failed(verifySourceSpan(
-          observe->getAttrOfType<DictionaryAttr>("ac.location"), error)))
-    return failure();
+  auto *parent = observe->getParentOp();
+  bool source = isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent);
+  if (source) {
+    if (observe->getParentRegion() != &parent->getRegion(1) || !kind ||
+        !llvm::is_contained(ArrayRef<StringRef>{"log", "report"},
+                            kind.getValue()) ||
+        observe->hasAttr("ac.observation_id") ||
+        observe->hasAttr("ac.check_id"))
+      return error() << "source observation requires direct Method/transaction "
+                        "body placement, log/report kind and no final identity";
+    if (failed(verifySourceEffectMetadata(
+            observe->getAttrOfType<DictionaryAttr>("occurrence"),
+            observe->getAttrOfType<DictionaryAttr>("ac.location"),
+            parent->getParentOp(), error)))
+      return failure();
+  } else {
+    if (!isa<ModuleOp>(parent) || !kind ||
+        !llvm::is_contained(ArrayRef<StringRef>{"print", "log", "report"},
+                            kind.getValue()))
+      return error() << "observation requires module placement and known kind";
+    if (failed(verifyObservationID(
+            observe->getAttrOfType<DictionaryAttr>("ac.observation_id"),
+            error)) ||
+        failed(verifySourceSpan(
+            observe->getAttrOfType<DictionaryAttr>("ac.location"), error)))
+      return failure();
+  }
   if (observe->getNumOperands() == 0 ||
       !isa<BitsType, TypeParamType>(observe->getOperand(0).getType()))
     return error() << "observation path requires scalar Bits";
+  HardwareBindings bindings;
+  bindings.owner = source ? parent->getParentOp() : parent;
+  if (source &&
+      failed(predicate(
+          HardwareAnalysis(observe->getParentOfType<mlir::ModuleOp>()),
+          observe->getOperand(0), bindings, observe)))
+    return failure();
   for (auto operand : observe->getOperands().drop_front())
     if (!isa<BitsType, EnumType, TypeParamType>(operand.getType()))
       return error() << "observation value requires a scalar hardware payload";
-  if (!spec)
-    return error() << "observation requires a closed spec";
+  return verifySourceObservationSpec(kind, spec,
+                                     observe->getNumOperands() - 1, error);
+}
+
+LogicalResult detail::verifySourceObservationSpec(StringAttr kind,
+                                                  DictionaryAttr spec,
+                                                  uint64_t valueCount,
+                                                  EmitError error) {
+  if (!kind || !spec)
+    return error() << "observation requires a known kind and closed spec";
   auto text = [&](StringRef key, bool nonempty = false) {
     auto value = spec.getAs<StringAttr>(key);
     return value && (!nonempty || !value.getValue().empty());
   };
   if (kind.getValue() == "report") {
-    if (spec.size() != 1 || !text("name", true) ||
-        observe->getNumOperands() != 2)
+    if (spec.size() != 1 || !text("name", true) || valueCount != 1)
       return error() << "report requires a nonempty name and one scalar value";
     return success();
   }
@@ -122,7 +153,7 @@ detail::verifySourceObservationStructure(SourceObserveOp observe) {
       return error() << "observation item kind must be literal or value";
     }
   }
-  if (next != observe->getNumOperands() - 1)
+  if (next != valueCount)
     return error() << "observation items must cover values exactly in order";
   return success();
 }
@@ -486,14 +517,31 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
                                           SourceExpectOp expect,
                                           const HardwareBindings &bindings) {
   auto error = [&] { return expect.emitOpError(); };
-  if (!isa<ModuleOp>(expect->getParentOp()) ||
-      !llvm::is_contained(ArrayRef<StringRef>{"assert", "range", "guard_known"},
-                          expect.getKind()))
-    return error() << "check requires module placement and known kind";
-  if (failed(verifyCheckID(expect->getAttrOfType<DictionaryAttr>("ac.check_id"),
-                           error)) ||
-      failed(verifySourceSpan(expect.getLocationAttr(), error)))
-    return failure();
+  auto *parent = expect->getParentOp();
+  bool source = isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent);
+  if (source) {
+    if (expect->getParentRegion() != &parent->getRegion(1) ||
+        expect.getKind() != "assert" || expect->hasAttr("ac.check_id") ||
+        expect->hasAttr("ac.observation_id") ||
+        !expect.getSampling().empty())
+      return error() << "source assertion requires direct Method/transaction "
+                        "body placement, assert kind, no sampling and no final "
+                        "identity";
+    if (failed(verifySourceEffectMetadata(
+            expect->getAttrOfType<DictionaryAttr>("occurrence"),
+            expect.getLocationAttr(), parent->getParentOp(), error)))
+      return failure();
+  } else {
+    if (!isa<ModuleOp>(parent) ||
+        !llvm::is_contained(
+            ArrayRef<StringRef>{"assert", "range", "guard_known"},
+            expect.getKind()))
+      return error() << "check requires module placement and known kind";
+    if (failed(verifyCheckID(
+            expect->getAttrOfType<DictionaryAttr>("ac.check_id"), error)) ||
+        failed(verifySourceSpan(expect.getLocationAttr(), error)))
+      return failure();
+  }
   if (expect->hasAttr("ac.message") &&
       !expect->getAttrOfType<StringAttr>("ac.message"))
     return error() << "source check message must be a static string";
