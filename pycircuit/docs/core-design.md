@@ -4,6 +4,8 @@
 
 文中的 Python 写法展示 ACPy 如何表达这些抽象，GFSim 表示说明后端如何承载它们。本文记录目标设计与待确定内容，不表示当前编译器已经实现全部功能。
 
+array 的构造、选取、有效性及编译规则由正式的 [array 设计](array-design.md)定义，替代旧数组表达。
+
 ## 1. 基本变量与基础组件
 
 pyCircuit 区分普通变量 `var` 与具有固定身份的基础组件 `Cell`、`Queue`、`Signal`。Cell 和 Queue 保存跨周期状态；Signal 按 BSV Wire 语义表达本拍有效的信号，不保存跨周期值。

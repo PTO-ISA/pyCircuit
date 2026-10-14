@@ -1,6 +1,7 @@
 # 编译阶段的设计意图
 
 语义依据 [核心设计](core-design.md)，进度和验证依据 [路线图](compiler-roadmap.md)。
+array 的迁移目标依据正式的 [array 设计](array-design.md)：高层保留结构，按静态关系保守排序，进入 RTL 友好层再展开。
 
 1. 静态展开 class Module 的 __init__；存在 __call__ 时绑定其固定连接。只提供公开 Rule 的实例
    无需主体或额外调用，不能自动调度其 Rule。实例、组件、类型和初值均进入源 MLIR。

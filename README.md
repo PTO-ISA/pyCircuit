@@ -6,6 +6,7 @@
 | 入口 | 内容 |
 | --- | --- |
 | [核心抽象设计](pycircuit/docs/core-design.md) | Cell、Queue、Signal、EHR、统一 Rule、Module 与同拍顺序 |
+| [array 设计](pycircuit/docs/array-design.md) | 多维构造、match、选取域、仲裁及保守 lowering 的正式目标设计 |
 | [编译路线图](pycircuit/docs/compiler-roadmap.md) | 阶段进度、基线保存、验证证据、问题与下一步 |
 | [构建与使用](pycircuit/README.md) | 编译、分层重载、逐拍执行和 CLI |
 | [ACPy 语法](acpy/spec.md) | class Module、显式类型、固定连接与 Rule 关系 |

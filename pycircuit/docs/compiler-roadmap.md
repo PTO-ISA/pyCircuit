@@ -139,3 +139,13 @@ OoO 的发射／完成 Queue 和广播 Signal 由顶层声明，保留站观察�
 仅将已移动组件的旧名字映射到新名字，全部 fire 和状态逐拍一致。CPU 独立 ISA 及退休周期、
 OoO 退休次序继续通过。基线、名字映射、对照结果、日志和 JUnit 保存在
 `builds/benchmarks/explicit-connections/`。
+
+## 设计确认：统一多维 array
+
+2026-10-14：正式确认 [array 设计](array-design.md)，替代旧 array、vector、qarray。
+统一静态多维 shape 和完整构造，match 只计算 mask，对外调用传选取后的 array；
+无效单选访问传播未就绪，禁止部分选取的 array 直接跨拍保存。
+事务分析按静态关系保守排序，高层及仿真保留结构，到 RTL 友好层再物理展开。
+
+本次仅整理正式设计与文档引用，尚未迁移实现。验证为文档链接、示例语法及格式检查；
+下一步按该设计实现前端、MLIR 操作及两层执行验收，不继承旧数组的兼容处理。

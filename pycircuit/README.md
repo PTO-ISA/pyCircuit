@@ -2,6 +2,7 @@
 
 编译链路：ACPy → 源语义 MLIR → 事务 MLIR → RTL 友好 MLIR → 逐拍轨迹。
 语义见 [核心设计](docs/core-design.md)，阶段进度与问题见 [路线图](docs/compiler-roadmap.md)。
+新 array 的正式目标设计见 [array 设计](docs/array-design.md)，尚未迁移到实现。
 
 ## 构建与测试
 
