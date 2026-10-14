@@ -1,7 +1,0 @@
-digraph Transactions {
-  rankdir=LR;
-  node [shape=box];
-  t0 [label="top.router.route#0"];
-  t1 [label="top.observer.sample#1"];
-  t0 -> t1 [label="top.result\nSignal.set \u2192 get"];
-}

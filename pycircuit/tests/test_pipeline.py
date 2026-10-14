@@ -1,94 +1,13 @@
 import json
 import os
-from pathlib import Path
 import subprocess
-import tempfile
 import unittest
-from pycircuit import compile_source, analyze
+from pycircuit import analyze
 from pycircuit.ir import CompileError, load
-
-ROOT = Path(__file__).resolve().parents[2]
-EXAMPLES = ROOT / 'pycircuit/examples'
+from pycircuit.tests.support import ExecutionChecks, ROOT
 
 
-class PipelineTests(unittest.TestCase):
-    def setUp(self):
-        temporary = ROOT / 'pycircuit/builds/benchmarks/test-runs'
-        temporary.mkdir(parents=True, exist_ok=True)
-        self.tmp = tempfile.TemporaryDirectory(dir=temporary)
-        self.directory = Path(self.tmp.name)
-
-    def tearDown(self):
-        self.tmp.cleanup()
-
-    def run_source(self, source, cycles=4, config=None, optimize=True):
-        path = self.directory / 'source.py'
-        path.write_text(source)
-        out = self.directory / ('opt' if optimize else 'raw')
-        graph = analyze(compile_source(path, 'Top'), out, cycles=cycles, config=config, optimize=optimize)
-        txn = json.loads((out / 'transaction-trace.json').read_text())['trace']
-        rtl = json.loads((out / 'rtl-trace.json').read_text())['trace']
-        self.assertEqual(txn, rtl)
-        self.assertFalse((out / 'program.json').exists())
-        ir = (out / 'model.rtl.mlir').read_text()
-        for forbidden in ('acir.rule.call', 'acir.array.', 'acir.update', 'acir.read ', 'acir.queue.', 'acir.signal.', 'acir.ehr.', 'scf.if', 'cf.cond_br'):
-            self.assertNotIn(forbidden, ir)
-        return txn, graph, out
-
-    def assert_reloads(self, trace, out):
-        for stage in ('source', 'transaction', 'rtl'):
-            destination = out / ('reload-' + stage)
-            analyze(load(out / f'model.{stage}.mlir'), destination, cycles=len(trace))
-            for file in ('transaction-trace.json', 'rtl-trace.json'):
-                path = destination / file
-                if path.exists():
-                    self.assertEqual(trace, json.loads(path.read_text())['trace'])
-
-    def test_queue_pipeline_space_backpressure_and_atomic_cancel(self):
-        source = '''from pycircuit import ac
-@ac.module
-class Top:
-    def __init__() -> None:
-        source = ac.queue[ac.u32](capacity=4, initial=[1,2,3,4])
-        first = ac.queue[ac.u32](initial=10)
-        second = ac.queue[ac.u32](initial=20)
-        cycle = ac.cell[ac.u32](initial=0)
-        result = ac.cell[ac.u32](initial=0)
-        attempts = ac.cell[ac.u32](initial=0)
-    @ac.rule
-    def feed() -> None:
-        value = source
-        attempts = attempts + 1
-        first = value
-    @ac.rule
-    def advance() -> None:
-        second = first
-    @ac.rule
-    def drain() -> None:
-        result = result + second
-    @ac.rule
-    def clock() -> None:
-        cycle = cycle + 1
-    def __call__() -> None:
-        feed()
-        advance()
-        if cycle != 1:
-            drain()
-        clock()
-'''
-        trace, graph, out = self.run_source(source, 7)
-        self.assertEqual(trace[0]['state']['top.result'], 20)
-        self.assertEqual(trace[0]['state']['top.first'], [1])
-        self.assertEqual(trace[0]['state']['top.second'], [10])
-        self.assertEqual(trace[1]['state'], dict(trace[0]['state'], **{'top.cycle': 2}))
-        self.assertEqual(trace[1]['state']['top.attempts'], 1)
-        self.assertEqual(trace[-1]['state']['top.result'], 40)
-        self.assertEqual(trace[-1]['state']['top.source'], [])
-        self.assertEqual(graph['schedule'][:3], [2, 1, 0])
-        self.assert_reloads(trace, out)
-        raw, _, _ = self.run_source(source, 7, optimize=False)
-        self.assertEqual(trace, raw)
-
+class PipelineTests(ExecutionChecks, unittest.TestCase):
     def test_failed_read_never_selects_else_and_does_not_block_unrelated(self):
         source = '''from pycircuit import ac
 @ac.module
@@ -187,47 +106,15 @@ class Top:
         self.assert_reloads(trace, out)
 
     def test_ehr_shared_read_fixed_view_and_next_state(self):
-        source = '''from pycircuit import ac
-@ac.module
-class Storage:
-    def __init__() -> None:
-        state = ac.ehr[ac.u32](initial=1)
-    @ac.rule(SB=("read", "late"))
-    def early() -> None:
-        state = 7
-    @ac.rule(SB="late")
-    def read() -> ac.u32:
-        return state
-    @ac.rule
-    def late() -> None:
-        state = 9
-@ac.module
-class Top:
-    def __init__() -> None:
-        storage = Storage()
-        a = ac.cell[ac.u32](initial=0)
-        b = ac.cell[ac.u32](initial=0)
-    @ac.rule
-    def first(value: ac.u32) -> None:
-        a = value
-    @ac.rule
-    def second(value: ac.u32) -> None:
-        b = value + 1
-    def __call__() -> None:
-        storage.late()
-        value = storage.read()
-        first(value)
-        second(value)
-        storage.early()
-'''
-        trace, graph, out = self.run_source(source)
-        self.assertEqual(trace[0]['state'], {'top.a': 7, 'top.b': 8, 'top.storage.state': 9})
+        trace, out = self.run_example('ehr_shared.py', 'EHRShared', cycles=4)
+        self.assertEqual(trace[0]['state'], {'top.first_seen': 7, 'top.second_seen': 8, 'top.storage.state': 9})
+        graph = json.loads((out / 'rule-graph.json').read_text())
         nodes = {n['txn']: n['id'].split('#')[0] for n in graph['nodes']}
         edges = {(nodes[e['from']], nodes[e['to']]) for e in graph['edges']}
         self.assertIn(('top.storage.early', 'top.first'), edges)
         self.assertIn(('top.storage.early', 'top.second'), edges)
         self.assert_reloads(trace, out)
-        raw, _, _ = self.run_source(source, optimize=False)
+        raw, _ = self.run_example('ehr_shared.py', 'EHRShared', cycles=4, optimize=False)
         self.assertEqual(raw, trace)
 
     def test_unordered_ehr_read_sees_old_value(self):
@@ -306,16 +193,9 @@ class Top:
         forward()
         backward()
 '''
-        with self.assertRaisesRegex(CompileError, 'branch-union.*cycle'):
-            self.run_source(source)
-
-    def run_example(self, source, top, cycles=32, config=None, optimize=True):
-        destination = self.directory / (top + str(optimize) + str(config))
-        analyze(compile_source(EXAMPLES / source, top), destination, cycles=cycles,
-                optimize=optimize, config=config)
-        trace = json.loads((destination / 'transaction-trace.json').read_text())['trace']
-        self.assertEqual(trace, json.loads((destination / 'rtl-trace.json').read_text())['trace'])
-        return trace, destination
+        for calls in ('forward()\n        backward()', 'if a.empty():\n            forward()\n        else:\n            backward()'):
+            with self.subTest(calls=calls), self.assertRaisesRegex(CompileError, 'branch-union.*cycle'):
+                self.run_source(source.replace('forward()\n        backward()', calls))
 
     def test_cpu_matches_independent_isa_and_directed_retirement_cycles(self):
         # Independent RV32I interpreter: decodes instruction bits, not compiler
@@ -362,16 +242,46 @@ class Top:
         raw, _ = self.run_example('ooo_scheduler/model.py', 'OutOfOrder', optimize=False)
         self.assertEqual(raw, trace)
 
-    def test_mixed_optional_outputs_and_existing_example_migration(self):
-        for config in (False, True):
-            trace, out = self.run_example('mixed_ports.py', 'MixedPorts', config={'enabled': config})
-            self.assertEqual(trace[0]['state']['top.accepted'], [8] if config else [])
-            self.assertEqual(trace[0]['state']['top.last_accepted'], 7 if config else 0)
-            self.assertEqual(trace[0]['state']['top.observer.last'], 7)
-            self.assert_reloads(trace, out)
-        trace, _ = self.run_example('signal_link.py', 'SignalLink', config={'enabled': True})
-        self.assertEqual(trace[0]['state']['top.reader.last'], 1)
-        self.assertEqual(trace[-1]['state']['top.reader.last'], 20)
+    def test_mixed_optional_module_outputs(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Router:
+    def __init__() -> None:
+        count = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def route(source: ac.queue[ac.u32], take: bool) -> tuple[ac.queue[ac.u32], ac.cell[ac.u32], ac.signal[ac.u32]]:
+        value = source
+        count = count+1
+        if take:
+            return value+1, value, value
+        return None, None, value
+    def __call__(source: ac.queue[ac.u32], take: bool) -> tuple[ac.queue[ac.u32], ac.cell[ac.u32], ac.signal[ac.u32]]:
+        return route(source,take)
+@ac.module
+class Top:
+    def __init__(enabled: bool) -> None:
+        source = ac.queue[ac.u32](initial=7)
+        accepted = ac.queue[ac.u32]()
+        last = ac.cell[ac.u32](initial=0)
+        signal = ac.signal[ac.u32]()
+        seen = ac.cell[ac.u32](initial=0)
+        router = Router()
+    @ac.rule
+    def observe() -> None:
+        seen = signal
+    def __call__() -> None:
+        accepted, last, signal = router(source,enabled)
+        observe()
+'''
+        for enabled in (False, True):
+            with self.subTest(enabled=enabled):
+                trace, _, out = self.run_source(source, config={'enabled':enabled})
+                self.assertEqual(trace[0]['state']['top.accepted'], [8] if enabled else [])
+                self.assertEqual(trace[0]['state']['top.last'], 7 if enabled else 0)
+                self.assertEqual(trace[-1]['state']['top.seen'], 7)
+                self.assertEqual(trace[-1]['state']['top.router.count'], 1)
+                self.assertEqual(trace[-1]['state']['top.source'], [])
+                self.assert_reloads(trace,out)
 
     def test_declared_sb_order_without_shared_resources(self):
         source = '''from pycircuit import ac
@@ -423,6 +333,9 @@ class Top:
         self.assertTrue(trace[-1]['state']['top.occupied'])
         self.assertEqual(graph['schedule'], [1, 0])
         self.assert_reloads(trace, out)
+        invalid = source.replace('@ac.rule\n    def free()', '@ac.rule(SB="allocate")\n    def free()')
+        with self.assertRaisesRegex(CompileError, 'incompatible operations'):
+            self.run_source(invalid)
 
     def test_sbr_and_conflict_reject_same_atomic_path(self):
         for relation in ('SBR', 'C'):
@@ -502,33 +415,6 @@ class Top:
         trace, _, _ = self.run_source(source)
         self.assertEqual(trace[-1]['state']['top.seen'], 0)
         self.assertEqual(trace[-1]['state']['top.other'], 4)
-
-    def test_static_loop_and_aggregate_cell_sugar(self):
-        source = '''from pycircuit import ac
-class Payload:
-    value: ac.u32 = 0
-@ac.module
-class Top:
-    def __init__() -> None:
-        data = ac.cell[ac.array(ac.u32, shape=(2,))](initial=[1,2])
-        record = ac.cell[Payload](initial=Payload())
-        sum = ac.cell[ac.u32](initial=0)
-    @ac.rule
-    def advance() -> None:
-        total = 0
-        for i in range(2):
-            total = total + data[i]
-        sum = total
-        record.value = total
-        data[0] = total
-    def __call__() -> None:
-        advance()
-'''
-        trace, _, out = self.run_source(source, 2)
-        self.assertEqual(trace[0]['state']['top.sum'], 3)
-        self.assertEqual(trace[1]['state']['top.sum'], 5)
-        self.assertEqual(trace[1]['state']['top.record'], [5])
-        self.assert_reloads(trace, out)
 
     def test_queue_array_selection_preserves_physical_identity(self):
         source = '''from pycircuit import ac
@@ -760,13 +646,15 @@ class Top:
             drain()
         clock()
 '''
-        trace, _, out = self.run_source(source, 6)
+        trace, graph, out = self.run_source(source, 6)
         self.assertEqual(trace[0]['state']['top.if_id'], [1])
         self.assertEqual(trace[0]['state']['top.id_ex'], [13])
         self.assertEqual(trace[0]['state']['top.total'], 4)
         self.assertEqual(trace[1]['state'], dict(trace[0]['state'], **{'top.cycle': 2}))
         self.assertEqual(trace[1]['state']['top.producer.produced'], 1)
         self.assertEqual(trace[-1]['state']['top.total'], 40)
+        self.assertEqual(trace[-1]['state']['top.input'], [])
+        self.assertEqual(graph['schedule'][:3], [2,1,0])
         self.assertEqual(trace[-1]['state']['top.producer.produced'], 2)
         self.assertEqual(set(trace[-1]['state']), {'top.input', 'top.if_id', 'top.id_ex',
                                                    'top.cycle', 'top.total', 'top.producer.produced'})
@@ -780,3 +668,94 @@ class Top:
         explicit, _, explicit_out = self.run_source(explicit_parameter, 6)
         self.assertEqual(trace, explicit)
         self.assert_reloads(explicit, explicit_out)
+
+    def test_nested_module_paths_and_failed_condition(self):
+        source = '''from pycircuit import ac
+@ac.module
+class Stage:
+    def __init__() -> None:
+        count = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def produce() -> ac.queue[ac.u32]:
+        count = count + 1
+        return 7
+    def __call__() -> ac.queue[ac.u32]:
+        return produce()
+@ac.module
+class Middle:
+    def __init__() -> None:
+        stage = Stage()
+    def __call__() -> ac.queue[ac.u32]:
+        return stage()
+@ac.module
+class Top:
+    def __init__() -> None:
+        source = ac.queue[bool]()
+        out = ac.queue[ac.u32](capacity=8)
+        fallback = ac.cell[ac.u32](initial=0)
+        cycle = ac.cell[ac.u32](initial=0)
+        middle = Middle()
+    @ac.rule
+    def otherwise() -> None:
+        fallback = fallback + 1
+    @ac.rule
+    def clock() -> None:
+        cycle = cycle + 1
+    def __call__() -> None:
+        if CONDITION:
+            out = middle()
+        else:
+            otherwise()
+        clock()
+'''
+        for condition, count, fallback in [('False',0,3), ('source.peek()',0,0), ('cycle == 1',1,2)]:
+            with self.subTest(condition=condition):
+                traces=[]
+                for opt in (False,True):
+                    trace, _, out = self.run_source(source.replace('CONDITION',condition),3,optimize=opt)
+                    self.assertEqual(trace[-1]['state']['top.middle.stage.count'],count)
+                    self.assertEqual(trace[-1]['state']['top.out'],[7]*count)
+                    self.assertEqual(trace[-1]['state']['top.fallback'],fallback)
+                    self.assertEqual(trace[-1]['state']['top.cycle'],3)
+                    self.assert_reloads(trace,out)
+                    traces.append(trace)
+                self.assertEqual(traces[0], traces[1])
+
+    def test_mutual_static_bindings_precede_behavior_generation(self):
+        trace,_,out=self.run_source('''from pycircuit import ac
+@ac.module
+class A:
+    def __init__() -> None:
+        state = ac.cell[ac.u32](initial=1)
+    @ac.rule
+    def read() -> ac.u32:
+        return state
+    @ac.rule
+    def advance() -> None:
+        state = b.read()+1
+    def __call__(b: B) -> None:
+        advance()
+@ac.module
+class B:
+    def __init__() -> None:
+        state = ac.cell[ac.u32](initial=2)
+    @ac.rule
+    def read() -> ac.u32:
+        return state+a.read()
+    @ac.rule
+    def advance() -> None:
+        state = a.read()
+    def __call__(a: A) -> None:
+        advance()
+@ac.module
+class Top:
+    def __init__() -> None:
+        a = A()
+        b = B()
+    def __call__() -> None:
+        a(b)
+        b(a)
+''',1)
+        self.assertEqual(trace[0]['state']['top.a.state'],4)
+        self.assertEqual(trace[0]['state']['top.b.state'],1)
+        self.assert_reloads(trace,out)

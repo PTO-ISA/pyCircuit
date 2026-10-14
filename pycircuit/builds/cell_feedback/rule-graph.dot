@@ -1,6 +1,0 @@
-digraph Transactions {
-  rankdir=LR;
-  node [shape=box];
-  t0 [label="top.update_a#0"];
-  t1 [label="top.update_b#1"];
-}

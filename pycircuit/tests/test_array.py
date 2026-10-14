@@ -1,14 +1,10 @@
 """Array values, selection domains and physical resource identities."""
 import unittest
-import test_pipeline as pipeline
 from pycircuit.ir import CompileError
+from pycircuit.tests.support import ExecutionChecks
 
-class ArrayTests(unittest.TestCase):
-    setUp = pipeline.PipelineTests.setUp
-    tearDown = pipeline.PipelineTests.tearDown
-    run_source = pipeline.PipelineTests.run_source
-    assert_reloads = pipeline.PipelineTests.assert_reloads
 
+class ArrayTests(ExecutionChecks, unittest.TestCase):
     def test_ehr_array_shared_view_and_signal_selection(self):
         source = '''from pycircuit import ac
 Data = ac.array(ac.u32, shape=(2,))
@@ -103,17 +99,24 @@ class Top:
     def test_multidimensional_values_and_ssa_updates(self):
         source = '''from pycircuit import ac
 Matrix = ac.array(ac.u32, shape=(2,3))
+class Record:
+    value: ac.u32 = 0
 @ac.module
 class Top:
     def __init__() -> None:
         state = ac.cell[Matrix](initial=[[1,2,3],[4,5,6]])
         old = ac.cell[ac.u32](initial=0)
+        record = ac.cell[Record](initial=Record())
     @ac.rule
     def change() -> None:
         a = state
         b = a
         b[0,1] = 9
         b[1] = [7,8,9]
+        total = 0
+        for i in range(3):
+            total = total+a[0,i]
+        record.value = total
         old = a[0,1]
         state = b
     def __call__() -> None:
@@ -122,6 +125,7 @@ class Top:
         trace, _, out = self.run_source(source,1)
         self.assertEqual(trace[0]['state']['top.state'], [[1,9,3],[7,8,9]])
         self.assertEqual(trace[0]['state']['top.old'],2)
+        self.assertEqual(trace[0]['state']['top.record'],[6])
         self.assert_reloads(trace,out)
 
     def test_selection_survives_tuple_return_and_array_of_structs(self):
@@ -225,41 +229,6 @@ class Top:
 """,2)
         self.assertEqual(trace[0]['state']['top.result'],[0,0])
         self.assertEqual(trace[1]['state']['top.result'],[3,4])
-        self.assert_reloads(trace,out)
-
-    def test_payload_arbitration_uses_found_and_ordinary_coordinate(self):
-        source="""from pycircuit import ac
-Data = ac.array(ac.u32, shape=(3,))
-@ac.module
-class Age:
-    def __init__() -> None:
-        pass
-    @ac.rule
-    def choose(candidates: Data) -> tuple[bool, ac.u32]:
-        mask = candidates.match(lambda item: True)
-        found = False
-        position = 0
-        for i in range(3):
-            if mask[i] and not found:
-                found = True
-                position = i
-        return found, position
-@ac.module
-class Top:
-    def __init__() -> None:
-        age = Age()
-        result = ac.cell[ac.u32](initial=0)
-    @ac.rule
-    def use() -> None:
-        values: Data = [1,2,3]
-        found, position = age.choose(values[values.match(lambda item: item > 1)])
-        if found:
-            result = values[position]
-    def __call__() -> None:
-        use()
-"""
-        trace,_,out=self.run_source(source,1)
-        self.assertEqual(trace[0]['state']['top.result'],2)
         self.assert_reloads(trace,out)
 
     def test_selection_survives_struct_and_helper(self):
@@ -377,12 +346,7 @@ class Top:
     def test_age_matrix_commits_only_when_issue_fires(self):
         traces=[]
         for opt in (False,True):
-            from pycircuit import analyze, compile_source
-            import json
-            out=self.directory/('age-opt' if opt else 'age-raw')
-            analyze(compile_source(pipeline.EXAMPLES/'array_arbiter.py','ArrayArbiter'),out,cycles=12,optimize=opt)
-            trace=json.loads((out/'transaction-trace.json').read_text())['trace']
-            self.assertEqual(trace,json.loads((out/'rtl-trace.json').read_text())['trace'])
+            trace,out=self.run_example('array_arbiter.py','ArrayArbiter',cycles=12,optimize=opt)
             for before,blocked in [(2,3),(4,5)]:
                 for key in ('top.age.used','top.age.older','top.issued'):
                     self.assertEqual(trace[before]['state'][key],trace[blocked]['state'][key])
@@ -411,4 +375,28 @@ class Top:
         trace,_,out=self.run_source(source,1)
         self.assertEqual(trace[0]['state']['top.array'],[1,2])
         self.assertEqual(trace[0]['state']['top.count'],0)
+        self.assert_reloads(trace,out)
+
+    def test_module_array_outputs_bind_static_parent_resources(self):
+        trace,_,out=self.run_source('''from pycircuit import ac
+@ac.module
+class Stage:
+    def __init__(value: ac.u32) -> None:
+        initial = value
+    @ac.rule
+    def produce() -> ac.queue[ac.u32]:
+        return initial
+    def __call__() -> ac.queue[ac.u32]:
+        return produce()
+@ac.module
+class Top:
+    def __init__() -> None:
+        stages: ac.array(Stage, shape=(2,)) = [Stage(i) for i in range(2)]
+        outputs: ac.array(ac.queue[ac.u32], shape=(2,)) = [ac.queue[ac.u32]() for i in range(2)]
+    def __call__() -> None:
+        for i in range(2):
+            outputs[i] = stages[i]()
+''',1)
+        self.assertEqual(trace[0]['state']['top.outputs.0'],[0])
+        self.assertEqual(trace[0]['state']['top.outputs.1'],[1])
         self.assert_reloads(trace,out)

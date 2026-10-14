@@ -1,7 +1,0 @@
-digraph Transactions {
-  rankdir=LR;
-  node [shape=box];
-  t0 [label="top.left.transfer#0"];
-  t1 [label="top.right.transfer#1"];
-  t2 [label="top.independent.transfer#2"];
-}

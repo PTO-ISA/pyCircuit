@@ -14,7 +14,7 @@
 
 ## 阶段记录
 
-当前版本：ACIR v9。2026-10-14 前端收紧与 array 实施已完成，53 项回归、CTest 1/1、9 个示例各 32 拍通过；详见本文末尾实施记录。下表及中间章节保留先前 v8 重构的阶段证据。
+当前版本：ACIR v9。前端收紧与 array 实施已完成；示例与测试精简后为 50 项回归、CTest 1/1、4 个示例各 32 拍通过。详见本文末尾记录；下表及中间章节保留历史阶段证据。
 
 | 阶段 | 状态 | 验证与剩余工作 |
 | --- | --- | --- |
@@ -181,3 +181,11 @@ OoO 退休次序继续通过。基线、名字映射、对照结果、日志和 
 2026-10-14：OoO 的四个 RobSlot 改为 `ac.array(RobSlot, shape=(4,))`，使用 `slots[(tag - 1) & 3]` 调用公开 Rule，删除分配、查询、完成和退休中的四组逐槽位分支。各槽位独立状态、guard 和外层事务原子性保持不变，无需修改编译器。
 
 保存改写前 32 拍基线，仅将 `top.rob.slotN.state` 映射为 `top.rob.slots.N.state` 后，全部状态及 fire 逐拍一致；事务／RTL、优化开关及三个阶段重载全部一致。现有 OoO 定向回归通过，最终寄存器和 1、2、3、4 退休顺序不变。三层示例产物及图报告已重新生成；证据位于 `builds/benchmarks/ooo-rob-array/`。
+
+## 示例与测试精简
+
+2026-10-14：示例入口由 10 个收敛为 array_arbiter、ehr_shared、riscv_pipeline、ooo_scheduler 四个。删除六个早期小模型及其八套生成产物；混合可选输出、互斥路径的顺序环和非法 EHR 端口组合转入短回归。共享实例、Signal、Cell 反馈等由已有事务、静态互相绑定和完整模型覆盖。EHR 回归直接复用保留的示例。
+
+测试从五个文件归并为 frontend、pipeline、array 三类，support.py 统一执行和重载检查；Module 路径、静态绑定及严格前端负例全部保留。独立 Queue 流水线合入显式 Module 流水线验收，聚合 Cell 字段更新合入多维更新验收，简单 found／坐标仲裁合入 age matrix 验收。测试数量由 53 变为 50，示例和测试 Python 代码共减少 455 行。
+
+50 项回归、CTest 1/1 通过，四个示例各 32 拍的事务／RTL、优化开关及三阶段重载一致。独立 ISA、OoO 顺序退休、age matrix 反压及 EHR 固定共享视图的预期保留。证据：`builds/benchmarks/examples-consolidation-ctest.log`、对应 XML、`examples-consolidation-acceptance.log`；当前验收汇总仍在 `compiler-acceptance/summary.json`。

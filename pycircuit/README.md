@@ -23,8 +23,19 @@ python -m pycircuit.tests.run_acceptance
 
 Python 仅解析 ACPy 和调用编译器。事务提取、条件传播、契约／端口分析、调度、RTL lowering
 以及两个通用执行器直接读取 MLIR，在 C++ 中完成。JSON 仅为分析／执行报告。
-验收脚本复现 9 个示例的 32 拍执行、优化开关和三阶段重载，并更新示例输出。
+验收脚本复现 4 个示例的 32 拍执行、优化开关和三阶段重载，并更新示例输出。
 轨迹与汇总位于 `builds/benchmarks/compiler-acceptance/`；回归包含独立 ISA 和定向周期预期。
+
+测试按三类维护，执行和重载工具统一在 `tests/support.py`：
+
+| 文件 | 覆盖 |
+| --- | --- |
+| `test_frontend.py` | 源 IR、显式接口、作用域与非法表达诊断 |
+| `test_pipeline.py` | 原子事务、Queue／Signal／EHR、Module 路径与绑定、顺序环、CPU／OoO 独立预期 |
+| `test_array.py` | 多维构造与更新、选取传播、越界取消、别名、Module 数组与 age matrix |
+
+小模型只保留在相应回归中；完整示例限于 array 仲裁、EHR 共享视图、CPU 和 OoO。
+
 
 ## 编译、阶段输出与执行
 
