@@ -21,9 +21,11 @@ void acir::ACIRDialect::initialize() {
       >();
 }
 LogicalResult acir::ArrayType::verify(function_ref<InFlightDiagnostic()> error,
-                                      Type element, int64_t size) {
-  if (size < 0)
-    return error() << "array extent must be nonnegative";
+                                      Type element, ArrayRef<int64_t> shape) {
+  if (shape.empty() || llvm::any_of(shape, [](int64_t d) { return d <= 0; }))
+    return error() << "array shape requires positive dimensions";
+  if (isa<acir::ArrayType>(element))
+    return error() << "nested array element type is unsupported; use shape";
   return success();
 }
 namespace {
@@ -39,8 +41,6 @@ Type payload(Type type) {
   if (auto t = dyn_cast<acir::SignalType>(type))
     return t.getElementType();
   if (auto t = dyn_cast<acir::EHRType>(type))
-    return t.getElementType();
-  if (auto t = dyn_cast<acir::QueueArrayType>(type))
     return t.getElementType();
   return {};
 }
@@ -126,7 +126,6 @@ DECL_VERIFY(QueueOp)
 DECL_VERIFY(CellOp)
 DECL_VERIFY(SignalOp)
 DECL_VERIFY(EHROp)
-DECL_VERIFY(QueueArrayOp)
 LogicalResult acir::InstanceOp::verify() {
   if (!isa_and_nonnull<ModuleOp>(resolve(*this, getTarget())))
     return emitOpError("requires a Module target");
@@ -166,8 +165,7 @@ LogicalResult acir::GetOp::verify() {
   if ((isa<QueueType>(type) && kind == "acir.queue") ||
       (isa<CellType>(type) && kind == "acir.cell") ||
       (isa<SignalType>(type) && kind == "acir.signal") ||
-      (isa<EHRType>(type) && kind == "acir.ehr") ||
-      (isa<QueueArrayType>(type) && kind == "acir.queue.array"))
+      (isa<EHRType>(type) && kind == "acir.ehr"))
     return success();
   return emitOpError("reference type must match declaration kind");
 }
@@ -355,8 +353,8 @@ LogicalResult acir::CurrentOp::verify() {
     expected = IntegerType::get(getContext(), 32);
   if (aspect.getValue() == "storage")
     expected =
-        ArrayType::get(getContext(), expected,
-                       target->getAttrOfType<IntegerAttr>("capacity").getInt());
+        TupleType::get(getContext(), SmallVector<Type>(
+                       target->getAttrOfType<IntegerAttr>("capacity").getInt(), expected));
   if (getValue().getType() != expected)
     return emitOpError("current state type mismatch");
   return success();
@@ -379,9 +377,52 @@ LogicalResult acir::NextOp::verify() {
     expected = IntegerType::get(getContext(), 32);
   if (aspect.getValue() == "storage")
     expected =
-        ArrayType::get(getContext(), expected,
-                       target->getAttrOfType<IntegerAttr>("capacity").getInt());
+        TupleType::get(getContext(), SmallVector<Type>(
+                       target->getAttrOfType<IntegerAttr>("capacity").getInt(), expected));
   if (getValue().getType() != expected)
     return emitOpError("next-state type mismatch");
+  return success();
+}
+
+LogicalResult acir::MaskType::verify(function_ref<InFlightDiagnostic()> error, ArrayRef<int64_t> shape) {
+  if (shape.empty() || llvm::any_of(shape, [](int64_t d) { return d <= 0; }))
+    return error() << "mask shape requires positive dimensions";
+  return success();
+}
+LogicalResult acir::ArraySelectOp::verify() {
+  Type base = getArray().getType();
+  if (auto selected = dyn_cast<SelectedType>(base)) base = selected.getElementType();
+  auto array = dyn_cast<ArrayType>(base);
+  if (!array || array.getShape() != getMask().getType().getShape() ||
+      getSelected().getType().getElementType() != base)
+    return emitOpError("selection must preserve array type and shape");
+  return success();
+}
+LogicalResult acir::ArrayDomainOp::verify() {
+  Type base = getArray().getType();
+  if (auto selected = dyn_cast<SelectedType>(base)) base = selected.getElementType();
+  auto array = dyn_cast<ArrayType>(base);
+  if (!array || array.getShape() != getMask().getType().getShape())
+    return emitOpError("selection domain shape mismatch");
+  return success();
+}
+
+LogicalResult acir::ArrayIndexOp::verify() {
+  Type base = getArray().getType();
+  bool selected = isa<SelectedType>(base);
+  if (selected) base = cast<SelectedType>(base).getElementType();
+  Type expected;
+  ArrayRef<int64_t> shape;
+  if (auto array = dyn_cast<ArrayType>(base)) {
+    shape = array.getShape();
+    expected = shape.size() == 1 ? array.getElementType() :
+      ArrayType::get(getContext(), array.getElementType(), shape.drop_front());
+    if (selected && shape.size() > 1) expected = SelectedType::get(getContext(), expected);
+  } else if (auto mask = dyn_cast<MaskType>(base)) {
+    shape = mask.getShape();
+    expected = shape.size() == 1 ? IntegerType::get(getContext(), 1) :
+      Type(MaskType::get(getContext(), shape.drop_front()));
+  } else return emitOpError("requires array or mask");
+  if (getValue().getType() != expected) return emitOpError("index result type mismatch");
   return success();
 }

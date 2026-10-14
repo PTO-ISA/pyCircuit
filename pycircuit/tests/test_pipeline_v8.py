@@ -510,7 +510,7 @@ class Payload:
 @ac.module
 class Top:
     def __init__() -> None:
-        data = ac.cell[ac.array[ac.u32, 2]](initial=[1,2])
+        data = ac.cell[ac.array(ac.u32, shape=(2,))](initial=[1,2])
         record = ac.cell[Payload](initial=Payload())
         sum = ac.cell[ac.u32](initial=0)
     @ac.rule
@@ -535,7 +535,7 @@ class Top:
 @ac.module
 class Top:
     def __init__() -> None:
-        queues = ac.array(ac.queue[ac.u32], shape=(2,), capacity=2, initial=7)
+        queues: ac.array(ac.queue[ac.u32], shape=(2,)) = [ac.queue[ac.u32](capacity=2, initial=7) for i in range(2)]
         index = ac.cell[ac.u32](initial=0)
         total = ac.cell[ac.u32](initial=0)
     @ac.rule

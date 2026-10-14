@@ -37,12 +37,15 @@ unsigned fieldIndex(Type type, StringRef field, mlir::ModuleOp module) {
 }
 Type fieldType(Type type, unsigned index, mlir::ModuleOp module) {
   if (auto a = dyn_cast<acir::ArrayType>(type))
-    return a.getElementType();
-  if (auto a = dyn_cast<acir::VectorType>(type))
-    return a.getElementType();
+    return a.getShape().size() == 1 ? a.getElementType() :
+      acir::ArrayType::get(type.getContext(), a.getElementType(), a.getShape().drop_front());
+  if (auto a = dyn_cast<acir::MaskType>(type))
+    return a.getShape().size() == 1 ? IntegerType::get(type.getContext(), 1) :
+      Type(acir::MaskType::get(type.getContext(), a.getShape().drop_front()));
   if (auto t = dyn_cast<TupleType>(type))
     return t.getType(index);
   auto f = cast<DictionaryAttr>(fields(type, module)[index]);
+  if (auto payload = f.getAs<TypeAttr>("payload_type")) return payload.getValue();
   auto s = f.getAs<StringAttr>("type").getValue();
   if (s == "bool")
     return IntegerType::get(module.getContext(), 1);
@@ -60,7 +63,14 @@ Attribute acir::zero(Type type, mlir::ModuleOp module) {
     return IntegerAttr::get(i, 0);
   SmallVector<Attribute> values;
   if (auto a = dyn_cast<ArrayType>(type))
-    values.assign(a.getSize(), zero(a.getElementType(), module));
+    values.assign(a.getShape().front(), zero(fieldType(type, 0, module), module));
+  else if (auto a = dyn_cast<SelectedType>(type)) {
+    auto array = cast<ArrayType>(a.getElementType());
+    values.push_back(zero(array, module));
+    values.push_back(zero(MaskType::get(ctx, array.getShape()), module));
+  }
+  else if (auto a = dyn_cast<MaskType>(type))
+    values.assign(a.getShape().front(), zero(fieldType(type, 0, module), module));
   else if (auto t = dyn_cast<TupleType>(type))
     for (auto v : t.getTypes())
       values.push_back(zero(v, module));
@@ -87,11 +97,41 @@ Attribute acir::calculate(Operation *op, ArrayRef<Attribute> a,
     return a.empty() ? zero(type, module) : b.getArrayAttr(a);
   if (name == "acir.length")
     return integer(cast<ArrayAttr>(a[0]).size());
-  if (name == "acir.range") {
-    SmallVector<Attribute> v;
-    for (unsigned i = 0; i < number(a[0]); ++i)
-      v.push_back(b.getI32IntegerAttr(i));
-    return b.getArrayAttr(v);
+  if (name == "acir.array.domain") {
+    if (isa<acir::SelectedType>(op->getOperand(0).getType())) return cast<ArrayAttr>(a[0])[1];
+    auto shape = cast<acir::MaskType>(type).getShape();
+    std::function<Attribute(ArrayRef<int64_t>)> full = [&](ArrayRef<int64_t> dims) -> Attribute {
+      SmallVector<Attribute> bits;
+      for (int64_t i = 0; i < dims.front(); ++i)
+        bits.push_back(dims.size() == 1 ? b.getBoolAttr(true) : full(dims.drop_front()));
+      return b.getArrayAttr(bits);
+    };
+    return full(shape);
+  }
+  if (name == "acir.array.select") {
+    Attribute data = a[0], mask = a[1];
+    if (isa<acir::SelectedType>(op->getOperand(0).getType())) {
+      auto selected = cast<ArrayAttr>(data); data = selected[0];
+      std::function<Attribute(Attribute, Attribute)> intersect = [&](Attribute x, Attribute y) -> Attribute {
+        if (isa<IntegerAttr>(x)) return b.getBoolAttr(truth(x) && truth(y));
+        SmallVector<Attribute> result;
+        for (auto [l, r] : llvm::zip(cast<ArrayAttr>(x), cast<ArrayAttr>(y))) result.push_back(intersect(l, r));
+        return b.getArrayAttr(result);
+      };
+      mask = intersect(selected[1], mask);
+    }
+    return b.getArrayAttr({data, mask});
+  }
+  if (name == "acir.array.index") {
+    Attribute data = a[0];
+    auto index = number(a[1]);
+    if (isa<acir::SelectedType>(op->getOperand(0).getType())) {
+      auto selected = cast<ArrayAttr>(data);
+      data = cast<ArrayAttr>(selected[0])[index];
+      if (isa<acir::SelectedType>(type)) return b.getArrayAttr({data, cast<ArrayAttr>(selected[1])[index]});
+      return data;
+    }
+    return cast<ArrayAttr>(data)[index];
   }
   if (name == "acir.extract") {
     auto array = cast<ArrayAttr>(a[0]);
@@ -400,7 +440,7 @@ llvm::json::Object acir::execute(mlir::ModuleOp module, unsigned cycles) {
                          .getInt();
           while ((int64_t)vals.size() < cap)
             vals.push_back(zero(
-                cast<acir::ArrayType>(v.getType()).getElementType(), module));
+                cast<TupleType>(v.getType()).getType(0), module));
           result = b.getArrayAttr(vals);
         } else
           result = old;

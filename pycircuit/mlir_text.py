@@ -1,6 +1,6 @@
 """Textual MLIR serialization. No generated C++ or serialized Python AST."""
 import re
-from .ir import SCALARS, VERSION, element
+from .ir import SCALARS, VERSION, element, ArrayType, MaskType, array_type, descriptor
 
 
 def quote(s):
@@ -13,7 +13,12 @@ def quote(s):
     return '"' + ''.join(encoded) + '"'
 
 
+class MLIRType:
+    def __init__(self, value): self.value = value
+
+
 def attr(value):
+    if isinstance(value, MLIRType): return typ(value.value)
     if value is None:
         return 'unit'
     if isinstance(value, bool):
@@ -32,19 +37,21 @@ def typ(t):
         return 'i1'
     if t in SCALARS:
         return 'i' + t[1:]
-    if t.startswith(('queue<', 'cell<', 'ehr<', 'signal<', 'qarray<', 'vector<', 'array<', 'tuple<')):
+    a = array_type(t)
+    if t.startswith('selected<'): return '!acir.selected<' + typ(element(t)) + '>'
+    if isinstance(a, MaskType): return '!acir.mask<[' + ', '.join(map(str,a.shape)) + ']>'
+    if isinstance(a, ArrayType): return '!acir.array<' + typ(a.item) + ', [' + ', '.join(map(str,a.shape)) + ']>'
+    if t.startswith(('queue<', 'cell<', 'ehr<', 'signal<', 'tuple<')):
         kind, rest = t.split('<', 1)
         payload = rest[:-1]
         if kind == 'tuple':
+            if not payload: return 'tuple<>'
             parts, start, depth = [], 0, 0
             for i, char in enumerate(payload):
                 depth += (char == '<') - (char == '>')
                 if char == ',' and depth == 0: parts.append(payload[start:i]); start = i + 1
             parts.append(payload[start:])
             return 'tuple<' + ', '.join(typ(x) for x in parts) + '>'
-        if kind == 'array':
-            payload, count = payload.rsplit(',', 1)
-            return '!acir.array<' + typ(payload) + ', ' + count + '>'
         return '!acir.' + kind + '<' + typ(payload) + '>'
     return '!acir.struct<' + quote(t) + '>'
 
@@ -86,20 +93,13 @@ def serialize(model):
     for r in model['resources']:
         r = dict(r)
         name = r['name']
-        if r['kind'] in ('queue', 'qarray'):
+        if r['kind'] == 'queue':
             r['capacity_fn'] = initializer('ac_init_' + name + '_cap', 'u32', [r.pop('capacity')])
         if r['kind'] in ('queue', 'cell', 'ehr'):
             if r['kind'] in ('cell', 'ehr', 'signal'): r.pop('capacity', None)
             ids, sequence = r.pop('initial'), r.pop('sequence')
-            result = r['type'] if r['kind'] in ('cell', 'ehr', 'signal') else construction[ids[0]]['type'] if sequence else 'vector<' + r['type'] + '>'
+            result = r['type'] if r['kind'] in ('cell', 'ehr', 'signal') else construction[ids[0]]['type'] if sequence else 'tuple<' + ','.join(r['type'] for _ in ids) + '>'
             r['initial_fn'] = initializer('ac_init_' + name, result, ids, sequence)
-        elif r['kind'] == 'qarray':
-            i = r.pop('iterable')
-            r['iterable_fn'] = initializer('ac_init_' + name + '_range', construction[i]['type'], [i])
-            fn = r.pop('initializer')
-            fn['result'] = r['type']
-            functions.append(fn)
-            r['initializer_fn'] = fn['name']
         elif r['kind'] == 'signal':
             r.pop('initial', None); r.pop('sequence', None)
         else:
@@ -118,7 +118,7 @@ def serialize(model):
                     name = {'<<':'shl', '>>':'shr', '//':'div', '%':'mod'}[op['operator']]
                     intrinsic_symbol = 'ac_builtin_' + name + '_' + op['type']
                     intrinsics[intrinsic_symbol] = (name, op['type'])
-    header = dict(format_version=VERSION, exports=model['exports'], top=model['top'], config=config, types=model['types'], type_order=list(model['types']), constants=model.get('constants',{}))
+    header = dict(format_version=VERSION, exports=model['exports'], top=model['top'], config=config, types={name:[field | {'payload_type': MLIRType(field['type'])} for field in fields] for name,fields in model['types'].items()}, type_order=list(model['types']), constants=model.get('constants',{}))
     # Resources retain their elaborated identity. Ownership follows instance members.
     owners = {}
     for instance in model.get('instances', []):
@@ -155,7 +155,7 @@ def serialize(model):
         for r in resources:
             if _symbols[r['name']][0] != name: continue
             data = {k:v for k,v in r.items() if k not in ('kind', 'owner', 'contract', 'visibility', 'loc')}
-            decl = 'queue.array' if r['kind'] == 'qarray' else r['kind']
+            decl = r['kind']
             lines.append('    acir.' + decl + ' ' + sym(r['name']) + ' : ' + typ(r['type']) + ' ' + attr(data))
         for f in globals_:
             if '_intrinsic' in f: lines.append(f['_intrinsic']); continue

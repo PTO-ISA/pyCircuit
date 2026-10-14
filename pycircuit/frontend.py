@@ -6,7 +6,7 @@ never evaluated by Python. Only literal construction loops are expanded here.
 import ast
 import hashlib
 from pathlib import Path
-from .ir import CompileError, SCALARS, VERSION, Value, Instance, RuleRef, element, resource, wrapped
+from .ir import CompileError, SCALARS, VERSION, Value, Instance, RuleRef, element, resource, wrapped, ArrayType, MaskType, array_type, descriptor, payload
 
 
 def spelling(node):
@@ -30,6 +30,7 @@ class Frontend:
         self.defs = {}
         self.constants = {}
         self.types = {}
+        self.aliases = {}
         self.files = set()
         self.model = dict(version=VERSION, top='', types=self.types, config=[], resources=[],
                           modules=[], functions=[], construction=[], exports={})
@@ -181,6 +182,9 @@ class Frontend:
                 self.types[node.name] = fields
             elif isinstance(node, (ast.Assign, ast.AnnAssign)):
                 for target in node.targets if isinstance(node, ast.Assign) else [node.target]:
+                    if isinstance(node.value, ast.Call) and spelling(node.value.func) == 'ac.array':
+                        self.aliases[target.id] = self.annotation(node.value)
+                        continue
                     if isinstance(node.value, (ast.Call, ast.Attribute)) or isinstance(node.value, ast.Name) and node.value.id not in self.constants: self.globals[target.id] = node.value
                     else: self.constants[target.id] = self.literal(node.value)
             elif isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant) and isinstance(node.value.value, str): pass
@@ -223,6 +227,14 @@ class Frontend:
         if node is None:
             raise CompileError('a value type annotation is required here')
         name = spelling(node).removeprefix('ac.')
+        if name in self.aliases: return self.aliases[name]
+        if isinstance(node, ast.Call) and spelling(node.func) == 'ac.array':
+            if len(node.args) != 1 or [k.arg for k in node.keywords] != ['shape']: self.error(node, 'array type requires one element type and shape=')
+            shape = self.literal(node.keywords[0].value)
+            if not isinstance(shape, tuple) or not shape or any(type(d) is not int or d <= 0 for d in shape): self.error(node, 'array shape must be a nonempty tuple of positive static integers')
+            item = self.annotation(node.args[0])
+            if array_type(item): self.error(node, 'use a multidimensional shape instead of array of array')
+            return ArrayType(item, shape)
         if name in SCALARS or name in self.types or name in self.defs and isinstance(self.defs[name], ast.ClassDef):
             return name
         if name == 'None' or isinstance(node, ast.Constant) and node.value is None:
@@ -233,8 +245,6 @@ class Frontend:
                 return [self.annotation(x) for x in node.slice.elts]
             if kind in ('queue', 'cell', 'ehr', 'signal'):
                 return wrapped(kind, self.annotation(node.slice))
-            if kind == 'array' and isinstance(node.slice, ast.Tuple):
-                return f'array<{self.annotation(node.slice.elts[0])},{self.literal(node.slice.elts[1])}>'
         self.error(node, f'unsupported type: {ast.unparse(node)}')
 
     def compile(self, path, top):
@@ -298,7 +308,8 @@ class Frontend:
             target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
             if not isinstance(target, ast.Name): self.error(target, 'construction requires named members')
             start=len(builder.ops)
-            value = self.construct_value(stmt.value, prefix + '.' + target.id, builder, definitions)
+            expected = self.annotation(stmt.annotation) if isinstance(stmt, ast.AnnAssign) else None
+            value = self.construct_value(stmt.value, prefix + '.' + target.id, builder, definitions, expected)
             if any(o['op'].startswith(('queue.', 'cell.', 'ehr.', 'signal.')) for o in builder.ops[start:]): self.error(stmt,'__init__ cannot read runtime state')
             if isinstance(value, Value) and any(o['op'].endswith(('read', 'write')) or o['op'] == 'call' for o in builder.ops if o['id'] == value.id): self.error(stmt, 'runtime computation is not allowed in __init__')
             env[target.id] = value
@@ -381,36 +392,33 @@ class Frontend:
             self.error(node, 'missing call argument')
         return [result[n] for n in names]
 
-    def construct_value(self, node, name, builder, defs):
-        if isinstance(node, ast.Call) and spelling(node.func) == 'ac.array':
-            if len(node.args) != 1 or not isinstance(node.args[0], ast.Subscript) or spelling(node.args[0].value) != 'ac.queue':
-                self.error(node, 'resource arrays use ac.array(ac.queue[T], shape=(N,), ...)')
-            kw = {k.arg: k.value for k in node.keywords}
-            if set(kw) - {'shape', 'capacity', 'initial'} or 'shape' not in kw:
-                self.error(node, 'Queue array requires shape= and accepts capacity= and initial=')
-            shape = kw['shape']
-            if not isinstance(shape, ast.Tuple) or len(shape.elts) != 1:
-                self.error(shape, 'resource arrays currently require one fixed dimension')
-            typ = self.annotation(node.args[0].slice)
-            iterable = builder.op('range', 'vector<u32>', [builder.expr(shape.elts[0], 'u32')], node=node)
-            cap = builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)
-            init = Lower(self, 'initializer', name + '_init')
-            index = init.param('index', 'u32')
-            init.bind('index', index)
-            initial = kw.get('initial')
-            if isinstance(initial, ast.Name) and initial.id in self.defs:
-                fn = self.defs[initial.id]
-                result_type = self.helper(fn)
-                value = init.op('call', result_type, [index], name=fn.name, node=node)
-            elif initial is not None:
-                value = init.expr(initial, typ)
-            else:
-                value = init.op('zero', typ, node=node)
-            value = init.cast(value, typ, node)
-            init.op('return', 'void', [value], node=node)
-            self.model['resources'].append(dict(name=name, owner=self.instance_stack[-1] if self.instance_stack else 'top', kind='qarray', type=typ, iterable=iterable.id,
-                                               capacity=cap.id, initializer=init.function(), empty_initial=initial is None))
-            return builder.op('resource', wrapped('qarray', typ), name=name, targets={name}, node=node)
+    def expand_list(self, node):
+        if not isinstance(node, ast.ListComp): return node
+        import copy
+        if len(node.generators) != 1: self.error(node, 'use nested static comprehensions')
+        gen = node.generators[0]
+        if gen.ifs or gen.is_async or not isinstance(gen.target, ast.Name) or not isinstance(gen.iter, ast.Call) or spelling(gen.iter.func) != 'range' or gen.iter.keywords:
+            self.error(node, 'array comprehension requires a static range')
+        values = []
+        for i in range(*(self.literal(a) for a in gen.iter.args)):
+            class Substitute(ast.NodeTransformer):
+                def visit_Name(self, n):
+                    return ast.copy_location(ast.Constant(i), n) if n.id == gen.target.id else n
+            values.append(Substitute().visit(copy.deepcopy(node.elt)))
+        return ast.copy_location(ast.List(elts=values, ctx=ast.Load()), node)
+
+    def construct_value(self, node, name, builder, defs, expected=None):
+        if array_type(expected):
+            array = array_type(expected)
+            node = self.expand_list(node)
+            if not isinstance(node, ast.List) or len(node.elts) != array.shape[0]: self.error(node, 'array construction must exactly match shape')
+            subtype = ArrayType(array.item, array.shape[1:]) if len(array.shape) > 1 else array.item
+            vals = [self.construct_value(n, name + '.' + str(i), builder, defs, subtype) for i,n in enumerate(node.elts)]
+            if any(isinstance(v, Instance) for v in vals):
+                if any(not isinstance(v, Instance) or v.source_name != array.item for v in vals): self.error(node, 'Module array element type mismatch')
+                return vals
+            vals = [builder.cast(v, subtype, node) for v in vals]
+            return builder.op('aggregate', array, vals, targets=set().union(*(v.targets for v in vals)), node=node)
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Subscript) and spelling(node.func.value) in ('ac.queue', 'ac.cell', 'ac.ehr', 'ac.signal'):
             declared = spelling(node.func.value)[3:]
             kind = declared
@@ -420,44 +428,23 @@ class Frontend:
                 self.error(node, 'Queue accepts capacity= and initial= only')
             if kind in ('cell', 'ehr') and ('initial' not in kw or 'capacity' in kw): self.error(node, kind.title() + ' requires initial= and has no capacity')
             capacity = (builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)) if kind == 'queue' else None
-            initial = builder.expr(kw['initial'], typ) if 'initial' in kw else None
+            if kind == 'queue' and array_type(typ) and 'initial' in kw: self.error(node, 'Queue of array starts empty; preloading array messages is unsupported')
+            initial_node = kw.get('initial')
+            if kind == 'queue' and isinstance(initial_node, ast.List):
+                vals = [builder.cast(builder.expr(x, typ), typ, x) for x in initial_node.elts]
+                initial = builder.op('aggregate', 'tuple<' + ','.join(typ for _ in vals) + '>', vals, node=node)
+            else:
+                initial = builder.expr(initial_node, typ) if initial_node is not None else None
             if kind == 'signal' and kw: self.error(node, 'Signal has no initial state or capacity')
             if kind in ('cell', 'ehr'):
                 if initial is None: self.error(node, kind.title() + ' initial must be a payload value')
                 initial = builder.cast(initial, typ, node)
             # scalar initial is one element; a list is a FIFO initialization sequence.
             values = [] if initial is None else [initial.id]
-            sequence = initial is not None and initial.type != typ and initial.type.startswith(('vector<', 'array<'))
+            sequence = initial is not None and initial.type != typ and initial.type.startswith('tuple<')
             self.model['resources'].append(dict(name=name, owner=self.instance_stack[-1] if self.instance_stack else 'top', kind=kind, type=typ, loc=builder.loc(node), **({'capacity': capacity.id} if capacity else {}),
                                                 initial=values, sequence=sequence, visibility='ehr' if declared == 'ehr' else 'current' if kind == 'signal' else 'old'))
             return builder.op('resource', wrapped(kind, typ), name=name, targets={name}, node=node)
-        if isinstance(node, ast.List) and any(isinstance(x, ast.Call) and isinstance(x.func, ast.Subscript) and spelling(x.func.value) == 'ac.queue' for x in node.elts):
-            vals = [self.construct_value(x, name + '.' + str(i), builder, defs) for i, x in enumerate(node.elts)]
-            if not vals or any(v.type != vals[0].type for v in vals):
-                self.error(node, 'Queue list elements must have one type')
-            return builder.op('aggregate', wrapped('qarray', element(vals[0].type)), vals, targets=set().union(*(v.targets for v in vals)), node=node)
-        if isinstance(node, ast.ListComp):
-            if len(node.generators) != 1 or node.generators[0].ifs or node.generators[0].is_async:
-                self.error(node, 'Queue array requires one construction iterable')
-            gen = node.generators[0]
-            if not isinstance(gen.target, ast.Name) or not isinstance(node.elt, ast.Call):
-                self.error(node, 'unsupported Queue array comprehension')
-            call = node.elt
-            if not isinstance(call.func, ast.Subscript) or spelling(call.func.value) != 'ac.queue':
-                self.error(node, 'construction comprehensions only declare Queue arrays')
-            typ = self.annotation(call.func.slice)
-            iterable = builder.expr(gen.iter)
-            init = Lower(self, 'initializer', name + '_init')
-            init.env[gen.target.id] = init.param(gen.target.id, element(iterable.type))
-            kw = {x.arg: x.value for x in call.keywords}
-            if call.args or set(kw) - {'capacity', 'initial'} or 'initial' not in kw:
-                self.error(call, 'Queue array comprehension requires initial= and optional capacity=')
-            val = init.expr(kw.get('initial', ast.Constant(0)), typ)
-            init.op('return', 'void', [val], node=node)
-            cap = builder.expr(kw['capacity']) if 'capacity' in kw else builder.const(1)
-            self.model['resources'].append(dict(name=name, owner=self.instance_stack[-1] if self.instance_stack else 'top', kind='qarray', type=typ, iterable=iterable.id,
-                                                capacity=cap.id, initializer=init.function()))
-            return builder.op('resource', wrapped('qarray', typ), name=name, targets={name}, node=node)
         if isinstance(node, ast.Call):
             fn = defs.get(spelling(node.func), self.defs.get(spelling(node.func)))
             if fn and decorator(fn) == 'module':
@@ -468,7 +455,7 @@ class Frontend:
                 if decorator(fn) == 'module':
                     result = self.instantiate(fn, args, name, builder)
                     return result
-        return builder.expr(node)
+        return builder.expr(node, expected)
 
     def helper(self, node):
         if node.name in self.helpers:
@@ -513,6 +500,8 @@ class Lower:
             op = op.replace('cell.', 'ehr.')
         self.serial += 1
         value = Value(f'v{self.serial}', typ, set(targets), consume)
+        if getattr(self, 'predicate_context', False) and (op.startswith(('cell.', 'queue.', 'ehr.', 'signal.')) or op == 'resource'):
+            self.f.error(node, 'match predicate cannot access runtime state')
         if self.kind == 'helper' and (op.startswith(('cell.', 'queue.', 'ehr.', 'signal.')) or op == 'resource'):
             self.f.error(node, 'payload helper cannot access runtime state')
         if self.guard_context and op in ('queue.pop', 'queue.push', 'cell.write', 'ehr.write', 'signal.write', 'rule.call'): self.f.error(node, 'guard must only observe state')
@@ -582,7 +571,13 @@ class Lower:
             _, source, identity = val.id.split(':')
             return self.op('external', val.type, source=source, identity=identity)
         if resource(val.type) and len(val.targets) == 1:
-            return self.op('resource', val.type, name=next(iter(val.targets)), targets=val.targets)
+            current = self.block
+            self.block = self.blocks[0]
+            tail = self.block['ops'].pop() if self.terminated() else None
+            result = self.op('resource', val.type, name=next(iter(val.targets)), targets=val.targets)
+            if tail: self.block['ops'].append(tail)
+            self.block = current
+            return result
         if val.id not in self.imports:
             # Import the pure construction DAG by value; resources preserve identity.
             source = next((x for x in self.builder.ops if x['id'] == val.id), None)
@@ -639,6 +634,7 @@ class Lower:
 
     def cast(self, value, typ, node=None):
         if not isinstance(value, Value): self.f.error(node, 'expected a typed value, not a Module instance')
+        if value.type.startswith('selected<') and element(value.type) == typ: return value
         if value.type == typ:
             return value
         if value.type in SCALARS and typ in SCALARS and 'bool' not in (value.type, typ):
@@ -669,7 +665,7 @@ class Lower:
         return join['params'][0]
 
     def signal_value(self, value, node=None):
-        if not isinstance(value, Value) or not resource(value.type) or value.type.startswith('qarray<'): return value
+        if not isinstance(value, Value) or not resource(value.type): return value
         self.accesses.update(value.targets)
         operation = 'queue.read' if value.type.startswith('queue<') else 'signal.read' if value.type.startswith('signal<') else 'cell.read'
         return self.op(operation, element(value.type), [value], node=node, role='consume' if operation == 'queue.read' and self.consume_context and not self.guard_context else 'observe')
@@ -691,15 +687,14 @@ class Lower:
             return self.const(node.value, expected, node)
         if isinstance(node, ast.Tuple):
             return [self.expr(x, reference=reference) for x in node.elts]
-        if isinstance(node, ast.List):
-            et = element(expected) if expected and expected.startswith(('array<', 'vector<')) else expected
-            vals = [self.expr(x, et) for x in node.elts]
-            et = et or (vals[0].type if vals else 'u32')
-            typ = expected if expected and expected.startswith('array<') else f'vector<{et}>'
-            targets = set().union(*(v.targets for v in vals))
-            if et.startswith('queue<'):
-                typ = wrapped('qarray', element(et))
-            return self.op('aggregate', typ, vals, node=node, targets=targets)
+        if isinstance(node, (ast.List, ast.ListComp)):
+            node = self.f.expand_list(node)
+            array = array_type(expected)
+            if not isinstance(array, ArrayType): self.f.error(node, 'array construction requires an explicit array type')
+            if len(node.elts) != array.shape[0]: self.f.error(node, 'array construction must exactly match shape')
+            subtype = ArrayType(array.item, array.shape[1:]) if len(array.shape) > 1 else array.item
+            vals = [self.cast(self.expr(x, subtype), subtype, x) for x in node.elts]
+            return self.op('aggregate', array, vals, node=node, targets=set().union(*(v.targets for v in vals)))
         if isinstance(node, ast.Attribute):
             qualified = spelling(node)
             if qualified in self.f.globals: return self.lookup(qualified, node)
@@ -721,12 +716,26 @@ class Lower:
                 index = self.f.literal(node.slice)
                 if not isinstance(index, int) or not 0 <= index < len(val): self.f.error(node, 'fixed output tuple index out of range')
                 return self.imported(val[index])
-            idx = self.expr(node.slice)
-            if resource(val.type) and not val.type.startswith('qarray<'): val=self.signal_value(val,node)
-            if not val.type.startswith(('array<', 'vector<', 'qarray<')):
-                self.f.error(node, f'cannot index {val.type}')
-            typ = wrapped('queue', element(val.type)) if val.type.startswith('qarray<') else element(val.type)
-            return self.op('index', typ, [val, idx], node=node, targets=val.targets, consume=val.consume)
+            if resource(val.type): val = self.signal_value(val, node)
+            coordinates = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+            for coord in coordinates:
+                array = array_type(val.type)
+                if not array: self.f.error(node, f'cannot index {val.type}')
+                idx = self.expr(coord)
+                if array_type(idx.type) and isinstance(array_type(idx.type), MaskType):
+                    if not isinstance(array, ArrayType) or array.shape != array_type(idx.type).shape: self.f.error(node, 'mask shape must match array')
+                    val = self.op('array.select', wrapped('selected', str(array)), [val, idx], node=node, targets=val.targets)
+                    continue
+                if idx.type not in SCALARS or idx.type == 'bool': self.f.error(coord, 'array coordinate requires an integer')
+                literal = next((o for o in self.ops if o['id'] == idx.id and o['op'] == 'const'), None)
+                if literal and not 0 <= literal['value'] < array.shape[0]: self.f.error(coord, 'static array index out of bounds')
+                if isinstance(array, MaskType):
+                    typ = MaskType(array.shape[1:]) if len(array.shape) > 1 else 'bool'
+                else:
+                    typ = ArrayType(array.item, array.shape[1:]) if len(array.shape) > 1 else array.item
+                    if val.type.startswith('selected<') and array_type(typ): typ = wrapped('selected', typ)
+                val = self.op('array.index', typ, [val, idx], node=node, targets=val.targets)
+            return val
         if isinstance(node, ast.BinOp):
             a, b = self.expr(node.left, expected), self.expr(node.right, expected)
             typ = expected or self.common(a, b, node)
@@ -790,19 +799,69 @@ class Lower:
                     return other.type
         self.f.error(node, f'mixed types need an explicit cast: {a.type}, {b.type}')
 
+    def match(self, node):
+        if len(node.args) != 1 or node.keywords: self.f.error(node, 'match requires one predicate')
+        value = self.expr(node.func.value, reference=True)
+        array = array_type(value.type)
+        if not isinstance(array, ArrayType) or not payload(array.item) or array.item in self.f.defs:
+            self.f.error(node, 'match requires an explicitly obtained payload array')
+        domain = self.op('array.domain', MaskType(array.shape), [value], node=node)
+        predicate = node.args[0]
+        fn = self.defs.get(spelling(predicate), self.f.defs.get(spelling(predicate)))
+        if not isinstance(predicate, ast.Lambda) and (fn is None or decorator(fn) != 'helper'):
+            self.f.error(predicate, 'match predicate must be a lambda or payload helper')
+        if isinstance(predicate, ast.Lambda) and (len(predicate.args.args) != 1 or predicate.args.defaults or predicate.args.vararg or predicate.args.kwarg or predicate.args.kwonlyargs):
+            self.f.error(predicate, 'match lambda requires one payload parameter')
+        def build(prefix, shape):
+            items = []
+            for i in range(shape[0]):
+                coords = prefix + (i,)
+                if len(shape) > 1:
+                    items.append(build(coords, shape[1:]))
+                    continue
+                data, enabled = value, domain
+                for index in coords:
+                    data_shape = array_type(data.type)
+                    target = ArrayType(array.item, data_shape.shape[1:]) if len(data_shape.shape) > 1 else array.item
+                    if data.type.startswith('selected<') and array_type(target): target = wrapped('selected', target)
+                    data = self.op('array.index', target, [data, self.const(index)], node=node)
+                    mask_shape = array_type(enabled.type).shape
+                    target = MaskType(mask_shape[1:]) if len(mask_shape) > 1 else 'bool'
+                    enabled = self.op('array.index', target, [enabled, self.const(index)], node=node)
+                def evaluate():
+                    saved_env = dict(self.env)
+                    saved_locals = set(getattr(self, 'locals', set()))
+                    previous = getattr(self, 'predicate_context', False)
+                    self.predicate_context = True
+                    try:
+                        if isinstance(predicate, ast.Lambda):
+                            self.env[predicate.args.args[0].arg] = data
+                            self.locals = saved_locals | {predicate.args.args[0].arg}
+                            result = self.expr(predicate.body)
+                        else:
+                            scope, defs, instance = self.f.closures.get((self.lexical_instance, id(fn)), ({}, self.f.defs, None))
+                            result = self.behavior_call(fn, [data], node, scope, 'helper', defs, instance)
+                        return self.cast(result, 'bool', predicate)
+                    finally:
+                        self.env = saved_env
+                        self.locals = saved_locals
+                        self.predicate_context = previous
+                items.append(self.choose(enabled, evaluate, lambda: self.const(False), node))
+            return self.op('aggregate', MaskType(shape), items, node=node)
+        return build((), array.shape)
+
     def call(self, node, expected, outputs=None):
+        if isinstance(node.func, ast.Attribute) and node.func.attr == 'match': return self.match(node)
         name = spelling(node.func)
         short = name.removeprefix('ac.')
         if short in SCALARS:
             self.f.error(node, 'scalar conversion calls are unsupported; use typed values')
         if name == 'len':
             if len(node.args) != 1 or node.keywords: self.f.error(node, 'len requires exactly one positional argument')
-            return self.op('length', 'u32', [self.expr(node.args[0])], node=node)
-        if name == 'range' and self.kind == 'construction':
-            vals = [self.expr(x) for x in node.args]
-            if len(vals) != 1:
-                self.f.error(node, 'construction range currently takes one bound')
-            return self.op('range', 'vector<u32>', vals, node=node)
+            value = self.expr(node.args[0], reference=True)
+            array = array_type(value.type) if isinstance(value, Value) else None
+            if not array: self.f.error(node, 'len requires an array')
+            return self.const(array.shape[0], 'u32', node)
         if isinstance(node.func, ast.Attribute) and node.func.attr in ('empty', 'full', 'size', 'peek') and isinstance(self.expr(node.func.value, reference=True), Value):
             if node.args or node.keywords: self.f.error(node, node.func.attr + ' accepts no arguments')
             q = self.expr(node.func.value, reference=True)
@@ -900,6 +959,7 @@ class Lower:
             typ = self.f.annotation(parameter.annotation) if parameter.annotation else value.type
             value = self.cast(value, typ, node)
             role = value.consume and not lower.guard_context
+            if value.type.startswith('selected<'): typ = value.type
             lower.bind(parameter.arg, lower.param(parameter.arg, typ, value.targets, role))
             vals.append(value)
         used = self.f.capture_names(fn, definitions or self.defs, instance)
@@ -912,13 +972,14 @@ class Lower:
                 vals.append(value)
         result = self.f.annotation(fn.returns) if fn.returns else None
         declared_result = result
-        if isinstance(result, list): result = 'tuple<' + ','.join(element(t) if resource(t) else t for t in result) + ',' + ','.join('bool' for t in result) + '>'
+        if isinstance(result, list): result = 'tuple<' + ','.join([element(t) if resource(t) else t for t in result] + (['bool' for t in result] if any(resource(t) for t in result) else [])) + '>'
         if result and resource(result): result = element(result)
         lower.expected_return = result
         lower.output_types = declared_result if isinstance(declared_result,list) else None
         lower.optional_output = isinstance(declared_result,str) and resource(declared_result)
         lower.apply_guard(fn, [lower.env[p.arg] for p in fn.args.args], node)
         lower.statements(fn.body)
+        if lower.return_type.startswith('selected<'): result = lower.return_type
         result = result or lower.return_type
         function = lower.function(result=result)
         function['definition'] = fn.name
@@ -961,7 +1022,13 @@ class Lower:
         if isinstance(target, ast.Subscript):
             typ = self.target_type(target.value)
             if typ.startswith(('cell<','ehr<')): typ=element(typ)
-            return wrapped('queue', element(typ)) if typ.startswith('qarray<') else element(typ)
+            array = array_type(typ)
+            if not array: self.f.error(target, 'array update requires array')
+            if isinstance(target.slice, ast.Name):
+                selection = self.env.get(target.slice.id)
+                if isinstance(selection, Value) and isinstance(array_type(selection.type), MaskType): return array.item
+            count = len(target.slice.elts) if isinstance(target.slice, ast.Tuple) else 1
+            return ArrayType(array.item, array.shape[count:]) if count < len(array.shape) else array.item
         self.f.error(target, 'unsupported assignment type')
 
     def module_call(self, node):
@@ -994,10 +1061,17 @@ class Lower:
         existing = self.env.get(target.id) if isinstance(target, ast.Name) else self.expr(target, reference=True) if isinstance(target, ast.Attribute) and isinstance(self.expr(target.value, reference=True), Instance) else None
         if isinstance(target,ast.Subscript):
             probe=self.expr(target,reference=True)
-            if isinstance(probe,Value) and probe.type.startswith('queue<'): existing=probe
-        if isinstance(existing, Value) and resource(existing.type) and not existing.type.startswith('qarray<'):
+            array = array_type(probe.type) if isinstance(probe, Value) else None
+            if array and isinstance(array, ArrayType) and resource(array.item):
+                if self.kind != 'rule' or self.guard_context: self.f.error(node, 'multi-selection write belongs in a Rule')
+                value = self.cast(value, element(array.item), node)
+                self.op('array.write', 'void', [probe, value], node=node)
+                return
+            if isinstance(probe,Value) and resource(probe.type): existing=probe
+        if isinstance(existing, Value) and resource(existing.type):
             existing = self.imported(existing)
             value = self.cast(self.signal_value(value,node), element(existing.type), node)
+            if 'selected<' in value.type or 'mask<' in value.type: self.f.error(node, 'selected array and mask cannot be stored across cycles')
             producing = next((o for o in self.ops if o['id'] == value.id), None)
             slot=producing.get('slot') if producing else None
             if producing and producing.get('output_call'): producing=next(o for o in self.ops if o['id']==producing['output_call'])
@@ -1020,7 +1094,7 @@ class Lower:
                 producer = next((o for o in self.ops if o['id'] == value.id), None)
                 if producer and producer.get('output_call'): producer = next(o for o in self.ops if o['id'] == producer['output_call'])
                 function = next((f for f in self.f.model['functions'] if producer and f['name'] == producer.get('name')), None)
-                if function and (resource(function.get('output_type')) or isinstance(function.get('output_type'), list)):
+                if function and (resource(function.get('output_type')) or isinstance(function.get('output_type'), list) and any(resource(t) for t in function['output_type'])):
                     self.f.error(node, 'Rule component output must bind to a previously declared component')
             self.bind(target.id, value)
             return
@@ -1037,8 +1111,9 @@ class Lower:
                     path.insert(0, base.attr)
                     base = base.value
                 else:
-                    path.insert(0, None)
-                    indices.insert(0, base.slice)
+                    coords = base.slice.elts if isinstance(base.slice, ast.Tuple) else [base.slice]
+                    path[0:0] = [None] * len(coords)
+                    indices[0:0] = coords
                     base = base.value
             if not isinstance(base, ast.Name): self.f.error(node, 'local updates require a named aggregate')
             original = self.lookup(base.id, node)
@@ -1132,6 +1207,9 @@ class Lower:
                             omitted=isinstance(expr,ast.Constant) and expr.value is None
                             values.append(self.op('zero',typ,node=node) if omitted else self.cast(self.expr(expr,typ),typ,node))
                             present.append(self.const(not omitted,'bool'))
+                        if not any(resource(t) for t in self.output_types):
+                            if any(isinstance(x, ast.Constant) and x.value is None for x in node.value.elts): self.f.error(node, 'payload tuple cannot omit values')
+                            present=[]
                         result=self.op('aggregate',self.expected_return,values+present,node=node)
                         self.return_type=self.expected_return
                         self.op('return','void',[result],node=node)

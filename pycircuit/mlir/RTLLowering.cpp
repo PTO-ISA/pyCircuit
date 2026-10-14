@@ -80,9 +80,8 @@ struct RTLBuilder {
     if (aspect == "count")
       type = b.getI32Type();
     if (aspect == "storage")
-      type = acir::ArrayType::get(
-          b.getContext(), type,
-          state->getAttrOfType<IntegerAttr>("capacity").getInt());
+      type = TupleType::get(b.getContext(), SmallVector<Type>(
+          state->getAttrOfType<IntegerAttr>("capacity").getInt(), type));
     return currents[key] =
                make(b, loc, "acir.current", {}, type,
                     {b.getNamedAttr("resource", b.getStringAttr(res)),

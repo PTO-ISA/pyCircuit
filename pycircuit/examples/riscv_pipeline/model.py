@@ -10,8 +10,8 @@ from isa import ADD, SUB, LOAD, STORE, Fetched, Decoded, Operands, Executed, Ret
 class RegisterFile:
 
     def __init__() -> None:
-        registers = ac.cell[ac.array[ac.u32, 32]](initial=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-        pending = ac.cell[ac.array[bool, 32]](initial=[False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False])
+        registers = ac.cell[ac.array(ac.u32, shape=(32,))](initial=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        pending = ac.cell[ac.array(bool, shape=(32,))](initial=[False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False])
 
     @ac.rule
     def ready(inst: Decoded) -> bool:
@@ -38,7 +38,7 @@ class RegisterFile:
 class DataMemory:
 
     def __init__() -> None:
-        words = ac.cell[ac.array[ac.u32, 16]](initial=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        words = ac.cell[ac.array(ac.u32, shape=(16,))](initial=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
 
     @ac.rule
     def load(address: ac.u32) -> ac.u32:
@@ -54,7 +54,7 @@ class DataMemory:
 class Fetch:
 
     def __init__() -> None:
-        rom = ac.cell[ac.array[ac.u32, 6]](initial=[7340179, 5243155, 2130355, 3153955, 8707, 1075970739])
+        rom = ac.cell[ac.array(ac.u32, shape=(6,))](initial=[7340179, 5243155, 2130355, 3153955, 8707, 1075970739])
         pc = ac.cell[ac.u32](initial=0)
 
     @ac.rule

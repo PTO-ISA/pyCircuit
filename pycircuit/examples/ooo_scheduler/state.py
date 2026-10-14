@@ -158,9 +158,9 @@ class ReorderBuffer:
 class RegisterFile:
 
     def __init__() -> None:
-        registers = ac.cell[ac.array[ac.u32, 8]](initial=[0, 0, 6, 7, 0, 0, 0, 0])
-        renamed = ac.cell[ac.array[ac.u32, 8]](initial=[0, 0, 0, 0, 0, 0, 0, 0])
-        committed = ac.cell[ac.array[ac.u32, 8]](initial=[0, 0, 0, 0, 0, 0, 0, 0])
+        registers = ac.cell[ac.array(ac.u32, shape=(8,))](initial=[0, 0, 6, 7, 0, 0, 0, 0])
+        renamed = ac.cell[ac.array(ac.u32, shape=(8,))](initial=[0, 0, 0, 0, 0, 0, 0, 0])
+        committed = ac.cell[ac.array(ac.u32, shape=(8,))](initial=[0, 0, 0, 0, 0, 0, 0, 0])
 
     @ac.rule
     def operand(index: ac.u32) -> Operand:

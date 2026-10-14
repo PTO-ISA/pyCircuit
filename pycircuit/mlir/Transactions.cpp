@@ -32,6 +32,7 @@ struct Pair {
   std::string resource;
   int producer = -1;
   Value index;
+  std::vector<Value> selected;
 };
 struct Transaction {
   std::string name;
@@ -232,6 +233,41 @@ struct Extractor {
       require(path, negate(available.value));
     }
   }
+  Type memberType(Type type, Attribute field) {
+    if (auto array = dyn_cast<acir::ArrayType>(type))
+      return array.getShape().size() == 1 ? array.getElementType() :
+        acir::ArrayType::get(b.getContext(), array.getElementType(), array.getShape().drop_front());
+    if (auto structure = dyn_cast<acir::StructType>(type)) {
+      auto fields = source->getAttrOfType<DictionaryAttr>("acir.model")
+                      .getAs<DictionaryAttr>("types").getAs<ArrayAttr>(structure.getName());
+      for (auto f : fields) {
+        auto entry = cast<DictionaryAttr>(f);
+        if (entry.getAs<StringAttr>("name") == field) return entry.getAs<TypeAttr>("payload_type").getValue();
+      }
+    }
+    throw std::runtime_error("invalid aggregate update path");
+  }
+  Value cmpIndex(Value index, int64_t coordinate) {
+    return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, index,
+      constant(coordinate, cast<IntegerType>(index.getType()).getWidth()));
+  }
+  Value maskBit(Value mask, ArrayRef<int64_t> shape, int64_t flat) {
+    for (unsigned axis = 0; axis < shape.size(); ++axis) {
+      int64_t stride = 1;
+      for (auto d : shape.drop_front(axis + 1)) stride *= d;
+      auto coord = flat / stride; flat %= stride;
+      Type result = axis + 1 == shape.size() ? b.getI1Type() :
+        Type(acir::MaskType::get(b.getContext(), shape.drop_front(axis + 1)));
+      mask = make(b, loc, "acir.extract", {mask, constant(coord)}, result)->getResult(0);
+    }
+    return mask;
+  }
+  Value fullMask(ArrayRef<int64_t> shape) {
+    SmallVector<Value> values;
+    for (int64_t i = 0; i < shape.front(); ++i)
+      values.push_back(shape.size() == 1 ? yes : fullMask(shape.drop_front()));
+    return make(b, loc, "acir.aggregate", values, acir::MaskType::get(b.getContext(), shape))->getResult(0);
+  }
   Pair readReference(Pair reference, std::string method, Type type, Pair path) {
     if (!arrays.count(reference.resource))
       return read(reference.resource, method, type, path);
@@ -240,12 +276,14 @@ struct Extractor {
     Pair result{make(b, loc, "acir.aggregate", {}, type)->getResult(0), no};
     for (auto [i, res] : llvm::enumerate(arrays[reference.resource])) {
       auto chosen = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq,
-                                          reference.index, constant(i));
-      auto branchPath = pathAnd(path, {chosen, reference.ready});
+                                          reference.index, constant(i, cast<IntegerType>(reference.index.getType()).getWidth()));
+      Value selected = chosen;
+      if (!reference.selected.empty()) selected = conjunction(selected, reference.selected[i]);
+      auto branchPath = pathAnd(path, {selected, reference.ready});
       auto value = read(res, method, type, branchPath);
-      result.value = select(chosen, value.value, result.value);
+      result.value = select(selected, value.value, result.value);
       result.ready =
-          disjunction(result.ready, conjunction(chosen, value.ready));
+          disjunction(result.ready, conjunction(selected, value.ready));
     }
     result.ready = conjunction(result.ready, reference.ready);
     require(path, result.ready);
@@ -261,12 +299,17 @@ struct Extractor {
       throw std::runtime_error("index a Queue array before writing");
     auto valid = arith::CmpIOp::create(
         b, loc, arith::CmpIPredicate::ult, reference.index,
-        constant(arrays[reference.resource].size()));
-    require(path, conjunction(reference.ready, valid));
+        constant(arrays[reference.resource].size(), cast<IntegerType>(reference.index.getType()).getWidth()));
+    Value member = reference.selected.empty() ? yes : no;
+    for (auto [i, bit] : llvm::enumerate(reference.selected))
+      member = disjunction(member, conjunction(bit, cmpIndex(reference.index, i)));
+    require(path, conjunction(reference.ready, conjunction(valid, member)));
     for (auto [i, res] : llvm::enumerate(arrays[reference.resource])) {
       auto chosen = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq,
-                                          reference.index, constant(i));
-      effect(res, method, value, pathAnd(path, {chosen, reference.ready}),
+                                          reference.index, constant(i, cast<IntegerType>(reference.index.getType()).getWidth()));
+      Value selected = chosen;
+      if (!reference.selected.empty()) selected = conjunction(selected, reference.selected[i]);
+      effect(res, method, value, pathAnd(path, {selected, reference.ready}),
              ready);
     }
   }
@@ -576,14 +619,120 @@ struct Extractor {
                       allReady};
           } else
             result = run(fn.getBody(), a, current);
-        } else if (name == "acir.extract" && !a[0].resource.empty() &&
-                   arrays.count(a[0].resource)) {
-          result = {no, allReady, a[0].resource, -1, a[1].value};
+        } else if (name == "acir.array.domain" && !a[0].resource.empty()) {
+          auto shape = cast<acir::MaskType>(op->getResult(0).getType()).getShape();
+          if (!a[0].selected.empty()) throw std::runtime_error("match requires payload, not resource array");
+          result = {fullMask(shape), a[0].ready};
+        } else if (name == "acir.array.select" && !a[0].resource.empty()) {
+          result = a[0]; result.ready = allReady;
+          auto shape = cast<acir::MaskType>(a[1].value.getType()).getShape();
+          int64_t count = 1; for (auto d : shape) count *= d;
+          result.selected.clear();
+          for (auto [i, res] : llvm::enumerate(arrays.at(result.resource))) {
+            Value enabled = no;
+            for (int64_t j = 0; j < count; ++j) {
+              auto chosen = a[0].index ? cmpIndex(a[0].index, int64_t(i) - j) : (i == size_t(j) ? yes : no);
+              enabled = disjunction(enabled, conjunction(chosen, maskBit(a[1].value, shape, j)));
+            }
+            if (!a[0].selected.empty()) enabled = conjunction(enabled, a[0].selected[i]);
+            result.selected.push_back(enabled);
+          }
+        } else if (name == "acir.array.write") {
+          auto type = op->getOperand(0).getType();
+          if (auto selected = dyn_cast<acir::SelectedType>(type)) type = selected.getElementType();
+          auto array = cast<acir::ArrayType>(type);
+          require(current, a[0].ready);
+          for (auto [i, res] : llvm::enumerate(arrays.at(a[0].resource))) {
+            Value enabled = a[0].selected.empty() ? yes : a[0].selected[i];
+            if (a[0].index) {
+              Value inside = no;
+              for (int64_t j = 0; j < array.getSize(); ++j)
+                inside = disjunction(inside, cmpIndex(a[0].index, int64_t(i) - j));
+              enabled = conjunction(enabled, inside);
+            }
+            auto kind = text(states.at(res), "kind");
+            effect(res, kind == "queue" ? "push" : kind == "ehr" ? "ehr.write" : kind == "signal" ? "set" : "write",
+                   a[1].value, pathAnd(current, {enabled, a[0].ready}), a[1].ready);
+          }
+          continue;
+        } else if (name == "acir.array.index") {
+          auto inputType = op->getOperand(0).getType();
+          bool selected = isa<acir::SelectedType>(inputType);
+          if (selected) inputType = cast<acir::SelectedType>(inputType).getElementType();
+          auto array = dyn_cast<acir::ArrayType>(inputType);
+          auto mask = dyn_cast<acir::MaskType>(inputType);
+          auto shape = array ? array.getShape() : mask.getShape();
+          auto index = a[1].value;
+          auto width = cast<IntegerType>(index.getType()).getWidth();
+          auto valid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
+                                            index, constant(shape.front(), width));
+          if (!a[0].resource.empty()) {
+            if (width < 64) index = arith::ExtUIOp::create(b, loc, b.getI64Type(), index);
+            int64_t stride = 1;
+            for (auto d : shape.drop_front()) stride *= d;
+            Value offset = arith::MulIOp::create(b, loc, index, constant(stride, 64));
+            if (a[0].index) offset = arith::AddIOp::create(b, loc, a[0].index, offset);
+            result = {no, conjunction(allReady, valid), a[0].resource, -1, offset, a[0].selected};
+          } else {
+            auto safe = select(valid, index, constant(0, width));
+            Value ready = conjunction(allReady, valid);
+            if (selected && shape.size() == 1) {
+              auto domain = make(b, loc, "acir.array.domain", a[0].value, acir::MaskType::get(b.getContext(), shape))->getResult(0);
+              auto enabled = make(b, loc, "acir.extract", {domain, safe}, b.getI1Type())->getResult(0);
+              ready = conjunction(ready, enabled);
+            }
+            result = {make(b, loc, "acir.array.index", {a[0].value, safe}, op->getResultTypes())->getResult(0), ready};
+          }
+        } else if (name == "acir.update") {
+          auto rootType = op->getOperand(0).getType();
+          auto originalType = rootType;
+          Value root = a[0].value, domain;
+          if (auto selected = dyn_cast<acir::SelectedType>(rootType)) {
+            rootType = selected.getElementType();
+            domain = make(b, loc, "acir.array.domain", root,
+              acir::MaskType::get(b.getContext(), cast<acir::ArrayType>(rootType).getShape()))->getResult(0);
+            root = make(b, loc, "acir.extract", {root, constant(0)}, rootType)->getResult(0);
+          }
+          SmallVector<Value> inputs{root, a[1].value};
+          auto type = rootType;
+          Value valid = allReady;
+          unsigned dynamic = 2;
+          for (auto step : op->getAttrOfType<ArrayAttr>("path")) {
+            if (isa<UnitAttr>(step)) {
+              auto array = cast<acir::ArrayType>(type);
+              auto index = a[dynamic++].value;
+              auto width = cast<IntegerType>(index.getType()).getWidth();
+              auto inRange = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
+                index, constant(array.getShape().front(), width));
+              valid = conjunction(valid, inRange);
+              auto safe = select(inRange, index, constant(0, width));
+              inputs.push_back(safe);
+              if (domain) {
+                Type maskType = array.getShape().size() == 1 ? b.getI1Type() :
+                  Type(acir::MaskType::get(b.getContext(), array.getShape().drop_front()));
+                domain = make(b, loc, "acir.extract", {domain, safe}, maskType)->getResult(0);
+                if (maskType.isInteger(1)) { valid = conjunction(valid, domain); domain = {}; }
+              }
+            }
+            type = memberType(type, step);
+          }
+          if (a[1].value.getType() != type) throw std::runtime_error("aggregate update payload type mismatch");
+          auto updated = make(b, loc, "acir.update", inputs, rootType, op->getAttrs())->getResult(0);
+          if (isa<acir::SelectedType>(originalType)) {
+            auto mask = make(b, loc, "acir.array.domain", a[0].value,
+              acir::MaskType::get(b.getContext(), cast<acir::ArrayType>(rootType).getShape()))->getResult(0);
+            updated = make(b, loc, "acir.array.select", {updated, mask}, originalType)->getResult(0);
+          }
+          result = {updated, valid};
         } else if (name == "acir.aggregate" &&
-                   isa<acir::QueueArrayType>(op->getResult(0).getType())) {
+                   isa<acir::ArrayType>(op->getResult(0).getType()) && !a.empty() && !a[0].resource.empty()) {
           auto key = "array." + std::to_string(arrays.size());
-          for (auto arg : a)
-            arrays[key].push_back(arg.resource);
+          for (auto arg : a) {
+            if (arrays.count(arg.resource)) {
+              auto &nested = arrays.at(arg.resource);
+              arrays[key].insert(arrays[key].end(), nested.begin(), nested.end());
+            } else arrays[key].push_back(arg.resource);
+          }
           result = {no, allReady, key};
         } else if (name == "acir.guard") {
           require(current, conjunction(a[0].ready, a[0].value));
@@ -742,34 +891,6 @@ struct Extractor {
       if (!op->hasAttr("payload_type"))
         continue;
       auto kind = op->getName().getStringRef().drop_front(5);
-      if (kind == "queue.array") {
-        auto payload = op->getAttrOfType<TypeAttr>("payload_type").getValue();
-        auto cap = acir::evaluateFunction(
-            initialModule, text(op, "capacity_fn"), b.getArrayAttr(config));
-        auto iterable = cast<ArrayAttr>(acir::evaluateFunction(
-            initialModule, text(op, "iterable_fn"), b.getArrayAttr(config)));
-        if (cast<IntegerAttr>(cap).getInt() < 1)
-          throw std::runtime_error("Queue array capacity must be positive");
-        for (auto [i, index] : llvm::enumerate(iterable)) {
-          auto res = name + "." + std::to_string(i);
-          SmallVector<Attribute> initial;
-          auto empty = op->getAttrOfType<BoolAttr>("empty_initial");
-          if (!empty || !empty.getValue())
-            initial.push_back(acir::evaluateFunction(initialModule,
-                                                     text(op, "initializer_fn"),
-                                                     b.getArrayAttr({index})));
-          auto *state =
-              make(b, op->getLoc(), "acir.state", {}, {},
-                   {b.getNamedAttr("sym_name", b.getStringAttr(res)),
-                    b.getNamedAttr("payload_type", TypeAttr::get(payload)),
-                    b.getNamedAttr("kind", b.getStringAttr("queue")),
-                    b.getNamedAttr("capacity", cap),
-                    b.getNamedAttr("initial", b.getArrayAttr(initial))});
-          states[res] = state;
-          arrays[name].push_back(res);
-        }
-        continue;
-      }
       auto type = op->getAttrOfType<TypeAttr>("payload_type").getValue();
       Attribute initial;
       if (kind == "signal")

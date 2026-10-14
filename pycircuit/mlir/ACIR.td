@@ -21,14 +21,29 @@ def ACIR_QueueType : ACIR_ElementType<"Queue", "queue">;
 def ACIR_SignalType : ACIR_ElementType<"Signal", "signal">;
 def ACIR_EHRType : ACIR_ElementType<"EHR", "ehr">;
 def ACIR_CellType : ACIR_ElementType<"Cell", "cell">;
-def ACIR_QueueArrayType : ACIR_ElementType<"QueueArray", "qarray">;
-def ACIR_VectorType : ACIR_ElementType<"Vector", "vector">;
 def ACIR_ArrayType : TypeDef<ACIR_Dialect, "Array"> {
   let mnemonic = "array";
-  let parameters = (ins "::mlir::Type":$elementType, "int64_t":$size);
-  let assemblyFormat = "`<` qualified($elementType) `,` $size `>`";
+  let parameters = (ins "::mlir::Type":$elementType, ArrayRefParameter<"int64_t">:$shape);
+  let assemblyFormat = "`<` qualified($elementType) `,` `[` $shape `]` `>`";
+  let genVerifyDecl = 1;
+  let extraClassDeclaration = [{
+    static ArrayType get(::mlir::MLIRContext *ctx, ::mlir::Type item, int64_t size) {
+      return get(ctx, item, ::llvm::ArrayRef<int64_t>(size));
+    }
+    int64_t getSize() const {
+      int64_t size = 1;
+      for (auto d : getShape()) size *= d;
+      return size;
+    }
+  }];
+}
+def ACIR_MaskType : TypeDef<ACIR_Dialect, "Mask"> {
+  let mnemonic = "mask";
+  let parameters = (ins ArrayRefParameter<"int64_t">:$shape);
+  let assemblyFormat = "`<` `[` $shape `]` `>`";
   let genVerifyDecl = 1;
 }
+def ACIR_SelectedType : ACIR_ElementType<"Selected", "selected">;
 def ACIR_StructType : TypeDef<ACIR_Dialect, "Struct"> {
   let mnemonic = "struct";
   let parameters = (ins StringRefParameter<"nominal payload struct name">:$name);
@@ -79,7 +94,6 @@ def ACIR_QueueOp : ACIR_Declaration<"queue">;
 def ACIR_CellOp : ACIR_Declaration<"cell">;
 def ACIR_SignalOp : ACIR_Declaration<"signal">;
 def ACIR_EHROp : ACIR_Declaration<"ehr">;
-def ACIR_QueueArrayOp : ACIR_Declaration<"queue.array">;
 def ACIR_GetOp : ACIR_Op<"ref", [Pure]> {
   let arguments = (ins SymbolRefAttr:$target);
   let results = (outs AnyType:$reference);
@@ -171,6 +185,24 @@ def ACIR_UpdateOp : ACIR_Op<"update", [NoMemoryEffect]> {
   let results = (outs AnyType:$value);
   let assemblyFormat = "$aggregate `,` $replacement (`[` $indices^ `]`)? attr-dict `:` functional-type(operands, results)";
 }
+def ACIR_ArrayWriteOp : ACIR_Op<"array.write", [MemoryEffects<[MemWrite]>]> {
+  let arguments = (ins AnyType:$array, AnyType:$value);
+}
+def ACIR_ArrayIndexOp : ACIR_Op<"array.index", [NoMemoryEffect]> {
+  let arguments = (ins AnyType:$array, AnyInteger:$index);
+  let results = (outs AnyType:$value);
+  let hasVerifier = 1;
+}
+def ACIR_ArraySelectOp : ACIR_Op<"array.select", [Pure]> {
+  let arguments = (ins AnyType:$array, ACIR_MaskType:$mask);
+  let results = (outs ACIR_SelectedType:$selected);
+  let hasVerifier = 1;
+}
+def ACIR_ArrayDomainOp : ACIR_Op<"array.domain", [Pure]> {
+  let arguments = (ins AnyType:$array);
+  let results = (outs ACIR_MaskType:$mask);
+  let hasVerifier = 1;
+}
 def ACIR_LengthOp : ACIR_Op<"length", [Pure]> {
   let arguments = (ins AnyType:$aggregate);
   let results = (outs I32:$length);
@@ -190,11 +222,6 @@ def ACIR_CompareOp : ACIR_Op<"compare", [Pure]> {
   let arguments = (ins AnyType:$lhs, AnyType:$rhs, StrAttr:$operator_name);
   let results = (outs I1:$value);
   let assemblyFormat = "$lhs `,` $rhs $operator_name attr-dict `:` type($lhs) `,` type($rhs)";
-}
-def ACIR_RangeOp : ACIR_Op<"range", [NoMemoryEffect]> {
-  let arguments = (ins AnyInteger:$size);
-  let results = (outs ACIR_VectorType:$value);
-  let assemblyFormat = "$size attr-dict `:` type($size) `->` qualified(type($value))";
 }
 def ACIR_CheckOp : ACIR_Op<"check", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins I1:$condition);

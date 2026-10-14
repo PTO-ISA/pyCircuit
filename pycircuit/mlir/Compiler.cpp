@@ -209,9 +209,9 @@ int acir::compileMain(int argc, char **argv) {
     if (!module || failed(verify(*module)))
       return 1;
     auto meta = (*module)->getAttrOfType<DictionaryAttr>("acir.model");
-    if (!meta || meta.getAs<IntegerAttr>("format_version").getInt() != 8)
+    if (!meta || meta.getAs<IntegerAttr>("format_version").getInt() != 9)
       throw std::runtime_error(
-          "expected source format_version 8; recompile ACPy");
+          "expected source format_version 9; recompile ACPy");
     auto inputStage = (*module)->getAttrOfType<StringAttr>("acir.stage");
     if (inputStage && !config.empty())
       throw std::runtime_error(
@@ -263,7 +263,6 @@ int acir::compileMain(int argc, char **argv) {
     std::string current = stage ? stage.getValue().str() : "source";
     if (current == "source") {
       save(*module, directory / "model.source.mlir");
-      save(*module, directory / "model.acir.mlir");
       if (stop == "source") {
         if (cycles)
           throw std::runtime_error("execute transaction or RTL stage");
