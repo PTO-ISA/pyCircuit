@@ -36,7 +36,9 @@ Method lowering，不证明后续候选通过。当前有界实现已加入直�
 冻结检查与 history 的提交/丢弃。
 
 focused final-IR 回归已有 native workers 1/2 和真实四态 RTL 执行证据。2026-10-14 的
-有界候选已通过公共恒真六场景重验、短 API gate 和 examples gate；公共动态源矩阵和
+有界候选已通过公共恒真六场景重验、短 API gate 和 examples gate。后续公共动态回归
+已加入独立事务、跨 owner 原子事务和 guard 入口候选快照三种场景，以原生 workers 1/2
+及真实四态 RTL 检查实际 Q、storage/sampling history、Discard/Reset 和失败零提交。
 Method `@system` 闭环仍未完成。分析复用修复保持原预算及完整实际实例检查。
 这些结果只属于对应候选，不自动覆盖后续修改，也不等于 nightly 通过。
 实施与剩余验收入口为[扩展实施与验收矩阵](extension-roadmap.md)，精确合同见

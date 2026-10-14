@@ -2,6 +2,7 @@
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -16,6 +17,7 @@ parser = argparse.ArgumentParser()
 for name in ("repo", "source-compiler", "linker", "emitter", "optimizer", "cxx",
              "iverilog", "vvp", "scratch"):
     parser.add_argument("--" + name, required=True)
+parser.add_argument("--dynamic-only", action="store_true")
 args = parser.parse_args()
 repo = Path(args.repo).resolve()
 fixtures = Path(__file__).resolve().parent
@@ -106,6 +108,32 @@ def replay_arguments(units, top):
     return [*command, "--top", top, "--target", "final"]
 
 
+def prepare_native_probe(case):
+    cpp_originals = snapshot(case / "cpp")
+    probe = case / "native-probe"
+    shutil.copytree(case / "cpp", probe)
+    visibility = {}
+    for header in probe.rglob("*.hpp"):
+        original = header.read_text()
+        changed = "".join(line.replace("private:", "public:")
+                          if line.strip() == "private:" else line
+                          for line in original.splitlines(keepends=True))
+        before_lines, after_lines = original.splitlines(), changed.splitlines()
+        assert len(before_lines) == len(after_lines), header
+        changed_lines = []
+        for number, (left_line, right_line) in enumerate(zip(before_lines, after_lines, strict=True), 1):
+            assert left_line == right_line or (left_line.strip() == "private:"
+                                               and right_line.strip() == "public:"), (header, number)
+            if left_line != right_line:
+                changed_lines.append(number)
+        if changed_lines:
+            header.write_text(changed)
+            visibility[header.relative_to(probe).as_posix()] = {
+                "original_sha256": hashlib.sha256(original.encode()).hexdigest(),
+                "probe_sha256": digest(header), "access_specifier_lines": changed_lines}
+    return cpp_originals, probe, visibility
+
+
 def protection_checks(base, directory, units):
     directory.mkdir()
     sentinel = directory / "sentinel"
@@ -169,6 +197,8 @@ owners = ("count", "before", "middle", "saved", "after", "old_seen", "payload",
 summaries = []
 cases = [(mode, *values) for mode in ("local", "cross", "root")
          for values in ((7, 5, 1, 2, 3, 4), (13, 4091, 17, 29, 7, 31))]
+if args.dynamic_only:
+    cases = []
 for mode, width, initial, first, second, bias, last in cases:
     case = scratch / f"{mode}-width-{width}"
     case.mkdir()
@@ -318,28 +348,7 @@ for mode, width, initial, first, second, bias, last in cases:
     # translation unit and the driver use the same copied headers, with only
     # standalone access specifiers changed; no mixed class definitions or
     # modified transition/Work calculations enter this execution.
-    cpp_originals = snapshot(case / "cpp")
-    probe = case / "native-probe"
-    shutil.copytree(case / "cpp", probe)
-    visibility = {}
-    for header in probe.rglob("*.hpp"):
-        original = header.read_text()
-        changed = "".join(line.replace("private:", "public:")
-                          if line.strip() == "private:" else line
-                          for line in original.splitlines(keepends=True))
-        before_lines, after_lines = original.splitlines(), changed.splitlines()
-        assert len(before_lines) == len(after_lines), header
-        changed_lines = []
-        for number, (left_line, right_line) in enumerate(zip(before_lines, after_lines, strict=True), 1):
-            assert left_line == right_line or (left_line.strip() == "private:"
-                                               and right_line.strip() == "public:"), (header, number)
-            if left_line != right_line:
-                changed_lines.append(number)
-        if changed_lines:
-            header.write_text(changed)
-            visibility[header.relative_to(probe).as_posix()] = {
-                "original_sha256": hashlib.sha256(original.encode()).hexdigest(),
-                "probe_sha256": digest(header), "access_specifier_lines": changed_lines}
+    cpp_originals, probe, visibility = prepare_native_probe(case)
     cpp_probes, rtl_probes = [], []
     for native_owner, rtl_owner in zip(cpp_owners, rtl_owners, strict=True):
         for owner in owners:
@@ -443,6 +452,185 @@ for mode, width, initial, first, second, bias, last in cases:
                       "probe_owners": owner_names, "probe_instances": instance_names,
                       "protected_failures": protected_cases})
 
+def definition_text(text, name, target):
+    if target == "cpp":
+        names = set(re.findall(r"(?m)^class (pyc_family_\w+) final \{", text))
+        candidates = {"pyc_family_" + name, "pyc_family_pyc_" + name.encode().hex()}
+        selected = names & candidates
+        assert len(selected) == 1, (name, names)
+        start = text.index("class " + selected.pop() + " final {")
+        end = text.index("\n};", start) + len("\n};")
+    else:
+        names = re.findall(r"(?m)^module (\w+) \(", text)
+        selected = [item for item in names if item.endswith("_" + name)]
+        assert len(selected) == 1, (name, names)
+        start = text.index("module " + selected[0] + " (")
+        end = text.index("endmodule", start) + len("endmodule")
+    return text[start:end]
+
+
+oracle_path = repo / "tests/compiler/oracles/serial_method_oracle.py"
+oracle_spec = importlib.util.spec_from_file_location("serial_method_oracle", oracle_path)
+oracle_module = importlib.util.module_from_spec(oracle_spec)
+oracle_spec.loader.exec_module(oracle_module)
+dynamic_owners = ("count", "before", "after", "old_seen", "first_gate", "second_gate")
+for mode, top_name in (("dynamic-independent", "IndependentTop"),
+                       ("dynamic-atomic", "AtomicTop"),
+                       ("dynamic-entry", "EntryTop")):
+    case = scratch / mode
+    case.mkdir()
+    source = case / "source"
+    source.mkdir()
+    for filename in ("dynamic_provider.py", "dynamic_consumer.py"):
+        shutil.copyfile(fixtures / "serial-method" / filename, source / filename)
+    provider, parent = case / "provider", case / "parent"
+    provider_path = source / "dynamic_provider.py"
+    compile_unit(source, provider_path, provider)
+    hidden = case / "unavailable-provider"
+    hidden.mkdir()
+    moved = (provider_path, payload(provider, "body"), payload(provider, "depfile"))
+    for path in moved:
+        path.rename(hidden / path.name)
+    compile_unit(source, source / "dynamic_consumer.py", parent, (provider,))
+    depfile = payload(parent, "depfile").read_text()
+    assert str(payload(provider, "interface")) in depfile
+    assert str(provider_path) not in depfile and str(payload(provider, "body")) not in depfile
+    assert not provider_path.exists()
+    for path in moved[1:]:
+        (hidden / path.name).rename(path)
+    units = (parent, provider)
+    final = case / "public-final.ac"
+    top = "serial_methods.dynamic_consumer." + top_name
+    cli("link", *units, "--top", top, "-o", final)
+    base = replay_arguments(units, top)
+    replay, before, after = (case / filename for filename in
+                            ("replay-final.ac", "before-transactions.ac", "after-transactions.ac"))
+    run([*base, "--output", replay, "--transaction-input-out", before,
+         "--transaction-output-out", after])
+    assert final.read_bytes() == replay.read_bytes() == after.read_bytes()
+    assert '"ac.method.call"' in before.read_text()
+    assert all(f'"{operation}"' not in final.read_text() for operation in
+               ("ac.state", "ac.state.read", "ac.state.write", "ac.method",
+                "ac.method.call", "ac.transaction"))
+    run([args.optimizer, final, "--ac-verify-hardware", "-o", case / "verified-final.ac"])
+    protected_cases = protection_checks(base, case / "protection", units)
+    for target in ("cpp", "verilog"):
+        cli("emit", final, "--target", target, "-o", case / target)
+
+    provider_owner = json.loads((provider / "unit.json").read_text())["source"]
+    parent_owner = json.loads((parent / "unit.json").read_text())["source"]
+    provider_cpp = emitted_source_text(case / "cpp", provider_owner, "header")
+    provider_rtl = emitted_source_text(case / "verilog", provider_owner, "rtl")
+    parent_cpp = definition_text(
+        emitted_source_text(case / "cpp", parent_owner, "header"), top_name, "cpp")
+    parent_rtl = definition_text(
+        emitted_source_text(case / "verilog", parent_owner, "rtl"), top_name, "verilog")
+    native_instances = set(re.findall(
+        r"(?m)^\s*std::shared_ptr<[^;\n]*::pyc_family_\w+<pyc_count>>\s+(pyc_instance_\w+);",
+        parent_cpp))
+    rtl_instances = set(re.findall(r"\b(pyc_instance_\w+)\s*\(", parent_rtl))
+    assert native_instances == rtl_instances and len(native_instances) == 3
+    sides = ("left", "right", "spectator")
+    instance_names = {side: emitted_instance_name(native_instances, side) for side in sides}
+    cpp_probes, rtl_probes, cpp_injection, rtl_injection = [], [], [], []
+    sampling, layout = [], []
+
+    def collect_sampling(output, native_owner, rtl_owner, header, rtl):
+        native_indices = sorted(set(re.findall(
+            r"std::array<bool, pyc_count> pyc_sampling_clock_(\d+)\{\};", header)), key=int)
+        rtl_indices = sorted(set(re.findall(r"logic pyc_sampling_(\d+)_clock =", rtl)), key=int)
+        assert native_indices == rtl_indices, (native_owner, native_indices, rtl_indices)
+        for index in native_indices:
+            output.append((f"{native_owner}->pyc_sampling_clock_{index}[0]",
+                           f"{rtl_owner}.pyc_sampling_{index}_clock"))
+
+    collect_sampling(sampling, "family", "dut.dut", parent_cpp, parent_rtl)
+    for side, tokens in zip(sides, (("lf", "ls"), ("rf", "rs"), ("sf", "ss")), strict=True):
+        owner_type = ("CandidateEntryOwner" if mode == "dynamic-entry" else
+                      "ManualOwner" if mode == "dynamic-atomic" and side != "spectator"
+                      else "AutonomousOwner")
+        header = definition_text(provider_cpp, owner_type, "cpp")
+        rtl = definition_text(provider_rtl, owner_type, "verilog")
+        native_states = set(re.findall(
+            r"(?m)^\s*std::shared_ptr<gfsim::collection_storage<[^;\n]+>>\s+(pyc_instance_\w+)_state;",
+            header))
+        rtl_states = set(re.findall(r"\bdffe\b[^\n]*\s+(pyc_instance_\w+)\s*\(", rtl))
+        assert native_states == rtl_states and len(native_states) == len(dynamic_owners)
+        names = {owner: emitted_instance_name(native_states, owner) for owner in dynamic_owners}
+        native_owner = "family->" + instance_names[side]
+        rtl_owner = "dut.dut." + instance_names[side]
+        for owner in dynamic_owners:
+            stem = names[owner]
+            cpp_probes.append(f"probe(*{native_owner}->{stem}_state);")
+            rtl_probes.append(f'$write(" %b %b", {rtl_owner}.{stem}.q_current, '
+                              f'{rtl_owner}.{stem}.managed.clock_current);')
+            layout.append({"instance": side, "state": owner, "native": native_owner + "->" + stem,
+                           "rtl": rtl_owner + "." + stem})
+        for owner, token in zip(("first_gate", "second_gate"), tokens, strict=True):
+            stem = names[owner]
+            cpp_injection.append(f"inject<1>(*{native_owner}->{stem}_state, "
+                                 f"{native_owner}->{stem}_q, {token});")
+            rtl_injection.append(f"{rtl_owner}.{stem}.q_current = wire_bit({token});")
+        collect_sampling(sampling, native_owner, rtl_owner, header, rtl)
+    assert len(sampling) == (4 if mode == "dynamic-atomic" else 3)
+    cpp_probes.append('std::cout << " H";')
+    rtl_probes.append('$write(" H");')
+    for native, rtl in sampling:
+        cpp_probes.append(f"std::cout << ' ' << {native};")
+        rtl_probes.append(f'$write(" %b", {rtl});')
+    cpp_originals, probe, visibility = prepare_native_probe(case)
+    driver, bench = case / "driver.cpp", case / "tb.sv"
+    for output, template, injection, probes in (
+            (driver, "serial-method-dynamic.cpp", cpp_injection, cpp_probes),
+            (bench, "serial-method-dynamic.sv", rtl_injection, rtl_probes)):
+        text = (fixtures / template).read_text().replace("@INJECT@", "\n".join(injection))
+        text = text.replace("@PROBES@", "\n".join(probes))
+        assert "@INJECT@" not in text and "@PROBES@" not in text
+        output.write_text(text)
+    rows = (oracle_module.dynamic_entry_stimuli() if mode == "dynamic-entry"
+            else oracle_module.dynamic_stimuli())
+    stimuli = case / "stimuli.txt"
+    stimuli.write_text("\n".join(rows) + "\n")
+    receipt = json.loads((probe / "generated.json").read_text())
+    cpp = [probe / row["path"] for row in receipt["files"] if row["path"].endswith(".cpp")]
+    executable = case / "native-runner"
+    run([args.cxx, "-std=c++20", "-pthread", "-I" + str(repo / "include"),
+         "-I" + str(probe), driver, *cpp, runtime, "-o", executable])
+    traces = []
+    for workers in (1, 2):
+        trace = case / f"native-workers-{workers}.txt"
+        trace.write_text(run([executable, workers, stimuli]).stdout)
+        traces.append(trace)
+    assert traces[0].read_bytes() == traces[1].read_bytes()
+    receipt = json.loads((case / "verilog/generated.json").read_text())
+    rtl = [case / "verilog" / row["path"] for row in receipt["files"] if row["role"] == "rtl"]
+    rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
+    rtl_executable = case / "rtl-runner"
+    run([args.iverilog, "-g2012", "-s", "tb", "-o", rtl_executable,
+         repo / "include/verilog/dffe.v", *rtl, bench])
+    trace = case / "rtl-four-state.txt"
+    trace.write_text(run([args.vvp, rtl_executable, "+stimuli=" + str(stimuli)]).stdout)
+    traces.append(trace)
+    oracle = [sys.executable, oracle_path, "--stimuli", stimuli, "--mode", mode,
+              "--sampling-count", len(sampling)]
+    for trace in traces[:2]:
+        oracle.extend(("--native-trace", trace))
+    oracle.extend(("--trace", traces[2]))
+    run(oracle)
+    common = [[line for line in trace.read_text().splitlines()
+               if line.startswith(("PRE ", "POST "))] for trace in traces]
+    assert common[0] == common[1] == common[2]
+    assert snapshot(case / "cpp") == cpp_originals
+    summaries.append({"mode": mode, "width": 7, "frames": len(rows),
+                      "provider_python_unavailable": True,
+                      "provider_body_unavailable_during_consumer_compile": True,
+                      "before_sha256": digest(before), "after_sha256": digest(after),
+                      "public_final_sha256": digest(final), "replay_final_sha256": digest(replay),
+                      "native_probe": "access-only headers; real gate Q stimulus only",
+                      "visibility": visibility, "generated_cpp_originals_preserved": True,
+                      "probe_layout": layout, "sampling_probes": sampling,
+                      "protected_failures": protected_cases})
+
 tracked = subprocess.run(["git", "ls-files", "-co", "--exclude-standard", "-z"],
                           cwd=repo, capture_output=True, check=True).stdout
 candidate_files = {name.decode(): digest(repo / name.decode())
@@ -450,7 +638,7 @@ candidate_files = {name.decode(): digest(repo / name.decode())
 candidate_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
                                 capture_output=True, text=True, check=True).stdout.strip()
 (scratch / "receipt.json").write_text(json.dumps({
-    "scope": "same-owner and cross-instance true-guard whole-Bits Method execution with selected-root ABI",
+    "scope": "public whole-Bits Method execution: ordinary results and dynamic sampled atomicity",
     "cases": summaries, "candidate_head": candidate_head, "candidate_content_sha256": hashlib.sha256(
         json.dumps(candidate_files, sort_keys=True).encode()).hexdigest(),
     "candidate_files": candidate_files,

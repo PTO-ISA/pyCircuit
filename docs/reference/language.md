@@ -1025,8 +1025,11 @@ one outer writer per actual owner. The lowerer emits sampled-check metadata and
 complete transaction-wiring records. It authenticates the detached candidate
 against the original source plan, then invokes the canonical final hardware
 verifier before atomically replacing the input. Final-IR execution has focused
-C++ workers 1/2 and four-state RTL evidence; the public dynamic-source matrix
-and Method `@system` simulation closure remain unaccepted. The prior accepted
+C++ workers 1/2 and four-state RTL evidence. Public straight-line dynamic source
+tests cover independent transactions, cross-owner atomic calls and guard-entry
+candidate snapshots through the same final IR. They check committed state and
+clock history, including failure, Discard, Reset and frozen Work inputs.
+Method `@system` simulation closure remains unaccepted. The prior accepted
 checkpoint `44b888c5` remains historical evidence, not current verification.
 
 The compiler independently publishes a bounded subset of `@method` and nested

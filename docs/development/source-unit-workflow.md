@@ -59,8 +59,10 @@ C++ and managed RTL consume the same sampling plan, freeze physical pins and
 ordered checks during Work/PREPARE, and commit pending history only after
 whole-system success. False-fire, held and falling samples maintain legal
 history; Discard and failure preserve committed history. Focused final-IR
-execution has native workers 1/2 and four-state RTL evidence. The public
-dynamic-source matrix and Method `@system` closure remain unaccepted;
+execution has native workers 1/2 and four-state RTL evidence. The public dynamic
+source regression additionally covers independent and cross-owner transactions,
+candidate-at-entry guards, actual state/history rollback and native sticky
+failure recovery. These module-root tests do not establish Method `@system` closure;
 historical checkpoint `44b888c5` does not certify the current candidate.
 
 Within one immutable check-plan invocation, `SampledAdmissionValidation` shares
