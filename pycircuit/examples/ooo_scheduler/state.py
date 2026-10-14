@@ -8,6 +8,7 @@ class ReservationStation:
     def __init__() -> None:
         slot = ac.cell[Entry](initial=Entry())
 
+    @ac.rule
     def free(entry: Entry) -> bool:
         return not slot.valid
 
@@ -15,6 +16,7 @@ class ReservationStation:
     def place(entry: Entry) -> None:
         slot = entry
 
+    @ac.rule
     def issuable(kind: ac.u32) -> bool:
         entry = slot
         return entry.valid and entry.kind == kind and entry.lhs.ready and entry.rhs.ready
@@ -49,6 +51,7 @@ class RobSlot:
     def __init__() -> None:
         state = ac.cell[RobEntry](initial=RobEntry())
 
+    @ac.rule
     def free(tag: ac.u32, rd: ac.u32) -> bool:
         return not state.valid
 
@@ -68,6 +71,7 @@ class RobSlot:
     def peek() -> RobEntry:
         return state
 
+    @ac.rule
     def completed(tag: ac.u32) -> bool:
         entry = state
         return entry.valid and entry.done and (entry.tag == tag)
@@ -93,6 +97,7 @@ class ReorderBuffer:
     def has_room() -> bool:
         return tail - head < 4
 
+    @ac.rule
     def room(rd: ac.u32) -> bool:
         return tail - head < 4
 

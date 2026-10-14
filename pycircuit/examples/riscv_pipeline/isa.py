@@ -58,12 +58,12 @@ def decode(packet: Fetched) -> Decoded:
     rs1 = word >> 15 & 31
     rs2 = word >> 20 & 31
     kind = ADD
-    immediate = ac.u32(0)
+    immediate = 0
     immediate_rhs = False
     writes = True
     if opcode == 19:
         assert funct3 == 0
-        rs2 = ac.u32(0)
+        rs2 = 0
         immediate = sext12(word >> 20)
         immediate_rhs = True
     elif opcode == 51:
@@ -73,13 +73,13 @@ def decode(packet: Fetched) -> Decoded:
     elif opcode == 3:
         assert funct3 == 2
         kind = LOAD
-        rs2 = ac.u32(0)
+        rs2 = 0
         immediate = sext12(word >> 20)
         immediate_rhs = True
     else:
         assert opcode == 35 and funct3 == 2
         kind = STORE
-        rd = ac.u32(0)
+        rd = 0
         immediate = sext12(word >> 25 << 5 | word >> 7 & 31)
         immediate_rhs = True
         writes = False

@@ -407,6 +407,7 @@ class Top:
     @ac.rule(SB="allocate")
     def release() -> None:
         occupied = False
+    @ac.rule
     def free() -> bool:
         return not occupied
     @ac.rule(guard=free)
@@ -479,6 +480,7 @@ class Top:
         enabled = ac.cell[bool](initial=False)
         seen = ac.cell[ac.u32](initial=0)
         other = ac.cell[ac.u32](initial=0)
+    @ac.rule
     def ready() -> bool:
         return enabled
     @ac.rule(guard=ready, public=False)
@@ -655,6 +657,7 @@ class Top:
 class Counter:
     def __init__(step: ac.u32) -> None:
         count = ac.cell[ac.u32](initial=1)
+    @ac.rule
     def ready() -> bool:
         return count < 7
     @ac.rule(guard=ready)

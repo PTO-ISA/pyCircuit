@@ -6,6 +6,7 @@ class State:
     def __init__() -> None:
         count = ac.cell[ac.u32](initial=0)
 
+    @ac.rule
     def ready(x: ac.queue[ac.u32]) -> bool:
         return count < 10
 

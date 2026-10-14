@@ -44,7 +44,7 @@ stages: ac.array(Stage, shape=(4,)) = [Stage() for i in range(4)]
 | array(Queue[T]) | 多个独立 Queue 的引用集合 |
 | array(Module) | 固定 Module 实例引用集合 |
 
-只有递归属于 payload 的完整数组可以作为组件存储或普通 helper 的数据参数。组件或 Module 引用数组不能作为跨拍消息，不能传入普通 helper。
+只有递归属于 payload 的完整数组可以作为组件存储。普通 helper 可接收选取后的 payload array，但必须保留选取域。组件或 Module 引用数组不能作为跨拍消息，不能传入普通 helper。
 
 Queue[array(T)] 首版从空队列开始，暂不提供数组消息预装接口。后续若增加预装，外层必须明确表示消息序列，每条消息严格符合 array shape，不猜测数组是一条消息还是多条消息。
 
@@ -73,16 +73,17 @@ state = value
 | a[i, j] | 定位二维数组元素 |
 | a[i] | 定位子数组，保留剩余维度 |
 | a[mask] | 多选，结果仍是 array，保留原 shape、坐标和元素身份 |
-| a[index] | 单选，定位原坐标中的一个元素 |
 | len(a) | 最外层维度的编译时长度，不是已选元素数 |
 
-mask 是与 shape 对齐的多选信号，每个坐标一个 bool，允许零个或多个坐标。index 是带 bool 有效性的单选下标，允许无结果或恰好一个坐标；不通过 Python None 表示无结果。两者不隐式转换为整数或 bool。本文使用 mask、index 表示逻辑类型，不引入额外转换接口。
+mask 是与 shape 对齐的多选信号，每个坐标一个 bool，允许零个或多个坐标。普通下标使用整数坐标，不增加 index 类型或构造器。mask 不隐式转换为整数或 bool；mask[i, j] 读取相应坐标的 bool 选取位。
 
 普通 array 的选取域为全选。a[mask] 不压缩或重新编号；连续选取取交集，不修改原 array。构造选取本身不读取、消费或写入组件，后续实际操作才产生效果，并受选取域约束。
 
 空 mask 是正常结果，得到的 array 选取域为空。后续逐元素效果可以全部不使能，不自动使所属事务未就绪。要求至少一个目标的操作必须明确提供这一执行要求。
 
 实际组件操作沿用原组件语义：Cell 读旧值，Rule 主体中的 Queue 普通值读取提出消费，peek 只观察，写入提出对应效果；Module 组合计算和 guard 中的 Queue 读取只观察。Signal 有效性和 EHR 端口可见性不因 array 改变。不隐式把组件数组整体读取为 payload 数组。
+
+`cells[mask] = value` 向所有选中的组件写入同一 payload，效果归入所属 Rule。不同元素的数据用静态循环显式表达；不提供批量读取。
 
 首版不增加 append、resize、容器 pop、切片、map、fold 或与下标重复的 select/update 公开接口。
 
@@ -107,44 +108,23 @@ mask 是本拍临时 SSA 信息，不隐式增加寄存器，下一拍按模型�
 
 ## 5. 仲裁与无效访问
 
-模型通过显式的只读仲裁 Rule 从选取后的 array 得到单选 index：
+模型通过显式的只读仲裁 Rule 返回普通 tuple：一维为 `(found, position)`，多维为 `(found, i, j, ...)`。found 为 bool，坐标为普通整数，不隐含有效性。
 
 ```python
 selected = metadata[metadata.match(predicate)]
-winner = age.choose(selected)
-```
-
-有效赢家必须属于选取域且唯一，保留原坐标；无候选时返回 valid=False 的 index。底层可以采用独热或编码坐标，不强制编码再解码。相同 shape 不证明两个数组具有相同业务槽位，跨数组使用下标必须保持坐标对应关系。
-
-仲裁查询不提前修改状态。年龄、优先级或释放状态的更新与对应分配、发射等实际事件同事务提交；反压或未就绪时全部取消。
-
-| 情况 | 处理 |
-| --- | --- |
-| 静态下标越界 | 编译报错 |
-| 动态下标越界 | 选择无效，逐维判断范围 |
-| index 无效或目标不在选取域内 | 实际使用向依赖它的事务传播未就绪 |
-| 仅生成、传递或返回无效 index | 正常计算结果，不自动禁用 Rule |
-
-无效访问不返回零、不选择第 0 项，也不能作为 False 进入 else。查找可以放在 Rule 内；下面要求实际读取一个目标，找不到时整个事务不 fire：
-
-```python
-winner = age.choose(selected)
-value = cells[winner]
-out = value
-```
-
-以下则允许无赢家时跳过操作，Rule 的其他效果仍可执行：
-
-```python
-winner = age.choose(selected)
-if winner.valid:
-    value = cells[winner]
+found, position = age.choose(selected)
+if found:
+    value = cells[position]
     out = value
 ```
 
-Rule 只返回查找结果而要求无结果时禁用，需把结果有效性明确写入 guard。Module 层可以承载共享查找计算，不是表达未就绪的必需位置。
+无候选时返回 found=False，坐标不应使用。有效赢家须属于选取域且唯一。仲裁器可用 `selected.match(lambda item: True)` 获取本地候选 mask，再按坐标查询选取位；不增加 is_selected 接口。
 
-Rule 未就绪表示本拍不 fire，不是异常返回。完整执行条件汇总选择路径、guard 及实际必要操作的就绪要求；未执行路径不增加要求，控制条件自身的求值有效性仍须满足。嵌套调用共享外层事务，所有效果统一提交或取消。
+found 分支只关闭其中效果。若要求无赢家时整个 Rule 不执行，明确将 found 纳入 guard；普通坐标不自动传播“未找到”。仲裁查询不修改状态；年龄和释放等更新与实际事件同事务提交，反压时全部取消。
+
+静态下标越界编译报错。动态下标逐维判断范围；越界或实际访问未选元素向依赖该访问的事务传播未就绪，不返回零，也不能作为 False 进入 else。仅构造组件选取不读取、消费或写入资源。
+
+Rule 未就绪表示本拍不 fire，不是异常返回。完整执行条件汇总选择路径、guard 及实际必要操作的就绪要求；未执行路径不增加要求，控制条件自身的有效性仍须满足。嵌套调用共享外层事务，所有效果统一提交或取消。
 
 ## 6. 保守顺序与竞争
 
@@ -152,11 +132,11 @@ Rule 未就绪表示本拍不 fire，不是异常返回。完整执行条件汇�
 
 拓扑排序仅实现已有约束，不增加 EHR 端口可见性，也不构成仲裁或写入优先级。别名、重复 Queue 消费、容量与事务原子性仍须分析；不同数组位置不一定是独立资源。
 
-mask 与 index 两路实际写入可分别生成每个元素的使能：
+mask 与普通下标两路实际写入可分别生成每个元素的使能：
 
 ```text
 enable_A[k] = fire_A AND path_A AND mask[k]
-enable_B[k] = fire_B AND path_B AND index.valid AND (index == k)
+enable_B[k] = fire_B AND path_B AND coordinate_in_range AND (coordinate == k)
 ```
 
 不同真实 Cell 可各自更新；同一真实 Cell 同拍多路有效写入沿用未处理竞争结果不保证的约定，不承诺双写口，不自动决定覆盖优先级。仿真可报告实际竞争，诊断不改变硬件语义。
@@ -167,7 +147,7 @@ enable_B[k] = fire_B AND path_B AND index.valid AND (index == k)
 
 | 阶段 | 要求 |
 | --- | --- |
-| 源语义 MLIR | 保留类型、shape、构造、索引、选取域、match、单选有效性和更新，全部由操作、SSA、属性及 region 承载 |
+| 源语义 MLIR | 保留类型、shape、构造、索引、选取域、match、逐维范围检查和更新，全部由操作、SSA、属性及 region 承载 |
 | 事务 MLIR | 保留 array 结构，明确真实资源候选、别名、路径、就绪、效果、固定端口和静态顺序 |
 | 直接仿真 | 按 shape 解释 array 和选取信息，保留组件状态与同拍视图，不提前读取未选元素 |
 | RTL 友好 MLIR | 物理展开元素状态、组合比较、mux、使能及 next-state，不遗留资源选择、就绪或调度决策 |
@@ -176,7 +156,7 @@ enable_B[k] = fire_B AND path_B AND index.valid AND (index == k)
 
 元素布局采用最后一维变化最快的顺序，二维下标对应 i*N+j，但范围逐维判断，不能让越界坐标别名到另一行。多选传播为元素使能，单选读取生成 mux，组件内部存储按需要继续展开。不自动推断 RAM、时间复用或跨拍缓存。
 
-验收覆盖多维构造、子数组更新、空选取、连续选取、调用传递与跨拍保存拒绝；无效访问取消与 valid 分支跳过；动态别名、重复消费、Queue 反压、EHR 共享视图、保守顺序环和实际竞争；仲裁状态更新与实际提交一致。
+验收覆盖多维构造、子数组更新、空选取、连续选取、调用传递与跨拍保存拒绝；越界访问取消与 found 分支跳过；动态别名、重复消费、Queue 反压、EHR 共享视图、保守顺序环和实际竞争；仲裁状态更新与实际提交一致。
 
 事务与 RTL 执行器必须逐拍一致，并对照独立预期。优化开关和各阶段 MLIR 保存重载保持行为一致，轨迹保留原数组坐标。JSON 只用于报告。上述为实施验收要求，尚未运行新设计测试。
 

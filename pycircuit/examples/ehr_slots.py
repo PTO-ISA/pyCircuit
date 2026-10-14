@@ -16,6 +16,7 @@ class Slot:
     def available() -> bool:
         return not occupied
 
+    @ac.rule
     def free(value: ac.u32) -> bool:
         return available()
 
