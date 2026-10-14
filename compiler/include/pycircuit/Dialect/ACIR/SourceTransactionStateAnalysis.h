@@ -22,6 +22,8 @@ using StateReadId = uint64_t;
 using StateWriteId = uint64_t;
 using GuardBoundaryId = uint64_t;
 using CallBindingId = uint64_t;
+using BodyCheckId = uint64_t;
+using ObservationId = uint64_t;
 /// Number of ordered guards required to admit: zero is unconditional.
 using AdmissionPrefix = uint64_t;
 
@@ -201,12 +203,44 @@ struct TransactionCallBinding {
   llvm::SmallVector<TransactionResultBinding> results;
 };
 
+/// Statement-time check inputs in one invocation. The condition is retained
+/// even when false or unknown; only the authored path requires a true proof.
+/// A null message is absent, while a nonnull empty string is authored empty.
+struct TransactionBodyCheck {
+  SourceExpectOp operation;
+  InvocationFrameId frame = 0;
+  BoundValueId condition = 0;
+  BoundValueId path = 0;
+  mlir::DictionaryAttr occurrence;
+  mlir::DictionaryAttr location;
+  mlir::StringAttr message;
+  AdmissionPrefix requiredPrefix = 0;
+};
+
+/// Ordered statement-time payloads. The frame's anchor identifies the logical
+/// receiver; its parent chain retains invocation history. Repeated expansions
+/// keep separate records even when they borrow the same source operation.
+/// Literal-only logs have no values; no emission sentinel belongs in this plan.
+struct TransactionObservation {
+  SourceObserveOp operation;
+  InvocationFrameId frame = 0;
+  BoundValueId path = 0;
+  llvm::SmallVector<BoundValueId, 0> values;
+  mlir::DictionaryAttr occurrence;
+  mlir::DictionaryAttr location;
+  mlir::StringAttr kind;
+  mlir::DictionaryAttr spec;
+  AdmissionPrefix requiredPrefix = 0;
+};
+
 enum class TransactionStateEventKind {
   TransactionEnter,
   GuardEnter,
   Read,
   GuardExit,
   Write,
+  BodyCheck,
+  Observe,
   CallEnter,
   CallExit,
   TransactionExit
@@ -216,7 +250,7 @@ enum class TransactionStateEventKind {
 /// different invocation frames. Only the matching kind's record reference is
 /// set; transaction boundaries carry a frame and no record reference.
 /// CallEnter/CallExit use the caller frame; the call record identifies the
-/// callee. Guard/read/write events use the invocation that owns their
+/// callee. Guard/read/write/body-effect events use the invocation that owns their
 /// operation, and transaction boundaries use rootFrame.
 struct TransactionStateEvent {
   TransactionStateEventKind kind = TransactionStateEventKind::TransactionEnter;
@@ -226,6 +260,8 @@ struct TransactionStateEvent {
   std::optional<GuardBoundaryId> guard;
   std::optional<CallBindingId> call;
   AdmissionPrefix prefix = 0;
+  std::optional<BodyCheckId> bodyCheck;
+  std::optional<ObservationId> observation;
 };
 
 /// A borrowed, transaction-relative version/use-def plan. Each transaction
@@ -248,6 +284,8 @@ struct TransactionStatePlan {
   llvm::SmallVector<StateWriteIntent, 0> writes;
   llvm::SmallVector<GuardBoundary, 0> guards;
   llvm::SmallVector<TransactionCallBinding, 0> calls;
+  llvm::SmallVector<TransactionBodyCheck, 0> bodyChecks;
+  llvm::SmallVector<TransactionObservation, 0> observations;
   llvm::SmallVector<TransactionStateEvent, 0> events;
   llvm::SmallVector<OwnerVersionBinding> finalVersions;
   llvm::SmallVector<TransactionResultBinding, 0> results;

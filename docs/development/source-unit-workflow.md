@@ -77,8 +77,13 @@ interfaces. Direct callable-body assert/log/report reuse the existing expect/obs
 operations, original source occurrence/span and closed ordered summary variants.
 They cannot supply final CheckID/ObservationID. Shared spec and provenance validators
 serve definitions and interfaces; provider body rederivation remains authoritative.
-Until state-plan effect records and lowering exist, reachable body effects explicitly
-fail state analysis/link rather than being omitted from a generated design. Consumer compilation reads the interfaces, without loading provider
+State analysis now retains explicit body-check and observation records with their
+original bound SSA values, invocation frames, source metadata and operand-derived
+validity prefixes. Assertions create no guards or state versions. The authored
+path must be proven true; false or unknown assertion conditions remain records.
+Until sampled effect lowering and authentication exist, final link explicitly
+rejects these plans before materialization. Direct clone/proof entrypoints retain
+the same barrier rather than omitting effects from a generated design. Consumer compilation reads the interfaces, without loading provider
 Python or Method bodies. Native final link lowers calls through ordinary
 static instances with straight-line effects, a shared actual clock/reset
 domain and one outer writer per physical scalar owner. Ordinary results escaping an outer Rule still

@@ -36,6 +36,109 @@ bool product(SourceCheckBudget &budget, Operation *site, uint64_t count,
   return charge(budget, site, SourceCheckBudget::multiply(count, units));
 }
 
+template <typename OpTy>
+Operation *effectSite(const OpTy &operation,
+                      ac::SourceTransactionOp transaction) {
+  return operation ? operation.operator->() : transaction.operator->();
+}
+
+LogicalResult verifyClosedPurePayload(Operation *root,
+                                      SourceCheckBudget &budget,
+                                      StringRef description) {
+  SmallVector<Operation *> pending{root};
+  while (!pending.empty()) {
+    Operation *operation = pending.pop_back_val();
+    if (!charge(budget, operation,
+                3 + uint64_t(operation->getNumOperands()) * 2 +
+                    uint64_t(operation->getNumResults()) * 2 +
+                    operation->getNumRegions() +
+                    operation->getRawDictionaryAttrs().size() +
+                    operation->getPropertiesStorageSize()))
+      return failure();
+    if (isa<ac::SourceExpectOp, ac::SourceObserveOp>(operation))
+      return operation->emitOpError()
+             << "transaction body checks/observations require sampled effect "
+                "lowering";
+    if (!ac::detail::isCombinationalHardwareOperation(operation) &&
+        !(operation != root && isa<ac::YieldOp>(operation)))
+      return operation->emitOpError() << description;
+    for (Region &region : operation->getRegions())
+      for (Block &block : region) {
+        if (!charge(budget, operation,
+                    1 + uint64_t(block.getNumArguments()) * 2))
+          return failure();
+        for (Operation &nested : block) {
+          if (!charge(budget, operation))
+            return failure();
+          pending.push_back(&nested);
+        }
+      }
+  }
+  return success();
+}
+
+LogicalResult rejectBodyEffects(const ac::TransactionStatePlan &plan,
+                                SourceCheckBudget &budget) {
+  auto transaction = plan.transaction;
+  auto reject = [&](Operation *site) -> LogicalResult {
+    return site->emitOpError()
+           << "transaction body checks/observations require sampled effect "
+              "lowering";
+  };
+  for (const auto &event : plan.events) {
+    if (!charge(budget, transaction))
+      return failure();
+    switch (event.kind) {
+    case ac::TransactionStateEventKind::TransactionEnter:
+    case ac::TransactionStateEventKind::GuardEnter:
+    case ac::TransactionStateEventKind::Read:
+    case ac::TransactionStateEventKind::GuardExit:
+    case ac::TransactionStateEventKind::Write:
+    case ac::TransactionStateEventKind::CallEnter:
+    case ac::TransactionStateEventKind::CallExit:
+    case ac::TransactionStateEventKind::TransactionExit:
+      break;
+    case ac::TransactionStateEventKind::BodyCheck:
+      return reject(event.bodyCheck && *event.bodyCheck < plan.bodyChecks.size()
+                        ? effectSite(plan.bodyChecks[*event.bodyCheck].operation,
+                                     transaction)
+                        : transaction.getOperation());
+    case ac::TransactionStateEventKind::Observe:
+      return reject(event.observation &&
+                            *event.observation < plan.observations.size()
+                        ? effectSite(
+                              plan.observations[*event.observation].operation,
+                              transaction)
+                        : transaction.getOperation());
+    }
+  }
+  for (const auto &check : plan.bodyChecks) {
+    if (!charge(budget, transaction))
+      return failure();
+    return reject(effectSite(check.operation, transaction));
+  }
+  for (const auto &observation : plan.observations) {
+    if (!charge(budget, transaction))
+      return failure();
+    return reject(effectSite(observation.operation, transaction));
+  }
+  return success();
+}
+
+LogicalResult rejectBodyEffects(const PreparedTransactionLowering &prepared,
+                                SourceCheckBudget &budget) {
+  for (const auto &transaction : prepared.transactions) {
+    if (!transaction.plan)
+      return prepared.original->emitError()
+             << "transaction lowering requires an intact prepared state plan";
+    if (!charge(budget, prepared.original))
+      return failure();
+    if (failed(rejectBodyEffects(*transaction.plan, budget)))
+      return failure();
+  }
+  return success();
+}
+
 LogicalResult mergedEnvelope(mlir::ModuleOp package) {
   if (package->hasAttr("ac.stage"))
     return package.emitError()
@@ -363,6 +466,8 @@ private:
 
   LogicalResult admit(const ac::TransactionStatePlan &plan) {
     auto transaction = plan.transaction;
+    if (failed(rejectBodyEffects(plan, budget)))
+      return failure();
     for (const auto &guard : plan.guards) {
       if (!charge(budget, transaction))
         return failure();
@@ -696,9 +801,10 @@ Value bitsLiteral(Type payload, DictionaryAttr occurrence, Location location,
 class RuleMaterializer {
 public:
   RuleMaterializer(const TransactionPreparation &prepared,
-                   IRMapping &packageMap, MaterializationRoutes &routes)
+                   IRMapping &packageMap, MaterializationRoutes &routes,
+                   SourceCheckBudget &budget)
       : prepared(prepared), plan(*prepared.plan), packageMap(packageMap),
-        routes(routes), frames(plan.frames.size()),
+        routes(routes), budget(budget), frames(plan.frames.size()),
         versions(plan.versions.size()) {}
 
   FailureOr<MaterializedTransaction> run() {
@@ -862,7 +968,16 @@ private:
               return failure();
             frames[frame].map(plan.values[result.result].value, *value);
           }
+        } else if (isa<ac::SourceExpectOp, ac::SourceObserveOp>(op)) {
+          return op.emitOpError()
+                 << "transaction body checks/observations require sampled "
+                    "effect lowering";
         } else {
+          if (failed(verifyClosedPurePayload(
+                  &op, budget,
+                  "transaction invocation requires closed pure payload "
+                  "operations")))
+            return failure();
           for (Value operand : op.getOperands())
             if (!frames[frame].contains(operand))
               return op.emitOpError() << "transaction pure operand is unmapped";
@@ -901,6 +1016,7 @@ private:
   IRMapping &packageMap;
   using LexicalKey = std::pair<ac::LexicalInstanceId, Value>;
   MaterializationRoutes &routes;
+  SourceCheckBudget &budget;
   llvm::DenseMap<LexicalKey, Value> lexical;
   SmallVector<IRMapping, 0> frames;
   SmallVector<Value, 0> versions;
@@ -1134,7 +1250,7 @@ LogicalResult materialize(const PreparedTransactionLowering &prepared, mlir::Mod
   };
   SmallVector<Replacement> replacements;
   for (const auto &transaction : prepared.transactions) {
-    RuleMaterializer builder(transaction, mapping, routes);
+    RuleMaterializer builder(transaction, mapping, routes, budget);
     auto rule = builder.run();
     if (failed(rule))
       return failure();
@@ -1923,7 +2039,16 @@ private:
                 return reject("original call yielded-result binding differs");
               authenticated[frame].map(source, value);
             }
+          } else if (isa<ac::SourceExpectOp, ac::SourceObserveOp>(op)) {
+            return op.emitOpError()
+                   << "transaction body checks/observations require sampled "
+                      "effect lowering";
           } else {
+            if (failed(verifyClosedPurePayload(
+                    &op, budget,
+                    "transaction source proof requires closed pure payload "
+                    "operations")))
+              return failure();
             auto actual = record.frames[frame].lookupOrNull(&op);
             if (!actual || !operations.contains(actual) || actual->getBlock() != &rule.getBody().front() ||
                 (last && !last->isBeforeInBlock(actual)))
@@ -2070,7 +2195,8 @@ FailureOr<MaterializedTransactionLowering>
 materializeTransactionLowering(const PreparedTransactionLowering &prepared,
                                SourceCheckBudget &budget) {
   budget.setPhase("transaction clone/materialization");
-  if (!charge(budget, prepared.original,
+  if (failed(rejectBodyEffects(prepared, budget)) ||
+      !charge(budget, prepared.original,
               SourceCheckBudget::multiply(prepared.transactions.size(),
                   SourceCheckBudget::bytes(sizeof(MaterializedTransaction)))))
     return failure();
@@ -2087,7 +2213,8 @@ LogicalResult verifyTransactionMaterialization(
     const MaterializedTransactionLowering &candidate,
     SourceCheckBudget &budget) {
   budget.setPhase("transaction original-source proof");
-  if (!candidate.module || failed(OriginalSourceProof(prepared, candidate, budget).run()))
+  if (failed(rejectBodyEffects(prepared, budget)) || !candidate.module ||
+      failed(OriginalSourceProof(prepared, candidate, budget).run()))
     return failure();
   // The canonical verifier owns final IR admission and its independent budget.
   return ac::verifyHardwarePackage(*candidate.module);

@@ -273,6 +273,12 @@ protected:
       case TransactionStateEventKind::CallExit:
         actual = candidate.call;
         break;
+      case TransactionStateEventKind::BodyCheck:
+        actual = candidate.bodyCheck;
+        break;
+      case TransactionStateEventKind::Observe:
+        actual = candidate.observation;
+        break;
       case TransactionStateEventKind::TransactionEnter:
       case TransactionStateEventKind::TransactionExit:
         break;
@@ -1115,6 +1121,58 @@ TEST_F(TransactionStateSSATest, AnalysisManagerInvalidatesAfterIRMutation) {
 }
 
 TEST_F(TransactionStateSSATest,
+       AnalysisManagerRebuildsBodyEffectOperandsAndMetadataAfterMutation) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto &body = run.getBody().front();
+  auto read = first<SourceStateReadOp>(run.getBody());
+  builder.setInsertionPoint(body.getTerminator());
+  mlir::OperationState state(run.getLoc(), SourceObserveOp::getOperationName());
+  state.addOperands({body.getArgument(0), body.getArgument(1)});
+  state.addAttribute("kind", builder.getStringAttr("report"));
+  auto beforeSpec = builder.getDictionaryAttr(
+      {builder.getNamedAttr("name", builder.getStringAttr("before"))});
+  state.addAttribute("spec", beforeSpec);
+  state.addAttribute("occurrence", occurrence("Root", 30));
+  state.addAttribute("ac.location", span("state.py", 30));
+  auto observation = mlir::cast<SourceObserveOp>(builder.create(state));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  mlir::ModuleAnalysisManager manager(file->getOperation(), nullptr);
+  mlir::AnalysisManager am = manager;
+  auto &initial = capture([&]() -> SourceTransactionStateAnalysis & {
+    return am.getAnalysis<SourceTransactionStateAnalysis>();
+  });
+  ASSERT_TRUE(initial.isValid()) << diagnostics;
+  auto *initialPlan = initial.lookup(run);
+  ASSERT_NE(initialPlan, nullptr);
+  ASSERT_EQ(initialPlan->observations.size(), 1u);
+  EXPECT_EQ(initialPlan->values[initialPlan->observations[0].values[0]].value,
+            body.getArgument(1));
+  EXPECT_EQ(initialPlan->observations[0].spec, beforeSpec);
+
+  auto afterSpec = builder.getDictionaryAttr(
+      {builder.getNamedAttr("name", builder.getStringAttr("after"))});
+  observation->setOperand(1, read.getResult());
+  observation->setAttr("spec", afterSpec);
+  am.invalidate(mlir::detail::PreservedAnalyses());
+  EXPECT_FALSE(
+      am.getCachedAnalysis<SourceTransactionStateAnalysis>().has_value());
+  auto &rebuilt = capture([&]() -> SourceTransactionStateAnalysis & {
+    return am.getAnalysis<SourceTransactionStateAnalysis>();
+  });
+  ASSERT_TRUE(rebuilt.isValid()) << diagnostics;
+  auto *rebuiltPlan = rebuilt.lookup(run);
+  ASSERT_NE(rebuiltPlan, nullptr);
+  ASSERT_EQ(rebuiltPlan->observations.size(), 1u);
+  EXPECT_EQ(rebuiltPlan->values[rebuiltPlan->observations[0].values[0]].value,
+            read.getResult());
+  EXPECT_EQ(rebuiltPlan->observations[0].spec, afterSpec);
+}
+
+TEST_F(TransactionStateSSATest,
        ImportedSummaryCannotSubstituteForExecutableMethodBody) {
   auto file = parse();
   ASSERT_TRUE(file);
@@ -1138,39 +1196,392 @@ TEST_F(TransactionStateSSATest,
 }
 
 TEST_F(TransactionStateSSATest,
-       UnplannedChecksAndObservationsFailBeforePublishingAnyStatePlan) {
-  for (llvm::StringRef kind : {"expect", "observe"}) {
-    auto file = parse();
-    ASSERT_TRUE(file);
-    auto run = transaction(*file);
-    auto &body = run.getBody().front();
-    auto path = body.getArgument(0);
-    builder.setInsertionPoint(body.getTerminator());
-    mlir::OperationState effect(
-        run.getLoc(), kind == "expect" ? SourceExpectOp::getOperationName()
-                                       : SourceObserveOp::getOperationName());
-    if (kind == "expect") {
-      effect.addOperands({path, path});
-      effect.addAttribute("kind", builder.getStringAttr("assert"));
-      effect.addAttribute("location", span("state.py", 30));
-    } else {
-      effect.addOperands({path, body.getArgument(1)});
-      effect.addAttribute("kind", builder.getStringAttr("report"));
-      effect.addAttribute("spec",
-                          builder.getDictionaryAttr({builder.getNamedAttr(
-                              "name", builder.getStringAttr("candidate"))}));
-      effect.addAttribute("ac.location", span("state.py", 30));
-    }
-    effect.addAttribute("occurrence", occurrence("Root", 30));
-    builder.create(effect);
-    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
-        << diagnostics;
+       BodyEffectsBindStatementTimeSSAAndExpandedInvocationFrames) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto bump = method(*file);
+  auto &rootBody = run.getBody().front();
+  auto rootPath = rootBody.getArgument(0);
+  auto rootReads = llvm::to_vector(rootBody.getOps<SourceStateReadOp>());
+  auto rootCalls = llvm::to_vector(rootBody.getOps<SourceMethodCallOp>());
+  ASSERT_EQ(rootReads.size(), 2u);
+  ASSERT_GE(rootCalls.size(), 3u);
 
-    reject(*file);
-    EXPECT_TRUE(diagnostics.find("effect") != std::string::npos ||
-                diagnostics.find("plan") != std::string::npos ||
-                diagnostics.find("unsupported") != std::string::npos)
-        << diagnostics;
+  auto valueItem = [&](unsigned ordinal) {
+    return builder.getDictionaryAttr(
+        {builder.getNamedAttr("kind", builder.getStringAttr("value")),
+         builder.getNamedAttr("ordinal", builder.getI32IntegerAttr(ordinal))});
+  };
+  auto literalItem = [&](llvm::StringRef text) {
+    return builder.getDictionaryAttr(
+        {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+         builder.getNamedAttr("text", builder.getStringAttr(text))});
+  };
+  auto addObserve = [&](mlir::Block &block, mlir::Block::iterator where,
+                        mlir::Value path, mlir::ValueRange values,
+                        mlir::DictionaryAttr spec, llvm::StringRef kind,
+                        llvm::StringRef owner, unsigned index) {
+    builder.setInsertionPoint(&block, where);
+    mlir::OperationState state(run.getLoc(),
+                               SourceObserveOp::getOperationName());
+    state.addOperands(path);
+    state.addOperands(values);
+    state.addAttribute("kind", builder.getStringAttr(kind));
+    state.addAttribute("spec", spec);
+    state.addAttribute("occurrence", occurrence(owner, index));
+    state.addAttribute("ac.location", span("state.py", index));
+    return mlir::cast<SourceObserveOp>(builder.create(state));
+  };
+  auto addCheck = [&](mlir::Block &block, mlir::Block::iterator where,
+                      mlir::Value condition, mlir::Value path,
+                      llvm::StringRef owner, unsigned index,
+                      std::optional<llvm::StringRef> message) {
+    builder.setInsertionPoint(&block, where);
+    mlir::OperationState state(run.getLoc(),
+                               SourceExpectOp::getOperationName());
+    state.addOperands({condition, path});
+    state.addAttribute("kind", builder.getStringAttr("assert"));
+    state.addAttribute("location", span("state.py", index));
+    state.addAttribute("occurrence", occurrence(owner, index));
+    if (message)
+      state.addAttribute("ac.message", builder.getStringAttr(*message));
+    return mlir::cast<SourceExpectOp>(builder.create(state));
+  };
+
+  auto mixedSpec = builder.getDictionaryAttr(
+      {builder.getNamedAttr("level", builder.getStringAttr("info")),
+       builder.getNamedAttr("event", builder.getStringAttr("saved")),
+       builder.getNamedAttr(
+           "items", builder.getArrayAttr({valueItem(0), literalItem("then"),
+                                          valueItem(1), valueItem(2)}))});
+  auto pre = addObserve(rootBody, rootCalls[2]->getIterator(), rootPath,
+                        mlir::ValueRange{rootReads[0].getResult(),
+                                         rootCalls[0].getResult(0),
+                                         rootReads[0].getResult()},
+                        mixedSpec, "log", "Root", 20);
+  auto directCheck = addCheck(rootBody, rootCalls[2]->getIterator(), rootPath,
+                              rootPath, "Root", 21, llvm::StringRef(""));
+  auto root = module(*file, "Root");
+  auto rootConstants = root.getBody().front().getOps<BitsConstantOp>();
+  auto rootFalse = *std::next(rootConstants.begin());
+  auto *falseCondition = rootFalse->clone();
+  rootBody.getOperations().insert(rootCalls[2]->getIterator(), falseCondition);
+  auto falseCheck = addCheck(rootBody, rootCalls[2]->getIterator(),
+                             falseCondition->getResult(0), rootPath, "Root", 24,
+                             std::nullopt);
+  auto postSpec = builder.getDictionaryAttr(
+      {builder.getNamedAttr("name", builder.getStringAttr("post"))});
+  auto post = addObserve(rootBody, std::next(rootReads[1]->getIterator()),
+                         rootPath, mlir::ValueRange(rootReads[1].getResult()),
+                         postSpec, "report", "Root", 22);
+  auto literalSpec = builder.getDictionaryAttr(
+      {builder.getNamedAttr("level", builder.getStringAttr("debug")),
+       builder.getNamedAttr("event", builder.getStringAttr("literal")),
+       builder.getNamedAttr("items",
+                            builder.getArrayAttr({literalItem("only")}))});
+  auto literal =
+      addObserve(rootBody, rootBody.getTerminator()->getIterator(), rootPath,
+                 mlir::ValueRange{}, literalSpec, "log", "Root", 23);
+
+  auto &methodBody = bump.getBody().front();
+  auto methodRead = first<SourceStateReadOp>(bump.getBody());
+  auto methodPath = methodBody.getArgument(1);
+  auto methodSpec = builder.getDictionaryAttr(
+      {builder.getNamedAttr("name", builder.getStringAttr("method-old"))});
+  auto expandedObserve =
+      addObserve(methodBody, methodBody.getTerminator()->getIterator(),
+                 methodPath, mlir::ValueRange(methodRead.getResult()),
+                 methodSpec, "report", "Child", 20);
+  auto expandedCheck = addCheck(
+      methodBody, methodBody.getTerminator()->getIterator(),
+      methodBody.getArgument(5), methodPath, "Child", 21, std::nullopt);
+
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto before = print(file->getOperation());
+  auto operations = identities(*file);
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(plan->bodyChecks.size(), 5u);
+  EXPECT_EQ(plan->observations.size(), 6u);
+  EXPECT_EQ(plan->versions.size(), 7u);
+  EXPECT_EQ(before, print(file->getOperation()));
+  EXPECT_EQ(operations, identities(*file));
+
+  auto recordFor = [&](SourceObserveOp operation,
+                       std::optional<InvocationFrameId> frame = std::nullopt) {
+    const TransactionObservation *found = nullptr;
+    for (const auto &record : plan->observations)
+      if (record.operation == operation && (!frame || record.frame == *frame)) {
+        EXPECT_EQ(found, nullptr);
+        found = &record;
+      }
+    return found;
+  };
+  auto preRecord = recordFor(pre);
+  auto postRecord = recordFor(post);
+  auto literalRecord = recordFor(literal);
+  ASSERT_NE(preRecord, nullptr);
+  ASSERT_NE(postRecord, nullptr);
+  ASSERT_NE(literalRecord, nullptr);
+  ASSERT_EQ(preRecord->values.size(), 3u);
+  EXPECT_EQ(plan->values[preRecord->values[0]].value, rootReads[0].getResult());
+  EXPECT_EQ(plan->values[preRecord->values[1]].value,
+            rootCalls[0].getResult(0));
+  EXPECT_EQ(preRecord->values[0], preRecord->values[2]);
+  EXPECT_EQ(plan->values[postRecord->values[0]].value,
+            rootReads[1].getResult());
+  EXPECT_TRUE(literalRecord->values.empty());
+  const TransactionBodyCheck *directCheckRecord = nullptr;
+  for (const auto &record : plan->bodyChecks)
+    if (record.operation == directCheck)
+      directCheckRecord = &record;
+  ASSERT_NE(directCheckRecord, nullptr);
+  ASSERT_TRUE(directCheckRecord->message);
+  EXPECT_TRUE(directCheckRecord->message.getValue().empty());
+  EXPECT_EQ(directCheckRecord->condition, directCheckRecord->path);
+  const TransactionBodyCheck *falseCheckRecord = nullptr;
+  for (const auto &record : plan->bodyChecks)
+    if (record.operation == falseCheck)
+      falseCheckRecord = &record;
+  ASSERT_NE(falseCheckRecord, nullptr);
+  EXPECT_NE(falseCheckRecord->condition, falseCheckRecord->path);
+  auto conditionValue = plan->values[falseCheckRecord->condition].value;
+  auto conditionLiteral = conditionValue.getDefiningOp<BitsConstantOp>();
+  ASSERT_TRUE(conditionLiteral);
+  EXPECT_EQ(conditionLiteral.getValue(), rootFalse.getValue());
+
+  const StateReadBinding *preRead = nullptr, *postRead = nullptr;
+  for (const auto &read : plan->reads) {
+    if (read.operation == rootReads[0])
+      preRead = &read;
+    if (read.operation == rootReads[1])
+      postRead = &read;
+  }
+  ASSERT_NE(preRead, nullptr);
+  ASSERT_NE(postRead, nullptr);
+  EXPECT_EQ(ordinal(*plan, preRead->version), 0u);
+  EXPECT_EQ(ordinal(*plan, postRead->version), 1u);
+  auto *preEvent = event(*plan, TransactionStateEventKind::Observe,
+                         preRecord - plan->observations.data());
+  ASSERT_NE(preEvent, nullptr);
+  EXPECT_LT(preRecord->requiredPrefix, preEvent->prefix)
+      << "saved operands retain their original admission prefix";
+
+  llvm::SmallVector<const TransactionObservation *> expanded;
+  for (const auto &record : plan->observations)
+    if (record.operation == expandedObserve)
+      expanded.push_back(&record);
+  ASSERT_EQ(expanded.size(), 3u);
+  EXPECT_NE(expanded[0]->frame, expanded[1]->frame);
+  EXPECT_NE(expanded[1]->frame, expanded[2]->frame);
+  EXPECT_EQ(plan->frames[expanded[0]->frame].anchor,
+            plan->frames[expanded[1]->frame].anchor);
+  EXPECT_NE(plan->frames[expanded[1]->frame].anchor,
+            plan->frames[expanded[2]->frame].anchor);
+  for (const auto *record : expanded) {
+    EXPECT_EQ(record->kind.getValue(), "report");
+    EXPECT_EQ(record->operation, expandedObserve);
+    EXPECT_EQ(record->occurrence, expandedObserve->getAttr("occurrence"));
+  }
+  unsigned expandedChecks = 0;
+  for (const auto &record : plan->bodyChecks)
+    if (record.operation == expandedCheck) {
+      ++expandedChecks;
+      EXPECT_FALSE(record.message);
+    }
+  EXPECT_EQ(expandedChecks, 3u);
+  BodyCheckId nextCheck = 0;
+  ObservationId nextObservation = 0;
+  for (const auto &entry : plan->events) {
+    if (entry.kind == TransactionStateEventKind::BodyCheck) {
+      ASSERT_TRUE(entry.bodyCheck);
+      EXPECT_EQ(*entry.bodyCheck, nextCheck++);
+      EXPECT_EQ(entry.frame, plan->bodyChecks[*entry.bodyCheck].frame);
+      EXPECT_FALSE(entry.observation);
+      EXPECT_FALSE(entry.read);
+      EXPECT_FALSE(entry.write);
+      EXPECT_FALSE(entry.guard);
+      EXPECT_FALSE(entry.call);
+    } else if (entry.kind == TransactionStateEventKind::Observe) {
+      ASSERT_TRUE(entry.observation);
+      EXPECT_EQ(*entry.observation, nextObservation++);
+      EXPECT_EQ(entry.frame, plan->observations[*entry.observation].frame);
+      EXPECT_FALSE(entry.bodyCheck);
+      EXPECT_FALSE(entry.read);
+      EXPECT_FALSE(entry.write);
+      EXPECT_FALSE(entry.guard);
+      EXPECT_FALSE(entry.call);
+    } else {
+      EXPECT_FALSE(entry.bodyCheck);
+      EXPECT_FALSE(entry.observation);
+    }
+  }
+  EXPECT_EQ(nextCheck, plan->bodyChecks.size());
+  EXPECT_EQ(nextObservation, plan->observations.size());
+
+  auto eventIndex = [&](TransactionStateEventKind kind,
+                        uint64_t record) -> size_t {
+    for (auto [index, entry] : llvm::enumerate(plan->events)) {
+      if (entry.kind == kind &&
+          ((kind == TransactionStateEventKind::BodyCheck && entry.bodyCheck &&
+            *entry.bodyCheck == record) ||
+           (kind == TransactionStateEventKind::Observe && entry.observation &&
+            *entry.observation == record)))
+        return index;
+    }
+    ADD_FAILURE() << "missing projected body-effect event";
+    return size_t(0);
+  };
+  for (const auto *observation : expanded) {
+    auto observationId = observation - plan->observations.data();
+    auto observationEvent =
+        eventIndex(TransactionStateEventKind::Observe, observationId);
+    const TransactionBodyCheck *matchingCheck = nullptr;
+    for (const auto &check : plan->bodyChecks)
+      if (check.operation == expandedCheck && check.frame == observation->frame)
+        matchingCheck = &check;
+    ASSERT_NE(matchingCheck, nullptr);
+    auto checkEvent = eventIndex(TransactionStateEventKind::BodyCheck,
+                                 matchingCheck - plan->bodyChecks.data());
+    EXPECT_LT(observationEvent, checkEvent);
+    bool sawRead = false, sawCallExit = false;
+    for (auto [index, entry] : llvm::enumerate(plan->events)) {
+      if (entry.frame == observation->frame &&
+          entry.kind == TransactionStateEventKind::Read &&
+          index < observationEvent)
+        sawRead = true;
+      if (entry.kind == TransactionStateEventKind::CallExit && entry.call &&
+          plan->calls[*entry.call].callee == observation->frame) {
+        EXPECT_GT(index, checkEvent);
+        sawCallExit = true;
+      }
+    }
+    EXPECT_TRUE(sawRead);
+    EXPECT_TRUE(sawCallExit);
+  }
+  auto text = dump(*analysis);
+  EXPECT_NE(text.find("body-check"), std::string::npos);
+  EXPECT_NE(text.find("observe"), std::string::npos);
+  EXPECT_EQ(text.find("0x"), std::string::npos);
+}
+
+TEST_F(TransactionStateSSATest,
+       LaterFalseGuardInVoidTransactionDoesNotPruneEarlierObservation) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto watch = transaction(*file, "watch");
+  auto &body = watch.getBody().front();
+  auto read = first<SourceStateReadOp>(watch.getBody());
+  auto call = first<SourceMethodCallOp>(watch.getBody());
+  builder.setInsertionPoint(call);
+  mlir::OperationState observation(watch.getLoc(),
+                                   SourceObserveOp::getOperationName());
+  observation.addOperands({body.getArgument(0), read.getResult()});
+  observation.addAttribute("kind", builder.getStringAttr("report"));
+  observation.addAttribute(
+      "spec", builder.getDictionaryAttr({builder.getNamedAttr(
+                  "name", builder.getStringAttr("before-false-guard"))}));
+  observation.addAttribute("occurrence", occurrence("Root", 30));
+  observation.addAttribute("ac.location", span("state.py", 30));
+  auto sourceObservation =
+      mlir::cast<SourceObserveOp>(builder.create(observation));
+  auto child = module(*file, "Child");
+  auto constants = child.getBody().front().getOps<BitsConstantOp>();
+  auto no = *std::next(constants.begin());
+  auto peek = method(*file, "peek");
+  auto *falsePeek = peek->clone();
+  falsePeek->setAttr("sym_name", builder.getStringAttr("peek_false"));
+  falsePeek->setAttr("occurrence", occurrence("Child", 30));
+  for (auto &region : falsePeek->getRegions())
+    for (auto read : llvm::make_early_inc_range(
+             region.front().getOps<SourceStateReadOp>()))
+      read->erase();
+  auto &falseGuard = falsePeek->getRegion(0).front();
+  auto *falsePredicate = no->clone();
+  falseGuard.getOperations().insert(falseGuard.begin(), falsePredicate);
+  falseGuard.getTerminator()->setOperand(0, falsePredicate->getResult(0));
+  child.getBody().front().getOperations().insert(peek->getIterator(), falsePeek);
+  call->setAttr("callee",
+                mlir::SymbolRefAttr::get(
+                    &context, "Child",
+                    {mlir::FlatSymbolRefAttr::get(&context, "peek_false")}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(watch);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->observations.size(), 1u);
+  EXPECT_EQ(plan->observations[0].operation, sourceObservation);
+  ASSERT_EQ(plan->observations[0].values.size(), 1u);
+  EXPECT_EQ(plan->values[plan->observations[0].values[0]].value,
+            read.getResult());
+  EXPECT_TRUE(plan->bodyChecks.empty());
+  EXPECT_TRUE(plan->writes.empty());
+  EXPECT_EQ(plan->versions.size(), plan->owners.size());
+  ASSERT_EQ(plan->guards.size(), 2u);
+  ASSERT_TRUE(plan->guards.back().predicateFact);
+  EXPECT_FALSE(plan->guards.back().predicateFact.getValue());
+  size_t observationEvent = plan->events.size(), falseGuardEnter = 0;
+  for (auto [index, entry] : llvm::enumerate(plan->events)) {
+    if (entry.kind == TransactionStateEventKind::Observe)
+      observationEvent = index;
+    if (entry.kind == TransactionStateEventKind::GuardEnter && entry.guard &&
+        *entry.guard == 1)
+      falseGuardEnter = index;
+  }
+  ASSERT_LT(observationEvent, plan->events.size());
+  EXPECT_LT(observationEvent, falseGuardEnter);
+}
+
+TEST_F(TransactionStateSSATest,
+       FalseAuthoredBodyEffectPathsRejectEveryPlanAtomically) {
+  for (llvm::StringRef pathKind : {"false", "unknown"}) {
+    for (llvm::StringRef kind : {"expect", "observe"}) {
+      SCOPED_TRACE(pathKind.str());
+      SCOPED_TRACE(kind.str());
+      auto file = parse();
+      ASSERT_TRUE(file);
+      bool useLaterTransaction = pathKind == "false" && kind == "observe";
+      auto target = transaction(*file, useLaterTransaction ? "watch" : "run");
+      auto &body = target.getBody().front();
+      auto root = module(*file, "Root");
+      auto constants = root.getBody().front().getOps<BitsConstantOp>();
+      auto falseValue = *std::next(constants.begin());
+      auto *no = falseValue->clone();
+      body.getOperations().insert(body.getTerminator()->getIterator(), no);
+      mlir::Value authoredPath = pathKind == "false"
+                                     ? mlir::Value(no->getResult(0))
+                                     : mlir::Value(body.getArgument(3));
+      mlir::OperationState effect(target.getLoc(),
+                                  kind == "expect"
+                                      ? SourceExpectOp::getOperationName()
+                                      : SourceObserveOp::getOperationName());
+      if (kind == "expect") {
+        effect.addOperands({body.getArgument(0), authoredPath});
+        effect.addAttribute("kind", builder.getStringAttr("assert"));
+        effect.addAttribute("location", span("state.py", 30));
+      } else {
+        effect.addOperands({authoredPath, body.getArgument(1)});
+        effect.addAttribute("kind", builder.getStringAttr("report"));
+        effect.addAttribute("spec",
+                            builder.getDictionaryAttr({builder.getNamedAttr(
+                                "name", builder.getStringAttr("candidate"))}));
+        effect.addAttribute("ac.location", span("state.py", 30));
+      }
+      effect.addAttribute("occurrence", occurrence("Root", 30));
+      builder.setInsertionPoint(body.getTerminator());
+      builder.create(effect);
+      ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+          << diagnostics;
+      reject(*file);
+      EXPECT_NE(diagnostics.find("path"), std::string::npos) << diagnostics;
+    }
   }
 }
 
@@ -1512,6 +1923,20 @@ TEST_F(TransactionStateSSATest,
     auto child = module(*file, "Child");
     auto relay = method(*file, "relay");
     auto exemplar = first<SourceMethodCallOp>(relay.getBody());
+    auto bump = method(*file, "bump");
+    auto &bumpBody = bump.getBody().front();
+    builder.setInsertionPoint(bumpBody.getTerminator());
+    mlir::OperationState observation(bump.getLoc(),
+                                     SourceObserveOp::getOperationName());
+    observation.addOperands(
+        {bumpBody.getArgument(1), bumpBody.getArgument(0)});
+    observation.addAttribute("kind", builder.getStringAttr("report"));
+    observation.addAttribute(
+        "spec", builder.getDictionaryAttr({builder.getNamedAttr(
+                    "name", builder.getStringAttr("expanded"))}));
+    observation.addAttribute("occurrence", occurrence("Child", 90));
+    observation.addAttribute("ac.location", span("state.py", 90));
+    builder.create(observation);
     unsigned levels = exponential ? 22 : 140;
     for (unsigned i = 0; i < levels; ++i) {
       auto *copy = relay->clone();

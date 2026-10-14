@@ -54,13 +54,13 @@ public:
     return true;
   }
 
-  // Occurrence dictionaries are printed in the stable plan dump. Prepay their
+  // Borrowed attributes are printed in the stable plan dump. Prepay their
   // generic traversal and spelling before copying them into expanded records.
-  bool chargeOccurrence(Operation *site, DictionaryAttr occurrence) {
+  bool chargeAttribute(Operation *site, Attribute root) {
     SmallVector<Attribute> pending;
-    if (!charge(site))
+    if (!root || !charge(site))
       return false;
-    pending.push_back(occurrence);
+    pending.push_back(root);
     while (!pending.empty()) {
       Attribute attr = pending.pop_back_val();
       if (auto array = dyn_cast<ArrayAttr>(attr)) {
@@ -89,6 +89,10 @@ public:
         return false;
     }
     return true;
+  }
+
+  bool chargeOccurrence(Operation *site, DictionaryAttr occurrence) {
+    return chargeAttribute(site, occurrence);
   }
 
 private:
@@ -374,7 +378,7 @@ public:
   TransactionPlanBuilder(mlir::ModuleOp package, StateAnalysisBudget &budget,
                          const PackageInventory &inventory)
       : package(package), hardware(package), budget(budget),
-        inventory(inventory) {}
+        inventory(inventory), subelements(budget) {}
 
   FailureOr<TransactionStatePlan> run(SourceTransactionOp transaction) {
     plan.transaction = transaction;
@@ -735,6 +739,12 @@ private:
     case TransactionStateEventKind::Write:
       next.write = record;
       break;
+    case TransactionStateEventKind::BodyCheck:
+      next.bodyCheck = record;
+      break;
+    case TransactionStateEventKind::Observe:
+      next.observation = record;
+      break;
     case TransactionStateEventKind::GuardEnter:
     case TransactionStateEventKind::GuardExit:
       next.guard = record;
@@ -907,6 +917,90 @@ private:
     if (failed(touch(touched, seen, *state, operation)))
       return failure();
     return event(TransactionStateEventKind::Write, frame, id);
+  }
+
+  LogicalResult bodyCheck(SourceExpectOp operation, InvocationFrameId frame) {
+    auto anchor = plan.frames[frame].anchor;
+    auto condition =
+        useValue(operation.getCondition(), anchor, frame, operation);
+    auto path = useValue(operation.getPath(), anchor, frame, operation);
+    if (failed(condition) || failed(path) || failed(truePath(*path, operation)))
+      return failure();
+    if (!subelements.check(operation, operation.getCondition().getType()) ||
+        !subelements.check(operation, operation.getPath().getType()))
+      return failure();
+    auto occurrence =
+        operation->getAttrOfType<DictionaryAttr>("occurrence");
+    if (!budget.charge(operation, 8) ||
+        !budget.chargeOccurrence(operation, occurrence) ||
+        !budget.chargeAttribute(operation, operation.getLocationAttr()) ||
+        (operation->hasAttr("ac.message") &&
+         !budget.chargeAttribute(operation,
+                                 operation->getAttr("ac.message"))))
+      return failure();
+    AdmissionPrefix required = 0;
+    for (BoundValueId input : {*condition, *path}) {
+      if (!budget.charge(operation))
+        return failure();
+      required = std::max(required, plan.values[input].requiredPrefix);
+    }
+    BodyCheckId id = plan.bodyChecks.size();
+    plan.bodyChecks.push_back(
+        {operation,
+         frame,
+         *condition,
+         *path,
+         occurrence,
+         operation.getLocationAttr(),
+         operation->getAttrOfType<StringAttr>("ac.message"),
+         required});
+    return event(TransactionStateEventKind::BodyCheck, frame, id);
+  }
+
+  LogicalResult observe(SourceObserveOp operation, InvocationFrameId frame) {
+    auto anchor = plan.frames[frame].anchor;
+    auto path = useValue(operation.getPath(), anchor, frame, operation);
+    if (failed(path) || failed(truePath(*path, operation)))
+      return failure();
+    if (!subelements.check(operation, operation.getPath().getType()))
+      return failure();
+    SmallVector<BoundValueId, 0> values;
+    if (!budget.charge(operation, 8 + operation.getValues().size()))
+      return failure();
+    for (Value original : operation.getValues()) {
+      auto bound = useValue(original, anchor, frame, operation);
+      if (failed(bound) || !subelements.check(operation, original.getType()))
+        return failure();
+      values.push_back(*bound);
+    }
+    auto occurrence =
+        operation->getAttrOfType<DictionaryAttr>("occurrence");
+    if (!budget.chargeOccurrence(operation, occurrence) ||
+        !budget.chargeAttribute(operation,
+                                operation->getAttr("ac.location")) ||
+        !budget.chargeAttribute(operation, operation.getKindAttr()) ||
+        !budget.chargeAttribute(operation, operation.getSpec()))
+      return failure();
+    if (!budget.charge(operation))
+      return failure();
+    AdmissionPrefix required = plan.values[*path].requiredPrefix;
+    for (BoundValueId input : values) {
+      if (!budget.charge(operation))
+        return failure();
+      required = std::max(required, plan.values[input].requiredPrefix);
+    }
+    ObservationId id = plan.observations.size();
+    plan.observations.push_back(
+        {operation,
+         frame,
+         *path,
+         std::move(values),
+         occurrence,
+         operation->getAttrOfType<DictionaryAttr>("ac.location"),
+         operation.getKindAttr(),
+         operation.getSpec(),
+         required});
+    return event(TransactionStateEventKind::Observe, frame, id);
   }
 
   FailureOr<LexicalInstanceId> receiver(InvocationFrameId frame,
@@ -1177,6 +1271,12 @@ private:
       } else if (auto method = dyn_cast<SourceMethodCallOp>(op)) {
         if (failed(call(method, frame, depth, touched, seen)))
           return failure();
+      } else if (auto check = dyn_cast<SourceExpectOp>(op)) {
+        if (failed(bodyCheck(check, frame)))
+          return failure();
+      } else if (auto observation = dyn_cast<SourceObserveOp>(op)) {
+        if (failed(observe(observation, frame)))
+          return failure();
       } else if (failed(payload(&op, frame)))
         return failure();
     }
@@ -1271,13 +1371,103 @@ private:
         return site->emitOpError()
                << "transaction state version admission prefix is invalid";
     }
+    for (const auto &check : plan.bodyChecks) {
+      if (!budget.charge(site, 4) || check.frame >= plan.frames.size() ||
+          check.condition >= plan.values.size() ||
+          check.path >= plan.values.size())
+        return site->emitOpError()
+               << "transaction body-check binding is invalid";
+      AdmissionPrefix required =
+          std::max(plan.values[check.condition].requiredPrefix,
+                   plan.values[check.path].requiredPrefix);
+      if (check.requiredPrefix != required || required > currentPrefix)
+        return site->emitOpError()
+               << "transaction body-check admission prefix is invalid";
+    }
+    for (const auto &observation : plan.observations) {
+      if (!budget.charge(site, 3 + observation.values.size()) ||
+          observation.frame >= plan.frames.size() ||
+          observation.path >= plan.values.size())
+        return site->emitOpError()
+               << "transaction observation binding is invalid";
+      AdmissionPrefix required = plan.values[observation.path].requiredPrefix;
+      for (BoundValueId value : observation.values) {
+        if (value >= plan.values.size())
+          return site->emitOpError()
+                 << "transaction observation value binding is invalid";
+        required = std::max(required, plan.values[value].requiredPrefix);
+      }
+      if (observation.requiredPrefix != required || required > currentPrefix)
+        return site->emitOpError()
+               << "transaction observation admission prefix is invalid";
+    }
+    BodyCheckId nextCheck = 0;
+    ObservationId nextObservation = 0;
     for (const auto &event : plan.events) {
       if (!budget.charge(site))
         return failure();
-      if (event.prefix > currentPrefix)
+      if (event.frame >= plan.frames.size() || event.prefix > currentPrefix)
         return site->emitOpError()
                << "transaction event admission prefix is invalid";
+      unsigned references = unsigned(event.read.has_value()) +
+                            unsigned(event.write.has_value()) +
+                            unsigned(event.guard.has_value()) +
+                            unsigned(event.call.has_value()) +
+                            unsigned(event.bodyCheck.has_value()) +
+                            unsigned(event.observation.has_value());
+      switch (event.kind) {
+      case TransactionStateEventKind::TransactionEnter:
+      case TransactionStateEventKind::TransactionExit:
+        if (references)
+          return site->emitOpError()
+                 << "transaction boundary event carries a record reference";
+        break;
+      case TransactionStateEventKind::Read:
+        if (references != 1 || !event.read || *event.read >= plan.reads.size())
+          return site->emitOpError() << "transaction read event is invalid";
+        break;
+      case TransactionStateEventKind::Write:
+        if (references != 1 || !event.write ||
+            *event.write >= plan.writes.size())
+          return site->emitOpError() << "transaction write event is invalid";
+        break;
+      case TransactionStateEventKind::GuardEnter:
+      case TransactionStateEventKind::GuardExit:
+        if (references != 1 || !event.guard ||
+            *event.guard >= plan.guards.size())
+          return site->emitOpError() << "transaction guard event is invalid";
+        break;
+      case TransactionStateEventKind::CallEnter:
+      case TransactionStateEventKind::CallExit:
+        if (references != 1 || !event.call || *event.call >= plan.calls.size())
+          return site->emitOpError() << "transaction call event is invalid";
+        break;
+      case TransactionStateEventKind::BodyCheck:
+        if (references != 1 || !event.bodyCheck ||
+            *event.bodyCheck != nextCheck ||
+            *event.bodyCheck >= plan.bodyChecks.size() ||
+            plan.bodyChecks[*event.bodyCheck].frame != event.frame ||
+            plan.bodyChecks[*event.bodyCheck].requiredPrefix > event.prefix)
+          return site->emitOpError()
+                 << "transaction body-check event is invalid";
+        ++nextCheck;
+        break;
+      case TransactionStateEventKind::Observe:
+        if (references != 1 || !event.observation ||
+            *event.observation != nextObservation ||
+            *event.observation >= plan.observations.size() ||
+            plan.observations[*event.observation].frame != event.frame ||
+            plan.observations[*event.observation].requiredPrefix > event.prefix)
+          return site->emitOpError()
+                 << "transaction observation event is invalid";
+        ++nextObservation;
+        break;
+      }
     }
+    if (nextCheck != plan.bodyChecks.size() ||
+        nextObservation != plan.observations.size())
+      return site->emitOpError()
+             << "transaction body-effect event inventory is incomplete";
     return success();
   }
 
@@ -1290,14 +1480,16 @@ private:
     if (!budget.charge(site, 64))
       return failure();
     for (uint64_t count :
-         {plan.values.size(), plan.versions.size(), plan.events.size()})
+         {plan.values.size(), plan.versions.size(), plan.bodyChecks.size(),
+          plan.observations.size(), plan.events.size()})
       if (!budget.charge(site, 28 * count))
         return failure();
     for (uint64_t count :
          {plan.instances.size(), plan.frames.size(), plan.values.size(),
           plan.owners.size(), plan.versions.size(), plan.reads.size(),
           plan.writes.size(), plan.guards.size(), plan.calls.size(),
-          plan.events.size(), plan.finalVersions.size(), plan.results.size()})
+          plan.bodyChecks.size(), plan.observations.size(), plan.events.size(),
+          plan.finalVersions.size(), plan.results.size()})
       if (!budget.charge(site, count))
         return failure();
     if (!budget.chargeOccurrence(site, plan.transaction.getOccurrence()) ||
@@ -1329,6 +1521,19 @@ private:
                                    call.exitVersions.size() +
                                    call.results.size()))
         return failure();
+    for (const auto &check : plan.bodyChecks)
+      if (!budget.charge(site, 8) ||
+          !budget.chargeOccurrence(site, check.occurrence) ||
+          !budget.chargeAttribute(site, check.location) ||
+          (check.message && !budget.chargeAttribute(site, check.message)))
+        return failure();
+    for (const auto &observation : plan.observations)
+      if (!budget.charge(site, 8 + observation.values.size()) ||
+          !budget.chargeOccurrence(site, observation.occurrence) ||
+          !budget.chargeAttribute(site, observation.location) ||
+          !budget.chargeAttribute(site, observation.kind) ||
+          !budget.chargeAttribute(site, observation.spec))
+        return failure();
     return success();
   }
 
@@ -1336,6 +1541,7 @@ private:
   HardwareAnalysis hardware;
   StateAnalysisBudget &budget;
   const PackageInventory &inventory;
+  AttributeTypePreflight subelements;
   TransactionStatePlan plan;
   llvm::DenseMap<ValueKey, BoundValueId> values;
   SmallVector<uint8_t, 0> prefixAssigned;
@@ -1362,6 +1568,10 @@ StringRef eventName(TransactionStateEventKind kind) {
     return "guard-exit";
   case TransactionStateEventKind::Write:
     return "write";
+  case TransactionStateEventKind::BodyCheck:
+    return "body-check";
+  case TransactionStateEventKind::Observe:
+    return "observe";
   case TransactionStateEventKind::CallEnter:
     return "call-enter";
   case TransactionStateEventKind::CallExit:
@@ -1504,6 +1714,28 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
     printResults(out, call.results);
     out << '\n';
   }
+  for (auto [id, check] : llvm::enumerate(plan.bodyChecks)) {
+    out << "  body-check b" << id << " frame=f" << check.frame
+        << " condition=v" << check.condition << " path=v" << check.path
+        << " prefix=" << check.requiredPrefix
+        << " occurrence=" << check.occurrence
+        << " location=" << check.location << " message=";
+    if (check.message)
+      out << check.message;
+    else
+      out << "<absent>";
+    out << '\n';
+  }
+  for (auto [id, observation] : llvm::enumerate(plan.observations)) {
+    out << "  observe o" << id << " frame=f" << observation.frame
+        << " path=v" << observation.path
+        << " prefix=" << observation.requiredPrefix << " values=[";
+    llvm::interleaveComma(observation.values, out,
+                          [&](BoundValueId value) { out << 'v' << value; });
+    out << "] occurrence=" << observation.occurrence
+        << " location=" << observation.location << " kind="
+        << observation.kind << " spec=" << observation.spec << '\n';
+  }
   for (auto [id, event] : llvm::enumerate(plan.events)) {
     out << "  event " << id << ' ' << eventName(event.kind) << " frame=f"
         << event.frame << " prefix=" << event.prefix;
@@ -1515,6 +1747,10 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
       out << " guard=g" << *event.guard;
     if (event.call)
       out << " call=c" << *event.call;
+    if (event.bodyCheck)
+      out << " body-check=b" << *event.bodyCheck;
+    if (event.observation)
+      out << " observation=o" << *event.observation;
     out << '\n';
   }
   out << "  final=";

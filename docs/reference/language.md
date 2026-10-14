@@ -1094,9 +1094,11 @@ original contracts; this does not add a source API for Method-owner collections.
 Source compilation and independent interfaces can retain straight-line Method/Rule
 body `assert`, `log` and `report` as ordered typed effects. A log evaluates its
 payload expressions once in order; an assert does not gate later Method calls.
-This source/publication support does not yet provide execution: state analysis
-rejects reachable body checks/observations until explicit effect records and
-lowering are implemented. Partial or conditional effects and transaction resource
+State analysis retains their statement-time values and invocation identities;
+false or unknown assertion conditions do not become guards or alter candidates.
+The current analysis requires each authored effect path proven true. Execution
+still requires sampled effect lowering and source authentication; final link
+rejects effect-bearing plans at that boundary. Partial or conditional effects and transaction resource
 operations also remain unsupported. Valid uncalled
 Method declarations remain fully published and checked before link removes
 them. This subset does not complete resource/causality handling, branch/partial state

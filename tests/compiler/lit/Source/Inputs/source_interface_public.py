@@ -390,6 +390,23 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
     probe()
     return work()
 """
+    state_plan_text = """import pycircuit as ac
+@ac.module
+def StatePlan():
+    count: ac.u8 = 0
+    @ac.method
+    def instrument(delta: ac.u8) -> ac.u8:
+        before = count
+        assert before == count
+        ac.report("before", before)
+        count = count + delta
+        ac.log("info", "after", count, before, count)
+        return count
+    @ac.rule
+    def run() -> None:
+        unused = instrument(1)
+    run()
+"""
     archive = root / "method-publication"
     archive.mkdir()
     retained = scratch / ("method-" + args.method_checks + "-artifacts")
@@ -399,10 +416,12 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
     provider_source = source / "method_provider.py"
     relay_source = source / "method_relay.py"
     consumer_source = source / "method_consumer.py"
+    state_plan_source = source / "method_state_plan.py"
     for path, text in (
         (provider_source, provider_text),
         (relay_source, relay_text),
         (consumer_source, consumer_text),
+        (state_plan_source, state_plan_text),
     ):
         path.write_text(text)
         # This evidence copy is outside the declared --source-root. It cannot
@@ -415,12 +434,31 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
         archive / "relay",
         archive / "consumer",
     )
+    state_plan_unit = archive / "state-plan"
     compile_unit(provider_source.name, provider_unit)
     provider_source.unlink()
     compile_unit(relay_source.name, relay_unit, [provider_unit])
     relay_source.unlink()
     compile_unit(consumer_source.name, consumer_unit, [provider_unit, relay_unit])
+    compile_unit(state_plan_source.name, state_plan_unit)
+    state_plan_source.unlink()
     assert not provider_source.exists() and not relay_source.exists()
+    state_plan_before = archive / "state-plan-before.ac"
+    state_plan_after = archive / "state-plan-after.ac"
+    run([args.optimizer, payload(state_plan_unit, "body"), "-o", state_plan_before])
+    run(
+        [
+            args.optimizer,
+            payload(state_plan_unit, "body"),
+            "--ac-analyze-transaction-state-ssa",
+            "-o",
+            state_plan_after,
+        ]
+    )
+    assert state_plan_before.read_bytes() == state_plan_after.read_bytes()
+    state_plan_body = state_plan_after.read_text()
+    assert '"ac.expect"' in state_plan_body
+    assert state_plan_body.count('"ac.observe"') == 2
     for unit in (provider_unit, relay_unit, consumer_unit):
         extracted = archive / (unit.name + "-extracted.ac")
         extract(payload(unit, "body"), extracted)
@@ -453,10 +491,10 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
     assert relay_body.count('"ac.instance"(') == 2, relay_body
     assert '"ac.method.call"(' in consumer_body and '"ac.transaction"(' in consumer_body
 
-    # Publication now retains the provider's checks and observations, but the
-    # state plan has no execution records for those effects in this slice.
-    # Link must fail at that seam and preserve independent publication and the
-    # already-produced hardware outputs.
+    # Publication and state planning now retain the provider's checks and
+    # observations. Sampled effect materialization remains closed in this
+    # slice, so link must stop at that lowering barrier and preserve the
+    # independent publication and already-produced hardware outputs.
     final = archive / "protected.ac"
     cli(
         "link",
@@ -485,9 +523,7 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
         accepted=False,
     )
     diagnostic = rejected.stderr.lower()
-    assert "state" in diagnostic and (
-        "effect" in diagnostic or "plan" in diagnostic
-    ), rejected.stderr
+    assert "sampled effect lowering" in diagnostic, rejected.stderr
     assert (
         "unresolved" not in diagnostic and "missing" not in diagnostic
     ), rejected.stderr
