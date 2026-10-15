@@ -6,3 +6,12 @@ __pycache__/
 /pycircuit/builds/compiler/
 /pycircuit/builds/rule-graphviz/
 /pycircuit/builds/benchmarks/
+
+# Example execution outputs and temporary source wrappers.
+/pycircuit/builds/*/cpp/sim
+/pycircuit/builds/*/cpp/sim-*
+/pycircuit/builds/*/cpp/reset.cpp
+/pycircuit/builds/*/cpp/*trace.json
+/pycircuit/builds/*/*trace.json
+/pycircuit/builds/*/model.py
+/pycircuit/builds/*/source.py

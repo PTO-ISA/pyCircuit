@@ -1,14 +1,14 @@
 # pyCircuit：ACPy → MLIR → 逐拍执行验证
 
 静态展开 class Module，保存源语义 MLIR，在原生 MLIR pass 中提取事务、传播条件与契约、
-分配 EHR 端口和固定调度，降低为 RTL 友好的组合逻辑与 next-state，并对照两层逐拍执行。
+分配 EHR 端口和固定调度，降低为 RTL 友好的组合逻辑与 next-state，并对照事务解释器、RTL 解释器和独立 C++ 仿真。
 
 | 入口 | 内容 |
 | --- | --- |
 | [核心抽象设计](pycircuit/docs/core-design.md) | Cell、Queue、Signal、EHR、统一 Rule、Module 与同拍顺序 |
 | [array 设计](pycircuit/docs/array-design.md) | 多维构造、match、选取域、仲裁及保守 lowering 的正式目标设计 |
 | [编译路线图](pycircuit/docs/compiler-roadmap.md) | 阶段进度、基线保存、验证证据、问题与下一步 |
-| [构建与使用](pycircuit/README.md) | 编译、分层重载、逐拍执行和 CLI |
+| [构建与使用](pycircuit/README.md) | 编译、分层重载、C++ 生成、逐拍执行和 CLI |
 | [ACPy 语法](acpy/spec.md) | class Module、显式类型、固定连接与 Rule 关系 |
 | [ACIR v9](pycircuit/acir.md) | 源语义、事务和 RTL 三层 MLIR |
 | [编译意图](pycircuit/docs/compiler-intent.md) | 各阶段必须保留的语义 |

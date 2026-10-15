@@ -23,18 +23,23 @@ python -m pycircuit.tests.run_acceptance
 
 Python 仅解析 ACPy 和调用编译器。事务提取、条件传播、契约／端口分析、调度、RTL lowering
 以及两个通用执行器直接读取 MLIR，在 C++ 中完成。JSON 仅为分析／执行报告。
-验收脚本复现 4 个示例的 32 拍执行、优化开关和三阶段重载，并更新示例输出。
+验收脚本复现 4 个示例的 32 拍事务／RTL／C++ 执行、优化开关和三阶段重载，并更新示例输出。
 轨迹与汇总位于 `builds/benchmarks/compiler-acceptance/`；回归包含独立 ISA 和定向周期预期。
 
-测试按三类维护，执行和重载工具统一在 `tests/support.py`：
+主要测试入口如下，执行和重载工具统一在 `tests/support.py`：
 
 | 文件 | 覆盖 |
 | --- | --- |
 | `test_frontend.py` | 源 IR、显式接口、作用域与非法表达诊断 |
 | `test_pipeline.py` | 原子事务、Queue／Signal／EHR、Module 路径与绑定、顺序环、CPU／OoO 独立预期 |
 | `test_array.py` | 多维构造与更新、选取传播、越界取消、别名、Module 数组与 age matrix |
+| `test_cpp.py` | 图语义回归、C++ 整数与短路边界、reset、sanitizer 和生成诊断 |
+| `test_source_lowering.py` | 源层归一化、结构化控制流、条件求值与独立 pass 流程 |
+| `test_ripes5.py` | 原生 RV5S 逐拍参考、可读指令程序、优化／重载及发现的前端／lowering 回归 |
 
-小模型只保留在相应回归中；完整示例限于 array 仲裁、EHR 共享视图、CPU 和 OoO。
+小模型只保留在相应回归中；完整示例包括 array 仲裁、EHR 共享视图、CPU、OoO 和
+[Ripes5](examples/ripes5/README.md)。Ripes5 的专用验证入口为 `python -m pycircuit.examples.ripes5.verify`，
+从机器指令开始，对照保存的原生 Ripes RV5S 逐拍参考；同时验证生成 C++ 与两层 IR 解释执行。
 
 
 ## 编译、阶段输出与执行
@@ -51,7 +56,7 @@ python -m pycircuit run pycircuit/builds/benchmarks/cpu/model.rtl.mlir \
 `compile` 接受 ACPy；`analyze` 和 `run` 接受独立 MLIR 文件。`--stop-after source|transaction|rtl`
 控制最后阶段，默认 rtl。`--cycles N` 执行 N 拍；从源文件开始时会保存事务和 RTL 两种轨迹。
 `--config NAME=VALUE` 为 top 的构造参数提供静态配置，可重复；布尔值使用 0／1。
-`--no-opt` 关闭 canonicalize／CSE。重载不需要 Python 源码、图 JSON 或其他阶段文件。
+`--no-opt` 关闭源层归一化和后续条件／canonicalize／CSE 优化。重载不需要 Python 源码、图 JSON 或其他阶段文件。
 
 | 文件 | 内容 |
 | --- | --- |
@@ -66,8 +71,17 @@ python -m pycircuit run pycircuit/builds/benchmarks/cpu/model.rtl.mlir \
 
 ```bash
 pycircuit/builds/compiler/mlir/acir-opt model.source.mlir --acir-extract-transactions
+pycircuit/builds/compiler/mlir/acir-opt model.source.mlir --acir-source-opt --acir-extract-transactions --acir-cleanup --acir-lower-rtl --acir-cleanup
+pycircuit/builds/compiler/mlir/acir-opt model.transaction.mlir --acir-expand-resources
 pycircuit/builds/compiler/mlir/acir-opt model.transaction.mlir --acir-lower-rtl
+pycircuit/builds/compiler/mlir/acir-opt model.rtl.mlir --acir-cleanup
 ```
+
+默认先运行后端无关的 `acir-source-opt`，保存结构化 Source IR，再提取统一事务。
+C++ 从事务层分出；RTL lowering 在副本上展开逻辑资源，形成 current／next-state。
+事务和 RTL 之后运行 `acir-cleanup`：别名归一化、canonicalize／CSE 与保持条件求值的布尔简化。
+固定字段／下标可折叠，复用的结构值保持整体；动态下标保留原就绪条件。
+`--no-opt` 关闭上述优化；单独重载 RTL 时也可运行同一清理 pipeline。
 
 构造配置保存于源 MLIR 的 `acir.config`；直接运行 pass 时必须已有完整配置。
 错误返回非零，说明资源、事务或契约原因。所有分支顺序边的节点合并图必须无环。
@@ -111,3 +125,49 @@ python pycircuit/draw_rules.py pycircuit/builds/riscv_pipeline/rule-graph.json
 绘图使用 Graphviz；`-o PATH.dot` 无需安装 Graphviz。JSON 和图均不参与后续编译。
 外部源码位于 `reference/<项目名>/`，构建位于 `builds/`，新实验输入、日志与结果位于
 `builds/benchmarks/`。
+
+## 独立 C++ 静态调度仿真
+
+`--emit-cpp` 从事务 MLIR 生成 C++20 程序；也可从 ACPy 或 source MLIR 开始编译。
+Python 接口为 `analyze(model, output, emit_cpp=True)`。
+
+```bash
+python -m pycircuit compile pycircuit/examples/riscv_pipeline/model.py --top Pipeline \
+  --output pycircuit/builds/benchmarks/cpp-cpu --emit-cpp --cycles 32
+c++ -std=c++20 -O2 pycircuit/builds/benchmarks/cpp-cpu/cpp/sim.cpp \
+  -o pycircuit/builds/benchmarks/cpp-cpu/cpp/sim
+pycircuit/builds/benchmarks/cpp-cpu/cpp/sim --cycles 32 \
+  --trace pycircuit/builds/benchmarks/cpp-cpu/cpp/trace.json
+pycircuit/builds/benchmarks/cpp-cpu/cpp/sim --cycles 10000
+```
+
+本机可用 `/home/lc/opt/pycircuit-dev/bin/c++` 替代 `c++`，并沿用上文的
+`LD_LIBRARY_PATH` 设置。生成目录内的 `model.hpp`、`runtime.hpp`、`sim.cpp`
+可一起复制到其他 C++20 环境，编译和执行不依赖 LLVM、MLIR 或 Python。
+`acir_generated::Model` 提供 `reset()`、`tick()` 和 `trace(stream, tick)`。
+轨迹与解释器使用相同的逐拍 `fire/state` 格式；不传 `--trace` 时不构造 JSON。
+
+每拍按 MLIR `schedule` 固定顺序尝试各事务；某 Rule 不 fire 后继续尝试后续 Rule。
+每个事务先计算完整效果参数，再发布；状态在拍末统一提交。Cell 读旧值，Queue
+允许前序 pop 释放容量但不旁路新 push，Signal 每拍失效，EHR 使用已分配的固定端口。
+Module 层级、原 Rule 名称和 payload 字段进入 C++ 类型与函数；组件数组保留固定数组和索引。
+`CppLowering.cpp` 分析计算使用范围、条件需求和共享边界；Rule 使用普通局部变量，简单匿名单次表达式内联。
+共享块按需计算一次并缓存到拍末，固定读取的 data/ready 一起捕获；没有逐 SSA 求值函数或全量 valid 表。
+可能失败的计算只在实际选择路径执行，条件选择与布尔条件短路得到保留。
+
+支持 bool、8/16/32/64 位整数、struct、tuple 和固定多维数组。整数以无符号位模式
+承载，运算遵循输入 MLIR 的位宽和符号操作；非法除零、越界和断言在实际求值时报错。
+不支持的操作在生成阶段报错。`--stop-after source` 不能与 `--emit-cpp` 同用，
+RTL MLIR 不能反推生成 C++；可直接重载 `model.transaction.mlir` 生成。
+首版不做激活调度、跨拍缓存或自动仲裁。
+
+测试通过 `CXX` 选择 C++ 编译器。现有 Queue、原子取消、Signal、EHR、数组、CPU 和
+OoO 执行回归均比较生成程序；`test_cpp.py` 补充图回归、整数边界、短路、reset 和
+ASan/UBSan 检查。完整验收以 C++20 `-O1` 编译，记录代码量、编译耗时、关闭轨迹运行 10000 拍的耗时，
+位于 `builds/benchmarks/compiler-acceptance/*/{raw,opt}/cpp-metrics.json`。
+耗时包含进程启动，可能与测试并发运行，不作加速倍数承诺。本机沙箱 ptrace 不支持 LeakSanitizer；本轮命令设置 `ASAN_OPTIONS=detect_leaks=0`，仍运行 ASan／UBSan。
+本轮重构记录与源码审阅见 [C++ lowering 审阅](docs/cpp-lowering-review.md)。
+
+已知前端差异：负数 `%` 的 Python 常量折叠使用 Python 余数符号规则，运行时
+`arith.remsi` 使用被除数符号。例如常量 `-7 % 3` 为 2，变量操作的 MLIR 余数为 -1。
+C++ 后端直接执行输入 MLIR，不重新解释为 Python 运算；该前端差异单独保留待修。

@@ -1,0 +1,14 @@
+digraph Transactions {
+  rankdir=LR;
+  node [shape=box];
+  t0 [label="top.cpu.fetch.advance#0"];
+  t1 [label="top.cpu.decode_stage.decode_instruction#1"];
+  t2 [label="top.cpu.decode_stage.advance#2"];
+  t3 [label="top.cpu.execute.advance#3"];
+  t4 [label="top.cpu.memory.advance#4"];
+  t5 [label="top.cpu.writeback.advance#5"];
+  t6 [label="top.cpu.observe#6"];
+  t1 -> t0 [label="top.cpu.decode_stage.instruction\nSignal.set \u2192 get"];
+  t1 -> t2 [label="top.cpu.decode_stage.instruction\nSignal.set \u2192 get"];
+  t1 -> t6 [label="top.cpu.decode_stage.instruction\nSignal.set \u2192 get"];
+}

@@ -264,10 +264,14 @@ struct RTL : PassWrapper<RTL, OperationPass<mlir::ModuleOp>> {
   void runOnOperation() override {
     auto module = getOperation();
     try {
-      RTLBuilder lower(module);
+      auto expanded = cast<mlir::ModuleOp>(module->clone());
+      PassManager pm(module.getContext()); pm.addPass(acir::createResourceExpansionPass());
+      if (failed(pm.run(expanded))) { expanded.erase(); signalPassFailure(); return; }
+      RTLBuilder lower(expanded);
       auto logical = lower.lower();
       auto result = acirLowerWires(logical);
       logical.erase();
+      expanded.erase();
       module.getBodyRegion().takeBody(result.getBodyRegion());
       module->setAttrs(result->getAttrs());
       result.erase();

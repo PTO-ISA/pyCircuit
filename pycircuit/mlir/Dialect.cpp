@@ -2,6 +2,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
+#include <functional>
 #include <limits>
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/DialectImplementation.h"
@@ -234,6 +235,28 @@ LogicalResult executableAccess(Operation *op) {
   auto target = declaredState(op);
   if (!target)
     return op->emitOpError("requires a declared state resource");
+  if (auto resources = op->getAttrOfType<ArrayAttr>("resources")) {
+    auto ports = op->getAttrOfType<ArrayAttr>("ports");
+    if (resources.empty() || !ports || ports.size() != resources.size())
+      return op->emitOpError("logical access requires matching resources and ports");
+    auto circuit = op->getParentOfType<acir::CircuitOp>();
+    for (auto [res, port] : llvm::zip(resources, ports)) {
+      auto name = dyn_cast<StringAttr>(res); auto p = dyn_cast<IntegerAttr>(port);
+      auto state = name ? dyn_cast_or_null<acir::StateOp>(SymbolTable::lookupSymbolIn(circuit, name.getValue())) : acir::StateOp();
+      if (!state || state.getPayloadType() != target.getPayloadType() || state->getAttr("kind") != target->getAttr("kind") || !p || p.getInt() < 0)
+        return op->emitOpError("incompatible logical resource or port");
+    }
+    bool read = isa<acir::ReadOp>(op);
+    auto method = op->getAttrOfType<StringAttr>("method");
+    unsigned index = read || (method && method.getValue() == "pop") ? 1 : 2;
+    if ((op->getNumOperands() != index+1 && op->getNumOperands() != index+2) || !isa<IntegerType>(op->getOperand(index).getType()))
+      return op->emitOpError("logical access requires integer index and optional flat domain");
+    if (op->getNumOperands() == index+2) {
+      auto mask = dyn_cast<acir::MaskType>(op->getOperand(index+1).getType());
+      if (!mask || mask.getShape().size() != 1 || mask.getShape()[0] != int64_t(resources.size()))
+        return op->emitOpError("logical selection domain shape mismatch");
+    }
+  }
   return success();
 }
 } // namespace
@@ -366,6 +389,11 @@ LogicalResult acir::StateOp::verify() {
     return emitOpError("Signal must lower to combinational data/valid");
   return success();
 }
+LogicalResult acir::BindOp::verify() {
+  if (getInput().getType() != getValue().getType())
+    return emitOpError("binding cannot change value type");
+  return success();
+}
 LogicalResult acir::ReadOp::verify() {
   if (failed(executableAccess(*this)))
     return failure();
@@ -373,13 +401,33 @@ LogicalResult acir::ReadOp::verify() {
   auto port = (*this)->getAttrOfType<IntegerAttr>("port");
   if (!method || !port || port.getInt() < 0)
     return emitOpError("requires resolved method and nonnegative port");
-  if (getInputs().size() != 1 || !getInputs()[0].getType().isInteger(1))
+  if (getInputs().empty() || (!(*this)->hasAttr("resources") && getInputs().size() != 1) || !getInputs()[0].getType().isInteger(1))
     return emitOpError("requires one path condition");
   return success();
 }
 LogicalResult acir::FireOp::verify() {
   if (!(*this)->getAttrOfType<IntegerAttr>("txn"))
     return emitOpError("requires transaction identity");
+  // Backends may use successful checks as facts. A dependency must return
+  // true or throw; an arbitrary false-valued Boolean is not a check token.
+  std::function<bool(Value)> checked = [&](Value value) {
+    auto *op = value.getDefiningOp();
+    if (!op) return false;
+    if (isa<AssertOp>(op)) return true;
+    if (auto c = dyn_cast<arith::ConstantOp>(op))
+      return cast<IntegerAttr>(c.getValue()).getValue().isOne();
+    if (isa<BindOp, ExportOp>(op)) return checked(op->getOperand(0));
+    if (auto select = dyn_cast<arith::SelectOp>(op))
+      return checked(select.getTrueValue()) && checked(select.getFalseValue());
+    if (isa<arith::AndIOp>(op))
+      return checked(op->getOperand(0)) && checked(op->getOperand(1));
+    if (isa<arith::OrIOp>(op))
+      return checked(op->getOperand(0)) || checked(op->getOperand(1));
+    return false;
+  };
+  for (auto check : getChecks())
+    if (!checked(check))
+      return emitOpError("check dependency must return true or assert");
   return success();
 }
 LogicalResult acir::EffectOp::verify() {
@@ -396,8 +444,8 @@ LogicalResult acir::EffectOp::verify() {
   if (!port || port.getInt() < 0)
     return emitOpError("requires assigned port");
   if (method.getValue() == "pop")
-    return success(getInputs().empty());
-  if (getInputs().size() != 1 ||
+    return success((*this)->hasAttr("resources") || getInputs().empty());
+  if (getInputs().empty() || (!(*this)->hasAttr("resources") && getInputs().size() != 1) ||
       getInputs()[0].getType() != target.getPayloadType())
     return emitOpError("effect payload type mismatch");
   return success();

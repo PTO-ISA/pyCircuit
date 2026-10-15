@@ -10,5 +10,9 @@ digraph Transactions {
   t3 -> t0 [label="top.storage.state\nEHR.port"];
   t3 -> t1 [label="top.storage.state\nEHR.port"];
   t3 -> t2 [label="top.storage.state\nEHR.port"];
+  t1 -> t0 [label="Module contract\nSB"];
+  t2 -> t0 [label="Module contract\nSB"];
   t3 -> t0 [label="Module contract\nSB"];
+  t3 -> t1 [label="Module contract\nSB"];
+  t3 -> t2 [label="Module contract\nSB"];
 }

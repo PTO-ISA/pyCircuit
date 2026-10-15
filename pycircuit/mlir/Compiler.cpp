@@ -1,6 +1,7 @@
 // Standalone source/transaction/RTL MLIR compiler and cycle executor.
 #include "Dialect.h"
 #include "Execution.h"
+#include "CppEmitter.h"
 #include "Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -10,7 +11,6 @@
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
-#include "mlir/Transforms/Passes.h"
 #include "llvm/Support/InitLLVM.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/raw_ostream.h"
@@ -174,8 +174,8 @@ int acir::compileMain(int argc, char **argv) {
     if (argc < 3)
       throw std::runtime_error(
           "usage: acir-compile INPUT.mlir OUTPUT_DIR [--opt] [--stop-after "
-          "source|transaction|rtl] [--cycles N] [--config NAME=VALUE]");
-    bool optimize = false;
+          "source|transaction|rtl] [--emit-cpp] [--cycles N] [--config NAME=VALUE]");
+    bool optimize = false, emitCpp = false;
     std::string stop = "rtl";
     unsigned cycles = 0;
     std::map<std::string, int64_t> config;
@@ -183,6 +183,8 @@ int acir::compileMain(int argc, char **argv) {
       std::string arg = argv[i];
       if (arg == "--opt")
         optimize = true;
+      else if (arg == "--emit-cpp")
+        emitCpp = true;
       else if (arg == "--cycles" && i + 1 < argc)
         cycles = std::stoul(argv[++i]);
       else if (arg == "--stop-after" && i + 1 < argc)
@@ -198,6 +200,8 @@ int acir::compileMain(int argc, char **argv) {
     }
     if (stop != "source" && stop != "transaction" && stop != "rtl")
       throw std::runtime_error("invalid stop stage");
+    if (emitCpp && stop == "source")
+      throw std::runtime_error("--emit-cpp cannot be combined with --stop-after source");
     DialectRegistry registry;
     registry
         .insert<acir::ACIRDialect, arith::ArithDialect, cf::ControlFlowDialect,
@@ -213,6 +217,8 @@ int acir::compileMain(int argc, char **argv) {
       throw std::runtime_error(
           "expected source format_version 9; recompile ACPy");
     auto inputStage = (*module)->getAttrOfType<StringAttr>("acir.stage");
+    if (emitCpp && inputStage && inputStage.getValue() == "rtl")
+      throw std::runtime_error("--emit-cpp requires source or transaction MLIR, not RTL");
     if (inputStage && !config.empty())
       throw std::runtime_error(
           "constructor configuration is frozen in transaction/RTL MLIR; reload "
@@ -262,6 +268,12 @@ int acir::compileMain(int argc, char **argv) {
     auto stage = (*module)->getAttrOfType<StringAttr>("acir.stage");
     std::string current = stage ? stage.getValue().str() : "source";
     if (current == "source") {
+      if (optimize) {
+        PassManager pm(&context);
+        addSourcePasses(pm);
+        if (failed(pm.run(*module)))
+          return 1;
+      }
       save(*module, directory / "model.source.mlir");
       if (stop == "source") {
         if (cycles)
@@ -276,14 +288,15 @@ int acir::compileMain(int argc, char **argv) {
     }
     if (optimize) {
       PassManager pm(&context);
-      pm.addPass(createCanonicalizerPass());
-      pm.addPass(createCSEPass());
+      addCleanupPasses(pm);
       if (failed(pm.run(*module)))
         return 1;
     }
     if (current == "transaction") {
       save(*module, directory / "model.transaction.mlir");
       json(graph(*module), directory / "rule-graph.json");
+      if (emitCpp)
+        acir::emitCpp(*module, directory / "cpp");
       if (cycles)
         json(acir::execute(*module, cycles),
              directory / "transaction-trace.json");
@@ -291,6 +304,8 @@ int acir::compileMain(int argc, char **argv) {
         return 0;
       PassManager pm(&context);
       pm.addPass(createRTLPass());
+      if (optimize)
+        addCleanupPasses(pm);
       if (failed(pm.run(*module)))
         return 1;
     }

@@ -12,6 +12,7 @@ def main():
         sub = commands.add_parser(name)
         sub.add_argument('source', type=Path)
         sub.add_argument('--output', type=Path, required=True)
+        sub.add_argument('--emit-cpp', action='store_true')
         sub.add_argument('--no-opt', action='store_true')
         sub.add_argument('--stop-after', choices=('source', 'transaction', 'rtl'), default='rtl')
         sub.add_argument('--cycles', type=int, default=0)
@@ -28,7 +29,7 @@ def main():
             config[key] = int(value, 0)
         model = compile_source(args.source, args.top) if args.command == 'compile' else load(args.source)
         analyze(model, args.output, optimize=not args.no_opt, stop_after=args.stop_after,
-                cycles=args.cycles, config=config)
+                cycles=args.cycles, config=config, emit_cpp=args.emit_cpp)
     except (CompileError, SyntaxError, OSError, ValueError) as error:
         parser.exit(1, f'{error}\n')
 

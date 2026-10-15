@@ -3,6 +3,7 @@
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/ADT/StringMap.h"
@@ -91,7 +92,7 @@ Attribute acir::calculate(Operation *op, ArrayRef<Attribute> a,
     return op->getAttr("value");
   if (name == "arith.select")
     return truth(a[0]) ? a[1] : a[2];
-  if (name == "acir.export" || name == "acir.fire")
+  if (name == "acir.export" || name == "acir.bind" || name == "acir.fire")
     return a[0];
   if (name == "acir.aggregate")
     return a.empty() ? zero(type, module) : b.getArrayAttr(a);
@@ -296,47 +297,63 @@ Attribute acir::evaluateFunction(mlir::ModuleOp module, StringRef name,
     return IntegerAttr::get(fn.getResultTypes()[0], r);
   }
   DenseMap<Value, Attribute> env;
-  Block *block = &fn.getBody().front();
-  SmallVector<Attribute> incoming(args.getValue());
   unsigned steps = 0;
-  while (block) {
-    if (++steps > 100000)
-      throw std::runtime_error("initializer loop limit exceeded");
-    for (auto [arg, value] : llvm::zip(block->getArguments(), incoming))
-      env[arg] = value;
-    auto *current = block;
-    block = nullptr;
-    for (auto &op : *current) {
-      SmallVector<Attribute> a;
-      for (auto v : op.getOperands())
-        a.push_back(env.lookup(v));
-      if (auto ret = dyn_cast<func::ReturnOp>(op))
-        return a.empty() ? Attribute() : a[0];
-      if (auto br = dyn_cast<cf::BranchOp>(op)) {
-        block = br.getDest();
-        incoming = a;
-        break;
+  std::function<SmallVector<Attribute>(Region &, ArrayRef<Attribute>)> run =
+      [&](Region &region,
+          ArrayRef<Attribute> inputs) -> SmallVector<Attribute> {
+    Block *block = &region.front();
+    SmallVector<Attribute> incoming(inputs);
+    while (block) {
+      if (++steps > 100000)
+        throw std::runtime_error("initializer loop limit exceeded");
+      for (auto [arg, value] : llvm::zip(block->getArguments(), incoming))
+        env[arg] = value;
+      auto *current = block;
+      block = nullptr;
+      for (auto &op : *current) {
+        SmallVector<Attribute> a;
+        for (auto v : op.getOperands())
+          a.push_back(env.lookup(v));
+        if (isa<func::ReturnOp, scf::YieldOp>(op))
+          return a;
+        if (auto conditional = dyn_cast<scf::IfOp>(op)) {
+          auto &selected = truth(a[0]) ? conditional.getThenRegion()
+                                       : conditional.getElseRegion();
+          SmallVector<Attribute> values;
+          if (!selected.empty())
+            values = run(selected, {});
+          for (auto [result, value] : llvm::zip(op.getResults(), values))
+            env[result] = value;
+          continue;
+        }
+        if (auto br = dyn_cast<cf::BranchOp>(op)) {
+          block = br.getDest();
+          incoming = a;
+          break;
+        }
+        if (auto br = dyn_cast<cf::CondBranchOp>(op)) {
+          auto dest = truth(a[0]) ? br.getTrueDest() : br.getFalseDest();
+          auto values = truth(a[0]) ? br.getTrueDestOperands()
+                                    : br.getFalseDestOperands();
+          incoming.clear();
+          for (auto v : values)
+            incoming.push_back(env.lookup(v));
+          block = dest;
+          break;
+        }
+        auto value =
+            isa<func::CallOp>(op)
+                ? evaluateFunction(module, cast<func::CallOp>(op).getCallee(),
+                                   ArrayAttr::get(module.getContext(), a))
+                : calculate(&op, a, module);
+        if (op.getNumResults())
+          env[op.getResult(0)] = value;
       }
-      if (auto br = dyn_cast<cf::CondBranchOp>(op)) {
-        auto dest = truth(a[0]) ? br.getTrueDest() : br.getFalseDest();
-        auto values =
-            truth(a[0]) ? br.getTrueDestOperands() : br.getFalseDestOperands();
-        incoming.clear();
-        for (auto v : values)
-          incoming.push_back(env.lookup(v));
-        block = dest;
-        break;
-      }
-      auto value =
-          isa<func::CallOp>(op)
-              ? evaluateFunction(module, cast<func::CallOp>(op).getCallee(),
-                                 ArrayAttr::get(module.getContext(), a))
-              : calculate(&op, a, module);
-      if (op.getNumResults())
-        env[op.getResult(0)] = value;
     }
-  }
-  return {};
+    return {};
+  };
+  auto results = run(fn.getBody(), args.getValue());
+  return results.empty() ? Attribute() : results.front();
 }
 llvm::json::Value acir::jsonAttribute(Attribute a) {
   if (auto i = dyn_cast_or_null<IntegerAttr>(a))
@@ -391,11 +408,24 @@ llvm::json::Object acir::execute(mlir::ModuleOp module, unsigned cycles) {
       Attribute result;
       if (auto read = dyn_cast<ReadOp>(op)) {
         auto res = str(op, "resource"), method = str(op, "method");
+        unsigned port = op->getAttrOfType<IntegerAttr>("port").getInt();
+        if (auto resources = op->getAttrOfType<ArrayAttr>("resources")) {
+          auto index = number(eval(op->getOperand(1)));
+          bool selected = index < resources.size();
+          if (selected && op->getNumOperands() > 2)
+            selected = truth(cast<ArrayAttr>(eval(op->getOperand(2)))[index]);
+          if (!selected) {
+            cache[read.getValue()] = zero(read.getValue().getType(), module);
+            cache[read.getReady()] = b.getBoolAttr(false);
+            evaluating.erase(v); return cache.lookup(v);
+          }
+          res = cast<StringAttr>(resources[index]).getValue().str();
+          port = cast<IntegerAttr>(op->getAttrOfType<ArrayAttr>("ports")[index]).getInt();
+        }
         auto *decl = declarations.at(res);
         auto old = state.at(res);
         bool ready = true;
         Attribute payload = old;
-        unsigned port = op->getAttrOfType<IntegerAttr>("port").getInt();
         if (method == "get") {
           ready = false;
           payload = zero(read.getValue().getType(), module);
@@ -444,6 +474,10 @@ llvm::json::Object acir::execute(mlir::ModuleOp module, unsigned cycles) {
           result = b.getArrayAttr(vals);
         } else
           result = old;
+      } else if (auto fire = dyn_cast<FireOp>(op)) {
+        for (auto check : fire.getChecks())
+          eval(check);
+        result = eval(fire.getCondition());
       } else if (auto select = dyn_cast<arith::SelectOp>(op))
         result =
             eval(truth(eval(select.getCondition())) ? select.getTrueValue()
@@ -471,10 +505,20 @@ llvm::json::Object acir::execute(mlir::ModuleOp module, unsigned cycles) {
         if (fire->getAttrOfType<IntegerAttr>("txn").getInt() == txn)
           fires[fire.getName().str()] = truth(eval(fire.getFire()));
       std::set<std::string> popped;
+      std::vector<Write> prepared;
       for (auto effect : circuit.getBody().getOps<EffectOp>())
         if (effect->getAttrOfType<IntegerAttr>("txn").getInt() == txn &&
             truth(eval(effect.getEnable()))) {
           auto res = str(effect, "resource"), method = str(effect, "method");
+          unsigned port = effect->getAttrOfType<IntegerAttr>("port").getInt();
+          if (auto resources = effect->getAttrOfType<ArrayAttr>("resources")) {
+            unsigned indexArg = method == "pop" ? 1 : 2;
+            auto index = number(eval(effect->getOperand(indexArg)));
+            if (index >= resources.size()) continue;
+            if (effect->getNumOperands() > indexArg+1 && !truth(cast<ArrayAttr>(eval(effect->getOperand(indexArg+1)))[index])) continue;
+            res = cast<StringAttr>(resources[index]).getValue().str();
+            port = cast<IntegerAttr>(effect->getAttrOfType<ArrayAttr>("ports")[index]).getInt();
+          }
           if (method == "pop" && !popped.insert(res).second)
             continue;
           if (method == "check") {
@@ -483,12 +527,12 @@ llvm::json::Object acir::execute(mlir::ModuleOp module, unsigned cycles) {
                                        std::to_string(tick));
             continue;
           }
-          Attribute value = effect.getInputs().empty()
+          Attribute value = method == "pop"
                                 ? Attribute()
                                 : eval(effect.getInputs()[0]);
-          unsigned port = effect->getAttrOfType<IntegerAttr>("port").getInt();
-          writes.push_back({res, method, port, value});
+          prepared.push_back({res, method, port, value});
         }
+      writes.insert(writes.end(), prepared.begin(), prepared.end());
     }
     if (circuit->getAttrOfType<StringAttr>("stage").getValue() ==
         "transaction") {

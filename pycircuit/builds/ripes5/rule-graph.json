@@ -1,0 +1,85 @@
+{
+  "conflicts": [],
+  "diagnostics": [],
+  "edges": [
+    {
+      "from": 1,
+      "relation": "Signal.set → get",
+      "resource": "top.cpu.decode_stage.instruction",
+      "source_branch": 5,
+      "target_branches": [
+        0
+      ],
+      "to": 0
+    },
+    {
+      "from": 1,
+      "relation": "Signal.set → get",
+      "resource": "top.cpu.decode_stage.instruction",
+      "source_branch": 5,
+      "target_branches": [
+        0
+      ],
+      "to": 2
+    },
+    {
+      "from": 1,
+      "relation": "Signal.set → get",
+      "resource": "top.cpu.decode_stage.instruction",
+      "source_branch": 5,
+      "target_branches": [
+        0
+      ],
+      "to": 6
+    },
+    {
+      "from": 1,
+      "relation": "Signal.set → get",
+      "resource": "top.cpu.decode_stage.instruction",
+      "source_branch": 5,
+      "target_branches": [
+        13
+      ],
+      "to": 2
+    }
+  ],
+  "nodes": [
+    {
+      "id": "top.cpu.fetch.advance#0",
+      "txn": 0
+    },
+    {
+      "id": "top.cpu.decode_stage.decode_instruction#1",
+      "txn": 1
+    },
+    {
+      "id": "top.cpu.decode_stage.advance#2",
+      "txn": 2
+    },
+    {
+      "id": "top.cpu.execute.advance#3",
+      "txn": 3
+    },
+    {
+      "id": "top.cpu.memory.advance#4",
+      "txn": 4
+    },
+    {
+      "id": "top.cpu.writeback.advance#5",
+      "txn": 5
+    },
+    {
+      "id": "top.cpu.observe#6",
+      "txn": 6
+    }
+  ],
+  "schedule": [
+    1,
+    0,
+    2,
+    3,
+    4,
+    5,
+    6
+  ]
+}

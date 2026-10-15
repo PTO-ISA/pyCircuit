@@ -8,6 +8,63 @@ from pycircuit.tests.support import ExecutionChecks, ROOT
 
 
 class PipelineTests(ExecutionChecks, unittest.TestCase):
+    def test_cleanup_preserves_packet_pipeline_and_atomic_backpressure(self):
+        source = '''from pycircuit import ac
+class Packet:
+    lhs: ac.u32
+    rhs: ac.u32
+def repack(packet: Packet) -> Packet:
+    return Packet(packet.lhs, packet.rhs)
+@ac.module
+class Top:
+    def __init__() -> None:
+        data = ac.cell[ac.array(ac.u32, shape=(2,))](initial=[3,4])
+        position = ac.cell[ac.u32](initial=0)
+        tick = ac.cell[ac.u32](initial=0)
+        output = ac.queue[Packet]()
+        result = ac.cell[ac.u32](initial=0)
+    @ac.rule
+    def produce() -> None:
+        packet = repack(Packet(data[position], data[1-position]))
+        output = packet
+        position = 1-position
+    @ac.rule
+    def consume() -> None:
+        packet = output
+        result = packet.lhs + packet.rhs
+    @ac.rule
+    def clock() -> None:
+        tick = tick + 1
+    def __call__() -> None:
+        produce()
+        if (tick & 1) == 0:
+            consume()
+        clock()
+'''
+        traces, irs = [], []
+        for optimize in (False, True):
+            trace, _, out = self.run_source(source, cycles=6, optimize=optimize)
+            self.assertEqual([frame['state']['top.position'] for frame in trace],
+                             [1, 1, 0, 0, 1, 1])
+            self.assertEqual([frame['state']['top.result'] for frame in trace],
+                             [0, 0, 7, 7, 7, 7])
+            self.assertEqual(trace[-1]['state']['top.output'], [[3, 4]])
+            self.assert_reloads(trace, out)
+            traces.append(trace)
+            irs.append(load(out / 'model.rtl.mlir'))
+            if not optimize:
+                raw = out / 'model.rtl.mlir'
+        self.assertEqual(*traces)
+        self.assertLess(irs[1].count('acir.extract'), irs[0].count('acir.extract'))
+        self.assertLess(irs[1].count('arith.constant'), irs[0].count('arith.constant'))
+        native = subprocess.run([os.environ['ACPY_MLIR_OPT'], str(raw),
+                                 '--acir-cleanup'], capture_output=True, text=True)
+        self.assertEqual(native.returncode, 0, native.stderr)
+        cleaned = self.directory / 'native-cleanup'
+        analyze(native.stdout, cleaned, cycles=6, optimize=False)
+        self.assertEqual(traces[0], json.loads(
+            (cleaned / 'rtl-trace.json').read_text())['trace'])
+
     def test_failed_read_never_selects_else_and_does_not_block_unrelated(self):
         source = '''from pycircuit import ac
 @ac.module
@@ -220,7 +277,8 @@ class Top:
             if rd:
                 registers[rd] = value & 0xffffffff
         trace, out = self.run_example('riscv_pipeline/model.py', 'Pipeline')
-        self.assertEqual(trace[-1]['state']['top.rf.registers'], registers)
+        self.assertEqual([trace[-1]['state'][f'top.rf.registers.{i}'] for i in range(32)], registers)
+        self.assertEqual([trace[-1]['state'][f'top.rf.pending.{i}'] for i in range(32)], [False] * 32)
         self.assertEqual(trace[-1]['state']['top.memory.words'], memory)
         retire = [t['tick'] for t in trace if any(f for n, f in t['fire'].items() if 'writeback.commit' in n)]
         self.assertEqual(retire, [4, 5, 9, 13, 14, 18])
@@ -231,7 +289,7 @@ class Top:
 
     def test_ooo_allocate_wait_issue_broadcast_and_ordered_retire(self):
         trace, out = self.run_example('ooo_scheduler/model.py', 'OutOfOrder')
-        self.assertEqual(trace[-1]['state']['top.rf.registers'], [0, 42, 6, 7, 48, 13, 61, 0])
+        self.assertEqual([trace[-1]['state'][f'top.rf.registers.{i}'] for i in range(8)], [0, 42, 6, 7, 48, 13, 61, 0])
         self.assertEqual(trace[-1]['state']['top.commit.retired'], 4)
         tags = [t['state']['top.commit.last_tag'] for t in trace if any(f for n, f in t['fire'].items() if 'commit.commit' in n)]
         self.assertEqual(tags, [1, 2, 3, 4])

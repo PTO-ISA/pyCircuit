@@ -54,7 +54,7 @@ def ACIR_ResourceRef : AnyTypeOf<[ACIR_QueueType, ACIR_CellType, ACIR_SignalType
 class ACIR_Op<string mnemonic, list<Trait> traits = []> : Op<ACIR_Dialect, mnemonic, traits>;
 
 // Statically elaborated instance scope.
-def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable, NoTerminator]> {
+def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable, IsolatedFromAbove, NoTerminator]> {
   let arguments = (ins SymbolNameAttr:$sym_name);
   let regions = (region AnyRegion:$declarations);
   let assemblyFormat = "$sym_name attr-dict-with-keyword $declarations";
@@ -183,12 +183,14 @@ def ACIR_AggregateOp : ACIR_Op<"aggregate", [NoMemoryEffect]> {
   let results = (outs AnyType:$value);
   let assemblyFormat = "`(` $elements `)` attr-dict `:` functional-type(operands, results)";
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 def ACIR_ExtractOp : ACIR_Op<"extract", [NoMemoryEffect]> {
   let arguments = (ins AnyType:$aggregate, Variadic<AnyInteger>:$indices, OptionalAttr<StrAttr>:$field);
   let results = (outs AnyType:$value);
   let assemblyFormat = "$aggregate (`[` $indices^ `]`)? attr-dict `:` functional-type(operands, results)";
   let hasVerifier = 1;
+  let hasFolder = 1;
 }
 def ACIR_UpdateOp : ACIR_Op<"update", [NoMemoryEffect]> {
   let arguments = (ins AnyType:$aggregate, AnyType:$replacement, Variadic<AnyInteger>:$indices, ArrayAttr:$path);
@@ -229,6 +231,8 @@ def ACIR_UnaryOp : ACIR_Op<"unary", [Pure]> {
   let arguments = (ins AnyInteger:$input, StrAttr:$operator_name);
   let results = (outs AnyInteger:$value);
   let assemblyFormat = "$input $operator_name attr-dict `:` type($input) `->` type($value)";
+  let hasFolder = 1;
+  let hasCanonicalizer = 1;
 }
 def ACIR_CompareOp : ACIR_Op<"compare", [Pure]> {
   let arguments = (ins AnyType:$lhs, AnyType:$rhs, StrAttr:$operator_name);
@@ -238,6 +242,7 @@ def ACIR_CompareOp : ACIR_Op<"compare", [Pure]> {
 def ACIR_CheckOp : ACIR_Op<"check", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins I1:$condition);
   let assemblyFormat = "$condition attr-dict";
+  let hasCanonicalizer = 1;
 }
 def ACIR_UnreachableOp : ACIR_Op<"unreachable", [MemoryEffects<[MemWrite]>]> {
   let assemblyFormat = "attr-dict";
@@ -247,6 +252,7 @@ def ACIR_AssertOp : ACIR_Op<"assert", [MemoryEffects<[MemWrite]>]> {
   let arguments = (ins I1:$condition);
   let results = (outs I1:$checked);
   let assemblyFormat = "$condition attr-dict";
+  let hasFolder = 1;
 }
 // Executable transaction and RTL graph: explicit validity, path and fire operands.
 def ACIR_CircuitOp : ACIR_Op<"circuit", [SymbolTable, NoTerminator]> {
@@ -259,6 +265,13 @@ def ACIR_StateOp : ACIR_Op<"state", [Symbol]> {
   let assemblyFormat = "$sym_name `:` $payload_type attr-dict";
   let hasVerifier = 1;
 }
+// Presentation identity only; names live in locations and never in attributes.
+def ACIR_BindOp : ACIR_Op<"bind", [Pure]> {
+  let arguments = (ins AnyType:$input);
+  let results = (outs AnyType:$value);
+  let assemblyFormat = "$input attr-dict `:` functional-type(operands, results)";
+  let hasVerifier = 1;
+}
 def ACIR_ReadOp : ACIR_Op<"read", [MemoryEffects<[MemRead]>]> {
   let arguments = (ins Variadic<AnyType>:$inputs);
   let results = (outs AnyType:$value, I1:$ready);
@@ -266,9 +279,9 @@ def ACIR_ReadOp : ACIR_Op<"read", [MemoryEffects<[MemRead]>]> {
   let hasVerifier = 1;
 }
 def ACIR_FireOp : ACIR_Op<"fire", [MemoryEffects<[MemWrite]>]> {
-  let arguments = (ins I1:$condition, StrAttr:$name);
+  let arguments = (ins I1:$condition, Variadic<I1>:$checks, StrAttr:$name);
   let results = (outs I1:$fire);
-  let assemblyFormat = "$name $condition attr-dict";
+  let assemblyFormat = "$name $condition (`checks` `(` $checks^ `)`)? attr-dict";
   let hasVerifier = 1;
 }
 def ACIR_EffectOp : ACIR_Op<"effect", [MemoryEffects<[MemWrite]>]> {

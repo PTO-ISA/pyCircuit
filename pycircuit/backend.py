@@ -15,13 +15,15 @@ def compiler():
     return tool
 
 
-def analyze(model, directory, optimize=True, *, stop_after='rtl', cycles=0, config=None):
+def analyze(model, directory, optimize=True, *, stop_after='rtl', cycles=0, config=None, emit_cpp=False):
     directory = Path(directory)
     directory.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix='.compile-', dir=directory) as temporary:
         source = Path(temporary) / 'input.mlir'
         save(model, source)
         command = [compiler(), str(source), str(directory), '--stop-after', stop_after]
+        if emit_cpp:
+            command.append("--emit-cpp")
         if optimize:
             command.append('--opt')
         if cycles:

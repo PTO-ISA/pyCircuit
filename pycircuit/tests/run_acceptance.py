@@ -1,11 +1,14 @@
 """Retain example stage artifacts and reproducible cycle-verification evidence."""
 import json
+import os
 import subprocess
+from pathlib import Path
 from pycircuit import analyze, compile_source
-from pycircuit.tests.support import ROOT, check_reloads, read_trace
+from pycircuit.tests.support import ROOT, check_cpp, check_reloads, read_trace
 
 BUILDS = ROOT / 'pycircuit/builds'
-EVIDENCE = BUILDS / 'benchmarks/compiler-acceptance'
+EVIDENCE = Path(os.environ.get('ACPY_ACCEPTANCE_DIR', str(BUILDS / 'benchmarks/compiler-acceptance')))
+
 MODELS = [
     ('array_arbiter', 'examples/array_arbiter.py', 'ArrayArbiter'),
     ('ehr_shared', 'examples/ehr_shared.py', 'EHRShared'),
@@ -31,7 +34,7 @@ def main():
         expected = None
         for optimize in (False, True):
             out = EVIDENCE / name / ('opt' if optimize else 'raw')
-            graph = analyze(model, out, optimize=optimize, cycles=32)
+            graph = analyze(model, out, optimize=optimize, cycles=32, emit_cpp=True)
             txn = read_trace(out / 'transaction-trace.json')
             assert txn == read_trace(out / 'rtl-trace.json'), name
             if expected is None:
@@ -39,15 +42,19 @@ def main():
             else:
                 assert expected == txn, name + ': optimization'
             check_reloads(txn, out, optimize)
+            metrics = check_cpp(txn, out, benchmark_cycles=10000)
+            if optimize:
+                check_cpp(txn, out, sanitize=True, reset=True)
+            (out / "cpp-metrics.json").write_text(json.dumps(metrics, indent=2) + "\n")
         review = BUILDS / name
         clear_review_artifacts(review)
-        analyze(model, review)
+        analyze(model, review, emit_cpp=True)
         subprocess.run(['python3', str(ROOT / 'pycircuit/draw_rules.py'), str(review / 'rule-graph.json'),
                         '-o', str(review / 'rule-graph.dot')], check=True)
         summary.append({'model': name, 'cycles': 32, 'transactions': len(graph['nodes']),
-                        'two_stages_equal': True, 'optimization_equal': True,
+                        'three_backends_equal': True, 'transaction_execution': 'IR interpretation', 'rtl_execution': 'IR interpretation', 'cpp_sanitizers_and_reset': True, 'cpp_metrics': metrics, 'optimization_equal': True,
                         'all_stages_reload': True, 'final_state': expected[-1]['state']})
-        print(name + ': transaction/RTL, optimization and reload match', flush=True)
+        print(name + ': C++ / transaction IR interpretation / RTL-friendly IR interpretation, optimization, reload, sanitizers and reset match', flush=True)
     (EVIDENCE / 'summary.json').write_text(json.dumps(summary, indent=2, ensure_ascii=False) + '\n')
 
 

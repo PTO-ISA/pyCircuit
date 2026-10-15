@@ -53,6 +53,26 @@
       "to": 2
     },
     {
+      "from": 1,
+      "relation": "SB",
+      "resource": "Module contract",
+      "source_branch": 1,
+      "target_branches": [
+        0
+      ],
+      "to": 0
+    },
+    {
+      "from": 2,
+      "relation": "SB",
+      "resource": "Module contract",
+      "source_branch": 1,
+      "target_branches": [
+        0
+      ],
+      "to": 0
+    },
+    {
       "from": 3,
       "relation": "SB",
       "resource": "Module contract",
@@ -61,6 +81,26 @@
         0
       ],
       "to": 0
+    },
+    {
+      "from": 3,
+      "relation": "SB",
+      "resource": "Module contract",
+      "source_branch": 4,
+      "target_branches": [
+        1
+      ],
+      "to": 1
+    },
+    {
+      "from": 3,
+      "relation": "SB",
+      "resource": "Module contract",
+      "source_branch": 4,
+      "target_branches": [
+        1
+      ],
+      "to": 2
     }
   ],
   "nodes": [

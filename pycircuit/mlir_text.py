@@ -199,7 +199,7 @@ def symbol(name):
 
 def region(fn, kind):
     lines = function(fn, kind)[1:-1]
-    signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) for p in fn['params'])
+    signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(' + quote('acir.binding:' + fn['name'] + ':' + p['name']) + '(unknown))' for p in fn['params'])
     return ['    ^entry' + ('(' + signature + ')' if signature else '') + ':'] + lines
 
 
@@ -216,7 +216,7 @@ def function(fn, region_kind=None):
     result = fn['result']
     # A missing helper return is a diagnostic trap with a typed fallback return.
     meta = {k: v for k, v in fn.items() if k not in ('blocks', 'guard', '_scope') and v is not None}
-    signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(unknown)' for p in params)
+    signature = ', '.join('%' + p['id'] + ': ' + typ(p['type']) + ' loc(' + quote('acir.binding:' + fn['name'] + ':' + p['name']) + '(unknown))' for p in params)
     ret = '' if result == 'void' else ' -> ' + typ(result)
     out = ['  func.func ' + sym(fn['name']) + '(' + signature + ')' + ret + ' attributes {acir.function = ' + attr(meta) + '} {']
     def emit(o):
@@ -227,6 +227,8 @@ def function(fn, region_kind=None):
         attrs = {k: v for k, v in o.items() if k not in ('op','id','type','args','loc','branches','outputs')}
         if kind.startswith(('queue.', 'cell.', 'ehr.', 'signal.')):
             attrs.pop('view', None); attrs.pop('interface', None)
+        binding = attrs.pop('source_binding', None)
+        scope = attrs.pop('source_scope', '')
         attrs['acir.source_type'] = t
         if o.get('loc', {}).get('line') or kind in ('export', 'rule.call'): attrs['acir.id'] = o['id']
         custom = {'resource': 'ref', 'signal.read': 'signal.get', 'signal.write': 'signal.set', 'queue.read': 'queue.peek', 'field': 'extract', 'index': 'extract', 'length': 'length', 'aggregate': 'aggregate', 'update': 'update', 'zero':'aggregate'}
@@ -302,7 +304,10 @@ def function(fn, region_kind=None):
             else: attributes = attr(attrs)
             stmt = lhs + '"acir.' + custom.get(kind, kind) + f'"({args}) ' + attributes + f' : ({ts}) -> ' + ('()' if t == 'void' else typ(t))
         loc = o.get('loc',{})
-        if loc.get('line'):
+        if binding:
+            child = quote(loc['file']) + f':{loc["line"]}:{loc.get("column",0) + 1}' if loc.get('line') else 'unknown'
+            stmt += ' loc(' + quote('acir.binding:' + scope + ':' + binding) + '(' + child + '))'
+        elif loc.get('line'):
             stmt += ' loc(' + quote(loc['file']) + f':{loc["line"]}:{loc.get("column",0) + 1})'
         else:
             stmt += ' loc(unknown)'

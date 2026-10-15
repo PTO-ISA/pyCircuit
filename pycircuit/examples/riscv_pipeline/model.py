@@ -1,7 +1,7 @@
 """Five-stage, in-order RV32I subset with a conservative RAW/WAW scoreboard.
 
 FIFO stage boundaries consume only old queued data. Cell updates become visible
-next cycle. Decode and writeback deliberately serialize scoreboard writes.
+next cycle. Decode retains a conservative writeback interlock.
 """
 from pycircuit import ac
 from isa import ADD, SUB, LOAD, STORE, Fetched, Decoded, Operands, Executed, Retired, decode
@@ -10,8 +10,12 @@ from isa import ADD, SUB, LOAD, STORE, Fetched, Decoded, Operands, Executed, Ret
 class RegisterFile:
 
     def __init__() -> None:
-        registers = ac.cell[ac.array(ac.u32, shape=(32,))](initial=[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
-        pending = ac.cell[ac.array(bool, shape=(32,))](initial=[False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False, False])
+        registers: ac.array(ac.cell[ac.u32], shape=(32,)) = [
+            ac.cell[ac.u32](initial=0) for i in range(32)
+        ]
+        pending: ac.array(ac.cell[bool], shape=(32,)) = [
+            ac.cell[bool](initial=False) for i in range(32)
+        ]
 
     @ac.rule
     def ready(inst: Decoded) -> bool:

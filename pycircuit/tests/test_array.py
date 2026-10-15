@@ -347,6 +347,12 @@ class Top:
         traces=[]
         for opt in (False,True):
             trace,out=self.run_example('array_arbiter.py','ArrayArbiter',cycles=12,optimize=opt)
+            # Keep the original CFG extraction's static call IDs when source
+            # branches are traversed directly instead of first lowering SCF.
+            for tick, chosen in enumerate((2, 1, 0)):
+                for identity in range(3):
+                    self.assertEqual(trace[tick]['fire'][f'top.allocate#{identity}'],
+                                     identity == chosen)
             for before,blocked in [(2,3),(4,5)]:
                 for key in ('top.age.used','top.age.older','top.issued'):
                     self.assertEqual(trace[before]['state'][key],trace[blocked]['state'][key])

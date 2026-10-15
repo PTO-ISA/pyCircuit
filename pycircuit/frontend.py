@@ -157,7 +157,16 @@ class Frontend:
                     self.locals.append(members)
                     cls.body = [self.visit(f) for f in cls.body]
                     self.locals.pop()
-                else: cls.body = [self.visit(f) for f in cls.body]
+                else:
+                    # Field declarations are not references to file globals.
+                    # Their annotations/defaults still resolve in the file scope.
+                    for field in cls.body:
+                        if isinstance(field, ast.AnnAssign) and isinstance(field.target, ast.Name):
+                            field.annotation = self.visit(field.annotation)
+                            if field.value is not None:
+                                field.value = self.visit(field.value)
+                        else:
+                            self.visit(field)
                 return cls
             def visit_Name(self, n):
                 if not any(n.id in scope for scope in self.locals): n.id = bindings.get(n.id, n.id)
@@ -827,7 +836,10 @@ class Lower:
         self.f.error(node, f'unknown name: {name}')
 
     def bind(self, name, val):
-        if isinstance(val, Value): self.untyped_literals.discard(val.id)
+        if isinstance(val, Value):
+            self.untyped_literals.discard(val.id)
+            if not name.startswith('$') and self.kind != 'construction' and not resource(val.type) and not val.targets and val.id not in {p['id'] for p in self.params}:
+                val = self.op('bind', val.type, [val], source_binding=name, source_scope=self.name)
         if not hasattr(self, 'locals'):
             self.locals = set()
         self.locals.add(name)
@@ -1527,9 +1539,11 @@ class Lower:
                 operation['outputs'] = outputs
                 if all(endings):
                     self.block['returned'] = True
-                elif any(endings):
+                elif '$live' in changed:
                     # Only a returning branch changes continuation. Ordinary if
                     # statements never add a dependency to unrelated following work.
+                    # A nested partial return can change $live even when neither
+                    # immediate branch always returns.
                     remaining = statements[statement_index+1:]
                     if remaining:
                         live = self.env['$live']

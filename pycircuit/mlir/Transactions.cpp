@@ -1,7 +1,7 @@
 #include "Dialect.h"
 #include "Execution.h"
 #include "Passes.h"
-#include "mlir/Conversion/SCFToControlFlow/SCFToControlFlow.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -27,6 +27,33 @@ std::string text(Operation *op, StringRef key) {
   auto a = op->getAttrOfType<StringAttr>(key);
   return a ? a.getValue().str() : "";
 }
+bool hasBinding(Location loc) {
+  if (auto named = dyn_cast<NameLoc>(loc))
+    return named.getName().getValue().starts_with("acir.binding:") ||
+           hasBinding(named.getChildLoc());
+  if (auto call = dyn_cast<CallSiteLoc>(loc))
+    return hasBinding(call.getCallee());
+  if (auto fused = dyn_cast<FusedLoc>(loc))
+    return llvm::any_of(fused.getLocations(), hasBinding);
+  return false;
+}
+Location implementationLocation(Location loc) {
+  if (auto named = dyn_cast<NameLoc>(loc)) {
+    auto child = implementationLocation(named.getChildLoc());
+    return named.getName().getValue().starts_with("acir.binding:")
+               ? child : Location(NameLoc::get(named.getName(), child));
+  }
+  if (auto call = dyn_cast<CallSiteLoc>(loc))
+    return CallSiteLoc::get(implementationLocation(call.getCallee()),
+                            implementationLocation(call.getCaller()));
+  if (auto fused = dyn_cast<FusedLoc>(loc)) {
+    SmallVector<Location> locations;
+    for (auto child : fused.getLocations())
+      locations.push_back(implementationLocation(child));
+    return FusedLoc::get(locations, fused.getMetadata(), loc.getContext());
+  }
+  return loc;
+}
 struct Pair {
   Value value, ready;
   std::string resource;
@@ -45,10 +72,15 @@ struct Extractor {
   acir::CircuitOp circuit;
   Location loc;
   Value yes, no;
+  std::map<std::pair<uint64_t, unsigned>, Value> constants;
   std::vector<Transaction> txns;
   std::vector<std::string> frames;
   std::map<std::string, Operation *> symbols, states;
   std::map<std::string, std::vector<std::string>> arrays;
+  std::map<std::string, std::string> arrayNames;
+  std::map<Operation *, Operation *> analysisTargets;
+  std::map<Operation *, SmallVector<Operation *>> analysisMembers;
+  LocationAttr caller;
   std::map<std::string, std::vector<Operation *>> accesses;
   std::map<std::pair<std::string, std::string>, std::string> relations;
   std::map<std::pair<std::string, std::string>, Pair> exports;
@@ -56,6 +88,7 @@ struct Extractor {
   std::set<Operation *> checking;
   int active = -1;
   std::vector<Operation *> callSites;
+  std::map<Operation *, SmallVector<Operation *>> callResults;
   std::map<std::pair<int, const void *>, int> branches;
   int nextBranch = 0;
   Extractor(mlir::ModuleOp source)
@@ -116,24 +149,58 @@ struct Extractor {
     }
   }
   Value constant(uint64_t n, unsigned width = 32) {
-    return arith::ConstantIntOp::create(b, loc, n, width);
+    auto key = std::make_pair(n, width);
+    auto [it, added] = constants.emplace(key, Value());
+    if (added)
+      it->second = arith::ConstantIntOp::create(b, loc, n, width);
+    return it->second;
+  }
+  bool contains(Value expression, Value value, bool isAnd, unsigned depth = 0) {
+    if (expression == value)
+      return true;
+    if (depth >= 64)
+      return false;
+    auto *op = expression.getDefiningOp();
+    if (!op || op->getName().getStringRef() !=
+                   (isAnd ? "arith.andi" : "arith.ori"))
+      return false;
+    return contains(op->getOperand(0), value, isAnd, depth + 1) ||
+           contains(op->getOperand(1), value, isAnd, depth + 1);
   }
   Value conjunction(Value a, Value c) {
+    if (a == c)
+      return a;
     if (a == yes)
       return c;
     if (c == yes)
       return a;
     if (a == no || c == no)
       return no;
+    if (contains(a, c, true))
+      return a;
+    if (contains(c, a, true))
+      return c;
+    if (auto alternative = c.getDefiningOp<arith::OrIOp>())
+      if (alternative.getLhs() == a)
+        return a;
     return arith::AndIOp::create(b, loc, a, c);
   }
   Value disjunction(Value a, Value c) {
+    if (a == c)
+      return a;
     if (a == no)
       return c;
     if (c == no)
       return a;
     if (a == yes || c == yes)
       return yes;
+    if (contains(a, c, false))
+      return a;
+    if (contains(c, a, false))
+      return c;
+    if (auto term = c.getDefiningOp<arith::AndIOp>())
+      if (term.getLhs() == a)
+        return a;
     return arith::OrIOp::create(b, loc, a, c);
   }
   Value negate(Value a) {
@@ -141,6 +208,9 @@ struct Extractor {
       return no;
     if (a == no)
       return yes;
+    if (auto inverse = a.getDefiningOp<arith::XOrIOp>())
+      if (inverse.getRhs() == yes)
+        return inverse.getLhs();
     return arith::XOrIOp::create(b, loc, a, yes);
   }
   Value select(Value c, Value a, Value z) {
@@ -150,6 +220,18 @@ struct Extractor {
       return a;
     if (c == no)
       return z;
+    if (a == yes && z == no)
+      return c;
+    if (a == no && z == yes)
+      return negate(c);
+    if (a == yes)
+      return disjunction(c, z);
+    if (z == no)
+      return conjunction(c, a);
+    if (a == no)
+      return conjunction(negate(c), z);
+    if (z == yes)
+      return disjunction(negate(c), a);
     return arith::SelectOp::create(b, loc, c, a, z);
   }
   Pair pathAnd(Pair path, Pair condition, bool invert = false) {
@@ -194,8 +276,12 @@ struct Extractor {
     auto *op =
         make(b, loc, "acir.read", path.value, {type, b.getI1Type()}, attrs);
     accesses[res].push_back(op);
-    require(path, op->getResult(1));
-    return {op->getResult(0), op->getResult(1)};
+    // Cell contents and old FIFO empty/size views are total and immutable
+    // during a tick. Other views keep the read token (notably EHR and full).
+    auto ready = method == "read" || method == "empty" || method == "size"
+                     ? yes : op->getResult(1);
+    require(path, ready);
+    return {op->getResult(0), ready};
   }
   void effect(std::string res, std::string method, Value value, Pair path,
               Value ready) {
@@ -268,49 +354,78 @@ struct Extractor {
       values.push_back(shape.size() == 1 ? yes : fullMask(shape.drop_front()));
     return make(b, loc, "acir.aggregate", values, acir::MaskType::get(b.getContext(), shape))->getResult(0);
   }
-  Pair readReference(Pair reference, std::string method, Type type, Pair path) {
-    if (!arrays.count(reference.resource))
-      return read(reference.resource, method, type, path);
-    if (!reference.index)
-      throw std::runtime_error("index a Queue array before reading");
-    Pair result{make(b, loc, "acir.aggregate", {}, type)->getResult(0), no};
-    for (auto [i, res] : llvm::enumerate(arrays[reference.resource])) {
-      auto chosen = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq,
-                                          reference.index, constant(i, cast<IntegerType>(reference.index.getType()).getWidth()));
-      Value selected = chosen;
-      if (!reference.selected.empty()) selected = conjunction(selected, reference.selected[i]);
-      auto branchPath = pathAnd(path, {selected, reference.ready});
-      auto value = read(res, method, type, branchPath);
-      result.value = select(selected, value.value, result.value);
-      result.ready =
-          disjunction(result.ready, conjunction(selected, value.ready));
+  // The schedule enumerates candidates through temporary analysis sites. The
+  // executable operation retains one logical index and selection domain.
+  void logicalMetadata(Operation *op, Pair reference, Pair path) {
+    SmallVector<Attribute> resources;
+    for (auto &res : arrays.at(reference.resource)) resources.push_back(b.getStringAttr(res));
+    op->setAttr("resources", b.getArrayAttr(resources));
+    op->setAttr("array", b.getStringAttr(arrayNames.count(reference.resource) ? arrayNames.at(reference.resource) : reference.resource));
+    for (auto [i, res] : llvm::enumerate(arrays.at(reference.resource))) {
+      auto chosen = cmpIndex(reference.index, i);
+      if (!reference.selected.empty()) chosen = conjunction(chosen, reference.selected[i]);
+      auto condition = conjunction(path.value, chosen);
+      auto attrs = metadata(res, text(op, "method"), active);
+      attrs.push_back(b.getNamedAttr("branch", b.getI64IntegerAttr(branch(condition, active))));
+      auto *site = make(b, loc, "acir.path", condition, {}, attrs);
+      accesses[res].push_back(site);
+      analysisTargets[site] = op;
+      analysisMembers[op].push_back(site);
     }
-    result.ready = conjunction(result.ready, reference.ready);
-    require(path, result.ready);
+  }
+  SmallVector<Value> selection(Pair reference) {
+    SmallVector<Value> result{reference.index};
+    if (!reference.selected.empty()) {
+      auto mask = acir::MaskType::get(b.getContext(), {int64_t(reference.selected.size())});
+      result.push_back(make(b, loc, "acir.aggregate", reference.selected, mask)->getResult(0));
+    }
     return result;
   }
-  void effectReference(Pair reference, std::string method, Value value,
-                       Pair path, Value ready) {
-    if (!arrays.count(reference.resource)) {
-      effect(reference.resource, method, value, path, ready);
-      return;
+  Pair referenceReady(Pair reference) {
+    auto valid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
+      reference.index, constant(arrays.at(reference.resource).size(), cast<IntegerType>(reference.index.getType()).getWidth()));
+    Value member = yes;
+    if (!reference.selected.empty()) {
+      auto mask = selection(reference).back();
+      auto safe = select(valid, reference.index, constant(0, cast<IntegerType>(reference.index.getType()).getWidth()));
+      member = make(b, loc, "acir.extract", {mask, safe}, b.getI1Type())->getResult(0);
     }
-    if (!reference.index)
-      throw std::runtime_error("index a Queue array before writing");
-    auto valid = arith::CmpIOp::create(
-        b, loc, arith::CmpIPredicate::ult, reference.index,
-        constant(arrays[reference.resource].size(), cast<IntegerType>(reference.index.getType()).getWidth()));
-    Value member = reference.selected.empty() ? yes : no;
-    for (auto [i, bit] : llvm::enumerate(reference.selected))
-      member = disjunction(member, conjunction(bit, cmpIndex(reference.index, i)));
-    require(path, conjunction(reference.ready, conjunction(valid, member)));
-    for (auto [i, res] : llvm::enumerate(arrays[reference.resource])) {
-      auto chosen = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq,
-                                          reference.index, constant(i, cast<IntegerType>(reference.index.getType()).getWidth()));
-      Value selected = chosen;
-      if (!reference.selected.empty()) selected = conjunction(selected, reference.selected[i]);
-      effect(res, method, value, pathAnd(path, {selected, reference.ready}),
-             ready);
+    return {yes, conjunction(reference.ready, conjunction(valid, member))};
+  }
+  Pair readReference(Pair reference, std::string method, Type type, Pair path) {
+    if (!arrays.count(reference.resource)) return read(reference.resource, method, type, path);
+    if (!reference.index) throw std::runtime_error("index a resource array before reading");
+    auto valid = referenceReady(reference).ready;
+    require(path, valid);
+    auto attrs = metadata(arrays.at(reference.resource).front(), method, active);
+    attrs.push_back(b.getNamedAttr("branch", b.getI64IntegerAttr(branch(path.value, active))));
+    SmallVector<Value> args{path.value};
+    auto domain = selection(reference); args.append(domain);
+    auto *op = make(b, loc, "acir.read", args, {type, b.getI1Type()}, attrs);
+    logicalMetadata(op, reference, path);
+    // A logical Cell/old-FIFO view adds only selection validity. The read's
+    // ready result repeats those same bounds/domain checks.
+    auto ready = method == "read" || method == "empty" || method == "size"
+                     ? valid : conjunction(valid, op->getResult(1));
+    require(path, ready);
+    return {op->getResult(0), ready};
+  }
+  void effectReference(Pair reference, std::string method, Value value, Pair path, Value ready) {
+    if (!arrays.count(reference.resource)) { effect(reference.resource, method, value, path, ready); return; }
+    if (!reference.index) throw std::runtime_error("index a resource array before writing");
+    if (active < 0) throw std::runtime_error("state effect outside a transaction");
+    require(path, conjunction(ready, referenceReady(reference).ready));
+    auto attrs = metadata(arrays.at(reference.resource).front(), method, active);
+    attrs.push_back(b.getNamedAttr("branch", b.getI64IntegerAttr(branch(path.value, active))));
+    SmallVector<Value> args{path.value};
+    if (value) args.push_back(value);
+    auto domain = selection(reference); args.append(domain);
+    auto *op = make(b, loc, "acir.effect", args, {}, attrs);
+    txns[active].effects.push_back(op);
+    logicalMetadata(op, reference, path);
+    if (method == "pop" || method == "push") {
+      auto available = readReference(reference, method == "pop" ? "empty" : "full", b.getI1Type(), path);
+      require(path, negate(available.value));
     }
   }
   bool modifying(Operation *op) {
@@ -381,14 +496,18 @@ struct Extractor {
         }
       }
       result.value = select(it->first.value, previous.value, result.value);
-      if (result.producer != it->second.producer && result.producer >= 0)
-        throw std::runtime_error(
-            "independent transaction values cannot be merged");
+      // A merge must not erase provenance when the last arm is a literal.
+      if (previous.producer >= 0)
+        result.producer = previous.producer;
+      if (it->first.producer >= 0)
+        result.producer = it->first.producer;
     }
     result.ready = ready;
     return result;
   }
-  Pair run(Region &region, ArrayRef<Pair> arguments, Pair path) {
+  Pair run(Region &region, ArrayRef<Pair> arguments, Pair path,
+           DenseMap<Value, Pair> env = DenseMap<Value, Pair>(),
+           SmallVector<Pair> *yielded = nullptr) {
     struct Incoming {
       Pair path;
       SmallVector<Pair> args;
@@ -452,7 +571,6 @@ struct Extractor {
     std::map<Block *, Pair> resumed;
     incoming[&region.front()].push_back({path, SmallVector<Pair>(arguments)});
     Value checkReady = yes;
-    DenseMap<Value, Pair> env;
     std::vector<std::pair<Pair, Pair>> returns;
     for (auto *block : order) {
       auto &ins = incoming[block];
@@ -471,12 +589,26 @@ struct Extractor {
         std::vector<std::pair<Pair, Pair>> vals;
         for (auto &in : ins)
           vals.push_back({in.path, in.args[i]});
-        env[arg] = merge(vals, arg.getType());
+        // Entry parameters are valid in the caller's scope. Attaching the
+        // execution predicate to each parameter invents redundant phi nodes
+        // and replicates that predicate throughout every helper computation.
+        auto parameter = block == &region.front() && vals.size() == 1
+                             ? vals.front().second
+                             : merge(vals, arg.getType());
+        if (parameter.resource.empty() && isa<NameLoc>(arg.getLoc())) {
+          auto nameLoc = caller ? Location(CallSiteLoc::get(arg.getLoc(), caller)) : arg.getLoc();
+          parameter.value = make(b, nameLoc, "acir.bind", parameter.value, arg.getType())->getResult(0);
+        }
+        env[arg] = parameter;
       }
       current = operationPath;
       for (auto &operation : *block) {
         auto *op = &operation;
-        loc = op->getLoc();
+        auto sourceLoc = caller ? Location(CallSiteLoc::get(op->getLoc(), caller))
+                                : op->getLoc();
+        // A source binding names the produced value, not the bounds, enables
+        // and readiness arithmetic introduced while lowering that operation.
+        loc = implementationLocation(sourceLoc);
         auto name = op->getName().getStringRef();
         SmallVector<Pair> a;
         for (auto v : op->getOperands())
@@ -485,11 +617,60 @@ struct Extractor {
         for (auto v : a)
           allReady = conjunction(allReady, v.ready);
         Pair result;
+        if (auto conditional = dyn_cast<scf::IfOp>(op)) {
+          auto condition = env.lookup(conditional.getCondition());
+          if (active < 0 && condition.producer >= 0)
+            throw std::runtime_error(
+                "ordinary return value crosses independent transactions through Module condition");
+          require(current, condition.ready);
+          SmallVector<Pair> t, z;
+          Pair zChecks{no, yes};
+          // Match the historical SCF-to-CFG extraction's topological worklist:
+          // the false successor was visited first. Static transaction IDs and
+          // fire trace labels must survive the switch to structured traversal.
+          if (!conditional.getElseRegion().empty())
+            zChecks = run(conditional.getElseRegion(), {},
+                          pathAnd(current, condition, true), env, &z);
+          auto tChecks = run(conditional.getThenRegion(), {},
+                             pathAnd(current, condition), env, &t);
+          checkReady = conjunction(
+              checkReady, conjunction(condition.ready,
+                                      select(condition.value, tChecks.ready,
+                                             zChecks.ready)));
+          loc = implementationLocation(sourceLoc);
+          for (auto [i, value] : llvm::enumerate(op->getResults())) {
+            auto joined = merge({{{condition.value, yes}, t[i]},
+                                 {{negate(condition.value), yes}, z[i]}},
+                                value.getType());
+            joined.ready = conjunction(
+                condition.ready, select(condition.value, t[i].ready, z[i].ready));
+            if (condition.producer >= 0)
+              joined.producer = condition.producer;
+            if (op->getNumResults() == 1 && hasBinding(op->getLoc()) &&
+                joined.resource.empty())
+              joined.value = make(b, sourceLoc, "acir.bind", joined.value,
+                                  value.getType())->getResult(0);
+            env[value] = joined;
+          }
+          continue;
+        }
+        if (isa<scf::YieldOp>(op)) {
+          if (!yielded)
+            throw std::runtime_error("yield outside a structured condition");
+          for (auto value : a) {
+            value.ready = conjunction(value.ready, checkReady);
+            yielded->push_back(value);
+          }
+          continue;
+        }
         if (auto br = dyn_cast<cf::BranchOp>(op)) {
           incoming[br.getDest()].push_back({current, a});
           continue;
         }
         if (auto br = dyn_cast<cf::CondBranchOp>(op)) {
+          if (active < 0 && a[0].producer >= 0)
+            throw std::runtime_error(
+                "ordinary return value crosses independent transactions through Module condition");
           require(current, a[0].ready);
           auto candidates = postdom[block];
           candidates.erase(block);
@@ -520,7 +701,11 @@ struct Extractor {
             returns.push_back({current, {no, yes}});
           continue;
         }
-        if (auto ref = dyn_cast<acir::GetOp>(op)) {
+        if (auto c = dyn_cast<arith::ConstantOp>(op)) {
+          auto value = cast<IntegerAttr>(c.getValue());
+          result = {constant(value.getValue().getZExtValue(),
+                             value.getType().getIntOrFloatBitWidth()), yes};
+        } else if (auto ref = dyn_cast<acir::GetOp>(op)) {
           result = {no, yes,
                     ref.getTarget().getLeafReference().getValue().str()};
         } else if (auto external = dyn_cast<acir::ExternalOp>(op)) {
@@ -640,8 +825,11 @@ struct Extractor {
             result = {make(b, loc, opcode, values, op->getResultTypes())
                           ->getResult(0),
                       allReady};
-          } else
+          } else {
+            auto saved = caller; caller = loc;
             result = run(fn.getBody(), a, current);
+            caller = saved;
+          }
         } else if (name == "acir.optional") {
           result = a[0]; result.ready = conjunction(allReady, a[1].value);
         } else if (name == "acir.array.domain" && !a[0].resource.empty()) {
@@ -773,6 +961,7 @@ struct Extractor {
           SmallVector<Attribute> resources;
           for (auto &res:arrays[key]) resources.push_back(b.getStringAttr(res));
           auto name = text(op,"array_name");
+          arrayNames[key] = name.empty() ? key : name;
           make(b,loc,"acir.resource.array",{},{},{b.getNamedAttr("name",b.getStringAttr(name.empty()?key:name)),
                b.getNamedAttr("shape",b.getI64ArrayAttr(type.getShape())),b.getNamedAttr("resources",b.getArrayAttr(resources))});
           result = {no, allReady, key};
@@ -786,9 +975,16 @@ struct Extractor {
             auto checked =
                 make(b, loc, "acir.assert", a[0].value, b.getI1Type())
                     ->getResult(0);
+            // A structured region is evaluated only when selected. Its local
+            // assertions are unconditional relative to that region; the
+            // enclosing if joins their obligations. Repeating the full caller
+            // path here contaminates every value with that path again.
             checkReady = conjunction(
-                checkReady, disjunction(negate(current.value),
-                                        conjunction(allReady, checked)));
+                checkReady,
+                region.hasOneBlock()
+                    ? conjunction(allReady, checked)
+                    : disjunction(negate(current.value),
+                                  conjunction(allReady, checked)));
           }
           continue;
         } else if (name == "acir.unreachable") {
@@ -828,7 +1024,7 @@ struct Extractor {
                   "component reference in ordinary computation");
             operands.push_back(arg.value);
           }
-          auto *copy = make(b, loc, name, operands, op->getResultTypes(),
+          auto *copy = make(b, sourceLoc, name, operands, op->getResultTypes(),
                             op->getAttrs());
           result = {op->getNumResults() ? copy->getResult(0) : no, allReady};
           for (auto arg : a)
@@ -842,13 +1038,26 @@ struct Extractor {
             exports[{owner.str(), text(op, "acir.id")}] = result;
           }
         }
+        // Specialized operations (index/update/helper calls included) carry
+        // the same transaction provenance as ordinary arithmetic.
+        for (auto arg : a)
+          if (arg.producer >= 0)
+            result.producer = arg.producer;
+        if (op->getNumResults() && name != "acir.bind" &&
+            hasBinding(op->getLoc()) && result.resource.empty() &&
+            result.value.getLoc() != sourceLoc)
+          result.value = make(b, sourceLoc, "acir.bind", result.value,
+                              result.value.getType())->getResult(0);
         if (op->getNumResults())
           env[op->getResult(0)] = result;
       }
     }
     Type resultType =
         returns.empty() ? b.getI1Type() : returns[0].second.value.getType();
-    auto result = merge(returns, resultType);
+    auto result = yielded ? Pair{no, yes}
+                  : region.hasOneBlock() && returns.size() == 1
+                      ? returns.front().second
+                      : merge(returns, resultType);
     result.ready = conjunction(result.ready, checkReady);
     return result;
   }
@@ -884,6 +1093,15 @@ struct Extractor {
     auto result = run(rule->getRegion(1), args,
                       {path.value, conjunction(path.ready, ready)});
     result.ready = conjunction(result.ready, ready);
+    if (active < 0) {
+      // Distinct anchors preserve the declared call identity even for a
+      // constant result; consumers of either payload or readiness inherit it.
+      for (Value *value : {&result.value, &result.ready}) {
+        auto *anchor = make(b, loc, "acir.export", *value, value->getType());
+        *value = anchor->getResult(0);
+        callResults[site].push_back(anchor);
+      }
+    }
     frames.pop_back();
     return result;
   }
@@ -957,6 +1175,10 @@ struct Extractor {
       auto *state = make(b, op->getLoc(), "acir.state", {}, {}, attrs);
       states[name] = state;
     }
+    SmallVector<Attribute> instances;
+    for (auto scope : source.getOps<acir::ModuleOp>())
+      if (auto instance = scope->getAttr("acir.instance")) instances.push_back(instance);
+    target->setAttr("acir.instances", b.getArrayAttr(instances));
     initialModule.erase();
     for (auto scope : source.getOps<acir::ModuleOp>())
       if (scope.getSymName() == "top")
@@ -964,17 +1186,33 @@ struct Extractor {
           runBody(body->getAttrOfType<DictionaryAttr>("acir.function")
                       .getAs<StringAttr>("name").getValue(), {yes, yes});
     schedule();
+    for (auto &[op, sites] : analysisMembers) {
+      SmallVector<Attribute> ports;
+      for (auto *site : sites) ports.push_back(site->getAttr("port"));
+      op->setAttr("ports", b.getArrayAttr(ports));
+    }
+    for (auto &[site, op] : analysisTargets) site->erase();
     return target;
   }
-  std::string relation(Operation *a, Operation *z) {
+  std::set<std::string> declaredRelations(Operation *a, Operation *z) {
+    std::set<std::string> result;
     for (auto f : a->getAttrOfType<ArrayAttr>("frames"))
       for (auto g : z->getAttrOfType<ArrayAttr>("frames")) {
         auto key = std::make_pair(cast<StringAttr>(f).getValue().str(),
-                                  cast<StringAttr>(g).getValue().str());
+                                 cast<StringAttr>(g).getValue().str());
         auto i = relations.find(key);
-        if (i != relations.end() && i->second != "CF")
-          return i->second;
+        if (i != relations.end())
+          result.insert(i->second);
       }
+    return result;
+  }
+  std::string relation(Operation *a, Operation *z) {
+    auto kinds = declaredRelations(a, z);
+    // Ordering and exclusion both survive nested scopes. Prefer the strongest
+    // ordering for the edge label; callers check exclusion independently.
+    for (const char *kind : {"SBR", "SB", "C"})
+      if (kinds.count(kind))
+        return kind;
     return "";
   }
   void schedule() {
@@ -1038,19 +1276,22 @@ struct Extractor {
     };
     auto users = [&](Operation *op) {
       std::set<int> result;
+      if (analysisTargets.count(op)) op = analysisTargets.at(op);
       auto id = op->getAttrOfType<IntegerAttr>("txn").getInt();
       if (id >= 0)
         result.insert(id);
       else {
         llvm::SmallPtrSet<Operation *, 32> seen;
         std::vector<Operation *> pending{op};
+        for (auto *anchor : callResults[op])
+          pending.push_back(anchor);
         while (!pending.empty()) {
           auto *v = pending.back();
           pending.pop_back();
           if (!seen.insert(v).second)
             continue;
-          if (auto fire = dyn_cast<acir::FireOp>(v))
-            result.insert(fire->getAttrOfType<IntegerAttr>("txn").getInt());
+          if (isa<acir::FireOp, acir::EffectOp>(v))
+            result.insert(v->getAttrOfType<IntegerAttr>("txn").getInt());
           for (auto *user : v->getUsers())
             pending.push_back(user);
         }
@@ -1067,7 +1308,7 @@ struct Extractor {
         auto n = op->getName().getStringRef();
         if (n == "arith.constant")
           return;
-        if (n == "acir.fire" || n == "arith.andi" || n == "arith.ori" ||
+        if (n == "acir.fire" || n == "acir.bind" || n == "arith.andi" || n == "arith.ori" ||
             n == "arith.xori" || n == "arith.select" ||
             (n == "acir.unary" && text(op, "operator_name") == "not")) {
           for (auto x : op->getOperands())
@@ -1088,7 +1329,7 @@ struct Extractor {
         auto n = op->getName().getStringRef();
         if (n == "arith.constant")
           return !op->getAttrOfType<IntegerAttr>("value").getValue().isZero();
-        if (n == "acir.fire")
+        if (n == "acir.fire" || n == "acir.bind")
           return eval(op->getOperand(0), bits);
         if (n == "arith.andi")
           return eval(op->getOperand(0), bits) && eval(op->getOperand(1), bits);
@@ -1116,7 +1357,7 @@ struct Extractor {
                  kind = relation(a, z);
             auto component = text(states.at(res), "kind");
             bool ordered = kind == "SB" || kind == "SBR",
-                 strict = kind == "SBR", conflict = kind == "C";
+                 strict = kind == "SBR", conflict = declaredRelations(a, z).count("C");
             if (component == "queue" && x == "peek" && y == "pop") {
               ordered = true;
               kind = "Queue.peek → pop";
@@ -1164,7 +1405,7 @@ struct Extractor {
                         "same transaction uses Queue pop and capacity phase: " +
                         res);
                   if (component == "signal" || component == "ehr" ||
-                      kind == "C" || kind == "SBR")
+                      conflict || kind == "SBR")
                     throw std::runtime_error(
                         "incompatible operations in transaction " +
                         txns[ta].name + " on " + res + ": " + x + " / " + y);
@@ -1184,21 +1425,23 @@ struct Extractor {
       for (auto *z : callSites)
         if (a != z) {
           auto kind = relation(a, z);
-          auto ta = a->getAttrOfType<IntegerAttr>("txn").getInt(),
-               tz = z->getAttrOfType<IntegerAttr>("txn").getInt();
-          if (ta == tz && ta >= 0 && (kind == "C" || kind == "SBR") &&
-              !mutuallyExclusive(a, z))
-            throw std::runtime_error(
-                "Rule contract forbids nested calls in transaction " +
-                txns[ta].name);
-          if (kind == "SB" || kind == "SBR")
-            edge(ta, tz, "Module contract", kind, a, z);
-          if (kind == "C" && ta >= 0 && tz >= 0 && ta != tz)
-            conflicts.push_back(b.getDictionaryAttr(
-                {b.getNamedAttr("from", b.getI64IntegerAttr(ta)),
-                 b.getNamedAttr("to", b.getI64IntegerAttr(tz)),
-                 b.getNamedAttr("resource",
-                                b.getStringAttr("Module contract"))}));
+          bool conflict = declaredRelations(a, z).count("C");
+          for (auto ta : users(a))
+            for (auto tz : users(z)) {
+              if (ta == tz && ta >= 0 && (conflict || kind == "SBR") &&
+                  !mutuallyExclusive(a, z))
+                throw std::runtime_error(
+                    "Rule contract forbids nested calls in transaction " +
+                    txns[ta].name);
+              if (kind == "SB" || kind == "SBR")
+                edge(ta, tz, "Module contract", kind, a, z);
+              if (conflict && ta >= 0 && tz >= 0 && ta != tz)
+                conflicts.push_back(b.getDictionaryAttr(
+                    {b.getNamedAttr("from", b.getI64IntegerAttr(ta)),
+                     b.getNamedAttr("to", b.getI64IntegerAttr(tz)),
+                     b.getNamedAttr("resource",
+                                    b.getStringAttr("Module contract"))}));
+            }
         }
     std::vector<int> degree(txns.size());
     for (auto &ss : successors)
@@ -1249,12 +1492,6 @@ struct Transactions : PassWrapper<Transactions, OperationPass<mlir::ModuleOp>> {
     if (!module.getOps<acir::CircuitOp>().empty())
       return;
     try {
-      PassManager pm(module.getContext());
-      pm.addPass(createSCFToControlFlowPass());
-      if (failed(pm.run(module))) {
-        signalPassFailure();
-        return;
-      }
       Extractor ex(module);
       auto result = ex.extract();
       module.getBodyRegion().takeBody(result.getBodyRegion());

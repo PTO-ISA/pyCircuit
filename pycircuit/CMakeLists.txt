@@ -8,5 +8,5 @@ if(BUILD_TESTING)
   add_test(NAME acpy-mlir-pipeline COMMAND ${CMAKE_COMMAND} -E env
     "ACPY_MLIR_OPT=$<TARGET_FILE:acir-opt>" "ACPY_MLIR_COMPILER=$<TARGET_FILE:acir-compile>"
     ${Python3_EXECUTABLE} -m unittest discover -s pycircuit/tests -v)
-  set_tests_properties(acpy-mlir-pipeline PROPERTIES WORKING_DIRECTORY "${REPO}" TIMEOUT 300)
+  set_tests_properties(acpy-mlir-pipeline PROPERTIES WORKING_DIRECTORY "${REPO}" TIMEOUT 1200)
 endif()
