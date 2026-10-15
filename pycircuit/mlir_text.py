@@ -263,6 +263,14 @@ def function(fn, region_kind=None):
             n = int(o['value']) % (1 << width)
             if n >= 1 << (width - 1): n -= 1 << width
             stmt = lhs + '"arith.constant"() {value = ' + str(n) + ' : ' + typ(t) + ', acir.source_type = ' + quote(t) + '} : () -> ' + typ(t)
+        elif kind == 'cast':
+            source = types[ids[0]]
+            before, after = int(source[1:]), int(t[1:])
+            operation = 'trunci' if after < before else 'extsi' if source.startswith('i') else 'extui'
+            if before == after:
+                stmt = lhs + f'"arith.ori"({args}, {args}) ' + attr(attrs) + f' : ({ts}, {ts}) -> {typ(t)}'
+            else:
+                stmt = lhs + f'"arith.{operation}"({args}) ' + attr(attrs) + f' : ({ts}) -> {typ(t)}'
         elif kind == 'binary':
             operator = o['operator']
             signed = types[ids[0]].startswith('i')

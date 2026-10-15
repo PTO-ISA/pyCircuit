@@ -689,7 +689,7 @@ class Lower:
                 value = self.op('optional', value.type, [value, self.env['$present']])
             elif self.kind in ('helper', 'rule'):
                 returned = self.op('unary', 'bool', [self.env['$live']], operator='not')
-                self.op('check', 'void', [returned])
+                self.op('check', 'void', [returned], check_kind='return_coverage')
             self.op('return', 'void', [value])
         else:
             self.op('return', 'void')
@@ -1136,7 +1136,12 @@ class Lower:
         name = spelling(node.func)
         short = name.removeprefix('ac.')
         if short in SCALARS:
-            self.f.error(node, 'scalar conversion calls are unsupported; use typed values')
+            if short == 'bool' or len(node.args) != 1 or node.keywords:
+                self.f.error(node, 'integer conversion requires one integer positional argument')
+            value = self.expr(node.args[0])
+            if value.type not in SCALARS or value.type == 'bool':
+                self.f.error(node, 'integer conversion requires an integer source')
+            return self.op('cast', short, [value], node=node)
         if name == 'len':
             if len(node.args) != 1 or node.keywords: self.f.error(node, 'len requires exactly one positional argument')
             value = self.expr(node.args[0], reference=True)

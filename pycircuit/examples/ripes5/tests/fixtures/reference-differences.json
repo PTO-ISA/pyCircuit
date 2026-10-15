@@ -1,0 +1,90 @@
+{
+  "upstream_rvc": {
+    "id": "ripes-invalid-compressed-fetch-length",
+    "classification": "confirmed-reference-defect",
+    "evidence": "Pinned rv_uncompress.h sets pcInc4=true when instrValue==0, including 0x0000 (reserved C.ADDI4SPN immediate zero). The instruction-length encoding has low bits 00 and is 16 bits. Two speculative fetches into rvc.s .zero padding differ; both paths are flushed before execution. All retirement, registers, RAM and system events match the independent oracle.",
+    "source": "reference/ripes-reference/src/processors/RISC-V/rv_uncompress.h",
+    "expected_differences": [
+      {
+        "cycle": 221,
+        "field": "pc",
+        "actual": 610,
+        "native": 612
+      },
+      {
+        "cycle": 221,
+        "field": "stages",
+        "actual": [
+          610,
+          608,
+          604,
+          null,
+          null
+        ],
+        "native": [
+          612,
+          608,
+          604,
+          null,
+          null
+        ]
+      },
+      {
+        "cycle": 221,
+        "field": "sequential_pcs",
+        "actual": [
+          610,
+          608,
+          null,
+          null
+        ],
+        "native": [
+          612,
+          608,
+          null,
+          null
+        ]
+      },
+      {
+        "cycle": 232,
+        "field": "pc",
+        "actual": 874,
+        "native": 876
+      },
+      {
+        "cycle": 232,
+        "field": "stages",
+        "actual": [
+          874,
+          872,
+          868,
+          null,
+          null
+        ],
+        "native": [
+          876,
+          872,
+          868,
+          null,
+          null
+        ]
+      },
+      {
+        "cycle": 232,
+        "field": "sequential_pcs",
+        "actual": [
+          874,
+          872,
+          null,
+          null
+        ],
+        "native": [
+          876,
+          872,
+          null,
+          null
+        ]
+      }
+    ]
+  }
+}

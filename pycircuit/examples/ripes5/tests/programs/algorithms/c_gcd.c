@@ -1,0 +1,1 @@
+unsigned algorithm(void) { volatile unsigned x=1071,y=462; unsigned a=x,b=y; while(b){unsigned t=a%b;a=b;b=t;}return a;}

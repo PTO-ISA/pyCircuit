@@ -1,7 +1,7 @@
 // Standalone source/transaction/RTL MLIR compiler and cycle executor.
+#include "CppEmitter.h"
 #include "Dialect.h"
 #include "Execution.h"
-#include "CppEmitter.h"
 #include "Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
@@ -174,7 +174,8 @@ int acir::compileMain(int argc, char **argv) {
     if (argc < 3)
       throw std::runtime_error(
           "usage: acir-compile INPUT.mlir OUTPUT_DIR [--opt] [--stop-after "
-          "source|transaction|rtl] [--emit-cpp] [--cycles N] [--config NAME=VALUE]");
+          "source|transaction|rtl] [--emit-cpp] [--cycles N] [--config "
+          "NAME=VALUE]");
     bool optimize = false, emitCpp = false;
     std::string stop = "rtl";
     unsigned cycles = 0;
@@ -201,7 +202,8 @@ int acir::compileMain(int argc, char **argv) {
     if (stop != "source" && stop != "transaction" && stop != "rtl")
       throw std::runtime_error("invalid stop stage");
     if (emitCpp && stop == "source")
-      throw std::runtime_error("--emit-cpp cannot be combined with --stop-after source");
+      throw std::runtime_error(
+          "--emit-cpp cannot be combined with --stop-after source");
     DialectRegistry registry;
     registry
         .insert<acir::ACIRDialect, arith::ArithDialect, cf::ControlFlowDialect,
@@ -218,7 +220,8 @@ int acir::compileMain(int argc, char **argv) {
           "expected source format_version 9; recompile ACPy");
     auto inputStage = (*module)->getAttrOfType<StringAttr>("acir.stage");
     if (emitCpp && inputStage && inputStage.getValue() == "rtl")
-      throw std::runtime_error("--emit-cpp requires source or transaction MLIR, not RTL");
+      throw std::runtime_error(
+          "--emit-cpp requires source or transaction MLIR, not RTL");
     if (inputStage && !config.empty())
       throw std::runtime_error(
           "constructor configuration is frozen in transaction/RTL MLIR; reload "
@@ -285,6 +288,12 @@ int acir::compileMain(int argc, char **argv) {
       if (failed(pm.run(*module)))
         return 1;
       current = "transaction";
+    }
+    if (current == "transaction") {
+      PassManager pm(&context);
+      pm.addPass(createFieldProjectionPass());
+      if (failed(pm.run(*module)))
+        return 1;
     }
     if (optimize) {
       PassManager pm(&context);

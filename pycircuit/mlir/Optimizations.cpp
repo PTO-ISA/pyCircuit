@@ -1,5 +1,6 @@
 #include "Dialect.h"
 #include "Execution.h"
+#include "FieldProjection.h"
 #include "Passes.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -61,17 +62,11 @@ struct Bindings : PassWrapper<Bindings, OperationPass<mlir::ModuleOp>> {
 // its existing readiness and bounds handling.
 std::optional<uint64_t> indexOf(acir::ExtractOp extract) {
   if (auto field = extract.getField()) {
-    auto type = dyn_cast<acir::StructType>(extract.getAggregate().getType());
-    if (!type)
-      return {};
     auto root = extract->getParentOfType<mlir::ModuleOp>();
-    auto fields = root->getAttrOfType<DictionaryAttr>("acir.model")
-                      .getAs<DictionaryAttr>("types")
-                      .getAs<ArrayAttr>(type.getName());
-    for (auto [i, item] : llvm::enumerate(fields))
-      if (cast<DictionaryAttr>(item).getAs<StringAttr>("name").getValue() ==
-          *field)
-        return i;
+    if (auto index = acir::fieldIndex(
+            extract.getAggregate().getType(),
+            StringAttr::get(extract.getContext(), *field), root))
+      return *index;
     return {};
   }
   if (extract.getIndices().size() != 1)
@@ -128,6 +123,8 @@ OpFoldResult acir::AssertOp::fold(FoldAdaptor adaptor) {
 }
 
 OpFoldResult acir::ExtractOp::fold(FoldAdaptor) {
+  if (acir::containsAssertion(getAggregate()))
+    return {};
   auto aggregate = getAggregate().getDefiningOp<AggregateOp>();
   auto index = indexOf(*this);
   // An empty aggregate represents zero, rather than explicit elements.

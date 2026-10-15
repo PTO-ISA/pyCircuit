@@ -1,0 +1,1 @@
+volatile int a[4]={1,2,3,4},b[4]={5,6,7,8},c[4]; unsigned algorithm(void){unsigned sum=0;for(int i=0;i<2;++i)for(int j=0;j<2;++j){int s=0;for(int k=0;k<2;++k)s+=a[i*2+k]*b[k*2+j];c[i*2+j]=s;sum+=s;}return sum;}

@@ -168,7 +168,7 @@ class Top:
             ('        state = not 2', 'type mismatch'),
             ('        state = q.peek(123)', 'accepts no arguments'),
             ('        state = q.peek(ignored=456)', 'accepts no arguments'),
-            ('        state = ac.u32(7)', 'conversion calls'),
+            ('        state = ac.u32(True)', 'integer source'),
             ('        state = ac.var[ac.u32](7)', 'unsupported'),
             ('        a = b = 7', 'chained assignment'),
             ('        for i in range(state):\n            state = i', 'statically bounded'),

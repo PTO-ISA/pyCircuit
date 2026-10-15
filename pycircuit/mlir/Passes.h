@@ -9,6 +9,7 @@ std::unique_ptr<mlir::Pass> createTransactionPass();
 std::unique_ptr<mlir::Pass> createRTLPass();
 std::unique_ptr<mlir::Pass> createResourceExpansionPass();
 std::unique_ptr<mlir::Pass> createConditionPass();
+std::unique_ptr<mlir::Pass> createFieldProjectionPass();
 void addCleanupPasses(mlir::OpPassManager &pm);
 void addSourcePasses(mlir::OpPassManager &pm);
 void registerACIRPasses();

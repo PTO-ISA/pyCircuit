@@ -1,0 +1,303 @@
+{
+  "files": [
+    {
+      "old": "pycircuit/examples/ripes5/model.py",
+      "new": "pycircuit/examples/ripes5/model/model.py",
+      "before_sha256": "1b09ba3636169dc3c4a2b4e43438655fcc729fa3e6a046def9bcd46ef2b0f6e0"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/isa.py",
+      "new": "pycircuit/examples/ripes5/model/isa.py",
+      "before_sha256": "45547788b641ddf25b5b2904998e030a29bebc768030dfad622d520756aab19a"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/demo.py",
+      "new": "pycircuit/examples/ripes5/model/demo.py",
+      "before_sha256": "dec506591f58fb8ab9cb3559e95c9cb4bc2c5f763442506c60fca7e47c6ea918"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/acceptance.py",
+      "new": "pycircuit/examples/ripes5/tests/acceptance.py",
+      "before_sha256": "9cb74e38cb86f60a02a3682ffd68f4ec8aac0775a4fb2249564cadc5927a8f92"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/e2e.py",
+      "new": "pycircuit/examples/ripes5/tests/e2e.py",
+      "before_sha256": "2279bb8bce6963396a1d6952fb171c8cbe78ec605e75a0cc48d3638319cbe678"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/legacy.py",
+      "new": "pycircuit/examples/ripes5/tests/legacy.py",
+      "before_sha256": "889aaf72f6cf486d7eaf578f2133db910e1922daefa20314ebda27e766431b2b"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/oracle.py",
+      "new": "pycircuit/examples/ripes5/tests/oracle.py",
+      "before_sha256": "6ded149631dda8394ef7bbf41fa09166da521e934f3609a1ae72f0edcd260ef9"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/program.py",
+      "new": "pycircuit/examples/ripes5/tests/program.py",
+      "before_sha256": "fc5402086bd40f2aa8e6416814ecca07d307ef5e995cd29b860e617f4ee6fd03"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/refresh_native.py",
+      "new": "pycircuit/examples/ripes5/tests/refresh_native.py",
+      "before_sha256": "6b3bca2cca49d09252f2e0a4afd3641108400a2b47706139aa7e68a0a6a9050d"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/report.py",
+      "new": "pycircuit/examples/ripes5/tests/report.py",
+      "before_sha256": "75510c0a2a5010680b4b3d6cc64d3dd0c6a0010c7fa6cda7e87a22dd69337097"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/special.py",
+      "new": "pycircuit/examples/ripes5/tests/special.py",
+      "before_sha256": "d5f0edc037f63bf35ef1571a9cc12ac44fd9d576efb6f2fffb80567f7139daae"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/suite.py",
+      "new": "pycircuit/examples/ripes5/tests/suite.py",
+      "before_sha256": "72d13ea0863b587ea121ff319e1d99f6fab382f0c3504ec8b2c4b862a6614f50"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/verify.py",
+      "new": "pycircuit/examples/ripes5/tests/verify.py",
+      "before_sha256": "9d5ffff01007e85936f0e6de7169969b8aaf2fc1c71178fd17807b8736a8d817"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/native/runner.cpp",
+      "new": "pycircuit/examples/ripes5/tests/native/runner.cpp",
+      "before_sha256": "1d314f1d82b37029efc64a6deea8568dbf1a857b7821d7469ec690b6430b9f92"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/native/targets.cmake",
+      "new": "pycircuit/examples/ripes5/tests/native/targets.cmake",
+      "before_sha256": "b8938f0b20000ea5948b3d1552a7edbafbb0bda9442b4cbc84fe444e60320571"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/native/build.py",
+      "new": "pycircuit/examples/ripes5/tests/native/build.py",
+      "before_sha256": "e99ff4c926f3a87f606d590dbec111293250d926724fd358ade0f35c86525c4b"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/reference.json",
+      "new": "pycircuit/examples/ripes5/tests/fixtures/reference.json",
+      "before_sha256": "ad7dddd9efd1a5d5022fd67b3fa8bc92e4635076da004e30e4e48c66accdc315"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/reference-differences.json",
+      "new": "pycircuit/examples/ripes5/tests/fixtures/reference-differences.json",
+      "before_sha256": "5803e2990470b3bd5a548583ffd9a10f7b4b1d1b99d69f10a864326842d322e8"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/licenses/Ripes-MIT.txt",
+      "new": "pycircuit/examples/ripes5/tests/licenses/Ripes-MIT.txt",
+      "before_sha256": "2af9cacb9ee73bed57c14ae509681749e1b12521878ce3a9b4f64add0b572078"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/licenses/riscv-tests-BSD.txt",
+      "new": "pycircuit/examples/ripes5/tests/licenses/riscv-tests-BSD.txt",
+      "before_sha256": "43b7309213293b4323d65301a90e05472579abcd51feb260a850354bcb49ff8f"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/licenses/riscv-tests-provenance.txt",
+      "new": "pycircuit/examples/ripes5/tests/licenses/riscv-tests-provenance.txt",
+      "before_sha256": "99eb09b31f9809341dc3b4fb3cc1eca8efd1d3aff407d42f86ef25d8e28ef088"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/instruction-coverage.json",
+      "new": "pycircuit/examples/ripes5/results/instruction-coverage.json",
+      "before_sha256": "5bac79befb500c0bb1d541f9650724cc1a513dbc25e0b599932f39706d30965f"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/instruction-coverage.md",
+      "new": "pycircuit/examples/ripes5/results/instruction-coverage.md",
+      "before_sha256": "2dd78af415c1bb66c6ce182bd4093dfcf49d0c671ab6ea1772b029047e6a5740"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/program-manifest.json",
+      "new": "pycircuit/examples/ripes5/results/program-manifest.json",
+      "before_sha256": "120841abecaba544e2624eb06a909baf92ce6465e022dbf30e59d0db2bd1430c"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/upstream-inventory.json",
+      "new": "pycircuit/examples/ripes5/results/upstream-inventory.json",
+      "before_sha256": "d65f21dc3331b0e56982a02a394db59112ab7412d950fe8cf88e63abb08ee3b8"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/rv32imc-report.md",
+      "new": "pycircuit/examples/ripes5/results/rv32imc-report.md",
+      "before_sha256": "c2beb33c5575ecb267112ab3b09b96a0f144bc4838a86898a08c2a63b72d69b5"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/review-2026-10-15.md",
+      "new": "pycircuit/examples/ripes5/results/review-2026-10-15.md",
+      "before_sha256": "34531bc80573882e2f41ec6e7ade65dc980573123aa789dc89c12d6995b69e85"
+    },
+    {
+      "old": "pycircuit/examples/ripes5/README.md",
+      "new": "pycircuit/examples/ripes5/results/implementation.md",
+      "before_sha256": "27021a1d19de1f9c3bb8348e746829c33ff88c43a65d6a7c05e044162dd35476"
+    },
+    {
+      "old": "pycircuit/tests/test_ripes5.py",
+      "new": "pycircuit/examples/ripes5/tests/test_ripes5.py",
+      "before_sha256": "dc892e1327ead52e42c6bf9325215a0d5c58f8529b3d542c9db815d68c59fd28"
+    },
+    {
+      "old": "pycircuit/tests/test_rv32imc.py",
+      "new": "pycircuit/examples/ripes5/tests/test_rv32imc.py",
+      "before_sha256": "c42d396114bfc5701cec9c7080d0fb263c74ba8b30ca0e22ee0a4511c4ca1634"
+    },
+    {
+      "old": "pycircuit/builds/benchmarks/rv32imc-performance/measure.py",
+      "new": "pycircuit/examples/ripes5/tests/benchmarks/measure.py",
+      "before_sha256": "ec094ea6d8e4f926cfbd636ae52bf2e9a35fcb25dfe1b8a3e123b88478aab187"
+    },
+    {
+      "old": "pycircuit/builds/benchmarks/rv32imc-audit/probes.py",
+      "new": "pycircuit/examples/ripes5/tests/audit/probes.py",
+      "before_sha256": "1447c46f2ac8feb849b9901ad1ec7c1bb3281a0731f9e06b90c030524b1c1c83"
+    },
+    {
+      "old": "pycircuit/builds/benchmarks/rv32imc-audit/benchmark_review.py",
+      "new": "pycircuit/examples/ripes5/tests/audit/benchmark_review.py",
+      "before_sha256": "d92d7496c3ee3318581661ace4ac6f3b34ca91cb58b9a5b068da6b9d3eba4546"
+    },
+    {
+      "old": "pycircuit/builds/benchmarks/rv32imc-audit/corpus_review.py",
+      "new": "pycircuit/examples/ripes5/tests/audit/corpus_review.py",
+      "before_sha256": "27fa1d45ff74a06c51bf184f569be41fe2ea588784385c9db852834af2a3da81"
+    }
+  ],
+  "repaired_generated_model_links": [
+    "pycircuit/builds/benchmarks/ripes5/forward_priority/model.py",
+    "pycircuit/builds/benchmarks/ripes5/load_branch_wrong_path/model.py",
+    "pycircuit/builds/benchmarks/ripes5/jalr_forwarded/model.py",
+    "pycircuit/builds/benchmarks/ripes5/alu/model.py",
+    "pycircuit/builds/benchmarks/ripes5/wb_id_store/model.py",
+    "pycircuit/builds/benchmarks/ripes5/array_sum/model.py",
+    "pycircuit/builds/benchmarks/ripes5/jumps_branches/model.py",
+    "pycircuit/builds/benchmarks/ripes5/no_false_load_use/model.py",
+    "pycircuit/builds/benchmarks/ripes5/initial_and_x0_load/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/alu/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/forward_priority/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/wb_id_store/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/array_sum/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/jumps_branches/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/load_branch_wrong_path/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/jalr_forwarded/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/no_false_load_use/model.py",
+    "pycircuit/builds/benchmarks/ripes5-ports/initial_and_x0_load/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/alu/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/forward_priority/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/wb_id_store/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/array_sum/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/jumps_branches/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/load_branch_wrong_path/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/jalr_forwarded/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/no_false_load_use/model.py",
+    "pycircuit/builds/benchmarks/ripes5-units/initial_and_x0_load/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/alu/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/forward_priority/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/wb_id_store/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/array_sum/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/jumps_branches/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/load_branch_wrong_path/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/jalr_forwarded/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/no_false_load_use/model.py",
+    "pycircuit/builds/benchmarks/ripes5-decode/initial_and_x0_load/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/load_branch_wrong_path/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/alu/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/forward_priority/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/wb_id_store/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/array_sum/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/jumps_branches/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/jalr_forwarded/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/no_false_load_use/model.py",
+    "pycircuit/builds/benchmarks/ripes5-signal/initial_and_x0_load/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy/load_branch_wrong_path/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/smoke/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/smoke-array/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_add/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_addi/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_and/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_andi/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_div/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_divu/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_lui/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_memory/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_mul/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_mulh/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_mulhsu/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_mulhu/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_or/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_ori/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_rem/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_remu/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_simple/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_sll/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_slli/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_slt/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_slti/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_sltiu/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_sltu/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_sra/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_srai/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_srl/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_srli/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_sub/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_xor/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_xori/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/upstream_rvc/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/asm_factorial/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/asm_gcd/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/asm_sort/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/asm_string/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/asm_matrix/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_factorial_im/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_factorial_imc/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_gcd_im/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_gcd_imc/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_sort_im/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_sort_imc/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_string_im/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_string_imc/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_matrix_im/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/c_matrix_imc/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/m_extremes/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/memory_offsets/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/environment_output/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/wrong_path_illegal_store/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/compressed_calls/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/ecall_writeback/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/mixed_seed_52563332/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/alu/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/forward_priority/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/wb_id_store/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/array_sum/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/jumps_branches/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/load_branch_wrong_path/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/jalr_forwarded/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/no_false_load_use/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/legacy-live/initial_and_x0_load/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/special/jalr_low_bit/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/special/ebreak/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/special/c_ebreak/model.py",
+    "pycircuit/builds/benchmarks/rv32imc/special/illegal_instruction/model.py",
+    "pycircuit/builds/benchmarks/rv32imc-performance/im/model.py",
+    "pycircuit/builds/benchmarks/rv32imc-performance/imc/model.py",
+    "pycircuit/builds/benchmarks/rv32imc-audit/wrong_path_fetch_boundary/model.py",
+    "pycircuit/builds/benchmarks/rv32imc-audit/elf_extra_section/model.py",
+    "pycircuit/builds/benchmarks/rv32imc-audit/im_bytes_c_enabled/model.py",
+    "pycircuit/builds/benchmarks/rv32imc-audit/store_then_print/model.py",
+    "pycircuit/builds/ripes5/model.py"
+  ],
+  "shared_model_for": [
+    "I",
+    "IM",
+    "IMC"
+  ],
+  "historical_run_paths_preserved": true
+}

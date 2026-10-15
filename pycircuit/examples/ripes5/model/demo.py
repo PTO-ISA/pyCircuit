@@ -8,7 +8,7 @@ from model import Ripes5, Program, Registers, DataWords
 
 
 def program_image() -> Program:
-    words: Program = [0 for i in range(256)]
+    words: Program = [0 for i in range(1024)]
     words[0] = 0x00001537   # lui  x10,1
     words[1] = 0x01100093   # addi x1,x0,17
     words[2] = 0x00152023   # sw   x1,0(x10)
@@ -38,7 +38,7 @@ def zero_registers() -> Registers:
 
 
 def zero_data() -> DataWords:
-    return [0 for i in range(64)]
+    return [0 for i in range(1024)]
 
 
 @ac.module

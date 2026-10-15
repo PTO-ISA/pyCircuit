@@ -7,7 +7,7 @@
 | [array_arbiter.py](array_arbiter.py) | Module 数组、二维 age matrix、match 候选、普通坐标仲裁和反压原子取消 | ArrayArbiter |
 | [ehr_shared.py](ehr_shared.py) | 固定 EHR 共享视图、前序写入依赖及最终状态 | EHRShared |
 | [riscv_pipeline/model.py](riscv_pipeline/model.py) | 顶层 Queue 连接、五级 RV32I 子集、反压和 scoreboard | Pipeline |
-| [ripes5/model.py](ripes5/model.py) | 对齐 Ripes RV5S 的固定流水线寄存器、前递、load-use 和冲刷 | [Demo](ripes5/demo.py) |
+| [ripes5/model/model.py](ripes5/model/model.py) | 对齐 Ripes RV5S 的固定流水线寄存器、前递、load-use 和冲刷 | [Demo](ripes5/model/demo.py) |
 | [ooo_scheduler/model.py](ooo_scheduler/model.py) | ROB 槽位数组、操作数等待、ADD／MUL 发射、广播及顺序退休 | OutOfOrder |
 
 所有模型使用静态 __init__、显式接口和统一 @ac.rule。只提供状态与公开 Rule 的组件无需空 __call__；
@@ -25,7 +25,8 @@ python -m pycircuit.tests.run_acceptance
 验收脚本对这四个模型保存 32 拍轨迹，比较 C++／事务／RTL、优化开关及三个阶段重载。
 测试另有独立预期：CPU 核对 ISA、寄存器、内存及退休周期；OoO 核对结果、等待／广播和顺序退休；
 array 仲裁核对反压时年龄状态和槽位释放一起取消；EHR 核对共享读取视图与依赖边。
-Ripes5 另由 `python -m pycircuit.examples.ripes5.verify` 核对 9 个原生 Ripes 指令程序的逐拍参考，
+Ripes5 的统一入口 `python -m pycircuit.examples.ripes5.tests run` 核对原生 RV5S、C++ 和程序预期；
+`--check all` 另启用两层 IR 解释与阶段重载，
 运行与表达问题见 [Ripes5 说明](ripes5/README.md)。
 
 构建、工具路径、阶段输出及测试分类见[使用说明](../README.md)。

@@ -1,0 +1,1079 @@
+[
+  {
+    "instruction": "lui",
+    "extension": "I",
+    "executions": 487,
+    "programs": [
+      "upstream_add",
+      "upstream_addi",
+      "upstream_and",
+      "upstream_andi",
+      "upstream_div",
+      "upstream_divu",
+      "upstream_lui",
+      "upstream_memory",
+      "upstream_mul",
+      "upstream_mulh",
+      "upstream_mulhsu",
+      "upstream_mulhu",
+      "upstream_or",
+      "upstream_ori",
+      "upstream_rem",
+      "upstream_remu",
+      "upstream_sll",
+      "upstream_slli",
+      "upstream_slt",
+      "upstream_slti",
+      "upstream_sltiu",
+      "upstream_sltu",
+      "upstream_sra",
+      "upstream_srai",
+      "upstream_srl",
+      "upstream_srli",
+      "upstream_sub",
+      "upstream_xor",
+      "upstream_xori",
+      "upstream_rvc",
+      "asm_string",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_string_im",
+      "c_string_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "m_extremes",
+      "memory_offsets",
+      "wrong_path_illegal_store",
+      "alu",
+      "wb_id_store",
+      "array_sum",
+      "load_branch_wrong_path",
+      "jalr_forwarded",
+      "no_false_load_use",
+      "ebreak",
+      "illegal_instruction"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "auipc",
+    "extension": "I",
+    "executions": 29,
+    "programs": [
+      "upstream_rvc",
+      "asm_factorial",
+      "asm_sort",
+      "asm_string",
+      "asm_matrix",
+      "c_factorial_im",
+      "c_factorial_imc",
+      "c_gcd_im",
+      "c_gcd_imc",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_string_im",
+      "c_string_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "environment_output",
+      "jalr_low_bit"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "jal",
+    "extension": "I",
+    "executions": 30,
+    "programs": [
+      "upstream_memory",
+      "upstream_rvc",
+      "asm_factorial",
+      "asm_gcd",
+      "asm_sort",
+      "asm_string",
+      "asm_matrix",
+      "c_sort_im",
+      "jumps_branches",
+      "load_branch_wrong_path"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "jalr",
+    "extension": "I",
+    "executions": 36,
+    "programs": [
+      "upstream_memory",
+      "asm_factorial",
+      "c_factorial_im",
+      "c_factorial_imc",
+      "c_gcd_im",
+      "c_gcd_imc",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_string_im",
+      "c_string_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "jumps_branches",
+      "jalr_forwarded",
+      "jalr_low_bit"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "beq",
+    "extension": "I",
+    "executions": 56,
+    "programs": [
+      "asm_gcd",
+      "c_gcd_im",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "wrong_path_illegal_store",
+      "mixed_seed_52563332",
+      "jumps_branches",
+      "load_branch_wrong_path"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "bne",
+    "extension": "I",
+    "executions": 517,
+    "programs": [
+      "upstream_add",
+      "upstream_addi",
+      "upstream_and",
+      "upstream_andi",
+      "upstream_div",
+      "upstream_divu",
+      "upstream_lui",
+      "upstream_memory",
+      "upstream_mul",
+      "upstream_mulh",
+      "upstream_mulhsu",
+      "upstream_mulhu",
+      "upstream_or",
+      "upstream_ori",
+      "upstream_rem",
+      "upstream_remu",
+      "upstream_sll",
+      "upstream_slli",
+      "upstream_slt",
+      "upstream_slti",
+      "upstream_sltiu",
+      "upstream_sltu",
+      "upstream_sra",
+      "upstream_srai",
+      "upstream_srl",
+      "upstream_srli",
+      "upstream_sub",
+      "upstream_xor",
+      "upstream_xori",
+      "upstream_rvc",
+      "asm_string",
+      "c_gcd_im",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_string_im",
+      "c_string_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "mixed_seed_52563332",
+      "array_sum",
+      "jumps_branches",
+      "load_branch_wrong_path"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "blt",
+    "extension": "I",
+    "executions": 41,
+    "programs": [
+      "asm_factorial",
+      "asm_sort",
+      "asm_matrix"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "bge",
+    "extension": "I",
+    "executions": 31,
+    "programs": [
+      "asm_sort",
+      "c_sort_im",
+      "c_sort_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "bltu",
+    "extension": "I",
+    "executions": 2,
+    "programs": [
+      "c_factorial_im",
+      "c_factorial_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "bgeu",
+    "extension": "I",
+    "executions": 18,
+    "programs": [
+      "c_factorial_im",
+      "c_factorial_imc",
+      "c_sort_im",
+      "c_sort_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "lb",
+    "extension": "I",
+    "executions": 13,
+    "programs": [
+      "upstream_memory",
+      "memory_offsets"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "lh",
+    "extension": "I",
+    "executions": 13,
+    "programs": [
+      "upstream_memory",
+      "memory_offsets"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "lw",
+    "extension": "I",
+    "executions": 221,
+    "programs": [
+      "upstream_memory",
+      "asm_factorial",
+      "asm_sort",
+      "asm_matrix",
+      "c_gcd_im",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_matrix_im",
+      "memory_offsets",
+      "wrong_path_illegal_store",
+      "mixed_seed_52563332",
+      "wb_id_store",
+      "array_sum",
+      "load_branch_wrong_path",
+      "jalr_forwarded",
+      "no_false_load_use",
+      "initial_and_x0_load"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "lbu",
+    "extension": "I",
+    "executions": 61,
+    "programs": [
+      "upstream_memory",
+      "asm_string",
+      "c_string_im",
+      "c_string_imc",
+      "memory_offsets"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "lhu",
+    "extension": "I",
+    "executions": 13,
+    "programs": [
+      "upstream_memory",
+      "memory_offsets"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sb",
+    "extension": "I",
+    "executions": 22,
+    "programs": [
+      "asm_string",
+      "c_string_im",
+      "c_string_imc",
+      "memory_offsets"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sh",
+    "extension": "I",
+    "executions": 6,
+    "programs": [
+      "upstream_memory",
+      "memory_offsets"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sw",
+    "extension": "I",
+    "executions": 255,
+    "programs": [
+      "upstream_memory",
+      "asm_factorial",
+      "asm_sort",
+      "c_gcd_im",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_matrix_im",
+      "m_extremes",
+      "memory_offsets",
+      "wrong_path_illegal_store",
+      "mixed_seed_52563332",
+      "wb_id_store",
+      "array_sum",
+      "load_branch_wrong_path",
+      "initial_and_x0_load"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "addi",
+    "extension": "I",
+    "executions": 1880,
+    "programs": [
+      "upstream_add",
+      "upstream_addi",
+      "upstream_and",
+      "upstream_andi",
+      "upstream_div",
+      "upstream_divu",
+      "upstream_lui",
+      "upstream_memory",
+      "upstream_mul",
+      "upstream_mulh",
+      "upstream_mulhsu",
+      "upstream_mulhu",
+      "upstream_or",
+      "upstream_ori",
+      "upstream_rem",
+      "upstream_remu",
+      "upstream_simple",
+      "upstream_sll",
+      "upstream_slli",
+      "upstream_slt",
+      "upstream_slti",
+      "upstream_sltiu",
+      "upstream_sltu",
+      "upstream_sra",
+      "upstream_srai",
+      "upstream_srl",
+      "upstream_srli",
+      "upstream_sub",
+      "upstream_xor",
+      "upstream_xori",
+      "upstream_rvc",
+      "asm_factorial",
+      "asm_gcd",
+      "asm_sort",
+      "asm_string",
+      "asm_matrix",
+      "c_factorial_im",
+      "c_factorial_imc",
+      "c_gcd_im",
+      "c_gcd_imc",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_string_im",
+      "c_string_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "m_extremes",
+      "memory_offsets",
+      "environment_output",
+      "wrong_path_illegal_store",
+      "compressed_calls",
+      "ecall_writeback",
+      "mixed_seed_52563332",
+      "alu",
+      "forward_priority",
+      "wb_id_store",
+      "array_sum",
+      "jumps_branches",
+      "load_branch_wrong_path",
+      "jalr_forwarded",
+      "no_false_load_use",
+      "initial_and_x0_load",
+      "jalr_low_bit"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "slti",
+    "extension": "I",
+    "executions": 16,
+    "programs": [
+      "upstream_slti"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sltiu",
+    "extension": "I",
+    "executions": 16,
+    "programs": [
+      "upstream_sltiu"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "xori",
+    "extension": "I",
+    "executions": 5,
+    "programs": [
+      "upstream_xori"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "ori",
+    "extension": "I",
+    "executions": 8,
+    "programs": [
+      "upstream_ori",
+      "upstream_rvc",
+      "jalr_low_bit"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "andi",
+    "extension": "I",
+    "executions": 7,
+    "programs": [
+      "upstream_andi"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "slli",
+    "extension": "I",
+    "executions": 80,
+    "programs": [
+      "upstream_mul",
+      "upstream_slli",
+      "asm_sort",
+      "asm_matrix",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_matrix_im",
+      "c_matrix_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "srli",
+    "extension": "I",
+    "executions": 15,
+    "programs": [
+      "upstream_srli"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "srai",
+    "extension": "I",
+    "executions": 19,
+    "programs": [
+      "upstream_lui",
+      "upstream_srai"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "add",
+    "extension": "I",
+    "executions": 199,
+    "programs": [
+      "upstream_add",
+      "asm_sort",
+      "asm_string",
+      "asm_matrix",
+      "c_sort_im",
+      "c_string_im",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "mixed_seed_52563332",
+      "alu",
+      "forward_priority",
+      "wb_id_store",
+      "array_sum",
+      "jumps_branches",
+      "jalr_forwarded",
+      "initial_and_x0_load"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sub",
+    "extension": "I",
+    "executions": 48,
+    "programs": [
+      "upstream_sub",
+      "upstream_rvc",
+      "c_sort_im",
+      "c_sort_imc",
+      "mixed_seed_52563332",
+      "alu"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sll",
+    "extension": "I",
+    "executions": 22,
+    "programs": [
+      "upstream_sll"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "slt",
+    "extension": "I",
+    "executions": 19,
+    "programs": [
+      "upstream_slt",
+      "alu"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sltu",
+    "extension": "I",
+    "executions": 18,
+    "programs": [
+      "upstream_sltu"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "xor",
+    "extension": "I",
+    "executions": 16,
+    "programs": [
+      "upstream_xor",
+      "mixed_seed_52563332",
+      "alu"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "srl",
+    "extension": "I",
+    "executions": 23,
+    "programs": [
+      "upstream_srl"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "sra",
+    "extension": "I",
+    "executions": 23,
+    "programs": [
+      "upstream_sra"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "or",
+    "extension": "I",
+    "executions": 16,
+    "programs": [
+      "upstream_or",
+      "mixed_seed_52563332",
+      "alu"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "and",
+    "extension": "I",
+    "executions": 12,
+    "programs": [
+      "upstream_and",
+      "mixed_seed_52563332",
+      "alu"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "fence",
+    "extension": "I",
+    "executions": 1,
+    "programs": [
+      "memory_offsets"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "ecall",
+    "extension": "I",
+    "executions": 59,
+    "programs": [
+      "upstream_add",
+      "upstream_addi",
+      "upstream_and",
+      "upstream_andi",
+      "upstream_div",
+      "upstream_divu",
+      "upstream_lui",
+      "upstream_memory",
+      "upstream_mul",
+      "upstream_mulh",
+      "upstream_mulhsu",
+      "upstream_mulhu",
+      "upstream_or",
+      "upstream_ori",
+      "upstream_rem",
+      "upstream_remu",
+      "upstream_simple",
+      "upstream_sll",
+      "upstream_slli",
+      "upstream_slt",
+      "upstream_slti",
+      "upstream_sltiu",
+      "upstream_sltu",
+      "upstream_sra",
+      "upstream_srai",
+      "upstream_srl",
+      "upstream_srli",
+      "upstream_sub",
+      "upstream_xor",
+      "upstream_xori",
+      "upstream_rvc",
+      "asm_factorial",
+      "asm_gcd",
+      "asm_sort",
+      "asm_string",
+      "asm_matrix",
+      "c_factorial_im",
+      "c_factorial_imc",
+      "c_gcd_im",
+      "c_gcd_imc",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_string_im",
+      "c_string_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "m_extremes",
+      "memory_offsets",
+      "environment_output",
+      "wrong_path_illegal_store",
+      "compressed_calls",
+      "ecall_writeback",
+      "mixed_seed_52563332",
+      "jalr_low_bit"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "ebreak",
+    "extension": "I",
+    "executions": 1,
+    "programs": [
+      "ebreak"
+    ],
+    "status": "confirmed-reference-defect"
+  },
+  {
+    "instruction": "mul",
+    "extension": "M",
+    "executions": 90,
+    "programs": [
+      "upstream_mul",
+      "asm_factorial",
+      "asm_sort",
+      "asm_matrix",
+      "c_factorial_im",
+      "c_factorial_imc",
+      "c_sort_im",
+      "c_sort_imc",
+      "c_matrix_im",
+      "c_matrix_imc",
+      "m_extremes",
+      "mixed_seed_52563332"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "mulh",
+    "extension": "M",
+    "executions": 30,
+    "programs": [
+      "upstream_mulh",
+      "m_extremes"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "mulhsu",
+    "extension": "M",
+    "executions": 30,
+    "programs": [
+      "upstream_mulhsu",
+      "m_extremes"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "mulhu",
+    "extension": "M",
+    "executions": 30,
+    "programs": [
+      "upstream_mulhu",
+      "m_extremes"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "div",
+    "extension": "M",
+    "executions": 24,
+    "programs": [
+      "upstream_div",
+      "m_extremes"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "divu",
+    "extension": "M",
+    "executions": 24,
+    "programs": [
+      "upstream_divu",
+      "m_extremes"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "rem",
+    "extension": "M",
+    "executions": 24,
+    "programs": [
+      "upstream_rem",
+      "m_extremes"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "remu",
+    "extension": "M",
+    "executions": 45,
+    "programs": [
+      "upstream_remu",
+      "asm_gcd",
+      "c_gcd_im",
+      "c_gcd_imc",
+      "m_extremes",
+      "mixed_seed_52563332"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.addi4spn",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.lw",
+    "extension": "C",
+    "executions": 39,
+    "programs": [
+      "upstream_rvc",
+      "c_sort_imc",
+      "c_matrix_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.sw",
+    "extension": "C",
+    "executions": 11,
+    "programs": [
+      "upstream_rvc",
+      "c_sort_imc",
+      "c_matrix_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.nop",
+    "extension": "C",
+    "executions": 16,
+    "programs": [
+      "upstream_rvc",
+      "compressed_calls"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.addi",
+    "extension": "C",
+    "executions": 78,
+    "programs": [
+      "upstream_rvc",
+      "c_gcd_imc",
+      "c_sort_imc",
+      "c_string_imc",
+      "c_matrix_imc",
+      "compressed_calls",
+      "mixed_seed_52563332"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.jal",
+    "extension": "C",
+    "executions": 2,
+    "programs": [
+      "upstream_rvc",
+      "compressed_calls"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.li",
+    "extension": "C",
+    "executions": 47,
+    "programs": [
+      "upstream_rvc",
+      "c_factorial_imc",
+      "c_sort_imc",
+      "c_string_imc",
+      "c_matrix_imc",
+      "environment_output",
+      "ecall_writeback",
+      "mixed_seed_52563332"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.addi16sp",
+    "extension": "C",
+    "executions": 2,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.lui",
+    "extension": "C",
+    "executions": 4,
+    "programs": [
+      "upstream_rvc",
+      "mixed_seed_52563332",
+      "c_ebreak"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.srli",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.srai",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.andi",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.sub",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.xor",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.or",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.and",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.j",
+    "extension": "C",
+    "executions": 22,
+    "programs": [
+      "upstream_rvc",
+      "c_sort_imc",
+      "environment_output",
+      "compressed_calls"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.beqz",
+    "extension": "C",
+    "executions": 5,
+    "programs": [
+      "upstream_rvc",
+      "c_gcd_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.bnez",
+    "extension": "C",
+    "executions": 13,
+    "programs": [
+      "upstream_rvc",
+      "c_gcd_imc",
+      "c_string_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.slli",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.lwsp",
+    "extension": "C",
+    "executions": 5,
+    "programs": [
+      "upstream_rvc",
+      "c_gcd_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.jr",
+    "extension": "C",
+    "executions": 7,
+    "programs": [
+      "upstream_rvc",
+      "c_factorial_imc",
+      "c_gcd_imc",
+      "c_sort_imc",
+      "c_string_imc",
+      "c_matrix_imc",
+      "compressed_calls"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.mv",
+    "extension": "C",
+    "executions": 38,
+    "programs": [
+      "upstream_rvc",
+      "c_factorial_imc",
+      "c_gcd_imc",
+      "c_sort_imc",
+      "c_matrix_imc"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.ebreak",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "c_ebreak"
+    ],
+    "status": "reference-unsupported"
+  },
+  {
+    "instruction": "c.jalr",
+    "extension": "C",
+    "executions": 1,
+    "programs": [
+      "upstream_rvc"
+    ],
+    "status": "normal; enclosing rvc program has separate fetch defect"
+  },
+  {
+    "instruction": "c.add",
+    "extension": "C",
+    "executions": 38,
+    "programs": [
+      "upstream_rvc",
+      "c_sort_imc",
+      "c_string_imc",
+      "c_matrix_imc",
+      "mixed_seed_52563332"
+    ],
+    "status": "normal"
+  },
+  {
+    "instruction": "c.swsp",
+    "extension": "C",
+    "executions": 4,
+    "programs": [
+      "upstream_rvc",
+      "c_gcd_imc"
+    ],
+    "status": "normal"
+  }
+]

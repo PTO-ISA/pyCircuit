@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "issues": [
+    {
+      "id": "HARNESS-ELF-001",
+      "scope": "test-harness",
+      "status": "fixed",
+      "description": "ELF loader omitted allocated sections and assumed section bases.",
+      "fix": "Load ELF32 RISC-V PT_LOAD segments at their addresses; zero-fill p_memsz; reject invalid, overlapping and out-of-window segments.",
+      "regression": "test_harness.HarnessTests.test_extra_allocated_section_is_loaded_from_real_elf",
+      "case": "elf_extra_section",
+      "historical_evidence": "pycircuit/builds/benchmarks/rv32imc-audit/probes.json"
+    },
+    {
+      "id": "HARNESS-STORE-001",
+      "scope": "test-harness",
+      "status": "fixed",
+      "description": "Store width mutation could pass comparison; native observation was modified in place.",
+      "fix": "Read native width independently from the preceding cycle; compare widths explicitly; mask native bus data using native width without mutating it.",
+      "regression": "test_harness.HarnessTests.test_store_width_mutation_is_detected",
+      "historical_evidence": "pycircuit/builds/benchmarks/rv32imc-audit/probes.json"
+    },
+    {
+      "id": "CPU-FETCH-001",
+      "scope": "cpu-model",
+      "status": "fixed",
+      "description": "A valid jump at PC 4092 fails on its speculative fallthrough fetch at 4096 before flushing.",
+      "case": "audit_wrong_path_fetch",
+      "historical_evidence": "pycircuit/builds/benchmarks/rv32imc-audit/probes.json",
+      "fix": "Carry fetch faults through IF/ID and ID/EX; assert only when the fault survives flush and reaches EX; guard ROM indexing.",
+      "regression": "test_rv32imc.RV32IMCTests.test_sequential_fetch_outside_rom_still_fails_on_executed_path",
+      "current_evidence": "pycircuit/builds/benchmarks/ripes5-standard/fixes-20261015/bugs/audit_wrong_path_fetch/result.json"
+    },
+    {
+      "id": "ENV-ECALL-001",
+      "scope": "reference-environment",
+      "status": "fixed",
+      "description": "A store followed immediately by string ECALL prints A in the model/oracle and an empty string in native Ripes; sampling order unresolved.",
+      "case": "audit_store_then_print",
+      "historical_evidence": "pycircuit/builds/benchmarks/rv32imc-audit/probes.json",
+      "fix": "Native adapter captures pre-edge ECALL arguments and completes output after the edge, after older stores commit. Exit finalization remains pre-edge; reference CPU unchanged.",
+      "current_evidence": "pycircuit/builds/benchmarks/ripes5-standard/fixes-20261015/bugs/audit_store_then_print/result.json"
+    }
+  ]
+}

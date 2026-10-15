@@ -1,0 +1,802 @@
+[
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/add.s",
+    "name": "upstream_add",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "cc830d85782ec915784d087081b1471baa1f2176116636d8ca24bd4d437322ba",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/addi.s",
+    "name": "upstream_addi",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "83694bd250ad7d26602f1ae25a5446c07f14fe0498ad286ab819d31157c1c9df",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/and.s",
+    "name": "upstream_and",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "eb9b14c29010e54a199692d90753a09d9308cb30e53dc79cb9f0940a0d856c5f",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/andi.s",
+    "name": "upstream_andi",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "76dd59264bbb19d271121d6bc2501b11e519891d38153ecb20e12fcc00bb9a16",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/brk_syscall.s",
+    "name": "upstream_brk_syscall",
+    "included": false,
+    "reason": "heap allocation syscall outside deterministic environment",
+    "sha256": "5f602d0ccbb0e0480dc783c40707fcf940a052e3e145cbf0df4ec5fecd6bac2b",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/div.s",
+    "name": "upstream_div",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "981aa963688ab0e6d3ee4a22a96343bd51e744a04432f95ae707a92a712c911d",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/divu.s",
+    "name": "upstream_divu",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "13e1631fe0029b2679a1b16e747cc03b9e4d17cd5ffe83291530697ade403f11",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/ecall_file.s",
+    "name": "upstream_ecall_file",
+    "included": false,
+    "reason": "file I/O outside deterministic environment",
+    "sha256": "ebb8f497d03aab9d2544aa733ef3a49c9c6c47bc8aee5284635b69563fcf37b7",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fadd.s",
+    "name": "upstream_fadd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "df59cc5e969be8f3a4a44d79324a40fe842c3bf003d8eb29ef8ecd7dc9916569",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/faddd.s",
+    "name": "upstream_faddd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "693fd16ebc673aa04cf53266faf9a4f6e7b8970620536347dedc16276936655a",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fclass.s",
+    "name": "upstream_fclass",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "c37f279fa7d1ffaf35ca9ee9761be5db90d3642d260623217dda894f7b6324db",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fclassd.s",
+    "name": "upstream_fclassd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "81bb991dfb78ec7a080fdfc9f68ea3d3746bada18d0decae2913570fc4fa4f77",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fcmp.s",
+    "name": "upstream_fcmp",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "57490280e4b22b3085f7da080b0539b717583ccfe41e7e0a3ced5669d51e3e51",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fcmpd.s",
+    "name": "upstream_fcmpd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "5b71d6c39808b805ece39a637b92983565158614f3987101fe2b18fbb30eaab1",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fcvt.s",
+    "name": "upstream_fcvt",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "a402d85c8d595b155aa58a26dd94ae7d90fa951791e78072bd0f0acb8da4ee0f",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fcvt_w.s",
+    "name": "upstream_fcvt_w",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "f1dcbf466346af3ab075e3a36ee69226355ab564a0070217435e6ce3639079e5",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fcvt_wd.s",
+    "name": "upstream_fcvt_wd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "80abf6c302d47d9e072a3d2ba346fe2d49139adf92facc0146ba4874e047eff7",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fcvtd.s",
+    "name": "upstream_fcvtd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "8ed54fd3d8cb4ff7892bbaa91708d694340ab009d95e25bf23aad03eed077faf",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fdiv.s",
+    "name": "upstream_fdiv",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "c9afa969296097aff61416e629d3fde6992203ca282b39d3d026ac7ae6bc0bc4",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fdivd.s",
+    "name": "upstream_fdivd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "f6fcd804c1594cc272c4ba48d94c8895a6c25840b4ba6344dd4a72d2dc27c175",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fmadd.s",
+    "name": "upstream_fmadd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "4f146862525c69896ac361caaf791b3bbbe92f642cd7bc841294f4f732e6865a",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fmaddd.s",
+    "name": "upstream_fmaddd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "ebb1b0a5df3523667b5102f64c15387dcb25f73a4bdef8a74d94cffe2cd9ffaa",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fmin.s",
+    "name": "upstream_fmin",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "1189c09adb6e73d430c1b097bcbe999176047f5959730cdb0a12b500e0e4ee04",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/fmind.s",
+    "name": "upstream_fmind",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "d0a671dc0653c8ba45cb9a5bdca764fd2dcae806a26a72404dd294a2417700af",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/ldst.s",
+    "name": "upstream_ldst",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "02d3e45d1b3370a92c6e9a0a6111eb936a63c46000cba7c05c0fd408d37ea166",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/ldstd.s",
+    "name": "upstream_ldstd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "d3913b9c279167460483196a7cec945eb7ddaeff02be98158ceb63f0a0c64dee",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/lui.s",
+    "name": "upstream_lui",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "ff15640cc87766b2fb415eaad50ac7531bcf507b0d012e2c5c518ce6a9a9a385",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/memory.s",
+    "name": "upstream_memory",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "bb9ad2b412f4d91d5fdf4851ea59a25428fb62ecb1b9ebff7572f8c363aceaaa",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/move.s",
+    "name": "upstream_move",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "184455bbf29dbfdef2351da2bf3c888a6e8a200b2e72c38a332638b9d39846e2",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/mul.s",
+    "name": "upstream_mul",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "69fcdf14fb69316a49f8774240cd73470e675775077e9a58572b2af7fb4ecc89",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/mulh.s",
+    "name": "upstream_mulh",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "ed2757d0dd321ee8c99f8dcf72d2caefee0b8d77a4082ebf0d700aeb0d632d03",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/mulhsu.s",
+    "name": "upstream_mulhsu",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "b86eb0bcbde9fb3c9e1d19432a8ea70142b54b0079548ebe51e18b3d4b56ce10",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/mulhu.s",
+    "name": "upstream_mulhu",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "5bd08a579416b037dbff0211f1e72c84458596c07a3486b63ae9d25bdfe6c24e",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/or.s",
+    "name": "upstream_or",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "8e1fe6c073d345dc0948664c6d92190dc7b62b95f0ad334979aa5764db30f1ff",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/ori.s",
+    "name": "upstream_ori",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "d0d8de01d0ae62dad9b0daa178b0315bb95db13a865b8dbb4245592a0b541f81",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/ranpi.c",
+    "name": "upstream_ranpi",
+    "included": false,
+    "reason": "floating-point stochastic C workload; deterministic integer algorithms supplied separately",
+    "sha256": "a57bd64844758b9214d2e5045998d2e7e988df97904cd92061e9b3a1e1337916",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/recoding.s",
+    "name": "upstream_recoding",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "805e5d357a656c9381d04bbc2fbec19ce5f5cdcceffb8661ca5bb7b375e0ce4f",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/recodingd.s",
+    "name": "upstream_recodingd",
+    "included": false,
+    "reason": "F/D floating-point instructions outside RV32IMC",
+    "sha256": "c958f83892325bbf474cdef7b55e40095404da222fc1466fc989a4654012f3e7",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/rem.s",
+    "name": "upstream_rem",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "a16a80e656c603f333bb12fa362aad43e46ff53f642515b89b6912968570511b",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/remu.s",
+    "name": "upstream_remu",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "bda177257864372a2404ac1498c6620b586990f513b6dd9c666b04be6cfd5ef2",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/simple.s",
+    "name": "upstream_simple",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "68bbd042ac5350418283c096d9c5f9e941793a877e5c486b14d5269de20bb9a7",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/sll.s",
+    "name": "upstream_sll",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "45127a599557fe771461be261197e4336d474d8afa6d209cda5678dc841079a1",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/slli.s",
+    "name": "upstream_slli",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "73fa74b6850e95e331e82e31e7263bdc5cff0997eb2cee0aec6a2d8058f7c963",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/slt.s",
+    "name": "upstream_slt",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "4a62b6ea2c1a1fc4aba4bbef537b91e2eed4660e8454772f4cabc4b3fca17e2f",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/slti.s",
+    "name": "upstream_slti",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "266a38e4494b3260e2b613a0b61c98ef3b271ff06b0e7bb8364a5e5d62d8bad7",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/sltiu.s",
+    "name": "upstream_sltiu",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "f68d1d4e4c2ed276fadb1f89082569aef8a1d54d8e597152161b68d125897d50",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/sltu.s",
+    "name": "upstream_sltu",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "6d13c97760974b1f3f156d076618e86880612566f418ad86ab9cc20d2ad5c9bd",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/sra.s",
+    "name": "upstream_sra",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "acd86ddac1f80e891c2279342692ca1b4c570eb16693f53a01e5fc8e3c119a59",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/srai.s",
+    "name": "upstream_srai",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "29ebacab2cf9a4a7f383582fe6ed14b1265d41a7248fdc6ff22e9bb0c2268dff",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/srl.s",
+    "name": "upstream_srl",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "cdf0bc1c7839024e337da0cf39f99f1730897186bfb077c0d93075a85c5d519e",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/srli.s",
+    "name": "upstream_srli",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "1c6ab492ac90fce0dd967539be49c6469227897cf941b0a0ecc80f2cbc9b331f",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/sub.s",
+    "name": "upstream_sub",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "4996cba6eae45a74ce1fa666f52ab447f9e76e7f43328042286495644a3384b6",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/xor.s",
+    "name": "upstream_xor",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "f9cf7c2679aa3f448a9bc66900383141bbaccad2b37c396e53a437b37464b0f5",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests/xori.s",
+    "name": "upstream_xori",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "261226ee7833039bd61bdf27effc2b787d046905832a1e773503a036bee7f983",
+    "license": "BSD-3-Clause: test/riscv-tests/LICENSE (RARS/riscv-tests provenance)"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-c/rvc.s",
+    "name": "upstream_rvc",
+    "included": true,
+    "reason": "RV32 integer self-check; pass exit status 42",
+    "sha256": "0e645ac8a9982dd3305131d4bdf70adc55681e9a57856fda118e6c772bf1e27d",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/add.S",
+    "name": "upstream_add",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "3a582ba787375267a6e42468bb8f7893da8961d4d31ba9ec2b1f934ed605c03f",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/addi.S",
+    "name": "upstream_addi",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "eaab490a63279ae3ae768c0ee10acefab655b56a4c562f7f8be434db62cdf13b",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/addiw.S",
+    "name": "upstream_addiw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "5577b3219afe541c595de8fc84a035fb1f845c861501c78acbf74ff2c0aab247",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/addw.S",
+    "name": "upstream_addw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "591c2142ad6b8913e4a7bb42d4cea0d9ee964db6ed91f894a21825bbfbe7736d",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/and.S",
+    "name": "upstream_and",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "de1e0466a0dd1da23795d799a6a438b5377d1706c9c9179b201a7d8f74ed5fff",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/andi.S",
+    "name": "upstream_andi",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "99fa56832d40de3c8dc43dacd9ac6365767137f4f4a542af6d88d4133975bdb2",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/brk_syscall.S",
+    "name": "upstream_brk_syscall",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "d96c9f58d5e24949532430793b4e9da771f386bff89a9c4b6acb6ecdd087f46f",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/ecall_file.S",
+    "name": "upstream_ecall_file",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "ebb8f497d03aab9d2544aa733ef3a49c9c6c47bc8aee5284635b69563fcf37b7",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/lb.S",
+    "name": "upstream_lb",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "a42410c86fff626b3a477b3703d80698c54447ecf8ebf7fed7d15e651986c1bf",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/lbu.S",
+    "name": "upstream_lbu",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "f357cd033461615e95398dffd230f47b93c8f48b567834a81d42e5adf46375ac",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/ld.S",
+    "name": "upstream_ld",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "d525f245335053654d540c0ca5657e306d452a669a28a719ecc251dc4cc8d30b",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/lh.S",
+    "name": "upstream_lh",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "51e6deee9c7d744edf2441aa6c142d6395c15faa0bd783398ab4e4c2c8d99ccb",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/lhu.S",
+    "name": "upstream_lhu",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "f7222dff1151beed23ab5427c7f2e8ab51928bd966cc8c26d6b23e3a61dab2ed",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/lui.S",
+    "name": "upstream_lui",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "fe1c58631b3fcf317f459900ba4b24f39f04923244b1af2123efe230f3127472",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/lw.S",
+    "name": "upstream_lw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "573f14e9d02c02977bcda47fee13c9aeb92bcc2136fdd8c0daac37052b897429",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/lwu.S",
+    "name": "upstream_lwu",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "6c82dc7bada96e5c0396de7c5efc858317f9422f3673041e732fdc673381b8d6",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/mulh_test.S",
+    "name": "upstream_mulh_test",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "11684d35c51f6bf7f47c227f79ec716b683ddb74e873cd5cbda0d3960dc036af",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/or.S",
+    "name": "upstream_or",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "2466a587a34d7e2bd859b2cfdf88a5619341f59d49f951d7b03e6ecbc22befd9",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/ori.S",
+    "name": "upstream_ori",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "57009e672df220ffa8c8765cd51916eb2f79d4a5a4e8731b59b7cbdac946ea31",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sb.S",
+    "name": "upstream_sb",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "bba5133bb2f9541f825dedd6dd64ceb73bec57c405ca3a00a60f7c94ee64d0bb",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sd.S",
+    "name": "upstream_sd",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "a35bdac05f8e39b5b610a4d4b8e582602e150387c1936f5827fa56676ed58722",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sh.S",
+    "name": "upstream_sh",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "51dfa599e5fb7680a63b839c0ca44865b1b9183bc987aae45ba18f4b10474633",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/simple.S",
+    "name": "upstream_simple",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "ed962d4a23a8581dea1258cff5d61e4d6d145d4b23cb76d94be05004bd365fc5",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sll.S",
+    "name": "upstream_sll",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "3f784e112e4dfd8bc4442a191c87ca2585dac341631e5d3d5e80c568454526b9",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/slli.S",
+    "name": "upstream_slli",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "682f1cf4e6200e3bda474c4c4aaf3efc92d04d1b4ab3f67454c613d249cf5b65",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/slliw.S",
+    "name": "upstream_slliw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "8917a108fae162c75b23019a5f37bb41803e77f83c94c54705fd3aca7fd98390",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sllw.S",
+    "name": "upstream_sllw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "2dbae140752bc0477fb5c44e390a2806ec17b1d7ab0f09660fa71cf22e2ce1b6",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/slt.S",
+    "name": "upstream_slt",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "c5bce032bce281ecf916af1237c479e0159fde49ebdff4ad6d661164d8dea513",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/slti.S",
+    "name": "upstream_slti",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "4a7adafd54b345d600f1c760b220871859f93996de86a65895158a4b76eb84fc",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sltiu.S",
+    "name": "upstream_sltiu",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "ec46e67bd816a37e203b5e1b32787ead97cd9407ecdb6b251c4fd822666e3ac7",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sltu.S",
+    "name": "upstream_sltu",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "494124e331b124588d5bbc78a5464c9065c0462f43c7c49620e0338f2948373a",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sra.S",
+    "name": "upstream_sra",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "527993dc584ea90312bf1bcd6d1615126314f7b412d9a83cf358794fdda07a00",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/srai.S",
+    "name": "upstream_srai",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "ab2d14ab469086af79ff2c0d48f2695a712dd570a5398a7f26787cae93dfb73f",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sraiw.S",
+    "name": "upstream_sraiw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "9b7d5ceb48500f2eb83941c105b40c3fe706f703a68ab167e4242b2632886aec",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sraw.S",
+    "name": "upstream_sraw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "a7aeb571898d759055c2f0f9a193040872f2b762b7eda57e18639a817f633355",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/srl.S",
+    "name": "upstream_srl",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "f5f2a9c28599a8f7839c9b1b1977ea153abc295f33888b54fdb308f8176a60d5",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/srli.S",
+    "name": "upstream_srli",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "f531e23e0b8d5f837ef5af29d0e22b2af3af853a18dfe1577b75edc6d85387ca",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/srliw.S",
+    "name": "upstream_srliw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "55170f5904e66bbd891e8e3267c8942e3225f015eb108418635e2afe46577690",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/srlw.S",
+    "name": "upstream_srlw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "d71574dfda6e7030ed858c61568ad58801a49fae53f9c176e9f692c01ce8ee64",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sub.S",
+    "name": "upstream_sub",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "b722a76bec084564d1f417b6ff6816868862ea0ca656265b620b284999175d80",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/subw.S",
+    "name": "upstream_subw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "166f57b392a5d47ad17b38c7a3827345ab6acdf60ca6d3eb121c0eb3f588f83a",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/sw.S",
+    "name": "upstream_sw",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "f0da2a5cc5046d3e7d4fab1f8f9534a1202ff8990324ad8d96afbabd645cdd63",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/xor.S",
+    "name": "upstream_xor",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "086a27ceeb3b028ff2b1126105121944d6ebf6f06c12e20bf9e827a878ad5334",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-64/xori.S",
+    "name": "upstream_xori",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "5bc5a6b20198380386a36160fd6b9049c005389f2f523f61df7fbff828dd252f",
+    "license": "Ripes MIT: repository LICENSE"
+  },
+  {
+    "path": "reference/ripes-reference/test/riscv-tests-c-64/rvc.s",
+    "name": "upstream_rvc",
+    "included": false,
+    "reason": "RV64 ISA outside RV32IMC",
+    "sha256": "f253ebe5f21273541a0e3f047d4d720febb1c238220f0863cbf750e11938b6f1",
+    "license": "Ripes MIT: repository LICENSE"
+  }
+]

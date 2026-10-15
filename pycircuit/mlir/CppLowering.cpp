@@ -170,6 +170,7 @@ namespace {
 // Reduced ordered decision graph for demand predicates. Each value is emitted
 // once per statement region, under the union of the paths that actually use it.
 struct Demand {
+  struct Limit {};
   struct Node {
     unsigned atom, low, high;
   };
@@ -190,6 +191,8 @@ struct Demand {
     auto key = std::make_tuple(atom, low, high);
     if (auto it = unique.find(key); it != unique.end())
       return it->second;
+    if (nodes.size() >= 100000 || memo.size() >= 100000)
+      throw Limit();
     unsigned id = nodes.size();
     nodes.push_back({atom, low, high});
     unique[key] = id;
@@ -216,6 +219,8 @@ struct Demand {
     auto key = std::make_tuple(a, b, unsigned(isOr));
     if (auto it = memo.find(key); it != memo.end())
       return it->second;
+    if (memo.size() >= 100000)
+      throw Limit();
     auto atom = std::min(nodes[a].atom, nodes[b].atom);
     auto low = combine(nodes[a].atom == atom ? nodes[a].low : a,
                        nodes[b].atom == atom ? nodes[b].low : b, isOr);
@@ -335,19 +340,24 @@ void acir::CppStatements::assume(Value condition) {
     if (!ignored.count(value))
       logic.frontier.insert(value);
   facts.push_back(condition);
-  unsigned path = 1;
-  for (auto fact : facts)
-    path = logic.combine(path, logic.boolean(fact), false);
-  // Reuse predicates already evaluated for the successful fire, including
-  // conditional assertion results, without a second evaluation or SSA cache.
-  for (auto &[value, local] : computed)
-    if (value.getType().isInteger(1)) {
-      auto predicate = logic.boolean(value);
-      if (!logic.combine(path, logic.negate(predicate), false))
-        available[value] = "true";
-      else if (!logic.combine(path, predicate, false))
-        available[value] = "false";
-    }
+  try {
+    unsigned path = 1;
+    for (auto fact : facts)
+      path = logic.combine(path, logic.boolean(fact), false);
+    // Reuse predicates already evaluated for the successful fire, including
+    // conditional assertion results, without a second evaluation or SSA cache.
+    for (auto &[value, local] : computed)
+      if (value.getType().isInteger(1)) {
+        auto predicate = logic.boolean(value);
+        if (!logic.combine(path, logic.negate(predicate), false))
+          available[value] = "true";
+        else if (!logic.combine(path, predicate, false))
+          available[value] = "false";
+      }
+  } catch (const Demand::Limit &) {
+    // Facts already established remain valid; only optional simplification
+    // is abandoned. Never make predicate analysis a prerequisite to lowering.
+  }
   available[condition] = "true";
 }
 std::string acir::CppStatements::value(Value root) {
@@ -356,23 +366,27 @@ std::string acir::CppStatements::value(Value root) {
   if (plan.boundary.count(root) && !ignored.count(root))
     return shared(root);
   if (root.getType().isInteger(1) && !facts.empty()) {
-    Demand proof;
-    proof.literal = [](Value value) -> Attribute {
-      if (auto c = value.getDefiningOp<arith::ConstantOp>())
-        return c.getValue();
-      return {};
-    };
-    for (auto &[value, block] : plan.boundary)
-      if (!ignored.count(value))
-        proof.frontier.insert(value);
-    unsigned path = 1;
-    for (auto fact : facts)
-      path = proof.combine(path, proof.boolean(fact), false);
-    auto predicate = proof.boolean(root);
-    if (!proof.combine(path, proof.negate(predicate), false))
-      return available[root] = "true";
-    if (!proof.combine(path, predicate, false))
-      return available[root] = "false";
+    try {
+      Demand proof;
+      proof.literal = [](Value value) -> Attribute {
+        if (auto c = value.getDefiningOp<arith::ConstantOp>())
+          return c.getValue();
+        return {};
+      };
+      for (auto &[value, block] : plan.boundary)
+        if (!ignored.count(value))
+          proof.frontier.insert(value);
+      unsigned path = 1;
+      for (auto fact : facts)
+        path = proof.combine(path, proof.boolean(fact), false);
+      auto predicate = proof.boolean(root);
+      if (!proof.combine(path, proof.negate(predicate), false))
+        return available[root] = "true";
+      if (!proof.combine(path, predicate, false))
+        return available[root] = "false";
+    } catch (const Demand::Limit &) {
+      // Continue with explicit conditional computation.
+    }
   }
   Demand guards;
   DenseMap<Value, Attribute> constants;
@@ -549,117 +563,160 @@ std::string acir::CppStatements::value(Value root) {
       }
     }
   };
-  request(root, 1);
-  while (!pending.empty()) {
-    auto v = pending.back();
-    pending.pop_back();
-    auto path = demands.at(v);
-    if (external(v))
-      continue;
-    auto *op = v.getDefiningOp();
-    auto n = op->getName().getStringRef();
-    bool boolean =
-        (n == "arith.andi" || n == "arith.ori") && v.getType().isInteger(1);
-    if (hazardous(v) && (n == "arith.select" || boolean)) {
-      auto c = op->getOperand(0);
-      request(c, path);
-      auto condition = guards.boolean(c);
-      request(op->getOperand(1),
-              guards.combine(
-                  path, n == "arith.ori" ? guards.negate(condition) : condition,
-                  false));
-      if (!boolean)
-        request(op->getOperand(2),
-                guards.combine(path, guards.negate(condition), false));
-    } else {
-      unsigned first = isa<ReadOp>(op) ? 1 : 0;
-      for (auto x : op->getOperands().drop_front(first))
-        request(x, path);
-    }
-  }
-  DenseMap<Value, unsigned> marks;
-  bool conditionalCycle = false;
-  std::function<void(Value)> visit = [&](Value v) {
-    if (!demands.count(v) || marks.lookup(v) == 2)
-      return;
-    if (marks.lookup(v) == 1) {
-      // Unioning demand paths across opaque shared boundaries can introduce
-      // ordering edges absent from the SSA DAG. Keep the original conditional
-      // evaluation order rather than rejecting an acyclic computation.
-      conditionalCycle = true;
-      return;
-    }
-    marks[v] = 1;
-    DenseSet<Value> controls;
-    if (guarded(v))
-      guards.dependencies(demands.at(v), controls);
-    // Visit controls in stable atom order, never by pointer/hash order.
-    for (auto atom : guards.values)
-      if (controls.count(atom))
-        visit(atom);
-    auto *op = v.getDefiningOp();
-    unsigned first = isa<ReadOp>(op) ? 1 : 0;
-    if (!external(v))
-      for (auto x : op->getOperands().drop_front(first))
-        visit(x);
-    marks[v] = 2;
-    order.push_back(v);
-  };
-  visit(root);
-  if (conditionalCycle) {
-    std::function<std::string(Value)> emit = [&](Value v) -> std::string {
-      if (auto it = available.find(v); it != available.end())
-        return it->second;
+  bool conditionalCycle = false, demandLimit = false;
+  try {
+    request(root, 1);
+    while (!pending.empty()) {
+      auto v = pending.back();
+      pending.pop_back();
+      auto path = demands.at(v);
+      if (external(v))
+        continue;
       auto *op = v.getDefiningOp();
       auto n = op->getName().getStringRef();
-      if (!external(v) && n == "arith.constant")
-        return available[v] = expression(v, {});
+      bool boolean =
+          (n == "arith.andi" || n == "arith.ori") && v.getType().isInteger(1);
+      if (hazardous(v) && (n == "arith.select" || boolean)) {
+        auto c = op->getOperand(0);
+        request(c, path);
+        auto condition = guards.boolean(c);
+        request(op->getOperand(1),
+                guards.combine(path,
+                               n == "arith.ori" ? guards.negate(condition)
+                                                : condition,
+                               false));
+        if (!boolean)
+          request(op->getOperand(2),
+                  guards.combine(path, guards.negate(condition), false));
+      } else {
+        unsigned first = isa<ReadOp>(op) ? 1 : 0;
+        for (auto x : op->getOperands().drop_front(first))
+          request(x, path);
+      }
+    }
+    DenseMap<Value, unsigned> marks;
+    std::function<void(Value)> visit = [&](Value v) {
+      if (!demands.count(v) || marks.lookup(v) == 2)
+        return;
+      if (marks.lookup(v) == 1) {
+        // Unioning demand paths across opaque shared boundaries can introduce
+        // ordering edges absent from the SSA DAG. Keep the original conditional
+        // evaluation order rather than rejecting an acyclic computation.
+        conditionalCycle = true;
+        return;
+      }
+      marks[v] = 1;
+      DenseSet<Value> controls;
+      if (guarded(v))
+        guards.dependencies(demands.at(v), controls);
+      // Visit controls in stable atom order, never by pointer/hash order.
+      for (auto atom : guards.values)
+        if (controls.count(atom))
+          visit(atom);
+      auto *op = v.getDefiningOp();
+      unsigned first = isa<ReadOp>(op) ? 1 : 0;
+      if (!external(v))
+        for (auto x : op->getOperands().drop_front(first))
+          visit(x);
+      marks[v] = 2;
+      order.push_back(v);
+    };
+    visit(root);
+  } catch (const Demand::Limit &) {
+    demandLimit = true;
+  }
+  if (conditionalCycle || demandLimit) {
+    plan.conditionalCycles += conditionalCycle;
+    plan.demandLimits += demandLimit;
+    // Demand ordering may be cyclic although data dependencies are acyclic.
+    // Compile the data DAG as local lazy blocks instead of copying a branch
+    // tree. Only multiply referenced values need memoization. No block runs
+    // before demand, and none survives this statement's resource read view.
+    DenseMap<Value, unsigned> references;
+    DenseSet<Value> seen;
+    std::vector<Value> dataOrder;
+    std::function<void(Value)> collect = [&](Value v) {
+      ++references[v];
+      if (available.count(v) || !seen.insert(v).second)
+        return;
+      if (!external(v)) {
+        auto *op = v.getDefiningOp();
+        unsigned first = isa<ReadOp>(op) ? 1 : 0;
+        for (auto x : op->getOperands().drop_front(first))
+          collect(x);
+      }
+      dataOrder.push_back(v);
+    };
+    collect(root);
+    DenseMap<Value, std::string> lazy;
+    auto ref = [&](Value v) -> std::string {
+      if (auto it = available.find(v); it != available.end())
+        return it->second;
+      return lazy.at(v);
+    };
+    for (auto v : dataOrder) {
+      auto *op = v.getDefiningOp();
+      auto n = op->getName().getStringRef();
+      if (!external(v) && n == "arith.constant") {
+        lazy[v] = expression(v, {});
+        continue;
+      }
       auto base = cppSourceName(v);
-      if (base.empty() && n == "acir.extract" && op->hasAttr("field"))
-        base = op->getAttrOfType<StringAttr>("field").getValue().str();
-      auto local = name(base.empty() ? "branch_value" : base);
-      bool boolean = v.getType().isInteger(1) &&
-                     (n == "arith.andi" || n == "arith.ori");
-      if (!external(v) && hazardous(v) && (n == "arith.select" || boolean)) {
-        auto condition = emit(op->getOperand(0));
-        line(type(v.getType()) + " " + local + "{};");
-        auto outer = available;
-        auto outerComputed = computed;
-        line("if (" + condition + ") {");
+      if (base.empty())
+        base = "conditional_value";
+      auto fn = name("compute_" + base);
+      auto cache = name(base + "_cache");
+      bool memoized = references.lookup(v) > 1 && !external(v);
+      ++plan.lazyBlocks;
+      plan.memoizedBlocks += memoized;
+      if (memoized)
+        line("std::optional<" + type(v.getType()) + "> " + cache + ";");
+      line(
+          "auto " + fn + " = [&]() -> " +
+          (memoized ? "const " + type(v.getType()) + " &" : type(v.getType())) +
+          " {");
+      ++depth;
+      if (memoized) {
+        line("if (!" + cache + ") {");
         ++depth;
-        auto yes = boolean && n == "arith.ori" ? std::string("true")
-                                               : emit(op->getOperand(1));
-        line(local + " = " + yes + ";");
-        --depth;
-        available = outer;
-        computed = outerComputed;
-        line("} else {");
-        ++depth;
-        auto no = boolean && n == "arith.andi"
-                      ? std::string("false")
-                      : emit(op->getOperand(boolean ? 1 : 2));
-        line(local + " = " + no + ";");
+      }
+      SmallVector<std::string> args;
+      bool branch =
+          n == "arith.select" ||
+          (v.getType().isInteger(1) && (n == "arith.andi" || n == "arith.ori"));
+      if (!external(v)) {
+        unsigned first = isa<ReadOp>(op) ? 1 : 0;
+        unsigned position = 0;
+        for (auto operand : op->getOperands().drop_front(first)) {
+          auto expression = ref(operand);
+          // The condition is evaluated even if the arms later simplify to
+          // the same value (or an and/or arm is a Boolean literal).
+          if (!branch || position == 0) {
+            auto argument = name("operand");
+            line("const auto &" + argument + " = " + expression + ";");
+            expression = argument;
+          }
+          args.push_back(expression);
+          ++position;
+        }
+      }
+      auto expressionText = external(v) ? shared(v) : expression(v, args);
+      if (memoized) {
+        line(cache + ".emplace(" + expressionText + ");");
         --depth;
         line("}");
-        available = outer;
-        computed = outerComputed;
-      } else {
-        SmallVector<std::string> args;
-        if (!external(v)) {
-          unsigned first = isa<ReadOp>(op) ? 1 : 0;
-          for (auto operand : op->getOperands().drop_front(first))
-            args.push_back(emit(operand));
-        }
-        auto expr = external(v) ? shared(v) : expression(v, args);
-        if (!external(v) && cppSourceName(v).empty() &&
-            (expr == "true" || expr == "false" || llvm::is_contained(args, expr)))
-          return available[v] = expr;
-        line("const " + type(v.getType()) + " " + local + " = " + expr + ";");
-      }
-      computed[v] = local;
-      return available[v] = local;
-    };
-    return emit(root);
+        line("return *" + cache + ";");
+      } else
+        line("return " + expressionText + ";");
+      --depth;
+      line("};");
+      lazy[v] = fn + "()";
+    }
+    auto local = name("conditional_result");
+    line("const " + type(root.getType()) + " " + local + " = " + ref(root) +
+         ";");
+    computed[root] = local;
+    return available[root] = local;
   }
   DenseMap<Value, std::string> locals;
   for (auto v : order) {
@@ -679,10 +736,11 @@ std::string acir::CppStatements::value(Value root) {
         if (!resource)
           resource = op->getAttrOfType<StringAttr>("resource");
         auto method = op->getAttrOfType<StringAttr>("method").getValue();
-        auto suffix = v == r.getReady() ? "_ready"
-                      : method == "full" ? "_full"
+        auto suffix = v == r.getReady()   ? "_ready"
+                      : method == "full"  ? "_full"
                       : method == "empty" ? "_empty"
-                      : method == "size" ? "_size" : "_value";
+                      : method == "size"  ? "_size"
+                                          : "_value";
         base = resource.getValue().rsplit('.').second.str() + suffix;
       } else if (n == "arith.cmpi")
         base = "condition";

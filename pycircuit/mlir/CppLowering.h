@@ -15,6 +15,8 @@ struct CppPlan {
   llvm::DenseMap<mlir::Value, unsigned> uses;
   llvm::DenseMap<mlir::Value, unsigned> boundary;
   std::vector<std::vector<mlir::Value>> blocks;
+  mutable unsigned conditionalCycles = 0, demandLimits = 0;
+  mutable unsigned lazyBlocks = 0, memoizedBlocks = 0;
   explicit CppPlan(mlir::ModuleOp module);
 };
 struct CppStatements {

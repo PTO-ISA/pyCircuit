@@ -1,0 +1,1 @@
+const char message[]="Hello"; volatile char dest[6]; unsigned algorithm(void){unsigned s=0;for(unsigned i=0;i<6;++i){dest[i]=message[i];if(dest[i]!=message[i])return 0;s+=(unsigned char)dest[i];}return s;}

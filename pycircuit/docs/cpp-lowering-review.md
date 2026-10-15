@@ -1,5 +1,8 @@
 # C++ lowering 与生成代码审阅
 
+后续字段精确分析修复见 [字段依赖与有界条件生成](field-projection.md)。旧的条件环递归复制回退
+已替换为局部按需计算图；下文历史测量保留，不代表修复后的性能测量。
+
 此次重构从事务 MLIR 生成按事务组织的 C++ 语句；公共 fire、契约、端口和 schedule 仍是唯一执行依据。
 实现入口是 `mlir/CppLowering.cpp`、`mlir/CppEmitter.cpp` 与 `mlir/ResourceExpansion.cpp`。
 源名用 `acir.bind`／块参数的 NameLoc 保存，辅助函数展开保存 CallSiteLoc；名称不参与语义判断。

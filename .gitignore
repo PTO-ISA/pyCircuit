@@ -15,3 +15,6 @@ __pycache__/
 /pycircuit/builds/*/*trace.json
 /pycircuit/builds/*/model.py
 /pycircuit/builds/*/source.py
+
+/pycircuit/builds/ripes-native/
+/pycircuit/builds/ripes-qt/

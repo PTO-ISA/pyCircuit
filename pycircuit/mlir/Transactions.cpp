@@ -1,10 +1,11 @@
 #include "Dialect.h"
 #include "Execution.h"
+#include "FieldProjection.h"
 #include "Passes.h"
-#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlowOps.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Pass/PassManager.h"
@@ -41,7 +42,8 @@ Location implementationLocation(Location loc) {
   if (auto named = dyn_cast<NameLoc>(loc)) {
     auto child = implementationLocation(named.getChildLoc());
     return named.getName().getValue().starts_with("acir.binding:")
-               ? child : Location(NameLoc::get(named.getName(), child));
+               ? child
+               : Location(NameLoc::get(named.getName(), child));
   }
   if (auto call = dyn_cast<CallSiteLoc>(loc))
     return CallSiteLoc::get(implementationLocation(call.getCallee()),
@@ -60,6 +62,13 @@ struct Pair {
   int producer = -1;
   Value index;
   std::vector<Value> selected;
+  // A combinational bundle preserves each member's readiness/provenance.
+  // Reads of stored bundles stay opaque and retain one resource snapshot.
+  std::vector<Pair> fields;
+  // Explicit checks/guards are required independently of which member is
+  // connected. Ordinary payload readiness is tracked per member instead.
+  Value checks;
+  bool obligated = false;
 };
 struct Transaction {
   std::string name;
@@ -161,8 +170,8 @@ struct Extractor {
     if (depth >= 64)
       return false;
     auto *op = expression.getDefiningOp();
-    if (!op || op->getName().getStringRef() !=
-                   (isAnd ? "arith.andi" : "arith.ori"))
+    if (!op ||
+        op->getName().getStringRef() != (isAnd ? "arith.andi" : "arith.ori"))
       return false;
     return contains(op->getOperand(0), value, isAnd, depth + 1) ||
            contains(op->getOperand(1), value, isAnd, depth + 1);
@@ -279,7 +288,8 @@ struct Extractor {
     // Cell contents and old FIFO empty/size views are total and immutable
     // during a tick. Other views keep the read token (notably EHR and full).
     auto ready = method == "read" || method == "empty" || method == "size"
-                     ? yes : op->getResult(1);
+                     ? yes
+                     : op->getResult(1);
     require(path, ready);
     return {op->getResult(0), ready};
   }
@@ -321,30 +331,40 @@ struct Extractor {
   }
   Type memberType(Type type, Attribute field) {
     if (auto array = dyn_cast<acir::ArrayType>(type))
-      return array.getShape().size() == 1 ? array.getElementType() :
-        acir::ArrayType::get(b.getContext(), array.getElementType(), array.getShape().drop_front());
+      return array.getShape().size() == 1
+                 ? array.getElementType()
+                 : acir::ArrayType::get(b.getContext(), array.getElementType(),
+                                        array.getShape().drop_front());
     if (auto structure = dyn_cast<acir::StructType>(type)) {
       auto fields = source->getAttrOfType<DictionaryAttr>("acir.model")
-                      .getAs<DictionaryAttr>("types").getAs<ArrayAttr>(structure.getName());
+                        .getAs<DictionaryAttr>("types")
+                        .getAs<ArrayAttr>(structure.getName());
       for (auto f : fields) {
         auto entry = cast<DictionaryAttr>(f);
-        if (entry.getAs<StringAttr>("name") == field) return entry.getAs<TypeAttr>("payload_type").getValue();
+        if (entry.getAs<StringAttr>("name") == field)
+          return entry.getAs<TypeAttr>("payload_type").getValue();
       }
     }
     throw std::runtime_error("invalid aggregate update path");
   }
   Value cmpIndex(Value index, int64_t coordinate) {
-    return arith::CmpIOp::create(b, loc, arith::CmpIPredicate::eq, index,
-      constant(coordinate, cast<IntegerType>(index.getType()).getWidth()));
+    return arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::eq, index,
+        constant(coordinate, cast<IntegerType>(index.getType()).getWidth()));
   }
   Value maskBit(Value mask, ArrayRef<int64_t> shape, int64_t flat) {
     for (unsigned axis = 0; axis < shape.size(); ++axis) {
       int64_t stride = 1;
-      for (auto d : shape.drop_front(axis + 1)) stride *= d;
-      auto coord = flat / stride; flat %= stride;
-      Type result = axis + 1 == shape.size() ? b.getI1Type() :
-        Type(acir::MaskType::get(b.getContext(), shape.drop_front(axis + 1)));
-      mask = make(b, loc, "acir.extract", {mask, constant(coord)}, result)->getResult(0);
+      for (auto d : shape.drop_front(axis + 1))
+        stride *= d;
+      auto coord = flat / stride;
+      flat %= stride;
+      Type result = axis + 1 == shape.size()
+                        ? b.getI1Type()
+                        : Type(acir::MaskType::get(b.getContext(),
+                                                   shape.drop_front(axis + 1)));
+      mask = make(b, loc, "acir.extract", {mask, constant(coord)}, result)
+                 ->getResult(0);
     }
     return mask;
   }
@@ -352,21 +372,28 @@ struct Extractor {
     SmallVector<Value> values;
     for (int64_t i = 0; i < shape.front(); ++i)
       values.push_back(shape.size() == 1 ? yes : fullMask(shape.drop_front()));
-    return make(b, loc, "acir.aggregate", values, acir::MaskType::get(b.getContext(), shape))->getResult(0);
+    return make(b, loc, "acir.aggregate", values,
+                acir::MaskType::get(b.getContext(), shape))
+        ->getResult(0);
   }
   // The schedule enumerates candidates through temporary analysis sites. The
   // executable operation retains one logical index and selection domain.
   void logicalMetadata(Operation *op, Pair reference, Pair path) {
     SmallVector<Attribute> resources;
-    for (auto &res : arrays.at(reference.resource)) resources.push_back(b.getStringAttr(res));
+    for (auto &res : arrays.at(reference.resource))
+      resources.push_back(b.getStringAttr(res));
     op->setAttr("resources", b.getArrayAttr(resources));
-    op->setAttr("array", b.getStringAttr(arrayNames.count(reference.resource) ? arrayNames.at(reference.resource) : reference.resource));
+    op->setAttr("array", b.getStringAttr(arrayNames.count(reference.resource)
+                                             ? arrayNames.at(reference.resource)
+                                             : reference.resource));
     for (auto [i, res] : llvm::enumerate(arrays.at(reference.resource))) {
       auto chosen = cmpIndex(reference.index, i);
-      if (!reference.selected.empty()) chosen = conjunction(chosen, reference.selected[i]);
+      if (!reference.selected.empty())
+        chosen = conjunction(chosen, reference.selected[i]);
       auto condition = conjunction(path.value, chosen);
       auto attrs = metadata(res, text(op, "method"), active);
-      attrs.push_back(b.getNamedAttr("branch", b.getI64IntegerAttr(branch(condition, active))));
+      attrs.push_back(b.getNamedAttr(
+          "branch", b.getI64IntegerAttr(branch(condition, active))));
       auto *site = make(b, loc, "acir.path", condition, {}, attrs);
       accesses[res].push_back(site);
       analysisTargets[site] = op;
@@ -376,55 +403,79 @@ struct Extractor {
   SmallVector<Value> selection(Pair reference) {
     SmallVector<Value> result{reference.index};
     if (!reference.selected.empty()) {
-      auto mask = acir::MaskType::get(b.getContext(), {int64_t(reference.selected.size())});
-      result.push_back(make(b, loc, "acir.aggregate", reference.selected, mask)->getResult(0));
+      auto mask = acir::MaskType::get(b.getContext(),
+                                      {int64_t(reference.selected.size())});
+      result.push_back(make(b, loc, "acir.aggregate", reference.selected, mask)
+                           ->getResult(0));
     }
     return result;
   }
   Pair referenceReady(Pair reference) {
-    auto valid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
-      reference.index, constant(arrays.at(reference.resource).size(), cast<IntegerType>(reference.index.getType()).getWidth()));
+    auto valid = arith::CmpIOp::create(
+        b, loc, arith::CmpIPredicate::ult, reference.index,
+        constant(arrays.at(reference.resource).size(),
+                 cast<IntegerType>(reference.index.getType()).getWidth()));
     Value member = yes;
     if (!reference.selected.empty()) {
       auto mask = selection(reference).back();
-      auto safe = select(valid, reference.index, constant(0, cast<IntegerType>(reference.index.getType()).getWidth()));
-      member = make(b, loc, "acir.extract", {mask, safe}, b.getI1Type())->getResult(0);
+      auto safe = select(
+          valid, reference.index,
+          constant(0, cast<IntegerType>(reference.index.getType()).getWidth()));
+      member = make(b, loc, "acir.extract", {mask, safe}, b.getI1Type())
+                   ->getResult(0);
     }
     return {yes, conjunction(reference.ready, conjunction(valid, member))};
   }
   Pair readReference(Pair reference, std::string method, Type type, Pair path) {
-    if (!arrays.count(reference.resource)) return read(reference.resource, method, type, path);
-    if (!reference.index) throw std::runtime_error("index a resource array before reading");
+    if (!arrays.count(reference.resource))
+      return read(reference.resource, method, type, path);
+    if (!reference.index)
+      throw std::runtime_error("index a resource array before reading");
     auto valid = referenceReady(reference).ready;
     require(path, valid);
-    auto attrs = metadata(arrays.at(reference.resource).front(), method, active);
-    attrs.push_back(b.getNamedAttr("branch", b.getI64IntegerAttr(branch(path.value, active))));
+    auto attrs =
+        metadata(arrays.at(reference.resource).front(), method, active);
+    attrs.push_back(b.getNamedAttr(
+        "branch", b.getI64IntegerAttr(branch(path.value, active))));
     SmallVector<Value> args{path.value};
-    auto domain = selection(reference); args.append(domain);
+    auto domain = selection(reference);
+    args.append(domain);
     auto *op = make(b, loc, "acir.read", args, {type, b.getI1Type()}, attrs);
     logicalMetadata(op, reference, path);
     // A logical Cell/old-FIFO view adds only selection validity. The read's
     // ready result repeats those same bounds/domain checks.
     auto ready = method == "read" || method == "empty" || method == "size"
-                     ? valid : conjunction(valid, op->getResult(1));
+                     ? valid
+                     : conjunction(valid, op->getResult(1));
     require(path, ready);
     return {op->getResult(0), ready};
   }
-  void effectReference(Pair reference, std::string method, Value value, Pair path, Value ready) {
-    if (!arrays.count(reference.resource)) { effect(reference.resource, method, value, path, ready); return; }
-    if (!reference.index) throw std::runtime_error("index a resource array before writing");
-    if (active < 0) throw std::runtime_error("state effect outside a transaction");
+  void effectReference(Pair reference, std::string method, Value value,
+                       Pair path, Value ready) {
+    if (!arrays.count(reference.resource)) {
+      effect(reference.resource, method, value, path, ready);
+      return;
+    }
+    if (!reference.index)
+      throw std::runtime_error("index a resource array before writing");
+    if (active < 0)
+      throw std::runtime_error("state effect outside a transaction");
     require(path, conjunction(ready, referenceReady(reference).ready));
-    auto attrs = metadata(arrays.at(reference.resource).front(), method, active);
-    attrs.push_back(b.getNamedAttr("branch", b.getI64IntegerAttr(branch(path.value, active))));
+    auto attrs =
+        metadata(arrays.at(reference.resource).front(), method, active);
+    attrs.push_back(b.getNamedAttr(
+        "branch", b.getI64IntegerAttr(branch(path.value, active))));
     SmallVector<Value> args{path.value};
-    if (value) args.push_back(value);
-    auto domain = selection(reference); args.append(domain);
+    if (value)
+      args.push_back(value);
+    auto domain = selection(reference);
+    args.append(domain);
     auto *op = make(b, loc, "acir.effect", args, {}, attrs);
     txns[active].effects.push_back(op);
     logicalMetadata(op, reference, path);
     if (method == "pop" || method == "push") {
-      auto available = readReference(reference, method == "pop" ? "empty" : "full", b.getI1Type(), path);
+      auto available = readReference(
+          reference, method == "pop" ? "empty" : "full", b.getI1Type(), path);
       require(path, negate(available.value));
     }
   }
@@ -470,29 +521,46 @@ struct Extractor {
       auto previous = it->second;
       if (result.resource != previous.resource) {
         if (result.resource.empty() || previous.resource.empty())
-          throw std::runtime_error("cannot merge payload and resource references");
-        auto left = arrays.count(previous.resource) ? arrays.at(previous.resource) : std::vector<std::string>{previous.resource};
-        auto right = arrays.count(result.resource) ? arrays.at(result.resource) : std::vector<std::string>{result.resource};
+          throw std::runtime_error(
+              "cannot merge payload and resource references");
+        auto left = arrays.count(previous.resource)
+                        ? arrays.at(previous.resource)
+                        : std::vector<std::string>{previous.resource};
+        auto right = arrays.count(result.resource)
+                         ? arrays.at(result.resource)
+                         : std::vector<std::string>{result.resource};
         auto key = "merged.array." + std::to_string(arrays.size());
-        arrays[key] = left; arrays[key].insert(arrays[key].end(),right.begin(),right.end());
+        arrays[key] = left;
+        arrays[key].insert(arrays[key].end(), right.begin(), right.end());
         auto offset = [&](Value index) -> Value {
-          if (!index) return constant(0,64);
-          if (index.getType().isInteger(64)) return index;
-          return arith::ExtUIOp::create(b,loc,b.getI64Type(),index);
+          if (!index)
+            return constant(0, 64);
+          if (index.getType().isInteger(64))
+            return index;
+          return arith::ExtUIOp::create(b, loc, b.getI64Type(), index);
         };
-        auto z = arith::AddIOp::create(b,loc,offset(result.index),constant(left.size(),64));
-        result.index = select(it->first.value,offset(previous.index),z);
+        auto z = arith::AddIOp::create(b, loc, offset(result.index),
+                                       constant(left.size(), 64));
+        result.index = select(it->first.value, offset(previous.index), z);
         std::vector<Value> bits;
-        for (unsigned i=0;i<left.size();++i)bits.push_back(previous.selected.empty()?yes:previous.selected[i]);
-        for (unsigned i=0;i<right.size();++i)bits.push_back(result.selected.empty()?yes:result.selected[i]);
-        result.selected=bits;result.resource=key;
+        for (unsigned i = 0; i < left.size(); ++i)
+          bits.push_back(previous.selected.empty() ? yes
+                                                   : previous.selected[i]);
+        for (unsigned i = 0; i < right.size(); ++i)
+          bits.push_back(result.selected.empty() ? yes : result.selected[i]);
+        result.selected = bits;
+        result.resource = key;
       } else {
-        if (result.index && previous.index) result.index=select(it->first.value,previous.index,result.index);
+        if (result.index && previous.index)
+          result.index = select(it->first.value, previous.index, result.index);
         if (!result.selected.empty() || !previous.selected.empty()) {
           std::vector<Value> bits;
-          for (unsigned i=0;i<arrays.at(result.resource).size();++i)
-            bits.push_back(select(it->first.value,previous.selected.empty()?yes:previous.selected[i],result.selected.empty()?yes:result.selected[i]));
-          result.selected=bits;
+          for (unsigned i = 0; i < arrays.at(result.resource).size(); ++i)
+            bits.push_back(
+                select(it->first.value,
+                       previous.selected.empty() ? yes : previous.selected[i],
+                       result.selected.empty() ? yes : result.selected[i]));
+          result.selected = bits;
         }
       }
       result.value = select(it->first.value, previous.value, result.value);
@@ -503,7 +571,58 @@ struct Extractor {
         result.producer = it->first.producer;
     }
     result.ready = ready;
+    auto count = values.front().second.fields.size();
+    bool precise = count && llvm::all_of(values, [&](auto &entry) {
+                     return entry.second.fields.size() == count;
+                   });
+    result.fields.clear();
+    if (precise)
+      for (unsigned i = 0; i < count; ++i) {
+        std::vector<std::pair<Pair, Pair>> members;
+        for (auto &entry : values)
+          members.push_back({entry.first, entry.second.fields[i]});
+        result.fields.push_back(
+            merge(members, members[0].second.value.getType()));
+      }
+    result.checks = no;
+    result.obligated = false;
+    for (auto &entry : values)
+      result.obligated |= entry.second.obligated || entry.first.obligated;
+    for (auto &entry : values)
+      result.checks = disjunction(
+          result.checks,
+          conjunction(entry.first.value,
+                      conjunction(entry.first.ready, entry.second.checks
+                                                         ? entry.second.checks
+                                                         : yes)));
     return result;
+  }
+  void constrainFields(Pair &value, Value condition) {
+    for (auto &field : value.fields) {
+      field.ready = conjunction(field.ready, condition);
+      constrainFields(field, condition);
+    }
+  }
+  void setProducer(Pair &value, int producer) {
+    value.producer = producer;
+    for (auto &field : value.fields)
+      setProducer(field, producer);
+  }
+  bool updateFields(Pair &value, ArrayRef<Attribute> path,
+                    const Pair &payload) {
+    if (path.empty()) {
+      value = payload;
+      return true;
+    }
+    auto index = acir::fieldIndex(value.value.getType(), path.front(), target);
+    if (!index || *index >= value.fields.size())
+      return false;
+    if (!updateFields(value.fields[*index], path.drop_front(), payload))
+      return false;
+    value.ready = yes;
+    for (auto &field : value.fields)
+      value.ready = conjunction(value.ready, field.ready);
+    return true;
   }
   Pair run(Region &region, ArrayRef<Pair> arguments, Pair path,
            DenseMap<Value, Pair> env = DenseMap<Value, Pair>(),
@@ -596,16 +715,21 @@ struct Extractor {
                              ? vals.front().second
                              : merge(vals, arg.getType());
         if (parameter.resource.empty() && isa<NameLoc>(arg.getLoc())) {
-          auto nameLoc = caller ? Location(CallSiteLoc::get(arg.getLoc(), caller)) : arg.getLoc();
-          parameter.value = make(b, nameLoc, "acir.bind", parameter.value, arg.getType())->getResult(0);
+          auto nameLoc = caller
+                             ? Location(CallSiteLoc::get(arg.getLoc(), caller))
+                             : arg.getLoc();
+          parameter.value =
+              make(b, nameLoc, "acir.bind", parameter.value, arg.getType())
+                  ->getResult(0);
         }
         env[arg] = parameter;
       }
       current = operationPath;
       for (auto &operation : *block) {
         auto *op = &operation;
-        auto sourceLoc = caller ? Location(CallSiteLoc::get(op->getLoc(), caller))
-                                : op->getLoc();
+        auto sourceLoc = caller
+                             ? Location(CallSiteLoc::get(op->getLoc(), caller))
+                             : op->getLoc();
         // A source binding names the produced value, not the bounds, enables
         // and readiness arithmetic introduced while lowering that operation.
         loc = implementationLocation(sourceLoc);
@@ -617,11 +741,13 @@ struct Extractor {
         for (auto v : a)
           allReady = conjunction(allReady, v.ready);
         Pair result;
+        bool projectedField = false;
         if (auto conditional = dyn_cast<scf::IfOp>(op)) {
           auto condition = env.lookup(conditional.getCondition());
           if (active < 0 && condition.producer >= 0)
             throw std::runtime_error(
-                "ordinary return value crosses independent transactions through Module condition");
+                "ordinary return value crosses independent transactions "
+                "through Module condition");
           require(current, condition.ready);
           SmallVector<Pair> t, z;
           Pair zChecks{no, yes};
@@ -642,14 +768,19 @@ struct Extractor {
             auto joined = merge({{{condition.value, yes}, t[i]},
                                  {{negate(condition.value), yes}, z[i]}},
                                 value.getType());
-            joined.ready = conjunction(
-                condition.ready, select(condition.value, t[i].ready, z[i].ready));
+            joined.ready =
+                conjunction(condition.ready,
+                            select(condition.value, t[i].ready, z[i].ready));
+            constrainFields(joined, condition.ready);
+            joined.checks = conjunction(joined.checks ? joined.checks : yes,
+                                        condition.ready);
             if (condition.producer >= 0)
               joined.producer = condition.producer;
             if (op->getNumResults() == 1 && hasBinding(op->getLoc()) &&
                 joined.resource.empty())
-              joined.value = make(b, sourceLoc, "acir.bind", joined.value,
-                                  value.getType())->getResult(0);
+              joined.value =
+                  make(b, sourceLoc, "acir.bind", joined.value, value.getType())
+                      ->getResult(0);
             env[value] = joined;
           }
           continue;
@@ -670,7 +801,8 @@ struct Extractor {
         if (auto br = dyn_cast<cf::CondBranchOp>(op)) {
           if (active < 0 && a[0].producer >= 0)
             throw std::runtime_error(
-                "ordinary return value crosses independent transactions through Module condition");
+                "ordinary return value crosses independent transactions "
+                "through Module condition");
           require(current, a[0].ready);
           auto candidates = postdom[block];
           candidates.erase(block);
@@ -704,7 +836,8 @@ struct Extractor {
         if (auto c = dyn_cast<arith::ConstantOp>(op)) {
           auto value = cast<IntegerAttr>(c.getValue());
           result = {constant(value.getValue().getZExtValue(),
-                             value.getType().getIntOrFloatBitWidth()), yes};
+                             value.getType().getIntOrFloatBitWidth()),
+                    yes};
         } else if (auto ref = dyn_cast<acir::GetOp>(op)) {
           result = {no, yes,
                     ref.getTarget().getLeafReference().getValue().str()};
@@ -712,7 +845,9 @@ struct Extractor {
           auto key = std::make_pair(external.getSource().str(),
                                     external.getIdentity().str());
           if (!exports.count(key))
-            throw std::runtime_error("shared computation must dominate its use: " + external.getSource().str());
+            throw std::runtime_error(
+                "shared computation must dominate its use: " +
+                external.getSource().str());
           result = exports.at(key);
         } else if (name == "acir.config") {
           auto config = source->getAttrOfType<DictionaryAttr>("acir.config");
@@ -802,7 +937,7 @@ struct Extractor {
               effect->moveBefore(&circuit.getBody().front(),
                                  circuit.getBody().front().end());
             }
-            result.producer = active;
+            setProducer(result, active);
             active = previous;
           }
         } else if (auto call = dyn_cast<func::CallOp>(op)) {
@@ -826,33 +961,46 @@ struct Extractor {
                           ->getResult(0),
                       allReady};
           } else {
-            auto saved = caller; caller = loc;
+            auto saved = caller;
+            caller = loc;
             result = run(fn.getBody(), a, current);
             caller = saved;
           }
         } else if (name == "acir.optional") {
-          result = a[0]; result.ready = conjunction(allReady, a[1].value);
+          result = a[0];
+          result.ready = conjunction(allReady, a[1].value);
+          constrainFields(result, result.ready);
         } else if (name == "acir.array.domain" && !a[0].resource.empty()) {
-          auto shape = cast<acir::MaskType>(op->getResult(0).getType()).getShape();
-          if (!a[0].selected.empty()) throw std::runtime_error("match requires payload, not resource array");
+          auto shape =
+              cast<acir::MaskType>(op->getResult(0).getType()).getShape();
+          if (!a[0].selected.empty())
+            throw std::runtime_error(
+                "match requires payload, not resource array");
           result = {fullMask(shape), a[0].ready};
         } else if (name == "acir.array.select" && !a[0].resource.empty()) {
-          result = a[0]; result.ready = allReady;
+          result = a[0];
+          result.ready = allReady;
           auto shape = cast<acir::MaskType>(a[1].value.getType()).getShape();
-          int64_t count = 1; for (auto d : shape) count *= d;
+          int64_t count = 1;
+          for (auto d : shape)
+            count *= d;
           result.selected.clear();
           for (auto [i, res] : llvm::enumerate(arrays.at(result.resource))) {
             Value enabled = no;
             for (int64_t j = 0; j < count; ++j) {
-              auto chosen = a[0].index ? cmpIndex(a[0].index, int64_t(i) - j) : (i == size_t(j) ? yes : no);
-              enabled = disjunction(enabled, conjunction(chosen, maskBit(a[1].value, shape, j)));
+              auto chosen = a[0].index ? cmpIndex(a[0].index, int64_t(i) - j)
+                                       : (i == size_t(j) ? yes : no);
+              enabled = disjunction(
+                  enabled, conjunction(chosen, maskBit(a[1].value, shape, j)));
             }
-            if (!a[0].selected.empty()) enabled = conjunction(enabled, a[0].selected[i]);
+            if (!a[0].selected.empty())
+              enabled = conjunction(enabled, a[0].selected[i]);
             result.selected.push_back(enabled);
           }
         } else if (name == "acir.array.write") {
           auto type = op->getOperand(0).getType();
-          if (auto selected = dyn_cast<acir::SelectedType>(type)) type = selected.getElementType();
+          if (auto selected = dyn_cast<acir::SelectedType>(type))
+            type = selected.getElementType();
           auto array = cast<acir::ArrayType>(type);
           require(current, a[0].ready);
           for (auto [i, res] : llvm::enumerate(arrays.at(a[0].resource))) {
@@ -860,18 +1008,25 @@ struct Extractor {
             if (a[0].index) {
               Value inside = no;
               for (int64_t j = 0; j < array.getSize(); ++j)
-                inside = disjunction(inside, cmpIndex(a[0].index, int64_t(i) - j));
+                inside =
+                    disjunction(inside, cmpIndex(a[0].index, int64_t(i) - j));
               enabled = conjunction(enabled, inside);
             }
             auto kind = text(states.at(res), "kind");
-            effect(res, kind == "queue" ? "push" : kind == "ehr" ? "ehr.write" : kind == "signal" ? "set" : "write",
-                   a[1].value, pathAnd(current, {enabled, a[0].ready}), a[1].ready);
+            effect(res,
+                   kind == "queue"    ? "push"
+                   : kind == "ehr"    ? "ehr.write"
+                   : kind == "signal" ? "set"
+                                      : "write",
+                   a[1].value, pathAnd(current, {enabled, a[0].ready}),
+                   a[1].ready);
           }
           continue;
         } else if (name == "acir.array.index") {
           auto inputType = op->getOperand(0).getType();
           bool selected = isa<acir::SelectedType>(inputType);
-          if (selected) inputType = cast<acir::SelectedType>(inputType).getElementType();
+          if (selected)
+            inputType = cast<acir::SelectedType>(inputType).getElementType();
           auto array = dyn_cast<acir::ArrayType>(inputType);
           auto mask = dyn_cast<acir::MaskType>(inputType);
           auto shape = array ? array.getShape() : mask.getShape();
@@ -879,27 +1034,48 @@ struct Extractor {
           auto width = cast<IntegerType>(index.getType()).getWidth();
           if (width < 64) {
             auto signedIndex = op->getAttrOfType<BoolAttr>("signed_index");
-            index = signedIndex && signedIndex.getValue() ? Value(arith::ExtSIOp::create(b,loc,b.getI64Type(),index)) : Value(arith::ExtUIOp::create(b,loc,b.getI64Type(),index));
+            index = signedIndex && signedIndex.getValue()
+                        ? Value(arith::ExtSIOp::create(b, loc, b.getI64Type(),
+                                                       index))
+                        : Value(arith::ExtUIOp::create(b, loc, b.getI64Type(),
+                                                       index));
             width = 64;
           }
-          auto valid = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
-                                            index, constant(shape.front(), width));
+          auto valid =
+              arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult, index,
+                                    constant(shape.front(), width));
           if (!a[0].resource.empty()) {
-            if (width < 64) index = arith::ExtUIOp::create(b, loc, b.getI64Type(), index);
+            if (width < 64)
+              index = arith::ExtUIOp::create(b, loc, b.getI64Type(), index);
             int64_t stride = 1;
-            for (auto d : shape.drop_front()) stride *= d;
-            Value offset = arith::MulIOp::create(b, loc, index, constant(stride, 64));
-            if (a[0].index) offset = arith::AddIOp::create(b, loc, a[0].index, offset);
-            result = {no, conjunction(allReady, valid), a[0].resource, -1, offset, a[0].selected};
+            for (auto d : shape.drop_front())
+              stride *= d;
+            Value offset =
+                arith::MulIOp::create(b, loc, index, constant(stride, 64));
+            if (a[0].index)
+              offset = arith::AddIOp::create(b, loc, a[0].index, offset);
+            result = {no,
+                      conjunction(allReady, valid),
+                      a[0].resource,
+                      -1,
+                      offset,
+                      a[0].selected};
           } else {
             auto safe = select(valid, index, constant(0, width));
             Value ready = conjunction(allReady, valid);
             if (selected && shape.size() == 1) {
-              auto domain = make(b, loc, "acir.array.domain", a[0].value, acir::MaskType::get(b.getContext(), shape))->getResult(0);
-              auto enabled = make(b, loc, "acir.extract", {domain, safe}, b.getI1Type())->getResult(0);
+              auto domain = make(b, loc, "acir.array.domain", a[0].value,
+                                 acir::MaskType::get(b.getContext(), shape))
+                                ->getResult(0);
+              auto enabled =
+                  make(b, loc, "acir.extract", {domain, safe}, b.getI1Type())
+                      ->getResult(0);
               ready = conjunction(ready, enabled);
             }
-            result = {make(b, loc, "acir.array.index", {a[0].value, safe}, op->getResultTypes())->getResult(0), ready};
+            result = {make(b, loc, "acir.array.index", {a[0].value, safe},
+                           op->getResultTypes())
+                          ->getResult(0),
+                      ready};
           }
         } else if (name == "acir.update") {
           auto rootType = op->getOperand(0).getType();
@@ -908,8 +1084,12 @@ struct Extractor {
           if (auto selected = dyn_cast<acir::SelectedType>(rootType)) {
             rootType = selected.getElementType();
             domain = make(b, loc, "acir.array.domain", root,
-              acir::MaskType::get(b.getContext(), cast<acir::ArrayType>(rootType).getShape()))->getResult(0);
-            root = make(b, loc, "acir.extract", {root, constant(0)}, rootType)->getResult(0);
+                          acir::MaskType::get(
+                              b.getContext(),
+                              cast<acir::ArrayType>(rootType).getShape()))
+                         ->getResult(0);
+            root = make(b, loc, "acir.extract", {root, constant(0)}, rootType)
+                       ->getResult(0);
           }
           SmallVector<Value> inputs{root, a[1].value};
           auto type = rootType;
@@ -922,48 +1102,85 @@ struct Extractor {
               auto width = cast<IntegerType>(index.getType()).getWidth();
               if (width < 64) {
                 auto signs = op->getAttrOfType<ArrayAttr>("signed_indices");
-                bool sign = signs && cast<BoolAttr>(signs[dynamic-3]).getValue();
-                index = sign ? Value(arith::ExtSIOp::create(b,loc,b.getI64Type(),index)) : Value(arith::ExtUIOp::create(b,loc,b.getI64Type(),index));
+                bool sign =
+                    signs && cast<BoolAttr>(signs[dynamic - 3]).getValue();
+                index = sign ? Value(arith::ExtSIOp::create(
+                                   b, loc, b.getI64Type(), index))
+                             : Value(arith::ExtUIOp::create(
+                                   b, loc, b.getI64Type(), index));
                 width = 64;
               }
-              auto inRange = arith::CmpIOp::create(b, loc, arith::CmpIPredicate::ult,
-                index, constant(array.getShape().front(), width));
+              auto inRange = arith::CmpIOp::create(
+                  b, loc, arith::CmpIPredicate::ult, index,
+                  constant(array.getShape().front(), width));
               valid = conjunction(valid, inRange);
               auto safe = select(inRange, index, constant(0, width));
               inputs.push_back(safe);
               if (domain) {
-                Type maskType = array.getShape().size() == 1 ? b.getI1Type() :
-                  Type(acir::MaskType::get(b.getContext(), array.getShape().drop_front()));
-                domain = make(b, loc, "acir.extract", {domain, safe}, maskType)->getResult(0);
-                if (maskType.isInteger(1)) { valid = conjunction(valid, domain); domain = {}; }
+                Type maskType =
+                    array.getShape().size() == 1
+                        ? b.getI1Type()
+                        : Type(acir::MaskType::get(
+                              b.getContext(), array.getShape().drop_front()));
+                domain = make(b, loc, "acir.extract", {domain, safe}, maskType)
+                             ->getResult(0);
+                if (maskType.isInteger(1)) {
+                  valid = conjunction(valid, domain);
+                  domain = {};
+                }
               }
             }
             type = memberType(type, step);
           }
-          if (a[1].value.getType() != type) throw std::runtime_error("aggregate update payload type mismatch");
-          auto updated = make(b, loc, "acir.update", inputs, rootType, op->getAttrs())->getResult(0);
+          if (a[1].value.getType() != type)
+            throw std::runtime_error("aggregate update payload type mismatch");
+          auto updated =
+              make(b, loc, "acir.update", inputs, rootType, op->getAttrs())
+                  ->getResult(0);
           if (isa<acir::SelectedType>(originalType)) {
             auto mask = make(b, loc, "acir.array.domain", a[0].value,
-              acir::MaskType::get(b.getContext(), cast<acir::ArrayType>(rootType).getShape()))->getResult(0);
-            updated = make(b, loc, "acir.array.select", {updated, mask}, originalType)->getResult(0);
+                             acir::MaskType::get(
+                                 b.getContext(),
+                                 cast<acir::ArrayType>(rootType).getShape()))
+                            ->getResult(0);
+            updated =
+                make(b, loc, "acir.array.select", {updated, mask}, originalType)
+                    ->getResult(0);
           }
           result = {updated, valid};
+          if (!a[0].fields.empty() &&
+              llvm::all_of(
+                  op->getAttrOfType<ArrayAttr>("path"),
+                  [](Attribute step) { return isa<StringAttr>(step); })) {
+            auto summary = a[0];
+            if (updateFields(summary,
+                             op->getAttrOfType<ArrayAttr>("path").getValue(),
+                             a[1]))
+              result.fields = std::move(summary.fields);
+          }
         } else if (name == "acir.aggregate" &&
-                   isa<acir::ArrayType>(op->getResult(0).getType()) && !a.empty() && !a[0].resource.empty()) {
+                   isa<acir::ArrayType>(op->getResult(0).getType()) &&
+                   !a.empty() && !a[0].resource.empty()) {
           auto key = "array." + std::to_string(arrays.size());
           for (auto arg : a) {
             if (arrays.count(arg.resource)) {
               auto &nested = arrays.at(arg.resource);
-              arrays[key].insert(arrays[key].end(), nested.begin(), nested.end());
-            } else arrays[key].push_back(arg.resource);
+              arrays[key].insert(arrays[key].end(), nested.begin(),
+                                 nested.end());
+            } else
+              arrays[key].push_back(arg.resource);
           }
           auto type = cast<acir::ArrayType>(op->getResult(0).getType());
           SmallVector<Attribute> resources;
-          for (auto &res:arrays[key]) resources.push_back(b.getStringAttr(res));
-          auto name = text(op,"array_name");
+          for (auto &res : arrays[key])
+            resources.push_back(b.getStringAttr(res));
+          auto name = text(op, "array_name");
           arrayNames[key] = name.empty() ? key : name;
-          make(b,loc,"acir.resource.array",{},{},{b.getNamedAttr("name",b.getStringAttr(name.empty()?key:name)),
-               b.getNamedAttr("shape",b.getI64ArrayAttr(type.getShape())),b.getNamedAttr("resources",b.getArrayAttr(resources))});
+          make(b, loc, "acir.resource.array", {}, {},
+               {b.getNamedAttr("name",
+                               b.getStringAttr(name.empty() ? key : name)),
+                b.getNamedAttr("shape", b.getI64ArrayAttr(type.getShape())),
+                b.getNamedAttr("resources", b.getArrayAttr(resources))});
           result = {no, allReady, key};
         } else if (name == "acir.guard") {
           require(current, conjunction(a[0].ready, a[0].value));
@@ -973,18 +1190,21 @@ struct Extractor {
             effect("", "check", a[0].value, current, allReady);
           else {
             auto checked =
-                make(b, loc, "acir.assert", a[0].value, b.getI1Type())
+                make(b, loc, "acir.assert", a[0].value, b.getI1Type(),
+                     op->hasAttr("check_kind")
+                         ? ArrayRef<NamedAttribute>{b.getNamedAttr(
+                               "check_kind", op->getAttr("check_kind"))}
+                         : ArrayRef<NamedAttribute>{})
                     ->getResult(0);
             // A structured region is evaluated only when selected. Its local
             // assertions are unconditional relative to that region; the
             // enclosing if joins their obligations. Repeating the full caller
             // path here contaminates every value with that path again.
             checkReady = conjunction(
-                checkReady,
-                region.hasOneBlock()
-                    ? conjunction(allReady, checked)
-                    : disjunction(negate(current.value),
-                                  conjunction(allReady, checked)));
+                checkReady, region.hasOneBlock()
+                                ? conjunction(allReady, checked)
+                                : disjunction(negate(current.value),
+                                              conjunction(allReady, checked)));
           }
           continue;
         } else if (name == "acir.unreachable") {
@@ -1027,27 +1247,61 @@ struct Extractor {
           auto *copy = make(b, sourceLoc, name, operands, op->getResultTypes(),
                             op->getAttrs());
           result = {op->getNumResults() ? copy->getResult(0) : no, allReady};
-          for (auto arg : a)
-            if (arg.producer >= 0)
-              result.producer = arg.producer;
-          if (name == "acir.export") {
-            auto owner = op->getParentOfType<acir::BodyOp>()
-                             ->getAttrOfType<DictionaryAttr>("acir.function")
-                             .getAs<StringAttr>("name")
-                             .getValue();
-            exports[{owner.str(), text(op, "acir.id")}] = result;
+          if (name == "acir.aggregate" &&
+              isa<acir::StructType, TupleType>(copy->getResult(0).getType()))
+            result.fields.assign(a.begin(), a.end());
+          else if ((name == "acir.bind" || name == "acir.export") && !a.empty())
+            result.fields = a[0].fields;
+          else if (name == "acir.extract" && !a.empty()) {
+            Attribute coordinate = op->getAttr("field");
+            if (!coordinate && a.size() == 2)
+              if (auto c = a[1].value.getDefiningOp<arith::ConstantOp>())
+                coordinate = c.getValue();
+            auto index = coordinate ? acir::fieldIndex(a[0].value.getType(),
+                                                       coordinate, target)
+                                    : std::optional<unsigned>();
+            if (index && *index < a[0].fields.size()) {
+              result = a[0].fields[*index];
+              projectedField = true;
+              // Keep the field SSA projection for names and structured IR.
+              // The common field pass resolves its precise data dependency.
+              result.value = copy->getResult(0);
+            }
           }
+          if (!projectedField)
+            for (auto arg : a)
+              if (arg.producer >= 0)
+                result.producer = arg.producer;
         }
         // Specialized operations (index/update/helper calls included) carry
         // the same transaction provenance as ordinary arithmetic.
-        for (auto arg : a)
-          if (arg.producer >= 0)
-            result.producer = arg.producer;
+        if (!projectedField)
+          for (auto arg : a)
+            if (arg.producer >= 0)
+              result.producer = arg.producer;
+        for (auto &arg : a)
+          if (arg.checks && arg.obligated)
+            result.checks =
+                conjunction(result.checks ? result.checks : yes, arg.checks);
+        for (auto &arg : a)
+          result.obligated |= arg.obligated;
+        if (result.checks) {
+          result.ready = conjunction(result.ready, result.checks);
+          constrainFields(result, result.checks);
+        }
+        if (name == "acir.export") {
+          auto owner = op->getParentOfType<acir::BodyOp>()
+                           ->getAttrOfType<DictionaryAttr>("acir.function")
+                           .getAs<StringAttr>("name")
+                           .getValue();
+          exports[{owner.str(), text(op, "acir.id")}] = result;
+        }
         if (op->getNumResults() && name != "acir.bind" &&
             hasBinding(op->getLoc()) && result.resource.empty() &&
             result.value.getLoc() != sourceLoc)
           result.value = make(b, sourceLoc, "acir.bind", result.value,
-                              result.value.getType())->getResult(0);
+                              result.value.getType())
+                             ->getResult(0);
         if (op->getNumResults())
           env[op->getResult(0)] = result;
       }
@@ -1059,6 +1313,10 @@ struct Extractor {
                       ? returns.front().second
                       : merge(returns, resultType);
     result.ready = conjunction(result.ready, checkReady);
+    result.checks =
+        conjunction(result.checks ? result.checks : yes, checkReady);
+    result.obligated |= acir::containsAssertion(checkReady, true);
+    constrainFields(result, checkReady);
     return result;
   }
   Pair callRule(Operation *rule, ArrayRef<Pair> args, Pair path) {
@@ -1093,6 +1351,11 @@ struct Extractor {
     auto result = run(rule->getRegion(1), args,
                       {path.value, conjunction(path.ready, ready)});
     result.ready = conjunction(result.ready, ready);
+    result.checks = conjunction(result.checks ? result.checks : yes, ready);
+    result.obligated |= ready != yes;
+    // A Rule invocation's contract is indivisible, including its required
+    // reads and checks. Field precision never bypasses that call contract.
+    constrainFields(result, result.ready);
     if (active < 0) {
       // Distinct anchors preserve the declared call identity even for a
       // constant result; consumers of either payload or readiness inherit it.
@@ -1113,7 +1376,8 @@ struct Extractor {
                 .getAs<StringAttr>("name")
                 .getValue() == name) {
           if (!doneBodies.insert(body).second)
-            throw std::runtime_error("repeated or recursive Module call: " + name.str());
+            throw std::runtime_error("repeated or recursive Module call: " +
+                                     name.str());
           run(body.getBody(), {}, path);
           return;
         }
@@ -1177,21 +1441,26 @@ struct Extractor {
     }
     SmallVector<Attribute> instances;
     for (auto scope : source.getOps<acir::ModuleOp>())
-      if (auto instance = scope->getAttr("acir.instance")) instances.push_back(instance);
+      if (auto instance = scope->getAttr("acir.instance"))
+        instances.push_back(instance);
     target->setAttr("acir.instances", b.getArrayAttr(instances));
     initialModule.erase();
     for (auto scope : source.getOps<acir::ModuleOp>())
       if (scope.getSymName() == "top")
         for (auto body : scope.getDeclarations().getOps<acir::BodyOp>())
           runBody(body->getAttrOfType<DictionaryAttr>("acir.function")
-                      .getAs<StringAttr>("name").getValue(), {yes, yes});
+                      .getAs<StringAttr>("name")
+                      .getValue(),
+                  {yes, yes});
     schedule();
     for (auto &[op, sites] : analysisMembers) {
       SmallVector<Attribute> ports;
-      for (auto *site : sites) ports.push_back(site->getAttr("port"));
+      for (auto *site : sites)
+        ports.push_back(site->getAttr("port"));
       op->setAttr("ports", b.getArrayAttr(ports));
     }
-    for (auto &[site, op] : analysisTargets) site->erase();
+    for (auto &[site, op] : analysisTargets)
+      site->erase();
     return target;
   }
   std::set<std::string> declaredRelations(Operation *a, Operation *z) {
@@ -1199,7 +1468,7 @@ struct Extractor {
     for (auto f : a->getAttrOfType<ArrayAttr>("frames"))
       for (auto g : z->getAttrOfType<ArrayAttr>("frames")) {
         auto key = std::make_pair(cast<StringAttr>(f).getValue().str(),
-                                 cast<StringAttr>(g).getValue().str());
+                                  cast<StringAttr>(g).getValue().str());
         auto i = relations.find(key);
         if (i != relations.end())
           result.insert(i->second);
@@ -1276,7 +1545,8 @@ struct Extractor {
     };
     auto users = [&](Operation *op) {
       std::set<int> result;
-      if (analysisTargets.count(op)) op = analysisTargets.at(op);
+      if (analysisTargets.count(op))
+        op = analysisTargets.at(op);
       auto id = op->getAttrOfType<IntegerAttr>("txn").getInt();
       if (id >= 0)
         result.insert(id);
@@ -1308,8 +1578,8 @@ struct Extractor {
         auto n = op->getName().getStringRef();
         if (n == "arith.constant")
           return;
-        if (n == "acir.fire" || n == "acir.bind" || n == "arith.andi" || n == "arith.ori" ||
-            n == "arith.xori" || n == "arith.select" ||
+        if (n == "acir.fire" || n == "acir.bind" || n == "arith.andi" ||
+            n == "arith.ori" || n == "arith.xori" || n == "arith.select" ||
             (n == "acir.unary" && text(op, "operator_name") == "not")) {
           for (auto x : op->getOperands())
             if (x.getType().isInteger(1))
@@ -1357,7 +1627,8 @@ struct Extractor {
                  kind = relation(a, z);
             auto component = text(states.at(res), "kind");
             bool ordered = kind == "SB" || kind == "SBR",
-                 strict = kind == "SBR", conflict = declaredRelations(a, z).count("C");
+                 strict = kind == "SBR",
+                 conflict = declaredRelations(a, z).count("C");
             if (component == "queue" && x == "peek" && y == "pop") {
               ordered = true;
               kind = "Queue.peek → pop";
@@ -1404,8 +1675,8 @@ struct Extractor {
                     throw std::runtime_error(
                         "same transaction uses Queue pop and capacity phase: " +
                         res);
-                  if (component == "signal" || component == "ehr" ||
-                      conflict || kind == "SBR")
+                  if (component == "signal" || component == "ehr" || conflict ||
+                      kind == "SBR")
                     throw std::runtime_error(
                         "incompatible operations in transaction " +
                         txns[ta].name + " on " + res + ": " + x + " / " + y);

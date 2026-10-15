@@ -1,132 +1,119 @@
-# Ripes RV5S 前端模型
+# Ripes5：RV32IMC 五级 CPU 与验证报告
 
-这个示例用当前 ACPy → MLIR → C++ 编译链描述 Ripes 的标准五级 RV5S。
-模型是静态硬件描述，Python 负责构造和编译；每拍行为由生成的 C++ 或通用 IR 解释器执行。
+本例用 ACPy 描述与原生 Ripes RV5S 对照的五级 CPU，保留独立 HazardUnit、ForwardingUnit 和 Decode 内部 Signal。
+I、IM、IMC 共用同一模型，通过配置选择扩展；运行环境支持退出及整数、字符、字符串输出。
+以下为 **2026-10-15** 的最终验收与后续速度复测结果。
 
-## 从哪里阅读
+## 正确性验证
 
-- [model.py](model.py)：五级流水线、寄存器堆、HazardUnit／ForwardingUnit，以及顶层连接。
-- [demo.py](demo.py)：带汇编注释的指令程序和可直接编译的 Demo 顶层。
-- [isa.py](isa.py)：级间 payload、指令译码、ALU、分支比较、前递选择。
-- [verify.py](verify.py)：把机器指令、初始寄存器和数据编译成实例，与原生参考逐拍比较。
-- [reference.json](reference.json)：9 个端到端指令程序及原生 Ripes 参考数据，含来源 commit 和校验和。
+验证从汇编／freestanding C 生成 ELF，将相同机器码、初始寄存器和内存送入完整 CPU 与原生 RV5S。
+逐拍比较取指 PC、各级有效 PC、停顿／冲刷、前递选择、寄存器、RAM、访存宽度和事件、退休及 ECALL 事件；
+另用独立顺序预期、自检通过码和算法预设答案核对退休序列、最终状态、退出状态及输出。
 
-顶层声明 IF/ID、ID/EX、EX/MEM、MEM/WB 四个 Cell，以 Stage 的 return 绑定各级输出。
-输入 Cell 直接观察拍初状态；return 返回下一拍的 payload，获准后写入左侧已有的 Cell，
-不导出内部组件引用，不增加搬运事务或额外周期。
+| 程序验证配置 | 项数 | 与原生严格一致 | 已知参考缺陷 | 参考不支持 |
+| --- | ---: | ---: | ---: | ---: |
+| 默认模型，传完整 Control | 79 | 74 | 3 | 2 |
+| 只传 `control.field` 的接口副本 | 10 | 9 | 1 | 0 |
+| 合计 | 89 | 83 | 4 | 2 |
 
-```python
-instruction = decode_stage.inspect()
-stall = hazard_unit.load_use(id_ex, instruction)
-operands = forwarding_unit.resolve(id_ex, ex_mem, mem_wb)
-result = execute.resolve(id_ex, operands)
-control = Control(stall, result.redirect, result.target, operands.source_a, operands.source_b)
+10 项为已有程序在接口副本上的复测，合计仍是 **79 个不同程序**。83 项严格通过共对照 **6,419 拍**。
+所有 89 项均通过独立程序预期、生成 C++、事务 IR／RTL 友好 IR 解释及 Source／Transaction／RTL 三阶段独立重载检查；
+其中 24 项边界程序另通过 C++ ASan／UBSan。全仓 **93 项编译器回归全部通过**，没有新增失败。
 
-if_id = fetch(control)
-id_ex = decode_stage(if_id, control, rf, mem_wb)
-ex_mem = execute(result.packet)
-mem_wb = memory(ex_mem)
-writeback(mem_wb, rf, code_size)
-```
+参考差异单列，不计为严格通过：JALR 未清最低位、EBREAK 被当作 ECALL、`rvc` 零填充区域的取指长度差异；
+其中 `rvc` 在两种接口下重复出现，合计 4 条缺陷记录。参考不支持的两项为 C.EBREAK 和非法指令陷阱。
+本例保留 ISA 语义，没有为迁就参考而改写 CPU 行为。之前发现的 ELF 漏段、store 宽度漏检、错误路径越界取指、
+store 后字符串 ECALL 采样四项问题均已修复并加入回归。
 
-Decode 内部声明 `instruction = ac.signal[Instruction]()`，由独立的 `decode_instruction` Rule
-读取 IF/ID 并发布本拍译码结果。公开只读 `inspect()` 返回该 Signal 的值，供本级和 HazardUnit 使用。
-译码发布不依赖 stall／redirect，即使本级停顿或冲刷也会执行，避免控制信号依赖自身的循环。
-Signal 每拍先 invalid，再由生产者 set；编译器通过 set → get 关系把生产者排到消费者之前，
-不增加流水周期。顶层通过查询接口连接结果，不直接调用译码算法，也不把结果传回 Decode。
-HazardUnit 比较 ID/EX 的 load 目的寄存器与 IF/ID 的源寄存器，给出 load-use 停顿。
-ForwardingUnit 选择 EX/MEM 或 MEM/WB 的前递值；Execute 只负责 ALU、分支和跳转计算。
-这三个组件的查询都是只读组合计算，不增加状态或周期；顶层汇总控制信号，再调用各级更新 Rule。
-Execute 的结果同时用于跳转控制与 EX/MEM 输出；普通 var 不跨状态修改事务传递。
-Fetch 保留自己的 PC／ROM，RF 和 Memory 保留自己的存储表项；四个流水寄存器属于顶层。
-寄存器堆和数据存储表项均为独立 Cell，外部访问通过所属 Module 的公开 Rule。
+完整 Control 与三种标量／字段接线共八种配置另完成每种 64 拍对照；各配置 C++、两层 IR 和原生结果一致。
+这里的 RTL 友好层是 **IR 解释执行，尚无真正 RTL 仿真**。
+原生参考固定于 Ripes `5b8a616edcb6f0a2ddb07e78951348b72497f1e1`、VSRTL `8497dd14fe80e57efcff4c424a9a3b6363d93eb7`。
 
-```mermaid
-flowchart LR
-  IF[Fetch] --> IFID[IF/ID Cell]
-  IFID --> ID[Decode + RF read]
-  IFID --> DEC[Decode.decode_instruction]
-  DEC --> SIG[Instruction Signal]
-  SIG -. inspect .-> ID
-  ID --> IDEX[ID/EX Cell]
-  IDEX --> EX[Execute]
-  EX --> EXMEM[EX/MEM Cell]
-  EXMEM --> MEM[Memory]
-  MEM --> MEMWB[MEM/WB Cell]
-  MEMWB --> WB[Writeback]
-  IDEX -. source operands .-> FW[ForwardingUnit]
-  EXMEM -. EX forwarding .-> FW
-  MEMWB -. EX forwarding .-> FW
-  FW -. forwarded operands .-> EX
-  MEMWB -. RF read bypass .-> ID
-  SIG -. inspect .-> HU[HazardUnit]
-  IDEX -. load destination .-> HU
-  HU -. stall .-> IF
-  HU -. bubble .-> ID
-  EX -. redirect .-> IF
-  EX -. flush .-> ID
-```
+证据：[最终验收汇总](results/field-analysis/final-verification.json)、[89 项逐项结果](results/field-analysis/release-acceptance/summary.json)、
+[编译器修复报告](results/field-analysis-2026-10-15.md)、[既有审查问题与修复](results/fixes-2026-10-15.md)。
 
-## 对齐的时序
+## 运行速度
 
-| 行为 | 表达 |
-| --- | --- |
-| 级间寄存器 | Cell 读取旧值，拍末统一提交；一个环节一个 Module |
-| EX 前递 | EX/MEM 优先于 MEM/WB；x0 不前递；store 数据与分支操作数同样经过前递 |
-| WB→ID 旁路 | RF.read 显式选择当前 WB 值，不改变 Cell 的旧值读取语义 |
-| load-use | 冻结 PC 和 IF/ID，清空 ID/EX；旧 EX 指令仍进入 MEM |
-| 分支／跳转 | EX 决定目标，下一拍 PC 跳转，清空 IF/ID 和 ID/EX |
-| 访存 | MEM 组合读、拍末写；没有可变延迟或 FIFO 反压 |
-| 观测 | 保存本拍使用的 control、退休和 store 事件，不参与数据通路控制 |
+使用同一个混合循环汇编源，分别正常生成 IM（96 字节）和 IMC（82 字节）程序。
+预热 1,000 周期后计时 100,000 周期，重复五次取中位数；生成 C++ 使用 `-O3`。
+只计 CPU 推进周期的时间，编译、初始化、逐拍 trace 和最终状态输出均不计入。
 
-Ripes 的级间结构是 enable／clear 寄存器，所以这里使用 Cell，没有人为加入 Queue 反压。
-Fetch 停顿时返回 `None` 保持 IF/ID；Decode 插气泡、分支冲刷时返回对应的气泡 payload，明确写入 Cell。
-不使用 scoreboard、WAW 停顿或保守写回互锁。气泡的 valid 是明确的流水线状态位，
-不是临时 SSA var 的有效性。
+| 配置 | 本例生成 C++（周期/秒） | 原生 Ripes（周期/秒） | 相对原生速度 | 本例十万周期耗时 |
+| --- | ---: | ---: | ---: | ---: |
+| IM | **220,580** | 144,387 | **1.53 倍** | 0.453 秒 |
+| IMC | **191,108** | 141,287 | **1.35 倍** | 0.523 秒 |
 
-首版 ISA：RV32I 整数寄存器／立即数运算、LUI／AUIPC、六种条件分支、JAL／JALR、LW／SW。
-PC 从 0 开始；程序 ROM 容量 256 个 word，数据窗口为基址起的 64 个 word，访存要求 word 对齐。
-程序和初始状态是静态构造参数，测试从机器指令开始执行，不直接向流水线注入已译码消息。
+每次运行的最终寄存器、RAM、退休数量及 PC 均与原生一致；窗口内退休 75,000 条指令，表中单位是仿真周期/秒。
+这些结果代表该混合循环。历史 `-O3` 记录为 IM 373,004、IMC 36,100 周期/秒：当前 IMC 改善，IM 下降；
+历史模型早于后续审查修复，尚未隔离造成变化的原因，不能把差值全部归因于编译器补丁。
+本次前端至产物生成另耗时 IM 41.15 秒、IMC 44.90 秒，生成 C++ 的 `-O3` 编译分别约 5.16 秒、5.06 秒；生成过程仍有待优化。
 
-## 运行与结果
+证据：[速度复测说明](results/field-analysis-performance-2026-10-15.md)、[原始计时与汇总](results/field-analysis/performance/summary.json)、
+[程序、模型及工具校验和](results/field-analysis/performance/provenance.json)。
 
-按仓库 README 构建并设置 `ACPY_MLIR_COMPILER`、`LD_LIBRARY_PATH` 后：
+## 手写前端代码量对比
+
+本例统计 [model.py](model/model.py)（324 行）与 [isa.py](model/isa.py)（393 行），包含五级模型、载荷类型、
+译码、乘除法、解压、访存及环境事件。原生统计从 `rv5s/rv5s.h` 出发，在 `src/processors/RISC-V/` 内递归引用到的
+**21 个 CPU 头文件**，每个文件只计一次；包括 RV5S 顶层、流水寄存器及其基类、ALU、译码、控制、解压、访存、寄存器堆、前递和冒险单元。
+
+| 统计口径 | 本例 ACPy 前端 | 原生 RV5S C++ 头文件 | 本例减少 |
+| --- | ---: | ---: | ---: |
+| 全部物理行，含空行及注释 | **717** | **2,939** | **2,222 行，75.6%** |
+| 非空物理行，含注释 | **615** | **2,576** | **1,961 行，76.1%** |
+
+按全部物理行计，本例手写前端约为原生 CPU 头文件的 **24.4%**。双方都排除通用框架（ACPy 编译器／VSRTL／Qt）、
+测试与原生运行器、Demo、GUI 布局和生成产物。原生头文件仍包含 RV64 分支及 Ripes 界面观察接口，
+本例仅实现约定的 RV32IMC 与运行环境；这是明确文件范围内的文本规模比较，不是完全同功能的最小实现比较。
+
+逐文件行数、文件清单、SHA256 和统计口径见[代码量原始数据](results/field-analysis/source-size/summary.json)。复现：
 
 ```bash
-python -m pycircuit.examples.ripes5.verify
-python -m pycircuit.examples.ripes5.verify --case load_branch_wrong_path --reload
-python -m pycircuit compile pycircuit/examples/ripes5/demo.py --top Demo \
-  --output pycircuit/builds/ripes5 --emit-cpp --cycles 25
+python -m pycircuit.examples.ripes5.tests.benchmarks.source_size
 ```
 
-9 个程序覆盖整数运算、前递优先级、WB→ID 旁路、store 数据、循环求和、分支／跳转、
-load-use、错误路径 store 取消、JALR 前递、无伪 load-use，以及初始值和 x0。
-比较的是每拍 PC、各级有效 PC、气泡标记、实际控制选择、全部寄存器和数据、退休及 store 事件。
-额外比较生成的 C++ 与事务／RTL 友好 IR 的解释执行；没有生成 Verilog 或运行 RTL 仿真器。
+生成代码另计：同一程序字节的开关对照中，完整 Control 的 IMC C++ 从修复前 53,671 行降到 5,364 行；
+开启 C 的代码增量从 47,474 行降到 469 行。该数值不计入上表的手写前端代码量，详见[四种接线对照](results/field-analysis-2026-10-15.md)。
 
-当前 Signal 版本的编译和验证产物在 `pycircuit/builds/benchmarks/ripes5-signal/`。
-增加一个独立译码发布事务，共 7 个事务。组件拆分及此前只读译码版本的历史验证分别在
-`pycircuit/builds/benchmarks/ripes5-units/` 和 `pycircuit/builds/benchmarks/ripes5-decode/`。
-可审阅的默认实例在 `pycircuit/builds/ripes5/`，默认选择 load／分支／错误路径程序。
-其中的 IR 和 C++ 来自 `demo.py`；各 benchmark 目录的 `source.py` 展示参考输入如何连接到参数化的 Ripes5。
+## 文件与复现入口
 
-参考为之前保存的**原生 Ripes RV5S** 轨迹，原始文件位于
-`reference/benchmarks/ripes5/acceptance/`；压缩后的参考随示例保存，不依赖旧 pyCircuit 模型。
-本次没有重新运行原生 Ripes：现存 runner 的 Qt 动态库路径已失效。
-`reference.json` 保存逐文件 SHA256、Ripes／VSRTL commit、原生二进制 SHA256。
-寄存器和内存使用变化记录无损恢复参考快照；control 与产生本次更新的拍初决策比较。
-参考的 `end_pc` 是 runner 的结束标记地址，不是代码区大小；代码区包括其后的终止循环和 NOP。
+统一程序测试流程仍在本示例内探索，尚未迁移到 `@ac.system`。
 
-## 发现的问题与当前边界
-
-| 问题 | 处理 |
+| 目录 | 内容 |
 | --- | --- |
-| 嵌套条件内部分提前返回，可能被函数尾的默认返回覆盖 | 已修复前端返回路径合流，并加入独立预期回归；此前 C++／IR 一致也未发现这个共同错误 |
-| struct 字段与 helper 同名时被错误地加上全局限定名 | 已修复字段的词法作用域；保留 `alu` 字段与同名 helper 验证 |
-| 共享的带检查组合结果参与嵌套条件时，C++ 需求路径合并可能产生人为的排序环 | 改为保留原短路顺序的局部分支语句；仍使用共享计算边界，不改变 Rule 图或恢复逐 SSA 缓存 |
-| 数组字面量传给 Module 构造函数时，没有按形参类型推导数组类型 | 当前按首版显式类型规范，先声明 typed array，再连接；推导能力仍待补充 |
-| struct 字段不接受构造表达式作为默认值 | 当前使用已有的 struct 零初始化；非零嵌套默认值尚未扩展 |
+| [model/](model/) | ACPy 五级 CPU、ISA helper 和可读 Demo |
+| [tests/](tests/README.md) | 统一程序测试入口、比较器与顺序预期 |
+| [tests/programs/](tests/programs/) | 独立汇编／C 程序；配置见 [cases.json](tests/cases.json) |
+| [tests/native/](tests/native/) | 原生 RV5S runner 与构建脚本 |
+| [tests/benchmarks/](tests/benchmarks/) | 性能 benchmark 脚本 |
+| [tests/audit/](tests/audit/) | 审查与复测脚本 |
+| [tests/fixtures/](tests/fixtures/) | 历史原生轨迹与已记录差异 |
+| [tests/licenses/](tests/licenses/) | 上游许可证与来源 |
+| [results/](results/) | 报告、覆盖表、程序清单与运行结果入口 |
 
-尚未覆盖 ECALL 的流水线排空与宿主 syscall、CSR、M／C 扩展、byte／halfword 访存和非对齐目标。
-JALR 目标按本地 RV5S 的 ALU→PC 连线处理，未另外加入低位清零；现有参考程序的目标均对齐。
-这些是当前模型／参考覆盖范围，不声称实现完整 RV32I 系统或所有 Ripes 功能。
+I、IM、IMC 共用 [model/model.py](model/model.py) 和 [model/isa.py](model/isa.py)，通过配置启用扩展，没有两套独立模型，因此不再拆 IM／IMC 子目录。
+
+结果集中入口：
+
+- [字段依赖分析与 C++ 膨胀修复](results/field-analysis-2026-10-15.md)：通用编译器修改、四种接线对照与最终验收。
+- [修复后的仿真速度](results/field-analysis-performance-2026-10-15.md)：无 trace 的 IM／IMC 计时及原生 Ripes 对照。
+- [当前修复验证](results/fixes-2026-10-15.md)／[全部 79 项结果](results/standard/fixes-20261015/full-summary.json)。
+- [标准流程](tests/README.md)、[本轮标准化记录](results/standardization.md)、[缺陷状态](tests/known-issues.json)。
+- [审查报告](results/review-2026-10-15.md)、[原用例报告](results/rv32imc-report.md)、[实现和复现说明](results/implementation.md)。
+- [指令覆盖](results/instruction-coverage.md)、[程序清单](results/program-manifest.json)、[上游纳入／排除清单](results/upstream-inventory.json)。
+- [历史端到端原始数据](results/acceptance/)、[历史性能测量](results/performance/)、[审查反例与复测](results/audit/)。
+- [默认生成产物](results/generated/)、[原生构建来源](results/native-build/provenance.json)。
+
+原始数据仍位于 `pycircuit/builds/benchmarks/`，生成产物仍位于 `pycircuit/builds/`；`results/` 使用相对符号链接集中访问，保留历史证据中的原始路径。外部参考源码仍在仓库 `reference/`。
+
+从仓库根目录运行（编译器环境设置见 [pyCircuit 说明](../../README.md)）：
+
+```bash
+python -m pycircuit.examples.ripes5.tests.native.build
+python -m pycircuit.examples.ripes5.tests list
+python -m pycircuit.examples.ripes5.tests run
+python -m pycircuit.examples.ripes5.tests run --case compressed_calls --check all
+python -m unittest pycircuit.tests.test_ripes5 pycircuit.tests.test_rv32imc
+```
+
+全仓测试发现入口仍保留在 `pycircuit/tests/`，实际 Ripes5 测试代码集中在本例 `tests/`。当前四项审查发现及修复状态在 `tests/known-issues.json`；历史报告不覆盖。搬迁验证见[验证记录](results/reorganization-verification.md)；搬迁清单与模型校验和见 [reorganization.json](results/reorganization.json)。

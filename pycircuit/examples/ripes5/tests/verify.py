@@ -14,20 +14,21 @@ import subprocess
 from pycircuit import analyze, compile_source
 from pycircuit.tests.support import check_cpp, read_trace
 
-HERE = Path(__file__).resolve().parent
-ROOT = HERE.parents[2]
+from .paths import ROOT, MODEL_DIR, FIXTURES
 DEFAULT_OUTPUT = ROOT / 'pycircuit/builds/benchmarks/ripes5'
 
 
 def load_reference():
-    return json.loads((HERE / 'reference.json').read_text())
+    return json.loads((FIXTURES / 'reference.json').read_text())
 
 
 def make_source(directory, case):
     directory.mkdir(parents=True, exist_ok=True)
     module = directory / 'model.py'
+    if module.is_symlink() and module.resolve() != MODEL_DIR / 'model.py':
+        module.unlink()
     if not module.exists():
-        module.symlink_to(HERE / 'model.py')
+        module.symlink_to(MODEL_DIR / 'model.py')
     image = case['input']
 
     def array(values, size):
@@ -41,10 +42,10 @@ from model import Ripes5, Program, Registers, DataWords
 @ac.module
 class Top:
     def __init__() -> None:
-        program: Program = {array(image['words'], 256)}
+        program: Program = {array(image['words'], 1024)}
         registers: Registers = {array(image['registers'], 32)}
-        data: DataWords = {array(image['data'], 64)}
-        cpu = Ripes5(program, registers, data, {image['data_base']}, {len(image['words']) * 4})
+        data: DataWords = {array(image['data'], 1024)}
+        cpu = Ripes5(program, registers, data, {image['data_base']}, {len(image['words']) * 4}, multiply=False, compressed=False)
 
     def __call__() -> None:
         cpu()
@@ -66,8 +67,8 @@ def compare_reference(trace, case):
         for index, value in reference['memory_changes']:
             data[index] = value
         assert [state[f'top.cpu.rf.registers.{i}'] for i in range(32)] == registers, (context, 'registers')
-        assert [state[f'top.cpu.memory.words.{i}'] for i in range(len(data))] == data, (context, 'memory')
-        assert all(state[f'top.cpu.memory.words.{i}'] == 0 for i in range(len(data), 64)), (context, 'memory padding')
+        assert state['top.cpu.memory.words'][:len(data)] == data, (context, 'memory')
+        assert all(value == 0 for value in state['top.cpu.memory.words'][len(data):]), (context, 'memory padding')
         pc = state['top.cpu.fetch.pc']
         packets = [state['top.cpu.if_id'], state['top.cpu.id_ex'],
                    state['top.cpu.ex_mem'], state['top.cpu.mem_wb']]
@@ -77,7 +78,7 @@ def compare_reference(trace, case):
         assert pc == reference['pc'], (context, 'pc', pc, reference['pc'])
         assert stages == reference['stages'], (context, 'stages', stages, reference['stages'])
         assert [False, False, packets[1][6], packets[2][10], packets[3][6]] == reference['stalled'], (context, 'stalled markers')
-        assert state['top.cpu.last_control'] == reference['edge_control'], (context, 'edge control', state['top.cpu.last_control'], reference['edge_control'])
+        assert state['top.cpu.last_control'][:5] == reference['edge_control'], (context, 'edge control', state['top.cpu.last_control'], reference['edge_control'])
         event = state['top.cpu.writeback.retirement']
         retire = None
         if event[0]:
@@ -128,7 +129,7 @@ def main():
         print(f"{case['name']}: {summary['cycles']} cycles match native Ripes capture and C++/IR", flush=True)
     (args.output / 'summary.json').write_text(json.dumps(dict(reference=reference['provenance'], results=summaries), indent=2) + '\n')
     review = ROOT / 'pycircuit/builds/ripes5'
-    analyze(compile_source(HERE / 'demo.py', 'Demo'), review, emit_cpp=True)
+    analyze(compile_source(MODEL_DIR / 'demo.py', 'Demo'), review, emit_cpp=True)
     subprocess.run(['python', str(ROOT / 'pycircuit/draw_rules.py'), str(review / 'rule-graph.json'),
                     '-o', str(review / 'rule-graph.dot')], check=True)
 

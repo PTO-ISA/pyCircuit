@@ -1,0 +1,1033 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "name": "upstream_add",
+      "upstream": "reference/ripes-reference/test/riscv-tests/add.s",
+      "source_sha256": "cc830d85782ec915784d087081b1471baa1f2176116636d8ca24bd4d437322ba",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_addi",
+      "upstream": "reference/ripes-reference/test/riscv-tests/addi.s",
+      "source_sha256": "83694bd250ad7d26602f1ae25a5446c07f14fe0498ad286ab819d31157c1c9df",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_and",
+      "upstream": "reference/ripes-reference/test/riscv-tests/and.s",
+      "source_sha256": "eb9b14c29010e54a199692d90753a09d9308cb30e53dc79cb9f0940a0d856c5f",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_andi",
+      "upstream": "reference/ripes-reference/test/riscv-tests/andi.s",
+      "source_sha256": "76dd59264bbb19d271121d6bc2501b11e519891d38153ecb20e12fcc00bb9a16",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_div",
+      "upstream": "reference/ripes-reference/test/riscv-tests/div.s",
+      "source_sha256": "981aa963688ab0e6d3ee4a22a96343bd51e744a04432f95ae707a92a712c911d",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_divu",
+      "upstream": "reference/ripes-reference/test/riscv-tests/divu.s",
+      "source_sha256": "13e1631fe0029b2679a1b16e747cc03b9e4d17cd5ffe83291530697ade403f11",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_lui",
+      "upstream": "reference/ripes-reference/test/riscv-tests/lui.s",
+      "source_sha256": "ff15640cc87766b2fb415eaad50ac7531bcf507b0d012e2c5c518ce6a9a9a385",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_memory",
+      "upstream": "reference/ripes-reference/test/riscv-tests/memory.s",
+      "source_sha256": "bb9ad2b412f4d91d5fdf4851ea59a25428fb62ecb1b9ebff7572f8c363aceaaa",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_mul",
+      "upstream": "reference/ripes-reference/test/riscv-tests/mul.s",
+      "source_sha256": "69fcdf14fb69316a49f8774240cd73470e675775077e9a58572b2af7fb4ecc89",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_mulh",
+      "upstream": "reference/ripes-reference/test/riscv-tests/mulh.s",
+      "source_sha256": "ed2757d0dd321ee8c99f8dcf72d2caefee0b8d77a4082ebf0d700aeb0d632d03",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_mulhsu",
+      "upstream": "reference/ripes-reference/test/riscv-tests/mulhsu.s",
+      "source_sha256": "b86eb0bcbde9fb3c9e1d19432a8ea70142b54b0079548ebe51e18b3d4b56ce10",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_mulhu",
+      "upstream": "reference/ripes-reference/test/riscv-tests/mulhu.s",
+      "source_sha256": "5bd08a579416b037dbff0211f1e72c84458596c07a3486b63ae9d25bdfe6c24e",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_or",
+      "upstream": "reference/ripes-reference/test/riscv-tests/or.s",
+      "source_sha256": "8e1fe6c073d345dc0948664c6d92190dc7b62b95f0ad334979aa5764db30f1ff",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_ori",
+      "upstream": "reference/ripes-reference/test/riscv-tests/ori.s",
+      "source_sha256": "d0d8de01d0ae62dad9b0daa178b0315bb95db13a865b8dbb4245592a0b541f81",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_rem",
+      "upstream": "reference/ripes-reference/test/riscv-tests/rem.s",
+      "source_sha256": "a16a80e656c603f333bb12fa362aad43e46ff53f642515b89b6912968570511b",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_remu",
+      "upstream": "reference/ripes-reference/test/riscv-tests/remu.s",
+      "source_sha256": "bda177257864372a2404ac1498c6620b586990f513b6dd9c666b04be6cfd5ef2",
+      "language": "asm",
+      "isa": "IM",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_simple",
+      "upstream": "reference/ripes-reference/test/riscv-tests/simple.s",
+      "source_sha256": "68bbd042ac5350418283c096d9c5f9e941793a877e5c486b14d5269de20bb9a7",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_sll",
+      "upstream": "reference/ripes-reference/test/riscv-tests/sll.s",
+      "source_sha256": "45127a599557fe771461be261197e4336d474d8afa6d209cda5678dc841079a1",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_slli",
+      "upstream": "reference/ripes-reference/test/riscv-tests/slli.s",
+      "source_sha256": "73fa74b6850e95e331e82e31e7263bdc5cff0997eb2cee0aec6a2d8058f7c963",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_slt",
+      "upstream": "reference/ripes-reference/test/riscv-tests/slt.s",
+      "source_sha256": "4a62b6ea2c1a1fc4aba4bbef537b91e2eed4660e8454772f4cabc4b3fca17e2f",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_slti",
+      "upstream": "reference/ripes-reference/test/riscv-tests/slti.s",
+      "source_sha256": "266a38e4494b3260e2b613a0b61c98ef3b271ff06b0e7bb8364a5e5d62d8bad7",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_sltiu",
+      "upstream": "reference/ripes-reference/test/riscv-tests/sltiu.s",
+      "source_sha256": "f68d1d4e4c2ed276fadb1f89082569aef8a1d54d8e597152161b68d125897d50",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_sltu",
+      "upstream": "reference/ripes-reference/test/riscv-tests/sltu.s",
+      "source_sha256": "6d13c97760974b1f3f156d076618e86880612566f418ad86ab9cc20d2ad5c9bd",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_sra",
+      "upstream": "reference/ripes-reference/test/riscv-tests/sra.s",
+      "source_sha256": "acd86ddac1f80e891c2279342692ca1b4c570eb16693f53a01e5fc8e3c119a59",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_srai",
+      "upstream": "reference/ripes-reference/test/riscv-tests/srai.s",
+      "source_sha256": "29ebacab2cf9a4a7f383582fe6ed14b1265d41a7248fdc6ff22e9bb0c2268dff",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_srl",
+      "upstream": "reference/ripes-reference/test/riscv-tests/srl.s",
+      "source_sha256": "cdf0bc1c7839024e337da0cf39f99f1730897186bfb077c0d93075a85c5d519e",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_srli",
+      "upstream": "reference/ripes-reference/test/riscv-tests/srli.s",
+      "source_sha256": "1c6ab492ac90fce0dd967539be49c6469227897cf941b0a0ecc80f2cbc9b331f",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_sub",
+      "upstream": "reference/ripes-reference/test/riscv-tests/sub.s",
+      "source_sha256": "4996cba6eae45a74ce1fa666f52ab447f9e76e7f43328042286495644a3384b6",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_xor",
+      "upstream": "reference/ripes-reference/test/riscv-tests/xor.s",
+      "source_sha256": "f9cf7c2679aa3f448a9bc66900383141bbaccad2b37c396e53a437b37464b0f5",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_xori",
+      "upstream": "reference/ripes-reference/test/riscv-tests/xori.s",
+      "source_sha256": "261226ee7833039bd61bdf27effc2b787d046905832a1e773503a036bee7f983",
+      "language": "asm",
+      "isa": "I",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [],
+      "legacy_suite": true
+    },
+    {
+      "name": "upstream_rvc",
+      "upstream": "reference/ripes-reference/test/riscv-tests-c/rvc.s",
+      "source_sha256": "0e645ac8a9982dd3305131d4bdf70adc55681e9a57856fda118e6c772bf1e27d",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "upstream",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "adaptations": [
+        "Keep ordinary instructions 32 bits; only explicit c.* instructions compress, matching Ripes assembly.",
+        "Normalize Ripes assembly operand syntax to LLVM syntax.",
+        "Move mutable d1..d4 block to .data; replace its address materialization with la.",
+        "Spell odd branch offsets 255/-255 as the encoded even offsets 254/-256."
+      ],
+      "legacy_suite": true
+    },
+    {
+      "name": "asm_factorial",
+      "source": "programs/algorithms/asm_factorial.S",
+      "language": "asm",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 720,
+      "legacy_suite": true,
+      "smoke": true
+    },
+    {
+      "name": "asm_gcd",
+      "source": "programs/algorithms/asm_gcd.S",
+      "language": "asm",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 21,
+      "legacy_suite": true
+    },
+    {
+      "name": "asm_sort",
+      "source": "programs/algorithms/asm_sort.S",
+      "language": "asm",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 55,
+      "legacy_suite": true
+    },
+    {
+      "name": "asm_string",
+      "source": "programs/algorithms/asm_string.S",
+      "language": "asm",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 500,
+      "legacy_suite": true
+    },
+    {
+      "name": "asm_matrix",
+      "source": "programs/algorithms/asm_matrix.S",
+      "language": "asm",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 134,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_factorial_im",
+      "source": "programs/algorithms/c_factorial.c",
+      "language": "c",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 720,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_factorial_imc",
+      "source": "programs/algorithms/c_factorial.c",
+      "language": "c",
+      "isa": "IMC",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 720,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_gcd_im",
+      "source": "programs/algorithms/c_gcd.c",
+      "language": "c",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 21,
+      "legacy_suite": true,
+      "smoke": true
+    },
+    {
+      "name": "c_gcd_imc",
+      "source": "programs/algorithms/c_gcd.c",
+      "language": "c",
+      "isa": "IMC",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 21,
+      "legacy_suite": true,
+      "smoke": true
+    },
+    {
+      "name": "c_sort_im",
+      "source": "programs/algorithms/c_sort.c",
+      "language": "c",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 55,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_sort_imc",
+      "source": "programs/algorithms/c_sort.c",
+      "language": "c",
+      "isa": "IMC",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 55,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_string_im",
+      "source": "programs/algorithms/c_string.c",
+      "language": "c",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 500,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_string_imc",
+      "source": "programs/algorithms/c_string.c",
+      "language": "c",
+      "isa": "IMC",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 500,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_matrix_im",
+      "source": "programs/algorithms/c_matrix.c",
+      "language": "c",
+      "isa": "IM",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 134,
+      "legacy_suite": true
+    },
+    {
+      "name": "c_matrix_imc",
+      "source": "programs/algorithms/c_matrix.c",
+      "language": "c",
+      "isa": "IMC",
+      "group": "algorithms",
+      "expected_reason": "exit",
+      "expected_status": 134,
+      "legacy_suite": true
+    },
+    {
+      "name": "m_extremes",
+      "source": "programs/boundary/m_extremes.S",
+      "language": "asm",
+      "isa": "IM",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "legacy_suite": true
+    },
+    {
+      "name": "memory_offsets",
+      "source": "programs/boundary/memory_offsets.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "legacy_suite": true
+    },
+    {
+      "name": "environment_output",
+      "source": "programs/boundary/environment_output.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "-123 RV32IMC!",
+      "legacy_suite": true
+    },
+    {
+      "name": "wrong_path_illegal_store",
+      "source": "programs/boundary/wrong_path_illegal_store.S",
+      "language": "asm",
+      "isa": "IM",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "legacy_suite": true
+    },
+    {
+      "name": "compressed_calls",
+      "source": "programs/boundary/compressed_calls.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "legacy_suite": true,
+      "smoke": true
+    },
+    {
+      "name": "ecall_writeback",
+      "source": "programs/boundary/ecall_writeback.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "42!",
+      "legacy_suite": true
+    },
+    {
+      "name": "mixed_seed_52563332",
+      "source": "programs/boundary/mixed_seed_52563332.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "seed": "0x52563332",
+      "legacy_suite": true
+    },
+    {
+      "name": "alu",
+      "source": "programs/legacy/alu.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 40,
+      "ram": [],
+      "pad_fetch": false,
+      "register_overrides": {
+        "2": 0
+      }
+    },
+    {
+      "name": "forward_priority",
+      "source": "programs/legacy/forward_priority.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 28,
+      "ram": [],
+      "pad_fetch": false,
+      "register_overrides": {
+        "2": 0
+      }
+    },
+    {
+      "name": "wb_id_store",
+      "source": "programs/legacy/wb_id_store.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 40,
+      "ram": [],
+      "pad_fetch": false,
+      "register_overrides": {
+        "2": 0
+      }
+    },
+    {
+      "name": "array_sum",
+      "source": "programs/legacy/array_sum.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 64,
+      "ram": [],
+      "pad_fetch": false,
+      "register_overrides": {
+        "2": 0
+      }
+    },
+    {
+      "name": "jumps_branches",
+      "source": "programs/legacy/jumps_branches.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 48,
+      "ram": [],
+      "pad_fetch": false,
+      "register_overrides": {
+        "2": 0
+      }
+    },
+    {
+      "name": "load_branch_wrong_path",
+      "source": "programs/legacy/load_branch_wrong_path.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 68,
+      "ram": [],
+      "pad_fetch": false,
+      "smoke": true,
+      "register_overrides": {
+        "2": 0
+      }
+    },
+    {
+      "name": "jalr_forwarded",
+      "source": "programs/legacy/jalr_forwarded.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 44,
+      "ram": [
+        40
+      ],
+      "pad_fetch": false,
+      "register_overrides": {
+        "2": 0
+      }
+    },
+    {
+      "name": "no_false_load_use",
+      "source": "programs/legacy/no_false_load_use.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 24,
+      "ram": [
+        9
+      ],
+      "pad_fetch": false,
+      "register_overrides": {
+        "2": 0,
+        "10": 4096
+      }
+    },
+    {
+      "name": "initial_and_x0_load",
+      "source": "programs/legacy/initial_and_x0_load.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "legacy",
+      "expected_reason": null,
+      "expected_status": null,
+      "end_pc": 28,
+      "ram": [
+        2147483648
+      ],
+      "pad_fetch": false,
+      "register_overrides": {
+        "1": 4294967295,
+        "2": 2,
+        "10": 4096
+      }
+    },
+    {
+      "name": "jalr_low_bit",
+      "source": "programs/reference/jalr_low_bit.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "reference",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "max_cycles": 100,
+      "ram": [
+        7
+      ],
+      "reference": {
+        "classification": "confirmed-reference-defect",
+        "evidence": "RV5S wires ALU result directly to pc_src without the JALR bit-zero mask; native runner encounters the odd PC.",
+        "expected_error": "unaligned instruction address"
+      }
+    },
+    {
+      "name": "ebreak",
+      "source": "programs/reference/ebreak.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "reference",
+      "expected_reason": "break",
+      "expected_status": null,
+      "max_cycles": 100,
+      "ram": [
+        7
+      ],
+      "reference": {
+        "classification": "confirmed-reference-defect",
+        "evidence": "rv_decode.h maps every SYSTEM opcode to ECALL, including EBREAK. Native invokes syscall 0 and fails; the model emits a break event.",
+        "expected_error": "unsupported syscall"
+      }
+    },
+    {
+      "name": "c_ebreak",
+      "source": "programs/reference/c_ebreak.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "reference",
+      "expected_reason": "break",
+      "expected_status": null,
+      "max_cycles": 100,
+      "ram": [
+        7
+      ],
+      "reference": {
+        "classification": "reference-unsupported",
+        "evidence": "rv_uncompress.h explicitly leaves C.EBREAK unimplemented; native executes the younger store instead of emitting a break event.",
+        "expected_ram_word": {
+          "index": 0,
+          "value": 0
+        }
+      }
+    },
+    {
+      "name": "illegal_instruction",
+      "source": "programs/reference/illegal_instruction.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "reference",
+      "expected_reason": "illegal",
+      "expected_status": null,
+      "max_cycles": 100,
+      "ram": [
+        7
+      ],
+      "reference": {
+        "classification": "reference-unsupported",
+        "evidence": "Ripes decode maps unknown opcodes to NOP; this model reports an illegal-instruction event and flushes younger instructions.",
+        "expected_ram_word": {
+          "index": 0,
+          "value": 0
+        }
+      }
+    },
+    {
+      "name": "elf_extra_section",
+      "source": "programs/boundary/elf_extra_section.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "smoke": true
+    },
+    {
+      "name": "audit_wrong_path_fetch",
+      "source": "programs/audit/audit_wrong_path_fetch.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "entry": 4092,
+      "pad_fetch": false,
+      "max_cycles": 30,
+      "regression_issue": "CPU-FETCH-001",
+      "smoke": true
+    },
+    {
+      "name": "audit_store_then_print",
+      "source": "programs/audit/audit_store_then_print.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "A",
+      "register_overrides": {
+        "5": 65,
+        "10": 4096,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001",
+      "smoke": true
+    },
+    {
+      "name": "store_string_sb_offset_3",
+      "source": "programs/boundary/store_string_sb.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "A",
+      "register_overrides": {
+        "5": 65,
+        "10": 4099,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "store_string_sh_offset_3",
+      "source": "programs/boundary/store_string_sh.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "AB",
+      "register_overrides": {
+        "5": 16961,
+        "10": 4099,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "store_string_sw_offset_0",
+      "source": "programs/boundary/store_string_sw.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "ABC",
+      "register_overrides": {
+        "5": 4407873,
+        "10": 4096,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "store_string_sw_offset_1",
+      "source": "programs/boundary/store_string_sw.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "ABC",
+      "register_overrides": {
+        "5": 4407873,
+        "10": 4097,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "store_string_sw_offset_2",
+      "source": "programs/boundary/store_string_sw.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "ABC",
+      "register_overrides": {
+        "5": 4407873,
+        "10": 4098,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "store_string_sw_offset_3",
+      "source": "programs/boundary/store_string_sw.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "ABC",
+      "register_overrides": {
+        "5": 4407873,
+        "10": 4099,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "store_string_order_i",
+      "source": "programs/boundary/store_string_order.S",
+      "language": "asm",
+      "isa": "I",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "AA!-7",
+      "register_overrides": {
+        "5": 65,
+        "10": 4096,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "store_string_order_imc",
+      "source": "programs/boundary/store_string_order.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "expected_output": "AA!-7",
+      "register_overrides": {
+        "5": 65,
+        "10": 4096,
+        "17": 4
+      },
+      "regression_issue": "ENV-ECALL-001"
+    },
+    {
+      "name": "fetch_boundary_jump_imc",
+      "source": "programs/boundary/fetch_boundary_word.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "entry": 4092,
+      "pad_fetch": false,
+      "max_cycles": 30,
+      "regression_issue": "CPU-FETCH-001",
+      "notes": [
+        "Initialize exit fallthrough with 32-bit NOPs to isolate fetch bounds from the separately recorded Ripes zero-compressed-length defect."
+      ]
+    },
+    {
+      "name": "fetch_boundary_halfword",
+      "source": "programs/boundary/fetch_boundary_halfword.S",
+      "language": "asm",
+      "isa": "IMC",
+      "group": "boundary",
+      "expected_reason": "exit",
+      "expected_status": 42,
+      "entry": 4090,
+      "pad_fetch": false,
+      "max_cycles": 30,
+      "regression_issue": "CPU-FETCH-001",
+      "notes": [
+        "Initialize exit fallthrough with 32-bit NOPs to isolate fetch bounds from the separately recorded Ripes zero-compressed-length defect."
+      ]
+    }
+  ]
+}

@@ -38,8 +38,10 @@ Python 仅解析 ACPy 和调用编译器。事务提取、条件传播、契约�
 | `test_ripes5.py` | 原生 RV5S 逐拍参考、可读指令程序、优化／重载及发现的前端／lowering 回归 |
 
 小模型只保留在相应回归中；完整示例包括 array 仲裁、EHR 共享视图、CPU、OoO 和
-[Ripes5](examples/ripes5/README.md)。Ripes5 的专用验证入口为 `python -m pycircuit.examples.ripes5.verify`，
-从机器指令开始，对照保存的原生 Ripes RV5S 逐拍参考；同时验证生成 C++ 与两层 IR 解释执行。
+[Ripes5](examples/ripes5/README.md)。Ripes5 的统一程序测试入口为 `python -m pycircuit.examples.ripes5.tests run`，
+默认从独立汇编／C 程序生成 ELF，核对生成 C++、原生 RV5S 与程序预期；`--check all` 另启用两层 IR 解释和阶段重载。
+四项审查问题现已修复，79 项程序对照结果见[修复验证](examples/ripes5/results/fixes-2026-10-15.md)，历史证据见[原用例报告](examples/ripes5/results/rv32imc-report.md)。
+`verify` 保留原有保存轨迹回归。
 
 
 ## 编译、阶段输出与执行
@@ -111,7 +113,8 @@ EHR 端口不能因任意拓扑排序而增加未声明可见性。竞争报告�
 源／事务层保留结构，RTL 层物理展开为标量状态、比较、mux 和使能，轨迹恢复逻辑坐标。
 
 条件严格要求 bool，helper 只处理 payload，组件构造只允许在 __init__，循环必须静态展开。
-不支持 var/ref/vector/qarray、通用类型转换、链式赋值或嵌套声明。
+显式整数转换支持 `ac.u8/u16/u32/u64/i8/i16/i32/i64(x)`；扩展由源符号性决定，缩窄保留低位，同宽保留位模式，不增加隐式转换。
+不支持 var/ref/vector/qarray、bool 转换、链式赋值或嵌套声明。
 无 SystemVerilog 后端、自动仲裁、激活调度或跨拍缓存优化。
 
 ## 示例与可视化

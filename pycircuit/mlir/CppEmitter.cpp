@@ -478,8 +478,8 @@ struct Emitter {
           auto &outputs = plan.blocks[id];
           auto i =
               std::find(outputs.begin(), outputs.end(), v) - outputs.begin();
-          return "std::get<" + std::to_string(i) + ">(" + prefix +
-                 blockNames[id] + "())";
+          return "std::get<" + std::to_string(i) + ">(" +
+                 (prefix.empty() ? "this->" : prefix) + blockNames[id] + "())";
         });
   }
   std::string scopeDefinition(const std::string &scope) {
@@ -907,10 +907,19 @@ void acir::emitCpp(mlir::ModuleOp module,
   auto stage = module->getAttrOfType<StringAttr>("acir.stage");
   if (!stage || stage.getValue() != "transaction")
     throw std::runtime_error("C++ emitter requires transaction MLIR");
-  auto model =
-      Emitter(module).generate(); // Validate before creating artifacts.
+  Emitter emitter(module);
+  auto model = emitter.generate(); // Validate before creating artifacts.
   std::filesystem::create_directories(directory);
   save(directory / "model.hpp", indentCpp(model));
   save(directory / "runtime.hpp", indentCpp(cppRuntime));
   save(directory / "sim.cpp", indentCpp(driver));
+  auto &plan = emitter.plan;
+  llvm::json::Object stats{{"conditional_cycles", plan.conditionalCycles},
+                           {"demand_limits", plan.demandLimits},
+                           {"local_lazy_blocks", plan.lazyBlocks},
+                           {"local_memoized_blocks", plan.memoizedBlocks}};
+  std::string statistics;
+  llvm::raw_string_ostream stream(statistics);
+  stream << llvm::json::Value(std::move(stats));
+  save(directory / "lowering.json", statistics + "\n");
 }

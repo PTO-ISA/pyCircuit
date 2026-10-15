@@ -5,6 +5,7 @@ void acir::registerACIRPasses() {
   mlir::registerPass([] { return createRTLPass(); });
   mlir::registerPass([] { return createResourceExpansionPass(); });
   mlir::registerPass([] { return createConditionPass(); });
+  mlir::registerPass([] { return createFieldProjectionPass(); });
   mlir::PassPipelineRegistration<> cleanup(
       "acir-cleanup",
       "Fold redundant computations and merge common expressions",

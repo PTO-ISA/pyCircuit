@@ -1,0 +1,1 @@
+volatile int values[5]={5,1,4,2,3}; unsigned algorithm(void){for(int i=4;i>0;--i)for(int j=0;j<i;++j)if(values[j]>values[j+1]){int t=values[j];values[j]=values[j+1];values[j+1]=t;}unsigned s=0;for(int i=0;i<5;++i)s+=values[i]*(i+1);return s;}
