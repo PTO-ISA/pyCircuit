@@ -1,0 +1,129 @@
+name: Issue
+description: Report a bug, propose a capability, or track maintenance work.
+title: "[Other] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use `[Area] short summary` as the title, matching the area below.
+        Examples: `[MLIR] Reject overlapping state writers`, `[CI] Repair package smoke`.
+        Invalid titles receive `invalid-title`; editing the title rechecks it.
+        Choose `Other` for cross-cutting work or an area not listed yet.
+        A feature request describes proposed behavior, not approved language support.
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Change type
+      options:
+        - Bug
+        - Feature / behavior change
+        - Design proposal / RFC
+        - Performance
+        - Refactoring / maintenance
+        - Tests / CI
+        - Documentation
+        - Question
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Match the title prefix; use the primary owner for cross-stage failures.
+      options:
+        - Capture
+        - MLIR
+        - IR
+        - Link
+        - CPP
+        - Verilog
+        - Runtime
+        - System
+        - CLI
+        - Build
+        - Package
+        - CI
+        - Docs
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: summary
+    attributes:
+      label: Problem and impact
+      description: Describe the failure, requested capability, or maintenance need and who it affects.
+    validations:
+      required: true
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Expected and actual behavior
+      description: For proposals, describe the intended outcome and acceptance criteria. Link affected contracts or decisions; say unknown if not identified.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproducer or use case
+      description: For bugs, provide minimal source/testbench, exact commands, inputs, and diagnostics. For requests, describe a concrete use case. Explain if reproduction is unavailable.
+      placeholder: |
+        Source and testbench:
+        Command and inputs:
+        Observed result / diagnostic:
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Candidate and environment
+      description: Give the commit SHA and local changes, OS, Python, LLVM/MLIR, backend, and build/install paths where relevant. For non-execution issues, state not applicable.
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and related work
+      description: Link issues/PRs and CI artifacts or paste a concise log. Local docs/gates/logs paths alone are not accessible to remote reviewers. Distinguish observed results from hypotheses and checks not run.
+    validations:
+      required: false
+  - type: textarea
+    id: compiler_stage
+    attributes:
+      label: Compiler pass or stage evidence (when applicable)
+      description: Identify the first failing stage/pass and provide input IR, expected behavior and actual IR/diagnostic from the same candidate. Say unavailable if a stage cannot be captured; excerpts do not prove full stage verification.
+      placeholder: |
+        Stage / pass and exact command:
+        Input source or IR:
+        Expected transformation / invariant:
+        Actual output / diagnostic:
+        Complete artifact manifest or CI link:
+    validations:
+      required: false
+  - type: textarea
+    id: performance
+    attributes:
+      label: Performance comparison (when applicable)
+      description: Compare baseline and candidate with identical input/settings. Report compile time, generated size, simulation time or memory as appropriate, plus correctness checks. State unknown values honestly.
+      placeholder: |
+        Baseline and candidate SHAs:
+        Workload/input identity and size:
+        Build mode, toolchain, host and worker count:
+        Measurement command, repetitions and warmup:
+        Baseline / candidate results with units and variation:
+        Correctness checks and results:
+    validations:
+      required: false
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Design proposal (when applicable)
+      description: Record motivation, concrete interfaces, alternatives, affected owners, validation and open decisions. Link existing contracts; an issue is not semantic approval.
+      placeholder: |
+        Proposed before/after behavior and interfaces:
+        Affected layers and callers:
+        Alternatives and tradeoffs:
+        Hard-break / removal scope:
+        Acceptance and rejection tests:
+        Dependencies and unresolved decisions:
+    validations:
+      required: false

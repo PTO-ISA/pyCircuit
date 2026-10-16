@@ -148,7 +148,11 @@ def main() -> int:
     require(
         isinstance(protection, dict)
         and protection.get("required_status_checks")
-        == ["G0: Capture and Publication Unit Gates", "G0: Python Checks"]
+        == [
+            "G0: Capture and Publication Unit Gates",
+            "G0: Python Checks",
+            "PR description completeness",
+        ]
         and protection.get("strict_status_checks") is True
         and protection.get("required_approving_reviews") == 1
         and protection.get("require_code_owner_reviews") is True

@@ -1,118 +1,46 @@
 ---
 name: pycircuit-project-manager
-description: Manage pyCircuit work with bounded ownership, architecture/decomposition roles, independent tests/review, persistent user authorization, and candidate-bound evidence. Use for planning, dispatch, integration, or acceptance in this repository.
+description: Manage pyCircuit planning, issue/PR delivery, bounded ownership, independent tests/review, integration and candidate acceptance using existing user authorization and repository contracts.
 ---
 
 # pyCircuit project manager
 
-Read `AGENTS.md`,
-[`docs/development/project-governance.md`](../../../docs/development/project-governance.md),
-the active
-[`docs/development/source-unit-workflow.md`](../../../docs/development/source-unit-workflow.md),
-and affected exact approval records in `docs/rfcs/contracts/approvals/`.
-The user's latest clear direction and existing authorization govern the assigned
-work; do not request redundant approval for already-authorized local changes.
-Identify genuinely new unresolved semantic interfaces as precise proposals and
-obtain independent review where needed before treating them as established
-contracts. A reviewed plan or an approval record is not implementation evidence.
+Read `AGENTS.md` and [project governance](../../../docs/development/project-governance.md).
+Use the user's latest scope and existing authorization. Continue bounded local
+work without repeated confirmation; proposals do not establish new semantics.
 
-Target one Python frontend, generic MLIR analysis/insertion/lowering passes,
-common verified hardware IR, and gfsim C++ / Verilog from that IR. Enforce
-NO HARDCODE and NO SHIM. Current `pycircuit compile/link/emit`, source-owned
-`.ac` groups, current typed module/standard-leaf/Work-Xfer profile and Runtime
-export remain current until exact cutover. The portless/default-clock/empty-static
-source-unit cutover profile is historical; current admission is in the active language reference.
-Full capability coverage, source ownership and example migration must be verified
-rather than inferred from the target. Preserve retained supported examples and hardware oracles. Report detected
-discrepancies immediately and assign concrete corrective work.
+## Route the work
 
-For complex changes use the real `architect` preset and a separate decomposition
-instance. Dispatch small tasks with inputs, exclusive files, dependencies,
-expected hardware behavior, gates, and removal scope. Executors implement the
-packet rather than redesigning around test failures. Keep architecture validation,
-implementation, independent tests, and code review separate where required.
-Record actual role/model/effort and the requested implementation/review default;
-never claim a review occurred merely because a role was planned.
+- Issue intake, existing ownership, dependencies, forks and delivery:
+  [repository management](../../../docs/development/repository-management.md).
+- Cross-layer implementation and pass/performance evidence:
+  [contributing workflow](../../../docs/development/contributing-workflow.md).
+- Current source/compiler responsibilities:
+  [language reference](../../../docs/reference/language.md) and
+  [source-unit workflow](../../../docs/development/source-unit-workflow.md).
+- New semantic interfaces: applicable exact contracts and independent
+  [`pycircuit-design-review`](../pycircuit-design-review/SKILL.md).
+- Implementation review and current-head feedback:
+  [`pycircuit-pr-review`](../pycircuit-pr-review/SKILL.md) and
+  [review and merge](../../../docs/development/review-and-merge.md).
 
-Own readiness, integration, candidate identity, evidence, and acceptance. Remove
-obsolete recipe/duplicate tests while preserving ownership, range/type,
-current/next, hold/discard/reset, zero-commit-on-failure, source-unit, and output
-protection oracles. Acceptance matches exact tested scope; missing capability
-cannot be supplied through a retired route.
+## Own the delivery
 
-Follow the [local evidence policy](../../../docs/gates/README.md). Keep task
-packets, independent reviews and candidate-bound evidence together under
-`docs/gates/logs/<run-id>/`. Historical local work/review directories remain ignored. Report commands, status,
-evidence, skips, and remaining callers. Keep this project skill local; do not
-modify OMX state as part of ordinary project management.
+Work directly for small tasks. For complex semantic work, use the real architect
+and an independent decomposition instance before dispatching bounded execution.
+Each task fixes inputs, exclusive files, dependencies, expected behavior, removal
+scope and focused checks. Integrate shared registries/build metadata centrally;
+implementation, independent tests and review remain separate as required by
+project governance. Record actual roles/models/effort rather than planned labels.
 
-## Specialization and example acceptance
+Identify open dependencies and competing work before editing. Keep task-owned
+changes separate, verify the actual Git worktree root and PR head, and reuse an
+existing matching PR. No assignment, comment, push or merge is implied by simply
+invoking this skill; preserve the user's authorized delivery scope.
 
-Do not add a specialization pipeline or design-recipe compilation path. The
-user's exact policy for parameterized definitions and concrete structural
-elaboration remains pending; this constraint does not itself ban parameterized
-historical examples or establish support for nonempty static arguments. Record
-the unresolved policy explicitly rather than choosing it through implementation.
-
-Use the current user-assigned migration scope and `examples/catalog.json`.
-The historical 93-root inventory is not a current acceptance count. Removal or
-deferral never counts as a passing result. Long oracle and coverage matrices use
-the existing nightly entrypoints and run only when requested or scheduled.
-Local migration logs/work packets/reviews are ignored, not test dependencies.
-
-Use descriptive compiler responsibility names. The
-checked-out owning source tree is `compiler/` with `compiler/include/pycircuit/`;
-native roles are `pycircuit-source-unit`, `pycircuit-link`, and `pycircuit-emit`,
-with test-owned `pycircuit-backend-test`. Their corresponding environment names
-are `PYCIRCUIT_SOURCE_COMPILER`, `PYCIRCUIT_LINKER`, `PYCIRCUIT_EMITTER`, and
-`PYCIRCUIT_BACKEND_TEST`. They serve the single public frontend and driver.
-ACIR/`ac` remain technical IR names and `pycircuit::pyc6_runtime` remains the
-current shared Runtime export. Do not infer generic pass decomposition or expanded
-capability implementation merely from this naming/path cutover.
-
-## Hardware-first frontend scope
-
-The Python frontend is a hardware design language: support a practical subset
-with explicit finite hardware meaning, not arbitrary Python program behavior.
-Generic MLIR passes operate on declared types, actual SSA, effects and owners.
-Hardware-oriented frontend constructs are legitimate; fixture names, widths,
-constants or recipe shapes do not determine admission. Preserve prior hardware
-behavior in rewritten examples and repair actual framework gaps through shared
-IR semantics; do not grow an unrelated Python interpreter to claim genericity.
-
-## Serial Method delivery boundaries
-
-Read [the extension matrix](../../../docs/rfcs/serial-rule-method/extension-roadmap.md)
-before assigning Method work. An autonomous Rule owns the transaction; Method
-calls share its candidate versions and commit decision. Ordinary pure `def`
-replaces callable Rule helpers. Independent Rules retain old-Q visibility.
-Current same-domain, whole-Bits execution includes direct body assert/log/report
-materialization, bounded statement branches and the conditional calls/effects
-contract in [`conditional-effects.md`](../../../docs/rfcs/serial-rule-method/conditional-effects.md).
-Pure branches retain four-state scalar/state joins; branches containing calls or
-effects add selection-known admission. Unselected guards bypass, selected false
-guards hold the whole transaction, and reached X/Z controls fault only under the
-existing sampling contract. Effects use final fire AND their selected path.
-The source plan retains branch-entry candidates, joins data and raw
-write intent separately, computes E as finalFire AND rawIntent, and hard-breaks
-candidate wiring to `{state,data,enable}`. Require both source authentication and
-final private-route proof, external fire zero-use, per-actual-Rule parsing,
-generated Method `@system` workers1/2 and real four-state RTL evidence. This does
-not establish partial or aggregate state, resources,
-changed aggregate joins or effect-safe optimization.
-The final sampled schema uses `controls`, with closed kind/path records; old
-`guards` inventories reject. Preserve both source replay and independent final
-proof, default budgets, all actual Rule parses, and memory-safe validation runs.
-Honor `CMAKE_BUILD_PARALLEL_LEVEL` and keep builds/tests serial when requested.
-A generated System smoke is not that closure; an identity proposal is not admission.
-
-Observation groups must validate before any state/history Xfer or managed RTL
-COMMIT. Preserve inactive-group semantics and prior committed observations on
-failure. Runtime descriptors require explicit group membership; old shapes
-must fail closed. See [System execution](../../../docs/architecture/system-execution.md).
-
-Install the current build with an explicit `--prefix` matching
-`PYC_TOOLCHAIN_ROOT`; do not assume a reused CMake cache has the intended prefix.
-After an explicit delivery request, preserve incomplete work in a recoverable
-separate snapshot and label it unverified. Merge only a coherent tested candidate,
-record the remote result, and keep unfinished extension requirements open.
+Use existing [test tiers](../../../docs/development/testing-and-gates.md) and
+[local evidence policy](../../../docs/gates/README.md). Bind actual commands,
+outputs and independent reviews to the exact candidate. Report deferred or
+unavailable checks honestly; never turn reduced coverage into a pass. Preserve
+incomplete work recoverably and keep follow-up scope open. Recheck remote head,
+feedback and required checks before reporting an authorized delivery complete.

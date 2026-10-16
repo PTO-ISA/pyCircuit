@@ -32,6 +32,128 @@ Circuit repository. The latter is a private historical archive.
 If an urgent downstream fix cannot wait for upstream review, record the
 upstream issue or pull request and avoid creating a competing public API.
 
+## Issue intake and pull request handoff
+
+The GitHub issue form collects change type, owning area, expected/actual behavior,
+a reproducer or use case, and candidate/environment details. Use `[Area] short
+summary` titles, for example `[MLIR] Reject overlapping state writers`.
+Choose the primary owner when a failure crosses stages; use `Other` if ownership
+is uncertain or a new area is needed. Match the form selection to the title.
+
+| Area | Routing responsibility |
+| --- | --- |
+| `Capture` | Python parsing and private source transport |
+| `MLIR`, `IR` | Analysis/lowering passes and common hardware IR contracts |
+| `Link` | Source publication, interfaces and explicit unit closure |
+| `CPP`, `Verilog` | Target emission from verified final IR |
+| `Runtime`, `System` | Runtime execution/storage and generated test-system closure |
+| `CLI`, `Build`, `Package` | Public commands, build configuration and installed consumers |
+| `CI`, `Docs`, `Other` | Automation, documentation and cross-cutting/unclassified work |
+
+The contribution-metadata workflow checks issue titles on open, edit and reopen.
+It adds `invalid-title` for an unsupported prefix or missing summary and removes
+the label after correction. The title is the routing authority; the workflow
+does not compare the form dropdown with it. Blank web issues are disabled;
+CLI/API submissions still receive the title check. Private security reports use
+the advisory link in the issue chooser. Existing issues are not bulk relabeled;
+an edited or reopened issue must adopt the current format.
+
+Maintainers confirm scope, assign an owner and apply existing type labels such
+as `bug`, `enhancement` or `documentation` during triage. A request does not
+approve new semantics. Follow [project governance](project-governance.md) for
+contract decisions and bounded task ownership. No project-board or priority
+state machine is implied by the templates.
+
+PRs record the problem/result, change type, related issues, concrete changes,
+validation, review checklist and reviewer notes. Use `Fixes #123` only for work
+that fully closes an issue; use `Related to #123` for partial work and retain
+follow-up scope explicitly. A PR title should use the same area convention;
+only issue titles are automatically checked.
+
+`PR description completeness` checks required sections, author-supplied details,
+and selected change/validation checkboxes. Untouched template comments and
+checkboxes alone do not satisfy it. Explicit failures, skipped/deferred checks
+and N/A reasons are valid reporting; this check does not certify correctness,
+test success or review completion. It uses a read-only pull-request token,
+including for forks. Only the issue job can write labels, and it runs code from
+the default branch, never a PR branch. Issue/PR text is read as JSON data rather
+than interpolated into executable commands.
+
+Validation follows [testing and gates](testing-and-gates.md): record the tested
+commit and local content identity, exact commands/configuration, exit status,
+selected tier and accessible evidence. Local ignored logs need an accompanying
+summary or uploaded CI artifact for remote review. Template/documentation-only
+work may omit hardware regressions with a reason and appropriate metadata/docs
+checks; script changes are not automatically exempt. Deferred nightly coverage
+stays NOT RUN. Independent review and ordinary branch protection still apply.
+
+This is the required intake and review flow for subsequent pyCircuit issues and
+PRs, including submissions made through agents or the CLI. `PR description
+completeness` is a required main-branch status check alongside the two G0 checks
+in `.github/repository-governance.json`. Issue titles are enforced by labeling;
+GitHub does not block issue creation on this check. Existing PRs may need their
+descriptions updated when edited or synchronized after rollout. Apply the
+versioned required-check list to GitHub branch protection during rollout;
+merging workflow files alone does not update that setting.
+
+This structure adapts SuperScalarModel's
+[issue form](https://github.com/LinxISA/SuperScalarModel/blob/51a29bea4267a277201609fbe0edc5c2d8349fc7/.github/ISSUE_TEMPLATE/issue.yml),
+[PR template](https://github.com/LinxISA/SuperScalarModel/blob/51a29bea4267a277201609fbe0edc5c2d8349fc7/.github/pull_request_template.md)
+and metadata checks. pyCircuit uses a single area prefix because it has one
+product flow; compiler/runtime ownership and candidate-bound evidence replace
+the reference repository's simulator modules and regression matrix.
+
+## Issue-to-PR delivery
+
+1. Resolve the issue repository and writable checkout separately. The canonical
+   issue/base repository is `PTO-ISA/pyCircuit`; a contributor's head may live in
+   a fork. Inspect remotes and PR metadata instead of assuming `origin` or a
+   same-named branch identifies the write destination.
+2. Search open and closed issues and related PRs before starting new work.
+   Distinguish the same root cause from related symptoms. Read existing assignees,
+   linked work and implementation status to avoid duplicating active work;
+   assignments and project fields remain unchanged unless their update is part
+   of the requested task.
+3. Establish a bounded reproducer/use case and affected contract. The issue form's
+   optional pass, performance and proposal fields capture specialized evidence.
+   Use the applicable fields during triage; unavailable measurements or IR stay
+   explicit gaps, not invented results. RFCs record alternatives, dependencies,
+   hard-break/removal scope and unresolved decisions before semantic acceptance.
+4. Track dependencies explicitly. Record prerequisite PR URLs and their state in
+   the issue/PR; distinguish a dependency from a background reference. Break
+   implementation into independently reviewable changes when possible, with
+   a named owner, expected behavior and scoped verification for each.
+5. Preserve task ownership through delivery. Inspect the working tree and index;
+   stage only the task's exact files/hunks when committing is authorized. Do not
+   include unrelated staged changes or switch a dirty shared checkout to another
+   PR. Reuse the correct existing PR instead of opening a duplicate. Verify the
+   tested commit and remote head after an authorized push.
+6. Use [review and follow-up](review-and-merge.md#review-a-pull-request-and-follow-up)
+   to reconcile findings and CI before delivery. Describe public source, CLI,
+   artifact and Runtime changes from the actual diff; a `fix` or `refactor`
+   commit label does not establish compatibility. Leave partial issues open and
+   link remaining work rather than treating a merged slice as full completion.
+
+Existing user authorization persists. A workflow does not introduce a repeated
+permission gate for scoped local repairs, nor grant permission to post messages,
+change assignments/projects, rewrite shared history or merge. If a remote create
+request has an uncertain response, read back the target before retrying to avoid
+duplicate issues or PRs.
+
+The repo-local project-manager skill routes this flow; `pycircuit-pr-review`
+provides independent implementation review, while `pycircuit-design-review`
+retains proposal review. Shared policy stays in these development documents.
+
+These practices adapt PyPTO's
+[pass-bug intake](https://github.com/hw-native-sys/pypto/blob/8325a8de8422678d6699e17f31cef953ace66445/.github/ISSUE_TEMPLATE/pass_bug.yml),
+[performance intake](https://github.com/hw-native-sys/pypto/blob/8325a8de8422678d6699e17f31cef953ace66445/.github/ISSUE_TEMPLATE/performance_issue.yml),
+[RFC intake](https://github.com/hw-native-sys/pypto/blob/8325a8de8422678d6699e17f31cef953ace66445/.github/ISSUE_TEMPLATE/plan_rfc.yml)
+and [shared developer skills](https://github.com/hw-native-sys/pypto-skills/tree/af1d7a016ce50ba109c4b4224580a6b758bde7da/plugins/pypto-developer/skills).
+Its [repository skills](https://github.com/hw-native-sys/pypto/tree/8325a8de8422678d6699e17f31cef953ace66445/.claude/skills)
+also inform scoped cross-layer review and artifact comparison. Its private
+runner images, credential/session management, automatic approval infrastructure
+and unconditional confirmation/full-suite policies are not pyCircuit defaults.
+
 ## Branch and review policy
 
 - Protect the upstream default branch.
@@ -99,33 +221,3 @@ When repository or organization ownership changes, verify all of the following:
 
 Do not treat a GitHub transfer alone as completion. Repository metadata,
 credentials, automation, and package authority must point to PTO-ISA.
-
-## Historical names
-
-Historical gate logs and compatibility identifiers may retain earlier version
-labels. Keep them stable unless an accepted migration decision defines the
-replacement and compatibility window. Current product documentation must still
-identify the language as pyCircuit 6.
-
-## Agentic Circuit retirement
-
-The standalone Agentic Circuit repository is a historical archive. Its original
-commits and the earlier consolidation into pyCircuit remain provenance records.
-The active source-unit compiler, common hardware IR and Runtime now live in the
-[current repository layout](repository-layout.md); retired ACC/QueueGraph/PYC
-frontends are not active module roots or compatibility paths. Do not land new
-source changes in the standalone repository.
-
-Retirement completed on 2026-09-05 after pyCircuit PR #30 merged as
-`cba1d938ddcfaadf021bbff5a91553869028e124`. The standalone repository:
-
-1. ends at tombstone commit `9bc50aefbf1ac5a46a5aa94966f8bdc2811ff92a`;
-2. has no open pull requests or issues;
-3. has Actions disabled and no repository webhooks, deploy keys, invitations,
-   direct collaborators, or team grants;
-4. is private and archived; and
-5. points its description and homepage to `PTO-ISA/pyCircuit`.
-
-Access inherited from PTO-ISA organization ownership and the organization-wide
-base repository permission remains governed at organization scope. Do not
-change that global policy merely to specialize this archive.

@@ -2,67 +2,67 @@
 
 pyCircuit is a hardware programming language and compiler with one Python
 capture → MLIR analysis/lowering → verified common IR → C++/Verilog flow.
-Current support is defined in the [language reference](../reference/language.md).
-Frozen approvals under `docs/rfcs/contracts/approvals/` record authority for
-semantic interfaces; they do not establish implementation or passing tests.
+This governance replaces the former migration-stage delivery process. Current
+support belongs in the [language reference](../reference/language.md); exact
+technical approvals remain authority for semantics, not evidence of a passing
+implementation. Historical migration schedules do not constrain new work.
 
-## Scope and authorization
+## Scope and ownership
 
-Follow the user's latest direction and existing authorization. On 2026-10-07
-the user ended migration expansion and requested delivery of the retained
-supported subset. Uncovered historical examples and API drafts are removed;
-removal is not counted as verification. On 2026-10-09 the user reopened example
-migration with simple, efficient source authoring and no new APIs. Continue
-against the original behavior and independent oracles; repair concrete common-IR
-or backend defects without introducing alternate compiler paths. Keep meaningful supported behavior,
-rejection, ownership, timing, reset and zero-commit-on-failure tests.
+Follow the user's latest direction and existing authorization. Continue scoped,
+reversible local work without repeated permission handoffs. Identify genuinely
+new semantic interfaces with a concrete proposal and independent review before
+implementation. Do not infer authority for posting, pushing, merging or changing
+assignments/projects from a local development task.
 
-Use descriptive responsibility names instead of migration task or milestone
-codes. The current example/API catalog is `examples/catalog.json`. Logs and
-historical work/review notes are local ignored artifacts. Runtime tests must
-not depend on those notes, their hashes or acceptance counters.
+Use the [repository-management flow](repository-management.md) and checked-in
+Issue/PR templates for all subsequent submissions. Search related work, identify
+dependencies and assign bounded ownership. Each implementation task specifies
+inputs, exclusive files, dependencies, expected behavior, removal scope and the
+smallest useful checks. The integration owner handles shared registries, build
+metadata, candidate identity and final reporting. Preserve others' changes and
+verify the actual worktree root before staging or committing.
 
-## Ownership and review
-
-The integration owner keeps scope, file ownership, shared registries, build
-metadata, candidate identity and final reporting consistent. Preserve others'
-work in a shared checkout. Tasks specify inputs, exclusive files, dependencies,
-expected behavior, removal scope and the smallest useful checks.
+## Independent review
 
 Work directly for small mechanical tasks. Complex semantic changes require a
 real architect and an independent decomposition instance before bounded
 implementation. Implementation, independent tests and review use separate
 instances. Record actual role, model and effort. The requested implementation
-and review default is `gpt-6.1-sol`; the architect preset is `gpt-6-astra` at
-`xhigh`. A role label does not establish that a review occurred.
+and code-review default is `gpt-6.1-sol`; use the real architect preset for
+architecture. A role label does not establish that review occurred.
 
-Existing approval persists for its scope. A genuinely new semantic interface
-needs a concrete proposal and independent review before implementation. Do not
-ask for repeated approval of already-authorized reversible work.
+Use the design-review skill for unresolved proposals and the PR-review skill
+for implementations. [Review and merge](review-and-merge.md) owns candidate
+identity, full feedback inventories and readiness decisions. A clear review
+cannot substitute for tests, approvals or merge authority.
 
-## Compiler boundaries
+## Implementation boundaries
 
-Keep capture thin. MLIR owns type, dependency, effect and hardware inference.
-Derive admission from declared types, actual SSA, effects and owners. Example
-names, constants, widths or fixture shapes must not become compiler rules.
-No compatibility aliases, retired-route fallback, parallel semantic compiler,
-backend-only semantic patch or adapter may bypass the verified common IR.
+Use the [affected-layer checklist](contributing-workflow.md#trace-a-change-through-its-owners).
+Keep capture thin and infer semantics from declared types, actual SSA, effects
+and owners in existing MLIR passes. No fixture-specific admission, alternate
+semantic compiler, compatibility fallback or backend-only patch may bypass the
+common verified IR. Preserve hardware timing, four-state behavior, ownership,
+whole-system atomicity and generated System responsibilities.
 
-Keep DUT sources focused on hardware algorithm, state and connections. Oracle
-models and framework coverage belong to tests and must never compute DUT
-results inside product compilation. Consumer designs, schemas and ISA logic
-belong in their owning repositories.
+Keep DUT sources focused on algorithm, state and connections. Independent oracles
+belong to tests; consumer designs, ISA logic and adapters belong to consumer
+repositories. Frozen technical approvals are not rewritten as implementation
+progress. Current behavior and limitations are maintained in active docs.
 
 ## Validation and delivery
 
-Build from this checkout; never copy a compiler, library or generated artifact
-from another worktree. Preserve old-state Work, successful whole-system checking
-before Xfer, source ownership and output-protection contracts. Both backend
-outputs consume the same verified final IR.
+Build each candidate in its own checkout. Reuse existing API/example entrypoints
+and [test tiers](testing-and-gates.md). Long reference, coverage and mutation
+matrices stay in nightly and respect explicit deferrals. Keep meaningful
+ownership, rejection, timing, reset, output-protection and zero-commit-on-failure
+oracles; a removed or unexecuted case is not a pass.
 
-Use the existing API/example entrypoints and [test tiers](testing-and-gates.md).
-Long reference-model, coverage and mutation matrices belong in nightly and
-must not be launched when the user defers them. Record precise commands,
-exit status, candidate revision/content binding, failures and skipped checks
-in the PR and local `docs/gates/logs/<run-id>/`; CI uploads logs as artifacts.
-Historical evidence does not certify the current candidate.
+Record commands, exit status, exact revision/content and accessible evidence in
+the PR and ignored local `docs/gates/logs/<run-id>/`. Tests must not depend on
+management logs, review transcripts or acceptance counters. Preserve required
+complete stage artifacts through existing manifests. Recheck remote identity,
+feedback and required checks before delivery; keep remaining work explicitly
+open. The versioned merge requirements live in
+`.github/repository-governance.json` and must match GitHub settings.

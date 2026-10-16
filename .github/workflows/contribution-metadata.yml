@@ -1,0 +1,61 @@
+name: Contribution metadata
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  pull_request:
+    branches: [main]
+    types: [opened, edited, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: contribution-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: false
+
+jobs:
+  issue-title:
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check issue title
+        id: title
+        run: python3 .github/scripts/check_contribution.py
+      - name: Mark invalid title
+        if: steps.title.outputs.invalid == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number }}
+        run: |
+          gh label create invalid-title --repo "$REPO" --color BFD4F2 --description 'Use [Area] short summary; see the issue form' --force
+          gh issue edit "$NUMBER" --repo "$REPO" --add-label invalid-title
+      - name: Clear corrected title
+        if: steps.title.outputs.invalid == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.issue.number }}
+        run: |
+          has_invalid=$(gh issue view "$NUMBER" --repo "$REPO" --json labels --jq 'any(.labels[]; .name == "invalid-title")')
+          if [[ "$has_invalid" == "true" ]]; then
+            gh issue edit "$NUMBER" --repo "$REPO" --remove-label invalid-title
+          fi
+
+  pr-description:
+    if: github.event_name == 'pull_request'
+    name: PR description completeness
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check PR description
+        run: python3 .github/scripts/check_contribution.py

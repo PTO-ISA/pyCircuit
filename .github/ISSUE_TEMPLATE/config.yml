@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability privately
+    url: https://github.com/PTO-ISA/pyCircuit/security/advisories/new
+    about: Use private reporting for security-sensitive findings.
