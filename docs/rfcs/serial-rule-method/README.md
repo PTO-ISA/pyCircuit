@@ -19,7 +19,7 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 | [MLIR 分析与变换](mlir-pipeline.md) | 中间表示、分析输入输出、变换前后条件、逐源发布与链接 |
 | [跨实例 Method 接线](cross-instance-lowering.md) | 原实例状态、内部物理端口、根 ABI、writer 组合与独立验收 |
 | [事务采样准入](sampled-admission.md) | 动态 guard 的精确 IR、双层证明、clock history、Runtime/RTL 生命周期及实施 checklist |
-| [whole-Bits 分支状态与标量 SSA](branch-state-ssa.md) | statement branch、D/raw-intent join、D/E schema hard break、双层证明及独立验收 |
+| [whole-Bits 状态分支与局部值合并](branch-state-ssa.md) | statement branch、D/raw-intent join、标量与 nominal local joins、D/E schema hard break、双层证明及独立验收 |
 | [事务 body effects](sampled-body-effects.md) | 六字段 schema、语句时刻 SSA、效果私有路由、源认证、预算与 generated Method System 验收 |
 | [条件调用与 body effects](conditional-effects.md) | statement-arm calls/effects、四态 selection、路径有效性、tagged controls hard break 与待完成验收 |
 | [事务接口摘要](publication-summary.md) | 闭合字段、body checks/observations、类型与依赖作用域、body 重验及预算 |
@@ -48,14 +48,17 @@ focused final-IR 回归已有 native workers 1/2 和真实四态 RTL 执行证�
 focused Method `@system` 回归验证生成 runner、重复调用、完整观测身份/顺序和失败 epoch。
 分析复用必须保持原预算及完整实际实例检查。
 这些结果只属于对应候选，不自动覆盖后续修改，也不等于 nightly 通过。
-whole-Bits statement branch 与 scalar local join 的冻结合同见
+whole-Bits statement branch 与局部值 join 的合同见
 [branch state SSA](branch-state-ssa.md)。它把候选 wiring hard break 为 D/E 两个 slots，
 其原有切片拒绝 conditional calls/effects。当前恢复的条件候选在此基础上接入
 statement-arm Method/assert/log/report、source-path 有效性与 tagged controls：未选
 guard bypass，选中 false guard hold 全部事务，reached X/Z effect selector 在 rising
-非 reset 时 fault。纯分支的四态 join 保留；partial/aggregate state、resources、
-cross-domain、多 outer writer、effectful loops、early return 和 changed aggregate joins
-继续拒绝。standalone conditional observations 无需 dummy Method 或 state。
+非 reset 时 fault。纯分支保留四态 join；局部值现接纳同 nominal Enum 和有限无环的
+Bits/Enum/Struct payload，字段及 subtree 赋值重建不可变值并保留先前别名快照。
+changed Table-containing joins/reconstruction 仍拒绝；unchanged Table captures
+保留既有接纳。partial/aggregate persistent state、resources、cross-domain、多 outer
+writer、effectful loops 和 early return 继续拒绝。standalone conditional observations
+无需 dummy Method 或 state。
 条件调用与效果的验收必须覆盖默认预算下的完整公共流程；该规格、实现文件与 fixture 本身不证明
 候选通过，也不证明 issue #307 完成。
 实施与剩余验收入口为[扩展实施与验收矩阵](extension-roadmap.md)，精确合同见

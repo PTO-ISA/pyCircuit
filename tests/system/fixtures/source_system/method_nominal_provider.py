@@ -2,6 +2,7 @@
 from enum import Enum
 
 import pycircuit as ac
+from pycircuit import method, module
 
 
 @ac.encoding(width=3)
@@ -29,11 +30,11 @@ class Result:
     direct: Tag
 
 
-@ac.module
+@module
 def NominalCounter():
     count: ac.u8 = 5
 
-    @ac.method
+    @method
     def advance(flag: ac.u1, delta: ac.u8) -> Result:
         before = count
         count = count + delta
@@ -52,12 +53,12 @@ def NominalCounter():
         assert count < 16, "nominal candidate must remain below limit"
         return Result(packet=local, saved=saved, direct=direct)
 
-    @ac.method(guard=lambda allow: allow)
+    @method(guard=lambda allow: allow)
     def guarded(allow: ac.u1) -> Packet:
         return Packet(
             left=Cell(data=count, tag=Tag.ZERO), right=Cell(data=count, tag=Tag.FIVE)
         )
 
-    @ac.method
+    @method
     def read() -> ac.u8:
         return count

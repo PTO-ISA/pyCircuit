@@ -1,13 +1,14 @@
 import pycircuit as ac
+from pycircuit import rule, system
 from checks.method_nominal_provider import NominalCounter
 
 
-@ac.system
+@system
 def ExerciseNominalMethods():
     owner = NominalCounter()
     held = NominalCounter()
 
-    @ac.rule
+    @rule
     def drive() -> None:
         first = owner.advance(0, 1)
         second = owner.advance(1, 2)
@@ -31,11 +32,11 @@ def ExerciseNominalMethods():
         )
         ac.report("nominal count", owner.read())
 
-    @ac.rule
+    @rule
     def observe() -> None:
         ac.log("info", "nominal old", owner.read(), held.read())
 
-    @ac.rule
+    @rule
     def suppressed() -> None:
         pending = held.advance(1, 1)
         denied = held.guarded(0)
