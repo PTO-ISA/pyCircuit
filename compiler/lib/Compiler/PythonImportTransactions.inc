@@ -33,6 +33,88 @@ LogicalResult Importer::scanSourceCallables() {
         methodOwnerNames.insert(moduleName);
       if (syntax->marker == MarkerKind::Rule && syntax->guard)
         transactionModuleNames.insert(moduleName);
+      if (syntax->marker != MarkerKind::Rule || syntax->guard)
+        continue;
+      // Only statement-arm observations need the typed route here. Assertions
+      // and unconditional observations retain their existing behavioral route.
+      // In particular, selectors and nested helper/loop bodies are not scanned.
+      struct PendingStatement {
+        AstNode node;
+        bool inArm;
+      };
+      SmallVector<PendingStatement, 0> pending;
+      auto enqueue = [&](const AstNode &parent, StringRef field,
+                         bool inArm) -> LogicalResult {
+        for (size_t k = parent.array(field).size(); k != 0; --k) {
+          TableQueryCharge charge;
+          std::string reason;
+          // item() copies the path, then appends two steps. Pay possible
+          // copy-and-grow storage, retained-step moves and both appends before
+          // constructing that AstNode.
+          uint64_t pathCapacity =
+              3 * std::max(parent.path.size(), AstNode().path.capacity()) + 1;
+          bool fits = TableQueryBudget::addProduct(
+                          charge, TableQueryResource::Slots, pathCapacity,
+                          (sizeof(AstStep) + 7) / 8) &&
+                      TableQueryBudget::addProduct(
+                          charge, TableQueryResource::Work,
+                          parent.path.size(), 2) &&
+                      TableQueryBudget::add(charge, TableQueryResource::Work, 2);
+          size_t capacity = pending.capacity();
+          if (pending.size() == capacity) {
+            capacity = 2 * capacity + 1;
+            fits &= TableQueryBudget::addProduct(
+                        charge, TableQueryResource::Slots, capacity,
+                        (sizeof(PendingStatement) + 7) / 8) &&
+                    TableQueryBudget::add(charge, TableQueryResource::Work,
+                                          pending.size());
+          }
+          if (!fits || !queryBudget.reserve(charge, reason))
+            return error() << (fits ? reason
+                                   : "source callable scan budget exhausted");
+          pending.reserve(capacity);
+          pending.push_back({parent.item(field, k - 1), inArm});
+        }
+        return success();
+      };
+      if (failed(enqueue(declaration, "body", false)))
+        return failure();
+      while (!pending.empty()) {
+        PendingStatement statement = pending.pop_back_val();
+        if (statement.node.kind() == "If") {
+          if (failed(enqueue(statement.node, "orelse", true)) ||
+              failed(enqueue(statement.node, "body", true)))
+            return failure();
+          continue;
+        }
+        if (!statement.inArm || statement.node.kind() != "Expr")
+          continue;
+        // Each child() copies the path and can move all retained steps when
+        // appending. The second child starts with the first child's new step.
+        TableQueryCharge charge;
+        std::string reason;
+        uint64_t pathCapacity =
+            3 * std::max(statement.node.path.size() + 1,
+                         AstNode().path.capacity()) + 1;
+        bool fits = TableQueryBudget::addProduct(
+                        charge, TableQueryResource::Slots, pathCapacity,
+                        2 * ((sizeof(AstStep) + 7) / 8)) &&
+                    TableQueryBudget::addProduct(
+                        charge, TableQueryResource::Work,
+                        statement.node.path.size(), 4) &&
+                    TableQueryBudget::add(charge, TableQueryResource::Work, 4);
+        if (!fits || !queryBudget.reserve(charge, reason))
+          return error() << (fits ? reason
+                                 : "source callable scan budget exhausted");
+        AstNode call = statement.node.child("value");
+        if (call.kind() != "Call")
+          continue;
+        AstNode function = call.child("func");
+        if (intrinsic(function, "log") || intrinsic(function, "report")) {
+          transactionModuleNames.insert(moduleName);
+          break;
+        }
+      }
     }
   }
   // Classify the actual static module-call graph before reading callable
@@ -486,13 +568,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                 BranchEnvironment &, bool)> emitBody;
     emitBody = [&](const AstNode &parent, StringRef field, OpBuilder &inside,
                    BranchEnvironment &environment,
-                   bool conditional) -> LogicalResult {
+                   bool inBranch) -> LogicalResult {
       auto &values = environment.values;
-      bool savedConditional = context.conditional;
-      context.conditional = conditional;
-      auto restoreConditional = llvm::scope_exit([&] {
-        context.conditional = savedConditional;
-      });
       for (size_t i = 0; i < parent.array(field).size(); ++i) {
         AstNode statement = parent.item(field, i);
         if (returned)
@@ -506,11 +583,17 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (failed(chargeLoopDescriptorWork(statement,
                                               "source branch statement")))
             return failure();
-          // Evaluate the test with the same pure-call restriction as the arms.
-          context.conditional = true;
-          auto test = expression(statement.child("test"), inside, decl.symbol,
-                                 values, instances);
-          context.conditional = conditional;
+          // Statement arms admit effects; evaluating their selector remains
+          // pure, independently of whether this statement is in another arm.
+          auto test = [&]() {
+            bool savedPureExpression =
+                std::exchange(context.pureExpression, true);
+            auto restorePureExpression = llvm::scope_exit([&] {
+              context.pureExpression = savedPureExpression;
+            });
+            return expression(statement.child("test"), inside, decl.symbol,
+                              values, instances);
+          }();
           if (failed(test))
             return failure();
           auto predicate = predicateView(*test, statement.child("test"), decl.symbol);
@@ -581,7 +664,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (statement.kind() == "Pass")
           continue;
         if (statement.kind() == "Return") {
-          if (conditional)
+          if (inBranch)
             return error() << "return in a Method/Rule branch is unsupported";
           returned = statement;
           if (statement.child("value")) {
@@ -610,8 +693,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           continue;
         }
         if (statement.kind() == "Assert") {
-          if (conditional)
-            return error() << "assert in a Method/Rule branch is unsupported";
           auto message = sourceAssertMessage(statement);
           if (failed(message))
             return failure();
@@ -648,8 +729,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               (intrinsic(expressionNode.child("func"), "log") ||
                intrinsic(expressionNode.child("func"), "report"));
           if (observation) {
-            if (conditional)
-              return error() << "log/report in a Method/Rule branch is unsupported";
             if (failed(buildObservation(statement, valueItems, spec,
                                         observationKind)))
               return failure();
@@ -1059,8 +1138,9 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     return failure();
   if (activeSourceEffects->guard)
     return error() << "guard cannot call a Method";
-  if (activeSourceEffects->conditional)
-    return error() << "Method call in a branch or branch test is unsupported";
+  if (activeSourceEffects->pureExpression)
+    return error()
+           << "Method calls are forbidden in branch tests and conditional expressions";
 
   SmallVector<Port> importedInputs, importedResults;
   SmallVector<Type> importedResultTypes;

@@ -11,6 +11,12 @@
 `gpt-6-astra/medium`。历史审查只证明设计经过复核，不证明实现完成。
 本文件完整承载合同；实现和测试不依赖本地日志或聊天记录。
 
+后续覆盖关系：本文件记录直线采样准入切片。[条件调用与 effects 合同](conditional-effects.md)
+扩展其 ordered admission，接纳 statement-arm calls/effects，并将最终 `guards` hard
+break 为带路径的 tagged `controls`。下文的无条件范围及旧 `guards` schema 是此前
+切片的记录，不再是当前条件候选的 admission 边界或可接受格式。实际域、采样历史、
+双层证明与零提交义务继续适用；条件候选的独立验收尚未完成。
+
 ## 范围与作者接口
 
 继续限定同一实际物理域、whole Bits 状态、每个实际 owner 唯一外层 writer。调用和
@@ -73,6 +79,10 @@ lowering 生成的 RequiredCheck 和 expect 位置必须与原 GuardBoundary 完
 verifier 和所有保留正例；缺失旧字段直接拒绝，无默认值、别名或兼容格式。
 
 ## 最终 IR 的闭合 schema
+
+本节保留此前采样切片的 schema。当前候选必须使用
+[条件合同的最终属性](conditional-effects.md#final-sampled-schema)；旧 `guards` 形状
+不提供兼容入口。D/E wiring、源身份与物理域责任继续保留。
 
 以下属性只允许出现在最终硬件中的相应对象；source body/interface 或其他 op 上必须拒绝。
 所有新增 index/count/ordinal 是 signless i64 IntegerAttr，按有符号值检查非负及上下文

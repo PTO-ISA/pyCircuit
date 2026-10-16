@@ -18,7 +18,8 @@ public:
     return "ac-analyze-transaction-state-ssa";
   }
   StringRef getDescription() const final {
-    return "Analyze transaction-local branch state versions and guards";
+    return "Analyze transaction-local candidate state, source paths and "
+           "admission controls";
   }
   void runOnOperation() final {
     if (!getAnalysis<ac::SourceTransactionStateAnalysis>().isValid()) {

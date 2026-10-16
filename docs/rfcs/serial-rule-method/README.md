@@ -21,6 +21,7 @@ Module 拥有状态，Rule 定义一次自主原子事务，Method 提供归入�
 | [事务采样准入](sampled-admission.md) | 动态 guard 的精确 IR、双层证明、clock history、Runtime/RTL 生命周期及实施 checklist |
 | [whole-Bits 分支状态与标量 SSA](branch-state-ssa.md) | statement branch、D/raw-intent join、D/E schema hard break、双层证明及独立验收 |
 | [事务 body effects](sampled-body-effects.md) | 六字段 schema、语句时刻 SSA、效果私有路由、源认证、预算与 generated Method System 验收 |
+| [条件调用与 body effects](conditional-effects.md) | statement-arm calls/effects、四态 selection、路径有效性、tagged controls hard break 与待完成验收 |
 | [事务接口摘要](publication-summary.md) | 闭合字段、body checks/observations、类型与依赖作用域、body 重验及预算 |
 | [观测身份与逻辑 owner](observation-identity.md) | 共同身份验证、紧凑 ReportID 证明、完整日志组和双目标 metadata hard break |
 | [资源和后续扩展](extensions.md) | Queue 准入、端口、跨事务前递及明确未开放的接口 |
@@ -49,8 +50,14 @@ focused Method `@system` 回归验证生成 runner、重复调用、完整观测
 这些结果只属于对应候选，不自动覆盖后续修改，也不等于 nightly 通过。
 whole-Bits statement branch 与 scalar local join 的冻结合同见
 [branch state SSA](branch-state-ssa.md)。它把候选 wiring hard break 为 D/E 两个 slots，
-并保留 conditional calls/effects、partial state 和 resources 的明确拒绝。该规格和实现
-文件本身不证明分支候选已通过验收。
+其原有切片拒绝 conditional calls/effects。当前恢复的条件候选在此基础上接入
+statement-arm Method/assert/log/report、source-path 有效性与 tagged controls：未选
+guard bypass，选中 false guard hold 全部事务，reached X/Z effect selector 在 rising
+非 reset 时 fault。纯分支的四态 join 保留；partial/aggregate state、resources、
+cross-domain、多 outer writer、effectful loops、early return 和 changed aggregate joins
+继续拒绝。standalone conditional observations 无需 dummy Method 或 state。
+条件调用与效果的验收必须覆盖默认预算下的完整公共流程；该规格、实现文件与 fixture 本身不证明
+候选通过，也不证明 issue #307 完成。
 实施与剩余验收入口为[扩展实施与验收矩阵](extension-roadmap.md)，精确合同见
 [事务采样准入](sampled-admission.md)。本次文档不改变历史证据的候选归属，也不声明
 基础 Method 或整个扩展完成。
@@ -69,7 +76,8 @@ whole-Bits statement branch 与 scalar local join 的冻结合同见
 基线合同是 [Python language](../../reference/language.md)、
 [source-unit workflow](../../development/source-unit-workflow.md) 和
 [project governance](../../development/project-governance.md)。
-本规格中明确标注的新增/迁移行为只在其验收完成后进入当前语言参考。
+语言参考和 authoring guide 可明确标注尚待验收的候选行为；文档描述不提前赋予其
+已验收状态。历史通过结果仍仅绑定原候选。
 
 ## 设计决定
 
@@ -126,3 +134,7 @@ SSM 的历史源 API 不成为 pyCircuit 的兼容入口。测试只提取设计
 
 实现证据按[现有证据政策](../../gates/README.md)保存于本地 ignored logs。
 干净 checkout 的测试不得读取本次聊天、个人目录、历史日志、评审文本或状态计数。
+
+条件调用与 body effects 的冻结合同见
+[conditional effects](conditional-effects.md)。设计冻结不等于实现候选已验收；
+其中的四态选择、路径有效性、controls hard break 和 checklist 须独立执行验证。

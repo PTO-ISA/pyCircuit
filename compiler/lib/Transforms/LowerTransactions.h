@@ -62,8 +62,19 @@ struct MaterializedBranchResult {
   ac::BitsSelectOp select;
 };
 
+struct MaterializedAdmissionControl {
+  mlir::Value raw, selectedPath, reached, accepted, bypass;
+  ac::SourceExpectOp terminal;
+};
+struct MaterializedSelection {
+  mlir::Value whenTrue, whenFalse;
+};
+
 struct MaterializedTransaction {
   ac::RuleOp rule;
+  llvm::SmallVector<mlir::Value, 0> prefixes;
+  llvm::SmallVector<MaterializedAdmissionControl, 0> controls;
+  llvm::SmallVector<MaterializedSelection, 0> selections;
   llvm::SmallVector<mlir::Value, 0> boundValues;
   llvm::SmallVector<MaterializedVersion, 0> versions;
   llvm::SmallVector<MaterializedBranchResult, 0> branchResults;

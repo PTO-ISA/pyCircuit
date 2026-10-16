@@ -168,8 +168,108 @@ private:
     uint64_t wiringMetadata = 0, states = 0, incoming = 0, writers = 0;
     uint64_t candidates = 0, maxCandidates = 0, sampledSchema = 0;
     uint64_t observations = 0, observationOperands = 0, observationMetadata = 0;
+    uint64_t checkKeys = 0, keyMax = 0, keyInsertion = 0;
+    uint64_t terminalKeys = 0, terminalKeyCost = 0, validationOperands = 0;
     bool hasSamplingMetadata = false, hasWiring = false;
   };
+  FailureOr<uint64_t> checkComparisonAllowance(uint64_t count,
+                                               Operation *site) {
+    if (!count)
+      return uint64_t(0);
+    uint64_t height = 0;
+    for (; count; count /= 2) {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      ++height;
+    }
+    // Covers insertion and lookup in the inspected standard-library tree
+    // implementations, including semantic-hardening comparator calls.
+    return Budget::add(Budget::multiply(6, height), 1);
+  }
+  LogicalResult countAssociationOperands(Operation *op,
+                                         RawDefinitionWork &local,
+                                         bool directRule, bool directExpect) {
+    auto fail = [&]() -> LogicalResult {
+      return emitError(UnknownLoc::get(op->getContext()))
+             << "source-check raw association requires closed required rows "
+                "and dictionary CheckIDs";
+    };
+    if (directRule) {
+      if (failed(budget.debit(1, op)))
+        return failure();
+      Attribute occurrence = op->getAttr("occurrence");
+      Attribute rawRequired = op->getAttr("ac.required_checks");
+      auto required = dyn_cast_or_null<ArrayAttr>(rawRequired);
+      if (rawRequired && !required)
+        return fail();
+      auto occurrenceCost = structureCost(occurrence, op);
+      auto requiredCost = structureCost(rawRequired, op);
+      if (failed(occurrenceCost) || failed(requiredCost))
+        return failure();
+      local.validationOperands = Budget::add(
+          local.validationOperands,
+          Budget::add(Budget::multiply(3, *occurrenceCost), *requiredCost));
+      if (required) {
+        for (Attribute raw : required) {
+          if (failed(budget.debit(1, op)))
+            return failure();
+          auto row = dyn_cast<DictionaryAttr>(raw);
+          auto id = row ? row.getAs<DictionaryAttr>("id") : DictionaryAttr();
+          auto registration =
+              id ? id.getAs<DictionaryAttr>("registration") : DictionaryAttr();
+          if (!row || row.size() != 3 || !id || id.size() != 3 ||
+              !registration || !row.getAs<StringAttr>("kind") ||
+              !row.getAs<DictionaryAttr>("location"))
+            return fail();
+          auto idCost = structureCost(id, op);
+          auto comparisons = checkComparisonAllowance(local.checkKeys, op);
+          if (failed(idCost) || failed(comparisons))
+            return failure();
+          local.keyInsertion = Budget::add(
+              local.keyInsertion,
+              Budget::multiply(
+                  *comparisons,
+                  Budget::add(1, Budget::add(*idCost, local.keyMax))));
+          local.keyMax = std::max(local.keyMax, *idCost);
+          local.checkKeys = Budget::add(local.checkKeys, 1);
+          // The owning Rule/registration comparison is a separate traversal,
+          // not an association lookup or a cached structural verdict.
+          if (failed(budget.debit(1, op)))
+            return failure();
+          uint64_t registrationCost = 1;
+          if (registration != occurrence) {
+            auto lhs = structureCost(registration, op);
+            auto rhs = structureCost(occurrence, op);
+            if (failed(lhs) || failed(rhs))
+              return failure();
+            registrationCost = Budget::add(*lhs, *rhs);
+          }
+          local.validationOperands =
+              Budget::add(local.validationOperands, registrationCost);
+        }
+      }
+    }
+    if (directExpect) {
+      if (failed(budget.debit(1, op)))
+        return failure();
+      uint64_t metadata = 0;
+      for (StringRef key : {"ac.check_id", "location", "kind", "ac.message"}) {
+        Attribute value = op->getAttr(key);
+        if (key == "ac.check_id" && !isa_and_nonnull<DictionaryAttr>(value))
+          return fail();
+        auto cost = structureCost(value, op);
+        if (failed(cost))
+          return failure();
+        metadata = Budget::add(metadata, *cost);
+        if (key == "ac.check_id")
+          local.terminalKeyCost = Budget::add(local.terminalKeyCost, *cost);
+      }
+      local.terminalKeys = Budget::add(local.terminalKeys, 1);
+      local.validationOperands =
+          Budget::add(local.validationOperands, Budget::multiply(2, metadata));
+    }
+    return success();
+  }
   FailureOr<uint64_t> rawCarrierCost(Value value, Operation *site) {
     llvm::DenseSet<Value> seen;
     uint64_t cost = 0;
@@ -192,7 +292,10 @@ private:
   }
   struct RawSampledRuleWork {
     uint64_t prefixValues = 0, andNodes = 0, comparisons = 0;
-    uint64_t andOperands = 0, guards = 0, effects = 0, identityLength = 0;
+    uint64_t andOperands = 0, controls = 0, guards = 0, selections = 0;
+    uint64_t ors = 0, selects = 0, pathComparisons = 0;
+    uint64_t nonrootControls = 0, nonrootEffects = 0, pathDepth = 0;
+    uint64_t effects = 0, identityLength = 0;
     uint64_t intentValues = 0, intentSelects = 0, intentEdges = 0, enables = 0;
     uint64_t intentIdentityInputs = 0, effectiveValues = 0,
              intentIdentityLength = 0;
@@ -206,46 +309,106 @@ private:
     uint64_t e = add(1, Budget::bytes(sizeof(HardwareIdentityEndpoint)));
     uint64_t f = add(add(add(e, b), 1), s);
     uint64_t m = add(1, Budget::bytes(2 * sizeof(HardwareIdentityEndpoint)));
-    uint64_t h =
-        add(1, Budget::bytes(sizeof(SmallVector<HardwareIdentityEndpoint>) +
-                             sizeof(uint64_t)));
-    uint64_t hc =
-        add(1, Budget::bytes(sizeof(HardwareIdentityEndpoint) +
-                             sizeof(SmallVector<HardwareIdentityEndpoint>) +
-                             2 * sizeof(uint64_t)));
-    uint64_t atoms = std::max(work.guards, work.comparisons);
+    uint64_t h = add(
+        1,
+        Budget::bytes(SampledAdmissionValidation::prefixValueStorageBytes()));
+    uint64_t hcBytes =
+        Budget::bytes(SampledAdmissionValidation::prefixCacheStorageBytes());
+    uint64_t knownBytes = Budget::bytes(
+        SampledAdmissionValidation::prefixKnownAtomStorageBytes());
+    uint64_t idBytes = Budget::bytes(sizeof(uint64_t));
+    uint64_t poolBytes = Budget::bytes(
+        SampledAdmissionValidation::prefixConditionalStorageBytes());
+    uint64_t frameBytes =
+        Budget::bytes(SampledAdmissionValidation::prefixFrameStorageBytes());
+    uint64_t pathRow = add(
+        1, Budget::bytes(
+               SampledAdmissionValidation::prefixSelectionPathsStorageBytes()));
+    auto choose2 = [&](uint64_t n) {
+      if (!n)
+        return uint64_t(0);
+      uint64_t left = n, right = n - 1;
+      if (left % 2 == 0)
+        left /= 2;
+      else
+        right /= 2;
+      return multiply(left, right);
+    };
+    uint64_t attempts = add(work.selects, work.nonrootControls);
+    uint64_t knownExpected = add(work.guards, multiply(3, work.selections));
+    uint64_t knownAttempts = add(add(work.comparisons, work.ors), knownExpected);
+    uint64_t atoms = add(add(work.comparisons, work.ors), work.selects);
+    uint64_t pathAtoms = std::max(work.pathComparisons, work.pathDepth);
     uint64_t prefixQueries =
-        add(add(add(work.guards, 1), work.effects), work.andOperands);
+        add(add(add(work.controls, 1), work.effects),
+            add(work.andOperands, multiply(2, work.selects)));
+    uint64_t queries =
+        add(prefixQueries,
+            add(add(multiply(2, work.comparisons), multiply(5, work.controls)),
+                add(multiply(6, work.ors), work.selects)));
     uint64_t intentQueries =
         add(1, add(work.intentEdges, multiply(3, work.enables)));
-    // Dedicated body-effect paths have their own non-memoized exact-fire
-    // identity checks, separate from both prefix and intent memo contexts.
-    uint64_t exactPathQueries = add(1, work.effects);
-    uint64_t queries = add(prefixQueries, add(multiply(2, work.comparisons),
-                                              multiply(5, work.guards)));
-    // Each memo context pays only chains it actually normalizes. Intent
-    // selectors and D/E carriers cannot lengthen ordered-prefix walks.
     auto normalizationCost = [&](uint64_t length) {
       uint64_t normalStep =
           add(add(1, stops), add(add(e, b), add(f, multiply(6, s))));
-      uint64_t normal = add(f, multiply(length, normalStep));
-      if (length) {
-        uint64_t left = length, right = length - 1;
-        if (left % 2 == 0)
-          left /= 2;
-        else
-          right /= 2;
-        normal = add(normal, multiply(left, right));
-      }
-      return normal;
+      return add(add(f, multiply(length, normalStep)), choose2(length));
     };
     uint64_t normal = normalizationCost(work.identityLength);
     uint64_t intentNormal = normalizationCost(work.intentIdentityLength);
     uint64_t identity = multiply(
         queries, add(add(add(f, queries), normal), add(m, multiply(4, s))));
-    // IntentProof has a different immutable IdentityMemo from the prefix
-    // prover. Repeated fire and shared literal-intent queries are memo hits;
-    // only distinct effective enables, intent nodes and selectors can miss.
+    auto copy = [&](uint64_t n) {
+      return add(h, multiply(n, add(idBytes, 1)));
+    };
+    auto join = [&](uint64_t left, uint64_t right) {
+      return add(add(h, 1), multiply(add(idBytes, 3), add(left, right)));
+    };
+    uint64_t cost = add(identity, schemaRecordCost<const HardwareIdentityScope *>());
+    cost = add(cost, multiply(prefixQueries,
+                              add(add(work.prefixValues, multiply(2, s)),
+                                  copy(atoms))));
+    cost = add(cost, multiply(work.prefixValues, add(add(multiply(2, b), 3),
+                                                     add(s, copy(atoms)))));
+    cost = add(cost, multiply(multiply(2, work.prefixValues), add(hcBytes, 1)));
+    uint64_t knownCost = add(add(multiply(2, b), 2),
+                             add(add(idBytes, 1), add(1, s)));
+    cost = add(cost, multiply(knownAttempts, knownCost));
+    cost = add(cost, multiply(choose2(knownAttempts), add(1, multiply(2, s))));
+    cost = add(cost, multiply(multiply(2, knownAttempts), add(knownBytes, 1)));
+    cost = add(cost, multiply(multiply(2, work.comparisons), add(b, 1)));
+    cost =
+        add(cost, add(add(multiply(multiply(4, work.ors), add(b, 1)),
+                          multiply(4, work.ors)),
+                      multiply(multiply(8, work.ors), add(1, multiply(2, s)))));
+    cost = add(cost, multiply(work.selects, add(b, 2)));
+    cost = add(cost, multiply(work.andNodes, join(atoms, atoms)));
+    cost = add(cost, multiply(multiply(2, work.selections),
+                              join(work.selections, 1)));
+    cost = add(cost, multiply(add(work.nonrootControls, work.nonrootEffects),
+                              join(work.controls, work.selections)));
+    // Sum Join(i,1) without an unchecked control-count loop.
+    cost = add(cost, add(multiply(work.controls, add(h, 1)),
+                         multiply(add(idBytes, 3),
+                                  add(choose2(work.controls), work.controls))));
+    cost = add(cost, multiply(add(add(work.controls, 1), work.effects),
+                              add(1, add(work.controls, work.selections))));
+    uint64_t pool = multiply(choose2(attempts), add(pathAtoms, 4));
+    pool = add(pool, multiply(attempts, add(add(copy(pathAtoms), copy(1)), 3)));
+    pool = add(pool, multiply(multiply(2, attempts), add(poolBytes, 1)));
+    cost = add(cost, pool);
+    cost =
+        add(cost, add(multiply(work.selections, pathRow),
+                      multiply(add(work.nonrootControls, work.nonrootEffects),
+                               add(work.selections, 1))));
+    uint64_t frames = add(work.andNodes, work.selects);
+    cost = add(cost, add(multiply(multiply(2, frames), add(frameBytes, 1)),
+                         multiply(frames, add(s, 7))));
+    cost =
+        add(cost, add(multiply(add(add(1, work.effects), work.nonrootEffects),
+                               add(f, normal)),
+                      multiply(multiply(2, s), work.effects)));
+    // IntentProof is a separate immutable context. Its original accounting is
+    // added exactly once; raw predicates/data never become prefix atoms.
     uint64_t intentEntries =
         add(work.effectiveValues,
             add(work.intentValues, work.intentIdentityInputs));
@@ -255,29 +418,7 @@ private:
     intentIdentity = add(intentIdentity,
                          multiply(intentMisses, add(add(f, intentNormal),
                                                     add(m, multiply(2, s)))));
-    identity = add(identity, intentIdentity);
-    identity = add(identity, multiply(exactPathQueries, add(f, normal)));
-    identity = add(identity, multiply(work.effects, multiply(2, s)));
-    uint64_t copy = add(h, multiply(atoms, add(e, s)));
-    uint64_t atomStep =
-        add(add(atoms, 1), add(multiply(multiply(2, s), atoms), add(e, s)));
-    uint64_t sort = multiply(add(atoms, 1), add(atoms, 1));
-    uint64_t joinGeneral = add(copy, add(multiply(atoms, atomStep), sort));
-    uint64_t joinSingleton = add(copy, add(atomStep, sort));
-    uint64_t equal =
-        add(sort, multiply(multiply(multiply(2, s), atoms), atoms));
-    uint64_t cost =
-        add(identity,
-            multiply(prefixQueries,
-                     add(multiply(multiply(2, s), work.prefixValues), copy)));
-    cost = add(cost, multiply(work.prefixValues, add(add(multiply(2, b), 2),
-                                                     add(hc, add(s, copy)))));
-    cost = add(cost, multiply(multiply(2, work.comparisons), add(b, 1)));
-    cost = add(cost, multiply(add(work.comparisons, work.guards),
-                              add(add(multiply(2, b), 2), add(e, s))));
-    cost = add(cost, multiply(work.andNodes, joinGeneral));
-    cost = add(cost, multiply(work.guards, joinSingleton));
-    cost = add(cost, multiply(add(add(work.guards, 1), work.effects), equal));
+    cost = add(cost, intentIdentity);
     // The separate intent grammar owns completed-root and Active/Complete node
     // memo storage plus explicit DFS frames. Reserve actual raw nodes/edges;
     // selectors remain ordinary Bits1 identity queries, never guard atoms.
@@ -365,8 +506,8 @@ private:
           if (failed(seed(op->getOperand(*index), false)))
             return failure();
       auto fire = ordinal(sampled, "fire_result", op->getNumResults());
-      auto guards = sampled.getAs<ArrayAttr>("guards");
-      if (!fire || !guards || op->getNumRegions() != 1 ||
+      auto controls = sampled.getAs<ArrayAttr>("controls");
+      if (!fire || !controls || op->getNumRegions() != 1 ||
           !op->getRegion(0).hasOneBlock() || op->getRegion(0).front().empty())
         return success();
       Operation &yielded = op->getRegion(0).front().back();
@@ -421,14 +562,14 @@ private:
             return failure();
           uint64_t path = Budget::add(
               checkBase,
-              Budget::add(Budget::multiply(2, Budget::add(guards.size(), i)),
+              Budget::add(Budget::multiply(2, Budget::add(controls.size(), i)),
                           1));
           if (path < yielded.getNumOperands() &&
               failed(seed(yielded.getOperand(path), true)))
             return failure();
         }
       }
-      for (uint64_t index = 0; index < guards.size(); ++index) {
+      for (uint64_t index = 0; index < controls.size(); ++index) {
         if (failed(budget.debit(1, definition)))
           return failure();
         uint64_t predicate = Budget::add(checkBase, Budget::multiply(2, index));
@@ -521,7 +662,7 @@ private:
       RawSampledRuleWork result;
       while (!pending.empty()) {
         auto [value, modeIndex] = pending.pop_back_val();
-        bool prefix = modeIndex == 1;
+        bool prefix = modeIndex == 1 || modeIndex == 5 || modeIndex == 6;
         bool intent = modeIndex == 2;
         bool effective = modeIndex == 3;
         if (failed(budget.debit(1, definition)))
@@ -572,22 +713,58 @@ private:
               return failure();
         } else if (prefix && owner && isa<BitsBinaryOp>(owner)) {
           auto opcode = owner->getAttrOfType<StringAttr>("opcode");
-          if (opcode && opcode.getValue() == "and") {
+          if (owner->getNumOperands() != 2)
+            continue;
+          if (opcode && opcode.getValue() == "and" && modeIndex != 6) {
             result.andNodes = Budget::add(result.andNodes, 1);
-            result.andOperands =
-                Budget::add(result.andOperands, owner->getNumOperands());
+            result.andOperands = Budget::add(result.andOperands, 2);
             for (Value operand : owner->getOperands())
-              if (failed(seed(operand, true)))
+              if (failed(seed(operand, modeIndex)))
                 return failure();
+          } else if (opcode && opcode.getValue() == "or" && modeIndex != 5) {
+            result.ors = Budget::add(result.ors, 1);
+            // Direct matching makes six identity-only requests. Follow raw
+            // transports to find the compared operands without parsing them.
+            for (Value operand : owner->getOperands()) {
+              if (failed(seed(operand, 0)))
+                return failure();
+              llvm::DenseSet<Value> chain;
+              Value child = operand;
+              while (Value next = identityNext(child)) {
+                if (failed(budget.debit(1, definition)) ||
+                    failed(
+                        budget.debit(Budget::bytes(sizeof(Value)), definition)))
+                  return failure();
+                if (!chain.insert(child).second)
+                  break;
+                child = next;
+              }
+              auto compare = child.getDefiningOp();
+              if (compare && isa<BitsCompareOp>(compare) &&
+                  compare->getNumOperands() == 2)
+                for (Value raw : compare->getOperands())
+                  if (failed(seed(raw, 0)))
+                    return failure();
+            }
           }
         } else if (prefix && owner && isa<BitsCompareOp>(owner)) {
           auto predicate = owner->getAttrOfType<StringAttr>("predicate");
-          if (predicate && predicate.getValue() == "case_eq") {
+          if (predicate && predicate.getValue() == "case_eq" &&
+              owner->getNumOperands() == 2) {
             result.comparisons = Budget::add(result.comparisons, 1);
+            if (modeIndex == 5)
+              result.pathComparisons = Budget::add(result.pathComparisons, 1);
             for (Value operand : owner->getOperands())
-              if (failed(seed(operand, false)))
+              if (failed(seed(operand, 0)))
                 return failure();
           }
+        } else if (modeIndex == 1 && owner && isa<BitsSelectOp>(owner) &&
+                   owner->getNumOperands() == 3) {
+          result.selects = Budget::add(result.selects, 1);
+          if (failed(seed(owner->getOperand(0), 5)) ||
+              failed(seed(owner->getOperand(1), 6)) ||
+              failed(seed(owner->getOperand(2), 0)))
+            return failure();
         }
       }
       struct IdentityLength {
@@ -631,7 +808,7 @@ private:
             length = Budget::add(length, 1);
           lengths.find(chain.pop_back_val())->second = {length, true, cycle};
         }
-        if (entry.second & 3u)
+        if (entry.second & ((1u << 0) | (1u << 1) | (1u << 5) | (1u << 6)))
           result.identityLength = std::max(result.identityLength, length);
         if (entry.second & 28u)
           result.intentIdentityLength =
@@ -648,12 +825,58 @@ private:
         return failure();
       auto sampled =
           rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-      if (auto guards = sampled.getAs<ArrayAttr>("guards"))
-        local->guards = guards.size();
-      if (auto checks = sampled.getAs<ArrayAttr>("body_checks"))
-        local->effects = checks.size();
-      if (auto observations = sampled.getAs<ArrayAttr>("observations"))
-        local->effects = Budget::add(local->effects, observations.size());
+      auto controls = sampled.getAs<ArrayAttr>("controls");
+      auto countPath = [&](DictionaryAttr row,
+                           uint64_t before) -> FailureOr<uint64_t> {
+        auto path = row ? row.getAs<DictionaryAttr>("path") : DictionaryAttr();
+        uint64_t depth = 0;
+        while (path && !path.empty()) {
+          if (failed(budget.debit(1, definition)))
+            return failure();
+          auto selection = ordinal(path, "selection", before);
+          if (!selection || !controls || *selection >= controls.size())
+            break;
+          depth = Budget::add(depth, 1);
+          before = *selection;
+          auto parent = dyn_cast<DictionaryAttr>(controls[*selection]);
+          path =
+              parent ? parent.getAs<DictionaryAttr>("path") : DictionaryAttr();
+        }
+        return depth;
+      };
+      if (controls) {
+        local->controls = controls.size();
+        for (auto [i, raw] : llvm::enumerate(controls)) {
+          if (failed(budget.debit(1, definition)))
+            return failure();
+          auto row = dyn_cast<DictionaryAttr>(raw);
+          auto kind = row ? row.getAs<StringAttr>("kind") : StringAttr();
+          if (kind && kind.getValue() == "branch_select")
+            local->selections = Budget::add(local->selections, 1);
+          else
+            local->guards = Budget::add(local->guards, 1);
+          auto depth = countPath(row, i);
+          if (failed(depth))
+            return failure();
+          local->pathDepth = std::max(local->pathDepth, *depth);
+          if (*depth)
+            local->nonrootControls = Budget::add(local->nonrootControls, 1);
+        }
+      }
+      for (StringRef key : {"body_checks", "observations"}) {
+        if (auto effects = sampled.getAs<ArrayAttr>(key)) {
+          local->effects = Budget::add(local->effects, effects.size());
+          for (Attribute raw : effects) {
+            auto depth =
+                countPath(dyn_cast<DictionaryAttr>(raw), local->controls);
+            if (failed(depth))
+              return failure();
+            local->pathDepth = std::max(local->pathDepth, *depth);
+            if (*depth)
+              local->nonrootEffects = Budget::add(local->nonrootEffects, 1);
+          }
+        }
+      }
       proof = Budget::add(proof, sampledRuleProofCost(*local, stops));
     }
     return proof;
@@ -661,92 +884,291 @@ private:
   template <typename T> static uint64_t schemaRecordCost() {
     return Budget::add(1, Budget::bytes(sizeof(T)));
   }
-  FailureOr<uint64_t> sampledSchemaCost(Attribute attribute, uint64_t metadata,
-                                        Operation *site) {
+  // Exact native payAttribute mirror. Raw traversal pays its own work before
+  // visiting metadata or allocating its explicit handle stack.
+  FailureOr<uint64_t> sampledAttributeCost(Attribute attribute, Operation *site) {
+    uint64_t cost = 0;
+    auto pay = [&](uint64_t units) -> LogicalResult {
+      if (failed(budget.debit(units, site)))
+        return failure();
+      cost = Budget::add(cost, units);
+      return success();
+    };
+    if (failed(pay(1)))
+      return failure();
+    SmallVector<Attribute, 0> pending;
+    auto push = [&](Attribute value) -> LogicalResult {
+      if (failed(pay(1)))
+        return failure();
+      if (pending.size() == pending.capacity()) {
+        uint64_t capacity = std::max(
+            uint64_t(2), Budget::add(Budget::multiply(pending.capacity(), 2), 1));
+        uint64_t bytes =
+            Budget::multiply(capacity - pending.capacity(), sizeof(Attribute));
+        if (capacity == std::numeric_limits<uint64_t>::max() ||
+            bytes == std::numeric_limits<uint64_t>::max() ||
+            capacity > pending.max_size())
+          return budget.debit(std::numeric_limits<uint64_t>::max(), site);
+        if (failed(pay(Budget::add(Budget::bytes(bytes), pending.size()))))
+          return failure();
+        pending.reserve(capacity);
+      }
+      pending.push_back(value);
+      return success();
+    };
+    auto children = [&](Attribute value) -> LogicalResult {
+      if (auto text = dyn_cast_or_null<StringAttr>(value))
+        return pay(Budget::bytes(text.getValue().size()));
+      if (auto array = dyn_cast_or_null<ArrayAttr>(value)) {
+        for (Attribute child : array)
+          if (failed(push(child)))
+            return failure();
+      } else if (auto dictionary = dyn_cast_or_null<DictionaryAttr>(value)) {
+        for (auto field : dictionary)
+          if (failed(pay(Budget::bytes(field.getName().getValue().size()))) ||
+              failed(push(field.getValue())))
+            return failure();
+      }
+      return success();
+    };
+    if (failed(children(attribute)))
+      return failure();
+    while (!pending.empty())
+      if (failed(children(pending.pop_back_val())))
+        return failure();
+    return cost;
+  }
+  FailureOr<uint64_t> sampledSchemaCost(Attribute attribute, Operation *site) {
     auto sampled = dyn_cast_or_null<DictionaryAttr>(attribute);
-    auto guards = sampled ? sampled.getAs<ArrayAttr>("guards") : ArrayAttr();
-    auto checks =
-        sampled ? sampled.getAs<ArrayAttr>("body_checks") : ArrayAttr();
+    auto controls = sampled ? sampled.getAs<ArrayAttr>("controls") : ArrayAttr();
+    auto checks = sampled ? sampled.getAs<ArrayAttr>("body_checks") : ArrayAttr();
     auto observations =
         sampled ? sampled.getAs<ArrayAttr>("observations") : ArrayAttr();
-    auto fail = [&]() -> FailureOr<uint64_t> {
+    auto fail = [&]() -> LogicalResult {
       emitError(UnknownLoc::get(site->getContext()))
           << "sampled admission raw layout requires exact six-field schema and "
-             "checked result counts";
+             "checked result counts, roles and decreasing path indices";
       return failure();
     };
     auto rawIndex = [&](DictionaryAttr row,
                         StringRef key) -> std::optional<uint64_t> {
       auto value = row ? row.getAs<IntegerAttr>(key) : IntegerAttr();
-      auto type =
-          value ? dyn_cast<IntegerType>(value.getType()) : IntegerType();
+      auto type = value ? dyn_cast<IntegerType>(value.getType()) : IntegerType();
       if (!type || !type.isSignless() || type.getWidth() != 64 ||
           value.getInt() < 0)
         return std::nullopt;
       return static_cast<uint64_t>(value.getInt());
     };
+    if (failed(budget.debit(1, site)))
+      return failure();
     auto clock = rawIndex(sampled, "clock_capture"),
          reset = rawIndex(sampled, "reset_capture"),
          fire = rawIndex(sampled, "fire_result");
-    if (!sampled || sampled.size() != 6 || !guards || guards.empty() ||
+    if (!sampled || sampled.size() != 6 || !controls || controls.empty() ||
         !checks || !observations || !clock || !reset || !fire ||
         *clock >= site->getNumOperands() || *reset >= site->getNumOperands())
       return fail();
-    uint64_t g = guards.size(), a = checks.size(), n = observations.size(),
-             k = 0, frames = 0;
-    uint64_t checkBase = Budget::add(*fire, 1);
-    for (Attribute raw : observations) {
-      if (failed(budget.debit(1, site)))
-        return failure();
-      auto row = dyn_cast<DictionaryAttr>(raw);
-      auto count = rawIndex(row, "value_count");
-      if (!row || row.size() != 2 || !row.getAs<DictionaryAttr>("id") || !count)
-        return fail();
-      k = Budget::add(k, *count);
-      checkBase = Budget::add(checkBase, Budget::add(1, *count));
-    }
-    uint64_t total =
-        Budget::add(checkBase, Budget::multiply(2, Budget::add(g, a)));
-    if (total == std::numeric_limits<uint64_t>::max() ||
-        total != site->getNumResults() || site->getNumRegions() != 1 ||
-        !site->getRegion(0).hasOneBlock() ||
-        site->getRegion(0).front().empty() ||
-        site->getRegion(0).front().back().getNumOperands() != total)
-      return fail();
+    uint64_t g = controls.size(), a = checks.size(), n = observations.size();
     auto required = site->getAttrOfType<ArrayAttr>("ac.required_checks");
     if (!required || required.size() != Budget::add(g, a))
       return fail();
-    auto requiredCost = structureCost(required, site);
-    if (failed(requiredCost))
-      return failure();
-    metadata = Budget::add(metadata, *requiredCost);
-    auto countFrames = [&](ArrayAttr rows, bool observation) -> LogicalResult {
-      for (Attribute raw : rows) {
+    auto add = Budget::add;
+    auto multiply = Budget::multiply;
+    uint64_t cost = schemaRecordCost<SampledAdmissionView>();
+    auto attributeCost = [&](Attribute value) -> LogicalResult {
+      auto units = sampledAttributeCost(value, site);
+      if (failed(units))
+        return failure();
+      cost = add(cost, *units);
+      return success();
+    };
+    auto comparison = [&](Attribute lhs, Attribute rhs) -> LogicalResult {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      if (lhs == rhs) {
+        cost = add(cost, 1);
+        return success();
+      }
+      return failure(failed(attributeCost(lhs)) || failed(attributeCost(rhs)));
+    };
+    auto prefixRelation = [&](ArrayAttr prefix,
+                              ArrayAttr invocation) -> LogicalResult {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      cost = add(cost, 1);
+      if (!prefix || !invocation)
+        return fail();
+      if (prefix.size() > invocation.size())
+        return success();
+      for (uint64_t i = 0; i < prefix.size(); ++i) {
         if (failed(budget.debit(1, site)))
           return failure();
-        auto row = dyn_cast<DictionaryAttr>(raw);
-        if (observation)
-          row = row ? row.getAs<DictionaryAttr>("id") : DictionaryAttr();
-        if (auto invocation =
-                row ? row.getAs<ArrayAttr>("invocation") : ArrayAttr())
-          frames = Budget::add(frames, invocation.size());
+        cost = add(cost, 1);
+        if (failed(comparison(prefix[i], invocation[i])))
+          return failure();
       }
       return success();
     };
-    if (failed(countFrames(guards, false)) ||
-        failed(countFrames(checks, false)) ||
-        failed(countFrames(observations, true)))
+    auto kindOf = [](DictionaryAttr row) {
+      return row ? row.getAs<StringAttr>("kind") : StringAttr();
+    };
+    auto validControl = [&](DictionaryAttr row) -> bool {
+      auto kind = kindOf(row);
+      auto predecessor = row ? row.getAs<IntegerAttr>("predecessor") : IntegerAttr();
+      auto type = predecessor ? dyn_cast<IntegerType>(predecessor.getType())
+                              : IntegerType();
+      return row && row.size() == 5 && kind &&
+             (kind.getValue() == "callable_guard" ||
+              kind.getValue() == "branch_select") &&
+             row.getAs<DictionaryAttr>("id") && row.getAs<ArrayAttr>("invocation") &&
+             row.getAs<DictionaryAttr>("path") && type && type.isSignless() &&
+             type.getWidth() == 64 && predecessor.getInt() >= -1;
+    };
+    auto pathCost = [&](DictionaryAttr row, ArrayAttr invocation,
+                        uint64_t before) -> LogicalResult {
+      auto path = row ? row.getAs<DictionaryAttr>("path") : DictionaryAttr();
+      if (!path)
+        return fail();
+      if (!path.empty()) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        cost = add(cost, 1);
+      }
+      while (!path.empty()) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        auto selection = rawIndex(path, "selection");
+        if (path.size() != 2 || !path.getAs<BoolAttr>("when_true") ||
+            !selection || *selection >= before || *selection >= g)
+          return fail();
+        auto parent = dyn_cast<DictionaryAttr>(controls[*selection]);
+        if (!validControl(parent) || kindOf(parent).getValue() != "branch_select")
+          return fail();
+        cost = add(cost, 1);
+        if (failed(prefixRelation(parent.getAs<ArrayAttr>("invocation"),
+                                  invocation)))
+          return failure();
+        before = *selection;
+        path = parent.getAs<DictionaryAttr>("path");
+      }
+      return success();
+    };
+    auto callableCost = [&](ArrayAttr invocation, uint64_t before,
+                            bool parent) -> LogicalResult {
+      for (uint64_t j = 0; j < before; ++j) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        cost = add(cost, 1);
+        auto candidate = dyn_cast<DictionaryAttr>(controls[j]);
+        if (!validControl(candidate))
+          return fail();
+        if (kindOf(candidate).getValue() != "callable_guard")
+          continue;
+        auto prior = candidate.getAs<ArrayAttr>("invocation");
+        uint64_t requiredLength = parent ? add(prior.size(), 1) : prior.size();
+        if (requiredLength != invocation.size())
+          continue;
+        if (parent ? failed(prefixRelation(prior, invocation))
+                   : failed(comparison(prior, invocation)))
+          return failure();
+      }
+      return success();
+    };
+    if (failed(attributeCost(sampled)) || failed(attributeCost(required)) ||
+        failed(attributeCost(site->getAttr("occurrence"))))
       return failure();
-    auto add = Budget::add;
-    auto multiply = Budget::multiply;
-    uint64_t q = add(add(g, a), n);
-    uint64_t cost = schemaRecordCost<SampledAdmissionView>();
-    cost = add(cost, multiply(g, schemaRecordCost<SampledGuardView>()));
+    uint64_t frames = 0, k = 0, checkBase = add(*fire, 1);
+    for (auto [ordinal, raw] : llvm::enumerate(controls)) {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      auto row = dyn_cast<DictionaryAttr>(raw);
+      if (!validControl(row))
+        return fail();
+      auto id = row.getAs<DictionaryAttr>("id");
+      auto invocation = row.getAs<ArrayAttr>("invocation");
+      frames = add(frames, invocation.size());
+      auto record = dyn_cast<DictionaryAttr>(required[ordinal]);
+      if (!record || record.size() != 3 || !record.getAs<DictionaryAttr>("id"))
+        return fail();
+      if (failed(comparison(id.get("registration"), site->getAttr("occurrence"))) ||
+          failed(comparison(record.get("id"), id)) ||
+          failed(pathCost(row, invocation, ordinal)))
+        return failure();
+      for (uint64_t j = 0; j < ordinal; ++j) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        cost = add(cost, 1);
+        auto prior = dyn_cast<DictionaryAttr>(controls[j]);
+        if (!validControl(prior))
+          return fail();
+        auto priorInvocation = prior.getAs<ArrayAttr>("invocation");
+        if (kindOf(prior) != kindOf(row) ||
+            priorInvocation.size() != invocation.size())
+          continue;
+        if (failed(comparison(priorInvocation, invocation)))
+          return failure();
+        // Census all eligible selection-site comparisons without retaining
+        // structural identity verdicts or stopping at a successful owner.
+        if (kindOf(row).getValue() == "branch_select" &&
+            failed(comparison(prior.getAs<DictionaryAttr>("id").get("check"),
+                              id.get("check"))))
+          return failure();
+      }
+      if (ordinal && failed(callableCost(
+                         invocation, ordinal,
+                         kindOf(row).getValue() == "callable_guard")))
+        return failure();
+    }
+    for (StringRef key : {"body_checks", "observations"}) {
+      auto rows = sampled.getAs<ArrayAttr>(key);
+      for (auto [ordinal, raw] : llvm::enumerate(rows)) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        auto row = dyn_cast<DictionaryAttr>(raw);
+        auto id = row ? row.getAs<DictionaryAttr>("id") : DictionaryAttr();
+        if (!row || row.size() != 3 || !id)
+          return fail();
+        auto invocation = key == "observations" ? id.getAs<ArrayAttr>("invocation")
+                                                : row.getAs<ArrayAttr>("invocation");
+        if (!invocation)
+          return fail();
+        frames = add(frames, invocation.size());
+        if (failed(attributeCost(invocation)) ||
+            failed(comparison(id.get("registration"), site->getAttr("occurrence"))) ||
+            failed(callableCost(invocation, g, false)) ||
+            failed(pathCost(row, invocation, g)))
+          return failure();
+        if (key == "body_checks") {
+          // Native body-frame validation visits frames already covered by
+          // the raw invocation traversal above; reserve only its native fee.
+          cost = add(cost, invocation.size());
+          auto record = dyn_cast<DictionaryAttr>(required[g + ordinal]);
+          if (!record || record.size() != 3 || !record.getAs<DictionaryAttr>("id"))
+            return fail();
+          if (failed(comparison(record.get("id"), id)))
+            return failure();
+        } else {
+          auto count = rawIndex(row, "value_count");
+          if (!count)
+            return fail();
+          k = add(k, *count);
+          checkBase = add(checkBase, add(1, *count));
+        }
+      }
+    }
+    uint64_t total = add(checkBase, multiply(2, add(g, a)));
+    if (total == std::numeric_limits<uint64_t>::max() ||
+        total != site->getNumResults() || site->getNumRegions() != 1 ||
+        !site->getRegion(0).hasOneBlock() || site->getRegion(0).front().empty() ||
+        site->getRegion(0).front().back().getNumOperands() != total)
+      return fail();
+    cost = add(cost, multiply(g, schemaRecordCost<SampledControlView>()));
     cost = add(cost, multiply(a, schemaRecordCost<SampledBodyCheckView>()));
     cost = add(cost, multiply(n, schemaRecordCost<SampledObservationView>()));
     cost = add(cost, multiply(k, schemaRecordCost<Value>()));
     cost = add(cost, multiply(frames, schemaRecordCost<DictionaryAttr>()));
-    cost = add(cost, multiply(add(multiply(2, q), 3), metadata));
+    using StaticPathFact = std::pair<std::optional<bool>, std::optional<bool>>;
+    cost = add(cost, multiply(g, schemaRecordCost<StaticPathFact>()));
     return add(cost, add(add(add(3, multiply(2, g)), multiply(2, a)),
                          add(n, multiply(2, k))));
   }
@@ -775,7 +1197,8 @@ private:
     }
     return success();
   }
-  static uint64_t wiringSchemaCost(const RawDefinitionWork &local) {
+  static uint64_t wiringSchemaCost(const RawDefinitionWork &local,
+                                   bool includeSampled = true) {
     if (!local.hasWiring)
       return 0;
     auto add = Budget::add;
@@ -812,7 +1235,8 @@ private:
       cost = add(cost, multiply(left, right));
     }
     cost = add(cost,
-               add(add(local.incoming, local.candidates), local.sampledSchema));
+               add(add(local.incoming, local.candidates),
+                   includeSampled ? local.sampledSchema : 0));
     return add(cost, multiply(local.rules, add(local.writers, 1)));
   }
   static uint64_t nativeSampledSchemaCost(const RawDefinitionWork &local) {
@@ -828,8 +1252,7 @@ private:
     // Without wiring there is no parsed writer from which boundary slots can
     // be obtained, so both boundary preparation and the actual Rule query
     // parse.
-    uint64_t cost = add(wiringSchemaCost(local),
-                        multiply(local.hasWiring ? 1 : 2, local.sampledSchema));
+    uint64_t cost = wiringSchemaCost(local, false);
     cost = add(cost, add(prepared, multiply(2, b)));
     cost = add(cost, multiply(local.ruleResults, add(e, f)));
     cost = add(cost, multiply(add(local.sampledRules, 1), validate));
@@ -843,7 +1266,7 @@ private:
     // One additional full wiring parse serves all typed writer queries. Their
     // row revalidation visits only the actual row metadata and candidate slots;
     // it never rebuilds unrelated state/Rule inventories per writer.
-    cost = add(cost, wiringSchemaCost(local));
+    cost = add(cost, wiringSchemaCost(local, false));
     cost = add(cost, add(1, add(local.states,
                                 add(local.incoming,
                                     add(local.writers, local.candidates)))));
@@ -877,13 +1300,24 @@ private:
     // successful Rule list all compare identities before further work.
     cost = add(cost, add(1, multiply(2, r)));
     cost = add(cost, multiply(r, r));
-    return add(cost, multiply(r, schemaRecordCost<RuleOp>()));
+    cost = add(cost, multiply(r, schemaRecordCost<RuleOp>()));
+    uint64_t allocationRatio = std::max(
+        uint64_t(1), (uint64_t(8) + sizeof(Attribute) - 1) / sizeof(Attribute));
+    uint64_t nonSampled = add(cost, multiply(add(allocationRatio, 1), cost));
+    uint64_t parses = local.hasWiring ? 3 : 2;
+    return add(nonSampled, multiply(parses, local.sampledSchema));
   }
   LogicalResult rawPreflight() {
     // Do not invoke typed attribute/signature accessors or any op verifier.
     // ModuleOp's region verifier constructs the local association catalog, so
     // its record payload and comparison work must be prepaid first.
     llvm::DenseMap<Operation *, RawDefinitionWork> work;
+    if (failed(budget.debit(
+            Budget::bytes(sizeof(Operation *) + sizeof(RawDefinitionWork *)),
+            analysis.getPackage())))
+      return failure();
+    Operation *lastDefinition = nullptr;
+    RawDefinitionWork *lastWork = nullptr;
     auto counted = analysis.getPackage().walk([&](Operation *op) {
       if (failed(budget.debit(1, op)))
         return WalkResult::interrupt();
@@ -895,15 +1329,66 @@ private:
         if (isa<ModuleOp>(parent))
           definition = parent;
       }
-      if (!definition)
+      if (!definition) {
+        lastDefinition = nullptr;
+        lastWork = nullptr;
         return WalkResult::advance();
-      if (!work.count(definition) &&
-          failed(budget.debit(
-              Budget::bytes(sizeof(std::pair<Operation *, RawDefinitionWork>) +
-                            sizeof(uint64_t)),
-              op)))
+      }
+      if (failed(budget.debit(1, op)))
         return WalkResult::interrupt();
-      auto &local = work[definition];
+      if (definition != lastDefinition) {
+        // Reuse only the immediately preceding owner's accumulator. A change
+        // of owner invalidates both pointers before any possible map growth.
+        lastDefinition = nullptr;
+        lastWork = nullptr;
+        using Bucket = decltype(work)::value_type;
+        uint64_t oldCapacity = work.getMemorySize() / sizeof(Bucket);
+        // Insert-only DenseMap probes are bounded by the complete bucket array.
+        // Pay before even the existing-key lookup can inspect that array.
+        if (failed(budget.debit(Budget::add(oldCapacity, 1), op)))
+          return WalkResult::interrupt();
+        auto found = work.find(definition);
+        if (found == work.end()) {
+          if (failed(budget.debit(1, op)))
+            return WalkResult::interrupt();
+          uint64_t next = Budget::add(work.size(), 1);
+          uint64_t capacity = std::max(uint64_t(64), oldCapacity);
+          while (true) {
+            if (failed(budget.debit(1, op)))
+              return WalkResult::interrupt();
+            // LLVM's reserve and load calculations use unsigned arithmetic.
+            if (next > std::numeric_limits<unsigned>::max() / 4 ||
+                capacity > std::numeric_limits<unsigned>::max() / 3) {
+              (void)budget.debit(std::numeric_limits<uint64_t>::max(), op);
+              return WalkResult::interrupt();
+            }
+            if (Budget::multiply(4, next) < Budget::multiply(3, capacity))
+              break;
+            capacity = Budget::multiply(2, capacity);
+          }
+          uint64_t growth = 1;
+          if (capacity > oldCapacity) {
+            growth = Budget::add(
+                growth,
+                Budget::add(
+                    Budget::bytes(Budget::multiply(capacity, sizeof(Bucket))),
+                    Budget::add(capacity,
+                                Budget::add(oldCapacity,
+                                            Budget::multiply(
+                                                work.size(),
+                                                Budget::add(capacity, 1))))));
+          }
+          if (failed(budget.debit(growth, op)))
+            return WalkResult::interrupt();
+          work.reserve(next);
+          if (failed(budget.debit(Budget::add(capacity, 1), op)))
+            return WalkResult::interrupt();
+          found = work.try_emplace(definition).first;
+        }
+        lastDefinition = definition;
+        lastWork = &found->second;
+      }
+      auto &local = *lastWork;
       local.operations = Budget::add(local.operations, 1);
       bool directRule = isa<RuleOp>(op) && op->getParentOp() == definition;
       bool directInstance =
@@ -950,7 +1435,7 @@ private:
             (key == "ac.sampled_admission" || key == "ac.transaction_wiring"))
           local.hasSamplingMetadata = true;
         if (directRule && key == "ac.sampled_admission" && attribute) {
-          auto schema = sampledSchemaCost(attribute, metadata, op);
+          auto schema = sampledSchemaCost(attribute, op);
           if (failed(schema))
             return WalkResult::interrupt();
           local.sampledSchema = Budget::add(local.sampledSchema, *schema);
@@ -962,6 +1447,10 @@ private:
             return WalkResult::interrupt();
         }
       }
+      if (failed(countAssociationOperands(
+              op, local, directRule,
+              isa<SourceExpectOp>(op) && op->getParentOp() == definition)))
+        return WalkResult::interrupt();
       if (auto required = op->getAttrOfType<ArrayAttr>("ac.required_checks"))
         local.obligations = Budget::add(local.obligations, required.size());
       if (isa<SourceExpectOp>(op)) {
@@ -977,14 +1466,27 @@ private:
     });
     if (counted.wasInterrupted())
       return failure();
+    // DenseMap iteration scans spare buckets as well as occupied records.
+    if (failed(budget.debit(
+            Budget::add(1, work.getMemorySize() / sizeof(decltype(work)::value_type)),
+            analysis.getPackage())))
+      return failure();
     for (const auto &[definition, local] : work) {
-      uint64_t height = 0;
-      for (uint64_t count = local.obligations; count; count /= 2)
-        ++height;
-      // A red-black tree has height <= 2*ceil(log2(N+1)). Both insertion and
-      // lookup compare full structural IDs. The second binding vector copies
-      // the map's sorted order without another ID comparison/sort pass.
-      uint64_t comparisons = Budget::add(Budget::multiply(4, height), 2);
+      if (failed(budget.debit(1, definition)))
+        return failure();
+      auto comparisons = checkComparisonAllowance(local.checkKeys, definition);
+      if (failed(comparisons))
+        return failure();
+      uint64_t mapCost = Budget::add(
+          local.keyInsertion,
+          Budget::multiply(
+              *comparisons,
+              Budget::add(local.terminalKeys,
+                          Budget::add(local.terminalKeyCost,
+                                      Budget::multiply(local.terminalKeys,
+                                                       local.keyMax)))));
+      uint64_t validationMetadata =
+          Budget::add(local.metadata, local.validationOperands);
       uint64_t records = Budget::multiply(
           local.obligations,
           Budget::bytes(2 * sizeof(HardwareCheckBinding) +
@@ -998,8 +1500,8 @@ private:
       uint64_t cost = Budget::add(
           local.operations,
           Budget::add(records,
-                      Budget::add(Budget::multiply(comparisons, local.metadata),
-                                  local.carriers)));
+                      Budget::add(validationMetadata,
+                                  Budget::add(mapCost, local.carriers))));
       const uint64_t n = local.observations;
       const uint64_t j = local.observationMetadata;
       const uint64_t s = Budget::add(
@@ -1041,8 +1543,8 @@ private:
       localValidationCost[definition] = Budget::add(
           local.operations,
           Budget::add(records,
-                      Budget::add(Budget::multiply(comparisons, local.metadata),
-                                  local.carriers)));
+                      Budget::add(validationMetadata,
+                                  Budget::add(mapCost, local.carriers))));
     }
     return success();
   }
@@ -1067,7 +1569,7 @@ private:
     const auto &scope = (*prepared)->getScope();
     HardwareIdentityStopPolicy stops{HardwareIdentityTraversal::DefinitionLocal,
                                      (*prepared)->getBoundaries()};
-    // Repeated guards of one Rule share a binding. Distinct Rules share only
+    // Repeated controls of one Rule share a binding. Distinct Rules share only
     // exactly equal normalized definition-local SSA clock/reset pairs.
     llvm::DenseMap<Operation *, uint64_t> ruleIndices;
     for (auto &check : checks) {

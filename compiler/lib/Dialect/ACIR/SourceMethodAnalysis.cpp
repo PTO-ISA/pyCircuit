@@ -14,6 +14,7 @@ struct Totality {
   bool total = false;
   Operation *guard = nullptr;
   Operation *call = nullptr;
+  Operation *selection = nullptr;
 };
 struct Callable {
   Operation *module = nullptr;
@@ -159,11 +160,15 @@ public:
             (callable.definition ? callable.definition : callable.module)
                 ->emitOpError();
         diagnostic << "ordinary transaction results require a total guard and "
-                      "required Method calls; use -> None for a potentially "
+                      "required Method calls and branch selections; use -> "
+                      "None for a potentially "
                       "guarded Rule";
         if (proof.call)
           diagnostic.attachNote(proof.call->getLoc())
               << "this required Method call may block";
+        if (proof.selection)
+          diagnostic.attachNote(proof.selection->getLoc())
+              << "effectful branch selector is not proven statically known";
         if (proof.guard)
           diagnostic.attachNote(proof.guard->getLoc())
               << "guard is not proven statically true";
@@ -186,6 +191,37 @@ private:
     work += units;
     return true;
   }
+  template <typename T, unsigned N>
+  bool append(SmallVector<T, N> &values, T value, Operation *site) {
+    if (values.size() == values.capacity()) {
+      uint64_t capacity = values.capacity();
+      if (capacity > (maxWork - 1) / 2)
+        return charge(site, maxWork + 1);
+      uint64_t next = capacity * 2 + 1;
+      uint64_t units = 1 + sizeof(T) / 8 + (sizeof(T) % 8 != 0);
+      if (next > values.max_size() ||
+          next - capacity > (maxWork - work) / units)
+        return charge(site, maxWork + 1);
+      if (!charge(site, (next - capacity) * units) ||
+          !charge(site, values.size()))
+        return false;
+      values.reserve(next);
+    }
+    if (!charge(site))
+      return false;
+    values.push_back(std::move(value));
+    return true;
+  }
+  template <typename T>
+  bool contains(ArrayRef<T> values, T value, Operation *site) {
+    for (const T &candidate : values) {
+      if (!charge(site))
+        return false;
+      if (candidate == value)
+        return true;
+    }
+    return false;
+  }
   LogicalResult collect(const Callable &callable,
                         const HardwareBindings &bindings,
                         SourceModuleLookup lookup) {
@@ -201,78 +237,104 @@ private:
                                        callable.module);
       if (failed(resolved))
         return failure();
-      calls.push_back({op, row, *resolved});
+      auto symbol = resolved->method.getSymbol();
+      if (!append(calls, Call{op, row, std::move(*resolved)}, callable.module))
+        return failure();
       if (callable.symbol) {
-        auto symbol = resolved->method.getSymbol();
         auto &summary = methods[callable.symbol];
-        if (!llvm::is_contained(summary.callees, symbol))
-          summary.callees.push_back(symbol);
+        if (!contains<SymbolRefAttr>(summary.callees, symbol,
+                                     callable.module)) {
+          if (exhausted || !append(summary.callees, symbol, callable.module))
+            return failure();
+        }
       }
       return success();
     };
     if (callable.symbol)
       methods.try_emplace(callable.symbol);
     if (callable.definition) {
-      std::function<LogicalResult(Operation *, unsigned, bool)> visit =
-          [&](Operation *operation, unsigned depth,
-              bool inBranch) -> LogicalResult {
+      // Classification is structural: every call counts, including empty or
+      // read-only Methods and effects nested below a statically dead selector.
+      auto visit = [&](auto &&visit, Operation *operation,
+                       unsigned depth) -> FailureOr<bool> {
         if (!charge(operation))
           return failure();
         if (depth > maxDepth)
           return operation->emitOpError()
                  << "source Method callable traversal depth exceeded";
         if (auto call = dyn_cast<SourceMethodCallOp>(operation)) {
-          if (inBranch)
-            return call.emitOpError()
-                   << "source branch arms cannot contain Method calls";
-          if (operation->getParentOp() != callable.definition)
-            return call.emitOpError()
-                   << "Method calls require direct callable region placement";
-          return add(call, {});
+          Operation *parent = operation->getParentOp();
+          while (isa_and_nonnull<SourceBranchOp>(parent)) {
+            if (!charge(operation))
+              return failure();
+            parent = parent->getParentOp();
+          }
+          if (parent != callable.definition)
+            return call.emitOpError() << "Method calls require callable body "
+                                         "or branch arm placement";
+          if (failed(add(call, {})))
+            return failure();
+          return true;
         }
-        inBranch |= isa<SourceBranchOp>(operation);
+        bool effectful = isa<SourceExpectOp, SourceObserveOp>(operation);
         for (Region &region : operation->getRegions())
           for (Block &block : region)
-            for (Operation &child : block)
-              if (failed(visit(&child, depth + 1, inBranch)))
+            for (Operation &child : block) {
+              auto nested = visit(visit, &child, depth + 1);
+              if (failed(nested))
                 return failure();
-        return success();
+              effectful |= *nested;
+            }
+        if (effectful && isa<SourceBranchOp>(operation)) {
+          if (!append(nativeEffectfulBranches, operation, operation))
+            return failure();
+        }
+        return effectful;
       };
       for (unsigned region : {0u, 1u})
         for (Operation &operation :
              callable.definition->getRegion(region).front())
-          if (failed(visit(&operation, 0, false)))
+          if (failed(visit(visit, &operation, 0)))
             return failure();
     } else {
-      std::function<LogicalResult(ArrayAttr, unsigned, bool)> visit =
-          [&](ArrayAttr rows, unsigned depth, bool inBranch) -> LogicalResult {
+      auto visit = [&](auto &&visit, ArrayAttr rows,
+                       unsigned depth) -> FailureOr<bool> {
         if (!charge(callable.module))
           return failure();
         if (depth > maxDepth)
           return callable.module->emitOpError()
                  << "source Method summary traversal depth exceeded";
+        bool effectful = false;
         for (Attribute raw : rows) {
           if (!charge(callable.module))
             return failure();
           auto row = cast<DictionaryAttr>(raw);
           auto kind = row.getAs<StringAttr>("kind").getValue();
           if (kind == "call") {
-            if (inBranch)
-              return callable.module->emitOpError()
-                     << "source branch summary arms cannot contain Method "
-                        "calls";
             if (failed(add(nullptr, row)))
               return failure();
+            effectful = true;
           } else if (kind == "branch") {
-            for (StringRef arm : {"then_effects", "else_effects"})
-              if (failed(visit(row.getAs<ArrayAttr>(arm), depth + 1, true)))
+            bool branchEffectful = false;
+            for (StringRef arm : {"then_effects", "else_effects"}) {
+              auto nested = visit(visit, row.getAs<ArrayAttr>(arm), depth + 1);
+              if (failed(nested))
                 return failure();
-          }
+              branchEffectful |= *nested;
+            }
+            if (branchEffectful) {
+              if (!append(rowEffectfulBranches, Attribute(row),
+                          callable.module))
+                return failure();
+            }
+            effectful |= branchEffectful;
+          } else if (kind == "check" || kind == "observe")
+            effectful = true;
         }
-        return success();
+        return effectful;
       };
       for (StringRef field : {"guard_effects", "body_effects"})
-        if (failed(visit(callable.row.getAs<ArrayAttr>(field), 0, false)))
+        if (failed(visit(visit, callable.row.getAs<ArrayAttr>(field), 0)))
           return failure();
     }
     return success();
@@ -454,18 +516,38 @@ private:
       return {false, guard, nullptr};
     auto &calls = callable.definition ? nativeCalls[callable.definition]
                                       : rowCalls[callable.row];
-    for (const Call &call : calls) {
+    size_t callIndex = 0;
+    auto callProof = [&](bool reachable) -> Totality {
+      if (!charge(callable.module) || callIndex >= calls.size()) {
+        exhausted = true;
+        return {};
+      }
+      const Call &call = calls[callIndex++];
+      // Closure, signatures and recursion have already checked every call.
+      // Only controls whose structural path can execute contribute totality.
+      if (!reachable)
+        return {true, nullptr, nullptr};
       auto native = dyn_cast_or_null<SourceMethodCallOp>(call.definition);
       PredicateFact path =
           native ? fact(native.getPath(), callable, arguments, 0)
                  : rowFact(call.row.getAs<DictionaryAttr>("path"), arguments);
       if (path == PredicateFact::False)
-        continue;
+        return {true, nullptr, nullptr};
       auto symbol = call.resolved.method.getSymbol();
       auto summary = methods.find(symbol);
       if (summary != methods.end() && !summary->second.mayBlock)
-        continue;
-      SmallVector<PredicateFact> actuals;
+        return {true, nullptr, nullptr};
+      SmallVector<PredicateFact, 0> actuals;
+      uint64_t count = native ? native.getArguments().size()
+                              : call.row.getAs<ArrayAttr>("arguments").size();
+      if (count > actuals.max_size() ||
+          count > (maxWork - work) / (1 + sizeof(PredicateFact))) {
+        (void)charge(callable.module, maxWork + 1);
+        return {};
+      }
+      if (!charge(callable.module, count * (1 + sizeof(PredicateFact))))
+        return {};
+      actuals.reserve(count);
       if (native)
         for (Value value : native.getArguments())
           actuals.push_back(fact(value, callable, arguments, 0));
@@ -482,22 +564,115 @@ private:
         return {};
       }
       auto proof = prove(target->second, actuals, depth + 1);
-      if (!proof.total) {
-        if (!proof.call)
-          proof.call = call.definition ? call.definition : callable.module;
-        return proof;
-      }
+      if (!proof.total && !proof.call)
+        proof.call = call.definition ? call.definition : callable.module;
+      return proof;
+    };
+    if (callable.definition) {
+      auto visit = [&](auto &&visit, Region &region, bool reachable,
+                       unsigned nesting) -> Totality {
+        if (!charge(callable.module))
+          return {};
+        if (nesting > maxDepth) {
+          callable.module->emitOpError()
+              << "source Method summary proof depth exceeded";
+          exhausted = true;
+          return {};
+        }
+        for (Operation &operation : region.front().without_terminator()) {
+          if (!charge(&operation))
+            return {};
+          if (isa<SourceMethodCallOp>(operation)) {
+            auto proof = callProof(reachable);
+            if (!proof.total)
+              return proof;
+          } else if (auto branch = dyn_cast<SourceBranchOp>(operation)) {
+            if (!contains<Operation *>(nativeEffectfulBranches, branch,
+                                       callable.module)) {
+              if (exhausted)
+                return {};
+              continue;
+            }
+            auto selected =
+                reachable ? fact(branch.getCondition(), callable, arguments, 0)
+                          : PredicateFact::Unknown;
+            if (reachable && selected == PredicateFact::Unknown)
+              return {false, nullptr, nullptr, branch};
+            for (auto [arm, whenTrue] :
+                 {std::make_pair(&branch.getThenRegion(), true),
+                  std::make_pair(&branch.getElseRegion(), false)}) {
+              auto proof = visit(
+                  visit, *arm,
+                  reachable && (selected == PredicateFact::True) == whenTrue,
+                  nesting + 1);
+              if (!proof.total)
+                return proof;
+            }
+          }
+        }
+        return {true, nullptr, nullptr};
+      };
+      return visit(visit, callable.definition->getRegion(1), true, 0);
     }
-    return {true, nullptr, nullptr};
+    auto visit = [&](auto &&visit, ArrayAttr rows, bool reachable,
+                     unsigned nesting) -> Totality {
+      if (!charge(callable.module))
+        return {};
+      if (nesting > maxDepth) {
+        callable.module->emitOpError()
+            << "source Method summary proof depth exceeded";
+        exhausted = true;
+        return {};
+      }
+      for (Attribute raw : rows) {
+        if (!charge(callable.module))
+          return {};
+        auto row = cast<DictionaryAttr>(raw);
+        auto kind = row.getAs<StringAttr>("kind").getValue();
+        if (kind == "call") {
+          auto proof = callProof(reachable);
+          if (!proof.total)
+            return proof;
+        } else if (kind == "branch") {
+          if (!contains<Attribute>(rowEffectfulBranches, row,
+                                   callable.module)) {
+            if (exhausted)
+              return {};
+            continue;
+          }
+          auto selected = reachable
+                              ? rowFact(row.getAs<DictionaryAttr>("condition")
+                                            .getAs<DictionaryAttr>("fact"),
+                                        arguments)
+                              : PredicateFact::Unknown;
+          if (reachable && selected == PredicateFact::Unknown)
+            return {false, nullptr, nullptr, callable.module};
+          for (auto [arm, whenTrue] :
+               {std::make_pair(StringRef("then_effects"), true),
+                std::make_pair(StringRef("else_effects"), false)}) {
+            auto proof = visit(visit, row.getAs<ArrayAttr>(arm),
+                               reachable && (selected == PredicateFact::True) ==
+                                                whenTrue,
+                               nesting + 1);
+            if (!proof.total)
+              return proof;
+          }
+        }
+      }
+      return {true, nullptr, nullptr};
+    };
+    return visit(visit, callable.row.getAs<ArrayAttr>("body_effects"), true, 0);
   }
   static constexpr uint64_t maxWork = 1024 * 1024;
   static constexpr unsigned maxDepth = 128;
   llvm::DenseMap<Attribute, SourceMethodSummary> &methods;
   llvm::DenseMap<Operation *, bool> &transactions;
   llvm::DenseMap<Attribute, Callable> nodes;
-  llvm::DenseMap<Operation *, SmallVector<Call>> nativeCalls;
-  llvm::DenseMap<Attribute, SmallVector<Call>> rowCalls;
+  llvm::DenseMap<Operation *, SmallVector<Call, 0>> nativeCalls;
+  llvm::DenseMap<Attribute, SmallVector<Call, 0>> rowCalls;
   llvm::DenseMap<Operation *, unsigned> instanceMarks;
+  SmallVector<Operation *, 0> nativeEffectfulBranches;
+  SmallVector<Attribute, 0> rowEffectfulBranches;
   SmallVector<Callable> declarations, registrations;
   uint64_t work = 0;
   bool exhausted = false;

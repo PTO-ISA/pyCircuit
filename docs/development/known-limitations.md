@@ -1,6 +1,6 @@
 # Known limitations and follow-up work
 
-This records pyCircuit 6.1 limitations and follow-up work as of 2026-10-10.
+This records pyCircuit 6.1 limitations and follow-up work.
 Closed `@system` source compilation, generated C++/Verilator simulation, source
 checks, observation publication and failure-atomic state/clock handling now have
 focused independent verification. Full example adaptation and broader language
@@ -47,11 +47,11 @@ complete nightly and platform matrices still require final candidate verificatio
 
 | Area | Current limitation | Follow-up acceptance |
 | --- | --- | --- |
-| Historical scenarios | Expectation and credit pipelines, persistent schedulers, reset/trace/XZ module contracts have restored source fixtures and owning tests. Aggregate/array/configuration and remaining slot/rate/full-design contracts are incomplete. | Reconcile all 93 original roots against supported source, independent oracles and registered tests; a catalog mapping is not execution acceptance. |
+| Historical scenarios | Expectation and credit pipelines, persistent schedulers, reset/trace/XZ module contracts have restored source fixtures and owning tests. Aggregate/array/configuration and remaining slot/rate/full-design contracts are incomplete. | Reconcile the current catalog against supported source, independent oracles and registered tests; removed references and catalog mappings are not execution acceptance. |
 | Complete designs | Circular ROB, oldest-ready issue queue and routed dependency pipeline have mapped source fixtures and independent histories. Historical host-only, clock-control and four-state gaps remain; mapping does not establish full-candidate acceptance. | Complete source admission, original algorithms and timing/recovery verification through the existing API/IR/backend path. |
 | Candidate coverage | Historical accepted examples do not prove all source-import IR, transformed IR and backend outputs were regenerated from this PR candidate. | Run the existing nightly matrices and retain candidate-bound stage artifacts. |
 | Portability and packaging | This cleanup does not establish a new full Linux/macOS/Windows release validation or performance baseline. | Run the existing platform/package acceptance workflows before publication. |
-| Authoring experience | Generated systems use Python benches and the existing CMake source-unit flow. The original authored module verification remains registered alongside migrated system scenarios. Supported unconditional observation-only nested rules in a closed system use the same validation and publication path as rules with bindings or assertions; conditional observations remain unsupported. | Finish system adaptation and repair existing import/diagnostic inconsistencies without a new frontend or weakened oracle. |
+| Authoring experience | Generated systems use Python benches and the existing CMake source-unit flow. The original authored module verification remains registered alongside migrated system scenarios. Statement-arm observations include standalone observation-only nested Rules without dummy Methods or state. Partial state and transaction resources remain unsupported. | Complete the [conditional-effect checklist](../rfcs/serial-rule-method/conditional-effects.md#acceptance-checklist) and retain generated System execution and failure-publication evidence through the existing flow. |
 
 See the [language reference](../reference/language.md) for exact supported
 operations and [testing and gates](testing-and-gates.md) for the existing

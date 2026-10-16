@@ -5,6 +5,12 @@ nightly、综合或时序声明。它扩展[源语义](source-semantics.md)、
 [事务采样准入](sampled-admission.md)和[事务 body effects](sampled-body-effects.md)，
 不增加 Python API、Runtime 协议或第二条编译路线。
 
+后续覆盖关系：[条件调用与 effects 合同](conditional-effects.md)扩展本切片的
+statement-arm admission、source-path 有效性与事件序列，并将最终 `guards` schema
+hard break 为 tagged `controls`。下文的 arm 内调用/effect 拒绝和 `guards` 布局只描述
+此前分支切片，不是当前条件候选的边界。纯分支四态 D/rawIntent join、D/E 候选与原有
+验收义务继续保留；条件候选的完整验收状态见[扩展矩阵](extension-roadmap.md)。
+
 ## 支持范围
 
 Rule/Method 事务 body 接纳有限嵌套的 statement `if`/`elif`/`else`/`pass`。条件继续使用
@@ -89,8 +95,10 @@ required prefix 和有序事件均进入只读 plan。结果 locator、IR mappin
 
 ## 最终 schema 与结果布局
 
-`ac.sampled_admission` 仍精确使用六个必填字段：`clock_capture`、`reset_capture`、
+本切片原有的 `ac.sampled_admission` 精确使用六个必填字段：`clock_capture`、`reset_capture`、
 `fire_result`、`guards`、`body_checks` 和 `observations`。空数组仍必须存在。
+当前条件候选拒绝此旧形状；以[条件合同](conditional-effects.md#final-sampled-schema)的
+`controls`、effect paths 和结果布局为准，下面的 G-based suffix 是此前切片的记录。
 
 `ac.transaction_wiring.writers[*].candidates` hard break 为：
 

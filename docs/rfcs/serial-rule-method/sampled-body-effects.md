@@ -4,6 +4,12 @@
 实现合同及验收要求；规格存在不代表实现或测试通过。源语句和发布摘要继续遵循
 [事务接口摘要](publication-summary.md)。不增加作者 API、pass、runner 或后端私有事务协议。
 
+后续覆盖关系：[条件调用与 effects 合同](conditional-effects.md)在同一流程中接纳
+statement-arm calls/assert/log/report，并以 tagged `controls` 和选中路径取代本直线
+切片的 `guards` schema 与无条件路径限制。下文保留此前切片的布局和证明义务，不能
+用它作为当前 final IR 的生产格式；语句时刻快照、私有槽、双层证明及提交原子性继续
+适用。条件候选仍须完成其独立 checklist，不由本切片的历史证据推断通过。
+
 ## Rule 与 Method 的责任
 
 自主 Rule 拥有事务，Method 的状态候选、guard 和效果归入调用者事务。直接 body 的
@@ -20,7 +26,9 @@ false guard 时，该事务 hold，assert 与 observations 均不激活。已到
 
 ## 六字段 schema 与精确结果布局 {#exact-layout}
 
-`ac.sampled_admission` 精确包含六个必填字段，包括空数组：
+本直线切片原有的 `ac.sampled_admission` 精确包含六个必填字段，包括空数组；当前
+候选的 hard break、controls/path 与结果 slots 见
+[条件合同](conditional-effects.md#final-sampled-schema)。以下旧形状在当前候选中拒绝：
 
 ```text
 {

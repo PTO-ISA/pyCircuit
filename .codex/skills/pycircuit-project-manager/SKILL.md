@@ -87,16 +87,23 @@ before assigning Method work. An autonomous Rule owns the transaction; Method
 calls share its candidate versions and commit decision. Ordinary pure `def`
 replaces callable Rule helpers. Independent Rules retain old-Q visibility.
 Current same-domain, whole-Bits execution includes direct body assert/log/report
-materialization and the bounded statement-branch contract in
-[`branch-state-ssa.md`](../../../docs/rfcs/serial-rule-method/branch-state-ssa.md).
-The branch slice permits scalar local joins and unconditional calls/effects
-before or after a branch. It retains branch-entry candidates, joins data and raw
+materialization, bounded statement branches and the conditional calls/effects
+contract in [`conditional-effects.md`](../../../docs/rfcs/serial-rule-method/conditional-effects.md).
+Pure branches retain four-state scalar/state joins; branches containing calls or
+effects add selection-known admission. Unselected guards bypass, selected false
+guards hold the whole transaction, and reached X/Z controls fault only under the
+existing sampling contract. Effects use final fire AND their selected path.
+The source plan retains branch-entry candidates, joins data and raw
 write intent separately, computes E as finalFire AND rawIntent, and hard-breaks
 candidate wiring to `{state,data,enable}`. Require both source authentication and
 final private-route proof, external fire zero-use, per-actual-Rule parsing,
 generated Method `@system` workers1/2 and real four-state RTL evidence. This does
-not establish conditional calls/effects, partial or aggregate state, resources,
+not establish partial or aggregate state, resources,
 changed aggregate joins or effect-safe optimization.
+The final sampled schema uses `controls`, with closed kind/path records; old
+`guards` inventories reject. Preserve both source replay and independent final
+proof, default budgets, all actual Rule parses, and memory-safe validation runs.
+Honor `CMAKE_BUILD_PARALLEL_LEVEL` and keep builds/tests serial when requested.
 A generated System smoke is not that closure; an identity proposal is not admission.
 
 Observation groups must validate before any state/history Xfer or managed RTL

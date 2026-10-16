@@ -85,8 +85,16 @@ the effective E is finalFire AND rawIntent, identity writes retain intent, and
 the `{state,data,enable}` hard break is complete. Require external fire zero-use,
 actual Rule parsing for every query, branch source replay, independent final
 D/E proof, generated Method System workers1/2 and real four-state rollback.
-This bounded slice does not establish conditional calls/effects, partial state,
-resources or changed aggregate joins. For direct body checks/observations,
+Review conditional calls/effects against
+[`conditional-effects.md`](../../../docs/rfcs/serial-rule-method/conditional-effects.md):
+unselected guards bypass; selected false guards cancel the outer transaction;
+reached unknown effect selectors preserve the sampled failure contract. Authenticate
+source paths and result availability before joins, and prove each effect's final
+fire AND selected path independently. Distinguish pure four-state joins from
+effect selection-known checks. The six-field sampled schema now uses closed
+`controls` kind/path records; do not accept retired `guards` inventories.
+This does not establish partial state, resources or changed aggregate joins.
+For body checks/observations,
 inspect the six-field inventory,
 statement-time operands, final-prefix paths, exact terminal slots and both proof
 layers. Require generated Method `@system` C++ workers1/2, ordered source-derived

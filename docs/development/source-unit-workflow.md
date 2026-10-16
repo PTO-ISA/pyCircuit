@@ -16,8 +16,8 @@ Python or infers a different hardware meaning.
 | Capture | `_source_capture.py`, `_source_transport.py` | Read a stable source snapshot, parse Python syntax and serialize the existing private AST transport. Design functions are never executed. |
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
-| Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check intermediate Method call closure, recursion and conservative guard totality. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
-| Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of whole-Bits candidate data/write-intent pairs, bounded branch joins, scalar local joins, invocation snapshots and guard obligations. Link uses this before lowering packages containing source transaction operations. |
+| Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check the complete Method call closure and recursion, then prove conservative total admission for reachable guards and effect-branch selections. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
+| Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of whole-Bits candidate data/write-intent pairs, bounded branch joins, scalar local joins, invocation snapshots, source-path availability and ordered guard/selection controls. Link uses this before lowering packages containing source transaction operations. |
 | Lower transactions | `LowerTransactions` | Materialize same-domain whole-Bits transactions, including bounded statement branches, with sampled metadata and complete D/E wiring records. Authenticate against the original plan, then run canonical final verification before atomic replacement. Ordinary hardware retains existing verification without transaction-analysis limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
@@ -42,14 +42,18 @@ fallback implementation or a second semantic path.
 The [serial Rule/Method extension](../rfcs/serial-rule-method/README.md) has
 a bounded source-to-typed-effects producer and shared native call/state analyses.
 Source compilation retains explicit state reads/writes and Method calls.
-Guarded nested Rules now enter this typed route even without Method declarations
-or state. Native sampled admission verifies closed metadata, ordered known-one
-prefixes, real D/E and domain routes, private terminal uses, Collection limits,
+Guarded nested Rules and standalone conditional observations enter this typed
+route even without Method declarations or dummy state. The conditional-call/effect
+candidate is awaiting acceptance; the following workflow describes its scope
+without claiming fresh gate or execution results. Native sampled admission
+verifies closed metadata, ordered path-sensitive admission prefixes, real D/E
+and domain routes, private terminal uses, Collection limits,
 and per-occurrence sampling plans. Source bodies/interfaces cannot supply the
 final-only attributes. The common lowerer now materializes these records for
 all transactions, including literal true/false, state-free and read-only cases.
-Original-source authentication checks captures, candidate versions, guard
-identities/locations and exact affected-definition inventories before canonical
+Original-source authentication checks captures, candidate versions, guard and
+selection identities/locations, original branch paths, invocation bindings and
+exact affected-definition inventories before canonical
 final verification checks the retained SSA, wiring and dependency closure.
 Both proofs succeed before atomic replacement; mappings locate candidate
 objects but do not supply semantic authority. The canonical final verifier
@@ -75,25 +79,46 @@ private uses and each distinct root remain independently checked. Changed IR
 requires a new context; reuse does not change verification limits or admission.
 
 Source units can publish these typed operations and their declaration-only
-interfaces. Direct callable-body assert/log/report reuse the existing expect/observe
+interfaces. Callable-body assert/log/report, including statement-arm effects,
+reuse the existing expect/observe
 operations, original source occurrence/span and closed ordered summary variants.
 They cannot supply final CheckID/ObservationID. Shared spec and provenance validators
 serve definitions and interfaces; provider body rederivation remains authoritative.
 State analysis now retains explicit body-check and observation records with their
 original bound SSA values, invocation frames, source metadata and operand-derived
-validity prefixes. Assertions create no guards or state versions. The authored
-path must be proven true; false or unknown assertion conditions remain records.
+validity prefixes and source paths. Assertions create no guards or state versions.
+The authored path must be proven true; MLIR derives the separate structural
+execution path. False or unknown assertion conditions remain records.
 The lowerer saves original statement-time operands, emits the six-field sampled
 inventory and direct terminals, and authenticates their exact layout, identities,
 metadata and event order against the original plan. The final verifier proves
-final-prefix paths, exact private terminal operands and actual owner/domain
-routes. Both proofs precede replacement; unsupported nested effects still reject.
-See [body-effect contracts](../rfcs/serial-rule-method/sampled-body-effects.md).
+final-fire/selected-arm paths, exact private terminal operands and actual
+owner/domain routes. Both proofs precede replacement.
+
+The final-only `ac.sampled_admission` attribute has exactly six fields:
+`clock_capture`, `reset_capture`, `fire_result`, `controls`, `body_checks` and
+`observations`. Tagged `controls` replace the old `guards` field: each entry has
+`kind` (`callable_guard` or `branch_select`), `id`, `invocation`, `predecessor`
+and `path`. Body checks and observations also carry `path`; a path is empty or
+references an earlier selection and its arm polarity. Old shapes fail closed.
+An unselected control bypasses admission; a selected guard requires known one,
+whereas a reached effect selector requires known zero or known one. Effect
+activation is final transaction fire AND its selected path. Raw state-write
+intent keeps its four-state meaning and remains separate from admission.
+See [conditional-effect contracts](../rfcs/serial-rule-method/conditional-effects.md)
+for exact schemas, slots, private routes, budgets and acceptance obligations, and
+[body-effect contracts](../rfcs/serial-rule-method/sampled-body-effects.md)
+for the preceding straight-line slice.
 Consumer compilation reads the interfaces, without loading provider
 Python or Method bodies. Native final link lowers calls through ordinary
-static instances with straight-line effects, bounded whole-Bits branches, a shared actual clock/reset
-domain and one outer writer per physical scalar owner. Ordinary results escaping an outer Rule still
-require proven-true guards; this restriction does not exempt them from sampling.
+static instances with bounded whole-Bits branches and statement-arm calls/effects,
+a shared actual clock/reset domain and one outer writer per physical scalar
+owner. Ordinary results escaping an outer Rule require total admission over
+reachable controls; statically unreachable controls do not prevent totality.
+All arms still undergo structural/type/closure checks. A reachable effect
+selector whose knownness is unproved requires an outer `-> None` Rule; this
+does not prohibit using Method results within the transaction or exempt it from
+sampling.
 Final verification and emission reject any residual unlowered effects.
 
 Cross-instance lowering preserves the original Module definitions and storage.
@@ -140,13 +165,18 @@ share that transaction's candidate versions while keeping ordinary SSA values
 as snapshots. A bounded branch forks the same incoming data/raw-intent pair into
 both arms and joins both components with the original four-state selector.
 Missing writes inherit the branch-entry pair; identity writes remain in the
-writer inventory. The native analysis requires actual Method bodies,
-unconditional effect paths and paired clock/reset wire identity. It tracks ordered guard and
-value-validity prefixes; false or unknown guards remain explicit obligations
-for sampled lowering and checks. Unsupported predicate types, conditional calls or
-effects, partial or aggregate state, changed aggregate local joins, resources
-and unproved domains reject this analysis, including when the invalid operation
-is in a constant-false arm. No plan is published if any transaction fails.
+writer inventory. The native analysis requires actual Method bodies, proven-true
+authored effect paths and paired clock/reset wire identity. It tracks source
+paths and ordered guard/selection prefixes. A Method result becomes available at
+callee exit on its defining path even if its payload aliases a literal, capture
+or earlier value. Only verified branch joins lift arm values to the parent path.
+False or unknown guards remain explicit obligations for sampled lowering and
+checks. Calls/effects make all enclosing selectors require knownness; pure
+branches retain four-state joins. Unsupported predicate types, calls/effects in
+pure-expression positions, effectful loops, early returns, partial or aggregate
+state, changed aggregate local joins, resources, multiple outer writers and
+unproved domains reject this analysis, including in constant-false arms. No
+plan is published if any transaction fails.
 The analysis alone is not execution evidence; the bounded lowerer's public
 C++/RTL execution and the broader extension have separate acceptance scopes.
 

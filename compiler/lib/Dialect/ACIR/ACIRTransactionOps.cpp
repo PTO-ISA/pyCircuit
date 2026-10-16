@@ -143,8 +143,9 @@ LogicalResult region(Operation *operation, unsigned ordinal, TypeRange inputs,
   return success();
 }
 
-// Structured arms are the only nested regions that can carry state effects.
-// Pure collection regions remain closed even when enclosed by a branch.
+// Structured arms are the only nested regions that can carry transaction
+// effects. Pure collection regions remain closed even when enclosed by a
+// branch.
 LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
                             uint64_t &work) {
   if (depth > 128 || ++work > 1024 * 1024)
@@ -168,12 +169,15 @@ LogicalResult branchPayload(Operation *operation, bool arm, unsigned depth,
              << "source branch arms require whole Bits state accesses";
     return success();
   }
+  if (arm &&
+      isa<SourceMethodCallOp, SourceExpectOp, SourceObserveOp>(operation))
+    return success();
   if (!isa<YieldOp>(operation) &&
       !detail::isCombinationalHardwareOperation(operation))
     return operation->emitOpError()
            << "source branch arms accept only closed pure payload operations, "
-              "whole Bits state accesses and nested branches; calls, checks "
-              "and observations are unsupported";
+              "whole Bits state accesses, Method calls, checks, observations "
+              "and nested branches";
   for (Region &nested : operation->getRegions())
     for (Block &block : nested)
       for (Operation &child : block)
@@ -502,7 +506,7 @@ LogicalResult SourceMethodOp::verifyRegions() {
 }
 
 LogicalResult SourceMethodCallOp::verify() {
-  if (failed(transactionPlacement(*this, false)))
+  if (failed(transactionPlacement(*this, false, true)))
     return failure();
   HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
   if (failed(predicate(analysis, getPath(), scope(*this), *this,

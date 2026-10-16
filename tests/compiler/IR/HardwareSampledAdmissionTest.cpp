@@ -52,6 +52,21 @@ protected:
                       f("ast_path", b.getArrayAttr({step}))})),
          f("expansion", b.getArrayAttr({}))});
   }
+  DictionaryAttr occurrenceIndex(IntegerAttr index) {
+    return d({f("site",
+                d({f("definition", FlatSymbolRefAttr::get(&context, "Sampled")),
+                   f("ast_path",
+                     b.getArrayAttr({d({f("kind", b.getStringAttr("index")),
+                                        f("value", index)})}))})),
+              f("expansion", b.getArrayAttr({}))});
+  }
+  ArrayAttr invocationIndex(IntegerAttr index, bool receiver = false) {
+    auto call = receiver ? occurrence(12) : occurrenceIndex(index);
+    auto path = receiver ? b.getArrayAttr({occurrenceIndex(index)})
+                         : b.getArrayAttr({});
+    return b.getArrayAttr(
+        {d({f("call", call), f("receiver", d({f("instance_path", path)}))})});
+  }
   DictionaryAttr span() {
     return d({f("path", b.getStringAttr("sampled.py")),
               f("line", b.getI64IntegerAttr(7)),
@@ -99,7 +114,7 @@ protected:
     return d({f("clock_capture", b.getI64IntegerAttr(clock)),
               f("reset_capture", b.getI64IntegerAttr(reset)),
               f("fire_result", b.getI64IntegerAttr(fire)),
-              f("guards", b.getArrayAttr(guards)),
+              f("controls", b.getArrayAttr(guards)),
               f("body_checks", b.getArrayAttr({})),
               f("observations", b.getArrayAttr({}))});
   }
@@ -108,6 +123,8 @@ protected:
     if (!invocation)
       invocation = b.getArrayAttr({});
     return d({f("id", checkID(ordinal)), f("invocation", invocation),
+              f("kind", b.getStringAttr("callable_guard")),
+              f("path", b.getDictionaryAttr({})),
               f("predecessor", b.getI64IntegerAttr(predecessor))});
   }
   ArrayAttr invocation(uint64_t ordinal) {
@@ -218,20 +235,23 @@ protected:
     auto secondObservationID = observationID(1, 21);
     auto guardRows =
         oldRule->getAttrOfType<DictionaryAttr>("ac.sampled_admission")
-            .getAs<ArrayAttr>("guards");
+            .getAs<ArrayAttr>("controls");
     auto metadata = d(
         {f("clock_capture", b.getI64IntegerAttr(0)),
          f("reset_capture", b.getI64IntegerAttr(1)),
-         f("fire_result", b.getI64IntegerAttr(0)), f("guards", guardRows),
+         f("fire_result", b.getI64IntegerAttr(0)), f("controls", guardRows),
          f("body_checks",
            b.getArrayAttr(
-               {d({f("id", firstCheckID), f("invocation", b.getArrayAttr({}))}),
-                d({f("id", secondCheckID),
-                   f("invocation", b.getArrayAttr({}))})})),
+               {d({f("id", firstCheckID), f("invocation", b.getArrayAttr({})),
+                   f("path", b.getDictionaryAttr({}))}),
+                d({f("id", secondCheckID), f("invocation", b.getArrayAttr({})),
+                   f("path", b.getDictionaryAttr({}))})})),
          f("observations",
            b.getArrayAttr({d({f("id", firstObservationID),
+                              f("path", b.getDictionaryAttr({})),
                               f("value_count", b.getI64IntegerAttr(0))}),
                            d({f("id", secondObservationID),
+                              f("path", b.getDictionaryAttr({})),
                               f("value_count", b.getI64IntegerAttr(3))})}))});
     auto required = b.getArrayAttr(
         {d({f("id", guardID), f("kind", b.getStringAttr("guard_known")),
@@ -330,6 +350,160 @@ protected:
                       f("parameters", b.getArrayAttr({})),
                       f("type_arguments", b.getArrayAttr({}))}))});
   }
+  struct ConditionalValues {
+    Value selector, one, zero, knownZero, knownOne, knownEither;
+    Value thenPath, elsePath, thenBypass, elseBypass, fire;
+  } conditional;
+
+  Value binary(StringRef opcode, Value lhs, Value rhs) {
+    return op(ac::BitsBinaryOp::getOperationName(), {lhs, rhs}, {bit()},
+              {f("opcode", b.getStringAttr(opcode))})
+        ->getResult(0);
+  }
+  Value caseEqual(Value raw, Value literalValue) {
+    return op(ac::BitsCompareOp::getOperationName(), {raw, literalValue},
+              {bit()}, {f("predicate", b.getStringAttr("case_eq"))})
+        ->getResult(0);
+  }
+  Value select(Value path, Value accepted, Value fallback) {
+    return op(ac::BitsSelectOp::getOperationName(), {path, accepted, fallback},
+              {bit()})
+        ->getResult(0);
+  }
+  DictionaryAttr arm(bool whenTrue, uint64_t selection = 1) {
+    return d({f("selection", b.getI64IntegerAttr(selection)),
+              f("when_true", b.getBoolAttr(whenTrue))});
+  }
+  void setConditionalFire(Value fire) {
+    auto yielded = cast<ac::YieldOp>(rule.getBody().front().back());
+    yielded->setOperand(0, fire);
+    for (unsigned slot : {1u, 2u, 15u, 17u})
+      yielded.getOperand(slot).getDefiningOp<ac::BitsBinaryOp>()->setOperand(
+          0, fire);
+    conditional.fire = fire;
+  }
+  void changeRow(StringRef inventory, unsigned index, StringRef field,
+                 Attribute value) {
+    NamedAttrList metadata(
+        rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    auto original = cast<ArrayAttr>(metadata.get(inventory));
+    SmallVector<Attribute> rows(original.begin(), original.end());
+    NamedAttrList row(cast<DictionaryAttr>(rows[index]));
+    if (value)
+      row.set(field, value);
+    else
+      row.erase(field);
+    rows[index] = row.getDictionary(&context);
+    metadata.set(inventory, b.getArrayAttr(rows));
+    rule->setAttr("ac.sampled_admission", metadata.getDictionary(&context));
+  }
+  // Four controls deliberately use two distinct index spaces: root guard 0,
+  // selection 1, then guard 2 and else guard 3. Checks start at control
+  // count 4. Both effect kinds retain dedicated private result slots.
+  void buildConditional(std::optional<uint64_t> literalSelector = {}) {
+    buildMixedEffects();
+    auto old = rule;
+    NamedAttrList metadata(
+        old->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    SmallVector<Attribute> controls, required;
+    for (unsigned i = 0; i < 4; ++i) {
+      auto path = i < 2 ? b.getDictionaryAttr({}) : arm(i == 2);
+      controls.push_back(
+          d({f("kind",
+               b.getStringAttr(i == 1 ? "branch_select" : "callable_guard")),
+             f("id", checkID(i)),
+             f("invocation", i < 2 ? b.getArrayAttr({}) : invocation(i)),
+             f("predecessor", b.getI64IntegerAttr(int64_t(i) - 1)),
+             f("path", path)}));
+      required.push_back(
+          d({f("id", checkID(i)), f("kind", b.getStringAttr("guard_known")),
+             f("location", span())}));
+    }
+    metadata.set("controls", b.getArrayAttr(controls));
+    SmallVector<Attribute> checks, observed;
+    for (unsigned i = 0; i < 2; ++i) {
+      checks.push_back(
+          d({f("id", checkID(4 + i)), f("invocation", b.getArrayAttr({})),
+             f("path", arm(i == 0))}));
+      required.push_back(
+          d({f("id", checkID(4 + i)), f("kind", b.getStringAttr("assert")),
+             f("location", span())}));
+      observed.push_back(d({f("id", observationID(i, 20 + i)),
+                            f("value_count", b.getI64IntegerAttr(i ? 3 : 0)),
+                            f("path", arm(i == 0))}));
+    }
+    metadata.set("body_checks", b.getArrayAttr(checks));
+    metadata.set("observations", b.getArrayAttr(observed));
+    b.setInsertionPoint(old);
+    OperationState state(loc(), ac::RuleOp::getOperationName());
+    state.addOperands(old.getOperands());
+    state.addTypes(SmallVector<Type>(18, bit()));
+    state.addAttributes(
+        {f("name", old.getNameAttr()), f("occurrence", old.getOccurrence()),
+         f("ac.required_checks", b.getArrayAttr(required)),
+         f("ac.sampled_admission", metadata.getDictionary(&context))});
+    state.addRegion();
+    rule = cast<ac::RuleOp>(b.create(state));
+    auto *body = new Block;
+    rule.getBody().push_back(body);
+    for (auto argument : old.getBody().front().getArguments())
+      body->addArgument(argument.getType(), argument.getLoc());
+    b.setInsertionPointToEnd(body);
+    conditional.one = constant(1);
+    conditional.zero = constant(0);
+    conditional.selector =
+        literalSelector ? constant(*literalSelector) : body->getArgument(2);
+    conditional.knownZero = caseEqual(conditional.selector, conditional.zero);
+    conditional.knownOne = caseEqual(conditional.selector, conditional.one);
+    conditional.knownEither =
+        binary("or", conditional.knownZero, conditional.knownOne);
+    auto root = caseEqual(conditional.one, conditional.one);
+    auto selected = binary("and", root, conditional.knownEither);
+    conditional.thenPath = conditional.knownOne;
+    conditional.elsePath = conditional.knownZero;
+    auto thenReached = binary("and", selected, conditional.thenPath);
+    auto accepted = caseEqual(conditional.one, conditional.one);
+    conditional.thenBypass =
+        select(conditional.thenPath, accepted, conditional.one);
+    auto afterThen = binary("and", selected, conditional.thenBypass);
+    auto elseReached = binary("and", afterThen, conditional.elsePath);
+    conditional.elseBypass =
+        select(conditional.elsePath, accepted, conditional.one);
+    conditional.fire = binary("and", afterThen, conditional.elseBypass);
+    auto thenEffect = binary("and", conditional.fire, conditional.thenPath);
+    auto elseEffect = binary("and", conditional.fire, conditional.elsePath);
+    op(ac::YieldOp::getOperationName(),
+       {conditional.fire, thenEffect, elseEffect, conditional.selector,
+        conditional.one, conditional.selector, conditional.one, conditional.one,
+        conditional.selector, root, conditional.one, thenReached,
+        conditional.one, elseReached, conditional.one, thenEffect,
+        conditional.one, elseEffect});
+
+    for (auto terminal : expects)
+      terminal.erase();
+    expects.clear();
+    auto &moduleBody = definition.getBody().front();
+    b.setInsertionPoint(moduleBody.getTerminator());
+    for (unsigned i = 0; i < 4; ++i)
+      expects.push_back(cast<ac::SourceExpectOp>(
+          op(ac::SourceExpectOp::getOperationName(),
+             {rule.getResult(6 + 2 * i), rule.getResult(7 + 2 * i),
+              moduleBody.getArgument(1), moduleBody.getArgument(2)},
+             {},
+             {f("kind", b.getStringAttr("guard_known")), f("location", span()),
+              f("ac.check_id", checkID(i))})));
+    expect = expects.front();
+    for (unsigned i = 0; i < 2; ++i) {
+      bodyExpects[i]->setOperands(
+          {rule.getResult(14 + 2 * i), rule.getResult(15 + 2 * i)});
+      bodyExpects[i]->setAttr("ac.check_id", checkID(4 + i));
+    }
+    observations[0]->setOperand(0, rule.getResult(1));
+    observations[1]->setOperands({rule.getResult(2), rule.getResult(3),
+                                  rule.getResult(4), rule.getResult(5)});
+    old.erase();
+  }
+
   template <typename Function> auto capture(Function function) {
     diagnostics.clear();
     ScopedDiagnosticHandler handler(&context, [&](Diagnostic &error) {
@@ -369,10 +543,10 @@ protected:
                                      f("location", span())})}));
     NamedAttrList sampledFields(
         copy->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
-    auto rows = cast<ArrayAttr>(sampledFields.get("guards"));
+    auto rows = cast<ArrayAttr>(sampledFields.get("controls"));
     NamedAttrList guardFields(cast<DictionaryAttr>(rows[0]));
     guardFields.set("id", id);
-    sampledFields.set("guards",
+    sampledFields.set("controls",
                       b.getArrayAttr({guardFields.getDictionary(&context)}));
     copy->setAttr("ac.sampled_admission",
                   sampledFields.getDictionary(&context));
@@ -795,44 +969,44 @@ TEST_F(HardwareSampledAdmissionTest,
   });
   rejectsTwo("wrong predecessor", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("guards").begin(),
-                                metadata.getAs<ArrayAttr>("guards").end());
+    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("controls").begin(),
+                                metadata.getAs<ArrayAttr>("controls").end());
     NamedAttrList changed(cast<DictionaryAttr>(rows[1]));
     changed.set("predecessor", b.getI64IntegerAttr(-1));
     rows[1] = changed.getDictionary(&context);
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr(rows));
+    fields.set("controls", b.getArrayAttr(rows));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
   rejectsTwo("guard order", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("guards").begin(),
-                                metadata.getAs<ArrayAttr>("guards").end());
+    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("controls").begin(),
+                                metadata.getAs<ArrayAttr>("controls").end());
     std::swap(rows[0], rows[1]);
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr(rows));
+    fields.set("controls", b.getArrayAttr(rows));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
   rejectsTwo("duplicate guard id", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("guards").begin(),
-                                metadata.getAs<ArrayAttr>("guards").end());
+    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("controls").begin(),
+                                metadata.getAs<ArrayAttr>("controls").end());
     NamedAttrList changed(cast<DictionaryAttr>(rows[1]));
     changed.set("id", checkID(0));
     rows[1] = changed.getDictionary(&context);
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr(rows));
+    fields.set("controls", b.getArrayAttr(rows));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
   rejectsTwo("duplicate invocation", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("guards").begin(),
-                                metadata.getAs<ArrayAttr>("guards").end());
+    SmallVector<Attribute> rows(metadata.getAs<ArrayAttr>("controls").begin(),
+                                metadata.getAs<ArrayAttr>("controls").end());
     NamedAttrList changed(cast<DictionaryAttr>(rows[1]));
     changed.set("invocation", b.getArrayAttr({}));
     rows[1] = changed.getDictionary(&context);
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr(rows));
+    fields.set("controls", b.getArrayAttr(rows));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
 }
@@ -904,13 +1078,24 @@ TEST_F(HardwareSampledAdmissionTest,
 }
 
 TEST_F(HardwareSampledAdmissionTest, ExactClosedSchemaAndIndexTypesFailClosed) {
+  rejects("old six-field guard inventory", [&] {
+    NamedAttrList metadata(
+        rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
+    auto rows = cast<ArrayAttr>(metadata.get("controls"));
+    NamedAttrList row(cast<DictionaryAttr>(rows[0]));
+    row.erase("kind");
+    row.erase("path");
+    metadata.erase("controls");
+    metadata.set("guards", b.getArrayAttr({row.getDictionary(&context)}));
+    rule->setAttr("ac.sampled_admission", metadata.getDictionary(&context));
+  });
   rejects("old four-field schema", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
     rule->setAttr("ac.sampled_admission",
                   d({f("clock_capture", metadata.get("clock_capture")),
                      f("reset_capture", metadata.get("reset_capture")),
                      f("fire_result", metadata.get("fire_result")),
-                     f("guards", metadata.get("guards"))}));
+                     f("guards", metadata.get("controls"))}));
   });
   for (StringRef field : {"body_checks", "observations"}) {
     rejects((Twine("missing ") + field).str(), [&] {
@@ -923,7 +1108,7 @@ TEST_F(HardwareSampledAdmissionTest, ExactClosedSchemaAndIndexTypesFailClosed) {
   rejects("missing guards", [&] {
     NamedAttrList fields(
         rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
-    fields.erase("guards");
+    fields.erase("controls");
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
   rejects("extra field", [&] {
@@ -961,7 +1146,7 @@ TEST_F(HardwareSampledAdmissionTest, ExactClosedSchemaAndIndexTypesFailClosed) {
   rejects("empty guards", [&] {
     NamedAttrList fields(
         rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
-    fields.set("guards", b.getArrayAttr({}));
+    fields.set("controls", b.getArrayAttr({}));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
 }
@@ -970,29 +1155,29 @@ TEST_F(HardwareSampledAdmissionTest,
        GuardOrderIdentityAndResultLayoutAreAuthoritative) {
   rejects("first predecessor", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("guards")[0]);
+    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("controls")[0]);
     NamedAttrList changed(row);
     changed.set("predecessor", b.getI64IntegerAttr(0));
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr({changed.getDictionary(&context)}));
+    fields.set("controls", b.getArrayAttr({changed.getDictionary(&context)}));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
   rejects("guard extra field", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("guards")[0]);
+    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("controls")[0]);
     NamedAttrList changed(row);
     changed.set("extra", b.getUnitAttr());
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr({changed.getDictionary(&context)}));
+    fields.set("controls", b.getArrayAttr({changed.getDictionary(&context)}));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
   rejects("wrong obligation ordinal", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("guards")[0]);
+    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("controls")[0]);
     NamedAttrList changed(row);
     changed.set("id", checkID(4));
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr({changed.getDictionary(&context)}));
+    fields.set("controls", b.getArrayAttr({changed.getDictionary(&context)}));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
   rejects("wrong suffix id", [&] {
@@ -1005,11 +1190,11 @@ TEST_F(HardwareSampledAdmissionTest,
   });
   rejects("malformed invocation frame", [&] {
     auto metadata = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("guards")[0]);
+    auto row = cast<DictionaryAttr>(metadata.getAs<ArrayAttr>("controls")[0]);
     NamedAttrList changed(row);
     changed.set("invocation", b.getArrayAttr({b.getStringAttr("frame")}));
     NamedAttrList fields(metadata);
-    fields.set("guards", b.getArrayAttr({changed.getDictionary(&context)}));
+    fields.set("controls", b.getArrayAttr({changed.getDictionary(&context)}));
     rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
   });
 }
@@ -1045,7 +1230,7 @@ TEST_F(HardwareSampledAdmissionTest,
   EXPECT_TRUE(rule.getResult(view->fireResult).use_empty());
   EXPECT_EQ(view->checkBase, 6u);
   EXPECT_EQ(view->totalResults, 12u);
-  ASSERT_EQ(view->guards.size(), 1u);
+  ASSERT_EQ(view->controls.size(), 1u);
   ASSERT_EQ(view->bodyChecks.size(), 2u);
   ASSERT_EQ(view->observations.size(), 2u);
   EXPECT_EQ(view->observations[0].pathResult, 1u);
@@ -1053,8 +1238,8 @@ TEST_F(HardwareSampledAdmissionTest,
   EXPECT_EQ(view->observations[1].pathResult, 2u);
   EXPECT_EQ(view->observations[1].firstValueResult, 3u);
   EXPECT_EQ(view->observations[1].valueCount, 3u);
-  EXPECT_EQ(view->guards[0].predicateResult, 6u);
-  EXPECT_EQ(view->guards[0].reachedResult, 7u);
+  EXPECT_EQ(view->controls[0].rawResult, 6u);
+  EXPECT_EQ(view->controls[0].reachedResult, 7u);
   EXPECT_EQ(view->bodyChecks[0].conditionResult, 8u);
   EXPECT_EQ(view->bodyChecks[0].pathResult, 9u);
   EXPECT_EQ(view->bodyChecks[1].conditionResult, 10u);
@@ -1189,6 +1374,506 @@ TEST_F(HardwareSampledAdmissionTest,
   EXPECT_FALSE(diagnostics.empty());
   EXPECT_LT(diagnostics.size(), 4096u);
   EXPECT_EQ(before, printPackage());
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       ConditionalControlsAcceptKnownZeroAndOneWithoutErasingBypassNodes) {
+  for (std::optional<uint64_t> selector :
+       {std::optional<uint64_t>(), std::optional<uint64_t>(0),
+        std::optional<uint64_t>(1)}) {
+    SCOPED_TRACE(selector ? std::to_string(*selector) : "dynamic");
+    buildConditional(selector);
+    ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    ac::HardwareAnalysis analysis(*package);
+    ac::HardwareBindings bindings;
+    bindings.owner = definition;
+    detail::SourceCheckBudget budget({1 << 20});
+    auto view = capture([&] {
+      return detail::parseSampledAdmission(rule, analysis, bindings, budget);
+    });
+    ASSERT_TRUE(succeeded(view)) << diagnostics;
+    ASSERT_EQ(view->controls.size(), 4u);
+    EXPECT_EQ(view->controls[1].kind, detail::SampledControlKind::BranchSelect);
+    EXPECT_EQ(view->controls[2].kind,
+              detail::SampledControlKind::CallableGuard);
+    EXPECT_EQ(view->controls[2].rawResult, 10u);
+    EXPECT_EQ(view->controls[2].executionPath.selectionControl, 1u);
+    EXPECT_TRUE(view->controls[2].executionPath.whenTrue);
+    EXPECT_FALSE(view->controls[3].executionPath.whenTrue);
+    EXPECT_EQ(view->bodyChecks[0].conditionResult, 14u);
+    EXPECT_EQ(view->bodyChecks[1].conditionResult, 16u);
+    EXPECT_TRUE(rule.getResult(0).use_empty());
+    if (selector) {
+      // The same KnownEither value is visited in Prefix and Acceptance modes.
+      // Both raw-literal cases must preserve mode-specific validation.
+      conditional.thenBypass.getDefiningOp()->setOperand(
+          1, conditional.knownEither);
+      EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+          << diagnostics;
+    }
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       ConditionalMetadataRejectsMalformedRolesAndInvocationAncestry) {
+  auto rejectsConditional = [&](StringRef label, auto mutation) {
+    SCOPED_TRACE(label.str());
+    buildConditional();
+    ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    mutation();
+    auto before = printPackage();
+    EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })))
+        << "conditional metadata mutation admitted: " << label.str();
+    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_EQ(before, printPackage());
+  };
+  rejectsConditional("missing control role",
+                     [&] { changeRow("controls", 1, "kind", {}); });
+  rejectsConditional("missing path",
+                     [&] { changeRow("controls", 2, "path", {}); });
+  rejectsConditional("future selection",
+                     [&] { changeRow("controls", 2, "path", arm(true, 3)); });
+  rejectsConditional("callable used as selection",
+                     [&] { changeRow("controls", 2, "path", arm(true, 0)); });
+  rejectsConditional("wrong arm polarity",
+                     [&] { changeRow("controls", 2, "path", arm(false)); });
+  rejectsConditional("integer arm instead of BoolAttr", [&] {
+    changeRow("controls", 2, "path",
+              d({f("selection", b.getI64IntegerAttr(1)),
+                 f("when_true", b.getI64IntegerAttr(1))}));
+  });
+  rejectsConditional("narrow selection index", [&] {
+    changeRow("controls", 2, "path",
+              d({f("selection", b.getI32IntegerAttr(1)),
+                 f("when_true", b.getBoolAttr(true))}));
+  });
+  rejectsConditional("missing callable entry", [&] {
+    changeRow("controls", 1, "invocation", invocation(99));
+  });
+  rejectsConditional("missing parent invocation", [&] {
+    auto frame = invocation(2)[0];
+    changeRow("controls", 2, "invocation", b.getArrayAttr({frame, frame}));
+  });
+  rejectsConditional("sibling invocation path", [&] {
+    changeRow("controls", 1, "kind", b.getStringAttr("callable_guard"));
+    changeRow("controls", 1, "invocation", invocation(1));
+    changeRow("controls", 2, "kind", b.getStringAttr("branch_select"));
+    changeRow("controls", 2, "invocation", invocation(1));
+    changeRow("controls", 2, "path", b.getDictionaryAttr({}));
+    changeRow("controls", 3, "path", arm(false, 2));
+  });
+  rejectsConditional("callee selection escapes owning arm", [&] {
+    changeRow("controls", 3, "kind", b.getStringAttr("branch_select"));
+    changeRow("controls", 3, "invocation", invocation(2));
+    changeRow("controls", 3, "path", b.getDictionaryAttr({}));
+  });
+  rejectsConditional("body effect invocation has no callable", [&] {
+    changeRow("body_checks", 0, "invocation", invocation(99));
+  });
+  rejectsConditional("effect path refers to future callable", [&] {
+    changeRow("observations", 0, "path", arm(true, 3));
+  });
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       BodyInvocationAcceptsPositiveOrdinalsAtDifferentIntegerWidths) {
+  for (bool receiver : {false, true})
+    for (unsigned width : {16u, 32u, 64u, 128u}) {
+      SCOPED_TRACE(::testing::Message()
+                   << "receiver=" << receiver << " width=" << width);
+      buildConditional();
+      changeRow("controls", 2, "invocation",
+                invocationIndex(b.getI64IntegerAttr(255), receiver));
+      changeRow("body_checks", 0, "invocation",
+                invocationIndex(b.getIntegerAttr(b.getIntegerType(width), 255),
+                                receiver));
+      auto before = printPackage();
+      EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+          << diagnostics;
+      EXPECT_EQ(before, printPackage());
+    }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       BodyInvocationRejectsNegativeOrdinalsBeforeNumericIdentityMatching) {
+  // Unsigned structural comparison alone would equate -1:i8 with 255:i64.
+  // Invocation membership therefore cannot establish closed-schema validity.
+  for (bool receiver : {false, true})
+    for (unsigned width : {8u, 16u}) {
+      SCOPED_TRACE(::testing::Message()
+                   << "receiver=" << receiver << " width=" << width);
+      buildConditional();
+      auto positive = b.getI64IntegerAttr((uint64_t(1) << width) - 1);
+      changeRow("controls", 2, "invocation",
+                invocationIndex(positive, receiver));
+      changeRow("body_checks", 0, "invocation",
+                invocationIndex(positive, receiver));
+      ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+          << diagnostics;
+      changeRow("body_checks", 0, "invocation",
+                invocationIndex(b.getIntegerAttr(b.getIntegerType(width), -1),
+                                receiver));
+      auto before = printPackage();
+      EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })));
+      EXPECT_NE(diagnostics.find("must be non-negative"), std::string::npos)
+          << diagnostics;
+      EXPECT_EQ(before, printPackage());
+    }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       NumericEquivalentCallableAndSelectionIdentitiesCannotBeDuplicated) {
+  for (bool selection : {false, true}) {
+    SCOPED_TRACE(selection ? "selection site" : "callable invocation");
+    buildConditional();
+    ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    if (selection) {
+      changeRow("controls", 3, "kind", b.getStringAttr("branch_select"));
+      changeRow("controls", 3, "invocation", b.getArrayAttr({}));
+      changeRow("controls", 3, "path", b.getDictionaryAttr({}));
+      NamedAttrList id(checkID(3));
+      id.set("check", occurrenceIndex(b.getI32IntegerAttr(5)));
+      changeRow("controls", 3, "id", id.getDictionary(&context));
+    } else {
+      changeRow("controls", 3, "invocation",
+                invocationIndex(b.getI32IntegerAttr(12)));
+      changeRow("controls", 3, "path", arm(true));
+    }
+    auto before = printPackage();
+    EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })));
+    EXPECT_NE(diagnostics.find(selection
+                                   ? "duplicate sampled selection site"
+                                   : "duplicate sampled callable identity"),
+              std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(before, printPackage());
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       ConditionalPrefixGrammarRejectsKnownnessAndBypassForgeries) {
+  auto rejectsProof = [&](StringRef label, auto mutation,
+                          std::optional<uint64_t> selector = {}) {
+    SCOPED_TRACE(label.str());
+    buildConditional(selector);
+    ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    b.setInsertionPoint(rule.getBody().front().getTerminator());
+    mutation();
+    EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })))
+        << "conditional proof mutation admitted: " << label.str();
+    EXPECT_FALSE(diagnostics.empty());
+  };
+  rejectsProof("known OR tests different raw endpoints", [&] {
+    conditional.knownZero.getDefiningOp()->setOperand(
+        0, rule.getBody().front().getArgument(0));
+  });
+  // Both mismatched comparisons reduce to literals, so reduction must not hide
+  // the raw-identity obligation in the direct KnownEither matcher.
+  for (uint64_t selector : {0u, 1u})
+    rejectsProof(
+        "literal known OR still authenticates identical raw",
+        [&] {
+          conditional.knownZero.getDefiningOp()->setOperand(
+              0, selector ? conditional.zero : conditional.one);
+        },
+        selector);
+  for (uint64_t selector : {0u, 1u})
+    rejectsProof(
+        "literal acceptance OR still authenticates identical raw",
+        [&] {
+          auto zeroTest = caseEqual(
+              selector ? conditional.zero : conditional.one, conditional.zero);
+          auto oneTest = caseEqual(conditional.selector, conditional.one);
+          auto forged = binary("or", zeroTest, oneTest);
+          conditional.thenBypass.getDefiningOp()->setOperand(1, forged);
+        },
+        selector);
+  rejectsProof("known one alone cannot certify selector known zero", [&] {
+    conditional.knownEither.getDefiningOp()->setOperand(0,
+                                                        conditional.knownOne);
+  });
+  rejectsProof("unknown comparison literal", [&] {
+    conditional.knownZero.getDefiningOp()->setOperand(1, constant(2));
+  });
+  rejectsProof("bypass fallback is false", [&] {
+    conditional.thenBypass.getDefiningOp()->setOperand(2, conditional.zero);
+  });
+  rejectsProof("recursive bypass in selection path", [&] {
+    auto recursive =
+        select(conditional.thenPath, conditional.knownOne, conditional.one);
+    conditional.thenBypass.getDefiningOp()->setOperand(0, recursive);
+  });
+  rejectsProof("recursive bypass in acceptance", [&] {
+    auto recursive =
+        select(conditional.thenPath, conditional.knownOne, conditional.one);
+    conditional.thenBypass.getDefiningOp()->setOperand(1, recursive);
+  });
+  rejectsProof("cached Prefix cannot bypass SelectionPath mode", [&] {
+    // The then bypass has already been parsed while proving else's reached
+    // prefix. Reusing it as an else selection path must still reject.
+    conditional.elseBypass.getDefiningOp()->setOperand(0,
+                                                       conditional.thenBypass);
+  });
+  rejectsProof("cached Prefix cannot bypass Acceptance mode", [&] {
+    conditional.elseBypass.getDefiningOp()->setOperand(1,
+                                                       conditional.thenBypass);
+  });
+  rejectsProof("active prefix cycle", [&] {
+    conditional.fire.getDefiningOp()->setOperand(0, conditional.fire);
+  });
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       ConditionalEffectsRequireExactFinalFireAndWholeExpectedPath) {
+  auto rejectsEffect = [&](StringRef label, auto mutation) {
+    SCOPED_TRACE(label.str());
+    buildConditional();
+    ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    b.setInsertionPoint(rule.getBody().front().getTerminator());
+    mutation();
+    EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })))
+        << "effect path mutation admitted: " << label.str();
+  };
+  rejectsEffect("root-equivalent copy of fire loses identity", [&] {
+    auto yielded = cast<ac::YieldOp>(rule.getBody().front().back());
+    auto effect = yielded.getOperand(15).getDefiningOp<ac::BitsBinaryOp>();
+    auto duplicate = binary("and", conditional.fire, conditional.one);
+    effect->setOperand(0, duplicate);
+  });
+  rejectsEffect("canonical AND operands reversed", [&] {
+    auto yielded = cast<ac::YieldOp>(rule.getBody().front().back());
+    yielded->setOperand(15,
+                        binary("and", conditional.thenPath, conditional.fire));
+  });
+  rejectsEffect("exact F with wrong complete selected path", [&] {
+    auto yielded = cast<ac::YieldOp>(rule.getBody().front().back());
+    yielded->setOperand(15,
+                        binary("and", conditional.fire, conditional.elsePath));
+  });
+  rejectsEffect("F alone omits arm selection", [&] {
+    auto yielded = cast<ac::YieldOp>(rule.getBody().front().back());
+    yielded->setOperand(1, conditional.fire);
+  });
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       EveryValidationQueryReparsesCurrentRuleMetadata) {
+  buildConditional();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::SourceCheckBudget budget({1 << 20});
+  detail::SampledAdmissionValidation validation(analysis, budget);
+  ASSERT_TRUE(succeeded(capture([&] {
+    return validation.verify(rule, bindings);
+  }))) << diagnostics;
+  changeRow("controls", 1, "kind", b.getStringAttr("unrecognized"));
+  EXPECT_TRUE(
+      failed(capture([&] { return validation.verify(rule, bindings); })));
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       ConditionalBudgetFailureIsAtomicAndFreshContextCanRetry) {
+  buildConditional();
+  auto before = printPackage();
+  for (uint64_t limit : {1u, 32u, 256u}) {
+    EXPECT_TRUE(failed(capture([&] { return verifyAdmission(limit); })));
+    EXPECT_NE(
+        diagnostics.find("source-check plan exceeds analysis work budget"),
+        std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(before, printPackage());
+  }
+  EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+      << diagnostics;
+  EXPECT_EQ(before, printPackage());
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       PrefixConjunctionPreservesOrderIdempotenceAndLiteralLaws) {
+  // Separate select operations with equal path/acceptance are semantically the
+  // same admission atom. Different AND association and duplicates preserve F.
+  for (unsigned permutation = 0; permutation < 3; ++permutation) {
+    SCOPED_TRACE(permutation);
+    buildConditional();
+    b.setInsertionPoint(rule.getBody().front().getTerminator());
+    auto duplicateThen = select(
+        conditional.thenPath,
+        conditional.thenBypass.getDefiningOp()->getOperand(1), conditional.one);
+    SmallVector<Value> factors{conditional.knownEither, conditional.thenBypass,
+                               conditional.elseBypass,  duplicateThen,
+                               conditional.knownEither, conditional.one};
+    if (permutation == 1)
+      std::reverse(factors.begin(), factors.end());
+    else if (permutation == 2)
+      std::rotate(factors.begin(), factors.begin() + 2, factors.end());
+    Value fire = factors.front();
+    for (auto factor : llvm::drop_begin(factors))
+      fire = binary("and", factor, fire);
+    setConditionalFire(fire);
+    auto before = printPackage();
+    EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    EXPECT_EQ(before, printPackage());
+  }
+  for (uint64_t raw : {0u, 1u}) {
+    build(false, raw);
+    b.setInsertionPoint(rule.getBody().front().getTerminator());
+    auto yielded = cast<ac::YieldOp>(rule.getBody().front().back());
+    // Known-zero callable admission is impossible; AND false absorbs every
+    // already-valid prefix. A literal one is the identity in either order.
+    auto literalPrefix = constant(raw);
+    yielded->setOperand(0,
+                        binary("and", literalPrefix,
+                               binary("and", known.getResult(), constant(1))));
+    EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       IdenticalRawEndpointDoesNotMergeKnownZeroOneAndEither) {
+  for (unsigned changedTest = 0; changedTest < 3; ++changedTest) {
+    SCOPED_TRACE(changedTest);
+    buildConditional();
+    ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    b.setInsertionPoint(rule.getBody().front().getTerminator());
+    auto yielded = cast<ac::YieldOp>(rule.getBody().front().back());
+    if (changedTest == 0)
+      yielded->setOperand(
+          11,
+          binary(
+              "and",
+              yielded.getOperand(11).getDefiningOp<ac::BitsBinaryOp>().getLhs(),
+              conditional.knownZero));
+    else if (changedTest == 1)
+      yielded->setOperand(
+          13, binary("and", conditional.fire.getDefiningOp()->getOperand(0),
+                     conditional.knownOne));
+    else
+      conditional.knownEither.getDefiningOp()->setOperand(0,
+                                                          conditional.knownOne);
+    auto before = printPackage();
+    EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })));
+    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_EQ(before, printPackage());
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       DuplicateConditionalAtomsStillAuthenticateEveryChild) {
+  for (unsigned mutation = 0; mutation < 5; ++mutation) {
+    SCOPED_TRACE(mutation);
+    buildConditional();
+    b.setInsertionPoint(rule.getBody().front().getTerminator());
+    auto accepted = conditional.thenBypass.getDefiningOp()->getOperand(1);
+    auto duplicate = select(conditional.thenPath, accepted, conditional.one);
+    setConditionalFire(binary("and", conditional.fire, duplicate));
+    ASSERT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
+        << diagnostics;
+    // The earlier, distinct select is still present with the same valid key.
+    // No interning/cache reuse may make this select's validation optional.
+    if (mutation == 0)
+      duplicate.getDefiningOp()->setOperand(2, conditional.zero);
+    else if (mutation == 1)
+      duplicate.getDefiningOp()->setOperand(0, conditional.thenBypass);
+    else if (mutation == 2)
+      duplicate.getDefiningOp()->setOperand(1, conditional.thenBypass);
+    else if (mutation == 3)
+      duplicate.getDefiningOp()->setOperand(0, conditional.knownEither);
+    else
+      duplicate.getDefiningOp()->setOperand(1, conditional.knownZero);
+    auto before = printPackage();
+    EXPECT_TRUE(failed(capture([&] { return verifyAdmission(); })));
+    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_EQ(before, printPackage());
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       FirstDistinctPrefixMissCannotEnterForeignOwnerScope) {
+  for (bool raw : {false, true}) {
+    SCOPED_TRACE(raw ? "raw control" : "first reached prefix");
+    build();
+    auto foreign = addPlainDefinition();
+    b.setInsertionPoint(foreign.getBody().front().getTerminator());
+    auto foreignOne = constant(1);
+    ac::HardwareAnalysis analysis(*package);
+    ac::HardwareBindings bindings;
+    bindings.owner = definition;
+    detail::SourceCheckBudget budget({1 << 20});
+    auto prepared = capture([&] {
+      return detail::prepareSampledBoundaries(definition, analysis, bindings,
+                                              budget);
+    });
+    ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+    ASSERT_TRUE(prepared->has_value());
+    auto view = capture([&] {
+      return detail::parseSampledAdmission(rule, analysis, bindings, budget);
+    });
+    ASSERT_TRUE(succeeded(view)) << diagnostics;
+    if (raw)
+      view->controls[0].raw = foreignOne;
+    else
+      view->controls[0].reached = foreignOne;
+    auto before = printPackage();
+    EXPECT_TRUE(failed(capture([&] {
+      return detail::proveSampledAdmission(*view, **prepared, analysis,
+                                           bindings, budget);
+    })));
+    EXPECT_NE(diagnostics.find("actual owner scope"), std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(before, printPackage());
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       IdentityStopsRequireCompleteScopeBindingsAndResolvedType) {
+  build();
+  auto foreign = addPlainDefinition();
+  ac::HardwareAnalysis analysis(*package);
+  ac::HardwareBindings bindings;
+  bindings.owner = definition;
+  detail::HardwareIdentityScope scope{definition, bindings, {}};
+  detail::SourceCheckBudget endpointBudget({1 << 20});
+  auto endpoint = capture([&] {
+    return detail::makeIdentityEndpoint(rule.getResult(0), scope, analysis,
+                                        endpointBudget);
+  });
+  ASSERT_TRUE(succeeded(endpoint)) << diagnostics;
+  auto expected =
+      cast<ac::YieldOp>(rule.getBody().front().back()).getOperand(0);
+  for (unsigned mutation = 0; mutation < 5; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto stop = *endpoint;
+    if (mutation == 1) {
+      stop.scope.root = foreign;
+      stop.scope.rootBindings.owner = foreign;
+    } else if (mutation == 2)
+      stop.scope.rootBindings.integers["N"] = b.getI64IntegerAttr(1);
+    else if (mutation == 3)
+      stop.scope.rootBindings.types["T"] = bit();
+    else if (mutation == 4)
+      stop.resolvedType = ac::BitsType::get(&context, literal(2));
+    detail::HardwareIdentityStopPolicy policy{
+        detail::HardwareIdentityTraversal::DefinitionLocal,
+        ArrayRef<detail::HardwareIdentityEndpoint>(stop)};
+    detail::SourceCheckBudget budget({1 << 20});
+    auto before = printPackage();
+    auto result = capture([&] {
+      return detail::normalizeIdentityEndpoint(*endpoint, policy, analysis,
+                                               budget);
+    });
+    ASSERT_TRUE(succeeded(result)) << diagnostics;
+    EXPECT_EQ(result->value, mutation == 0 ? rule.getResult(0) : expected);
+    EXPECT_EQ(before, printPackage());
+  }
 }
 
 TEST_F(HardwareSampledAdmissionTest, BudgetRejectsBeforeLateProofWork) {

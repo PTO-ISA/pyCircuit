@@ -325,9 +325,14 @@ compilation, validation or emission fails.
 
 ## Method body checks and observations
 
+The restored conditional-call/effect candidate is awaiting acceptance. The
+authoring rules below describe its implemented scope; they do not establish a
+passing compile, simulation or gate result. Verification remains bound to the
+exact candidate.
+
 Within the supported Method route, use ordinary `assert`, `log` and `report` in
-the direct body. A saved local value remains the candidate value
-at that statement; later writes do not change it. Assertions check the completed
+the body or statement `if`/`elif`/`else` arms. A saved local value remains the
+candidate value at that statement; later writes do not change it. Assertions check the completed
 outer transaction and do not control later calls. All body effects use the final
 transaction fire, so a later false guard suppresses earlier body effects too.
 Put unrelated autonomous work in another registered Rule.
@@ -338,22 +343,66 @@ start from the same incoming candidate. A missing write preserves that candidate
 and its write intent, including a write made before the branch. A changed local
 read after the join must be bound on both arms. Joins select data and raw write
 intent with the original four-state predicate; an identity assignment remains a
-write. Unconditional Method calls and direct effects may appear before or after
-the branch.
+write. Calls and effects may appear before, inside or after a branch. A branch
+containing a call or effect requires a known selector, as do its enclosing
+branches; a pure branch keeps its existing four-state merge behavior.
 
-Do not put a Method call, `assert`, `log` or `report` inside a branch arm; a
-constant-false arm does not waive this check. Partial or aggregate state writes,
-resources and changed Struct/Table/Enum locals escaping a join remain rejected.
-See the [whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md)
-for the exact source and hardware boundary.
+For example, the existing conditional counter fixture uses this sequence inside
+a registered Rule, with `owner` a static counter instance and `selector: u1`:
+
+```python
+@rule
+def drive() -> None:
+    first = owner.add(1)
+    if selector:
+        selected = owner.add(2)
+        log("info", "selected true", selected)
+    else:
+        selected = owner.add(4)
+        log("info", "selected false", selected)
+    after = owner.add(3)
+    log("info", "snapshots", first, selected, after)
+```
+
+Here `rule` and `log` are imported from `pycircuit`, and `add` returns the
+updated candidate. Starting at Q=5 gives snapshots 6/8/11 for selector 1 and
+6/10/13 for selector 0. Each arm starts from candidate 6; another autonomous
+Rule still reads old Q=5. The values are statement-time snapshots.
+
+Unselected guards bypass even when false or X/Z. A selected false guard holds
+the entire outer Rule across all owners and suppresses all its effects, including
+earlier effects. It does not select `else`. A reached X/Z effect selector faults
+at a rising edge outside reset; a later false guard cannot hide it. At low,
+held, falling or reset samples it adds no sampled fault, but final fire remains
+false and all transaction effects stay inactive. With known selectors, selected
+assertions retain their every-Work reset mask, including held/falling samples;
+selected observations can publish after a successful held/falling epoch.
+
+A call result becomes available after that call completes on its source path,
+even for a returned literal or capture. Bind a changed local on both arms to
+use it after the join. A value-returning outer Rule needs proven total admission;
+statically unreachable controls do not block totality, but a reachable dynamic effect
+selector generally requires `-> None`. Dead arms still receive type, recursion,
+closure, domain and writer checks. A conditional `log` or `report` alone needs
+no dummy Method, state or guard. Reports with the same owner/name still conflict
+across mutually exclusive arms; put one report after the join.
+
+Keep selectors, guards, pure helpers, collection callbacks and conditional
+expressions free of Method calls and effects. Effectful loops, early returns,
+partial or aggregate state writes, resources, cross-domain transactions,
+multiple outer writers and changed Struct/Table/Enum locals escaping a join
+remain rejected. See the
+[conditional-effect contract](../rfcs/serial-rule-method/conditional-effects.md)
+and [whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md).
 
 Source capture reuses expect/observe operations; MLIR owns the state versions,
-invocation identities, six-field sampled inventory and physical wiring. Authors
-do not supply final IDs or transaction ports. A closed `@system` keeps its
+invocation identities, six-field sampled inventory with tagged `controls`,
+source paths and physical wiring. Authors do not supply final IDs or
+transaction ports. A closed `@system` keeps its
 compiler-generated clocks, resets and `pycircuit_sim` harness. Verification must
 include actual generated C++/RTL execution and failed-epoch publication checks;
-publication alone is insufficient. Effects or calls inside branches, partial updates
-and transaction resources remain separate unsupported extensions. See the
+publication alone is insufficient. Partial updates and transaction resources
+remain unsupported. See the
 [language boundary](../reference/language.md#method-execution-and-remaining-capabilities)
 and [body-effect contract](../rfcs/serial-rule-method/sampled-body-effects.md).
 

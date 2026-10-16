@@ -2621,7 +2621,7 @@ TEST_F(TransactionLoweringTest,
   auto admission =
       lowered->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
   ASSERT_TRUE(admission);
-  auto guards = admission.getAs<mlir::ArrayAttr>("guards");
+  auto guards = admission.getAs<mlir::ArrayAttr>("controls");
   ASSERT_TRUE(guards);
   EXPECT_EQ(guards.size(), 2u);
   EXPECT_EQ(

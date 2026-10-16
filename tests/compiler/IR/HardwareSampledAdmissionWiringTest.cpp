@@ -247,9 +247,11 @@ protected:
               f("fire_result", b.getI64IntegerAttr(fire)),
               f("body_checks", b.getArrayAttr({})),
               f("observations", b.getArrayAttr({})),
-              f("guards",
+              f("controls",
                 b.getArrayAttr(
                     {d({f("id", id), f("invocation", b.getArrayAttr({})),
+                        f("kind", b.getStringAttr("callable_guard")),
+                        f("path", b.getDictionaryAttr({})),
                         f("predecessor", b.getI64IntegerAttr(-1))})}))}))});
     ruleState.addRegion();
     rule = cast<ac::RuleOp>(b.create(ruleState));
@@ -564,9 +566,11 @@ protected:
               f("fire_result", b.getI64IntegerAttr(1)),
               f("body_checks", b.getArrayAttr({})),
               f("observations", b.getArrayAttr({})),
-              f("guards",
+              f("controls",
                 b.getArrayAttr(
                     {d({f("id", id), f("invocation", b.getArrayAttr({})),
+                        f("kind", b.getStringAttr("callable_guard")),
+                        f("path", b.getDictionaryAttr({})),
                         f("predecessor", b.getI64IntegerAttr(-1))})}))}))});
     state.addRegion();
     auto valued = cast<ac::RuleOp>(b.create(state));
@@ -647,10 +651,10 @@ protected:
                                      f("location", span())})}));
     NamedAttrList sampled(
         copy->getAttrOfType<DictionaryAttr>("ac.sampled_admission"));
-    auto guards = cast<ArrayAttr>(sampled.get("guards"));
+    auto guards = cast<ArrayAttr>(sampled.get("controls"));
     NamedAttrList guard(cast<DictionaryAttr>(guards[0]));
     guard.set("id", id);
-    sampled.set("guards", b.getArrayAttr({guard.getDictionary(&context)}));
+    sampled.set("controls", b.getArrayAttr({guard.getDictionary(&context)}));
     copy->setAttr("ac.sampled_admission", sampled.getDictionary(&context));
     definition.getBody().front().getOperations().insert(
         definition.getBody().front().getTerminator()->getIterator(), copy);
@@ -740,6 +744,8 @@ protected:
              f("location", span())}));
       guards.push_back(
           d({f("id", id), f("invocation", invocation(i)),
+             f("kind", b.getStringAttr("callable_guard")),
+             f("path", b.getDictionaryAttr({})),
              f("predecessor", b.getI64IntegerAttr(i ? int64_t(i - 1) : -1))}));
     }
     b.setInsertionPoint(body.getTerminator());
@@ -756,7 +762,7 @@ protected:
                               f("fire_result", b.getI64IntegerAttr(0)),
                               f("body_checks", b.getArrayAttr({})),
                               f("observations", b.getArrayAttr({})),
-                              f("guards", b.getArrayAttr(guards))}))});
+                              f("controls", b.getArrayAttr(guards))}))});
     state.addRegion();
     rule = cast<ac::RuleOp>(b.create(state));
     auto *ruleBody = new Block;
@@ -1695,9 +1701,10 @@ TEST_F(HardwareSampledAdmissionWiringTest,
   build(false);
   makeValuedStatefree(false);
   EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
-  EXPECT_NE(diagnostics.find("ordinary transaction results require all guards "
-                             "proven literal true"),
-            std::string::npos)
+  EXPECT_NE(
+      diagnostics.find("ordinary transaction results require structured final "
+                       "admission proven true"),
+      std::string::npos)
       << diagnostics;
 
   build(false);
@@ -1733,8 +1740,9 @@ TEST_F(HardwareSampledAdmissionWiringTest,
       EXPECT_TRUE(succeeded(result)) << diagnostics;
     } else {
       EXPECT_TRUE(failed(result)) << diagnostics;
-      EXPECT_NE(diagnostics.find("ordinary transaction results require all "
-                                 "guards proven literal true"),
+      EXPECT_NE(diagnostics.find(
+                    "ordinary transaction results require structured final "
+                    "admission proven true"),
                 std::string::npos)
           << diagnostics;
     }
@@ -1768,8 +1776,9 @@ TEST_F(HardwareSampledAdmissionWiringTest,
     auto right = cast<ac::InstanceOp>(copy);
     addValuedParentGuardedBy(right.getResult(0), 1);
     EXPECT_TRUE(failed(capture([&] { return verifyWiring(); }))) << diagnostics;
-    EXPECT_NE(diagnostics.find("ordinary transaction results require all "
-                               "guards proven literal true"),
+    EXPECT_NE(diagnostics.find(
+                  "ordinary transaction results require structured final "
+                  "admission proven true"),
               std::string::npos)
         << diagnostics;
   }

@@ -1658,6 +1658,98 @@ TEST_F(MethodSummaryAuthorityTest,
 }
 
 TEST_F(MethodSummaryAuthorityTest,
+       DeadArmDynamicCallsRemainInNativeAndPublishedTotalityInventories) {
+  for (bool nested : {false, true}) {
+    for (unsigned selector : {0u, 1u, 2u}) {
+      SCOPED_TRACE(nested);
+      SCOPED_TRACE(selector);
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto child = module(*file, "Child");
+      auto act = named<SourceMethodOp>(child, "act");
+      auto relay = named<SourceMethodOp>(child, "relay");
+      auto *dynamic = relay->clone();
+      dynamic->setAttr("sym_name", builder.getStringAttr("dynamic"));
+      dynamic->setAttr("occurrence", occurrence("Child", 19));
+      dynamic->setOperand(0, child.getBody().front().getArgument(2));
+      child.getBody().front().getOperations().insert(relay->getIterator(),
+                                                     dynamic);
+      auto &body = act.getBody().front();
+      auto exemplar = *body.getOps<SourceMethodCallOp>().begin();
+      auto target = llvm::StringRef("dynamic");
+      if (nested) {
+        auto *outer = relay->clone();
+        outer->setAttr("sym_name", builder.getStringAttr("nested"));
+        outer->setAttr("occurrence", occurrence("Child", 20));
+        auto &nestedBody = outer->getRegion(1).front();
+        auto *call = exemplar->clone();
+        call->setOperands({nestedBody.getArgument(1),
+                            nestedBody.getArgument(0)});
+        call->setAttr("callee", mlir::SymbolRefAttr::get(
+                                    &context, "Child",
+                                    {mlir::FlatSymbolRefAttr::get(&context,
+                                                                  "dynamic")}));
+        call->setAttr("occurrence", occurrence("Child", 21));
+        nestedBody.getOperations().insert(
+            nestedBody.getTerminator()->getIterator(), call);
+        child.getBody().front().getOperations().insert(relay->getIterator(),
+                                                       outer);
+        target = "nested";
+      }
+      auto zero = *body.getOps<BitsConstantOp>().begin();
+      mlir::Value condition = selector == 0 ? mlir::Value(zero.getResult())
+                              : selector == 1 ? body.getArgument(4)
+                                              : body.getArgument(5);
+      auto split = branch(act, body.getTerminator()->getIterator(), condition,
+                          body.getArgument(1), body.getArgument(1), 22);
+      // Zero selects else, One selects then. Dynamic is reached and cannot
+      // prove a total transaction, even when its result is unused.
+      auto &arm = selector == 1 ? split.getElseRegion().front()
+                                : split.getThenRegion().front();
+      auto *call = exemplar->clone();
+      call->setAttr("callee", mlir::SymbolRefAttr::get(
+                                  &context, "Child",
+                                  {mlir::FlatSymbolRefAttr::get(&context,
+                                                                target)}));
+      call->setAttr("occurrence", occurrence("Child", 23));
+      arm.getOperations().insert(arm.getTerminator()->getIterator(), call);
+      ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+          << diagnostics;
+      auto analysis = capture([&] {
+        return std::make_unique<SourceMethodSummariesAnalysis>(
+            file->getOperation());
+      });
+      if (selector == 2) {
+        EXPECT_FALSE(analysis->isValid());
+        EXPECT_NE(diagnostics.find("total"), std::string::npos) << diagnostics;
+        continue;
+      }
+      ASSERT_TRUE(analysis->isValid()) << diagnostics;
+      auto run = named<SourceTransactionOp>(module(*file, "Root"), "run");
+      EXPECT_TRUE(analysis->isTotal(run));
+      auto published = summary(*analysis, child);
+      ASSERT_TRUE(published);
+      auto effects = array(namedRow(published, "methods", "act"),
+                           "body_effects");
+      auto row = dict(effects[effects.size() - 1]);
+      EXPECT_EQ(kind(row), "branch");
+      EXPECT_EQ(row.size(), 7u);
+      auto armRows = array(row, selector == 1 ? "else_effects" : "then_effects");
+      ASSERT_EQ(armRows.size(), 1u);
+      EXPECT_EQ(kind(dict(armRows[0])), "call");
+      structureAccepts(child, published);
+      replaceDefinition(child, published);
+      auto consumer = capture([&] {
+        return std::make_unique<SourceMethodSummariesAnalysis>(
+            file->getOperation());
+      });
+      ASSERT_TRUE(consumer->isValid()) << diagnostics;
+      EXPECT_TRUE(consumer->isTotal(run));
+    }
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
        DeclarationOnlyImportCarriesClosedBranchRowsWithoutBodyAuthority) {
   auto file = parse();
   ASSERT_TRUE(file);

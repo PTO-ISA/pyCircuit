@@ -600,6 +600,56 @@ TEST_F(HardwareSourceCheckCapacityTest,
 }
 
 TEST_F(HardwareSourceCheckCapacityTest,
+       DistinctDefinitionsPreserveLateValidationAcrossCatalogGrowth) {
+  for (unsigned count : {47u, 48u, 95u, 96u}) {
+    SCOPED_TRACE(count);
+    begin();
+    auto selected = module("Root");
+    check(selected);
+    for (unsigned i = 1; i < count; ++i) {
+      auto owner = module("CheckedOwner" + std::to_string(i));
+      check(owner);
+    }
+    select(selected);
+    auto accepted = plan();
+    ASSERT_TRUE(succeeded(accepted)) << diagnostics;
+    ASSERT_EQ(accepted->bindings.size(), count);
+    ASSERT_EQ(accepted->owners.size(), 1u);
+    ASSERT_EQ(accepted->checks.size(), 1u);
+    EXPECT_EQ(accepted->checks.front().ownerOccurrence, 0u);
+    bool includesLastDefinition = false;
+    for (const auto &binding : accepted->bindings)
+      includesLastDefinition |=
+          binding.definition == lastExpect->getParentOfType<ac::ModuleOp>();
+    EXPECT_TRUE(includesLastDefinition);
+
+    // Every definition remains subject to the raw census even though only
+    // Root is instantiated. The final terminal follows several ordinary
+    // operations in its owner and must not inherit another owner's verdict.
+    auto original = lastExpect->getAttr("ac.check_id");
+    lastExpect->setAttr("ac.check_id", b.getStringAttr("invalid CheckID"));
+    auto print = [&] {
+      std::string text;
+      llvm::raw_string_ostream stream(text);
+      package->print(stream);
+      return text;
+    };
+    auto before = print();
+    EXPECT_TRUE(failed(plan()));
+    EXPECT_NE(diagnostics.find("source-check raw association requires closed "
+                               "required rows and dictionary CheckIDs"),
+              std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(before, print());
+    lastExpect->setAttr("ac.check_id", original);
+    auto retried = plan();
+    ASSERT_TRUE(succeeded(retried)) << diagnostics;
+    EXPECT_EQ(retried->bindings.size(), count);
+    EXPECT_EQ(retried->checks.size(), 1u);
+  }
+}
+
+TEST_F(HardwareSourceCheckCapacityTest,
        BoundDefinitionCacheDistinguishesActualParameters) {
   begin();
   leaf = module("Generic");

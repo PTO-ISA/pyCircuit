@@ -689,10 +689,6 @@ private:
       if (!budget.charge(1 + operation.getNumOperands() +
                          operation.getNumResults()))
         return failure();
-      if (arm &&
-          isa<SourceMethodCallOp, SourceExpectOp, SourceObserveOp>(operation))
-        return operation.emitOpError() << "source branch arms cannot contain "
-                                          "calls, checks or observations";
       if (auto branch = dyn_cast<SourceBranchOp>(operation)) {
         if (&region == &scope->getRegion(0))
           return branch.emitOpError()
@@ -740,7 +736,12 @@ private:
             failed(metadata(observe.getSpec())) ||
             failed(metadata(observe->getAttr("ac.location"))))
           return failure();
-        SmallVector<Attribute> observed;
+        SmallVector<Attribute, 0> observed;
+        uint64_t valueCount = observe.getValues().size();
+        if (valueCount > observed.max_size() ||
+            !budget.storage(valueCount, sizeof(Attribute)))
+          return failure();
+        observed.reserve(valueCount);
         for (Value input : observe.getValues()) {
           auto type = TypeAttr::get(input.getType());
           if (failed(metadata(type)))
@@ -1541,11 +1542,6 @@ private:
         }
         continue;
       }
-      if (arm &&
-          llvm::is_contained(ArrayRef<StringRef>{"call", "check", "observe"},
-                             kind.getValue()))
-        return error(
-            "branch arms cannot contain calls, checks or observations");
       if (failed(fact(row.get("path"), scope)))
         return failure();
       if (kind.getValue() == "call") {

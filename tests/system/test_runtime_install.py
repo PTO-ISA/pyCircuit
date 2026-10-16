@@ -74,7 +74,15 @@ def test_runtime_only_install_relocates_and_runs_without_llvm(
     cache = (build / "CMakeCache.txt").read_text(encoding="utf-8")
     assert "PYC_BUILD_COMPILER_DEV:BOOL=OFF" in cache
     assert not re.search(r"^(?:LLVM|MLIR)_DIR:", cache, re.MULTILINE), cache
-    _checked([cmake, "--build", str(build), "--parallel", "4"])
+    _checked(
+        [
+            cmake,
+            "--build",
+            str(build),
+            "--parallel",
+            os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "4"),
+        ]
+    )
     _checked([cmake, "--install", str(build)])
 
     relocated = tmp_path / "relocated-runtime"
@@ -101,7 +109,15 @@ def test_runtime_only_install_relocates_and_runs_without_llvm(
             "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
         ]
     )
-    _checked([cmake, "--build", str(consumer_build), "--parallel", "4"])
+    _checked(
+        [
+            cmake,
+            "--build",
+            str(consumer_build),
+            "--parallel",
+            os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "4"),
+        ]
+    )
     executable = consumer_build / "runtime_consumer"
     if os.name == "nt":
         executable = executable.with_suffix(".exe")
@@ -196,7 +212,15 @@ def test_compiler_dev_install_links_a_native_consumer() -> None:
             "-DCMAKE_FIND_USE_SYSTEM_PACKAGE_REGISTRY=OFF",
         ]
     )
-    _checked([cmake, "--build", str(consumer_build), "--parallel", "4"])
+    _checked(
+        [
+            cmake,
+            "--build",
+            str(consumer_build),
+            "--parallel",
+            os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "4"),
+        ]
+    )
     executable = consumer_build / "compiler_dev_consumer"
     if os.name == "nt":
         executable = executable.with_suffix(".exe")

@@ -61,15 +61,17 @@ LogicalResult payAttribute(Attribute attr, SourceCheckBudget &budget,
     if (failed(budget.debit(1, site)))
       return failure();
     if (pending.size() == pending.capacity()) {
-      uint64_t capacity = SourceCheckBudget::multiply(
-          std::max(uint64_t(1), uint64_t(pending.capacity())), 2);
+      uint64_t capacity = std::max(
+          uint64_t(2), SourceCheckBudget::add(
+                           SourceCheckBudget::multiply(pending.capacity(), 2), 1));
       uint64_t storage = SourceCheckBudget::multiply(
           capacity - pending.capacity(), sizeof(Attribute));
       if (capacity == std::numeric_limits<uint64_t>::max() ||
           storage == std::numeric_limits<uint64_t>::max() ||
           capacity > pending.max_size())
         return budget.debit(std::numeric_limits<uint64_t>::max(), site);
-      if (failed(budget.debit(SourceCheckBudget::bytes(storage), site)))
+      if (failed(budget.debit(SourceCheckBudget::add(SourceCheckBudget::bytes(storage),
+                                                pending.size()), site)))
         return failure();
       pending.reserve(capacity);
     }
@@ -313,9 +315,9 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     return failure();
   auto module = dyn_cast<ModuleOp>(rule->getParentOp());
   auto row = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-  if (!module || !rule.getBody().hasOneBlock() ||
+  if (!module || rule->getNumRegions() != 1 || !rule.getBody().hasOneBlock() ||
       failed(exact(row,
-                   {"clock_capture", "reset_capture", "fire_result", "guards",
+                   {"clock_capture", "reset_capture", "fire_result", "controls",
                     "body_checks", "observations"},
                    rule, "ac.sampled_admission")))
     return failure();
@@ -324,7 +326,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto clock = index(row, "clock_capture", rule);
   auto reset = index(row, "reset_capture", rule);
   auto fire = index(row, "fire_result", rule);
-  auto guards = row.getAs<ArrayAttr>("guards");
+  auto controls = row.getAs<ArrayAttr>("controls");
   auto bodyChecks = row.getAs<ArrayAttr>("body_checks");
   auto observations = row.getAs<ArrayAttr>("observations");
   if (rule.getBody().front().empty())
@@ -332,15 +334,15 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto yielded = dyn_cast<YieldOp>(rule.getBody().front().getTerminator());
   if (failed(clock) || failed(reset) || failed(fire))
     return failure();
-  if (!guards || guards.empty() || !bodyChecks || !observations || !yielded ||
-      *clock >= rule->getNumOperands() || *reset >= rule->getNumOperands() ||
-      *fire >= rule->getNumResults())
+  if (!controls || controls.empty() || !bodyChecks || !observations ||
+      !yielded || *clock >= rule->getNumOperands() ||
+      *reset >= rule->getNumOperands() || *fire >= rule->getNumResults())
     return rule->emitOpError()
            << "sampled admission captures/inventories are outside Rule layout";
   uint64_t checkBase = SourceCheckBudget::add(*fire, 1);
   for (Attribute raw : observations) {
     auto observation = dyn_cast<DictionaryAttr>(raw);
-    if (failed(exact(observation, {"id", "value_count"}, rule,
+    if (failed(exact(observation, {"id", "value_count", "path"}, rule,
                      "sampled observation")))
       return failure();
     auto count = index(observation, "value_count", rule);
@@ -350,7 +352,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
         SourceCheckBudget::add(checkBase, SourceCheckBudget::add(1, *count));
   }
   uint64_t checkCount =
-      SourceCheckBudget::add(guards.size(), bodyChecks.size());
+      SourceCheckBudget::add(controls.size(), bodyChecks.size());
   uint64_t total = SourceCheckBudget::add(
       checkBase, SourceCheckBudget::multiply(2, checkCount));
   if (total == std::numeric_limits<uint64_t>::max() ||
@@ -360,7 +362,10 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto required = rule->getAttrOfType<ArrayAttr>("ac.required_checks");
   if (!required || required.size() != checkCount)
     return rule->emitOpError() << "sampled admission requires exactly its "
-                                  "ordered guard/assert obligations";
+                                  "ordered control/assert obligations";
+  if (failed(payAttribute(required, budget, rule)) ||
+      failed(payAttribute(rule->getAttr("occurrence"), budget, rule)))
+    return failure();
   if (failed(
           bitOne(rule->getOperand(*clock), analysis, bindings, rule, budget)) ||
       failed(
@@ -369,7 +374,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
                     budget)) ||
       failed(verifyOccurrence(rule->getAttrOfType<DictionaryAttr>("occurrence"),
                               [&] { return rule->emitOpError(); })) ||
-      failed(charge(budget, rule, guards.size(), sizeof(SampledGuardView))))
+      failed(charge(budget, rule, controls.size(), sizeof(SampledControlView))))
     return failure();
   SampledAdmissionView result;
   result.definition = module;
@@ -384,81 +389,206 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   result.fire = yielded->getOperand(*fire);
   if (!rule->getResult(*fire).use_empty())
     return rule->emitOpError() << "sampled external fire must have zero users";
-  result.guards.reserve(guards.size());
-  for (auto [ordinal, raw] : llvm::enumerate(guards)) {
-    auto guard = dyn_cast<DictionaryAttr>(raw);
-    if (failed(exact(guard, {"id", "invocation", "predecessor"}, rule,
-                     "sampled guard")))
+  auto parsePath = [&](DictionaryAttr row,
+                       uint64_t before) -> FailureOr<SampledPathRef> {
+    auto path = row.getAs<DictionaryAttr>("path");
+    if (!path)
+      return rule->emitOpError() << "sampled row requires a closed path";
+    if (path.empty())
+      return SampledPathRef{};
+    if (failed(exact(path, {"selection", "when_true"}, rule, "sampled path")))
       return failure();
+    auto selection = index(path, "selection", rule);
+    auto arm = path.getAs<BoolAttr>("when_true");
+    if (failed(selection) || !arm ||
+        static_cast<uint64_t>(*selection) >= before ||
+        static_cast<uint64_t>(*selection) >= result.controls.size() ||
+        result.controls[*selection].kind != SampledControlKind::BranchSelect)
+      return rule->emitOpError()
+             << "sampled path requires an earlier branch_select and Bool arm";
+    if (failed(budget.debit(1, rule)))
+      return failure();
+    return SampledPathRef{static_cast<uint64_t>(*selection), arm.getValue()};
+  };
+  auto invocationPrefix = [&](ArrayAttr prefix,
+                              ArrayAttr invocation) -> FailureOr<bool> {
+    if (failed(budget.debit(1, rule)))
+      return failure();
+    if (!prefix || !invocation || prefix.size() > invocation.size())
+      return false;
+    for (uint64_t i = 0; i < prefix.size(); ++i) {
+      if (failed(budget.debit(1, rule)) ||
+          failed(payComparison(prefix[i], invocation[i], budget, rule)))
+        return failure();
+      if (!identical(prefix[i], invocation[i]))
+        return false;
+    }
+    return true;
+  };
+  auto validatePath = [&](SampledPathRef path, ArrayAttr invocation,
+                          const SampledControlView *owner) -> LogicalResult {
+    bool extendsOwner = !owner || !owner->executionPath.selectionControl;
+    while (path.selectionControl) {
+      if (failed(budget.debit(1, rule)))
+        return failure();
+      if (owner &&
+          path.selectionControl == owner->executionPath.selectionControl &&
+          path.whenTrue == owner->executionPath.whenTrue)
+        extendsOwner = true;
+      const auto &selection = result.controls[*path.selectionControl];
+      auto prefix = invocationPrefix(selection.invocation, invocation);
+      if (failed(prefix))
+        return failure();
+      if (!*prefix)
+        return rule->emitOpError()
+               << "sampled path references a sibling invocation";
+      path = selection.executionPath;
+    }
+    if (!extendsOwner)
+      return rule->emitOpError()
+             << "sampled path escapes its callable execution path";
+    return success();
+  };
+  auto callable = [&](ArrayAttr invocation,
+                      bool parent) -> FailureOr<const SampledControlView *> {
+    if (!invocation || (parent && invocation.empty()))
+      return rule->emitOpError() << "sampled invocation has no callable owner";
+    for (const auto &prior : result.controls) {
+      if (failed(budget.debit(1, rule)))
+        return failure();
+      if (prior.kind != SampledControlKind::CallableGuard)
+        continue;
+      uint64_t requiredLength =
+          parent ? SourceCheckBudget::add(prior.invocation.size(), 1)
+                 : prior.invocation.size();
+      if (requiredLength != invocation.size())
+        continue;
+      if (parent) {
+        auto prefix = invocationPrefix(prior.invocation, invocation);
+        if (failed(prefix))
+          return failure();
+        if (*prefix)
+          return &prior;
+      } else {
+        if (failed(payComparison(prior.invocation, invocation, budget, rule)))
+          return failure();
+        if (identical(prior.invocation, invocation))
+          return &prior;
+      }
+    }
+    return rule->emitOpError()
+           << "sampled invocation is absent from callable guard inventory";
+  };
+  auto validateInvocationFrame = [&](Attribute raw) -> LogicalResult {
+    auto frame = dyn_cast<DictionaryAttr>(raw);
+    if (failed(exact(frame, {"call", "receiver"}, rule,
+                     "sampled invocation frame")) ||
+        failed(verifyOccurrence(frame.getAs<DictionaryAttr>("call"),
+                                [&] { return rule->emitOpError(); })) ||
+        failed(verifyOwnerRef(frame.getAs<DictionaryAttr>("receiver"),
+                              [&] { return rule->emitOpError(); })))
+      return failure();
+    return success();
+  };
+  result.controls.reserve(controls.size());
+  for (auto [ordinal, raw] : llvm::enumerate(controls)) {
+    auto guard = dyn_cast<DictionaryAttr>(raw);
+    if (failed(exact(guard, {"kind", "id", "invocation", "predecessor", "path"},
+                     rule, "sampled control")))
+      return failure();
+    auto kindAttr = guard.getAs<StringAttr>("kind");
+    if (!kindAttr || !llvm::is_contained(
+                         ArrayRef<StringRef>{"callable_guard", "branch_select"},
+                         kindAttr.getValue()))
+      return rule->emitOpError() << "sampled control has an invalid role";
+    auto role = kindAttr.getValue() == "callable_guard"
+                    ? SampledControlKind::CallableGuard
+                    : SampledControlKind::BranchSelect;
     auto id = guard.getAs<DictionaryAttr>("id");
     auto invocation = guard.getAs<ArrayAttr>("invocation");
     auto predecessor = index(guard, "predecessor", rule, true);
-    if (failed(predecessor) ||
+    auto path = parsePath(guard, ordinal);
+    if (failed(predecessor) || failed(path) ||
         failed(verifyCheckID(id, [&] { return rule->emitOpError(); })))
+      return failure();
+    if (failed(payComparison(id.get("registration"),
+                             rule->getAttr("occurrence"), budget, rule)))
       return failure();
     auto obligation = index(id, "obligation", rule);
     if (failed(obligation))
       return failure();
     if (*predecessor != static_cast<int64_t>(ordinal) - 1 ||
         *obligation != static_cast<int64_t>(ordinal) || !invocation ||
-        (ordinal == 0 && !invocation.empty()) ||
-        !identical(id.get("registration"),
-                   rule->getAttrOfType<DictionaryAttr>("occurrence")))
-      return rule->emitOpError() << "sampled guard has inconsistent ordinal, "
+        (ordinal == 0 && (!invocation.empty() || path->selectionControl ||
+                          role != SampledControlKind::CallableGuard)) ||
+        !identical(id.get("registration"), rule->getAttr("occurrence")))
+      return rule->emitOpError() << "sampled control has inconsistent ordinal, "
                                     "registration or invocation";
     if (failed(charge(budget, rule, invocation.size(), sizeof(DictionaryAttr))))
       return failure();
-    for (auto frameRaw : invocation) {
-      auto frame = dyn_cast<DictionaryAttr>(frameRaw);
-      if (failed(exact(frame, {"call", "receiver"}, rule,
-                       "sampled invocation frame")) ||
-          failed(verifyOccurrence(frame.getAs<DictionaryAttr>("call"),
-                                  [&] { return rule->emitOpError(); })) ||
-          failed(verifyOwnerRef(frame.getAs<DictionaryAttr>("receiver"),
-                                [&] { return rule->emitOpError(); })))
+    for (auto frameRaw : invocation)
+      if (failed(validateInvocationFrame(frameRaw)))
         return failure();
-    }
-    for (const auto &prior : result.guards) {
-      if (failed(payComparison(prior.id, id, budget, rule)) ||
-          failed(payComparison(prior.invocation, invocation, budget, rule)))
+    // Closed CheckIDs already have distinct obligations equal to their row
+    // ordinals and the same verified registration. Only role-specific
+    // invocation/site uniqueness still needs a pairwise comparison here.
+    for (const auto &prior : result.controls) {
+      if (failed(budget.debit(1, rule)))
         return failure();
-      if (identical(prior.id, id) || identical(prior.invocation, invocation))
-        return rule->emitOpError()
-               << "duplicate sampled guard identity or invocation";
+      if (prior.kind != role || prior.invocation.size() != invocation.size())
+        continue;
+      if (failed(payComparison(prior.invocation, invocation, budget, rule)))
+        return failure();
+      bool sameInvocation = identical(prior.invocation, invocation);
+      if (role == SampledControlKind::CallableGuard && sameInvocation)
+        return rule->emitOpError() << "duplicate sampled callable identity";
+      if (role == SampledControlKind::BranchSelect && sameInvocation) {
+        if (failed(payComparison(prior.id.get("check"), id.get("check"), budget,
+                                 rule)))
+          return failure();
+        if (identical(prior.id.get("check"), id.get("check")))
+          return rule->emitOpError() << "duplicate sampled selection site";
+      }
     }
+    const SampledControlView *owner = nullptr;
+    if (ordinal) {
+      auto found =
+          callable(invocation, role == SampledControlKind::CallableGuard);
+      if (failed(found))
+        return failure();
+      owner = *found;
+    }
+    if (failed(validatePath(*path, invocation, owner)))
+      return failure();
     auto check = dyn_cast<DictionaryAttr>(required[ordinal]);
     if (failed(exact(check, {"id", "kind", "location"}, rule,
-                     "guard RequiredCheck")))
+                     "control RequiredCheck")))
+      return failure();
+    if (failed(payComparison(check.get("id"), id, budget, rule)))
       return failure();
     auto kind = check.getAs<StringAttr>("kind");
     if (!kind || kind.getValue() != "guard_known" ||
         !identical(check.get("id"), id) ||
         failed(verifySourceSpan(check.getAs<DictionaryAttr>("location"),
                                 [&] { return rule->emitOpError(); })))
-      return rule->emitOpError()
-             << "sampled guard differs from its ordered guard_known obligation";
-    uint64_t predicate = checkBase + 2 * ordinal;
-    uint64_t reached = predicate + 1;
+      return rule->emitOpError() << "sampled control differs from its ordered "
+                                    "guard_known obligation";
+    uint64_t predicate = checkBase + 2 * ordinal, reached = predicate + 1;
     if (failed(bitOne(yielded->getOperand(predicate), analysis, bindings, rule,
                       budget)) ||
         failed(bitOne(yielded->getOperand(reached), analysis, bindings, rule,
                       budget)))
       return failure();
-    result.guards.push_back({id, invocation, *predecessor, predicate, reached,
-                             yielded->getOperand(predicate),
-                             yielded->getOperand(reached)});
+    result.controls.push_back(
+        {role, id, invocation, *predecessor, *path, predicate, reached,
+         yielded->getOperand(predicate), yielded->getOperand(reached)});
   }
-  auto effectInvocation = [&](ArrayAttr invocation) -> LogicalResult {
-    if (!invocation || failed(payAttribute(invocation, budget, rule)))
+  auto effectPath = [&](ArrayAttr invocation,
+                        SampledPathRef path) -> LogicalResult {
+    auto owner = callable(invocation, false);
+    if (failed(owner))
       return failure();
-    for (const auto &guard : result.guards) {
-      if (failed(payComparison(guard.invocation, invocation, budget, rule)))
-        return failure();
-      if (identical(guard.invocation, invocation))
-        return success();
-    }
-    return rule->emitOpError()
-           << "sampled effect invocation is absent from guard inventory";
+    return validatePath(path, invocation, *owner);
   };
   if (failed(charge(budget, rule, bodyChecks.size(),
                     sizeof(SampledBodyCheckView))) ||
@@ -469,14 +599,26 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   result.observations.reserve(observations.size());
   for (auto [ordinal, raw] : llvm::enumerate(bodyChecks)) {
     auto body = dyn_cast<DictionaryAttr>(raw);
-    if (failed(exact(body, {"id", "invocation"}, rule, "sampled body check")))
+    if (failed(exact(body, {"id", "invocation", "path"}, rule,
+                     "sampled body check")))
       return failure();
     auto id = body.getAs<DictionaryAttr>("id");
     auto invocation = body.getAs<ArrayAttr>("invocation");
-    if (failed(verifyCheckID(id, [&] { return rule->emitOpError(); })) ||
-        failed(effectInvocation(invocation)))
+    auto executionPath = parsePath(body, result.controls.size());
+    if (failed(executionPath) ||
+        failed(verifyCheckID(id, [&] { return rule->emitOpError(); })) ||
+        !invocation || failed(payAttribute(invocation, budget, rule)))
       return failure();
-    uint64_t obligation = guards.size() + ordinal;
+    for (Attribute frame : invocation)
+      if (failed(budget.debit(1, rule)) ||
+          failed(validateInvocationFrame(frame)))
+        return failure();
+    if (failed(effectPath(invocation, *executionPath)))
+      return failure();
+    if (failed(payComparison(id.get("registration"),
+                             rule->getAttr("occurrence"), budget, rule)))
+      return failure();
+    uint64_t obligation = controls.size() + ordinal;
     auto actual = index(id, "obligation", rule);
     auto record = dyn_cast<DictionaryAttr>(required[obligation]);
     if (failed(actual) || *actual != static_cast<int64_t>(obligation) ||
@@ -485,6 +627,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
                      "assert RequiredCheck")))
       return rule->emitOpError()
              << "sampled body assertion has inconsistent identity/obligation";
+    if (failed(payComparison(record.get("id"), id, budget, rule)))
+      return failure();
     auto kind = record.getAs<StringAttr>("kind");
     if (!kind || kind.getValue() != "assert" ||
         !identical(record.get("id"), id) ||
@@ -498,8 +642,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
         failed(bitOne(yielded->getOperand(path), analysis, bindings, rule,
                       budget)))
       return failure();
-    result.bodyChecks.push_back({id, invocation, condition, path,
-                                 yielded->getOperand(condition),
+    result.bodyChecks.push_back({*executionPath, id, invocation, condition,
+                                 path, yielded->getOperand(condition),
                                  yielded->getOperand(path)});
   }
   uint64_t path = *fire + 1;
@@ -510,17 +654,27 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     if (failed(count) ||
         failed(verifyObservationID(id, [&] { return rule->emitOpError(); })))
       return failure();
+    auto invocation = id.getAs<ArrayAttr>("invocation");
+    if (failed(payAttribute(invocation, budget, rule)))
+      return failure();
+    auto executionPath = parsePath(row, result.controls.size());
+    if (failed(executionPath))
+      return failure();
+    if (failed(payComparison(id.get("registration"),
+                             rule->getAttr("occurrence"), budget, rule)))
+      return failure();
     auto actual = index(id, "ordinal", rule);
     if (failed(actual) || *actual != static_cast<int64_t>(ordinal) ||
         !identical(id.get("registration"), rule->getAttr("occurrence")) ||
-        failed(effectInvocation(id.getAs<ArrayAttr>("invocation"))))
+        failed(effectPath(invocation, *executionPath)))
       return rule->emitOpError() << "sampled observation has inconsistent "
                                     "ordinal/registration/invocation";
     if (failed(bitOne(yielded->getOperand(path), analysis, bindings, rule,
                       budget)) ||
         failed(charge(budget, rule, *count, sizeof(Value))))
       return failure();
-    SampledObservationView observation{id,
+    SampledObservationView observation{*executionPath,
+                                       id,
                                        path,
                                        path + 1,
                                        static_cast<uint64_t>(*count),
@@ -1068,106 +1222,220 @@ private:
   HardwareIdentityStopPolicy policy;
   SmallVector<IdentityMemoEntry, 0> cache;
 };
+enum class KnownTest : uint8_t { Zero, One, Either };
+struct KnownAtom {
+  KnownTest test;
+  HardwareIdentityEndpoint endpoint;
+};
 struct Prefix {
   bool impossible = false;
-  SmallVector<HardwareIdentityEndpoint> atoms;
+  SmallVector<uint64_t, 0> atoms;
 };
+enum class PrefixMode : uint8_t { Prefix, SelectionPath, Acceptance };
 struct PrefixCache {
   HardwareIdentityEndpoint endpoint;
+  PrefixMode mode;
   Prefix prefix;
   bool complete = false;
 };
-// This cache belongs to exactly one normalizer, whose complete stop policy is
-// immutable. Entries compare actual root/path/bindings/value/resolved type;
-// the borrowed boundary array's address is never an identity key.
+struct ConditionalAtom {
+  Prefix selectionPath, acceptance;
+};
+struct PrefixParseFrame {
+  PrefixMode mode;
+  HardwareIdentityEndpoint input;
+  uint64_t memoIndex;
+  unsigned stage = 0;
+  std::optional<Prefix> intermediate;
+};
+struct ExpectedSelectionPaths {
+  uint64_t control;
+  Prefix whenTrue, whenFalse;
+};
+// All three grammar modes share one immutable identity context. Only composite
+// nodes create DFS frames; raw operands and direct Known-OR children never do.
 class OrderedPrefixProof {
 public:
   OrderedPrefixProof(const HardwareAnalysis &analysis,
                      SourceCheckBudget &budget,
-                     HardwareIdentityStopPolicy policy)
-      : analysis(analysis), budget(budget), policy(policy),
+                     HardwareIdentityStopPolicy policy,
+                     const HardwareIdentityScope &scope)
+      : analysis(analysis), budget(budget), fixedScope(&scope),
         identity(analysis, budget, policy) {}
-  FailureOr<Prefix> parse(Value value, const HardwareIdentityScope &scope) {
-    auto endpoint = identity.normalize(value, scope);
-    if (failed(endpoint))
-      return failure();
-    for (const auto &entry : cache) {
-      if (failed(payScope(entry.endpoint.scope, budget, valueSite(value))) ||
-          failed(payScope(endpoint->scope, budget, valueSite(value))))
+  FailureOr<Prefix> parse(Value value,
+                          PrefixMode mode = PrefixMode::Prefix) {
+    SmallVector<PrefixParseFrame, 0> frames;
+    std::optional<Prefix> completed;
+    auto finish = [&](uint64_t position, Prefix result) -> LogicalResult {
+      auto saved = copy(result, valueSite(cache[position].endpoint.value));
+      if (failed(saved))
         return failure();
-      if (!sameEndpoint(entry.endpoint, *endpoint))
-        continue;
-      if (!entry.complete)
-        return valueSite(value)->emitOpError()
-               << "cyclic sampled admission prefix";
-      return copy(entry.prefix, valueSite(value));
+      cache[position].prefix = std::move(*saved);
+      cache[position].complete = true;
+      completed = std::move(result);
+      return success();
+    };
+    auto start = [&](Value input, PrefixMode inputMode) -> LogicalResult {
+      auto endpoint = identity.normalize(input, *fixedScope);
+      if (failed(endpoint))
+        return failure();
+      Operation *site = valueSite(input);
+      for (auto [i, entry] : llvm::enumerate(cache)) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        if (entry.mode != inputMode || entry.endpoint.value != endpoint->value)
+          continue;
+        if (failed(payScope(entry.endpoint.scope, budget, site)) ||
+            failed(payScope(endpoint->scope, budget, site)))
+          return failure();
+        if (!sameEndpoint(entry.endpoint, *endpoint))
+          return site->emitOpError()
+                 << "sampled prefix cache differs from its fixed scope or type";
+        if (!entry.complete)
+          return site->emitOpError() << "cyclic sampled admission prefix";
+        auto result = copy(entry.prefix, site);
+        if (failed(result))
+          return failure();
+        completed = std::move(*result);
+        return success();
+      }
+      auto bound = scopeBindings(endpoint->scope, analysis, budget, site);
+      if (failed(bound) ||
+          failed(bitOne(endpoint->value, analysis, *bound, site, budget)) ||
+          failed(grow(cache, site)) || failed(budget.debit(1, site)) ||
+          failed(payScope(endpoint->scope, budget, site)))
+        return failure();
+      uint64_t position = cache.size();
+      cache.push_back({*endpoint, inputMode, {}, false});
+      auto known = literal(*endpoint, analysis, budget);
+      if (failed(known))
+        return failure();
+      if (known->has_value()) {
+        Prefix result;
+        result.impossible = !**known;
+        return finish(position, std::move(result));
+      }
+      Operation *operation = endpoint->value.getDefiningOp();
+      auto binary = dyn_cast_or_null<BitsBinaryOp>(operation);
+      auto compare = dyn_cast_or_null<BitsCompareOp>(operation);
+      auto select = dyn_cast_or_null<BitsSelectOp>(operation);
+      if (!operation)
+        return site->emitOpError()
+               << "sampled prefix cannot use an unproved raw operand";
+      if (failed(analysis.verifyResolvedOperation(operation, *bound)))
+        return failure();
+      if (compare && compare.getPredicate() == "case_eq") {
+        auto lhs = identity.normalize(compare.getLhs(), *fixedScope);
+        auto rhs = identity.normalize(compare.getRhs(), *fixedScope);
+        if (failed(lhs) || failed(rhs))
+          return failure();
+        auto left = literal(*lhs, analysis, budget);
+        auto right = literal(*rhs, analysis, budget);
+        if (failed(left) || failed(right))
+          return failure();
+        const HardwareIdentityEndpoint *raw = nullptr;
+        std::optional<bool> test;
+        if (left->has_value() &&
+            (inputMode != PrefixMode::Acceptance || **left)) {
+          raw = &*rhs;
+          test = **left;
+        } else if (right->has_value() &&
+                   (inputMode != PrefixMode::Acceptance || **right)) {
+          raw = &*lhs;
+          test = **right;
+        }
+        if (!raw || (inputMode == PrefixMode::Acceptance && !*test))
+          return compare->emitOpError()
+                 << "sampled comparison requires its admitted zero/one test";
+        auto result =
+            knownValue(*raw, *test ? KnownTest::One : KnownTest::Zero, compare);
+        if (failed(result))
+          return failure();
+        return finish(position, std::move(*result));
+      }
+      if (binary && binary.getOpcode() == "or" &&
+          inputMode != PrefixMode::SelectionPath) {
+        auto result = knownEither(binary, *bound);
+        if (failed(result))
+          return failure();
+        return finish(position, std::move(*result));
+      }
+      bool isAnd = binary && binary.getOpcode() == "and" &&
+                   inputMode != PrefixMode::Acceptance;
+      bool isSelect = select && inputMode == PrefixMode::Prefix;
+      if (!isAnd && !isSelect)
+        return operation->emitOpError()
+               << "sampled control is outside its admitted prefix grammar";
+      if (isSelect) {
+        auto fallback =
+            identity.normalize(select.getFalseValue(), *fixedScope);
+        if (failed(fallback))
+          return failure();
+        auto one = literal(*fallback, analysis, budget);
+        if (failed(one) || failed(budget.debit(1, site)))
+          return failure();
+        if (!one->has_value() || !**one)
+          return select->emitOpError()
+                 << "sampled bypass requires literal one fallback";
+      }
+      if (failed(grow(frames, site)) || failed(budget.debit(1, site)) ||
+          failed(payScope(endpoint->scope, budget, site)))
+        return failure();
+      frames.push_back(
+          {inputMode, std::move(*endpoint), position, 0, std::nullopt});
+      return success();
+    };
+    if (failed(start(value, mode)))
+      return failure();
+    while (!frames.empty()) {
+      // Copy only the stable scalar scheduling data before a possible growth.
+      auto &frame = frames.back();
+      Operation *site = valueSite(frame.input.value);
+      if (failed(budget.debit(1, site)))
+        return failure();
+      auto binary = frame.input.value.getDefiningOp<BitsBinaryOp>();
+      auto select = frame.input.value.getDefiningOp<BitsSelectOp>();
+      if (frame.stage == 0) {
+        frame.stage = 1;
+        Value child = select ? select.getCondition() : binary.getLhs();
+        PrefixMode childMode = select ? PrefixMode::SelectionPath : frame.mode;
+        if (failed(start(child, childMode)))
+          return failure();
+      } else if (frame.stage == 1) {
+        if (!completed)
+          return site->emitOpError() << "incomplete sampled prefix child";
+        frame.intermediate = std::move(*completed);
+        completed.reset();
+        frame.stage = 2;
+        Value child = select ? select.getTrueValue() : binary.getRhs();
+        PrefixMode childMode = select ? PrefixMode::Acceptance : frame.mode;
+        if (failed(start(child, childMode)))
+          return failure();
+      } else {
+        if (!completed || !frame.intermediate)
+          return site->emitOpError() << "incomplete sampled prefix children";
+        auto result = select
+                          ? conditional(*frame.intermediate, *completed, site)
+                          : conjunction(*frame.intermediate, *completed, site);
+        if (failed(result) || failed(budget.debit(1, site)))
+          return failure();
+        uint64_t position = frame.memoIndex;
+        frames.pop_back();
+        completed.reset();
+        if (failed(finish(position, std::move(*result))))
+          return failure();
+      }
     }
-    auto bound =
-        scopeBindings(endpoint->scope, analysis, budget, valueSite(value));
-    if (failed(bound) ||
-        failed(bitOne(endpoint->value, analysis, *bound, valueSite(value),
-                      budget)) ||
-        failed(charge(budget, valueSite(value), 1, sizeof(PrefixCache))) ||
-        failed(payScope(endpoint->scope, budget, valueSite(value))))
+    if (!completed)
       return failure();
-    size_t position = cache.size();
-    cache.push_back({*endpoint, {}, false});
-    Prefix result;
-    auto known = literal(*endpoint, analysis, budget);
-    if (failed(known))
-      return failure();
-    if (known->has_value()) {
-      result.impossible = !**known;
-    } else if (auto binary = endpoint->value.getDefiningOp<BitsBinaryOp>();
-               binary && binary.getOpcode() == "and") {
-      if (failed(analysis.verifyResolvedOperation(binary, *bound)))
-        return failure();
-      auto lhs = parse(binary.getLhs(), endpoint->scope);
-      auto rhs = parse(binary.getRhs(), endpoint->scope);
-      if (failed(lhs) || failed(rhs))
-        return failure();
-      auto combined = conjunction(*lhs, *rhs, binary);
-      if (failed(combined))
-        return failure();
-      result = std::move(*combined);
-    } else if (auto compare = endpoint->value.getDefiningOp<BitsCompareOp>();
-               compare && compare.getPredicate() == "case_eq") {
-      if (failed(analysis.verifyResolvedOperation(compare, *bound)))
-        return failure();
-      auto left = identity.normalize(compare.getLhs(), endpoint->scope);
-      auto right = identity.normalize(compare.getRhs(), endpoint->scope);
-      if (failed(left) || failed(right))
-        return failure();
-      auto leftLiteral = literal(*left, analysis, budget);
-      auto rightLiteral = literal(*right, analysis, budget);
-      if (failed(leftLiteral) || failed(rightLiteral))
-        return failure();
-      HardwareIdentityEndpoint *raw = nullptr;
-      if (leftLiteral->has_value() && **leftLiteral)
-        raw = &*right;
-      else if (rightLiteral->has_value() && **rightLiteral)
-        raw = &*left;
-      if (!raw)
-        return compare->emitOpError()
-               << "sampled prefix requires case_eq(raw guard, one)";
-      auto atom = knownOne(*raw, compare);
-      if (failed(atom))
-        return failure();
-      result = std::move(*atom);
-    } else {
-      return valueSite(endpoint->value)->emitOpError()
-             << "sampled prefix admits only known literals, identity, case_eq "
-                "and Bits1 AND";
-    }
-    auto saved = copy(result, valueSite(value));
-    if (failed(saved))
-      return failure();
-    cache[position].prefix = std::move(*saved);
-    cache[position].complete = true;
-    return result;
+    return std::move(*completed);
   }
-  FailureOr<Prefix> knownOne(const HardwareIdentityEndpoint &raw,
-                             Operation *site) {
+  FailureOr<HardwareIdentityEndpoint>
+  normalize(Value value) {
+    return identity.normalize(value, *fixedScope);
+  }
+  FailureOr<Prefix> knownValue(const HardwareIdentityEndpoint &raw,
+                               KnownTest test, Operation *site) {
     auto bindings = scopeBindings(raw.scope, analysis, budget, site);
     if (failed(bindings) ||
         failed(bitOne(raw.value, analysis, *bindings, site, budget)))
@@ -1176,13 +1444,34 @@ public:
     if (failed(known))
       return failure();
     Prefix result;
-    if (known->has_value()) {
-      result.impossible = !**known;
-    } else {
-      if (failed(charge(budget, site, 1, sizeof(HardwareIdentityEndpoint))) ||
-          failed(payScope(raw.scope, budget, site)))
+    if (known->has_value())
+      result.impossible =
+          test != KnownTest::Either && (**known != (test == KnownTest::One));
+    else {
+      uint64_t index = knownAtoms.size();
+      for (auto [i, prior] : llvm::enumerate(knownAtoms)) {
+        if (failed(budget.debit(1, site)) ||
+            failed(payScope(prior.endpoint.scope, budget, site)) ||
+            failed(payScope(raw.scope, budget, site)))
+          return failure();
+        if (prior.test == test && sameEndpoint(prior.endpoint, raw)) {
+          index = i;
+          break;
+        }
+      }
+      uint64_t id = SourceCheckBudget::multiply(index, 2);
+      if (id == std::numeric_limits<uint64_t>::max())
+        return budget.debit(id, site);
+      if (index == knownAtoms.size()) {
+        if (failed(grow(knownAtoms, site)) || failed(budget.debit(1, site)) ||
+            failed(payScope(raw.scope, budget, site)))
+          return failure();
+        knownAtoms.push_back({test, raw});
+      }
+      if (failed(reserveAtoms(result, 1, site)) ||
+          failed(budget.debit(1, site)))
         return failure();
-      result.atoms.push_back(raw);
+      result.atoms.push_back(id);
     }
     return result;
   }
@@ -1192,78 +1481,187 @@ public:
     result.impossible = lhs.impossible || rhs.impossible;
     if (result.impossible)
       return result;
-    auto copied = copy(lhs, site);
-    if (failed(copied))
+    uint64_t capacity =
+        SourceCheckBudget::add(lhs.atoms.size(), rhs.atoms.size());
+    // Full capacity, comparisons, copies and cursor progress are prepaid.
+    if (failed(charge(budget, site, 1, sizeof(Prefix))) ||
+        failed(budget.debit(SourceCheckBudget::add(
+                   1, SourceCheckBudget::multiply(3, capacity)), site)) ||
+        failed(reserveAtoms(result, capacity, site)))
       return failure();
-    result = std::move(*copied);
-    for (const auto &atom : rhs.atoms) {
-      if (failed(budget.debit(result.atoms.size() + 1, site)))
-        return failure();
-      for (const auto &prior : result.atoms)
-        if (failed(payScope(prior.scope, budget, site)) ||
-            failed(payScope(atom.scope, budget, site)))
-          return failure();
-      if (llvm::any_of(result.atoms, [&](const auto &prior) {
-            return sameEndpoint(prior, atom);
-          }))
-        continue;
-      if (failed(charge(budget, site, 1, sizeof(HardwareIdentityEndpoint))) ||
-          failed(payScope(atom.scope, budget, site)))
-        return failure();
-      result.atoms.push_back(atom);
+    size_t left = 0, right = 0;
+    while (left < lhs.atoms.size() || right < rhs.atoms.size()) {
+      if (right == rhs.atoms.size() ||
+          (left < lhs.atoms.size() && lhs.atoms[left] < rhs.atoms[right]))
+        result.atoms.push_back(lhs.atoms[left++]);
+      else if (left == lhs.atoms.size() || rhs.atoms[right] < lhs.atoms[left])
+        result.atoms.push_back(rhs.atoms[right++]);
+      else {
+        result.atoms.push_back(lhs.atoms[left++]);
+        ++right;
+      }
     }
-    // Prefix proofs are definition-local: all atoms share the fixed physical
-    // scope. Sort by canonical SSA identity after budgeted deduplication.
-    if (failed(
-            budget.debit(SourceCheckBudget::multiply(result.atoms.size() + 1,
-                                                     result.atoms.size() + 1),
-                         site)))
-      return failure();
-    llvm::sort(result.atoms, [](const auto &a, const auto &b) {
-      return std::less<const void *>()(a.value.getAsOpaquePointer(),
-                                       b.value.getAsOpaquePointer());
-    });
     return result;
   }
-  LogicalResult equal(const Prefix &lhs, const Prefix &rhs, Operation *site) {
-    if (failed(budget.debit(SourceCheckBudget::multiply(lhs.atoms.size() + 1,
-                                                        rhs.atoms.size() + 1),
-                            site)))
-      return failure();
-    if (lhs.impossible != rhs.impossible ||
-        lhs.atoms.size() != rhs.atoms.size())
-      return site->emitOpError() << "sampled reached/fire differs from its "
-                                    "ordered known-one prefix";
-    for (const auto &atom : lhs.atoms) {
-      for (const auto &other : rhs.atoms)
-        if (failed(payScope(atom.scope, budget, site)) ||
-            failed(payScope(other.scope, budget, site)))
-          return failure();
-      if (!llvm::any_of(rhs.atoms, [&](const auto &other) {
-            return sameEndpoint(atom, other);
-          }))
-        return site->emitOpError() << "sampled reached/fire differs from its "
-                                      "ordered known-one prefix";
+  FailureOr<Prefix> conditional(const Prefix &path, const Prefix &acceptance,
+                                Operation *site) {
+    // Actual children have completed SelectionPath/Acceptance parsing before
+    // this call, including pool hits. Expected children use the same restricted
+    // known factories. Neither route can supply nested conditional references.
+    for (auto [i, entry] : llvm::enumerate(pool)) {
+      if (failed(budget.debit(1, site)))
+        return failure();
+      auto samePath = equivalent(path, entry.selectionPath, site);
+      auto sameAcceptance = equivalent(acceptance, entry.acceptance, site);
+      if (failed(samePath) || failed(sameAcceptance))
+        return failure();
+      if (*samePath && *sameAcceptance)
+        return reference(i, site);
     }
+    if (SourceCheckBudget::add(SourceCheckBudget::multiply(pool.size(), 2), 1) ==
+        std::numeric_limits<uint64_t>::max())
+      return budget.debit(std::numeric_limits<uint64_t>::max(), site);
+    auto savedPath = copy(path, site), savedAcceptance = copy(acceptance, site);
+    if (failed(savedPath) || failed(savedAcceptance) ||
+        failed(grow(pool, site)) || failed(budget.debit(1, site)))
+      return failure();
+    uint64_t i = pool.size();
+    pool.push_back({std::move(*savedPath), std::move(*savedAcceptance)});
+    return reference(i, site);
+  }
+  LogicalResult equal(const Prefix &lhs, const Prefix &rhs, Operation *site) {
+    auto result = equivalent(lhs, rhs, site);
+    if (failed(result))
+      return failure();
+    if (!*result)
+      return site->emitOpError()
+             << "sampled reached/fire differs from its ordered control prefix";
     return success();
   }
 
 private:
-  FailureOr<Prefix> copy(const Prefix &prefix, Operation *site) {
-    if (failed(charge(budget, site, 1, sizeof(Prefix))) ||
-        failed(charge(budget, site, prefix.atoms.size(),
-                      sizeof(HardwareIdentityEndpoint))))
+  template <typename T>
+  LogicalResult grow(SmallVector<T, 0> &storage, Operation *site) {
+    if (storage.size() < storage.capacity())
+      return success();
+    uint64_t capacity = SourceCheckBudget::add(
+        SourceCheckBudget::multiply(storage.capacity(), 2), 1);
+    uint64_t bytes =
+        SourceCheckBudget::multiply(capacity - storage.capacity(), sizeof(T));
+    if (capacity == std::numeric_limits<uint64_t>::max() ||
+        bytes == std::numeric_limits<uint64_t>::max() ||
+        capacity > storage.max_size())
+      return budget.debit(std::numeric_limits<uint64_t>::max(), site);
+    if (failed(
+            budget.debit(SourceCheckBudget::add(SourceCheckBudget::bytes(bytes),
+                                                storage.size()),
+                         site)))
       return failure();
-    for (const auto &atom : prefix.atoms)
-      if (failed(payScope(atom.scope, budget, site)))
+    storage.reserve(capacity);
+    return success();
+  }
+  LogicalResult reserveAtoms(Prefix &prefix, uint64_t capacity,
+                             Operation *site) {
+    if (capacity == std::numeric_limits<uint64_t>::max() ||
+        capacity > prefix.atoms.max_size())
+      return budget.debit(std::numeric_limits<uint64_t>::max(), site);
+    if (failed(budget.debit(
+            SourceCheckBudget::multiply(
+                capacity, SourceCheckBudget::bytes(sizeof(uint64_t))),
+            site)))
+      return failure();
+    if (capacity)
+      prefix.atoms.reserve(capacity);
+    return success();
+  }
+  FailureOr<Prefix> copy(const Prefix &prefix, Operation *site) {
+    if (failed(charge(budget, site, 1, sizeof(Prefix))))
+      return failure();
+    Prefix result;
+    result.impossible = prefix.impossible;
+    if (failed(reserveAtoms(result, prefix.atoms.size(), site)) ||
+        failed(budget.debit(prefix.atoms.size(), site)))
+      return failure();
+    result.atoms.append(prefix.atoms.begin(), prefix.atoms.end());
+    return result;
+  }
+  FailureOr<bool> equivalent(const Prefix &lhs, const Prefix &rhs,
+                             Operation *site) {
+    if (failed(budget.debit(SourceCheckBudget::add(
+                   1, std::min(lhs.atoms.size(), rhs.atoms.size())), site)))
+      return failure();
+    return lhs.impossible == rhs.impossible && lhs.atoms == rhs.atoms;
+  }
+  FailureOr<Prefix> reference(uint64_t i, Operation *site) {
+    uint64_t id = SourceCheckBudget::add(SourceCheckBudget::multiply(i, 2), 1);
+    if (id == std::numeric_limits<uint64_t>::max())
+      return budget.debit(id, site);
+    Prefix result;
+    if (failed(reserveAtoms(result, 1, site)) || failed(budget.debit(1, site)))
+      return failure();
+    result.atoms.push_back(id);
+    return result;
+  }
+  FailureOr<Prefix> knownEither(BitsBinaryOp binary,
+                                const HardwareBindings &bound) {
+    // Six requests: two comparison operations and their four raw operands.
+    auto left = identity.normalize(binary.getLhs(), *fixedScope);
+    auto right = identity.normalize(binary.getRhs(), *fixedScope);
+    if (failed(left) || failed(right) || failed(budget.debit(2, binary)))
+      return failure();
+    auto a = left->value.getDefiningOp<BitsCompareOp>();
+    auto b = right->value.getDefiningOp<BitsCompareOp>();
+    if (!a || !b || a.getPredicate() != "case_eq" ||
+        b.getPredicate() != "case_eq")
+      return binary->emitOpError()
+             << "sampled Known requires two case_eq comparisons";
+    if (failed(analysis.verifyResolvedOperation(a, bound)) ||
+        failed(analysis.verifyResolvedOperation(b, bound)))
+      return failure();
+    auto al = identity.normalize(a.getLhs(), *fixedScope);
+    auto ar = identity.normalize(a.getRhs(), *fixedScope);
+    auto bl = identity.normalize(b.getLhs(), *fixedScope);
+    auto br = identity.normalize(b.getRhs(), *fixedScope);
+    if (failed(al) || failed(ar) || failed(bl) || failed(br))
+      return failure();
+    auto avl = literal(*al, analysis, budget),
+         avr = literal(*ar, analysis, budget);
+    auto bvl = literal(*bl, analysis, budget),
+         bvr = literal(*br, analysis, budget);
+    if (failed(avl) || failed(avr) || failed(bvl) || failed(bvr))
+      return failure();
+    const HardwareIdentityEndpoint *raw = nullptr;
+    for (bool reverse : {false, true}) {
+      if (failed(budget.debit(1, binary)))
         return failure();
-    return prefix;
+      const HardwareIdentityEndpoint *as[] = {&*ar, &*al};
+      const HardwareIdentityEndpoint *bs[] = {&*br, &*bl};
+      std::optional<bool> av[] = {*avl, *avr}, bv[] = {*bvl, *bvr};
+      for (unsigned i = 0; i < 2; ++i)
+        for (unsigned j = 0; j < 2; ++j) {
+          if (!av[i].has_value() || *av[i] != reverse || !bv[j].has_value() ||
+              *bv[j] == reverse)
+            continue;
+          if (failed(budget.debit(1, binary)) ||
+              failed(payScope(as[i]->scope, budget, binary)) ||
+              failed(payScope(bs[j]->scope, budget, binary)))
+            return failure();
+          if (sameEndpoint(*as[i], *bs[j]))
+            raw = as[i];
+        }
+    }
+    if (!raw)
+      return binary->emitOpError()
+             << "sampled Known comparisons require the same raw endpoint";
+    return knownValue(*raw, KnownTest::Either, binary);
   }
   const HardwareAnalysis &analysis;
   SourceCheckBudget &budget;
-  HardwareIdentityStopPolicy policy;
+  const HardwareIdentityScope *const fixedScope;
   IdentityMemo identity;
+  SmallVector<KnownAtom, 0> knownAtoms;
   SmallVector<PrefixCache, 0> cache;
+  SmallVector<ConditionalAtom, 0> pool;
 };
 // One context fixes the immutable package, analysis, budget, definition, full
 // bindings, complete stop policy and Rule. Normalized SSA plus resolved type
@@ -1555,64 +1953,134 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   if (bindings.owner != view.definition)
     return analysis.getPackage().emitOpError()
            << "sampled proof bindings have the wrong owner";
-  if (!view.definition || !view.rule || view.guards.empty())
+  if (!view.definition || !view.rule || view.controls.empty())
     return analysis.getPackage().emitOpError()
-           << "sampled proof requires a parsed nonempty guard inventory";
+           << "sampled proof requires a parsed nonempty control inventory";
   if (failed(prepared.verifyFor(view.definition, bindings, budget)))
     return failure();
   const auto &scope = prepared.getScope();
   HardwareIdentityStopPolicy policy{HardwareIdentityTraversal::DefinitionLocal,
                                     prepared.getBoundaries()};
-  OrderedPrefixProof proof(analysis, budget, policy);
-  Prefix expected;
-  for (const auto &guard : view.guards) {
-    auto reached = proof.parse(guard.reached, scope);
-    if (failed(reached) || failed(proof.equal(*reached, expected, view.rule)))
+  if (failed(charge(budget, view.rule, 1,
+                    sizeof(const HardwareIdentityScope *))))
+    return failure();
+  OrderedPrefixProof proof(analysis, budget, policy, scope);
+  Prefix expected, root;
+  SmallVector<ExpectedSelectionPaths, 0> selections;
+  uint64_t count = llvm::count_if(view.controls, [](const auto &control) {
+    return control.kind == SampledControlKind::BranchSelect;
+  });
+  if (count > selections.max_size() ||
+      failed(charge(budget, view.rule, count, sizeof(ExpectedSelectionPaths))))
+    return failure();
+  if (count)
+    selections.reserve(count);
+  auto selectedPath = [&](SampledPathRef path) -> FailureOr<const Prefix *> {
+    if (!path.selectionControl)
+      return &root;
+    if (failed(budget.debit(1, view.rule)))
       return failure();
-    auto raw = normalized(guard.predicate, scope, policy, analysis, budget);
+    for (const auto &selection : selections) {
+      if (failed(budget.debit(1, view.rule)))
+        return failure();
+      if (selection.control == *path.selectionControl)
+        return path.whenTrue ? &selection.whenTrue : &selection.whenFalse;
+    }
+    return view.rule->emitOpError()
+           << "sampled path has no established selection";
+  };
+  for (auto [i, control] : llvm::enumerate(view.controls)) {
+    auto path = selectedPath(control.executionPath);
+    if (failed(path))
+      return failure();
+    auto reached = proof.parse(control.reached);
+    if (failed(reached))
+      return failure();
+    if (control.executionPath.selectionControl) {
+      auto expectedReached = proof.conjunction(expected, **path, view.rule);
+      if (failed(expectedReached) ||
+          failed(proof.equal(*reached, *expectedReached, view.rule)))
+        return failure();
+    } else if (failed(proof.equal(*reached, expected, view.rule)))
+      return failure();
+    auto raw = proof.normalize(control.raw);
     if (failed(raw))
       return failure();
-    auto atom = proof.knownOne(*raw, view.rule);
-    if (failed(atom))
+    auto accepted = proof.knownValue(
+        *raw,
+        control.kind == SampledControlKind::CallableGuard ? KnownTest::One
+                                                          : KnownTest::Either,
+        view.rule);
+    if (failed(accepted))
       return failure();
-    auto next = proof.conjunction(expected, *atom, view.rule);
+    if (control.kind == SampledControlKind::BranchSelect) {
+      auto zero = proof.knownValue(*raw, KnownTest::Zero, view.rule);
+      auto one = proof.knownValue(*raw, KnownTest::One, view.rule);
+      if (failed(zero) || failed(one))
+        return failure();
+      auto whenTrue = proof.conjunction(**path, *one, view.rule);
+      auto whenFalse = proof.conjunction(**path, *zero, view.rule);
+      if (failed(whenTrue) || failed(whenFalse))
+        return failure();
+      selections.push_back({i, std::move(*whenTrue), std::move(*whenFalse)});
+    }
+    if (control.executionPath.selectionControl) {
+      auto bypass = proof.conditional(**path, *accepted, view.rule);
+      if (failed(bypass))
+        return failure();
+      accepted = std::move(*bypass);
+    }
+    auto next = proof.conjunction(expected, *accepted, view.rule);
     if (failed(next))
       return failure();
     expected = std::move(*next);
   }
-  auto fire = proof.parse(view.fire, scope);
-  if (failed(fire))
-    return failure();
-  if (failed(proof.equal(*fire, expected, view.rule)))
+  auto fire = proof.parse(view.fire);
+  if (failed(fire) || failed(proof.equal(*fire, expected, view.rule)))
     return failure();
   auto exactFire = normalized(view.fire, scope, policy, analysis, budget);
   if (failed(exactFire))
     return failure();
-  auto exactEffectPath = [&](Value value) -> LogicalResult {
+  auto effect = [&](Value value,
+                    SampledPathRef executionPath) -> LogicalResult {
     auto endpoint = normalized(value, scope, policy, analysis, budget);
-    if (failed(endpoint) ||
-        failed(payScope(endpoint->scope, budget, view.rule)) ||
+    if (failed(endpoint))
+      return failure();
+    if (executionPath.selectionControl) {
+      auto binary = endpoint->value.getDefiningOp<BitsBinaryOp>();
+      if (!binary || binary.getOpcode() != "and")
+        return view.rule->emitOpError()
+               << "sampled arm effect requires canonical final-fire AND path";
+      endpoint = normalized(binary.getLhs(), endpoint->scope, policy, analysis,
+                            budget);
+      if (failed(endpoint))
+        return failure();
+    }
+    if (failed(payScope(endpoint->scope, budget, view.rule)) ||
         failed(payScope(exactFire->scope, budget, view.rule)))
       return failure();
     if (!sameEndpoint(*endpoint, *exactFire))
       return view.rule->emitOpError()
-             << "sampled effect path must be internal final fire";
-    return success();
+             << "sampled effect requires exact internal final fire";
+    auto actual = proof.parse(value);
+    if (failed(actual))
+      return failure();
+    if (!executionPath.selectionControl)
+      return proof.equal(*actual, expected, view.rule);
+    auto path = selectedPath(executionPath);
+    if (failed(path))
+      return failure();
+    auto expectedEffect = proof.conjunction(expected, **path, view.rule);
+    if (failed(expectedEffect))
+      return failure();
+    return proof.equal(*actual, *expectedEffect, view.rule);
   };
-  for (const auto &check : view.bodyChecks) {
-    if (failed(exactEffectPath(check.path)))
+  for (const auto &check : view.bodyChecks)
+    if (failed(effect(check.path, check.executionPath)))
       return failure();
-    auto path = proof.parse(check.path, scope);
-    if (failed(path) || failed(proof.equal(*path, expected, view.rule)))
+  for (const auto &observation : view.observations)
+    if (failed(effect(observation.path, observation.executionPath)))
       return failure();
-  }
-  for (const auto &observation : view.observations) {
-    if (failed(exactEffectPath(observation.path)))
-      return failure();
-    auto path = proof.parse(observation.path, scope);
-    if (failed(path) || failed(proof.equal(*path, expected, view.rule)))
-      return failure();
-  }
   return success();
 }
 
@@ -1630,6 +2098,25 @@ SampledAdmissionValidation::SampledAdmissionValidation(
     : analysis(analysis), budget(budget) {}
 
 SampledAdmissionValidation::~SampledAdmissionValidation() = default;
+
+uint64_t SampledAdmissionValidation::prefixKnownAtomStorageBytes() {
+  return sizeof(KnownAtom);
+}
+uint64_t SampledAdmissionValidation::prefixValueStorageBytes() {
+  return sizeof(Prefix);
+}
+uint64_t SampledAdmissionValidation::prefixCacheStorageBytes() {
+  return sizeof(PrefixCache);
+}
+uint64_t SampledAdmissionValidation::prefixConditionalStorageBytes() {
+  return sizeof(ConditionalAtom);
+}
+uint64_t SampledAdmissionValidation::prefixFrameStorageBytes() {
+  return sizeof(PrefixParseFrame);
+}
+uint64_t SampledAdmissionValidation::prefixSelectionPathsStorageBytes() {
+  return sizeof(ExpectedSelectionPaths);
+}
 
 uint64_t SampledAdmissionValidation::entryStorageBytes() {
   return sizeof(Entry) + sizeof(std::unique_ptr<Entry>);
@@ -2525,18 +3012,55 @@ private:
         if (failed(clock) || failed(reset))
           return failure();
         if (writer.ordinaryResults) {
-          for (const auto &guard : sampled->guards) {
-            auto raw = normal(guard.predicate, entry.scope);
+          using StaticPathFact =
+              std::pair<std::optional<bool>, std::optional<bool>>;
+          SmallVector<StaticPathFact, 0> facts;
+          if (sampled->controls.size() > facts.max_size() ||
+              failed(charge(budget, writer.rule, sampled->controls.size(),
+                            sizeof(StaticPathFact))))
+            return failure();
+          facts.reserve(sampled->controls.size());
+          auto conjunction =
+              [](std::optional<bool> lhs,
+                 std::optional<bool> rhs) -> std::optional<bool> {
+            if ((lhs && !*lhs) || (rhs && !*rhs))
+              return false;
+            if (lhs && rhs)
+              return true;
+            return std::nullopt;
+          };
+          std::optional<bool> prefix = true;
+          for (const auto &control : sampled->controls) {
+            auto raw = normal(control.raw, entry.scope);
             if (failed(raw))
               return failure();
             auto known = literal(*raw, analysis, budget);
             if (failed(known))
               return failure();
-            if (!known->has_value() || !**known)
-              return writer.rule->emitOpError()
-                     << "ordinary transaction results require all guards "
-                        "proven literal true";
+            std::optional<bool> path = true;
+            if (auto selection = control.executionPath.selectionControl) {
+              const auto &parent = facts[*selection];
+              std::optional<bool> arm;
+              if (parent.first)
+                arm = *parent.first == control.executionPath.whenTrue;
+              path = conjunction(parent.second, arm);
+            }
+            std::optional<bool> accepted = *known;
+            if (control.kind == SampledControlKind::BranchSelect)
+              accepted =
+                  known->has_value() ? std::optional<bool>(true) : std::nullopt;
+            std::optional<bool> bypass;
+            if ((path && !*path) || (accepted && *accepted))
+              bypass = true;
+            else if (path && *path)
+              bypass = accepted;
+            prefix = conjunction(prefix, bypass);
+            facts.push_back({*known, path});
           }
+          if (!prefix || !*prefix)
+            return writer.rule->emitOpError()
+                   << "ordinary transaction results require structured final "
+                      "admission proven true";
         }
         if (writer.candidates.empty()) {
           auto domain =
@@ -2593,21 +3117,21 @@ private:
                                   PrivateRoute::Enable)))
             return failure();
         }
-        for (const auto &guard : sampled->guards) {
+        for (const auto &guard : sampled->controls) {
           auto found = checkTerminal(**terminals, guard.id, writer.rule);
           if (failed(found))
             return failure();
           SourceExpectOp match = *found;
           auto condition = normal(match.getCondition(), entry.scope);
           auto reached = normal(match.getPath(), entry.scope);
-          auto expectedCondition = normal(
-              writer.rule->getResult(guard.predicateResult), entry.scope);
+          auto expectedCondition =
+              normal(writer.rule->getResult(guard.rawResult), entry.scope);
           auto expectedReached =
               normal(writer.rule->getResult(guard.reachedResult), entry.scope);
           auto required =
               writer.rule->getAttrOfType<ArrayAttr>("ac.required_checks");
           auto record = cast<DictionaryAttr>(
-              required[(guard.predicateResult - sampled->checkBase) / 2]);
+              required[(guard.rawResult - sampled->checkBase) / 2]);
           if (failed(condition) || failed(reached) ||
               failed(expectedCondition) || failed(expectedReached))
             return failure();
@@ -2632,7 +3156,7 @@ private:
                                 match.getLocationAttr(), writer.rule, match,
                                 *clock, *reset)))
             return failure();
-          if (failed(privateRoute(writer.rule->getResult(guard.predicateResult),
+          if (failed(privateRoute(writer.rule->getResult(guard.rawResult),
                                   entry.scope, 0, PrivateRoute::EffectOperand,
                                   match, 0)) ||
               failed(privateRoute(writer.rule->getResult(guard.reachedResult),

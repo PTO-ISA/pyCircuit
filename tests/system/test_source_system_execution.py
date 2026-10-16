@@ -184,7 +184,7 @@ def _bundle(final: Path, tmp_path: Path, target: str) -> Path:
                 "--target",
                 "pycircuit_sim",
                 "--parallel",
-                "2",
+                os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "2"),
             ]
         )
     )
@@ -312,6 +312,702 @@ def _branch_method_units(tmp_path):
         hidden_body.rename(provider_body)
     assert not provider_source.exists()
     return source, provider, consumer
+
+
+def _conditional_method_program(tmp_path, *, probe=False):
+    source = tmp_path / "conditional method sources"
+    source.mkdir()
+    provider_name = "method_conditional_provider.py"
+    consumer_name = (
+        "method_conditional_probe.py" if probe else "method_conditional_bench.py"
+    )
+    for filename in (provider_name, consumer_name):
+        shutil.copy2(FIXTURE / filename, source)
+    provider = tmp_path / "conditional provider unit"
+    consumer = tmp_path / "conditional consumer unit"
+    _ok(_compile(source, provider_name, provider))
+    (source / provider_name).unlink()
+    receipt = json.loads((provider / "unit.json").read_text())
+    body = provider / receipt["files"]["body"]
+    hidden = tmp_path / "unavailable conditional provider body.ac"
+    body.rename(hidden)
+    try:
+        assert not body.exists() and not (source / provider_name).exists()
+        _ok(_compile(source, consumer_name, consumer, [provider]))
+    finally:
+        hidden.rename(body)
+
+    before = tmp_path / "conditional transaction input.ac"
+    after = tmp_path / "conditional transaction output.ac"
+    final = tmp_path / "conditional system.ac"
+    linker = os.environ.get("PYCIRCUIT_LINKER")
+    assert linker, "set PYCIRCUIT_LINKER to this candidate's native linker"
+    arguments = [linker]
+    for unit in (provider, consumer):
+        receipt = json.loads((unit / "unit.json").read_text())
+        arguments += [
+            "--body",
+            str(unit / receipt["files"]["body"]),
+            "--header",
+            str(unit / receipt["files"]["interface"]),
+        ]
+    name = (
+        "method_conditional_probe.ConditionalProbe"
+        if probe
+        else "method_conditional_bench.ExerciseConditionalMethods"
+    )
+    arguments += [
+        "--top",
+        f"checks.{name}",
+        "--target",
+        "final",
+        "--output",
+        str(final),
+        "--transaction-input-out",
+        str(before),
+        "--transaction-output-out",
+        str(after),
+    ]
+    _ok(_run(arguments))
+    assert '"ac.method.call"' in before.read_text()
+    assert "ac.branch" in before.read_text()
+    assert '"ac.method.call"' not in after.read_text()
+    assert "ac.branch" not in after.read_text()
+    assert "ac.sampled_admission" in after.read_text()
+    return final, before, after
+
+
+def _assert_conditional_method_rows(rows):
+    observations = [row for row in rows if row["kind"] != "result"]
+    assert len(observations) == 52
+    stable = None
+    for epoch in range(4):
+        current = [row for row in observations if int(row["evaluation_epoch"]) == epoch]
+        left, right = (5, 5) if epoch < 2 else (11, 13)
+        expected = [
+            ("log", "conditional old before", [left, right], "root"),
+            ("log", "conditional add", [1, left + 1], "root/left"),
+            ("log", "conditional add", [2, left + 3], "root/left"),
+            ("log", "conditional add", [3, left + 6], "root/left"),
+            (
+                "log",
+                "conditional snapshots",
+                [left + 1, left + 3, left + 6],
+                "root/left",
+            ),
+            ("report", "conditional count", [left + 6], "root/left"),
+            ("log", "conditional add", [1, right + 1], "root/right"),
+            ("log", "conditional add", [4, right + 5], "root/right"),
+            ("log", "conditional add", [3, right + 8], "root/right"),
+            (
+                "log",
+                "conditional snapshots",
+                [right + 1, right + 5, right + 8],
+                "root/right",
+            ),
+            ("report", "conditional count", [right + 8], "root/right"),
+            ("log", "conditional results", [left + 6, right + 8], "root"),
+            ("log", "conditional old after", [left, right], "root"),
+        ]
+        actual = [
+            (
+                row["kind"],
+                row["spec"].get("event", row["spec"].get("name")),
+                [int(value["value"]) for value in row["values"]],
+                row["instance"],
+            )
+            for row in current
+        ]
+        assert actual == expected
+        assert all(int(row["commit_epoch"]) == epoch + 1 for row in current)
+        identities = [(row["registration"], row["site"]) for row in current]
+        if stable is None:
+            stable = identities
+        else:
+            assert identities == stable
+        additions = [
+            json.loads(row["site"])
+            for row in current
+            if row["spec"].get("event") == "conditional add"
+        ]
+        assert len({json.dumps(row["site"], sort_keys=True) for row in additions}) == 1
+        assert (
+            len({json.dumps(row["invocation"], sort_keys=True) for row in additions})
+            == 6
+        )
+        assert all(len(row["invocation"]) >= 2 for row in additions)
+        assert all(
+            json.loads(row["site"])["invocation"] == []
+            for row in (current[0], current[-2], current[-1])
+        )
+    terminal = [row for row in rows if row["kind"] == "result"]
+    assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED"
+    assert int(terminal[0]["epoch_time"]) == 4
+    gauges = [
+        row for row in terminal[0]["statistics"] if row["name"] == "conditional count"
+    ]
+    assert {row["object_path"]: int(row["value"]) for row in gauges} == {
+        "root/left": 17,
+        "root/right": 21,
+    }
+    assert all(int(row["last_update"]["time"]) == 4 for row in gauges)
+
+
+def _conditional_probe_rtl_observation_oracle(generated):
+    harness = (generated / "simulation_top.sv").read_text()
+    support = harness[
+        harness.index("  bit pyc_observation_groups_ok;") : harness.index(
+            "  task automatic pyc_step("
+        )
+    ]
+    publish = support[support.index("  task automatic pyc_publish_observations;") :]
+    groups = re.findall(
+        r"if \(pyc_observation_active_(\d+)\) begin\n(.*?)      end", publish, re.S
+    )
+    # Match semantic groups before borrowing their emitted slot locations. The
+    # expected source values below never come from generated payload contents.
+    expected = [
+        ("root/owner", "log", "conditional add", ["1", "6"], "fire"),
+        ("root/owner", "log", "conditional add", ["2", "8"], "fire && chosen"),
+        ("root", "log", "conditional true", ["8"], "fire && chosen"),
+        ("root/owner", "log", "conditional add", ["4", "10"], "fire && !chosen"),
+        ("root", "log", "conditional false", ["10"], "fire && !chosen"),
+        ("root/owner", "log", "conditional add", ["3", "chosen ? 11 : 13"], "fire"),
+        ("root/sibling", "log", "conditional add", ["1", "6"], "fire"),
+        ("root/owner", "report", "conditional count", ["chosen ? 11 : 13"], "fire"),
+        (
+            "root",
+            "log",
+            "probe snapshots",
+            ["6", "chosen ? 8 : 10", "chosen ? 11 : 13"],
+            "fire",
+        ),
+    ]
+    assert len(groups) == len(expected)
+    checks = []
+    report_slot = None
+    for (first, body), (instance, kind, name, values, path) in zip(
+        groups, expected, strict=True
+    ):
+        display = re.search(r'\$display\(("(?:\\.|[^"\\])*")', body)
+        assert display is not None
+        descriptor = json.loads(json.loads(display[1]))
+        assert descriptor["instance"] == instance and descriptor["kind"] == kind
+        assert descriptor["spec"].get("event", descriptor["spec"].get("name")) == name
+        slots = re.findall(
+            r"\$unsigned\(dut\.dut\.pyc_observation_value_(\d+)\)",
+            body[display.end() :],
+        )
+        assert len(slots) == len(values) and slots[0] == first
+        if kind == "report":
+            report_slot = first
+        for slot, value in zip(slots, values, strict=True):
+            checks += [
+                f"    if (dut.dut.pyc_observation_pending_{slot} !== 1'b1 ||",
+                f"        dut.dut.pyc_observation_path_{slot} !== ({path}))",
+                f'      $fatal(1,"conditional observation pending/path slot {slot}");',
+                f"    if (({path}) && (dut.dut.pyc_observation_valid_{slot} !== 1'b1 ||",
+                f"        dut.dut.pyc_observation_value_{slot} !== 8'({value})))",
+                f'      $fatal(1,"conditional observation value/valid slot {slot}");',
+            ]
+        checks += [
+            f"    if (pyc_observation_active_{first} !== ({path}))",
+            f'      $fatal(1,"conditional observation group activation {first}");',
+        ]
+    assert report_slot is not None
+    declarations = "\n".join(
+        re.findall(
+            r"^  longint unsigned pyc_report_(?:value|update)_\d+ = 0;$", harness, re.M
+        )
+    )
+    oracle = "\n".join(checks)
+    return (
+        declarations
+        + "\n  longint unsigned pyc_epoch=0, expected_report_value=0, expected_report_update=0;\n"
+        + "  logic expected_fire=0, expected_chosen=0;\n"
+        + support
+        + """
+  task automatic check_observation_snapshots;
+    logic fire, chosen;
+    chosen=(`SELECTOR === 1'b1);
+    fire=(`PRIOR === 1'b1) && (`LATER === 1'b1) &&
+         ((`SELECTOR === 1'b0) || (chosen && (`ALLOW === 1'b1)));
+    expected_fire=fire; expected_chosen=chosen;
+    pyc_validate_observations(pyc_observation_groups_ok);
+    if (pyc_observation_groups_ok !== 1'b1)
+      $fatal(1,"conditional observation groups inconsistent");
+"""
+        + oracle
+        + "\n  endtask\n",
+        report_slot,
+    )
+
+
+def _conditional_probe_four_state_rtl(final, tmp_path):
+    generated, rtl = _emit_branch_probe_rtl(final, tmp_path)
+    observation_support, report_slot = _conditional_probe_rtl_observation_oracle(
+        generated
+    )
+    testbench = tmp_path / "conditional_four_state.sv"
+    testbench.write_text(
+        r"""
+module conditional_four_state;
+  logic clk=0, rst=0, permit=0;
+  logic [2:0] phase=0;
+  wire complete, sampling_error, error;
+  pyc_root dut(.pyc_7079635f636c6b(clk), .pyc_7079635f727374(rst),
+    .pyc_phase(phase), .pyc_root_commit_ok(permit),
+    .pyc_check_complete(complete), .pyc_sampling_error(sampling_error),
+    .pyc_local_error(error));
+  `define R dut.dut
+  `define OWNER `R.pyc_instance_owner.pyc_instance_count
+  `define SIBLING `R.pyc_instance_sibling.pyc_instance_count
+  `define SELECTOR `R.pyc_instance_selector.q_current
+  `define ALLOW `R.pyc_instance_allow.q_current
+  `define PRIOR `R.pyc_instance_prior.q_current
+  `define LATER `R.pyc_instance_later.q_current
+  `define EARLY `R.pyc_instance_early_check.q_current
+  `define ASSERTION `R.pyc_instance_branch_check.q_current
+
+__OBSERVATION_SUPPORT__
+
+  function automatic logic four(input integer n);
+    case(n) 0: four=0; 1: four=1; 2: four=1'bx; 3: four=1'bz; endcase
+  endfunction
+  task automatic prepare;
+    #1; phase=1; #1; check_observation_snapshots();
+  endtask
+  task automatic commit;
+    permit=1; phase=2; #1;
+    $display("CONDITIONAL_COMMIT %0d %0d %0d",pyc_epoch,expected_fire,expected_chosen);
+    pyc_publish_observations();
+    if (expected_fire) begin
+      expected_report_value=expected_chosen ? 11 : 13;
+      expected_report_update=pyc_epoch+1;
+    end
+    if (pyc_report_value___REPORT_SLOT__ !== expected_report_value ||
+        pyc_report_update___REPORT_SLOT__ !== expected_report_update)
+      $fatal(1,"conditional prior report value/update was not preserved");
+    pyc_epoch=pyc_epoch+1;
+    phase=0; permit=0; #1;
+  endtask
+  task automatic discard;
+    permit=0; phase=2; #1; phase=3; #1; phase=0; #1;
+  endtask
+  task automatic check_current(input logic [7:0] owner, sibling, input logic history);
+    if (`OWNER.q_current !== owner || `SIBLING.q_current !== sibling ||
+        `OWNER.managed.clock_current !== history ||
+        `SIBLING.managed.clock_current !== history ||
+        `R.pyc_instance_selector.managed.clock_current !== history ||
+        `R.pyc_instance_allow.managed.clock_current !== history ||
+        `R.pyc_instance_prior.managed.clock_current !== history ||
+        `R.pyc_instance_later.managed.clock_current !== history ||
+        `R.pyc_instance_early_check.managed.clock_current !== history ||
+        `R.pyc_instance_branch_check.managed.clock_current !== history)
+      $fatal(1,"conditional state/history changed unexpectedly");
+  endtask
+  task automatic start(input integer timing);
+    clk=0; rst=0; permit=1; phase=4; #1; phase=2; #1;
+    phase=0; permit=0; #1; check_current(5,5,0);
+    pyc_epoch=0; pyc_report_value___REPORT_SLOT__=0; pyc_report_update___REPORT_SLOT__=0;
+    expected_report_value=0; expected_report_update=0;
+    // Publish on a low Work first, so each later inactive/failing matrix case
+    // has a real prior report value/update and previously emitted events.
+    prepare(); commit(); check_current(5,5,0);
+    if (timing==2 || timing==3) begin
+      clk=1; rst=1; prepare(); commit(); rst=0;
+      check_current(5,5,1);
+    end
+    clk=(timing==1 || timing==2 || timing==4);
+    rst=(timing==4);
+    `SELECTOR=0; `ALLOW=1; `PRIOR=1; `LATER=1; `EARLY=1; `ASSERTION=1;
+  endtask
+  task automatic expect_error(input logic expected);
+    if (error !== expected || sampling_error !== 0 || complete !== 1)
+      $fatal(1,"conditional check mismatch: expected %b, got %b/%b/%b", expected,error,sampling_error,complete);
+  endtask
+  initial begin
+    #1;
+    // All selector states at low/rising/held/falling/reset. Unselected arms
+    // never supply values or checks; unknown selection faults only at rising.
+    for (integer timing=0; timing<5; timing=timing+1) begin
+      for (integer s=0; s<4; s=s+1) begin
+        start(timing); `SELECTOR=four(s); prepare();
+        expect_error(timing==1 && s>=2);
+        if (timing==1 && s>=2) begin
+          discard(); check_current(5,5,0);
+        end else begin
+          commit();
+          check_current((timing==1 && s<2) ? (s==1 ? 11 : 13) : 5,
+                        timing==1 && s<2 ? 6 : 5, clk);
+        end
+      end
+      // A selected ordinary assertion retains its every-Work reset mask.
+      for (integer a=0; a<4; a=a+1) begin
+        start(timing); `SELECTOR=1; `ASSERTION=four(a); prepare();
+        expect_error(timing!=4 && a!=1);
+        discard(); check_current(5,5,timing==2 || timing==3);
+        start(timing); `SELECTOR=0; `ASSERTION=four(a); prepare();
+        expect_error(0); discard(); check_current(5,5,timing==2 || timing==3);
+      end
+      // Every false/X/Z callee guard bypasses when its arm is unselected.
+      for (integer g=0; g<4; g=g+1) begin
+        start(timing); `SELECTOR=0; `ALLOW=four(g); prepare();
+        expect_error(0); discard(); check_current(5,5,timing==2 || timing==3);
+        start(timing); `SELECTOR=1; `ALLOW=four(g); prepare();
+        expect_error(timing==1 && g>=2);
+        if (timing==1 && g==0) begin
+          commit(); check_current(5,5,1);
+        end else begin
+          discard(); check_current(5,5,timing==2 || timing==3);
+        end
+      end
+      // Final transaction cancellation masks assertions preceding the branch.
+      start(timing); `SELECTOR=1'bx; `EARLY=0; prepare();
+      expect_error(timing==1); discard(); check_current(5,5,timing==2 || timing==3);
+      start(timing); `SELECTOR=1; `LATER=0; `EARLY=0; `ASSERTION=1'bz; prepare();
+      expect_error(0); commit(); check_current(5,5,clk);
+    end
+    // A prior false guard masks unknown selection, unlike a later false guard.
+    for (integer u=2; u<4; u=u+1) begin
+      start(1); `PRIOR=0; `SELECTOR=four(u); `ALLOW=four(u); `EARLY=0;
+      prepare(); expect_error(0); commit(); check_current(5,5,1);
+      start(1); `SELECTOR=four(u); `LATER=0;
+      prepare(); expect_error(1); discard(); check_current(5,5,0);
+      start(1); `SELECTOR=1; `ALLOW=four(u); `LATER=0;
+      prepare(); expect_error(1); discard(); check_current(5,5,0);
+    end
+    // Discard a fully successful proposal and retry the same rising edge.
+    start(1); `SELECTOR=1; prepare(); expect_error(0); discard(); check_current(5,5,0);
+    prepare(); expect_error(0); commit(); check_current(11,6,1);
+    $display("CONDITIONAL_FOUR_STATE_OK"); $finish;
+  end
+endmodule
+""".replace(
+            "__OBSERVATION_SUPPORT__", observation_support
+        ).replace(
+            "__REPORT_SLOT__", report_slot
+        )
+    )
+    binary = tmp_path / "conditional_four_state"
+    _ok(
+        _run(
+            [
+                "iverilog",
+                "-g2012",
+                "-s",
+                "conditional_four_state",
+                "-o",
+                str(binary),
+                str(_install() / "include/verilog/dffe.v"),
+                *[str(path) for path in rtl if path.name != "simulation_top.sv"],
+                str(testbench),
+            ]
+        )
+    )
+    stdout = _ok(_run(["vvp", str(binary)], timeout=30))
+    assert "CONDITIONAL_FOUR_STATE_OK" in stdout
+    commits = re.split(r"^CONDITIONAL_COMMIT (\d+) ([01]) ([01])\n", stdout, flags=re.M)
+    assert _records(commits[0]) == []
+    assert len(commits) > 4
+    for index in range(1, len(commits), 4):
+        epoch, active, chosen = map(int, commits[index : index + 3])
+        rows = _records(commits[index + 3])
+        expected = (
+            [
+                ("conditional add", [1, 6]),
+                ("conditional add", [2, 8] if chosen else [4, 10]),
+                (
+                    "conditional true" if chosen else "conditional false",
+                    [8 if chosen else 10],
+                ),
+                ("conditional add", [3, 11 if chosen else 13]),
+                ("conditional add", [1, 6]),
+                ("conditional count", [11 if chosen else 13]),
+                ("probe snapshots", [6, 8 if chosen else 10, 11 if chosen else 13]),
+            ]
+            if active
+            else []
+        )
+        assert [
+            (
+                row["spec"].get("event", row["spec"].get("name")),
+                [int(value["value"]) for value in row["values"]],
+            )
+            for row in rows
+        ] == expected
+        assert all(
+            int(row["evaluation_epoch"]) == epoch
+            and int(row["commit_epoch"]) == epoch + 1
+            for row in rows
+        )
+    return generated, rtl
+
+
+def _conditional_probe_cpp(final, tmp_path):
+    generated = tmp_path / "cpp"
+    _ok(_cli("emit", str(final), "--target", "cpp", "-o", str(generated)))
+    # Expose emitted members only, as in _atomic_cpp. The probe supplies fault
+    # stimuli to real storage and observes the ordinary SimSystem coordinator.
+    for header in generated.rglob("*.hpp"):
+        header.write_text(header.read_text().replace("private:", "public:"))
+    driver = generated / "conditional_probe.cpp"
+    driver.write_text(
+        r"""
+#include "pycircuit_system.hpp"
+#include <iostream>
+#include <stdexcept>
+#include <type_traits>
+#include <vector>
+using Bit = gfsim::wire<gfsim::Bits<1>>;
+static Bit four(unsigned s) {
+  if (s < 2) return Bit::known(gfsim::Bits<1>{s});
+  return Bit::fromPacked(s == 2 ? gfsim::FourState<1>::unknown()
+                               : gfsim::FourState<1>::highImpedance());
+}
+static void require(bool value, const char *message) {
+  if (!value) throw std::runtime_error(message);
+}
+template<class Storage, class Output>
+void inject(Storage &storage, Output &output, unsigned s) {
+  using Current = std::remove_cvref_t<decltype(storage->current(0))>;
+  auto &state = const_cast<Current &>(storage->current(0));
+  state.q = four(s);
+  output.element(0) = state.q;
+}
+int main() {
+  for (unsigned workers : {1u, 2u}) {
+    pyc_dut dut(workers);
+    auto drive = [&](bool clock, bool reset) { dut.drive({four(clock), four(reset)}); };
+    drive(false,false); dut.system().Build();
+    auto root = dut.root_->pyc_implementation;
+    auto owner = root->pyc_instance_owner;
+    auto sibling = root->pyc_instance_sibling;
+    auto snapshot = [&]() {
+      std::vector<std::uint64_t> result;
+      auto add = [&](const auto &storage) {
+        const auto &q = storage->current(0);
+        result.insert(result.end(), {q.q.packed().value().value(),
+          q.q.packed().knownMask().value(), q.q.packed().zMask().value(), q.clock});
+      };
+      add(owner->pyc_instance_count_state); add(sibling->pyc_instance_count_state);
+      add(root->pyc_instance_selector_state); add(root->pyc_instance_allow_state);
+      add(root->pyc_instance_prior_state); add(root->pyc_instance_later_state);
+      add(root->pyc_instance_early_check_state); add(root->pyc_instance_branch_check_state);
+      return result;
+    };
+    auto current = [&](unsigned q, unsigned other, bool history) {
+      require(owner->pyc_instance_count_state->current(0).q.value().value() == q, "owner Q");
+      require(sibling->pyc_instance_count_state->current(0).q.value().value() == other, "sibling Q");
+      const auto state = snapshot();
+      for (unsigned i=3; i<state.size(); i+=4) require(state[i] == history, "clock history");
+    };
+    auto start = [&](unsigned timing) {
+      drive(false,false); dut.system().Reset(); current(5,5,false);
+      require(dut.system().cycle()==0 && dut.observations().Events().empty(), "reset epoch/events");
+      for (const auto &g : dut.observations().Gauges())
+        require(g.value.bits==0 && g.lastUpdate==0, "reset gauge");
+      if (timing==2 || timing==3) {
+        drive(true,true);
+        require(dut.system().Step()==gfsim::SimStepResult::Running, "history setup");
+        current(5,5,true);
+      }
+      drive(timing==1 || timing==2 || timing==4, timing==4);
+    };
+    auto selector = [&](unsigned s) { inject(root->pyc_instance_selector_state,root->pyc_instance_selector_q,s); };
+    auto allow = [&](unsigned s) { inject(root->pyc_instance_allow_state,root->pyc_instance_allow_q,s); };
+    auto prior = [&](unsigned s) { inject(root->pyc_instance_prior_state,root->pyc_instance_prior_q,s); };
+    auto later = [&](unsigned s) { inject(root->pyc_instance_later_state,root->pyc_instance_later_q,s); };
+    auto early = [&](unsigned s) { inject(root->pyc_instance_early_check_state,root->pyc_instance_early_check_q,s); };
+    auto assertion = [&](unsigned s) { inject(root->pyc_instance_branch_check_state,root->pyc_instance_branch_check_q,s); };
+    auto step = [&](bool fails, bool inactive) {
+      const auto state = snapshot();
+      const auto epoch = dut.system().cycle();
+      const auto events = std::vector(dut.observations().Events().begin(),dut.observations().Events().end());
+      const auto gauges = std::vector(dut.observations().Gauges().begin(),dut.observations().Gauges().end());
+      const auto result = dut.system().Step();
+      if (fails) {
+        require(result==gfsim::SimStepResult::Failed, "expected check failure");
+        require(dut.system().failureInfo().phase==gfsim::SimFailurePhase::Check, "failure phase");
+        require(snapshot()==state && dut.system().cycle()==epoch, "zero state/history/epoch commit");
+        require(std::vector(dut.observations().Events().begin(),dut.observations().Events().end())==events, "prior events preserved");
+        require(std::vector(dut.observations().Gauges().begin(),dut.observations().Gauges().end())==gauges, "prior gauges preserved");
+        require(dut.system().Step()==gfsim::SimStepResult::Failed && snapshot()==state && dut.system().cycle()==epoch, "sticky failure");
+      } else {
+        require(result==gfsim::SimStepResult::Running && dut.system().cycle()==epoch+1, "successful epoch");
+        require(dut.observations().Events().empty()==inactive, "effect activation");
+        if (!inactive) {
+          require(dut.observations().Gauges().size()==1, "gauge inventory");
+          require(dut.observations().Gauges()[0].lastUpdate==epoch+1, "gauge epoch");
+        } else {
+          require(std::vector(dut.observations().Gauges().begin(),dut.observations().Gauges().end())==gauges, "inactive gauge hold");
+        }
+      }
+    };
+    for (unsigned timing=0; timing<5; ++timing) {
+      for (unsigned s=0; s<4; ++s) {
+        start(timing); selector(s); step(timing==1 && s>=2,s>=2);
+        if (!(timing==1 && s>=2))
+          current(timing==1 && s<2 ? (s==1?11:13) : 5,
+                  timing==1 && s<2 ? 6 : 5,timing==1 || timing==2 || timing==4);
+      }
+      for (unsigned a : {0u,2u,3u}) {
+        start(timing); selector(1); assertion(a); step(timing!=4,false);
+        start(timing); selector(0); assertion(a); step(false,false);
+      }
+      for (unsigned g : {0u,2u,3u}) {
+        start(timing); selector(0); allow(g); step(false,false);
+        start(timing); selector(1); allow(g); step(timing==1 && g>=2,true);
+        if (!(timing==1 && g>=2)) current(5,5,timing==1 || timing==2 || timing==4);
+      }
+      start(timing); selector(2); early(0); step(timing==1,true);
+      start(timing); selector(1); later(0); early(0); assertion(3); step(false,true);
+    }
+    for (unsigned u : {2u,3u}) {
+      start(1); prior(0); selector(u); allow(u); early(0); step(false,true); current(5,5,true);
+      start(1); selector(u); later(0); step(true,true);
+      start(1); selector(1); allow(u); later(0); step(true,true);
+    }
+    // Preserve a real prior publication on a later failed rising edge, then
+    // demonstrate that only explicit Reset clears the sticky failure.
+    start(0); step(false,false);
+    selector(2); drive(true,false); step(true,true);
+    selector(0); require(dut.system().Step()==gfsim::SimStepResult::Failed,"failure recovered without Reset");
+    start(1); step(false,false); current(13,6,true);
+    start(1); selector(1);
+    const auto state = snapshot();
+    dut.root_->Work(); dut.root_->DiscardNext(); dut.observations().DiscardNext();
+    require(snapshot()==state && dut.system().cycle()==0 && dut.observations().Events().empty(),"Discard committed work");
+    step(false,false); current(11,6,true);
+  }
+  std::cout << "CONDITIONAL_CPP_FOUR_STATE_OK\n";
+}
+"""
+    )
+    with (generated / "CMakeLists.txt").open("a") as cmake:
+        cmake.write(
+            "\nadd_executable(conditional_probe conditional_probe.cpp)\n"
+            "target_compile_features(conditional_probe PRIVATE cxx_std_20)\n"
+            "target_link_libraries(conditional_probe PRIVATE pycircuit_modules)\n"
+        )
+    build = tmp_path / "conditional-cpp-build"
+    _ok(
+        _run(
+            [
+                "cmake",
+                "-S",
+                str(generated),
+                "-B",
+                str(build),
+                "-G",
+                "Ninja",
+                f"-Dpycircuit_DIR={_install() / 'share/pycircuit/cmake'}",
+            ]
+        )
+    )
+    _ok(
+        _run(
+            [
+                "cmake",
+                "--build",
+                str(build),
+                "--target",
+                "conditional_probe",
+                "--parallel",
+                os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "2"),
+            ]
+        )
+    )
+    assert (
+        _ok(_run([str(build / "conditional_probe")], timeout=30)).strip()
+        == "CONDITIONAL_CPP_FOUR_STATE_OK"
+    )
+
+
+def _conditional_probe_system_precommit(generated, rtl, tmp_path):
+    text = (generated / "simulation_top.sv").read_text()
+    reports = re.findall(r"longint unsigned pyc_report_value_(\d+) =", text)
+    assert len(reports) == 1
+    report = reports[0]
+    monitor = tmp_path / "conditional_system_precommit.sv"
+    monitor.write_text(
+        f"""
+module conditional_system_precommit;
+  logic captured=0;
+  logic [7:0] owner_q, sibling_q;
+  logic [7:0] histories;
+  longint unsigned report_value, report_update;
+  `define R pycircuit_sim.dut.dut
+  function automatic logic [7:0] history;
+    history={{`R.pyc_instance_owner.pyc_instance_count.managed.clock_current,
+      `R.pyc_instance_sibling.pyc_instance_count.managed.clock_current,
+      `R.pyc_instance_selector.managed.clock_current,
+      `R.pyc_instance_allow.managed.clock_current,
+      `R.pyc_instance_prior.managed.clock_current,
+      `R.pyc_instance_later.managed.clock_current,
+      `R.pyc_instance_early_check.managed.clock_current,
+      `R.pyc_instance_branch_check.managed.clock_current}};
+  endfunction
+  initial begin
+    wait(pycircuit_sim.pyc_epoch==1 && pycircuit_sim.pyc_phase==0);
+    `R.pyc_instance_selector.q_current=1'bx;
+    #0;
+    owner_q=`R.pyc_instance_owner.pyc_instance_count.q_current;
+    sibling_q=`R.pyc_instance_sibling.pyc_instance_count.q_current;
+    histories=history();
+    report_value=pycircuit_sim.pyc_report_value_{report};
+    report_update=pycircuit_sim.pyc_report_update_{report};
+    captured=1;
+  end
+  final begin
+    if (captured!==1 || pycircuit_sim.pyc_epoch!==1 ||
+        `R.pyc_instance_owner.pyc_instance_count.q_current!==owner_q ||
+        `R.pyc_instance_sibling.pyc_instance_count.q_current!==sibling_q ||
+        history()!==histories || `R.pyc_instance_selector.q_current!==1'bx ||
+        pycircuit_sim.pyc_report_value_{report}!==report_value ||
+        pycircuit_sim.pyc_report_update_{report}!==report_update)
+      $display("CONDITIONAL-SYSTEM-PRECOMMIT-FAIL");
+    else $display("CONDITIONAL-SYSTEM-PRECOMMIT-PASS");
+  end
+endmodule
+"""
+    )
+    binary = tmp_path / "conditional_system_precommit"
+    _ok(
+        _run(
+            [
+                "iverilog",
+                "-g2012",
+                "-s",
+                "pycircuit_sim",
+                "-s",
+                "conditional_system_precommit",
+                "-o",
+                str(binary),
+                str(_install() / "include/verilog/dffe.v"),
+                *map(str, rtl),
+                str(monitor),
+            ]
+        )
+    )
+    failed = _run(["vvp", str(binary), "+cycles=3"], timeout=30)
+    assert failed.returncode != 0, failed.stdout + failed.stderr
+    assert "CONDITIONAL-SYSTEM-PRECOMMIT-PASS" in failed.stdout
+    rows = _records(failed.stdout)
+    assert [row["kind"] for row in rows] == ["log"] * 5 + ["report", "log"]
+    assert all(
+        int(row["evaluation_epoch"]) == 0 and int(row["commit_epoch"]) == 1
+        for row in rows
+    )
+    assert [[int(value["value"]) for value in row["values"]] for row in rows] == [
+        [1, 6],
+        [4, 10],
+        [10],
+        [3, 13],
+        [1, 6],
+        [13],
+        [6, 10, 13],
+    ]
 
 
 def _branch_method_program(tmp_path):
@@ -1921,6 +2617,144 @@ def test_method_branch_system_executes_shared_candidates_from_one_final_artifact
     assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
 
 
+def test_conditional_method_system_candidates_and_effects_from_one_final_artifact(
+    tmp_path,
+):
+    final, before, after = _conditional_method_program(tmp_path)
+    artifacts = (final, before, after)
+    digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
+    transcripts = []
+    entries = []
+    for target in ("cpp", "verilog"):
+        target_root = tmp_path / ("conditional-" + target)
+        target_root.mkdir()
+        binary = _bundle(final, target_root, target)
+        entries.append(
+            json.loads((target_root / target / "generated.json").read_text())["entry"]
+        )
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "2", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=2"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=20)))
+            _assert_conditional_method_rows(rows)
+            transcripts.append([row for row in rows if row["kind"] != "result"])
+        failed = _run(
+            [
+                str(binary),
+                *(
+                    ["--cycles", "3", "--workers", "2"]
+                    if target == "cpp"
+                    else ["+cycles=3"]
+                ),
+            ],
+            timeout=20,
+        )
+        assert failed.returncode != 0, failed.stdout + failed.stderr
+        failed_rows = _records(failed.stdout)
+        assert [row for row in failed_rows if row["kind"] != "result"] == transcripts[
+            -1
+        ]
+        terminal = [row for row in failed_rows if row["kind"] == "result"]
+        if terminal:
+            assert len(terminal) == 1 and terminal[0]["status"] == "FAILED"
+            assert int(terminal[0]["epoch_time"]) == 4
+            gauges = [
+                row
+                for row in terminal[0]["statistics"]
+                if row["name"] == "conditional count"
+            ]
+            assert {row["object_path"]: int(row["value"]) for row in gauges} == {
+                "root/left": 17,
+                "root/right": 21,
+            }
+            assert all(int(row["last_update"]["time"]) == 4 for row in gauges)
+        else:
+            assert "check failed at epoch 4" in failed.stdout + failed.stderr
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert entries[0] == entries[1]
+    assert [
+        hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts
+    ] == digests
+
+
+def test_conditional_method_four_state_effects_and_system_rollback(tmp_path):
+    final, before, after = _conditional_method_program(tmp_path, probe=True)
+    artifacts = (final, before, after)
+    digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
+    cpp = tmp_path / "conditional-probe-cpp"
+    cpp.mkdir()
+    _conditional_probe_cpp(final, cpp)
+    rtl = tmp_path / "conditional-probe-rtl"
+    rtl.mkdir()
+    generated, paths = _conditional_probe_four_state_rtl(final, rtl)
+    _conditional_probe_system_precommit(generated, paths, rtl)
+    assert [
+        hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts
+    ] == digests
+
+
+def test_conditional_report_conflict_rejects_and_preserves_final_artifact(tmp_path):
+    source = tmp_path / "conditional reports"
+    source.mkdir()
+    design = source / "reports.py"
+    valid = (
+        "import pycircuit as ac\n"
+        "@ac.system\n"
+        "def ConditionalReports():\n"
+        "    selector: ac.u1 = 0\n"
+        "    @ac.rule\n"
+        "    def observe() -> None:\n"
+        "        if selector:\n"
+        "            ac.report('left', selector)\n"
+        "        else:\n"
+        "            ac.report('right', selector)\n"
+        "    observe()\n"
+    )
+    design.write_text(valid)
+    valid_unit = tmp_path / "conditional reports unit"
+    _ok(_compile(source, design.name, valid_unit))
+    output = tmp_path / "published"
+    output.mkdir()
+    final = output / "conditional reports.ac"
+    _ok(
+        _cli(
+            "link",
+            str(valid_unit),
+            "--top",
+            "checks.reports.ConditionalReports",
+            "-o",
+            str(final),
+        )
+    )
+    before = {
+        str(path.relative_to(output)): path.read_bytes()
+        for path in output.rglob("*")
+        if path.is_file()
+    }
+    design.write_text(valid.replace("'right'", "'left'"))
+    conflicting_unit = tmp_path / "conflicting reports unit"
+    _ok(_compile(source, design.name, conflicting_unit))
+    rejected = _cli(
+        "link",
+        str(conflicting_unit),
+        "--top",
+        "checks.reports.ConditionalReports",
+        "-o",
+        str(final),
+        "--replace",
+    )
+    assert rejected.returncode != 0
+    assert "report name must be unique within logical owner: left" in rejected.stderr
+    assert {
+        str(path.relative_to(output)): path.read_bytes()
+        for path in output.rglob("*")
+        if path.is_file()
+    } == before
+
+
 def test_method_branch_four_state_intent_and_system_precommit(tmp_path):
     for mode in ("one", "both", "prior", "identity", "masked", "ordered"):
         case = tmp_path / mode
@@ -2313,7 +3147,7 @@ int main() {
                 "--target",
                 "atomic_probe",
                 "--parallel",
-                "2",
+                os.environ.get("CMAKE_BUILD_PARALLEL_LEVEL", "2"),
             ]
         )
     )

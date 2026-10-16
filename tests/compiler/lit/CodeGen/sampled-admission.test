@@ -1,6 +1,7 @@
 # REQUIRES: iverilog, vvp
 # Final-IR backend execution. Source production is covered when the transaction
-# lowering owner emits this contract; this test independently owns F/G only.
+# lowering owner emits this contract. Conditional controls, arm assertion paths,
+# independent-owner rollback and four-state sampled behavior have explicit oracles.
 # RUN: %pycircuit_opt %inputs/sampled-admission.mlir --ac-verify-hardware -o %t.final.mlir
 # RUN: %pycircuit_emit %t.final.mlir --target cpp > %t.json
 # RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
@@ -37,4 +38,27 @@
 # CHECK-NEXT: ROW FROZEN_AFTER_WORK ok 1 1
 # CHECK-NEXT: ROW DISCARDED ok 0 0
 # CHECK-NEXT: ROW DISCARD_RETRY ok 1 1
+# CHECK-NEXT: CROW SELECT_ZERO ok 1 1 1
+# CHECK-NEXT: CROW SELECT_ONE ok 1 1 1
+# CHECK-NEXT: CROW SKIP_THEN_FALSE ok 1 1 1
+# CHECK-NEXT: CROW SKIP_THEN_X ok 1 1 1
+# CHECK-NEXT: CROW SKIP_THEN_Z ok 1 1 1
+# CHECK-NEXT: CROW SKIP_ELSE_FALSE ok 1 1 1
+# CHECK-NEXT: CROW SKIP_ELSE_X ok 1 1 1
+# CHECK-NEXT: CROW SKIP_ELSE_Z ok 1 1 1
+# CHECK-NEXT: CROW THEN_FALSE_HOLD ok 0 1 1
+# CHECK-NEXT: CROW ELSE_FALSE_HOLD ok 0 1 1
+# CHECK-NEXT: CROW THEN_X_ROLLBACK guard 0 0 0
+# CHECK-NEXT: CROW THEN_Z_ROLLBACK guard 0 0 0
+# CHECK-NEXT: CROW ELSE_X_ROLLBACK guard 0 0 0
+# CHECK-NEXT: CROW ELSE_Z_ROLLBACK guard 0 0 0
+# CHECK-NEXT: CROW SELECT_X_LATE_FALSE guard 0 0 0
+# CHECK-NEXT: CROW SELECT_Z_LATE_FALSE guard 0 0 0
+# CHECK-NEXT: CROW THEN_ASSERT_FALSE guard 0 0 0
+# CHECK-NEXT: CROW ELSE_ASSERT_FALSE guard 0 0 0
+# CHECK-NEXT: CROW THEN_ASSERT_X guard 0 0 0
+# CHECK-NEXT: CROW ELSE_ASSERT_Z guard 0 0 0
+# CHECK-NEXT: CROW HELD_UNKNOWN ok 1 0 0
+# CHECK-NEXT: CROW FALLING_UNKNOWN ok 1 0 0
+# CHECK-NEXT: CROW RESET_UNKNOWN ok 0 0 0
 # CHECK-NEXT: PASS sampled admission lifecycle

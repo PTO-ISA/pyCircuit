@@ -97,6 +97,12 @@ struct Harness {
     root->right_rst = bit(rightReset);
     root->sample_clk = bit(rootClock);
     root->sample_rst = bit(rootReset);
+    root->selector = bit('0');
+    root->then_guard = bit('1');
+    root->else_guard = bit('1');
+    root->asserted = bit('1');
+    root->conditional_clk = bit('0');
+    root->conditional_rst = bit('0');
   }
 
   std::string_view step(bool accepted) {
@@ -251,6 +257,80 @@ void directLifecycle(unsigned workers) {
   row("DISCARD_RETRY", "ok", *retry.root, 1, 1);
 }
 
+void conditionalScenarios(unsigned workers) {
+  struct Case {
+    std::string_view name;
+    char selector, thenGuard, elseGuard, asserted;
+    bool accepted;
+    unsigned expected;
+  };
+  // Expected state and status are hand-derived from the selected guard/check.
+  // Independent owners rise concurrently, exposing whole-system rollback.
+  const Case cases[] = {
+      {"SELECT_ZERO", '0', 'x', '1', '1', true, 1},
+      {"SELECT_ONE", '1', '1', 'z', '1', true, 1},
+      {"SKIP_THEN_FALSE", '0', '0', '1', '1', true, 1},
+      {"SKIP_THEN_X", '0', 'x', '1', '1', true, 1},
+      {"SKIP_THEN_Z", '0', 'z', '1', '1', true, 1},
+      {"SKIP_ELSE_FALSE", '1', '1', '0', '1', true, 1},
+      {"SKIP_ELSE_X", '1', '1', 'x', '1', true, 1},
+      {"SKIP_ELSE_Z", '1', '1', 'z', '1', true, 1},
+      {"THEN_FALSE_HOLD", '1', '0', 'x', 'x', true, 0},
+      {"ELSE_FALSE_HOLD", '0', 'x', '0', 'x', true, 0},
+      {"THEN_X_ROLLBACK", '1', 'x', '0', '1', false, 0},
+      {"THEN_Z_ROLLBACK", '1', 'z', '0', '1', false, 0},
+      {"ELSE_X_ROLLBACK", '0', '0', 'x', '1', false, 0},
+      {"ELSE_Z_ROLLBACK", '0', '0', 'z', '1', false, 0},
+      {"SELECT_X_LATE_FALSE", 'x', '0', '0', '1', false, 0},
+      {"SELECT_Z_LATE_FALSE", 'z', '0', '0', '1', false, 0},
+      {"THEN_ASSERT_FALSE", '1', '1', 'x', '0', false, 0},
+      {"ELSE_ASSERT_FALSE", '0', 'x', '1', '0', false, 0},
+      {"THEN_ASSERT_X", '1', '1', 'x', 'x', false, 0},
+      {"ELSE_ASSERT_Z", '0', 'x', '1', 'z', false, 0},
+  };
+  for (const auto &test : cases) {
+    Harness h(workers);
+    require(h.step(true) == "ok");
+    h.drive('1', '1', '1', '1', '1', '0', '1', '0');
+    h.root->selector = bit(test.selector);
+    h.root->then_guard = bit(test.thenGuard);
+    h.root->else_guard = bit(test.elseGuard);
+    h.root->asserted = bit(test.asserted);
+    h.root->conditional_clk = bit('1');
+    const auto status = h.step(test.accepted);
+    const auto q = observed(h.root->conditional_q);
+    const auto left = observed(h.root->left_q);
+    const auto right = observed(h.root->right_q);
+    require(q == test.expected);
+    require(left == unsigned(test.accepted) &&
+            right == unsigned(test.accepted));
+    std::cout << "CROW " << test.name << ' ' << status << ' ' << q << ' '
+              << left << ' ' << right << '\n';
+  }
+  Harness h(workers);
+  require(h.step(true) == "ok");
+  h.root->selector = bit('1');
+  h.root->conditional_clk = bit('1');
+  require(h.step(true) == "ok");
+  require(observed(h.root->conditional_q) == 1);
+  h.root->selector = bit('x');
+  h.root->then_guard = bit('x');
+  h.root->else_guard = bit('z');
+  h.root->asserted = bit('x');
+  require(h.step(true) == "ok");
+  require(observed(h.root->conditional_q) == 1);
+  std::cout << "CROW HELD_UNKNOWN ok 1 0 0\n";
+  h.root->conditional_clk = bit('0');
+  require(h.step(true) == "ok");
+  require(observed(h.root->conditional_q) == 1);
+  std::cout << "CROW FALLING_UNKNOWN ok 1 0 0\n";
+  h.root->conditional_clk = bit('1');
+  h.root->conditional_rst = bit('1');
+  require(h.step(true) == "ok");
+  require(observed(h.root->conditional_q) == 0);
+  std::cout << "CROW RESET_UNKNOWN ok 0 0 0\n";
+}
+
 } // namespace
 
 int main(int argc, char **argv) {
@@ -266,6 +346,7 @@ int main(int argc, char **argv) {
   resetScenarios(workers, 'z', "Z");
   resetActiveAndExplicitReset(workers);
   directLifecycle(workers);
+  conditionalScenarios(workers);
   std::cout << "PASS sampled admission lifecycle\n";
   return 0;
 }

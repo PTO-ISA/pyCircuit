@@ -27,22 +27,23 @@ bundle、retry probe 验收。具体源码依据见[总体规格](README.md)，�
 
 “已有入口”只说明基线中有实现。历史测试结果须另查其精确候选证据，不能替代未来改动的
 fresh verification。本表区分历史基线与当前有界实现；原生执行证据见表后说明，
-未勾选项仍不构成完成声明。
+未勾选项仍不构成完成声明。条件调用与效果使用默认预算，完整公共验证与独立验收
+须绑定具体候选；下表记录实现边界，不把源码或 fixture 作为通过证据。
 
 | 切片 | 复用/扩展的 owner | 当前边界 | 必须补齐的退出条件 |
 | --- | --- | --- | --- |
 | 类型、效果与独立发布 | SourceEffects、SourceMethodAnalysis、SourceTransactionSummary、SourceMethodResolution | 有 typed 方法、闭包/摘要验证及 source-unit 入口 | 后续变化重验 body/summary 和接口-only consumer，不增加第二 authority |
 | 纯 helper hard break | 现有 typed helper body 与 capture/import 路径 | 已有普通纯 `def` 路径 | 每次扩展维持纯度、快照、类型权威和旧入口拒绝 |
-| state SSA 分析 | SourceTransactionStateAnalysis | whole-Bits 版本、bounded branch D/raw-intent join 和 scalar local join；partial/aggregate state 未开放 | 按[branch checklist](branch-state-ssa.md#acceptance-checklist)重验 entry inheritance、四态 intent、source history 和预算 |
-| 同 owner 执行 | LowerTransactions | 同域、whole Bits、唯一实际 writer 的统一采样 lowering；bounded branch 使用 D/E slots | 保留实际执行、独立旧 Q 和失败原子性回归；conditional calls/effects 与 partial state 另行验收 |
+| state SSA 分析 | SourceTransactionStateAnalysis | whole-Bits 版本、branch D/raw-intent/scalar join；条件候选增加完整 source path、frame/result 有效性与 join lifting | 按[branch checklist](branch-state-ssa.md#acceptance-checklist)和[conditional checklist](conditional-effects.md#acceptance-checklist)重验 entry inheritance、四态 intent、路径有效性、source history 和预算 |
+| 同 owner 执行 | LowerTransactions | 同域、whole Bits、唯一实际 writer；条件候选在 statement arms 复用 Method/assert/log/report 物化和 D/E slots | 保留实际执行、独立旧 Q 和全事务失败原子性；条件候选尚待完整验收，partial state 未开放 |
 | 跨实例执行 | 同一 LowerTransactions + 现有 Module/Instance | 原实例接线已生成完整 companion，统一采样；Collection 限制保留 | 维持[跨实例规格](cross-instance-lowering.md)全部不变量并重验公共源 |
-| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 有序 validity/guard、双层证明及 C++/RTL history；bounded branch 只承载 state/local selection | 持续重验[采样准入规格](sampled-admission.md)的顺序矩阵与输出保护；conditional call/effect path 仍单独扩展 |
+| 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 条件候选以 tagged controls 统一 callable guard 与 effect selection，含 unselected bypass、knownness 和路径 proof | 重验[条件合同](conditional-effects.md)的双层证明、四态顺序矩阵、默认预算和输出保护；旧 guards schema 不兼容 |
 | 部分状态与冲突 | 既有字段/索引类型、write footprint、grant/disjointness proof | 不能由旧 behavioral 路径支持推断 Method 已支持 | whole/field/index 冲突统一，保留四态及源写意图 |
 | 资源与因果 | 既有 HardwareAnalysis、primitive 端口合同 | Method 的完整 resource closure 未完成 | 合法请求准入、明确拒绝超端口与联合环；Queue 单独验收 |
-| Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | direct body effects 与 bounded whole-Bits branch 共用原源/final 双证明；arm 内 effects 仍拒绝 | 持续重验[body effects](sampled-body-effects.md#acceptance-checklist)及[branch](branch-state-ssa.md#acceptance-checklist) checklist，不扩大到 conditional effects/resources |
+| Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | 条件候选保留 generated clocks/resets/runner；standalone conditional observations 无需 dummy Method/state | 同 final artifact 的 generated workers 1/2、Verilator 和真实四态矩阵须 fresh verification；不扩大到 resources |
 | 效果安全优化 | 既有 record-wire、纯 SSA 优化和 final verifier | 不能从能够生成代码推断效率达标 | 三项结构效率义务及明确样本的成本测量 |
 
-建议剩余依赖顺序：保持跨实例和 bounded branch 不变量 → conditional calls/effects → partial 更新 → 资源/冲突/因果完整闭包 →
+建议剩余依赖顺序：保持跨实例和 bounded branch 不变量 → conditional calls/effects 完整验收 → partial 更新 → 资源/冲突/因果完整闭包 →
 Method System 集成 → 效果安全优化。独立测试可以提前准备；基础因果和冲突验证必须在
 每个切片存在，不能等资源切片才开始验证。Queue、Signal/EHR 不混入基础交付。
 
@@ -60,10 +61,21 @@ Rule 跨 owner 的原子取消、候选 guard 入口及后续覆盖、实际状�
 2026-10-14 有界候选的公共恒真六场景、短
 API gate 与 examples gate 已重验通过；定义局部证明复用解决了原公共跨实例预算失败，
 保持原限额和全部实际实例证明。结果不自动覆盖后续候选；nightly 未运行，基础 Method
-checklist 仍有 conditional calls/effects、partial state、资源和效果安全优化缺口，不据此
+checklist 仍有 conditional calls/effects 验收、partial state、资源和效果安全优化缺口，不据此
 宣称全范围完成。whole-Bits branch 候选的 fresh evidence 与独立 review 另行绑定，不能
 由此前直线候选的结果推断。
 当前边界见[语言参考](../../reference/language.md#method-execution-and-remaining-capabilities)。
+
+条件候选的 Rule 仍是唯一外层事务。未选 arm 的 false/X/Z guard bypass；选中 false
+guard 使全事务 hold，且不转入 else。效果 selector 的 reached X/Z 在 rising 非 reset
+时导致全系统零提交，不能被晚 false 遮蔽；low/held/falling/reset 不新增 sampled fault，
+但 final fire=0。已知 selector 下，选中 assert 保留每 Work reset mask，观测保留成功
+epoch 发布；纯分支保留四态 data/rawIntent join。返回值必须在实际 callee exit 和源路径
+上可用；只有验证过的 join 可提升 arm 值。totality 排除静态不可达 controls，但仍检查
+其类型、闭包、递归、域与 writer。reachable dynamic effect selector 未证 known 时，
+外层 Rule 必须 `-> None`。这些义务均须按[条件合同](conditional-effects.md)独立验收，
+不关闭 issue #307 或其 partial/aggregate state、resources、cross-domain、多 writer、
+changed aggregate joins 和 effect-safe optimization 剩余范围。
 
 ## 动态 guard：共同 IR 合同与剩余验收
 

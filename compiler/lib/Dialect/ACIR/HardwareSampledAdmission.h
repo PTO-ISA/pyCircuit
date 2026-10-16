@@ -9,20 +9,29 @@
 namespace acir::ac::detail {
 class SourceCheckBudget;
 
-struct SampledGuardView {
+enum class SampledControlKind : uint8_t { CallableGuard, BranchSelect };
+struct SampledPathRef {
+  std::optional<uint64_t> selectionControl;
+  bool whenTrue = false;
+};
+struct SampledControlView {
+  SampledControlKind kind;
   mlir::DictionaryAttr id;
   mlir::ArrayAttr invocation;
   int64_t predecessor = -1;
-  uint64_t predicateResult = 0, reachedResult = 0;
-  mlir::Value predicate, reached;
+  SampledPathRef executionPath;
+  uint64_t rawResult = 0, reachedResult = 0;
+  mlir::Value raw, reached;
 };
 struct SampledBodyCheckView {
+  SampledPathRef executionPath;
   mlir::DictionaryAttr id;
   mlir::ArrayAttr invocation;
   uint64_t conditionResult = 0, pathResult = 0;
   mlir::Value condition, path;
 };
 struct SampledObservationView {
+  SampledPathRef executionPath;
   mlir::DictionaryAttr id;
   uint64_t pathResult = 0, firstValueResult = 0, valueCount = 0;
   mlir::Value path;
@@ -34,7 +43,7 @@ struct SampledAdmissionView {
   uint64_t clockCapture = 0, resetCapture = 0, fireResult = 0;
   uint64_t checkBase = 0, totalResults = 0;
   mlir::Value clock, reset, fire;
-  llvm::SmallVector<SampledGuardView> guards;
+  llvm::SmallVector<SampledControlView> controls;
   llvm::SmallVector<SampledBodyCheckView> bodyChecks;
   llvm::SmallVector<SampledObservationView> observations;
 };
@@ -141,7 +150,8 @@ public:
 
   mlir::FailureOr<const PreparedSampledBoundaries *>
   prepare(ModuleOp definition, const HardwareBindings &bindings);
-  /// Borrow immutable definition schema; physical occurrence proofs are separate.
+  /// Borrow immutable definition schema; physical occurrence proofs are
+  /// separate.
   mlir::FailureOr<const TransactionWiringView *>
   wiring(ModuleOp definition, const HardwareBindings &bindings);
   mlir::FailureOr<SampledAdmissionView>
@@ -158,14 +168,21 @@ public:
   static uint64_t intentNodeStorageBytes();
   static uint64_t intentRootStorageBytes();
   static uint64_t intentFrameStorageBytes();
+  /// Actual private prefix-proof records, shared with raw prepayment.
+  static uint64_t prefixKnownAtomStorageBytes();
+  static uint64_t prefixValueStorageBytes();
+  static uint64_t prefixCacheStorageBytes();
+  static uint64_t prefixConditionalStorageBytes();
+  static uint64_t prefixFrameStorageBytes();
+  static uint64_t prefixSelectionPathsStorageBytes();
 
 private:
   mlir::FailureOr<SampledAdmissionView>
   verifySampledAdmissionImpl(RuleOp rule, const HardwareBindings &bindings);
   mlir::FailureOr<llvm::SmallVector<CheckedCandidateEnable, 0>>
   verifyCandidateEnablesImpl(const TransactionWriterView &writer,
-                            const SampledAdmissionView &sampled,
-                            const HardwareBindings &bindings);
+                             const SampledAdmissionView &sampled,
+                             const HardwareBindings &bindings);
   struct Entry;
   const HardwareAnalysis &analysis;
   SourceCheckBudget &budget;

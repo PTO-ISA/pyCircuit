@@ -100,8 +100,11 @@ condition=ValueSummary, then_effects=[EffectRow...], else_effects=[EffectRow...]
 results=[{type=TypeAttr, when_true=ValueSummary, when_false=ValueSummary}...]}`.
 Dispatch `kind="branch"` before validating the `path` required by leaf rows.
 Both arrays preserve source order and may contain admitted whole-state read/write
-rows or nested branch rows. Calls, checks and observations inside either arm
-reject. Result types are scalar Bits and match both arm summaries exactly.
+rows, nested branch rows and, in the conditional candidate, call/check/observe
+rows under the [conditional-effect contract](conditional-effects.md). The seven
+branch fields remain unchanged. Leaf `path` is the authored predicate fact;
+MLIR separately derives structural arm selection and full source-path value
+availability. Result types are scalar Bits and match both arm summaries exactly.
 Recursion, vectors and result dictionaries are charged before allocation under
 the existing publication work/depth bounds.
 
@@ -127,7 +130,8 @@ Guard/body effect arrays preserve exact respective IR order; guard permits reads
 
 ## Source body checks and observations
 
-`ac.method` 与 `ac.transaction` 的直接 body 使用已有 `ac.expect` / `ac.observe`。
+`ac.method` 与 `ac.transaction` 的 body 使用已有 `ac.expect` / `ac.observe`；条件候选
+也在 statement arms 中保留这些效果，精确边界见[条件合同](conditional-effects.md)。
 Source assert 只允许 assert kind、condition/path 两个 Bits1 和空 sampling；source
 observation 只允许 log/report、Bits1 path 和现有 scalar payload。Guard、纯 helper、
 普通纯 Rule 及嵌套 pure region 不因此获得效果权限。
@@ -146,13 +150,18 @@ Method call 和 state read 形成在消费效果前的显式 op；后续表达�
 `SourceTransactionOp` 和叶 observe 保留 observation resource write；effects 不因结果未用而删除。
 
 Body assert 是后续 whole-system commit check，不能被解释为 Method 的 mayBlock guard。
-实际 lowering 必须使用最终 fire，guard-known 检查则保留有序 reached prefix。Report 名字冲突
+实际 lowering 必须使用最终 fire 与该效果的选中路径，guard/selection knownness 检查则
+保留有序 reached prefix。Report 名字冲突
 按实际展开的 logical owner 检查，不能在发布未调用声明时伪造调用次数。
 
 source/publication 通过不等于执行支持。已有显式 state-plan records 的 direct
 unconditional effects 还须通过
 [sampled body-effect 合同](sampled-body-effects.md)的语句时刻 operands、源计划认证、
-共同 final proof 与生成 runner 的实际执行。未表示或不支持的效果继续原子拒绝；不得
+共同 final proof 与生成 runner 的实际执行。条件候选另须通过
+[conditional checklist](conditional-effects.md#acceptance-checklist)的 controls/path、
+callee-exit 返回有效性、静态不可达 totality、四态 selector 和 generated System 证据。
+所有 arm 仍检查类型、闭包、递归、域和潜在 writer；静态不可达只影响 totality。
+未表示或不支持的效果继续原子拒绝；不得
 先丢弃效果以生成可执行 final。完整 [Method System 验收](acceptance.md)使用同一
 compile/link/emit 和 C++/Verilog flow。
 

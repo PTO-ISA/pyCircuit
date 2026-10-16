@@ -117,7 +117,7 @@ struct SourceEffectContext {
   llvm::StringMap<Instance *> *instances = nullptr;
   llvm::StringMap<SourceCallableDecl> *methods = nullptr;
   bool guard = false;
-  bool conditional = false;
+  bool pureExpression = false;
 };
 struct SliceShape {
   Type type;
@@ -3571,15 +3571,15 @@ FailureOr<Value> Importer::expression(
                                ownerSymbol);
   }
   if (node.kind() == "IfExp") {
-    // Both alternatives are conditional even when the test is a source
-    // constant. Preserve the pure expression path while rejecting Method
-    // effects anywhere inside an expression choice.
-    bool conditional = activeSourceEffects && activeSourceEffects->conditional;
+    // Conditional expressions remain pure, including the test and both
+    // alternatives even when the test is a source constant.
+    bool pureExpression =
+        activeSourceEffects && activeSourceEffects->pureExpression;
     if (activeSourceEffects)
-      activeSourceEffects->conditional = true;
+      activeSourceEffects->pureExpression = true;
     auto restore = llvm::scope_exit([&] {
       if (activeSourceEffects)
-        activeSourceEffects->conditional = conditional;
+        activeSourceEffects->pureExpression = pureExpression;
     });
     auto cond = expression(node.child("test"), at, ownerSymbol, values,
                            instances, {}, captures);

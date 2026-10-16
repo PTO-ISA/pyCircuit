@@ -1019,6 +1019,12 @@ not a clocked reset pulse or a promise to clear memory.
 
 ## Method execution and remaining capabilities
 
+The conditional-call/effect candidate extends the bounded route described here
+to statement-arm Method calls, assertions and observations. That candidate is
+still awaiting acceptance: these semantics and the retained fixtures are not a
+claim that its compile, execution or gate checks passed. See the
+[conditional-effect acceptance checklist](../rfcs/serial-rule-method/conditional-effects.md#acceptance-checklist).
+
 Native sampled-admission lowering and both backend lifecycles are implemented
 for same-domain transactions over whole fixed-width Bits, with one outer writer
 per actual owner. Transaction bodies may be straight-line or use bounded
@@ -1051,10 +1057,15 @@ zero-argument Method-owner construction. A branch may update whole fixed-width
 Bits owners and may join changed scalar locals. A changed local used after the
 join must be defined on both arms; an omitted owner assignment inherits the
 candidate and write intent that entered the branch. Unconditional Method calls
-may appear before or after a branch. Calls, assertions, logs and reports inside
-either arm remain rejected, including in a statically false arm. Loops, partial
-or aggregate state updates, transaction resources and changed aggregate locals
-escaping the join remain outside this subset.
+may appear before or after a branch. In the conditional candidate, arms may
+also call Methods and contain ordinary `assert`, `log` and `report`, including
+nested `if`/`elif`/`else`. A conditional observation alone selects this route;
+authors need no dummy Method, guard or state. Effectful loops, early or
+branch-local returns, partial or aggregate state updates, transaction resources
+and changed aggregate locals escaping the join remain outside this subset.
+Calls and effects in selectors, guards, pure helpers, collection callbacks and
+conditional expressions remain rejected. Static dead arms still undergo type,
+closure, recursion, domain and potential-writer checks.
 
 A guarded nested Rule also selects typed transaction capture without requiring
 a dummy Method or state. A module such as `GuardOnly(enabled: u1)` may omit its
@@ -1066,18 +1077,24 @@ Ordinary unguarded modules keep their existing source path.
 Native final link lowers whole scalar state represented by fixed-width Bits,
 repeated or nested Method calls through static ordinary instances in the same
 physical clock/reset domain, bounded whole-Bits branches, straight-line effects,
-and at most one outer Rule writer per actual owner.
+and, in the conditional candidate, statement-arm calls/effects. It retains at
+most one outer Rule writer per actual owner.
 Calls share their outer transaction's candidate versions; saved ordinary values
 remain snapshots. Independent Rules read old Q, regardless of registration
 order. Separate structural instances retain independent state. Each state
 declaration uses one existing DFFE, preserving clock/reset, hold and discard;
 the same verified final artifact feeds C++ and Verilog.
 
-Every lowered transaction has explicit clock/reset captures, ordered guards,
-value-validity prefixes and a sampling-history binding. Literal true/false,
+Every lowered transaction has explicit clock/reset captures, ordered admission
+controls, value-validity prefixes and a sampling-history binding. A control is a
+callable guard or an effect-branch selection. Literal true/false,
 state-free and read-only transactions follow the same route. Ordinary results
-escaping an outer Rule still require the conservative proof that all guards are true;
-sampling does not add a valid-result API or relax result escape restrictions.
+escaping an outer Rule require conservative proof of total admission. Statically
+unreachable guards or selections do not prevent totality, but every reachable
+effect selector must be proven known and every reachable guard proven true.
+Known selectors of either polarity pass selection. Otherwise the outer Rule
+must return `None`; Method results remain usable within that transaction.
+Sampling adds no valid-result API.
 Both branch arms start from the same incoming candidate data and raw write
 intent. The join uses the original four-state selector for both components.
 Missing writes inherit the branch-entry pair rather than returning to old Q;
@@ -1085,7 +1102,17 @@ identity writes retain intent. The physical storage enable is the four-state
 AND of final transaction fire and joined raw intent. It is never converted by a
 known-one or case-equality test, so unknown single-sided intent reaches the
 existing active-edge failure and whole-system discard contract. Direct body
-effects use final transaction fire, not an individual state's enable.
+effects use final transaction fire and their selected source path, not an
+individual state's enable. Pure branches keep their existing four-state joins.
+Any arm containing a Method call or body effect adds a known-selector obligation
+to that branch and its enclosing branches, including empty, read-only and
+unguarded Method calls. An unselected arm bypasses its guards, including false
+or X/Z guards. A selected false guard holds the entire outer transaction across
+all owners and suppresses its body effects; it does not choose the other arm.
+Saved results are available only after the call completes on the defining path,
+even when the Method returns a literal or captured value. Only a verified join
+can make arm-local results available after the branch; initializing one arm
+does not supply a value on the other.
 Each reached guard checks knownness at an active rising edge outside reset.
 A known false guard holds that transaction; an earlier reached X/Z guard
 causes whole-system zero commit even if a later guard is false. A false guard
@@ -1093,6 +1120,12 @@ prevents checks for later, unreached guards. C++ and managed RTL freeze checks
 and physical pins during Work/PREPARE and commit history only after successful
 whole-system checks. Successful false-fire, held and falling samples maintain
 history; failure or Discard drops pending state and history.
+Reached effect selectors likewise fault on X/Z at a rising edge outside reset,
+causing whole-system zero commit even if a later guard is false. At low, held,
+falling or reset samples they add no sampled fault; their unknown value still
+makes final fire false and suppresses all effects in that transaction. With a
+known selector, selected assertions retain their ordinary every-Work reset mask,
+and selected observations may publish on successful held or falling epochs.
 
 Cross-instance calls preserve original Module definitions and storage ownership.
 Ordinary internal ports carry old Q and lexical SSA to the caller and candidate
@@ -1110,28 +1143,34 @@ if that definition is also used by a Collection, and rejects transaction writer
 composition across a Collection. Unaffected existing Collections retain their
 original contracts; this does not add a source API for Method-owner collections.
 
-Source compilation and independent interfaces can retain straight-line Method/Rule
-body `assert`, `log` and `report` as ordered typed effects. A log evaluates its
+Source compilation and independent interfaces retain Method/Rule body `assert`,
+`log` and `report` as ordered typed effects, with statement-arm effects in the
+conditional candidate. A log evaluates its
 payload expressions once in order; an assert does not gate later Method calls.
 State analysis retains their statement-time values and invocation identities;
 false or unknown assertion conditions do not become guards or alter candidates.
-The current analysis requires each authored effect path proven true. Final link
+Each authored effect path must be proven true; MLIR separately derives its
+structural branch-selection path. Final link
 materializes saved operands and checks them against the original source plan
-before canonical final verification. All body-effect paths use the transaction's
-final fire; a later false guard suppresses earlier assertions and observations.
+before canonical final verification. All body-effect paths combine the
+transaction's final fire with that effect's selected arm; a later false guard
+suppresses earlier assertions and observations.
 Body assertions retain ordinary reset masking and fail on false or unknown
 conditions, including low, held and falling epochs. They do not acquire the
 guard-known sampling binding. Observations publish only after successful
 whole-system checking and precommit; failure preserves previous gauges/events
-and the committed epoch. Effects inside a branch and transaction resource
-operations remain unsupported. Valid uncalled
+and the committed epoch. Repeated report names for the same logical owner still
+conflict even in mutually exclusive arms; report once after the join instead.
+Transaction resource operations remain unsupported. Valid uncalled
 Method declarations remain fully published and checked before link removes
-them. This subset does not complete partial or aggregate state, conditional
-Method calls, resource/conflict/causality handling or effect-safe optimization.
+them. This subset does not complete partial or aggregate state,
+resource/conflict/causality handling or effect-safe optimization. Cross-domain
+transactions and multiple autonomous writers remain rejected.
 Existing ordinary hardware and its system route
 retain their current contracts and limits.
 See the
-[whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md) and
+[whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md),
+[conditional-call/effect contract](../rfcs/serial-rule-method/conditional-effects.md) and
 [extension specification](../rfcs/serial-rule-method/README.md) for exact
 semantics, rejection boundaries and acceptance obligations. These documents do
 not by themselves establish that a particular candidate passed those checks.
@@ -1143,9 +1182,10 @@ remaining source arithmetic,
 additional queue flow/head-read policies, automatic clock-domain scheduling and CDC still need bounded implementation
 and evidence. Closed systems execute reachable source assertions and publish
 supported source observations after successful epochs. A registered nested rule
-in a closed system may contain only supported unconditional `log` or `report`
-calls, including when the system declares persistent state. No dummy assertion or
-instance binding is required; empty rules and unsupported observation forms
+in a closed system may contain only supported `log` or `report` calls, including
+statement-arm observations in the conditional candidate and systems with
+persistent state. No dummy assertion or instance binding is required; empty
+rules and unsupported observation forms
 still diagnose. Ordinary modules with
 reachable assertions require the managed RTL lifecycle described in
 [system execution](../architecture/system-execution.md); ordinary-module RTL

@@ -1063,7 +1063,7 @@ TEST_F(TransactionEffectsTest,
 }
 
 TEST_F(TransactionEffectsTest,
-       BranchArmsRejectCallsChecksAndObservationsOnEveryPath) {
+       BranchArmsRetainCallsChecksAndObservations) {
   for (llvm::StringRef effect : {"ac.method.call", "ac.expect", "ac.observe"}) {
     auto file = parse();
     ASSERT_TRUE(file);
@@ -1074,7 +1074,7 @@ TEST_F(TransactionEffectsTest,
     auto &arm = split.getThenRegion().front();
     builder.setInsertionPoint(arm.getTerminator());
     if (effect == "ac.method.call") {
-      auto *copy = find(*file, effect)->clone();
+      auto *copy = (*body.getOps<SourceMethodCallOp>().begin())->clone();
       arm.getOperations().insert(arm.getTerminator()->getIterator(), copy);
     } else if (effect == "ac.expect") {
       mlir::OperationState check(split.getLoc(),
@@ -1100,7 +1100,8 @@ TEST_F(TransactionEffectsTest,
                            transaction->getAttr("ac.guard_location"));
       builder.create(observe);
     }
-    rejectsContract(*file);
+    EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
   }
 }
 

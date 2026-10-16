@@ -257,9 +257,11 @@ protected:
               f("fire_result", b.getI64IntegerAttr(0)),
               f("body_checks", b.getArrayAttr({})),
               f("observations", b.getArrayAttr({})),
-              f("guards",
+              f("controls",
                 b.getArrayAttr(
                     {d({f("id", checkID), f("invocation", b.getArrayAttr({})),
+                        f("kind", b.getStringAttr("callable_guard")),
+                        f("path", b.getDictionaryAttr({})),
                         f("predecessor", b.getI64IntegerAttr(-1))})}))}))});
     ruleState.addRegion();
     auto sampledRule = cast<ac::RuleOp>(b.create(ruleState));

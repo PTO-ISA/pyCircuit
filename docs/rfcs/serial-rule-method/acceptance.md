@@ -27,7 +27,12 @@ whole-Bits statement branch 与 scalar local join 还必须关闭
 [branch-state checklist](branch-state-ssa.md#acceptance-checklist)。该 checklist 细化
 `METHOD-STATE-ORDER`、`METHOD-SNAPSHOT-OLD-Q`、`METHOD-FOUR-STATE`、
 `METHOD-SUMMARY-AUTHORITY`、`METHOD-EFFECT-RETENTION` 和
-`METHOD-ANALYSIS-BOUNDS`，不开放 conditional calls/effects 或 partial state。
+`METHOD-ANALYSIS-BOUNDS`。此前 branch 切片不开放 conditional calls/effects；后续
+条件候选还必须关闭[conditional checklist](conditional-effects.md#acceptance-checklist)，
+包括全事务 hold、unselected bypass、四态 selector、callee-exit/source-path 有效性、
+静态不可达 totality、controls hard break、默认预算和 generated System 双目标执行。
+这细化同一组稳定需求，不新增平行 gate；partial state 和资源仍有独立出口。局部测试
+通过不代表该 checklist、基础 Method 或 issue #307 已完成。
 
 | 需求标识 | 正例与独立期望 | 负例／边界与预期诊断类别 | 最小证据层 |
 | --- | --- | --- | --- |
@@ -62,8 +67,10 @@ whole-Bits statement branch 与 scalar local join 还必须关闭
 受限直线动态 guard 的完整子矩阵见[采样准入验收](sampled-admission.md#acceptance-checklist)：
 包括所有 transaction 的 uniform sampling、false fire 的 history 提交、Discard 后同 high
 重采样、物理 clock/reset X/Z、guard span、原 plan 与独立 final 两层故障注入及预算保护。
-它细化上述需求，不另开 gate；完整 Method System、whole-Bits branch 和后续资源仍分别
-按各自 checklist 验收。
+它细化上述需求，不另开 gate；完整 Method System、whole-Bits branch、conditional
+calls/effects 和后续资源仍分别按各自 checklist 验收。当前条件候选使用
+[条件合同](conditional-effects.md)的 tagged controls/path schema；此前 guard-only
+schema 与直线结果布局不能作为当前 final IR 格式。
 
 上述槽队列、库存发布和槽位探测器是框架测试中的设计中立类比；不得把完整 ROB、S1、PFL consumer 代码、ISA schema 或 oracle 放入编译器。变化名、宽度、初值、槽数、语句形状与实例顺序的有界变体用于排除场景识别。变体保留相同语义义务，不要求当前尚未支持的一般参数化。
 

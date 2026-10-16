@@ -8,6 +8,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <optional>
+#include <variant>
 
 namespace acir::ac {
 
@@ -21,14 +22,42 @@ using StateVersionId = uint64_t;
 using StateReadId = uint64_t;
 using StateWriteId = uint64_t;
 using GuardBoundaryId = uint64_t;
+using AdmissionControlId = uint64_t;
+using SelectionBoundaryId = uint64_t;
 using CallBindingId = uint64_t;
 using BodyCheckId = uint64_t;
 using ObservationId = uint64_t;
 using BranchId = uint64_t;
 using BranchResultId = uint64_t;
 using StateJoinId = uint64_t;
-/// Number of ordered guards required to admit: zero is unconditional.
+/// Number of completed admission controls; zero is unconditional.
 using AdmissionPrefix = uint64_t;
+
+/// Full source-region ancestry, including branches with no admission control.
+struct TransactionSourcePath {
+  std::optional<BranchId> branch;
+  bool whenTrue = false;
+};
+struct TransactionPoint {
+  AdmissionPrefix prefix = 0;
+  TransactionSourcePath path;
+};
+struct CallableGuardControl {
+  GuardBoundaryId guard = 0;
+};
+struct BranchSelectControl {
+  SelectionBoundaryId selection = 0;
+};
+using AdmissionControlBoundary =
+    std::variant<CallableGuardControl, BranchSelectControl>;
+struct AdmissionControl {
+  AdmissionControlBoundary boundary;
+  TransactionSourcePath path;
+};
+struct SelectionBoundary {
+  BranchId branch = 0;
+  AdmissionControlId control = 0;
+};
 
 /// A module instance relative to the transaction's lexical root. The root has
 /// no parent/allocation and an empty occurrence path. Child paths contain the
@@ -52,7 +81,7 @@ struct BoundValueRef {
   mlir::Value value;
   LexicalInstanceId anchor = 0;
   InvocationFrameId frame = 0;
-  AdmissionPrefix requiredPrefix = 0;
+  TransactionPoint validity;
 };
 
 /// Callable block arguments bind separately in guard and body regions. Entries
@@ -74,6 +103,8 @@ struct InvocationFrame {
   HardwareBindings bindings;
   llvm::SmallVector<TransactionValueBinding> guardArguments;
   llvm::SmallVector<TransactionValueBinding> bodyArguments;
+  GuardBoundaryId guard = 0;
+  TransactionPoint entry, exit;
 };
 
 /// Only callable formal/capture binding and verified Instance input ordinals
@@ -127,7 +158,7 @@ struct StateVersion {
   std::optional<StateJoinId> join;
   std::optional<BoundValueId> value;
   mlir::Type payloadType;
-  AdmissionPrefix requiredPrefix = 0;
+  TransactionPoint validity;
 
   std::optional<BoundValueId> getSourceValue() const { return value; }
   std::optional<StateJoinId> getJoinId() const { return join; }
@@ -139,7 +170,7 @@ struct StateReadBinding {
   StateOwnerId owner = 0;
   StateVersionId version = 0;
   BoundValueId result = 0;
-  BoundValueId path = 0;
+  BoundValueId authoredPath = 0;
   mlir::ArrayAttr selectors;
   llvm::SmallVector<BoundValueId> indices;
   mlir::DictionaryAttr occurrence;
@@ -153,7 +184,7 @@ struct StateWriteIntent {
   StateVersionId predecessor = 0;
   StateVersionId version = 0;
   BoundValueId value = 0;
-  BoundValueId path = 0;
+  BoundValueId authoredPath = 0;
   mlir::ArrayAttr selectors;
   llvm::SmallVector<BoundValueId> indices;
   mlir::DictionaryAttr occurrence;
@@ -171,7 +202,7 @@ struct TransactionBranchResult {
   uint64_t ordinal;
   BoundValueId result, whenTrue, whenFalse;
   mlir::Type payloadType;
-  AdmissionPrefix requiredPrefix;
+  TransactionPoint validity;
 };
 
 struct TransactionStateJoin {
@@ -180,13 +211,15 @@ struct TransactionStateJoin {
   StateVersionId entry, whenTrue, whenFalse, result;
 };
 
-/// Both arms start at the same candidate environment and admission prefix.
+/// Both arms restore the same candidates while control prefixes advance.
 struct TransactionBranch {
   SourceBranchOp operation;
   InvocationFrameId frame;
   BoundValueId condition;
-  std::optional<BranchId> parentBranch;
-  AdmissionPrefix entryPrefix;
+  TransactionPoint entry;
+  std::optional<SelectionBoundaryId> selection;
+  AdmissionPrefix thenExitPrefix = 0, elseExitPrefix = 0;
+  mlir::BoolAttr conditionFact;
   llvm::SmallVector<OwnerVersionBinding> entryVersions, thenVersions,
       elseVersions;
   llvm::SmallVector<StateJoinId> joins;
@@ -196,8 +229,8 @@ struct TransactionBranch {
 };
 
 /// Ordered admission obligations retain known-false and unknown guards alike.
-/// Entry versions are frozen before evaluating this guard. predecessor records
-/// reachability order; later body writes cannot affect these entry versions.
+/// Entry versions are frozen before evaluating this guard. Its control index
+/// records reachability order; later writes cannot change these entry versions.
 /// A null predicateFact means unknown, not a successful admission proof.
 /// entryVersions lists the owners read by this guard, not all known state. Each
 /// listed version is its candidate at guard entry. An owner discovered lazily
@@ -205,7 +238,7 @@ struct TransactionBranch {
 struct GuardBoundary {
   mlir::Operation *callable = nullptr;
   InvocationFrameId frame = 0;
-  std::optional<GuardBoundaryId> predecessor;
+  AdmissionControlId control = 0;
   TransactionDomain domain;
   llvm::SmallVector<OwnerVersionBinding> entryVersions;
   llvm::SmallVector<StateReadId> reads;
@@ -233,8 +266,7 @@ struct TransactionCallBinding {
   SourceMethodCallOp operation;
   InvocationFrameId caller = 0;
   InvocationFrameId callee = 0;
-  BoundValueId path = 0;
-  GuardBoundaryId guard = 0;
+  BoundValueId authoredPath = 0;
   llvm::SmallVector<BoundValueId> arguments;
   llvm::SmallVector<BoundValueId> captures;
   llvm::SmallVector<OwnerVersionBinding> entryVersions;
@@ -249,11 +281,11 @@ struct TransactionBodyCheck {
   SourceExpectOp operation;
   InvocationFrameId frame = 0;
   BoundValueId condition = 0;
-  BoundValueId path = 0;
+  BoundValueId authoredPath = 0;
   mlir::DictionaryAttr occurrence;
   mlir::DictionaryAttr location;
   mlir::StringAttr message;
-  AdmissionPrefix requiredPrefix = 0;
+  TransactionPoint point;
 };
 
 /// Ordered statement-time payloads. The frame's anchor identifies the logical
@@ -263,13 +295,13 @@ struct TransactionBodyCheck {
 struct TransactionObservation {
   SourceObserveOp operation;
   InvocationFrameId frame = 0;
-  BoundValueId path = 0;
+  BoundValueId authoredPath = 0;
   llvm::SmallVector<BoundValueId, 0> values;
   mlir::DictionaryAttr occurrence;
   mlir::DictionaryAttr location;
   mlir::StringAttr kind;
   mlir::DictionaryAttr spec;
-  AdmissionPrefix requiredPrefix = 0;
+  TransactionPoint point;
 };
 
 enum class TransactionStateEventKind {
@@ -277,6 +309,8 @@ enum class TransactionStateEventKind {
   GuardEnter,
   Read,
   GuardExit,
+  SelectionEnter,
+  SelectionExit,
   Write,
   BodyCheck,
   Observe,
@@ -306,7 +340,8 @@ struct TransactionStateEvent {
   std::optional<StateWriteId> write;
   std::optional<GuardBoundaryId> guard;
   std::optional<CallBindingId> call;
-  AdmissionPrefix prefix = 0;
+  TransactionPoint point;
+  std::optional<SelectionBoundaryId> selection;
   std::optional<BodyCheckId> bodyCheck;
   std::optional<ObservationId> observation;
   std::optional<BranchId> branch;
@@ -333,6 +368,8 @@ struct TransactionStatePlan {
   llvm::SmallVector<StateReadBinding, 0> reads;
   llvm::SmallVector<StateWriteIntent, 0> writes;
   llvm::SmallVector<GuardBoundary, 0> guards;
+  llvm::SmallVector<AdmissionControl, 0> controls;
+  llvm::SmallVector<SelectionBoundary, 0> selections;
   llvm::SmallVector<TransactionCallBinding, 0> calls;
   llvm::SmallVector<TransactionBodyCheck, 0> bodyChecks;
   llvm::SmallVector<TransactionObservation, 0> observations;
@@ -348,9 +385,9 @@ struct TransactionStatePlan {
 
 /// Read-only analysis of every definition transaction in a builtin ModuleOp
 /// package owning its closure. Native verification and Method summaries remain
-/// authoritative. Only straight-line whole-owner effects on proven-true paths
-/// are admitted; guard obligations may be false or unknown. Missing executable
-/// Method bodies, selectors and unproved domains fail this analysis entrypoint.
+/// authoritative. Whole-Bits effects retain source paths, ordered admission
+/// controls and candidate joins. False and unknown obligations remain explicit.
+/// Missing executable bodies, partial state and unproved domains fail closed.
 /// Construction neither mutates IR nor executes hardware values. Publication is
 /// atomic: any failure makes every lookup null and print fail without output.
 class SourceTransactionStateAnalysis {

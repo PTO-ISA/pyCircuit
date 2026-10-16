@@ -512,6 +512,23 @@ protected:
         write.erase();
     return {split, writes[0], writes[1]};
   }
+  AuthoredBranch addConditionalArmEffects(mlir::ModuleOp file) {
+    auto effects = addAuthoredEffects(file);
+    auto split = addAuthoredBranch(file);
+    auto run = named<SourceTransactionOp>(module(file), "run");
+    auto &body = run.getBody().front();
+    auto &arm = split.operation.getThenRegion().front();
+    auto firstCall = *body.getOps<SourceMethodCallOp>().begin();
+    auto *conditional = firstCall->clone();
+    conditional->setOperand(1, body.getArgument(1));
+    conditional->setAttr("occurrence", occurrence("Owner", 27));
+    arm.getOperations().insert(arm.getTerminator()->getIterator(), conditional);
+    effects.directCheck->moveBefore(arm.getTerminator());
+    effects.directObservation->setOperand(1, body.getArgument(1));
+    effects.directObservation->moveBefore(arm.getTerminator());
+    return split;
+  }
+
 };
 
 TEST_F(SampledTransactionLoweringTest,
@@ -566,13 +583,13 @@ TEST_F(SampledTransactionLoweringTest,
       record.rule->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
   ASSERT_TRUE(metadata);
   for (llvm::StringRef field : {"clock_capture", "reset_capture", "fire_result",
-                                "guards", "body_checks", "observations"})
+                                "controls", "body_checks", "observations"})
     EXPECT_TRUE(metadata.get(field)) << field.str();
   EXPECT_EQ(metadata.size(), 6u);
-  auto guardRows = metadata.getAs<mlir::ArrayAttr>("guards");
+  auto guardRows = metadata.getAs<mlir::ArrayAttr>("controls");
   auto checkRows = metadata.getAs<mlir::ArrayAttr>("body_checks");
   auto observationRows = metadata.getAs<mlir::ArrayAttr>("observations");
-  ASSERT_EQ(guardRows.size(), plan.guards.size());
+  ASSERT_EQ(guardRows.size(), plan.controls.size());
   ASSERT_EQ(checkRows.size(), plan.bodyChecks.size());
   ASSERT_EQ(observationRows.size(), plan.observations.size());
   EXPECT_EQ(prepared.totalResults, record.rule.getNumResults());
@@ -611,14 +628,14 @@ TEST_F(SampledTransactionLoweringTest,
   for (auto [ordinal, terminal] : llvm::enumerate(record.bodyChecks)) {
     const auto &sourceRecord = plan.bodyChecks[ordinal];
     auto conditionResult =
-        prepared.checkBase + 2 * (plan.guards.size() + ordinal);
+        prepared.checkBase + 2 * (plan.controls.size() + ordinal);
     EXPECT_EQ(terminal.getCondition(), record.rule.getResult(conditionResult));
     EXPECT_EQ(terminal.getPath(), record.rule.getResult(conditionResult + 1));
     EXPECT_TRUE(terminal.getSampling().empty());
     auto id = terminal->getAttrOfType<mlir::DictionaryAttr>("ac.check_id");
     ASSERT_TRUE(id);
     EXPECT_EQ(id.getAs<mlir::IntegerAttr>("obligation").getInt(),
-              plan.guards.size() + ordinal);
+              plan.controls.size() + ordinal);
     EXPECT_EQ(id.get("check"), sourceRecord.occurrence);
     EXPECT_EQ(
         id.get("registration"),
@@ -765,7 +782,7 @@ TEST_F(SampledTransactionLoweringTest,
     if (comparison->getOperand(operand) == oldRaw)
       comparison->setOperand(operand, replacement);
   yield->setOperand(prepared.fireResult + 1, replacement);
-  rejects(*staged, "original raw guard predicate differs");
+  rejects(*staged, "original control raw/path/suffix differs");
 }
 
 TEST_F(SampledTransactionLoweringTest,
@@ -904,6 +921,151 @@ TEST_F(SampledTransactionLoweringTest,
 }
 
 TEST_F(SampledTransactionLoweringTest,
+       ConditionalControlAndEffectPathsUseDedicatedSlotsAndExactFire) {
+  auto staged = stage([&](mlir::ModuleOp file) { addConditionalArmEffects(file); });
+  ASSERT_TRUE(staged);
+  EXPECT_TRUE(mlir::succeeded(verify(*staged))) << diagnostics;
+  expectOriginalUnchanged(*staged);
+  auto index = transactionIndex(*staged, "run");
+  const auto &prepared = staged->prepared.transactions[index];
+  const auto &plan = *prepared.plan;
+  auto &record = staged->candidate.transactions[index];
+  ASSERT_EQ(plan.selections.size(), 1u);
+  EXPECT_EQ(plan.controls.size(), plan.guards.size() + plan.selections.size());
+  EXPECT_EQ(record.controls.size(), plan.controls.size());
+  EXPECT_EQ(record.prefixes.size(), plan.controls.size() + 1);
+  EXPECT_EQ(record.selections.size(), plan.selections.size());
+  EXPECT_TRUE(record.rule.getResult(prepared.fireResult).use_empty());
+  auto *yield = record.rule.getBody().front().getTerminator();
+  auto fire = yield->getOperand(prepared.fireResult);
+  auto metadata = record.rule->getAttrOfType<mlir::DictionaryAttr>(
+      "ac.sampled_admission");
+  EXPECT_FALSE(metadata.get("guards"));
+  ASSERT_TRUE(metadata.getAs<mlir::ArrayAttr>("controls"));
+  EXPECT_EQ(metadata.size(), 6u);
+  for (auto [ordinal, control] : llvm::enumerate(record.controls)) {
+    auto id = control.terminal->getAttrOfType<mlir::DictionaryAttr>("ac.check_id");
+    ASSERT_TRUE(id);
+    EXPECT_EQ(id.getAs<mlir::IntegerAttr>("obligation").getInt(), ordinal);
+  }
+  bool checkedConditional = false, observedConditional = false;
+  auto requirePath = [&](mlir::Value path) {
+    auto conjunction = path.getDefiningOp<BitsBinaryOp>();
+    ASSERT_TRUE(conjunction);
+    EXPECT_EQ(conjunction.getOpcode(), "and");
+    EXPECT_EQ(conjunction->getOperand(0), fire);
+  };
+  for (auto [ordinal, effect] : llvm::enumerate(plan.bodyChecks)) {
+    if (!effect.point.path.branch)
+      continue;
+    checkedConditional = true;
+    auto slot = prepared.checkBase + 2 * (plan.controls.size() + ordinal) + 1;
+    EXPECT_EQ(record.bodyChecks[ordinal].getPath(), record.rule.getResult(slot));
+    requirePath(yield->getOperand(slot));
+    EXPECT_NE(slot, prepared.fireResult);
+  }
+  for (auto [ordinal, effect] : llvm::enumerate(plan.observations)) {
+    if (!effect.point.path.branch)
+      continue;
+    observedConditional = true;
+    auto slot = prepared.observationPathResults[ordinal];
+    EXPECT_EQ(record.observations[ordinal].getPath(), record.rule.getResult(slot));
+    requirePath(yield->getOperand(slot));
+    EXPECT_NE(slot, prepared.fireResult);
+  }
+  EXPECT_TRUE(checkedConditional);
+  EXPECT_TRUE(observedConditional);
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       ConditionalPlanLocatorsCannotAuthenticateChangedSourceSemantics) {
+  for (unsigned mutation = 0; mutation != 15; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto staged = stage([&](mlir::ModuleOp file) { addConditionalArmEffects(file); });
+    ASSERT_TRUE(staged);
+    auto index = transactionIndex(*staged, "run");
+    auto &plan = const_cast<TransactionStatePlan &>(
+        *staged->prepared.transactions[index].plan);
+    ASSERT_EQ(plan.branches.size(), 1u);
+    ASSERT_EQ(plan.selections.size(), 1u);
+    auto conditional = llvm::find_if(plan.calls, [&](const auto &call) {
+      return bool(plan.frames[call.callee].entry.path.branch);
+    });
+    ASSERT_NE(conditional, plan.calls.end());
+    auto &frame = plan.frames[conditional->callee];
+    auto &branch = plan.branches.front();
+    if (mutation == 0)
+      branch.condition = plan.clockValue;
+    if (mutation == 1)
+      branch.conditionLocation = span(99);
+    if (mutation == 2)
+      branch.entry.path = TransactionSourcePath{0, false};
+    if (mutation == 3)
+      ++branch.thenExitPrefix;
+    if (mutation == 4)
+      branch.selection.reset();
+    if (mutation == 5)
+      plan.selections.front().control = 0;
+    if (mutation == 6)
+      plan.controls[plan.guards[frame.guard].control].path = {};
+    if (mutation == 7)
+      frame.entry.path.whenTrue = false;
+    if (mutation == 8)
+      frame.parent = conditional->callee;
+    if (mutation == 9) {
+      ASSERT_FALSE(conditional->arguments.empty());
+      conditional->arguments.front() = plan.owners.front().oldQ;
+    }
+    if (mutation == 10) {
+      ASSERT_FALSE(conditional->results.empty());
+      conditional->results.front().result = conditional->results.front().yielded;
+    }
+    if (mutation == 11) {
+      ASSERT_FALSE(conditional->results.empty());
+      plan.values[conditional->results.front().result].validity = frame.entry;
+    }
+    if (mutation == 12) {
+      auto event = llvm::find_if(plan.events, [&](const auto &event) {
+        return event.kind == TransactionStateEventKind::CallExit &&
+               event.call && &plan.calls[*event.call] == &*conditional;
+      });
+      ASSERT_NE(event, plan.events.end());
+      event->point.path = {};
+    }
+    if (mutation == 13) {
+      auto effect = llvm::find_if(plan.bodyChecks, [](const auto &effect) {
+        return bool(effect.point.path.branch);
+      });
+      ASSERT_NE(effect, plan.bodyChecks.end());
+      effect->point.path = {};
+    }
+    if (mutation == 14) {
+      auto version = llvm::find_if(plan.versions, [](const auto &version) {
+        return version.kind == StateVersionKind::Write &&
+               bool(version.validity.path.branch);
+      });
+      ASSERT_NE(version, plan.versions.end());
+      version->validity.path = {};
+    }
+    rejects(*staged, "");
+  }
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       OldGuardOnlySchemaCannotReplaceExactControlInventory) {
+  auto staged = stage();
+  ASSERT_TRUE(staged);
+  auto index = transactionIndex(*staged, "run");
+  auto rule = staged->candidate.transactions[index].rule;
+  auto metadata = rule->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
+  mlir::NamedAttrList fields(metadata);
+  fields.set("guards", fields.get("controls"));
+  fields.erase("controls");
+  rule->setAttr("ac.sampled_admission", fields.getDictionary(&context));
+  rejects(*staged, "");
+}
+
+TEST_F(SampledTransactionLoweringTest,
        BranchPreparationBudgetFailurePreservesOriginalPackage) {
   auto original = parse();
   ASSERT_TRUE(original);
@@ -962,7 +1124,7 @@ TEST_F(SampledTransactionLoweringTest,
       frame = plan.calls.front().caller;
       id = result.result;
       original = plan.values[id].value;
-      reason = "original call yielded-result binding differs";
+      reason = "original call yielded-result identity/validity differs";
     } else {
       ASSERT_FALSE(plan.reads.empty());
       const auto &read = plan.reads.front();

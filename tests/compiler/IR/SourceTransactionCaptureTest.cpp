@@ -1010,6 +1010,166 @@ def Meter():
 }
 
 TEST_F(SourceTransactionCaptureTest,
+       BareRuleConditionalObservationsSelectTypedTransactionsThroughIfArms) {
+  const char *source = R"py(import pycircuit as ac
+from pycircuit import report as sample, log as record
+@ac.module
+def Top(flag: ac.u1, value: ac.u8):
+    @ac.rule
+    def inspect() -> None:
+        BODY
+    inspect()
+)py";
+  const std::pair<StringRef, unsigned> cases[] = {
+      {"if flag:\n            ac.report(\"selected\", value)", 1},
+      {"if False:\n            ac.log(\"info\", \"dead\", value)", 1},
+      {"if flag:\n            record(\"info\", \"outer\", value)\n"
+       "        elif value == 0:\n            sample(\"zero\", value)\n"
+       "        else:\n            if value == 1:\n"
+       "                ac.report(\"one\", value)", 3}};
+  for (auto [body, branches] : cases) {
+    SCOPED_TRACE(body.str());
+    auto file = typed(replaceOnce(source, "BODY", body));
+    ASSERT_TRUE(file) << diagnostics;
+    EXPECT_TRUE(operations<ac::SourceMethodOp>(*file).empty());
+    auto transactions = operations<ac::SourceTransactionOp>(*file);
+    ASSERT_EQ(transactions.size(), 1u);
+    EXPECT_EQ(transactions.front().getName(), "inspect");
+    EXPECT_EQ(operations<ac::SourceBranchOp>(*file).size(), branches);
+    auto observations = operations<ac::SourceObserveOp>(*file);
+    ASSERT_EQ(observations.size(), branches);
+    for (auto observation : observations) {
+      EXPECT_TRUE(observation->getParentOfType<ac::SourceBranchOp>());
+      EXPECT_TRUE(observation->getParentOfType<ac::SourceTransactionOp>());
+      EXPECT_TRUE(observation.getPath().getDefiningOp<ac::BitsConstantOp>());
+      EXPECT_TRUE(observation->hasAttr("occurrence"));
+      EXPECT_TRUE(observation->hasAttr("ac.location"));
+      EXPECT_EQ(observation.getValues().size(), 1u);
+    }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       SameNameAndShadowedCallsCannotSeedIntrinsicObservationTransactions) {
+  const char *source = R"py(import pycircuit as ac
+IMPORT
+@ac.module
+def Top(flag: ac.u1, value: ac.u8):
+    DECLARATION
+    @ac.rule
+    def inspect() -> None:
+        if flag:
+            CALL
+    inspect()
+)py";
+  for (auto [declaration, call] :
+       {std::pair<StringRef, StringRef>(
+            "def report(arg: ac.u8) -> ac.u8:\n        return arg", "report(value)"),
+        {"def log(arg: ac.u8) -> ac.u8:\n        return arg", "log(value)"},
+        {"def sample(arg: ac.u8) -> ac.u8:\n        return arg", "sample(value)"}}) {
+    auto text = replaceOnce(source, "IMPORT",
+                            call.starts_with("sample")
+                                ? "from pycircuit import report as sample"
+                                : "");
+    text = replaceOnce(text, "DECLARATION", declaration);
+    text = replaceOnce(text, "CALL", call);
+    auto captured = capture("nonintrinsic.py", text);
+    ASSERT_TRUE(captured);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*captured, "nonintrinsic.py")));
+    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_TRUE(operations<ac::SourceTransactionOp>(*captured).empty());
+    EXPECT_TRUE(operations<ac::SourceObserveOp>(*captured).empty());
+    // A same-spelled helper is not an observation intrinsic. Shadowing may
+    // reject earlier, but observation metadata validation cannot accept it.
+    EXPECT_EQ(diagnostics.find("report requires"), std::string::npos);
+    EXPECT_EQ(diagnostics.find("log requires"), std::string::npos);
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       BareConditionalObservationDoesNotAdmitExpressionSelectorOrHelperEffects) {
+  const char *source = R"py(import pycircuit as ac
+@ac.module
+def Top(flag: ac.u1, value: ac.u8):
+    def helper(arg: ac.u8) -> ac.u8:
+        HELPER
+    @ac.rule
+    def inspect() -> None:
+        if flag:
+            ac.report("selected", value)
+        BODY
+    inspect()
+)py";
+  for (StringRef body : {
+           "saved = ac.report(\"value\", value)",
+           "saved = ac.log(\"info\", \"value\", value) if flag else value",
+           "if ac.report(\"selector\", value):\n            pass"}) {
+    auto text = replaceOnce(source, "HELPER", "return arg");
+    auto captured = capture("effect_placement.py", replaceOnce(text, "BODY", body));
+    ASSERT_TRUE(captured);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*captured, "effect_placement.py")));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+  auto helper = replaceOnce(source, "HELPER", "return ac.report(\"hidden\", arg)");
+  helper = replaceOnce(helper, "BODY", "saved = helper(value)");
+  auto captured = capture("helper_effect.py", helper);
+  ASSERT_TRUE(captured);
+  diagnostics.clear();
+  EXPECT_TRUE(failed(lower(*captured, "helper_effect.py")));
+  EXPECT_FALSE(diagnostics.empty());
+  auto guarded = replaceOnce(source, "HELPER", "return arg");
+  guarded = replaceOnce(guarded, "BODY", "pass");
+  guarded = replaceOnce(guarded, "@ac.rule",
+                        "@ac.rule(guard=lambda: ac.report(\"guard\", value))");
+  reject(guarded, "guard");
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       AssertOnlyAggregateIfMatchAndUnconditionalObservationsKeepBehavioralRoute) {
+  const char *source = R"py(import pycircuit as ac
+@ac.struct
+class Pair:
+    left: ac.u8
+    right: ac.u8
+@ac.struct
+class View:
+    value: ac.u8
+@ac.module
+def Top(flag: ac.u1, entries: ac.table[2, ac.u8]) -> View:
+    @ac.rule
+    def inspect() -> View:
+        pair = Pair(left=entries[0], right=entries[1])
+        if flag:
+            pair = Pair(left=pair.left + 1, right=pair.right)
+            assert pair.right == entries[1], "table payload snapshot"
+        else:
+            assert pair.left == entries[0]
+        match flag:
+            case 0:
+                assert entries[0] == entries[0]
+            case _:
+                assert pair.right == entries[1]
+        OBSERVATION
+        return View(value=pair.left)
+    return inspect()
+)py";
+  for (StringRef observation : {"pass", "ac.report(\"value\", entries[0])",
+                               "ac.log(\"info\", \"value\", entries[0])"}) {
+    SCOPED_TRACE(observation.str());
+    auto file = typed(replaceOnce(source, "OBSERVATION", observation));
+    ASSERT_TRUE(file) << diagnostics;
+    EXPECT_TRUE(operations<ac::SourceTransactionOp>(*file).empty());
+    EXPECT_TRUE(operations<ac::SourceBranchOp>(*file).empty());
+    EXPECT_FALSE(operations<ac::RuleOp>(*file).empty());
+    EXPECT_EQ(operations<ac::SourceExpectOp>(*file).size(), 4u);
+    EXPECT_EQ(operations<ac::SourceObserveOp>(*file).size(),
+              observation == "pass" ? 0u : 1u);
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
        MethodInstrumentationRejectsDynamicMetadataAndMalformedSpecs) {
   const char *base = R"py(import pycircuit as ac
 @ac.module
@@ -1298,7 +1458,7 @@ def Owner():
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       ConditionalCallsEffectsAndReturnsFailClosedInConstantFalseArms) {
+       SelectorsConditionalExpressionsLoopsAndEarlyReturnsRemainClosed) {
   constexpr StringLiteral sourceText = R"py(import pycircuit as ac
 @ac.module
 def Owner():
@@ -1315,14 +1475,127 @@ def Owner():
     step()
 )py";
   const std::pair<StringRef, StringRef> cases[] = {
-      {"if False:\n            update()", "branch"},
       {"if predicate():\n            pass", "branch"},
-      {"if False:\n            assert count != 0", "branch"},
-      {"if False:\n            ac.log(\"info\", \"hidden\", count)", "branch"},
-      {"if False:\n            ac.report(\"hidden\", count)", "branch"},
-      {"if False:\n            return", "return"}};
+      {"value = 1 if predicate() else 0", "branch"},
+      {"if False:\n            return", "return"},
+      {"if False:\n            for value in range(2):\n                update()", "loop"}};
   for (auto [body, category] : cases)
     reject(replaceOnce(sourceText.str(), "BODY", body), category);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       ConditionalStatementsRetainDeadAndDynamicArmCallAndEffectInventories) {
+  for (StringRef selector : {"False", "True", "flag"}) {
+    auto source = R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 5
+    @ac.method
+    def update(amount: ac.u8) -> ac.u8:
+        count = count + amount
+        return count
+    @ac.method
+    def choose(flag: ac.u1) -> None:
+        saved = update(1)
+        if SELECTOR:
+            selected = update(2)
+            assert saved != 0
+            ac.log("info", "then", selected)
+        else:
+            selected = update(4)
+            ac.report("else", selected)
+        count = count + 3
+@ac.module
+def Parent(flag: ac.u1):
+    owner = Owner()
+    @ac.rule
+    def step() -> None:
+        owner.choose(flag)
+    step()
+)py";
+    auto file = typed(replaceOnce(source, "SELECTOR", selector));
+    ASSERT_TRUE(file) << diagnostics;
+    auto branches = operations<ac::SourceBranchOp>(*file);
+    ASSERT_EQ(branches.size(), 1u);
+    EXPECT_EQ(operations<ac::SourceMethodCallOp>(*file).size(), 4u);
+    EXPECT_EQ(operations<ac::SourceExpectOp>(*file).size(), 1u);
+    EXPECT_EQ(operations<ac::SourceObserveOp>(*file).size(), 2u);
+    for (auto &arm : branches.front()->getRegions()) {
+      unsigned calls = 0;
+      arm.walk([&](ac::SourceMethodCallOp) { ++calls; });
+      EXPECT_EQ(calls, 1u);
+    }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       MethodResultSelectorsRetainUnknownAuthorityAndRequireVoidOuterResults) {
+  const char *source = R"py(import pycircuit as ac
+@ac.struct
+class View:
+    value: ac.u8
+@ac.module
+def Owner():
+    count: ac.u8 = 5
+    @ac.method
+    def predicate() -> ac.u1:
+        return 0
+    @ac.method
+    def update() -> None:
+        count = count + 1
+@ac.module
+def Parent() RESULT:
+    owner = Owner()
+    @ac.rule
+    def step() RETURN:
+        selected = owner.predicate()
+        if selected:
+            owner.update()
+        YIELD
+    REGISTER
+)py";
+  auto valued = replaceOnce(source, "RESULT", "-> View");
+  valued = replaceOnce(valued, "RETURN", "-> View");
+  valued = replaceOnce(valued, "YIELD", "return View(value=1)");
+  valued = replaceOnce(valued, "REGISTER", "return step()");
+  // Existing source fact/rowFact publication does not infer a Method's body
+  // result as a selector literal, even when that body returns zero.
+  reject(valued, "none");
+  auto noResult = replaceOnce(source, "RESULT", "");
+  noResult = replaceOnce(noResult, "RETURN", "-> None");
+  noResult = replaceOnce(noResult, "YIELD", "pass");
+  noResult = replaceOnce(noResult, "REGISTER", "step()");
+  auto file = typed(noResult);
+  ASSERT_TRUE(file) << diagnostics;
+  ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
+  ASSERT_TRUE(summaries.isValid());
+  auto transactions = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(transactions.size(), 1u);
+  EXPECT_FALSE(summaries.isTotal(transactions.front()));
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       DeadArmsStillValidateMethodClosureSignaturesTypesAndRecursion) {
+  const char *source = R"py(import pycircuit as ac
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def update(amount: ac.u8) -> None:
+        count = count + amount
+    @ac.rule
+    def step() -> None:
+        if False:
+            CALL
+    step()
+)py";
+  for (auto [call, category] :
+       {std::pair<StringRef, StringRef>("missing(1)", "direct Method call"),
+        {"update()", "argument"},
+        {"update(True)", "type"}})
+    reject(replaceOnce(source, "CALL", call), category);
+  auto recursive = replaceOnce(source, "count = count + amount", "update(amount)");
+  reject(replaceOnce(recursive, "CALL", "update(1)"), "recursive");
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -1426,7 +1699,7 @@ TEST_F(SourceTransactionCaptureTest,
   for (auto [expression, diagnostic] :
        {std::pair<StringRef, StringRef>(
             "not owner.value()", "Boolean source condition, not Integer"),
-        {"1 if owner.value() else 0", "Method call in a branch or branch test"}}) {
+        {"1 if owner.value() else 0", "Method calls are forbidden in branch tests and conditional expressions"}}) {
     auto text = R"py(import pycircuit as ac
 from typing import Annotated
 @ac.module

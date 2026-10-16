@@ -113,6 +113,24 @@ LogicalResult payEffectMetadata(
   }
   return success();
 }
+// Only statement arms extend a callable body. Other region owners (including
+// guards and pure helpers) never acquire source-effect placement by ancestry.
+Operation *sourceEffectCallable(Operation *operation) {
+  Region *region = operation->getParentRegion();
+  Operation *parent = operation->getParentOp();
+  while (auto branch = dyn_cast_or_null<SourceBranchOp>(parent)) {
+    if (branch->getNumRegions() != 2)
+      return nullptr;
+    if (region != &branch.getThenRegion() && region != &branch.getElseRegion())
+      return nullptr;
+    region = branch->getParentRegion();
+    parent = branch->getParentOp();
+  }
+  return isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent) &&
+                 parent->getNumRegions() == 2 && region == &parent->getRegion(1)
+             ? parent
+             : nullptr;
+}
 int compareCheck(DictionaryAttr lhs, DictionaryAttr rhs) {
   for (StringRef key : {"registration", "check", "obligation"})
     if (int order =
@@ -124,20 +142,21 @@ int compareCheck(DictionaryAttr lhs, DictionaryAttr rhs) {
 LogicalResult
 detail::verifySourceObservationStructure(SourceObserveOp observe) {
   auto error = [&] { return observe.emitOpError(); };
-  if (observe->getParentOfType<SourceBranchOp>())
-    return error() << "source observations in branch arms are unsupported";
   auto kind = observe->getAttrOfType<StringAttr>("kind");
   auto spec = observe->getAttrOfType<DictionaryAttr>("spec");
-  auto *parent = observe->getParentOp();
-  bool source = isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent);
+  auto *parent = sourceEffectCallable(observe);
+  bool source = parent != nullptr;
+  if (!source)
+    parent = observe->getParentOp();
   if (source) {
-    if (observe->getParentRegion() != &parent->getRegion(1) || !kind ||
+    if (!kind ||
         !llvm::is_contained(ArrayRef<StringRef>{"log", "report"},
                             kind.getValue()) ||
         observe->hasAttr("ac.observation_id") ||
         observe->hasAttr("ac.check_id"))
-      return error() << "source observation requires direct Method/transaction "
-                        "body placement, log/report kind and no final identity";
+      return error()
+             << "source observation requires statement Method/transaction "
+                "body placement, log/report kind and no final identity";
     if (failed(verifySourceEffectMetadata(
             observe->getAttrOfType<DictionaryAttr>("occurrence"),
             observe->getAttrOfType<DictionaryAttr>("ac.location"),
@@ -442,7 +461,7 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       if (failed(sampled))
         return failure();
       if (!required || required.size() != detail::SourceCheckBudget::add(
-                                              sampled->guards.size(),
+                                              sampled->controls.size(),
                                               sampled->bodyChecks.size()))
         return error() << "sampled Rule requires exactly its ordered "
                           "guard/assert obligations";
@@ -483,19 +502,19 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       if (kind.getValue() == "guard_known") {
         if (sampled == sampledRules.end())
           return error() << "guard_known requires sampled admission";
-        if (index >= sampled->second.guards.size())
-          return error() << "guard_known is outside sampled guard inventory";
-        const auto &guard = sampled->second.guards[index];
-        if (id != guard.id || conditionResult != guard.predicateResult ||
+        if (index >= sampled->second.controls.size())
+          return error() << "guard_known is outside sampled control inventory";
+        const auto &guard = sampled->second.controls[index];
+        if (id != guard.id || conditionResult != guard.rawResult ||
             pathResult != guard.reachedResult)
-          return error() << "guard_known differs from sampled guard suffix";
+          return error() << "guard_known differs from sampled control suffix";
       } else if (sampled != sampledRules.end()) {
-        uint64_t guardCount = sampled->second.guards.size();
-        if (kind.getValue() != "assert" || index < guardCount ||
-            index - guardCount >= sampled->second.bodyChecks.size())
+        uint64_t controlCount = sampled->second.controls.size();
+        if (kind.getValue() != "assert" || index < controlCount ||
+            index - controlCount >= sampled->second.bodyChecks.size())
           return error() << "sampled admission only permits ordered "
                             "guard_known/assert checks";
-        const auto &body = sampled->second.bodyChecks[index - guardCount];
+        const auto &body = sampled->second.bodyChecks[index - controlCount];
         if (id != body.id || conditionResult != body.conditionResult ||
             pathResult != body.pathResult)
           return error() << "assert differs from sampled body check suffix";
@@ -611,7 +630,7 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
     if (!emitted.insert(binding.rule).second)
       continue;
     const auto &sampled = sampledRules.find(binding.rule)->second;
-    uint64_t count = detail::SourceCheckBudget::add(sampled.guards.size(),
+    uint64_t count = detail::SourceCheckBudget::add(sampled.controls.size(),
                                                     sampled.bodyChecks.size());
     if (index < binding.requiredIndex)
       return definition.emitOpError()
@@ -654,17 +673,17 @@ LogicalResult verifySourceExpectOperation(const HardwareAnalysis &analysis,
                                           SourceExpectOp expect,
                                           const HardwareBindings &bindings) {
   auto error = [&] { return expect.emitOpError(); };
-  if (expect->getParentOfType<SourceBranchOp>())
-    return error() << "source assertions in branch arms are unsupported";
-  auto *parent = expect->getParentOp();
-  bool source = isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent);
+  auto *parent = sourceEffectCallable(expect);
+  bool source = parent != nullptr;
+  if (!source)
+    parent = expect->getParentOp();
   if (source) {
-    if (expect->getParentRegion() != &parent->getRegion(1) ||
-        expect.getKind() != "assert" || expect->hasAttr("ac.check_id") ||
+    if (expect.getKind() != "assert" || expect->hasAttr("ac.check_id") ||
         expect->hasAttr("ac.observation_id") || !expect.getSampling().empty())
-      return error() << "source assertion requires direct Method/transaction "
-                        "body placement, assert kind, no sampling and no final "
-                        "identity";
+      return error()
+             << "source assertion requires statement Method/transaction "
+                "body placement, assert kind, no sampling and no final "
+                "identity";
     if (failed(verifySourceEffectMetadata(
             expect->getAttrOfType<DictionaryAttr>("occurrence"),
             expect.getLocationAttr(), parent->getParentOp(), error)))
