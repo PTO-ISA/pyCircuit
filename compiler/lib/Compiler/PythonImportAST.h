@@ -44,6 +44,12 @@ struct CapturedSource {
       scopeBindingCache{};
 };
 
+enum class SourceDeclarationOrder { Before, AtOrAfter, Unrelated };
+mlir::FailureOr<SourceDeclarationOrder> sourceDeclarationOrder(
+    const CapturedSource &source, const AstNode &owner,
+    const AstNode &occurrence, const AstNode &declaration,
+    llvm::function_ref<bool(uint64_t)> charge);
+
 bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
                            llvm::StringRef name);
 

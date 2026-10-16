@@ -44,8 +44,9 @@ public:
     return pending;
   }
   uint64_t spentWork() const { return work; }
-  const SourceRuleCallPlan *lookup(const AstNode &module,
-                                   const AstNode &call) const;
+  mlir::FailureOr<const SourceRuleCallPlan *> lookup(
+      const AstNode &module, const AstNode &call,
+      llvm::function_ref<bool(uint64_t)> charge) const;
   bool hasDecorator(const AstNode &node, llvm::StringRef name) const;
   bool resolves(const AstNode &node, MarkerKind marker) const;
 

@@ -113,6 +113,142 @@ protected:
   }
 };
 
+TEST_F(
+    TableQuerySourceBoundary,
+    OrderedDeclarationUsesAuthenticatedOccurrencesRatherThanEqualAttributes) {
+  auto repeated = node("Expr", {field("value", name("payload"))});
+  auto rule = function("check", arguments(), {repeated}, "rule");
+  auto helper = function("helper", arguments(), {repeated}, "rule");
+  auto nestedClass =
+      node("ClassDef", {field("name", b.getStringAttr("Nested")),
+                        field("bases", b.getArrayAttr({})),
+                        field("keywords", b.getArrayAttr({})),
+                        field("decorator_list", b.getArrayAttr({})),
+                        field("body", b.getArrayAttr({repeated}))});
+  auto ownerAttr =
+      function("Top", arguments(),
+               {repeated, rule, repeated, helper, nestedClass}, "module");
+  // Identical interned owner/statement attributes and spans occur at distinct
+  // real paths; neither dictionary identity nor source coordinates decide
+  // order.
+  auto input = transport({ownerAttr, ownerAttr});
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto owner = source->module.item("body", 0);
+  auto foreign = source->module.item("body", 1);
+  auto declaration = owner.item("body", 1);
+  auto before = owner.item("body", 0).child("value");
+  auto after = owner.item("body", 2).child("value");
+  ASSERT_EQ(before.value, after.value);
+  ASSERT_EQ(owner.value, foreign.value);
+  using Order = detail::SourceDeclarationOrder;
+  auto expect = [&](const detail::AstNode &use, Order expected) {
+    uint64_t charged = 0;
+    auto result = detail::sourceDeclarationOrder(
+        *source, owner, use, declaration, [&](uint64_t units) {
+          charged += units;
+          return true;
+        });
+    ASSERT_TRUE(succeeded(result));
+    EXPECT_EQ(*result, expected);
+    EXPECT_GT(charged, 0u);
+  };
+  expect(before, Order::Before);
+  expect(declaration, Order::AtOrAfter);
+  expect(declaration.item("body", 0).child("value"), Order::AtOrAfter);
+  expect(after, Order::AtOrAfter);
+  expect(foreign.item("body", 0).child("value"), Order::Unrelated);
+  expect(owner.item("body", 3).item("body", 0).child("value"),
+         Order::Unrelated);
+  expect(owner.item("body", 4).item("body", 0).child("value"),
+         Order::Unrelated);
+  auto foreignOwner = detail::sourceDeclarationOrder(
+      *source, foreign, before, declaration, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(foreignOwner));
+  EXPECT_EQ(*foreignOwner, Order::Unrelated);
+  EXPECT_TRUE(source->scopeBindingCache.empty());
+}
+
+TEST_F(TableQuerySourceBoundary,
+       OrderedDeclarationRejectsForgedPathsAndMismatchedAttributes) {
+  auto statement = node("Expr", {field("value", name("payload"))});
+  auto rule = function("check", arguments(), {node("Pass")}, "rule");
+  auto input =
+      transport({function("Top", arguments(), {statement, rule}, "module")});
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto owner = source->module.item("body", 0);
+  auto declaration = owner.item("body", 1);
+  auto before = owner.item("body", 0).child("value");
+  auto expectUnrelated = [&](detail::AstNode selectedOwner, detail::AstNode use,
+                             detail::AstNode selectedDeclaration) {
+    auto result = detail::sourceDeclarationOrder(*source, selectedOwner, use,
+                                                 selectedDeclaration,
+                                                 [](uint64_t) { return true; });
+    ASSERT_TRUE(succeeded(result));
+    EXPECT_EQ(*result, detail::SourceDeclarationOrder::Unrelated);
+  };
+  auto forgedPath = before;
+  forgedPath.path.back().field = "missing";
+  expectUnrelated(owner, forgedPath, declaration);
+  auto hugeIndex = before;
+  hugeIndex.path[1].index = std::numeric_limits<uint64_t>::max();
+  expectUnrelated(owner, hugeIndex, declaration);
+  auto wrongAttribute = before;
+  wrongAttribute.value = name("foreign_payload");
+  expectUnrelated(owner, wrongAttribute, declaration);
+  auto wrongOwner = owner;
+  wrongOwner.value =
+      function("Other", arguments(), {statement, rule}, "module");
+  expectUnrelated(wrongOwner, before, declaration);
+  auto wrongDeclaration = declaration;
+  wrongDeclaration.path.back().index = 0;
+  expectUnrelated(owner, before, wrongDeclaration);
+  expectUnrelated(owner, before, declaration.item("body", 0));
+  expectUnrelated(owner, owner.child("args"), declaration);
+  auto emptyPath = declaration;
+  emptyPath.path.clear();
+  expectUnrelated(owner, before, emptyPath);
+}
+
+TEST_F(TableQuerySourceBoundary,
+       OrderedDeclarationBudgetRefusalIsFailureRatherThanUnrelated) {
+  auto input = transport(
+      {function("Top", arguments(),
+                {node("Expr", {field("value", name("payload"))}),
+                 function("check", arguments(), {node("Pass")}, "rule")},
+                "module")});
+  auto source = capture(*input);
+  ASSERT_TRUE(succeeded(source));
+  auto owner = source->module.item("body", 0);
+  auto use = owner.item("body", 0).child("value");
+  auto declaration = owner.item("body", 1);
+  auto original = source->module.value;
+  uint64_t required = 0;
+  auto successful = detail::sourceDeclarationOrder(
+      *source, owner, use, declaration, [&](uint64_t units) {
+        required += units;
+        return true;
+      });
+  ASSERT_TRUE(succeeded(successful));
+  EXPECT_EQ(*successful, detail::SourceDeclarationOrder::Before);
+  ASSERT_GT(required, 0u);
+  for (uint64_t limit : {uint64_t(0), required / 2, required - 1}) {
+    uint64_t spent = 0;
+    auto rejected = detail::sourceDeclarationOrder(
+        *source, owner, use, declaration, [&](uint64_t units) {
+          if (units > limit - spent)
+            return false;
+          spent += units;
+          return true;
+        });
+    EXPECT_TRUE(failed(rejected));
+    EXPECT_LE(spent, limit);
+    EXPECT_EQ(source->module.value, original);
+    EXPECT_TRUE(source->scopeBindingCache.empty());
+  }
+}
+
 TEST_F(TableQuerySourceBoundary, CapturedOneArgumentLambdaPreservesSourceSite) {
   auto callback = lambda(arguments({argument()}), name("row"));
   auto input = transport({node("Expr", {field("value", callback)})});
@@ -383,8 +519,12 @@ TEST_F(TableQuerySourceBoundary, CallbackPureHelperIsNotAnAutonomousRegistration
   auto module = source->module.item("body", 3);
   auto nested = module.item("body", 1).child("value").item("keywords", 0).child("value").child("body");
   auto actual = module.item("body", 2).child("value");
-  EXPECT_EQ(analysis.lookup(module, nested), nullptr);
-  ASSERT_NE(analysis.lookup(module, actual), nullptr);
+  auto nestedPlan = analysis.lookup(module, nested, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(nestedPlan));
+  EXPECT_EQ(*nestedPlan, nullptr);
+  auto actualPlan = analysis.lookup(module, actual, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(actualPlan));
+  ASSERT_NE(*actualPlan, nullptr);
   EXPECT_TRUE(analysis.pendingPairs().empty());
   // This is registration-boundary evidence only. Callback type/purity and
   // helper admission remain the owning public query gate's responsibility.

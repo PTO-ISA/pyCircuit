@@ -238,8 +238,15 @@ Use a single local assignment to share a supported pure expression, for example
 `next_value = (x + 1) & 255`. Outputs and rules then reuse the original SSA value.
 It recomputes during Work and retains old-Q semantics, source kind, interval and
 mathematical provenance; assignment does not allocate storage or narrow it.
-Structural local wires reject rebinding, shadowing, direct forward references,
-new locals after Return and rule-local assignment. Aliasing does not make shift
+Structural local wires reject rebinding, protected-name shadowing, direct forward
+references, new locals after Return and rule-local assignment. In ordinary
+structural/behavioral Module/System bodies, a data local may precede a directly
+nested Rule of the same name. Save an alias before the Rule declaration if the
+data is needed afterwards: from that declaration onward, the original spelling
+identifies the Rule and requires an admitted registration. Earlier helper captures keep their snapshots; later helpers
+cannot capture the retired data spelling. Storage, instances, imports, formal
+names and intrinsic grammar remain protected. This exception does not extend
+typed transaction/Method-owner binding or change forward/once-only registration. Aliasing does not make shift
 counts, divisors or parameter/default positions static. See
 [immutable local wires](../reference/language.md#immutable-local-wires).
 

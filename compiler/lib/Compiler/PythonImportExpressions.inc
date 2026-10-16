@@ -150,6 +150,23 @@ if (node.kind() == "Call") {
     return constructStruct(node, at, ownerSymbol, values, instances, expected,
                            captures);
 }
+if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
+    activeNestedRuleScope &&
+    nestedRuleBinding(node.child("func").string("id")) &&
+    values.contains(node.child("func").string("id")) &&
+    behavioralRules.contains(node.child("func").string("id"))) {
+  {
+    auto checked = checkedRuleRegistration(node, behavioralRules[node.child("func").string("id")]);
+    if (failed(checked)) return failure();
+    if (activeValueHelper || !activeBehavioralDecl || !activeStates ||
+        !isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
+      return error() << "Rule calls are only complete Module/System registrations";
+    auto results = behavioralCall(*activeBehavioralDecl, node, at, values, *activeStates);
+    if (failed(results)) return failure();
+    if (results->size() != 1) return error() << "Rule value registration requires one ordinary result";
+    return results->front();
+  }
+}
 if (node.kind() == "Call") {
   auto helper = resolveValueHelper(node.child("func"), ownerSymbol, &values);
   if (failed(helper)) return failure();

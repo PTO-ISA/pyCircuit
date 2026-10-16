@@ -165,6 +165,7 @@ LogicalResult Importer::declareValueHelper(const AstNode &node,
   for (const auto &name : freeNames) ordered.push_back(name.getKey());
   llvm::sort(ordered);
   for (StringRef name : ordered) {
+    if (failed(requireNestedRuleDataVisible(name, node))) return failure();
     auto found = values.find(name);
     if (found == values.end()) continue; // Unbound names fail in expression.
     Value value = found->second;
@@ -297,6 +298,8 @@ FailureOr<ValueHelperDecl *> Importer::resolveValueHelper(const AstNode &functio
 }
 
 LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
+  auto *previousNestedRules = std::exchange(activeNestedRuleScope, nullptr);
+  auto restoreNestedRules = llvm::scope_exit([&] { activeNestedRuleScope = previousNestedRules; });
   if (helper.state == 2) return success();
   if (helper.state == 1) return error() << "recursive pure helper call closure is unsupported";
   std::string reason;

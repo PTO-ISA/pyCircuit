@@ -31,6 +31,7 @@ def Bindings(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annotate
     chain = candidate
     complete = chain
     input_alias = a
+    input_snapshot = input_alias
     bool_alias = flag
     integer_alias = one
     child_alias = child.q
@@ -56,20 +57,20 @@ def Bindings(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annotate
         zero_state(clk=clk, rst=rst, d=singleton >> 0, init=0)
 
     @rule
-    def update_child():
-        child(a=input_alias)
+    def input_alias():
+        child(a=input_snapshot)
 
     update()
     update_signed()
     update_zero()
-    update_child()
+    input_alias()
     late = complete
     result = late
     return {"result": result, "q": old, "signed_mask": signed_mask,
             "signed_q": signed_state.q, "zero_q": zero_state.q,
-            "selected": selected, "input_alias": input_alias,
+            "selected": selected, "input_alias": input_snapshot,
             "child_alias": child_alias, "bool_alias": bool_alias,
             "integer_plus": integer_alias + 1,
-            "original_xor": input_alias ^ 1, "original_or": input_alias | 1,
-            "original_equal": input_alias == 0, "wide_alias": wide_alias,
+            "original_xor": input_snapshot ^ 1, "original_or": input_snapshot | 1,
+            "original_equal": input_snapshot == 0, "wide_alias": wide_alias,
             "wide_carry": wide_carry, "wide_singleton": wide_singleton}

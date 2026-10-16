@@ -906,11 +906,28 @@ usual type and range checks. Alias chains retain source kind, interval and
 mathematical provenance, including when captured by a rule.
 
 Local names are immutable in this structural slice. They cannot shadow inputs, static
-formals, instances, rules, definitions, imports (including local import aliases)
-or active intrinsic grammar names. Direct right-hand references must already
+formals, instances, definitions, imports (including local import aliases)
+or active intrinsic grammar names. Rule names follow the qualified exception below. Direct right-hand references must already
 exist. Output mapping string keys do not declare variables, so a local and its
 output key may share a name. Locals after registration but before Return are
 available to deferred rule lowering; new pure locals after Return diagnose.
+
+In ordinary structural and behavioral Module/System bodies, an ordinary data
+local may use the name of a directly nested Rule declared later. Before that
+declaration, references use the existing local value. At and after the declaration,
+the name denotes the Rule: reading, copying or updating it as data rejects.
+Previously saved aliases, bound child inputs and helper declaration snapshots
+retain their original SSA values. An earlier Return also retains its original
+binding when its expressions are lowered later. A helper declared after the Rule
+cannot capture the retired data spelling; capture an earlier alias instead.
+
+This exception does not permit data assignment after an earlier registration,
+calling a name while it denotes data, Rule-to-data rebinding, or collisions with
+storage and instance names. It preserves the existing exactly-once and
+forward-registration rules, structural local immutability, and whole-scope
+import/type/intrinsic shadow checks. Fixed-result bindings retain their existing
+shape and freshness restrictions. Typed transaction and Method-owner binding
+rules are not extended by this exception.
 
 Only a Call resolved to an existing module or trusted leaf declares an instance;
 a lexical shadow cannot redirect constructor lookup to an outer definition.

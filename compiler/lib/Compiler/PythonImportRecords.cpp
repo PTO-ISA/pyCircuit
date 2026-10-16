@@ -68,6 +68,17 @@ struct ModuleDecl {
   size_t sourceInputCount = 0;
   ReturnShape returnShape = ReturnShape::Mapping;
 };
+enum class NestedRulePhase { Future, Data, Declared };
+struct NestedRuleBinding {
+  AstNode declaration;
+  NestedRulePhase phase = NestedRulePhase::Future;
+  bool registered = false;
+  bool protectedOuterRule = false;
+};
+struct NestedRuleScope {
+  ModuleDecl *owner;
+  llvm::DenseMap<StringAttr, NestedRuleBinding> bindings;
+};
 struct SourceCallableDecl {
   AstNode declaration;
   CapturedCallableSyntax syntax;
@@ -932,7 +943,7 @@ private:
                                  FlatSymbolRefAttr symbol,
                                  llvm::StringMap<Value> &values);
   FailureOr<std::optional<SmallVector<StringRef, 2>>>
-  fixedResultTargets(const AstNode &assignment) const;
+  fixedResultTargets(const AstNode &assignment);
   StringRef fixedResultCall(const AstNode &node) const;
   FailureOr<bool> bindFixedResults(const AstNode &assignment, OpBuilder &at,
                                    FlatSymbolRefAttr symbol,
@@ -1281,6 +1292,18 @@ private:
   std::string qualify(StringRef name) const {
     return prefix.empty() ? name.str() : (Twine(prefix) + "." + name).str();
   }
+
+  LogicalResult requireNestedRuleDataVisible(StringRef name, const AstNode &use);
+  LogicalResult requireNestedRuleDataTarget(StringRef name, const AstNode &assignment);
+  void noteNestedRuleDataBinding(StringRef name);
+  LogicalResult noteNestedRuleDeclaration(const AstNode &declaration);
+  FailureOr<const SourceRuleCallPlan *> checkedRuleRegistration(
+      const AstNode &call, const AstNode &selectedDeclaration);
+  LogicalResult noteNestedRuleRegistration(const AstNode &call);
+  NestedRuleBinding *nestedRuleBinding(StringRef name);
+  FailureOr<SourceDeclarationOrder> nestedRuleOrder(
+      const AstNode &use, const AstNode &declaration);
+  NestedRuleScope *activeNestedRuleScope = nullptr;
 
   CapturedSource source;
   DictionaryAttr owner;
@@ -3078,6 +3101,10 @@ FailureOr<Value> Importer::expression(
     llvm::StringMap<SmallVector<Value>> *captures) {
   if (!captures && activeRule && activeRule->outputs)
     captures = activeRule->outputs;
+  if (node.kind() == "Name" &&
+      failed(requireNestedRuleDataVisible(node.string("id"), node))) return failure();
+  if (node.kind() == "Attribute" || node.kind() == "Subscript")
+    if (failed(requireNestedRuleDataVisible(assignmentRoot(node), node))) return failure();
   using ac::detail::ValueKind;
   using ac::detail::ValueOpcode;
   auto error = [&] {
@@ -3773,6 +3800,9 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
                                          llvm::StringMap<Value> &values,
                                          llvm::StringMap<Instance *> &instances,
                                          FlatSymbolRefAttr ownerSymbol) {
+  if ((node.kind() == "Name" || node.kind() == "Attribute" || node.kind() == "Subscript") &&
+      failed(requireNestedRuleDataVisible(assignmentRoot(node), node))) return failure();
+
   auto literalWidth = [&](unsigned width) -> Type {
     auto value = parseStaticInteger(b, Twine(width).str(), error);
     if (failed(value))
@@ -3841,6 +3871,30 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
       return failure();
     return Type(ac::BitsType::get(
         b.getContext(), literal(definition->width, node, ownerSymbol)));
+  }
+  if (node.kind() == "Call") {
+    TableQueryCharge fee;
+    std::string reason;
+    bool fits = TableQueryBudget::addProduct(fee, TableQueryResource::Slots,
+                    node.path.size() + 1, 3 * ((sizeof(AstStep) + 7) / 8)) &&
+                TableQueryBudget::addProduct(fee, TableQueryResource::Work,
+                    node.path.size() + 1, 2) &&
+                TableQueryBudget::add(fee, TableQueryResource::ConstantBytes, 4);
+    for (const AstStep &step : node.path)
+      fits &= TableQueryBudget::add(fee, TableQueryResource::Work, step.field.size()) &&
+              TableQueryBudget::add(fee, TableQueryResource::ConstantBytes, step.field.size());
+    if (!fits || !queryBudget.reserve(fee, reason))
+      return error() << "pure helper result type query: "
+                     << (fits ? reason : "function path cost exhausted");
+    auto helper = resolveValueHelper(node.child("func"), ownerSymbol, &values);
+    if (failed(helper)) return failure();
+    if (*helper) {
+      if ((*helper)->results.size() != 1 || !(*helper)->results.front().type)
+        return error() << "pure helper expression requires one declared result";
+      // Declaration typing supplies only the physical type here. The actual
+      // call still checks its body, arguments and binding boundaries once.
+      return (*helper)->results.front().type;
+    }
   }
   if (node.kind() == "Assert" || node.kind() == "Expr")
     return literalWidth(1);
@@ -4454,12 +4508,194 @@ LogicalResult Importer::emitInstrumentation(
   return success();
 }
 
+NestedRuleBinding *Importer::nestedRuleBinding(StringRef name) {
+  if (!activeNestedRuleScope) return nullptr;
+  auto found = activeNestedRuleScope->bindings.find(b.getStringAttr(name));
+  return found == activeNestedRuleScope->bindings.end() ? nullptr : &found->second;
+}
+
+FailureOr<SourceDeclarationOrder> Importer::nestedRuleOrder(
+    const AstNode &use, const AstNode &declaration) {
+  return sourceDeclarationOrder(source, activeNestedRuleScope->owner->node,
+      use, declaration, [&](uint64_t work) {
+        TableQueryCharge fee;
+        std::string reason;
+        bool fits = TableQueryBudget::add(fee, TableQueryResource::Work, work);
+        if (fits && queryBudget.reserve(fee, reason)) return true;
+        mlir::emitError(use.location(b.getContext(), source.path))
+            << "ordered-Rule lookup: " << (fits ? reason : "work counter exhausted");
+        return false;
+      });
+}
+
+LogicalResult Importer::requireNestedRuleDataVisible(StringRef name,
+                                                      const AstNode &use) {
+  if (queryBound(name) || (activeHelperFrame &&
+                          activeHelperFrame->localNames.contains(name)))
+    return success();
+  auto *binding = nestedRuleBinding(name);
+  if (!binding) return success();
+  auto order = nestedRuleOrder(use, binding->declaration);
+  if (failed(order)) return failure();
+  if (*order != SourceDeclarationOrder::Before)
+    return mlir::emitError(use.location(b.getContext(), source.path))
+           << "Rule spelling is not an ordinary data value: '" << name << "'";
+  return success();
+}
+
+LogicalResult Importer::requireNestedRuleDataTarget(StringRef name,
+                                                     const AstNode &assignment) {
+  auto *binding = nestedRuleBinding(name);
+  if (!binding) return success();
+  if (binding->protectedOuterRule)
+    return mlir::emitError(assignment.location(b.getContext(), source.path))
+           << "ordinary data cannot shadow an outer Rule declaration: '" << name << "'";
+  if (llvm::is_contained(ArrayRef<StringRef>{"pyc_clk", "pyc_rst", "module", "rule",
+          "system", "log", "report", "bool", "int", "range", "Annotated"}, name))
+    return mlir::emitError(assignment.location(b.getContext(), source.path))
+           << "ordinary data cannot shadow a reserved source binding: '" << name << "'";
+  auto order = nestedRuleOrder(assignment, binding->declaration);
+  if (failed(order)) return failure();
+  if (*order != SourceDeclarationOrder::Before || binding->registered ||
+      assignment.kind() != "Assign" ||
+      assignment.path.size() != activeNestedRuleScope->owner->node.path.size() + 2)
+    return mlir::emitError(assignment.location(b.getContext(), source.path))
+           << "ordinary data cannot replace a declared or registered Rule: '"
+           << name << "'";
+  return success();
+}
+
+void Importer::noteNestedRuleDataBinding(StringRef name) {
+  if (auto *binding = nestedRuleBinding(name)) binding->phase = NestedRulePhase::Data;
+}
+
+LogicalResult Importer::noteNestedRuleDeclaration(const AstNode &declaration) {
+  auto *binding = nestedRuleBinding(declaration.string("name"));
+  if (!binding) return success();
+  if (failed(chargeLoopDescriptorWork(declaration, "ordered-Rule declaration identity",
+          1 + binding->declaration.path.size() + declaration.path.size()))) return failure();
+  if (!sameSourceSite(binding->declaration, declaration))
+    return error() << "nested Rule declaration identity differs";
+  binding->phase = NestedRulePhase::Declared;
+  return success();
+}
+
+FailureOr<const SourceRuleCallPlan *> Importer::checkedRuleRegistration(
+    const AstNode &call, const AstNode &selectedDeclaration) {
+  if (!activeNestedRuleScope || activeNestedRuleScope->owner->transactionEffects)
+    return error() << "Rule registration requires its current nontransaction module";
+  auto &module = *activeNestedRuleScope->owner;
+  if (failed(chargeLoopDescriptorWork(call, "ordered-Rule registration identity",
+          8 + 2 * (module.node.path.size() + call.path.size() + selectedDeclaration.path.size()) +
+          module.node.value.size() + call.value.size() + selectedDeclaration.value.size())))
+    return failure();
+  auto function = dyn_cast_or_null<DictionaryAttr>(call.get("func"));
+  auto kind = function ? function.getAs<StringAttr>("kind") : StringAttr();
+  auto fields = function ? function.getAs<DictionaryAttr>("fields") : DictionaryAttr();
+  auto name = fields ? fields.getAs<StringAttr>("id") : StringAttr();
+  if (call.kind() != "Call" || !kind || kind.getValue() != "Name" || !name ||
+      call.path.size() != module.node.path.size() + 3 ||
+      call.path.back().field != "value" || call.path.back().index)
+    return error() << "Rule call must be a complete Module/System registration";
+  auto lookup = ruleWrites.lookup(module.node, call, [&](uint64_t work) {
+    return succeeded(chargeLoopDescriptorWork(call, "ordered-Rule plan lookup", work));
+  });
+  if (failed(lookup)) return failure();
+  const auto *plan = *lookup;
+  if (!plan || !sameSourceSite(plan->module, module.node) ||
+      !sameSourceSite(plan->call, call) || !sameSourceSite(plan->rule, selectedDeclaration) ||
+      selectedDeclaration.fields().getAs<StringAttr>("name") != name)
+    return error() << "Rule registration differs from its exact source write plan";
+  auto found = activeNestedRuleScope->bindings.find(name);
+  auto *binding = found == activeNestedRuleScope->bindings.end() ? nullptr : &found->second;
+  if (binding) {
+    auto order = nestedRuleOrder(call, binding->declaration);
+    if (failed(order)) return failure();
+    if (!sameSourceSite(binding->declaration, selectedDeclaration) ||
+        *order == SourceDeclarationOrder::Unrelated ||
+        (*order == SourceDeclarationOrder::Before && binding->phase == NestedRulePhase::Data))
+      return error() << "ordinary data binding is not a callable Rule";
+  }
+  return plan;
+}
+
+LogicalResult Importer::noteNestedRuleRegistration(const AstNode &call) {
+  if (!activeNestedRuleScope || call.kind() != "Call") return success();
+  if (failed(chargeLoopDescriptorWork(call, "ordered-Rule registration binding", 6)))
+    return failure();
+  auto function = dyn_cast_or_null<DictionaryAttr>(call.get("func"));
+  auto kind = function ? function.getAs<StringAttr>("kind") : StringAttr();
+  auto fields = function ? function.getAs<DictionaryAttr>("fields") : DictionaryAttr();
+  auto name = fields ? fields.getAs<StringAttr>("id") : StringAttr();
+  if (!kind || kind.getValue() != "Name" || !name) return success();
+  auto found = activeNestedRuleScope->bindings.find(name);
+  if (found == activeNestedRuleScope->bindings.end()) return success();
+  auto *binding = &found->second;
+  auto plan = checkedRuleRegistration(call, binding->declaration);
+  if (failed(plan)) return failure();
+  if (binding->registered) return error() << "Rule declaration must be registered exactly once";
+  binding->registered = true;
+  return success();
+}
+
 LogicalResult Importer::emitModule(ModuleDecl &decl) {
   auto previousOwners = std::move(helperOwnerBindings);
   helperOwnerBindings.clear();
   auto restoreOwners = llvm::scope_exit([&] { helperOwnerBindings = std::move(previousOwners); });
   if (decl.transactionEffects)
     return emitSourceTransactions(decl);
+  NestedRuleScope scope;
+  scope.owner = &decl;
+  auto *previousScope = std::exchange(activeNestedRuleScope, &scope);
+  auto restoreScope = llvm::scope_exit([&] { activeNestedRuleScope = previousScope; });
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    TableQueryCharge pathFee;
+    std::string pathReason;
+    bool pathFits = TableQueryBudget::add(pathFee, TableQueryResource::Work, decl.node.path.size() + 3) &&
+        TableQueryBudget::addProduct(pathFee, TableQueryResource::Slots,
+            3 * (decl.node.path.size() + 2), (sizeof(AstStep) + 7) / 8);
+    if (!pathFits || !queryBudget.reserve(pathFee, pathReason))
+      return error() << "ordered-Rule inventory: " << (pathFits ? pathReason : "path storage exhausted");
+    auto declaration = decl.node.item("body", i);
+    if (declaration.kind() != "FunctionDef" || !hasDecorator(declaration, "rule")) continue;
+    StringRef name = declaration.string("name");
+    if (names.contains(name) || structs.contains(name) || enums.contains(name) ||
+        llvm::any_of(decl.inputs, [&](const Port &port) { return port.name == name; }) ||
+        llvm::any_of(decl.parameters, [&](const Parameter &p) { return p.name == name; }))
+      return error() << "nested Rule conflicts with a source, input or static binding";
+    for (auto [j, raw] : llvm::enumerate(decl.node.array("body"))) {
+      if (failed(chargeLoopDescriptorWork(declaration, "ordered-Rule callable inventory", 4 + name.size())))
+        return failure();
+      auto other = dyn_cast<DictionaryAttr>(raw);
+      auto kind = other ? other.getAs<StringAttr>("kind") : StringAttr();
+      auto fields = other ? other.getAs<DictionaryAttr>("fields") : DictionaryAttr();
+      auto otherName = fields ? fields.getAs<StringAttr>("name") : StringAttr();
+      if (j != i && kind && kind.getValue() == "FunctionDef" &&
+          otherName && otherName.getValue() == name)
+        return error() << "duplicate nested callable binding";
+    }
+    TableQueryCharge fee;
+    std::string reason;
+    uint64_t count = scope.bindings.size() + 1;
+    using Bucket = llvm::DenseMap<StringAttr, NestedRuleBinding>::value_type;
+    uint64_t oldCapacity = scope.bindings.getMemorySize() / sizeof(Bucket);
+    uint64_t capacity = std::max(uint64_t(64), oldCapacity);
+    while (count * 4 >= capacity * 3) capacity *= 2;
+    bool fits = (capacity <= oldCapacity ||
+                TableQueryBudget::addProduct(fee, TableQueryResource::Slots,
+                    capacity, (sizeof(Bucket) + 7) / 8)) &&
+                TableQueryBudget::add(fee, TableQueryResource::Work,
+                    (capacity > oldCapacity ? scope.bindings.size() : 0) + declaration.path.size() + 1) &&
+                TableQueryBudget::addProduct(fee, TableQueryResource::Slots,
+                    declaration.path.size(), (sizeof(AstStep) + 7) / 8);
+    if (!fits || !queryBudget.reserve(fee, reason))
+      return error() << "ordered-Rule inventory: " << (fits ? reason : "storage counter exhausted");
+    scope.bindings.reserve(count);
+    auto key = declaration.fields().getAs<StringAttr>("name");
+    if (!scope.bindings.try_emplace(key, NestedRuleBinding{
+            declaration, NestedRulePhase::Future, false, behavioralRules.contains(name)}).second)
+      return error() << "duplicate nested Rule declaration";
+  }
   if (decl.behavioral)
     return emitBehavioral(decl);
   SmallVector<Attribute> params;
@@ -4544,7 +4780,17 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       if (!hasDecorator(stmt, "rule") || rules.contains(stmt.string("name")))
         return error() << "nested functions require unique @rule names";
       rules[stmt.string("name")] = stmt;
+      if (failed(noteNestedRuleDeclaration(stmt))) return failure();
       continue;
+    }
+    AstNode statementCall = llvm::is_contained(
+        ArrayRef<StringRef>{"Assign", "AnnAssign", "Expr", "Return"}, stmt.kind())
+        ? stmt.child("value") : AstNode();
+    if (statementCall.kind() == "Call" && statementCall.child("func").kind() == "Name" &&
+        rules.contains(statementCall.child("func").string("id"))) {
+      auto checked = checkedRuleRegistration(statementCall,
+          rules[statementCall.child("func").string("id")]);
+      if (failed(checked) || failed(noteNestedRuleRegistration(statementCall))) return failure();
     }
     if (stmt.kind() == "Assign") {
       auto declarationError = [&] {
@@ -4595,11 +4841,12 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
             instanceName);
         if (values.contains(instanceName) || instances.contains(instanceName) ||
             parameterNames.contains(instanceName) ||
-            ruleNames.contains(instanceName) || names.contains(instanceName) ||
+            (ruleNames.contains(instanceName) && !nestedRuleBinding(instanceName)) || names.contains(instanceName) ||
             names.contains(instanceName) || intrinsic)
           return declarationError()
                  << "module local shadows an existing binding: '"
                  << instanceName << "'";
+        if (failed(requireNestedRuleDataTarget(instanceName, stmt))) return failure();
         auto value = expression(rhs, at, decl.symbol, values, instances);
         if (failed(value))
           return failure();
@@ -4607,6 +4854,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
         // declaration boundary at which to narrow the value.
         values[instanceName] = *value;
         localBindings.insert(instanceName);
+        noteNestedRuleDataBinding(instanceName);
         continue;
       }
       if (values.contains(calleeName) || parameterNames.contains(calleeName) ||
@@ -4614,6 +4862,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
         return declarationError()
                << "module constructor is shadowed by a lexical binding: '"
                << calleeName << "'";
+      if (nestedRuleBinding(instanceName))
+        return declarationError() << "module instance conflicts with nested Rule";
       if (names.contains(instanceName))
         return declarationError()
                << "module instance shadows a source binding: '" << instanceName

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -13,7 +14,15 @@ import tempfile
 from pathlib import Path
 
 parser = argparse.ArgumentParser()
-for name in ("repo", "source-compiler", "linker", "emitter", "cxx", "scratch"):
+for name in (
+    "repo",
+    "source-compiler",
+    "linker",
+    "emitter",
+    "optimizer",
+    "cxx",
+    "scratch",
+):
     parser.add_argument("--" + name, required=True)
 parser.add_argument("--four-state", action="store_true")
 for name in ("verilator", "iverilog", "vvp"):
@@ -23,8 +32,8 @@ assert (args.iverilog and args.vvp) if args.four_state else args.verilator
 repo = Path(args.repo).resolve()
 scratch = Path(args.scratch).resolve()
 scratch.mkdir(parents=True, exist_ok=True)
-private = tempfile.TemporaryDirectory(prefix="local-", dir=scratch)
-root = Path(private.name)
+root = Path(tempfile.mkdtemp(prefix="local-", dir=scratch))
+(scratch / "latest-run.txt").write_text(str(root) + "\n")
 source = root / "source"
 source.mkdir()
 fixtures = Path(__file__).resolve().parent
@@ -98,6 +107,57 @@ def snapshot(path):
         for p in path.rglob("*")
         if p.is_file()
     }
+
+
+def retain_ordered_stages(filename, unit):
+    # Reproduce the public compilation through the existing native capture
+    # entrance, retaining its full source-import IR and published pair.
+    sys.path.insert(0, str(repo / "python"))
+    from pycircuit._source_capture import _capture_source_file
+    from pycircuit._source_transport import _emit_source_transport
+
+    stages = root / "ordered-source-stages" / Path(filename).stem
+    stages.mkdir(parents=True)
+    capture = stages / "capture.transport.mlir"
+    capture.write_text(
+        _emit_source_transport(
+            _capture_source_file(source / filename, source_root=source)
+        ),
+        encoding="utf-8",
+    )
+    run(
+        [
+            args.source_compiler,
+            "--capture",
+            capture,
+            "--package",
+            "locals",
+            "--path",
+            filename,
+            "--body-out",
+            stages / "body.ac",
+            "--interface-out",
+            stages / "interface.ac",
+            "--deps-out",
+            stages / "deps.json",
+            "--source-import-out",
+            stages / "source-import.ac",
+        ]
+    )
+    receipt = json.loads((unit / "unit.json").read_text())
+    for kind in ("body", "interface"):
+        assert (stages / (kind + ".ac")).read_bytes() == (
+            unit / receipt["files"][kind]
+        ).read_bytes()
+    run(
+        [
+            args.optimizer,
+            stages / "source-import.ac",
+            "-o",
+            stages / "verified-source-import.ac",
+        ]
+    )
+    return str(stages)
 
 
 toolroot = Path(args.source_compiler).resolve().parent.parent
@@ -263,16 +323,63 @@ final, products = execute(
     "local_binding_outputs",
     11 if args.four_state else 14,
 )
+ordered = runpy.run_path(str(fixtures / "local_binding_ordered_cases.py"))
+ordered_receipts = []
+for name, text in ordered["positive_cases"]().items():
+    filename = "ordered_" + name + ".py"
+    (source / filename).write_text(text)
+    published = root / ("ordered-" + name)
+    compile_unit(filename, published)
+    stages = retain_ordered_stages(filename, published)
+    linked = root / ("ordered-" + name + ".ac")
+    cli("link", published, "--top", "locals.ordered_" + name + ".Top", "-o", linked)
+    ordered_receipts.append(
+        {
+            "name": name,
+            "unit": str(published),
+            "source_stages": stages,
+            "final": str(linked),
+            "source_sha256": hashlib.sha256(text.encode()).hexdigest(),
+        }
+    )
+# This old rejection is precisely the newly admitted scalar-before-Rule case.
+old_scalar = root / "ordered-old-scalar"
+compile_unit("local_binding_bad_local_then_rule.py", old_scalar)
+old_stages = retain_ordered_stages("local_binding_bad_local_then_rule.py", old_scalar)
+old_final = root / "ordered-old-scalar.ac"
+cli(
+    "link",
+    old_scalar,
+    "--top",
+    "locals.local_binding_bad_local_then_rule.Bad",
+    "-o",
+    old_final,
+)
+ordered_receipts.append(
+    {
+        "name": "former_scalar_rejection",
+        "unit": str(old_scalar),
+        "source_stages": old_stages,
+        "final": str(old_final),
+    }
+)
+(scratch / "ordered-bindings.json").write_text(
+    json.dumps(ordered_receipts, indent=2) + "\n"
+)
+
 if not args.four_state:
     before = snapshot(unit)
     final_before = final.read_bytes()
     emitted_before = {
         target: snapshot(products / target) for target in ("cpp", "verilog")
     }
+    for name, text in ordered["negative_cases"]().items():
+        (source / ("local_binding_bad_ordered_" + name + ".py")).write_text(text)
     cases = sorted(
         fixture.stem.removeprefix("local_binding_bad_")
         for fixture in source.glob("local_binding_bad_*.py")
-        if fixture.stem != "local_binding_bad_cycle"
+        if fixture.stem
+        not in {"local_binding_bad_cycle", "local_binding_bad_local_then_rule"}
     )
     scope = (
         "shadow",
@@ -288,7 +395,22 @@ if not args.four_state:
         fixture = "local_binding_bad_" + name + ".py"
         absent = root / ("bad-" + name)
         rejected = compile_unit(fixture, absent, [child], accepted=False)
-        if any(
+        if name.startswith("ordered_"):
+            words = (
+                *scope,
+                "rule",
+                "registration",
+                "register",
+                "call",
+                "helper",
+                "return",
+                "capture",
+                "unknown",
+                "unsupported",
+                "source",
+                "type",
+            )
+        elif any(
             word in name
             for word in (
                 "shadow",

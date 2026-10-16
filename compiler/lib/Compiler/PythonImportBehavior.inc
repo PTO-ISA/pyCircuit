@@ -2321,6 +2321,8 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
         return error() << "structural module declaration has invalid signature";
       Instance instance;
       instance.name = stmt.item("targets", 0).string("id").str();
+      if (nestedRuleBinding(instance.name))
+        return error() << "module instance conflicts with nested Rule";
       instance.node = stmt;
       instance.callee = binding->symbol;
       instance.declaration = binding->declaration;
@@ -2402,6 +2404,15 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     auto stmt = decl.node.item("body", i);
     if (docstring(stmt))
       continue;
+    AstNode statementCall = llvm::is_contained(
+        ArrayRef<StringRef>{"Assign", "AnnAssign", "Expr", "Return"}, stmt.kind())
+        ? stmt.child("value") : AstNode();
+    if (statementCall.kind() == "Call" && statementCall.child("func").kind() == "Name" &&
+        behavioralRules.contains(statementCall.child("func").string("id"))) {
+      auto checked = checkedRuleRegistration(statementCall,
+          behavioralRules[statementCall.child("func").string("id")]);
+      if (failed(checked) || failed(noteNestedRuleRegistration(statementCall))) return failure();
+    }
     if (stmt.kind() == "Return") {
       if (failed(fixedResultTargets(stmt)))
         return failure();
@@ -2417,6 +2428,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
         if (failed(declareValueHelper(stmt, decl.symbol, values))) return failure();
       } else if (!hasDecorator(stmt, "rule"))
         return error() << "nested callable requires Rule or ordinary typed helper";
+      else if (failed(noteNestedRuleDeclaration(stmt))) return failure();
       continue;
     }
     if (decl.system && stmt.kind() == "Assign" &&
@@ -2453,6 +2465,13 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       tupleForbidden.insert(input.name);
     for (const StateOwner &state : states)
       tupleForbidden.insert(state.name);
+    if (stmt.kind() == "Assign" && fixedResultCall(stmt.child("value")).empty()) {
+      auto target = stmt.item("targets", 0);
+      if (target.kind() == "Tuple")
+        for (size_t k = 0; k < target.array("elts").size(); ++k)
+          if (nestedRuleBinding(target.item("elts", k).string("id")))
+            return error() << "hardware result binding conflicts with nested Rule";
+    }
     auto memory = bindMemoryResults(stmt, at, decl.symbol, values, noInstances);
     if (failed(memory))
       return failure();
@@ -2497,6 +2516,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
             }))
           return error()
                  << "module-local assignment cannot write a persistent owner";
+        if (failed(requireNestedRuleDataTarget(root, stmt))) return failure();
         std::optional<Type> expected;
         if (target.kind() == "Attribute") {
           if (indexedFieldTarget(target)) {

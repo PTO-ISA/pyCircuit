@@ -377,6 +377,79 @@ Location AstNode::location(MLIRContext *context, StringRef sourcePath) const {
                              column ? column.getValue().getZExtValue() : 1);
 }
 
+FailureOr<SourceDeclarationOrder> sourceDeclarationOrder(
+    const CapturedSource &source, const AstNode &owner,
+    const AstNode &occurrence, const AstNode &declaration,
+    llvm::function_ref<bool(uint64_t)> charge) {
+  using Order = SourceDeclarationOrder;
+  auto samePrefix = [&](ArrayRef<AstStep> path,
+                        ArrayRef<AstStep> prefix) -> FailureOr<bool> {
+    if (!charge(1)) return failure();
+    if (path.size() < prefix.size()) return false;
+    for (auto [a, c] : llvm::zip(path.take_front(prefix.size()), prefix)) {
+      if (a.field.size() > UINT64_MAX - c.field.size() - 1 ||
+          !charge(1 + a.field.size() + c.field.size())) return failure();
+      if (a.field != c.field || a.index != c.index) return false;
+    }
+    return true;
+  };
+  auto authenticate = [&](const AstNode &node,
+                          bool checkCrossing) -> FailureOr<bool> {
+    Attribute current = source.module.value;
+    for (size_t i = 0; i < node.path.size(); ++i) {
+      const auto &step = node.path[i];
+      auto dictionary = dyn_cast_or_null<DictionaryAttr>(current);
+      if (!charge(1 + step.field.size() + (dictionary ? dictionary.size() : 0)))
+        return failure();
+      if (step.index || step.field.empty() || !dictionary) return false;
+      if (checkCrossing && i > owner.path.size() && step.field == "body") {
+        auto kind = dictionary.getAs<StringAttr>("kind");
+        if (kind && (kind.getValue() == "FunctionDef" || kind.getValue() == "ClassDef")) {
+          auto selected = samePrefix(node.path, declaration.path);
+          if (failed(selected)) return failure();
+          if (i != declaration.path.size() || !*selected) return false;
+        }
+      }
+      auto fields = dictionary.getAs<DictionaryAttr>("fields");
+      if (!charge(fields ? fields.size() : 1)) return failure();
+      current = fields ? fields.get(step.field) : Attribute();
+      if (i + 1 < node.path.size() && node.path[i + 1].index) {
+        const auto &index = node.path[++i];
+        if (!charge(1 + index.field.size())) return failure();
+        auto values = dyn_cast_or_null<ArrayAttr>(current);
+        if (!index.field.empty() || !values || *index.index >= values.size()) return false;
+        current = values[*index.index];
+      }
+      if (!current) return false;
+    }
+    auto dictionary = dyn_cast_or_null<DictionaryAttr>(current);
+    if (!charge(1 + (dictionary ? dictionary.size() : 0) +
+                (node.value ? node.value.size() : 0))) return failure();
+    return dictionary && dictionary == node.value;
+  };
+  for (const AstNode *node : {&owner, &declaration, &occurrence}) {
+    auto valid = authenticate(*node, node == &occurrence);
+    if (failed(valid)) return failure();
+    if (!*valid) return Order::Unrelated;
+  }
+  auto declarationPrefix = samePrefix(declaration.path, owner.path);
+  auto occurrencePrefix = samePrefix(occurrence.path, owner.path);
+  if (failed(declarationPrefix) || failed(occurrencePrefix)) return failure();
+  if (!*declarationPrefix || !*occurrencePrefix ||
+      declaration.path.size() != owner.path.size() + 2 ||
+      occurrence.path.size() < owner.path.size() + 2) return Order::Unrelated;
+  size_t base = owner.path.size();
+  if (!charge(10 + declaration.path[base].field.size() +
+              occurrence.path[base].field.size())) return failure();
+  const auto &declField = declaration.path[base], &declIndex = declaration.path[base + 1];
+  const auto &useField = occurrence.path[base], &useIndex = occurrence.path[base + 1];
+  if (declField.field != "body" || declField.index || !declIndex.index ||
+      !declIndex.field.empty() || useField.field != "body" || useField.index ||
+      !useIndex.index || !useIndex.field.empty() || declaration.kind() != "FunctionDef")
+    return Order::Unrelated;
+  return *useIndex.index < *declIndex.index ? Order::Before : Order::AtOrAfter;
+}
+
 bool sourceBindingShadowed(const CapturedSource &source, const AstNode &node,
                            StringRef name) {
   auto binds = [&](auto &&self, const AstNode &scope) -> bool {

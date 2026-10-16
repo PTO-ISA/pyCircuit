@@ -9,6 +9,7 @@ backends actually run.
 from __future__ import annotations
 
 import os
+import runpy
 import shutil
 import subprocess
 from pathlib import Path
@@ -287,3 +288,41 @@ def test_published_units_drive_the_existing_link_and_both_backends(
     per_run = expected + [1]
     assert rtl_values[: len(per_run)] == per_run, rtl_values
     assert rtl_values[len(per_run) : 2 * len(per_run)] == per_run, rtl_values
+
+
+_ORDERED_CASES = runpy.run_path(
+    str(
+        Path(__file__).parents[1]
+        / "compiler/lit/Source/Inputs/local_binding_ordered_cases.py"
+    )
+)
+
+
+@pytest.mark.parametrize("name,text", _ORDERED_CASES["negative_cases"]().items())
+def test_ordered_rule_binding_rejections_preserve_published_unit(tmp_path, name, text):
+    root, units = _workspace(tmp_path)
+    _write(
+        root,
+        "ordered.py",
+        'import pycircuit as ac\n@ac.module\ndef Top(a: ac.u8) -> {"result": ac.u8}:\n    return {"result": a}\n',
+    )
+    published = _compile(root, units, "ordered.py")
+    output = units / "ordered"
+    before = {
+        path.relative_to(output).as_posix(): path.read_bytes()
+        for path in output.rglob("*")
+        if path.is_file()
+    }
+    _write(root, "invalid.py", text)
+    with pytest.raises(_PublicationError, match="rejected the source"):
+        _compile(root, units, "invalid.py")
+    assert not (units / "invalid").exists(), name
+    _write(root, "ordered.py", text)
+    with pytest.raises(_PublicationError, match="rejected the source"):
+        _compile(root, units, "ordered.py", replace=True)
+    assert {
+        path.relative_to(output).as_posix(): path.read_bytes()
+        for path in output.rglob("*")
+        if path.is_file()
+    } == before
+    _load_full_source_unit(output, owner=published.owner)

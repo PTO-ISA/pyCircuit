@@ -59,6 +59,9 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                          ArrayRef<StateOwner> states, bool statementCall) {
   llvm::StringMap<Instance *> noInstances;
   auto rule = behavioralRules[call.child("func").string("id")];
+  auto registration = checkedRuleRegistration(call, rule);
+  if (failed(registration)) return failure();
+  const auto *plan = *registration;
   ModuleDecl contract = decl;
   auto noValue = [](const AstNode &node) {
     return !node || (node.kind() == "Constant" &&
@@ -114,10 +117,6 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
   if (call.array("args").size() != args.array("args").size() ||
       !call.array("keywords").empty())
     return error() << "behavioral rule call argument arity mismatch";
-  const auto *plan = ruleWrites.lookup(decl.node, call);
-  if (!plan)
-    return error()
-           << "registered rule call is missing its source write analysis";
   llvm::StringMap<StringRef> fixedAssigned;
   auto classify = [&](auto &&self, AstNode node,
                       StringRef field) -> LogicalResult {

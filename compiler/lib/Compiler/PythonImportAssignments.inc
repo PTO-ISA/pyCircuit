@@ -1,6 +1,6 @@
 // This is a fixed-result producer contract, not general tuple unpacking.
 FailureOr<std::optional<SmallVector<StringRef, 2>>>
-Importer::fixedResultTargets(const AstNode &assignment) const {
+Importer::fixedResultTargets(const AstNode &assignment) {
   StringRef producer = fixedResultCall(assignment.child("value"));
   if (producer.empty())
     return std::optional<SmallVector<StringRef, 2>>();
@@ -27,8 +27,10 @@ Importer::fixedResultTargets(const AstNode &assignment) const {
                             "log", "report", "bool", "int", "range",
                             "Annotated"},
         name);
+    if (failed(requireNestedRuleDataTarget(name, assignment))) return failure();
     if (name.empty() || reserved || names.contains(name) ||
-        structs.contains(name) || behavioralRules.contains(name))
+        structs.contains(name) ||
+        (behavioralRules.contains(name) && !nestedRuleBinding(name)))
       return diagnostic() << producer
                           << " target shadows a reserved/source binding: '"
                           << name << "'";
@@ -49,7 +51,7 @@ FailureOr<bool> Importer::bindFixedResults(
   if (!*targets)
     return false;
   for (StringRef name : **targets)
-    if (forbidden.contains(name) || instances.contains(name) ||
+    if ((forbidden.contains(name) && !nestedRuleBinding(name)) || instances.contains(name) ||
         (immutable && values.contains(name)))
       return mlir::emitError(assignment.location(b.getContext(), source.path))
              << fixedResultCall(assignment.child("value"))
@@ -91,6 +93,7 @@ FailureOr<bool> Importer::bindFixedResults(
   // No local is visible until every destination contract has succeeded.
   for (auto [index, name] : llvm::enumerate(**targets)) {
     values[name] = converted[index];
+    noteNestedRuleDataBinding(name);
     if (boundaries)
       (*boundaries)[name] = contracts[index];
   }
@@ -180,6 +183,7 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
                                          FlatSymbolRefAttr symbol,
                                          llvm::StringMap<Value> &values) {
   StringRef root = assignmentRoot(target);
+  if (failed(requireNestedRuleDataTarget(root, node))) return failure();
   if (isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()) &&
       (queueResultNames.contains(root) || memoryResultNames.contains(root)))
     return error() << "queue result binding is immutable: '" << root << "'";
@@ -191,9 +195,10 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
     bool helperLocal = activeValueHelper && activeHelperFrame &&
                        activeHelperFrame->localNames.contains(name);
     if (!helperLocal && (names.contains(name) || structs.contains(name) ||
-                         behavioralRules.contains(name)))
+                         (behavioralRules.contains(name) && !nestedRuleBinding(name))))
       return error() << "assignment shadows a source declaration";
     values[name] = replacement;
+    noteNestedRuleDataBinding(name);
     return success();
   }
   llvm::StringMap<Instance *> noInstances;

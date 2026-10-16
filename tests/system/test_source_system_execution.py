@@ -2886,6 +2886,138 @@ def test_method_branch_four_state_intent_and_system_precommit(tmp_path):
             _branch_probe_system_precommit(final, system)
 
 
+def test_ordered_rule_bindings_preserve_payload_snapshots_in_generated_system(tmp_path):
+    source = tmp_path / "ordered system sources"
+    source.mkdir()
+    design = source / "ordered.py"
+    design.write_text(
+        """import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.module
+def Echo(payload: Packet) -> Packet:
+    return payload
+@ac.rule
+def advance(value):
+    value = value + 1
+@ac.system
+def OrderedBindings():
+    phase: ac.u8 = 0
+    check = Packet(value=phase)
+    saved = check
+    field = check.value
+    def snapshot() -> ac.u8:
+        return check.value
+    check = Packet(value=phase + 7)
+    child = Echo(check)
+    @ac.rule
+    def check():
+        assert saved.value == phase
+        assert child.value == phase + 7
+        ac.log("info", "ordered payload", saved.value, field, snapshot(), child.value)
+    check()
+    advance(phase)
+"""
+    )
+    unit = tmp_path / "ordered unit"
+    _ok(_compile(source, design.name, unit))
+    receipt = json.loads((unit / "unit.json").read_text())
+    from pycircuit._source_capture import _capture_source_file
+    from pycircuit._source_transport import _emit_source_transport
+
+    capture = tmp_path / "ordered-capture.mlir"
+    capture.write_text(
+        _emit_source_transport(_capture_source_file(design, source_root=source))
+    )
+    stages = tmp_path / "ordered source stages"
+    stages.mkdir()
+    imported = stages / "source-import.ac"
+    compiler = os.environ.get("PYCIRCUIT_SOURCE_COMPILER")
+    assert compiler, "set PYCIRCUIT_SOURCE_COMPILER to this candidate's compiler"
+    _ok(
+        _run(
+            [
+                compiler,
+                "--capture",
+                str(capture),
+                "--package",
+                "checks",
+                "--path",
+                design.name,
+                "--body-out",
+                str(stages / "body.ac"),
+                "--interface-out",
+                str(stages / "interface.ac"),
+                "--deps-out",
+                str(stages / "deps.json"),
+                "--source-import-out",
+                str(imported),
+            ]
+        )
+    )
+    for kind in ("body", "interface"):
+        assert (stages / (kind + ".ac")).read_bytes() == (
+            unit / receipt["files"][kind]
+        ).read_bytes()
+    _ok(
+        _run(
+            [
+                str(_install() / "bin/pycircuit-opt"),
+                str(imported),
+                "-o",
+                str(stages / "verified-source-import.ac"),
+            ]
+        )
+    )
+    final = tmp_path / "ordered.ac"
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.ordered.OrderedBindings",
+            "-o",
+            str(final),
+        )
+    )
+    artifacts = (capture, imported, stages / "body.ac", stages / "interface.ac", final)
+    digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        target_root = tmp_path / ("ordered-" + target)
+        target_root.mkdir()
+        binary = _bundle(final, target_root, target)
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "3", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=3"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            logs = [row for row in rows if row["kind"] == "log"]
+            assert len(logs) == 6
+            for epoch, row in enumerate(logs):
+                phase = epoch // 2
+                assert row["spec"]["event"] == "ordered payload"
+                assert [int(value["value"]) for value in row["values"]] == [
+                    phase,
+                    phase,
+                    phase,
+                    phase + 7,
+                ]
+                assert (int(row["evaluation_epoch"]), int(row["commit_epoch"])) == (
+                    epoch,
+                    epoch + 1,
+                )
+            _assert_closed_observation_identities(rows)
+            transcripts.append(logs)
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert [
+        hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts
+    ] == digests
+
+
 @pytest.mark.parametrize(
     "imported", [False, True], ids=["local-child", "imported-child"]
 )

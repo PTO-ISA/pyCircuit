@@ -167,6 +167,190 @@ TEST_F(SourceMemoryBindingsTest, PipelineRequiresTheSamePreparedPlan) {
   }
 }
 
+TEST_F(SourceMemoryBindingsTest,
+       OrderedDataBindingLeavesOnlyTheExactLaterRegistrationAndOwnerWrite) {
+  auto captured = capture("ordered.py", R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.module
+def Top(seed: ac.u8) -> Packet:
+    count: ac.u8 = 0
+    check = Packet(value=seed)
+    saved = check
+    field = check.value
+    @ac.rule
+    def check(value):
+        value = value + field
+    check(count)
+    return saved
+)py");
+  ASSERT_TRUE(captured);
+  auto tree = source::readSingleCapture(*captured, error());
+  ASSERT_TRUE(succeeded(tree));
+  auto module = tree->module.item("body", 2);
+  ASSERT_EQ(module.string("name"), "Top");
+  auto data = module.item("body", 1).child("value");
+  auto declaration = module.item("body", 4);
+  auto registration = module.item("body", 5).child("value");
+  ASSERT_EQ(declaration.string("name"), "check");
+  source::SourceRuleWritesAnalysis writes(captured->getOperation());
+  ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+  auto ordinary = writes.lookup(module, data, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(ordinary));
+  EXPECT_EQ(*ordinary, nullptr);
+  auto located =
+      writes.lookup(module, registration, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(located));
+  auto *plan = *located;
+  ASSERT_NE(plan, nullptr);
+  EXPECT_EQ(plan->module.value, module.value);
+  EXPECT_EQ(plan->call.value, registration.value);
+  EXPECT_EQ(plan->rule.value, declaration.value);
+  ASSERT_EQ(plan->writes.size(), 1u);
+  EXPECT_EQ(plan->writes[0].formal, "value");
+  EXPECT_EQ(plan->writes[0].owner.value, module.item("body", 0).value);
+  ASSERT_EQ(plan->writes[0].paths.size(), 1u);
+  EXPECT_TRUE(plan->writes[0].paths[0].selectors.empty());
+  EXPECT_TRUE(writes.pendingPairs().empty());
+}
+
+TEST_F(SourceMemoryBindingsTest,
+       RulePlanLookupBudgetRefusalIsNotAMissingRegistration) {
+  auto captured = capture("ordered_lookup.py", R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.module
+def Top(seed: ac.u8) -> Packet:
+    check = Packet(value=seed)
+    saved = check
+    @ac.rule
+    def check():
+        pass
+    check()
+    return saved
+)py");
+  ASSERT_TRUE(captured);
+  auto tree = source::readSingleCapture(*captured, error());
+  ASSERT_TRUE(succeeded(tree));
+  auto module = tree->module.item("body", 2);
+  auto data = module.item("body", 0).child("value");
+  auto registration = module.item("body", 3).child("value");
+  source::SourceRuleWritesAnalysis writes(captured->getOperation());
+  ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+  for (auto use : {data, registration}) {
+    uint64_t required = 0;
+    auto result = writes.lookup(module, use, [&](uint64_t units) {
+      required += units;
+      return true;
+    });
+    ASSERT_TRUE(succeeded(result));
+    EXPECT_EQ(*result == nullptr, use.value == data.value);
+    ASSERT_GT(required, 0u);
+    for (uint64_t limit : {uint64_t(0), required / 2, required - 1}) {
+      uint64_t spent = 0;
+      auto rejected = writes.lookup(module, use, [&](uint64_t units) {
+        if (units > limit - spent)
+          return false;
+        spent += units;
+        return true;
+      });
+      EXPECT_TRUE(failed(rejected))
+          << "exhaustion must not become a successful null plan";
+      EXPECT_LE(spent, limit);
+    }
+  }
+  auto retry =
+      writes.lookup(module, registration, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(retry));
+  ASSERT_NE(*retry, nullptr);
+  EXPECT_EQ((*retry)->rule.value, module.item("body", 2).value);
+}
+
+TEST_F(SourceMemoryBindingsTest,
+       OrderedRuleRegistrationCountsCannotBeHiddenByEarlierData) {
+  for (StringRef calls :
+       {StringRef(""), StringRef("    check(count)\n    check(count)\n")}) {
+    auto captured =
+        capture("ordered_counts.py", std::string(R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.module
+def Top(seed: ac.u8) -> Packet:
+    count: ac.u8 = 0
+    check = Packet(value=seed)
+    @ac.rule
+    def check(value):
+        value = value + 1
+)py") + calls.str() + "    return Packet(value=count)\n");
+    ASSERT_TRUE(captured);
+    diagnostics.clear();
+    source::SourceRuleWritesAnalysis writes(captured->getOperation());
+    EXPECT_FALSE(writes.isPlanValid());
+    EXPECT_NE(diagnostics.find("registered exactly once"), std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(SourceMemoryBindingsTest,
+       ExactRuleRegistrationRejectsAnotherDeclarationInTheSameOwner) {
+  for (bool forged : {false, true}) {
+    auto captured = capture("ordered_plan.py", R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.module
+def Top(seed: ac.u8) -> Packet:
+    count: ac.u8 = 0
+    other_count: ac.u8 = 0
+    check = Packet(value=seed)
+    saved = check
+    @ac.rule
+    def check(value):
+        value = value + saved.value
+    @ac.rule
+    def other(value):
+        value = value + 1
+    check(count)
+    other(other_count)
+    return Packet(value=count)
+)py");
+    ASSERT_TRUE(captured);
+    auto tree = source::readSingleCapture(*captured, error());
+    ASSERT_TRUE(succeeded(tree));
+    auto module = tree->module.item("body", 2);
+    auto registration = module.item("body", 6).child("value");
+    source::SourceRuleWritesAnalysis writes(captured->getOperation());
+    ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+    auto located =
+        writes.lookup(module, registration, [](uint64_t) { return true; });
+    ASSERT_TRUE(succeeded(located));
+    auto *plan = *located;
+    ASSERT_NE(plan, nullptr);
+    EXPECT_EQ(plan->rule.value, module.item("body", 4).value);
+    if (forged)
+      const_cast<source::SourceRuleCallPlan *>(plan)->rule =
+          module.item("body", 5);
+    auto headers =
+        compiler::SourceHeaderRegistry::create(&context, {}, error());
+    ASSERT_TRUE(succeeded(headers));
+    source::SourceMemoryBindingsAnalysis bindings(captured->getOperation());
+    auto initialized =
+        bindings.initialize(owner("ordered_plan.py"), *headers, writes);
+    if (!forged) {
+      ASSERT_TRUE(succeeded(initialized)) << diagnostics;
+      EXPECT_TRUE(succeeded(bindings.lower(owner("ordered_plan.py"), *headers)))
+          << diagnostics;
+    } else {
+      EXPECT_TRUE(failed(initialized) ||
+                  failed(bindings.lower(owner("ordered_plan.py"), *headers)));
+      EXPECT_FALSE(diagnostics.empty());
+    }
+  }
+}
+
 TEST_F(SourceMemoryBindingsTest, SourceOwnerPathMustMatchCapture) {
   auto captured = capture("memory.py", memorySource);
   ASSERT_TRUE(captured);
