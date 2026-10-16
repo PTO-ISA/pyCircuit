@@ -252,6 +252,160 @@ def Owner():
   EXPECT_FALSE(operations<ac::BitsBinaryOp>(*file).empty());
 }
 
+TEST_F(SourceTransactionCaptureTest, OrdinaryHelperLoopsInlineIntoRuleAndMethodBodies) {
+  auto file = typed(R"py(import pycircuit as ac
+def step(value: ac.u8) -> ac.u8:
+    for ordinal in range(2):
+        delta: ac.u8 = ordinal
+        value = value + delta
+    return value
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    bias = 3
+    def shifted(value: ac.u8) -> ac.u8:
+        result = value
+        typed_bias: ac.u8 = bias
+        for ordinal in range(2):
+            if result < typed_bias:
+                result = step(result)
+            else:
+                result = result ^ typed_bias
+        return result
+    bias = 7
+    @ac.method
+    def add(value: ac.u8) -> ac.u8:
+        count = shifted(value)
+        return count
+    @ac.rule
+    def advance() -> None:
+        count = shifted(count)
+    advance()
+)py", "helper_loops.py");
+  ASSERT_TRUE(file);
+  auto methods = operations<ac::SourceMethodOp>(*file);
+  auto transactions = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(methods.size(), 1u);
+  ASSERT_EQ(transactions.size(), 1u);
+  // The helper is ordinary combinational SSA. Only the caller owns the write;
+  // helper calls do not create an autonomous registration or a state owner.
+  EXPECT_EQ(operations<ac::SourceStateOp>(*file).size(), 1u);
+  for (auto *scope : {methods[0].getOperation(), transactions[0].getOperation()}) {
+    unsigned calls = 0, writes = 0;
+    scope->walk([&](mlir::func::CallOp) { ++calls; });
+    scope->walk([&](ac::SourceStateWriteOp) { ++writes; });
+    EXPECT_EQ(calls, 0u);
+    EXPECT_EQ(writes, 1u);
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest, HelperLoopCallsRetainDistinctIterationOccurrences) {
+  auto file = typed(R"py(import pycircuit as ac
+def leaf(value: ac.u8) -> ac.u8:
+    return value + 5
+def inner(value: ac.u8) -> ac.u8:
+    for second in range(2):
+        value = leaf(value)
+    return value
+def outer(value: ac.u8) -> ac.u8:
+    for first in range(3):
+        value = inner(value)
+    return value
+@ac.struct
+class Result:
+    value: ac.u8
+@ac.module
+def Top(value: ac.u8) -> Result:
+    return Result(value=outer(value))
+)py", "loop_origins.py");
+  ASSERT_TRUE(file);
+  std::array<bool, 6> occurrences{};
+  unsigned constants = 0;
+  for (auto definition : operations<ac::ModuleOp>(*file)) {
+    definition.walk([&](ac::BitsConstantOp operation) {
+      auto expression = operation->getAttrOfType<ac::StaticExprAttr>("value");
+      if (!expression) return;
+      auto origin = expression.getTree().getAs<DictionaryAttr>("origin");
+      if (!origin) return;
+      auto site = origin.getAs<DictionaryAttr>("site");
+      if (!site || site.getAs<FlatSymbolRefAttr>("definition").getValue() !=
+                       "loop_origins.leaf") return;
+      ++constants;
+      std::optional<unsigned> first, second;
+      for (Attribute raw : origin.getAs<ArrayAttr>("expansion")) {
+        auto frame = cast<DictionaryAttr>(raw);
+        if (frame.getAs<StringAttr>("kind").getValue() != "iteration") continue;
+        auto loopSite = frame.getAs<DictionaryAttr>("site");
+        auto symbol = loopSite.getAs<FlatSymbolRefAttr>("definition");
+        auto ordinal = frame.getAs<IntegerAttr>("ordinal");
+        ASSERT_TRUE(ordinal);
+        if (symbol.getValue() == "loop_origins.outer") {
+          EXPECT_FALSE(first.has_value());
+          first = ordinal.getUInt();
+        }
+        if (symbol.getValue() == "loop_origins.inner") {
+          EXPECT_FALSE(second.has_value());
+          second = ordinal.getUInt();
+        }
+      }
+      ASSERT_TRUE(first.has_value());
+      ASSERT_TRUE(second.has_value());
+      ASSERT_LT(*first, 3u);
+      ASSERT_LT(*second, 2u);
+      unsigned index = *first * 2 + *second;
+      EXPECT_FALSE(occurrences[index]);
+      occurrences[index] = true;
+    });
+  }
+  EXPECT_EQ(constants, 6u);
+  for (bool observed : occurrences) EXPECT_TRUE(observed);
+}
+
+TEST_F(SourceTransactionCaptureTest, HelperLoopProviderPublishesTypedBodiesForIndependentConsumers) {
+  auto provider = capture("loop_provider.py", R"py(import pycircuit as ac
+def fold(values: ac.table[3, ac.u8]) -> ac.u8:
+    result: ac.u8 = 0
+    for index in range(3):
+        result = result + values[index]
+    return result
+)py");
+  ASSERT_TRUE(provider);
+  auto empty = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(empty));
+  auto published = compiler::compilePythonSourceUnit(
+      *provider, owner("loop_provider.py"), *empty, error());
+  ASSERT_TRUE(succeeded(published)) << diagnostics;
+  ASSERT_TRUE(succeeded(compiler::verifyIntrinsicSourceUnitPair(
+      *published->body, *published->interface, error()))) << diagnostics;
+  // Consumer capture imports syntax only; its native compilation sees the
+  // provider's published header rather than importing/executing provider Python.
+  auto consumer = capture("loop_consumer.py", R"py(import pycircuit as ac
+from loop_provider import fold
+@ac.struct
+class Result:
+    value: ac.u8
+@ac.module
+def Top(values: ac.table[3, ac.u8]) -> Result:
+    return Result(value=fold(values))
+)py");
+  ASSERT_TRUE(consumer);
+  auto supplied = compiler::SourceHeaderRegistry::create(
+      &context, {*published->interface}, error());
+  ASSERT_TRUE(succeeded(supplied)) << diagnostics;
+  auto compiled = compiler::compilePythonSourceUnit(
+      *consumer, owner("loop_consumer.py"), *supplied, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  ASSERT_TRUE(succeeded(supplied->verifyBodySnapshots(
+      *compiled->body, *compiled->interface, error()))) << diagnostics;
+  auto definitions = operations<ac::ModuleOp>(*compiled->body);
+  ASSERT_EQ(definitions.size(), 1u);
+  unsigned calls = 0;
+  definitions[0].walk([&](mlir::func::CallOp) { ++calls; });
+  EXPECT_EQ(calls, 0u);
+  EXPECT_TRUE(operations<ac::SourceStateOp>(*compiled->body).empty());
+  EXPECT_TRUE(operations<ac::SourceTransactionOp>(*compiled->body).empty());
+}
+
 TEST_F(SourceTransactionCaptureTest, DeferredNestedHelpersKeepLexicalScopeAndHiddenCaptureIdentity) {
   auto file = typed(R"py(import pycircuit as ac
 @ac.struct

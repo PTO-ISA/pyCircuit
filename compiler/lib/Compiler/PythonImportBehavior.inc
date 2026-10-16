@@ -1504,8 +1504,9 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
   };
   if (activeLoop)
     return diagnostic() << "nested bounded for is unsupported";
-  if (!activeRule || activeRule->structural || !owners.empty())
-    return diagnostic() << "bounded for requires a pure behavioral rule "
+  if ((!activeValueHelper && !activeRule) ||
+      (activeRule && activeRule->structural) || !owners.empty())
+    return diagnostic() << "bounded for requires a pure helper or behavioral rule "
                            "invocation without persistent-owner writes";
   SourceWalkSummary inspected;
   if (failed(chargeSourceWalk(statement, inspected)))
@@ -1624,47 +1625,49 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
   for (const auto &item : numericValues)
     fact(item.second);
   slots(activeSourceExpansion.size());
-  slots(activeRule->domains.size() + activeRule->checks.size() +
-        activeRule->deferredObservations.size() +
-        activeRule->bindingValues.size() +
-        activeRule->structuralTargets.size() + 16);
-  path(activeRule->binding);
-  for (const auto &domain : activeRule->domains) {
-    text(domain.formal);
-    path(domain.assignment);
-    path(domain.occurrence);
-  }
-  for (const auto &check : activeRule->checks) {
-    path(check.statement);
-    path(check.observationRule);
-  }
-  for (const auto &entry : activeRule->deferredObservations) {
-    path(entry.first);
-    path(entry.second);
-  }
-  if (activeRule->instances)
-    for (const auto &entry : *activeRule->instances) {
-      text(entry.first());
-      slots(1);
-      const auto &instance = *entry.second;
-      text(instance.name);
-      path(instance.node);
-      slots(instance.parameters.size() + instance.typeArguments.size() +
-            instance.inputs.size() + instance.outputs.size() + 8);
-      for (const Port &port : instance.inputs) {
-        text(port.name);
-        path(port.node);
-      }
-      for (const Port &port : instance.outputs) {
-        text(port.name);
-        path(port.node);
-      }
+  if (activeRule) {
+    slots(activeRule->domains.size() + activeRule->checks.size() +
+          activeRule->deferredObservations.size() +
+          activeRule->bindingValues.size() +
+          activeRule->structuralTargets.size() + 16);
+    path(activeRule->binding);
+    for (const auto &domain : activeRule->domains) {
+      text(domain.formal);
+      path(domain.assignment);
+      path(domain.occurrence);
     }
-  if (activeRule->outputs)
-    for (const auto &entry : *activeRule->outputs) {
-      text(entry.first());
-      slots(entry.second.size());
+    for (const auto &check : activeRule->checks) {
+      path(check.statement);
+      path(check.observationRule);
     }
+    for (const auto &entry : activeRule->deferredObservations) {
+      path(entry.first);
+      path(entry.second);
+    }
+    if (activeRule->instances)
+      for (const auto &entry : *activeRule->instances) {
+        text(entry.first());
+        slots(1);
+        const auto &instance = *entry.second;
+        text(instance.name);
+        path(instance.node);
+        slots(instance.parameters.size() + instance.typeArguments.size() +
+              instance.inputs.size() + instance.outputs.size() + 8);
+        for (const Port &port : instance.inputs) {
+          text(port.name);
+          path(port.node);
+        }
+        for (const Port &port : instance.outputs) {
+          text(port.name);
+          path(port.node);
+        }
+      }
+    if (activeRule->outputs)
+      for (const auto &entry : *activeRule->outputs) {
+        text(entry.first());
+        slots(entry.second.size());
+      }
+  }
   SmallVector<Value> anonymousHelperCaptures;
   auto enclosingCaptures = helperCaptureBindings.find(at.getBlock());
   if (enclosingCaptures != helperCaptureBindings.end()) {
@@ -1702,16 +1705,17 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
   const auto savedNumeric = numericValues;
   const auto savedFixed = fixedValues;
   const auto savedArithmetic = arithmeticValues;
-  RuleEvaluation savedEvaluation = *activeRule;
+  std::optional<RuleEvaluation> savedEvaluation;
+  if (activeRule) savedEvaluation = *activeRule;
   llvm::StringMap<Instance *> savedInstances;
   llvm::StringMap<SmallVector<Value>> savedOutputs;
   SmallVector<std::pair<Instance *, Instance>, 0> instanceStates;
-  if (activeRule->instances) {
+  if (activeRule && activeRule->instances) {
     savedInstances = *activeRule->instances;
     for (const auto &entry : savedInstances)
       instanceStates.emplace_back(entry.second, *entry.second);
   }
-  if (activeRule->outputs)
+  if (activeRule && activeRule->outputs)
     savedOutputs = *activeRule->outputs;
   size_t expansionDepth = activeSourceExpansion.size();
   OpBuilder::InsertionGuard insertion(at);
@@ -1748,11 +1752,13 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
       numericValues = savedNumeric;
       fixedValues = savedFixed;
       arithmeticValues = savedArithmetic;
-      *activeRule = savedEvaluation;
-      if (savedEvaluation.instances)
-        *savedEvaluation.instances = savedInstances;
-      if (savedEvaluation.outputs)
-        *savedEvaluation.outputs = savedOutputs;
+      if (savedEvaluation) {
+        *activeRule = *savedEvaluation;
+        if (savedEvaluation->instances)
+          *savedEvaluation->instances = savedInstances;
+        if (savedEvaluation->outputs)
+          *savedEvaluation->outputs = savedOutputs;
+      }
       for (auto &entry : instanceStates)
         *entry.first = std::move(entry.second);
     } else {
@@ -1839,25 +1845,27 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
     }
   }
   auto sameEvaluation = [&] {
+    if (!savedEvaluation)
+      return !activeRule;
     bool same =
-        activeRule->domains.size() == savedEvaluation.domains.size() &&
-        activeRule->checks.size() == savedEvaluation.checks.size() &&
+        activeRule->domains.size() == savedEvaluation->domains.size() &&
+        activeRule->checks.size() == savedEvaluation->checks.size() &&
         activeRule->deferredObservations.size() ==
-            savedEvaluation.deferredObservations.size() &&
-        activeRule->observationEntries == savedEvaluation.observationEntries &&
-        activeRule->instances == savedEvaluation.instances &&
-        activeRule->outputs == savedEvaluation.outputs &&
-        activeRule->target == savedEvaluation.target &&
-        sameSourceSite(activeRule->binding, savedEvaluation.binding) &&
-        activeRule->bindingValues == savedEvaluation.bindingValues &&
-        activeRule->structuralTargets == savedEvaluation.structuralTargets &&
+            savedEvaluation->deferredObservations.size() &&
+        activeRule->observationEntries == savedEvaluation->observationEntries &&
+        activeRule->instances == savedEvaluation->instances &&
+        activeRule->outputs == savedEvaluation->outputs &&
+        activeRule->target == savedEvaluation->target &&
+        sameSourceSite(activeRule->binding, savedEvaluation->binding) &&
+        activeRule->bindingValues == savedEvaluation->bindingValues &&
+        activeRule->structuralTargets == savedEvaluation->structuralTargets &&
         activeRule->nextStructuralTarget ==
-            savedEvaluation.nextStructuralTarget &&
-        activeRule->structural == savedEvaluation.structural;
+            savedEvaluation->nextStructuralTarget &&
+        activeRule->structural == savedEvaluation->structural;
     if (!same)
       return false;
     for (auto [current, saved] :
-         llvm::zip(activeRule->domains, savedEvaluation.domains))
+         llvm::zip(activeRule->domains, savedEvaluation->domains))
       if (current.ownerIndex != saved.ownerIndex ||
           current.pathIndex != saved.pathIndex ||
           current.formal != saved.formal ||
@@ -1867,7 +1875,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
           current.mask != saved.mask)
         return false;
     for (auto [current, saved] :
-         llvm::zip(activeRule->checks, savedEvaluation.checks))
+         llvm::zip(activeRule->checks, savedEvaluation->checks))
       if (!sameSourceSite(current.statement, saved.statement) ||
           current.condition != saved.condition || current.path != saved.path ||
           current.message != saved.message ||
@@ -1879,26 +1887,26 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
         return false;
     for (auto [current, saved] :
          llvm::zip(activeRule->deferredObservations,
-                   savedEvaluation.deferredObservations))
+                   savedEvaluation->deferredObservations))
       if (!sameSourceSite(current.first, saved.first) ||
           !sameSourceSite(current.second, saved.second))
         return false;
-    if (savedEvaluation.instances) {
-      if (savedEvaluation.instances->size() != savedInstances.size())
+    if (savedEvaluation->instances) {
+      if (savedEvaluation->instances->size() != savedInstances.size())
         return false;
       for (const auto &entry : savedInstances) {
-        auto found = savedEvaluation.instances->find(entry.first());
-        if (found == savedEvaluation.instances->end() ||
+        auto found = savedEvaluation->instances->find(entry.first());
+        if (found == savedEvaluation->instances->end() ||
             found->second != entry.second)
           return false;
       }
     }
-    if (savedEvaluation.outputs) {
-      if (savedEvaluation.outputs->size() != savedOutputs.size())
+    if (savedEvaluation->outputs) {
+      if (savedEvaluation->outputs->size() != savedOutputs.size())
         return false;
       for (const auto &entry : savedOutputs) {
-        auto found = savedEvaluation.outputs->find(entry.first());
-        if (found == savedEvaluation.outputs->end() ||
+        auto found = savedEvaluation->outputs->find(entry.first());
+        if (found == savedEvaluation->outputs->end() ||
             found->second != entry.second)
           return false;
       }

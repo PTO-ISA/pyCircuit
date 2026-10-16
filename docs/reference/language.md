@@ -463,8 +463,9 @@ reduction does not implement a nonassociative prefix scan.
 
 ## Bounded source loops
 
-A pure behavioral rule can use an ordinary `for` with a single local name and
-an unshadowed builtin `range` call whose sole argument is an integer literal:
+A pure behavioral rule or ordinary typed pure helper can use an ordinary `for`
+with a single local name and an unshadowed builtin `range` call whose sole
+argument is an integer literal:
 
 ```python
 accumulator: u8 = 0
@@ -852,10 +853,16 @@ once, in source order. Defaults, keywords, variadic and positional-only
 parameters are not admitted.
 
 Bodies use existing typed expressions, local assignments and annotations,
-immutable Struct field updates, `if/else`, `pass` and one final return. Branches
+immutable Struct field and Table element updates, `if/else`, bounded literal-range
+loops, `pass` and one final return. Branches
 retain definite-assignment and four-state selection rules. Existing arithmetic,
 projection, constructor and Table restrictions still apply. Acyclic helper calls
-are allowed; loops, early returns, nested declarations inside helpers,
+are allowed. Loops follow the [bounded source loop contract](#bounded-source-loops):
+iterations carry local SSA values within the same Work evaluation, and zero-trip
+bodies still undergo capability validation. Updating a Table parameter or ordinary
+captured aggregate constructs a new local value; it does not change the caller's
+saved value or create persistent state. Directly nested loops, `while`, early
+returns, nested declarations inside helpers,
 allocation, Rule/Method calls, assertions and I/O are rejected even in dead
 paths. A helper cannot read a persistent owner implicitly; pass its ordinary
 payload explicitly.

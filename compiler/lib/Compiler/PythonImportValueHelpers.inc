@@ -22,6 +22,7 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
       return diagnostic(argument) << "pure helper parameter requires a unique name and annotation";
   }
   SourceWalkSummary sourceWork;
+  unsigned loopDepth = 0;
   auto scan = [&](auto &&self, const AstNode &site, bool statement,
                   bool topLevel, bool target = false) -> LogicalResult {
     if (!site)
@@ -47,6 +48,20 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
             if (failed(self(self, site.item(field, i), true, false))) return failure();
         return success();
       }
+      if (kind == "For") {
+        if (loopDepth)
+          return diagnostic(site) << "nested bounded for is unsupported";
+        auto syntax = readLiteralForSyntax(site, [&] { return diagnostic(site); });
+        if (failed(syntax)) return failure();
+        locals.insert(syntax->target.string("id"));
+        if (failed(self(self, syntax->target, false, false, true)) ||
+            failed(self(self, syntax->bound, false, false))) return failure();
+        ++loopDepth;
+        auto leaveLoop = llvm::scope_exit([&] { --loopDepth; });
+        for (size_t i = 0; i < site.array("body").size(); ++i)
+          if (failed(self(self, site.item("body", i), true, false))) return failure();
+        return success();
+      }
       if (kind == "Assign" || kind == "AnnAssign") {
         if (kind == "Assign" && site.array("targets").size() != 1)
           return diagnostic(site) << "pure helper assignment requires one target";
@@ -54,10 +69,10 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
         // Locals have Python lexical identity throughout the helper, and never
         // accidentally capture a same-spelled enclosing wire.
         StringRef root = assignmentRoot(lhs);
-        if (root.empty() || lhs.kind() == "Subscript")
-          return diagnostic(lhs) << "pure helper assignment requires a local Name or Struct field";
+        if (root.empty() || (lhs.kind() != "Name" && lhs.kind() != "Attribute" &&
+                             lhs.kind() != "Subscript"))
+          return diagnostic(lhs) << "pure helper assignment requires a local Name, Struct field or Table element";
         if (lhs.kind() == "Name") locals.insert(root);
-        else if (failed(self(self, lhs.child("value"), false, false))) return failure();
         if (failed(self(self, lhs, false, false, true))) return failure();
         return self(self, site.child("value"), false, false);
       }
@@ -68,6 +83,14 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
     if (kind == "Name") {
       if (!target) freeNames.insert(site.string("id"));
       return success();
+    }
+    if (target && (kind == "Attribute" || kind == "Subscript")) {
+      // Updating an immutable aggregate reads its base and index. Only a Name
+      // target binds a local; indices retain ordinary lexical capture rules.
+      if (failed(self(self, site.child("value"), false, false))) return failure();
+      return kind == "Subscript"
+                 ? self(self, site.child("slice"), false, false)
+                 : success();
     }
     if (llvm::is_contained(ArrayRef<StringRef>{"Lambda", "NamedExpr", "Await",
           "Yield", "YieldFrom", "ListComp", "SetComp", "DictComp",
@@ -519,8 +542,12 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
     ValueHelperDecl &helper, ValueRange inputs, const AstNode &call,
     OpBuilder &at, FlatSymbolRefAttr symbol, bool forceInline) {
   if (activeValueHelper && !forceInline) {
+    // Loop statement envelopes leave helper expansion to this existing DAG
+    // budget, including typed calls retained until the outer helper is inlined.
+    if (activeLoop && failed(reserveValueHelper(helper.function, call))) return failure();
     auto op = at.create<func::CallOp>(call.location(b.getContext(), source.path),
                                     helper.symbol, helper.function.getResultTypes(), inputs);
+    if (activeLoop) activeLoop->helperOwned.insert(op.getOperation());
     op->setAttr("ac.origin", sourceOccurrence(at, symbol, call));
     for (auto [result, port] : llvm::zip(op.getResults(), helper.results)) {
       remember(result, port.sourceKind);
@@ -576,14 +603,28 @@ FailureOr<SmallVector<Value>> Importer::instantiateValueHelper(
           if (!callee) return error() << "pure helper callee is missing";
           SmallVector<Value> bound;
           for (Value operand : nestedCall.getOperands()) bound.push_back(map.lookup(operand));
-          size_t expansionDepth = activeSourceExpansion.size();
+          auto callerExpansion = std::move(activeSourceExpansion);
+          activeSourceExpansion.clear();
+          auto restoreExpansion = llvm::scope_exit([&] {
+            activeSourceExpansion = std::move(callerExpansion);
+          });
           auto origin = nestedCall->getAttrOfType<DictionaryAttr>("ac.origin");
+          // A typed call may itself have been expanded from a loop. Retain
+          // those declaration frames before the current caller's frames, as
+          // expandAttribute does for every other source occurrence.
+          if (origin)
+            if (auto expansion = origin.getAs<ArrayAttr>("expansion"))
+              for (Attribute frame : expansion)
+                activeSourceExpansion.push_back(cast<DictionaryAttr>(frame));
+          llvm::append_range(activeSourceExpansion, callerExpansion);
           if (origin)
             activeSourceExpansion.push_back(builder.getDictionaryAttr({
                 builder.getNamedAttr("kind", builder.getStringAttr("call")),
                 builder.getNamedAttr("site", origin.getAs<DictionaryAttr>("site")),
                 builder.getNamedAttr("callee", nestedCall.getCalleeAttr())}));
-          auto restoreExpansion = llvm::scope_exit([&] { activeSourceExpansion.resize(expansionDepth); });
+          // Reserve the callee with the complete inherited frame count before
+          // materializing copies carrying those frames.
+          if (failed(reserveValueHelper(callee, call))) return failure();
           auto values = self(self, callee, bound, builder);
           if (failed(values)) return failure();
           for (auto [result, value] : llvm::zip(nestedCall.getResults(), *values)) map.map(result, value);

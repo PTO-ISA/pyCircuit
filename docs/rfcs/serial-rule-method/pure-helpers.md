@@ -14,8 +14,8 @@
 | 定义位置 | 源文件顶层，或直接位于 Module/System 内；helper/Rule/Method 内再定义 helper 拒绝 |
 | 签名 | 显式 typed 必需普通位置参数，零或一个 typed 结果；`-> None` 表示无值 |
 | 参数形式 | defaults、keywords、variadic、positional-only、keyword-only 拒绝 |
-| body | 已准入表达式、局部 Assign/AnnAssign、不可变 Struct 重建、`if/else`、`pass`、末尾 return |
-| 控制流 | helper 内循环、分支早退、递归、异常和一般 Python 执行拒绝 |
+| body | 已准入表达式、局部 Assign/AnnAssign、不可变 Struct/Table 更新、`if/else`、有限字面量 `range(N)` 循环、`pass`、末尾 return |
+| 控制流 | 循环复用当前 bounded-source-loops 合同；直接嵌套循环、while、break/continue、loop else、分支早退、递归、异常和一般 Python 执行拒绝 |
 | 效果 | allocation、隐式 owner 读取、Rule/Method 调用、assert/观测和 host I/O 拒绝，包括未使用或死路径 |
 | 调用点 | 普通表达式、Rule/Method body、纯 guard、现有 bounded-loop caller 和 named Table callback 共用实现 |
 | Table callback | 保留现有 fixed-Bits 输入/结果及无 captures 限制；expression lambda 中调用 helper 不因此开放 |
@@ -26,6 +26,12 @@
 可以转换，不能沿用旧 scalar-Rule helper 的一律 exact-kind 限制。Boolean/Integer
 逻辑 formal 仍要求对应 source kind；named Table callback 仍要求 exact fixed 类型。
 helper 内的运算、Table 范围证明及构造规则复用原有合同，不另设更宽松的纯函数规则。
+
+有限循环在同一次 Work 中按顺序形成局部 SSA，不增加寄存器、周期或提交点。
+Table 参数及普通捕获值的元素/字段赋值只产生新局部值，不修改调用者保存的快照。
+零次循环仍检查语法、callee 和效果，不求值 body，也不绑定仅在 body 中引入的名字。
+循环 binder、下标捕获、source occurrence 与展开预算复用既有所有者；helper 调用组合
+不放开直接嵌套循环或事务效果。此组合能力扩展不代表 conditional Method effects 已完成。
 
 Rule 必须作为 Module/System 中完整的静态 statement call、assignment value 或 return
 value 注册，每个声明在每个实例中恰好一次。Rule 不可嵌入表达式、Table callback 或

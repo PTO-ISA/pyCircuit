@@ -2,7 +2,7 @@
 
 # ruff: noqa: F821, N802 -- forward stage-ready wire and hardware module name.
 
-from pycircuit import module, queue, rule, struct, table, u1, u8
+from pycircuit import module, queue, struct, table, u1, u8
 
 
 @struct
@@ -54,7 +54,6 @@ def subtract(accumulator: u8, value: u8) -> u8:
     return accumulator - value
 
 
-@rule
 def scan_arrays(request: Request) -> ScanResult:
     source = Values(values=(request.first, request.second, request.third))
     values = source.values
@@ -72,11 +71,12 @@ def scan_arrays(request: Request) -> ScanResult:
         value = values[index]
         subtract_accumulator = subtract(subtract_accumulator, value)
         sum_accumulator = sum_accumulator + value
-        reset_accumulator = 0 if value == 0 else reset_accumulator + value
-        pair = Pair(
-            first=0 if value == 0 else pair.first + value,
-            second=pair.second,
-        )
+        if value == 0:
+            reset_accumulator = 0
+            pair.first = 0
+        else:
+            reset_accumulator = reset_accumulator + value
+            pair.first = pair.first + value
         subtracted[index] = subtract_accumulator
         nonzero[index] = sum_accumulator
         reset[index] = reset_accumulator

@@ -166,6 +166,66 @@ def Top(left: table[3, u8], right: table[3, u8], wide: table[3, bits[65]]) -> Re
 """
 
 
+LOOP_DESIGN = """from pycircuit import module, struct, u1, u2, u8, table
+@struct
+class Cell:
+    value: u8
+    tag: u8
+@struct
+class Edits:
+    before: table[3, Cell]
+    after: table[3, Cell]
+def fold(values: table[3, u8]) -> u8:
+    total: u8 = 0
+    for index in range(3):
+        total = total + values[index]
+    return total
+def edit(values: table[3, Cell], flag: u1) -> Edits:
+    candidate = values
+    saved = candidate
+    for index in range(3):
+        candidate[index].value = candidate[index].value + 1
+        candidate[index].tag = candidate[index].value ^ candidate[index].tag
+        if flag:
+            candidate[index].value = candidate[index].value ^ 3
+        else:
+            candidate[index].value = candidate[index].value + 2
+    return Edits(before=saved, after=candidate)
+def zero(value: u8) -> u8:
+    for unused in range(0):
+        value = value + 1
+    return value
+@struct
+class Result:
+    total: u8
+    before: table[3, Cell]
+    after: table[3, Cell]
+    updated: table[3, u8]
+    selected: u8
+    zero: u8
+@module
+def Top(values: table[3, u8], cells: table[3, Cell], index: u1, flag: u1) -> Result:
+    captured_index = index
+    captured_values = values
+    def update(value: u8) -> table[3, u8]:
+        candidate = captured_values
+        for ordinal in range(2):
+            delta: u8 = ordinal
+            candidate[captured_index] = value + delta
+        return candidate
+    def read(value: u8) -> u8:
+        selected = value
+        for ordinal in range(1):
+            selected = captured_values[captured_index]
+        return selected
+    captured_index = 0
+    captured_values = values.map(lambda row: row + 7)
+    changed = edit(cells, flag)
+    return Result(total=fold(values), before=changed.before, after=changed.after,
+        updated=update(values[0]), selected=read(values[0]), zero=zero(values[0]))
+"""
+
+
 def word(value, width):
     return format(value % (1 << width), f"0{width}b")
 
@@ -433,6 +493,60 @@ def named_map_case():
     }
 
 
+def loop_case():
+    rows = []
+    for values, cells, index, flag in (
+        ((0, 1, 2), ((3, 17), (127, 1), (255, 128)), 0, 0),
+        ((255, 2, 17), ((255, 0), (0, 255), (128, 127)), 1, 1),
+        ((128, 127, 255), ((17, 63), (253, 3), (254, 1)), 0, 0),
+        ((7, 11, 13), ((1, 2), (3, 4), (5, 6)), 1, 1),
+    ):
+        rows.append({
+            "values": "".join(word(v, 8) for v in values),
+            "cells": "".join(word(v, 8) + word(t, 8) for v, t in cells),
+            "index": word(index, 1), "flag": str(flag),
+        })
+    for symbol in "xz":
+        rows.extend((
+            {"values": "00000001" + symbol * 8 + "11111111",
+             "cells": "101z0x11" + "00000000" + "11111111" + symbol * 8 + "00000001" + "11111111",
+             "index": symbol, "flag": symbol},
+            {"values": "101z0x11" + "00000001" + "11111111",
+             "cells": "00000000" + "11111111" + "00000001" + "00000001" + "11111111" + "00000000",
+             "index": "1", "flag": symbol},
+        ))
+    gold = []
+    for row in rows:
+        values = [row["values"][i:i + 8] for i in range(0, 24, 8)]
+        cells = [row["cells"][i:i + 16] for i in range(0, 48, 16)]
+        # Closed arithmetic expressions and independent per-lane mux truth
+        # tables establish sequential updates and immutable saved snapshots.
+        total = binary("add", binary("add", values[0], values[1]), values[2])
+        after = []
+        for cell in cells:
+            incremented = binary("add", cell[:8], word(1, 8))
+            tag = binary("xor", incremented, cell[8:])
+            value = select(row["flag"], binary("xor", incremented, word(3, 8)),
+                           binary("add", incremented, word(2, 8)))
+            after.append(value + tag)
+        updated_lanes = values[:]
+        for replacement in (binary("add", values[0], word(0, 8)),
+                            binary("add", values[0], word(1, 8))):
+            updated_lanes = [select(equal("0" + row["index"], word(i, 2)), replacement, old)
+                             for i, old in enumerate(updated_lanes)]
+        updated = "".join(updated_lanes)
+        index_known = all(c in "01" for c in row["index"])
+        index = int(row["index"], 2) if index_known else 3
+        selected = values[index] if index < 3 else "x" * 8
+        gold.append({"total": total, "before": row["cells"], "after": "".join(after),
+                     "updated": updated, "selected": selected, "zero": values[0]})
+    return {"name": "pure_helper_loops", "text": LOOP_DESIGN, "top": "Top",
+            "inputs": {"values": 24, "cells": 48, "index": 1, "flag": 1},
+            "plane_inputs": {"before": "cells", "zero": ("values", 16)},
+            "fields": {name: len(value) for name, value in gold[0].items()},
+            "rows": rows, "gold": gold}
+
+
 def self_check():
     assert binary("add", "11111111", "00000001") == "00000000"
     assert binary("and", "zzxx", "0000") == "0000"
@@ -440,3 +554,10 @@ def self_check():
     assert select("x", "10zz", "10zz") == "10zz"
     assert select("z", "1010", "1000") == "10x0"
     assert below("x0", "00") == "x"
+    loop = loop_case()
+    first = loop["gold"][0]
+    assert first["total"] == word(3, 8)
+    assert first["before"] == loop["rows"][0]["cells"]
+    assert first["after"] == "".join(word(v, 8) for v in (6, 21, 130, 129, 2, 128))
+    assert first["updated"] == "".join(word(v, 8) for v in (1, 1, 2))
+    assert loop["gold"][4]["selected"] == "x" * 8

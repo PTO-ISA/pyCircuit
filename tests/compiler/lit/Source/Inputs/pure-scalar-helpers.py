@@ -179,7 +179,7 @@ def managed_snapshot(path):
 oracles = runpy.run_path(str(fixtures / "pure-scalar-helpers-oracles.py"))
 admission = runpy.run_path(str(fixtures / "pure-scalar-helpers-admission.py"))
 oracles["self_check"]()
-cases = [oracles["scalar_case"](), oracles["count_case"](), oracles["named_map_case"]()]
+cases = [oracles["scalar_case"](), oracles["count_case"](), oracles["named_map_case"](), oracles["loop_case"]()]
 negatives = admission["admission_cases"]()
 controls = admission["positive_controls"]()
 for case in cases + controls + negatives:
@@ -438,7 +438,7 @@ result = {
             args.vvp,
         )
     },
-    "scope": "ordinary typed helpers: locals, branches, lexical payload snapshots and named fixed Table callbacks; three numeric/four-state runtime roots plus source/native authority and admission checks",
+    "scope": "ordinary typed helpers: locals, branches, lexical payload snapshots and named fixed Table callbacks; four numeric/four-state runtime roots including bounded loops, Table/Struct local updates and snapshots, plus source/native authority and admission checks",
 }
 (evidence / "candidate.json").write_text(json.dumps(result, indent=2) + "\n")
 print(

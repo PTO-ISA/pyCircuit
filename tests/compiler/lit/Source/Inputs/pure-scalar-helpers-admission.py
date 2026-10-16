@@ -270,6 +270,7 @@ def admission_cases():
     )
     cases.extend(named_map_admission_cases())
     cases.extend(ordinary_contract_cases())
+    cases.extend(loop_contract_cases())
     return cases
 
 
@@ -449,6 +450,13 @@ def positive_controls():
     for name, expression, actual in (("fitting_literal_actual", "helper(0)", "u8"), ("fixed_widening_actual", "helper(value)", "u2"), ("count_widening_actual", "helper(value.count())", "table[3, u1]"), ("finite_integer_actual", "helper(value)", "Annotated[int, range(1 << 8)]")):
         controls.append({"name": name, "text": design(identity, expression, value_type=actual)})
     controls.append({"name": "boolean_to_fixed_one_bit", "text": design(identity.replace("value: u8", "value: u1").replace("-> u8", "-> u1"), value_type="bool")})
+    for name, body in (
+        ("helper_literal_loop", "for index in range(3):\n        delta: u8 = index\n        value = value + delta\n    return value"),
+        ("helper_sequential_loops", "for index in range(2):\n        value = value + 1\n    for other in range(3):\n        delta: u8 = other\n        value = value ^ delta\n    return value"),
+        ("helper_branch_loop", "if value == 0:\n        for index in range(2):\n            value = value + 1\n    else:\n        for index in range(1):\n            value = value ^ 1\n    return value"),
+        ("helper_zero_trip_existing_binder", "index: u8 = value\n    for index in range(0):\n        index = index + 1\n    return index"),
+    ):
+        controls.append({"name": name, "text": design(identity.replace("return value", body))})
     return controls
 
 
@@ -460,7 +468,6 @@ def ordinary_contract_cases():
         ("legacy_rule_in_helper", design(legacy.replace("helper", "legacy") + identity.replace("return value", "return legacy(value)")), ("rule", "helper", "pure")),
         ("legacy_rule_callback", design(legacy, "value.map(helper)[0]", value_type="table[3, u8]"), ("rule", "helper", "callback")),
         ("helper_missing_return_annotation", design(identity.replace(" -> u8", "")), ("return", "annotat", "helper")),
-        ("helper_loop", design(identity.replace("return value", "for index in range(2):\n        value = value + 1\n    return value")), ("loop", "helper", "pure", "statement")),
         ("helper_module_allocation", design(identity.replace("return value", "allocated = Child(value)\n    return allocated"), extra="@module\ndef Child(value: u8) -> u8:\n    return value\n"), ("module", "alloc", "helper", "pure")),
         ("helper_from_caller_local_definition", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def run() -> Result:\n        def helper(arg: u8) -> u8:\n            return arg\n        return Result(value=helper(value))\n    return run()\n", ("helper", "nested", "declaration", "scope")),
         ("duplicate_autonomous_registration", PRELUDE + legacy + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    first = helper(value)\n    second = helper(value)\n    return Result(value=first)\n", ("once", "registration", "duplicate")),
@@ -471,3 +478,49 @@ def ordinary_contract_cases():
     for name, helper in (("private_helper_formal_shadow", "def helper(add: u8) -> u8:\n        return add(1)"), ("private_helper_local_shadow", "def helper(arg: u8) -> u8:\n        add = 0\n        return add(1)")):
         rows.append((name, shadow_base.replace("HELPER", helper), ("not callable", "not a callable", "shadow", "cannot be called", "non-callable")))
     return [{"name": name, "text": text, "categories": categories} for name, text, categories in rows]
+
+
+
+def loop_contract_cases():
+    """The same literal-range contract applies to ordinary pure helpers."""
+    rows = []
+    identity = "def helper(value: u8) -> u8:\n    return value\n"
+    for name, body in (
+        ("nested", "for outer in range(1):\n        for inner in range(1):\n            value = value + 1"),
+        ("while", "while value:\n        value = value - 1"),
+        ("break", "for index in range(2):\n        break"),
+        ("continue", "for index in range(2):\n        continue"),
+        ("else", "for index in range(2):\n        pass\n    else:\n        value = value + 1"),
+        ("early_return", "for index in range(2):\n        return value"),
+        ("dynamic_bound", "for index in range(value):\n        value = value + 1"),
+        ("range_arity", "for index in range(0, 2):\n        value = value + 1"),
+        ("range_local_shadow", "range = value\n    for index in range(2):\n        value = value + 1"),
+        ("range_binder_shadow", "for range in range(2):\n        value = value + 1"),
+        ("zero_trip_assert", "for index in range(0):\n        assert value"),
+        ("zero_trip_print", "for index in range(0):\n        print(value)"),
+        ("zero_trip_unknown_call", "for index in range(0):\n        undefined(value)"),
+        ("zero_trip_return", "for index in range(0):\n        return value"),
+        ("zero_trip_import", "for index in range(0):\n        import math"),
+        ("zero_trip_nested", "for index in range(0):\n        for inner in range(0):\n            pass"),
+    ):
+        text = design(identity.replace("return value", body + "\n    return value"))
+        rows.append({"name": "helper_loop_" + name, "text": text,
+                     "categories": ("bounded", "loop", "for", "range", "pure helper", "unsupported", "unresolved", "unknown")})
+    for trips in (0, 1):
+        rows.append({"name": f"helper_loop_unbound_binder_{trips}",
+            "text": design(identity.replace("return value", f"saved = index\n    for index in range({trips}):\n        pass\n    return saved")),
+            "categories": ("index", "unbound", "unknown", "unresolved", "before", "defined")})
+    rows.append({"name": "helper_loop_zero_trip_binder_after", "text": design(identity.replace("return value", "for index in range(0):\n        pass\n    return index")), "categories": ("index", "unbound", "unknown", "unresolved", "before", "defined")})
+    rows.append({"name": "helper_loop_range_formal_shadow", "text": design("def helper(range: u8) -> u8:\n    value = range\n    for index in range(2):\n        value = value + 1\n    return value\n"), "categories": ("shadow", "range", "callable")})
+    rows.append({"name": "helper_loop_range_global_shadow", "text": design(identity.replace("return value", "for index in range(2):\n        value = value + 1\n    return value"), extra="range = 2\n"), "categories": ("shadow", "range", "unsupported")})
+    rows.append({"name": "helper_loop_stop_budget", "text": design(identity.replace("return value", "for index in range(1000000):\n        value = value + 1\n    return value")), "categories": ("budget", "occurrence", "work")})
+    # Each loop's body is valid, but the single invocation ledger also accounts
+    # for their combined expansion. This is deliberately a small source file.
+    repeated = "\n    ".join("for index in range(400):\n        value = value + 1" for _ in range(24))
+    rows.append({"name": "helper_loop_cumulative_budget", "text": design(identity.replace("return value", repeated + "\n    return value")), "categories": ("budget", "occurrence", "work", "storage", "slot", "operation")})
+    for name, body, extra in (
+        ("zero_trip_rule", "for index in range(0):\n        tick(value)", "@rule\ndef tick(value: u8) -> u8:\n    return value\n"),
+        ("zero_trip_allocation", "for index in range(0):\n        allocated = Child(value)", "@module\ndef Child(value: u8) -> u8:\n    return value\n"),
+    ):
+        rows.append({"name": "helper_loop_" + name, "text": design(identity.replace("return value", body + "\n    return value"), extra=extra), "categories": ("pure", "helper", "rule", "alloc", "module")})
+    return rows

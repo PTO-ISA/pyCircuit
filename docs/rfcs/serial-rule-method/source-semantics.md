@@ -219,7 +219,8 @@ held/falling clock 不提交状态；新增状态操作的控制检查以其实�
 不可变 Struct 字段重建、已准入的表达式、`if/else`、`pass` 和一个末尾 return。
 两支局部绑定服从现有 definite-assignment 规则；无值 helper 使用 `-> None`。
 标量运算、构造、投影、Table 表达式及其范围限制逐项继承当前语言合同，不因进入 helper
-而获得更广的 admission。首批不接纳 helper 内循环、分支早退、嵌套定义、可变参数、
+而获得更广的 admission。helper 内有限字面量循环与不可变局部 Table 更新复用现有
+bounded-source-loops 合同，不增加周期或效果；不接纳直接嵌套循环、分支早退、嵌套定义、可变参数、
 异常处理、host I/O 或新的初始化求值器。需要这些形式时单独扩展语法与证据。
 
 调用图必须无环、无硬件分配、无状态效果、无隐式 owner 读取。owner 值通过参数显式

@@ -84,7 +84,9 @@ lambdas remain unsupported. Use ordinary typed `def` for pure reuse and reserve
 See [pure value helpers](../reference/language.md#pure-value-helpers) for lexical
 snapshots, publication and the bounded body grammar. Ordered prefixes can use the
 [bounded literal-range loop profile](../reference/language.md#bounded-source-loops)
-in pure behavioral rules; it adds no scan API or clock cycle. Preserve its exact
+in pure behavioral rules and ordinary typed helpers; it adds no scan API or
+clock cycle. Helpers can update ordinary local Table elements and Struct fields
+without modifying their caller's saved values. Preserve the loop's exact
 range grammar, binder behavior, effect exclusions and resource bounds.
 
 Use `ready, valid, data = ac.queue[T](valid, data, take, depth=N)`

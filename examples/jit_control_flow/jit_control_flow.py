@@ -1,25 +1,28 @@
 """Byte arithmetic selection followed by four modular increments."""
 
-import pycircuit as ac
+from pycircuit import module, struct, u2, u8
 
 
-@ac.struct
+@struct
 class JitResult:
-    result: ac.u8
+    result: u8
 
 
-@ac.module
-def JitControlFlow(a: ac.u8, b: ac.u8, op: ac.u2) -> JitResult:  # noqa: N802
-    sum_mod = a + b
-    difference_mod = a - b
-    xor_value = a ^ b
-    and_value = a & b
-    bitwise_value = xor_value if op == 2 else and_value
-    other_value = difference_mod if op == 1 else bitwise_value
-    selected = sum_mod if op == 0 else other_value
+def calculate(a: u8, b: u8, op: u2) -> u8:
+    result: u8 = 0
+    if op == 0:
+        result = a + b
+    elif op == 1:
+        result = a - b
+    elif op == 2:
+        result = a ^ b
+    else:
+        result = a & b
+    for _step in range(4):
+        result = result + 1
+    return result
 
-    round_1 = selected + 1
-    round_2 = round_1 + 1
-    round_3 = round_2 + 1
-    result = round_3 + 1
-    return JitResult(result=result)
+
+@module
+def JitControlFlow(a: u8, b: u8, op: u2) -> JitResult:  # noqa: N802
+    return JitResult(result=calculate(a, b, op))
