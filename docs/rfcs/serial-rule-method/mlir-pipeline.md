@@ -163,7 +163,8 @@ literal fact owner 证明为 true；结构 arm path 由 MLIR 独立推导。fals
 与 effect selection 保留有序准入义务。branch state plan 同时版本化 data 与 raw intent，
 未写 arm 继承 entry pair。返回值在 callee exit 与原 source path 上有效，只有已验证
 join 可提升到父路径；totality 排除静态不可达 controls，但结构检查仍覆盖全部 arms。
-partial/aggregate state、changed aggregate join、resources、多 outer writer、effectful
+局部 joins 接纳同 nominal Enum 和有限 Bits/Enum/Struct payload，并独立认证逐叶合并图。
+partial/aggregate persistent state、changed Table-containing join、resources、多 outer writer、effectful
 loops、early return 和跨域证明缺口仍拒绝。consumer compile 只使用接口，不能为了
 运行此分析读取 provider Python。精确 SourceBranch、join 和 D/E layout 见
 [branch state SSA](branch-state-ssa.md)，条件路径、controls hard break 和待完成验收见

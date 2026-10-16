@@ -163,8 +163,11 @@ ROB 的完成、退休、分配可各有显式选择条件。退休未发生不�
 ## 四态、检查和物理域
 
 **METHOD-FOUR-STATE：**普通计算、赋值和分支沿用现有四态值/known/Z 语义。
-`and/or` 不新增 Python 短路效果。当前 bounded statement `if` 只选择 whole-Bits state
-和 scalar locals；conditional Method 调用仍未开放。
+`and/or` 不新增 Python 短路效果。当前 bounded statement `if` 支持 whole-Bits state、
+scalar locals 及同 nominal Enum/有限 Bits/Enum/Struct 局部值合并；含 Table 的改变 join
+仍拒绝。statement arms 可调用 Method 并包含直接 body effects，按
+[条件合同](conditional-effects.md)增加路径与 selector-known 准入义务；纯数据分支保留
+四态合并。局部字段重建不开放 partial/aggregate persistent state。
 纯函数参数按源码顺序绑定一次，但这不人为串行化无关组合硬件。
 
 基础 Method 事务的外层 guard、实际调用路径及 required guard 必须能在需要作出选择时
