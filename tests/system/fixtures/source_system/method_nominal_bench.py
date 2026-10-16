@@ -1,6 +1,6 @@
 import pycircuit as ac
-from pycircuit import rule, system
 from checks.method_nominal_provider import NominalCounter
+from pycircuit import rule, system
 
 
 @system
