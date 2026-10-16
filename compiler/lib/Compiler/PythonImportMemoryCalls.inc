@@ -59,7 +59,7 @@ FailureOr<bool> Importer::bindMemoryResults(
   if (found == directCallSites.end() || found->second.bound)
     return error() << "memory allocation must bind once at its lexical site";
   for (const auto &name : plan->resultNames)
-    if (values.contains(name))
+    if (values.contains(name) || nestedRuleBinding(name))
       return error() << "memory result shadows an existing hardware value '"
                      << name << "'";
   if (failed(bindMemoryInputs(*plan, found->second.op, at, symbol, values,

@@ -88,6 +88,82 @@ def global_rule_collision_cases(data_before):
     return cases
 
 
+def memory_rule_collision_cases():
+    positives, negatives = {}, {}
+    calls = {
+        "sync_mem": "ac.sync_mem[ac.u8](ren, addr, False, addr, 0, 0, depth=2)",
+        "byte_mem": "ac.byte_mem[ac.u8](addr, False, addr, 0, 0, depth=2)",
+    }
+    declaration = "    @ac.rule\n    def check():\n        pass\n    check()\n"
+    for kind, call in calls.items():
+
+        def design(body):
+            return nominal(body, arguments="ren: ac.u1, addr: ac.u1")
+
+        positives["memory_proper_" + kind] = design(
+            "    raw_memory_result = "
+            + call
+            + "\n    return Packet(value=raw_memory_result)\n"
+        )
+        positives["memory_rule_without_data_" + kind] = design(
+            "    raw_memory_result = "
+            + call
+            + "\n"
+            + declaration
+            + "    return Packet(value=raw_memory_result)\n"
+        )
+        positives["memory_ordinary_alias_" + kind] = design(
+            "    raw_memory_result = "
+            + call
+            + "\n    check = raw_memory_result\n    saved = check\n"
+            + declaration
+            + "    return Packet(value=saved)\n"
+        )
+        # The only use of the colliding result is BEFORE declaration. A later
+        # retired-name read cannot accidentally account for this rejection.
+        negatives["memory_single_name_" + kind] = design(
+            "    check = "
+            + call
+            + "\n    saved = check\n"
+            + declaration
+            + "    return Packet(value=saved)\n"
+        )
+    dp = "ac.sync_mem_dp[ac.u8](ren, addr, ren, addr, False, addr, 0, 0, depth=2)"
+    positives["memory_dp_rule_without_data"] = nominal(
+        "    first, second = "
+        + dp
+        + "\n"
+        + declaration
+        + "    return Packet(value=first ^ second)\n",
+        arguments="ren: ac.u1, addr: ac.u1",
+    )
+    positives["memory_dp_ordinary_alias"] = nominal(
+        "    first, second = "
+        + dp
+        + "\n    check = first\n    saved = check\n"
+        + declaration
+        + "    return Packet(value=saved ^ second)\n",
+        arguments="ren: ac.u1, addr: ac.u1",
+    )
+    for slot, targets, saved in (
+        ("first", "check, second", "check ^ second"),
+        ("second", "first, check", "first ^ check"),
+    ):
+        negatives["memory_dp_name_" + slot] = nominal(
+            "    "
+            + targets
+            + " = "
+            + dp
+            + "\n    saved = "
+            + saved
+            + "\n"
+            + declaration
+            + "    return Packet(value=saved)\n",
+            arguments="ren: ac.u1, addr: ac.u1",
+        )
+    return positives, negatives
+
+
 def positive_cases():
     cases = {
         "scalar_alias": structural("""    check = a
@@ -214,6 +290,7 @@ def Top():
 """)
     cases.update(reserved_binding_cases(False))
     cases.update(global_rule_collision_cases(False))
+    cases.update(memory_rule_collision_cases()[0])
     return cases
 
 
@@ -372,4 +449,5 @@ def Owner():
     )
     cases.update(reserved_binding_cases(True))
     cases.update(global_rule_collision_cases(True))
+    cases.update(memory_rule_collision_cases()[1])
     return cases
