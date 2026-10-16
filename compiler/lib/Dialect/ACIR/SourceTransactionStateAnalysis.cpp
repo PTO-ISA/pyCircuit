@@ -1673,13 +1673,19 @@ private:
       if (!budget.charge(operation))
         return failure();
       auto bound = value(original, anchor, frame);
-      if (failed(bound) ||
+      if (failed(bound))
+        return failure();
+      const auto &ref = plan.values[*bound];
+      auto type = detail::resolveSourceBranchResultType(
+          ref.value.getType(), hardware, plan.instances[ref.anchor].bindings,
+          operation, [&](uint64_t work, uint64_t bytes) {
+            return success(budget.charge(operation, work) &&
+                           budget.charge(operation, bytes / 8 + (bytes % 8 != 0)));
+          });
+      if (failed(type) ||
           failed(equivalent(*bound, whenTrue[ordinal], operation)) ||
           failed(equivalent(*bound, whenFalse[ordinal], operation)))
         return failure();
-      auto type = payloadType(*bound, operation);
-      if (failed(type) || !isa<BitsType>(*type))
-        return operation.emitOpError() << "branch results require scalar Bits";
       if (failed(requireAvailable(whenTrue[ordinal],
                                   {record.thenExitPrefix, {id, true}},
                                   operation)) ||

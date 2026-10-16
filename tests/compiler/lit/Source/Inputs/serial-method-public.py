@@ -473,6 +473,159 @@ oracle_path = repo / "tests/compiler/oracles/serial_method_oracle.py"
 oracle_spec = importlib.util.spec_from_file_location("serial_method_oracle", oracle_path)
 oracle_module = importlib.util.module_from_spec(oracle_spec)
 oracle_spec.loader.exec_module(oracle_module)
+# Nominal values are ordinary local payloads. The consumer compiles with only
+# the published provider interface, then both emitters consume one final IR.
+case = scratch / "nominal-local-joins"
+case.mkdir()
+source = case / "source"
+source.mkdir()
+provider_path = source / "nominal_provider.py"
+provider_path.write_text("""import pycircuit as ac
+from enum import Enum
+@ac.encoding(width=8)
+class Tag(Enum):
+    ZERO = 0
+    FIVE = 5
+@ac.struct
+class Cell:
+    data: ac.u8
+    tag: Tag
+@ac.struct
+class Pair:
+    left: Cell
+    right: Cell
+@ac.struct
+class Result:
+    packet: Pair
+    saved: Pair
+    direct: Tag
+@ac.module
+def NominalOwner():
+    @ac.method
+    def assemble(flag: ac.u1, incoming: Pair, replacement: Cell) -> Result:
+        local = incoming
+        saved = local
+        local.left.data = incoming.right.data
+        if flag:
+            local.left = replacement
+        else:
+            local.right.tag = replacement.tag
+        direct = incoming.left.tag
+        if flag:
+            direct = replacement.tag
+        return Result(packet=local, saved=saved, direct=direct)
+""")
+provider = case / "provider"
+compile_unit(source, provider_path, provider)
+hidden = case / "hidden-provider"
+hidden.mkdir()
+for path in (provider_path, payload(provider, "body"), payload(provider, "depfile")):
+    path.rename(hidden / path.name)
+consumer_path = source / "nominal_consumer.py"
+consumer_path.write_text("""import pycircuit as ac
+from serial_methods.nominal_provider import Cell, Pair, Tag, NominalOwner
+@ac.struct
+class Decoded:
+    value: Tag
+@ac.struct
+class Views:
+    picked: ac.bits[32]
+    saved: ac.bits[32]
+    direct: ac.u8
+    repeated: ac.bits[32]
+    original: ac.bits[32]
+@ac.module
+def Decode(raw: ac.u8) -> Decoded:
+    value, member = ac.enum_from_bits[Tag](raw)
+    return Decoded(value=value)
+@ac.module
+def NominalTop(flag: ac.u1, a: ac.u8, b: ac.u8, ta: ac.u8, tb: ac.u8) -> Views:
+    owner = NominalOwner()
+    decoded_a = Decode(ta)
+    decoded_b = Decode(tb)
+    tag_a = decoded_a.value
+    tag_b = decoded_b.value
+    @ac.rule
+    def run() -> Views:
+        original = Pair(left=Cell(data=a, tag=tag_a), right=Cell(data=b, tag=tag_b))
+        first = owner.assemble(flag, original, Cell(data=a, tag=tag_b))
+        second = owner.assemble(flag, first.packet, Cell(data=b, tag=tag_a))
+        return Views(picked=ac.concat(first.packet.left.data, ac.enum_to_bits(first.packet.left.tag), first.packet.right.data, ac.enum_to_bits(first.packet.right.tag)),
+                     saved=ac.concat(first.saved.left.data, ac.enum_to_bits(first.saved.left.tag), first.saved.right.data, ac.enum_to_bits(first.saved.right.tag)),
+                     direct=ac.enum_to_bits(first.direct),
+                     repeated=ac.concat(second.packet.left.data, ac.enum_to_bits(second.packet.left.tag), second.packet.right.data, ac.enum_to_bits(second.packet.right.tag)),
+                     original=ac.concat(original.left.data, ac.enum_to_bits(original.left.tag), original.right.data, ac.enum_to_bits(original.right.tag)))
+    return run()
+""")
+consumer = case / "consumer"
+compile_unit(source, consumer_path, consumer, [provider])
+assert not provider_path.exists() and not payload(provider, "body").exists()
+published_consumer = snapshot(consumer)
+consumer_text = consumer_path.read_text()
+for changed_text in (
+    consumer_text.replace("Cell(data=a, tag=tag_b))", "original)", 1),
+    consumer_text.replace("@ac.module\ndef NominalTop", "@ac.struct\nclass ForeignCell:\n    data: ac.u8\n    tag: Tag\n@ac.module\ndef NominalTop")
+                 .replace("Cell(data=a, tag=tag_b))", "ForeignCell(data=a, tag=tag_b))", 1),
+):
+    assert changed_text != consumer_text
+    consumer_path.write_text(changed_text)
+    cli("compile", "-c", consumer_path, "--source-root", source,
+        "--package-prefix", "serial_methods", "-o", consumer,
+        "-I", provider, accepted=False)
+    assert snapshot(consumer) == published_consumer
+consumer_path.write_text(consumer_text)
+for path in (payload(provider, "body"), payload(provider, "depfile")):
+    (hidden / path.name).rename(path)
+final, before, after = (case / name for name in ("final.ac", "before.ac", "after.ac"))
+base = replay_arguments((provider, consumer), "serial_methods.nominal_consumer.NominalTop")
+run([*base, "--output", final, "--transaction-input-out", before,
+     "--transaction-output-out", after])
+assert '"ac.branch"' in before.read_text() and '"ac.branch"' not in after.read_text()
+assert '"ac.enum.from_bits"' in after.read_text()
+assert '"ac.state"' not in before.read_text(), "local payload updates create no storage"
+protected_cases = protection_checks(base, case / "protection", (provider, consumer))
+for target in ("cpp", "verilog"):
+    cli("emit", final, "--target", target, "-o", case / target)
+rows = oracle_module.nominal_stimuli()
+expected = oracle_module.nominal_expected(rows)
+stimuli = case / "stimuli.txt"
+stimuli.write_text("\n".join(rows) + "\n")
+driver = case / "nominal.cpp"
+driver.write_text((fixtures / "serial-method-public.cpp").read_text()
+                  .replace("@WIDTH@", "8").replace("@DEFAULT_CHECKS@", "")
+                  .replace("@INJECT@", "").replace("@PROBES@", ""))
+cpp_manifest = json.loads((case / "cpp/generated.json").read_text())
+cpp = [case / "cpp" / row["path"] for row in cpp_manifest["files"] if row["path"].endswith(".cpp")]
+executable = case / "native"
+run([args.cxx, "-std=c++20", "-pthread", "-DPYC_NOMINAL_JOIN", "-I" + str(repo / "include"),
+     "-I" + str(case / "cpp"), driver, *cpp, runtime, "-o", executable])
+traces = []
+for workers in (1, 2):
+    output = run([executable, workers, stimuli]).stdout
+    trace = case / f"native-workers-{workers}.txt"
+    trace.write_text(output)
+    actual = [line for line in output.splitlines() if line.startswith("NOMINAL ")]
+    oracle_module.check(actual, expected, str(trace))
+    traces.append(trace)
+rtl_manifest = json.loads((case / "verilog/generated.json").read_text())
+rtl = [case / "verilog" / row["path"] for row in rtl_manifest["files"] if row["role"] == "rtl"]
+rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
+bench = case / "nominal.sv"
+bench.write_text((fixtures / "serial-method-public.sv").read_text().replace("@WIDTH_MINUS_ONE@", "7")
+                 .replace("@INJECT@", "").replace("@PROBES@", ""))
+rtl_executable = case / "rtl"
+run([args.iverilog, "-g2012", "-DPYC_NOMINAL_JOIN", "-s", "tb", "-o", rtl_executable,
+     repo / "include/verilog/dffe.v", *rtl, bench])
+output = run([args.vvp, rtl_executable, "+stimuli=" + str(stimuli)]).stdout
+trace = case / "rtl-four-state.txt"
+trace.write_text(output)
+oracle_module.check([line for line in output.splitlines() if line.startswith("NOMINAL ")], expected, str(trace))
+summaries.append({"mode": "nominal-local-joins", "frames": len(rows),
+                  "provider_python_unavailable": True,
+                  "provider_body_unavailable_during_consumer_compile": True,
+                  "before_sha256": digest(before), "after_sha256": digest(after),
+                  "public_final_sha256": digest(final), "protected_failures": protected_cases})
+
 dynamic_owners = ("count", "before", "after", "old_seen", "first_gate", "second_gate")
 for mode, top_name in (("dynamic-independent", "IndependentTop"),
                        ("dynamic-atomic", "AtomicTop"),
@@ -638,7 +791,7 @@ candidate_files = {name.decode(): digest(repo / name.decode())
 candidate_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
                                 capture_output=True, text=True, check=True).stdout.strip()
 (scratch / "receipt.json").write_text(json.dumps({
-    "scope": "public whole-Bits Method execution: ordinary results and dynamic sampled atomicity",
+    "scope": "public Method execution: nominal local joins, ordinary results and dynamic sampled atomicity",
     "cases": summaries, "candidate_head": candidate_head, "candidate_content_sha256": hashlib.sha256(
         json.dumps(candidate_files, sort_keys=True).encode()).hexdigest(),
     "candidate_files": candidate_files,

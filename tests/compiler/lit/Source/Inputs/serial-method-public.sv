@@ -1,3 +1,55 @@
+`ifdef PYC_NOMINAL_JOIN
+module tb;
+  logic pyc_7079635f636c6b = 0;
+  logic pyc_7079635f727374 = 0;
+  logic [2:0] pyc_phase = 3'd0;
+  logic pyc_root_commit_ok = 1'b0;
+  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;
+  reg flag;
+  reg [7:0] a, b, ta, tb;
+  wire [135:0] result;
+  pyc_root dut(.*);
+  integer fd, status, row = 0;
+  string stimuli;
+  initial begin
+    if (!$value$plusargs("stimuli=%s", stimuli)) $fatal(1, "missing stimuli");
+    fd = $fopen(stimuli, "r");
+    if (!fd) $fatal(1, "cannot open stimuli");
+    #1;
+    pyc_root_commit_ok = 1'b1;
+    pyc_phase = 3'd4;
+    #1;
+    pyc_phase = 3'd2;
+    #1;
+    pyc_phase = 3'd0;
+    pyc_root_commit_ok = 1'b0;
+    status = $fscanf(fd, "%b %b %b %b %b\n", flag, a, b, ta, tb);
+    while (status == 5) begin
+      if (row >= 128) $fatal(1, "unbounded stimulus");
+      for (integer level = 0; level != 2; level = level + 1) begin
+        pyc_7079635f636c6b = level;
+        #1;
+        pyc_phase = 3'd1;
+        #1;
+        if (pyc_check_complete !== 1'b1 || pyc_sampling_error !== 1'b0 ||
+            pyc_local_error !== 1'b0)
+          $fatal(1, "pure nominal sample failed at row %0d", row);
+        pyc_root_commit_ok = 1'b1;
+        pyc_phase = 3'd2;
+        #1;
+        pyc_phase = 3'd0;
+        pyc_root_commit_ok = 1'b0;
+        #1;
+      end
+      $display("NOMINAL %0d %b", row, result);
+      row = row + 1;
+      status = $fscanf(fd, "%b %b %b %b %b\n", flag, a, b, ta, tb);
+    end
+    if (!$feof(fd) || row == 0) $fatal(1, "invalid stimulus");
+    $fclose(fd); $finish;
+  end
+endmodule
+`else
 module tb;
   logic pyc_7079635f636c6b = 0;
   logic pyc_7079635f727374 = 1;
@@ -73,3 +125,5 @@ module tb;
     $finish;
   end
 endmodule
+
+`endif

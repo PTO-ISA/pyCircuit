@@ -7,6 +7,9 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/PointerUnion.h"
+#include <limits>
+#include <type_traits>
 
 using namespace mlir;
 
@@ -327,6 +330,359 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
 
 } // namespace
 
+FailureOr<Type> detail::resolveSourceBranchResultType(
+    Type actualType, const HardwareAnalysis &analysis,
+    const HardwareBindings &lexicalBindings, Operation *diagnosticSite,
+    llvm::function_ref<LogicalResult(uint64_t, uint64_t)> charge) {
+  auto error = [&] {
+    return mlir::emitError(UnknownLoc::get(diagnosticSite->getContext()));
+  };
+  auto *owner = lexicalBindings.owner;
+  auto package = analysis.getPackage();
+  auto *lexical = isa<ModuleOp, ModuleImportOp>(diagnosticSite)
+                      ? diagnosticSite
+                      : diagnosticSite->getParentOfType<ModuleOp>().getOperation();
+  if (!owner || owner != lexical || !isa<ModuleOp, ModuleImportOp>(owner) ||
+      owner->getParentOp() != package.getOperation())
+    return error() << "source branch result requires actual lexical bindings";
+  auto ownerName = owner->getAttrOfType<StringAttr>("sym_name");
+  if (!ownerName || failed(charge(1 + ownerName.getValue().size(), 0)) ||
+      analysis.lookupDefinition(ownerName.getValue()) != owner)
+    return error() << "source branch result bindings have a foreign owner";
+
+  // Traverse raw metadata with an explicit, paid stack. No recursive type or
+  // declaration validator runs until the complete reachable closure is paid.
+  using Node = llvm::PointerUnion<Attribute, Type>;
+  struct RawNode {
+    Node node;
+    unsigned depth;
+    bool exiting = false, substituted = false;
+  };
+  SmallVector<RawNode, 0> raw;
+  SmallVector<Node, 0> activeMetadata;
+  uint64_t nodes = 0, dictionarySlots = 0, arraySlots = 0;
+  uint64_t dictionaries = 0, arrays = 0, expressions = 0;
+  uint64_t substitutionNodes = 0, substitutionTextBytes = 0, typeFormals = 0;
+  uint64_t integerBytes = 0;
+  uint64_t enumMembers = 0, enumTextBytes = 0, enumOccurrences = 0;
+  uint64_t enumParseBytes = 0;
+  uint64_t bitsCalls = 0, fieldPathSlots = 0;
+  unsigned metadataDepth = 0, nominalDepth = 0;
+  auto add = [](uint64_t a, uint64_t c) {
+    return c > std::numeric_limits<uint64_t>::max() - a
+               ? std::numeric_limits<uint64_t>::max() : a + c;
+  };
+  auto multiply = [](uint64_t a, uint64_t c) {
+    return c && a > std::numeric_limits<uint64_t>::max() / c
+               ? std::numeric_limits<uint64_t>::max() : a * c;
+  };
+  auto pay = [&](uint64_t work, uint64_t bytes = 0) -> LogicalResult {
+    if (work == std::numeric_limits<uint64_t>::max() ||
+        bytes == std::numeric_limits<uint64_t>::max())
+      return error() << "source branch result closure cost overflow";
+    return charge(work, bytes);
+  };
+  auto reserveOne = [&](auto &values) -> LogicalResult {
+    if (values.size() < values.capacity()) return success();
+    using Element = typename std::decay_t<decltype(values)>::value_type;
+    uint64_t requested = add(values.size(), 1);
+    uint64_t capacity = std::max(requested, add(multiply(values.capacity(), 2), 1));
+    if (capacity > values.max_size())
+      return error() << "source branch result closure storage overflow";
+    if (failed(pay(values.size(), multiply(capacity, sizeof(Element)))))
+      return failure();
+    values.reserve(capacity);
+    return success();
+  };
+  auto appendRaw = [&](Node node, unsigned depth,
+                       bool substituted = false) -> LogicalResult {
+    if (!node || depth > 128)
+      return error() << "source branch result metadata depth exceeded";
+    metadataDepth = std::max(metadataDepth, depth);
+    if (failed(pay(1)) || failed(reserveOne(raw))) return failure();
+    if (auto attr = node.dyn_cast<Attribute>())
+      substituted |= isa<StaticExprAttr>(attr);
+    raw.push_back({node, depth, false, substituted});
+    return success();
+  };
+  auto metadata = [&](Node root) -> LogicalResult {
+    if (failed(appendRaw(root, 0)))
+      return failure();
+    while (!raw.empty()) {
+      auto entry = raw.pop_back_val();
+      if (entry.exiting) {
+        activeMetadata.pop_back();
+        continue;
+      }
+      if (failed(pay(1 + activeMetadata.size())) ||
+          failed(reserveOne(activeMetadata))) return failure();
+      if (llvm::is_contained(activeMetadata, entry.node))
+        return error() << "recursive source branch result metadata or nominal declaration";
+      activeMetadata.push_back(entry.node);
+      nodes = add(nodes, 1);
+      if (entry.substituted)
+        substitutionNodes = add(substitutionNodes, 1);
+      if (failed(appendRaw(entry.node, entry.depth))) return failure();
+      raw.back().exiting = true;
+      bool valid = true;
+      auto attr = [&](Attribute a) {
+        if (valid && failed(appendRaw(Node(a), entry.depth + 1,
+                                     entry.substituted))) valid = false;
+      };
+      auto type = [&](Type t) {
+        if (valid && failed(appendRaw(Node(t), entry.depth + 1))) valid = false;
+      };
+      if (auto a = entry.node.dyn_cast<Attribute>()) {
+        uint64_t bytes = 0;
+        if (auto text = dyn_cast<StringAttr>(a)) bytes = text.getValue().size();
+        if (auto integer = dyn_cast<IntegerAttr>(a))
+          bytes = (uint64_t(integer.getValue().getBitWidth()) + 7) / 8;
+        if (entry.substituted) {
+          substitutionTextBytes = add(substitutionTextBytes, bytes);
+          if (auto dictionary = dyn_cast<DictionaryAttr>(a)) {
+            dictionaries = add(dictionaries, 1);
+            dictionarySlots = add(dictionarySlots, dictionary.size());
+          }
+          if (auto array = dyn_cast<ArrayAttr>(a)) {
+            arrays = add(arrays, 1);
+            arraySlots = add(arraySlots, array.size());
+          }
+        }
+        if (isa<StaticExprAttr>(a)) expressions = add(expressions, 1);
+        if (auto integer = dyn_cast<MathIntAttr>(a))
+          integerBytes = add(integerBytes, integer.getCanonicalValue().size());
+        if (failed(pay(1 + bytes))) return failure();
+        a.walkImmediateSubElements(attr, type);
+      } else {
+        if (failed(pay(1))) return failure();
+        Type current = entry.node.get<Type>();
+        typeFormals += isa<TypeParamType>(current);
+        current.walkImmediateSubElements(attr, type);
+        Operation *declaration = nullptr;
+        if (auto record = dyn_cast<StructType>(current)) {
+          if (!record.getName()) return error() << "malformed nominal Struct type";
+          declaration = analysis.lookupStruct(record);
+        } else if (auto enumeration = dyn_cast<EnumType>(current)) {
+          if (!enumeration.getName()) return error() << "malformed nominal Enum type";
+          declaration = analysis.lookupEnum(enumeration);
+        }
+        if (isa<StructType, EnumType>(current)) {
+          if (!declaration || declaration->getParentOp() != package.getOperation())
+            return error() << "unresolved source branch nominal declaration";
+          if (auto enumeration = dyn_cast<EnumType>(current)) {
+            ++enumOccurrences;
+            if (auto width = declaration->getAttrOfType<MathIntAttr>("width"))
+              enumParseBytes = add(enumParseBytes, width.getCanonicalValue().size());
+            auto members = declaration->getAttrOfType<ArrayAttr>("members");
+            if (members) {
+              if (failed(pay(members.size()))) return failure();
+              enumMembers = add(enumMembers, members.size());
+              for (Attribute rawMember : members)
+                if (auto member = dyn_cast<DictionaryAttr>(rawMember)) {
+                  if (auto name = member.getAs<StringAttr>("name"))
+                    enumTextBytes = add(enumTextBytes, name.getValue().size() + 1);
+                  if (auto code = member.getAs<MathIntAttr>("code")) {
+                    enumTextBytes = add(enumTextBytes, code.getCanonicalValue().size() + 1);
+                    enumParseBytes = add(enumParseBytes, code.getCanonicalValue().size());
+                  }
+                }
+            }
+          }
+          if (failed(pay(1, declaration->getPropertiesStorageSize()))) return failure();
+          // Native static substitution borrows nominal TypeAttrs; it never
+          // reconstructs declaration dictionaries, arrays or locations. Keep
+          // their raw traversal separate from actual substitution storage.
+          for (Attribute metadata : {Attribute(declaration->getRawDictionaryAttrs()),
+                                     Attribute(declaration->getLoc())})
+            if (valid && failed(appendRaw(Node(metadata), entry.depth + 1)))
+              valid = false;
+          if (valid && declaration->getPropertiesStorageSize() &&
+              failed(appendRaw(Node(declaration->getPropertiesAsAttribute()),
+                               entry.depth + 1)))
+            valid = false;
+        }
+      }
+      if (!valid) return failure();
+    }
+    return success();
+  };
+  for (const auto &binding : lexicalBindings.integers) {
+    if (failed(pay(1 + binding.getKey().size())) ||
+        failed(metadata(Node(binding.second)))) return failure();
+  }
+  for (const auto &binding : lexicalBindings.types) {
+    if (failed(pay(1 + binding.getKey().size())) ||
+        failed(metadata(Node(binding.second)))) return failure();
+  }
+  // Scope checking reads these inventories. Inspect them before it can recurse.
+  for (StringRef name : {"type_parameters", "parameters"})
+    if (auto attr = owner->getAttr(name))
+      if (failed(metadata(Node(attr)))) return failure();
+
+  struct Frame { Type type; ArrayAttr fields; size_t next = 0; bool entered = false; };
+  SmallVector<Frame, 0> stack;
+  SmallVector<Type, 0> validated;
+  auto push = [&](Type type) -> LogicalResult {
+    if (!type || stack.size() > 128)
+      return error() << "source branch result nominal depth exceeded";
+    if (failed(pay(1 + stack.size())) || failed(reserveOne(stack)))
+      return failure();
+    for (const Frame &ancestor : stack)
+      if (ancestor.type == type)
+        return error() << "recursive source branch result nominal declaration";
+    stack.push_back({type, {}, 0, false});
+    nominalDepth = std::max(nominalDepth, unsigned(stack.size()));
+    return success();
+  };
+  if (failed(metadata(Node(actualType))) || failed(push(actualType))) return failure();
+  while (!stack.empty()) {
+    auto &frame = stack.back();
+    if (!frame.entered) {
+      frame.entered = true;
+      if (!isa<BitsType, EnumType, StructType>(frame.type))
+        return error() << "source branch results require Bits, Enum or finite "
+                          "Struct without Tables";
+      Operation *declaration = nullptr;
+      if (auto record = dyn_cast<StructType>(frame.type))
+        declaration = analysis.lookupStruct(record);
+      else if (auto enumeration = dyn_cast<EnumType>(frame.type))
+        declaration = analysis.lookupEnum(enumeration);
+      if (!isa<BitsType>(frame.type)) {
+        if (!declaration || declaration->getParentOp() != package.getOperation())
+          return error() << "unresolved source branch nominal declaration";
+        auto name = declaration->getAttrOfType<StringAttr>("sym_name");
+        if (!name || name.getValue().empty())
+          return error() << "source branch nominal declaration requires a name";
+        if (isa<StructOp>(declaration)) {
+          frame.fields = declaration->getAttrOfType<ArrayAttr>("fields");
+          if (!frame.fields || frame.fields.empty() || declaration->hasAttr("constructor"))
+            return error() << "invalid source branch Struct declaration";
+          for (auto [i, raw] : llvm::enumerate(frame.fields)) {
+            auto field = dyn_cast<DictionaryAttr>(raw);
+            auto key = field ? field.getAs<StringAttr>("name") : StringAttr();
+            auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+            if (!field || field.size() != 2 || !key || key.getValue().empty() || !type)
+              return error() << "source branch Struct fields require name and type";
+            if (failed(pay(i + key.getValue().size()))) return failure();
+            for (Attribute previous : frame.fields.getValue().take_front(i))
+              if (cast<DictionaryAttr>(previous).getAs<StringAttr>("name") == key)
+                return error() << "source branch Struct field names must be unique";
+          }
+        } else {
+          auto width = declaration->getAttrOfType<MathIntAttr>("width");
+          auto encoding = declaration->getAttrOfType<StringAttr>("encoding");
+          auto members = declaration->getAttrOfType<ArrayAttr>("members");
+          if (!width || !encoding || !members || members.empty())
+            return error() << "invalid source branch Enum declaration";
+          for (Attribute raw : members) {
+            auto member = dyn_cast<DictionaryAttr>(raw);
+            if (!member || member.size() != 2 || !member.getAs<StringAttr>("name") ||
+                !member.getAs<MathIntAttr>("code"))
+              return error() << "invalid source branch Enum member";
+          }
+        }
+      }
+    }
+    if (frame.fields && frame.next < frame.fields.size()) {
+      Type child = cast<DictionaryAttr>(frame.fields[frame.next++])
+                       .getAs<TypeAttr>("type").getValue();
+      fieldPathSlots = add(fieldPathSlots, stack.size());
+      if (failed(push(child))) return failure();
+      continue;
+    }
+    if (failed(pay(1)) || failed(reserveOne(validated))) return failure();
+    bitsCalls += isa<BitsType>(frame.type);
+    validated.push_back(frame.type);
+    stack.pop_back();
+  }
+  // Grammar validation owns one completed DenseMap and active DenseSet per
+  // Bits width. LLVM starts at 64 buckets and doubles before 3/4 occupancy;
+  // twice the final bound covers every allocation over that invocation.
+  uint64_t grammarBuckets = multiply(2, add(multiply(64, bitsCalls),
+                                            multiply(4, expressions)));
+  uint64_t grammarBytes = multiply(grammarBuckets,
+      sizeof(std::pair<DictionaryAttr, bool>) + sizeof(DictionaryAttr));
+  // Native substitution reconstructs only StaticExpr/binding metadata, not
+  // nominal declaration records. Summed temporary
+  // vector allocations stay below four times the logical handle count;
+  // interning stores another copy. Charge cumulative allocation, including
+  // buffers freed during growth. Strings in these records remain borrowed.
+  uint64_t cloneBytes = add(
+      multiply(dictionarySlots, 5 * sizeof(NamedAttribute)),
+      multiply(arraySlots, 5 * sizeof(Attribute)));
+  cloneBytes = add(cloneBytes, multiply(add(dictionaries, arrays),
+                                       3 * sizeof(Attribute)));
+  cloneBytes = add(cloneBytes, multiply(expressions, 2 * sizeof(Attribute)));
+  // resolveType substitutes once; evaluateStatic can substitute each nested
+  // expression once more. Explicit binding chains add their measured length.
+  uint64_t substitutionPasses = add(1 + metadataDepth,
+      add(lexicalBindings.types.size(), lexicalBindings.integers.size()));
+  uint64_t substitutionBytes = multiply(cloneBytes, substitutionPasses);
+  // Enum resolution owns a member vector and two StringSets. Each StringMap
+  // starts at 16 buckets, doubles at 3/4 occupancy, and copies its own keys.
+  // Layout resolves each Enum twice; resolving a standalone root adds one.
+  uint64_t enumBuckets = multiply(4, add(multiply(16, enumOccurrences),
+                                         multiply(4, enumMembers)));
+  uint64_t enumBytes = multiply(enumBuckets, sizeof(void *) + sizeof(unsigned));
+  enumBytes = add(enumBytes, multiply(enumMembers,
+      4 * sizeof(EnumMember) + 2 * sizeof(llvm::StringMapEntry<std::nullopt_t>)));
+  enumBytes = add(enumBytes, enumTextBytes);
+  enumBytes = multiply(enumBytes, isa<EnumType>(actualType) ? 3 : 2);
+  // getPackedWidth keeps an active Type set and copies field-path handles
+  // twice plus possible vector growth at each actual field edge.
+  uint64_t layoutBytes = multiply(2 * (64 + 4 * uint64_t(nominalDepth)), sizeof(Type));
+  layoutBytes = add(layoutBytes, multiply(fieldPathSlots, 4 * sizeof(StringAttr)));
+  if (isa<BitsType>(actualType)) layoutBytes = 0;
+  uint64_t traversalBytes = multiply(2 * (metadataDepth + 1),
+                                     sizeof(std::pair<Attribute, Operation *>));
+  // Prepay parsing/copying of existing numeric spellings separately from
+  // traversal work. Arbitrary evaluated APInt result precision remains an
+  // inherited evaluator limitation; source size does not bound that allocation.
+  uint64_t spellingBytes = multiply(integerBytes, add(substitutionPasses, 2));
+  uint64_t nativeBytes = add(add(grammarBytes, substitutionBytes),
+      add(add(enumBytes, layoutBytes), add(traversalBytes, spellingBytes)));
+  // Only expression subtrees undergo repeated substitution. Declaration and
+  // source-owner metadata outside them still pays its complete raw traversal,
+  // plus this single native visit, rather than an evaluator-depth multiplier.
+  uint64_t substitutionVisits =
+      add(add(substitutionNodes, dictionarySlots), arraySlots);
+  uint64_t nativeWork = add(nodes - substitutionNodes,
+      add(multiply(substitutionVisits, add(substitutionPasses, 3)),
+          multiply(substitutionTextBytes, substitutionPasses)));
+  // Enum layout resolves each leaf twice (three times for a standalone root).
+  // Each resolution revisits members, hashes names/codes and parses numeric
+  // spellings; these are distinct from expression substitution visits.
+  uint64_t enumVisits = add(add(enumOccurrences, enumMembers),
+                           add(enumTextBytes, enumParseBytes));
+  nativeWork = add(nativeWork,
+      multiply(enumVisits, isa<EnumType>(actualType) ? 3 : 2));
+  nativeWork = add(nativeWork, add(validated.size(), fieldPathSlots));
+  // Scope verification scans the actual owner's formal inventories at each
+  // reference. Counting every expression as a parameter reference is a safe
+  // bound and retains the cost of repeated owner/name comparisons above.
+  auto parameters = owner->getAttrOfType<ArrayAttr>("parameters");
+  auto typeParameters = owner->getAttrOfType<ArrayAttr>("type_parameters");
+  nativeWork = add(nativeWork,
+      add(multiply(expressions, parameters ? parameters.size() : 0),
+          multiply(typeFormals, typeParameters ? typeParameters.size() : 0)));
+  if (failed(pay(nativeWork, nativeBytes))) return failure();
+  for (Type type : validated) {
+    if (auto bits = dyn_cast<BitsType>(type)) {
+      if (failed(BitsType::verify(error, bits.getWidth()))) return failure();
+    } else if (auto enumeration = dyn_cast<EnumType>(type)) {
+      if (failed(EnumType::verify(error, enumeration.getName()))) return failure();
+    } else if (auto record = dyn_cast<StructType>(type)) {
+      if (failed(StructType::verify(error, record.getName()))) return failure();
+    }
+    if (failed(detail::verifyHardwareTypeScope(type, owner))) return failure();
+  }
+  if (!isa<BitsType>(actualType)) {
+    auto width = analysis.getPackedWidth(actualType, lexicalBindings, diagnosticSite);
+    if (failed(width) || !*width) return failure();
+  }
+  return analysis.resolveType(actualType, lexicalBindings, diagnosticSite);
+}
+
 LogicalResult SourceStateOp::verify() {
   if ((*this)->hasAttr("sym_name"))
     return emitOpError() << "state uses instance_name; sym_name is unsupported";
@@ -420,13 +776,21 @@ LogicalResult SourceBranchOp::verifyRegions() {
              << "source branch yield arity must match results";
     for (auto [actual, expected] :
          llvm::zip(yield.getOperandTypes(), getResultTypes())) {
-      auto left = analysis.resolveType(actual, bindings, &yield);
-      auto right = analysis.resolveType(expected, bindings, *this);
+      auto charge = [&](uint64_t units, uint64_t bytes) -> LogicalResult {
+        uint64_t slots = bytes / 8 + (bytes % 8 != 0);
+        if (units > 1024 * 1024 - work || slots > 1024 * 1024 - work - units)
+          return mlir::emitError(UnknownLoc::get(getContext()))
+                 << "source branch verification budget exceeded";
+        work += units + slots;
+        return success();
+      };
+      auto left = detail::resolveSourceBranchResultType(actual, analysis, bindings, &yield, charge);
+      auto right = detail::resolveSourceBranchResultType(expected, analysis, bindings, *this, charge);
       if (failed(left) || failed(right))
         return failure();
-      if (!isa<BitsType>(*left) || !areEquivalentHardwareTypes(*left, *right))
+      if (!areEquivalentHardwareTypes(*left, *right))
         return yield.emitOpError()
-               << "source branch yields require matching Bits results";
+               << "source branch yields require matching nominal or Bits results";
     }
     for (Operation &operation : arm->front().without_terminator())
       if (failed(branchPayload(&operation, true, 0, work)))

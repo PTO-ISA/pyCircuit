@@ -1658,6 +1658,74 @@ TEST_F(MethodSummaryAuthorityTest,
 }
 
 TEST_F(MethodSummaryAuthorityTest,
+       NominalBranchSummaryRetainsOneTypedSlotAndProviderAuthority) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto act = named<SourceMethodOp>(child, "act");
+  auto &body = act.getBody().front();
+  auto byte = body.getArgument(1).getType();
+  auto packet = StructType::get(&context, builder.getStringAttr("LocalPacket"));
+  auto foreign = StructType::get(&context, builder.getStringAttr("ForeignPacket"));
+  builder.setInsertionPointToStart(file->getBody());
+  for (auto name : {"LocalPacket", "ForeignPacket"}) {
+    mlir::OperationState declaration(act.getLoc(),
+                                     StructOp::getOperationName());
+    declaration.addAttribute("sym_name", builder.getStringAttr(name));
+    declaration.addAttribute(
+        "fields",
+        builder.getArrayAttr({builder.getDictionaryAttr(
+            {builder.getNamedAttr("name", builder.getStringAttr("payload")),
+             builder.getNamedAttr("type", mlir::TypeAttr::get(byte))})}));
+    builder.create(declaration);
+  }
+  builder.setInsertionPoint(body.getTerminator());
+  mlir::OperationState make(act.getLoc(), StructCreateOp::getOperationName());
+  make.addOperands(body.getArgument(1));
+  make.addTypes(packet);
+  auto left = builder.create(make)->getResult(0);
+  mlir::OperationState other(act.getLoc(), StructCreateOp::getOperationName());
+  other.addOperands(body.getArgument(6));
+  other.addTypes(packet);
+  auto right = builder.create(other)->getResult(0);
+  auto split = branch(act, body.getTerminator()->getIterator(),
+                      body.getArgument(5), left, right, 19);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  auto effects = array(namedRow(published, "methods", "act"), "body_effects");
+  auto ordinal = effects.size() - 1;
+  auto row = dict(effects[ordinal]);
+  EXPECT_EQ(row.size(), 7u);
+  auto results = array(row, "results");
+  ASSERT_EQ(results.size(), 1u);
+  auto result = dict(results[0]);
+  EXPECT_EQ(result.size(), 3u);
+  EXPECT_EQ(result.getAs<mlir::TypeAttr>("type").getValue(),
+            split.getResult(0).getType());
+  structureAccepts(child, published);
+  // A coherent same-layout nominal substitution still fails against the body.
+  auto changedResult = changed(result, "type", mlir::TypeAttr::get(foreign));
+  bodyRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    static_cast<unsigned>(ordinal), std::string("results"), 0u},
+                   changedResult)),
+      analysis);
+  auto tablePacket = StructType::get(&context, builder.getStringAttr("Packet")); // Existing declaration contains a Table.
+  structureRejects(
+      child,
+      dict(replace(published,
+                   {std::string("methods"), 0u, std::string("body_effects"),
+                    static_cast<unsigned>(ordinal), std::string("results"), 0u},
+                   changed(result, "type", mlir::TypeAttr::get(tablePacket)))));
+}
+
+TEST_F(MethodSummaryAuthorityTest,
        DeadArmDynamicCallsRemainInNativeAndPublishedTotalityInventories) {
   for (bool nested : {false, true}) {
     for (unsigned selector : {0u, 1u, 2u}) {

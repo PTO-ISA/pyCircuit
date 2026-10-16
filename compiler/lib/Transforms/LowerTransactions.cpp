@@ -61,6 +61,161 @@ bool prepayAppend(SourceCheckBudget &budget, Operation *site, Vector &vector) {
   return true;
 }
 
+// Metadata for materialization only. The original-source proof below derives
+// its own traversal directly from original declarations and yields.
+struct BranchJoinNode {
+  Type type;
+  StringAttr field;
+  uint64_t parent = UINT64_MAX;
+  SmallVector<uint64_t, 0> children;
+  SmallVector<Value, 0> fields;
+  Value whenTrue, whenFalse, joined;
+  uint64_t enumWidth = 0;
+};
+struct BranchJoinLayout {
+  SmallVector<BranchJoinNode, 0> nodes;
+  uint64_t operations = 0;
+};
+
+FailureOr<Type> branchResultType(Type type,
+                                 const ac::HardwareAnalysis &hardware,
+                                 const ac::HardwareBindings &bindings,
+                                 Operation *site, SourceCheckBudget &budget) {
+  SourceCheckBudget::RawDiagnosticScope rawDiagnostics(budget);
+  return ac::detail::resolveSourceBranchResultType(
+      type, hardware, bindings, site, [&](uint64_t work, uint64_t bytes) {
+        return budget.debit(
+            SourceCheckBudget::add(work,
+                                   bytes == std::numeric_limits<uint64_t>::max()
+                                       ? bytes
+                                       : SourceCheckBudget::bytes(bytes)),
+            site);
+      });
+}
+
+FailureOr<BranchJoinLayout>
+branchJoinLayout(Type root, const ac::HardwareAnalysis &hardware,
+                 const ac::HardwareBindings &bindings, Operation *site,
+                 SourceCheckBudget &budget) {
+  auto admitted = branchResultType(root, hardware, bindings, site, budget);
+  if (failed(admitted))
+    return failure();
+  struct Pending {
+    Type type;
+    StringAttr field;
+    uint64_t parent;
+    unsigned depth;
+  };
+  SmallVector<Pending, 0> pending;
+  BranchJoinLayout result;
+  if (!prepayAppend(budget, site, pending))
+    return failure();
+  pending.push_back({*admitted, {}, UINT64_MAX, 0});
+  while (!pending.empty()) {
+    auto next = pending.pop_back_val();
+    if (next.depth > 128 || !prepayAppend(budget, site, result.nodes))
+      return failure();
+    uint64_t id = result.nodes.size();
+    result.nodes.emplace_back();
+    result.nodes.back().type = next.type;
+    result.nodes.back().field = next.field;
+    result.nodes.back().parent = next.parent;
+    if (next.parent != UINT64_MAX)
+      result.nodes[next.parent].children.push_back(id);
+    if (isa<ac::BitsType>(next.type)) {
+      result.operations = SourceCheckBudget::add(result.operations, 1);
+    } else if (auto enumeration = dyn_cast<ac::EnumType>(next.type)) {
+      // The admission helper has resolved and validated this declaration.
+      // Read its already-proven finite width without revalidating members.
+      auto declaration = hardware.lookupEnum(enumeration);
+      auto width = declaration.getWidthAttr().getCanonicalValue();
+      if (!charge(budget, site,
+                  SourceCheckBudget::add(
+                      16, SourceCheckBudget::bytes(width.size()))))
+        return failure();
+      result.nodes[id].enumWidth = llvm::APSInt(width).getZExtValue();
+      result.operations = SourceCheckBudget::add(result.operations, 4);
+    } else if (auto structure = dyn_cast<ac::StructType>(next.type)) {
+      auto fields = hardware.lookupStruct(structure).getFields();
+      uint64_t count = fields.size();
+      uint64_t bytes =
+          SourceCheckBudget::multiply(count, sizeof(uint64_t) + sizeof(Value));
+      if (bytes == std::numeric_limits<uint64_t>::max() ||
+          count > result.nodes[id].children.max_size() ||
+          count > result.nodes[id].fields.max_size() ||
+          !charge(
+              budget, site,
+              SourceCheckBudget::add(count, SourceCheckBudget::bytes(bytes))))
+        return failure();
+      result.nodes[id].children.reserve(count);
+      result.nodes[id].fields.reserve(count);
+      result.operations = SourceCheckBudget::add(
+          result.operations,
+          SourceCheckBudget::add(1, SourceCheckBudget::multiply(count, 2)));
+      for (Attribute raw : llvm::reverse(fields)) {
+        if (!charge(budget, site, 2)) return failure();
+        auto field = cast<DictionaryAttr>(raw);
+        Type declared = field.getAs<TypeAttr>("type").getValue();
+        // This traversal's admitted root proves the complete nominal closure.
+        // Nominal children retain identity; Bits still resolve their width.
+        FailureOr<Type> resolved = failure();
+        if (isa<ac::StructType, ac::EnumType>(declared))
+          resolved = declared;
+        else if (isa<ac::BitsType>(declared))
+          resolved = branchResultType(declared, hardware, bindings, site, budget);
+        else
+          return site->emitOpError() << "unsupported local branch field type";
+        if (failed(resolved) || !prepayAppend(budget, site, pending))
+          return failure();
+        pending.push_back(
+            {*resolved, field.getAs<StringAttr>("name"), id, next.depth + 1});
+      }
+    } else {
+      return site->emitOpError() << "unsupported local branch result type";
+    }
+  }
+  return result;
+}
+
+// Width provenance belongs to this original branch occurrence. Enum width
+// authority has already been established from its nominal declaration.
+Type branchCarrierType(uint64_t width, ac::SourceBranchOp branch) {
+  Builder builder(branch.getContext());
+  auto literal = ac::MathIntAttr::get(
+      branch.getContext(), llvm::APSInt(llvm::APInt(64, width), true));
+  auto tree = builder.getDictionaryAttr(
+      {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+       builder.getNamedAttr(
+           "value",
+           builder.getDictionaryAttr(
+               {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+                builder.getNamedAttr("value", literal)})),
+       builder.getNamedAttr("origin", branch->getAttr("occurrence")),
+       builder.getNamedAttr("location", branch.getConditionLocation())});
+  return ac::BitsType::get(branch.getContext(),
+                           ac::StaticExprAttr::get(branch.getContext(), tree));
+}
+
+// Prepay every generated operation and its transient operand/type/attribute
+// storage before creating any join operation. The formula is 2F+B+4E+S.
+bool prepayBranchJoin(SourceCheckBudget &budget, Operation *site,
+                      const BranchJoinLayout &layout) {
+  uint64_t bytes = SourceCheckBudget::multiply(
+      layout.operations, sizeof(Operation *) + sizeof(Operation) +
+                             sizeof(OperationState) + 4 * sizeof(Value) +
+                             2 * sizeof(Type) + 16 * sizeof(NamedAttribute) +
+                             sizeof(ac::StructGetOp::Properties));
+  bytes = SourceCheckBudget::add(
+      bytes, SourceCheckBudget::multiply(
+                 layout.nodes.size(), 2 * sizeof(std::pair<uint64_t, bool>)));
+  if (bytes == std::numeric_limits<uint64_t>::max())
+    return charge(budget, site, bytes);
+  return charge(
+      budget, site,
+      SourceCheckBudget::add(SourceCheckBudget::multiply(layout.operations, 64),
+                             SourceCheckBudget::bytes(bytes)));
+}
+
 struct SavedMaterializedObservation {
   Value path;
   ac::TransactionPoint point;
@@ -1166,6 +1321,14 @@ private:
         !product(budget, transaction, plan.frames.size(),
                  2 * prepared.liveIns.size() + 1))
       return failure();
+    for (const auto &result : plan.branchResults) {
+      auto branch = plan.branches[result.branch].operation;
+      auto layout =
+          branchJoinLayout(result.payloadType, hardware,
+                           plan.frames[result.frame].bindings, branch, budget);
+      if (failed(layout) || !prepayBranchJoin(budget, branch, *layout))
+        return failure();
+    }
     for (const auto &frame : plan.frames) {
       auto method = frame.method;
       Operation *function =
@@ -1564,6 +1727,94 @@ private:
     return cast<ac::BitsSelectOp>(builder.create(state));
   }
 
+  FailureOr<MaterializedBranchResult> localJoin(ac::SourceBranchOp branch,
+                                                ac::InvocationFrameId frame,
+                                                Value condition, Value whenTrue,
+                                                Value whenFalse, Type type,
+                                                OpBuilder &builder) {
+    ac::HardwareAnalysis hardware(branch->getParentOfType<mlir::ModuleOp>());
+    auto layout = branchJoinLayout(type, hardware, plan.frames[frame].bindings,
+                                   branch, budget);
+    if (failed(layout) || !condition || !whenTrue || !whenFalse ||
+        !ac::areEquivalentHardwareTypes(whenTrue.getType(), type) ||
+        !ac::areEquivalentHardwareTypes(whenFalse.getType(), type) ||
+        layout->operations > SmallVector<Operation *, 0>().max_size() ||
+        layout->nodes.size() >
+            SmallVector<std::pair<uint64_t, bool>, 0>().max_size() / 2 ||
+        !prepayBranchJoin(budget, branch, *layout))
+      return failure();
+    MaterializedBranchResult result;
+    result.generated.reserve(layout->operations);
+    SmallVector<std::pair<uint64_t, bool>, 0> pending;
+    pending.reserve(2 * layout->nodes.size());
+    layout->nodes[0].whenTrue = whenTrue;
+    layout->nodes[0].whenFalse = whenFalse;
+    pending.push_back({0, false});
+    auto create = [&](StringRef name, ArrayRef<Value> operands,
+                      ArrayRef<Type> types,
+                      ArrayRef<NamedAttribute> attributes = {}) {
+      OperationState state(branch.getLoc(), name);
+      state.addOperands(operands);
+      state.addTypes(types);
+      state.addAttributes(attributes);
+      Operation *op = builder.create(state);
+      result.generated.push_back(op);
+      return op;
+    };
+    while (!pending.empty()) {
+      auto [index, exiting] = pending.pop_back_val();
+      auto &node = layout->nodes[index];
+      if (!exiting && node.parent != UINT64_MAX) {
+        auto &parent = layout->nodes[node.parent];
+        auto field = builder.getNamedAttr("field", node.field);
+        node.whenTrue = create(ac::StructGetOp::getOperationName(),
+                               {parent.whenTrue}, {node.type}, {field})
+                            ->getResult(0);
+        node.whenFalse = create(ac::StructGetOp::getOperationName(),
+                                {parent.whenFalse}, {node.type}, {field})
+                             ->getResult(0);
+      }
+      if (isa<ac::StructType>(node.type) && !exiting) {
+        pending.push_back({index, true});
+        for (auto child : llvm::reverse(node.children))
+          pending.push_back({child, false});
+        continue;
+      }
+      if (isa<ac::BitsType>(node.type)) {
+        node.joined =
+            create(ac::BitsSelectOp::getOperationName(),
+                   {condition, node.whenTrue, node.whenFalse}, {node.type})
+                ->getResult(0);
+      } else if (isa<ac::EnumType>(node.type)) {
+        Type carrier = branchCarrierType(node.enumWidth, branch);
+        Type membership = branchCarrierType(1, branch);
+        Value t = create(ac::EnumToBitsOp::getOperationName(), {node.whenTrue},
+                         {carrier})
+                      ->getResult(0);
+        Value f = create(ac::EnumToBitsOp::getOperationName(), {node.whenFalse},
+                         {carrier})
+                      ->getResult(0);
+        Value selected = create(ac::BitsSelectOp::getOperationName(),
+                                {condition, t, f}, {carrier})
+                             ->getResult(0);
+        node.joined = create(ac::EnumFromBitsOp::getOperationName(), {selected},
+                             {node.type, membership})
+                          ->getResult(0);
+      } else {
+        node.joined = create(ac::StructCreateOp::getOperationName(),
+                             node.fields, {node.type})
+                          ->getResult(0);
+      }
+      if (node.parent != UINT64_MAX)
+        layout->nodes[node.parent].fields.push_back(node.joined);
+    }
+    if (result.generated.size() != layout->operations)
+      return branch.emitOpError()
+             << "local branch join operation count differs";
+    result.value = layout->nodes[0].joined;
+    return result;
+  }
+
   FailureOr<Value> binary(Value lhs, Value rhs, StringRef opcode,
                           Location location, OpBuilder &builder) {
     if (!charge(budget, plan.transaction,
@@ -1748,15 +1999,15 @@ private:
           auto whenFalse = bound(result.whenFalse);
           if (failed(whenTrue) || failed(whenFalse))
             return failure();
-          auto joined = select(*condition, *whenTrue, *whenFalse,
-                               result.payloadType, op.getLoc(), builder);
+          auto joined = localJoin(split, frame, *condition, *whenTrue,
+                                  *whenFalse, result.payloadType, builder);
           if (failed(joined))
             return failure();
           Value original = plan.values[result.result].value;
           if (!prepayValueMapping(budget, split, frames[frame], original))
             return failure();
-          frames[frame].map(original, joined->getResult());
-          branchResults[id].select = *joined;
+          frames[frame].map(original, joined->value);
+          branchResults[id] = std::move(*joined);
         }
       } else if (auto call = dyn_cast<ac::SourceMethodCallOp>(op)) {
         auto found = calls.find({frame, call});
@@ -2784,6 +3035,228 @@ private:
     return cover(op);
   }
 
+  LogicalResult localBranchProof(ac::SourceBranchOp branch, Type resolvedRoot,
+                                 const ac::HardwareBindings &bindings,
+                                 Value condition, Value whenTrue,
+                                 Value whenFalse,
+                                 const MaterializedBranchResult &record,
+                                 Block *parent, Operation *&last) {
+    if (!record.value || !values.contains(record.value) ||
+        !values.contains(condition) || !values.contains(whenTrue) ||
+        !values.contains(whenFalse))
+      return reject("original local branch locator is not a live value");
+    // The immediately preceding original-result check admitted this exact root
+    // with the same original hardware and lexical bindings. Reuse only its
+    // resolved Type here; descendant checks and graph proof remain independent.
+    if (!resolvedRoot ||
+        !ac::areEquivalentHardwareTypes(whenTrue.getType(), resolvedRoot) ||
+        !ac::areEquivalentHardwareTypes(whenFalse.getType(), resolvedRoot))
+      return reject("original local branch input type differs");
+
+    // Count from the original type tree, independently of materializer
+    // metadata. Repeated sibling declarations are distinct visits, not nominal
+    // cycles.
+    struct CountFrame {
+      Type type;
+      unsigned depth;
+    };
+    SmallVector<CountFrame, 0> counting;
+    if (!prepayAppend(budget, branch, counting))
+      return failure();
+    counting.push_back({resolvedRoot, 0});
+    uint64_t expectedCount = 0;
+    while (!counting.empty()) {
+      auto next = counting.pop_back_val();
+      if (next.depth > 128 || !charge(budget, branch))
+        return failure();
+      if (isa<ac::BitsType>(next.type)) {
+        expectedCount = SourceCheckBudget::add(expectedCount, 1);
+      } else if (isa<ac::EnumType>(next.type)) {
+        expectedCount = SourceCheckBudget::add(expectedCount, 4);
+      } else if (auto structure = dyn_cast<ac::StructType>(next.type)) {
+        auto fields = hardware.lookupStruct(structure).getFields();
+        expectedCount = SourceCheckBudget::add(
+            expectedCount,
+            SourceCheckBudget::add(
+                1, SourceCheckBudget::multiply(fields.size(), 2)));
+        for (Attribute raw : fields) {
+          if (!charge(budget, branch, 2)) return failure();
+          auto field = cast<DictionaryAttr>(raw);
+          Type declared = field.getAs<TypeAttr>("type").getValue();
+          // Reuse only this proof's independently admitted nominal closure.
+          FailureOr<Type> resolved = failure();
+          if (isa<ac::StructType, ac::EnumType>(declared))
+            resolved = declared;
+          else if (isa<ac::BitsType>(declared))
+            resolved = branchResultType(declared, hardware, bindings, branch, budget);
+          else
+            return reject("original local branch field type is unsupported");
+          if (failed(resolved) || !prepayAppend(budget, branch, counting))
+            return failure();
+          counting.push_back({*resolved, next.depth + 1});
+        }
+      } else {
+        return reject("original local branch type is unsupported");
+      }
+    }
+    if (record.generated.size() != expectedCount ||
+        !charge(budget, branch, SourceCheckBudget::multiply(expectedCount, 8)))
+      return reject("original local branch operation inventory differs");
+
+    struct Frame {
+      Type type;
+      Value whenTrue, whenFalse;
+      ArrayAttr fields;
+      uint64_t next = 0;
+      SmallVector<Value, 0> joinedFields;
+    };
+    SmallVector<Frame, 0> stack;
+    if (!charge(budget, branch, SourceCheckBudget::bytes(129 * sizeof(Frame))))
+      return failure();
+    stack.reserve(129);
+    auto push = [&](Type type, Value t, Value f) -> LogicalResult {
+      if (stack.size() >= 129 || !charge(budget, branch, 4))
+        return failure();
+      Frame frame{type, t, f, {}, 0, {}};
+      if (auto structure = dyn_cast<ac::StructType>(type)) {
+        frame.fields = hardware.lookupStruct(structure).getFields();
+        uint64_t size = frame.fields.size();
+        if (size > frame.joinedFields.max_size() ||
+            !charge(budget, branch,
+                    SourceCheckBudget::add(
+                        size,
+                        SourceCheckBudget::bytes(
+                            SourceCheckBudget::multiply(size, sizeof(Value))))))
+          return failure();
+        frame.joinedFields.reserve(size);
+      }
+      stack.push_back(std::move(frame));
+      return success();
+    };
+    Builder b(branch.getContext());
+    uint64_t cursor = 0;
+    auto take = [&](StringRef name, ArrayRef<Value> operands,
+                    ArrayRef<Type> types,
+                    DictionaryAttr attributes) -> FailureOr<Value> {
+      if (cursor == record.generated.size() || !charge(budget, branch, 4))
+        return failure();
+      Operation *op = record.generated[cursor++];
+      // A locator can be erased or stale. Membership precedes every access.
+      if (!op || !operations.contains(op))
+        return reject("original local branch operation locator is not live");
+      for (Value operand : operands)
+        if (!values.contains(operand))
+          return reject("original local branch operand locator is not live");
+      if (failed(generatedProof(op, name, operands, types, attributes,
+                                branch.getLoc(), parent)) ||
+          (last && !last->isBeforeInBlock(op)))
+        return reject("original local branch operation order differs");
+      last = op;
+      Value result = op->getResult(0);
+      if (!values.contains(result))
+        return reject("original local branch result locator is not live");
+      return result;
+    };
+    // Construct expected literal widths directly from the original declaration
+    // and source span; candidate width metadata never supplies the authority.
+    auto widthType = [&](uint64_t width) -> Type {
+      auto number = ac::MathIntAttr::get(
+          branch.getContext(), llvm::APSInt(llvm::APInt(64, width), true));
+      auto expression = b.getDictionaryAttr(
+          {b.getNamedAttr("kind", b.getStringAttr("literal")),
+           b.getNamedAttr(
+               "value", b.getDictionaryAttr(
+                            {b.getNamedAttr("kind", b.getStringAttr("integer")),
+                             b.getNamedAttr("value", number)})),
+           b.getNamedAttr("origin", branch->getAttr("occurrence")),
+           b.getNamedAttr("location", branch.getConditionLocation())});
+      return ac::BitsType::get(
+          branch.getContext(),
+          ac::StaticExprAttr::get(branch.getContext(), expression));
+    };
+    if (failed(push(resolvedRoot, whenTrue, whenFalse)))
+      return failure();
+    Value final;
+    while (!stack.empty()) {
+      Frame &frame = stack.back();
+      if (frame.fields && frame.next != frame.fields.size()) {
+        if (!charge(budget, branch, 2)) return failure();
+        auto field = cast<DictionaryAttr>(frame.fields[frame.next++]);
+        Type declared = field.getAs<TypeAttr>("type").getValue();
+        // The original declarations and bindings have not changed since root
+        // admission. Authenticate every generated field operation below.
+        FailureOr<Type> fieldType = failure();
+        if (isa<ac::StructType, ac::EnumType>(declared))
+          fieldType = declared;
+        else if (isa<ac::BitsType>(declared))
+          fieldType = branchResultType(declared, hardware, bindings, branch, budget);
+        else
+          return reject("original local branch field type is unsupported");
+        if (failed(fieldType))
+          return failure();
+        auto attributes = b.getDictionaryAttr(
+            {b.getNamedAttr("field", field.getAs<StringAttr>("name"))});
+        auto t = take(ac::StructGetOp::getOperationName(), {frame.whenTrue},
+                      {*fieldType}, attributes);
+        auto f = take(ac::StructGetOp::getOperationName(), {frame.whenFalse},
+                      {*fieldType}, attributes);
+        if (failed(t) || failed(f) || failed(push(*fieldType, *t, *f)))
+          return failure();
+        continue;
+      }
+      FailureOr<Value> joined = failure();
+      if (isa<ac::BitsType>(frame.type)) {
+        joined = take(ac::BitsSelectOp::getOperationName(),
+                      {condition, frame.whenTrue, frame.whenFalse},
+                      {frame.type}, b.getDictionaryAttr({}));
+      } else if (auto enumeration = dyn_cast<ac::EnumType>(frame.type)) {
+        auto declaration = hardware.lookupEnum(enumeration);
+        auto width = declaration.getWidthAttr().getCanonicalValue();
+        if (!charge(budget, branch,
+                    SourceCheckBudget::add(
+                        64, SourceCheckBudget::bytes(width.size()))))
+          return failure();
+        Type carrier = widthType(llvm::APSInt(width).getZExtValue());
+        Type membership = widthType(1);
+        auto t = take(ac::EnumToBitsOp::getOperationName(), {frame.whenTrue},
+                      {carrier}, b.getDictionaryAttr({}));
+        auto f = take(ac::EnumToBitsOp::getOperationName(), {frame.whenFalse},
+                      {carrier}, b.getDictionaryAttr({}));
+        if (failed(t) || failed(f))
+          return failure();
+        auto selected =
+            take(ac::BitsSelectOp::getOperationName(), {condition, *t, *f},
+                 {carrier}, b.getDictionaryAttr({}));
+        if (failed(selected))
+          return failure();
+        joined = take(ac::EnumFromBitsOp::getOperationName(), {*selected},
+                      {frame.type, membership}, b.getDictionaryAttr({}));
+        if (failed(joined))
+          return failure();
+        // Both results are inventoried, even for a dead aggregate join. A dead
+        // consumer still violates the deliberately unused membership result.
+        Operation *conversion = record.generated[cursor - 1];
+        Value member = conversion->getResult(1);
+        if (!values.contains(member) || !member.use_empty())
+          return reject("original local Enum join membership result is used");
+      } else {
+        joined =
+            take(ac::StructCreateOp::getOperationName(), frame.joinedFields,
+                 {frame.type}, b.getDictionaryAttr({}));
+      }
+      if (failed(joined))
+        return failure();
+      final = *joined;
+      stack.pop_back();
+      if (!stack.empty())
+        stack.back().joinedFields.push_back(final);
+    }
+    if (cursor != record.generated.size() || final != record.value ||
+        !values.contains(final) || final.getType() != resolvedRoot)
+      return reject("original local branch final result differs");
+    return success();
+  }
+
   LogicalResult literalProof(Value value, Type type, DictionaryAttr occurrence,
                              Location location, bool one, Block *parent) {
     if (!charge(budget, prepared.original, 16))
@@ -3634,6 +4107,8 @@ private:
                            Location location) -> LogicalResult {
       Builder b(transaction.getContext());
       if (!selected || !condition || !whenTrue || !whenFalse || !resultType ||
+          !values.contains(selected) || !values.contains(condition) ||
+          !values.contains(whenTrue) || !values.contains(whenFalse) ||
           !ac::areEquivalentHardwareTypes(whenTrue.getType(), resultType) ||
           !ac::areEquivalentHardwareTypes(whenFalse.getType(), resultType) ||
           failed(generatedProof(
@@ -3970,24 +4445,26 @@ private:
                 trueYield.getOperand(ordinal));
             Value falseValue = authenticated[frame].lookupOrNull(
                 falseYield.getOperand(ordinal));
-            auto actual = record.branchResults[resultIndex].select;
+            const auto &actual = record.branchResults[resultIndex];
             const auto &resultRef = plan.values[result.result];
-            auto type = hardware.resolveType(
-                original.getType(), plan.instances[resultRef.anchor].bindings,
-                split);
+            auto type = branchResultType(
+                original.getType(), hardware,
+                plan.instances[resultRef.anchor].bindings, split, budget);
             if (result.branch != id || result.frame != frame ||
                 result.ordinal != ordinal ||
                 plan.values[result.result].value != original ||
                 !sameSourcePoint(result.validity, point()) || failed(type) ||
                 !ac::areEquivalentHardwareTypes(result.payloadType, *type) ||
-                !actual || trueValue != bound(result.whenTrue) ||
+                !actual.value || !values.contains(actual.value) ||
+                trueValue != bound(result.whenTrue) ||
                 falseValue != bound(result.whenFalse) ||
-                actual.getResult().getType() != result.payloadType ||
-                record.frames[frame].lookupOrNull(original) !=
-                    actual.getResult() ||
-                failed(selectProof(actual.getResult(), condition, trueValue,
-                                   falseValue, result.payloadType,
-                                   split.getLoc())) ||
+                actual.value.getType() != result.payloadType ||
+                record.frames[frame].lookupOrNull(original) != actual.value ||
+                failed(
+                    localBranchProof(split, *type,
+                                     plan.instances[resultRef.anchor].bindings,
+                                     condition, trueValue, falseValue, actual,
+                                     &rule.getBody().front(), last)) ||
                 failed(event(ac::TransactionStateEventKind::BranchResult, frame,
                              resultIndex)))
               return reject("original branch yielded-result binding differs");
@@ -4008,7 +4485,7 @@ private:
             if (!prepayValueMapping(budget, split, authenticated[frame],
                                     original))
               return failure();
-            authenticated[frame].map(original, actual.getResult());
+            authenticated[frame].map(original, actual.value);
             ++resultIndex;
           }
           if (failed(

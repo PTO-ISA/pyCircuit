@@ -34,10 +34,12 @@ fresh verification。本表区分历史基线与当前有界实现；原生执�
 | --- | --- | --- | --- |
 | 类型、效果与独立发布 | SourceEffects、SourceMethodAnalysis、SourceTransactionSummary、SourceMethodResolution | 有 typed 方法、闭包/摘要验证及 source-unit 入口 | 后续变化重验 body/summary 和接口-only consumer，不增加第二 authority |
 | 纯 helper hard break | 现有 typed helper body 与 capture/import 路径 | 已有普通纯 `def` 路径 | 每次扩展维持纯度、快照、类型权威和旧入口拒绝 |
-| state SSA 分析 | SourceTransactionStateAnalysis | whole-Bits 版本、branch D/raw-intent/scalar join；条件候选增加完整 source path、frame/result 有效性与 join lifting | 按[branch checklist](branch-state-ssa.md#acceptance-checklist)和[conditional checklist](conditional-effects.md#acceptance-checklist)重验 entry inheritance、四态 intent、路径有效性、source history 和预算 |
+| state SSA 分析 | SourceTransactionStateAnalysis | whole-Bits 版本、branch D/raw-intent/scalar join；新增有限无环 Bits/Enum/Struct nominal local joins 与 immutable field/subtree reconstruction；条件候选保留完整 source path、frame/result 有效性与 join lifting | 按[branch checklist](branch-state-ssa.md#acceptance-checklist)和[conditional checklist](conditional-effects.md#acceptance-checklist)重验 entry inheritance、四态 intent、路径有效性、source history 和预算 |
 | 同 owner 执行 | LowerTransactions | 同域、whole Bits、唯一实际 writer；条件候选在 statement arms 复用 Method/assert/log/report 物化和 D/E slots | 保留实际执行、独立旧 Q 和全事务失败原子性；条件候选尚待完整验收，partial state 未开放 |
 | 跨实例执行 | 同一 LowerTransactions + 现有 Module/Instance | 原实例接线已生成完整 companion，统一采样；Collection 限制保留 | 维持[跨实例规格](cross-instance-lowering.md)全部不变量并重验公共源 |
 | 动态 guard / 路径准入 | 既有 source check plan、identity、preflight、共同 lowering | 条件候选以 tagged controls 统一 callable guard 与 effect selection，含 unselected bypass、knownness 和路径 proof | 重验[条件合同](conditional-effects.md)的双层证明、四态顺序矩阵、默认预算和输出保护；旧 guards schema 不兼容 |
+| local nominal payload | 现有 PythonImportRecords、source branch contracts、LowerTransactions 与 source replay | Rule/Method 中同 nominal Struct/Enum joins；字段/subtree 重建保留 aliases；含 Table 的改变 join/重建仍拒绝，unchanged captures 保留 | 独立验证 nested/sibling fields、direct Enum 四态 carrier、membership 零使用、nominal identity、完整 graph proof、跨源与 generated System；实现或 native suite 不代替公共闭环 |
+| 分析容量 | 既有预算与 nominal admission/materialization/proof owners | 新 nominal 遍历、metadata、structural containers、物化与证明成本预付；继承的任意精度算术 evaluator capacity policy 仍 OPEN | 独立关闭该 policy 前不声明完整 evaluator 有界或 `METHOD-ANALYSIS-BOUNDS` 完成 |
 | 部分状态与冲突 | 既有字段/索引类型、write footprint、grant/disjointness proof | 不能由旧 behavioral 路径支持推断 Method 已支持 | whole/field/index 冲突统一，保留四态及源写意图 |
 | 资源与因果 | 既有 HardwareAnalysis、primitive 端口合同 | Method 的完整 resource closure 未完成 | 合法请求准入、明确拒绝超端口与联合环；Queue 单独验收 |
 | Method System 闭环 | 现有 System lowering、Runtime 与双 emitter | 条件候选保留 generated clocks/resets/runner；standalone conditional observations 无需 dummy Method/state | 同 final artifact 的 generated workers 1/2、Verilator 和真实四态矩阵须 fresh verification；不扩大到 resources |
@@ -75,7 +77,9 @@ epoch 发布；纯分支保留四态 data/rawIntent join。返回值必须在实
 其类型、闭包、递归、域与 writer。reachable dynamic effect selector 未证 known 时，
 外层 Rule 必须 `-> None`。这些义务均须按[条件合同](conditional-effects.md)独立验收，
 不关闭 issue #307 或其 partial/aggregate state、resources、cross-domain、多 writer、
-changed aggregate joins 和 effect-safe optimization 剩余范围。
+changed Table-containing joins/reconstruction 和 effect-safe optimization 剩余范围。
+新增 local nominal slice 的 public source/generated System 验收仍须绑定精确候选；
+局部 native suites 的结果不能推断双后端闭环通过。
 
 ## 动态 guard：共同 IR 合同与剩余验收
 
@@ -125,7 +129,9 @@ clock history，包括 held/falling 输入。仅全系统硬失败或 Discard �
 
 ## 分支、部分状态与资源的实现约束
 
-whole-Bits 分支的精确合同和验收见[branch state SSA](branch-state-ssa.md)。分支 join
+whole-Bits 状态与 admitted nominal locals 的精确合同和验收见
+[branch state SSA](branch-state-ssa.md)。局部字段重建是不可变 payload 操作，不开放
+partial persistent owner writes。分支 join
 必须从每个进入路径的 candidate 生成；未写路径保持进入该分支的候选，
 而非无条件退回最初 Q。字段/元素更新保留 nominal type、完整索引宽度、未触及字段、
 写意图和条件 footprint。不能用整记录最后写覆盖其他事务的已证明独立字段。

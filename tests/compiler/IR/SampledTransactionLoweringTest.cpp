@@ -853,7 +853,12 @@ TEST_F(SampledTransactionLoweringTest,
         record.versions[join.result].data.getDefiningOp());
     auto intent = mlir::cast<BitsSelectOp>(
         record.versions[join.result].rawIntent.getDefiningOp());
-    auto result = record.branchResults.front().select;
+    auto &resultRecord = record.branchResults.front();
+    ASSERT_EQ(resultRecord.generated.size(), 1u);
+    auto result =
+        mlir::dyn_cast<BitsSelectOp>(resultRecord.value.getDefiningOp());
+    ASSERT_EQ(resultRecord.generated.front(), result.getOperation());
+    ASSERT_EQ(resultRecord.value, result.getResult());
     ASSERT_TRUE(data);
     ASSERT_TRUE(intent);
     ASSERT_TRUE(result);
@@ -885,10 +890,31 @@ TEST_F(SampledTransactionLoweringTest,
                            result->getOperand(1)});
     } else if (mutation == 4) {
       auto original = plan.branchResults.front().result;
+      auto oldValue = resultRecord.value;
+      auto replacement = data.getResult();
+      // Make the candidate and every locator agree on the substitution. The
+      // independent proof must still authenticate the original branch result,
+      // rather than rejecting only an erased or stale auxiliary mapping.
+      oldValue.replaceAllUsesWith(replacement);
+      auto replaceMapping = [&](mlir::IRMapping &mapping) {
+        llvm::SmallVector<mlir::Value> keys;
+        for (const auto &entry : mapping.getValueMap())
+          if (entry.second == oldValue)
+            keys.push_back(entry.first);
+        for (auto key : keys)
+          mapping.map(key, replacement);
+      };
+      replaceMapping(staged->candidate.packageMap);
+      for (auto &frame : record.frames)
+        replaceMapping(frame);
+      for (auto &value : record.boundValues)
+        if (value == oldValue)
+          value = replacement;
       record.frames[plan.branchResults.front().frame].map(
-          plan.values[original].value, data.getResult());
-      record.boundValues[original] = data.getResult();
-      record.branchResults.front().select = data;
+          plan.values[original].value, replacement);
+      resultRecord.value = replacement;
+      resultRecord.generated = {data.getOperation()};
+      result.erase();
     } else {
       auto output = llvm::find_if(prepared.outputs, [&](const auto &candidate) {
         return candidate.binding.owner == join.owner;
@@ -917,6 +943,13 @@ TEST_F(SampledTransactionLoweringTest,
       }
     }
     rejects(*staged, "");
+    if (mutation == 4) {
+      EXPECT_NE(diagnostics.find("transaction original-source proof failed"),
+                std::string::npos)
+          << diagnostics;
+      EXPECT_EQ(diagnostics.find("not live"), std::string::npos) << diagnostics;
+      EXPECT_EQ(diagnostics.find("erased"), std::string::npos) << diagnostics;
+    }
   }
 }
 

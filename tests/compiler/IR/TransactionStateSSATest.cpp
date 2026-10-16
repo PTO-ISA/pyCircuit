@@ -572,6 +572,63 @@ TEST_F(TransactionStateSSATest,
 }
 
 TEST_F(TransactionStateSSATest,
+       NominalBranchResultPreservesWholeValueIdentityAndParentValidity) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto run = transaction(*file);
+  auto &body = run.getBody().front();
+  auto packet = StructType::get(&context, builder.getStringAttr("Packet"));
+  auto make = [&](mlir::Value data) {
+    mlir::OperationState state(run.getLoc(),
+                               StructCreateOp::getOperationName());
+    state.addOperands(data);
+    state.addTypes(packet);
+    return builder.create(state)->getResult(0);
+  };
+  builder.setInsertionPointToStart(&body);
+  auto a = make(body.getArgument(1));
+  auto b = make(body.getArgument(2));
+  auto split = branch(body, std::next(b.getDefiningOp()->getIterator()),
+                      body.getArgument(0), a, b, 20);
+  a.getDefiningOp()->moveBefore(split.getThenRegion().front().getTerminator());
+  b.getDefiningOp()->moveBefore(split.getElseRegion().front().getTerminator());
+  builder.setInsertionPointAfter(split);
+  mlir::OperationState projection(run.getLoc(),
+                                  StructGetOp::getOperationName());
+  projection.addOperands(split.getResult(0));
+  projection.addTypes(body.getArgument(1).getType());
+  projection.addAttribute("field", builder.getStringAttr("payload"));
+  auto field = builder.create(projection)->getResult(0);
+  (*body.getOps<SourceMethodCallOp>().begin())->setOperand(1, field);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->branchResults.size(), 1u);
+  const auto &result = plan->branchResults.front();
+  EXPECT_EQ(plan->values[result.result].value, split.getResult(0));
+  EXPECT_EQ(plan->values[result.whenTrue].value, a);
+  EXPECT_EQ(plan->values[result.whenFalse].value, b);
+  EXPECT_NE(result.result, result.whenTrue);
+  EXPECT_NE(result.result, result.whenFalse);
+  EXPECT_FALSE(plan->values[result.result].validity.path.branch);
+  EXPECT_EQ(plan->values[result.result].frame, plan->rootFrame);
+  EXPECT_EQ(plan->values[result.whenTrue].validity.path.branch, 0u);
+  EXPECT_TRUE(plan->values[result.whenTrue].validity.path.whenTrue);
+  EXPECT_EQ(plan->values[result.whenFalse].validity.path.branch, 0u);
+  EXPECT_FALSE(plan->values[result.whenFalse].validity.path.whenTrue);
+  EXPECT_EQ(result.payloadType, packet);
+  EXPECT_FALSE(plan->branches.front().selection)
+      << "pure nominal selection introduces no effect-control knownness";
+  split.getElseRegion().front().getTerminator()->setOperand(0, a);
+  auto invalid = analyze(*file);
+  EXPECT_FALSE(invalid->isValid()) << "an aggregate from the other arm is unavailable";
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(TransactionStateSSATest,
        SingleArmWriteJoinsEntryIntentAndIdentityWriteRemainsVisible) {
   auto file = parse();
   ASSERT_TRUE(file);

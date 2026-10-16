@@ -648,6 +648,15 @@ private:
     results.reserve(count);
     for (auto [type, left, right] :
          llvm::zip(branch.getResultTypes(), trueValues, falseValues)) {
+      HardwareBindings bindings;
+      bindings.owner = definition;
+      auto admitted = detail::resolveSourceBranchResultType(
+          type, hardware, bindings, branch,
+          [&](uint64_t work, uint64_t bytes) {
+            return success(budget.charge(work) && budget.storage(1, bytes));
+          });
+      if (failed(admitted))
+        return failure();
       auto physical = TypeAttr::get(type);
       if (failed(metadata(physical)))
         return failure();
@@ -1530,12 +1539,20 @@ private:
         for (Attribute rawResult : results) {
           auto result = dyn_cast<DictionaryAttr>(rawResult);
           if (!budget.charge() ||
-              failed(exact(result, {"type", "when_true", "when_false"})) ||
-              failed(type(result.get("type"))))
+              failed(exact(result, {"type", "when_true", "when_false"})))
             return failure();
-          auto physical = result.getAs<TypeAttr>("type").getValue();
-          if (!isa<BitsType>(physical))
-            return error("branch results require Bits types");
+          auto physicalAttr = result.getAs<TypeAttr>("type");
+          if (!physicalAttr)
+            return error("branch result requires a hardware TypeAttr");
+          auto physical = physicalAttr.getValue();
+          HardwareBindings bindings;
+          bindings.owner = declaration;
+          if (failed(detail::resolveSourceBranchResultType(
+                  physical, hardware, bindings, declaration,
+                  [&](uint64_t work, uint64_t bytes) {
+                    return success(budget.charge(work) && budget.storage(1, bytes));
+                  })))
+            return failure();
           if (failed(value(result.get("when_true"), scope, physical)) ||
               failed(value(result.get("when_false"), scope, physical)))
             return failure();

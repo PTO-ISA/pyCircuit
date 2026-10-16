@@ -14,6 +14,7 @@
 
 namespace acir::ac {
 class HardwareAnalysis;
+struct HardwareBindings;
 class ModuleImportOp;
 }
 
@@ -48,6 +49,13 @@ mlir::LogicalResult verifyRequiredSourceParameter(
     mlir::Attribute raw, mlir::StringAttr expectedName,
     mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation,
     llvm::StringRef description);
+
+// Resolve a branch payload only after bounded validation of its nominal closure.
+mlir::FailureOr<mlir::Type> resolveSourceBranchResultType(
+    mlir::Type actualType, const HardwareAnalysis &analysis,
+    const HardwareBindings &lexicalBindings, mlir::Operation *diagnosticSite,
+    llvm::function_ref<mlir::LogicalResult(uint64_t workUnits,
+                                         uint64_t allocationBytes)> charge);
 
 // Validate original hardware syntax against its lexical module inventories.
 // Bound forwarded actuals are resolved separately by HardwareAnalysis.

@@ -1415,7 +1415,7 @@ def Owner():
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       BranchLocalsRequireDefiniteAssignmentAndScalarEscape) {
+       BranchLocalsRequireDefiniteAssignmentAndNominalEscape) {
   reject(R"py(import pycircuit as ac
 @ac.module
 def Owner():
@@ -1434,7 +1434,7 @@ def Owner():
 )py",
          "selected");
 
-  reject(R"py(import pycircuit as ac
+  auto joined = typed(R"py(import pycircuit as ac
 @ac.struct
 class Packet:
     value: ac.u8
@@ -1454,7 +1454,12 @@ def Owner():
         choose(0)
     step()
 )py",
-         "scalar");
+                      "nominal_escape.py");
+  ASSERT_TRUE(joined);
+  auto joins = operations<ac::SourceBranchOp>(*joined);
+  ASSERT_EQ(joins.size(), 1u);
+  ASSERT_EQ(joins[0].getNumResults(), 1u);
+  EXPECT_TRUE(isa<ac::StructType>(joins[0].getResult(0).getType()));
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -2647,6 +2652,162 @@ def Owner():
     diagnostics.clear();
     EXPECT_TRUE(failed(lower(*localKind, "wrong_local_kind.py")));
     EXPECT_NE(diagnostics.find("source kind"), std::string::npos) << diagnostics;
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       LocalNominalFieldReconstructionAndJoinsPreserveSnapshotsAndRootType) {
+  auto file = typed(R"py(import pycircuit as ac
+from enum import Enum
+@ac.encoding(width=3)
+class Tag(Enum):
+    IDLE = 0
+    BUSY = 5
+@ac.struct
+class Leaf:
+    payload: ac.u8
+    tag: Tag
+@ac.struct
+class Packet:
+    left: Leaf
+    right: Leaf
+@ac.module
+def Owner():
+    count: ac.u8 = 1
+    @ac.method
+    def choose(flag: ac.u1, incoming: Packet) -> Packet:
+        local = incoming
+        saved = local
+        saved_leaf = local.left
+        local.left.payload = count
+        local.right = Leaf(payload=7, tag=Tag.IDLE)
+        if flag:
+            local.left.tag = Tag.BUSY
+            if flag:
+                local.right.payload = 13
+        else:
+            local.right.payload = 11
+        tag = Tag.IDLE
+        if flag:
+            tag = Tag.BUSY
+        local.right.tag = tag
+        count = saved.left.payload + saved_leaf.payload
+        return local
+    @ac.rule
+    def step() -> Packet:
+        source = Packet(left=Leaf(payload=2, tag=Tag.IDLE),
+                        right=Leaf(payload=3, tag=Tag.BUSY))
+        first = choose(1, source)
+        second = choose(0, first)
+        snapshot = second
+        second.left = first.right
+        return snapshot
+    step()
+)py",
+                    "nominal_fields.py");
+  ASSERT_TRUE(file);
+  auto branches = operations<ac::SourceBranchOp>(*file);
+  ASSERT_EQ(branches.size(), 3u);
+  EXPECT_TRUE(isa<ac::StructType>(branches[0].getResult(0).getType()));
+  EXPECT_TRUE(isa<ac::StructType>(branches[1].getResult(0).getType()));
+  EXPECT_TRUE(isa<ac::EnumType>(branches[2].getResult(0).getType()));
+  EXPECT_EQ(operations<ac::SourceStateOp>(*file).size(), 1u);
+  EXPECT_EQ(operations<ac::SourceStateWriteOp>(*file).size(), 1u);
+  EXPECT_EQ(operations<ac::SourceMethodCallOp>(*file).size(), 2u);
+  EXPECT_TRUE(operations<ac::BitsSelectOp>(*file).empty())
+      << "nominal branch hardware must be materialized after source analysis";
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       LocalNominalAssignmentsRejectForeignTypesAndInvalidTargets) {
+  const std::string prefix = R"py(import pycircuit as ac
+from enum import Enum
+@ac.encoding(width=2)
+class Tag(Enum):
+    ZERO = 0
+    ONE = 1
+@ac.encoding(width=2)
+class ForeignTag(Enum):
+    ZERO = 0
+    ONE = 1
+@ac.struct
+class Leaf:
+    data: ac.u8
+    tag: Tag
+@ac.struct
+class ForeignLeaf:
+    data: ac.u8
+    tag: Tag
+@ac.struct
+class Packet:
+    leaf: Leaf
+@ac.module
+def Owner():
+    count: ac.u8 = 0
+    @ac.method
+    def choose(flag: ac.u1) -> None:
+        packet = Packet(leaf=Leaf(data=1, tag=Tag.ZERO))
+)py";
+  for (StringRef statement :
+       {"packet.leaf = ForeignLeaf(data=2, tag=Tag.ZERO)",
+        "packet.leaf.tag = ForeignTag.ONE", "packet.leaf.data = 256",
+        "packet.absent = 0", "packet.leaf.data.missing = 0",
+        "packet.leaf.data[0] = 1", "packet.leaf.data += 1",
+        "packet.leaf.data: ac.u8 = 1", "missing.leaf.data = 1", "Leaf.data = 1",
+           "count.data = 1",
+           "choose.flag = 1",
+           "Tag.ZERO = Tag.ONE",
+        "if flag:\n            packet.leaf = ForeignLeaf(data=2, tag=Tag.ZERO)",
+        "if flag:\n            created = packet\n        created.leaf.data = "
+        "2"}) {
+    SCOPED_TRACE(statement.str());
+    auto text = prefix + "        " + statement.str() + R"py(
+    @ac.rule
+    def step() -> None:
+        choose(0)
+    step()
+)py";
+    auto file = capture("invalid_nominal_target.py", text);
+    ASSERT_TRUE(file);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*file, "invalid_nominal_target.py")));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       UnchangedTableContainingCaptureRemainsLegalButReconstructionDoesNot) {
+  const std::string text = R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    lanes: ac.table[2, ac.u8]
+    tag: ac.u8
+@ac.module
+def Owner():
+    @ac.method
+    def choose(flag: ac.u1, packet: Packet) -> Packet:
+        local = packet
+        if flag:
+            pass
+        return local
+@ac.module
+def Top(packet: Packet) -> Packet:
+    owner = Owner()
+    @ac.rule
+    def step() -> Packet:
+        return owner.choose(0, packet)
+    return step()
+)py";
+  ASSERT_TRUE(typed(text, "unchanged_table_capture.py"));
+  for (StringRef statement :
+       {"local.tag = 2", "local = packet\n            local.tag = 2"}) {
+    auto changed = capture("changed_table_capture.py",
+                           replaceOnce(text, "            pass",
+                                       "            " + statement.str()));
+    ASSERT_TRUE(changed);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*changed, "changed_table_capture.py")));
+    EXPECT_FALSE(diagnostics.empty());
   }
 }
 

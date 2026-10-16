@@ -2617,6 +2617,123 @@ def test_method_branch_system_executes_shared_candidates_from_one_final_artifact
     assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
 
 
+def test_nominal_method_system_snapshots_hold_and_rollback_from_one_final_artifact(
+    tmp_path,
+):
+    source = tmp_path / "nominal method sources"
+    source.mkdir()
+    for filename in ("method_nominal_provider.py", "method_nominal_bench.py"):
+        shutil.copy2(FIXTURE / filename, source)
+    provider = tmp_path / "nominal provider"
+    consumer = tmp_path / "nominal consumer"
+    _ok(_compile(source, "method_nominal_provider.py", provider))
+    (source / "method_nominal_provider.py").unlink()
+    receipt = json.loads((provider / "unit.json").read_text())
+    body = provider / receipt["files"]["body"]
+    hidden = tmp_path / "unavailable nominal body.ac"
+    body.rename(hidden)
+    try:
+        _ok(_compile(source, "method_nominal_bench.py", consumer, [provider]))
+    finally:
+        hidden.rename(body)
+    assert not (source / "method_nominal_provider.py").exists()
+    final, before, after = (
+        tmp_path / name
+        for name in ("nominal.ac", "nominal-before.ac", "nominal-after.ac")
+    )
+    linker = os.environ.get("PYCIRCUIT_LINKER")
+    assert linker, "set PYCIRCUIT_LINKER to this candidate's native linker"
+    arguments = [linker]
+    for unit in (provider, consumer):
+        receipt = json.loads((unit / "unit.json").read_text())
+        arguments += [
+            "--body",
+            str(unit / receipt["files"]["body"]),
+            "--header",
+            str(unit / receipt["files"]["interface"]),
+        ]
+    arguments += [
+        "--top",
+        "checks.method_nominal_bench.ExerciseNominalMethods",
+        "--target",
+        "final",
+        "--output",
+        str(final),
+        "--transaction-input-out",
+        str(before),
+        "--transaction-output-out",
+        str(after),
+    ]
+    _ok(_run(arguments))
+    assert '"ac.branch"' in before.read_text()
+    assert '"ac.branch"' not in after.read_text()
+    artifacts = (final, before, after)
+    digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        root = tmp_path / ("nominal-" + target)
+        root.mkdir()
+        binary = _bundle(final, root, target)
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "3", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=3"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            for name, values in (
+                ("nominal first", [(7, 16, 6, 0), (10, 19, 9, 0), (13, 22, 12, 0)]),
+                ("nominal second", [(10, 6, 8, 5), (13, 9, 11, 5), (16, 12, 14, 5)]),
+                ("nominal old", [(5, 5), (8, 5), (11, 5)]),
+            ):
+                events = [
+                    row
+                    for row in rows
+                    if row["kind"] == "log" and row["spec"]["event"] == name
+                ]
+                observed = [
+                    tuple(int(value["value"]) for value in row["values"])
+                    for row in events
+                ]
+                assert observed == [value for value in values for _ in range(2)]
+                assert [
+                    (int(row["evaluation_epoch"]), int(row["commit_epoch"]))
+                    for row in events
+                ] == [(epoch, epoch + 1) for epoch in range(6)]
+            assert not any(
+                row.get("spec", {}).get("event") == "nominal suppressed" for row in rows
+            )
+            transcripts.append([row for row in rows if row["kind"] != "result"])
+            failure_arguments = (
+                ["--cycles", "4", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=4"]
+            )
+            failed = _run([str(binary), *failure_arguments], timeout=30)
+            assert failed.returncode != 0, failed.stdout + failed.stderr
+            failed_rows = _records(failed.stdout)
+            assert [
+                row for row in failed_rows if row["kind"] != "result"
+            ] == transcripts[-1]
+            terminal = [row for row in failed_rows if row["kind"] == "result"]
+            if terminal:
+                assert len(terminal) == 1 and terminal[0]["status"] == "FAILED"
+                assert int(terminal[0]["epoch_time"]) == 6
+                gauges = [
+                    row
+                    for row in terminal[0]["statistics"]
+                    if row["name"] == "nominal count"
+                ]
+                assert len(gauges) == 1 and int(gauges[0]["value"]) == 14
+                assert int(gauges[0]["last_update"]["time"]) == 6
+            else:
+                assert "check failed at epoch 6" in failed.stdout + failed.stderr
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert [
+        hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts
+    ] == digests
+
+
 def test_conditional_method_system_candidates_and_effects_from_one_final_artifact(
     tmp_path,
 ):

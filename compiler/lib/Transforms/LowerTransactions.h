@@ -59,7 +59,8 @@ struct MaterializedVersion {
   mlir::Value data, rawIntent;
 };
 struct MaterializedBranchResult {
-  ac::BitsSelectOp select;
+  mlir::Value value;
+  llvm::SmallVector<mlir::Operation *, 0> generated;
 };
 
 struct MaterializedAdmissionControl {

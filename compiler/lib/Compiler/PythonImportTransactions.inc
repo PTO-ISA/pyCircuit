@@ -787,8 +787,112 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         } else {
           return error() << "unsupported Method/Rule statement";
         }
+        if (statement.kind() == "Assign" && target.kind() == "Attribute" && rhs) {
+          auto reserveLocal = [&](uint64_t work, uint64_t slots,
+                                  uint64_t operations = 0) -> LogicalResult {
+            TableQueryCharge charge;
+            std::string reason;
+            bool fits = TableQueryBudget::add(charge, TableQueryResource::Work, work) &&
+                        TableQueryBudget::add(charge, TableQueryResource::Slots, slots) &&
+                        TableQueryBudget::add(charge, TableQueryResource::Operations, operations);
+            if (!fits || !queryBudget.reserve(charge, reason))
+              return error() << "local Struct field reconstruction: "
+                             << (fits ? reason : "cost counter exhausted");
+            return success();
+          };
+          if (failed(reserveLocal(target.path.size() + 1,
+                  (target.path.size() + 1) * ((sizeof(AstStep) + 7) / 8))))
+            return failure();
+          AstNode rootTarget = target;
+          SmallVector<StringRef, 0> fieldNames;
+          while (rootTarget.kind() == "Attribute") {
+            if (fieldNames.size() >= 128)
+              return error() << "local Struct field target depth exceeded";
+            uint64_t pathSlots =
+                3 * (rootTarget.path.size() + 2) * ((sizeof(AstStep) + 7) / 8);
+            if (failed(reserveLocal(rootTarget.path.size() + fieldNames.size() + 3,
+                                    pathSlots + fieldNames.size() + 1)))
+              return failure();
+            fieldNames.reserve(fieldNames.size() + 1);
+            fieldNames.push_back(rootTarget.string("attr"));
+            rootTarget = rootTarget.child("value");
+          }
+          if (rootTarget.kind() != "Name")
+            return error() << "local Struct field target requires an Attribute-only Name path";
+          StringRef root = rootTarget.string("id");
+          if (states.contains(root) || boundHardwareIdentity(root) ||
+              helperOwnerBindings.contains(root) || root == "pyc_clk" ||
+              root == "pyc_rst" || !values.contains(root))
+            return error() << "local Struct field target requires a bound ordinary payload";
+          Value original = values.lookup(root);
+          if (!isa<ac::StructType>(original.getType()))
+            return error() << "local field assignment requires a nominal Struct payload";
+          auto admitted = resolveBranchPayloadType(original.getType(), inside, statement);
+          if (failed(admitted)) return failure();
+          std::reverse(fieldNames.begin(), fieldNames.end());
+          Type selectedType = *admitted;
+          ac::HardwareAnalysis analysis(*body);
+          uint64_t totalFields = 0, totalNames = 0;
+          for (StringRef fieldName : fieldNames) {
+            auto record = dyn_cast<ac::StructType>(selectedType);
+            auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
+            if (!declaration)
+              return error() << "local field path intermediates require Struct payloads";
+            auto fields = declaration.getFields();
+            if (failed(reserveLocal(fields.size() + fieldName.size(), 0)))
+              return failure();
+            Type next;
+            for (Attribute raw : fields) {
+              auto field = cast<DictionaryAttr>(raw);
+              StringRef name = field.getAs<StringAttr>("name").getValue();
+              if (failed(reserveLocal(name.size(), 0))) return failure();
+              totalNames += name.size();
+              if (name == fieldName)
+                next = field.getAs<TypeAttr>("type").getValue();
+            }
+            if (!next) return error() << "unknown local Struct assignment field";
+            totalFields += fields.size();
+            selectedType = next;
+          }
+          // updateAssignment projects every ancestor again and replaceField
+          // projects all siblings and rebuilds each ancestor. Reserve their
+          // repeated lookups, complete vectors, AST copies and conversions.
+          uint64_t depth = fieldNames.size();
+          TableQueryCharge reconstruction;
+          std::string reason;
+          bool fits = TableQueryBudget::addProduct(reconstruction,
+                          TableQueryResource::Work, depth + 1,
+                          32 * (totalFields + totalNames + target.path.size() + depth + 1)) &&
+                      TableQueryBudget::addProduct(reconstruction,
+                          TableQueryResource::Slots, depth + 1,
+                          64 * (totalFields + target.path.size() + depth + 1)) &&
+                      TableQueryBudget::addProduct(reconstruction,
+                          TableQueryResource::Operations, depth + 1,
+                          totalFields + depth + 4);
+          if (!fits || !queryBudget.reserve(reconstruction, reason))
+            return error() << "local Struct reconstruction: "
+                           << (fits ? reason : "cost counter exhausted");
+          BindingBoundary rootBoundary = environment.boundaries.contains(root)
+              ? environment.boundaries.lookup(root)
+              : inferredBoundary(root, original, statement);
+          BindingBoundary fieldBoundary{
+              {fieldNames.back().str(), selectedType, target, std::nullopt,
+               isa<ac::BitsType>(selectedType)}, true};
+          auto value = expression(rhs, inside, decl.symbol, values, instances,
+                                  selectedType);
+          if (failed(value)) return failure();
+          auto converted = applyBindingBoundary(*value, fieldBoundary, rhs,
+                                                inside, decl.symbol);
+          if (failed(converted) || failed(updateAssignment(target, *converted,
+                  statement, inside, decl.symbol, values)))
+            return failure();
+          if (values.lookup(root).getType() != original.getType())
+            return error() << "local field reconstruction changed root nominal type";
+          environment.boundaries[root] = std::move(rootBoundary);
+          continue;
+        }
         if (target.kind() != "Name" || !rhs)
-          return error() << "Method/Rule assignment requires a direct Name";
+          return error() << "Method/Rule assignment requires a Name or local Struct field";
         StringRef name = target.string("id");
         if (rhs.kind() == "Call" && rhs.child("func").kind() == "Name" &&
             rules.contains(rhs.child("func").string("id")))

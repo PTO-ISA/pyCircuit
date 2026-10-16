@@ -1019,10 +1019,11 @@ not a clocked reset pulse or a promise to clear memory.
 
 ## Method execution and remaining capabilities
 
-The conditional-call/effect candidate extends the bounded route described here
-to statement-arm Method calls, assertions and observations. That candidate is
-still awaiting acceptance: these semantics and the retained fixtures are not a
-claim that its compile, execution or gate checks passed. See the
+The conditional-call/effect and local nominal-join candidate extends the bounded
+route described here to statement-arm Method calls, assertions, observations and
+immutable Struct/Enum locals. That candidate is still awaiting acceptance:
+these semantics and the retained fixtures are not a claim that its compile,
+execution or gate checks passed. See the
 [conditional-effect acceptance checklist](../rfcs/serial-rule-method/conditional-effects.md#acceptance-checklist).
 
 Native sampled-admission lowering and both backend lifecycles are implemented
@@ -1054,18 +1055,45 @@ value-call behavior.
 This source-compilation subset retains fixed scalar state, sequential local
 assignments/calls, typed scalar/Struct results, lambda guards and static
 zero-argument Method-owner construction. A branch may update whole fixed-width
-Bits owners and may join changed scalar locals. A changed local used after the
-join must be defined on both arms; an omitted owner assignment inherits the
-candidate and write intent that entered the branch. Unconditional Method calls
-may appear before or after a branch. In the conditional candidate, arms may
+Bits owners and may join changed scalar locals, nominal Enums and finite acyclic
+nominal Structs containing fixed-width Bits, Enums and nested admitted Structs.
+Changed nominal values on both arms must have the same nominal type; equal
+packed layouts do not make different declarations interchangeable. Existing
+locals inherit the branch-entry value on an unassigned arm; new locals used
+after the join must be defined on both arms. An omitted owner assignment inherits
+the candidate and write intent that entered the branch. Unconditional Method
+calls may appear before or after a branch. In the conditional candidate, arms may
 also call Methods and contain ordinary `assert`, `log` and `report`, including
 nested `if`/`elif`/`else`. A conditional observation alone selects this route;
 authors need no dummy Method, guard or state. Effectful loops, early or
 branch-local returns, partial or aggregate state updates, transaction resources
-and changed aggregate locals escaping the join remain outside this subset.
+and changed Table-containing locals escaping the join remain outside this subset.
+Unchanged Table-containing captures retain their existing admission.
 Calls and effects in selectors, guards, pure helpers, collection callbacks and
 conditional expressions remain rejected. Static dead arms still undergo type,
 closure, recursion, domain and potential-writer checks.
+
+Ordinary single-target field assignments such as `local.inner.payload = value`
+reconstruct an immutable local Struct, including replacement of a nested Struct
+subtree. The root must be a currently bound ordinary payload; a captured or
+returned payload remains a snapshot, and saved aliases keep their earlier value.
+The declared field type checks the replacement while the root keeps its original
+nominal binding. This does not write persistent state or mutate the producer.
+Table-containing roots, annotated field targets, indexed/slice targets and
+augmented assignments remain rejected in transaction bodies. Scalar binding
+conversions and four-state joins retain their existing rules.
+
+Nominal joins lower through the same verified common IR: Struct fields are
+projected, leaf values selected and the Struct reconstructed in declaration order.
+Enum leaves, including standalone Enum locals, select their declared-width raw
+carriers and reconstruct the nominal Enum. The generated membership result is
+unused; invalid or X/Z carriers do not acquire a new membership fault. The
+source plan authenticates this complete graph before final verification.
+
+New nominal traversal, metadata, structural-container, materialization and proof
+costs are prepaid against existing budgets. The inherited arbitrary-precision
+arithmetic evaluator capacity policy remains OPEN; this slice does not establish
+a fully bounded compiler or close `METHOD-ANALYSIS-BOUNDS`.
 
 A guarded nested Rule also selects typed transaction capture without requiring
 a dummy Method or state. A module such as `GuardOnly(enabled: u1)` may omit its

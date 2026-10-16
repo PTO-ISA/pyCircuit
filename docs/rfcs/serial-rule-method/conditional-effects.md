@@ -13,7 +13,12 @@
 在 Rule/Method body 的分支 arm 中接纳 Method 调用和直接 assert/log/report。仍拒绝
 selector、guard、纯 helper、collection callback、条件表达式中的 Method 调用或效果，
 以及 early return、效果循环、动态实例/注册、partial/aggregate state、改变后逃出 join 的
-aggregate local、跨域与多个 outer writer。类型、闭包、递归与域检查覆盖恒假 arm。
+Table-containing local、跨域与多个 outer writer。有限无环 nominal Struct（闭包只含
+Bits/Enum/Struct）及独立 Enum locals 可以 join；普通局部字段/subtree 赋值重建不可变
+payload，保留 root nominal boundary 和 saved aliases，不修改 producer/owner。
+含 Table 的重建、indexed/slice/annotated/augmented targets 仍拒绝；未改变的 Table
+capture 保留原接纳。精确类型、共同 IR 图与证明义务见
+[局部值 SSA 合同](branch-state-ssa.md)。类型、闭包、递归与域检查覆盖恒假 arm。
 裸 Rule 中的条件 log/report 无需人为添加 Method、恒真 guard 或虚假状态。
 
 以下是事务内序列示意，counter 为静态 Method-owner 实例，choose 为既有一位条件：
@@ -40,7 +45,7 @@ assert 是提交检查，不改变 candidate、后续调用或准入。
 
 ## 效果分支的四态选择
 
-只含纯计算和 whole-Bits state/local 操作的分支保留
+只含纯计算、whole-Bits state 和 admitted scalar/nominal local 操作的分支保留
 [B1 四态 data/rawIntent join](branch-state-ssa.md)。任一 arm 直接或嵌套含 Method call、
 assert/log/report 时，所有 enclosing branches 均增加 selection-known 义务。所有 Method
 调用均计入，包括空体、只读、state-only 与恒真 guard。分类按已验证的原始结构进行；
@@ -217,6 +222,10 @@ verdict，也不调用结构比较器或 typed verifier；错误 shape、role、
 preflight 数学边界不证明后续完整流程已适配 4M。只有同一候选的默认预算完整 link、
 System 执行和独立 debit-to-reservation 审查均通过，才可验收。raw predicate/data/intent
 不混入 admission grammar；不得为达到预算而删检查、缩减场景或提高限额。
+
+新增 nominal traversal/metadata、structural containers、materialization 与 proof 成本
+在原限额内预付。继承的任意精度算术 evaluator capacity policy 仍为 OPEN；不能由
+这些新增费用覆盖推断完整 evaluator 已有界或关闭 `METHOD-ANALYSIS-BOUNDS`。
 
 ## 验收 checklist {#acceptance-checklist}
 

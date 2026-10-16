@@ -323,7 +323,7 @@ def ACIR_SourceStateWriteOp : ACIR_Op<"state.write", [
 
 def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
     RecursiveMemoryEffects]> {
-  let summary = "Preserve source branch arms and scalar SSA results";
+  let summary = "Preserve source branch arms and payload SSA results";
   let description = [{
     Both arms start from the same transaction candidate environment. Each arm
     has no block arguments and terminates with ac.yield. The condition is
@@ -332,7 +332,7 @@ def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
     This source operation must be materialized and cannot remain in final IR.
   }];
   let arguments = (ins ACIR_BitsType:$condition, DictionaryAttr:$occurrence);
-  let results = (outs Variadic<ACIR_BitsType>:$results);
+  let results = (outs Variadic<AnyTypeOf<[ACIR_BitsType, ACIR_EnumType, ACIR_StructType]>>:$results);
   let regions = (region AnyRegion:$then_region, AnyRegion:$else_region);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;

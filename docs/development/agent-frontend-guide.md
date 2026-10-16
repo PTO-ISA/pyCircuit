@@ -325,8 +325,8 @@ compilation, validation or emission fails.
 
 ## Method body checks and observations
 
-The restored conditional-call/effect candidate is awaiting acceptance. The
-authoring rules below describe its implemented scope; they do not establish a
+The conditional-call/effect and local nominal-join candidate is awaiting
+acceptance. The authoring rules below describe its implemented scope; they do not establish a
 passing compile, simulation or gate result. Verification remains bound to the
 exact candidate.
 
@@ -338,11 +338,13 @@ transaction fire, so a later false guard suppresses earlier body effects too.
 Put unrelated autonomous work in another registered Rule.
 
 Rule and Method transaction bodies may use bounded statement `if`/`elif`/`else`
-and `pass` for whole fixed-width Bits state and scalar local values. Both arms
-start from the same incoming candidate. A missing write preserves that candidate
+and `pass` for whole fixed-width Bits state, scalar locals, nominal Enums and
+finite acyclic Struct locals containing Bits, Enum and nested Struct fields.
+Both arms start from the same incoming candidate. A missing write preserves that candidate
 and its write intent, including a write made before the branch. A changed local
-read after the join must be bound on both arms. Joins select data and raw write
-intent with the original four-state predicate; an identity assignment remains a
+read after the join must have a value on both arms; an existing local inherits
+its entry value on an unassigned arm. Nominal joins require the same declared
+Struct or Enum type on both arms. Joins select data and raw write intent with the original four-state predicate; an identity assignment remains a
 write. Calls and effects may appear before, inside or after a branch. A branch
 containing a call or effect requires a known selector, as do its enclosing
 branches; a pure branch keeps its existing four-state merge behavior.
@@ -369,6 +371,32 @@ updated candidate. Starting at Q=5 gives snapshots 6/8/11 for selector 1 and
 6/10/13 for selector 0. Each arm starts from candidate 6; another autonomous
 Rule still reads old Q=5. The values are statement-time snapshots.
 
+Local Struct field assignments reconstruct values without storage or producer
+mutation. For example, with `Packet.left` and `Packet.right` both `Cell` values
+and `Cell` containing `data: ac.u8` and `tag: Tag`, a Method can use:
+
+```python
+@ac.method
+def assemble(flag: ac.u1, payload: Packet) -> Packet:
+    local = payload
+    saved = local
+    local.left.data = 7
+    if flag:
+        local.left = Cell(data=9, tag=Tag.FIVE)
+    else:
+        local.right = saved.left
+    return local
+```
+
+Here `ac` is `pycircuit`, the records use `@ac.struct`, and `Tag.FIVE` is a
+declared Enum member. `saved` and `payload` retain their original fields. Nested
+field and subtree replacement checks the declared field type and preserves the
+root nominal boundary. Direct Enum locals can also join. Pure joins preserve
+four-state Bits and raw Enum carriers without introducing membership faults.
+Changed Table-containing joins and reconstruction, indexed/slice targets,
+annotated field targets and augmented assignments remain rejected; unchanged
+Table-containing captures keep their existing admission.
+
 Unselected guards bypass even when false or X/Z. A selected false guard holds
 the entire outer Rule across all owners and suppresses all its effects, including
 earlier effects. It does not select `else`. A reached X/Z effect selector faults
@@ -390,7 +418,7 @@ across mutually exclusive arms; put one report after the join.
 Keep selectors, guards, pure helpers, collection callbacks and conditional
 expressions free of Method calls and effects. Effectful loops, early returns,
 partial or aggregate state writes, resources, cross-domain transactions,
-multiple outer writers and changed Struct/Table/Enum locals escaping a join
+multiple outer writers and changed Table-containing locals escaping a join
 remain rejected. See the
 [conditional-effect contract](../rfcs/serial-rule-method/conditional-effects.md)
 and [whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md).

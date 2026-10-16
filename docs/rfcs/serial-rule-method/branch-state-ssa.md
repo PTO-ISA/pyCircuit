@@ -1,4 +1,4 @@
-# whole-Bits 分支状态与标量 SSA 规格
+# whole-Bits 分支状态与局部值 SSA 规格
 
 状态：有界语义与接口已冻结；实现候选须按本文独立验收。本文不是候选测试通过、
 nightly、综合或时序声明。它扩展[源语义](source-semantics.md)、
@@ -15,8 +15,10 @@ hard break 为 tagged `controls`。下文的 arm 内调用/effect 拒绝和 `gua
 
 Rule/Method 事务 body 接纳有限嵌套的 statement `if`/`elif`/`else`/`pass`。条件继续使用
 既有 Boolean 或有权威的 fixed `u1` 规则。分支可更新 whole fixed-width Bits owner，
-也可产生跨 join 使用的 scalar Bits local。未在 arm 中改变的 aggregate capture 可以继续
-使用；改变后逃出 join 的 Struct/Table/Enum local 不接纳。
+也可产生跨 join 使用的 scalar Bits、nominal Enum 和有限无环 nominal Struct local。
+Struct 闭包只含 fixed-width Bits、Enum 和嵌套 Struct；改变值的两 arm 必须具有相同
+nominal identity，等宽布局不能替代声明身份。含 Table 的改变后 join 仍拒绝；未改变的
+Table-containing capture 保留原有接纳。
 
 Method 调用、`assert`、`log` 和 `report` 可在分支前后无条件出现。它们不得出现在任一
 arm、branch test 或 branch-local 表达式中，即使该 arm 可静态证明为 false。early return、
@@ -31,6 +33,13 @@ loop、动态实例/注册、guard region 内分支、partial/aggregate state、
 scalar local join 复用现有 numeric preparation、definite-assignment 和 binding-boundary
 规则。Boolean、Integer 与 fixed Bits 的逻辑种类、区间及宽度权威继续保留；arm conversion
 发生在各自 yield 前，join 不把原 producer 改种类，也不引入新的 constant evaluator。
+nominal join 独立应用每个 arm 的绑定边界，不制造 Boolean/Integer 数值事实。
+
+普通单目标 `local.inner.payload = value` 重建不可变局部 Struct，也可替换嵌套 Struct
+subtree。root 必须是当前已绑定的普通 payload；captured/returned payload 是快照，
+保存的 alias 不随重建改变，producer 和 persistent owner 不被修改。替换按声明字段
+类型检查，root 保留原 nominal boundary。含 Table 的 root、persistent/instance/
+callable/type 身份、Subscript、slice、annotated field 和 augmented targets 不接纳。
 
 ## 状态版本与四态 join
 
@@ -66,7 +75,7 @@ false。`finalFire=0` 时按四态 AND 抑制 unknown intent。直接 body effec
 ## 源 IR、发布摘要与 state plan
 
 `ac.branch` 只存在于 source IR。它有一个 Bits1 condition、必填 occurrence 和
-`ac.condition_location`、零个或多个 scalar Bits results，以及两个 single-block、
+`ac.condition_location`、零个或多个 Bits/Enum/Struct results，以及两个 single-block、
 zero-argument、以 `ac.yield` 结束的 region。两个 yield 的 arity/type 与 results 精确一致。
 该操作声明 recursive memory effects，不能标 Pure；final hardware 不得残留 `ac.branch`。
 它只允许直接位于 transaction/Method body 或另一个 `ac.branch` arm；缺少 `else` 时仍
@@ -92,6 +101,19 @@ required prefix 和有序事件均进入只读 plan。结果 locator、IR mappin
 发出 StateJoin、按 result ordinal 发出 BranchResult，最后 BranchExit。即使分支没有结果
 或写入，六个边界事件仍存在。version ordinal 按 owner 的实际 Write/Join 创建顺序分配，
 不能用 predecessor+1 跨两个 arm 猜测。
+
+## nominal local 的共同 IR join
+
+lowering 按实际声明顺序对 Struct 字段分别投影 true/false 值、递归 join，再构造原
+nominal Struct。Bits leaf 使用原 condition 的 `bits.select`；Enum leaf（包括独立
+Enum result）使用两个 `enum.to_bits`、同宽 carrier select 和 `enum.from_bits`。
+carrier 宽度由实际 Enum 声明提供；生成的 membership result 必须零使用，即使 join
+未使用也如此。invalid/X/Z carrier 保留原四态数据含义，不增加 membership fault。
+
+source authentication 从原 branch/yields/types 独立导出完整图，验证 live locator、
+字段与 nominal type、carrier 宽度/来源、精确 operands/attributes、块内严格次序、
+完整消费和最终 result identity；metadata 不授予权威。七字段 branch summary 和
+三字段 result row 不变。完整图认证后仍执行独立 canonical final proof。
 
 ## 最终 schema 与结果布局
 
@@ -138,6 +160,9 @@ joins、bindings、types、metadata、proof roots 和 cache storage 都必须在
 已验证事实；每个 actual Rule query 仍解析该实际 Rule。actual instance 的 inventory、
 domain、D/E 和 private route 必须逐一证明。IR mutation 使 plan、prepared boundary 和
 cache 全部失效；预算优化不得提高限额、缩小输入或跳过证明。
+新增 nominal closure/metadata 遍历、structural containers、materialization 和 proof
+成本均须预付。继承的任意精度算术 evaluator capacity policy 仍为 OPEN；本切片不能
+据此声明完整 evaluator 已有界或关闭 `METHOD-ANALYSIS-BOUNDS`。
 
 ## 验收 checklist {#acceptance-checklist}
 
@@ -147,7 +172,14 @@ cache 全部失效；预算优化不得提高限额、缩小输入或跳过证�
 - [ ] finite nesting、`elif`、empty `else`、`pass`、entry write、identity write、guard-entry
   join、branch 前后无条件 Method 调用及 scalar definite assignment 有独立正反例。
 - [ ] arm 中 call/assert/log/report、effectful test、early return、partial/aggregate state、
-  changed aggregate escape、resource、跨域与多 writer 均 fail closed，包括恒假 arm。
+  changed Table-containing escape/reconstruction、resource、跨域与多 writer 均 fail closed，
+  包括恒假 arm；arm call/effects 的当前接纳以条件合同为准。
+- [ ] nested/sibling Struct、独立 Enum、field/subtree 重建、captured/returned payload 与
+  saved aliases、遗漏 arm 继承和 nominal identity 拒绝有独立正反例；unchanged Table
+  captures 保持，cycles、foreign types 和非法 targets 拒绝。
+- [ ] Enum invalid/X/Z carrier 与未用 membership 的四态结果，以及 graph attributes、
+  membership use、stale/swapped/duplicate locators、同宽错字段和 carrier 来源 mutation
+  均独立验证。
 - [ ] X/Z selector 覆盖共同 known/Z 数据位、单边 intent、entry intent=1、identity write、
   fire=false、reset、held/falling 和失败后的 state/history/observations/epoch 零提交。
 - [ ] source mutations 覆盖错误入口继承、交换 arms、snapshot 改 final candidate、删除身份
@@ -164,6 +196,7 @@ cache 全部失效；预算优化不得提高限额、缩小输入或跳过证�
   parse，cache mutation/identity 隔离有独立证据。nightly、综合和时序未执行时明确记
   `NOT-RUN`，不得由短 gate 推断。
 
-本文只关闭 whole-Bits statement branch 和 scalar local SSA join。conditional Method
+本文规定 whole-Bits statement branch、scalar 与上述 nominal local SSA join，不构成
+候选验收通过声明。conditional Method
 calls/effects、partial or aggregate state、resources/conflicts/causality 及 effect-safe
 optimization 继续由[扩展矩阵](extension-roadmap.md)跟踪；不能据此关闭 issue #307。

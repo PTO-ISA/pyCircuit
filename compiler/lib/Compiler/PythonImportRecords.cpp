@@ -1,4 +1,5 @@
 #include "PythonImportRecords.h"
+#include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "SourceDeclarationContext.h"
 #include "SourceRuleWrites.h"
 
@@ -30,6 +31,7 @@
 
 #include <limits>
 #include <memory>
+#include <variant>
 
 using namespace mlir;
 
@@ -254,6 +256,12 @@ struct PreparedScalarJoin {
   std::optional<BindingBoundary> resultBoundary;
   Value refinementTrue, refinementFalse;
 };
+struct PreparedNominalJoin {
+  Value whenTrue, whenFalse;
+  Type resultType;
+  std::optional<BindingBoundary> resultBoundary;
+};
+using PreparedBranchJoin = std::variant<PreparedScalarJoin, PreparedNominalJoin>;
 struct EnumMemberRef {
   ac::EnumType type;
   StringAttr member;
@@ -1065,6 +1073,15 @@ private:
       Value selected, const PreparedScalarJoin &prepared,
       const NumericValue &condition, const AstNode &node, OpBuilder &after,
       FlatSymbolRefAttr ownerSymbol);
+  FailureOr<Type> resolveBranchPayloadType(Type type, OpBuilder &at,
+                                           const AstNode &node);
+  FailureOr<PreparedNominalJoin> prepareNominalJoin(
+      Value yes, Value no, std::optional<BindingBoundary> binding,
+      const AstNode &node, OpBuilder &thenAt, OpBuilder &elseAt,
+      FlatSymbolRefAttr ownerSymbol);
+  FailureOr<Value> finishNominalJoin(Value selected,
+      const PreparedNominalJoin &prepared, const AstNode &node,
+      OpBuilder &at, FlatSymbolRefAttr ownerSymbol);
   FailureOr<Value> joinSourceValues(const NumericValue &condition,
                                     SourceChoice yes, SourceChoice no,
                                     const AstNode &node, OpBuilder &at,
@@ -1801,6 +1818,70 @@ FailureOr<Value> Importer::finishScalarJoin(
   return selected;
 }
 
+FailureOr<Type> Importer::resolveBranchPayloadType(
+    Type type, OpBuilder &at, const AstNode &node) {
+  Operation *parent = at.getInsertionBlock()->getParentOp();
+  ac::HardwareBindings bindings;
+  bindings.owner = isa<ac::ModuleOp>(parent)
+                       ? parent : parent->getParentOfType<ac::ModuleOp>().getOperation();
+  ac::HardwareAnalysis analysis(*body);
+  return ac::detail::resolveSourceBranchResultType(
+      type, analysis, bindings, bindings.owner,
+      [&](uint64_t work, uint64_t bytes) -> LogicalResult {
+        TableQueryCharge charge;
+        std::string reason;
+        bool fits = TableQueryBudget::add(charge, TableQueryResource::Work, work) &&
+                    TableQueryBudget::add(charge, TableQueryResource::Slots,
+                                          bytes / 8 + (bytes % 8 != 0));
+        if (!fits || !queryBudget.reserve(charge, reason))
+          return mlir::emitError(node.location(b.getContext(), source.path))
+                 << "source nominal payload: "
+                 << (fits ? reason : "closure cost counter exhausted");
+        return success();
+      });
+}
+
+FailureOr<PreparedNominalJoin> Importer::prepareNominalJoin(
+    Value yes, Value no, std::optional<BindingBoundary> binding,
+    const AstNode &node, OpBuilder &thenAt, OpBuilder &elseAt,
+    FlatSymbolRefAttr ownerSymbol) {
+  if (!isa<ac::EnumType, ac::StructType>(yes.getType()) ||
+      !isa<ac::EnumType, ac::StructType>(no.getType()))
+    return error() << "changed branch local requires matching Bits or nominal payloads";
+  if (yes.getType() != no.getType())
+    return error() << "branch values require identical nominal types";
+  auto lexicalOwner = [](OpBuilder &at) {
+    Operation *parent = at.getInsertionBlock()->getParentOp();
+    return isa<ac::ModuleOp>(parent)
+               ? parent : parent->getParentOfType<ac::ModuleOp>().getOperation();
+  };
+  if (lexicalOwner(thenAt) != lexicalOwner(elseAt))
+    return error() << "nominal branch arms require the same lexical module";
+  auto trueType = resolveBranchPayloadType(yes.getType(), thenAt, node);
+  if (failed(trueType)) return failure();
+  if (binding) {
+    auto a = applyBindingBoundary(yes, *binding, node, thenAt, ownerSymbol);
+    auto c = applyBindingBoundary(no, *binding, node, elseAt, ownerSymbol);
+    if (failed(a) || failed(c)) return failure();
+    yes = *a;
+    no = *c;
+  }
+  if (yes.getType() != *trueType || no.getType() != *trueType)
+    return error() << "nominal branch binding changed payload identity";
+  return PreparedNominalJoin{yes, no, *trueType, std::move(binding)};
+}
+
+FailureOr<Value> Importer::finishNominalJoin(
+    Value selected, const PreparedNominalJoin &prepared, const AstNode &node,
+    OpBuilder &at, FlatSymbolRefAttr ownerSymbol) {
+  if (!selected || selected.getType() != prepared.resultType)
+    return error() << "nominal join result disagrees with prepared arms";
+  if (prepared.resultBoundary)
+    return applyBindingBoundary(selected, *prepared.resultBoundary, node, at,
+                                ownerSymbol);
+  return selected;
+}
+
 FailureOr<Value> Importer::joinSourceValues(const NumericValue &condition,
                                             SourceChoice yes, SourceChoice no,
                                             const AstNode &node, OpBuilder &at,
@@ -1964,7 +2045,7 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
                << "branch declarations have incompatible binding boundaries";
       joined.boundaries[item.first()] = item.second;
     }
-  SmallVector<PreparedScalarJoin> prepared;
+  SmallVector<PreparedBranchJoin> prepared;
   SmallVector<StringRef> resultNames;
   std::optional<OpBuilder> thenAt, elseAt;
   if (sourceBranch) {
@@ -1981,6 +2062,18 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     }
     Value noValue = opposite->second;
     auto binding = joined.boundaries.find(name);
+    if (sourceBranch && (!isa<ac::BitsType>(yesValue.getType()) ||
+                         !isa<ac::BitsType>(noValue.getType()))) {
+      auto nominal = prepareNominalJoin(
+          yesValue, noValue,
+          binding == joined.boundaries.end()
+              ? std::nullopt : std::optional<BindingBoundary>(binding->second),
+          node, *thenAt, *elseAt, ownerSymbol);
+      if (failed(nominal)) return failure();
+      prepared.emplace_back(std::move(*nominal));
+      resultNames.push_back(name);
+      return success();
+    }
     if (sourceBranch || (isa<ac::BitsType>(yesValue.getType()) &&
                          isa<ac::BitsType>(noValue.getType()))) {
       auto a = sourceChoice(yesValue, node);
@@ -2055,14 +2148,14 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
           !hasUnchangedIncomingBinding(item.first(), incoming, yes, no))
         ++resultCount;
     }
-    constexpr uint64_t resultSlots = (sizeof(PreparedScalarJoin) + 7) / 8 + 5;
+    constexpr uint64_t resultSlots = (sizeof(PreparedBranchJoin) + 7) / 8 + 5;
     bool fits = TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
                                              resultCount, resultSlots) &&
                 TableQueryBudget::addProduct(charge, TableQueryResource::Work,
                                              resultCount, 4);
     if (!fits || !queryBudget.reserve(charge, reason))
       return mlir::emitError(node.location(b.getContext(), source.path))
-             << "source branch scalar result preparation: "
+             << "source branch result preparation: "
              << (fits ? reason : "result storage counter exhausted");
     SmallVector<StringRef> names;
     names.reserve(resultCount);
@@ -2084,11 +2177,12 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
         return failure();
     SmallVector<Value> trueValues, falseValues;
     SmallVector<Type> resultTypes;
-    for (const PreparedScalarJoin &scalar : prepared) {
-      trueValues.push_back(scalar.whenTrue);
-      falseValues.push_back(scalar.whenFalse);
-      resultTypes.push_back(scalar.resultType);
-    }
+    for (const PreparedBranchJoin &join : prepared)
+      std::visit([&](const auto &payload) {
+        trueValues.push_back(payload.whenTrue);
+        falseValues.push_back(payload.whenFalse);
+        resultTypes.push_back(payload.resultType);
+      }, join);
     auto loc = node.location(b.getContext(), source.path);
     createOp(*thenAt, loc, ac::YieldOp::getOperationName(), trueValues, {}, {});
     createOp(*elseAt, loc, ac::YieldOp::getOperationName(), falseValues, {}, {});
@@ -2101,8 +2195,15 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
     Operation *complete = at.create(state);
     sourceBranch.erase();
     for (auto [index, name] : llvm::enumerate(resultNames)) {
-      auto value = finishScalarJoin(complete->getResult(index), prepared[index],
-                                    condition, node, at, ownerSymbol);
+      auto value = std::visit([&](const auto &payload) -> FailureOr<Value> {
+        using Join = std::decay_t<decltype(payload)>;
+        if constexpr (std::is_same_v<Join, PreparedScalarJoin>)
+          return finishScalarJoin(complete->getResult(index), payload, condition,
+                                  node, at, ownerSymbol);
+        else
+          return finishNominalJoin(complete->getResult(index), payload, node,
+                                   at, ownerSymbol);
+      }, prepared[index]);
       if (failed(value))
         return failure();
       joined.values[name] = *value;

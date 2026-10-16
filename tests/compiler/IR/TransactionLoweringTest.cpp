@@ -3,6 +3,7 @@
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "Dialect/ACIR/SourceTransactionSummary.h"
 #include "Transforms/LowerTransactions.h"
+#include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/IRMapping.h"
@@ -729,6 +730,90 @@ protected:
          builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
          builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
   }
+  SourceBranchOp addNominalBranch(mlir::ModuleOp file,
+                                  bool directEnum = false) {
+    auto definition = owner(file);
+    auto run = named<SourceTransactionOp>(file, "run");
+    auto &body = run.getBody().front();
+    auto byte = body.getArgument(1).getType();
+    auto bit = body.getArgument(0).getType();
+    auto tag = EnumType::get(&context, builder.getStringAttr("Tag"));
+    auto inner = StructType::get(&context, builder.getStringAttr("Inner"));
+    auto packet = StructType::get(&context, builder.getStringAttr("Packet"));
+    builder.setInsertionPointToStart(file.getBody());
+    mlir::OperationState enumeration(definition.getLoc(),
+                                     EnumOp::getOperationName());
+    enumeration.addAttribute("sym_name", builder.getStringAttr("Tag"));
+    enumeration.addAttribute("width",
+                             mlir::parseAttribute("#ac.math_int<8>", &context));
+    enumeration.addAttribute("encoding", builder.getStringAttr("explicit"));
+    enumeration.addAttribute(
+        "members",
+        builder.getArrayAttr({builder.getDictionaryAttr(
+            {builder.getNamedAttr("name", builder.getStringAttr("ZERO")),
+             builder.getNamedAttr(
+                 "code",
+                 mlir::parseAttribute("#ac.math_int<0>", &context))})}));
+    builder.create(enumeration);
+    auto declare =
+        [&](llvm::StringRef name,
+            llvm::ArrayRef<std::pair<llvm::StringRef, mlir::Type>> fields) {
+          llvm::SmallVector<mlir::Attribute> rows;
+          for (auto [field, type] : fields)
+            rows.push_back(builder.getDictionaryAttr(
+                {builder.getNamedAttr("name", builder.getStringAttr(field)),
+                 builder.getNamedAttr("type", mlir::TypeAttr::get(type))}));
+          mlir::OperationState declaration(definition.getLoc(),
+                                           StructOp::getOperationName());
+          declaration.addAttribute("sym_name", builder.getStringAttr(name));
+          declaration.addAttribute("fields", builder.getArrayAttr(rows));
+          builder.create(declaration);
+        };
+    declare("Inner", {{"data", byte}, {"tag", tag}});
+    declare("Packet", {{"left", inner}, {"right", inner}});
+    auto make = [&](llvm::StringRef operation, mlir::ValueRange operands,
+                    mlir::TypeRange types) -> mlir::Operation * {
+      mlir::OperationState state(run.getLoc(), operation);
+      state.addOperands(operands);
+      state.addTypes(types);
+      return builder.create(state);
+    };
+    builder.setInsertionPointToStart(&body);
+    auto left = make(EnumFromBitsOp::getOperationName(), body.getArgument(1),
+                     {tag, bit});
+    auto right = make(EnumFromBitsOp::getOperationName(), body.getArgument(1),
+                      {tag, bit});
+    mlir::Value a = left->getResult(0), b = right->getResult(0);
+    if (!directEnum) {
+      auto first = make(StructCreateOp::getOperationName(),
+                        {body.getArgument(1), a}, {inner});
+      auto second = make(StructCreateOp::getOperationName(),
+                         {body.getArgument(1), b}, {inner});
+      a = make(StructCreateOp::getOperationName(),
+               {first->getResult(0), second->getResult(0)}, {packet})
+              ->getResult(0);
+      b = make(StructCreateOp::getOperationName(),
+               {second->getResult(0), first->getResult(0)}, {packet})
+              ->getResult(0);
+    }
+    mlir::OperationState state(run.getLoc(),
+                               SourceBranchOp::getOperationName());
+    state.addOperands(body.getArgument(0));
+    state.addTypes(a.getType());
+    state.addAttribute("occurrence", occurrence("Owner", 24));
+    state.addAttribute("ac.condition_location", span(24));
+    state.addRegion();
+    state.addRegion();
+    auto split = mlir::cast<SourceBranchOp>(builder.create(state));
+    for (auto [region, value] :
+         llvm::zip(split->getRegions(), std::array<mlir::Value, 2>{a, b})) {
+      auto *arm = new mlir::Block;
+      region.push_back(arm);
+      builder.setInsertionPointToEnd(arm);
+      yield(value, run.getLoc());
+    }
+    return split;
+  }
   SourceBranchOp addBranchScenario(mlir::ModuleOp file) {
     auto definition = owner(file);
     auto run = named<SourceTransactionOp>(file, "run");
@@ -902,6 +987,219 @@ TEST_F(TransactionLoweringTest,
   EXPECT_TRUE(mlir::succeeded(capture([&] {
     return verifyHardwarePackage(*file);
   }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
+       NominalBranchResultsHaveCanonicalOrderedGraphAndIndependentSourceProof) {
+  for (bool directEnum : {false, true}) {
+    for (unsigned mutation = 0; mutation != 15; ++mutation) {
+      SCOPED_TRACE(directEnum);
+      SCOPED_TRACE(mutation);
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto split = addNominalBranch(*file, directEnum);
+      ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+          << diagnostics;
+      auto before = identities(*file);
+      SourceTransactionStateAnalysis analysis(file->getOperation());
+      ASSERT_TRUE(analysis.isValid()) << diagnostics;
+      HardwareSourceCheckLimits limits;
+      detail::SourceCheckBudget preparationBudget(limits);
+      auto prepared = capture([&] {
+        return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                        preparationBudget);
+      });
+      ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+      detail::SourceCheckBudget materializationBudget(limits);
+      auto candidate = capture([&] {
+        return acir::detail::materializeTransactionLowering(
+            *prepared, materializationBudget);
+      });
+      ASSERT_TRUE(mlir::succeeded(candidate)) << diagnostics;
+      auto index =
+          llvm::find_if(prepared->transactions,
+                        [&](const auto &entry) {
+                          return entry.plan->transaction ==
+                                 split->getParentOfType<SourceTransactionOp>();
+                        }) -
+          prepared->transactions.begin();
+      ASSERT_LT(static_cast<size_t>(index), candidate->transactions.size());
+      auto &transaction = candidate->transactions[index];
+      ASSERT_EQ(transaction.branchResults.size(), 1u);
+      auto &record = transaction.branchResults[0];
+      ASSERT_EQ(record.generated.size(), directEnum ? 4u : 25u);
+      ASSERT_EQ(record.value, record.generated.back()->getResult(0));
+      ASSERT_EQ(record.value.getType(), split.getResult(0).getType());
+      for (auto *op : record.generated) {
+        EXPECT_EQ(op->getBlock(), &transaction.rule.getBody().front());
+        EXPECT_EQ(op->getLoc(), split.getLoc());
+      }
+      detail::SourceCheckBudget initialProof(limits);
+      ASSERT_TRUE(mlir::succeeded(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *candidate, initialProof);
+      }))) << diagnostics;
+      auto *last = record.generated.back();
+      auto enumFrom = llvm::find_if(record.generated, [](auto *op) {
+        return mlir::isa<EnumFromBitsOp>(op);
+      });
+      ASSERT_NE(enumFrom, record.generated.end());
+      if (mutation == 0) {
+        unchanged(*file, before);
+        continue;
+      }
+      if (mutation == 1)
+        record.generated[0]->setAttr("forged", builder.getUnitAttr());
+      if (mutation == 2)
+        std::swap(record.generated[0], record.generated[1]);
+      if (mutation == 3)
+        record.generated[1] = record.generated[0];
+      if (mutation == 4)
+        record.generated.pop_back();
+      if (mutation == 5)
+        record.value = transaction.rule.getBody().front().getArgument(0);
+      if (mutation == 6)
+        record.value = split.getResult(0); // live only in original package.
+      if (mutation == 7) {
+        builder.setInsertionPoint(last);
+        mlir::OperationState dead(last->getLoc(),
+                                  BitsBinaryOp::getOperationName());
+        dead.addOperands(
+            {(*enumFrom)->getResult(1), (*enumFrom)->getResult(1)});
+        dead.addTypes((*enumFrom)->getResult(1).getType());
+        dead.addAttribute("opcode", builder.getStringAttr("and"));
+        builder.create(
+            dead); // unused consumer still violates membership isolation.
+      }
+      if (mutation == 8) {
+        auto *erased = record.generated.back();
+        record.value = erased->getResult(0);
+        erased->erase(); // stale locator and final value must be rejected
+                         // before dereference.
+      }
+      if (mutation == 9) {
+        auto selected = llvm::find_if(record.generated, [](auto *op) {
+          return mlir::isa<BitsSelectOp>(op);
+        });
+        ASSERT_NE(selected, record.generated.end());
+        (*selected)->setOperand(0, (*enumFrom)->getResult(1));
+      }
+      if (mutation == 10) {
+        if (directEnum)
+          (*enumFrom)->getResult(1).setType(
+              (*enumFrom)->getOperand(0).getType());
+        else
+          record.generated[0]->setAttr("field", builder.getStringAttr("right"));
+      }
+      if (mutation == 11)
+        record.generated[0]->setLoc(
+            mlir::FileLineColLoc::get(&context, "forged.py", 9, 1));
+      if (mutation == 12) {
+        auto conversion = llvm::find_if(record.generated, [](auto *op) {
+          return mlir::isa<EnumToBitsOp>(op);
+        });
+        ASSERT_NE(conversion, record.generated.end());
+        // Same width, independently authored provenance: the branch owns the
+        // carrier type.
+        (*conversion)
+            ->getResult(0)
+            .setType(split->getParentOfType<SourceTransactionOp>()
+                         .getBody()
+                         .front()
+                         .getArgument(1)
+                         .getType());
+      }
+      if (mutation == 13) {
+        auto selected = llvm::find_if(record.generated, [](auto *op) {
+          return mlir::isa<BitsSelectOp>(op);
+        });
+        ASSERT_NE(selected, record.generated.end());
+        (*selected)->getResult(0).setType((*enumFrom)->getResult(1).getType());
+      }
+      if (mutation == 14) {
+        if (directEnum) {
+          auto *conversion = record.generated[0];
+          conversion->setOperand(0, record.generated[1]->getOperand(0));
+        } else {
+          auto left = last->getOperand(0);
+          last->setOperand(0, last->getOperand(1));
+          last->setOperand(1, left);
+        }
+      }
+      detail::SourceCheckBudget proofBudget(limits);
+      EXPECT_TRUE(mlir::failed(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *candidate, proofBudget);
+      })));
+      EXPECT_FALSE(diagnostics.empty());
+      unchanged(*file, before);
+    }
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       NominalClosureRejectsCyclesUnresolvedAndTableFieldsBeforeReplacement) {
+  for (unsigned mutation = 0; mutation != 5; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    addNominalBranch(*file);
+    auto declaration = mlir::SymbolTable::lookupSymbolIn(*file, "Inner");
+    ASSERT_NE(declaration, nullptr);
+    auto fields = declaration->getAttrOfType<mlir::ArrayAttr>("fields");
+    auto row = mlir::cast<mlir::DictionaryAttr>(fields[0]);
+    mlir::NamedAttrList changed(row);
+    mlir::Type invalid;
+    if (mutation == 0)
+      invalid = StructType::get(&context, builder.getStringAttr("Inner"));
+    if (mutation == 1)
+      invalid = StructType::get(&context, builder.getStringAttr("Packet"));
+    if (mutation == 2)
+      invalid = StructType::get(&context, builder.getStringAttr("Absent"));
+    if (mutation == 3) {
+      auto constant =
+          *owner(*file).getBody().front().getOps<BitsConstantOp>().begin();
+      invalid =
+          TableType::get(&context, builder.getArrayAttr({constant.getValue()}),
+                         row.getAs<mlir::TypeAttr>("type").getValue());
+    }
+    if (mutation == 4) {
+      auto enumeration = mlir::SymbolTable::lookupSymbolIn(*file, "Tag");
+      enumeration->setAttr("width",
+                           mlir::parseAttribute("#ac.math_int<0>", &context));
+    } else {
+      changed.set("type", mlir::TypeAttr::get(invalid));
+      declaration->setAttr(
+          "fields",
+          builder.getArrayAttr({changed.getDictionary(&context), fields[1]}));
+    }
+    rejects(*file);
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       NominalMaterializationTinyBudgetPreservesOriginalAndPreparation) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  addNominalBranch(*file);
+  SourceTransactionStateAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  auto before = identities(*file);
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  HardwareSourceCheckLimits tiny;
+  tiny.maxWorkUnits = 1;
+  detail::SourceCheckBudget tinyBudget(tiny);
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared, tinyBudget);
+  })));
+  EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
+  unchanged(*file, before);
 }
 
 TEST_F(TransactionLoweringTest,

@@ -3,12 +3,18 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <source_location>
 #include <string>
 #include <string_view>
 #include <type_traits>
 
 constexpr unsigned width = @WIDTH@;
-void require(bool condition) { if (!condition) std::abort(); }
+void require(bool condition, std::source_location at = std::source_location::current()) {
+  if (!condition) {
+    std::cerr << "serial Method probe failure at " << at.line() << '\n';
+    std::abort();
+  }
+}
 template <unsigned W> auto wire(const std::string &bits) {
   require(bits.size() == W);
   gfsim::Bits<W> value{0}, known{0}, z{0};
@@ -68,6 +74,7 @@ private:
   Root &root_;
   gfsim::SimFailureInfo failure_{};
 };
+#ifndef PYC_NOMINAL_JOIN
 int main(int argc, char **argv) {
   require(argc == 3 || (argc == 4 && std::string_view(argv[3]) == "direct"));
   const bool direct = argc == 4;
@@ -139,3 +146,38 @@ int main(int argc, char **argv) {
   }
   require(stimuli.eof() && row != 0);
 }
+
+#else
+int main(int argc, char **argv) {
+  require(argc == 3);
+  pyc_dut dut(std::strtoul(argv[1], nullptr, 10));
+  gfsim::SimExecutor executor(dut.system(), dut.observations(), {});
+  constexpr std::string_view config =
+      "{\"deadlock_window\":null,\"max_domain_cycles\":{},\"max_ticks\":64,"
+      "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}";
+  require(executor.ConfigureJson(reinterpret_cast<const std::uint8_t *>(config.data()), config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+  require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+  std::ifstream stimuli(argv[2]); require(stimuli.good());
+  std::string flag, a, b, ta, tb;
+  unsigned row = 0;
+  while (stimuli >> flag >> a >> b >> ta >> tb) {
+    require(row < 128);
+    pyc_dut::Inputs in;
+    in.pyc_7079635f727374 = wire<1>("0");
+    in.flag = wire<1>(flag); in.a = wire<8>(a); in.b = wire<8>(b);
+    in.ta = wire<8>(ta); in.tb = wire<8>(tb);
+    // Every selector, including X/Z, reaches an active rising sample. A pure
+    // nominal join must not acquire a selection-known admission obligation.
+    for (unsigned level = 0; level != 2; ++level) {
+      in.pyc_7079635f636c6b = wire<1>(level ? "1" : "0");
+      dut.drive(in);
+      PycircuitModelStepResultV1 step{sizeof(step)};
+      require(executor.Step(&step) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+    }
+    auto out = dut.sample();
+    std::cout << "NOMINAL " << row++ << ' '; print(out.result);
+    std::cout << '\n';
+  }
+  require(stimuli.eof() && row != 0);
+}
+#endif

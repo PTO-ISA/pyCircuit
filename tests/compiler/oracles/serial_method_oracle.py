@@ -138,6 +138,54 @@ def dynamic_entry_stimuli():
     return [" ".join(row) for row in rows]
 
 
+def nominal_stimuli():
+    """Known, invalid Enum and X/Z carriers with equal and differing leaves."""
+    payloads = [
+        ("00000101", "00001001", "00000000", "00000101"),
+        ("10101010", "10101010", "00000011", "00000011"),
+        ("zz00xx11", "zz00xx11", "zzzzzzzz", "zzzzzzzz"),
+        ("10z0x101", "10z0x001", "00000z01", "00000x01"),
+        ("11111111", "00000000", "11111111", "11111110"),
+    ]
+    return [" ".join((flag, *values)) for values in payloads for flag in "01xz"]
+
+
+def nominal_expected(stimuli):
+    """Immutable source values; per-bit conditional truth table is independent."""
+
+    def choose(flag, left, right):
+        if flag == "1":
+            return left
+        if flag == "0":
+            return right
+        return "".join(a if a == b else "x" for a, b in zip(left, right, strict=True))
+
+    def assemble(flag, pair, replacement):
+        a, ta, b, tb = pair
+        data, tag = replacement
+        # Reconstructed left before the branch; both branch arms start here.
+        yes = (data, tag, b, tb)
+        no = (b, ta, b, tag)
+        joined = tuple(choose(flag, x, y) for x, y in zip(yes, no, strict=True))
+        return joined, pair, choose(flag, tag, ta)
+
+    lines = []
+    for row, text in enumerate(stimuli):
+        flag, a, b, ta, tb = text.split()
+        original = (a, ta, b, tb)
+        first, saved, direct = assemble(flag, original, (a, tb))
+        repeated, _, _ = assemble(flag, first, (b, ta))
+        payload = (
+            "".join(first)
+            + "".join(saved)
+            + direct
+            + "".join(repeated)
+            + "".join(original)
+        )
+        lines.append(f"NOMINAL {row} {payload}")
+    return lines
+
+
 def expected_trace(stimuli, width, initial, first, second, bias, last, mode="local"):
     mask = (1 << width) - 1
 
