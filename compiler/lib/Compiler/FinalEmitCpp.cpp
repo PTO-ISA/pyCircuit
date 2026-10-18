@@ -268,6 +268,10 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
   if (failed(rootLayout))
     return failure();
   FinalCppSourceParts parts;
+  auto portMap = context.rootPortMap(/*rtl=*/false);
+  if (failed(portMap))
+    return failure();
+  parts.portMap = std::move(*portMap);
   parts.sourceCheckCount = context.sourceChecks().checks.size();
   auto rootType = context.rootCppType();
   if (failed(rootType))

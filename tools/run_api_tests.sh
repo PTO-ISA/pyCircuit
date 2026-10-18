@@ -24,6 +24,9 @@ cd "${PYC_ROOT_DIR}"
 nightly_python_tests=(
   tests/system/test_runtime_install.py
   tests/system/test_public_emit.py
+  tests/system/test_scalar_generic_modules.py
+  tests/system/test_physical_rtl_export.py
+  tests/system/test_physical_projection_rejections.py
   tests/system/test_source_system_execution.py
   tests/system/test_rule_formal_proposals.py
   tests/system/test_rule_formal_demands.py

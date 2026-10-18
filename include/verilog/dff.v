@@ -2,7 +2,9 @@
 // Packed-payload positive-edge register with synchronous active-high reset.
 module dff #(
     parameter type T = logic [0:0],
-    parameter bit pyc_managed = 0
+    parameter bit pyc_managed = 0,
+    parameter bit pyc_physical = 0,
+    parameter T pyc_initial = 'x
 ) (
     // Interface: direction belongs to the wire port, not the payload.
     input  wire clk,
@@ -18,6 +20,11 @@ module dff #(
     // Internal declarations: only q_current owns register state.
     localparam int unsigned PAYLOAD_BITS = $bits(T);
     T q_current;
+    // Physical export proves this typed elaboration value from the declared
+    // initializer DAG. Default adapters retain their existing startup policy.
+    generate if (pyc_physical) begin : physical_initialization
+        initial q_current = pyc_initial;
+    end endgenerate
 `ifndef SYNTHESIS
     T payload_x_check;
     logic [PAYLOAD_BITS-1:0] packed_x_check;
@@ -55,7 +62,7 @@ module dff #(
         if (packed_x_check !== {PAYLOAD_BITS{1'bx}})
             $fatal(1, "dff: T must be four-state packed bits or a four-state packed struct");
 `endif
-        q_current = 'x;
+        if (!pyc_physical) q_current = 'x;
     end
 `endif
 
@@ -115,6 +122,13 @@ module dff #(
                 end
                 default: begin end // IDLE has no lifecycle effects.
             endcase
+        end
+    end else if (pyc_physical) begin : checked_physical
+        // Prospective errors are independent of clock, permission and history.
+        assign pyc_local_error = |edge_control_error(1'b1, rst);
+        always @(posedge clk) begin
+            if ((clk === 1'b1) && (pyc_root_commit_ok === 1'b1))
+                q_current <= next_q(q_current, 1'b1, rst, 1'b1, d, init);
         end
     end else begin : autonomous
         assign pyc_local_error = 1'b0;

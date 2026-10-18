@@ -7,7 +7,7 @@ a short performance pilot alone does not establish historical-root acceptance.
 zero-initialized variables: prescaler u26, seconds u6, minutes u6, hours u5,
 mode u2 and blink u1. One nested rule writes these lexical owners as one atomic
 transaction. Three direct stateless
-`EncodeBcd(value: ac.u6)` calls encode old hours, minutes and seconds; the hour
+`EncodeBcd(value: ac.u6) -> ac.u8` calls encode old hours, minutes and seconds; the hour
 is zero-extended at the encoder's typed input boundary. Each encoder divides
 and takes remainder by literal 10, selects each digit's low four bits, then
 widens to u8 before shifting and combining them. Any input X/Z makes all eight

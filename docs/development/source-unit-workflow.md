@@ -32,6 +32,48 @@ example, admitting a Table-valued Struct field requires a matching declaration,
 shared packed-layout analysis, source construction and projection, and transport
 through both emitters. A verifier change alone does not establish support.
 
+Verilog emission preserves the native root module name in
+`generated.json` as `root_rtl_name`. External tools may use this identity instead
+of guessing it from source function names. This metadata does not rename the
+root or change internal identifier encoding. Older receipts remain readable for
+managed replacement.
+
+Both targets emit `ports.json` from the same verified root bindings and layout.
+Schema version 1 records `target` and lists exported `inputs` and source `outputs` with logical name,
+legalized `wire`, signature `ordinal`, resolved packed `width`, and packed leaf
+`fields` (`path`, `low`, `width`). Outputs retain their `availability` companion
+wire or null. `domains.clock/reset` identify input ordinals or null; the input
+list includes compiler-generated physical domain ports. `controls` lists extra
+public availability and, for managed Verilog only, lifecycle ports with direction,
+role, wire and width. C++ does not advertise RTL lifecycle ports. Internal
+defaulted/routed ports and `pyc_reset_active` are not external
+ports. For a System, this describes the generated DUT wrapper, not the separate
+zero-port simulation harness. The metadata does not itself select export policy
+or assign external aliases.
+
+Root integer parameters use `pycircuit link --parameters bindings.json`, where
+the file is an array such as `[{"name":"W","value":"65"}]`. Values are canonical
+signed decimal strings, not JSON numbers or expressions. Names must be unique
+declared integer parameters. The compiler binds in declaration order; omitted
+parameters retain provider defaults, including defaults referring to earlier
+parameters. A required parameter without a binding fails. Duplicate JSON keys,
+extra fields, unknown names and noncanonical decimals fail before publication.
+The driver snapshots the input once and forwards only that snapshot to the
+native linker; final IR records the selected actual bindings.
+
+For ordinary single-domain register hierarchies, `emit --target verilog
+--rtl-mode physical` selects physical-edge execution. The default remains
+managed execution. Physical mode keeps data and compiler domain ports public;
+checks aggregate internally before any edge commits. It preserves declared
+closed startup values and synchronous reset, and reports
+`PYCIRCUIT_PHYSICAL_FAULT` on invalid controls or clock transitions. Simulation
+then freezes state; a physical reset does not clear the fault. Runners must reject
+that diagnostic even if a testbench later prints success. This is not a host
+Work/Discard interface. Residual non-guard checks, observations, non-register
+resources, multiple domains, clock-data use and dynamic initializers require
+managed execution. See [physical export](physical-rtl-export.md) for the precise
+timing and verification policy.
+
 Likewise, a pure region's admitted operations must be supported by both target
 emitters. Nested Table construction and mapping inside an existing TableMap
 use that operation's checked region and field-sensitive emission. TableMatch

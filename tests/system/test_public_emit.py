@@ -124,6 +124,31 @@ def _receipt(path: Path) -> dict[str, Any]:
 
 def _assert_source_maps_match(cpp: Path, rtl: Path) -> None:
     left, right = _receipt(cpp), _receipt(rtl)
+    assert right["root_rtl_name"] == "pyc_root"
+    assert "root_rtl_name" not in left
+    assert "module " + right["root_rtl_name"] in (rtl / "design_top.sv").read_text()
+    ports = json.loads((rtl / "ports.json").read_text())
+    cpp_ports = json.loads((cpp / "ports.json").read_text())
+    assert cpp_ports["target"] == "cpp" and cpp_ports["controls"] == []
+    assert ports["target"] == "verilog"
+    assert {
+        key: value for key, value in ports.items() if key not in {"target", "controls"}
+    } == {
+        key: value
+        for key, value in cpp_ports.items()
+        if key not in {"target", "controls"}
+    }
+    assert ports["schema_version"] == 1
+    assert len(ports["inputs"]) == 2 and ports["outputs"] == []
+    assert ports["domains"] == {"clock": 0, "reset": 1}
+    assert all(row["width"] == 1 for row in ports["inputs"])
+    assert {row["role"] for row in ports["controls"]} == {
+        "phase",
+        "commit_permission",
+        "check_complete",
+        "sampling_error",
+        "local_error",
+    }
     left_groups = {
         tuple(sorted(group["source"].items())): group for group in left["source_groups"]
     }
@@ -260,10 +285,65 @@ def _assert_counter_trace(
 def _assert_design_top_events(payload: bytes) -> None:
     _assert_counter_trace(
         payload,
-        children={"root/__pyc_call_0": (3, 100), "root/__pyc_call_1": (10, 200)},
+        children={"root/left": (3, 100), "root/right": (10, 200)},
         event="counter_tick",
         report="count",
     )
+
+
+def test_root_port_map_uses_verified_packing_and_identifier_names(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "layout.py"
+    source.write_text(
+        """import pycircuit as ac
+@ac.struct
+class Packet:
+    first: ac.u5
+    second: ac.bits[65]
+@ac.module
+def Top(input: ac.u5, pyc_696e707574: ac.bits[65]) -> tuple[ac.u5, Packet]:
+    return input, Packet(first=input, second=pyc_696e707574)
+"""
+    )
+    unit, final = tmp_path / "unit", tmp_path / "final.ac"
+    _cli(
+        "compile",
+        "-c",
+        str(source),
+        "--source-root",
+        str(tmp_path),
+        "--package-prefix",
+        "ports",
+        "-o",
+        str(unit),
+    )
+    _cli("link", str(unit), "--top", "ports.layout.Top", "-o", str(final))
+    maps = []
+    for target in ("cpp", "verilog"):
+        output = tmp_path / target
+        _emit(final, target, output)
+        ports = json.loads((output / "ports.json").read_text())
+        maps.append(ports)
+        assert ports["domains"] == {"clock": None, "reset": None}
+        assert ports["controls"] == []
+        assert [row["width"] for row in ports["inputs"]] == [5, 65]
+        wires = [row["wire"] for row in ports["inputs"]]
+        assert wires[0] == "pyc_696e707574" and wires[0] != wires[1]
+        assert [row["width"] for row in ports["outputs"]] == [5, 70]
+        assert all(row["availability"] is None for row in ports["outputs"])
+        fields = {
+            tuple(row["path"]): (row["low"], row["width"])
+            for row in ports["outputs"][1]["fields"]
+        }
+        assert fields == {("first",): (65, 5), ("second",): (0, 65)}
+        if target == "verilog":
+            wrapper = (output / "design_top.sv").read_text()
+            for wire in wires:
+                assert wire in wrapper
+    assert {k: v for k, v in maps[0].items() if k != "target"} == {
+        k: v for k, v in maps[1].items() if k != "target"
+    }
 
 
 def test_public_emit_uses_saved_final_for_both_targets_and_runs_installed_runtime(

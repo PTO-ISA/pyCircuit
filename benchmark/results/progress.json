@@ -1,0 +1,46 @@
+{
+  "date": "2026-10-19",
+  "status": "compiler_repairs_validated; reset_X_policy_and_PR_integration_pending",
+  "authored_sources": 131,
+  "verilogeval": {
+    "passed": 86,
+    "total": 156,
+    "selected": 88,
+    "physical_control_faults": 2,
+    "not_selected": 68
+  },
+  "resbench": {
+    "functional_testbench_passed": 43,
+    "total": 56,
+    "unsupported": 13,
+    "official_vivado_ppa": "not_run"
+  },
+  "compiler_modified": true,
+  "source_authoring": "gpt-6-astra; source-global or nested Rules; scalar single values; compiler-owned state/control",
+  "verification": {
+    "api_gate": 23,
+    "examples_gate": 13,
+    "scalar_generic": 15,
+    "physical_runtime_and_startup": 24,
+    "physical_init_rejection_and_synthesis": 5,
+    "protected_projection": 4,
+    "unit_passed": 627,
+    "unit_skipped": 5,
+    "unit_deselected": 82,
+    "precommit": "passed",
+    "docs_strict": "passed",
+    "nightly": "not_run"
+  },
+  "incomplete": [
+    "Physical reset-X semantics for m2014_q4c/lfsr32 unchanged upstream TBs",
+    "PR push, submission and integration",
+    "RTL-Repo Parquet payload downloaded but reader unavailable",
+    "RealBench encrypted descriptions downloaded; gpg unavailable",
+    "Full CVDP/TuRTLe/repair/HLS/formal/PPA protocols not run",
+    "Remaining question corpus not ported"
+  ],
+  "evidence": "docs/gates/logs/20261019-compiler-delivery/",
+  "source_lock_sha256": "3723d9e1e5e58499aa55a264214013bb9f764eac7aac9e1b9197410ad42562ad",
+  "catalog_task_variants": 3771,
+  "final_source_hashes_verified": true
+}

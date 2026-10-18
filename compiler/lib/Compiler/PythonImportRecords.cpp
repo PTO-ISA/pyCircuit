@@ -103,6 +103,8 @@ struct SourceCallableDecl {
 };
 struct CallableDecl {
   FlatSymbolRefAttr symbol;
+  DictionaryAttr signature;
+  SmallVector<Attribute> parameters, typeArguments;
   SmallVector<Port> inputs;
   SmallVector<Port> results;
   ReturnShape returnShape = ReturnShape::Struct;
@@ -161,6 +163,7 @@ struct FixedCountShape {
 struct DirectCallSite {
   Operation *op;
   bool bound = false;
+  std::optional<CallableDecl> callee;
 };
 struct ForwardCallBinding {
   DictionaryAttr site;
@@ -395,6 +398,7 @@ struct LoopLoweringContext {
   LoopAdmissionSummary *admission = nullptr;
   uint64_t iteration = 0;
   llvm::DenseSet<Operation *> helperOwned;
+  Value induction;
 };
 
 class Importer final : public SourceDeclarationContext::Implementation {
@@ -551,6 +555,8 @@ private:
                                    llvm::StringMap<Instance *> &instances,
                                    SmallVectorImpl<Instance> &instanceStorage);
   FailureOr<CallableDecl> callable(const AstNode &function);
+  FailureOr<CallableDecl> resolveModuleCall(const AstNode &call,
+                                           FlatSymbolRefAttr parent);
   FailureOr<DictionaryAttr> sourceConstraint(const Port &port);
   Port sourceCallPort(DictionaryAttr constraint, StringRef name,
                       const AstNode &callSite) const;
@@ -741,7 +747,14 @@ private:
                                     const AstNode &node, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
                                     bool allowFixedWidening = true);
+  LogicalResult normalizeFixedIntegerPeer(Value &lhs, Value &rhs,
+                                          const AstNode &node, OpBuilder &at,
+                                          FlatSymbolRefAttr symbol,
+                                          bool requireClosed);
   FailureOr<Value> fixedUnsignedShift(Value input, const llvm::APSInt &count,
+                                      StringRef opcode, const AstNode &node,
+                                      OpBuilder &at, FlatSymbolRefAttr symbol);
+  FailureOr<Value> fixedUnsignedShift(Value input, Value count,
                                       StringRef opcode, const AstNode &node,
                                       OpBuilder &at, FlatSymbolRefAttr symbol);
   FailureOr<Value> compareSourceValues(Value lhs, Value rhs,
@@ -859,13 +872,18 @@ private:
   FailureOr<DictionaryAttr> moduleSignatureAttrs(const ModuleDecl &target);
   FailureOr<SmallVector<Attribute>> bindParameters(DictionaryAttr calleeAttrs,
                                                  const AstNode &call,
-                                                 FlatSymbolRefAttr parent);
+                                                 FlatSymbolRefAttr parent,
+                                                 bool directCall = false);
   FailureOr<SmallVector<Attribute>>
   bindTypeArguments(DictionaryAttr calleeAttrs, const AstNode &call,
                     FlatSymbolRefAttr parent);
   FailureOr<Type> substitute(Type type, DictionaryAttr calleeAttrs,
                             ArrayRef<Attribute> actuals,
                             ArrayRef<Attribute> typeActuals);
+  Attribute substituteParameterAttribute(Attribute value,
+                                         DictionaryAttr calleeAttrs,
+                                         ArrayRef<Attribute> actuals,
+                                         ArrayRef<Attribute> typeActuals);
   FailureOr<Value>
   expression(const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
              llvm::StringMap<Value> &values,
@@ -2566,6 +2584,7 @@ Importer::moduleSignatureAttrs(const ModuleDecl &target) {
         ac::getStaticParameterAttr(b, parameter.name, defaultValue));
   }
   SmallVector<NamedAttribute> attrs{
+      b.getNamedAttr("sym_name", b.getStringAttr(target.symbol.getValue())),
       b.getNamedAttr("parameters", b.getArrayAttr(parameters)),
       b.getNamedAttr("type_parameters", b.getArrayAttr({})),
       b.getNamedAttr("function_type", TypeAttr::get(target.type)),
@@ -2579,10 +2598,10 @@ Importer::moduleSignatureAttrs(const ModuleDecl &target) {
 
 FailureOr<SmallVector<Attribute>>
 Importer::bindParameters(DictionaryAttr calleeAttrs, const AstNode &call,
-                         FlatSymbolRefAttr parent) {
+                         FlatSymbolRefAttr parent, bool directCall) {
   ArrayAttr formals = calleeAttrs.getAs<ArrayAttr>("parameters");
   SmallVector<std::optional<Attribute>> values(formals.size());
-  if (!call.array("args").empty())
+  if (!directCall && !call.array("args").empty())
     return error() << "instance parameters are keyword-only";
   for (size_t i = 0; i < call.array("keywords").size(); ++i) {
     AstNode kw = call.item("keywords", i);
@@ -2590,6 +2609,13 @@ Importer::bindParameters(DictionaryAttr calleeAttrs, const AstNode &call,
     auto typeFormals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
     if (name && typeFormals && llvm::is_contained(typeFormals, name))
       continue;
+    if (directCall && name) {
+      auto hardware = calleeAttrs.getAs<ArrayAttr>("ac.parameters");
+      if (hardware && llvm::any_of(hardware, [&](Attribute raw) {
+            return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
+          }))
+        continue;
+    }
     size_t ordinal = formals.size();
     for (size_t j = 0; name && j < formals.size(); ++j)
       if (cast<DictionaryAttr>(formals[j])
@@ -2612,7 +2638,10 @@ Importer::bindParameters(DictionaryAttr calleeAttrs, const AstNode &call,
           cast<DictionaryAttr>(formals[i]).getAs<ac::StaticExprAttr>("default");
       if (!value)
         return error() << "missing required instance parameter";
-      result.push_back(value);
+      // Defaults belong to the provider. Substitute earlier parameter actuals
+      // here before the completed list is used as caller-scoped instance args.
+      result.push_back(substituteParameterAttribute(value, calleeAttrs, result,
+                                                     {}));
     }
   }
   return result;
@@ -2645,22 +2674,12 @@ Importer::bindTypeArguments(DictionaryAttr calleeAttrs, const AstNode &call,
   return values;
 }
 
-FailureOr<Type> Importer::substitute(Type type, DictionaryAttr calleeAttrs,
-                                   ArrayRef<Attribute> actuals,
-                                   ArrayRef<Attribute> typeActuals) {
-  if (auto parameter = dyn_cast<ac::TypeParamType>(type)) {
-    auto formals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
-    for (auto [index, formal] : llvm::enumerate(formals))
-      if (formal == parameter.getName() && index < typeActuals.size())
-        return cast<TypeAttr>(typeActuals[index]).getValue();
-    return error() << "unbound instance type parameter";
-  }
-  auto bits = dyn_cast<ac::BitsType>(type);
-  if (!bits)
-    return type;
+Attribute Importer::substituteParameterAttribute(
+    Attribute value, DictionaryAttr calleeAttrs, ArrayRef<Attribute> actuals,
+    ArrayRef<Attribute> typeActuals) {
   ArrayAttr formals = calleeAttrs.getAs<ArrayAttr>("parameters");
   llvm::StringMap<ac::StaticExprAttr> replacements;
-  for (size_t i = 0; i < formals.size(); ++i)
+  for (size_t i = 0; i < actuals.size(); ++i)
     replacements[cast<DictionaryAttr>(formals[i])
                      .getAs<StringAttr>("name")
                      .getValue()] = cast<ac::StaticExprAttr>(actuals[i]);
@@ -2671,7 +2690,11 @@ FailureOr<Type> Importer::substitute(Type type, DictionaryAttr calleeAttrs,
       auto ref = tree.getAs<DictionaryAttr>("ref");
       if (kind && kind.getValue() == "reference" && ref &&
           ref.getAs<StringAttr>("kind") &&
-          ref.getAs<StringAttr>("kind").getValue() == "parameter") {
+          ref.getAs<StringAttr>("kind").getValue() == "parameter" &&
+          ref.getAs<FlatSymbolRefAttr>("owner") &&
+          calleeAttrs.getAs<StringAttr>("sym_name") &&
+          ref.getAs<FlatSymbolRefAttr>("owner").getValue() ==
+              calleeAttrs.getAs<StringAttr>("sym_name").getValue()) {
         auto found =
             replacements.find(ref.getAs<StringAttr>("name").getValue());
         if (found != replacements.end())
@@ -2708,9 +2731,70 @@ FailureOr<Type> Importer::substitute(Type type, DictionaryAttr calleeAttrs,
     }
     return value;
   };
+  return rewrite(rewrite, value);
+}
+
+FailureOr<Type> Importer::substitute(Type type, DictionaryAttr calleeAttrs,
+                                   ArrayRef<Attribute> actuals,
+                                   ArrayRef<Attribute> typeActuals) {
+  if (auto parameter = dyn_cast<ac::TypeParamType>(type)) {
+    auto formals = calleeAttrs.getAs<ArrayAttr>("type_parameters");
+    for (auto [index, formal] : llvm::enumerate(formals))
+      if (formal == parameter.getName() && index < typeActuals.size())
+        return cast<TypeAttr>(typeActuals[index]).getValue();
+    return error() << "unbound instance type parameter";
+  }
+  auto bits = dyn_cast<ac::BitsType>(type);
+  if (!bits)
+    return type;
   return Type(ac::BitsType::get(
-      b.getContext(),
-      cast<ac::StaticExprAttr>(rewrite(rewrite, bits.getWidth()))));
+      b.getContext(), cast<ac::StaticExprAttr>(substituteParameterAttribute(
+                          bits.getWidth(), calleeAttrs, actuals, typeActuals))));
+}
+
+LogicalResult Importer::normalizeFixedIntegerPeer(
+    Value &lhs, Value &rhs, const AstNode &node, OpBuilder &at,
+    FlatSymbolRefAttr symbol, bool requireClosed) {
+  bool lhsFixed = fixedValues.contains(lhs);
+  bool rhsFixed = fixedValues.contains(rhs);
+  if (lhsFixed == rhsFixed)
+    return success();
+  Value &peer = lhsFixed ? rhs : lhs;
+  if (valueInfo(peer).sourceKind != ac::detail::ValueKind::Integer)
+    return success();
+  if (requireClosed) {
+    auto choice = sourceChoice(peer, node);
+    if (failed(choice))
+      return failure();
+    if (!choice->constant ||
+        !isa<ac::MathIntAttr>(choice->constant->value)) {
+      // Typed source loops have one SSA induction bridge before normalization
+      // expands their closed range. It is exact on each iteration, but is not
+      // one constant that can be attached to the whole loop body.
+      Value origin = originalCaptures.lookup(peer);
+      if (!origin)
+        origin = peer;
+      auto index = origin.getDefiningOp<ac::SourceIndexOp>();
+      auto argument = index ? dyn_cast<BlockArgument>(index.getInput())
+                            : BlockArgument();
+      auto loop = argument
+                      ? dyn_cast<scf::ForOp>(argument.getOwner()->getParentOp())
+                      : scf::ForOp();
+      if (!loop || loop.getInductionVar() != argument ||
+          !loop.getLowerBound().getDefiningOp<arith::ConstantIndexOp>() ||
+          !loop.getUpperBound().getDefiningOp<arith::ConstantIndexOp>() ||
+          !loop.getStep().getDefiningOp<arith::ConstantIndexOp>())
+        return success();
+    }
+  }
+  // Prove the destination range before giving this use fixed authority. The
+  // original Integer value and any saved aliases keep their source facts.
+  auto converted = unsignedBoundary(peer, (lhsFixed ? lhs : rhs).getType(),
+                                    node, at, symbol);
+  if (failed(converted))
+    return failure();
+  peer = *converted;
+  return success();
 }
 
 FailureOr<Value>
@@ -2748,6 +2832,51 @@ Importer::fixedUnsignedShift(Value input, const llvm::APSInt &count,
                          {input, knownCount}, TypeRange{input.getType()},
                          {at.getNamedAttr("opcode", at.getStringAttr(opcode))})
                     ->getResult(0);
+  fixedValues.insert(result);
+  return result;
+}
+
+FailureOr<Value>
+Importer::fixedUnsignedShift(Value input, Value count, StringRef opcode,
+                             const AstNode &node, OpBuilder &at,
+                             FlatSymbolRefAttr symbol) {
+  auto loc = node.location(b.getContext(), source.path);
+  for (Value operand : {input, count})
+    if (!isa<ac::BitsType>(operand.getType()) ||
+        !fixedValues.contains(operand) ||
+        valueInfo(operand).sourceKind == ac::detail::ValueKind::Boolean)
+      return mlir::emitError(loc)
+             << "runtime unsigned shift requires authoritative fixed Bits "
+                "operands";
+
+  ac::HardwareAnalysis analysis(*body);
+  Operation *owner = at.getInsertionBlock()->getParentOp();
+  auto inputWidth = analysis.getPackedWidth(input.getType(), {}, owner);
+  auto countWidth = analysis.getPackedWidth(count.getType(), {}, owner);
+  if (failed(inputWidth) || failed(countWidth))
+    return failure();
+  if (!*inputWidth || !*countWidth)
+    return mlir::emitError(loc)
+           << "runtime unsigned shift requires positive resolved widths";
+
+  // The existing binary op has equal-width operands. Widen rather than truncate
+  // a count: high count bits and X/Z must still determine the shift result.
+  Type common = *inputWidth >= *countWidth ? input.getType() : count.getType();
+  auto value = unsignedBoundary(input, common, node.child("left"), at, symbol);
+  auto amount = unsignedBoundary(count, common, node.child("right"), at, symbol);
+  if (failed(value) || failed(amount))
+    return failure();
+  Value result =
+      createOp(at, loc, ac::BitsBinaryOp::getOperationName(), {*value, *amount},
+               TypeRange{common},
+               {at.getNamedAttr("opcode", at.getStringAttr(opcode))})
+          ->getResult(0);
+  if (*countWidth > *inputWidth)
+    result =
+        createOp(at, loc, ac::BitsExtractOp::getOperationName(), {result},
+                 TypeRange{input.getType()},
+                 {at.getNamedAttr("low", literal(0, node, symbol))})
+            ->getResult(0);
   fixedValues.insert(result);
   return result;
 }
@@ -2833,6 +2962,18 @@ FailureOr<Value> Importer::expression(
   };
   auto provenStatic =
       [&](const AstNode &candidate) -> std::optional<llvm::APSInt> {
+    // Only this iteration's live binder is a compile-time ordinal. Rebinding
+    // it, or copying it to another name, must not create static-count authority.
+    if (activeLoop && candidate.kind() == "Name" &&
+        candidate.string("id") == activeLoop->statement.child("target").string("id")) {
+      auto found = values.find(candidate.string("id"));
+      if (found != values.end() && found->second == activeLoop->induction) {
+        auto integer = dyn_cast_or_null<ac::MathIntAttr>(
+            valueInfo(found->second).closedSourceConstant);
+        if (integer)
+          return llvm::APSInt(integer.getCanonicalValue());
+      }
+    }
     if (!staticOnly(staticOnly, candidate))
       return std::nullopt;
     auto expression = staticExpr(candidate, ownerSymbol);
@@ -3114,13 +3255,30 @@ FailureOr<Value> Importer::expression(
                     "width-preserving bitwise lowering";
       }
       auto count = provenStatic(node.child("right"));
-      if (!count)
-        return error()
-               << (form == "RShift"
-                       ? "integer right shift requires a proven static Integer "
-                         "count"
-                       : "unsigned shift requires a proven static Integer "
-                         "count");
+      if (!count) {
+        auto staticCountError = [&]() -> FailureOr<Value> {
+          return error()
+                 << (form == "RShift"
+                         ? "integer right shift requires a proven static Integer "
+                           "count"
+                         : "unsigned shift requires a proven static Integer "
+                           "count");
+        };
+        if (form == "RShift")
+          input = expression(node.child("left"), at, ownerSymbol, values,
+                             instances, {}, captures);
+        if (failed(input))
+          return failure();
+        if (!fixedValues.contains(*input))
+          return staticCountError();
+        auto amount = expression(node.child("right"), at, ownerSymbol, values,
+                                 instances, {}, captures);
+        if (failed(amount) || !fixedValues.contains(*amount))
+          return staticCountError();
+        return fixedUnsignedShift(*input, *amount,
+                                  form == "LShift" ? "shl" : "lshr", node, at,
+                                  ownerSymbol);
+      }
       if (count->isNegative())
         return error() << (form == "RShift"
                                ? "integer right-shift count must be nonnegative"
@@ -3270,6 +3428,9 @@ FailureOr<Value> Importer::expression(
       return failure();
     if (isa<ac::EnumType>(lhs->getType()) || isa<ac::EnumType>(rhs->getType()))
       return error() << "Enum bitwise operations require explicit enum_to_bits";
+    if (failed(normalizeFixedIntegerPeer(*lhs, *rhs, node, at, ownerSymbol,
+                                         /*requireClosed=*/false)))
+      return failure();
     bool mathematical = needsMath(*lhs) || needsMath(*rhs);
     auto leftInfo = valueInfo(*lhs), rightInfo = valueInfo(*rhs);
     if (leftInfo.sourceKind && rightInfo.sourceKind &&
@@ -3313,11 +3474,7 @@ FailureOr<Value> Importer::expression(
          rightInfo.sourceKind == ValueKind::Boolean) &&
         (fixedValues.contains(*lhs) || fixedValues.contains(*rhs));
     if (mixedOneBit ||
-        ((fixedValues.contains(*lhs) ||
-          node.child("left").kind() == "Constant") &&
-         (fixedValues.contains(*rhs) ||
-          node.child("right").kind() == "Constant") &&
-         (fixedValues.contains(*lhs) || fixedValues.contains(*rhs)))) {
+        (fixedValues.contains(*lhs) && fixedValues.contains(*rhs))) {
       fixedValues.insert(result);
       numericValues.erase(result);
     }
@@ -3430,18 +3587,21 @@ Importer::compareSourceValues(Value lhs, Value rhs, StringRef predicate,
     left = *a;
     right = *c;
   } else {
-    auto a = valueInfo(lhs), c = valueInfo(rhs);
+    if (failed(normalizeFixedIntegerPeer(left, right, site, at, ownerSymbol,
+                                         /*requireClosed=*/true)))
+      return failure();
+    auto a = valueInfo(left), c = valueInfo(right);
     if (a.sourceKind && c.sourceKind && a.sourceKind != c.sourceKind)
       return diagnostic() << "comparison operands have different known Boolean "
                              "and Integer kinds";
-    if (arithmeticValues.contains(lhs) || arithmeticValues.contains(rhs) ||
+    if (arithmeticValues.contains(left) || arithmeticValues.contains(right) ||
         (a.interval && a.interval->lower.isNegative()) ||
         (c.interval && c.interval->lower.isNegative()))
       return diagnostic()
              << "comparison of mathematical intermediates requires full-width "
                 "signed type unification";
-    if (!isa<ac::BitsType>(lhs.getType()) ||
-        !ac::areEquivalentHardwareTypes(rhs.getType(), lhs.getType()))
+    if (!isa<ac::BitsType>(left.getType()) ||
+        !ac::areEquivalentHardwareTypes(right.getType(), left.getType()))
       return diagnostic() << "comparison operands require equal bits types";
   }
   auto result =

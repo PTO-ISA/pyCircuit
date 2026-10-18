@@ -169,7 +169,8 @@ admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
 FailureOr<OwningOpRef<ModuleOp>>
 linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
                   ac::detail::EmitError emitError,
-                  SourceLinkStages *retainedStages) {
+                  SourceLinkStages *retainedStages,
+                  ArrayRef<SourceLinkParameterBinding> parameters) {
   auto admitted = admitSourceLinkUnits(units, emitError);
   if (failed(admitted))
     return failure();
@@ -236,13 +237,55 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   if (!root.getTypeParameters().empty())
     return root.emitOpError(
         "source link requires concrete root type arguments");
+  llvm::StringMap<ac::MathIntAttr> overrides;
+  for (const SourceLinkParameterBinding &binding : parameters) {
+    if (binding.name.empty() || overrides.contains(binding.name))
+      return root.emitOpError(
+          "root parameter binding names must be nonempty and unique");
+    if (!llvm::any_of(root.getParameters(), [&](Attribute raw) {
+          return cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue() ==
+                 binding.name;
+        }))
+      return root.emitOpError() << "unknown root integer parameter: "
+                                << binding.name;
+    auto value = ac::detail::parseMathIntAttr(context, binding.value, emitError);
+    if (failed(value))
+      return failure();
+    overrides[binding.name] = *value;
+  }
+  DictionaryAttr origin, span;
+  if (!overrides.empty()) {
+    origin = root->getAttrOfType<DictionaryAttr>("ac.origin");
+    auto location = dyn_cast<FileLineColLoc>(root.getLoc());
+    if (!origin || !location)
+      return root.emitOpError(
+          "root parameter bindings require the source declaration location");
+    // The binding belongs to the selected declaration. Preserve that actual
+    // occurrence and source point instead of inventing a Python AST site.
+    span = builder.getDictionaryAttr({
+        builder.getNamedAttr("path", location.getFilename()),
+        builder.getNamedAttr("line", builder.getI64IntegerAttr(location.getLine())),
+        builder.getNamedAttr("column", builder.getI64IntegerAttr(location.getColumn())),
+        builder.getNamedAttr("end_line", builder.getI64IntegerAttr(location.getLine())),
+        builder.getNamedAttr("end_column", builder.getI64IntegerAttr(location.getColumn()))});
+  }
   SmallVector<Attribute> arguments;
   for (Attribute raw : root.getParameters()) {
     auto parameter = cast<DictionaryAttr>(raw);
+    StringRef name = parameter.getAs<StringAttr>("name").getValue();
     auto value = parameter.getAs<ac::StaticExprAttr>("default");
+    if (auto found = overrides.find(name); found != overrides.end())
+      value = ac::StaticExprAttr::get(
+          context, builder.getDictionaryAttr({
+              builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+              builder.getNamedAttr("value", builder.getDictionaryAttr({
+                  builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+                  builder.getNamedAttr("value", found->second)})),
+              builder.getNamedAttr("origin", origin),
+              builder.getNamedAttr("location", span)}));
     if (!value)
-      return root.emitOpError(
-          "source link root integer parameter requires a default");
+      return root.emitOpError() << "source link root integer parameter requires "
+                                  "a value or default: " << name;
     arguments.push_back(value);
   }
   OperationState state(root.getLoc(), ac::SystemOp::getOperationName());

@@ -20,6 +20,24 @@ Read affected specifications and exact semantic approvals under
 not implementation or execution evidence. Preserve frozen technical records;
 update active behavior docs when implementation changes.
 
+## Pythonic authoring contract
+
+The user requests Astra (`gpt-6-astra`) for delegated pyCircuit source authoring
+and authoring-contract review. Keep compiler-only implementation routing separate.
+
+For source authoring, first read [.codex/skills/pycircuit-authoring/SKILL.md](.codex/skills/pycircuit-authoring/SKILL.md).
+Write function calls, ordinary local computations and sequential Rule assignments.
+Rule definitions can be source-global or nested; definition location is not
+Module ownership. External Rules receive explicit arguments.
+Module variables own persistent state; ACIR supplies storage and its controls.
+Ordinary example/benchmark frontend sources must not expose clk/reset, register
+q/d interfaces, DFF/DFFE bindings or proposal/commit plumbing. Original RTL names
+and physical ports belong at the compiler export or test adapter boundary.
+Single values use scalar arguments/results; do not wrap one ac.u8/Bits/bool in a
+one-field Struct or singleton tuple. Structs group multiple related fields.
+Dedicated primitive/nominal-type conformance tests retain their explicit test
+purpose and must not be copied as ordinary design style.
+
 ## Module output authoring
 
 Choose module interfaces by how their fields are connected. When several fields

@@ -339,6 +339,12 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
 
 } // namespace
 
+LogicalResult detail::verifyClosedStateInitializer(
+    const HardwareAnalysis &analysis, Value initial,
+    const HardwareBindings &bindings, Operation *site) {
+  return staticInitializer(analysis, initial, bindings, site);
+}
+
 FailureOr<Type> detail::resolveSourceBranchResultType(
     Type actualType, const HardwareAnalysis &analysis,
     const HardwareBindings &lexicalBindings, Operation *diagnosticSite,

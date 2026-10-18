@@ -28,7 +28,7 @@ def source_for_root(source_text, root):
     declarations = {
         node.name: node
         for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        if isinstance(node, ast.FunctionDef | ast.ClassDef)
     }
     assert root in declarations, root
     needed = set()
@@ -56,7 +56,7 @@ def source_for_root(source_text, root):
     retained = {
         node.name: node.lineno
         for node in filtered.body
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        if isinstance(node, ast.FunctionDef | ast.ClassDef)
     }
     assert retained == {name: declarations[name].lineno for name in needed}
     return result

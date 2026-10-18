@@ -61,8 +61,9 @@ coverage. Long comparison matrices still belong in the existing nightly tier.
 
 ## Active interface boundaries
 
-The current module profile uses typed ports, nested stateless `@rule`, explicit
-standard storage leaves and Work/Xfer. See the language reference for supported
+The current module profile uses typed values, Module-owned variables and
+source-global or nested `@rule` functions. ACIR infers storage, control and
+transaction lowering; Work/Xfer belongs to generated execution. See the language reference for supported
 source expressions and the typed C++ DUT. Closed default-domain `@system`
 simulation is supported through generated C++/Verilator closures. Broader system forms, source collection authoring,
 general arithmetic and automatic multi-clock scheduling remain unfinished.

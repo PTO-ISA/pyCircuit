@@ -1,0 +1,669 @@
+[
+  {
+    "task_id": "parity_8bit",
+    "source": "benchmark/solutions/resbench/parity_8bit.py",
+    "top": "resbench.parity_8bit.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "mux4to1",
+    "source": "benchmark/solutions/resbench/mux4to1.py",
+    "top": "resbench.mux4to1.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "majority",
+    "source": "benchmark/solutions/resbench/majority.py",
+    "top": "resbench.majority.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "bin_to_gray",
+    "source": "benchmark/solutions/resbench/bin_to_gray.py",
+    "top": "resbench.bin_to_gray.Top",
+    "outputs": [
+      {
+        "name": "gray",
+        "width": 4
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "eq_comparator",
+    "source": "benchmark/solutions/resbench/eq_comparator.py",
+    "top": "resbench.eq_comparator.Top",
+    "outputs": [
+      {
+        "name": "equal",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "decoder_2to4",
+    "source": "benchmark/solutions/resbench/decoder_2to4.py",
+    "top": "resbench.decoder_2to4.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 4
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "seven_segment_decoder",
+    "source": "benchmark/solutions/resbench/seven_segment_decoder.py",
+    "top": "resbench.seven_segment_decoder.Top",
+    "outputs": [
+      {
+        "name": "segments",
+        "width": 7
+      }
+    ],
+    "status": "implemented",
+    "notes": "Uses active-low gfedcba segment order; digits 10 through 15 blank. Segment order is not specified in the problem."
+  },
+  {
+    "task_id": "priority_encoder",
+    "source": "benchmark/solutions/resbench/priority_encoder.py",
+    "top": "resbench.priority_encoder.Top",
+    "outputs": [
+      {
+        "name": "code",
+        "width": 2
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "fsm_3state",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits reset timing/polarity and state encodings; cannot claim equivalence from the declaration alone."
+  },
+  {
+    "task_id": "traffic_light",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits transition durations/order, light encodings and reset semantics."
+  },
+  {
+    "task_id": "elevator_controller",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits simultaneous-request priority, transition details, state encodings and reset semantics."
+  },
+  {
+    "task_id": "vending_machine",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits transition details, state encodings and reset semantics."
+  },
+  {
+    "task_id": "int_sqrt",
+    "source": "benchmark/solutions/resbench/int_sqrt.py",
+    "top": "resbench.int_sqrt.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "notes": "Negative inputs map to zero; the problem does not define their square root."
+  },
+  {
+    "task_id": "fibonacci",
+    "source": "benchmark/solutions/resbench/fibonacci.py",
+    "top": "resbench.fibonacci.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 16
+      }
+    ],
+    "status": "implemented",
+    "notes": "Returns F(n), F(0)=0 and F(1)=1, modulo 2^16; negative n maps to zero."
+  },
+  {
+    "task_id": "mod_exp",
+    "source": "benchmark/solutions/resbench/mod_exp.py",
+    "top": "resbench.mod_exp.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "notes": "Oracle-informed refinement from unchanged public testbench: signed Verilog remainder for negative bases; negative modulus uses its magnitude, negative exponents and zero modulus map to zero."
+  },
+  {
+    "task_id": "power",
+    "source": "benchmark/solutions/resbench/power.py",
+    "top": "resbench.power.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 16
+      }
+    ],
+    "status": "implemented",
+    "notes": "Negative exponents map to zero because the output is integral; 0^0 maps to one."
+  },
+  {
+    "task_id": "log2_int",
+    "source": "benchmark/solutions/resbench/log2_int.py",
+    "top": "resbench.log2_int.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "notes": "Zero maps to zero; the problem specifies negative inputs map to zero."
+  },
+  {
+    "task_id": "add_8bit",
+    "source": "benchmark/solutions/resbench/add_8bit.py",
+    "top": "resbench.add_8bit.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 9
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "mult_4bit",
+    "source": "benchmark/solutions/resbench/mult_4bit.py",
+    "top": "resbench.mult_4bit.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "abs_diff",
+    "source": "benchmark/solutions/resbench/abs_diff.py",
+    "top": "resbench.abs_diff.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "modulo_op",
+    "source": "benchmark/solutions/resbench/modulo_op.py",
+    "top": "resbench.modulo_op.Top",
+    "outputs": [
+      {
+        "name": "remainder",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "subtract_8bit",
+    "source": "benchmark/solutions/resbench/subtract_8bit.py",
+    "top": "resbench.subtract_8bit.Top",
+    "outputs": [
+      {
+        "name": "diff",
+        "width": 9
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "bitwise_ops",
+    "source": "benchmark/solutions/resbench/bitwise_ops.py",
+    "top": "resbench.bitwise_ops.Top",
+    "outputs": [
+      {
+        "name": "and_out",
+        "width": 8
+      },
+      {
+        "name": "or_out",
+        "width": 8
+      },
+      {
+        "name": "xor_out",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "left_shift",
+    "source": "benchmark/solutions/resbench/left_shift.py",
+    "top": "resbench.left_shift.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "bitwise_not",
+    "source": "benchmark/solutions/resbench/bitwise_not.py",
+    "top": "resbench.bitwise_not.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "rotate_left",
+    "source": "benchmark/solutions/resbench/rotate_left.py",
+    "top": "resbench.rotate_left.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "pipelined_adder",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem specifies two stages but omits reset timing/polarity; exact physical behavior cannot be derived from the declaration."
+  },
+  {
+    "task_id": "pipelined_multiplier",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem specifies three stages but omits reset timing/polarity and exact partial-product staging."
+  },
+  {
+    "task_id": "pipelined_accumulator",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits reset semantics and whether four-cycle accumulation uses sliding or disjoint windows."
+  },
+  {
+    "task_id": "pipelined_max_finder",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem specifies two stages but omits reset timing/polarity."
+  },
+  {
+    "task_id": "pipelined_fir",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits the four coefficient values and reset semantics."
+  },
+  {
+    "task_id": "polynomial_1",
+    "source": "benchmark/solutions/resbench/polynomial_1.py",
+    "top": "resbench.polynomial_1.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "polynomial_2",
+    "source": "benchmark/solutions/resbench/polynomial_2.py",
+    "top": "resbench.polynomial_2.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 24
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "polynomial_3",
+    "source": "benchmark/solutions/resbench/polynomial_3.py",
+    "top": "resbench.polynomial_3.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "polynomial_4",
+    "source": "benchmark/solutions/resbench/polynomial_4.py",
+    "top": "resbench.polynomial_4.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 32
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "polynomial_5",
+    "source": "benchmark/solutions/resbench/polynomial_5.py",
+    "top": "resbench.polynomial_5.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "matrix_vector_mult",
+    "source": "benchmark/solutions/resbench/matrix_vector_mult.py",
+    "top": "resbench.matrix_vector_mult.Top",
+    "outputs": [
+      {
+        "name": "out_0",
+        "width": 32
+      },
+      {
+        "name": "out_1",
+        "width": 32
+      },
+      {
+        "name": "out_2",
+        "width": 32
+      },
+      {
+        "name": "out_3",
+        "width": 32
+      }
+    ],
+    "status": "implemented",
+    "notes": "Row-major matrix layout; arithmetic wraps at the declared output width."
+  },
+  {
+    "task_id": "relu",
+    "source": "benchmark/solutions/resbench/relu.py",
+    "top": "resbench.relu.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "gradient_descent",
+    "source": "benchmark/solutions/resbench/gradient_descent.py",
+    "top": "resbench.gradient_descent.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 32
+      }
+    ],
+    "status": "implemented",
+    "notes": "Integer arithmetic modulo 2^32; no fixed-point scale is specified."
+  },
+  {
+    "task_id": "mse_loss",
+    "source": "benchmark/solutions/resbench/mse_loss.py",
+    "top": "resbench.mse_loss.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 32
+      }
+    ],
+    "status": "implemented",
+    "notes": "Computes integer floor of the exact four-square mean, then wraps to 32 bits."
+  },
+  {
+    "task_id": "conv2d",
+    "source": "benchmark/solutions/resbench/conv2d.py",
+    "top": "resbench.conv2d.Top",
+    "outputs": [
+      {
+        "name": "out_0",
+        "width": 32
+      },
+      {
+        "name": "out_1",
+        "width": 32
+      },
+      {
+        "name": "out_2",
+        "width": 32
+      },
+      {
+        "name": "out_3",
+        "width": 32
+      }
+    ],
+    "status": "implemented",
+    "notes": "Row-major valid cross-correlation convention used for ML convolution; the problem does not specify kernel reversal."
+  },
+  {
+    "task_id": "compound_interest",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits the binary-point location and intermediate rounding for its 8-bit fixed-point rate."
+  },
+  {
+    "task_id": "ddm",
+    "source": "benchmark/solutions/resbench/ddm.py",
+    "top": "resbench.ddm.Top",
+    "outputs": [
+      {
+        "name": "ddm_value",
+        "width": 32
+      }
+    ],
+    "status": "implemented",
+    "notes": "Returns zero when required return is no greater than growth; rates use the specified Q0.8 format."
+  },
+  {
+    "task_id": "present_value",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits the fixed-point precision and rounding required between exponentiation stages."
+  },
+  {
+    "task_id": "currency_converter",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits the binary-point location in the 16-bit fixed-point exchange rate."
+  },
+  {
+    "task_id": "caesar_cipher",
+    "source": "benchmark/solutions/resbench/caesar_cipher.py",
+    "top": "resbench.caesar_cipher.Top",
+    "outputs": [
+      {
+        "name": "data_out",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "notes": "Uses the example constant shift 3 explicitly offered in the problem."
+  },
+  {
+    "task_id": "modular_add_cipher",
+    "source": "benchmark/solutions/resbench/modular_add_cipher.py",
+    "top": "resbench.modular_add_cipher.Top",
+    "outputs": [
+      {
+        "name": "data_out",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "notes": "Uses the example fixed key 5 explicitly offered in the problem."
+  },
+  {
+    "task_id": "feistel_cipher",
+    "source": null,
+    "top": null,
+    "outputs": [],
+    "status": "unsupported",
+    "reason": "Problem omits the fixed round-key value and leaves the round function as an example."
+  },
+  {
+    "task_id": "free_fall_distance",
+    "source": "benchmark/solutions/resbench/free_fall_distance.py",
+    "top": "resbench.free_fall_distance.Top",
+    "outputs": [
+      {
+        "name": "distance",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "kinetic_energy",
+    "source": "benchmark/solutions/resbench/kinetic_energy.py",
+    "top": "resbench.kinetic_energy.Top",
+    "outputs": [
+      {
+        "name": "energy",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "potential_energy",
+    "source": "benchmark/solutions/resbench/potential_energy.py",
+    "top": "resbench.potential_energy.Top",
+    "outputs": [
+      {
+        "name": "energy",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "wavelength",
+    "source": "benchmark/solutions/resbench/wavelength.py",
+    "top": "resbench.wavelength.Top",
+    "outputs": [
+      {
+        "name": "wavelength",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "carbon_footprint",
+    "source": "benchmark/solutions/resbench/carbon_footprint.py",
+    "top": "resbench.carbon_footprint.Top",
+    "outputs": [
+      {
+        "name": "footprint",
+        "width": 16
+      }
+    ],
+    "status": "implemented",
+    "notes": "Computes the weighted sum exactly in hundredths and floors once at the integral output."
+  },
+  {
+    "task_id": "heat_index",
+    "source": "benchmark/solutions/resbench/heat_index.py",
+    "top": "resbench.heat_index.Top",
+    "outputs": [
+      {
+        "name": "heat_index",
+        "width": 16
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "air_quality_index",
+    "source": "benchmark/solutions/resbench/air_quality_index.py",
+    "top": "resbench.air_quality_index.Top",
+    "outputs": [
+      {
+        "name": "aqi",
+        "width": 16
+      }
+    ],
+    "status": "implemented",
+    "notes": "Oracle-informed refinement from unchanged public testbench: Q0.8 coefficients 128, 77, 51 with one final division by 256; widened intermediate sum."
+  },
+  {
+    "task_id": "solar_radiation_average",
+    "source": "benchmark/solutions/resbench/solar_radiation_average.py",
+    "top": "resbench.solar_radiation_average.Top",
+    "outputs": [
+      {
+        "name": "avg_radiation",
+        "width": 8
+      }
+    ],
+    "status": "implemented"
+  }
+]

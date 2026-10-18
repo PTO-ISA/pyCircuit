@@ -9,6 +9,11 @@ Read `AGENTS.md` and [project governance](../../../docs/development/project-gove
 Use the user's latest scope and existing authorization. Continue bounded local
 work without repeated confirmation; proposals do not establish new semantics.
 
+For source/example/benchmark changes, read
+[`pycircuit-authoring`](../pycircuit-authoring/SKILL.md): sequential Python,
+source-global or nested Rules, scalar single outputs, and compiler-owned standard
+signals. Do not copy primitive conformance fixtures into ordinary author code.
+
 ## Route the work
 
 - Issue intake, existing ownership, dependencies, forks and delivery:

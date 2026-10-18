@@ -16,6 +16,7 @@ def _cmd_emit(args: argparse.Namespace) -> int:
         emit_command(
             final=args.final,
             target=args.target,
+            rtl_mode=args.rtl_mode,
             output=args.output,
             replace=args.replace,
         )
@@ -170,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
     link_program.add_argument(
         "--parameters",
         default=None,
-        help="Ordered JSON bindings for the root's static parameters",
+        help='JSON file of {"name": "W", "value": "8"} Integer overrides; omitted names use defaults',
     )
     link_program.add_argument(
         "-o",
@@ -188,6 +189,7 @@ def main(argv: list[str] | None = None) -> int:
     emit = sub.add_parser("emit", help="Emit C++ or Verilog from a saved final design.")
     emit.add_argument("final")
     emit.add_argument("--target", choices=("cpp", "verilog"), required=True)
+    emit.add_argument("--rtl-mode", choices=("managed", "physical"), default="managed")
     emit.add_argument("-o", dest="output", required=True)
     emit.add_argument("--replace", action="store_true")
     emit.set_defaults(fn=_cmd_emit)

@@ -52,21 +52,28 @@ int main(int argc, char **argv) {
         "{0}\n", llvm::json::Value(llvm::json::Object{{"path", path}}));
     return 0;
   }
-  StringRef target, format = "json";
-  if (argc == 4 || argc == 6) {
-    if (StringRef(argv[2]) == "--target")
-      target = argv[3];
-    if (argc == 6 && StringRef(argv[4]) == "--format")
-      format = argv[5];
-    else if (argc == 6)
-      format = "";
+  StringRef target, format = "json", rtlMode = "managed";
+  bool optionsValid = argc >= 4 && (argc % 2 == 0);
+  for (int i = 2; optionsValid && i + 1 < argc; i += 2) {
+    StringRef option(argv[i]);
+    if (option == "--target" && target.empty())
+      target = argv[i + 1];
+    else if (option == "--format")
+      format = argv[i + 1];
+    else if (option == "--rtl-mode")
+      rtlMode = argv[i + 1];
+    else
+      optionsValid = false;
   }
-  if ((target != "cpp" && target != "verilog") ||
-      (format != "json" && format != "source")) {
+  if (!optionsValid || (target != "cpp" && target != "verilog") ||
+      (format != "json" && format != "source") ||
+      (rtlMode != "managed" && rtlMode != "physical") ||
+      (target != "verilog" && rtlMode != "managed")) {
     llvm::errs() << "usage: pycircuit-emit FINAL.ac --target cpp|verilog "
-                    "[--format json|source]\n";
+                    "[--format json|source] [--rtl-mode managed|physical]\n";
     return 2;
   }
+  bool physical = rtlMode == "physical";
   auto package = parseSourceFile<ModuleOp>(argv[1], &context);
   if (!package || failed(mlir::verify(*package)))
     return 1;
@@ -79,7 +86,7 @@ int main(int argc, char **argv) {
     LogicalResult status =
         target == "cpp"
             ? acir::compiler::emitCpp(*package, analysis, stream)
-            : acir::compiler::emitVerilog(*package, analysis, stream);
+            : acir::compiler::emitVerilog(*package, analysis, stream, physical);
     if (failed(status))
       return 1;
     llvm::outs() << text;
@@ -101,36 +108,6 @@ int main(int argc, char **argv) {
                                     "@\"" + callee.getValue().str() + "\""},
                                    {"arguments", std::move(arguments)}}},
       {"entry_source", sourceOwner(root.getSourceOwner())}};
-  auto portLayout = acir::ac::getModulePortLayout(root);
-  if (failed(portLayout))
-    return 1;
-  if (llvm::any_of(portLayout->outputValidity,
-                   [](int64_t port) { return port >= 0; })) {
-    llvm::json::Array outputs;
-    for (unsigned i = 0; i < portLayout->sourceOutputCount; ++i) {
-      int64_t companion = portLayout->outputValidity[i];
-      auto name = cast<StringAttr>(root.getOutputNames()[i]).getValue();
-      auto wire = acir::compiler::legalizeIdentifier(name, emitError);
-      if (failed(wire))
-        return 1;
-      llvm::json::Value availability(nullptr);
-      if (companion >= 0) {
-        auto control = acir::compiler::legalizeIdentifier(
-            cast<StringAttr>(root.getOutputNames()[companion]).getValue(),
-            emitError);
-        if (failed(control))
-          return 1;
-        availability = *control;
-      }
-      outputs.emplace_back(
-          llvm::json::Object{{"ordinal", i},
-                             {"name", name},
-                             {"wire", *wire},
-                             {"availability", std::move(availability)}});
-    }
-    result["port_availability"] =
-        llvm::json::Object{{"outputs", std::move(outputs)}};
-  }
   auto units = acir::ac::collectFinalSourceUnits(*package, emitError);
   if (failed(units))
     return 1;
@@ -172,9 +149,17 @@ int main(int argc, char **argv) {
     result["simulation_config"] = parts->simulationConfig;
     result["source_check_count"] = parts->sourceCheckCount;
     result["root_cpp_name"] = parts->rootCppName;
+    auto ports = llvm::json::parse(parts->portMap);
+    if (!ports) {
+      llvm::consumeError(ports.takeError());
+      emitError() << "invalid generated root port map";
+      return 1;
+    }
+    result["port_availability"] = std::move(*ports);
     result["source_groups"] = std::move(groups);
   } else {
-    auto parts = acir::compiler::emitVerilogSourceParts(*package, analysis);
+    auto parts =
+        acir::compiler::emitVerilogSourceParts(*package, analysis, physical);
     if (failed(parts))
       return 1;
     llvm::json::Array groups, standard;
@@ -195,9 +180,17 @@ int main(int argc, char **argv) {
     result["rtl_source_groups"] = std::move(groups);
     result["rtl_standard_sources"] = std::move(standard);
     result["rtl_core"] = parts->core;
+    result["rtl_mode"] = rtlMode;
     result["simulation_top"] = parts->simulationTop;
     result["source_check_count"] = parts->sourceCheckCount;
     result["root_rtl_name"] = parts->rootRtlName;
+    auto ports = llvm::json::parse(parts->portMap);
+    if (!ports) {
+      llvm::consumeError(ports.takeError());
+      emitError() << "invalid generated root port map";
+      return 1;
+    }
+    result["port_availability"] = std::move(*ports);
   }
   auto maps =
       acir::compiler::emitFinalSourceMaps(*package, memberships, emitError);

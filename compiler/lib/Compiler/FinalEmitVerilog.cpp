@@ -577,8 +577,9 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
       return failure();
   for (int64_t companion : layout->outputValidity)
     if (companion >= 0 &&
-        failed(port("output", signature.getResult(companion),
-                    cast<StringAttr>(root.getOutputNames()[companion]).getValue())))
+        failed(port(
+            "output", signature.getResult(companion),
+            cast<StringAttr>(root.getOutputNames()[companion]).getValue())))
       return failure();
   if (context.managesChecks()) {
     out << (first ? "\n" : ",\n")
@@ -595,6 +596,44 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
                         : FailureOr<std::string>(std::string());
   if (failed(parameters))
     return failure();
+  if (context.isPhysical()) {
+    const auto &projection = context.physicalProjection();
+    auto clock = legalizeIdentifier(
+        cast<StringAttr>(root.getInputNames()[projection.clockInput])
+            .getValue(),
+        [&] { return root.emitOpError(); });
+    auto reset = legalizeIdentifier(
+        cast<StringAttr>(root.getInputNames()[projection.resetInput])
+            .getValue(),
+        [&] { return root.emitOpError(); });
+    if (failed(clock) || failed(reset))
+      return failure();
+    out << "  wire pyc_local_error;\n"
+           "  wire pyc_root_commit_ok;\n"
+           "`ifndef SYNTHESIS\n"
+           "  bit pyc_physical_fault = 1'b0;\n"
+           "  wire pyc_physical_error = pyc_local_error | $isunknown("
+        << *reset
+        << ");\n"
+           "  assign pyc_root_commit_ok = !pyc_physical_fault && "
+           "!pyc_physical_error;\n"
+           // A level change to one is a physical rising edge; transitions
+           // into X/Z are faults even when Verilog calls them falling edges.
+           "  always @("
+        << *clock
+        << ") begin\n"
+           "    if ($isunknown("
+        << *clock << ") || ((" << *clock
+        << " === 1'b1) && pyc_physical_error)) begin\n"
+           "      if (!pyc_physical_fault) "
+           "$display(\"PYCIRCUIT_PHYSICAL_FAULT\");\n"
+           "      pyc_physical_fault = 1'b1;\n"
+           "    end\n"
+           "  end\n"
+           "`else\n"
+           "  assign pyc_root_commit_ok = 1'b1;\n"
+           "`endif\n";
+  }
   out << "  " << callee << *parameters << " dut (";
   first = true;
   auto connection = [&](StringRef name, StringRef expression) -> LogicalResult {
@@ -620,8 +659,8 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
         return failure();
       auto initial = cast<IntegerAttr>(
           layout->rootInputDefaults[index - layout->sourceInputCount]);
-      expression = std::to_string(*width) + "'d" +
-                   std::to_string(initial.getInt());
+      expression =
+          std::to_string(*width) + "'d" + std::to_string(initial.getInt());
     }
     if (failed(connection(name, expression)))
       return failure();
@@ -630,7 +669,8 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
     StringRef name = cast<StringAttr>(raw).getValue();
     std::string expression;
     if (index < layout->sourceOutputCount ||
-        llvm::is_contained(layout->outputValidity, static_cast<int64_t>(index))) {
+        llvm::is_contained(layout->outputValidity,
+                           static_cast<int64_t>(index))) {
       auto id = legalizeIdentifier(name, [&] { return root.emitOpError(); });
       if (failed(id))
         return failure();
@@ -653,13 +693,26 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
         << "    .pyc_local_error(pyc_local_error)";
     first = false;
   }
+  if (context.isPhysical()) {
+    auto reset = managedReset(root);
+    if (failed(reset))
+      return failure();
+    out << (first ? "\n" : ",\n")
+        << "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
+           "    .pyc_reset_active("
+        << *reset
+        << "),\n"
+           "    .pyc_local_error(pyc_local_error)";
+    first = false;
+  }
   out << (first ? ");\n" : "\n  );\n") << "endmodule\n";
   return success();
 }
 } // namespace
 FailureOr<FinalVerilogSourceParts>
-emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
-  HardwareEmitContext context(package, analysis);
+emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis,
+                       bool physical) {
+  HardwareEmitContext context(package, analysis, physical);
   const bool system = context.isSystem();
   if (failed(context.prepareNativeChecks()))
     return failure();
@@ -696,6 +749,10 @@ emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
   if (unsupported.wasInterrupted())
     return failure();
   FinalVerilogSourceParts parts;
+  auto portMap = context.rootPortMap();
+  if (failed(portMap))
+    return failure();
+  parts.portMap = std::move(*portMap);
   parts.sourceCheckCount = context.sourceChecks().checks.size();
   parts.rootRtlName = "pyc_root";
   llvm::StringSet<> standard;
@@ -783,8 +840,8 @@ emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
   return parts;
 }
 LogicalResult emitVerilog(ModuleOp package, ac::HardwareAnalysis &analysis,
-                          raw_ostream &out) {
-  auto parts = emitVerilogSourceParts(package, analysis);
+                          raw_ostream &out, bool physical) {
+  auto parts = emitVerilogSourceParts(package, analysis, physical);
   if (failed(parts))
     return failure();
   out << parts->core;

@@ -1420,10 +1420,10 @@ def test_link_requires_at_least_one_unit(
 # --------------------------------------------------------------------------
 
 
-def test_link_rejects_non_empty_parameter_bindings_before_any_other_work(
+def test_link_rejects_non_string_parameter_values_before_any_other_work(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Fail-closed must win over every other input problem."""
+    """Invalid binding schema must be rejected before opening other inputs."""
 
     bindings = tmp_path / "bindings.json"
     bindings.write_text('[{"name": "Width", "value": 8}]', encoding="utf-8")
@@ -1441,22 +1441,22 @@ def test_link_rejects_non_empty_parameter_bindings_before_any_other_work(
     )
 
     diagnostic = _reject(cli, "link")
-    assert "static parameter bindings are not implemented yet" in diagnostic, diagnostic
+    assert "canonical signed decimal" in diagnostic, diagnostic
     assert not (tmp_path / "program.ac").exists()
 
 
 @pytest.mark.parametrize(
     ("text", "expected"),
     [
-        ("{}", "must be an ordered JSON array"),
-        ('"bindings"', "must be an ordered JSON array"),
-        ("3", "must be an ordered JSON array"),
-        ("null", "must be an ordered JSON array"),
-        ("[1,", "not valid JSON"),
-        ("", "not valid JSON"),
+        ("{}", "must be a JSON array"),
+        ('"bindings"', "must be a JSON array"),
+        ("3", "must be a JSON array"),
+        ("null", "must be a JSON array"),
+        ("[1,", "not stable strict JSON"),
+        ("", "not stable strict JSON"),
     ],
 )
-def test_link_rejects_parameters_that_are_not_an_empty_array(
+def test_link_rejects_parameters_that_are_not_a_valid_array(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     text: str,

@@ -511,7 +511,8 @@ Importer::preflightForCapabilities(const AstNode &statement,
                                    operation.kind())
               : llvm::is_contained(ArrayRef<StringRef>{"Add", "Sub", "Mult",
                                                        "BitAnd", "BitOr",
-                                                       "BitXor"},
+                                                       "BitXor", "LShift",
+                                                       "RShift", "FloorDiv", "Mod"},
                                    operation.kind());
       if (!admitted)
         return diagnostic() << "bounded for binary operation is unsupported";
@@ -854,6 +855,15 @@ FailureOr<LoopResourceShape> Importer::describeLoopExpression(
       if (!pureCheckedAdd(width, right->precision))
         return failure();
     }
+    if (!comparison && (node.child("op").kind() == "FloorDiv" ||
+                        node.child("op").kind() == "Mod")) {
+      // The existing constant-divisor lowerer uses a reciprocal product of
+      // 2*inputWidth + ceil(log2(divisor)) bits. A fitting positive divisor
+      // bounds this by 3*inputWidth. Remainder emits seven operations; retain
+      // room for boundary identities without inventing a loop arithmetic path.
+      if (!pureCheckedProduct(3, width, width) || !operation(3))
+        return failure();
+    }
     if (!pureCheckedAdd(width, 2))
       return failure();
     envelope.precision = std::max(envelope.precision, width);
@@ -1139,11 +1149,19 @@ LogicalResult Importer::reserveSourceEnvironmentCopies(
   return success();
 }
 
+uint64_t loopIntegerDecimalBytes(uint64_t precision) {
+  // 2^3 < 10, so an N-bit magnitude needs at most ceil(N/3) decimal
+  // digits. Reserve one additional byte for a possible minus sign.
+  return precision / 3 + (precision % 3 != 0) + 1;
+}
+
 LogicalResult Importer::payLoopEnvelope(LoopStatementEnvelope &e,
                                         const AstNode &site, StringRef phase) {
   uint64_t B = 0, L = 0, P = 0, h = 0, slots = 0, storage = 0, facts = 0,
            constants = 0, work = 0, frames = 0;
-  bool fits = pureCheckedProduct(4, e.maps, B) &&
+  uint64_t factPrecision = e.precision;
+  bool fits = pureCheckedAdd(factPrecision, 2) &&
+              pureCheckedProduct(4, e.maps, B) &&
               pureCheckedProduct(2, e.operations, L) && pureCheckedAdd(L, B);
   h = std::max(e.factWords, e.precision / 64 + (e.precision % 64 != 0));
   fits &= pureCheckedProduct(
@@ -1166,7 +1184,7 @@ LogicalResult Importer::payLoopEnvelope(LoopStatementEnvelope &e,
           pureCheckedProduct(facts, L, facts) && pureCheckedAdd(storage, facts);
   fits &= pureCheckedProduct(8, P, constants) &&
           pureCheckedProduct(constants, L, constants);
-  fits &= pureCheckedProduct(3, e.precision + 2, part) &&
+  fits &= pureCheckedProduct(3, loopIntegerDecimalBytes(factPrecision), part) &&
           pureCheckedProduct(part, L, part) && pureCheckedAdd(constants, part);
   work = e.nodes;
   fits &= pureCheckedProduct(2, e.operations, part) &&
@@ -1328,6 +1346,10 @@ Importer::auditLoopStatement(Block &block, Operation *previous,
   auto diagnostic = [&] {
     return mlir::emitError(site.location(b.getContext(), source.path));
   };
+  uint64_t factPrecision = envelope.precision;
+  if (!pureCheckedAdd(factPrecision, 2))
+    return diagnostic() << "bounded for fact precision envelope exhausted";
+  const uint64_t factBytes = loopIntegerDecimalBytes(factPrecision);
   TableQueryCharge measured;
   uint64_t operations = 0, arguments = 0, values = 0;
   StringRef violatedBound;
@@ -1369,18 +1391,18 @@ Importer::auditLoopStatement(Block &block, Operation *previous,
           if (words > envelope.factWords ||
               (endpoint->isSigned()
                    ? endpoint->getSignificantBits()
-                   : endpoint->getActiveBits()) > envelope.precision + 2 ||
+                   : endpoint->getActiveBits()) > factPrecision ||
               !TableQueryBudget::add(measured, TableQueryResource::PayloadWords,
                                      words) ||
               !TableQueryBudget::add(measured,
                                      TableQueryResource::ConstantBytes,
-                                     envelope.precision + 2))
+                                     factBytes))
             return failure();
         }
       if (auto integer =
               dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant)) {
         uint64_t spelling = integer.getCanonicalValue().size();
-        if (spelling > envelope.precision + 2 ||
+        if (spelling > factBytes ||
             !TableQueryBudget::add(measured, TableQueryResource::ConstantBytes,
                                    spelling))
           return failure();
@@ -1916,6 +1938,7 @@ LogicalResult Importer::lowerLiteralFor(const AstNode &statement, OpBuilder &at,
       return failure();
     }
     staged.boundaries[syntax->target.string("id")] = binding;
+    context.induction = *converted;
     if (failed(auditLoopStatement(*block, start, induction, syntax->target,
                                   "binder")) ||
         failed(loopStatements(statement, "body", inside, symbol, staged,
@@ -2301,16 +2324,41 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       behavioralRules[statement.string("name")] = statement;
   }
   auto restoreRules = llvm::scope_exit([&] { behavioralRules = std::move(savedRules); });
-  if (!decl.parameters.empty())
-    return error() << "behavioral module static parameters are unsupported";
+  auto signature = moduleSignatureAttrs(decl);
+  if (failed(signature))
+    return failure();
+  llvm::StringSet<> parameterNames;
+  for (const Parameter &parameter : decl.parameters)
+    parameterNames.insert(parameter.name);
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto statement = decl.node.item("body", i);
+    if (statement.kind() == "FunctionDef" &&
+        parameterNames.contains(statement.string("name")))
+      return error() << "module declaration cannot replace a static parameter";
+    auto check = [&](const AstNode &target) {
+      return forEachAssignmentLeaf(target, [&](const AstNode &leaf) -> LogicalResult {
+        if (parameterNames.contains(assignmentRoot(leaf)))
+          return error() << "module assignment cannot replace a static parameter";
+        return success();
+      });
+    };
+    if (statement.kind() == "Assign") {
+      for (size_t j = 0; j < statement.array("targets").size(); ++j)
+        if (failed(check(statement.item("targets", j))))
+          return failure();
+    } else if (statement.kind() == "AnnAssign" &&
+               failed(check(statement.child("target"))))
+      return failure();
+  }
   b.setInsertionPointToEnd(body->getBody());
   auto module = createOp(
       b, decl.node.location(b.getContext(), source.path),
       ac::ModuleOp::getOperationName(), {}, {},
       {b.getNamedAttr("sym_name", b.getStringAttr(decl.symbol.getValue())),
        b.getNamedAttr("source_owner", owner),
-       b.getNamedAttr("parameters", b.getArrayAttr({})),
-       b.getNamedAttr("type_parameters", b.getArrayAttr({})),
+       b.getNamedAttr("parameters", signature->getAs<ArrayAttr>("parameters")),
+       b.getNamedAttr("type_parameters",
+                      signature->getAs<ArrayAttr>("type_parameters")),
        b.getNamedAttr("function_type", TypeAttr::get(decl.type)),
        b.getNamedAttr("input_names", portNames(b, decl.inputs)),
        b.getNamedAttr("output_names", portNames(b, decl.outputs)),
@@ -2592,6 +2640,8 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     llvm::StringSet<> tupleForbidden;
     for (const Port &input : decl.inputs)
       tupleForbidden.insert(input.name);
+    for (const auto &parameter : parameterNames)
+      tupleForbidden.insert(parameter.getKey());
     for (const StateOwner &state : states)
       tupleForbidden.insert(state.name);
     if (stmt.kind() == "Assign" && fixedResultCall(stmt.child("value")).empty() &&

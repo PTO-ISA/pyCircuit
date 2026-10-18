@@ -53,7 +53,7 @@ FailureOr<DictionaryAttr> Importer::sourceConstraint(const Port &port) {
   return b.getDictionaryAttr(fields);
 }
 LogicalResult Importer::serializeSourceCall(ModuleDecl &decl) {
-  bool callable = !decl.system && decl.parameters.empty() &&
+  bool callable = !decl.system &&
       (decl.returnShape != ReturnShape::Mapping ||
        (decl.transactionEffects && decl.outputs.empty()));
   SmallVector<NamedAttribute> domain;
@@ -123,8 +123,12 @@ FailureOr<CallableDecl> Importer::callable(const AstNode &function) {
     if (!llvm::any_of(decl.sourceCallAttrs, [](NamedAttribute attr) {
           return attr.getName() == "ac.return_form";
         }))
-      return error() << "direct module value calls require a typed struct or tuple "
-                        "return and no static parameters";
+      return error() << "direct module value calls require a typed scalar, "
+                        "Struct or tuple return";
+    auto signature = moduleSignatureAttrs(decl);
+    if (failed(signature))
+      return failure();
+    result.signature = *signature;
     result.returnShape = decl.returnShape;
     for (auto attr : decl.sourceCallAttrs) {
       if (attr.getName() == "ac.parameters")
@@ -139,6 +143,7 @@ FailureOr<CallableDecl> Importer::callable(const AstNode &function) {
     if (!view || !view.hasSourceCallContract())
       return error() << "direct module call requires complete validated "
                         "source-call metadata";
+    result.signature = view.declaration->getAttrDictionary();
     parameters = view.sourceParameters;
     constraints = view.sourceResultConstraints;
     domain = view.domainInputs;
@@ -157,6 +162,29 @@ FailureOr<CallableDecl> Importer::callable(const AstNode &function) {
     result.results.push_back(
         sourceCallPort(cast<DictionaryAttr>(raw), "", function));
   result.needsDomain = !domain.empty();
+  return result;
+}
+
+FailureOr<CallableDecl> Importer::resolveModuleCall(
+    const AstNode &call, FlatSymbolRefAttr parent) {
+  auto result = callable(call.child("func"));
+  if (failed(result))
+    return failure();
+  auto parameters = bindParameters(result->signature, call, parent,
+                                    /*directCall=*/true);
+  auto types = bindTypeArguments(result->signature, call, parent);
+  if (failed(parameters) || failed(types))
+    return failure();
+  result->parameters = std::move(*parameters);
+  result->typeArguments = std::move(*types);
+  for (auto *ports : {&result->inputs, &result->results})
+    for (Port &port : *ports) {
+      auto resolved = substitute(port.type, result->signature,
+                                  result->parameters, result->typeArguments);
+      if (failed(resolved))
+        return failure();
+      port.type = *resolved;
+    }
   return result;
 }
 

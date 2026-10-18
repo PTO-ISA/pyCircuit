@@ -192,6 +192,8 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
   llvm::StringSet<> shadows;
   for (const Port &port : decl.inputs)
     shadows.insert(port.name);
+  for (const Parameter &parameter : decl.parameters)
+    shadows.insert(parameter.name);
   auto classify = [&](auto &&self, const AstNode &node) -> void {
     if (node.kind() == "Lambda")
       return;
@@ -280,7 +282,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
     } else if (moduleCall(node) && !methodOwner(node.child("func")) &&
                !structuralCallSites.contains(
                    sourceOccurrence(at, decl.symbol, node))) {
-      auto callee = callable(node.child("func"));
+      auto callee = resolveModuleCall(node, decl.symbol);
       if (failed(callee))
         return failure();
       auto site = sourceOccurrence(at, decl.symbol, node);
@@ -294,15 +296,18 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
                    {at.getNamedAttr("instance_name",
                                     at.getStringAttr(nextName("__pyc_call_"))),
                     at.getNamedAttr("callee", callee->symbol),
-                    at.getNamedAttr("parameters", at.getArrayAttr({})),
-                    at.getNamedAttr("type_arguments", at.getArrayAttr({})),
+                    at.getNamedAttr("parameters",
+                                    at.getArrayAttr(callee->parameters)),
+                    at.getNamedAttr("type_arguments",
+                                    at.getArrayAttr(callee->typeArguments)),
                     at.getNamedAttr("occurrence", site)});
-      directCallSites.try_emplace(site, DirectCallSite{op});
       for (auto [value, contract] : llvm::zip(op->getResults(), callee->results)) {
         remember(value, contract.sourceKind);
         if (contract.fixedBits)
           fixedValues.insert(value);
       }
+      directCallSites.try_emplace(
+          site, DirectCallSite{op, false, std::move(*callee)});
     }
     for (NamedAttribute field : node.fields()) {
       // Type annotations are declarations, not runtime expression sites.
@@ -549,10 +554,9 @@ FailureOr<SmallVector<Value>> Importer::directModuleResults(
     return error() << "direct module call requires a static module site";
   if (found->second.bound)
     return SmallVector<Value>(found->second.op->getResults());
-  auto normalized = callable(call.child("func"));
-  if (failed(normalized))
-    return failure();
-  const CallableDecl &callee = *normalized;
+  if (!found->second.callee)
+    return error() << "direct module call lacks its resolved signature";
+  const CallableDecl &callee = *found->second.callee;
   SmallVector<AstNode> actuals(callee.inputs.size());
   SmallVector<size_t> lexicalOrder;
   if (call.array("args").size() > actuals.size())
@@ -564,6 +568,14 @@ FailureOr<SmallVector<Value>> Importer::directModuleResults(
   for (size_t i = 0; i < call.array("keywords").size(); ++i) {
     auto kw = call.item("keywords", i);
     auto name = dyn_cast_or_null<StringAttr>(kw.get("arg"));
+    auto parameters = callee.signature.getAs<ArrayAttr>("parameters");
+    auto types = callee.signature.getAs<ArrayAttr>("type_parameters");
+    if (name &&
+        (llvm::is_contained(types, name) ||
+         llvm::any_of(parameters, [&](Attribute raw) {
+           return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
+         })))
+      continue;
     size_t ordinal = actuals.size();
     for (size_t j = 0; name && j < actuals.size(); ++j)
       if (callee.inputs[j].name == name.getValue())
@@ -628,7 +640,8 @@ FailureOr<Value> Importer::stateInitializer(
   auto literalInteger =
       encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
   bool recursiveZero = literalInteger && literalInteger.getValue() == "0";
-  bool elementImage = tableType && !recursiveZero;
+  bool completeImage = initializer.kind() == "Tuple" || initializer.kind() == "List";
+  bool elementImage = tableType && !recursiveZero && !completeImage;
   Type initType = elementImage ? tableType.getElementType() : contract.type;
   auto init =
       tableType && recursiveZero

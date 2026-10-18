@@ -13,12 +13,31 @@ ac.enum_from_bits[State](raw)` creates a nominal carrier and separate Boolean
 membership. Decode into ordinary locals before assigning a persistent owner;
 source variables still use the existing proposal/commit flow.
 
+## Write a sequential program
+
+Describe the function using meaningful variables, calculations, assignments and
+calls. Put persistent declarations in the owning Module and cohesive state
+transitions in Rules. Rule bodies read in statement order; ACIR supplies storage,
+connections, admission and commit. Use names such as `saved`, `incoming`, `total`
+and `previous`, rather than exposing register `q`/`d` terminals.
+
+Ordinary designs and benchmark ports do not author clock/reset arguments,
+DFF/DFFE bindings or proposal/commit wires. External Verilog names, clocks and
+resets belong at the compiler export and verification boundary. An upstream
+port list is not a template for the Python function signature. Preserve its
+semantics through the verified compiler interface; report unsupported timing
+instead of adding hand-written hardware plumbing to the frontend.
+
 ## Module hierarchy and independent outputs
 
 Use ordinary typed `@module` functions to describe hardware hierarchy. Each
 static module-call occurrence creates one child instance. Reusing its output
 values fans out the existing wires; it does not create another instance or add
 a clock cycle.
+
+A single scalar is a direct argument or result: `-> ac.u8`, `-> bool` or an
+admitted Bits/Enum type. Do not create a one-field Struct or a singleton tuple
+just to wrap that scalar. Structs group multiple related fields.
 
 Choose the interface grouping before choosing the return syntax. When several
 fields normally travel together to one downstream module, prefer one named
@@ -36,57 +55,41 @@ or flattening every field into an output. The following shows the tuple syntax:
 ```python
 import pycircuit as ac
 
-@ac.struct
-class Header:
-    tag: ac.u4
-
-@ac.struct
-class Payload:
-    data: ac.u8
+@ac.module
+def Decode(word: ac.u8, enable: ac.u1) -> tuple[ac.u4, ac.u8, ac.u1]:
+    return word[:4], word, enable
 
 @ac.module
-def Decode(word: ac.u8, enable: ac.u1) -> tuple[Header, Payload, ac.u1]:
-    header = Header(tag=word[:4])
-    payload = Payload(data=word)
-    return header, payload, enable
-
-@ac.module
-def Parent(word: ac.u8, enable: ac.u1) -> tuple[Header, Payload, ac.u1]:
-    header, payload, valid = Decode(word, enable)
-    return header, payload, valid
+def Parent(word: ac.u8, enable: ac.u1) -> tuple[ac.u4, ac.u8, ac.u1]:
+    tag, data, valid = Decode(word, enable)
+    return tag, data, valid
 ```
 
-If `header`, `payload` and `valid` instead all feed the same execution interface,
-use a shared structured connection:
+If the fields instead all feed one execution interface, group them:
 
 ```python
 @ac.struct
 class Decoded:
-    header: Header
-    payload: Payload
+    tag: ac.u4
+    word: ac.u8
     valid: ac.u1
 
 @ac.module
 def DecodePacket(word: ac.u8, enable: ac.u1) -> Decoded:
-    return Decoded(
-        header=Header(tag=word[:4]),
-        payload=Payload(data=word),
-        valid=enable,
-    )
+    return Decoded(tag=word[:4], word=word, valid=enable)
 ```
 
-The consumer declares one parameter, such as `Execute(decoded: Decoded)`. Its
-parent passes `decoded = DecodePacket(word, enable)` directly to
-`Execute(decoded)`; it does not repeat the field list at each module boundary.
-The Struct is a single typed input/output in ACIR. This grouping adds no state,
-cycle or scheduling semantics. Field changes still change the payload type/layout
-and may require consumer updates and recompilation; stable port count does not
-mean binary interface compatibility.
+The consumer declares `Execute(decoded: Decoded)`. Its parent passes the value
+directly without repeating the field list at each module boundary. This grouping
+adds no state, cycle or scheduling semantics. Field changes still change the
+payload type/layout and may require consumer updates and recompilation; stable
+port count does not mean binary interface compatibility.
 
 Every element retains its declared type and source kind. Two different Struct
 outputs remain distinct nominal types even if their packed widths match. An
 existing single-Struct return still means one Struct output, not several ports.
-A singleton tuple uses `-> tuple[T]`, `return (value,)` and `value, = Child(...)`.
+Singleton tuple syntax remains admitted for compatibility and conformance tests;
+ordinary single-value interfaces use the scalar directly.
 
 One scalar or nominal result uses its admitted type directly: `-> ac.u8`,
 `-> bool`, an Enum, a Struct or a fixed Table. Bind it with `value = Child(...)`.
@@ -145,21 +148,29 @@ share one Python capture, common verified IR and C++/Verilog route.
 Use explicit finite input and result annotations for published callable
 interfaces. A result can be one admitted scalar or nominal payload, `None`, or a
 fixed, nonempty heterogeneous tuple. Use ordered tuple returns and direct flat
-unpacking, including `value, = call()` for a singleton tuple. Group fields that
+unpacking for multiple independent results; use a scalar for one value. Group fields that
 travel together as one named Struct; use separate tuple positions for independent
 interfaces. A callable invocation creates no Module instance, state or extra cycle.
-For example, using `Header` and `Payload` from the Module example above:
+For example, a reusable source-global Rule can propose an update to an actual
+Module-owned variable passed as an argument:
 
 ```python
-@ac.module
-def Split(word: ac.u8, tag: ac.u4) -> tuple[Header, Payload]:
-    @ac.rule
-    def decode(data: ac.u8, kind: ac.u4) -> tuple[Header, Payload]:
-        return Header(tag=kind), Payload(data=data)
+@ac.rule
+def add_to(total: ac.u8, incoming: ac.u8) -> ac.u8:
+    previous = total
+    total = previous + incoming
+    return total
 
-    header, payload = decode(word, tag)
-    return header, payload
+@ac.module
+def Accumulator(incoming: ac.u8) -> ac.u8:
+    total: ac.u8 = 0
+    return add_to(total, incoming)
 ```
+
+Rule definitions can be source-global, as above, or nested in a Module to capture
+locals. Definition location does not establish instance ownership: calls and
+registration bind the actual Module state. An external Rule receives explicit
+parameters; it does not implicitly capture the caller's local variables.
 
 Existing unannotated executable Rules remain supported. Their finite argument
 contracts come from actual SSA values and declared owners, preserving Boolean,
@@ -530,11 +541,14 @@ be legal, while observed and unused combinational cycles reject. This source
 binding capability does not establish a FIFO or backpressure policy. See
 [direct module composition](../reference/language.md#direct-module-composition).
 
-Unsigned bits shifts use static nonnegative Integer counts and retain the input
+Unsigned bits shifts use static nonnegative Integer or fixed Bits counts and retain the input
 width, including before a later destination widening. They preserve retained
 X/Z positions and fill with known zero; counts at least the width yield zero.
 The importer reuses common width analysis and existing shl/lshr operations, with
-full-precision count validation. Mathematical Integer right shift remains the
+full-precision count validation. Runtime Bits counts may be narrower or wider
+than the data; high bits are never truncated, and X/Z counts yield wholly
+unknown results. Runtime mathematical Integer counts remain unsupported.
+Mathematical Integer right shift remains the
 separate exact-value operation described below.
 
 Use `ac.concat(high, low)` for fixed-bit transport, with one or more operands
@@ -589,35 +603,15 @@ fixed-bit state may instead use the runtime operation.
 See the [language reference](../reference/language.md) for the exact admission
 boundary; this does not add runtime mathematical Integer division.
 
-## Explicit physical storage leaves
+## Primitive conformance is a compiler test concern
 
-Ordinary designs declare Module-owned variables and let the compiler infer
-storage. Examples that test physical clocks, independent domains, dynamic reset
-values or primitive enables may instantiate canonical `dff`/`dffe` leaves
-explicitly. These leaves use the same typed Module results as other children:
-
-```python
-from pycircuit import dffe, module, rule
-
-@module
-def Cell(clk: bool, rst: bool, en: bool, data: bool, init: bool) -> bool:
-    state = dffe(T=bool)
-
-    @rule
-    def bind_state():
-        state(clk=clk, rst=rst, en=en, d=state.q ^ data, init=init)
-
-    bind_state()
-    return state.q
-```
-
-A parent uses `q = Cell(clk, rst, en, data, init)`. Each call allocates a distinct
-child; reusing `q` fans out its output. Only the canonical storage leaf uses
-allocation followed by complete binding in a Rule. Do not generalize that leaf
-syntax to ordinary user Modules. Preserve each leaf's physical clock, reset,
-enable and initializer, and retain independent-domain and four-state tests.
-The legacy named output mapping remains admitted for existing source units;
-new and migrated examples use scalar, Struct or tuple results as described above.
+Ordinary designs use Module variables and Rules. They do not instantiate or bind
+DFF/DFFE pins. Explicit primitive binding remains a supported mechanism for
+compiler/backend tests of physical domains, reset/enable and four-state behavior;
+those fixtures are not source-authoring templates or a benchmark-porting fallback.
+See the implementation and language references when working on those specific
+compiler tests. Existing tests of primitive contracts and nominal type identity
+retain their original independent oracles.
 
 Use a single local assignment to share a supported pure expression, for example
 `next_value = (x + 1) & 255`. Outputs and rules then reuse the original SSA value.
@@ -817,7 +811,7 @@ cross-domain transactions and ambiguous competing writers remain rejected.
 Complex SCF loop-control and general resource admission remain outside the
 execution claim in this section. See the
 [conditional-effect contract](../rfcs/serial-rule-method/conditional-effects.md)
-and [whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md).
+and [branch-state contract](../rfcs/serial-rule-method/branch-state-ssa.md).
 
 Source capture reuses expect/observe operations; MLIR owns the state versions,
 invocation identities, six-field sampled inventory with tagged `controls`,

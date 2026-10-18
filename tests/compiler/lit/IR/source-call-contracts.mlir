@@ -158,12 +158,12 @@ module {
 
 // -----
 
-// Static/type parameters remain outside the bounded ordinary call profile.
+// Static Integer parameters do not excuse an incomplete hardware-input contract.
 #w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Provider, ast_path = []}, expansion = []}, location = {path = "provider.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 !b1 = !ac.bits<#w1>
 module {
   ac.struct "Result" fields [{name = "value", type = !b1}]
-  // expected-error @+1 {{source module call contract requires matching none, single or nonempty tuple results and all four attributes}}
+  // expected-error @+1 {{source module call input count differs from its domain-free physical signature}}
   "ac.module"() ({^bb0(%flag: !b1): %result = "ac.struct.create"(%flag) : (!b1) -> !ac.struct<"Result"> "ac.yield"(%result) : (!ac.struct<"Result">) -> ()}) {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [{name = "N", type = !ac.math_int}], type_parameters = [], function_type = (!b1) -> !ac.struct<"Result">, input_names = ["flag"], output_names = ["result"], ac.return_form = "single", ac.parameters = [], ac.result_constraints = [{kind = "hardware", type = !ac.struct<"Result">, source_kind = "nominal"}], ac.domain_inputs = {}} : () -> ()
 }
 

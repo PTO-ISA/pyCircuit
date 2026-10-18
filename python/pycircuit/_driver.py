@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import functools
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -30,10 +31,12 @@ from ._publication import (
     _require_initialized_control,
 )
 from ._publication_fs import _PublicationFileSystemError
+from ._source_capture import _read_stable_file_bytes
 from ._source_compile import _compile_source_unit, _SourceCompileResult
 from ._source_unit_files import (
     _discover_source_unit_owner,
     _read_full_source_unit,
+    _reject_duplicate_keys,
     _validate_full_source_unit,
 )
 
@@ -106,27 +109,32 @@ def compile_command(
     )
 
 
-def _reject_parameter_bindings(parameters: str | Path | None) -> None:
-    """Fail closed until static-parameter specialization is implemented.
-
-    An omitted ``--parameters`` and an explicit empty array both mean "no
-    bindings", which is the only case the native linker supports today.
-    """
-
+def _read_parameter_bindings(parameters: str | Path | None) -> list[dict[str, str]]:
+    """Read one stable, closed-schema snapshot of named Integer overrides."""
     if parameters is None:
-        return
-    text = Path(parameters).read_text(encoding="utf-8")
+        return []
     try:
-        value = json.loads(text)
-    except json.JSONDecodeError as error:
-        raise _DriverError(f"parameter bindings are not valid JSON: {error}") from error
-    if type(value) is not list:
-        raise _DriverError("parameter bindings must be an ordered JSON array")
-    if value:
+        text = _read_stable_file_bytes(Path(parameters)).decode("utf-8")
+        value = json.loads(text, object_pairs_hook=_reject_duplicate_keys)
+    except (OSError, UnicodeDecodeError, ValueError) as error:
         raise _DriverError(
-            "static parameter bindings are not implemented yet; "
-            "--parameters must be an empty array or omitted"
-        )
+            f"parameter bindings are not stable strict JSON: {error}"
+        ) from error
+    if type(value) is not list:
+        raise _DriverError("parameter bindings must be a JSON array")
+    names: set[str] = set()
+    for entry in value:
+        if type(entry) is not dict or set(entry) != {"name", "value"}:
+            raise _DriverError("each parameter binding requires exactly name and value")
+        name, number = entry["name"], entry["value"]
+        if type(name) is not str or not name or name in names:
+            raise _DriverError("parameter binding names must be nonempty and unique")
+        if type(number) is not str or re.fullmatch(r"0|-?[1-9][0-9]*", number) is None:
+            raise _DriverError(
+                "parameter values must be canonical signed decimal strings"
+            )
+        names.add(name)
+    return value
 
 
 def _program_owner_from_report(report: object) -> dict[str, object]:
@@ -185,7 +193,7 @@ def link_command(
     exactly as the private per-source entry already allows.
     """
 
-    _reject_parameter_bindings(parameters)
+    parameter_bindings = _read_parameter_bindings(parameters)
     fs = filesystem or _PublicationFileSystem()
     destination = Path(output)
     harness = _native_helper("design")
@@ -238,6 +246,11 @@ def link_command(
 
     scratch = Path(tempfile.mkdtemp(prefix="pycircuit-link-")).resolve()
     try:
+        parameter_snapshot = scratch / "parameters.json"
+        if parameter_bindings:
+            parameter_snapshot.write_text(
+                json.dumps(parameter_bindings), encoding="utf-8"
+            )
         with _publication_lock_set(
             inputs=inputs,
             outputs=[
@@ -249,6 +262,8 @@ def link_command(
             filesystem=fs,
         ) as locks:
             command = [str(harness)]
+            if parameter_bindings:
+                command += ["--parameters", str(parameter_snapshot)]
             for index, key in enumerate(sorted(directories)):
                 view = locks.snapshot(
                     directories[key],

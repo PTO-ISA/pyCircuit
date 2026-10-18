@@ -17,6 +17,11 @@ struct SourceLinkStages {
   std::string afterTransactions;
 };
 
+struct SourceLinkParameterBinding {
+  std::string name;
+  std::string value; // Canonical signed decimal, never a host-width integer.
+};
+
 mlir::FailureOr<SourceHeaderRegistry>
 admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
                      ac::detail::EmitError emitError);
@@ -24,7 +29,8 @@ admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
 linkHardwareUnits(llvm::ArrayRef<SourceLinkUnit> units, llvm::StringRef top,
                   ac::detail::EmitError emitError,
-                  SourceLinkStages *retainedStages = nullptr);
+                  SourceLinkStages *retainedStages = nullptr,
+                  llvm::ArrayRef<SourceLinkParameterBinding> parameters = {});
 
 } // namespace acir::compiler
 

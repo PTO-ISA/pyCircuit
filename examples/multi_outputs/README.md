@@ -1,34 +1,28 @@
-# Independent module outputs
+# Independent scalar outputs and a shared structured interface
 
-`Decode` returns `tuple[Header, Payload, ac.u1]`. These are three independent
-outputs of one module instance. The two Struct outputs carry different nominal
-types; `valid` is a scalar output. The caller unpacks them directly:
+`Decode` returns `tuple[ac.u4, ac.u8, ac.u1]`: three independent values from one
+Module instance. Each consumer takes and returns its scalar directly:
 
 ```python
-header, payload, valid = Decode(word, enable)
-tag, = HeaderConsumer(header)
-data, = PayloadConsumer(payload)
+tag, word, valid = Decode(word, enable)
+tag = HeaderConsumer(tag)
+data = PayloadConsumer(word)
 ```
 
-The consumers are separate child instances. Each tuple position becomes one
-`ac.instance` result; no tuple operation, wrapper Struct, register or additional
-cycle is introduced. A singleton output tuple uses a trailing comma. A genuine
-Struct payload remains one result, even though it has fields.
+The consumer calls create distinct child instances. No one-field Struct or
+singleton tuple is needed. `HeaderConsumer` increments the four-bit tag modulo
+16; `PayloadConsumer` complements the eight-bit word. `valid` forwards `enable`
+independently and does not suppress data. These functions are combinational.
 
-This example deliberately sends Header and Payload to separate consumers. When
-several fields instead travel together to one downstream interface, prefer a
-single named Struct output and matching Struct input, passed directly between
-the modules. Tuple returns describe independent interfaces, not a requirement to
-split every field into a port. See the [authoring standard](../STANDARD.md).
+`GroupedOutputs` demonstrates a different connection: the tag, word and valid
+fields travel together to one consumer. `DecodePacket` returns one `Decoded`
+Struct with those three fields, and `PacketConsumer` accepts it as one argument.
+The parent passes the value directly instead of unpacking and rebuilding it.
 
-`GroupedOutputs` demonstrates that shared-interface case: `DecodePacket` returns
-one `Decoded` Struct containing the header, payload and valid field, and
-`PacketConsumer` receives that whole value as one input. The System checks both
-forms against the same literal expected results.
-
-`HeaderConsumer` increments the low four bits modulo 16. `PayloadConsumer`
-complements the eight-bit word. `valid` forwards `enable` independently and does
-not suppress data. All three paths are combinational.
+The same eight-case independent oracle checks both interface styles. Interface
+grouping follows the connection's meaning: scalar for one value, Struct for
+related fields sent together, tuple for independent outputs. See the
+[authoring standard](../STANDARD.md).
 
 ## Run the generated System
 
@@ -58,3 +52,7 @@ links their explicit closure, and emits both targets. The System test compares
 C++ workers 1/2 with RTL, checks the full duration and source assertions, and
 writes its execution/verification receipts in the build's `system-verification/`
 directory. Generated outputs remain outside tracked source.
+
+Single values use direct scalar parameters and results. Only `Decoded` groups
+multiple fields; no one-field Struct or singleton tuple is needed. The same
+independent eight-case oracle checks both interface styles.

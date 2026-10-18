@@ -1,0 +1,201 @@
+{
+  "schema": 1,
+  "sources": [
+    {
+      "name": "verilogeval-2023",
+      "repository": "https://github.com/NVlabs/verilog-eval",
+      "requested_ref": "release/1.0.0",
+      "path": "benchmark/upstream/verilogeval-2023",
+      "status": "downloaded",
+      "revision": "4fa0ac4ed70ff1685114c25cd2e4c17cbba6a0c4"
+    },
+    {
+      "name": "verilogeval-v2",
+      "repository": "https://github.com/NVlabs/verilog-eval",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/verilogeval-v2",
+      "status": "downloaded",
+      "revision": "c498220d0a52248f8e3fdffe279075215bde2da6"
+    },
+    {
+      "name": "cvdp",
+      "repository": "https://github.com/NVlabs/cvdp_benchmark",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/cvdp",
+      "status": "downloaded",
+      "revision": "8e894cf74414ab1eaea1e2b4e80a02f123df07b6"
+    },
+    {
+      "name": "hwe-bench",
+      "repository": "https://github.com/pku-liang/hwe-bench",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/hwe-bench",
+      "status": "downloaded",
+      "revision": "10c78a87e1f92695d78d15b1464a6107dcac8837"
+    },
+    {
+      "name": "realbench",
+      "repository": "https://github.com/IPRC-DIP/RealBench",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/realbench",
+      "status": "downloaded",
+      "revision": "9bc9a6ac058b3a3acb09b9e7623526737bbf8312"
+    },
+    {
+      "name": "chipverilog",
+      "repository": "https://github.com/HKUSTGZ-MICS-LYU/ChipVerilog",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/chipverilog",
+      "status": "downloaded",
+      "revision": "3eea482f20c048966d54ed04c418b85e5fd4d498"
+    },
+    {
+      "name": "resbench",
+      "repository": "https://github.com/jultrishyyy/ResBench",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/resbench",
+      "status": "downloaded",
+      "revision": "a4a9644f9e2867be4c2569b0e3d96e19b596bba7"
+    },
+    {
+      "name": "rtl-repo",
+      "repository": "https://github.com/AUCOHL/RTL-Repo",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/rtl-repo",
+      "status": "downloaded",
+      "revision": "7d10aa175afa56e500f58eacb7f5183b5f56ba25"
+    },
+    {
+      "name": "notsotiny-framework",
+      "repository": "https://github.com/HPAI-BSC/TuRTLe",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/notsotiny-framework",
+      "status": "downloaded",
+      "revision": "6a32467e79d7a6cfbf3a6c579c24f20662475101"
+    },
+    {
+      "name": "hsco-bench",
+      "repository": "https://github.com/B07901087/hsco_bench",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/hsco-bench",
+      "status": "downloaded",
+      "revision": "6110c819a83655691a12d59ee2f0eef9a8a58ca1"
+    },
+    {
+      "name": "cirfix",
+      "repository": "https://github.com/hammad-a/verilog_repair",
+      "requested_ref": "default HEAD",
+      "path": "benchmark/upstream/cirfix",
+      "status": "downloaded",
+      "revision": "8219cd0405fbd024c406703fa1b969abefaba81a"
+    },
+    {
+      "name": "hf-cvdp",
+      "dataset": "nvidia/cvdp-benchmark-dataset",
+      "repository": "https://huggingface.co/datasets/nvidia/cvdp-benchmark-dataset",
+      "path": "benchmark/upstream/hf-cvdp",
+      "revision": "5b807d945f6a99aa645f7e43a64a2115e281b4bf",
+      "question_files": [
+        "cvdp_v1.1.0_agentic_code_generation_commercial.jsonl",
+        "cvdp_v1.1.0_agentic_code_generation_no_commercial.jsonl",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_commercial.jsonl",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_no_commercial.jsonl",
+        "cvdp_v1.1.0_nonagentic_code_comprehension.jsonl",
+        "cvdp_v1.1.0_nonagentic_code_generation_commercial.jsonl",
+        "cvdp_v1.1.0_nonagentic_code_generation_no_commercial.jsonl"
+      ],
+      "context_files": [
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_2dconv-FPGA.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_802.11a.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_I2SRV64.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_NoobsCpu-8bit.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_RISC-V.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_SoomRV.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_ULX3S_FPGA_Camera_Streaming.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_ULX3S_FPGA_Sobel_Edge_Detection_OV7670.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_async-fifo.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_axi4_lite.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_axis.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_caliptra-rtl.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_corundum.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_cv32e40p_1.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_cva6_riscv_core.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_ddr4_controller.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_deepfreeze.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_detect_human_faces.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_dual_core.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_edma.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_enso.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_ext_cheriot-ibex.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_fabulous_fabric.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_fpga_nes.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_fpu_wrappers.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_friscv.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_i2c.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_learn_fpga.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_opene902.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_pequeno_riscv.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_polyphony.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_pulpino.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_rvx.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_schoolMIPS.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_usb_cdc.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_verilog_axi.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_verilog_ethernet.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_verilog_pcie.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_vortexgpu.bundle",
+        "cvdp_v1.1.0_agentic_heavy_code_generation_public/cvdp_agentic_heavy_wifi_ldpc_codec.bundle"
+      ]
+    },
+    {
+      "name": "hf-rtl-repo",
+      "dataset": "ahmedallam/RTL-Repo",
+      "repository": "https://huggingface.co/datasets/ahmedallam/RTL-Repo",
+      "path": "benchmark/upstream/hf-rtl-repo",
+      "revision": "388b081701825b55cc8c729a775d1d1c1c23e0f4",
+      "question_files": [
+        "data/test-00000-of-00001.parquet",
+        "data/train-00000-of-00001.parquet"
+      ],
+      "context_files": []
+    },
+    {
+      "name": "hf-notsotiny",
+      "dataset": "HPAI-BSC/NotSoTiny-25-12-CVDP",
+      "repository": "https://huggingface.co/datasets/HPAI-BSC/NotSoTiny-25-12-CVDP",
+      "path": "benchmark/upstream/hf-notsotiny",
+      "revision": "1512e4d6a1d1b1896ec2047d60dabce2316fe57d",
+      "question_files": [
+        "NotSoTiny-25-12-cvdp.jsonl"
+      ],
+      "context_files": []
+    },
+    {
+      "name": "hf-hwfix",
+      "dataset": "KSU-HW-SEC/issue_benchmark",
+      "repository": "https://huggingface.co/datasets/KSU-HW-SEC/issue_benchmark",
+      "path": "benchmark/upstream/hf-hwfix",
+      "revision": "4c444bc105243832571dddb6556ccb4f85e831e2",
+      "question_files": [
+        "issue_benchmark.json"
+      ],
+      "context_files": []
+    },
+    {
+      "name": "hf-hwe-bench",
+      "dataset": "henryen/hwe-bench",
+      "repository": "https://huggingface.co/datasets/henryen/hwe-bench",
+      "path": "benchmark/upstream/hf-hwe-bench",
+      "revision": "82a42e0a05719366a326e09ddc668ea0d46c91f6",
+      "question_files": [
+        "OpenXiangShan__XiangShan.jsonl",
+        "chipsalliance__caliptra-rtl.jsonl",
+        "chipsalliance__rocket-chip.jsonl",
+        "lowRISC__ibex.jsonl",
+        "lowRISC__opentitan.jsonl",
+        "openhwgroup__cva6.jsonl"
+      ],
+      "context_files": []
+    }
+  ]
+}

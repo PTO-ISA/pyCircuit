@@ -211,7 +211,17 @@ int main() {
             assert "ROOT_AVAILABILITY_OK" in _ok(_run([str(candidates[0])]))
         else:
             _root_availability_four_state_rtl(generated, outputs, tmp_path)
-    assert maps[0] == maps[1]
+    assert maps[0]["target"] == "cpp" and maps[1]["target"] == "verilog"
+    assert all(row["role"] == "availability" for row in maps[0]["controls"])
+    assert {
+        key: value
+        for key, value in maps[0].items()
+        if key not in {"target", "controls"}
+    } == {
+        key: value
+        for key, value in maps[1].items()
+        if key not in {"target", "controls"}
+    }
 
 
 def _root_availability_four_state_rtl(generated, outputs, tmp_path):

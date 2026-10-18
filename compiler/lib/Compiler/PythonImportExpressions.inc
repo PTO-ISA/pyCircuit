@@ -220,6 +220,14 @@ if (node.kind() == "Subscript") {
                  TypeRange{shape->type}, {at.getNamedAttr("low", shape->low)})
             ->getResult(0);
     ac::HardwareAnalysis analysis(*body);
+    // A symbolic slice still has fixed-bit authority. Range/value facts need
+    // concrete widths and remain absent until actual binding proves them.
+    if (!analysis.isStaticEvaluable(cast<ac::BitsType>(shape->type).getWidth(), {}) ||
+        !analysis.isStaticEvaluable(shape->low, {})) {
+      remember(result, std::nullopt);
+      fixedValues.insert(result);
+      return result;
+    }
     auto low = analysis.evaluateStatic(shape->low, {}, result.getDefiningOp());
     auto width = analysis.getPackedWidth(shape->type, {}, result.getDefiningOp());
     if (failed(low) || failed(width))

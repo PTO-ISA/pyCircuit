@@ -140,7 +140,7 @@ def source_for_root(source_text, root):
     declarations = {
         node.name: node
         for node in tree.body
-        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+        if isinstance(node, ast.FunctionDef | ast.ClassDef)
     }
     assert root in declarations, root
     needed = set()

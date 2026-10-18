@@ -1,62 +1,48 @@
-"""Independent typed module outputs connected to separate consumers."""
+"""Scalar outputs for independent consumers; a Struct for one shared interface."""
 
 import pycircuit as ac
 
 
 @ac.struct
-class Header:
-    tag: ac.u4
-
-
-@ac.struct
-class Payload:
-    data: ac.u8
-
-
-@ac.struct
 class Decoded:
-    header: Header
-    payload: Payload
+    tag: ac.u4
+    word: ac.u8
     valid: ac.u1
 
 
 @ac.module
-def Decode(word: ac.u8, enable: ac.u1) -> tuple[Header, Payload, ac.u1]:  # noqa: N802
-    header = Header(tag=word[:4])
-    payload = Payload(data=word)
-    return header, payload, enable
+def Decode(word: ac.u8, enable: ac.u1) -> tuple[ac.u4, ac.u8, ac.u1]:  # noqa: N802
+    return word[:4], word, enable
 
 
 @ac.module
-def HeaderConsumer(header: Header) -> tuple[ac.u4]:  # noqa: N802
-    return (header.tag + 1,)
+def HeaderConsumer(tag: ac.u4) -> ac.u4:  # noqa: N802
+    return tag + 1
 
 
 @ac.module
-def PayloadConsumer(payload: Payload) -> tuple[ac.u8]:  # noqa: N802
-    return (payload.data ^ 255,)
+def PayloadConsumer(word: ac.u8) -> ac.u8:  # noqa: N802
+    return word ^ 255
 
 
 @ac.module
 def MultiOutputs(  # noqa: N802
     word: ac.u8, enable: ac.u1
 ) -> tuple[ac.u4, ac.u8, ac.u1]:
-    header, payload, valid = Decode(word, enable)
-    (tag,) = HeaderConsumer(header)
-    (data,) = PayloadConsumer(payload)
+    tag, payload, valid = Decode(word, enable)
+    tag = HeaderConsumer(tag)
+    data = PayloadConsumer(payload)
     return tag, data, valid
 
 
 @ac.module
 def DecodePacket(word: ac.u8, enable: ac.u1) -> Decoded:  # noqa: N802
-    return Decoded(
-        header=Header(tag=word[:4]), payload=Payload(data=word), valid=enable
-    )
+    return Decoded(tag=word[:4], word=word, valid=enable)
 
 
 @ac.module
 def PacketConsumer(packet: Decoded) -> tuple[ac.u4, ac.u8, ac.u1]:  # noqa: N802
-    return packet.header.tag + 1, packet.payload.data ^ 255, packet.valid
+    return packet.tag + 1, packet.word ^ 255, packet.valid
 
 
 @ac.module

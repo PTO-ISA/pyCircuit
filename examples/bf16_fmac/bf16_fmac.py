@@ -84,22 +84,12 @@ class Alignment:
 
 
 @ac.struct
-class Mantissa:
-    value: ac.u26
-
-
-@ac.struct
 class Normalization:
     lzc: ac.u6
     left_amt: ac.u5
     right_amt: ac.u5
     need_left: ac.u1
     need_right: ac.u1
-
-
-@ac.struct
-class PackedResult:
-    value: ac.u32
 
 
 def partial_products(
@@ -220,20 +210,20 @@ def prepare_alignment(stage: Stage2) -> Alignment:
     )
 
 
-def right_barrel26(value: ac.u26, amount: ac.u5) -> Mantissa:
+def right_barrel26(value: ac.u26, amount: ac.u5) -> ac.u26:
     shifted = value >> 1 if amount[0:1] else value
     shifted = shifted >> 2 if amount[1:2] else shifted
     shifted = shifted >> 4 if amount[2:3] else shifted
     shifted = shifted >> 8 if amount[3:4] else shifted
     shifted = shifted >> 16 if amount[4:5] else shifted
-    return Mantissa(value=shifted)
+    return shifted
 
 
 def combine(
-    stage: Stage2, alignment: Alignment, prod_shift: Mantissa, acc_shift: Mantissa
+    stage: Stage2, alignment: Alignment, prod_shift: ac.u26, acc_shift: ac.u26
 ) -> Stage3:
-    prod = alignment.prod_mant if alignment.prod_bigger else prod_shift.value
-    acc = acc_shift.value if alignment.prod_bigger else alignment.acc_mant
+    prod = alignment.prod_mant if alignment.prod_bigger else prod_shift
+    acc = acc_shift if alignment.prod_bigger else alignment.acc_mant
     same_sign = ~(stage.metadata.prod_sign ^ stage.metadata.acc_sign)
     prod_wide: ac.u27 = prod
     acc_wide: ac.u27 = acc
@@ -295,22 +285,22 @@ def priority_normalization(mant: ac.u26) -> Normalization:
     )
 
 
-def left_barrel26(value: ac.u26, amount: ac.u5) -> Mantissa:
+def left_barrel26(value: ac.u26, amount: ac.u5) -> ac.u26:
     shifted = value << 1 if amount[0:1] else value
     shifted = shifted << 2 if amount[1:2] else shifted
     shifted = shifted << 4 if amount[2:3] else shifted
     shifted = shifted << 8 if amount[3:4] else shifted
     shifted = shifted << 16 if amount[4:5] else shifted
-    return Mantissa(value=shifted)
+    return shifted
 
 
 def pack_result(
-    stage: Stage3, normalization: Normalization, left: Mantissa, right: Mantissa
-) -> PackedResult:
+    stage: Stage3, normalization: Normalization, left: ac.u26, right: ac.u26
+) -> ac.u32:
     mant = (
-        left.value
+        left
         if normalization.need_left
-        else (right.value if normalization.need_right else stage.mant)
+        else (right if normalization.need_right else stage.mant)
     )
     lzc_wide: ac.u10 = normalization.lzc
     exp = stage.exp + 2 - (lzc_wide | 0)
@@ -320,7 +310,7 @@ def pack_result(
     packed = (
         ((sign_packed | 0) << 31) | ((exp_packed | 0) << 23) | (fraction_packed | 0)
     )
-    return PackedResult(value=0 if stage.mant == 0 else packed)
+    return 0 if stage.mant == 0 else packed
 
 
 @ac.module
@@ -378,7 +368,7 @@ def BF16Fmac(  # noqa: N802
         s2 = stage2_data
         s3 = stage3_data
         if output_enable:
-            result_r = packed.value
+            result_r = packed
         valid_r = output_enable
         return result
 

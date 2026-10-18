@@ -212,14 +212,26 @@ def _target_files(payload: dict, target: str):
         "files": [{"path": path, "role": files[path][1]} for path in sorted(files)],
         "source_groups": [groups[key] for key in sorted(groups)],
     }
+    if target == "verilog":
+        receipt["root_rtl_name"] = payload["root_rtl_name"]
+        receipt["rtl_mode"] = payload.get("rtl_mode", "managed")
     return files, receipt
 
 
 def emit_command(
-    *, final: str | Path, target: str, output: str | Path, replace: bool = False
+    *,
+    final: str | Path,
+    target: str,
+    output: str | Path,
+    replace: bool = False,
+    rtl_mode: str = "managed",
 ):
     if target not in {"cpp", "verilog"}:
         raise _DriverError("emit target must be cpp or verilog")
+    if rtl_mode not in {"managed", "physical"}:
+        raise _DriverError("RTL mode must be managed or physical")
+    if target != "verilog" and rtl_mode != "managed":
+        raise _DriverError("physical RTL mode requires the verilog target")
     fs = _PublicationFileSystem()
     source, destination = fs.absolute(final), fs.absolute(output)
     fs.assert_no_symlink_chain(source)
@@ -266,7 +278,8 @@ def emit_command(
                     continue
                 saved.write_bytes(snapshot)
                 emitted = subprocess.run(
-                    [str(helper), str(saved), "--target", target],
+                    [str(helper), str(saved), "--target", target]
+                    + (["--rtl-mode", rtl_mode] if target == "verilog" else []),
                     capture_output=True,
                     text=True,
                     check=False,

@@ -222,7 +222,9 @@ FailureOr<Type> Importer::resolveConcatType(const AstNode &node,
                                             ArrayRef<Type> operands,
                                             FlatSymbolRefAttr symbol) {
   ac::HardwareAnalysis analysis(*body);
-  uint64_t total = 0;
+  ac::StaticExprAttr total;
+  uint64_t knownTotal = 0;
+  bool allKnown = true;
   for (auto [i, type] : llvm::enumerate(operands)) {
     auto operand = node.item("args", i);
     auto loc = operand.location(b.getContext(), source.path);
@@ -230,21 +232,35 @@ FailureOr<Type> Importer::resolveConcatType(const AstNode &node,
     if (!fixed)
       return mlir::emitError(loc) << "concat operand " << i + 1
                                   << " requires explicitly unsigned fixed bits";
-    if (!analysis.isStaticEvaluable(fixed.getWidth(), {}))
-      return mlir::emitError(loc) << "concat operand " << i + 1
-                                  << " requires a positive resolved width";
-    auto width = analysis.getPackedWidth(type, {}, body->getOperation());
-    if (failed(width))
-      return failure();
-    if (!*width)
-      return mlir::emitError(loc) << "concat operand " << i + 1
-                                  << " requires a positive resolved width";
-    if (*width > std::numeric_limits<uint64_t>::max() - total)
-      return mlir::emitError(node.location(b.getContext(), source.path))
-             << "concat width sum overflows uint64";
-    total += *width;
+    // Keep demanded width arithmetic in the common static expression language.
+    // Bound concat validation checks positivity and overflow for every actual.
+    auto width = fixed.getWidth();
+    if (analysis.isStaticEvaluable(width, {})) {
+      auto resolved = analysis.getPackedWidth(type, {}, body->getOperation());
+      if (failed(resolved))
+        return failure();
+      if (*resolved > std::numeric_limits<uint64_t>::max() - knownTotal)
+        return mlir::emitError(node.location(b.getContext(), source.path))
+               << "concat width sum overflows uint64";
+      knownTotal += *resolved;
+    } else
+      allKnown = false;
+    if (!total)
+      total = width;
+    else {
+      auto tree = literal(0, node, symbol).getTree();
+      NamedAttrList sum(tree);
+      sum.set("kind", b.getStringAttr("binary"));
+      sum.erase("value");
+      sum.set("operator", b.getStringAttr("add"));
+      sum.set("lhs", total);
+      sum.set("rhs", width);
+      total = ac::StaticExprAttr::get(
+          b.getContext(), sum.getDictionary(b.getContext()));
+    }
   }
-  return Type(ac::BitsType::get(b.getContext(), literal(total, node, symbol)));
+  return Type(ac::BitsType::get(
+      b.getContext(), allKnown ? literal(knownTotal, node, symbol) : total));
 }
 StringRef Importer::fixedCountCall(const AstNode &node) const {
   if (node.kind() != "Call")
@@ -632,9 +648,14 @@ FailureOr<SliceShape> Importer::resolveSlice(const AstNode &slice, Type base,
 
   ac::HardwareAnalysis analysis(*body);
   Operation *site = body->getOperation();
-  auto width = analysis.getPackedWidth(base, {}, site);
-  if (failed(width))
-    return failure();
+  auto sourceWidth = cast<ac::BitsType>(base).getWidth();
+  std::optional<uint64_t> width;
+  if (analysis.isStaticEvaluable(sourceWidth, {})) {
+    auto resolved = analysis.getPackedWidth(base, {}, site);
+    if (failed(resolved))
+      return failure();
+    width = *resolved;
+  }
   auto evaluateInteger = [&](StringRef field,
                              StringRef label) -> FailureOr<llvm::APSInt> {
     AstNode value = slice.child(field);
@@ -658,7 +679,8 @@ FailureOr<SliceShape> Importer::resolveSlice(const AstNode &slice, Type base,
   Attribute upperField = slice.get("upper");
   Attribute stepField = slice.get("step");
   llvm::APSInt low = llvm::APSInt::getUnsigned(0);
-  llvm::APSInt high = llvm::APSInt::getUnsigned(*width);
+  llvm::APSInt high = llvm::APSInt::getUnsigned(width.value_or(0));
+  bool symbolicHigh = !width && isa<UnitAttr>(upperField);
   if (!isa<UnitAttr>(lowerField)) {
     auto value = evaluateInteger("lower", "lower bound");
     if (failed(value))
@@ -681,19 +703,33 @@ FailureOr<SliceShape> Importer::resolveSlice(const AstNode &slice, Type base,
   }
 
   llvm::APSInt zero = llvm::APSInt::getUnsigned(0);
-  llvm::APSInt limit = llvm::APSInt::getUnsigned(*width);
-  if (llvm::APSInt::compareValues(low, zero) < 0 ||
-      llvm::APSInt::compareValues(low, high) >= 0 ||
-      llvm::APSInt::compareValues(high, limit) > 0)
+  llvm::APSInt limit = llvm::APSInt::getUnsigned(width.value_or(0));
+  if (llvm::APSInt::compareValues(low, zero) < 0 || low.getActiveBits() > 64 ||
+      (!symbolicHigh && llvm::APSInt::compareValues(low, high) >= 0) ||
+      (!symbolicHigh && high.getActiveBits() > 64) ||
+      (width && llvm::APSInt::compareValues(high, limit) > 0))
     return mlir::emitError(slice.location(b.getContext(), source.path))
            << "slice bounds require 0 <= lower < upper <= source width";
 
   // Conversion is safe only after the arbitrary-precision range proof above.
   uint64_t lowValue = low.getZExtValue();
-  uint64_t resultWidth = high.getZExtValue() - lowValue;
-  return SliceShape{
-      ac::BitsType::get(b.getContext(), literal(resultWidth, slice, symbol)),
-      literal(lowValue, slice, symbol)};
+  ac::StaticExprAttr resultWidth;
+  if (!symbolicHigh)
+    resultWidth = literal(high.getZExtValue() - lowValue, slice, symbol);
+  else if (!lowValue)
+    resultWidth = sourceWidth;
+  else {
+    NamedAttrList difference(literal(0, slice, symbol).getTree());
+    difference.set("kind", b.getStringAttr("binary"));
+    difference.erase("value");
+    difference.set("operator", b.getStringAttr("sub"));
+    difference.set("lhs", sourceWidth);
+    difference.set("rhs", literal(lowValue, slice, symbol));
+    resultWidth = ac::StaticExprAttr::get(
+        b.getContext(), difference.getDictionary(b.getContext()));
+  }
+  return SliceShape{ac::BitsType::get(b.getContext(), resultWidth),
+                    literal(lowValue, slice, symbol)};
 }
 LogicalResult Importer::scanStructs() {
   for (auto &item : structs) {
@@ -1091,16 +1127,28 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
               "Integer provenance";
   if (targetBits && info.sourceKind == ac::detail::ValueKind::Integer &&
       !fixedValues.contains(value)) {
-    if (*equivalent &&
-        !ac::areEquivalentHardwareTypes(value.getType(), target)) {
-      value = boundaryBitsIdentity(value, target, node, at, symbol);
-      info = valueInfo(value);
+    auto closed = dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant);
+    ac::HardwareAnalysis analysis(*body);
+    bool contextualSymbolicConstant =
+        *equivalent && value.getDefiningOp<ac::BitsConstantOp>() && closed &&
+        !llvm::APSInt(closed.getCanonicalValue()).isNegative() &&
+        !analysis.isStaticEvaluable(targetBits.getWidth(), {});
+    if (!contextualSymbolicConstant) {
+      if (*equivalent &&
+          !ac::areEquivalentHardwareTypes(value.getType(), target)) {
+        value = boundaryBitsIdentity(value, target, node, at, symbol);
+        info = valueInfo(value);
+      }
+      auto converted = lowerExactIntegerBoundary(at, numericSite(node, symbol),
+                                                 info, targetBits);
+      if (failed(converted))
+        return failure();
+      value = *converted;
     }
-    auto converted = lowerExactIntegerBoundary(at, numericSite(node, symbol),
-                                               info, targetBits);
-    if (failed(converted))
-      return failure();
-    value = *converted;
+    // A contextual constant already has the symbolic destination type. Its
+    // existing bound constant verifier checks fit for every actual width; do
+    // not treat a parameter default as that proof. The fresh boundary below
+    // still leaves the original Integer producer and its aliases unchanged.
   } else if (*equivalent && targetBits && isa<ac::BitsType>(value.getType()) &&
              fixedValues.contains(value) &&
              !ac::areEquivalentHardwareTypes(value.getType(), target)) {

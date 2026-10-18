@@ -1,0 +1,4 @@
+interface:
+  display_name: "pyCircuit Program Authoring"
+  short_description: "Write Pythonic variables, functions and Rules"
+  default_prompt: "Use $pycircuit-authoring to implement this design with scalar or structured values, Module-owned state and reusable Rules."

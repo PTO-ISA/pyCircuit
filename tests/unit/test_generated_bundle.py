@@ -238,6 +238,38 @@ def test_generated_receipt_must_be_a_json_object(
     _validate_or_fail(destination)
 
 
+@pytest.mark.parametrize("name", [None, "pyc_root", "root_$1"])
+def test_rtl_root_identity_and_older_receipts(tmp_path: Path, name) -> None:
+    owner = _publication_owner_generated(
+        package="demo", path="root.py", definition='@"demo.root.Root"', target="verilog"
+    )
+    receipt = _receipt(owner)
+    if name is not None:
+        receipt["root_rtl_name"] = name
+    _write_bundle(tmp_path, receipt=receipt)
+    _validate_generated_bundle(tmp_path, owner)
+
+
+@pytest.mark.parametrize("name", ["", "bad name", "../root", 1, None])
+def test_rtl_root_identity_rejects_invalid_metadata(tmp_path: Path, name) -> None:
+    owner = _publication_owner_generated(
+        package="demo", path="root.py", definition='@"demo.root.Root"', target="verilog"
+    )
+    receipt = _receipt(owner)
+    receipt["root_rtl_name"] = name
+    _write_bundle(tmp_path, receipt=receipt)
+    with pytest.raises(_PublicationError, match="root RTL name"):
+        _validate_generated_bundle(tmp_path, owner)
+
+
+def test_cpp_receipt_rejects_rtl_root_identity(tmp_path: Path) -> None:
+    receipt = _receipt()
+    receipt["root_rtl_name"] = "pyc_root"
+    _write_bundle(tmp_path, receipt=receipt)
+    with pytest.raises(_PublicationError, match="root RTL name"):
+        _validate_generated_bundle(tmp_path, OWNER)
+
+
 def test_owner_argument_binds_source_definition_and_target(tmp_path: Path) -> None:
     destination = tmp_path / "generated"
     _write_bundle(destination)

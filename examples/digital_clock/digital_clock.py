@@ -6,11 +6,6 @@ import pycircuit as ac
 
 
 @ac.struct
-class BcdResult:
-    value: ac.u8
-
-
-@ac.struct
 class ClockResult:
     hours_bcd: ac.u8
     minutes_bcd: ac.u8
@@ -19,16 +14,16 @@ class ClockResult:
     colon_blink: ac.u1
 
 
-def encode_bcd(value: ac.u6) -> BcdResult:
+def encode_bcd(value: ac.u6) -> ac.u8:
     tens = value // 10
     ones = value % 10
     tens8: ac.u8 = tens[:4]
     ones8: ac.u8 = ones[:4]
-    return BcdResult(value=(tens8 << 4) | ones8)
+    return (tens8 << 4) | ones8
 
 
 @ac.module
-def EncodeBcd(value: ac.u6) -> BcdResult:  # noqa: N802
+def EncodeBcd(value: ac.u6) -> ac.u8:  # noqa: N802
     return encode_bcd(value)
 
 
@@ -57,9 +52,9 @@ def DigitalClock(  # noqa: N802
         mode_q = mode
         blink_q = blink
         result = ClockResult(
-            hours_bcd=hours_encoded.value,
-            minutes_bcd=minutes_encoded.value,
-            seconds_bcd=seconds_encoded.value,
+            hours_bcd=hours_encoded,
+            minutes_bcd=minutes_encoded,
+            seconds_bcd=seconds_encoded,
             setting_mode=mode_q,
             colon_blink=blink_q,
         )

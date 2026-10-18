@@ -1,0 +1,4 @@
+# Pinned third-party snapshots and generated downloads remain local.
+/upstream/
+/downloads/
+/runs/

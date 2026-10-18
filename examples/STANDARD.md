@@ -1,5 +1,13 @@
 # Example authoring and verification standard
 
+Author designs as sequential Python functions and Rule bodies. Module variables
+hold state; ACIR creates storage and control. Do not expose clock/reset, register
+q/d terminals, DFF/DFFE bindings or proposal/commit wires in ordinary sources.
+Use a scalar directly for one value. A Struct combines multiple related fields;
+a one-field wrapper or singleton tuple adds no useful interface structure.
+Physical primitive and nominal-identity compiler tests are separate conformance
+fixtures, not patterns for ordinary examples or benchmark ports.
+
 The [catalog](catalog.json) is the current source of truth for runnable examples
 and API-owned coverage. The [navigation](README.md) is generated from that
 catalog. Each listed example retains its own hardware behavior and independent

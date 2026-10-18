@@ -51,11 +51,13 @@ enum class QueueReadyPolicy { LocalOccupancy, DownstreamPop };
 bool isQueueInstance(InstanceOp instance);
 /// Derive the existing FIFO configuration from its canonical callee and
 /// ordinary static arguments. No duplicated configuration is stored on the IR.
-mlir::FailureOr<mlir::DictionaryAttr> getQueueConfiguration(InstanceOp instance);
+mlir::FailureOr<mlir::DictionaryAttr>
+getQueueConfiguration(InstanceOp instance);
 /// The same derivation for authenticated declaration-only instance rows.
-mlir::FailureOr<mlir::DictionaryAttr> getQueueConfiguration(
-    mlir::FlatSymbolRefAttr callee, mlir::ArrayAttr parameters,
-    mlir::Operation *diagnosticSite);
+mlir::FailureOr<mlir::DictionaryAttr>
+getQueueConfiguration(mlir::FlatSymbolRefAttr callee,
+                      mlir::ArrayAttr parameters,
+                      mlir::Operation *diagnosticSite);
 struct ResolvedQueueConfig {
   mlir::Type payloadType;
   mlir::Type tokenElementType;
@@ -150,6 +152,11 @@ struct HardwareSourceCheckPlan {
   llvm::SmallVector<HardwareCheckSamplingBinding> samplingBindings;
   llvm::SmallVector<HardwareCheckSamplingOccurrence> samplingOccurrences;
   bool hasChecks() const { return !checks.empty(); }
+};
+/// Read-only physical-edge admission over the authenticated check inventory.
+struct HardwarePhysicalProjection {
+  ModuleOp root;
+  unsigned clockInput = 0, resetInput = 0;
 };
 using FieldPath = llvm::SmallVector<mlir::StringAttr>;
 struct PackedLeaf {
@@ -295,6 +302,9 @@ public:
   getSourceCheckPlan(HardwareSourceCheckLimits limits = {}) const;
   mlir::LogicalResult
   verifySourceCheckPlan(const HardwareSourceCheckPlan &plan,
+                        HardwareSourceCheckLimits limits = {}) const;
+  mlir::FailureOr<HardwarePhysicalProjection>
+  getPhysicalProjection(const HardwareSourceCheckPlan &plan,
                         HardwareSourceCheckLimits limits = {}) const;
   mlir::LogicalResult verifyDefinitionSourceChecks(ModuleOp definition) const;
   mlir::LogicalResult verify() const;

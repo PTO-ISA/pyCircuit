@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
@@ -108,19 +109,39 @@ def _generated_receipt(
     ) as error:
         raise _PublicationError("generated.json is not strict UTF-8 JSON") from error
 
-    if type(value) is not dict or set(value) != {
+    fields = {
         "kind",
         "target",
         "entry",
         "entry_source",
         "files",
         "source_groups",
-    }:
+    }
+    if type(value) is not dict or set(value) not in (
+        fields,
+        fields | {"root_rtl_name"},
+        fields | {"root_rtl_name", "rtl_mode"},
+    ):
         raise _PublicationError("generated.json fields are not closed")
     if value["kind"] != "pycircuit-generated":
         raise _PublicationError("generated.json kind is invalid")
     if type(value["target"]) is not str or value["target"] != expected_owner["target"]:
         raise _PublicationError("generated.json target does not match its owner")
+    # Older receipts remain readable for atomic replacement. Newly emitted RTL
+    # preserves the native root identity; it is metadata, not author authority.
+    if "root_rtl_name" in value and (
+        value["target"] != "verilog"
+        or type(value["root_rtl_name"]) is not str
+        or re.fullmatch(r"[A-Za-z_][A-Za-z0-9_$]*", value["root_rtl_name"]) is None
+    ):
+        raise _PublicationError("generated.json root RTL name is invalid")
+
+    if "rtl_mode" in value and (
+        value["target"] != "verilog"
+        or type(value["rtl_mode"]) is not str
+        or value["rtl_mode"] not in {"managed", "physical"}
+    ):
+        raise _PublicationError("generated.json RTL mode is invalid")
 
     entry = value["entry"]
     if type(entry) is not dict or set(entry) != {"definition", "arguments"}:

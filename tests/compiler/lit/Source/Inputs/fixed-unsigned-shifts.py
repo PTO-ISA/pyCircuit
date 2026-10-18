@@ -154,6 +154,74 @@ def ExactInteger(a: Annotated[int, range(1 << 8)]) -> {
     "static_signed": Annotated[int, range(1 << 8)]}:
     return {"identity": a >> 0, "add_before": (a + 1) >> 8,
             "static_signed": ((0 - 7) >> 1) & 255}
+
+def helper_shift(value: ac.u5) -> ac.u5:
+    for index in range(3):
+        value = value << 1
+    return value
+
+def helper_div(value: ac.u5) -> ac.u5:
+    for index in range(3):
+        value = value // 3
+    return value
+
+def helper_rem(value: ac.u5) -> ac.u5:
+    for index in range(3):
+        value = value % 5
+    return value
+
+@ac.struct
+class DynamicShiftResult:
+    helper_shift: ac.u5
+    helper_div: ac.u5
+    helper_rem: ac.u5
+    w1_left: ac.bits[1]
+    w1_right: ac.bits[1]
+    w5_left: ac.bits[5]
+    w5_right: ac.bits[5]
+    w65_left: ac.bits[65]
+    w65_right: ac.bits[65]
+    w130_left: ac.bits[130]
+    w130_right: ac.bits[130]
+    bitwise_left: ac.u5
+    bitwise_right: ac.u5
+    compare_left: ac.u1
+    compare_right: ac.u1
+
+@ac.rule
+def evaluate_dynamic(v1, v5, v65, v130, count_wide, count_narrow,
+                     count65, count130, choose) -> DynamicShiftResult:
+    compare_left: ac.u1 = 0
+    compare_right: ac.u1 = 0
+    for index in range(3):
+        compare_left = index < v5
+        compare_right = v5 > index
+    literal = 1 if choose else 3
+    return DynamicShiftResult(
+        helper_shift=helper_shift(v5),
+        helper_div=helper_div(v5),
+        helper_rem=helper_rem(v5),
+        w1_left=v1 << count_wide,
+        w1_right=v1 >> count_wide,
+        w5_left=v5 << count_narrow,
+        w5_right=v5 >> count_narrow,
+        w65_left=v65 << count65,
+        w65_right=v65 >> count65,
+        w130_left=v130 << count130,
+        w130_right=v130 >> count130,
+        bitwise_left=v5 & literal,
+        bitwise_right=literal & v5,
+        compare_left=compare_left,
+        compare_right=compare_right,
+    )
+
+@ac.module
+def DynamicFixed(v1: ac.u1, v5: ac.u5, v65: ac.bits[65],
+                 v130: ac.bits[130], count_wide: ac.u5,
+                 count_narrow: ac.u3, count65: ac.bits[65],
+                 count130: ac.bits[130], choose: ac.u1) -> DynamicShiftResult:
+    return evaluate_dynamic(v1, v5, v65, v130, count_wide, count_narrow,
+                            count65, count130, choose)
 """
 )
 
@@ -219,7 +287,6 @@ for label, operator in (("left", "<<"), ("right", ">>")):
     for name, count, extra in (
         ("true-count", "True", ""),
         ("false-count", "False", ""),
-        ("dynamic-count", "count", ", count: ac.u3"),
         (
             "singleton-runtime-count",
             "(count * 0)",
@@ -242,10 +309,6 @@ for label, operator in (("left", "<<"), ("right", ">>")):
     )
     for name in ("negative-count", "zero-negative-count", "zero-huge-negative-count"):
         diagnostics[label + "-" + name] = negative_guard
-    cases[label + "-zero-dynamic-count"] = scalar(
-        f"(value * 0) {operator} count", extra=", count: ac.u3"
-    )
-    diagnostics[label + "-zero-dynamic-count"] = static_guard
     for suffix, count in (("zero", "0"), ("overshift", "(1 << 300)")):
         key = label + "-boolean-input-" + suffix
         cases[key] = scalar(f"value {operator} {count}", base="bool", output="ac.u1")
@@ -291,7 +354,37 @@ positive_controls = {
     ),
     "ordinary-local": local_count("<<", use_count=False),
     "static-formal-profile": formal_count("<<", count="0"),
+    "symbolic-width-bitwise-default": (
+        "import pycircuit as ac\n"
+        "@ac.module\n"
+        'def Top(a: ac.bits[W], *, W: int = 8) -> {"result": ac.bits[W]}:\n'
+        '    return {"result": a | 1}\n'
+    ),
+    "symbolic-width-bitwise-boundary": (
+        "import pycircuit as ac\n"
+        "@ac.module\n"
+        'def Top(a: ac.bits[W], *, W: int = 9) -> {"result": ac.bits[W]}:\n'
+        '    return {"result": a | 256}\n'
+    ),
 }
+
+# Peer normalization must remain bounded by source kind and representability.
+cases["bitwise-boolean-wide-fixed"] = scalar(
+    "value & flag", base="ac.bits[65]", extra=", flag: bool", output="ac.bits[65]"
+)
+diagnostics["bitwise-boolean-wide-fixed"] = "binary operands require equal bits types"
+cases["bitwise-negative-integer-overflow"] = scalar("value & (0 - 1)")
+diagnostics["bitwise-negative-integer-overflow"] = (
+    "integer interval is not proven within destination bounds"
+)
+cases["comparison-dynamic-math-integer"] = scalar(
+    "value < peer",
+    extra=", peer: Annotated[int, range(1 << 4)]",
+    output="ac.u1",
+)
+diagnostics["comparison-dynamic-math-integer"] = (
+    "comparison operands require equal bits types"
+)
 
 with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as temporary:
     build = Path(temporary)
@@ -456,11 +549,232 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
             }
         )
 
+    dynamic = build / "DynamicFixed"
+    dynamic.mkdir()
+    dynamic_final = dynamic / "design_top.ac"
+    cli(
+        "link",
+        unit,
+        "--top",
+        "unsigned_shifts.design.DynamicFixed",
+        "-o",
+        dynamic_final,
+    )
+    for target in ("cpp", "verilog"):
+        cli("emit", dynamic_final, "--target", target, "-o", dynamic / target)
+    dynamic_runtime = dynamic / "runner"
+    cpp_receipt = json.loads((dynamic / "cpp/generated.json").read_text())
+    dynamic_cpp = [
+        dynamic / "cpp" / row["path"]
+        for row in cpp_receipt["files"]
+        if row["path"].endswith(".cpp")
+    ]
+    run(
+        [
+            args.cxx,
+            "-std=c++20",
+            "-pthread",
+            "-I" + str(repo / "include"),
+            "-I" + str(dynamic / "cpp"),
+            fixtures / "fixed-dynamic-shifts.cpp",
+            *dynamic_cpp,
+            runtime,
+            "-o",
+            dynamic_runtime,
+        ]
+    )
+    dynamic_traces = []
+    for workers in (1, 2):
+        trace = run([dynamic_runtime, str(workers)]).stdout
+        (scratch / f"DynamicFixed-workers-{workers}.stdout").write_text(trace)
+        dynamic_traces.append(
+            [
+                row
+                for row in trace.splitlines()
+                if row.startswith(("DYNAMIC ", "DMASK ", "COUNT "))
+            ]
+        )
+    assert len(dynamic_traces[0]) == 14 and dynamic_traces[0] == dynamic_traces[1]
+    sv_receipt = json.loads((dynamic / "verilog/generated.json").read_text())
+    dynamic_rtl = [
+        dynamic / "verilog" / row["path"]
+        for row in sv_receipt["files"]
+        if row["role"] == "rtl"
+    ]
+    dynamic_rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
+    dynamic_rtl_build = dynamic / "rtl-build"
+    run(
+        [
+            args.verilator,
+            "--binary",
+            "--timing",
+            "--top-module",
+            "tb",
+            "--prefix",
+            "Vdynamic_fixed_shifts",
+            "--Mdir",
+            dynamic_rtl_build,
+            "-j",
+            "2",
+            "-Wno-fatal",
+            *dynamic_rtl,
+            fixtures / "fixed-dynamic-shifts.sv",
+        ]
+    )
+    dynamic_rtl_trace = run([dynamic_rtl_build / "Vdynamic_fixed_shifts"]).stdout
+    (scratch / "DynamicFixed-rtl.stdout").write_text(dynamic_rtl_trace)
+    assert [
+        row for row in dynamic_rtl_trace.splitlines() if row.startswith("DYNAMIC ")
+    ] == [row for row in dynamic_traces[0] if row.startswith("DYNAMIC ")]
+    if args.iverilog and args.vvp:
+        dynamic_four = dynamic / "rtl-four-state"
+        run(
+            [
+                args.iverilog,
+                "-g2012",
+                "-DDYNAMIC_FIXED_FOUR_STATE",
+                "-s",
+                "tb",
+                "-o",
+                dynamic_four,
+                *dynamic_rtl,
+                fixtures / "fixed-dynamic-shifts.sv",
+            ]
+        )
+        four_trace = run([args.vvp, dynamic_four]).stdout
+        (scratch / "DynamicFixed-rtl-four-state.stdout").write_text(four_trace)
+        assert [
+            row
+            for row in four_trace.splitlines()
+            if row.startswith(("DYNAMIC ", "DMASK ", "COUNT "))
+        ] == dynamic_traces[0]
+    products.extend([dynamic_final, dynamic / "cpp", dynamic / "verilog"])
+    receipts.append(
+        {
+            "top": "DynamicFixed",
+            "final_sha256": digest(dynamic_final),
+            "runner_sha256": digest(dynamic_runtime),
+            "generated": {
+                target: {
+                    name: hashlib.sha256(value).hexdigest()
+                    for name, value in snapshot(dynamic / target).items()
+                }
+                for target in ("cpp", "verilog")
+            },
+        }
+    )
+
     before = snapshot(unit)
     protected = {
         path: snapshot(path) if path.is_dir() else path.read_bytes()
         for path in products
     }
+
+    # Static-parameter overrides use the established cross-source structural
+    # provider route. A same-source call would select the unrelated direct-value
+    # profile, which intentionally does not accept static parameters.
+    symbolic_provider = source / "symbolic_provider.py"
+    symbolic_provider.write_text(
+        "import pycircuit as ac\n"
+        "@ac.module\n"
+        'def SetLow(a: ac.bits[W], *, W: int = 9) -> {"result": ac.bits[W]}:\n'
+        '    return {"result": a | 256}\n'
+    )
+    provider_unit = build / "symbolic-provider"
+    cli(
+        "compile",
+        "-c",
+        symbolic_provider,
+        "--source-root",
+        source,
+        "--package-prefix",
+        "unsigned_shifts",
+        "-o",
+        provider_unit,
+    )
+
+    def symbolic_consumer(width):
+        return (
+            "import pycircuit as ac\n"
+            "from unsigned_shifts.symbolic_provider import SetLow\n"
+            "@ac.module\n"
+            f'def Top(a: ac.bits[{width}]) -> {{"result": ac.bits[{width}]}}:\n'
+            f"    child = SetLow(W={width})\n"
+            "    @ac.rule\n"
+            "    def bind():\n"
+            "        child(a=a)\n"
+            "    bind()\n"
+            '    return {"result": child.result}\n'
+        )
+
+    consumer_unit = build / "symbolic-consumer-w9"
+    design.write_text(symbolic_consumer(9))
+    cli(
+        "compile",
+        "-c",
+        design,
+        "--source-root",
+        source,
+        "--package-prefix",
+        "unsigned_shifts",
+        "-I",
+        provider_unit,
+        "-o",
+        consumer_unit,
+    )
+    symbolic_valid_final = build / "symbolic-consumer-w9.ac"
+    cli(
+        "link",
+        provider_unit,
+        consumer_unit,
+        "--top",
+        "unsigned_shifts.design.Top",
+        "-o",
+        symbolic_valid_final,
+    )
+    design.write_text(symbolic_consumer(8))
+    invalid_consumer_unit = build / "symbolic-consumer-w8"
+    cli(
+        "compile",
+        "-c",
+        design,
+        "--source-root",
+        source,
+        "--package-prefix",
+        "unsigned_shifts",
+        "-I",
+        provider_unit,
+        "-o",
+        invalid_consumer_unit,
+    )
+    symbolic_absent = build / "symbolic-consumer-w8-invalid.ac"
+    rejected = cli(
+        "link",
+        provider_unit,
+        invalid_consumer_unit,
+        "--top",
+        "unsigned_shifts.design.Top",
+        "-o",
+        symbolic_absent,
+        accepted=False,
+    )
+    assert "bits constant does not fit" in rejected.stderr
+    assert not symbolic_absent.exists()
+    symbolic_before = symbolic_valid_final.read_bytes()
+    replacement = cli(
+        "link",
+        provider_unit,
+        invalid_consumer_unit,
+        "--top",
+        "unsigned_shifts.design.Top",
+        "-o",
+        symbolic_valid_final,
+        "--replace",
+        accepted=False,
+    )
+    assert "bits constant does not fit" in replacement.stderr
+    assert symbolic_valid_final.read_bytes() == symbolic_before
+
     for name, text in positive_controls.items():
         design.write_text(text)
         (scratch / ("control-" + name + ".py")).write_text(text)
@@ -484,6 +798,10 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
         fixtures / ("fixed-unsigned-shifts" + extension)
         for extension in (".py", ".cpp", ".sv")
     ]
+    inputs.extend(
+        fixtures / name
+        for name in ("fixed-dynamic-shifts.cpp", "fixed-dynamic-shifts.sv")
+    )
     inputs.append(fixtures.parent / "fixed-unsigned-shifts.test")
     (scratch / "candidate.json").write_text(
         json.dumps(
@@ -494,13 +812,16 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
                 "design_sha256": hashlib.sha256(DESIGN.encode()).hexdigest(),
                 "products": receipts,
                 "known_frames": 32,
-                "four_state_frames": 4,
+                "dynamic_known_frames": 6,
+                "dynamic_unknown_count_frames": 4,
+                "four_state_frames": 8,
                 "workers": [1, 2],
                 "rejected_cases": sorted(cases),
                 "protected_rejections": len(cases) * 2,
                 "positive_controls": sorted(positive_controls),
                 "unreachable_source_guard": "unresolved fixed width: active declarations reject before shift; helper inspection required",
                 "missing_origin_guard_gap": "mixed Boolean/fixed conditional rejects at shared join; no missing-origin shift guard coverage claimed",
+                "symbolic_scalar_gap": "scalar generic Module results reject before bitwise normalization; mapping-return provider owns this regression",
                 "icarus_four_state": bool(args.iverilog and args.vvp),
             },
             indent=2,
@@ -509,9 +830,9 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
     )
 
 sys.stdout.write(
-    f"fixed unsigned shifts gate passed: 32 worker-1/2 and RTL frames; 4 native X/Z frames; {len(cases) * 2} protected rejections; "
+    f"fixed unsigned shifts gate passed: 32 static and 6 dynamic worker-1/2 and RTL frames; 8 payload plus 4 count X/Z frames; {len(cases) * 2} protected rejections; "
     + (
-        "4 Icarus X/Z frames\n"
+        "12 Icarus X/Z frames\n"
         if args.iverilog and args.vvp
         else "Icarus X/Z unavailable\n"
     )

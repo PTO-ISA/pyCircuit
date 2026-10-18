@@ -11,7 +11,104 @@ public:
   NetEmitter(HardwareEmitContext &context, ac::ModuleOp definition,
              raw_ostream &out)
       : context(context), definition(definition), out(out) {}
+  FailureOr<std::string> physicalInitializer(Value value, unsigned depth = 0) {
+    auto known = initializers.find(value);
+    if (known != initializers.end())
+      return known->second;
+    auto *op = value.getDefiningOp();
+    if (!op || depth > 256)
+      return definition.emitOpError()
+             << "physical initializer has no bounded constant DAG";
+    SmallVector<std::string> operands;
+    for (Value operand : op->getOperands()) {
+      auto rendered = physicalInitializer(operand, depth + 1);
+      if (failed(rendered))
+        return failure();
+      operands.push_back(*rendered);
+    }
+    auto type = context.rtlType(value.getType(), op);
+    if (failed(type))
+      return failure();
+    std::string expression;
+    if (auto constant = dyn_cast<ac::BitsConstantOp>(op)) {
+      auto literal = context.staticRtlValue(constant.getValue(), op);
+      auto width = context.payloadWidth(value.getType(), op, true);
+      if (failed(literal) || failed(width))
+        return failure();
+      if (context.isClosedStatic(constant.getValue())) {
+        llvm::APSInt value(*literal);
+        *literal = std::to_string(std::max(1u, value.getActiveBits())) + "'d" +
+                   *literal;
+      }
+      expression = "(" + *width + ")'(" + *literal + ")";
+    } else if (auto create = dyn_cast<ac::EnumCreateOp>(op)) {
+      auto enumeration =
+          context.analysis.resolveEnum(create.getResult().getType(), op);
+      if (failed(enumeration))
+        return failure();
+      for (const auto &member : enumeration->members)
+        if (member.name == create.getMemberAttr())
+          expression = std::to_string(enumeration->width) + "'d" +
+                       member.code.getCanonicalValue().str();
+    } else if (isa<ac::StructCreateOp, ac::TableCreateOp>(op)) {
+      expression = "{" + join(operands, ", ") + "}";
+    } else if (auto splat = dyn_cast<ac::TableSplatOp>(op)) {
+      auto count = context.shapeSize(splat.getShape(), op, true);
+      if (failed(count))
+        return failure();
+      expression = "{(" + *count + "){" + operands[0] + "}}";
+    } else if (auto get = dyn_cast<ac::StructGetOp>(op)) {
+      auto field =
+          legalizeIdentifier(get.getField(), [&] { return op->emitOpError(); });
+      if (failed(field))
+        return failure();
+      expression = operands[0] + "." + *field;
+    } else if (isa<ac::EnumToBitsOp>(op)) {
+      expression = operands[0];
+    } else if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
+      auto low = context.staticRtlValue(extract.getLow(), op);
+      auto width = context.payloadWidth(value.getType(), op, true);
+      if (failed(low) || failed(width))
+        return failure();
+      expression = operands[0] + "[(" + *low + ") +: (" + *width + ")]";
+    } else if (auto resize = dyn_cast<ac::BitsResizeOp>(op)) {
+      auto width = context.payloadWidth(value.getType(), op, true);
+      if (failed(width))
+        return failure();
+      expression = "(" + *width + ")'(" +
+                   (resize.getMode() == "sext" ? "$signed(" : "$unsigned(") +
+                   operands[0] + "))";
+    }
+    if (expression.empty())
+      return op->emitOpError()
+             << "physical initializer lacks constant RTL rendering";
+    // Typed elaboration constants keep constructor layout and widths. No live
+    // initializer wire participates in the primitive startup operation.
+    auto name = "pyc_initial_" + std::to_string(initializers.size());
+    out << "  localparam " << *type << " " << name << " = " << expression
+        << ";\n";
+    initializers.try_emplace(value, name);
+    return name;
+  }
   LogicalResult emitSourceChecks() {
+    if (context.isPhysical()) {
+      for (const auto &binding : context.sourceChecks().bindings) {
+        if (binding.definition != definition)
+          continue;
+        auto condition = net(binding.condition), path = net(binding.path);
+        if (failed(condition) || failed(path))
+          return failure();
+        auto name = "pyc_check_error_" + std::to_string(localErrors.size());
+        out << "`ifndef SYNTHESIS\n  wire " << name << " = $isunknown(" << *path
+            << ") || ((pyc_reset_active === 1'b0) && (" << *path
+            << " === 1'b1) && $isunknown(" << *condition
+            << "));\n"
+               "`else\n  wire "
+            << name << " = 1'b0;\n`endif\n";
+        localErrors.push_back(name);
+      }
+      return success();
+    }
     if (!context.managesChecks())
       return success();
     for (auto [index, binding] :
@@ -762,17 +859,19 @@ public:
             break;
           }
           auto record = dyn_cast<ac::StructType>(*resolved);
-          auto declaration = record ? context.analysis.lookupStruct(record)
-                                    : ac::StructOp();
+          auto declaration =
+              record ? context.analysis.lookupStruct(record) : ac::StructOp();
           if (!declaration)
             return op->emitOpError() << "RTL merge has unresolved field path";
           auto fields = declaration.getFields();
           auto found = llvm::find_if(fields, [&](Attribute raw) {
-            return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == path[i];
+            return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") ==
+                   path[i];
           });
           if (found == fields.end())
             return op->emitOpError() << "RTL merge has unknown field path";
-          type = cast<DictionaryAttr>(*found).getAs<TypeAttr>("type").getValue();
+          type =
+              cast<DictionaryAttr>(*found).getAs<TypeAttr>("type").getValue();
         }
         if (!llvm::is_contained(packedPaths, path))
           packedPaths.push_back(std::move(path));
@@ -835,13 +934,17 @@ public:
         auto depth = context.staticRtlValue(
             config->getAs<ac::StaticExprAttr>("depth"), queue);
         auto latency = context.unsignedStaticValue(
-            config->getAs<ac::StaticExprAttr>("availability_latency"), queue, true);
+            config->getAs<ac::StaticExprAttr>("availability_latency"), queue,
+            true);
         auto name = legalizeIdentifier(queue.getInstanceName(),
                                        [&] { return queue.emitOpError(); });
         if (failed(payload) || failed(depth) || failed(latency) || failed(name))
           return failure();
         unsigned policy =
-            config->getAs<StringAttr>("ready_policy").getValue() == "local_occupancy" ? 0 : 1;
+            config->getAs<StringAttr>("ready_policy").getValue() ==
+                    "local_occupancy"
+                ? 0
+                : 1;
         std::string error;
         if (context.managesChecks()) {
           error = "pyc_child_error_" + std::to_string(localErrors.size());
@@ -856,11 +959,12 @@ public:
         out << ")) pyc_instance_" << *name << " (\n";
         const StringRef ports[] = {"clk",       "rst",       "in_valid",
                                    "in_data",   "out_ready", "in_ready",
-                                   "out_valid", "out_data", "local_capacity"};
+                                   "out_valid", "out_data",  "local_capacity"};
         for (auto [index, port] : llvm::enumerate(ports))
           out << "    ." << port << "(" << pins[index] << ")"
-              << (index + 1 == std::size(ports) && !context.managesChecks() ? "\n"
-                                                                       : ",\n");
+              << (index + 1 == std::size(ports) && !context.managesChecks()
+                      ? "\n"
+                      : ",\n");
         if (context.managesChecks())
           out << "    .pyc_phase(pyc_phase),\n"
                  "    .pyc_root_commit_ok(pyc_root_commit_ok),\n"
@@ -887,7 +991,7 @@ public:
         return failure();
       auto kind = context.analysis.getPrimitiveKind(callee);
       bool managedPrimitive = false;
-      if (context.managesChecks() && !kind.empty())
+      if ((context.managesChecks() || context.isPhysical()) && !kind.empty())
         managedPrimitive =
             llvm::any_of(context.sourceChecks().commits,
                          [&](const ac::HardwareCheckCommitEndpoint &endpoint) {
@@ -917,13 +1021,16 @@ public:
         return failure();
       if (managedPrimitive) {
         if (parameters->empty())
-          *parameters = " #( .pyc_managed(1'b1) )";
+          *parameters = (context.isPhysical() ? " #( .pyc_physical(1'b1) )"
+                                              : " #( .pyc_managed(1'b1) )");
         else {
           auto close = parameters->rfind(')');
           if (close == std::string::npos)
             return occurrence->emitOpError()
                    << "malformed RTL primitive parameter list";
-          parameters->insert(close, ", .pyc_managed(1'b1) ");
+          parameters->insert(close, context.isPhysical()
+                                        ? ", .pyc_physical(1'b1) "
+                                        : ", .pyc_managed(1'b1) ");
         }
       }
       std::string i, count;
@@ -935,8 +1042,32 @@ public:
         count = *size;
         i = "pyc_instance_lane_" + std::to_string(next++);
       }
+      if (context.isPhysical() && managedPrimitive &&
+          (kind == "dff" || kind == "dffe")) {
+        unsigned initialIndex = kind == "dff" ? 3 : 4;
+        auto initial =
+            physicalInitializer(occurrence->getOperand(initialIndex));
+        if (failed(initial))
+          return failure();
+        std::string selected = *initial;
+        if (collection) {
+          auto signature = cast<FunctionType>(
+              callee->getAttrOfType<TypeAttr>("function_type").getValue());
+          auto width = context.payloadWidth(signature.getInput(initialIndex),
+                                            occurrence, true, *bindings);
+          if (failed(width))
+            return failure();
+          selected += "[((" + count + ")-1-" + i + ")*(" + *width + ") +: (" +
+                      *width + ")]";
+        }
+        auto close = parameters->rfind(')');
+        if (close == std::string::npos)
+          return occurrence->emitOpError()
+                 << "physical primitive requires constant parameters";
+        parameters->insert(close, ", .pyc_initial(" + selected + ") ");
+      }
       std::string childError, childComplete, childSamplingError;
-      if (context.managesChecks()) {
+      if ((context.managesChecks() || context.isPhysical())) {
         childError = "pyc_child_error_" + std::to_string(localErrors.size());
         if (collection)
           out << "  wire [(" << count << ")-1:0] " << childError << ";\n";
@@ -944,7 +1075,7 @@ public:
           out << "  wire " << childError << ";\n";
         localErrors.push_back(collection ? "(|" + childError + ")"
                                          : childError);
-        if (kind.empty()) {
+        if (kind.empty() && !context.isPhysical()) {
           childComplete = childError + "_complete";
           childSamplingError = childError + "_sampling";
           auto type = collection ? "[(" + count + ")-1:0] " : "";
@@ -994,22 +1125,25 @@ public:
            llvm::zip(outputNames, outputs, signature.getResults()))
         if (failed(connect(cast<StringAttr>(raw).getValue(), signal, type)))
           return failure();
-      if (context.managesChecks()) {
+      if ((context.managesChecks() || context.isPhysical())) {
         auto managedConnection = [&](StringRef port, StringRef signal) {
           out << (first ? "\n" : ",\n") << "    ." << port << "(" << signal
               << ")";
           first = false;
         };
-        managedConnection("pyc_phase", "pyc_phase");
+        if (!context.isPhysical())
+          managedConnection("pyc_phase", "pyc_phase");
         managedConnection("pyc_root_commit_ok", "pyc_root_commit_ok");
         if (kind.empty()) {
           managedConnection("pyc_reset_active", "pyc_reset_active");
-          managedConnection("pyc_check_complete",
-                            collection ? childComplete + "[" + i + "]"
-                                       : childComplete);
-          managedConnection("pyc_sampling_error",
-                            collection ? childSamplingError + "[" + i + "]"
-                                       : childSamplingError);
+          if (!context.isPhysical())
+            managedConnection("pyc_check_complete",
+                              collection ? childComplete + "[" + i + "]"
+                                         : childComplete);
+          if (!context.isPhysical())
+            managedConnection("pyc_sampling_error",
+                              collection ? childSamplingError + "[" + i + "]"
+                                         : childSamplingError);
         }
         managedConnection("pyc_local_error",
                           collection ? childError + "[" + i + "]" : childError);
@@ -1022,6 +1156,11 @@ public:
   }
 
   void emitAggregateError() {
+    if (context.isPhysical()) {
+      out << "  assign pyc_local_error = "
+          << (localErrors.empty() ? "1'b0" : join(localErrors, " | ")) << ";\n";
+      return;
+    }
     if (!context.managesChecks())
       return;
     out << "  assign pyc_check_complete = "
@@ -1043,6 +1182,7 @@ private:
   ac::ModuleOp definition;
   raw_ostream &out;
   llvm::DenseMap<Value, std::string> names;
+  llvm::DenseMap<Value, std::string> initializers;
   llvm::DenseSet<Operation *> instances;
   llvm::DenseMap<uint64_t, std::string> samplingNames;
   SmallVector<std::string> localErrors;
@@ -1116,6 +1256,13 @@ LogicalResult emitHardwareVerilogDefinition(HardwareEmitContext &context,
            "  input wire pyc_reset_active,\n"
            "  output wire pyc_check_complete,\n"
            "  output wire pyc_sampling_error,\n"
+           "  output wire pyc_local_error";
+    first = false;
+  }
+  if (context.isPhysical()) {
+    out << (first ? "\n" : ",\n")
+        << "  input wire pyc_root_commit_ok,\n"
+           "  input wire pyc_reset_active,\n"
            "  output wire pyc_local_error";
     first = false;
   }

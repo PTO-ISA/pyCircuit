@@ -9,7 +9,10 @@
 #include "mlir/Parser/Parser.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/FileSystem.h"
+#include "llvm/Support/JSON.h"
+#include "llvm/Support/MemoryBuffer.h"
 #include "llvm/Support/Path.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -29,6 +32,7 @@ struct Options {
   std::vector<std::string> bodies;
   std::vector<std::string> headers;
   std::optional<std::string> top;
+  std::optional<std::string> parameters;
   std::optional<std::string> design;
   std::optional<std::string> target;
   std::optional<std::string> output;
@@ -84,6 +88,7 @@ bool parseOptions(int argc, char **argv, Options &options) {
   for (int i = 1; i < argc; ++i) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
+        arg != "--parameters" &&
         arg != "--design" && arg != "--target" && arg != "--output" &&
         arg != "--glue-output" && arg != "--entry-owner-out" &&
         arg != "--unit-owner-out" && arg != "--transaction-input-out" &&
@@ -110,6 +115,9 @@ bool parseOptions(int argc, char **argv, Options &options) {
       options.headers.push_back(value.str());
     else if (arg == "--top") {
       if (!setOnce(options.top, value, arg))
+        return false;
+    } else if (arg == "--parameters") {
+      if (!setOnce(options.parameters, value, arg))
         return false;
     } else if (arg == "--design") {
       if (!setOnce(options.design, value, arg))
@@ -142,6 +150,10 @@ bool parseOptions(int argc, char **argv, Options &options) {
     llvm::errs()
         << "error: --transaction-input-out and --transaction-output-out "
            "must be supplied together\n";
+    return false;
+  }
+  if (options.parameters && (options.verifyOnly || options.design)) {
+    llvm::errs() << "error: --parameters requires source-unit link mode\n";
     return false;
   }
   if (options.transactionInputOutput &&
@@ -243,6 +255,101 @@ bool parseOptions(int argc, char **argv, Options &options) {
 mlir::OwningOpRef<mlir::ModuleOp> readModule(llvm::StringRef path,
                                              mlir::MLIRContext &context) {
   return mlir::parseSourceFile<mlir::ModuleOp>(path, &context);
+}
+
+bool jsonSpace(char value) {
+  return value == ' ' || value == '\t' || value == '\r' || value == '\n';
+}
+
+// LLVM's JSON object representation discards duplicate keys. Inspect the same
+// already validated buffer before using that representation, decoding key
+// strings through LLVM so escaped spellings cannot hide a duplicate.
+bool uniqueJSONKeys(llvm::StringRef text) {
+  std::vector<std::set<std::string>> objects;
+  for (size_t index = 0; index < text.size();) {
+    char next = text[index++];
+    if (next == '{') {
+      objects.emplace_back();
+    } else if (next == '}') {
+      objects.pop_back();
+    } else if (next == '"') {
+      size_t start = index - 1;
+      while (index < text.size()) {
+        if (text[index] == '\\') {
+          index += 2;
+        } else if (text[index++] == '"') {
+          break;
+        }
+      }
+      size_t after = index;
+      while (after < text.size() && jsonSpace(text[after]))
+        ++after;
+      if (after == text.size() || text[after] != ':')
+        continue;
+      auto decoded = llvm::json::parse(text.slice(start, index));
+      if (!decoded) {
+        llvm::errs() << "error: invalid parameter JSON key: "
+                     << llvm::toString(decoded.takeError()) << '\n';
+        return false;
+      }
+      auto key = decoded->getAsString();
+      if (!key || objects.empty() ||
+          !objects.back().insert(key->str()).second) {
+        llvm::errs() << "error: duplicate parameter JSON key\n";
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+bool canonicalInteger(llvm::StringRef value) {
+  if (value == "0")
+    return true;
+  value.consume_front("-");
+  return !value.empty() && value.front() >= '1' && value.front() <= '9' &&
+         llvm::all_of(value, [](char digit) { return digit >= '0' && digit <= '9'; });
+}
+
+mlir::FailureOr<llvm::SmallVector<acir::compiler::SourceLinkParameterBinding>>
+readParameterBindings(llvm::StringRef path) {
+  auto input = llvm::MemoryBuffer::getFile(
+      path, /*IsText=*/true, /*RequiresNullTerminator=*/true,
+      /*IsVolatile=*/true);
+  if (!input) {
+    llvm::errs() << "error: cannot read parameter bindings '" << path
+                 << "': " << input.getError().message() << '\n';
+    return mlir::failure();
+  }
+  llvm::StringRef text = (*input)->getBuffer();
+  auto parsed = llvm::json::parse(text);
+  if (!parsed) {
+    llvm::errs() << "error: invalid parameter bindings JSON: "
+                 << llvm::toString(parsed.takeError()) << '\n';
+    return mlir::failure();
+  }
+  if (!uniqueJSONKeys(text))
+    return mlir::failure();
+  auto array = parsed->getAsArray();
+  if (!array) {
+    llvm::errs() << "error: parameter bindings must be a JSON array\n";
+    return mlir::failure();
+  }
+  llvm::SmallVector<acir::compiler::SourceLinkParameterBinding> bindings;
+  std::set<std::string> names;
+  for (const auto &entry : *array) {
+    auto object = entry.getAsObject();
+    auto name = object ? object->getString("name") : std::nullopt;
+    auto value = object ? object->getString("value") : std::nullopt;
+    if (!object || object->size() != 2 || !name || name->empty() || !value ||
+        !canonicalInteger(*value) || !names.insert(name->str()).second) {
+      llvm::errs() << "error: each parameter binding requires exactly a unique "
+                      "nonempty name and a canonical signed decimal string value\n";
+      return mlir::failure();
+    }
+    bindings.push_back({name->str(), value->str()});
+  }
+  return bindings;
 }
 
 // Render one verified source owner as the closed `{package, path}` object.
@@ -391,6 +498,13 @@ bool publishNoClobberOutputs(
 mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
                             std::string &result, std::string &entryOwner,
                             acir::compiler::SourceLinkStages &stages) {
+  llvm::SmallVector<acir::compiler::SourceLinkParameterBinding> parameters;
+  if (options.parameters) {
+    auto parsed = readParameterBindings(*options.parameters);
+    if (mlir::failed(parsed))
+      return mlir::failure();
+    parameters = std::move(*parsed);
+  }
   llvm::SmallVector<mlir::OwningOpRef<mlir::ModuleOp>> ownedBodies;
   llvm::SmallVector<mlir::OwningOpRef<mlir::ModuleOp>> ownedHeaders;
   llvm::SmallVector<acir::compiler::SourceLinkUnit> units;
@@ -417,7 +531,7 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
   };
   auto program = acir::compiler::linkHardwareUnits(
       units, *options.top, emitError,
-      options.transactionInputOutput ? &stages : nullptr);
+      options.transactionInputOutput ? &stages : nullptr, parameters);
   if (mlir::failed(program))
     return mlir::failure();
   auto root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(

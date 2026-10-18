@@ -11,6 +11,11 @@ That document owns feedback pagination, finding status and readiness criteria;
 do not invent a second approval process. Use an instance independent of the
 author when governance requires independent review.
 
+For source/example/benchmark changes, read
+[`pycircuit-authoring`](../pycircuit-authoring/SKILL.md): sequential Python,
+source-global or nested Rules, scalar single outputs, and compiler-owned standard
+signals. Do not copy primitive conformance fixtures into ordinary author code.
+
 ## Establish the candidate
 
 - For a PR, record the exact host/repository, number, base/head SHAs, head

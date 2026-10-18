@@ -17,6 +17,8 @@ outside the current example catalog.
 | [table_rule](table_rule/README.md) | Persistent Table entries and nested calls in one transaction. |
 | [calculator](calculator/README.md) | A complete control function with sequential local calculations and state updates. |
 
+Rule definitions may be source-global like ordinary functions, or nested to
+capture Module locals. Definition location and Module ownership are separate.
 Use separate Rules for independent functions. A Rule's statements and nested
 calls form one transaction. Register Rules in their Module; use local `after`
 when independently registered Rules require ordered visibility. Plain source
@@ -25,6 +27,7 @@ order alone does not establish that relationship.
 Each static Module call creates a distinct child instance. Bind the result once
 and reuse it to fan out existing outputs. Pass fields that travel together as one
 named Struct connection; return a tuple only for independent destinations.
+One value remains a scalar, without a one-field Struct or singleton tuple.
 Module-scope annotated declarations are persistent state, while Rule locals and
 ordinary Module expressions remain combinational values.
 
@@ -41,7 +44,7 @@ ordinary Module expressions remain combinational values.
 | [digital_clock](digital_clock/README.md) | Clock-divider state and long-duration decimal carry behavior. |
 | [dodgeball_game](dodgeball_game/README.md) | VGA timing and game state. |
 | [fifo_loopback](fifo_loopback/README.md) | An explicit external FIFO protocol boundary. |
-| [multiclock_domain_isolation](multiclock_domain_isolation/README.md) | Independent physical clock/reset domains across child instances. |
+| [multiclock_domain_isolation](multiclock_domain_isolation/README.md) | Compiler conformance reference for independent physical domains; not a frontend wiring template. |
 
 All 17 current designs passed the 34-test examples nightly on 2026-10-18.
 DMA, memory banks and Table use readable 42-, 26- and 16-cycle System scenarios;

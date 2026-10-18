@@ -552,8 +552,9 @@ buildObservationPlan(HardwareEmitContext &context) {
 }
 } // namespace
 HardwareEmitContext::HardwareEmitContext(ModuleOp package,
-                                         ac::HardwareAnalysis &analysis)
-    : package(package), analysis(analysis) {}
+                                         ac::HardwareAnalysis &analysis,
+                                         bool physical)
+    : package(package), analysis(analysis), physical_(physical) {}
 LogicalResult HardwareEmitContext::prepare() { return prepareImpl(false); }
 LogicalResult HardwareEmitContext::prepareNativeChecks() {
   return prepareImpl(true);
@@ -563,7 +564,8 @@ const ac::HardwareSourceCheckPlan &HardwareEmitContext::sourceChecks() const {
   return *sourceChecks_;
 }
 bool HardwareEmitContext::managesChecks() {
-  return isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty());
+  return !physical_ &&
+         (isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty()));
 }
 LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   sourceChecks_.reset();
@@ -996,6 +998,12 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     // owners.
     names_.try_emplace(site, std::move(names));
   }
+  if (physical_) {
+    auto projection = analysis.getPhysicalProjection(*checks);
+    if (failed(projection))
+      return failure();
+    physicalProjection_ = *projection;
+  }
   sourceChecks_ = std::move(*checks);
   return success();
 }
@@ -1299,6 +1307,99 @@ FailureOr<ac::HardwareBindings> HardwareEmitContext::rootBindings() const {
     bindings.integers[formal.getAs<StringAttr>("name").getValue()] = *value;
   }
   return bindings;
+}
+FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
+  auto system = *package.getOps<ac::SystemOp>().begin();
+  auto root = cast<ac::ModuleOp>(analysis.lookupDefinition(
+      system.getEntry().getAs<FlatSymbolRefAttr>("callee").getValue()));
+  auto bindings = rootBindings();
+  auto layout = ac::getModulePortLayout(root);
+  if (failed(bindings) || failed(layout))
+    return failure();
+  auto signature = root.getFunctionType();
+  llvm::json::Array inputs, outputs, controls;
+  auto describe = [&](Type type, StringRef name,
+                      unsigned ordinal) -> FailureOr<llvm::json::Object> {
+    auto wire = legalizeIdentifier(name, [&] { return root.emitOpError(); });
+    auto width = analysis.getPackedWidth(type, *bindings, root);
+    auto leaves = analysis.getLeaves(type, *bindings, root);
+    if (failed(wire) || failed(width) || failed(leaves))
+      return failure();
+    llvm::json::Array fields;
+    for (const auto &leaf : *leaves) {
+      llvm::json::Array path;
+      for (auto part : leaf.path)
+        path.emplace_back(part.getValue());
+      fields.emplace_back(llvm::json::Object{
+          {"path", std::move(path)}, {"low", leaf.low}, {"width", leaf.width}});
+    }
+    return llvm::json::Object{{"ordinal", ordinal},
+                              {"name", name},
+                              {"wire", *wire},
+                              {"width", *width},
+                              {"fields", std::move(fields)}};
+  };
+  for (unsigned i = 0; i < layout->sourceInputCount; ++i) {
+    auto row =
+        describe(signature.getInput(i),
+                 cast<StringAttr>(root.getInputNames()[i]).getValue(), i);
+    if (failed(row))
+      return failure();
+    inputs.emplace_back(std::move(*row));
+  }
+  llvm::DenseSet<int64_t> companions;
+  for (unsigned i = 0; i < layout->sourceOutputCount; ++i) {
+    auto row =
+        describe(signature.getResult(i),
+                 cast<StringAttr>(root.getOutputNames()[i]).getValue(), i);
+    if (failed(row))
+      return failure();
+    (*row)["availability"] = nullptr;
+    int64_t companion = layout->outputValidity[i];
+    if (companion >= 0) {
+      auto wire = legalizeIdentifier(
+          cast<StringAttr>(root.getOutputNames()[companion]).getValue(),
+          [&] { return root.emitOpError(); });
+      if (failed(wire))
+        return failure();
+      (*row)["availability"] = *wire;
+      if (companions.insert(companion).second)
+        controls.emplace_back(llvm::json::Object{{"direction", "output"},
+                                                 {"role", "availability"},
+                                                 {"wire", *wire},
+                                                 {"width", 1}});
+    }
+    outputs.emplace_back(std::move(*row));
+  }
+  llvm::json::Object domains{{"clock", nullptr}, {"reset", nullptr}};
+  if (auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs"))
+    for (StringRef role : {StringRef("clock"), StringRef("reset")})
+      if (auto ordinal = domain.getAs<IntegerAttr>(role))
+        domains[role] = ordinal.getValue().getZExtValue();
+  if (rtl && managesChecks()) {
+    auto control = [&](StringRef direction, StringRef role, StringRef wire,
+                       unsigned width) {
+      controls.emplace_back(llvm::json::Object{{"direction", direction},
+                                               {"role", role},
+                                               {"wire", wire},
+                                               {"width", width}});
+    };
+    control("input", "phase", "pyc_phase", 3);
+    control("input", "commit_permission", "pyc_root_commit_ok", 1);
+    control("output", "check_complete", "pyc_check_complete", 1);
+    control("output", "sampling_error", "pyc_sampling_error", 1);
+    control("output", "local_error", "pyc_local_error", 1);
+  }
+  llvm::json::Value map(llvm::json::Object{{"schema_version", 1},
+                                           {"target", rtl ? "verilog" : "cpp"},
+                                           {"inputs", std::move(inputs)},
+                                           {"outputs", std::move(outputs)},
+                                           {"domains", std::move(domains)},
+                                           {"controls", std::move(controls)}});
+  std::string text;
+  llvm::raw_string_ostream stream(text);
+  stream << map;
+  return text;
 }
 FailureOr<std::string> HardwareEmitContext::rootCppType() const {
   auto bindings = rootBindings();

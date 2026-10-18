@@ -97,6 +97,8 @@ nav:
       - Overview: development/index.md
       - Source Authoring: development/agent-frontend-guide.md
       - Source-unit Workflow: development/source-unit-workflow.md
+      - Physical RTL Export: development/physical-rtl-export.md
+      - Compiler Benchmark Delivery: development/compiler-benchmark-delivery.md
       - Implementation Guide: development/implementation-guide.md
       - Contributing: development/contributing-workflow.md
       - Testing: development/testing-and-gates.md

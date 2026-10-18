@@ -1,0 +1,1401 @@
+[
+  {
+    "task_id": "always_case",
+    "source": "benchmark/solutions/verilogeval/always_case.py",
+    "top": "verilogeval.always_case.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 4
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "always_case2",
+    "source": "benchmark/solutions/verilogeval/always_case2.py",
+    "top": "verilogeval.always_case2.Top",
+    "outputs": [
+      {
+        "name": "pos",
+        "width": 2
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "always_casez",
+    "source": "benchmark/solutions/verilogeval/always_casez.py",
+    "top": "verilogeval.always_casez.Top",
+    "outputs": [
+      {
+        "name": "pos",
+        "width": 3
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "always_if",
+    "source": "benchmark/solutions/verilogeval/always_if.py",
+    "top": "verilogeval.always_if.Top",
+    "outputs": [
+      {
+        "name": "out_assign",
+        "width": 1
+      },
+      {
+        "name": "out_always",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "always_if2",
+    "source": "benchmark/solutions/verilogeval/always_if2.py",
+    "top": "verilogeval.always_if2.Top",
+    "outputs": [
+      {
+        "name": "shut_off_computer",
+        "width": 1
+      },
+      {
+        "name": "keep_driving",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "always_nolatches",
+    "source": "benchmark/solutions/verilogeval/always_nolatches.py",
+    "top": "verilogeval.always_nolatches.Top",
+    "outputs": [
+      {
+        "name": "left",
+        "width": 1
+      },
+      {
+        "name": "down",
+        "width": 1
+      },
+      {
+        "name": "right",
+        "width": 1
+      },
+      {
+        "name": "up",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "alwaysblock1",
+    "source": "benchmark/solutions/verilogeval/alwaysblock1.py",
+    "top": "verilogeval.alwaysblock1.Top",
+    "outputs": [
+      {
+        "name": "out_assign",
+        "width": 1
+      },
+      {
+        "name": "out_alwaysblock",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "andgate",
+    "source": "benchmark/solutions/verilogeval/andgate.py",
+    "top": "verilogeval.andgate.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "bugs_addsubz",
+    "source": "benchmark/solutions/verilogeval/bugs_addsubz.py",
+    "top": "verilogeval.bugs_addsubz.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      },
+      {
+        "name": "result_is_zero",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "bugs_case",
+    "source": "benchmark/solutions/verilogeval/bugs_case.py",
+    "top": "verilogeval.bugs_case.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 4
+      },
+      {
+        "name": "valid",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "bugs_mux2",
+    "source": "benchmark/solutions/verilogeval/bugs_mux2.py",
+    "top": "verilogeval.bugs_mux2.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "circuit1",
+    "source": "benchmark/solutions/verilogeval/circuit1.py",
+    "top": "verilogeval.circuit1.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "circuit3",
+    "source": "benchmark/solutions/verilogeval/circuit3.py",
+    "top": "verilogeval.circuit3.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "circuit4",
+    "source": "benchmark/solutions/verilogeval/circuit4.py",
+    "top": "verilogeval.circuit4.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "circuit5",
+    "source": "benchmark/solutions/verilogeval/circuit5.py",
+    "top": "verilogeval.circuit5.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 4
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "circuit6",
+    "source": "benchmark/solutions/verilogeval/circuit6.py",
+    "top": "verilogeval.circuit6.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 16
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "conditional",
+    "source": "benchmark/solutions/verilogeval/conditional.py",
+    "top": "verilogeval.conditional.Top",
+    "outputs": [
+      {
+        "name": "min",
+        "width": 8
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "fadd",
+    "source": "benchmark/solutions/verilogeval/fadd.py",
+    "top": "verilogeval.fadd.Top",
+    "outputs": [
+      {
+        "name": "cout",
+        "width": 1
+      },
+      {
+        "name": "sum",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "fsm3comb",
+    "source": "benchmark/solutions/verilogeval/fsm3comb.py",
+    "top": "verilogeval.fsm3comb.Top",
+    "outputs": [
+      {
+        "name": "next_state",
+        "width": 2
+      },
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "fsm3onehot",
+    "source": "benchmark/solutions/verilogeval/fsm3onehot.py",
+    "top": "verilogeval.fsm3onehot.Top",
+    "outputs": [
+      {
+        "name": "next_state",
+        "width": 4
+      },
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "gates",
+    "source": "benchmark/solutions/verilogeval/gates.py",
+    "top": "verilogeval.gates.Top",
+    "outputs": [
+      {
+        "name": "out_and",
+        "width": 1
+      },
+      {
+        "name": "out_or",
+        "width": 1
+      },
+      {
+        "name": "out_xor",
+        "width": 1
+      },
+      {
+        "name": "out_nand",
+        "width": 1
+      },
+      {
+        "name": "out_nor",
+        "width": 1
+      },
+      {
+        "name": "out_xnor",
+        "width": 1
+      },
+      {
+        "name": "out_anotb",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "gates100",
+    "source": "benchmark/solutions/verilogeval/gates100.py",
+    "top": "verilogeval.gates100.Top",
+    "outputs": [
+      {
+        "name": "out_and",
+        "width": 1
+      },
+      {
+        "name": "out_or",
+        "width": 1
+      },
+      {
+        "name": "out_xor",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "gates4",
+    "source": "benchmark/solutions/verilogeval/gates4.py",
+    "top": "verilogeval.gates4.Top",
+    "outputs": [
+      {
+        "name": "out_and",
+        "width": 1
+      },
+      {
+        "name": "out_or",
+        "width": 1
+      },
+      {
+        "name": "out_xor",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "gatesv",
+    "source": "benchmark/solutions/verilogeval/gatesv.py",
+    "top": "verilogeval.gatesv.Top",
+    "outputs": [
+      {
+        "name": "out_both",
+        "width": 3
+      },
+      {
+        "name": "out_any",
+        "width": 3
+      },
+      {
+        "name": "out_different",
+        "width": 4
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "hadd",
+    "source": "benchmark/solutions/verilogeval/hadd.py",
+    "top": "verilogeval.hadd.Top",
+    "outputs": [
+      {
+        "name": "sum",
+        "width": 1
+      },
+      {
+        "name": "cout",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "kmap1",
+    "source": "benchmark/solutions/verilogeval/kmap1.py",
+    "top": "verilogeval.kmap1.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "kmap2",
+    "source": "benchmark/solutions/verilogeval/kmap2.py",
+    "top": "verilogeval.kmap2.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "kmap3",
+    "source": "benchmark/solutions/verilogeval/kmap3.py",
+    "top": "verilogeval.kmap3.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "kmap4",
+    "source": "benchmark/solutions/verilogeval/kmap4.py",
+    "top": "verilogeval.kmap4.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "m2014_q4e",
+    "source": "benchmark/solutions/verilogeval/m2014_q4e.py",
+    "top": "verilogeval.m2014_q4e.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "m2014_q4f",
+    "source": "benchmark/solutions/verilogeval/m2014_q4f.py",
+    "top": "verilogeval.m2014_q4f.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "m2014_q4g",
+    "source": "benchmark/solutions/verilogeval/m2014_q4g.py",
+    "top": "verilogeval.m2014_q4g.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "m2014_q4h",
+    "source": "benchmark/solutions/verilogeval/m2014_q4h.py",
+    "top": "verilogeval.m2014_q4h.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "m2014_q4i",
+    "source": "benchmark/solutions/verilogeval/m2014_q4i.py",
+    "top": "verilogeval.m2014_q4i.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "m2014_q4j",
+    "source": "benchmark/solutions/verilogeval/m2014_q4j.py",
+    "top": "verilogeval.m2014_q4j.Top",
+    "outputs": [
+      {
+        "name": "sum",
+        "width": 5
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "mt2015_eq2",
+    "source": "benchmark/solutions/verilogeval/mt2015_eq2.py",
+    "top": "verilogeval.mt2015_eq2.Top",
+    "outputs": [
+      {
+        "name": "z",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "mt2015_q4a",
+    "source": "benchmark/solutions/verilogeval/mt2015_q4a.py",
+    "top": "verilogeval.mt2015_q4a.Top",
+    "outputs": [
+      {
+        "name": "z",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "mux2to1",
+    "source": "benchmark/solutions/verilogeval/mux2to1.py",
+    "top": "verilogeval.mux2to1.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "mux2to1v",
+    "source": "benchmark/solutions/verilogeval/mux2to1v.py",
+    "top": "verilogeval.mux2to1v.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 100
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "mux9to1v",
+    "source": "benchmark/solutions/verilogeval/mux9to1v.py",
+    "top": "verilogeval.mux9to1v.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 16
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "norgate",
+    "source": "benchmark/solutions/verilogeval/norgate.py",
+    "top": "verilogeval.norgate.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "notgate",
+    "source": "benchmark/solutions/verilogeval/notgate.py",
+    "top": "verilogeval.notgate.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "popcount255",
+    "source": "benchmark/solutions/verilogeval/popcount255.py",
+    "top": "verilogeval.popcount255.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "popcount3",
+    "source": "benchmark/solutions/verilogeval/popcount3.py",
+    "top": "verilogeval.popcount3.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 2
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "reduction",
+    "source": "benchmark/solutions/verilogeval/reduction.py",
+    "top": "verilogeval.reduction.Top",
+    "outputs": [
+      {
+        "name": "parity",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "review2015_fsmonehot",
+    "source": "benchmark/solutions/verilogeval/review2015_fsmonehot.py",
+    "top": "verilogeval.review2015_fsmonehot.Top",
+    "outputs": [
+      {
+        "name": "B3_next",
+        "width": 1
+      },
+      {
+        "name": "S_next",
+        "width": 1
+      },
+      {
+        "name": "S1_next",
+        "width": 1
+      },
+      {
+        "name": "Count_next",
+        "width": 1
+      },
+      {
+        "name": "Wait_next",
+        "width": 1
+      },
+      {
+        "name": "done",
+        "width": 1
+      },
+      {
+        "name": "counting",
+        "width": 1
+      },
+      {
+        "name": "shift_ena",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "ringer",
+    "source": "benchmark/solutions/verilogeval/ringer.py",
+    "top": "verilogeval.ringer.Top",
+    "outputs": [
+      {
+        "name": "ringer",
+        "width": 1
+      },
+      {
+        "name": "motor",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "step_one",
+    "source": "benchmark/solutions/verilogeval/step_one.py",
+    "top": "verilogeval.step_one.Top",
+    "outputs": [
+      {
+        "name": "one",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "7420",
+    "source": "benchmark/solutions/verilogeval/task_7420.py",
+    "top": "verilogeval.task_7420.Top",
+    "outputs": [
+      {
+        "name": "p1y",
+        "width": 1
+      },
+      {
+        "name": "p2y",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "7458",
+    "source": "benchmark/solutions/verilogeval/task_7458.py",
+    "top": "verilogeval.task_7458.Top",
+    "outputs": [
+      {
+        "name": "p1y",
+        "width": 1
+      },
+      {
+        "name": "p2y",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "thermostat",
+    "source": "benchmark/solutions/verilogeval/thermostat.py",
+    "top": "verilogeval.thermostat.Top",
+    "outputs": [
+      {
+        "name": "heater",
+        "width": 1
+      },
+      {
+        "name": "aircon",
+        "width": 1
+      },
+      {
+        "name": "fan",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "truthtable1",
+    "source": "benchmark/solutions/verilogeval/truthtable1.py",
+    "top": "verilogeval.truthtable1.Top",
+    "outputs": [
+      {
+        "name": "f",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vector0",
+    "source": "benchmark/solutions/verilogeval/vector0.py",
+    "top": "verilogeval.vector0.Top",
+    "outputs": [
+      {
+        "name": "outv",
+        "width": 3
+      },
+      {
+        "name": "o2",
+        "width": 1
+      },
+      {
+        "name": "o1",
+        "width": 1
+      },
+      {
+        "name": "o0",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vector1",
+    "source": "benchmark/solutions/verilogeval/vector1.py",
+    "top": "verilogeval.vector1.Top",
+    "outputs": [
+      {
+        "name": "out_hi",
+        "width": 8
+      },
+      {
+        "name": "out_lo",
+        "width": 8
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vector2",
+    "source": "benchmark/solutions/verilogeval/vector2.py",
+    "top": "verilogeval.vector2.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 32
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vector3",
+    "source": "benchmark/solutions/verilogeval/vector3.py",
+    "top": "verilogeval.vector3.Top",
+    "outputs": [
+      {
+        "name": "w",
+        "width": 8
+      },
+      {
+        "name": "x",
+        "width": 8
+      },
+      {
+        "name": "y",
+        "width": 8
+      },
+      {
+        "name": "z",
+        "width": 8
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vector4",
+    "source": "benchmark/solutions/verilogeval/vector4.py",
+    "top": "verilogeval.vector4.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 32
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vector5",
+    "source": "benchmark/solutions/verilogeval/vector5.py",
+    "top": "verilogeval.vector5.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 25
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vectorgates",
+    "source": "benchmark/solutions/verilogeval/vectorgates.py",
+    "top": "verilogeval.vectorgates.Top",
+    "outputs": [
+      {
+        "name": "out_or_bitwise",
+        "width": 3
+      },
+      {
+        "name": "out_or_logical",
+        "width": 1
+      },
+      {
+        "name": "out_not",
+        "width": 6
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "vectorr",
+    "source": "benchmark/solutions/verilogeval/vectorr.py",
+    "top": "verilogeval.vectorr.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 8
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "wire",
+    "source": "benchmark/solutions/verilogeval/wire.py",
+    "top": "verilogeval.wire.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "wire4",
+    "source": "benchmark/solutions/verilogeval/wire4.py",
+    "top": "verilogeval.wire4.Top",
+    "outputs": [
+      {
+        "name": "w",
+        "width": 1
+      },
+      {
+        "name": "x",
+        "width": 1
+      },
+      {
+        "name": "y",
+        "width": 1
+      },
+      {
+        "name": "z",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "wire_decl",
+    "source": "benchmark/solutions/verilogeval/wire_decl.py",
+    "top": "verilogeval.wire_decl.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      },
+      {
+        "name": "out_n",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "xnorgate",
+    "source": "benchmark/solutions/verilogeval/xnorgate.py",
+    "top": "verilogeval.xnorgate.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "zero",
+    "source": "benchmark/solutions/verilogeval/zero.py",
+    "top": "verilogeval.zero.Top",
+    "outputs": [
+      {
+        "name": "zero",
+        "width": 1
+      }
+    ],
+    "status": "supported"
+  },
+  {
+    "task_id": "dff",
+    "source": "benchmark/solutions/verilogeval/task_dff.py",
+    "top": "verilogeval.task_dff.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 1
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "d"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "dff8",
+    "source": "benchmark/solutions/verilogeval/dff8.py",
+    "top": "verilogeval.dff8.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "d"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "dff8r",
+    "source": "benchmark/solutions/verilogeval/dff8r.py",
+    "top": "verilogeval.dff8r.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "d"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "m2014_q4c",
+    "source": "benchmark/solutions/verilogeval/m2014_q4c.py",
+    "top": "verilogeval.m2014_q4c.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 1
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "d"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": "r",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "count15",
+    "source": "benchmark/solutions/verilogeval/count15.py",
+    "top": "verilogeval.count15.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 4
+      }
+    ],
+    "status": "implemented",
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "count10",
+    "source": "benchmark/solutions/verilogeval/count10.py",
+    "top": "verilogeval.count10.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 4
+      }
+    ],
+    "status": "implemented",
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "count1to10",
+    "source": "benchmark/solutions/verilogeval/count1to10.py",
+    "top": "verilogeval.count1to10.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 4
+      }
+    ],
+    "status": "implemented",
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "countslow",
+    "source": "benchmark/solutions/verilogeval/countslow.py",
+    "top": "verilogeval.countslow.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 4
+      }
+    ],
+    "status": "implemented",
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "review2015_count1k",
+    "source": "benchmark/solutions/verilogeval/review2015_count1k.py",
+    "top": "verilogeval.review2015_count1k.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 10
+      }
+    ],
+    "status": "implemented",
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "lfsr5",
+    "source": "benchmark/solutions/verilogeval/lfsr5.py",
+    "top": "verilogeval.lfsr5.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 5
+      }
+    ],
+    "status": "implemented",
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "lfsr32",
+    "source": "benchmark/solutions/verilogeval/lfsr32.py",
+    "top": "verilogeval.lfsr32.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 32
+      }
+    ],
+    "status": "implemented",
+    "domain": {
+      "clock": "clk",
+      "reset": "reset",
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "rotate100",
+    "source": "benchmark/solutions/verilogeval/rotate100.py",
+    "top": "verilogeval.rotate100.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 100
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "data",
+      "direction": "ena"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "rule90",
+    "source": "benchmark/solutions/verilogeval/rule90.py",
+    "top": "verilogeval.rule90.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 512
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "data"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "rule110",
+    "source": "benchmark/solutions/verilogeval/rule110.py",
+    "top": "verilogeval.rule110.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 512
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "data"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "edgedetect",
+    "source": "benchmark/solutions/verilogeval/edgedetect.py",
+    "top": "verilogeval.edgedetect.Top",
+    "outputs": [
+      {
+        "name": "pedge",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "in"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "edgedetect2",
+    "source": "benchmark/solutions/verilogeval/edgedetect2.py",
+    "top": "verilogeval.edgedetect2.Top",
+    "outputs": [
+      {
+        "name": "anyedge",
+        "width": 8
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "in"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "m2014_q4d",
+    "source": "benchmark/solutions/verilogeval/m2014_q4d.py",
+    "top": "verilogeval.m2014_q4d.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "implemented",
+    "inputs": {
+      "incoming": "in"
+    },
+    "domain": {
+      "clock": "clk",
+      "reset": null,
+      "reset_active": "high",
+      "edge": "posedge"
+    }
+  },
+  {
+    "task_id": "mt2015_q4",
+    "source": "benchmark/solutions/verilogeval/mt2015_q4.py",
+    "top": "verilogeval.mt2015_q4.Top",
+    "outputs": [
+      {
+        "name": "z",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "mt2015_q4b",
+    "source": "benchmark/solutions/verilogeval/mt2015_q4b.py",
+    "top": "verilogeval.mt2015_q4b.Top",
+    "outputs": [
+      {
+        "name": "z",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "circuit2",
+    "source": "benchmark/solutions/verilogeval/circuit2.py",
+    "top": "verilogeval.circuit2.Top",
+    "outputs": [
+      {
+        "name": "q",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "m2014_q6b",
+    "source": "benchmark/solutions/verilogeval/m2014_q6b.py",
+    "top": "verilogeval.m2014_q6b.Top",
+    "outputs": [
+      {
+        "name": "Y2",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
+  },
+  {
+    "task_id": "vector100r",
+    "source": "benchmark/solutions/verilogeval/vector100r.py",
+    "top": "verilogeval.vector100r.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 100
+      }
+    ],
+    "inputs": {
+      "incoming": "in"
+    },
+    "status": "implemented"
+  },
+  {
+    "task_id": "gatesv100",
+    "source": "benchmark/solutions/verilogeval/gatesv100.py",
+    "top": "verilogeval.gatesv100.Top",
+    "outputs": [
+      {
+        "name": "out_both",
+        "width": 99
+      },
+      {
+        "name": "out_any",
+        "width": 99
+      },
+      {
+        "name": "out_different",
+        "width": 100
+      }
+    ],
+    "inputs": {
+      "incoming": "in"
+    },
+    "status": "implemented"
+  }
+]

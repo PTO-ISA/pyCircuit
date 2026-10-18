@@ -235,7 +235,7 @@ LogicalResult verifyModuleImportSummarySelection(ModuleImportOp imported) {
 LogicalResult verifySourceCallHardwareConstraint(
     Attribute raw, Type physical, const HardwareAnalysis &analysis,
     Operation *lexicalModule, Operation *diagnosticOperation,
-    StringRef description) {
+    StringRef description, SourceCallWidthMode widthMode) {
   auto error = [&] { return diagnosticOperation->emitOpError(); };
   HardwareBindings bindings;
   bindings.owner = lexicalModule;
@@ -276,6 +276,13 @@ LogicalResult verifySourceCallHardwareConstraint(
   } else {
     return error() << "unsupported " << description << " source kind";
   }
+  // Generic Module contracts preserve scoped symbolic fixed widths until an
+  // actual instance supplies parameters. Closed widths still take the normal
+  // positive-width check, including malformed closed expressions.
+  if (widthMode == SourceCallWidthMode::SymbolicFixedBits &&
+      source == "fixed_bits" &&
+      !analysis.isStaticEvaluable(cast<BitsType>(physical).getWidth(), bindings))
+    return success();
   // Reuse canonical nominal resolution, static widths and checked layout.
   auto width = analysis.getPackedWidth(physical, bindings, diagnosticOperation);
   if (failed(width))
@@ -462,7 +469,7 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
   bool tuple = form && form.getValue() == "tuple";
   bool none = form && form.getValue() == "none";
   if (present != 4 || system || (!single && !tuple && !none) || !parameters ||
-      !results || !integers.empty() || !types.empty() ||
+      !results || !types.empty() ||
       layout->sourceOutputCount != results.size() ||
       (none && !results.empty()) || (tuple && results.empty()) ||
       (single && results.size() != 1))
@@ -486,13 +493,14 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
     auto parameter = cast<DictionaryAttr>(raw);
     if (failed(verifySourceCallHardwareConstraint(
             parameter.get("constraint"), signature.getInput(index), analysis,
-            owner, owner, "source module call")))
+            owner, owner, "source module call",
+            SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   }
   for (auto [index, result] : llvm::enumerate(results))
     if (failed(verifySourceCallHardwareConstraint(
             result, signature.getResult(index), analysis, owner, owner,
-            "source module call")))
+            "source module call", SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   return success();
 }

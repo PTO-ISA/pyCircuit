@@ -1,0 +1,849 @@
+{
+  "files": 131,
+  "source_global_rules": 17,
+  "violations": [],
+  "rows": [
+    {
+      "source": "benchmark/solutions/resbench/abs_diff.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/add_8bit.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/air_quality_index.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/bin_to_gray.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/bitwise_not.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/bitwise_ops.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/caesar_cipher.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/carbon_footprint.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/conv2d.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/ddm.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/decoder_2to4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/eq_comparator.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/fibonacci.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/free_fall_distance.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/gradient_descent.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/heat_index.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/int_sqrt.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/kinetic_energy.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/left_shift.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/log2_int.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/majority.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/matrix_vector_mult.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/mod_exp.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/modular_add_cipher.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/modulo_op.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/mse_loss.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/mult_4bit.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/mux4to1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/parity_8bit.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/polynomial_1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/polynomial_2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/polynomial_3.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/polynomial_4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/polynomial_5.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/potential_energy.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/power.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/priority_encoder.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/relu.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/rotate_left.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/seven_segment_decoder.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/solar_radiation_average.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/subtract_8bit.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/resbench/wavelength.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/always_case.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/always_case2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/always_casez.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/always_if.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/always_if2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/always_nolatches.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/alwaysblock1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/andgate.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/bugs_addsubz.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/bugs_case.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/bugs_mux2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/circuit1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/circuit2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/circuit3.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/circuit4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/circuit5.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/circuit6.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/conditional.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/count10.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/count15.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/count1to10.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/countslow.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/dff8.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/dff8r.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/edgedetect.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/edgedetect2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/fadd.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/fsm3comb.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/fsm3onehot.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/gates.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/gates100.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/gates4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/gatesv.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/gatesv100.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/hadd.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/kmap1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/kmap2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/kmap3.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/kmap4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/lfsr32.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/lfsr5.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4c.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4d.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4e.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4f.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4g.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4h.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4i.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q4j.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/m2014_q6b.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/mt2015_eq2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/mt2015_q4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/mt2015_q4a.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/mt2015_q4b.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/mux2to1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/mux2to1v.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/mux9to1v.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/norgate.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/notgate.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/popcount255.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/popcount3.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/reduction.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/review2015_count1k.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/review2015_fsmonehot.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/ringer.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/rotate100.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/rule110.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/rule90.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/step_one.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/task_7420.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/task_7458.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/task_dff.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 1
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/thermostat.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/truthtable1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vector0.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vector1.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vector100r.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vector2.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vector3.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d",
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vector4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vector5.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vectorgates.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/vectorr.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/wire.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/wire4.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/wire_decl.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0,
+      "data_argument_names": [
+        "author terminal d"
+      ]
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/xnorgate.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    },
+    {
+      "source": "benchmark/solutions/verilogeval/zero.py",
+      "single_field_structs": [],
+      "hardware_plumbing": [],
+      "source_global_rules": 0
+    }
+  ],
+  "name_review": "Combinational boolean-function argument d is an upstream data variable, not a register terminal. Names alone do not establish hardware protocol semantics; no primitive q/d binding exists.",
+  "combinational_data_name_review": [
+    "benchmark/solutions/verilogeval/circuit2.py",
+    "benchmark/solutions/verilogeval/circuit3.py",
+    "benchmark/solutions/verilogeval/circuit4.py",
+    "benchmark/solutions/verilogeval/circuit5.py",
+    "benchmark/solutions/verilogeval/conditional.py",
+    "benchmark/solutions/verilogeval/kmap2.py",
+    "benchmark/solutions/verilogeval/kmap3.py",
+    "benchmark/solutions/verilogeval/kmap4.py",
+    "benchmark/solutions/verilogeval/mux9to1v.py",
+    "benchmark/solutions/verilogeval/review2015_fsmonehot.py",
+    "benchmark/solutions/verilogeval/vector3.py",
+    "benchmark/solutions/verilogeval/vector5.py",
+    "benchmark/solutions/verilogeval/wire_decl.py"
+  ]
+}

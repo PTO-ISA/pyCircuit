@@ -12,7 +12,7 @@ struct FinalCppSourceGroup {
 struct FinalCppSourceParts {
   std::string supportHeader, systemHeader, rootCppName, rootHeaderPath;
   std::vector<FinalCppSourceGroup> sourceGroups;
-  std::string simulationMain, simulationConfig;
+  std::string simulationMain, simulationConfig, portMap;
   uint64_t sourceCheckCount = 0;
 };
 mlir::FailureOr<FinalCppSourceParts> emitCppSourceParts(

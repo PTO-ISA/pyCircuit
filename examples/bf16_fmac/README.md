@@ -24,7 +24,8 @@ Module scope composes pure typed helpers to compute each candidate from inputs o
 preceding stage's old Q. These calls describe combinational computations and add
 no module instances or storage. `carry_save` serves six reduction sites;
 `ripple8` serves all three carry-select chains; `right_barrel26` serves both
-alignment paths and output normalization. The priority LZC and left barrel
+alignment paths and output normalization. Both barrel helpers return `ac.u26`
+directly, and `pack_result` returns `ac.u32`. The priority LZC and left barrel
 remain explicit gate networks. Helpers do not call other rules or write owners.
 
 One nested zero-argument `advance_fmac` Rule snapshots old output Q and old S3

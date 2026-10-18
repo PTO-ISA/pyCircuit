@@ -37,6 +37,17 @@ no separate Signal resource or set/get interface in the language design. The
 compiler owns value availability and dependency checks; persistent state and
 Queue provide cross-cycle storage.
 
+Scalar fixed-Bits Modules and their tuple results may declare keyword-only
+static Integer parameters, for example
+`def Identity(value: ac.bits[W], *, W: int = 8) -> ac.bits[W]`.
+Direct same-source and imported calls separate static keywords from hardware
+arguments and substitute each instance's actual widths. A caller may forward
+its own declared parameter. Root overrides use the existing link command's
+`--parameters` JSON file. Actual width, constant-fit and hardware-argument checks
+still run at the bound instance; defaults are not proof for every instance.
+This support does not add generic state initialization, typed-transaction static
+parameters, type parameters, symbolic Integer domains or `range(W)` expansion.
+
 The profiles below retain their shape, indexing, purity and control restrictions.
 General queue/resource admission and complex SCF loop-control combinations remain
 implementation and runtime acceptance work. Preserve explicit protocol checks
@@ -95,13 +106,17 @@ ignoring nonzero constructor defaults. `init=Entry()` instead constructs an
 element using its defaults and broadcasts that value to independent owners.
 Initializers must be compile-time values; inputs and existing state are not
 initialization expressions in this slice.
+An annotated Table may use a complete tuple/list image, such as
+`entries: ac.table[2, ac.u8] = (1, 2)`. Its length and every element are checked
+against the Table type. A scalar/Struct element initializer still broadcasts;
+recursive zero keeps its existing behavior.
 
 A same-source top-level `@ac.rule` takes these variables as ordinary parameters.
 Assignments inside the rule follow sequential local value semantics; a read
 after an assignment sees that rule's computed value. Rebinding a parameter
 connected to a module-owned variable proposes an update to that owner. Rebinding
 a pure input or local changes only the local value. The module can return the
-rule's typed struct result or existing named result mapping directly. A local
+rule's scalar, Struct or fixed-tuple result (legacy named result mappings remain admitted) directly. A local
 `result = Result()` allocates no storage; `result.field = value` reconstructs
 its SSA value, including nested field paths. Previously saved values remain
 snapshots. Persistent field updates participate in the root owner's write set
@@ -274,8 +289,9 @@ IR graph is O(log² W), with compact scalar literals and no new IR or Runtime
 primitive. Existing backend capacity and observation-emission limits still apply;
 huge-width compile/link support is not a runtime allocation guarantee.
 
-Unsigned fixed bits also support `value << count` and `value >> count` with a
-proven static, nonnegative Integer count. Both results retain the input width.
+Unsigned fixed bits support `value << count` and `value >> count` with either a
+proven static, nonnegative Integer count or an authoritative fixed Bits count.
+Both results retain the input width.
 Retained value/known/Z bits move unchanged and vacated positions become known
 zero. A zero count is identity; a count at least the input width produces known
 zero. Counts are compared at their full precision, including beyond 64 bits,
@@ -283,10 +299,14 @@ before lowering; they never wrap modulo the input width.
 
 Destination conversion happens after the shift. For `a: ac.u8` equal to 128,
 `wide: ac.u16 = a << 1` yields zero. Explicitly widening `a` to a u16 local
-before shifting yields 256. Boolean inputs/counts, negative or runtime counts,
+before shifting yields 256. A runtime Bits count retains all its bits, including
+when wider than the data. An X/Z count produces a wholly unknown result.
+Boolean inputs/counts, negative or runtime mathematical Integer counts,
 unproved input widths and missing unsigned source authority diagnose. A local
 alias, singleton runtime interval or unresolved parameter default is not static
-count proof. Mathematical Integer right shift keeps its separate exact-value
+count proof. The live induction binder of an expanded pure-helper loop is a
+closed Integer for that iteration; aliases or rebound values do not acquire
+this static-count authority. Mathematical Integer right shift keeps its separate exact-value
 contract below; runtime mathematical left shift remains unsupported.
 
 For an unsigned fixed `bits[W]` numerator, `value // divisor` and
@@ -553,7 +573,8 @@ state snapshots and immutable local Struct/Table updates are permitted. This is
 a current coverage boundary, not a permanent restriction on hardware language
 loops. The body supports ordinary assignments, annotations, `pass`, existing
 `if`/conditional expressions, projections, proven Table indexing, fixed slices,
-`+`, `-`, `*`, `&`, `|`, `^`, supported unary/comparison/Boolean expressions,
+`+`, `-`, `*`, `&`, `|`, `^`, fixed shifts, unsigned division/remainder,
+supported unary/comparison/Boolean expressions,
 nominal Struct construction and contextual Table literals. Calls are limited to
 `concat`, `enum_to_bits` and verified pure value helpers. This does not broaden
 the loop grammar or named Table callback restrictions; helper expansion is
@@ -561,8 +582,16 @@ charged to the existing loop and source-wide budgets.
 Unary `not` and fixed-bit `~` retain their existing rules. Unary `+` and `-`
 are not implemented in this profile, including zero-trip bodies; binary
 subtraction such as `0 - 1` can produce a negative Integer.
-Shifts, division/remainder, Table methods, other intrinsics, allocations, rule
+Arithmetic reuses the ordinary expression type and range rules, including
+full-width shift counts and positive fitting static divisors. Table methods,
+other intrinsics, allocations, rule
 registration, assertions and observations inside loops remain unsupported.
+
+The restrictions above describe the pure-helper expansion path. Typed Rule
+loops use the existing SCF/transaction producer and additionally admit supported
+state writes, assertions, observations and loop control. Passing a Rule-loop
+test does not establish support in a pure helper. Nested loops and `for`/`else`
+remain rejected in both paths.
 
 Expansion uses the existing source-wide resource limits. The compiler checks
 trip counts, work, operations, storage and constant sizes before expanding paid
@@ -1403,7 +1432,7 @@ transactions and unproved conflicts between autonomous writers remain rejected.
 Existing ordinary hardware and its system route
 retain their current contracts and limits.
 See the
-[whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md),
+[branch-state contract](../rfcs/serial-rule-method/branch-state-ssa.md),
 [conditional-call/effect contract](../rfcs/serial-rule-method/conditional-effects.md) and
 [extension specification](../rfcs/serial-rule-method/README.md) for exact
 semantics, rejection boundaries and acceptance obligations. These documents do
