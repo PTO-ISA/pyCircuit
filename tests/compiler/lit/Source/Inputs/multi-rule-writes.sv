@@ -1,5 +1,28 @@
 module tb;
 
+  logic[2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
+  task automatic checked_prepare;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 &&
+                        pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin
+      pyc_phase=3;#1;
+      $fatal(1,"prepared multi-rule row failed completion/check validation");
+    end
+  endtask
+  task automatic checked_xfer;
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic checked_discard;
+    pyc_root_commit_ok=0;pyc_phase=3;#1;pyc_phase=0;#1;
+  endtask
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+
 `ifdef FIELD_MODE
   logic en_a=0,en_b=0;
   logic[7:0] data=0,other=0;
@@ -17,8 +40,10 @@ module tb;
     return bits_value;
   endfunction
   task initialize;
-    pyc_7079635f636c6b=0;pyc_7079635f727374=1;#1;
-    pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    pyc_7079635f636c6b=0;pyc_7079635f727374=1;#1;host_reset();
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
+    pyc_7079635f727374=0;#1;
   endtask
   initial begin
     if(!$value$plusargs("rows=%s",path))$fatal(1,"field oracle rows missing");
@@ -41,12 +66,11 @@ module tb;
       if(known_bits!==56'hffffffffffffff||z_bits!==0)$fatal(1,"unknown expected row in two-state sequence");
       expected=value_bits;
 `endif
-      #1;
+      pyc_7079635f636c6b=clock_level[0];#1;checked_prepare();
       if(result!==expected)$fatal(1,"field mode%0d row%0d expected%b actual%b",`FIELD_MODE,row,expected,result);
       if(four)$display("MASK %b",result);else $display("WORK %b",result);
-      // A native prepared discard has no committed physical edge in RTL.
-      if(action!=1)pyc_7079635f636c6b=clock_level[0];
-      #1;row=row+1;
+      if(action==1)checked_discard();else checked_xfer();
+      row=row+1;
       end
       end
     end
@@ -63,13 +87,16 @@ module tb;
   logic[7:0] a,b,c,side;
   bit last_clock=0;
   task initialize;
-    pyc_7079635f636c6b=0;pyc_7079635f727374=1;#1;
-    pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    pyc_7079635f636c6b=0;pyc_7079635f727374=1;#1;host_reset();
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
+    pyc_7079635f727374=0;#1;
     a=MODE==2?0:7;b=MODE==2?0:17;c=MODE==2?0:29;side=9;last_clock=0;
   endtask
   task row(input bit clock_level,reset,p,q,input logic[7:0] d,o);
     bit ga,gb;int index;logic[7:0] value;
-    en_a=p;en_b=q;data=d;other=o;pyc_7079635f727374=reset;#1;
+    en_a=p;en_b=q;data=d;other=o;pyc_7079635f727374=reset;
+    pyc_7079635f636c6b=clock_level;#1;checked_prepare();
     if(result!=={a,b,c,side})$fatal(1,"grant old-Q/order/effective-enable mismatch mode%0d expected%h actual%h",MODE,{a,b,c,side},result);
     $display("WORK %b",result);
     ga=p;
@@ -94,13 +121,14 @@ module tb;
         side=side^d;
       end
     end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;checked_xfer();
   endtask
 `ifdef FOUR_STATE
   task unknown_data(input bit z);
     logic[31:0] expected;
-    initialize();en_a=1;en_b=0;data=z?8'hzz:8'hxx;other=8'h5a;#1;
-    pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
+    initialize();en_a=1;en_b=0;data=z?8'hzz:8'hxx;other=8'h5a;
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
     expected={8'hxx,8'd17,8'd29,8'hxx};
     if(MODE==1)expected={8'hxx,(z?8'hzz:8'hxx),8'd29,8'hxx};
     if(MODE==2)expected={8'hxx,8'hxx,8'd0,8'hxx};
@@ -138,14 +166,17 @@ module tb;
     return value;
   endfunction
   task initialize;
-    pyc_7079635f636c6b=0;pyc_7079635f727374=1;#1;
-    pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    pyc_7079635f636c6b=0;pyc_7079635f727374=1;#1;host_reset();
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
+    pyc_7079635f727374=0;#1;
     last_clock=0;
     for(int i=0;i<5;i++)begin a[i]=0;b[i]=0;end
   endtask
   task row(input bit clock_level,reset,ea,eb,input logic[7:0] d,o);
     logic[8:0] old_a[5],old_b[5];
-    en_a=ea;en_b=eb;data=d;other=o;pyc_7079635f727374=reset;#1;
+    en_a=ea;en_b=eb;data=d;other=o;pyc_7079635f727374=reset;
+    pyc_7079635f636c6b=clock_level;#1;checked_prepare();
     if(result!==packed_model())$fatal(1,"table mismatch mode%0d data%0d other%0d expected%b actual%b",MODE,d,o,packed_model(),result);
     $display("WORK %b",result);
     for(int i=0;i<5;i++)begin old_a[i]=a[i];old_b[i]=b[i];end
@@ -171,14 +202,15 @@ module tb;
         if(eb)a[2]=9'(o&8'd31);
       end else begin a[0]=9'(d);b[1]=9'(d);end
     end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;checked_xfer();
   endtask
 `ifdef FOUR_STATE
   task unknown_data(input bit z,condition);
     logic [P-1:0] expected;
     initialize();en_a=condition?(z?1'bz:1'bx):1'b1;en_b=0;
-    data=condition?8'd31:(z?8'bzzzzzzzz:8'bxxxxxxxx);other=8'h5a;#1;
-    pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
+    data=condition?8'd31:(z?8'bzzzzzzzz:8'bxxxxxxxx);other=8'h5a;
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
     expected=0;
     if(MODE==5||MODE==6)expected='x;
     else if(MODE==0)begin
@@ -217,9 +249,10 @@ module tb;
   logic [7:0] a, b, c, side;
 
   task initialize;
-    pyc_7079635f636c6b = 0; pyc_7079635f727374 = 1; #1;
-    pyc_7079635f636c6b = 1; #1;
-    pyc_7079635f636c6b = 0; pyc_7079635f727374 = 0; #1;
+    pyc_7079635f636c6b=0;pyc_7079635f727374=1;#1;host_reset();
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
+    pyc_7079635f727374=0;#1;
     last_clock = 0;
 `ifdef TABLES
     a = 0; b = 0; c = 0; side = 0;
@@ -230,7 +263,8 @@ module tb;
   task row(input bit clock_level, reset, ea, eb, input logic [7:0] d, o);
     logic [7:0] old_a, old_b;
     en_a = ea; en_b = eb; data = d; other = o;
-    pyc_7079635f727374 = reset; #1;
+    pyc_7079635f727374=reset;pyc_7079635f636c6b=clock_level;
+    #1;checked_prepare();
     if (result !== {a,b,c,side}) $fatal(1, "old-Q/disjoint-field/order mismatch");
     $display("WORK %b", result);
     if (clock_level && !last_clock) begin
@@ -254,14 +288,15 @@ module tb;
 `endif
       end
     end
-    last_clock=clock_level; pyc_7079635f636c6b=clock_level; #1;
+    last_clock=clock_level;checked_xfer();
   endtask
 `ifdef FOUR_STATE
 `ifndef TABLES
   task unknown_data(input bit z);
     initialize();
-    en_a=1; en_b=0; data=z ? 8'bzzzzzzzz : 8'bxxxxxxxx; other=8'h5a; #1;
-    pyc_7079635f636c6b=1; #1; pyc_7079635f636c6b=0; #1;
+    en_a=1;en_b=0;data=z ? 8'bzzzzzzzz : 8'bxxxxxxxx;other=8'h5a;
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
 `ifdef SOLO
     if (result !== {(z ? 8'bzzzzzzzz : 8'bxxxxxxxx),8'h5a,8'h5c,8'bxxxxxxxx})
       $fatal(1,"known rule enable rejected/corrupted unknown data");
@@ -273,8 +308,9 @@ module tb;
   endtask
 `ifdef SOLO
   task unknown_condition(input bit z);
-    initialize(); en_a=z ? 1'bz : 1'bx; en_b=0; data=8'hff; other=8'h5a; #1;
-    pyc_7079635f636c6b=1; #1; pyc_7079635f636c6b=0; #1;
+    initialize();en_a=z ? 1'bz : 1'bx;en_b=0;data=8'hff;other=8'h5a;
+    pyc_7079635f636c6b=1;#1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;#1;checked_prepare();checked_xfer();
     if (result !== {8'bxxxxxxxx,8'h5a,8'h5c,8'hf6})
       $fatal(1,"single-rule unconditional sibling must preserve known enable");
     $display("MASK %b",result);

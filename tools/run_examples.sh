@@ -21,6 +21,7 @@ pyc_set_public_helpers
 cd "${PYC_ROOT_DIR}"
 build="${PYCIRCUIT_TEST_OUTPUT}/examples-${tier}"
 cmake -S "${PYC_ROOT_DIR}/examples" -B "${build}" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_PREFIX_PATH="${PYC_TOOLCHAIN_ROOT}" \
   -Dpycircuit_DIR="${PYC_TOOLCHAIN_ROOT}/share/pycircuit/cmake" -DPYC_EXAMPLE_TIER="${tier}"
 if ((list_only)); then

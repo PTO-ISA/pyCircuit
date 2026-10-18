@@ -22,7 +22,6 @@ class Stimuli:
     rows: table[345, Stimulus]
 
 
-@rule
 def stimulus(phase: bits[16]) -> Stimulus:
     # fmt: off
     stimuli = Stimuli(

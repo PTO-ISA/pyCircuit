@@ -1,11 +1,16 @@
 from typing import Annotated
 
-from pycircuit import module, rule
+from pycircuit import bits, module, struct
+
+
+@struct
+class WordResult:
+    q: bits[8]
 
 
 @module
-def Word(a: Annotated[int, range(1 << 8)]) -> {"q": Annotated[int, range(1 << 8)]}:
-    return {"q": a}
+def Word(a: bits[8]) -> WordResult:
+    return WordResult(q=a)
 
 
 @module
@@ -39,13 +44,7 @@ def Shift(a: Annotated[int, range(1 << 8)],
     "singleton": Annotated[int, range(1 << 64)],
     "static_signed": Annotated[int, range(1 << 8)],
     "bound": Annotated[int, range(1 << 8)]}:
-    child = Word()
-
-    @rule
-    def bind():
-        child(a=(a + 1) >> 1)
-
-    bind()
+    child = Word(a=(a + 1) >> 1)
     return {
         "identity": a >> 0,
         "original_xor": a ^ 1,

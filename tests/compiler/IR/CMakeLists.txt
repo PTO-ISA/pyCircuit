@@ -32,12 +32,16 @@ target_link_libraries(ACIRExactIntegerLoweringTests PRIVATE ACIRSourceCompiler)
 add_acir_api_test(ACIRFixedUnsignedDivRemLoweringTests FixedUnsignedDivRemLoweringTest.cpp)
 target_link_libraries(ACIRFixedUnsignedDivRemLoweringTests PRIVATE ACIRSourceCompiler)
 add_acir_api_test(ACIRSourceInterfacePassTests SourceInterfacePassTest.cpp
+  SourceModuleScalarResultsTest.cpp
+  SourcePrimitiveValueResultsTest.cpp
   SourceMemoryBindingsTest.cpp TableQuerySourceTest.cpp
-  SourceTransactionCaptureTest.cpp SourceHelperAuthorityTest.cpp)
+  SourceTransactionCaptureTest.cpp SourceHelperAuthorityTest.cpp
+  SourceControlFlowTest.cpp)
 target_compile_definitions(ACIRSourceInterfacePassTests PRIVATE
   PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
   PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")
 target_link_libraries(ACIRSourceInterfacePassTests PRIVATE
+  ACIRCodegen
   ACIRSourceCompiler ACIRTransforms MLIRPass)
 add_acir_api_test(ACIRRecordProjectionSimplificationTests RecordProjectionSimplificationTest.cpp)
 target_link_libraries(ACIRRecordProjectionSimplificationTests PRIVATE
@@ -45,9 +49,14 @@ target_link_libraries(ACIRRecordProjectionSimplificationTests PRIVATE
 add_acir_api_test(ACIRQueueContractsTests QueueContractsTest.cpp)
 add_acir_api_test(ACIRTransactionEffectsTests TransactionEffectsTest.cpp
   MethodSummaryAuthorityTest.cpp TransactionStateSSATest.cpp
-  TransactionLoweringTest.cpp SampledTransactionLoweringTest.cpp)
+  TransactionLoweringTest.cpp SampledTransactionLoweringTest.cpp
+  SourceFormalOwnerBindingTest.cpp SourceRegistrationEntryTest.cpp
+  HardwareWriteDomainsTest.cpp HardwareResourceDemandTest.cpp)
 target_link_libraries(ACIRTransactionEffectsTests PRIVATE
   ACIRSourceCompiler ACIRTransforms MLIRPass)
+target_compile_definitions(ACIRTransactionEffectsTests PRIVATE
+  PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
+  PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}")
 target_link_libraries(ACIRQueueContractsTests PRIVATE
   ACIRSourceCompiler ACIRCodegen ACIRTransforms MLIRPass MLIRTransforms)
 target_compile_definitions(ACIRQueueContractsTests PRIVATE
@@ -61,13 +70,14 @@ add_acir_api_test(ACIRHardwareSourceChecksTests
   GUARD "${CMAKE_CURRENT_SOURCE_DIR}/run_source_checks_guarded.py"
   FILTER "-HardwareSourceChecksExecution.*"
   HardwareSourceChecksTest.cpp HardwareSourceCheckOccurrencesTest.cpp
+  HardwareQueueResourcesTest.cpp HardwareGrantProofTest.cpp
   HardwareSampledAdmissionTest.cpp HardwareSampledAdmissionWiringTest.cpp
   ObservationIdentityTest.cpp
   HardwareSourceCheckCapacityTest.cpp HardwareSourceCheckValidationBudgetTest.cpp
-  HardwareDependencyModeReuseTest.cpp
+  HardwareDependencyModeReuseTest.cpp HardwareValueAvailabilityTest.cpp
   HardwareSourceChecksExecutionTest.cpp)
 set_tests_properties(ACIRHardwareSourceChecksTests PROPERTIES TIMEOUT 90)
-target_link_libraries(ACIRHardwareSourceChecksTests PRIVATE ACIRCodegen)
+target_link_libraries(ACIRHardwareSourceChecksTests PRIVATE ACIRCodegen ACIRSourceCompiler)
 target_compile_definitions(ACIRHardwareSourceChecksTests PRIVATE
   PYCIRCUIT_TEST_PYTHON="${Python3_EXECUTABLE}"
   PYCIRCUIT_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}"
@@ -94,7 +104,9 @@ target_compile_definitions(ACIREnumSourceUnitAuthorityTests PRIVATE
 target_link_libraries(ACIRTableDependencySummaryTests PRIVATE
   ACIRTransforms MLIRPass)
 add_acir_api_test(ACIRSourceStaticEvaluationTests SourceStaticEvaluationTest.cpp)
-add_acir_api_test(ACIRSourceIdentifierTests SourceIdentifierTest.cpp SourceIdentifierOracleTest.cpp)
+add_acir_api_test(ACIRSourceIdentifierTests SourceIdentifierTest.cpp SourceIdentifierOracleTest.cpp
+  SourceIdentityContractsTest.cpp)
+target_link_libraries(ACIRSourceIdentifierTests PRIVATE Threads::Threads)
 set(_module_loop_ir "${CMAKE_BINARY_DIR}/tests/compiler/module_loop.ac")
 file(GLOB _source_driver_files CONFIGURE_DEPENDS "${PYCIRCUIT_REPO_ROOT}/python/pycircuit/*.py")
 add_custom_command(OUTPUT "${_module_loop_ir}"
@@ -103,8 +115,8 @@ add_custom_command(OUTPUT "${_module_loop_ir}"
     --source-compiler "$<TARGET_FILE:pycircuit-source-unit>"
     --linker "$<TARGET_FILE:pycircuit-link>" --output "${_module_loop_ir}"
   DEPENDS pycircuit-source-unit pycircuit-link prepare_module_loop.py
-    "${PYCIRCUIT_REPO_ROOT}/examples/module_loop/child.py"
-    "${PYCIRCUIT_REPO_ROOT}/examples/module_loop/module_loop.py"
+    "${PYCIRCUIT_REPO_ROOT}/tests/fixtures/historical_examples/module_loop/child.py"
+    "${PYCIRCUIT_REPO_ROOT}/tests/fixtures/historical_examples/module_loop/module_loop.py"
     ${_source_driver_files} VERBATIM)
 add_custom_target(PycircuitModuleLoopIR DEPENDS "${_module_loop_ir}")
 add_acir_api_test(ACIRWorkPartitionTests WorkPartitionTest.cpp)

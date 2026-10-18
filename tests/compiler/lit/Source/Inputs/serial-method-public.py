@@ -314,7 +314,7 @@ for mode, width, initial, first, second, bias, last in cases:
     native_states = set(re.findall(
         r"(?m)^\s*std::shared_ptr<gfsim::collection_storage<[^;\n]+>>\s+(pyc_instance_\w+)_state;",
         owner_header))
-    rtl_states = set(re.findall(r"\bdffe\b[^\n]*\s+(pyc_instance_\w+)\s*\(", owner_rtl))
+    rtl_states = set(re.findall(r"\b(?:dff|dffe)\b[^\n]*\s+(pyc_instance_\w+)\s*\(", owner_rtl))
     assert native_states == rtl_states and len(native_states) == len(owners)
     owner_names = {name: emitted_instance_name(native_states, name) for name in owners}
     parent_header = emitted_source_text(case / "cpp", parent_owner, "header")
@@ -349,15 +349,36 @@ for mode, width, initial, first, second, bias, last in cases:
     # standalone access specifiers changed; no mixed class definitions or
     # modified transition/Work calculations enter this execution.
     cpp_originals, probe, visibility = prepare_native_probe(case)
+    # The compiler owns plain-DFF versus DFFE selection for these states. A
+    # plain DFF has no enable pin, so its probe observes a constant-one commit
+    # condition; DFFE keeps its real enable.
+    state_kinds = {
+        match.group(2): match.group(1)
+        for match in re.finditer(
+            r"collection_storage<::gfsim::(dff|dffe)_kernel<.*?>>\s+"
+            r"(pyc_instance_\w+)_state;",
+            owner_header,
+        )
+    }
     cpp_probes, rtl_probes = [], []
     for native_owner, rtl_owner in zip(cpp_owners, rtl_owners, strict=True):
         for owner in owners:
             stem = owner_names[owner]
-            cpp_probes.append(f"probe(*{native_owner}->{stem}_state, {native_owner}->{stem}_d, "
-                              f"{native_owner}->{stem}_en);")
-            rtl_probes.append(f'$write(" %b %b %b %b", {rtl_owner}.{stem}.q, '
-                              f'{rtl_owner}.{stem}.d, {rtl_owner}.{stem}.en, '
-                              f'{rtl_owner}.{stem}.managed.clock_current);')
+            if state_kinds.get(stem) == "dff":
+                cpp_probes.append(
+                    f"probe(*{native_owner}->{stem}_state, {native_owner}->{stem}_d, true);"
+                )
+                rtl_probes.append(
+                    f'$write(" %b %b %b %b", {rtl_owner}.{stem}.q, '
+                    f"{rtl_owner}.{stem}.d, 1'b1, "
+                    f"{rtl_owner}.{stem}.managed.clock_current);"
+                )
+            else:
+                cpp_probes.append(f"probe(*{native_owner}->{stem}_state, {native_owner}->{stem}_d, "
+                                  f"{native_owner}->{stem}_en);")
+                rtl_probes.append(f'$write(" %b %b %b %b", {rtl_owner}.{stem}.q, '
+                                  f'{rtl_owner}.{stem}.d, {rtl_owner}.{stem}.en, '
+                                  f'{rtl_owner}.{stem}.managed.clock_current);')
     left = cpp_owners[0]
     injection_cpp = "\n".join(
         f'if ({token} != "-") inject(*{left}->{owner_names[owner]}_state, '
@@ -430,6 +451,7 @@ for mode, width, initial, first, second, bias, last in cases:
     rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
     rtl_executable = case / "rtl-runner"
     run([args.iverilog, "-g2012", "-s", "tb", "-o", rtl_executable,
+         repo / "include/verilog/dff.v",
          repo / "include/verilog/dffe.v", *rtl, bench])
     trace = case / "rtl-four-state.txt"
     trace.write_text(run([args.vvp, rtl_executable, "+stimuli=" + str(stimuli)]).stdout)
@@ -615,6 +637,7 @@ bench.write_text((fixtures / "serial-method-public.sv").read_text().replace("@WI
                  .replace("@INJECT@", "").replace("@PROBES@", ""))
 rtl_executable = case / "rtl"
 run([args.iverilog, "-g2012", "-DPYC_NOMINAL_JOIN", "-s", "tb", "-o", rtl_executable,
+     repo / "include/verilog/dff.v",
      repo / "include/verilog/dffe.v", *rtl, bench])
 output = run([args.vvp, rtl_executable, "+stimuli=" + str(stimuli)]).stdout
 trace = case / "rtl-four-state.txt"
@@ -707,7 +730,7 @@ for mode, top_name in (("dynamic-independent", "IndependentTop"),
         native_states = set(re.findall(
             r"(?m)^\s*std::shared_ptr<gfsim::collection_storage<[^;\n]+>>\s+(pyc_instance_\w+)_state;",
             header))
-        rtl_states = set(re.findall(r"\bdffe\b[^\n]*\s+(pyc_instance_\w+)\s*\(", rtl))
+        rtl_states = set(re.findall(r"\b(?:dff|dffe)\b[^\n]*\s+(pyc_instance_\w+)\s*\(", rtl))
         assert native_states == rtl_states and len(native_states) == len(dynamic_owners)
         names = {owner: emitted_instance_name(native_states, owner) for owner in dynamic_owners}
         native_owner = "family->" + instance_names[side]
@@ -760,6 +783,7 @@ for mode, top_name in (("dynamic-independent", "IndependentTop"),
     rtl.sort(key=lambda path: (path.name != "design_top.sv", str(path)))
     rtl_executable = case / "rtl-runner"
     run([args.iverilog, "-g2012", "-s", "tb", "-o", rtl_executable,
+         repo / "include/verilog/dff.v",
          repo / "include/verilog/dffe.v", *rtl, bench])
     trace = case / "rtl-four-state.txt"
     trace.write_text(run([args.vvp, rtl_executable, "+stimuli=" + str(stimuli)]).stdout)

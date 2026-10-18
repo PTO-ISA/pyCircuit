@@ -32,8 +32,43 @@ void SourceStateWriteOp::getEffects(
   effects.emplace_back(mlir::MemoryEffects::Write::get(),
                        SourceStateResource::get());
 }
+void SourceQueuePeekOp::getEffects(
+    llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       SourceQueueResource::get());
+  // Dead payloads still require resource availability and known controls.
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceCheckResource::get());
+}
+void SourceQueuePopOp::getEffects(
+    llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       SourceQueueResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceQueueResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceCheckResource::get());
+}
+void SourceQueuePushOp::getEffects(
+    llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceQueueResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceCheckResource::get());
+}
+void SourceFormalWriteOp::getEffects(
+    llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  // Retain overwritten RHS evidence until owner-bound demand proof. This is
+  // neither a storage mutation nor an independently executable source check.
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceCheckResource::get());
+}
 void SourceMethodCallOp::getEffects(
     llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       SourceQueueResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceQueueResource::get());
   effects.emplace_back(mlir::MemoryEffects::Read::get(),
                        SourceStateResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(),
@@ -45,6 +80,10 @@ void SourceMethodCallOp::getEffects(
 }
 void SourceTransactionOp::getEffects(
     llvm::SmallVectorImpl<mlir::MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(mlir::MemoryEffects::Read::get(),
+                       SourceQueueResource::get());
+  effects.emplace_back(mlir::MemoryEffects::Write::get(),
+                       SourceQueueResource::get());
   effects.emplace_back(mlir::MemoryEffects::Read::get(),
                        SourceStateResource::get());
   effects.emplace_back(mlir::MemoryEffects::Write::get(),

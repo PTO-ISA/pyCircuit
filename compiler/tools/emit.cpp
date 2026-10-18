@@ -1,6 +1,7 @@
 // Emit source-owned modules from verified final ACIR. Publication is
 // transactional in the Python driver; this transport writes nothing before
 // complete success.
+#include "Compiler/FinalCppNames.h"
 #include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/FinalSourceMap.h"
 #include "Compiler/FinalVerilogSourceParts.h"
@@ -100,6 +101,36 @@ int main(int argc, char **argv) {
                                     "@\"" + callee.getValue().str() + "\""},
                                    {"arguments", std::move(arguments)}}},
       {"entry_source", sourceOwner(root.getSourceOwner())}};
+  auto portLayout = acir::ac::getModulePortLayout(root);
+  if (failed(portLayout))
+    return 1;
+  if (llvm::any_of(portLayout->outputValidity,
+                   [](int64_t port) { return port >= 0; })) {
+    llvm::json::Array outputs;
+    for (unsigned i = 0; i < portLayout->sourceOutputCount; ++i) {
+      int64_t companion = portLayout->outputValidity[i];
+      auto name = cast<StringAttr>(root.getOutputNames()[i]).getValue();
+      auto wire = acir::compiler::legalizeIdentifier(name, emitError);
+      if (failed(wire))
+        return 1;
+      llvm::json::Value availability(nullptr);
+      if (companion >= 0) {
+        auto control = acir::compiler::legalizeIdentifier(
+            cast<StringAttr>(root.getOutputNames()[companion]).getValue(),
+            emitError);
+        if (failed(control))
+          return 1;
+        availability = *control;
+      }
+      outputs.emplace_back(
+          llvm::json::Object{{"ordinal", i},
+                             {"name", name},
+                             {"wire", *wire},
+                             {"availability", std::move(availability)}});
+    }
+    result["port_availability"] =
+        llvm::json::Object{{"outputs", std::move(outputs)}};
+  }
   auto units = acir::ac::collectFinalSourceUnits(*package, emitError);
   if (failed(units))
     return 1;

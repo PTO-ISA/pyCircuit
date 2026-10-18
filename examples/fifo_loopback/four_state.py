@@ -67,24 +67,19 @@ receipt_path = main_build / "verilog/generated.json"
 receipt = json.loads(receipt_path.read_text())
 final_path = main_build / "fifo_loopback.ac"
 final_text = final_path.read_text()
-assert final_text.count('"ac.queue"(') == 1
-assert '"ac.instance"(' not in final_text, "unexpected added instance"
-for line in final_text.splitlines():
-    if '"ac.queue"(' in line:
-        assert 'ready_policy = "downstream_pop"' in line
-        assert "empty_flow = false" in line and 'read_during_write = "old"' in line
-        assert 'empty_data = "zero"' in line
-        for attribute, value in (
-            ("depth", 2),
-            ("availability_latency", 1),
-            ("head_read_latency", 0),
-        ):
-            match = re.search(
-                attribute + r" = #ac.static_expr<.*?value = #ac.math_int<([0-9]+)>",
-                line,
-            )
-            assert match and int(match.group(1)) == value, (attribute, line)
-
+assert '"ac.queue"(' not in final_text
+instances = [line for line in final_text.splitlines() if '"ac.instance"(' in line]
+queue_lines = [
+    line for line in instances if "callee = @pycircuit.__builtins__.fifo_" in line
+]
+assert len(queue_lines) == 1
+assert len(instances) == len(queue_lines), "unexpected additional module instance"
+expected_depths = [2]
+for line, depth in zip(queue_lines, expected_depths, strict=True):
+    assert "callee = @pycircuit.__builtins__.fifo_downstream_pop" in line
+    parameters = line.split("parameters = [", 1)[1].split("], type_arguments", 1)[0]
+    values = [int(value) for value in re.findall(r"#ac.math_int<([0-9]+)>", parameters)]
+    assert values == [depth, 1], (values, line)
 rtl = [
     main_build / "verilog" / row["path"]
     for row in receipt["files"]

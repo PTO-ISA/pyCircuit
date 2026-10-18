@@ -9,39 +9,39 @@
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
       "source/CMakeLists.txt": "d30c2421cc3d3e93462a2717669a3bf07bc0e952d1cd1767b8fdcd8f3e7bb54f",
-      "source/bench.py": "5c2c2ef9c3390800cf8598049e3819888982f52a4fb6e1ed44677ef027ab718e",
+      "source/bench.py": "102e2471ceecc1c6b7991feea659f7574a26edd43e61b72ac51409650895ed39",
       "source/config.json": "b31a83dbb4bd3ada5c57757904a58b9b9710544f1fb78fa80eb4ee2a82d2a840",
       "source/driver.cpp": "12b094b78c81fe30f9a99959736d2211acf65d9a32d2cfcab69f8f0d35516b38",
-      "source/enum_payload_pipeline.py": "9b84f02f13c5b7cc275ca1bb0ae197b212083567a2c0c79b7568b7eaefffd03a",
+      "source/enum_payload_pipeline.py": "91b1e7b22109acfa2d65d9064d454b3ce19b983cc8559f6fa2c3d10fc58f9a88",
       "source/four_state.py": "83b1ca23655398ff860dbbe0d4fc34fb6e8301707c238e928d8f1d2012c8f2e3",
-      "source/rtl_tb.sv": "545ef21a3a6cd57e59d50febb65ed99b0a1228721d20a2c09c45826fd65de212",
+      "source/rtl_tb.sv": "9f55ea3963992ab4099b809348ec582d2d34514c3517146be50cff9eb4d83257",
       "build/cpp/generated.json": "fa7f5081f688619e84c2052679432e13dc99c553ea1ffd2ff81846aa1276dc7c",
       "build/cpp/CMakeLists.txt": "2088a0c1a541aa449c38a226e29a94af08efdca82decfa71c6fc9fdf70bc6655",
-      "build/cpp/pycircuit_support.hpp": "c0803027b418b353418fca31b0484697bb7d82e3b9c9974b1360bdc370c9d85f",
-      "build/cpp/pycircuit_system.hpp": "2dbaa72262634a1da5f829617e834968e03422777ff004537c7954bac838201c",
+      "build/cpp/pycircuit_support.hpp": "9b0ba4b1155afa2f92c3efaae1bbac6775fa456045164a661238b8895b3a7b7c",
+      "build/cpp/pycircuit_system.hpp": "8468da8ebaf44563f0e306ea692f8f1ecd600bcfdf745660c704c98503669db1",
       "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.cpp": "4a5434e86f9cca7345d8d1dcc5d47823dffd4f7a767f6dd3e70b3df01145c173",
-      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp": "e2fc0d22dd1c793cf080996166c107613961a34ed351bb6d79dfe347ebdc3844",
-      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "513e03076dd3357f6654e6e5bf345ad45efa44e9f2ac99d309c6d20ebd9d4b7d",
+      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp": "5b0b5784f007996b199f11a2710f27282aa5c7d94e48706bfdfbd15e476d235d",
+      "build/cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "8aa4710c74f6ad73bbf21a7a73e39d88d814162bfe7627acd30fcab58da326e8",
       "build/verilog/generated.json": "3ae03a71a1a048feb22998ed6cc3b605e32634473466a4b77b183a32b2191bed",
       "build/verilog/CMakeLists.txt": "5853aa0b512a8e879e6de134dbe8d20298971bb8e03cac8b6fca935f1d955014",
-      "build/verilog/design_top.sv": "ba977a94618f13d85241c0725602ae7faf9556f442e5333ad6ddc62a48463d99",
-      "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "d77a4c9e0f6ee86e43f3b06ee9d285739121977a23678bc65822fe43abed2a8e",
-      "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.v": "f3a90bb18ce8706d09d73b9466cabba39a4080a67b45d5d7ebbc90ab6124cf16",
-      "build/enum_payload_pipeline.ac": "457d8d345e22527e327df5b4b7f15d9337af9bfde4a4d079f2d1202287f16adc",
+      "build/verilog/design_top.sv": "82568a7b2614622b94e0d5087fdb4ca940e6306aa2b3ebc48f1aa3ec953a67a6",
+      "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.source-map.json": "dd08975b3246caf0b813bd148af69ef1e596b0f54a0a8f73f89160e21a3b8c9d",
+      "build/verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.v": "b195917cd04e7df47f0e898473b8d303a51d6977d521473892e878d268f6f34e",
+      "build/enum_payload_pipeline.ac": "972ca7079d824d57563279a075f8843a545d7e96136e1001f008d9f58c6c1006",
       "build/units/.enum_payload_pipeline.pycircuit-publication/owner.json": "4d636df2fedd06fa87572ba31426d65a2fb7c7f6dfb6a8e1be246b35778600a1",
-      "build/units/enum_payload_pipeline/enum_payload_pipeline.ac": "5a630ca31ee1cd7c6207c8c44f8ff161c9dc175e01322c14697759faeda993f5",
-      "build/units/enum_payload_pipeline/enum_payload_pipeline.d": "3a24c94ce8f337fbacfeb621bc6e8da8aa97d4c22a06270e268e234f4b826206",
-      "build/units/enum_payload_pipeline/enum_payload_pipeline.interface.ac": "c190f897d8d20e916182492d22d883001477460faa75fbd96018c29c811d9d3c",
+      "build/units/enum_payload_pipeline/enum_payload_pipeline.ac": "f4cde63f65cf131b8498e4857960bcc9d05fb595f050b9ac0f4726b9c53086b6",
+      "build/units/enum_payload_pipeline/enum_payload_pipeline.d": "f3a042101cf8412f6f0417b8a4a3d7e4c22d7e5b70fdd93be45b28e8cb2b20b1",
+      "build/units/enum_payload_pipeline/enum_payload_pipeline.interface.ac": "8458598915608c972cd3055fd5c36ed18ee2ea6ae516d4b86d5395a916df5711",
       "build/units/enum_payload_pipeline/unit.json": "fe2a17c1c2720f9eb35d06d55605050fd80f85c4e9c80e47fc80c90734dc8287",
       "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
       "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
       "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
-      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
       "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
       "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
-      "runner": "d0893278c00cfe5547320e5fce5ffb8ecda99be4effdb6212031a64dc65ed33f"
+      "runner": "4979dc22417a1b36cade262d1f565c59a82f9792eaa2a0daec8726dbba6187da"
     },
-    "execution_sha256": "becae1e42788894b65411b8f2800b03c45678debfd37e57056a434d72053e042",
+    "execution_sha256": "da02028c57ef98cfc172c19b85bd9b41480d28e1c9e22bdca183c95e7ca000bc",
     "work_samples": 603,
     "native_check_records": 0,
     "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
@@ -55,18 +55,18 @@
   "excerpts": [
     {
       "path": "enum_payload_pipeline.ac",
-      "line": 8,
-      "sha256": "457d8d345e22527e327df5b4b7f15d9337af9bfde4a4d079f2d1202287f16adc"
+      "line": 10,
+      "sha256": "972ca7079d824d57563279a075f8843a545d7e96136e1001f008d9f58c6c1006"
     },
     {
       "path": "cpp/sources/example_enum_payload_pipeline/enum_payload_pipeline.hpp",
-      "line": 40,
-      "sha256": "e2fc0d22dd1c793cf080996166c107613961a34ed351bb6d79dfe347ebdc3844"
+      "line": 113,
+      "sha256": "5b0b5784f007996b199f11a2710f27282aa5c7d94e48706bfdfbd15e476d235d"
     },
     {
       "path": "verilog/sources/example_enum_payload_pipeline/enum_payload_pipeline.v",
       "line": 1,
-      "sha256": "f3a90bb18ce8706d09d73b9466cabba39a4080a67b45d5d7ebbc90ab6124cf16"
+      "sha256": "b195917cd04e7df47f0e898473b8d303a51d6977d521473892e878d268f6f34e"
     }
   ]
 }

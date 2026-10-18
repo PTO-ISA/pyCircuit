@@ -1,4 +1,5 @@
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Compiler/SourceUnit.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -20,6 +21,7 @@
 
 namespace {
 namespace ac = acir::ac;
+namespace compiler = acir::compiler;
 namespace detail = acir::ac::detail;
 using namespace mlir;
 
@@ -96,6 +98,12 @@ protected:
   void begin() {
     package = mlir::ModuleOp::create(loc());
     b.setInsertionPointToEnd(package->getBody());
+    auto registry = compiler::SourceHeaderRegistry::create(
+        &context, {}, [&] { return emitError(loc()); });
+    ASSERT_TRUE(succeeded(registry));
+    auto fifo = registry->lookupBuiltin("fifo_local");
+    ASSERT_TRUE(fifo);
+    b.insert(fifo.declaration->clone());
     op(ac::StructOp::getOperationName(), {}, {},
        {f("sym_name", b.getStringAttr("Output")),
         f("fields", b.getArrayAttr({d({f("name", b.getStringAttr("flag")),
@@ -212,17 +220,16 @@ protected:
   Operation *storage(ac::ModuleOp owner) {
     b.setInsertionPoint(owner.getBody().front().getTerminator());
     auto zero = constant(0), data = constant(0, bits(8));
-    return op(ac::QueueOp::getOperationName(), {zero, zero, zero, data, zero},
-              {bits(1), bits(1), bits(8)},
+    return op(ac::InstanceOp::getOperationName(),
+              {zero, zero, zero, data, zero},
+              {bits(1), bits(1), bits(8), bits(1)},
               {f("instance_name", b.getStringAttr("state")),
-               f("depth", literal(3)),
-               f("ready_policy", b.getStringAttr("local_occupancy")),
-               f("availability_latency", literal(2)),
-               f("head_read_latency", literal(0)),
-               f("empty_flow", b.getBoolAttr(false)),
-               f("read_during_write", b.getStringAttr("old")),
-               f("reset_policy", b.getStringAttr("sync_high_empty")),
-               f("empty_data", b.getStringAttr("zero")),
+               f("callee", FlatSymbolRefAttr::get(
+                               &context,
+                               "pycircuit.__builtins__.fifo_local")),
+               f("parameters", b.getArrayAttr({literal(3), literal(2)})),
+               f("type_arguments",
+                 b.getArrayAttr({TypeAttr::get(data.getType())})),
                f("occurrence", occurrence(owner.getSymName(), 49))});
   }
   void family(uint64_t lanes, bool checked = true, unsigned siblings = 1) {

@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "rule_pair_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_rule_pair_pipeline.rule_pair_pipeline.RulePairPipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "7f6c3744545a246eb2c48ef7b665d45a50fa8d4d5708be34c219bde2fb2fe924",
+      "source/bench.py": "c8f5c990c319fb5857b1918664a819bcc4bf5163307955c0a2afe91c3be6a844",
+      "source/config.json": "82b121d6ac01f49ed85fa0b5b6c5e584a43721ded154c457417dad82d4c37145",
+      "source/driver.cpp": "b7272c2d26b1ba0a1f4d1b6259e0c33bdc513aa3174839cf125fb39498514101",
+      "source/four_state.py": "01a51e90b52732fc4487747e0cde307305571359bce1f3286a9a25654374c506",
+      "source/rtl_tb.sv": "7ee6937f0b482a0f2b6d2490a53dea617ca76b6ccd599d2aae7ecf360e974ea7",
+      "source/rule_pair_pipeline.py": "11398e575d231fc655487826c94921064ad432555692fbe40235db7547e8727e",
+      "build/cpp/generated.json": "e8d77b4f2aea6b3886f03aa7646df12034da26bc3716826c45ffb366ad9954a3",
+      "build/cpp/CMakeLists.txt": "9beab9af5a09d425adb340e78371f24d822aac515f358ff57d365d106ac7a20a",
+      "build/cpp/pycircuit_support.hpp": "08c74e2723981e5e281a80147143180c3bf9c21097f2a7f74616cb7ad80061ab",
+      "build/cpp/pycircuit_system.hpp": "f72204c2f0f40193a48d5fdf9de05290a51e0f4347bf3d35a391c5321d4b7807",
+      "build/cpp/sources/example_rule_pair_pipeline/rule_pair_pipeline.cpp": "8023fd3b4b809eaede15832624d0504d15d4368e48a360797770d177f572ee38",
+      "build/cpp/sources/example_rule_pair_pipeline/rule_pair_pipeline.hpp": "8074ae9a8a01480a02406f86bb0ac19a38837aeb633ee636ed88f4c212fb4c93",
+      "build/cpp/sources/example_rule_pair_pipeline/rule_pair_pipeline.source-map.json": "3d2a6aaa7643cd7db5ee386837bcfb8a742ed9cb6a7045a6df58831750fbbc3e",
+      "build/verilog/generated.json": "f86c16b6b555ae38ecec9962899c65367dec0535f3089e838d44da8db9e5d9ba",
+      "build/verilog/CMakeLists.txt": "5c6e98c726f091113e6238b9ab82b997a61f4cffcb16cf2724e61429de744d90",
+      "build/verilog/design_top.sv": "350836d0a3b799f32fb791a823496228afe617c4fd77ed14a0bd6dbcd1b0c2dd",
+      "build/verilog/sources/example_rule_pair_pipeline/rule_pair_pipeline.source-map.json": "fd1af01fcaf0ff86989312c78f78d30c65472115e5fa11eae10af25b3ea60cc2",
+      "build/verilog/sources/example_rule_pair_pipeline/rule_pair_pipeline.v": "6924a64846e52670a63935559fbbc0ba2678d810b1c4ab9b9d27a480630663b1",
+      "build/rule_pair_pipeline.ac": "f8a00d30eb353371ff0674c2e78cf2e661dd0cecdc0c5859dfd722fe1e215588",
+      "build/units/.rule_pair_pipeline.pycircuit-publication/owner.json": "746286ab745720662b082e7592710cef5beea40a73c4e2c369983e7b0c875585",
+      "build/units/rule_pair_pipeline/rule_pair_pipeline.ac": "0cb71b5bbb3430f07f65e3ec52997b94b5f5259b2b159ccf39b380cde6bddb59",
+      "build/units/rule_pair_pipeline/rule_pair_pipeline.d": "c9e5f567cdb4a13adea8bb18362450276e6894d5ab565319b34eedbeaefa9045",
+      "build/units/rule_pair_pipeline/rule_pair_pipeline.interface.ac": "f2a3edb9d0926daf2a0645d21dd7d10c18fea03ac7d4d5e87581a327bd9ba3b7",
+      "build/units/rule_pair_pipeline/unit.json": "067ec0f60a7271b867986fc1ac99bb3aa6ded72d1b99b7734970eee48d87c4fa",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "5cb4f36adce14156eb721664222837425e1cacac30f70027a909b58da3395e6b"
+    },
+    "execution_sha256": "fad047fd161b3ce89f9fd661165ac3484bd3ab0e7e53db831e288cbe5757f3c6",
+    "work_samples": 531,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "d1183aefa29262eac56dc1c63b49da3ad16bc69b5269f840b800b970162bd630"
+  },
+  "excerpts": [
+    {
+      "path": "rule_pair_pipeline.ac",
+      "line": 10,
+      "sha256": "f8a00d30eb353371ff0674c2e78cf2e661dd0cecdc0c5859dfd722fe1e215588"
+    },
+    {
+      "path": "cpp/sources/example_rule_pair_pipeline/rule_pair_pipeline.hpp",
+      "line": 184,
+      "sha256": "8074ae9a8a01480a02406f86bb0ac19a38837aeb633ee636ed88f4c212fb4c93"
+    },
+    {
+      "path": "verilog/sources/example_rule_pair_pipeline/rule_pair_pipeline.v",
+      "line": 1,
+      "sha256": "6924a64846e52670a63935559fbbc0ba2678d810b1c4ab9b9d27a480630663b1"
+    }
+  ]
+}

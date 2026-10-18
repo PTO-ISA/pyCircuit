@@ -18,9 +18,12 @@ using LexicalInstanceId = uint64_t;
 using InvocationFrameId = uint64_t;
 using BoundValueId = uint64_t;
 using StateOwnerId = uint64_t;
+using QueueOwnerId = uint64_t;
+using QueueAccessId = uint64_t;
 using StateVersionId = uint64_t;
 using StateReadId = uint64_t;
 using StateWriteId = uint64_t;
+using FormalWriteId = uint64_t;
 using GuardBoundaryId = uint64_t;
 using AdmissionControlId = uint64_t;
 using SelectionBoundaryId = uint64_t;
@@ -97,12 +100,18 @@ struct InvocationFrame {
   std::optional<InvocationFrameId> parent;
   SourceMethodCallOp call;
   SourceMethodOp method;
+  /// Strict transparent registration wrapper's entry locator. It creates no
+  /// child invocation: method executes as root frame zero.
+  SourceMethodCallOp registrationEntry;
   mlir::DictionaryAttr callOccurrence;
   mlir::DictionaryAttr receiver;
   LexicalInstanceId anchor = 0;
   HardwareBindings bindings;
   llvm::SmallVector<TransactionValueBinding> guardArguments;
   llvm::SmallVector<TransactionValueBinding> bodyArguments;
+  /// Invocation-specific physical bindings, in explicit formal order. A null
+  /// entry is an ordinary by-value parameter, including saved state snapshots.
+  llvm::SmallVector<std::optional<StateOwnerId>, 0> formalOwners;
   GuardBoundaryId guard = 0;
   TransactionPoint entry, exit;
 };
@@ -142,6 +151,42 @@ struct TransactionStateOwner {
   BoundValueId oldQ = 0;
 };
 
+/// Queue identity is the actual allocation in one lexical receiver. Data and
+/// valid read the committed head; ready is the original raw capacity wire,
+/// including its specified downstream-pop dependency. No speculative dequeue
+/// or per-call FIFO state is represented here. Raw bindings remain
+/// raw SSA values so effective-transfer four-state semantics are preserved.
+struct TransactionQueueOwner {
+  LexicalInstanceId anchor = 0;
+  mlir::ArrayAttr instancePath;
+  InstanceOp allocation;
+  mlir::DictionaryAttr occurrence;
+  mlir::Type payloadType;
+  mlir::Attribute payloadConstraint;
+  TransactionDomain domain;
+  ResolvedQueueConfig config{};
+  bool unboundPush = false, unboundPop = false;
+  BoundValueId data = 0, valid = 0, ready = 0, localCapacity = 0;
+  BoundValueId inValid = 0, inData = 0, outReady = 0;
+};
+
+enum class TransactionQueueAccessKind { Pop, Peek, Push };
+
+/// Ordered demand/proposal in an existing invocation. Pop and peek read the
+/// owner's committed head. A push retains its statement-time payload. Neither
+/// record creates an admission prefix, arbitration priority or firing signal.
+struct TransactionQueueAccess {
+  mlir::Operation *operation = nullptr;
+  InvocationFrameId frame = 0;
+  QueueOwnerId owner = 0;
+  TransactionQueueAccessKind kind = TransactionQueueAccessKind::Peek;
+  BoundValueId authoredPath = 0;
+  mlir::BoolAttr pathFact;
+  std::optional<BoundValueId> payload, result;
+  TransactionPoint point;
+  mlir::DictionaryAttr occurrence, location;
+};
+
 enum class StateVersionKind { OldQ, Write, Join };
 
 /// Each owner's ordinal zero is its Q0 version, with no predecessor/write and
@@ -178,16 +223,42 @@ struct StateReadBinding {
 
 /// Identity writes are still intents with a distinct successor version.
 struct StateWriteIntent {
-  SourceStateWriteOp operation;
+  /// Actual state write or owner-bound formal marker; both advance the same
+  /// physical candidate chain and share its single final commit.
+  mlir::Operation *operation = nullptr;
   InvocationFrameId frame = 0;
   StateOwnerId owner = 0;
   StateVersionId predecessor = 0;
   StateVersionId version = 0;
   BoundValueId value = 0;
   BoundValueId authoredPath = 0;
+  mlir::BoolAttr pathFact;
   mlir::ArrayAttr selectors;
   llvm::SmallVector<BoundValueId> indices;
   mlir::DictionaryAttr occurrence;
+  /// Statement RHS for a selected write; value remains a whole candidate for
+  /// owner-bound formal markers. Forwarded proposal markers inherit callee
+  /// primitive domains instead of declaring a fresh whole-owner footprint.
+  std::optional<BoundValueId> selectedPayload;
+  bool forwardedProposal = false;
+};
+
+/// Original statement-time proposal and static invocation mode. Payload keeps
+/// the exact assignment RHS even when candidate reconstructs a whole aggregate.
+/// A forwarded snapshot denotes candidate only when bound to a physical owner;
+/// in by-value mode it denotes previous without rewriting ordinary SSA.
+struct TransactionFormalWrite {
+  SourceFormalWriteOp operation;
+  InvocationFrameId frame = 0;
+  uint64_t formal = 0;
+  BoundValueId payload = 0, authoredPath = 0, candidate = 0;
+  std::optional<BoundValueId> previous, snapshot;
+  std::optional<StateOwnerId> owner;
+  std::optional<StateWriteId> write;
+  TransactionPoint point;
+  mlir::DictionaryAttr occurrence, location;
+  mlir::ArrayAttr selectors;
+  llvm::SmallVector<BoundValueId> indices;
 };
 
 struct OwnerVersionBinding {
@@ -312,8 +383,10 @@ enum class TransactionStateEventKind {
   SelectionEnter,
   SelectionExit,
   Write,
+  FormalWrite,
   BodyCheck,
   Observe,
+  QueueAccess,
   CallEnter,
   CallExit,
   BranchEnter,
@@ -338,12 +411,14 @@ struct TransactionStateEvent {
   InvocationFrameId frame = 0;
   std::optional<StateReadId> read;
   std::optional<StateWriteId> write;
+  std::optional<FormalWriteId> formalWrite;
   std::optional<GuardBoundaryId> guard;
   std::optional<CallBindingId> call;
   TransactionPoint point;
   std::optional<SelectionBoundaryId> selection;
   std::optional<BodyCheckId> bodyCheck;
   std::optional<ObservationId> observation;
+  std::optional<QueueAccessId> queueAccess;
   std::optional<BranchId> branch;
   std::optional<StateJoinId> join;
   std::optional<BranchResultId> branchResult;
@@ -358,15 +433,20 @@ struct TransactionStatePlan {
   SourceTransactionOp transaction;
   ModuleOp lexicalModule;
   TransactionDomain domain;
+  /// Ancestor outer registrations in dependency order; no sibling/tie-break visibility.
+  llvm::SmallVector<SourceTransactionOp, 0> predecessors;
   InvocationFrameId rootFrame = 0;
   GuardBoundaryId guard = 0;
   llvm::SmallVector<TransactionLexicalInstance, 0> instances;
   llvm::SmallVector<InvocationFrame, 0> frames;
   llvm::SmallVector<BoundValueRef, 0> values;
   llvm::SmallVector<TransactionStateOwner, 0> owners;
+  llvm::SmallVector<TransactionQueueOwner, 0> queueOwners;
+  llvm::SmallVector<TransactionQueueAccess, 0> queueAccesses;
   llvm::SmallVector<StateVersion, 0> versions;
   llvm::SmallVector<StateReadBinding, 0> reads;
   llvm::SmallVector<StateWriteIntent, 0> writes;
+  llvm::SmallVector<TransactionFormalWrite, 0> formalWrites;
   llvm::SmallVector<GuardBoundary, 0> guards;
   llvm::SmallVector<AdmissionControl, 0> controls;
   llvm::SmallVector<SelectionBoundary, 0> selections;
@@ -396,13 +476,17 @@ public:
   bool isValid() const { return valid; }
   const TransactionStatePlan *lookup(SourceTransactionOp transaction) const;
 
-  /// Print previously charged plan records with stable source/frame/value
-  /// identities, without pointer addresses, resolution or renewed proof work.
+  /// Print stable source/frame/value identities without pointer addresses or
+  /// renewed semantic proof. Dump admission independently preflights every plan
+  /// before writing output, retaining construction work against the same bound.
+  /// A valid semantic analysis can therefore reject an oversized dump without
+  /// output; successful lookups remain available.
   mlir::LogicalResult print(llvm::raw_ostream &output) const;
 
 private:
   llvm::DenseMap<mlir::Operation *, TransactionStatePlan> plans;
   llvm::SmallVector<mlir::Operation *> transactionOrder;
+  uint64_t analysisWork = 0;
   bool valid = false;
 };
 

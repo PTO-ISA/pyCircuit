@@ -575,6 +575,11 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
     if (failed(port("output", type,
                     cast<StringAttr>(root.getOutputNames()[i]).getValue())))
       return failure();
+  for (int64_t companion : layout->outputValidity)
+    if (companion >= 0 &&
+        failed(port("output", signature.getResult(companion),
+                    cast<StringAttr>(root.getOutputNames()[companion]).getValue())))
+      return failure();
   if (context.managesChecks()) {
     out << (first ? "\n" : ",\n")
         << "  input wire [2:0] pyc_phase,\n"
@@ -613,7 +618,10 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
                                                    *bindings, root);
       if (failed(width))
         return failure();
-      expression = std::to_string(*width) + "'d0";
+      auto initial = cast<IntegerAttr>(
+          layout->rootInputDefaults[index - layout->sourceInputCount]);
+      expression = std::to_string(*width) + "'d" +
+                   std::to_string(initial.getInt());
     }
     if (failed(connection(name, expression)))
       return failure();
@@ -621,7 +629,8 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
   for (auto [index, raw] : llvm::enumerate(root.getOutputNames())) {
     StringRef name = cast<StringAttr>(raw).getValue();
     std::string expression;
-    if (index < layout->sourceOutputCount) {
+    if (index < layout->sourceOutputCount ||
+        llvm::is_contained(layout->outputValidity, static_cast<int64_t>(index))) {
       auto id = legalizeIdentifier(name, [&] { return root.emitOpError(); });
       if (failed(id))
         return failure();
@@ -656,23 +665,43 @@ emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
     return failure();
   if (failed(analysis.verifySourceCheckPlan(context.sourceChecks())))
     return failure();
+  auto root = rootModule(context);
+  if (failed(root))
+    return failure();
+  llvm::DenseSet<Operation *> reachable;
+  SmallVector<ac::ModuleOp> pending{*root};
+  while (!pending.empty()) {
+    auto definition = pending.pop_back_val();
+    if (!reachable.insert(definition).second)
+      continue;
+    for (Operation &operation : definition.getBody().front()) {
+      Operation *callee = nullptr;
+      if (auto instance = dyn_cast<ac::InstanceOp>(operation))
+        callee = analysis.resolveCallee(instance);
+      else if (auto collection = dyn_cast<ac::CollectionOp>(operation))
+        callee = analysis.resolveCallee(collection);
+      if (auto child = dyn_cast_or_null<ac::ModuleOp>(callee))
+        pending.push_back(child);
+    }
+  }
   auto unsupported = package.walk([&](Operation *op) {
-    if ((!isa<ac::SourceObserveOp>(op) || system) &&
-        (!isa<ac::SourceExpectOp>(op) || context.managesChecks()))
+    // Reachable assertions already belong to the verified source-check plan;
+    // an assertion in an unselected definition does not add a root lifecycle.
+    if (!isa<ac::SourceObserveOp>(op) || system ||
+        !reachable.contains(op->getParentOfType<ac::ModuleOp>()))
       return WalkResult::advance();
     op->emitOpError() << "hardware instrumentation emission is not implemented";
     return WalkResult::interrupt();
   });
   if (unsupported.wasInterrupted())
     return failure();
-  auto root = rootModule(context);
-  if (failed(root))
-    return failure();
   FinalVerilogSourceParts parts;
   parts.sourceCheckCount = context.sourceChecks().checks.size();
   parts.rootRtlName = "pyc_root";
   llvm::StringSet<> standard;
-  package.walk([&](ac::QueueOp) {
+  package.walk([&](ac::InstanceOp instance) {
+    if (!ac::isQueueInstance(instance))
+      return;
     const std::string path = "include/verilog/fifo.v";
     if (standard.insert(path).second)
       parts.standardSources.push_back(path);
@@ -682,6 +711,8 @@ emitVerilogSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
     if (kind.empty())
       return imported.emitOpError()
              << "unresolved module import in RTL emitter";
+    if (kind == "fifo_local" || kind == "fifo_downstream_pop")
+      continue;
     std::string path = "include/verilog/" + kind.str() + ".v";
     if (standard.insert(path).second)
       parts.standardSources.push_back(path);

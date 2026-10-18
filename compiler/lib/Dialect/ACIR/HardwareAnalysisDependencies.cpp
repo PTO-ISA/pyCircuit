@@ -340,12 +340,21 @@ struct Engine {
                      endpoint.path});
       return out;
     }
-    if (auto queue = dyn_cast<QueueOp>(op)) {
+    if (auto queue = dyn_cast<InstanceOp>(op); queue && isQueueInstance(queue)) {
       if (failed(analysis.verifyQueueOperation(queue, bindings)))
         return failure();
-      if (value == queue.getInReady() &&
-          queue.getReadyPolicy() == "downstream_pop")
-        out.push_back({queue.getOutReady(), {}});
+      // Committed capacity is a state read even for downstream-pop queues.
+      // Only physical ready follows the current accepted pop request. The
+      // outer walk still checks every Queue input for genuine cycles.
+      if (value == queue.getOutputs()[3])
+        return out;
+      auto config = getQueueConfiguration(queue);
+      if (failed(config))
+        return failure();
+      if (value == queue.getOutputs()[0] &&
+          config->getAs<StringAttr>("ready_policy").getValue() ==
+              "downstream_pop")
+        out.push_back({queue.getInputs()[4], {}});
       return out;
     }
     if (isa<InstanceOp, CollectionOp>(op)) {
@@ -445,6 +454,11 @@ struct Engine {
     }
     if (auto fold = dyn_cast<TableFoldOp>(op)) {
       out.push_back({fold.getInput(), {}});
+      return out;
+    }
+    if (auto require = dyn_cast<ValueRequireOp>(op)) {
+      out.push_back({require.getAvailability(), {}});
+      out.push_back({require.getPath(), {}});
       return out;
     }
     if (!isa<BitsUnaryOp, BitsBinaryOp, BitsCompareOp, BitsSelectOp,
@@ -731,20 +745,6 @@ struct Engine {
         for (auto path : *leaves)
           if (failed(visit({value, path})))
             return failure();
-      }
-      if (auto queue = dyn_cast<QueueOp>(op)) {
-        if (failed(analysis.verifyQueueOperation(queue, bindings)))
-          return failure();
-        for (Value input : queue->getOperands()) {
-          auto leaves = paths(input.getType(), bindings, queue);
-          if (failed(leaves))
-            return failure();
-          for (auto path : *leaves)
-            if (failed(visit({input, path})))
-              return failure();
-        }
-        if (!validationOnly)
-          result.storageWork.push_back(&op);
       }
       if (isa<InstanceOp, CollectionOp>(op)) {
         Operation *instance = &op;

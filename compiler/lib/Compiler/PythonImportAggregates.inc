@@ -131,7 +131,7 @@ Importer::enumFromBits(const AstNode &call, OpBuilder &at,
     return error() << "enum_from_bits requires authoritative fixed bits";
   auto operation = createOp(at, call.location(b.getContext(), source.path),
                             ac::EnumFromBitsOp::getOperationName(), {*input},
-                            TypeRange{type, bits(1, call, symbol)}, {});
+                            TypeRange{type, internalBits(1, call, symbol)}, {});
   ac::HardwareAnalysis analysis(*body);
   ac::HardwareBindings bindings;
   bindings.owner = operation->getParentOfType<ac::ModuleOp>();
@@ -180,6 +180,21 @@ ac::StaticExprAttr Importer::literal(uint64_t value, const AstNode &node,
 Type Importer::bits(unsigned width, const AstNode &node,
                     FlatSymbolRefAttr symbol) {
   return ac::BitsType::get(b.getContext(), literal(width, node, symbol));
+}
+Type Importer::internalBits(unsigned width, const AstNode &node,
+                            FlatSymbolRefAttr symbol) {
+  // Generated control widths share one proof origin per lexical Module. Keep
+  // the operation/value occurrence at its actual source site and leave all
+  // authored boundary types unchanged.
+  if (activeSourceEffects && activeSourceEffects->module &&
+      activeSourceEffects->module->symbol == symbol)
+    return bits(width, activeSourceEffects->module->node, symbol);
+  if (activeBehavioralDecl && activeBehavioralDecl->symbol == symbol)
+    return bits(width, activeBehavioralDecl->node, symbol);
+  for (const ModuleDecl &module : modules)
+    if (module.symbol == symbol)
+      return bits(width, module.node, symbol);
+  return bits(width, node, symbol);
 }
 bool Importer::concatCall(const AstNode &node) const {
   if (node.kind() != "Call")
@@ -727,6 +742,39 @@ LogicalResult Importer::scanStructs() {
   }
   return success();
 }
+FailureOr<Value> Importer::inactiveCarrier(Type type, const AstNode &node,
+                                           OpBuilder &at,
+                                           FlatSymbolRefAttr symbol) {
+  // An inactive compiler carrier is not an authored initializer. It needs a
+  // legal finite representation even when a nominal Enum has no zero member.
+  auto loc = node.location(b.getContext(), source.path);
+  if (isa<ac::BitsType>(type)) return constant(type, 0, node, at, symbol);
+  ac::HardwareAnalysis analysis(*body);
+  if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
+    auto definition = analysis.resolveEnum(enumeration, body->getOperation());
+    if (failed(definition) || definition->members.empty()) return failure();
+    return createOp(at, loc, ac::EnumCreateOp::getOperationName(), {}, {type},
+                    {at.getNamedAttr("member", definition->members.front().name)})
+        ->getResult(0);
+  }
+  if (auto table = dyn_cast<ac::TableType>(type)) {
+    auto element = inactiveCarrier(table.getElementType(), node, at, symbol);
+    if (failed(element)) return failure();
+    return createOp(at, loc, ac::TableSplatOp::getOperationName(), {*element}, {type},
+                    {at.getNamedAttr("shape", table.getShape())})->getResult(0);
+  }
+  auto record = dyn_cast<ac::StructType>(type);
+  auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
+  if (!declaration) return error() << "inactive carrier requires a finite hardware type";
+  SmallVector<Value> fields;
+  for (Attribute raw : declaration.getFields()) {
+    auto field = cast<DictionaryAttr>(raw);
+    auto value = inactiveCarrier(field.getAs<TypeAttr>("type").getValue(), node, at, symbol);
+    if (failed(value)) return failure();
+    fields.push_back(*value);
+  }
+  return createOp(at, loc, ac::StructCreateOp::getOperationName(), fields, {type}, {})->getResult(0);
+}
 FailureOr<Value> Importer::constant(Type type, unsigned value,
                                     const AstNode &node, OpBuilder &at,
                                     FlatSymbolRefAttr symbol) {
@@ -802,7 +850,7 @@ FailureOr<Value> Importer::select(Value guard, Value yes, Value no,
                              {guard, *a, *c}, TypeRange{a->getType()}, {})
                         ->getResult(0);
     return createOp(at, loc, ac::EnumFromBitsOp::getOperationName(), {selected},
-                    TypeRange{yes.getType(), bits(1, node, symbol)}, {})
+                    TypeRange{yes.getType(), internalBits(1, node, symbol)}, {})
         ->getResult(0);
   }
   if (isa<ac::BitsType>(yes.getType())) {
@@ -979,7 +1027,7 @@ FailureOr<Value> Importer::tableUpdate(Value table, Value index,
   }
   auto equal =
       createOp(nested, loc, ac::BitsCompareOp::getOperationName(),
-               {ordinal, idx}, TypeRange{bits(1, node, symbol)},
+               {ordinal, idx}, TypeRange{internalBits(1, node, symbol)},
                {nested.getNamedAttr("predicate", nested.getStringAttr("eq"))})
           ->getResult(0);
   Value value;

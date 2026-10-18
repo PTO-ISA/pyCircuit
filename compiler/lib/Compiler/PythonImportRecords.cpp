@@ -1,5 +1,7 @@
 #include "PythonImportRecords.h"
+#include "LiteralPayloadWires.h"
 #include "Dialect/ACIR/ACIRSourceContracts.h"
+#include "Dialect/ACIR/HardwareGrantProof.h"
 #include "SourceDeclarationContext.h"
 #include "SourceRuleWrites.h"
 
@@ -18,9 +20,12 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Transforms/SourceControlFlow.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/Arith/IR/Arith.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -50,7 +55,7 @@ struct Port {
   std::optional<ac::detail::ValueKind> sourceKind;
   bool fixedBits = false;
 };
-enum class ReturnShape { Mapping, Struct };
+enum class ReturnShape { Mapping, Struct, Tuple, None };
 struct ModuleDecl {
   AstNode node;
   FlatSymbolRefAttr symbol;
@@ -85,12 +90,22 @@ struct SourceCallableDecl {
   SmallVector<Port> inputs;
   SmallVector<Type> results;
   SmallVector<Port> resultContracts;
+  ReturnShape returnShape = ReturnShape::Struct;
+  llvm::StringMap<std::string> stateFormals;
+  llvm::StringSet<> assignedFormals;
   FunctionType type;
+  bool inferredSignature = false;
+  bool inferResults = false;
+  bool lexical = true;
+  bool privateSpecialization = false;
+  SmallVector<Value> actualFacts;
+  SmallVector<DictionaryAttr> specializationAncestry;
 };
 struct CallableDecl {
   FlatSymbolRefAttr symbol;
   SmallVector<Port> inputs;
-  Port result;
+  SmallVector<Port> results;
+  ReturnShape returnShape = ReturnShape::Struct;
   bool needsDomain = false;
 };
 struct StateOwner {
@@ -121,6 +136,8 @@ struct Instance {
   SmallVector<Port> inputs, outputs;
   Operation *op = nullptr;
   bool bound = false;
+  bool valueHandle = false;
+  ReturnShape returnShape = ReturnShape::Mapping;
   std::optional<unsigned> clockInput, resetInput;
 };
 struct SourceEffectContext {
@@ -131,6 +148,7 @@ struct SourceEffectContext {
   llvm::StringMap<SourceCallableDecl> *methods = nullptr;
   bool guard = false;
   bool pureExpression = false;
+  std::function<FailureOr<std::string>(StringRef, const SourceCallableDecl &)> *specialize = nullptr;
 };
 struct SliceShape {
   Type type;
@@ -151,9 +169,29 @@ struct ForwardCallBinding {
 };
 enum class IntegerBoundaryMode { Inferred, Representation, Range };
 struct BindingBoundary {
-  Port contract;
+  // Fresh boundaries own their descriptor. Environment-copy reservation moves
+  // it into immutable shared storage once, before copying the branch maps.
+  mutable std::variant<Port, std::shared_ptr<const Port>> descriptor = Port{};
   bool declared = false;
   IntegerBoundaryMode integerMode = IntegerBoundaryMode::Range;
+  BindingBoundary() = default;
+  BindingBoundary(Port contract, bool declared = false,
+                  IntegerBoundaryMode mode = IntegerBoundaryMode::Range)
+      : descriptor(std::move(contract)), declared(declared), integerMode(mode) {}
+  const Port &contract() const {
+    if (auto *owned = std::get_if<Port>(&descriptor)) return *owned;
+    return *std::get<std::shared_ptr<const Port>>(descriptor);
+  }
+  bool sharedContract() const {
+    return std::holds_alternative<std::shared_ptr<const Port>>(descriptor);
+  }
+  void shareContract() const {
+    if (auto *owned = std::get_if<Port>(&descriptor))
+      descriptor = std::make_shared<const Port>(std::move(*owned));
+  }
+  // Only immediate construction sites rename a fresh descriptor. No branch
+  // can mutate a declaration inherited through shared storage.
+  Port &unsharedContract() { return std::get<Port>(descriptor); }
 };
 struct BoundRuleFormal {
   std::string name;
@@ -337,483 +375,7 @@ OwningOpRef<ModuleOp> unit(MLIRContext *ctx, Location loc, DictionaryAttr owner,
   return result;
 }
 
-// Admission-only analysis: it never rewrites the four-state enable graph.
-class OwnerEnableProof {
-public:
-  explicit OwnerEnableProof(ModuleOp body, uint64_t spent)
-      : analysis(body), work(spent) {}
-  FailureOr<bool> disjoint(Value first, Value second) {
-    if (!charge())
-      return failure();
-    auto left = required(first, true, 0);
-    auto right = required(second, true, 0);
-    auto together = conjunction(left, right);
-    if (together.kind == Result::Failure)
-      return failure();
-    return together.kind == Result::Impossible;
-  }
-  FailureOr<bool> disjointAtAddress(Value first, Value second, Value firstIndex,
-                                    Value secondIndex) {
-    auto left = canonical(firstIndex, 0), right = canonical(secondIndex, 0);
-    if (failed(left) || failed(right))
-      return failure();
-    auto leftConstant = constant(*left, 0), rightConstant = constant(*right, 0);
-    auto leftWidth = width(*left), rightWidth = width(*right);
-    if (failed(leftConstant) || failed(rightConstant) || failed(leftWidth) ||
-        failed(rightWidth))
-      return failure();
-    if (!*leftWidth || !*rightWidth) {
-      fail("address proof requires typed Bits indices");
-      return failure();
-    }
-    if (*leftConstant && *rightConstant)
-      return !equalConstants(**leftConstant, **rightConstant);
-    // No widening equivalence is inferred for two dynamic physical indices.
-    if (!*leftConstant && !*rightConstant && **leftWidth != **rightWidth)
-      return false;
-    collision = {*left, *right};
-    auto result = disjoint(first, second);
-    collision = {};
-    return result;
-  }
-  bool chargeProduct(uint64_t first, uint64_t second) {
-    if (first && second > 1048576 / first)
-      return charge(1048577);
-    return charge(first * second);
-  }
-  StringRef failureReason() const { return reason; }
-  bool charge(uint64_t amount = 1) {
-    if (!reason.empty())
-      return false;
-    if (work > 1048576 || amount > 1048576 - work) {
-      reason = "owner-enable proof work budget exhausted";
-      return false;
-    }
-    work += amount;
-    return true;
-  }
-
-private:
-  struct Fact {
-    Value value;
-    bool polarity;
-    // Null constant is a canonical SSA truth fact. Otherwise this is an
-    // equality/disequality with an exact, fully known typed bit pattern.
-    Attribute constant;
-    uint64_t width = 0;
-  };
-  struct Result {
-    enum Kind { Facts, Impossible, Failure } kind = Facts;
-    SmallVector<Fact> facts;
-  };
-  Result fail(StringRef message) {
-    if (reason.empty())
-      reason = message.str();
-    return {Result::Failure, {}};
-  }
-  bool scanConstantAttribute(Attribute attr, unsigned depth = 0) {
-    if (depth >= 128) {
-      reason = "owner-enable proof recursion budget exhausted";
-      return false;
-    }
-    if (!charge())
-      return false;
-    if (auto integer = dyn_cast<ac::MathIntAttr>(attr))
-      return charge(integer.getCanonicalValue().size());
-    if (auto expression = dyn_cast<ac::StaticExprAttr>(attr))
-      return scanConstantAttribute(expression.getTree(), depth + 1);
-    if (auto dictionary = dyn_cast<DictionaryAttr>(attr)) {
-      for (auto field : dictionary)
-        if (!scanConstantAttribute(field.getValue(), depth + 1))
-          return false;
-    } else if (auto array = dyn_cast<ArrayAttr>(attr)) {
-      for (auto element : array)
-        if (!scanConstantAttribute(element, depth + 1))
-          return false;
-    }
-    return true;
-  }
-  FailureOr<std::optional<llvm::APSInt>> integer(ac::StaticExprAttr expr,
-                                                 Operation *site) {
-    if (!scanConstantAttribute(expr))
-      return failure();
-    if (!analysis.isStaticEvaluable(expr, {}))
-      return std::optional<llvm::APSInt>();
-    auto result = analysis.evaluateStatic(expr, {}, site);
-    if (failed(result))
-      return failure();
-    auto value = dyn_cast<ac::MathIntAttr>(*result);
-    if (!value)
-      return std::optional<llvm::APSInt>();
-    return std::optional<llvm::APSInt>(llvm::APSInt(value.getCanonicalValue()));
-  }
-  FailureOr<std::optional<uint64_t>> width(Value value) {
-    auto type = dyn_cast<ac::BitsType>(value.getType());
-    if (!type)
-      return std::optional<uint64_t>();
-    auto result = integer(type.getWidth(), value.getDefiningOp());
-    if (failed(result))
-      return failure();
-    if (!*result || (**result).isNegative() || (**result).isZero() ||
-        (**result).getActiveBits() > 64)
-      return std::optional<uint64_t>();
-    return std::optional<uint64_t>((**result).getZExtValue());
-  }
-  FailureOr<Value> canonical(Value value, unsigned depth) {
-    if (!charge())
-      return failure();
-    if (depth >= 128) {
-      fail("owner-enable proof recursion budget exhausted");
-      return failure();
-    }
-    auto cached = normalized.find(value);
-    if (cached != normalized.end())
-      return cached->second;
-    if (!normalizing.insert(value).second) {
-      fail("cycle in owner-enable proof normalization");
-      return failure();
-    }
-    Value next;
-    if (auto result = dyn_cast<OpResult>(value)) {
-      if (auto rule = dyn_cast<ac::RuleOp>(result.getOwner())) {
-        if (!rule->getRegion(0).hasOneBlock() ||
-            rule->getRegion(0).front().empty()) {
-          fail("missing owner-enable rule yield endpoint");
-          return failure();
-        }
-        auto yield = dyn_cast<ac::YieldOp>(rule->getRegion(0).front().back());
-        if (!yield || result.getResultNumber() >= yield->getNumOperands()) {
-          fail("missing owner-enable rule yield endpoint");
-          return failure();
-        }
-        next = yield->getOperand(result.getResultNumber());
-      }
-    } else if (auto argument = dyn_cast<BlockArgument>(value)) {
-      auto rule =
-          dyn_cast_or_null<ac::RuleOp>(argument.getOwner()->getParentOp());
-      if (rule) {
-        if (argument.getArgNumber() >= rule->getNumOperands()) {
-          fail("missing owner-enable actual capture endpoint");
-          return failure();
-        }
-        next = rule->getOperand(argument.getArgNumber());
-      }
-    }
-    if (auto extract = value.getDefiningOp<ac::BitsExtractOp>()) {
-      auto low = integer(extract.getLow(), extract);
-      auto from = width(extract.getInput()), to = width(value);
-      if (failed(low) || failed(from) || failed(to))
-        return failure();
-      if (*low && (**low).isZero() && *from && *to && **from == **to)
-        next = extract.getInput();
-    } else if (auto resize = value.getDefiningOp<ac::BitsResizeOp>()) {
-      auto from = width(resize.getInput()), to = width(value);
-      if (failed(from) || failed(to))
-        return failure();
-      if (*from && *to && **from == **to)
-        next = resize.getInput();
-    }
-    if (next) {
-      auto resolved = canonical(next, depth + 1);
-      if (failed(resolved))
-        return failure();
-      next = *resolved;
-    } else
-      next = value;
-    normalizing.erase(value);
-    normalized.try_emplace(value, next);
-    return next;
-  }
-  struct Constant {
-    Attribute value;
-    uint64_t width;
-  };
-  FailureOr<std::optional<Constant>> constant(Value value, unsigned depth) {
-    auto resolved = canonical(value, depth);
-    if (failed(resolved))
-      return failure();
-    auto op = resolved->getDefiningOp<ac::BitsConstantOp>();
-    if (!op)
-      return std::optional<Constant>();
-    auto count = width(*resolved);
-    auto code = integer(op.getValue(), op);
-    if (failed(count) || failed(code))
-      return failure();
-    if (!*count || !*code || (**code).isNegative() ||
-        (**code).getActiveBits() > **count)
-      return std::optional<Constant>();
-    // Charge the entire padded pattern before allocating it.
-    if (!charge(**count / 64 + (**count % 64 != 0)) ||
-        **count > std::numeric_limits<unsigned>::max())
-      return failure();
-    llvm::APSInt pattern((**code).zextOrTrunc(**count), true);
-    return std::optional<Constant>(
-        Constant{ac::MathIntAttr::get(value.getContext(), pattern), **count});
-  }
-  bool equalConstants(const Constant &a, const Constant &c) {
-    // Fully known patterns compare as mathematical unsigned values, allowing
-    // lossless padding while never truncating an unknown or a high bit.
-    return llvm::APSInt::compareValues(
-               llvm::APSInt(cast<ac::MathIntAttr>(a.value).getCanonicalValue()),
-               llvm::APSInt(
-                   cast<ac::MathIntAttr>(c.value).getCanonicalValue())) == 0;
-  }
-  FailureOr<bool> sameAddress(Value value, Value endpoint, unsigned depth) {
-    auto resolved = canonical(value, depth);
-    if (failed(resolved))
-      return failure();
-    if (*resolved == endpoint)
-      return true;
-    auto a = constant(*resolved, depth), c = constant(endpoint, depth);
-    if (failed(a) || failed(c))
-      return failure();
-    return *a && *c && equalConstants(**a, **c);
-  }
-  FailureOr<bool> collisionComparison(ac::BitsCompareOp compare,
-                                      unsigned depth) {
-    if (!collision.first)
-      return false;
-    auto a = sameAddress(compare.getLhs(), collision.first, depth);
-    auto c = sameAddress(compare.getRhs(), collision.second, depth);
-    if (failed(a) || failed(c))
-      return failure();
-    if (*a && *c)
-      return true;
-    a = sameAddress(compare.getLhs(), collision.second, depth);
-    c = sameAddress(compare.getRhs(), collision.first, depth);
-    if (failed(a) || failed(c))
-      return failure();
-    return *a && *c;
-  }
-  bool same(const Fact &a, const Fact &c) {
-    return a.value == c.value && a.polarity == c.polarity &&
-           a.constant == c.constant && a.width == c.width;
-  }
-  bool contradictory(const Fact &a, const Fact &c) {
-    if (a.value != c.value)
-      return false;
-    if (!a.constant || !c.constant)
-      return !a.constant && !c.constant && a.polarity != c.polarity;
-    if (a.width != c.width)
-      return false;
-    if (a.constant == c.constant)
-      return a.polarity != c.polarity;
-    return a.polarity && c.polarity;
-  }
-  Result append(Result result, const Fact &fact) {
-    if (result.kind != Result::Facts)
-      return result;
-    for (const auto &prior : result.facts) {
-      if (!charge())
-        return {Result::Failure, {}};
-      if (same(prior, fact))
-        return result;
-      if (contradictory(prior, fact))
-        return {Result::Impossible, {}};
-    }
-    if (!charge())
-      return {Result::Failure, {}};
-    if (result.facts.size() == 256)
-      return fail("owner-enable proof fact budget exhausted");
-    result.facts.push_back(fact);
-    return result;
-  }
-  Result conjunction(const Result &a, const Result &c) {
-    if (!charge())
-      return {Result::Failure, {}};
-    if (a.kind == Result::Failure || c.kind == Result::Failure)
-      return {Result::Failure, {}};
-    if (a.kind == Result::Impossible || c.kind == Result::Impossible)
-      return {Result::Impossible, {}};
-    if (!charge(a.facts.size()))
-      return {Result::Failure, {}};
-    Result result = a;
-    for (const auto &fact : c.facts) {
-      result = append(std::move(result), fact);
-      if (result.kind != Result::Facts)
-        return result;
-    }
-    return result;
-  }
-  Result alternatives(const Result &a, const Result &c) {
-    if (!charge())
-      return {Result::Failure, {}};
-    if (a.kind == Result::Failure || c.kind == Result::Failure)
-      return {Result::Failure, {}};
-    if (a.kind == Result::Impossible) {
-      if (!charge(c.facts.size()))
-        return {Result::Failure, {}};
-      return c;
-    }
-    if (c.kind == Result::Impossible) {
-      if (!charge(a.facts.size()))
-        return {Result::Failure, {}};
-      return a;
-    }
-    Result result;
-    for (const auto &left : a.facts)
-      for (const auto &right : c.facts) {
-        if (!charge())
-          return {Result::Failure, {}};
-        if (same(left, right)) {
-          if (!charge())
-            return {Result::Failure, {}};
-          result.facts.push_back(left);
-          break;
-        }
-      }
-    return result;
-  }
-  Result required(Value original, bool polarity, unsigned depth) {
-    if (!charge())
-      return {Result::Failure, {}};
-    if (depth >= 128)
-      return fail("owner-enable proof recursion budget exhausted");
-    auto resolved = canonical(original, depth);
-    if (failed(resolved))
-      return fail("owner-enable proof normalization failed");
-    Value value = *resolved;
-    auto key =
-        std::make_pair(collision, std::make_pair(value, unsigned(polarity)));
-    auto found = cache.find(key);
-    if (found != cache.end()) {
-      if (!charge(found->second.facts.size()))
-        return {Result::Failure, {}};
-      return found->second;
-    }
-    if (!visiting.insert(key).second)
-      return fail("cycle in owner-enable proof queries");
-    if (cache.size() + visiting.size() > 4096)
-      return fail("owner-enable proof query budget exhausted");
-    auto count = width(value);
-    if (failed(count))
-      return fail("owner-enable proof width analysis failed");
-    if (!*count || **count != 1)
-      return fail("owner-enable proof requires one-bit enable");
-    Result result;
-    auto code = constant(value, depth);
-    if (failed(code))
-      return fail("owner-enable proof constant analysis failed");
-    if (*code) {
-      bool truth =
-          !llvm::APSInt(
-               cast<ac::MathIntAttr>((**code).value).getCanonicalValue())
-               .isZero();
-      if (truth != polarity)
-        result.kind = Result::Impossible;
-    } else if (auto unary = value.getDefiningOp<ac::BitsUnaryOp>();
-               unary && unary.getOpcode() == "not") {
-      result = required(unary.getInput(), !polarity, depth + 1);
-    } else if (auto binary = value.getDefiningOp<ac::BitsBinaryOp>();
-               binary &&
-               (binary.getOpcode() == "and" || binary.getOpcode() == "or")) {
-      auto left = required(binary.getLhs(), polarity, depth + 1);
-      auto right = required(binary.getRhs(), polarity, depth + 1);
-      bool both = (binary.getOpcode() == "and") == polarity;
-      result = both ? conjunction(left, right) : alternatives(left, right);
-    } else if (auto select = value.getDefiningOp<ac::BitsSelectOp>()) {
-      auto yes = canonical(select.getTrueValue(), depth + 1);
-      auto no = canonical(select.getFalseValue(), depth + 1);
-      if (failed(yes) || failed(no))
-        return fail("owner-enable proof select analysis failed");
-      if (*yes == *no)
-        result = required(*yes, polarity, depth + 1);
-      else {
-        auto yesConstant = constant(*yes, depth + 1);
-        auto noConstant = constant(*no, depth + 1);
-        if (failed(yesConstant) || failed(noConstant))
-          return fail("owner-enable proof select constant analysis failed");
-        auto truth = [](const Constant &c) {
-          return !llvm::APSInt(
-                      cast<ac::MathIntAttr>(c.value).getCanonicalValue())
-                      .isZero();
-        };
-        if (*yesConstant && *noConstant &&
-            truth(**yesConstant) == truth(**noConstant)) {
-          if (truth(**yesConstant) != polarity)
-            result.kind = Result::Impossible;
-        } else if (*yesConstant && *noConstant) {
-          result = required(select.getCondition(),
-                            truth(**yesConstant) == polarity, depth + 1);
-        } else if (*noConstant) {
-          bool noTruth = truth(**noConstant);
-          auto guard =
-              required(select.getCondition(), polarity != noTruth, depth + 1);
-          auto branch = required(*yes, polarity, depth + 1);
-          result = polarity != noTruth ? conjunction(guard, branch)
-                                       : alternatives(guard, branch);
-        } else if (*yesConstant) {
-          bool yesTruth = truth(**yesConstant);
-          auto guard =
-              required(select.getCondition(), polarity == yesTruth, depth + 1);
-          auto branch = required(*no, polarity, depth + 1);
-          result = polarity != yesTruth ? conjunction(guard, branch)
-                                        : alternatives(guard, branch);
-        } else {
-          auto guardTrue = required(select.getCondition(), true, depth + 1);
-          auto guardFalse = required(select.getCondition(), false, depth + 1);
-          auto yesFacts = required(*yes, polarity, depth + 1);
-          auto noFacts = required(*no, polarity, depth + 1);
-          auto selectedTrue = conjunction(guardTrue, yesFacts);
-          auto selectedFalse = conjunction(guardFalse, noFacts);
-          // An X/Z selector also produces a known result when both arms are
-          // known and equal. Keep this alternative, including its failures.
-          auto common = conjunction(yesFacts, noFacts);
-          result =
-              alternatives(alternatives(selectedTrue, selectedFalse), common);
-        }
-      }
-    } else if (auto compare = value.getDefiningOp<ac::BitsCompareOp>();
-               compare && (compare.getPredicate() == "eq" ||
-                           compare.getPredicate() == "ne")) {
-      auto inCollision = collisionComparison(compare, depth + 1);
-      if (failed(inCollision))
-        return fail("address proof equality endpoint analysis failed");
-      bool equal = (compare.getPredicate() == "eq") == polarity;
-      if (*inCollision && !equal) {
-        // Possible-address collision forbids known inequality. It does not
-        // imply known equality: both equality predicates may still be X.
-        result.kind = Result::Impossible;
-      }
-      auto left = constant(compare.getLhs(), depth + 1);
-      auto right = constant(compare.getRhs(), depth + 1);
-      if (failed(left) || failed(right))
-        return fail("owner-enable proof equality constant analysis failed");
-      if (*left && *right) {
-        bool sameCode = (**left).width == (**right).width &&
-                        (**left).value == (**right).value;
-        if (sameCode != equal)
-          result.kind = Result::Impossible;
-      } else if (*left || *right) {
-        const auto &closed = *left ? **left : **right;
-        auto selector =
-            canonical(*left ? compare.getRhs() : compare.getLhs(), depth + 1);
-        if (failed(selector))
-          return fail("owner-enable proof equality selector analysis failed");
-        result = append(std::move(result),
-                        {*selector, equal, closed.value, closed.width});
-      }
-    }
-    result = append(std::move(result), {value, polarity, {}, 0});
-    visiting.erase(key);
-    if (result.kind != Result::Failure) {
-      if (!charge(result.facts.size()))
-        return {Result::Failure, {}};
-      cache.try_emplace(key, result);
-    }
-    return result;
-  }
-  ac::HardwareAnalysis analysis;
-  uint64_t work;
-  std::string reason;
-  llvm::DenseMap<Value, Value> normalized;
-  llvm::DenseSet<Value> normalizing;
-  using QueryKey =
-      std::pair<std::pair<Value, Value>, std::pair<Value, unsigned>>;
-  std::pair<Value, Value> collision;
-  llvm::DenseMap<QueryKey, Result> cache;
-  llvm::DenseSet<QueryKey> visiting;
-};
+#include "PythonImportGrantProof.inc"
 
 struct LoopAdmissionSummary {
   uint64_t nodes = 0;
@@ -938,10 +500,11 @@ private:
                                 FlatSymbolRefAttr symbol);
   StringRef assignmentRoot(const AstNode &target) const;
   AstNode indexedFieldTarget(const AstNode &target) const;
-  LogicalResult updateAssignment(const AstNode &target, Value value,
-                                 const AstNode &node, OpBuilder &at,
-                                 FlatSymbolRefAttr symbol,
-                                 llvm::StringMap<Value> &values);
+  LogicalResult
+  updateAssignment(const AstNode &target, Value value, const AstNode &node,
+                   OpBuilder &at, FlatSymbolRefAttr symbol,
+                   llvm::StringMap<Value> &values,
+                   SmallVectorImpl<Value> *boundIndices = nullptr);
   FailureOr<std::optional<SmallVector<StringRef, 2>>>
   fixedResultTargets(const AstNode &assignment);
   StringRef fixedResultCall(const AstNode &node) const;
@@ -964,7 +527,17 @@ private:
                                        const llvm::StringMap<Value> &values,
                                        SmallVectorImpl<StringRef> &captures,
                                        size_t arity = 1,
-                                       bool mapAggregates = false);
+                                       bool mapAggregates = false,
+                                       SmallVectorImpl<AstNode> *captureSites = nullptr);
+  Instance *queueInstance(Instance *instance) const;
+  FailureOr<std::optional<Value>> queueRawExpression(
+      const AstNode &node, OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances);
+  FailureOr<std::optional<Type>> queueExpressionType(
+      const AstNode &node, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances);
   bool queueCall(const AstNode &node) const;
   bool moduleCall(const AstNode &node) const;
   bool methodOwner(const AstNode &function) const;
@@ -975,7 +548,8 @@ private:
   FailureOr<bool> bindQueueResults(const AstNode &assignment, OpBuilder &at,
                                    FlatSymbolRefAttr symbol,
                                    llvm::StringMap<Value> &values,
-                                   llvm::StringMap<Instance *> &instances);
+                                   llvm::StringMap<Instance *> &instances,
+                                   SmallVectorImpl<Instance> &instanceStorage);
   FailureOr<CallableDecl> callable(const AstNode &function);
   FailureOr<DictionaryAttr> sourceConstraint(const Port &port);
   Port sourceCallPort(DictionaryAttr constraint, StringRef name,
@@ -999,6 +573,29 @@ private:
   llvm::StringMap<unsigned> sourceNameWrites(const AstNode &module) const;
   LogicalResult predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at);
   FailureOr<Value> forwardModuleValue(StringRef name, FlatSymbolRefAttr symbol);
+  LogicalResult readReturnContract(ModuleDecl &result, const AstNode &returns,
+                                   llvm::StringSet<> &seen,
+                                   bool allowScalar = false);
+  FailureOr<SmallVector<Value>> bindCallableArguments(
+      const AstNode &call, ArrayRef<Port> inputs, OpBuilder &at,
+      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances,
+      ArrayRef<unsigned> deferredReferences = {});
+  LogicalResult bindCallableResults(
+      const AstNode &assignment, ValueRange results, OpBuilder &at,
+      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances,
+      const llvm::StringSet<> &forbidden,
+      llvm::StringMap<BindingBoundary> *boundaries = nullptr);
+  FailureOr<SmallVector<StringRef>> moduleResultTargets(
+      const AstNode &assignment, size_t arity);
+  FailureOr<bool> bindModuleResults(
+      const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      const llvm::StringSet<> &forbidden);
+  FailureOr<SmallVector<Value>> directModuleResults(
+      const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
+      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances);
   FailureOr<Value> directModuleCall(const AstNode &call, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
                                     llvm::StringMap<Value> &values,
@@ -1037,8 +634,10 @@ private:
                                       bool forceInline = false);
   FailureOr<Value> exactHelperValue(Value value, Type target, const AstNode &node,
                                     OpBuilder &at, FlatSymbolRefAttr symbol);
-  FailureOr<TableQueryCharge> valueHelperCost(func::FuncOp helper);
-  LogicalResult reserveValueHelper(func::FuncOp helper, const AstNode &call);
+  FailureOr<TableQueryCharge> valueHelperCost(func::FuncOp helper,
+                                             bool preserveAllFacts);
+  LogicalResult reserveValueHelper(func::FuncOp helper, const AstNode &call,
+                                   bool preserveAllFacts);
   Value helperCapture(Value original, Block *block, Location location);
   FailureOr<Value> namedHelperMap(const AstNode &call, const AstNode &name,
                                  ValueRange tables, TableQueryLowering &lowering,
@@ -1048,7 +647,7 @@ private:
   FailureOr<SmallVector<Value>>
   behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                  llvm::StringMap<Value> &values, ArrayRef<StateOwner> states,
-                 bool statementCall = false);
+                 bool statementCall = false, bool tupleCall = false);
   LogicalResult bindProposals(ArrayRef<StateOwner> states, OpBuilder &at,
                               llvm::StringMap<Value> &values,
                               FlatSymbolRefAttr symbol);
@@ -1063,12 +662,16 @@ private:
       llvm::StringMap<Instance *> &instances);
   FailureOr<SmallVector<Value>> sourceMethodCall(
       const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
-      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances);
+      llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+      std::optional<bool> tupleCall = false);
   ac::StaticExprAttr literal(uint64_t value, const AstNode &node,
                              FlatSymbolRefAttr owner);
   Type bits(unsigned width, const AstNode &node, FlatSymbolRefAttr owner);
+  Type internalBits(unsigned width, const AstNode &node, FlatSymbolRefAttr owner);
   FailureOr<Value> constant(Type type, unsigned value, const AstNode &node,
                             OpBuilder &at, FlatSymbolRefAttr owner);
+  FailureOr<Value> inactiveCarrier(Type type, const AstNode &node,
+                                   OpBuilder &at, FlatSymbolRefAttr owner);
   FailureOr<Value> select(Value guard, Value yes, Value no, const AstNode &node,
                           OpBuilder &at, FlatSymbolRefAttr owner);
   FailureOr<NumericValue> predicateView(Value value, const AstNode &node,
@@ -1113,6 +716,12 @@ private:
   BindingBoundary inferredBoundary(StringRef name, Value value,
                                    const AstNode &node, bool declared = false);
   BindingBoundary ownerBoundary(const StateOwner &state);
+  void rememberState(Value value, const StateOwner &state);
+  FailureOr<Value> stateInitializer(
+      const Port &contract, const AstNode &initializer, const AstNode &site,
+      OpBuilder &at, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances, bool allowCapturedConstants = false);
+
   bool sameBindingBoundary(const BindingBoundary &a, const BindingBoundary &c);
   bool sameBindingContract(const BindingBoundary &a, const BindingBoundary &c);
   FailureOr<Value> applyBindingBoundary(Value value,
@@ -1148,7 +757,9 @@ private:
   LogicalResult matchStatement(const AstNode &statement, OpBuilder &at,
                                FlatSymbolRefAttr owner,
                                BranchEnvironment &environment,
-                               llvm::StringSet<> &owners);
+                               llvm::StringSet<> &owners,
+      llvm::function_ref<LogicalResult(const AstNode &, OpBuilder &, BranchEnvironment &)> emitArm = {},
+      llvm::StringMap<Instance *> *sourceInstances = nullptr);
   LogicalResult statements(const AstNode &parent, StringRef field,
                            OpBuilder &at, FlatSymbolRefAttr owner,
                            BranchEnvironment &environment,
@@ -1319,6 +930,8 @@ private:
   llvm::StringMap<AstNode> structs, behavioralRules;
   llvm::StringMap<llvm::StringMap<SourceCallableDecl>> sourceMethods;
   llvm::StringMap<llvm::StringMap<SourceCallableDecl>> sourceRules;
+  llvm::StringMap<std::string> sourceRuleSpecializations;
+  llvm::StringMap<llvm::StringSet<>> callableRuleNames;
   llvm::StringSet<> methodOwnerNames;
   llvm::StringSet<> transactionModuleNames;
   llvm::StringMap<CapturedEnumSyntax> enums;
@@ -1350,6 +963,7 @@ private:
   llvm::DenseSet<DictionaryAttr> structuralCallSites;
   llvm::StringMap<ForwardCallBinding> forwardCallBindings;
   llvm::StringSet<> queueResultNames;
+  llvm::StringMap<unsigned> queueNameWrites;
   ModuleDecl *activeBehavioralDecl = nullptr;
   SmallVector<StateOwner> *activeStates = nullptr;
   RuleEvaluation *activeRule = nullptr;
@@ -1947,20 +1561,27 @@ BindingBoundary Importer::ownerBoundary(const StateOwner &state) {
           true};
 }
 
+void Importer::rememberState(Value value, const StateOwner &state) {
+  auto contract = ownerBoundary(state).contract();
+  remember(value, contract.sourceKind);
+  if (contract.fixedBits) fixedValues.insert(value);
+  else fixedValues.erase(value);
+}
+
 bool Importer::sameBindingBoundary(const BindingBoundary &a,
                                    const BindingBoundary &c) {
   return sameBindingContract(a, c) &&
-         (a.contract.sourceKind != ac::detail::ValueKind::Integer ||
+         (a.contract().sourceKind != ac::detail::ValueKind::Integer ||
           a.integerMode == c.integerMode);
 }
 
 bool Importer::sameBindingContract(const BindingBoundary &a,
                                    const BindingBoundary &c) {
-  return a.contract.sourceKind == c.contract.sourceKind &&
-         a.contract.fixedBits == c.contract.fixedBits &&
-         ((!a.contract.type && !c.contract.type) ||
-          (a.contract.type && c.contract.type &&
-           ac::areEquivalentHardwareTypes(a.contract.type, c.contract.type)));
+  return a.contract().sourceKind == c.contract().sourceKind &&
+         a.contract().fixedBits == c.contract().fixedBits &&
+         ((!a.contract().type && !c.contract().type) ||
+          (a.contract().type && c.contract().type &&
+           ac::areEquivalentHardwareTypes(a.contract().type, c.contract().type)));
 }
 
 FailureOr<Value> Importer::applyBindingBoundary(Value value,
@@ -1969,7 +1590,7 @@ FailureOr<Value> Importer::applyBindingBoundary(Value value,
                                                 OpBuilder &at,
                                                 FlatSymbolRefAttr ownerSymbol) {
   using ac::detail::ValueKind;
-  const Port &contract = binding.contract;
+  const Port &contract = binding.contract();
   auto info = valueInfo(value);
   if (contract.sourceKind &&
       (info.sourceKind != contract.sourceKind || fixedValues.contains(value)))
@@ -2062,10 +1683,14 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
       if (!item.second.declared)
         continue;
       auto existing = joined.boundaries.find(item.first());
-      if (existing != joined.boundaries.end() && existing->second.declared &&
-          !sameBindingBoundary(existing->second, item.second))
-        return mlir::emitError(node.location(b.getContext(), source.path))
-               << "branch declarations have incompatible binding boundaries";
+      if (existing != joined.boundaries.end() && existing->second.declared) {
+        if (!sameBindingBoundary(existing->second, item.second))
+          return mlir::emitError(node.location(b.getContext(), source.path))
+                 << "branch declarations have incompatible binding boundaries";
+        // Both arms usually inherit this exact declaration. Keep the existing
+        // binding instead of copying its name and source path again per arm.
+        continue;
+      }
       joined.boundaries[item.first()] = item.second;
     }
   SmallVector<PreparedBranchJoin> prepared;
@@ -2691,6 +2316,100 @@ FailureOr<Type> Importer::portType(const AstNode &node,
   return Type(ac::BitsType::get(b.getContext(), *width));
 }
 
+LogicalResult Importer::readReturnContract(ModuleDecl &result,
+    const AstNode &returns, llvm::StringSet<> &seen, bool allowScalar) {
+  result.outputs.clear();
+  std::optional<Import> returnBinding;
+  if (returns)
+    returnBinding = lookupBinding(returns);
+  if (!returns || (result.transactionEffects && returns.kind() == "Constant" &&
+                   isa<UnitAttr>(returns.get("value")))) {
+    result.returnShape = result.transactionEffects ? ReturnShape::None : ReturnShape::Mapping;
+  } else if (returns.kind() == "Subscript" &&
+             returns.child("value").kind() == "Name" &&
+             returns.child("value").string("id") == "tuple") {
+    bool shadowed = names.contains("tuple") || structs.contains("tuple") ||
+                    behavioralRules.contains("tuple") ||
+                    lexicallyShadowed(returns.child("value"), "tuple");
+    for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+      auto declaration = source.module.item("body", i);
+      if ((declaration.kind() == "FunctionDef" ||
+           declaration.kind() == "ClassDef") &&
+          declaration.string("name") == "tuple")
+        shadowed = true;
+    }
+    if (shadowed)
+      return error() << (allowScalar ? "callable" : "module")
+                     << " tuple return requires unshadowed builtin tuple";
+    AstNode elements = returns.child("slice");
+    size_t arity = elements.kind() == "Tuple" ? elements.array("elts").size() : 1;
+    if (!arity)
+      return error() << (allowScalar ? "callable" : "module")
+                     << " tuple return requires nonempty fixed arity";
+    result.returnShape = ReturnShape::Tuple;
+    for (size_t i = 0; i < arity; ++i) {
+      AstNode element = elements.kind() == "Tuple" ? elements.item("elts", i)
+                                                  : elements;
+      auto type = portType(element, result.symbol);
+      if (failed(type))
+        return failure();
+      std::string resultName = "result_" + std::to_string(i);
+      unsigned collision = 1;
+      while (seen.contains(resultName))
+        resultName = "result_" + std::to_string(i) + "_" +
+                     std::to_string(collision++);
+      seen.insert(resultName);
+      result.outputs.push_back({resultName, *type, element,
+                                annotationKind(element),
+                                fixedAnnotation(element)});
+    }
+  } else if (returnBinding &&
+             returnBinding->category == BindingCategory::Struct) {
+    auto type = portType(returns, result.symbol);
+    if (failed(type))
+      return failure();
+    std::string resultName = "result";
+    unsigned ordinal = 1;
+    while (seen.contains(resultName))
+      resultName = "result_" + std::to_string(ordinal++);
+    seen.insert(resultName);
+    result.returnShape = ReturnShape::Struct;
+    result.outputs.push_back({resultName, *type, returns, {}, false});
+  } else if (allowScalar && returns.kind() != "Dict") {
+    auto type = portType(returns, result.symbol);
+    if (failed(type)) return failure();
+    result.returnShape = ReturnShape::Struct;
+    std::string resultName = "result";
+    unsigned ordinal = 1;
+    while (seen.contains(resultName))
+      resultName = "result_" + std::to_string(ordinal++);
+    seen.insert(resultName);
+    result.outputs.push_back({resultName, *type, returns,
+                              annotationKind(returns), fixedAnnotation(returns)});
+  } else {
+    if (returns.kind() != "Dict" ||
+        returns.array("keys").size() != returns.array("values").size())
+      return error() << "module return annotation requires a named mapping or "
+                        "nominal struct/enum or fixed tuple";
+    for (size_t i = 0; i < returns.array("keys").size(); ++i) {
+      AstNode key = returns.item("keys", i);
+      auto name = key.kind() == "Constant"
+                      ? dyn_cast_or_null<StringAttr>(key.get("value"))
+                      : StringAttr();
+      if (!name || !seen.insert(name.getValue()).second)
+        return error() << "output names must be unique strings";
+      auto type = portType(returns.item("values", i), result.symbol);
+      if (failed(type))
+        return failure();
+      result.outputs.push_back({name.getValue().str(), *type,
+                                returns.item("values", i),
+                                annotationKind(returns.item("values", i)),
+                                fixedAnnotation(returns.item("values", i))});
+    }
+  }
+  return success();
+}
+
 FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   ModuleDecl result;
   result.system = hasDecorator(node, "system");
@@ -2749,46 +2468,8 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
     return error() << "@system cannot declare a result";
   if (!result.system && !returns && !result.transactionEffects)
     return error() << "module requires a return annotation";
-  std::optional<Import> returnBinding;
-  if (returns)
-    returnBinding = lookupBinding(returns);
-  if (result.system) {
-    result.returnShape = ReturnShape::Mapping;
-  } else if (!returns) {
-    result.returnShape = ReturnShape::Mapping;
-  } else if (returnBinding &&
-             returnBinding->category == BindingCategory::Struct) {
-    auto type = portType(returns, result.symbol);
-    if (failed(type))
-      return failure();
-    std::string resultName = "result";
-    unsigned ordinal = 1;
-    while (seen.contains(resultName))
-      resultName = "result_" + std::to_string(ordinal++);
-    seen.insert(resultName);
-    result.returnShape = ReturnShape::Struct;
-    result.outputs.push_back({resultName, *type, returns, {}, false});
-  } else {
-    if (returns.kind() != "Dict" ||
-        returns.array("keys").size() != returns.array("values").size())
-      return error() << "module return annotation requires a named mapping or "
-                        "nominal struct/enum";
-    for (size_t i = 0; i < returns.array("keys").size(); ++i) {
-      AstNode key = returns.item("keys", i);
-      auto name = key.kind() == "Constant"
-                      ? dyn_cast_or_null<StringAttr>(key.get("value"))
-                      : StringAttr();
-      if (!name || !seen.insert(name.getValue()).second)
-        return error() << "output names must be unique strings";
-      auto type = portType(returns.item("values", i), result.symbol);
-      if (failed(type))
-        return failure();
-      result.outputs.push_back({name.getValue().str(), *type,
-                                returns.item("values", i),
-                                annotationKind(returns.item("values", i)),
-                                fixedAnnotation(returns.item("values", i))});
-    }
-  }
+  if (failed(readReturnContract(result, returns, seen, true)))
+    return failure();
   for (size_t i = 0; i < node.array("body").size(); ++i) {
     auto stmt = node.item("body", i);
     if (stmt.kind() == "AnnAssign" ||
@@ -2799,7 +2480,7 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   }
   result.sourceInputCount = result.inputs.size();
   result.behavioral =
-      result.persistent || result.returnShape == ReturnShape::Struct ||
+      result.persistent || result.returnShape != ReturnShape::Mapping ||
       result.methodOwner;
   for (size_t i = 0; i < node.array("body").size(); ++i) {
     auto stmt = node.item("body", i);
@@ -2819,8 +2500,6 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
 }
 
 LogicalResult Importer::scanModules() {
-  if (failed(scanValueHelpers()) || failed(scanSourceCallables()))
-    return failure();
   for (size_t i = 0; i < source.module.array("body").size(); ++i) {
     auto stmt = source.module.item("body", i);
     if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule")) {
@@ -2832,6 +2511,8 @@ LogicalResult Importer::scanModules() {
       behavioralRules[stmt.string("name")] = stmt;
     }
   }
+  if (failed(scanValueHelpers()) || failed(scanSourceCallables()))
+    return failure();
   for (size_t i = 0; i < source.module.array("body").size(); ++i) {
     AstNode stmt = source.module.item("body", i);
     if (docstring(stmt) || stmt.kind() == "ImportFrom" ||
@@ -3131,21 +2812,7 @@ FailureOr<Value> Importer::expression(
            self(self, candidate.child("right"));
   };
   auto makeWidth = [&](unsigned width) {
-    auto literal = at.getDictionaryAttr(
-        {at.getNamedAttr("kind", at.getStringAttr("integer")),
-         at.getNamedAttr(
-             "value", ac::MathIntAttr::get(at.getContext(),
-                                           llvm::APSInt::getUnsigned(width)))});
-    auto site = numericSite(node, ownerSymbol);
-    return ac::BitsType::get(
-        at.getContext(),
-        ac::StaticExprAttr::get(
-            at.getContext(),
-            at.getDictionaryAttr(
-                {at.getNamedAttr("kind", at.getStringAttr("literal")),
-                 at.getNamedAttr("value", literal),
-                 at.getNamedAttr("origin", site.origin),
-                 at.getNamedAttr("location", site.sourceSpan)})));
+    return cast<ac::BitsType>(internalBits(width, node, ownerSymbol));
   };
   auto track = [&](Value value, std::optional<ValueKind> kind,
                    std::optional<IntegerInterval> interval =
@@ -3780,7 +3447,7 @@ Importer::compareSourceValues(Value lhs, Value rhs, StringRef predicate,
   auto result =
       createOp(at, site.location(b.getContext(), source.path),
                ac::BitsCompareOp::getOperationName(), {left, right},
-               TypeRange{bits(1, site, ownerSymbol)},
+               TypeRange{internalBits(1, site, ownerSymbol)},
                {at.getNamedAttr("predicate", at.getStringAttr(predicate))})
           ->getResult(0);
   remember(result, ValueKind::Boolean);
@@ -3803,21 +3470,12 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
   if ((node.kind() == "Name" || node.kind() == "Attribute" || node.kind() == "Subscript") &&
       failed(requireNestedRuleDataVisible(assignmentRoot(node), node))) return failure();
 
+  auto queued = queueExpressionType(node, ownerSymbol, values, instances);
+  if (failed(queued)) return failure();
+  if (*queued) return **queued;
+
   auto literalWidth = [&](unsigned width) -> Type {
-    auto value = parseStaticInteger(b, Twine(width).str(), error);
-    if (failed(value))
-      return {};
-    DictionaryAttr literal =
-        b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("integer")),
-                             b.getNamedAttr("value", *value)});
-    auto expression = ac::StaticExprAttr::get(
-        b.getContext(),
-        b.getDictionaryAttr(
-            {b.getNamedAttr("kind", b.getStringAttr("literal")),
-             b.getNamedAttr("value", literal),
-             b.getNamedAttr("origin", sourceOccurrence(b, ownerSymbol, node)),
-             b.getNamedAttr("location", sourceSpan(b, source.path, node))}));
-    return ac::BitsType::get(b.getContext(), expression);
+    return internalBits(width, node, ownerSymbol);
   };
   auto member = resolveEnumMember(node);
   if (failed(member))
@@ -3916,7 +3574,8 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
     if (node.child("value").kind() == "Name" &&
         !queryBound(node.child("value").string("id"))) {
       auto found = instances.find(node.child("value").string("id"));
-      if (found != instances.end()) {
+      if (found != instances.end() &&
+          !values.contains(node.child("value").string("id"))) {
         for (const Port &port : found->second->outputs)
           if (port.name == node.string("attr"))
             return port.type;
@@ -4001,7 +3660,7 @@ FailureOr<Value> Importer::trueValue(const AstNode &node, OpBuilder &at,
            b.getNamedAttr("value", integer),
            b.getNamedAttr("origin", sourceOccurrence(b, ownerSymbol, node)),
            b.getNamedAttr("location", sourceSpan(b, source.path, node))}));
-  Type type = ac::BitsType::get(b.getContext(), expression);
+  Type type = internalBits(1, node, ownerSymbol);
   return createOp(at, node.location(b.getContext(), source.path),
                   ac::BitsConstantOp::getOperationName(), {}, TypeRange{type},
                   {at.getNamedAttr("value", expression)})
@@ -4072,7 +3731,7 @@ FailureOr<Value> Importer::checkAnd(Value lhs, Value rhs, const AstNode &node,
                                     OpBuilder &at, FlatSymbolRefAttr symbol) {
   Value result = createOp(at, node.location(b.getContext(), source.path),
                           ac::BitsBinaryOp::getOperationName(), {lhs, rhs},
-                          TypeRange{bits(1, node, symbol)},
+                          TypeRange{internalBits(1, node, symbol)},
                           {at.getNamedAttr("opcode", at.getStringAttr("and"))})
                      ->getResult(0);
   remember(result, ac::detail::ValueKind::Boolean);
@@ -4083,7 +3742,7 @@ FailureOr<Value> Importer::checkNot(Value value, const AstNode &node,
                                     OpBuilder &at, FlatSymbolRefAttr symbol) {
   Value result = createOp(at, node.location(b.getContext(), source.path),
                           ac::BitsUnaryOp::getOperationName(), {value},
-                          TypeRange{bits(1, node, symbol)},
+                          TypeRange{internalBits(1, node, symbol)},
                           {at.getNamedAttr("opcode", at.getStringAttr("not"))})
                      ->getResult(0);
   remember(result, ac::detail::ValueKind::Boolean);
@@ -4101,7 +3760,7 @@ LogicalResult Importer::enterCheckBranch(BranchEnvironment &environment,
   if (failed(path))
     return failure();
   path = checkAnd(*path, demand, node, at, symbol);
-  auto one = constant(bits(1, node, symbol), 1, node, at, symbol);
+  auto one = constant(internalBits(1, node, symbol), 1, node, at, symbol);
   if (failed(path) || failed(one))
     return failure();
   environment.ambient = *path;
@@ -4642,8 +4301,6 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
   auto previousOwners = std::move(helperOwnerBindings);
   helperOwnerBindings.clear();
   auto restoreOwners = llvm::scope_exit([&] { helperOwnerBindings = std::move(previousOwners); });
-  if (decl.transactionEffects)
-    return emitSourceTransactions(decl);
   NestedRuleScope scope;
   scope.owner = &decl;
   auto *previousScope = std::exchange(activeNestedRuleScope, &scope);
@@ -4696,6 +4353,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
             declaration, NestedRulePhase::Future, false, behavioralRules.contains(name)}).second)
       return error() << "duplicate nested Rule declaration";
   }
+  if (decl.transactionEffects)
+    return emitSourceTransactions(decl);
   if (decl.behavioral)
     return emitBehavioral(decl);
   SmallVector<Attribute> params;
@@ -4927,12 +4586,14 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
           if (failed(type))
             return failure();
           std::optional<ac::detail::ValueKind> kind;
+          bool fixed = false;
           if (!binding->second.declaration) {
             const auto &target = modules[local[calleeName]];
             const auto &declared = namesAttribute == "input_names"
                                        ? target.inputs
                                        : target.outputs;
             kind = declared[index].sourceKind;
+            fixed = declared[index].fixedBits;
           } else if (binding->second.builtin &&
                      headers.isTrustedBuiltin(dyn_cast<ac::ModuleImportOp>(
                          binding->second.declaration)) &&
@@ -4944,8 +4605,10 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
                 auto keyword = call.item("keywords", i);
                 auto actualName =
                     dyn_cast_or_null<StringAttr>(keyword.get("arg"));
-                if (actualName == formal.getName())
+                if (actualName == formal.getName()) {
                   kind = annotationKind(keyword.child("value"));
+                  fixed = fixedAnnotation(keyword.child("value"));
+                }
               }
             } else {
               // The trusted DFF/DFFE catalog declares only Boolean controls
@@ -4955,7 +4618,7 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
             }
           }
           ports.push_back(
-              {cast<StringAttr>(name).getValue().str(), *type, stmt, kind});
+              {cast<StringAttr>(name).getValue().str(), *type, stmt, kind, fixed});
         }
         return success();
       };
@@ -4978,8 +4641,10 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
            at.getNamedAttr("occurrence",
                            sourceOccurrence(at, decl.symbol, stmt))});
       for (auto [output, port] :
-           llvm::zip(instance.op->getResults(), instance.outputs))
+           llvm::zip(instance.op->getResults(), instance.outputs)) {
         remember(output, port.sourceKind);
+        if (port.fixedBits) fixedValues.insert(output);
+      }
       storage.push_back(std::move(instance));
       instances[instanceName] = &storage.back();
       continue;
@@ -5380,7 +5045,8 @@ LogicalResult Importer::preflightProposals(const AstNode &module) {
 
 LogicalResult Importer::preflightQueryCallback(
     const AstNode &callback, const llvm::StringMap<Value> &values,
-    SmallVectorImpl<StringRef> &captures, size_t arity, bool mapAggregates) {
+    SmallVectorImpl<StringRef> &captures, size_t arity, bool mapAggregates,
+    SmallVectorImpl<AstNode> *captureSites) {
   auto diagnostic = [&] {
     return mlir::emitError(callback.location(b.getContext(), source.path));
   };
@@ -5403,8 +5069,11 @@ LogicalResult Importer::preflightQueryCallback(
     TableQueryCharge charge;
     TableQueryBudget::add(charge, TableQueryResource::Work, 1);
     StringRef name = node.kind() == "Name" ? node.string("id") : StringRef();
+    bool sourceOwner = activeSourceEffects && activeSourceEffects->states &&
+                       activeSourceEffects->states->contains(name);
     bool capture = !name.empty() && !llvm::is_contained(parameters, name) &&
-                   values.contains(name) && !captured.contains(name);
+                   (values.contains(name) || sourceOwner) &&
+                   !captured.contains(name);
     if (capture) {
       TableQueryBudget::add(charge, TableQueryResource::Work, 1);
       TableQueryBudget::add(charge, TableQueryResource::Slots, 1);
@@ -5423,6 +5092,8 @@ LogicalResult Importer::preflightQueryCallback(
     if (capture) {
       captured.insert(name);
       captures.push_back(name);
+      if (captureSites)
+        captureSites->push_back(node);
     }
     bool tableLiteral = mapAggregates &&
                         isa_and_nonnull<ac::TableType>(context) &&
@@ -5639,9 +5310,17 @@ FailureOr<Value> Importer::tableValueCall(
   if (namedCallback)
     return namedHelperMap(call, lambda, tables, lowering, hooks, at, symbol, values);
   SmallVector<StringRef> captures;
+  SmallVector<AstNode> captureSites;
   if (failed(preflightQueryCallback(lambda, values, captures, tables.size(),
-                                    true)))
+                                    true, &captureSites)))
     return failure();
+  SmallVector<Value> capturedValues;
+  for (const AstNode &site : captureSites) {
+    auto captured = expression(site, at, symbol, values, instances);
+    if (failed(captured))
+      return failure();
+    capturedValues.push_back(*captured);
+  }
   auto args = lambda.child("args");
   SmallVector<StringRef> parameters;
   for (StringRef field : {"posonlyargs", "args"})
@@ -5668,8 +5347,8 @@ FailureOr<Value> Importer::tableValueCall(
     return diagnostic() << (fits ? reason
                                  : "Table query binding budget exhausted");
   llvm::StringMap<Value> environment;
-  for (StringRef name : captures)
-    environment.try_emplace(name, values.lookup(name));
+  for (auto [name, captured] : llvm::zip(captures, capturedValues))
+    environment.try_emplace(name, captured);
   SmallVector<Value> rows;
   for (auto [parameter, table] : llvm::zip(parameters, tables)) {
     auto row = block->addArgument(
@@ -5679,7 +5358,9 @@ FailureOr<Value> Importer::tableValueCall(
     rows.push_back(row);
     environment.try_emplace(parameter, row);
   }
-  queryArguments.push_back(parameters);
+  SmallVector<StringRef> queryBindings(parameters);
+  llvm::append_range(queryBindings, captures);
+  queryArguments.push_back(std::move(queryBindings));
   auto restore = llvm::scope_exit([&] { queryArguments.pop_back(); });
   auto inside = OpBuilder::atBlockEnd(block);
   auto result =
@@ -5695,8 +5376,7 @@ FailureOr<Value> Importer::tableValueCall(
   // constructor or splat. A raw Table snapshot is available only through the
   // existing index-proven TableGet route, never as a hidden whole-Table input.
   llvm::DenseSet<Value> rawTables;
-  for (StringRef name : captures) {
-    auto value = values.lookup(name);
+  for (Value value : capturedValues) {
     if (isa<ac::TableType>(value.getType()))
       rawTables.insert(value);
   }
@@ -5784,9 +5464,28 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
   TableQueryLowering lowering(at, call.location(b.getContext(), source.path),
                               *body, queryBudget, hooks);
   SmallVector<StringRef> predicateCaptures, keyCaptures;
+  SmallVector<AstNode> predicateCaptureSites, keyCaptureSites;
   if (failed(lowering.capture(*receiver)) ||
-      failed(preflightQueryCallback(predicate, values, predicateCaptures)) ||
-      (key && failed(preflightQueryCallback(key, values, keyCaptures))))
+      failed(preflightQueryCallback(predicate, values, predicateCaptures, 1,
+                                    false, &predicateCaptureSites)) ||
+      (key && failed(preflightQueryCallback(key, values, keyCaptures, 1,
+                                            false, &keyCaptureSites))))
+    return failure();
+  llvm::StringMap<Value> capturedValues;
+  auto resolveCaptures = [&](ArrayRef<StringRef> names,
+                             ArrayRef<AstNode> sites) -> LogicalResult {
+    for (auto [name, site] : llvm::zip(names, sites)) {
+      if (capturedValues.contains(name))
+        continue;
+      auto captured = expression(site, at, symbol, values, instances);
+      if (failed(captured))
+        return failure();
+      capturedValues[name] = *captured;
+    }
+    return success();
+  };
+  if (failed(resolveCaptures(predicateCaptures, predicateCaptureSites)) ||
+      failed(resolveCaptures(keyCaptures, keyCaptureSites)))
     return failure();
   auto callback = [&](const AstNode &lambda, bool isKey,
                       ArrayRef<StringRef> captures) -> FailureOr<Value> {
@@ -5826,9 +5525,11 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
     });
     llvm::StringMap<Value> environment;
     for (StringRef name : captures)
-      environment.try_emplace(name, values.lookup(name));
+      environment.try_emplace(name, capturedValues.lookup(name));
     environment.try_emplace(parameter.string("arg"), row);
-    queryArguments.push_back({parameter.string("arg")});
+    SmallVector<StringRef> queryBindings{parameter.string("arg")};
+    llvm::append_range(queryBindings, captures);
+    queryArguments.push_back(std::move(queryBindings));
     auto restore = llvm::scope_exit([&] { queryArguments.pop_back(); });
     auto inside = OpBuilder::atBlockEnd(block);
     auto result = expression(lambda.child("body"), inside, symbol, environment,
@@ -5908,13 +5609,18 @@ LogicalResult Importer::prepare() {
       cloned.insert(FlatSymbolRefAttr::get(b.getContext(), name.getValue()));
   if (llvm::any_of(modules,
                    [](const ModuleDecl &decl) { return decl.persistent; })) {
-    auto builtin = headers.lookupBuiltin("dffe");
-    if (!builtin || !headers.isTrustedBuiltin(builtin.declaration))
-      return error() << "trusted dffe unavailable";
-    if (cloned.insert(builtin.symbol).second) {
-      auto *copy = builtin.declaration->clone();
-      copy->setAttr("ac.declaration_role", b.getStringAttr("import_snapshot"));
-      body->getBody()->push_back(copy);
+    // Lowering selects a plain DFF only after proving an unconditional local
+    // update; every other leaf retains DFFE. Both canonical primitives are
+    // declared here so the choice never invents or copies a primitive later.
+    for (StringRef kind : {"dff", "dffe"}) {
+      auto builtin = headers.lookupBuiltin(kind);
+      if (!builtin || !headers.isTrustedBuiltin(builtin.declaration))
+        return error() << "trusted " << kind << " unavailable";
+      if (cloned.insert(builtin.symbol).second) {
+        auto *copy = builtin.declaration->clone();
+        copy->setAttr("ac.declaration_role", b.getStringAttr("import_snapshot"));
+        body->getBody()->push_back(copy);
+      }
     }
   }
   ac::HardwareAnalysis declarationAnalysis(*body);
@@ -5949,8 +5655,16 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
     if (entry.second->state == 0) pendingHelpers.push_back(entry.second.get());
   for (auto *helper : pendingHelpers)
     if (failed(lowerValueHelper(*helper))) return failure();
-  if (dischargedPairs.size() != ruleWrites.pendingPairs().size())
-    return error() << "pending owner-enable proof ledger is incomplete";
+  for (auto [index, pair] : llvm::enumerate(ruleWrites.pendingPairs())) {
+    if (dischargedPairs.contains(index)) continue;
+    // Typed effects transfer these ownership obligations to state/call analysis
+    // and independent final transaction verification. Only ordinary Rule pairs
+    // are discharged by the legacy combinational owner-enable proof here.
+    bool typed = llvm::any_of(modules, [&](const ModuleDecl &decl) {
+      return decl.transactionEffects && sameSourceSite(decl.node, pair.module);
+    });
+    if (!typed) return error() << "pending owner-enable proof ledger is incomplete";
+  }
   SmallVector<StringRef> ordered;
   for (const auto &item : names)
     ordered.push_back(item.first());
@@ -6020,6 +5734,8 @@ std::unique_ptr<SourceDeclarationContext> createSourceDeclarationContext(
   // Declaration preparation is also available through direct analysis APIs,
   // where no PassManager has loaded producer dialect dependencies yet.
   transport->getContext()->getOrLoadDialect<func::FuncDialect>();
+  transport->getContext()->getOrLoadDialect<arith::ArithDialect>();
+  transport->getContext()->getOrLoadDialect<scf::SCFDialect>();
   return std::make_unique<SourceDeclarationContext>(std::make_unique<Importer>(
       source, inputs.owner, *inputs.headers, writes,
       [transport] { return transport->emitError(); }));
@@ -6037,13 +5753,14 @@ public:
       : PassWrapper(other), owner(other.owner), headers(other.headers) {}
   StringRef getArgument() const final { return "ac-lower-python-source"; }
   void getDependentDialects(DialectRegistry &registry) const override {
-    registry.insert<ac::ACIRDialect, func::FuncDialect>();
+    registry.insert<ac::ACIRDialect, func::FuncDialect, arith::ArithDialect, scf::SCFDialect>();
   }
   void runOnOperation() override {
     auto transport = getOperation();
     auto &bindings = getAnalysis<SourceMemoryBindingsAnalysis>();
     auto result = bindings.lower(owner, *headers);
-    if (failed(result) || failed(verify(**result))) {
+    if (failed(result) || failed(::acir::normalizeSourceControlFlow(**result)) ||
+        failed(verify(**result))) {
       signalPassFailure();
       return;
     }

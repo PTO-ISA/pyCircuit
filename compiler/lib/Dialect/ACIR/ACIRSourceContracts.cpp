@@ -156,6 +156,8 @@ FailureOr<MathIntAttr> parseMathIntAttr(MLIRContext *context,
 }
 
 LogicalResult verifySourceSpan(DictionaryAttr value, EmitError emitError) {
+  if (isVerifiedSourceSpanGrammar(value))
+    return success();
   if (!value || value.size() != 5)
     return emitError() << "SourceSpan must contain exactly five fields";
   if (!value.getAs<StringAttr>("path"))
@@ -171,6 +173,7 @@ LogicalResult verifySourceSpan(DictionaryAttr value, EmitError emitError) {
     return emitError() << "SourceSpan coordinates must be one-based";
   if (*endLine < *line || (*endLine == *line && *endColumn < *column))
     return emitError() << "SourceSpan must not end before it starts";
+  rememberVerifiedSourceSpanGrammar(value);
   return success();
 }
 

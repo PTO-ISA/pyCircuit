@@ -649,6 +649,22 @@ protected:
         return *width == 64 ? std::numeric_limits<uint64_t>::max()
                             : (uint64_t(1) << *width) - 1;
       };
+      if (auto merge = mlir::dyn_cast<ValueMergeOp>(op)) {
+        // This oracle evaluates scalar, whole-value merges. Preserve the
+        // independently chosen Q values when a routed proposal is disabled.
+        EXPECT_EQ(merge.getGuards().size(), 1u);
+        EXPECT_EQ(merge.getValues().size(), 1u);
+        EXPECT_EQ(merge.getPaths().size(), 1u);
+        if (merge.getGuards().size() != 1 || merge.getValues().size() != 1 ||
+            merge.getPaths().size() != 1)
+          return 0;
+        EXPECT_TRUE(mlir::cast<mlir::ArrayAttr>(merge.getPaths()[0]).empty());
+        auto enabled = evaluate(file, merge.getGuards()[0], scope, seed);
+        if (value == merge.getEn())
+          return enabled;
+        auto selected = enabled ? merge.getValues()[0] : merge.getBase();
+        return evaluate(file, selected, scope, seed) & mask(value.getType());
+      }
       if (auto binary = mlir::dyn_cast<BitsBinaryOp>(op)) {
         auto left = evaluate(file, binary->getOperand(0), scope, seed);
         auto right = evaluate(file, binary->getOperand(1), scope, seed);
@@ -729,6 +745,35 @@ protected:
          builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
          builder.getNamedAttr("end_line", builder.getI64IntegerAttr(line)),
          builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
+  }
+  SourceTransactionOp addEmptyTransaction(mlir::ModuleOp file,
+                                          llvm::StringRef name,
+                                          unsigned occurrenceIndex) {
+    auto definition = owner(file);
+    auto &body = definition.getBody().front();
+    auto yes = *body.getOps<BitsConstantOp>().begin();
+    builder.setInsertionPoint(body.getTerminator());
+    mlir::OperationState state(definition.getLoc(),
+                               SourceTransactionOp::getOperationName());
+    state.addOperands(
+        {body.getArgument(1), body.getArgument(2), yes.getResult()});
+    state.addAttribute("name", builder.getStringAttr(name));
+    state.addAttribute("declaration", occurrence("Owner", occurrenceIndex));
+    state.addAttribute("occurrence", occurrence("Owner", occurrenceIndex + 1));
+    state.addAttribute("ac.guard_location", span(occurrenceIndex));
+    state.addRegion();
+    state.addRegion();
+    auto transaction = mlir::cast<SourceTransactionOp>(builder.create(state));
+    for (unsigned region = 0; region != 2; ++region) {
+      auto *block = new mlir::Block;
+      transaction->getRegion(region).push_back(block);
+      auto path =
+          block->addArgument(yes.getResult().getType(), transaction.getLoc());
+      builder.setInsertionPointToEnd(block);
+      yield(region == 0 ? mlir::ValueRange(path) : mlir::ValueRange{},
+            transaction.getLoc());
+    }
+    return transaction;
   }
   SourceBranchOp addNominalBranch(mlir::ModuleOp file,
                                   bool directEnum = false) {
@@ -1203,6 +1248,54 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
+       ConditionalWritePreservesOldCandidateAndRawFourStateIntent) {
+  for (bool knownFalse : {false, true}) {
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto definition = owner(*file);
+    auto watch = named<SourceTransactionOp>(*file, "watch");
+    mlir::Value gate = definition.getBody().front().getArgument(2);
+    if (knownFalse)
+      for (auto constant :
+           definition.getBody().front().getOps<BitsConstantOp>()) {
+        HardwareAnalysis hardware(*file);
+        HardwareBindings bindings;
+        bindings.owner = definition;
+        auto value =
+            hardware.evaluateStatic(constant.getValue(), bindings, constant);
+        if (mlir::succeeded(value) && mlir::isa<MathIntAttr>(*value) &&
+            mlir::cast<MathIntAttr>(*value).getCanonicalValue() == "0" &&
+            constant.getResult().getType() == gate.getType())
+          gate = constant.getResult();
+      }
+    watch->insertOperands(watch->getNumOperands(), gate);
+    for (auto &region : watch->getRegions()) {
+      auto path = region.front().addArgument(gate.getType(), gate.getLoc());
+      if (&region == &watch.getBody())
+        first<SourceStateWriteOp>(region)->setOperand(0, path);
+    }
+    ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+    auto rule = named<RuleOp>(*file, "watch");
+    auto seen = leaf(*file, "seen"), count = leaf(*file, "count");
+    auto selected = yielded(seen).getDefiningOp<BitsSelectOp>();
+    auto effective = yielded(seen, 2).getDefiningOp<BitsBinaryOp>();
+    ASSERT_TRUE(selected);
+    ASSERT_TRUE(effective);
+    auto intent = effective->getOperand(1).getDefiningOp<BitsBinaryOp>();
+    ASSERT_TRUE(intent);
+    EXPECT_EQ(effective.getOpcode(), "and");
+    EXPECT_EQ(intent.getOpcode(), "or");
+    EXPECT_EQ(intent->getOperand(1), selected.getCondition());
+    EXPECT_EQ(captureActual(rule, selected->getOperand(1)),
+              count->getResult(0));
+    EXPECT_EQ(captureActual(rule, selected->getOperand(2)), seen->getResult(0));
+    ASSERT_TRUE(mlir::succeeded(capture([&] {
+      return verifyHardwarePackage(*file);
+    }))) << diagnostics;
+  }
+}
+
+TEST_F(TransactionLoweringTest,
        IndependentReadonlyRuleAndUnwrittenOwnerKeepOldQ) {
   for (bool reverse : {false, true}) {
     auto file = parse();
@@ -1637,6 +1730,370 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
+       OriginalSourceProofAuthenticatesDiamondAfterClosureInPostorder) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto a = addEmptyTransaction(*file, "after_a", 100);
+  auto b = addEmptyTransaction(*file, "after_b", 102);
+  auto c = addEmptyTransaction(*file, "after_c", 104);
+  auto d = addEmptyTransaction(*file, "after_d", 106);
+  b->setAttr("ac.after", builder.getArrayAttr({a.getOccurrence()}));
+  c->setAttr("ac.after", builder.getArrayAttr({a.getOccurrence()}));
+  d->setAttr("ac.after",
+             builder.getArrayAttr({b.getOccurrence(), c.getOccurrence()}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  SourceTransactionStateAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  auto *bPlan = analysis.lookup(b);
+  auto *cPlan = analysis.lookup(c);
+  auto *dPlan = analysis.lookup(d);
+  ASSERT_NE(bPlan, nullptr);
+  ASSERT_NE(cPlan, nullptr);
+  ASSERT_NE(dPlan, nullptr);
+  ASSERT_EQ(bPlan->predecessors.size(), 1u);
+  EXPECT_EQ(bPlan->predecessors[0], a);
+  ASSERT_EQ(cPlan->predecessors.size(), 1u);
+  EXPECT_EQ(cPlan->predecessors[0], a);
+  ASSERT_EQ(dPlan->predecessors.size(), 3u);
+  EXPECT_EQ(dPlan->predecessors[0], a);
+  EXPECT_EQ(dPlan->predecessors[1], b);
+  EXPECT_EQ(dPlan->predecessors[2], c);
+
+  auto before = identities(*file);
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  detail::SourceCheckBudget materializationBudget(limits);
+  auto materialized = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        materializationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+  detail::SourceCheckBudget proofBudget(limits);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, proofBudget);
+  }))) << diagnostics;
+  unchanged(*file, before);
+}
+
+TEST_F(TransactionLoweringTest,
+       OriginalSourceProofDoesNotReuseAfterClosureAcrossInvocations) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto predecessor = addEmptyTransaction(*file, "cache_predecessor", 120);
+  auto dependent = addEmptyTransaction(*file, "cache_dependent", 122);
+  dependent->setAttr("ac.after",
+                     builder.getArrayAttr({predecessor.getOccurrence()}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  SourceTransactionStateAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  auto *plan = analysis.lookup(dependent);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->predecessors.size(), 1u);
+  EXPECT_EQ(plan->predecessors[0], predecessor);
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  detail::SourceCheckBudget materializationBudget(limits);
+  auto materialized = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        materializationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+  detail::SourceCheckBudget firstProofBudget(limits);
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, firstProofBudget);
+  }))) << diagnostics;
+
+  auto candidateBefore = print(materialized->module->getOperation());
+  dependent->setAttr("ac.after", builder.getArrayAttr({}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  detail::SourceCheckBudget secondProofBudget(limits);
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, secondProofBudget);
+  })));
+  EXPECT_NE(diagnostics.find("original predecessor closure differs"),
+            std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(print(materialized->module->getOperation()), candidateBefore);
+  EXPECT_TRUE(dependent->getAttrOfType<mlir::ArrayAttr>("ac.after").empty());
+}
+
+TEST_F(TransactionLoweringTest,
+       OriginalSourceProofRevalidatesReceiverInventoryInEachRun) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  SourceTransactionStateAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  detail::SourceCheckBudget materializationBudget(limits);
+  auto materialized = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        materializationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+  detail::SourceCheckBudget firstProofBudget(limits);
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, firstProofBudget);
+  }))) << diagnostics;
+
+  auto candidateBefore = print(materialized->module->getOperation());
+  auto root = module(*file, "Root");
+  auto left = instance(root, "left"), right = instance(root, "right");
+  right->setAttr("occurrence", left.getOccurrence());
+  detail::SourceCheckBudget secondProofBudget(limits);
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, secondProofBudget);
+  })));
+  EXPECT_FALSE(diagnostics.empty());
+  EXPECT_EQ(print(materialized->module->getOperation()), candidateBefore);
+  EXPECT_EQ(right.getOccurrence(), left.getOccurrence());
+}
+
+TEST_F(TransactionLoweringTest,
+       SourceReplayRejectsDuplicateAndInvalidBoundValueIdentities) {
+  for (unsigned mutation = 0; mutation != 5; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = crossFixture();
+    ASSERT_TRUE(file);
+    SourceTransactionStateAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid()) << diagnostics;
+    HardwareSourceCheckLimits limits;
+    detail::SourceCheckBudget preparationBudget(limits);
+    auto prepared = capture([&] {
+      return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                      preparationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+    detail::SourceCheckBudget materializationBudget(limits);
+    auto materialized = capture([&] {
+      return acir::detail::materializeTransactionLowering(
+          *prepared, materializationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+    auto originalBefore = identities(*file);
+    auto candidateBefore = identities(*materialized->module);
+    auto candidateText = print(materialized->module->getOperation());
+
+    auto selected =
+        llvm::find_if(prepared->transactions, [](const auto &entry) {
+          return entry.plan->frames.size() > 1 &&
+                 entry.plan->instances.size() > 1;
+        });
+    ASSERT_NE(selected, prepared->transactions.end());
+    auto &plan = const_cast<TransactionStatePlan &>(*selected->plan);
+    ASSERT_GT(plan.values.size(), 1u);
+    llvm::SmallVector<BoundValueId> nonLive;
+    for (auto id : llvm::seq<uint64_t>(0, plan.values.size()))
+      if (!llvm::is_contained(selected->liveIns, id))
+        nonLive.push_back(id);
+    ASSERT_GT(nonLive.size(), 1u);
+    if (mutation == 0) {
+      plan.values[nonLive[1]].value = plan.values[nonLive[0]].value;
+      plan.values[nonLive[1]].anchor = plan.values[nonLive[0]].anchor;
+      plan.values[nonLive[1]].frame = plan.values[nonLive[0]].frame;
+    } else if (mutation == 1) {
+      plan.values[nonLive[0]].anchor = plan.instances.size();
+    } else if (mutation == 2) {
+      plan.values[nonLive[0]].frame = plan.frames.size();
+    } else if (mutation == 3) {
+      auto lexical = llvm::find_if(plan.values, [&](const auto &ref) {
+        mlir::Value value = ref.value;
+        return ref.frame == plan.rootFrame &&
+               value.getParentBlock()->getParentOp() ==
+                   plan.instances[ref.anchor].definition;
+      });
+      ASSERT_NE(lexical, plan.values.end());
+      ASSERT_GT(plan.frames.size(), 1u);
+      lexical->frame = plan.rootFrame == 0 ? 1 : 0;
+    } else {
+      auto local = llvm::find_if(plan.values, [&](const auto &ref) {
+        return ref.frame != plan.rootFrame &&
+               plan.frames[ref.frame].anchor == ref.anchor &&
+               plan.instances.size() > 1;
+      });
+      ASSERT_NE(local, plan.values.end());
+      auto expected = plan.frames[local->frame].anchor;
+      local->anchor = expected == 0 ? 1 : 0;
+      ASSERT_NE(local->anchor, expected);
+    }
+
+    detail::SourceCheckBudget proofBudget(limits);
+    EXPECT_TRUE(mlir::failed(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *materialized, proofBudget);
+    })));
+    if (mutation == 0 || mutation >= 3)
+      EXPECT_NE(diagnostics.find("transaction source replay"),
+                std::string::npos)
+          << diagnostics;
+    unchanged(*file, originalBefore);
+    unchanged(*materialized->module, candidateBefore);
+    EXPECT_EQ(print(materialized->module->getOperation()), candidateText);
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       SourceReplayTinyProofBudgetPreservesOriginalAndCandidate) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  SourceTransactionStateAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  detail::SourceCheckBudget materializationBudget(limits);
+  auto materialized = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        materializationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+  auto originalBefore = identities(*file);
+  auto candidateBefore = identities(*materialized->module);
+  auto candidateText = print(materialized->module->getOperation());
+
+  HardwareSourceCheckLimits tiny;
+  tiny.maxWorkUnits = 1;
+  detail::SourceCheckBudget tinyProof(tiny);
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, tinyProof);
+  })));
+  EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
+  unchanged(*file, originalBefore);
+  unchanged(*materialized->module, candidateBefore);
+  EXPECT_EQ(print(materialized->module->getOperation()), candidateText);
+}
+
+TEST_F(TransactionLoweringTest,
+       MaterializedFramesContainOnlyInvocationBindings) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  SourceTransactionStateAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  detail::SourceCheckBudget materializationBudget(limits);
+  auto materialized = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        materializationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+
+  auto selected = llvm::find_if(prepared->transactions, [](const auto &entry) {
+    return entry.plan->frames.size() > 1 && !entry.liveIns.empty();
+  });
+  ASSERT_NE(selected, prepared->transactions.end());
+  auto index = std::distance(prepared->transactions.begin(), selected);
+  ASSERT_LT(static_cast<size_t>(index), materialized->transactions.size());
+  const auto &plan = *selected->plan;
+  const auto &record = materialized->transactions[index];
+  ASSERT_EQ(record.frames.size(), plan.frames.size());
+  ASSERT_EQ(record.boundValues.size(), plan.values.size());
+  for (auto [frame, binding] : llvm::enumerate(plan.frames)) {
+    for (auto liveIn : selected->liveIns) {
+      const auto &ref = plan.values[liveIn];
+      if (ref.anchor == binding.anchor)
+        EXPECT_FALSE(record.frames[frame].lookupOrNull(ref.value));
+    }
+    for (auto arguments :
+         {llvm::ArrayRef<TransactionValueBinding>(binding.guardArguments),
+          llvm::ArrayRef<TransactionValueBinding>(binding.bodyArguments)})
+      for (const auto &argument : arguments) {
+        ASSERT_LT(argument.actual, record.boundValues.size());
+        ASSERT_TRUE(record.boundValues[argument.actual]);
+        EXPECT_EQ(record.frames[frame].lookupOrNull(argument.formal),
+                  record.boundValues[argument.actual]);
+      }
+  }
+  detail::SourceCheckBudget proofBudget(limits);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, proofBudget);
+  }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
+       OriginalProofDoesNotRequirePerFrameLexicalSeeds) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  SourceTransactionStateAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  detail::SourceCheckBudget materializationBudget(limits);
+  auto materialized = capture([&] {
+    return acir::detail::materializeTransactionLowering(*prepared,
+                                                        materializationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+  auto originalBefore = identities(*file);
+  auto candidateBefore = identities(*materialized->module);
+  auto candidateText = print(materialized->module->getOperation());
+
+  ASSERT_EQ(prepared->transactions.size(), materialized->transactions.size());
+  for (auto [preparation, record] :
+       llvm::zip(prepared->transactions, materialized->transactions)) {
+    const auto &plan = *preparation.plan;
+    ASSERT_EQ(record.frames.size(), plan.frames.size());
+    for (auto [frame, binding] : llvm::enumerate(plan.frames))
+      for (auto liveIn : preparation.liveIns) {
+        const auto &ref = plan.values[liveIn];
+        if (ref.anchor == binding.anchor &&
+            record.frames[frame].contains(ref.value))
+          record.frames[frame].erase(ref.value);
+      }
+  }
+
+  detail::SourceCheckBudget proofBudget(limits);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return acir::detail::verifyTransactionMaterialization(
+        *prepared, *materialized, proofBudget);
+  }))) << diagnostics;
+  unchanged(*file, originalBefore);
+  unchanged(*materialized->module, candidateBefore);
+  EXPECT_EQ(print(materialized->module->getOperation()), candidateText);
+}
+
+TEST_F(TransactionLoweringTest,
        LateDetachedFinalVerificationFailureRollsBackAllOriginalHandles) {
   auto file = parse();
   ASSERT_TRUE(file);
@@ -1681,8 +2138,7 @@ TEST_F(TransactionLoweringTest,
   }))) << diagnostics;
 }
 
-TEST_F(TransactionLoweringTest,
-       FixedBitsAdmissionRejectsWholeOwnerAggregateAndMissingBody) {
+TEST_F(TransactionLoweringTest, WholeTableOwnerUsesTypedStorageCollection) {
   auto file = parse();
   ASSERT_TRUE(file);
   auto definition = owner(*file);
@@ -1707,7 +2163,27 @@ TEST_F(TransactionLoweringTest,
       definition.getBody().front().getTerminator()->getIterator(), state);
   ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
       << diagnostics;
-  rejects(*file);
+  ASSERT_TRUE(mlir::succeeded(lower(*file))) << diagnostics;
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return verifyHardwarePackage(*file);
+  }))) << diagnostics;
+  auto storage = first<CollectionOp>(owner(*file).getBody());
+  ASSERT_TRUE(storage);
+  EXPECT_EQ(
+      storage->getAttrOfType<mlir::StringAttr>("instance_name").getValue(),
+      "aggregate");
+  EXPECT_EQ(storage.getResult(0).getType(), table);
+  ASSERT_EQ(storage->getNumOperands(), 5u);
+  for (unsigned index = 0; index < 3; ++index) {
+    auto control = storage->getOperand(index).getDefiningOp<TableSplatOp>();
+    ASSERT_TRUE(control);
+    EXPECT_EQ(control.getShape(), shape);
+  }
+  EXPECT_EQ(storage->getOperand(3).getType(), table);
+  EXPECT_EQ(storage->getOperand(4).getType(), table);
+}
+
+TEST_F(TransactionLoweringTest, MissingMethodBodyRejectsWithoutMutation) {
   auto absent = parse();
   ASSERT_TRUE(absent);
   named<SourceMethodOp>(*absent, "bump").getBody().getBlocks().clear();
@@ -2194,7 +2670,7 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
-       InternalRootDefaultsRejectAggregateAndZeroWidthInputSuffixes) {
+       InternalRootDefaultsAdmitFiniteTableAndRejectZeroWidthSuffixes) {
   for (bool aggregate : {false, true}) {
     SCOPED_TRACE(aggregate);
     auto file = crossFixture();
@@ -2217,9 +2693,18 @@ TEST_F(TransactionLoweringTest,
     provider->setAttr("function_type",
                       mlir::TypeAttr::get(builder.getFunctionType(
                           inputs, oldType.getResults())));
-    EXPECT_TRUE(
-        mlir::failed(capture([&] { return getModulePortLayout(provider); })));
-    EXPECT_FALSE(diagnostics.empty());
+    auto updated = capture([&] { return getModulePortLayout(provider); });
+    if (aggregate) {
+      ASSERT_TRUE(mlir::succeeded(updated)) << diagnostics;
+      EXPECT_EQ(updated->sourceInputCount, layout->sourceInputCount);
+      EXPECT_EQ(updated->rootInputDefaults, layout->rootInputDefaults);
+      // The layout checker admits a finite typed suffix, but a signature-only
+      // mutation is still not a valid module: its block arguments disagree.
+      EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    } else {
+      EXPECT_TRUE(mlir::failed(updated));
+      EXPECT_FALSE(diagnostics.empty());
+    }
   }
 }
 
@@ -2326,7 +2811,7 @@ TEST_F(TransactionLoweringTest,
   auto count = first<SourceStateOp>(provider.getBody());
   auto bump = named<SourceMethodOp>(provider, "bump");
   auto write = first<SourceStateWriteOp>(bump.getBody());
-  constexpr unsigned routedStates = 16;
+  constexpr unsigned routedStates = 24;
   for (unsigned i = 1; i < routedStates; ++i) {
     auto name = "routed" + std::to_string(i);
     auto *stateCopy = count->clone();
@@ -2399,7 +2884,7 @@ TEST_F(TransactionLoweringTest,
   });
   ASSERT_TRUE(analysis->isValid()) << diagnostics;
   ASSERT_NE(analysis->lookup(named<SourceTransactionOp>(root, "run")), nullptr);
-  rejects(*file, "transaction preparation");
+  rejects(*file, "prep: route arities");
   EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
 }
 

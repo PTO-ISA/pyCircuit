@@ -46,18 +46,26 @@ int main(int argc, char **argv) {
   auto family = root.pyc_implementation;
 #if T3_COMPLETION == 1
   family->__pyc_clear_check_snapshots();
-  family->__pyc_capture_reset(0, known(false));
+  // Compiler controls are complete; the authored assertions below retain
+  // their original missing/false/reset-only scenarios.
   family->__pyc_capture_check_0(0, known(true), known(true));
+  family->__pyc_capture_sampling_0(0, known(true), known(false));
+  family->__pyc_capture_reset(0, known(false));
   family->__pyc_capture_check_1(0, known(true), known(true));
-  report(root, "snapshots-later-check-missing", false);
-  family->__pyc_capture_check_0(0, known(false), known(true));
-  report(root, "snapshots-earlier-false-later-missing", false);
   family->__pyc_capture_check_2(0, known(true), known(true));
+  report(root, "snapshots-later-check-missing", false);
+  family->__pyc_capture_check_1(0, known(false), known(true));
+  report(root, "snapshots-earlier-false-later-missing", false);
+  family->__pyc_capture_check_3(0, known(true), known(true));
   report(root, "snapshots-restored-check", false);
   family->__pyc_clear_check_snapshots();
+  // Compiler controls are complete; the authored assertions below retain
+  // their original missing/false/reset-only scenarios.
   family->__pyc_capture_check_0(0, known(true), known(true));
+  family->__pyc_capture_sampling_0(0, known(true), known(false));
   family->__pyc_capture_check_1(0, known(true), known(true));
   family->__pyc_capture_check_2(0, known(true), known(true));
+  family->__pyc_capture_check_3(0, known(true), known(true));
   report(root, "snapshots-reset-only-missing", false);
   family->__pyc_capture_reset(0, known(false));
   report(root, "snapshots-restored-reset", true);

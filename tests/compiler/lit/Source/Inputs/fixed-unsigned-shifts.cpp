@@ -113,6 +113,15 @@ void print(const Output &output, const char *prefix) {
                                                 : '0');
   std::cout << '\n';
 }
+template <class Inputs> void drive_known_domain(pyc_dut &dut, Inputs input) {
+  if constexpr (requires(Inputs value) { value.pyc_7079635f636c6b; }) {
+    input.pyc_7079635f636c6b =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+    input.pyc_7079635f727374 =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+  }
+  dut.drive(input);
+}
 int main(int argc, char **argv) {
   require(argc == 2);
   pyc_dut dut(static_cast<unsigned>(std::stoul(argv[1])));
@@ -133,7 +142,7 @@ int main(int argc, char **argv) {
     input.n65 = pattern<65>(row, mask);
     input.n130 = pattern<130>(row, mask);
 #endif
-    dut.drive(input);
+    drive_known_domain(dut, input);
     PycircuitModelStepResultV1 status{sizeof(status)};
     require(executor.Step(&status) == PYCIRCUIT_MODEL_STATUS_V1_OK);
     require(status.state == PYCIRCUIT_MODEL_STEP_V1_RUNNING);

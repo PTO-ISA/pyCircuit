@@ -7,8 +7,8 @@ disagrees.
 
 Categories
 ----------
-positive   a matching computed/dependent width must still bind, on the standard
-           storage leaves, on a user module and through a forwarded parameter;
+positive   a matching computed/dependent width must still bind on the standard
+           storage leaves and concrete user modules;
 width      a real width disagreement must still reject, wider and narrower, for
            a literal and for a computed declared width, on an input port and on
            an output port;
@@ -140,22 +140,20 @@ DEPENDENT_OUTPUT = (
 # A concrete child proves that returning an instance output is admissible at
 # all; the dependent variant isolates the width comparison.
 CONCRETE_CHILD = (
-    HEADER + "from pycircuit import dff\n"
+    HEADER + "from pycircuit import dff\n@ac.struct\n"
+    "class ChildOut:\n"
+    "    y: ac.u8\n"
     "@ac.module\n"
-    'def Child(clk: bool, rst: bool, x: ac.u8) -> {"y": ac.u8}:\n'
+    "def Child(clk: bool, rst: bool, x: ac.u8) -> ChildOut:\n"
     "    state = dff(T=ac.u8)\n"
     "    @ac.rule\n"
     "    def bind():\n"
     "        state(clk=clk, rst=rst, d=x, init=0)\n"
     "    bind()\n"
-    '    return {"y": state.q}\n'
+    "    return ChildOut(y=state.q)\n"
     "@ac.module\n"
     'def Top(clk: bool, rst: bool, v: ac.u8) -> {"y": ac.u8}:\n'
-    "    child = Child()\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        child(clk=clk, rst=rst, x=v)\n"
-    "    bind()\n"
+    "    child = Child(clk=clk, rst=rst, x=v)\n"
     '    return {"y": child.y}\n'
 )
 
@@ -212,21 +210,15 @@ NOMINAL = (
     "class Left:\n    value: ac.u8\n"
     "@ac.struct\n"
     "class Right:\n    value: ac.u8\n"
+    "@ac.struct\n"
+    "class Output:\n    y: ac.u8\n"
     "@ac.module\n"
-    'def Take(x: Left) -> {"y": ac.u8}:\n'
-    '    return {"y": x.value}\n'
+    "def Take(x: Left) -> Output:\n"
+    "    return Output(y=x.value)\n"
     "@ac.module\n"
     'def Top(p: Left, q: Right) -> {"y": ac.u8}:\n'
-    "    first = Take()\n"
-    "    second = Take()\n"
-    "    @ac.rule\n"
-    "    def bind_first():\n"
-    "        first(x=p)\n"
-    "    @ac.rule\n"
-    "    def bind_second():\n"
-    "        second(x=__PEER__)\n"
-    "    bind_first()\n"
-    "    bind_second()\n"
+    "    first = Take(p)\n"
+    "    second = Take(__PEER__)\n"
     '    return {"y": first.y ^ second.y}\n'
 )
 
@@ -235,21 +227,14 @@ ENUM_NOMINAL = (
     + HEADER
     + "@ac.encoding(width=8)\nclass First(Enum):\n    A = 0\n"
     "@ac.encoding(width=8)\nclass Second(Enum):\n    A = 0\n"
+    "@ac.struct\nclass Output:\n    y: ac.u8\n"
     "@ac.module\n"
-    'def Take(x: First) -> {"y": ac.u8}:\n'
-    '    return {"y": ac.enum_to_bits(x)}\n'
+    "def Take(x: First) -> Output:\n"
+    "    return Output(y=ac.enum_to_bits(x))\n"
     "@ac.module\n"
     'def Top(p: First, q: Second) -> {"y": ac.u8}:\n'
-    "    first = Take()\n"
-    "    second = Take()\n"
-    "    @ac.rule\n"
-    "    def bind_first():\n"
-    "        first(x=p)\n"
-    "    @ac.rule\n"
-    "    def bind_second():\n"
-    "        second(x=__PEER__)\n"
-    "    bind_first()\n"
-    "    bind_second()\n"
+    "    first = Take(p)\n"
+    "    second = Take(__PEER__)\n"
     '    return {"y": first.y ^ second.y}\n'
 )
 
@@ -258,36 +243,28 @@ TABLE_NOMINAL = (
     "class Left:\n    value: ac.u8\n"
     "@ac.struct\n"
     "class Right:\n    value: ac.u8\n"
+    "@ac.struct\n"
+    "class Output:\n    y: ac.u8\n"
     "@ac.module\n"
-    'def Take(x: ac.table[4, Left]) -> {"y": ac.u8}:\n'
-    '    return {"y": x[0].value}\n'
+    "def Take(x: ac.table[4, Left]) -> Output:\n"
+    "    return Output(y=x[0].value)\n"
     "@ac.module\n"
     "def Top(p: ac.table[4, Left], q: ac.table[4, Right]) -> "
     '{"y": ac.u8}:\n'
-    "    first = Take()\n"
-    "    second = Take()\n"
-    "    @ac.rule\n"
-    "    def bind_first():\n"
-    "        first(x=p)\n"
-    "    @ac.rule\n"
-    "    def bind_second():\n"
-    "        second(x=__PEER__)\n"
-    "    bind_first()\n"
-    "    bind_second()\n"
+    "    first = Take(p)\n"
+    "    second = Take(__PEER__)\n"
     '    return {"y": first.y ^ second.y}\n'
 )
 
 TABLE_EXTENT = (
-    HEADER + "@ac.module\n"
-    'def Take(x: ac.table[2 + 2, ac.u8]) -> {"y": ac.u8}:\n'
-    '    return {"y": x[0]}\n'
+    HEADER + "@ac.struct\n"
+    "class Output:\n    y: ac.u8\n"
+    "@ac.module\n"
+    "def Take(x: ac.table[2 + 2, ac.u8]) -> Output:\n"
+    "    return Output(y=x[0])\n"
     "@ac.module\n"
     'def Top(p: ac.table[4, ac.u8]) -> {"a": ac.u8}:\n'
-    "    first = Take()\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        first(x=p)\n"
-    "    bind()\n"
+    "    first = Take(p)\n"
     '    return {"a": first.y}\n'
 )
 
@@ -336,8 +313,7 @@ CASES = {
         True,
         ("bind", 4, 0),
     ),
-    "child-concrete-output": (CONCRETE_CHILD, True, ("bind", 4, 0)),
-    "forwarded-dependent-parameter": (FORWARDED, True, ("bind_word", 4, 0)),
+    "child-concrete-output": (CONCRETE_CHILD, True, None),
     "nominal-struct-identity": (NOMINAL.replace("__PEER__", "p"), True, None),
     "nominal-enum-identity": (ENUM_NOMINAL.replace("__PEER__", "p"), True, None),
     "nominal-table-element-identity": (
@@ -367,18 +343,6 @@ CASES = {
     ),
     "width-mismatch-t-is-not-widened": (
         latch(dtype="ac.u14", ttype="ac.u13", result="ac.u14"),
-        False,
-        None,
-    ),
-    # -- output direction --------------------------------------------------
-    "child-explicit-parameter-output": (DEPENDENT_CHILD, True, None),
-    "child-explicit-parameter-nine-bit-output": (
-        DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)").replace("ac.u8", "ac.u9"),
-        True,
-        None,
-    ),
-    "width-mismatch-dependent-output": (
-        DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)"),
         False,
         None,
     ),
@@ -449,6 +413,26 @@ CASES = {
 
 # name -> (source, required acceptance, diagnostic the current compiler emits)
 PARAMETER_MISMATCHES = {
+    "forwarded-dependent-parameter": (
+        FORWARDED,
+        False,
+        "behavioral module static parameters are unsupported",
+    ),
+    "child-explicit-parameter-output": (
+        DEPENDENT_CHILD,
+        False,
+        "direct module value calls require a typed struct or tuple return and no static parameters",
+    ),
+    "child-explicit-parameter-nine-bit-output": (
+        DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)").replace("ac.u8", "ac.u9"),
+        False,
+        "direct module value calls require a typed struct or tuple return and no static parameters",
+    ),
+    "width-mismatch-dependent-output": (
+        DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)"),
+        False,
+        "direct module value calls require a typed struct or tuple return and no static parameters",
+    ),
     "dependent-input-width-not-resolved": (DEPENDENT_INPUT, False, BOUNDARY),
     "dependent-output-width-not-resolved": (DEPENDENT_OUTPUT, False, BOUNDARY),
 }
@@ -490,6 +474,14 @@ def run(command, accepted):
         "stderr": result.stderr,
     }
     return result
+
+
+def snapshot(path):
+    return {
+        item.relative_to(path).as_posix(): item.read_bytes()
+        for item in path.rglob("*")
+        if item.is_file()
+    }
 
 
 # The IR helpers below follow the published technique of the existing
@@ -589,10 +581,10 @@ def verify_rule_suffix(text, rule_name, inputs, checks):
     return published
 
 
-def compile_case(name, text, accepted, build):
+def compile_case(name, text, accepted, build, *, output=None, replace=False):
     design = build / "source" / (name.replace("-", "_") + ".py")
     design.write_text(text)
-    unit = build / ("unit-" + name)
+    unit = output if output is not None else build / ("unit-" + name)
     command = [
         sys.executable,
         "-m",
@@ -607,6 +599,8 @@ def compile_case(name, text, accepted, build):
         "-o",
         unit,
     ]
+    if replace:
+        command.append("--replace")
     return unit, run(command, accepted)
 
 
@@ -643,6 +637,23 @@ for name, (text, _required, diagnostic) in PARAMETER_MISMATCHES.items():
     if observed or diagnostic not in result.stderr:
         mismatches.append((name, False, result.stderr))
     assert not unit.exists(), name + " published a rejected unit"
+    replacement_protected = False
+    if name == "forwarded-dependent-parameter":
+        replacement, _ = compile_case(
+            name + "-replacement-control", CONCRETE_CHILD, True, build
+        )
+        before = snapshot(replacement)
+        _, replacement_result = compile_case(
+            name,
+            text,
+            False,
+            build,
+            output=replacement,
+            replace=True,
+        )
+        assert diagnostic in replacement_result.stderr
+        assert snapshot(replacement) == before
+        replacement_protected = True
     sys.stdout.write(f"REJECT parameter-default-not-a-proof {name}\n")
     log["parameter_mismatches"].append(
         {
@@ -651,6 +662,7 @@ for name, (text, _required, diagnostic) in PARAMETER_MISMATCHES.items():
             "observed": observed,
             "stderr": result.stderr,
             "source": text,
+            "replacement_output_protected": replacement_protected,
         }
     )
 (build / "adversarial-results.json").write_text(json.dumps(log, indent=2) + "\n")

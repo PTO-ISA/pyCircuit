@@ -1,5 +1,26 @@
 module tb;
-logic pyc_7079635f636c6b=0,pyc_7079635f727374=1,valid=0,take=0;logic[7:0]data=0;wire[9:0]result;pyc_root dut(.*);
+logic pyc_7079635f636c6b=0,pyc_7079635f727374=1,valid=0,take=0;logic[7:0]data=0;wire[9:0]result;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
+  pyc_root dut(.*);
+  // Freeze permission from the complete prepared error channel before Xfer.
+  task automatic checked_prepare;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 &&
+                        pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin
+      pyc_phase=3;#1;
+      $fatal(1,"prepared table_rule row failed completion/sampling/check validation");
+    end
+  endtask
+  task automatic checked_xfer;
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
 logic[7:0]source[0:1],output_data=0,images[0:1],independent[0:1],admitted[0:4095],snapshots[0:4095];
 integer count=0,ih=0,it=0,oh=0,ot=0,birth[0:4095],snapshot_birth[0:4095],edge_index=0,row_index=0;
 integer accepted=0,retired=0,dropped=0,peak=0,blocked=0,replacements=0,fullReset=0;bit ov=0,last=0;
@@ -22,7 +43,7 @@ endfunction
 task row(input bit c,r,v,t,input logic[7:0]p=0,input bit four=0);
 bit pop,room,move,ready;logic[7:0]prior;integer physical;
 pop=ov&&t;room=!ov||pop;move=count>0&&room;ready=count<2||move;
-pyc_7079635f727374=r;valid=v;take=t;data=p;#1;
+pyc_7079635f636c6b=c;pyc_7079635f727374=r;valid=v;take=t;data=p;#1;checked_prepare();
 if(result!=={ready,ov,ov?output_data:8'd0})$fatal(1,"table_rule old-slot row%0d",row_index);
 if(four)$display("FOUR %0d %0d %0d %b",row_index,result[9],result[8],result[7:0]);else $display("WORK %0d %0d %0d %b",row_index,result[9],result[8],result[7:0]);
 if(c&&!last)begin
@@ -44,7 +65,7 @@ if(c&&!last)begin
  physical=count+ov;if(physical>peak)peak=physical;
  if(count>2||physical>3||count!=it-ih||int'(ov)!=ot-oh||images[0]!==independent[0]||images[1]!==independent[1])$fatal(1,"three-token/table old-state conservation");
 end
-last=c;pyc_7079635f636c6b=c;#1;row_index=row_index+1;
+last=c;checked_xfer();row_index=row_index+1;
 endtask
 task edge_row(input logic[7:0]p=0,input bit v=0,t=1,r=0,four=0);row(0,r,v,t,p,four);row(1,r,v,t,p,four);endtask
 task drain(input bit four);for(integer i=0;i<8;i=i+1)edge_row(0,0,1,0,four);if(count+ov!=0)$fatal(1,"finite table_rule drain");endtask
@@ -73,12 +94,13 @@ fill(four);edge_row(0,1,1,1,four);drain(four);
 if(row_index!=(four?1613:2687)||count+ov!=0||accepted!=retired+dropped||peak!=3||fullReset<2||blocked<2||replacements<8)$fatal(1,"bounded table_rule coverage");
 $display("HISTORY_RTL %0d %0d %0d %0d %0d %0d %0d",accepted,retired,dropped,peak,blocked,replacements,fullReset);
 endtask
-task reset_dut;valid=0;take=0;pyc_7079635f727374=1;pyc_7079635f636c6b=0;#1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;endtask
+task reset_dut;valid=0;take=0;pyc_7079635f727374=1;pyc_7079635f636c6b=0;checked_prepare();checked_xfer();#1;pyc_7079635f636c6b=1;checked_prepare();checked_xfer();#1;pyc_7079635f636c6b=0;checked_prepare();checked_xfer();pyc_7079635f727374=0;#1;endtask
 initial begin
+#1;host_reset();
 `ifdef PYC_TABLE_RULE_NEGATIVE_POP
-reset_dut();valid=1;data=entry(1,7);#1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;valid=0;#1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;take=1'bx;#1;pyc_7079635f636c6b=1;#2;$fatal(1,"EXPECTED_REJECTION_MISSING");
+reset_dut();valid=1;data=entry(1,7);#1;pyc_7079635f636c6b=1;checked_prepare();checked_xfer();#1;pyc_7079635f636c6b=0;checked_prepare();checked_xfer();valid=0;#1;pyc_7079635f636c6b=1;checked_prepare();checked_xfer();#1;pyc_7079635f636c6b=0;checked_prepare();checked_xfer();take=1'bx;#1;pyc_7079635f636c6b=1;checked_prepare();checked_xfer();#2;$fatal(1,"EXPECTED_REJECTION_MISSING");
 `elsif PYC_TABLE_RULE_NEGATIVE_ACCEPT
-reset_dut();valid=1'bx;#1;pyc_7079635f636c6b=1;#2;$fatal(1,"EXPECTED_REJECTION_MISSING");
+reset_dut();valid=1'bx;#1;pyc_7079635f636c6b=1;checked_prepare();checked_xfer();#2;$fatal(1,"EXPECTED_REJECTION_MISSING");
 `else
 reset_dut();sequence_rows(0);
 `ifdef PYC_TABLE_RULE_FOUR_STATE

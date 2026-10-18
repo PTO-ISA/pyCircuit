@@ -9,7 +9,13 @@
 namespace acir::ac::detail {
 class SourceCheckBudget;
 
-enum class SampledControlKind : uint8_t { CallableGuard, BranchSelect };
+enum class SampledControlKind : uint8_t { CallableGuard, BranchSelect, ValueAvailable, ResourceAvailable };
+struct SampledValueRequirement {
+  uint64_t control = 0, operand = 0;
+  mlir::StringAttr kind;
+  mlir::DictionaryAttr occurrence, location;
+  ValueRequireOp operation;
+};
 struct SampledPathRef {
   std::optional<uint64_t> selectionControl;
   bool whenTrue = false;
@@ -37,6 +43,47 @@ struct SampledObservationView {
   mlir::Value path;
   llvm::SmallVector<mlir::Value> values;
 };
+struct SampledEhrPredecessor {
+  mlir::DictionaryAttr registration;
+  uint64_t dataCapture = 0, enableCapture = 0;
+  mlir::Value data, enable;
+};
+struct SampledEhrEntry {
+  mlir::DictionaryAttr stateID;
+  uint64_t oldQCapture = 0, result = 0;
+  mlir::Value oldQ, selected;
+  llvm::SmallVector<SampledEhrPredecessor> predecessors;
+};
+struct SampledQueueProspectiveView {
+  uint64_t capacityCapture = 0;
+  std::optional<uint64_t> validCapture, externalPopCapture;
+  llvm::SmallVector<uint64_t> priorPops;
+};
+struct SampledResourceView {
+  uint64_t control = 0;
+  mlir::StringAttr kind;
+  mlir::DictionaryAttr owner, declaration, occurrence, location;
+  std::optional<SampledQueueProspectiveView> prospective;
+};
+struct SampledQueueProposalView {
+  mlir::DictionaryAttr queue;
+  mlir::StringAttr kind;
+  mlir::DictionaryAttr occurrence, location;
+  uint64_t rawPathResult = 0, pathResult = 0;
+  mlir::Value rawPath, path;
+  std::optional<uint64_t> resourceControl, dataResult;
+  mlir::Value data;
+  llvm::SmallVector<uint64_t> excludedControls;
+};
+struct SampledWriteDomainView {
+  uint64_t candidate = 0, maskResult = 0;
+  mlir::ArrayAttr selectors;
+  mlir::Value mask;
+  mlir::DictionaryAttr stateID;
+  mlir::Type ownerType;
+  TableType table;
+  mlir::ArrayAttr prefix, suffix;
+};
 struct SampledAdmissionView {
   ModuleOp definition;
   RuleOp rule;
@@ -46,10 +93,15 @@ struct SampledAdmissionView {
   llvm::SmallVector<SampledControlView> controls;
   llvm::SmallVector<SampledBodyCheckView> bodyChecks;
   llvm::SmallVector<SampledObservationView> observations;
+  llvm::SmallVector<SampledEhrEntry> ehrEntries;
+  llvm::SmallVector<SampledValueRequirement> requirements;
+  llvm::SmallVector<SampledResourceView> resources;
+  llvm::SmallVector<SampledQueueProposalView> queueProposals;
+  llvm::SmallVector<SampledWriteDomainView> writeDomains;
 };
 struct TransactionStateInventoryEntry {
   mlir::DictionaryAttr declaration;
-  InstanceOp storage;
+  mlir::Operation *storage = nullptr;
 };
 struct TransactionIncomingView {
   mlir::DictionaryAttr stateID;
@@ -169,6 +221,8 @@ public:
   static uint64_t intentRootStorageBytes();
   static uint64_t intentFrameStorageBytes();
   /// Actual private prefix-proof records, shared with raw prepayment.
+  static uint64_t identityMemoEntryStorageBytes();
+  static uint64_t prefixIndexEntryStorageBytes();
   static uint64_t prefixKnownAtomStorageBytes();
   static uint64_t prefixValueStorageBytes();
   static uint64_t prefixCacheStorageBytes();
@@ -192,7 +246,7 @@ private:
 struct PhysicalStateEndpoint {
   HardwareIdentityScope ownerScope;
   ModuleOp owner;
-  InstanceOp storage;
+  mlir::Operation *storage = nullptr;
   HardwareBindings ownerBindings, storageBindings;
   mlir::Type payloadType;
   mlir::Value clock, reset, enable, data, initial, q;

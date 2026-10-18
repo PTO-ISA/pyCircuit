@@ -1,5 +1,6 @@
 add_acir_library(ACIRDialect SOURCES
   ACIRConstantOps.cpp
+  ACIRSourceControlFlowOps.cpp
   ACIRDialect.cpp
   ACIREnumOps.cpp
   ACIRIdentityContracts.cpp
@@ -25,6 +26,7 @@ add_acir_library(ACIRDialect SOURCES
   SourceValueSemantics.cpp
   SourceEffects.cpp
   SourceMethodAnalysis.cpp
+  SourceRegistrationEntry.cpp
   SourceTransactionStateAnalysis.cpp
   SourceMethodResolution.cpp
   SourceHelperAnalysis.cpp
@@ -36,6 +38,9 @@ add_acir_library(ACIRDialect SOURCES
   HardwareAnalysis.cpp
   HardwareAnalysisDependencies.cpp
   HardwareAnalysisValidation.cpp
+  HardwareValueAvailability.cpp
+  HardwareQueueResources.cpp
+  HardwareGrantProof.cpp
   HardwareSourceChecks.cpp
   HardwareSampledAdmission.cpp
   HardwareSourceCheckPreflight.cpp

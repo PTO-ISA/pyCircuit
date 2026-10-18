@@ -1,5 +1,8 @@
 module tb;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1,valid_in=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic [15:0] a_in=0,b_in=0;
   logic [31:0] acc_in=0;
   wire [32:0] result;
@@ -41,6 +44,16 @@ module tb;
     packed_exp=((exponent>ce?exponent:ce)+1024+displacement)&255;
     return {sign,8'(packed_exp),23'(normalized)};
   endfunction
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared bf16_fmac row failed completion/sampling/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   task row(input bit c,r,v,input logic[63:0] operands);
     integer occupancy;
     pyc_7079635f727374=r;valid_in=v;
@@ -68,7 +81,7 @@ module tb;
         if(occupancy>peak)peak=occupancy;
       end
     end
-    last_clock=c;sampled=sampled+1;pyc_7079635f636c6b=c;#1;
+    last_clock=c;sampled=sampled+1;pyc_7079635f636c6b=c;#1;managed_commit();
   endtask
   task edge_row(input logic[63:0] operands,input bit v=1,r=0,held=0);
     row(1,r,v,operands);
@@ -108,7 +121,8 @@ module tb;
        evaluated(cases[16])!==32'h41800000||evaluated(cases[17])!==32'h3e800000)
       $fatal(1,"fmac literal arithmetic anchors");
     for(integer k=0;k<3;k=k+1)begin stage_valid[k]=0;stage_data[k]=0;end
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();
+    pyc_7079635f636c6b=0;#1;managed_commit();
     row(0,1,0,cases[0]);edge_row(cases[0],0,1);edge_row(cases[4]);
     for(integer i=0;i<5;i=i+1)edge_row(cases[6],0);
     for(integer i=0;i<3;i=i+1)edge_row(cases[i]);

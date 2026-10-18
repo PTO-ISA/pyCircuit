@@ -1,4 +1,5 @@
 #include "SourceLink.h"
+#include "LiteralPayloadWires.h"
 #include "SourceHeaderHelpers.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
@@ -17,6 +18,42 @@ using namespace mlir;
 
 namespace acir::compiler {
 namespace {
+
+// Source pairs and native IR are authenticated before this pass sees the
+// linked clone. Keep compile-time boundary wires in published source units;
+// compact only redundant literal payload inputs before transaction planning.
+class CompactLiteralPayloadWiresPass final
+    : public PassWrapper<CompactLiteralPayloadWiresPass,
+                         OperationPass<mlir::ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(CompactLiteralPayloadWiresPass)
+
+  void runOnOperation() final {
+    for (auto module : getOperation().getOps<ac::ModuleOp>()) {
+      auto &block = module.getBody().front();
+      for (auto extract :
+           llvm::make_early_inc_range(block.getOps<ac::BitsExtractOp>())) {
+        Value input = detail::literalPayloadReplacement(extract, block);
+        if (!input) continue;
+        extract.getResult().replaceAllUsesWith(input);
+        extract.erase();
+      }
+      // This standard link pass operates on the already admitted clone. Keep
+      // the existing hardware/transaction verification limits at their owners.
+      auto plan = detail::planLiteralPayloadConstants(
+          block, [](uint64_t, uint64_t) { return success(); });
+      if (failed(plan)) {
+        module.emitError("literal payload plan exceeds container capacity");
+        signalPassFailure();
+        return;
+      }
+      for (auto [constant, representative] : *plan) {
+        constant.getResult().replaceAllUsesWith(representative);
+        constant.erase();
+      }
+    }
+  }
+};
 
 struct TransactionStageCapture {
   unsigned beforeCount = 0;
@@ -244,6 +281,8 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   // printing, using existing hardware limits for packages with no transactions.
   TransactionStageCapture capture;
   PassManager pipeline(context);
+  pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
+  pipeline.addPass(std::make_unique<CompactLiteralPayloadWiresPass>());
   if (ac::detail::findUnloweredTransaction(linked->getOperation()))
     pipeline.addPass(acir::createAnalyzeTransactionStateSSAPass());
   else

@@ -29,6 +29,16 @@ template <unsigned W, class Output> void check(const Output &output, std::string
   require(actual == expected);
 }
 #include "static-divrem-vectors.hpp"
+
+template <class Inputs> void drive_known_domain(pyc_dut &dut, Inputs ports) {
+  if constexpr (requires(Inputs value) { value.pyc_7079635f636c6b; }) {
+    ports.pyc_7079635f636c6b =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+    ports.pyc_7079635f727374 =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+  }
+  dut.drive(ports);
+}
 int main(int argc, char **argv) {
   require(argc == 2);
   pyc_dut dut(static_cast<unsigned>(std::stoul(argv[1])));
@@ -42,9 +52,14 @@ int main(int argc, char **argv) {
   for (unsigned row = 0; row < std::size(expected); ++row) {
     pyc_dut::Inputs ports;
     drive(ports, row);
-    dut.drive(ports);
+    drive_known_domain(dut, ports);
     PycircuitModelStepResultV1 status{sizeof(status)};
-    require(executor.Step(&status) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+    const auto step_status = executor.Step(&status);
+    if (step_status != PYCIRCUIT_MODEL_STATUS_V1_OK) {
+      std::cerr << "static divrem step=" << static_cast<int>(step_status)
+                << " state=" << static_cast<int>(status.state) << '\n';
+      std::abort();
+    }
     require(status.state == PYCIRCUIT_MODEL_STEP_V1_RUNNING);
     check<result_width>(dut.sample().result, expected[row]);
     std::cout << (row >= known_sample_count && (row - known_sample_count) % 2 == 0 ? "MASK " : "WORK ") << row << '\n';

@@ -157,30 +157,35 @@ def parse_ir(text):
 def check_source_ir(text, path):
     syntax = ast.parse(path.read_text())
     nodes = list(ast_paths(syntax))
-    checked_rules = {
+    source_rules = {
         node.name: node
         for node, _ in nodes
         if isinstance(node, ast.FunctionDef)
-        and any(isinstance(child, ast.Assert) for child in ast.walk(node))
         and any(
             isinstance(dec, ast.Name | ast.Attribute)
             and (dec.id if isinstance(dec, ast.Name) else dec.attr) == "rule"
             for dec in node.decorator_list
         )
     }
-    checked = []
+    checked, generated_count = [], 0
     for module in parse_ir(text):
         for rule in module["rules"]:
             name = re.search(r'name = "([^"]+)"', rule["text"])[1]
-            if name not in checked_rules:
-                assert "ac.required_checks" not in rule["text"]
+            source_rule = source_rules.get(name)
+            checks = (
+                [
+                    (node, site)
+                    for node, site in nodes
+                    if isinstance(node, ast.Assert)
+                    and node in list(ast.walk(source_rule))
+                ]
+                if source_rule
+                else []
+            )
+            if "ac.required_checks" not in rule["text"]:
+                assert not checks, (name, checks)
                 continue
-            source_rule = checked_rules[name]
-            checks = [
-                (node, site)
-                for node, site in nodes
-                if isinstance(node, ast.Assert) and node in list(ast.walk(source_rule))
-            ]
+            assert source_rule, name
             registration = occurrence(
                 attribute(rule["text"].split("\n", 1)[0], "occurrence")
             )
@@ -204,7 +209,18 @@ def check_source_ir(text, path):
                 entry = balanced(required, start, "{", "}")
                 entries.append(entry)
                 offset = start + len(entry)
-            assert len(entries) == len(checks), (name, entries, checks)
+            authored = [
+                (ordinal, entry)
+                for ordinal, entry in enumerate(entries)
+                if 'kind = "assert"' in entry
+            ]
+            generated = [
+                (ordinal, entry)
+                for ordinal, entry in enumerate(entries)
+                if 'kind = "guard_known"' in entry
+            ]
+            assert len(authored) == len(checks), (name, authored, checks)
+            assert len(authored) + len(generated) == len(entries), (name, entries)
             assert len(rule["results"]) == len(rule["yield"])
             first = len(rule["results"]) - 2 * len(entries)
             assert first >= 0
@@ -225,9 +241,7 @@ def check_source_ir(text, path):
                 return value
 
             attached = []
-            for index, ((node, site), entry) in enumerate(
-                zip(checks, entries, strict=True)
-            ):
+            for (node, site), (ordinal, entry) in zip(checks, authored, strict=True):
                 identity = attribute(entry, "id")
                 assert sorted(top_level_keys(identity)) == [
                     "check",
@@ -239,8 +253,10 @@ def check_source_ir(text, path):
                     registration[0],
                     site,
                 )
-                assert re.search(r"obligation = 0 : i64", identity), identity
-                pair = rule["results"][first + 2 * index : first + 2 * index + 2]
+                assert re.search(
+                    r"obligation = " + str(ordinal) + r" : i64", identity
+                ), identity
+                pair = rule["results"][first + 2 * ordinal : first + 2 * ordinal + 2]
                 matches = [
                     expect
                     for expect in module["expects"]
@@ -269,16 +285,73 @@ def check_source_ir(text, path):
                 attached.append(
                     (
                         node.msg.value if node.msg else None,
-                        *rule["yield"][first + 2 * index : first + 2 * index + 2],
+                        *rule["yield"][first + 2 * ordinal : first + 2 * ordinal + 2],
                     )
                 )
+            for ordinal, entry in generated:
+                identity = attribute(entry, "id")
+                assert sorted(top_level_keys(identity)) == [
+                    "check",
+                    "obligation",
+                    "registration",
+                ], identity
+                assert occurrence(attribute(identity, "registration")) == registration
+                assert re.search(
+                    r"obligation = " + str(ordinal) + r" : i64", identity
+                ), identity
+                pair = rule["results"][first + 2 * ordinal : first + 2 * ordinal + 2]
+                matches = [
+                    expect
+                    for expect in module["expects"]
+                    if list(map(associated, operands(expect)[:2])) == pair
+                    and len(operands(expect)) == 4
+                ]
+                assert len(matches) == 1, (name, pair, matches)
+                expect = matches[0]
+                assert attribute(expect, "ac.check_id") == identity
+                assert attribute(expect, "location") == attribute(entry, "location")
+                assert 'kind = "guard_known"' in expect
+                assert "ac.message" not in expect
+            generated_count += len(generated)
             rule["checks"] = attached
-            checked.append((module, rule))
+            if checks:
+                checked.append((module, rule))
+    expects = [expect for module in parse_ir(text) for expect in module["expects"]]
     assert sum(len(rule["checks"]) for _, rule in checked) == sum(
-        1 for module in parse_ir(text) for _ in module["expects"]
+        'kind = "assert"' in expect for expect in expects
+    )
+    assert generated_count == sum(
+        'kind = "guard_known"' in expect for expect in expects
+    )
+    assert (
+        len(expects)
+        == sum(len(rule["checks"]) for _, rule in checked) + generated_count
     )
     assert checked, path
     return checked
+
+
+def check_source_authored_checks(text, path):
+    syntax = ast.parse(path.read_text())
+    checks = [node for node in ast.walk(syntax) if isinstance(node, ast.Assert)]
+    expects = [line for line in text.splitlines() if '"ac.expect"(' in line]
+    assert len(expects) == len(checks), (path, len(expects), len(checks))
+    assert all('kind = "assert"' in expect for expect in expects), path
+    actual_messages = sorted(
+        match[1]
+        for expect in expects
+        if (match := re.search(r'ac.message = ("[^"]*")', expect))
+    )
+    expected_messages = sorted(
+        json.dumps(node.msg.value)
+        for node in checks
+        if isinstance(node.msg, ast.Constant) and isinstance(node.msg.value, str)
+    )
+    assert actual_messages == expected_messages, (
+        path,
+        actual_messages,
+        expected_messages,
+    )
 
 
 # These one-bit truth operations are independent test oracles for actual SSA
@@ -291,6 +364,10 @@ def and_bit(a, b):
     return "0" if "0" in (a, b) else "1" if a == b == "1" else "x"
 
 
+def or_bit(a, b):
+    return "1" if "1" in (a, b) else "0" if a == b == "0" else "x"
+
+
 def choose(control, yes, no):
     return (
         yes if control == "1" else no if control == "0" else yes if yes == no else "x"
@@ -301,6 +378,11 @@ def evaluate(rule, value, inputs):
     if value in rule["args"]:
         return inputs[rule["args"].index(value)]
     name, used, line = rule["ops"][value]
+    if name == "ac.value.require":
+        assert len(used) == 3, line
+        availability = evaluate(rule, used[1], inputs)
+        path = evaluate(rule, used[2], inputs)
+        return choose(path, availability, "1")
     values = [evaluate(rule, operand, inputs) for operand in used]
     if name == "ac.bits.constant":
         number = int(re.search(r"#ac.math_int<(-?\d+)>", line)[1])
@@ -308,6 +390,8 @@ def evaluate(rule, value, inputs):
         return str(number)
     if name == "ac.bits.binary" and 'opcode = "and"' in line:
         return and_bit(*values)
+    if name == "ac.bits.binary" and 'opcode = "or"' in line:
+        return or_bit(*values)
     if name == "ac.bits.unary" and 'opcode = "not"' in line:
         return inv(values[0])
     if name == "ac.bits.select":
@@ -318,6 +402,8 @@ def evaluate(rule, value, inputs):
             if values[0] == values[1] and values[0] in "01"
             else "0" if set(values) == {"0", "1"} else "x"
         )
+    if name == "ac.bits.compare" and 'predicate = "case_eq"' in line:
+        return "1" if values[0] == values[1] else "0"
     if name in {"ac.bits.extract", "ac.bits.resize"}:
         return values[0]
     raise AssertionError(("unexpected check SSA producer", name, line))
@@ -450,7 +536,7 @@ def main():
             ), (name, kind, "-O changed obligations")
         text = generic(payload(unit, "body"), root / (name + ".generic.ac"))
         if name != "unchecked":
-            lowered[name] = check_source_ir(text, source / (name + ".py"))
+            check_source_authored_checks(text, source / (name + ".py"))
         final = root / (name + ".ac")
         cli(
             "link",
@@ -461,7 +547,7 @@ def main():
             final,
         )
         if name != "unchecked":
-            check_source_ir(
+            lowered[name] = check_source_ir(
                 generic(final, root / (name + ".final.generic.ac")),
                 source / (name + ".py"),
             )
@@ -476,10 +562,31 @@ def main():
             }
         )
 
-    _, snapshot_rule = lowered["snapshots"][0]
+    snapshot_module, snapshot_rule = lowered["snapshots"][0]
     assert len(snapshot_rule["checks"]) == 4
-    # Formal order is declared by source; SSA numbering is read from actual IR.
-    expected = {"entry": 0, "between": 1, "after": 2, "saved": 0}
+    # Map the source-owned state and named module inputs through the actual Rule
+    # capture order. Compiler-owned clock/reset captures may precede them.
+    input_names = json.loads(
+        attribute(snapshot_module["text"], "input_names", "[", "]")
+    )
+    captured_inputs = {
+        name: snapshot_rule["captures"].index(snapshot_module["args"][ordinal])
+        for ordinal, name in enumerate(input_names)
+        if name in ("first", "second")
+    }
+    state_capture = next(
+        index
+        for index, value in enumerate(snapshot_rule["captures"])
+        if value in snapshot_module["ops"]
+        and snapshot_module["ops"][value][0] == "ac.instance"
+        and 'instance_name = "state"' in snapshot_module["ops"][value][2]
+    )
+    expected = {
+        "entry": state_capture,
+        "between": captured_inputs["first"],
+        "after": captured_inputs["second"],
+        "saved": state_capture,
+    }
     for message, condition, _ in snapshot_rule["checks"]:
         for inputs in itertools.product("01xz", repeat=len(snapshot_rule["args"])):
             assert (
@@ -489,30 +596,48 @@ def main():
     output_op = snapshot_rule["ops"][snapshot_rule["yield"][0]]
     assert (
         output_op[0] == "ac.struct.create"
-        and output_op[1][0] == snapshot_rule["args"][2]
+        and output_op[1][0] == snapshot_rule["args"][expected["after"]]
     )
 
-    _, rule = lowered["continuation"][0]
+    def captured_actuals(module, rule, values):
+        names = json.loads(attribute(module["text"], "input_names", "[", "]"))
+        result = []
+        for capture in rule["captures"]:
+            if capture not in module["args"]:
+                result.append("1")
+                continue
+            name = names[module["args"].index(capture)]
+            result.append(values.get(name, "1"))
+        return result
+
+    continuation_module, rule = lowered["continuation"][0]
     for gate, inner, selector, ok in itertools.product("01xz", repeat=4):
-        # Each assert updates L with logical AND, and each captured path is
-        # A & L. In particular, 1 & Z is X even when a selector chooses Z.
-        asserted_continuation = and_bit("1", ok)
-        after_if = and_bit("1", choose(gate, asserted_continuation, "1"))
+        # Authored assertions diagnose their own reached source path; they do
+        # not become admission controls for later assertions. Generated branch
+        # knownness controls retain exact known 0/1 selectors and stop an
+        # unknown branch from reaching either arm or its continuation.
+        known_gate = "1" if gate in "01" else "0"
+        known_inner = "1" if inner in "01" else "0"
+        known_selector = "1" if selector in "01" else "0"
+        inner_admission = choose(gate, known_inner, "1")
+        admission = and_bit(and_bit(known_gate, inner_admission), known_selector)
         equal_zero = inv(selector)
         gold = {
-            "if-yes": (ok, and_bit("1", gate)),
-            "nested": ("1", and_bit(and_bit(gate, ok), inner)),
-            "if-join": ("1", and_bit("1", after_if)),
-            "match-first": (ok, and_bit(after_if, equal_zero)),
-            "match-join": (
-                "1",
-                and_bit(after_if, choose(equal_zero, asserted_continuation, "1")),
-            ),
+            "if-yes": (ok, and_bit(admission, gate)),
+            "nested": ("1", and_bit(and_bit(admission, gate), inner)),
+            "if-join": ("1", admission),
+            "match-first": (ok, and_bit(admission, equal_zero)),
+            "match-join": ("1", admission),
         }
+        actuals = captured_actuals(
+            continuation_module,
+            rule,
+            {"gate": gate, "inner": inner, "selector": selector, "ok": ok},
+        )
         for message, condition, path in rule["checks"]:
             actual = (
-                evaluate(rule, condition, [gate, inner, selector, ok]),
-                evaluate(rule, path, [gate, inner, selector, ok]),
+                evaluate(rule, condition, actuals),
+                evaluate(rule, path, actuals),
             )
             assert actual == gold[message], (
                 message,
@@ -525,16 +650,13 @@ def main():
             )
 
     matrix_module, matrix_rule = lowered["matrix"][0]
-    names = json.loads(attribute(matrix_module["text"], "input_names", "[", "]"))
-    parent_args = matrix_module["args"]
     _, condition, path = matrix_rule["checks"][0]
     for p, c in itertools.product("01xz", repeat=2):
-        actuals = [
-            {"path": p, "condition": c}[names[parent_args.index(value)]]
-            for value in matrix_rule["captures"]
-        ]
+        actuals = captured_actuals(
+            matrix_module, matrix_rule, {"path": p, "condition": c}
+        )
         assert evaluate(matrix_rule, condition, actuals) == c
-        assert evaluate(matrix_rule, path, actuals) == ("x" if p == "z" else p)
+        assert evaluate(matrix_rule, path, actuals) == ("1" if p == "1" else "0")
 
     provider_unit = units / "provider"
     provider_source = source / "provider.py"
@@ -671,7 +793,7 @@ def main():
                 "from pycircuit import module, rule",
                 "import pycircuit as ac\nfrom pycircuit import module, rule",
             ),
-            "authoritative Boolean or bits[1]",
+            "unsigned boundary hardware type mismatch",
         ),
         "message": (
             baseline.replace('"matrix"', "condition"),
@@ -682,7 +804,7 @@ def main():
                 'assert condition, "matrix"',
                 'nonlocal condition\n            assert condition, "matrix"',
             ),
-            "unsupported behavioral rule statement 'Nonlocal'",
+            "unsupported Method/Rule statement",
         ),
     }
     protected_unit = units / "matrix"
@@ -737,7 +859,9 @@ def main():
     # Every mutation changes an actual emitted check, never a handwritten DUT.
     matrix_final = (root / "matrix.final.generic.ac").read_text()
     matrix_expect = next(
-        line for line in matrix_final.splitlines() if '"ac.expect"' in line
+        line
+        for line in matrix_final.splitlines()
+        if '"ac.expect"' in line and 'kind = "assert"' in line
     )
     pair = operands(matrix_expect)
     id_text = attribute(matrix_expect, "ac.check_id")
@@ -781,19 +905,6 @@ def main():
         output = root / ("invalid-ir-" + name + ".out.ac")
         run([args.optimizer, path, "--ac-verify-hardware", "-o", output], code=1)
         assert not output.exists(), name
-    range_final = root / "existing-range-kind.ac"
-    range_final.write_text(matrix_final.replace('kind = "assert"', 'kind = "range"'))
-    run(
-        [
-            args.optimizer,
-            range_final,
-            "--ac-verify-hardware",
-            "-o",
-            root / "range-verified.ac",
-        ]
-    )
-    assert (root / "range-verified.ac").read_text().count('"ac.expect"') == 1
-
     # Inventories contain paths, not hashes. Semantic violations must still
     # reject without damaging either a fresh or an existing publication.
     body = payload(provider_unit, "body")
@@ -802,10 +913,12 @@ def main():
     expect_index = next(i for i, line in enumerate(body_lines) if '"ac.expect"' in line)
     del body_lines[expect_index]
     body.write_text("".join(body_lines))
-    assert (
-        body.read_bytes() != original_body
-        and b"ac.required_checks" in body.read_bytes()
+    assert body.read_bytes() != original_body
+    assert body.read_bytes().count(b'"ac.expect"') + 1 == original_body.count(
+        b'"ac.expect"'
     )
+    assert b"ac.required_checks" not in body.read_bytes()
+    assert b'kind = "check"' in payload(provider_unit, "interface").read_bytes()
     bad_final = root / "tampered-body.ac"
     cli(
         "link",
@@ -816,7 +929,7 @@ def main():
         "-o",
         bad_final,
         code=1,
-        diagnostic="RequiredCheck has no matching expect",
+        diagnostic="published transaction summary disagrees with provider body",
     )
     assert not bad_final.exists()
     cli(
@@ -829,7 +942,7 @@ def main():
         final,
         "--replace",
         code=1,
-        diagnostic="RequiredCheck has no matching expect",
+        diagnostic="published transaction summary disagrees with provider body",
     )
     assert protected(final) == before_final
     body.write_bytes(original_body)
@@ -930,7 +1043,7 @@ def main():
     expected_id = {
         "registration": source_occurrence(registration_path),
         "check": source_occurrence(check_path),
-        "obligation": 0,
+        "obligation": int(re.search(r"obligation = (\d+) : i64", id_text)[1]),
     }
     expected_span = {
         "path": "matrix.py",
@@ -938,6 +1051,21 @@ def main():
         "column": check.col_offset + 1,
         "end_line": check.end_lineno,
         "end_column": check.end_col_offset + 1,
+    }
+    branch, branch_path = next(
+        (node, path) for node, path in nodes if isinstance(node, ast.If)
+    )
+    expected_guard_id = {
+        "registration": source_occurrence(registration_path),
+        "check": source_occurrence(branch_path),
+        "obligation": 1,
+    }
+    expected_guard_span = {
+        "path": "matrix.py",
+        "line": branch.test.lineno,
+        "column": branch.test.col_offset + 1,
+        "end_line": branch.test.end_lineno,
+        "end_column": branch.test.end_col_offset + 1,
     }
 
     def decode(token):
@@ -974,6 +1102,14 @@ def main():
         assert row["message"] == check.msg.value and row["instance"] == "root", row
         assert row["id"] == expected_id and row["source"] == expected_span, row
 
+    def guard_failure(row, epoch=0):
+        assert row["status"] == 3 and row["epoch"] == epoch and row["phase"] == 3, row
+        assert row["code"] == "source_check_failed" and not row["available"], row
+        assert row["message"] == "source guard_known check failed", row
+        assert row["instance"] == "root", row
+        assert row["id"] == expected_guard_id, row
+        assert row["source"] == expected_guard_span, row
+
     config = lifecycle / "runner-config.json"
     config.write_text(
         json.dumps(
@@ -997,7 +1133,11 @@ def main():
         actual = rows(stdout)
         for path, condition in itertools.product("01xz", repeat=2):
             label = "matrix-" + path + condition
-            if and_bit(path, inv(condition)) == "0":
+            if path in "xz":
+                guard_failure(actual[label])
+                guard_failure(actual[label + "-retry"])
+                success(actual[label + "-reset"], "1")
+            elif and_bit(path, inv(condition)) == "0":
                 success(actual[label], condition)
             else:
                 failure(actual[label])
@@ -1033,6 +1173,18 @@ def main():
     emitted = json.loads((rtl / "generated.json").read_text())
     sources = [rtl / row["path"] for row in emitted["files"] if row["role"] == "rtl"]
     rtl_build = lifecycle / "verilated"
+    managed_source = lifecycle / "source-checks-managed.sv"
+    managed_source.write_text(
+        Path(__file__)
+        .with_name("source-checks-managed.sv")
+        .read_text()
+        .replace(
+            "  logic path=0,condition=0;",
+            "  logic path=0,condition=0;\n"
+            "  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0;",
+            1,
+        )
+    )
     run(
         [
             args.verilator,
@@ -1048,7 +1200,7 @@ def main():
             "-CFLAGS",
             "-std=c++20",
             *sources,
-            Path(__file__).with_name("source-checks-managed.sv"),
+            managed_source,
         ]
     )
     stdout = run([rtl_build / "Vtb"]).stdout

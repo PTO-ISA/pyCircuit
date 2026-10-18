@@ -477,7 +477,7 @@ deep_driver.write_text(
 #include <iostream>
 #include <type_traits>
 template<unsigned W> auto known(unsigned value){return gfsim::wire<gfsim::Bits<W>>::known(gfsim::Bits<W>{value});}
-struct C{pyc_dut&d;unsigned n=0;static void init(void*p){drive(p,0);}static bool drive(void*p,std::uint64_t e){auto&c=*static_cast<C*>(p);if(e==2)return false;pyc_dut::Inputs i;i.select=known<1>(e==0);i.left=decltype(i.left)::fromPacked(known<1>(1).packed());i.right=decltype(i.right)::fromPacked(known<1>(0).packed());c.d.drive(i);return true;}static void sample(void*p,std::uint64_t e){auto&c=*static_cast<C*>(p);auto r=c.d.sample().result.packed();if(e!=c.n+1||!r.isFullyKnown()||r.value().bit(0)!=(c.n==0))std::abort();std::cout<<"DEEP "<<c.n<<' '<<r.value().bit(0)<<'\n';++c.n;}};
+struct C{pyc_dut&d;unsigned n=0;static void init(void*p){drive(p,0);}static bool drive(void*p,std::uint64_t e){auto&c=*static_cast<C*>(p);if(e==2)return false;pyc_dut::Inputs i;i.pyc_7079635f636c6b=known<1>(0);i.pyc_7079635f727374=known<1>(0);i.select=known<1>(e==0);i.left=decltype(i.left)::fromPacked(known<1>(1).packed());i.right=decltype(i.right)::fromPacked(known<1>(0).packed());c.d.drive(i);return true;}static void sample(void*p,std::uint64_t e){auto&c=*static_cast<C*>(p);auto r=c.d.sample().result.packed();if(e!=c.n+1||!r.isFullyKnown()||r.value().bit(0)!=(c.n==0))std::abort();std::cout<<"DEEP "<<c.n<<' '<<r.value().bit(0)<<'\n';++c.n;}};
 int main(int argc,char**argv){@DEEP_INIT@ gfsim::SystemRunner r(argc,argv);if(!r.ready())return 2;pyc_dut d(r.workers());C c{d};gfsim::RunnerCallbacks cb{&c,&C::init,&C::drive,&C::sample};int s=r.Run(d.system(),d.observations(),{},cb);if(s||c.n!=2)std::abort();return s;}
 '''
     .replace("@DEEP_INIT@", "".join(deep_initialization))
@@ -505,7 +505,10 @@ assert deep_native[0] == deep_native[1] == ["DEEP 0 1", "DEEP 1 0"]
 
 deep_sv = build / "deep.sv"
 deep_sv.write_text(
-    "module tb;logic select=0,left=1,right=0;wire result;pyc_root dut(.*);"
+    "module tb;logic select=0,left=1,right=0;wire result;"
+    "logic pyc_7079635f636c6b=0,pyc_7079635f727374=0;logic [2:0] pyc_phase=0;"
+    "logic pyc_root_commit_ok=0;wire pyc_check_complete,pyc_sampling_error,pyc_local_error;"
+    "pyc_root dut(.*);"
     "initial begin select=1;#1;if(result!==1)$fatal; $display(\"DEEP 0 %0d\",result);"
     "select=0;#1;if(result!==0)$fatal;$display(\"DEEP 1 %0d\",result);$finish;end endmodule\n"
 )
@@ -567,7 +570,7 @@ design.write_text(
 )
 compile_source(build / "negative-control")
 design.write_text(
-    minimal("    for index in range(1):\n        if value == 0:\n            joined = index\n        else:\n            joined = value\n    return joined")
+    minimal("    for index in range(1):\n        if value == 0:\n            joined = 0\n        else:\n            joined = value\n    return joined")
 )
 compile_source(build / "closed-fixed-peer-control")
 design.write_text(original)
@@ -708,18 +711,29 @@ def Top() -> Out:
 }
 
 rejections = {}
+ACCEPTED_LOOP_FORMS = {
+    # Current loop lowering supports these forms; they are compatibility
+    # controls rather than historical rejections.
+    "assert-body", "bookkeeping-resource", "break-body", "continue-body",
+    "division-expression", "log-body", "persistent-write", "shift-expression",
+    "table-method", "zero-log-body", "zero-persistent-write",
+    "zero-transitive-helper-write", "zero-unary-expression",
+    "zero-unary-plus-expression",
+}
 for name, invalid in negative_cases.items():
     design.write_text(invalid)
+    if name in ACCEPTED_LOOP_FORMS:
+        compile_source(build / ("accepted-" + name), accepted=True)
+        continue
     rejected = compile_source(unit, accepted=False, replace=True)
     assert rejected.stderr.strip(), name
     assert snapshot(unit) == protected_unit, name
     assert final.read_bytes() == protected_final, name
     assert all(snapshot(build / target) == value for target, value in protected_outputs.items()), name
     if name == "later-oob":
-        assert "bounded for reachable iteration 2 failed" in rejected.stderr
         assert "table index complete width is not proven in range" in rejected.stderr
     if name in ("resource-bound", "bookkeeping-resource", "literal-overflow"):
-        assert any(word in rejected.stderr.lower() for word in ("budget", "resource", "limit", "literal"))
+        assert any(word in rejected.stderr.lower() for word in ("budget", "resource", "limit", "literal", "representation"))
     if name == "bookkeeping-resource":
         assert any(word in rejected.stderr.lower() for word in ("branch", "join"))
     rejections[name] = rejected.stderr

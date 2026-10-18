@@ -16,22 +16,31 @@ class Result:
     data: Entry
 
 
-@ac.rule
-def install(entries, entry: Entry, accept: ac.u1) -> Entry:
-    old = entries[entry.index]
-    if accept:
-        entries[entry.index] = entry
-    return old
-
-
 @ac.module
 def TableRule(valid: ac.u1, data: Entry, take: ac.u1) -> Result:  # noqa: N802
     entries = ac.table[2, Entry](init=0)
-    ready, available, incoming = ac.queue[Entry](
-        valid, data, output_ready, depth=2, ready_policy="downstream_pop"  # noqa: F821
+    ingress = ac.queue[Entry](
+        depth=2,
+        latency=1,
+        ready_policy="downstream_pop",
+        in_valid=valid,
+        in_data=data,
     )
-    old = install(entries, incoming, available and output_ready)  # noqa: F821
-    output_ready, out_valid, out_data = ac.queue[Entry](
-        available, old, take, depth=1, ready_policy="downstream_pop"
+    egress = ac.queue[Entry](
+        depth=1, latency=1, ready_policy="downstream_pop", out_ready=take
     )
-    return Result(ready=ready, valid=out_valid, data=out_data)
+
+    @ac.rule
+    def install(entry: Entry) -> Entry:
+        old = entries[entry.index]
+        entries[entry.index] = entry
+        return old
+
+    @ac.rule
+    def transfer() -> None:
+        incoming = ingress.pop()
+        old = install(incoming)
+        egress.push(old)
+
+    transfer()
+    return Result(ready=ingress.ready, valid=egress.valid, data=egress.data)

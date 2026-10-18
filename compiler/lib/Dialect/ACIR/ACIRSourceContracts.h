@@ -11,6 +11,7 @@
 #include "llvm/ADT/StringMap.h"
 
 #include <cstdint>
+#include <utility>
 
 namespace acir::ac {
 class HardwareAnalysis;
@@ -115,6 +116,19 @@ mlir::LogicalResult verifySourceGuardLocation(mlir::DictionaryAttr location,
 mlir::LogicalResult verifySourceEffectMetadata(
     mlir::DictionaryAttr occurrence, mlir::DictionaryAttr location,
     mlir::Operation *lexicalModule, EmitError emitError);
+
+// Intrinsic immutable grammar only; no lexical-owner or source admission fact.
+bool isVerifiedOccurrenceGrammar(mlir::DictionaryAttr value);
+bool isVerifiedSourceSpanGrammar(mlir::DictionaryAttr value);
+void rememberVerifiedSourceSpanGrammar(mlir::DictionaryAttr value);
+std::pair<uint64_t, uint64_t>
+sourceSpanGrammarCacheShape(mlir::MLIRContext *context);
+bool isVerifiedStaticExpressionGrammar(mlir::DictionaryAttr value);
+void rememberVerifiedStaticExpressionGrammar(mlir::DictionaryAttr value);
+std::pair<uint64_t, uint64_t>
+staticExpressionGrammarCacheShape(mlir::MLIRContext *context);
+std::pair<uint64_t, uint64_t>
+occurrenceGrammarCacheShape(mlir::MLIRContext *context);
 
 mlir::LogicalResult verifyPathComponent(mlir::DictionaryAttr value,
                                         EmitError emitError);

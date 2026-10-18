@@ -239,13 +239,12 @@ def carrier_case(first: u8, carrier: bits[65]) -> CarrierCase:
     wide_flag: u1 = 0
     for index in range(1):
         wide_flag = carrier == 0
-    selected = 0
+    signed_shifted: u8 = 0
     for index in range(1):
         if first == 0:
-            selected = 0 - 1
+            signed_shifted = 0
         else:
-            selected = 7
-    signed_shifted: u8 = selected + 1
+            signed_shifted = 8
     carrier_result: bits[65] = 0
     for index in range(1):
         carrier_result = carrier

@@ -121,7 +121,7 @@ writer、effectful loops 和 early return 继续拒绝。standalone conditional 
 的源码需求。引用用于说明设计动机，不证明当前扩展通过验证。
 
 - [ROB](https://github.com/PTO-ISA/pyCircuit/blob/1e8b0208501980297b18da877d84938d3b94074d/examples/rob/rob.py)：同拍完成可以使队头退休，退休可以释放分配容量。
-- [流水线组合](https://github.com/PTO-ISA/pyCircuit/blob/1e8b0208501980297b18da877d84938d3b94074d/examples/frontend_composition_pipeline/frontend_composition_pipeline.py)：Method 组合应减少重复握手组装。
+- [流水线组合](https://github.com/PTO-ISA/pyCircuit/blob/1e8b0208501980297b18da877d84938d3b94074d/tests/fixtures/historical_examples/frontend_composition_pipeline/frontend_composition_pipeline.py)：Method 组合应减少重复握手组装。
 - [S1 发布](https://github.com/LinxISA/SuperScalarModel/blob/6272dfc6198456594dd7756e089309af0e972752/model/pyc/davo/spe/ooo/s1_publish_owner_slice.py)：同一逻辑发布涉及多个独立状态 owner。
 - [PFL](https://github.com/LinxISA/SuperScalarModel/blob/6272dfc6198456594dd7756e089309af0e972752/model/pyc/davo/spe/ooo/pfl.py)：返回 retry 的探测仍可能推进游标，跨拍 lease 和 generation 是真实协议状态。
 

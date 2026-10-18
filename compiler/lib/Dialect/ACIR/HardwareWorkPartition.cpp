@@ -78,6 +78,8 @@ HardwareAnalysis::getIndependentWorkSubtrees(ModuleOp definition) const {
                 .getValues()[cast<OpResult>(value).getResultNumber()]);
       if (!producer || !isMemoryEffectFree(producer))
         return false;
+      if (auto require = dyn_cast<ValueRequireOp>(producer))
+        return prepared(require.getAvailability()) && prepared(require.getPath());
       return llvm::all_of(producer->getOperands(), prepared);
     };
     if (llvm::all_of(op.getOperands(), prepared))

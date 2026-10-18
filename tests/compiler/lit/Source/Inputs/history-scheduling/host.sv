@@ -6,7 +6,7 @@ module scheduling_host;
   wire [`OUTPUT_BITS-1:0] result;
   logic [2:0] pyc_phase=0;
   logic pyc_root_commit_ok=0;
-  wire pyc_local_error;
+  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;
   logic failed=0;
   string before_state;
   `include "scheduling_rows.svh"
@@ -29,7 +29,8 @@ module scheduling_host;
     end else begin
       before_state=snapshot();
       pyc_phase=1; #1;
-      pyc_root_commit_ok=(pyc_local_error === 1'b0);
+      pyc_root_commit_ok=(pyc_check_complete === 1'b1 &&
+                          pyc_sampling_error === 1'b0 && pyc_local_error === 1'b0);
       if (expected_failure) begin
         if (pyc_local_error !== 1'b1 || pyc_root_commit_ok !== 1'b0)
           $fatal(1,"missing scheduler fault view %0d",index);

@@ -30,8 +30,7 @@ class GraphResult:
     completed_head: WorkItem
 
 
-@rule
-def add_value(item: WorkItem, delta) -> WorkItem:
+def add_value(item: WorkItem, delta: u64) -> WorkItem:
     extended: u64 = delta
     return WorkItem(
         sequence_id=item.sequence_id,

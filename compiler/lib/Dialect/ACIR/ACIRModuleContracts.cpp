@@ -3,6 +3,8 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "llvm/ADT/APSInt.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/STLExtras.h"
 using namespace mlir;
 namespace acir::ac {
 FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
@@ -13,10 +15,17 @@ FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
   if (!signature)
     return error() << "module port layout requires a physical signature";
   ModulePortLayout layout{signature.getNumInputs(), signature.getNumResults(),
-                          ArrayAttr::get(declaration->getContext(), {})};
+                          ArrayAttr::get(declaration->getContext(), {}), {}, {}};
   Attribute raw = declaration->getAttr("ac.internal_ports");
-  if (!raw)
+  if (!raw) {
+    if (declaration->hasAttr("ac.input_validity") ||
+        declaration->hasAttr("ac.output_validity") ||
+        declaration->hasAttr("ac.routed_output_validity"))
+      return error() << "availability companions require final internal ports";
+    layout.inputValidity.assign(layout.sourceInputCount, -1);
+    layout.outputValidity.assign(layout.sourceOutputCount, -1);
     return layout;
+  }
   auto package = dyn_cast_or_null<mlir::ModuleOp>(declaration->getParentOp());
   auto stage =
       package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
@@ -52,13 +61,120 @@ FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
   HardwareAnalysis analysis(package);
   HardwareBindings bindings;
   bindings.owner = declaration;
+  auto validity = [&](StringRef name, unsigned sourceCount, TypeRange types,
+                      SmallVectorImpl<int64_t> &ordinals,
+                      bool input) -> LogicalResult {
+    ordinals.assign(sourceCount, -1);
+    auto raw = declaration->getAttr(name);
+    if (!raw)
+      return success();
+    auto array = dyn_cast<ArrayAttr>(raw);
+    if (!array || array.size() != sourceCount)
+      return error() << name << " must cover the exact source port prefix";
+    llvm::DenseSet<int64_t> seen;
+    auto domain = declaration->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+    auto wiring = declaration->getAttrOfType<DictionaryAttr>("ac.transaction_wiring");
+    auto incoming = wiring ? wiring.getAs<ArrayAttr>("incoming") : ArrayAttr();
+    for (auto [source, element] : llvm::enumerate(array)) {
+      auto ordinal = dyn_cast<IntegerAttr>(element);
+      if (!ordinal || !ordinal.getType().isSignlessInteger(64) ||
+          ordinal.getInt() < -1)
+        return error() << name << " entries require i64 -1 or a suffix port ordinal";
+      int64_t index = ordinal.getInt();
+      if (index == -1)
+        continue;
+      if (index < sourceCount || static_cast<uint64_t>(index) >= types.size() ||
+          !seen.insert(index).second || !isa<BitsType>(types[index]))
+        return error() << name << " companions require distinct Bits1 suffix ports";
+      auto width = analysis.getPackedWidth(types[index], bindings, declaration);
+      if (failed(width))
+        return failure();
+      if (*width != 1)
+        return error() << name << " companions must be one bit";
+      if (input && domain)
+        for (StringRef pin : {"clock", "reset"})
+          if (auto port = domain.getAs<IntegerAttr>(pin);
+              port && port.getInt() == static_cast<int64_t>(source))
+            return error() << "clock/reset ports cannot acquire availability companions";
+      if (input && incoming)
+        for (Attribute item : incoming) {
+          auto route = dyn_cast<DictionaryAttr>(item);
+          if (!route)
+            continue; // The wiring verifier diagnoses malformed route records.
+          for (StringRef pin : {"data", "enable"})
+            if (auto port = route.getAs<IntegerAttr>(pin);
+                port && port.getInt() == index)
+              return error() << "availability companions cannot alias proposal ports";
+        }
+      if (input) {
+        auto queueWiring = declaration->getAttrOfType<DictionaryAttr>("ac.queue_wiring");
+        auto queueIncoming = queueWiring ? queueWiring.getAs<ArrayAttr>("incoming") : ArrayAttr();
+        if (queueIncoming) for (Attribute raw : queueIncoming) {
+          auto route = dyn_cast<DictionaryAttr>(raw);
+          if (!route) continue;
+          for (StringRef pin : {"path", "data"})
+            if (auto port = route.getAs<IntegerAttr>(pin); port && port.getInt() == index)
+              return error() << "availability companions cannot alias queue proposal ports";
+        }
+      }
+      ordinals[source] = index;
+    }
+    return success();
+  };
+  if (failed(validity("ac.input_validity", layout.sourceInputCount,
+                      signature.getInputs(), layout.inputValidity, true)) ||
+      failed(validity("ac.output_validity", layout.sourceOutputCount,
+                      signature.getResults(), layout.outputValidity, false)))
+    return failure();
+  if (auto rawRoutes = declaration->getAttr("ac.routed_output_validity")) {
+    auto routes = dyn_cast<ArrayAttr>(rawRoutes);
+    if (!routes || routes.empty())
+      return error() << "routed output availability requires a nonempty array";
+    llvm::DenseSet<int64_t> controls;
+    for (int64_t index : layout.outputValidity)
+      if (index >= 0)
+        controls.insert(index);
+    int64_t previous = -1;
+    for (Attribute rawRoute : routes) {
+      auto route = dyn_cast<DictionaryAttr>(rawRoute);
+      auto payload = route ? route.getAs<IntegerAttr>("payload") : IntegerAttr();
+      auto control = route ? route.getAs<IntegerAttr>("validity") : IntegerAttr();
+      if (!route || route.size() != 2 || !payload || !control ||
+          !payload.getType().isSignlessInteger(64) ||
+          !control.getType().isSignlessInteger(64) ||
+          payload.getInt() < layout.sourceOutputCount ||
+          control.getInt() < layout.sourceOutputCount ||
+          uint64_t(payload.getInt()) >= signature.getNumResults() ||
+          uint64_t(control.getInt()) >= signature.getNumResults() ||
+          payload.getInt() <= previous ||
+          !controls.insert(control.getInt()).second ||
+          !isa<BitsType>(signature.getResult(control.getInt())))
+        return error() << "routed availability requires ordered distinct payload "
+                          "suffixes and distinct Bits1 companions";
+      auto width = analysis.getPackedWidth(signature.getResult(control.getInt()),
+                                           bindings, declaration);
+      if (failed(width))
+        return failure();
+      if (*width != 1)
+        return error() << "routed availability companions must be one bit";
+      previous = payload.getInt();
+      layout.routedOutputValidity.push_back({payload.getInt(), control.getInt()});
+    }
+    for (auto [payload, control] : layout.routedOutputValidity)
+      if (controls.contains(payload))
+        return error() << "routed payload cannot alias an availability companion";
+  }
   for (auto [index, rawDefault] : llvm::enumerate(defaults)) {
     auto value = dyn_cast<IntegerAttr>(rawDefault);
     Type type = signature.getInput(layout.sourceInputCount + index);
+    bool available = llvm::is_contained(
+        layout.inputValidity, static_cast<int64_t>(layout.sourceInputCount + index));
     if (!value || !value.getType().isSignlessInteger(64) ||
-        !value.getValue().isZero() || !isa<BitsType>(type))
-      return error() << "ac.internal_ports root inputs require i64 zero "
-                        "defaults and fixed Bits ports";
+        value.getInt() != (available ? 1 : 0) ||
+        !isa<BitsType, EnumType, StructType, TableType>(type))
+      return error() << "ac.internal_ports root inputs require finite payloads "
+                        "and i64 zero defaults, except declared availability "
+                        "companions which require one";
     auto width = analysis.getPackedWidth(type, bindings, declaration);
     if (failed(width))
       return failure();
@@ -255,6 +371,18 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
   auto layout = getModulePortLayout(owner);
   if (failed(layout))
     return failure();
+  if (auto raw = owner->getAttr("ac.result_availability")) {
+    auto policy = dyn_cast<ArrayAttr>(raw);
+    if (!policy || policy.size() != layout->sourceOutputCount)
+      return owner->emitOpError()
+             << "ac.result_availability must cover the exact source results";
+    for (Attribute entry : policy) {
+      auto kind = dyn_cast<StringAttr>(entry);
+      if (!kind || kind.getValue() != "compiler")
+        return owner->emitOpError()
+               << "source result availability must be compiler managed";
+    }
+  }
   unsigned present = 0;
   for (StringRef name : {"ac.return_form", "ac.parameters",
                          "ac.result_constraints", "ac.domain_inputs"})
@@ -330,11 +458,16 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
                         "inputs, or results";
     return success();
   }
-  if (present != 4 || system || !form || form.getValue() != "single" ||
-      !parameters || !results || results.size() != 1 || !integers.empty() ||
-      !types.empty() || layout->sourceOutputCount != 1)
-    return error() << "source module call contract requires a concrete single "
-                      "struct result and all four attributes";
+  bool single = form && form.getValue() == "single";
+  bool tuple = form && form.getValue() == "tuple";
+  bool none = form && form.getValue() == "none";
+  if (present != 4 || system || (!single && !tuple && !none) || !parameters ||
+      !results || !integers.empty() || !types.empty() ||
+      layout->sourceOutputCount != results.size() ||
+      (none && !results.empty()) || (tuple && results.empty()) ||
+      (single && results.size() != 1))
+    return error() << "source module call contract requires matching none, single or "
+                      "nonempty tuple results and all four attributes";
 
   size_t count = parameters.size();
   if (domain.empty()) {
@@ -356,14 +489,11 @@ LogicalResult verifyModuleSourceCallContract(Operation *owner) {
             owner, owner, "source module call")))
       return failure();
   }
-  if (failed(verifySourceCallHardwareConstraint(
-          results[0], signature.getResult(0), analysis, owner, owner,
-          "source module call")))
-    return failure();
-  auto result = cast<DictionaryAttr>(results[0]);
-  if (result.getAs<StringAttr>("source_kind").getValue() != "nominal" ||
-      !isa<StructType>(signature.getResult(0)))
-    return error() << "source module call result must be a nominal struct";
+  for (auto [index, result] : llvm::enumerate(results))
+    if (failed(verifySourceCallHardwareConstraint(
+            result, signature.getResult(index), analysis, owner, owner,
+            "source module call")))
+      return failure();
   return success();
 }
 } // namespace acir::ac::detail

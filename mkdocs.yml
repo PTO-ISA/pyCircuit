@@ -102,6 +102,12 @@ nav:
       - Testing: development/testing-and-gates.md
       - Review and Merge: development/review-and-merge.md
       - Known Limitations: development/known-limitations.md
+      - Issue 307 and 319 Handoff:
+          - Review Checklist: development/issue-307-319-review-checklist.md
+          - Example Inventory: development/issue-307-319-examples.md
+          - Decisions and Bounds: development/issue-307-319-decisions.md
+          - Execution Status: development/issue-307-319-execution-status.md
+          - Execution Prompt: development/issue-307-319-agent-prompt.md
       - Project Governance: development/project-governance.md
       - Extension Specifications:
           - Serial Rule and Method: rfcs/serial-rule-method/README.md

@@ -1,5 +1,7 @@
 """The historical finite-bit BF16 FMAC with four register boundaries."""
 
+# ruff: noqa: F823 -- nested Rule updates captured Module-owned state.
+
 import pycircuit as ac
 
 
@@ -321,21 +323,6 @@ def pack_result(
     return PackedResult(value=0 if stage.mant == 0 else packed)
 
 
-@ac.rule
-def advance_fmac(
-    s1, s2, s3, result_r, valid_r, stage1_data, stage2_data, stage3_data, packed
-) -> FmacResult:
-    result = FmacResult(result=result_r, result_valid=valid_r)
-    output_enable = s3.valid
-    s1 = stage1_data
-    s2 = stage2_data
-    s3 = stage3_data
-    if output_enable:
-        result_r = packed.value
-    valid_r = output_enable
-    return result
-
-
 @ac.module
 def BF16Fmac(  # noqa: N802
     a_in: ac.u16, b_in: ac.u16, acc_in: ac.u32, valid_in: ac.u1
@@ -381,6 +368,18 @@ def BF16Fmac(  # noqa: N802
     left = left_barrel26(s3.mant, normalization.left_amt)
     right = right_barrel26(s3.mant, normalization.right_amt)
     packed = pack_result(s3, normalization, left, right)
-    return advance_fmac(
-        s1, s2, s3, result_r, valid_r, stage1_data, stage2_data, stage3_data, packed
-    )
+
+    @ac.rule
+    def advance_fmac() -> FmacResult:
+        # Output and enable observe old Q; all four boundaries commit together.
+        result = FmacResult(result=result_r, result_valid=valid_r)
+        output_enable = s3.valid
+        s1 = stage1_data
+        s2 = stage2_data
+        s3 = stage3_data
+        if output_enable:
+            result_r = packed.value
+        valid_r = output_enable
+        return result
+
+    return advance_fmac()

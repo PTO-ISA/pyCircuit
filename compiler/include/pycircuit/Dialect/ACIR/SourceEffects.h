@@ -11,6 +11,12 @@ public:
   llvm::StringRef getName() override { return "source.state"; }
 };
 
+class SourceQueueResource
+    : public mlir::SideEffects::Resource::Base<SourceQueueResource> {
+public:
+  llvm::StringRef getName() override { return "source.queue"; }
+};
+
 class SourceCheckResource
     : public mlir::SideEffects::Resource::Base<SourceCheckResource> {
 public:

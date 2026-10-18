@@ -72,7 +72,7 @@ def test_navigation_lists_current_examples_and_api_owners(tool, catalog_repo):
     repo, data = catalog_repo
     assert tool.catalog(repo)["examples"] == data["examples"]
     text = tool.navigation(repo)
-    assert "**2** runnable examples" in text
+    assert "**2** registered designs" in text
     assert "**1** API-owned coverage cases" in text
     assert "| alpha | [Python](alpha/alpha.py) | — | — | — |" in text
     assert "[beta](beta/README.md)" in text

@@ -33,6 +33,7 @@ std::unique_ptr<mlir::Pass> createVerifyHardwarePass() {
 }
 void registerACIRPasses() {
   PassRegistration<VerifyHardwarePass>();
+  registerPass([] { return createNormalizeSourceControlFlowPass(); });
   registerPass([] { return createExtractSourceInterfacePass(); });
   registerPass([] { return createSimplifyRecordWiresPass(); });
   registerPass([] { return createAnalyzeSourceMethodSummariesPass(); });

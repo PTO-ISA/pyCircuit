@@ -106,7 +106,7 @@ def Logical(value: Annotated[int, range(1 << 5)], flag: bool) -> {"integer": Ann
 DESIGN = """from enum import Enum
 import pycircuit as ac
 from pycircuit import concat as join
-from concat_probe.provider import Fixed
+from concat_probe.provider import Fixed, FixedResult
 @ac.encoding(width=3)
 class State(Enum):
     ZERO = 0
@@ -124,8 +124,8 @@ class ProbeResult:
     arithmetic: ac.u6
     enum_bits: ac.u4
     child_bits: ac.u6
-@ac.rule
-def evaluate(tiny, n5, middle, wide, state, child) -> ProbeResult:
+def evaluate(tiny: ac.u1, n5: ac.u5, middle: ac.u7, wide: ac.bits[73],
+             state: State, child: FixedResult) -> ProbeResult:
     alias = n5
     result = ProbeResult()
     result.one = ac.concat(tiny)
@@ -215,8 +215,14 @@ cases = {
         scalar("ac.concat(value)", "Record", prelude=struct_decl),
         "concat operand 1 " + fixed,
     ),
-    "tuple": (scalar("ac.concat((value, value))"), "unsupported"),
-    "list": (scalar("ac.concat([value])"), "unsupported"),
+    "tuple": (
+        scalar("ac.concat((value, value))"),
+        "tuple/list literal requires an expected Table type",
+    ),
+    "list": (
+        scalar("ac.concat([value])"),
+        "tuple/list literal requires an expected Table type",
+    ),
     "string": (scalar('ac.concat("bits")'), "literal"),
     "table": (
         scalar(

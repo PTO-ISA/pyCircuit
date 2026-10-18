@@ -31,9 +31,13 @@ auto initial() {
 auto outputs(pyc_dut &dut) {
   const auto out = dut.sample();
 #if FEATURE_KIND == 1
-  return std::array<Byte, 2>{out.y0, out.y1};
+  const auto packed = out.result.packed();
+  return std::array<Byte, 2>{
+      Byte::fromPacked(gfsim::extract<8>(packed, 8)),
+      Byte::fromPacked(gfsim::extract<8>(packed, 0))};
 #else
-  return std::array<Byte, 2>{out.y, out.y};
+  const auto value = Byte::fromPacked(out.result.packed());
+  return std::array<Byte, 2>{value, value};
 #endif
 }
 void drive_data(pyc_dut::Inputs &input, Byte data) {

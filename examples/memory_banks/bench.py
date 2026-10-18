@@ -1,545 +1,96 @@
-"""Regular-clock full known-input stream from the retained memory_banks oracle."""
+"""Two writes, four-bank reads and a stalled fixed-priority merge."""
 
-from example_memory_banks.memory_banks import MemoryBanks, BankRequest
-from pycircuit import bits, log, rule, struct, system, table, u1, u2, u4, u8, u16
+# ruff: noqa: F823 -- the System Rule advances Module-owned phase state.
+import pycircuit as ac
+from example_memory_banks.memory_banks import BankRequest, MemoryBanks
 
 
-@struct
+@ac.struct
 class Scenario:
-    valid: u1
-    bank: u2
-    offset: u4
-    write: u1
-    data: u16
-    tag: u8
-    take: u1
-    expected_input_ready: u1
-    expected_output_valid: u1
-    expected_response_bank: u2
-    expected_response_offset: u4
-    expected_response_write: u1
-    expected_response_data: u16
-    expected_response_tag: u8
-    expected_route: u4
-    expected_accepted: u4
-    expected_enqueued: u4
-    expected_response_valid: u4
-    expected_merged: u4
+    valid: ac.u1
+    bank: ac.u2
+    write: ac.u1
+    data: ac.u16
+    tag: ac.u8
+    take: ac.u1 = 1
+    output_valid: ac.u1
+    response_bank: ac.u2
+    response_write: ac.u1
+    response_data: ac.u16
+    response_tag: ac.u8
 
 
-@struct
+@ac.struct
 class Scenarios:
-    rows: table[440, Scenario]
-
-
-@rule
-def advance(phase):
-    phase = phase + 1
-
-
-@system
-def ExerciseMemoryBanks():  # noqa: N802
-    phase: bits[64] = 0
-    # fmt: off
-    scenarios = Scenarios(
-        rows=(
-            Scenario(take=1, expected_input_ready=1),
-            Scenario(valid=1, offset=3, write=1, data=41, tag=1, take=1, expected_input_ready=1),
-            Scenario(valid=1, bank=1, offset=3, write=1, data=91, tag=2, take=1, expected_input_ready=1, expected_route=1),
-            Scenario(valid=1, offset=3, tag=3, take=1, expected_input_ready=1, expected_route=2, expected_accepted=1),
-            Scenario(valid=1, bank=1, offset=3, tag=4, take=1, expected_input_ready=1, expected_route=1, expected_accepted=2),
-            Scenario(valid=1, bank=2, offset=3, tag=5, take=1, expected_input_ready=1, expected_route=2, expected_enqueued=1),
-            Scenario(take=1, expected_input_ready=1, expected_route=4, expected_accepted=1, expected_enqueued=2, expected_response_valid=1, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=3, expected_response_write=1, expected_response_tag=1, expected_accepted=6, expected_response_valid=2, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=3, expected_response_write=1, expected_response_tag=2, expected_enqueued=1),
-            Scenario(take=1, expected_input_ready=1, expected_enqueued=6, expected_response_valid=1, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=3, expected_response_data=41, expected_response_tag=3, expected_response_valid=6, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=3, expected_response_data=91, expected_response_tag=4, expected_response_valid=4, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=3, expected_response_tag=5),
-            Scenario(valid=1, bank=3, offset=3, write=1, data=13107, tag=6, take=1, expected_input_ready=1),
-            Scenario(valid=1, bank=3, offset=3, data=65535, tag=7, take=1, expected_input_ready=1, expected_route=8),
-            Scenario(valid=1, offset=3, data=43690, tag=8, take=1, expected_input_ready=1, expected_route=8, expected_accepted=8),
-            Scenario(valid=1, bank=1, offset=3, data=43690, tag=9, take=1, expected_input_ready=1, expected_route=1),
-            Scenario(valid=1, bank=2, offset=3, data=43690, tag=10, take=1, expected_input_ready=1, expected_route=2, expected_accepted=1, expected_enqueued=8),
-            Scenario(take=1, expected_input_ready=1, expected_route=4, expected_accepted=10, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=3, expected_response_write=1, expected_response_tag=6, expected_accepted=4, expected_enqueued=1),
-            Scenario(take=1, expected_input_ready=1, expected_enqueued=10, expected_response_valid=1, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=3, expected_response_data=41, expected_response_tag=8, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=3, expected_response_data=91, expected_response_tag=9, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=3, expected_response_tag=10, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=3, expected_response_data=13107, expected_response_tag=7),
-            Scenario(valid=1, write=1, data=20480, tag=20, expected_input_ready=1),
-            Scenario(valid=1, bank=1, data=20481, tag=21, expected_input_ready=1, expected_route=1),
-            Scenario(valid=1, bank=2, write=1, data=20482, tag=22, expected_input_ready=1, expected_route=2, expected_accepted=1),
-            Scenario(valid=1, bank=3, write=1, data=20483, tag=23, expected_input_ready=1, expected_route=4, expected_accepted=2),
-            Scenario(valid=1, offset=1, data=20484, tag=24, expected_input_ready=1, expected_route=8, expected_accepted=4, expected_enqueued=1),
-            Scenario(valid=1, bank=1, offset=1, write=1, data=20485, tag=25, expected_input_ready=1, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=1, expected_merged=1),
-            Scenario(valid=1, bank=2, offset=1, write=1, data=20486, tag=26, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=2, expected_accepted=1, expected_enqueued=4, expected_response_valid=2, expected_merged=2),
-            Scenario(valid=1, bank=3, offset=1, data=20487, tag=27, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=4, expected_accepted=2, expected_enqueued=8, expected_response_valid=4),
-            Scenario(valid=1, offset=2, write=1, data=20488, tag=28, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=12),
-            Scenario(valid=1, bank=1, offset=2, write=1, data=20489, tag=29, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=13),
-            Scenario(valid=1, bank=2, offset=2, data=20490, tag=30, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=2, expected_accepted=1, expected_enqueued=4, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=2, write=1, data=20491, tag=31, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=4, expected_accepted=2, expected_enqueued=8, expected_response_valid=15),
-            Scenario(valid=1, offset=3, write=1, data=20492, tag=32, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=15),
-            Scenario(offset=3, write=1, data=20492, tag=32, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=3, data=20493, tag=33, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_accepted=1, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=3, write=1, data=20494, tag=34, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=2, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=3, write=1, data=20495, tag=35, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=4, expected_accepted=2, expected_response_valid=15),
-            Scenario(valid=1, offset=4, data=20496, tag=36, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=8, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=4, write=1, data=20497, tag=37, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=1, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=4, write=1, data=20498, tag=38, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=2, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=4, data=20499, tag=39, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=4, expected_response_valid=15),
-            Scenario(valid=1, offset=5, write=1, data=20500, tag=40, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=8, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=20501, tag=41, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=1, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, data=20502, tag=42, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_route=2, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=20503, tag=43, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, offset=6, write=1, data=20504, tag=44, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=6, data=20505, tag=45, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=6, write=1, data=20506, tag=46, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=6, write=1, data=20507, tag=47, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, offset=7, data=20508, tag=48, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=7, write=1, data=20509, tag=49, expected_input_ready=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_write=1, expected_response_tag=20, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_tag=21, expected_response_valid=15, expected_merged=1),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_offset=1, expected_response_tag=24, expected_enqueued=1, expected_response_valid=15, expected_merged=1),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_offset=2, expected_response_write=1, expected_response_tag=28, expected_accepted=1, expected_response_valid=15, expected_merged=1),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_offset=3, expected_response_write=1, expected_response_data=41, expected_response_tag=32, expected_response_valid=14, expected_merged=2),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=1, expected_response_write=1, expected_response_tag=25, expected_enqueued=3, expected_response_valid=14, expected_merged=2),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=2, expected_response_write=1, expected_response_tag=29, expected_accepted=3, expected_response_valid=15, expected_merged=1),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_offset=4, expected_response_tag=36, expected_response_valid=14, expected_merged=2),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=3, expected_response_data=91, expected_response_tag=33, expected_enqueued=3, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_bank=2, expected_response_write=1, expected_response_tag=22, expected_accepted=2, expected_enqueued=4, expected_response_valid=15, expected_merged=1),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_tag=40, expected_accepted=4, expected_response_valid=14, expected_merged=2),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=4, expected_response_write=1, expected_response_tag=37, expected_route=4, expected_enqueued=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=7, write=1, data=20510, tag=50, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=1, expected_response_write=1, expected_response_tag=26, expected_enqueued=4, expected_response_valid=14, expected_merged=2),
-            Scenario(valid=1, bank=3, offset=7, data=20511, tag=51, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_tag=41, expected_accepted=4, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=3, offset=7, data=20511, tag=51, take=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=2, expected_response_tag=30, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=3, offset=7, data=20511, tag=51, take=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=3, expected_response_write=1, expected_response_tag=34, expected_enqueued=4, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=7, data=20511, tag=51, take=1, expected_output_valid=1, expected_response_bank=3, expected_response_write=1, expected_response_tag=23, expected_accepted=4, expected_enqueued=8, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=3, offset=7, data=20511, tag=51, take=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=4, expected_response_write=1, expected_response_tag=38, expected_accepted=8, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=7, data=20511, tag=51, take=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=1, expected_response_tag=27, expected_route=8, expected_enqueued=4, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=7, data=20511, tag=51, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=2, expected_response_write=1, expected_response_tag=31, expected_route=1, expected_enqueued=8, expected_response_valid=4, expected_merged=4),
-            Scenario(valid=1, offset=8, write=1, data=20512, tag=52, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_tag=42, expected_route=2, expected_accepted=9, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=1, offset=8, write=1, data=20513, tag=53, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=3, expected_response_write=1, expected_response_data=13107, expected_response_tag=35, expected_route=4, expected_accepted=2),
-            Scenario(valid=1, bank=2, offset=8, data=20514, tag=54, take=1, expected_input_ready=1, expected_route=8, expected_accepted=4, expected_enqueued=9),
-            Scenario(valid=1, bank=3, offset=8, write=1, data=20515, tag=55, take=1, expected_input_ready=1, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=9, write=1, data=20516, tag=56, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=6, expected_response_write=1, expected_response_tag=44, expected_route=2, expected_accepted=1, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=9, data=20517, tag=57, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=6, expected_response_tag=45, expected_route=4, expected_accepted=2, expected_enqueued=8, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=9, write=1, data=20518, tag=58, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=6, expected_response_write=1, expected_response_tag=46, expected_route=8, expected_accepted=12, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=9, write=1, data=20519, tag=59, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=4, expected_response_tag=39, expected_route=1, expected_enqueued=2, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=10, data=20520, tag=60, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=7, expected_response_tag=48, expected_route=2, expected_accepted=1, expected_enqueued=12, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=10, write=1, data=20521, tag=61, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=7, expected_response_write=1, expected_response_tag=49, expected_route=4, expected_accepted=10, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=10, write=1, data=20522, tag=62, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=7, expected_response_write=1, expected_response_tag=50, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=10, data=20523, tag=63, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=5, expected_response_write=1, expected_response_tag=43, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=11, write=1, data=20524, tag=64, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=8, expected_response_write=1, expected_response_tag=52, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=11, write=1, data=20525, tag=65, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=8, expected_response_write=1, expected_response_tag=53, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=11, data=20526, tag=66, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=8, expected_response_tag=54, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=11, write=1, data=20527, tag=67, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=6, expected_response_write=1, expected_response_tag=47, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=12, write=1, data=20528, tag=68, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=9, expected_response_write=1, expected_response_tag=56, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=12, data=20529, tag=69, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=9, expected_response_tag=57, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=12, write=1, data=20530, tag=70, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=9, expected_response_write=1, expected_response_tag=58, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=12, write=1, data=20531, tag=71, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=7, expected_response_tag=51, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=13, data=20532, tag=72, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=10, expected_response_tag=60, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=13, write=1, data=20533, tag=73, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=10, expected_response_write=1, expected_response_tag=61, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=13, write=1, data=20534, tag=74, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=10, expected_response_write=1, expected_response_tag=62, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=13, data=20535, tag=75, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=8, expected_response_write=1, expected_response_tag=55, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=14, write=1, data=20536, tag=76, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=11, expected_response_write=1, expected_response_tag=64, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=14, write=1, data=20537, tag=77, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=11, expected_response_write=1, expected_response_tag=65, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=14, data=20538, tag=78, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=11, expected_response_tag=66, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=14, write=1, data=20539, tag=79, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=9, expected_response_write=1, expected_response_tag=59, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=15, write=1, data=20540, tag=80, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=12, expected_response_write=1, expected_response_tag=68, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=15, data=20541, tag=81, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=12, expected_response_tag=69, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=15, write=1, data=20542, tag=82, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=12, expected_response_write=1, expected_response_tag=70, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=15, write=1, data=20543, tag=83, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=10, expected_response_tag=63, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, data=20544, tag=84, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=13, expected_response_tag=72, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, write=1, data=20545, tag=85, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=13, expected_response_write=1, expected_response_tag=73, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, write=1, data=20546, tag=86, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=13, expected_response_write=1, expected_response_tag=74, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, data=20547, tag=87, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=11, expected_response_write=1, expected_response_tag=67, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=1, write=1, data=20548, tag=88, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=14, expected_response_write=1, expected_response_tag=76, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=1, write=1, data=20549, tag=89, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=14, expected_response_write=1, expected_response_tag=77, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=1, data=20550, tag=90, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=14, expected_response_tag=78, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=1, write=1, data=20551, tag=91, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=12, expected_response_write=1, expected_response_tag=71, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=2, write=1, data=20552, tag=92, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=15, expected_response_write=1, expected_response_tag=80, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=2, data=20553, tag=93, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=15, expected_response_tag=81, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=2, write=1, data=20554, tag=94, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=15, expected_response_write=1, expected_response_tag=82, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=2, write=1, data=20555, tag=95, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=13, expected_response_tag=75, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=3, data=20556, tag=96, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_data=20480, expected_response_tag=84, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=3, write=1, data=20557, tag=97, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_write=1, expected_response_tag=85, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=3, write=1, data=20558, tag=98, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_write=1, expected_response_data=20482, expected_response_tag=86, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=3, data=20559, tag=99, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=14, expected_response_write=1, expected_response_tag=79, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(valid=1, offset=4, write=1, data=20560, tag=100, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=1, expected_response_write=1, expected_response_tag=88, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=4, write=1, data=20561, tag=101, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=1, expected_response_write=1, expected_response_data=20485, expected_response_tag=89, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=4, data=20562, tag=102, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=1, expected_response_data=20486, expected_response_tag=90, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=3, offset=4, write=1, data=20563, tag=103, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=15, expected_response_write=1, expected_response_tag=83, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=2, expected_response_write=1, expected_response_data=20488, expected_response_tag=92, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=2, expected_response_data=20489, expected_response_tag=93, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=2, expected_response_write=1, expected_response_tag=94, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_data=20483, expected_response_tag=87, expected_route=1, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=3, expected_response_data=20492, expected_response_tag=96, expected_route=2, expected_accepted=9, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=3, expected_response_write=1, expected_response_data=91, expected_response_tag=97, expected_route=4, expected_accepted=2, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=3, expected_response_write=1, expected_response_data=20494, expected_response_tag=98, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=1, expected_response_write=1, expected_response_tag=91, expected_enqueued=10, expected_response_valid=9, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=4, expected_response_write=1, expected_response_tag=100, expected_accepted=8, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=4, expected_response_write=1, expected_response_data=20497, expected_response_tag=101, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=4, expected_response_data=20498, expected_response_tag=102, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=2, expected_response_write=1, expected_response_data=20491, expected_response_tag=95, expected_enqueued=8, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=3, expected_response_data=20495, expected_response_tag=99, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=4, expected_response_write=1, expected_response_tag=103),
-            Scenario(valid=1, offset=15, write=1, data=33024, tag=120, take=1, expected_input_ready=1),
-            Scenario(valid=1, bank=1, offset=15, write=1, data=33025, tag=121, take=1, expected_input_ready=1, expected_route=1),
-            Scenario(valid=1, bank=2, offset=15, write=1, data=33026, tag=122, take=1, expected_input_ready=1, expected_route=2, expected_accepted=1),
-            Scenario(valid=1, bank=3, offset=15, write=1, data=33027, tag=123, take=1, expected_input_ready=1, expected_route=4, expected_accepted=2),
-            Scenario(expected_input_ready=1, expected_route=8, expected_accepted=4, expected_enqueued=1),
-            Scenario(expected_input_ready=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=1, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=15, expected_response_write=1, expected_response_data=20540, expected_response_tag=120, expected_enqueued=4, expected_response_valid=2, expected_merged=2),
-            Scenario(valid=1, offset=15, data=4660, tag=124, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=15, expected_response_write=1, expected_response_tag=121, expected_enqueued=8, expected_response_valid=4, expected_merged=4),
-            Scenario(valid=1, bank=1, offset=15, data=4660, tag=125, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=15, expected_response_write=1, expected_response_data=20542, expected_response_tag=122, expected_route=1, expected_response_valid=8, expected_merged=8),
-            Scenario(valid=1, bank=2, offset=15, data=4660, tag=126, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=15, expected_response_write=1, expected_response_data=20543, expected_response_tag=123, expected_route=2, expected_accepted=1),
-            Scenario(valid=1, bank=3, offset=15, data=4660, tag=127, take=1, expected_input_ready=1, expected_route=4, expected_accepted=2),
-            Scenario(take=1, expected_input_ready=1, expected_route=8, expected_accepted=4, expected_enqueued=1),
-            Scenario(take=1, expected_input_ready=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=1, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=15, expected_response_data=33024, expected_response_tag=124, expected_enqueued=4, expected_response_valid=2, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=15, expected_response_data=33025, expected_response_tag=125, expected_enqueued=8, expected_response_valid=4, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=15, expected_response_data=33026, expected_response_tag=126, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=15, expected_response_data=33027, expected_response_tag=127),
-            Scenario(valid=1, offset=5, write=1, data=36864, tag=150, expected_input_ready=1),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36865, tag=151, expected_input_ready=1, expected_route=1),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36866, tag=152, expected_input_ready=1, expected_route=2, expected_accepted=1),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=36867, tag=153, expected_input_ready=1, expected_route=4, expected_accepted=2),
-            Scenario(valid=1, offset=5, write=1, data=36868, tag=154, expected_input_ready=1, expected_route=8, expected_accepted=4, expected_enqueued=1),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36869, tag=155, expected_input_ready=1, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=1, expected_merged=1),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36870, tag=156, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=2, expected_accepted=1, expected_enqueued=4, expected_response_valid=2, expected_merged=2),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=36871, tag=157, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=4, expected_accepted=2, expected_enqueued=8, expected_response_valid=4),
-            Scenario(valid=1, offset=5, write=1, data=36872, tag=158, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=12),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36873, tag=159, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=13),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36874, tag=160, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=2, expected_accepted=1, expected_enqueued=4, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=36875, tag=161, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=4, expected_accepted=2, expected_enqueued=8, expected_response_valid=15),
-            Scenario(valid=1, offset=5, write=1, data=36876, tag=162, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=8, expected_accepted=4, expected_enqueued=1, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36877, tag=163, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36878, tag=164, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=2, expected_accepted=1, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=36879, tag=165, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=4, expected_accepted=2, expected_response_valid=15),
-            Scenario(valid=1, offset=5, write=1, data=36880, tag=166, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=8, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36881, tag=167, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=1, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36882, tag=168, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=2, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=36883, tag=169, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=4, expected_response_valid=15),
-            Scenario(valid=1, offset=5, write=1, data=36884, tag=170, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=8, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36885, tag=171, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=1, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36886, tag=172, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_route=2, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=36887, tag=173, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, offset=5, write=1, data=36888, tag=174, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36889, tag=175, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36890, tag=176, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=3, offset=5, write=1, data=36891, tag=177, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, offset=5, write=1, data=36892, tag=178, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=1, offset=5, write=1, data=36893, tag=179, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, bank=2, offset=5, write=1, data=36894, tag=180, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(take=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20500, expected_response_tag=150, expected_response_valid=15),
-            Scenario(valid=1, offset=5, tag=200, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=20501, expected_response_tag=151, expected_response_valid=15, expected_merged=1),
-            Scenario(take=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36864, expected_response_tag=154, expected_enqueued=1, expected_response_valid=15, expected_merged=1),
-            Scenario(take=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36868, expected_response_tag=158, expected_accepted=1, expected_response_valid=15, expected_merged=1),
-            Scenario(take=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36872, expected_response_tag=162, expected_response_valid=14, expected_merged=2),
-            Scenario(take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36865, expected_response_tag=155, expected_enqueued=3, expected_response_valid=14, expected_merged=2),
-            Scenario(take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36869, expected_response_tag=159, expected_accepted=3, expected_response_valid=15, expected_merged=1),
-            Scenario(take=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36876, expected_response_tag=166, expected_response_valid=14, expected_merged=2),
-            Scenario(valid=1, bank=1, offset=5, tag=201, take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36873, expected_response_tag=163, expected_enqueued=3, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_write=1, expected_response_tag=152, expected_accepted=2, expected_enqueued=4, expected_response_valid=15, expected_merged=1),
-            Scenario(take=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36880, expected_response_tag=170, expected_accepted=4, expected_response_valid=14, expected_merged=2),
-            Scenario(take=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36877, expected_response_tag=167, expected_route=4, expected_enqueued=2, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_write=1, expected_response_data=36866, expected_response_tag=156, expected_enqueued=4, expected_response_valid=14, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36881, expected_response_tag=171, expected_accepted=4, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_write=1, expected_response_data=36870, expected_response_tag=160, expected_response_valid=12, expected_merged=4),
-            Scenario(valid=1, bank=2, offset=5, tag=202, take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_write=1, expected_response_data=36874, expected_response_tag=164, expected_enqueued=4, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=5, expected_response_write=1, expected_response_data=20503, expected_response_tag=153, expected_accepted=4, expected_enqueued=8, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_write=1, expected_response_data=36878, expected_response_tag=168, expected_accepted=8, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=5, expected_response_write=1, expected_response_data=36867, expected_response_tag=157, expected_route=8, expected_enqueued=4, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=5, expected_response_write=1, expected_response_data=36871, expected_response_tag=161, expected_route=1, expected_enqueued=8, expected_response_valid=4, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_write=1, expected_response_data=36882, expected_response_tag=172, expected_route=2, expected_accepted=9, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=5, expected_response_write=1, expected_response_data=36875, expected_response_tag=165, expected_route=4, expected_accepted=2),
-            Scenario(valid=1, bank=3, offset=5, tag=203, take=1, expected_input_ready=1, expected_route=8, expected_accepted=4, expected_enqueued=9),
-            Scenario(take=1, expected_input_ready=1, expected_route=1, expected_accepted=8, expected_enqueued=2, expected_response_valid=9, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36884, expected_response_tag=174, expected_route=2, expected_accepted=1, expected_enqueued=4, expected_response_valid=10, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36885, expected_response_tag=175, expected_route=4, expected_accepted=2, expected_enqueued=8, expected_response_valid=12, expected_merged=4),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=2, expected_response_offset=5, expected_response_write=1, expected_response_data=36886, expected_response_tag=176, expected_route=8, expected_accepted=12, expected_enqueued=1, expected_response_valid=8, expected_merged=8),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=3, expected_response_offset=5, expected_response_write=1, expected_response_data=36879, expected_response_tag=169, expected_enqueued=2, expected_response_valid=9, expected_merged=1),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36888, expected_response_tag=178, expected_enqueued=12, expected_response_valid=10, expected_merged=2),
-            Scenario(take=1, expected_input_ready=1, expected_output_valid=1, expected_response_bank=1, expected_response_offset=5, expected_response_write=1, expected_response_data=36889, expected_response_tag=179, expected_accepted=8, expected_response_valid=12, expected_merged=4),
-        )
+    rows: ac.table[26, Scenario] = (
+        Scenario(),
+        Scenario(valid=1, write=1, data=41, tag=1),
+        Scenario(valid=1, bank=1, write=1, data=91, tag=2),
+        Scenario(valid=1, tag=3),
+        Scenario(valid=1, bank=1, tag=4),
+        Scenario(valid=1, bank=2, tag=5),
+        Scenario(),
+        Scenario(output_valid=1, response_write=1, response_tag=1),
+        Scenario(output_valid=1, response_bank=1, response_write=1, response_tag=2),
+        Scenario(),
+        Scenario(output_valid=1, response_data=41, response_tag=3),
+        Scenario(output_valid=1, response_bank=1, response_data=91, response_tag=4),
+        Scenario(output_valid=1, response_bank=2, response_tag=5),
+        Scenario(valid=1, bank=3, write=1, data=0x3333, tag=6),
+        Scenario(valid=1, bank=3, tag=7),
+        Scenario(valid=1, tag=8),
+        Scenario(valid=1, bank=1, tag=9),
+        Scenario(valid=1, bank=2, tag=10),
+        Scenario(),
+        Scenario(
+            take=0, output_valid=1, response_bank=3, response_write=1, response_tag=6
+        ),
+        Scenario(
+            take=0, output_valid=1, response_bank=3, response_write=1, response_tag=6
+        ),
+        Scenario(output_valid=1, response_bank=3, response_write=1, response_tag=6),
+        Scenario(output_valid=1, response_data=41, response_tag=8),
+        Scenario(output_valid=1, response_bank=1, response_data=91, response_tag=9),
+        Scenario(output_valid=1, response_bank=2, response_tag=10),
+        Scenario(output_valid=1, response_bank=3, response_data=0x3333, response_tag=7),
     )
-    # fmt: on
-    position = phase if phase < 440 else 439
+
+
+@ac.system
+def ExerciseMemoryBanks():  # noqa: N802
+    phase: ac.u5 = 0
+    scenarios = Scenarios()
+    position = phase if phase < 26 else 25
     scenario = scenarios.rows[position]
     request = BankRequest(
         bank=scenario.bank,
-        offset=scenario.offset,
+        offset=3,
         write=scenario.write,
         data=scenario.data,
         tag=scenario.tag,
     )
     dut = MemoryBanks(scenario.valid, request, scenario.take)
 
-    @rule
-    def check():
-        if phase < 440:
-            assert (
-                dut.input_ready == scenario.expected_input_ready
-            ), "memory_banks: input_ready"
-            assert (
-                dut.output_valid == scenario.expected_output_valid
-            ), "memory_banks: output_valid"
-            assert (scenario.expected_output_valid == 0) | (
-                dut.response.bank == scenario.expected_response_bank
-            ), "memory_banks: response.bank"
-            assert (scenario.expected_output_valid == 0) | (
-                dut.response.offset == scenario.expected_response_offset
-            ), "memory_banks: response.offset"
-            assert (scenario.expected_output_valid == 0) | (
-                dut.response.write == scenario.expected_response_write
-            ), "memory_banks: response.write"
-            assert (scenario.expected_output_valid == 0) | (
-                dut.response.data == scenario.expected_response_data
-            ), "memory_banks: response.data"
-            assert (scenario.expected_output_valid == 0) | (
-                dut.response.tag == scenario.expected_response_tag
-            ), "memory_banks: response.tag"
-            assert dut.route == scenario.expected_route, "memory_banks: route"
-            assert dut.accepted == scenario.expected_accepted, "memory_banks: accepted"
-            assert dut.enqueued == scenario.expected_enqueued, "memory_banks: enqueued"
-            assert (
-                dut.response_valid == scenario.expected_response_valid
-            ), "memory_banks: response_valid"
-            assert dut.merged == scenario.expected_merged, "memory_banks: merged"
-        log("info", "memory_banks.input_ready", dut.input_ready)
-        log("info", "memory_banks.output_valid", dut.output_valid)
-        log("info", "memory_banks.response.bank", dut.response.bank)
-        log("info", "memory_banks.response.offset", dut.response.offset)
-        log("info", "memory_banks.response.write", dut.response.write)
-        log("info", "memory_banks.response.data", dut.response.data)
-        log("info", "memory_banks.response.tag", dut.response.tag)
-        log("info", "memory_banks.route", dut.route)
-        log("info", "memory_banks.accepted", dut.accepted)
-        log("info", "memory_banks.enqueued", dut.enqueued)
-        log("info", "memory_banks.response_valid", dut.response_valid)
-        log("info", "memory_banks.merged", dut.merged)
+    @ac.rule
+    def check() -> None:
+        assert dut.input_ready == 1, "memory banks: input capacity"
+        assert dut.output_valid == scenario.output_valid, "memory banks: output valid"
+        assert (scenario.output_valid == 0) | (
+            dut.response.bank == scenario.response_bank
+        ), "memory banks: response bank"
+        assert (scenario.output_valid == 0) | (
+            dut.response.offset == 3
+        ), "memory banks: response offset"
+        assert (scenario.output_valid == 0) | (
+            dut.response.write == scenario.response_write
+        ), "memory banks: response kind"
+        assert (scenario.output_valid == 0) | (
+            dut.response.data == scenario.response_data
+        ), "memory banks: response data"
+        assert (scenario.output_valid == 0) | (
+            dut.response.tag == scenario.response_tag
+        ), "memory banks: response tag"
+        ac.log("info", "memory bank scenario", phase, dut.output_valid)
+        phase = phase + 1
 
     check()
-    advance(phase)

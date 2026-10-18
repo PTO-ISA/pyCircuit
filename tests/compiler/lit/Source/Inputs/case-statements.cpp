@@ -40,6 +40,17 @@ template <class Output> void check(const Output &output, std::string_view expect
   if (actual != expected) { std::cerr << "got " << actual << " expected " << expected << '\n'; require(false); }
 }
 #include "case-statements-vectors.hpp"
+template <class Inputs> void drive_known_domain(pyc_dut &dut, Inputs ports) {
+  if constexpr (requires(Inputs value) { value.pyc_7079635f636c6b; }) {
+#ifndef CASE_STATEMENTS_STATE
+    ports.pyc_7079635f636c6b =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+    ports.pyc_7079635f727374 =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+#endif
+  }
+  dut.drive(ports);
+}
 struct Context {
   pyc_dut &dut;
   unsigned sampled = 0;
@@ -47,7 +58,7 @@ struct Context {
   static bool driveInputs(void *opaque, std::uint64_t epoch) {
     auto &self = *static_cast<Context *>(opaque);
     if (epoch == row_count) return false;
-    require(epoch < row_count); pyc_dut::Inputs ports; drive(ports, epoch); self.dut.drive(ports); return true;
+    require(epoch < row_count); pyc_dut::Inputs ports; drive(ports, epoch); drive_known_domain(self.dut, ports); return true;
   }
   static void sample(void *opaque, std::uint64_t epoch) {
     auto &self = *static_cast<Context *>(opaque);
@@ -77,8 +88,8 @@ void lifecycle(unsigned workers) {
     pyc_dut dut(workers); gfsim::SimExecutor executor(dut.system(), dut.observations(), {});
     constexpr std::string_view config = R"({"deadlock_window":null,"max_domain_cycles":{},"max_ticks":32,"schema":"pycircuit-model-config","version":"1"})";
     require(executor.ConfigureJson(reinterpret_cast<const std::uint8_t *>(config.data()), config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
-    driveProbe(initial, 0); dut.drive(initial); require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
-    pyc_dut::Inputs ports; driveFailure(ports, row); dut.drive(ports);
+    driveProbe(initial, 0); drive_known_domain(dut, initial); require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+    pyc_dut::Inputs ports; driveFailure(ports, row); drive_known_domain(dut, ports);
     const auto epoch = executor.cycles(); PycircuitModelStepResultV1 failed{sizeof(failed)};
     require(executor.Step(&failed) == PYCIRCUIT_MODEL_STATUS_V1_RUNTIME_FAILURE);
     require(failed.state == PYCIRCUIT_MODEL_STEP_V1_FAILED && failed.epoch_time == epoch);
@@ -86,7 +97,7 @@ void lifecycle(unsigned workers) {
     bool unavailable = false;
     try { (void)dut.sample(); } catch (const std::logic_error &) { unavailable = true; }
     require(unavailable && executor.Step(&failed) == PYCIRCUIT_MODEL_STATUS_V1_INVALID_STATE);
-    driveProbe(initial, 0); dut.drive(initial); require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
+    driveProbe(initial, 0); drive_known_domain(dut, initial); require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
     PycircuitModelStepResultV1 recovered{sizeof(recovered)};
     require(executor.Step(&recovered) == PYCIRCUIT_MODEL_STATUS_V1_OK);
     check(dut.sample(), probe_expected[0]);

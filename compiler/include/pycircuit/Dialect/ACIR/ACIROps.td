@@ -32,6 +32,28 @@ def ACIR_MathConstantOp : ACIR_Op<"math.constant"> {
   let hasVerifier = 1;
 }
 
+// These bridges are transient source transport, never executable hardware.
+// The source-control-flow normalizer must eliminate them before publication.
+def ACIR_SourceIndexOp : ACIR_Op<"source.index", [Pure]> {
+  let summary = "Represent one finite source SCF induction value as Integer bits";
+  let arguments = (ins Index:$input, DictionaryAttr:$occurrence,
+      DictionaryAttr:$source_location, BoolAttr:$is_signed);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourcePredicateOp : ACIR_Op<"source.predicate", [Pure]> {
+  let summary = "Transport original four-state control into transient source SCF";
+  let description = [{
+    This is not a two-state conversion. Its only consumers are source scf.if
+    and scf.condition controls. Normalization recovers the original Bits input
+    and preserves it in ac.branch; no backend may execute the i1 result.
+  }];
+  let arguments = (ins ACIR_BitsType:$input);
+  let results = (outs I1:$result);
+  let hasVerifier = 1;
+}
+
 def ACIR_ValueBindingOp : ACIR_Op<"value.binding"> {
   let summary = "Bind one proof-scoped ValueID to actual SSA and controls";
   let arguments = (ins AnyType:$value, I1:$valid, I1:$path,
@@ -43,6 +65,21 @@ def ACIR_ValueUseOp : ACIR_Op<"value.use"> {
   let summary = "Bind one proof-scoped source use to verified finite SSA";
   let arguments = (ins AnyType:$value, I1:$valid, I1:$path,
       DictionaryAttr:$id, DictionaryAttr:$source);
+  let hasVerifier = 1;
+}
+
+def ACIR_ValueRequireOp : ACIR_Op<"value.require", [Pure]> {
+  let summary = "Retain one required payload use and its reached availability";
+  let description = [{
+    The result is the four-state select(path, availability, one). Payload is
+    an authenticated source-use reference and is not a runtime data dependency.
+    Compiler admission and observation paths keep every required result live
+    until independent source and final graph proofs complete.
+  }];
+  let arguments = (ins ACIR_HardwareType:$payload,
+      ACIR_BitsType:$availability, ACIR_BitsType:$path,
+      DictionaryAttr:$occurrence, DictionaryAttr:$source_location);
+  let results = (outs ACIR_BitsType:$result);
   let hasVerifier = 1;
 }
 
@@ -300,6 +337,11 @@ def ACIR_SourceStateOp : ACIR_Op<"state", [
       DictionaryAttr:$occurrence);
   let results = (outs ACIR_HardwareType:$q);
   let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::DictionaryAttr getPayloadConstraint() {
+      return (*this)->getAttrOfType<::mlir::DictionaryAttr>("ac.payload_constraint");
+    }
+  }];
 }
 
 def ACIR_SourceStateReadOp : ACIR_Op<"state.read", [
@@ -321,6 +363,32 @@ def ACIR_SourceStateWriteOp : ACIR_Op<"state.write", [
   let hasVerifier = 1;
 }
 
+// Retired spellings parse for diagnostics but fail verification. Native FIFO
+// methods use ordinary instance receivers and ac.method.call.
+def ACIR_SourceQueuePopOp : ACIR_Op<"queue.pop", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Retired Queue pop spelling";
+  let arguments = (ins ACIR_BitsType:$path, StrAttr:$queue,
+      DictionaryAttr:$occurrence);
+  let results = (outs ACIR_HardwareType:$value);
+  let hasVerifier = 1;
+}
+def ACIR_SourceQueuePeekOp : ACIR_Op<"queue.peek", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Retired Queue peek spelling";
+  let arguments = (ins ACIR_BitsType:$path, StrAttr:$queue,
+      DictionaryAttr:$occurrence);
+  let results = (outs ACIR_HardwareType:$value);
+  let hasVerifier = 1;
+}
+def ACIR_SourceQueuePushOp : ACIR_Op<"queue.push", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Retired Queue push spelling";
+  let arguments = (ins ACIR_BitsType:$path, ACIR_HardwareType:$value,
+      StrAttr:$queue, DictionaryAttr:$occurrence);
+  let hasVerifier = 1;
+}
+
 def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
     RecursiveMemoryEffects]> {
   let summary = "Preserve source branch arms and payload SSA results";
@@ -332,7 +400,7 @@ def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
     This source operation must be materialized and cannot remain in final IR.
   }];
   let arguments = (ins ACIR_BitsType:$condition, DictionaryAttr:$occurrence);
-  let results = (outs Variadic<AnyTypeOf<[ACIR_BitsType, ACIR_EnumType, ACIR_StructType]>>:$results);
+  let results = (outs Variadic<AnyTypeOf<[ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TableType]>>:$results);
   let regions = (region AnyRegion:$then_region, AnyRegion:$else_region);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
@@ -376,6 +444,43 @@ def ACIR_SourceMethodCallOp : ACIR_Op<"method.call", [
       StrArrayAttr:$instance_path, DictionaryAttr:$occurrence);
   let results = (outs Variadic<ACIR_HardwareType>:$results);
   let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::ArrayAttr getFormalOwnerBindings() {
+      return (*this)->getAttrOfType<::mlir::ArrayAttr>(
+          "ac.formal_owner_bindings");
+    }
+  }];
+}
+
+def ACIR_SourceFormalWriteOp : ACIR_Op<"formal.write", [
+    AttrSizedOperandSegments,
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Retain each reached writable-formal assignment demand";
+  let description = [{
+    payload retains the converted selected source RHS even if a later assignment
+    overwrites it. selectors and indices retain the exact assignment footprint;
+    candidate is the whole typed formal after this assignment;
+    path remains a raw four-state predicate. This is demand/provenance evidence,
+    not a second storage write or an authored assertion. The invoking Method
+    call's checked owner binding determines whether the demand applies.
+    A forwarded proposal also supplies previous and produces snapshot; these
+    must be present together. Its snapshot is candidate for an owner-bound
+    invocation and previous for a by-value invocation. A direct assignment
+    omits both, preserving normal local SSA assignment in by-value calls.
+    A forwarded proposal has empty selectors and indices; authenticated callee
+    write domains determine its footprint rather than a new whole-owner write.
+  }];
+  let arguments = (ins ACIR_HardwareType:$payload, ACIR_BitsType:$path,
+      ACIR_HardwareType:$candidate, Variadic<ACIR_BitsType>:$indices,
+      Optional<ACIR_HardwareType>:$previous, I64Attr:$formal, ArrayAttr:$selectors,
+      DictionaryAttr:$occurrence);
+  let results = (outs Optional<ACIR_HardwareType>:$snapshot);
+  let hasVerifier = 1;
+  let extraClassDeclaration = [{
+    ::mlir::DictionaryAttr getSourceLocation() {
+      return (*this)->getAttrOfType<::mlir::DictionaryAttr>("ac.location");
+    }
+  }];
 }
 
 def ACIR_SourceTransactionOp : ACIR_Op<"transaction", [
@@ -444,7 +549,7 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [
     parameters supplies ordered StaticExprAttr integer actuals, with defaults
     resolved against the callee declaration. type_arguments supplies one
     TypeAttr per type_parameters entry, in declaration order. A type actual
-    is finite bits/struct data or a forwarded enclosing type parameter.
+    is finite bits/struct/enum/table data or a forwarded enclosing type parameter.
     These bindings reuse the callee definition rather than cloning it.
 
     Every instance denotes distinct hardware, including independent state
@@ -457,7 +562,7 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [
       FlatSymbolRefAttr:$callee,
       TypedArrayAttrBase<ACIR_StaticExprAttr,
           "ordered static integer arguments">:$parameters,
-      TypedArrayAttrBase<TypeAttrOf<ACIR_ScalarHardwareType>,
+      TypedArrayAttrBase<TypeAttrOf<ACIR_HardwareType>,
           "ordered hardware type arguments">:$type_arguments,
       DictionaryAttr:$occurrence);
   let results = (outs Variadic<ACIR_HardwareType>:$outputs);
@@ -489,7 +594,11 @@ def ACIR_CollectionOp : ACIR_Op<"collection", [
 }
 
 def ACIR_QueueOp : ACIR_Op<"queue"> {
-  let summary = "Own one bounded FIFO of complete hardware tokens";
+  let summary = "Retired FIFO operation, retained only for migration diagnostics";
+  let description = [{
+    Verification rejects this operation. FIFO ownership uses ac.instance with
+    a canonical native FIFO callee; callable operations use ac.method.call.
+  }];
   let arguments = (ins
       ACIR_BitsType:$clk, ACIR_BitsType:$rst,
       ACIR_BitsType:$in_valid, ACIR_HardwareType:$in_data,
@@ -500,7 +609,8 @@ def ACIR_QueueOp : ACIR_Op<"queue"> {
       StrAttr:$read_during_write, StrAttr:$reset_policy,
       StrAttr:$empty_data, DictionaryAttr:$occurrence);
   let results = (outs ACIR_BitsType:$in_ready,
-      ACIR_BitsType:$out_valid, ACIR_HardwareType:$out_data);
+      ACIR_BitsType:$out_valid, ACIR_HardwareType:$out_data,
+      ACIR_BitsType:$local_capacity);
   let hasVerifier = 1;
 }
 

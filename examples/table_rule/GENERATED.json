@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "table_rule",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_table_rule.table_rule.TableRule\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "54c277d0ac5cde9af49365c5fb31b1bf86a3cd1c179d8025d7a408f94a6f5489",
+      "source/bench.py": "c4d542efd9a471efe488a6c1cb70030fd26555cd8fa252eef18d4c5f37e0b201",
+      "source/config.json": "5130e736467addf0df6ad8d4b8490cf6afbf299828702897e132d8df266349d8",
+      "source/driver.cpp": "f11fb2f3f70169a1686618fe85f0fdd42bacff8b268ef74506729d3d6afa544c",
+      "source/four_state.py": "87e3ba5581e9da41cda041daeb34ce4565ce5cb2bb267a58c661ac7377da6717",
+      "source/rtl_tb.sv": "5d7d9a3ba0e7beacdcf5450721d0c532e48cf6e7844d00a2b6ee1a64b543965d",
+      "source/table_rule.py": "70f6ed9b3eef4d2d9335354e9f1db22ae9284185dc6ff7c96e52b12d9c87a461",
+      "build/cpp/generated.json": "df50f755fb2eccf4ff3b1ed1920419f1e7ad5d38ac1e8f00d12f1374c808ecba",
+      "build/cpp/CMakeLists.txt": "06dbc89283ac30a227bd9978d3968fbd43c7bfe187521fe7777dd6909d462ce6",
+      "build/cpp/pycircuit_support.hpp": "527d98ea999f199159c4c2d5b92d3f81ad1e44600206caff409b6f4de6c93a35",
+      "build/cpp/pycircuit_system.hpp": "5e0c7658395b3b40fae67bbe03da9fc920652aab8b01faac1eff182fa65dcb0b",
+      "build/cpp/sources/example_table_rule/table_rule.cpp": "48490e3d431ca5beb5e4b02b161d0f7aa0c7770904bbd46c763d1eaac5649879",
+      "build/cpp/sources/example_table_rule/table_rule.hpp": "f92ed685e831f0410011171d88c8a8a46108c990adc828eab1e311edc0524692",
+      "build/cpp/sources/example_table_rule/table_rule.source-map.json": "75c9489e479e457974b4908068aedb80503265d264d9bba4017fa3bc56f4237d",
+      "build/verilog/generated.json": "92e264a37dc417849b5cea7920749d10c3cfab4bd6ff103d7944d10c1c0f6c82",
+      "build/verilog/CMakeLists.txt": "b2b77a79fc9458471017bb485066a11ee9e4c3535029650651d544e23e6135f3",
+      "build/verilog/design_top.sv": "6f5a4f1e601436a77b166c05a753e492c4c32c87cb068143f7cf9db41e5f37e0",
+      "build/verilog/sources/example_table_rule/table_rule.source-map.json": "9e53306692ef9af4c1727b8829c2c610823965785842f97840cdb2f97351ed3c",
+      "build/verilog/sources/example_table_rule/table_rule.v": "ba6732f8f937c9897bbf41d2548dd8ac7c60e619ea53aedb3dd3f258fcdd130e",
+      "build/table_rule.ac": "72465e459d4b0b77231d7de05a4d74ab13acc818aa00dc9d7b8f3af728bf9415",
+      "build/units/.table_rule.pycircuit-publication/owner.json": "8a765d4eb3c57dd55e79c95d05b174219afc73fbb73a0201bd2b0637fd0677f4",
+      "build/units/table_rule/table_rule.ac": "c6fec381fb07861daff759a64a9db153b52c08deb5f74efbff104dd8f25c04fc",
+      "build/units/table_rule/table_rule.d": "1f2405867021f4cbcabcd9a1f6c379953abb38bef701bce4020b1981cce1bbbb",
+      "build/units/table_rule/table_rule.interface.ac": "13ba9f5351140d2ed78fc74df8718f9196d80aaefd1df20d966605174b48689e",
+      "build/units/table_rule/unit.json": "c5824754dd01e10cec8006e17ed8bfcb82b1a9fe1a35d8488154c3d790d83c26",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "a119907fd378d66c8fde0d0e6253a96e98d1b733c6af3a535901141309f679eb"
+    },
+    "execution_sha256": "10aa23ebef70451f403889e48415a50a24f41cabd4794413ac34631b1c573173",
+    "work_samples": 2687,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "6dbf21591f7a5b401c5afde291836c66b8a9ab32b66b78d2fd783870fef87264"
+  },
+  "excerpts": [
+    {
+      "path": "table_rule.ac",
+      "line": 12,
+      "sha256": "72465e459d4b0b77231d7de05a4d74ab13acc818aa00dc9d7b8f3af728bf9415"
+    },
+    {
+      "path": "cpp/sources/example_table_rule/table_rule.hpp",
+      "line": 168,
+      "sha256": "f92ed685e831f0410011171d88c8a8a46108c990adc828eab1e311edc0524692"
+    },
+    {
+      "path": "verilog/sources/example_table_rule/table_rule.v",
+      "line": 1,
+      "sha256": "ba6732f8f937c9897bbf41d2548dd8ac7c60e619ea53aedb3dd3f258fcdd130e"
+    }
+  ]
+}

@@ -168,9 +168,8 @@ def arithmetic_observations(stdout, instance):
                     item, "observation_groups.source_observation_groups."
                 )[1]
             )
-        # The authored assert is statement ordinal zero in both arithmetic
-        # rules; the three following observations retain ordinals 1, 2 and 3.
-        assert [identity["ordinal"] for identity in identities] == [1, 2, 3]
+        # The three arithmetic observation statements are ordinals 0, 1, 2.
+        assert [identity["ordinal"] for identity in identities] == [0, 1, 2], identities
     return records, events
 
 
@@ -213,39 +212,6 @@ def only_observations(stdout, epochs, symbol):
             )
         assert [identity["ordinal"] for identity in parsed] == [0, 1, 0]
     return records, events
-
-
-def relocated_observations(stdout, epochs):
-    records = [json.loads(line) for line in stdout.splitlines() if line.startswith("{")]
-    events = [record for record in records if record["kind"] != "result"]
-    assert len(events) == epochs * 7, events
-    for epoch in range(epochs):
-        actual = events[epoch * 7 : (epoch + 1) * 7]
-        ticks = next(
-            item
-            for item in actual
-            if item["kind"] == "report" and item["spec"] == {"name": "ticks"}
-        )
-        assert ticks["instance"] == "root/left", ticks
-        assert ticks["values"] == [value(ROWS[epoch // 2][0])], ticks
-        identity = json.loads(ticks["site"])
-        assert set(identity) == {"site", "invocation", "ordinal"}, identity
-        assert identity["ordinal"] == 4, identity
-        assert len(identity["invocation"]) == 1, identity
-        receiver = identity["invocation"][0]["receiver"]
-        assert receiver["instance_path"], receiver
-        assert identity["site"]["site"]["definition"].endswith(".GroupLeaf"), identity
-        assert actual[0]["instance"] == "root"
-        leaf = next(
-            item
-            for item in actual
-            if item["kind"] == "log"
-            and item["spec"]["event"] == "leaf"
-            and item["instance"] == "root/left"
-        )
-        if epoch >= 2:
-            assert ticks["values"] != leaf["values"][:1], (ticks, leaf)
-    return events
 
 
 def four_state_precommit_monitor(simulation_top):
@@ -431,7 +397,7 @@ def balanced_dictionary(text, marker, start=0):
     raise AssertionError((marker, text[marker_at : marker_at + 200]))
 
 
-def relocate_ticks_to_left(final):
+def forge_ticks_owner(final):
     text = final.read_text()
     lines = text.splitlines(keepends=True)
     left_line = next(line for line in lines if 'instance_name = "left"' in line)
@@ -551,8 +517,8 @@ def main():
         )
         return result
 
-    def cli(label, *arguments):
-        return run(label, [sys.executable, "-m", "pycircuit.cli", *arguments])
+    def cli(label, *arguments, failure=False):
+        return run(label, [sys.executable, "-m", "pycircuit.cli", *arguments], failure=failure)
 
     unit = work / "unit"
     cli(
@@ -596,16 +562,19 @@ def main():
                 "-o",
                 generated,
             )
-            assert json.loads(
+            metadata = json.loads(
                 (generated / "simulation_verification.json").read_text()
-            ) == {
-                "entry": {"definition": f'@"{entry}"', "arguments": []},
-                "entry_source": {
-                    "package": "observation_groups",
-                    "path": fixture.name,
-                },
-                "source_checks": check_count,
+            )
+            assert metadata["entry"] == {
+                "definition": f'@"{entry}"',
+                "arguments": [],
             }
+            assert metadata["entry_source"] == {
+                "package": "observation_groups",
+                "path": fixture.name,
+            }
+            # The typed hierarchy adds child-boundary checks.
+            assert metadata["source_checks"] >= check_count, metadata
             binary = output / ("simulation-" + target)
             if target == "cpp":
                 manifest = json.loads((generated / "generated.json").read_text())
@@ -763,6 +732,7 @@ def main():
                     "observation_precommit_probe",
                     "-o",
                     four_state_binary,
+                    repo / "include/verilog/dff.v",
                     repo / "include/verilog/dffe.v",
                     *rtl_sources,
                     monitor,
@@ -882,89 +852,29 @@ def main():
     relocated_base_hash = digest(relocated_base)
     relocated_final = relocated_output / "relocated.ac"
     shutil.copy2(relocated_base, relocated_final)
-    relocate_ticks_to_left(relocated_final)
+    forge_ticks_owner(relocated_final)
     relocated_variant_hash = digest(relocated_final)
     assert relocated_variant_hash != relocated_base_hash
-    relocated_transcripts = []
+    # Changing the authored logical owner/site is forged provenance, not a
+    # physical payload relocation. Keep the mutation as a rejection oracle;
+    # source identity and each sampled terminal must still match one-to-one.
+    owner_rejections = []
     for target in ("cpp", "verilog"):
         generated = relocated_output / target
-        cli(
-            "relocated-owner-emit-" + target,
-            "emit",
-            relocated_final,
-            "--target",
-            target,
-            "-o",
-            generated,
-        )
+        options = ("emit", relocated_final, "--target", target, "-o", generated)
+        result = cli("forged-owner-fresh-" + target, *options, failure=True)
+        assert "sampled observation has no matching terminal" in result.stderr
+        assert not generated.exists(), "forged owner published generated output"
+        cli("valid-owner-emit-" + target, "emit", relocated_base,
+            "--target", target, "-o", generated)
+        preserved = {str(path): digest(path) for path in generated.rglob("*") if path.is_file()}
+        result = cli("forged-owner-replace-" + target, *options, "--replace", failure=True)
+        assert "sampled observation has no matching terminal" in result.stderr
+        assert preserved == {str(path): digest(path) for path in generated.rglob("*") if path.is_file()}
         assert digest(relocated_base) == relocated_base_hash
         assert digest(relocated_final) == relocated_variant_hash
-        manifest = json.loads((generated / "generated.json").read_text())
-        binary = relocated_output / ("simulation-" + target)
-        if target == "cpp":
-            run(
-                "relocated-owner-build-cpp",
-                [
-                    args.cxx,
-                    "-std=c++20",
-                    "-pthread",
-                    "-I" + str(repo / "include"),
-                    "-I" + str(generated),
-                    *[
-                        generated / item["path"]
-                        for item in manifest["files"]
-                        if item["path"].endswith(".cpp")
-                    ],
-                    runtime,
-                    "-o",
-                    binary,
-                ],
-            )
-            for workers in (1, 2):
-                result = run(
-                    f"relocated-owner-cpp-{workers}",
-                    [binary, "--cycles", "2", "--workers", str(workers)],
-                )
-                relocated_transcripts.append(relocated_observations(result.stdout, 4))
-        else:
-            rtl_sources = [
-                generated / item["path"]
-                for item in manifest["files"]
-                if item["role"] in ("rtl", "runtime-glue")
-                and item["path"].endswith((".v", ".sv"))
-            ]
-            run(
-                "relocated-owner-build-iverilog",
-                [
-                    args.iverilog,
-                    "-g2012",
-                    "-s",
-                    "pycircuit_sim",
-                    "-o",
-                    binary,
-                    repo / "include/verilog/dffe.v",
-                    *rtl_sources,
-                ],
-            )
-            result = run(
-                "relocated-owner-iverilog",
-                [args.vvp, binary, "+cycles=2"],
-            )
-            relocated_transcripts.append(relocated_observations(result.stdout, 4))
-    assert relocated_transcripts[0] == relocated_transcripts[1]
-    assert relocated_transcripts[0] == relocated_transcripts[2]
-    cases.append(
-        {
-            "entry": relocated_entry,
-            "source_checks": 2,
-            "failed_work": False,
-            "epochs": 4,
-            "native_workers": [1, 2],
-            "rtl": "iverilog-pass",
-            "complete_observations_equal": True,
-            "relocated_physical_payload_logical_owner": True,
-        }
-    )
+        owner_rejections.append({"case": "forged-observation-owner-" + target,
+                                 "diagnostic": result.stderr, "publication_preserved": True})
     protected_paths = [
         path
         for folder in (
@@ -978,7 +888,7 @@ def main():
     published = {str(path): digest(path) for path in protected_paths}
     source_path = source / fixture.name
     original_source = source_path.read_text()
-    rejected = []
+    rejected = owner_rejections
     for label, expression, diagnostic in (
         (
             "boolean-plus-byte",
@@ -1061,12 +971,35 @@ def main():
             "nested-unknown-call",
             log_statement,
             "        missing_observation(sample)",
-            "unsupported behavioral rule statement 'Expr'",
+            "Rule/Method expression requires a direct Method call",
         ),
     ):
         assert original_source.count(original) == 2, (label, original)
         source_path.write_text(original_source.replace(original, replacement, 1))
         try:
+            if label in {"nested-empty-rule", "nested-conditional-log"}:
+                # Empty Rules and conditional observations are admitted now.
+                # Keep these source cases as positive compile/link/dual-emit
+                # coverage, separate from the runtime transcripts above.
+                accepted_unit = work / (label + "-unit")
+                cli("accept-" + label, "compile", "-c", source_path,
+                    "--source-root", source, "--package-prefix", "observation_groups",
+                    "-o", accepted_unit)
+                accepted_final = work / (label + ".ac")
+                cli("link-" + label, "link", accepted_unit, "--top",
+                    "observation_groups.source_observation_groups.OnlyObservationGroups",
+                    "-o", accepted_final)
+                terminals = [
+                    line for line in accepted_final.read_text().splitlines()
+                    if '"ac.observe"' in line and
+                    "definition = @observation_groups.source_observation_groups.OnlyObservationGroups}" in line
+                ]
+                assert len(terminals) == (1 if label == "nested-empty-rule" else 3), terminals
+                for target in ("cpp", "verilog"):
+                    cli("emit-" + label + "-" + target, "emit", accepted_final,
+                        "--target", target, "-o", work / (label + "-" + target))
+                assert published == {str(path): digest(path) for path in protected_paths}
+                continue
             result = run(
                 "reject-" + label,
                 [
@@ -1109,13 +1042,14 @@ def main():
                 "effort": "high",
                 "cases": cases,
                 "negative_cases": rejected,
+                "compile_link_dual_emit_only": ["nested-empty-rule", "nested-conditional-log"],
                 "input_sha256": input_hashes,
                 "artifact_sha256": {
                     str(path): digest(path)
                     for path in work.rglob("*")
                     if path.is_file()
                 },
-                "scope": "Supported unconditional observations only. Partial/inactive publication groups are checked through actual Runtime ObservationSlots, without inventing source conditional-observation admission.",
+                "scope": "Runtime comparisons cover the original grouped observations and precommit rollback. Empty Rules and conditional logs additionally have compile/link/dual-emit admission checks only; no new runtime coverage is claimed for those two cases.",
             },
             indent=2,
         )

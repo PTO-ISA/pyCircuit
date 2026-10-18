@@ -86,6 +86,7 @@ SEQ_MASK = (1 << SEQ_BITS) - 1
 VALUE_MASK = (1 << 32) - 1
 WORD_MASK = (1 << 64) - 1
 CAPACITY = 16
+ENTRY_WIDTH = 64 + 64 + 1
 IN_DEPTH = 8
 OUT_DEPTH = 4
 FAR_KEY = 1000
@@ -579,7 +580,10 @@ def struct_definitions(header):
         name, body = match.groups()
         fields = []
         for line in body.splitlines():
-            field = re.search(r"(?:gfsim::Bits<(\d+)>|(\w+))\s+(\w+)\{\};", line)
+            field = re.search(
+                r"(?:gfsim::Bits<(\d+)>|(?:::)?(?:\w+::)*(\w+))" r"\s+(\w+)(?:\{\})?;",
+                line,
+            )
             if field:
                 fields.append(
                     (
@@ -602,13 +606,15 @@ def payload_bits(structs, name):
 
 def artifact_structure(design_ac, rtl_dir, cpp_dir):
     text = design_ac.read_text()
-    counts = {op: text.count(f'"{op}"') for op in ("ac.queue", "ac.rule", "ac.reorder")}
-    assert counts["ac.queue"] == 2, counts
+    fifo_instances = re.findall(
+        r'"ac\.instance"\([^\n]*callee = @pycircuit\.__builtins__\.fifo_local',
+        text,
+    )
+    counts = {op: text.count(f'"{op}"') for op in ("ac.rule", "ac.reorder")}
+    assert len(fifo_instances) == 2, len(fifo_instances)
+    assert '"ac.queue"' not in text
     assert counts["ac.rule"] == 1, counts
     assert counts["ac.reorder"] == 0, counts
-    assert text.count('ready_policy = "local_occupancy"') == 2, text.count(
-        'ready_policy = "local_occupancy"'
-    )
     assert (
         "#ac.math_int<16>" in text
         and "#ac.math_int<8>" in text
@@ -618,8 +624,8 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
     assert "table<" in text, "no ac.table in the design"
     ok(
         "V1-design",
-        "design.ac: 2 ac.queue, 1 ac.rule, 0 ac.reorder, both queues "
-        "local_occupancy, table extent 16, depths 8/4",
+        "design.ac: 2 canonical fifo_local instances, 1 ac.rule, "
+        "0 ac.reorder, table extent 16, depths 8/4",
     )
 
     rtl_paths = sorted(rtl_dir.rglob("*.v")) + sorted(rtl_dir.rglob("*.sv"))
@@ -649,12 +655,13 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
     assert pointer is not None, "no 64-bit pointer register"
     lane = re.match(r"(\w+)", entry[2]["q"]).group(1)
     extent = re.search(
-        r"wire logic \[\(\(\(1 \* \((\d+)\)\) \* \(\$bits\(pycircuit_types::\w+\)\)\)\)-1:0\] "
-        + lane
-        + r";",
+        r"wire logic \[\(\(\(1 \* \((\d+)\)\) \* \((\d+)\)\)\)-1:0\] " + lane + r";",
         blob,
     )
-    assert extent and int(extent.group(1)) == CAPACITY, (lane, extent)
+    assert extent and (int(extent.group(1)), int(extent.group(2))) == (
+        CAPACITY,
+        ENTRY_WIDTH,
+    ), (lane, extent)
     assert (
         re.search(r"\.clk\(pyc_7079635f636c6b\)", entry[2]["clk"] and "" or "") is None
     )
@@ -934,6 +941,9 @@ module tb;
   wire [130:0] result;
   logic [2:0] pyc_phase = 0;
   logic pyc_root_commit_ok = 0;
+  wire pyc_5f5f7079635f76616c69645f6f75745f30;
+  wire pyc_check_complete;
+  wire pyc_sampling_error;
   wire pyc_local_error;
   logic failed = 0;
   logic [130:0] sampled_result;
@@ -1237,6 +1247,9 @@ module tb;
   wire [130:0] result;
   logic [2:0] pyc_phase = 0;
   logic pyc_root_commit_ok = 0;
+  wire pyc_5f5f7079635f76616c69645f6f75745f30;
+  wire pyc_check_complete;
+  wire pyc_sampling_error;
   wire pyc_local_error;
   logic failed = 0;
   integer unknowns = 0;
@@ -1249,15 +1262,23 @@ module tb;
   task automatic work;
     if (!failed) begin
       pyc_phase=1; #1;
-      pyc_root_commit_ok=(pyc_local_error === 1'b0);
+      pyc_root_commit_ok=(pyc_check_complete === 1'b1 &&
+                          pyc_sampling_error === 1'b0 &&
+                          pyc_local_error === 1'b0);
       if (pyc_root_commit_ok) begin
-        if ($isunknown(result) !== 1'b0) begin
+        if (pyc_5f5f7079635f76616c69645f6f75745f30 !== 1'b0 &&
+            pyc_5f5f7079635f76616c69645f6f75745f30 !== 1'b1)
+          $fatal(1,"unknown result validity");
+        if (pyc_5f5f7079635f76616c69645f6f75745f30 === 1'b1 &&
+            $isunknown(result) !== 1'b0) begin
           unknowns=unknowns+1;
           $display("UNKNOWN successful result=%b",result);
         end
         pyc_phase=2; #1;
       end else begin
-        if (pyc_local_error !== 1'b1) $fatal(1,"ambiguous managed error");
+        if (pyc_check_complete !== 1'b1 ||
+            (pyc_sampling_error !== 1'b1 && pyc_local_error !== 1'b1))
+          $fatal(1,"ambiguous managed error");
         pyc_phase=3; #1; failed=1;
       end
       pyc_phase=0; pyc_root_commit_ok=0; #1;

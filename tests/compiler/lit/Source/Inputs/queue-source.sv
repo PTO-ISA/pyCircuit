@@ -7,9 +7,14 @@ module tb;
   logic take = 0;
   logic [`Q4_INPUT_BITS-1:0] data = 0;
   wire [`Q4_OUTPUT_BITS-1:0] result;
+`ifdef Q4_OUTPUT_VALIDITY
+  wire pyc_5f5f7079635f76616c69645f6f75745f30;
+`endif
 `ifdef Q4_CHECKS
   logic [2:0] pyc_phase = 0;
   logic pyc_root_commit_ok = 0;
+  wire pyc_check_complete;
+  wire pyc_sampling_error;
   wire pyc_local_error;
   logic failed = 0;
 
@@ -35,14 +40,24 @@ module tb;
     end else begin
       pyc_phase=1; #1;
       // Freeze permission from the complete prepared error channel before Xfer.
-      pyc_root_commit_ok=(pyc_local_error === 1'b0);
+      pyc_root_commit_ok=(pyc_check_complete === 1'b1 &&
+                          pyc_sampling_error === 1'b0 &&
+                          pyc_local_error === 1'b0);
       if (expected_failure) begin
-        if (pyc_local_error !== 1'b1 || pyc_root_commit_ok !== 1'b0)
+        if (pyc_check_complete !== 1'b1 ||
+            (pyc_sampling_error !== 1'b1 && pyc_local_error !== 1'b1) ||
+            pyc_root_commit_ok !== 1'b0)
           $fatal(1,"missing queue failure row %0d",index);
         pyc_phase=3; #1; failed=1;
         $display("FAILED %0d",index);
       end else begin
-        if (pyc_root_commit_ok !== 1'b1 || result !== expected)
+        if (pyc_check_complete !== 1'b1 ||
+            pyc_sampling_error !== 1'b0 || pyc_local_error !== 1'b0 ||
+            pyc_root_commit_ok !== 1'b1
+`ifdef Q4_OUTPUT_VALIDITY
+            || pyc_5f5f7079635f76616c69645f6f75745f30 !== 1'b1
+`endif
+            || result !== expected)
           $fatal(1,"queue successful sample row %0d failed",index);
         pyc_phase=2; #1;
         $display("WORK %0d",index);

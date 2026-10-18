@@ -6,7 +6,7 @@ module tb;
   wire pycircuit_types::ac_example_multiclock_domain_isolation_multiclock_domain_isolation_DomainPins_t d_a,d_b;
   assign d_a.clk=clk_a;assign d_a.rst=rst_a;
   assign d_b.clk=clk_b;assign d_b.rst=rst_b;
-  pyc_root dut(.*);
+  pyc_root dut(.result_0(a_count), .result_1(b_count), .*);
   // `row` checks the value Work samples in this epoch, then applies the clock
   // levels. A sampled value is therefore the state committed by the PREVIOUS
   // row's own rising edges: an edge commits only on its own lane's clock rise.

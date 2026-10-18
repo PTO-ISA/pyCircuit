@@ -47,13 +47,14 @@ complete inputs and clock levels. One Step is a Work/Xfer sampling epoch, and
 sample returns the successful Work's old-Q snapshot. Use a finite configuration;
 events are silent unless explicitly requested. The port C ABI remains deferred.
 
-The installed PycircuitExamples.cmake helper runs these public commands for
-per-design examples. [module_loop](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/module_loop/README.md)
-demonstrates two source units; wire_ops, arith and
-[counter](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/counter/README.md) preserve their original
-hardware behavior. Their independent
-native/RTL oracles are part of the design folders. Configure with an installed
-CMAKE_PREFIX_PATH, build, then run CTest with --no-tests=error.
+The installed `PycircuitExamples.cmake` helper runs these public commands for
+current examples. [multi_outputs](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/multi_outputs/README.md)
+shows typed hierarchy and output grouping; [hello_counter](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/hello_counter/README.md)
+is a complete small System. Follow the recommended learning path in
+`examples/GUIDE.md`. Retained API/package fixtures such as `module_loop` live
+under `tests/fixtures/historical_examples/`; they are not current teaching entries.
+Configure with an installed `CMAKE_PREFIX_PATH` and `CMAKE_BUILD_TYPE=Release`,
+build, then run CTest with `--no-tests=error`.
 
 ## Verify the actual scope
 

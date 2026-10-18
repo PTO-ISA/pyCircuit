@@ -28,7 +28,7 @@ def test_active_product_roots_are_documented() -> None:
         "python/pycircuit/",
         "compiler/",
         "runtime/",
-        "examples/counter/",
+        "examples/hello_counter/",
         "tests/",
         "tools/",
     ):

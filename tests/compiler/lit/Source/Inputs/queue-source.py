@@ -195,14 +195,32 @@ def unit_payload(unit, kind):
 
 def queue_owners(unit):
     text = unit_payload(unit, "body").read_text()
+    assert '"ac.queue"' not in text
+    assert '"ac.queue.' not in text
     owners = []
     for line in text.splitlines():
-        if '"ac.queue"(' not in line:
+        if '"ac.instance"(' not in line or "@pycircuit.__builtins__.fifo_" not in line:
             continue
         match = re.search(r"definition = @([^,}]+)", line)
         assert match, line
         owners.append(match.group(1))
     return owners
+
+
+def assert_native_queue_final(path):
+    text = path.read_text()
+    assert '"ac.queue"' not in text
+    assert '"ac.queue.' not in text
+    assert '"ac.method.call"' not in text
+    instances = [
+        line
+        for line in text.splitlines()
+        if '"ac.instance"(' in line and "@pycircuit.__builtins__.fifo_" in line
+    ]
+    assert instances, "final contains no canonical FIFO instances"
+    assert all(
+        "parameters = [" in line and "type_arguments = [" in line for line in instances
+    )
 
 
 vector_spec = importlib.util.spec_from_file_location(
@@ -250,6 +268,7 @@ def fault_checks():
             fixtures / "queue-source-faults.sv",
             oracle_dir / "models.py",
             oracle_dir / "credit_independent_check.py",
+            repo / "include/verilog/dff.v",
             repo / "include/verilog/dffe.v",
             repo / "include/verilog/fifo.v",
             repo / "include/gfsim/collection.h",
@@ -291,6 +310,7 @@ def fault_checks():
             "-o",
             final,
         )
+        assert_native_queue_final(final)
         for target in ("cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
         cpp = output / "cpp"
@@ -517,8 +537,7 @@ def fault_checks():
                 "-Wno-fatal",
                 "-CFLAGS",
                 "-std=c++20",
-                "-MAKEFLAGS",
-                "CFG_CXXFLAGS_PCH_I=-include",
+                repo / "include/verilog/dff.v",
                 repo / "include/verilog/dffe.v",
                 repo / "include/verilog/fifo.v",
                 *sources,
@@ -788,6 +807,7 @@ for source_name, root_name, oracle_name, closure in positives:
     vectors.materialize(oracle_name, vector_dir)
     final = output / "design.ac"
     cli("link", *closure, "--top", f"q4_queue.{source_name}.{root_name}", "-o", final)
+    assert_native_queue_final(final)
     for target in ("cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
     cpp_receipt = json.loads((output / "cpp/generated.json").read_text())
@@ -808,6 +828,8 @@ for source_name, root_name, oracle_name, closure in positives:
         defines.append("-DQ6_DEAD")
     if oracle_name.startswith(("route_merge", "credit", "reorder")):
         defines.append("-DQ4_CHECKS")
+    if oracle_name.startswith("reorder"):
+        defines.append("-DQ4_OUTPUT_VALIDITY")
     run(
         [
             args.cxx,
@@ -909,8 +931,6 @@ for source_name, root_name, oracle_name, closure in positives:
                 "-Wno-fatal",
                 "-CFLAGS",
                 "-std=c++20",
-                "-MAKEFLAGS",
-                "CFG_CXXFLAGS_PCH_I=-include",
                 *defines,
                 "-I" + str(vector_dir),
                 *primitives,

@@ -4,6 +4,7 @@
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/DenseSet.h"
 using namespace mlir;
 namespace acir::ac {
 namespace {
@@ -26,13 +27,27 @@ bool isCombinationalHardwareOperation(Operation *operation) {
              StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
              EnumFromBitsOp, TableCreateOp, TableSplatOp, TableMapOp,
              TableViewOp, TableIndexOp, TableGetOp, TableMatchOp, TableChooseOp,
-             TableFoldOp, ValueMergeOp>(operation);
+             TableFoldOp, ValueMergeOp, ValueRequireOp>(operation);
 }
 
 LogicalResult verifyHardwareTypeScope(Type type, Operation *owner);
 LogicalResult verifyHardwareAttributeScope(Attribute attr, Operation *owner) {
+  // A closed Occurrence contains only sites and static values, never hardware
+  // parameter/type references. Its intrinsic proof supplies no owner authority.
+  if (auto occurrence = dyn_cast_or_null<DictionaryAttr>(attr);
+      occurrence && ((occurrence.size() == 2 &&
+                      isVerifiedOccurrenceGrammar(occurrence)) ||
+                     (occurrence.size() == 5 &&
+                      isVerifiedSourceSpanGrammar(occurrence))))
+    return success();
   if (auto expr = dyn_cast_or_null<StaticExprAttr>(attr)) {
     auto tree = expr.getTree();
+    // A verified literal contains only closed StaticValue grammar: it cannot
+    // carry a hardware formal or a type_width reference.
+    if (auto kind = tree.getAs<StringAttr>("kind");
+        kind && kind.getValue() == "literal" &&
+        isVerifiedStaticExpressionGrammar(tree))
+      return success();
     auto tag = tree.getAs<StringAttr>("kind");
     if (tag && tag.getValue() == "reference") {
       auto ref = tree.getAs<DictionaryAttr>("ref");
@@ -204,12 +219,22 @@ LogicalResult ModuleOp::verifyRegions() {
     return failure();
   if (failed(detail::verifyModuleObservationIdentities(*this)))
     return failure();
+  // Scope authority is this exact immutable lexical definition. Repeated
+  // operands share interned types, so validate each type root once
+  // here; standalone queries and every other definition retain their own proof.
+  llvm::DenseSet<Type> checkedTypes;
+  auto typeScope = [&](Type type) -> LogicalResult {
+    if (checkedTypes.contains(type)) return success();
+    if (failed(detail::verifyHardwareTypeScope(type, *this))) return failure();
+    checkedTypes.insert(type);
+    return success();
+  };
   auto result = walk([&](Operation *op) {
     for (Type type : op->getOperandTypes())
-      if (failed(detail::verifyHardwareTypeScope(type, *this)))
+      if (failed(typeScope(type)))
         return WalkResult::interrupt();
     for (Type type : op->getResultTypes())
-      if (failed(detail::verifyHardwareTypeScope(type, *this)))
+      if (failed(typeScope(type)))
         return WalkResult::interrupt();
     for (auto attr : op->getAttrs())
       if (failed(detail::verifyHardwareAttributeScope(attr.getValue(), *this)))
@@ -267,7 +292,8 @@ LogicalResult ModuleImportOp::verify() {
   auto primitive = getPrimitiveKindAttr();
   if (primitive &&
       !llvm::is_contained(ArrayRef<StringRef>{"dff", "dffe", "sync_mem",
-                                              "sync_mem_dp", "byte_mem"},
+                                              "sync_mem_dp", "byte_mem",
+                                              "fifo_local", "fifo_downstream_pop"},
                           primitive.getValue()))
     return emitOpError() << "unknown trusted primitive kind";
   if (getSemanticKind() == "transactions")

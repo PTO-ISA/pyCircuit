@@ -30,6 +30,68 @@ def conjunction(a, b):
     return "0" if "0" in (a, b) else "1" if a == b == "1" else "x"
 
 
+def authenticate_check_metadata(manifest, expected):
+    """Keep source assertions exact while authenticating compiler controls."""
+    checks = manifest["checks"]
+    assert [check["ordinal"] for check in checks] == list(range(len(checks)))
+    assert all(check["kind"] in {"assert", "guard_known"} for check in checks)
+    groups = {}
+    for check in checks:
+        key = (check["owner"], json.dumps(check["id"]["registration"], sort_keys=True))
+        groups.setdefault(key, []).append(check)
+    seen = set()
+    for group in groups.values():
+        controls = [check for check in group if check["kind"] == "guard_known"]
+        authored = [check for check in group if check["kind"] == "assert"]
+        assert group == controls + authored, group
+        assert [check["id"]["obligation"] for check in controls] == list(
+            range(len(controls))
+        )
+        templates = [
+            entry
+            for entry in expected
+            if entry["id"]["registration"] == group[0]["id"]["registration"]
+        ]
+        assert templates, group
+        for control in controls:
+            assert any(
+                control["id"]["check"] == site["check"]
+                and control["location"] in site["locations"]
+                for entry in templates
+                for site in entry.get("compiler_sites", [])
+            ), control
+        matched = set()
+        for check in authored:
+            matches = [
+                index
+                for index, entry in enumerate(expected)
+                if check["id"]["registration"] == entry["id"]["registration"]
+                and check["id"]["check"] == entry["id"]["check"]
+                and ("authored_ordinal" in entry or check["id"] == entry["id"])
+                and check["location"] == entry["location"]
+            ]
+            assert len(matches) == 1, check
+            index = matches[0]
+            assert index not in matched, check
+            matched.add(index)
+            seen.add(index)
+            entry = expected[index]
+            if "authored_ordinal" in entry:
+                obligation = len(controls) + entry["authored_ordinal"]
+                assert entry.setdefault("resolved_obligation", obligation) == obligation
+                entry["id"]["obligation"] = obligation
+            assert check["id"] == entry["id"], check
+            if "reset_input" in entry:
+                assert check["reset"] == {
+                    "physical": True,
+                    "owner": check["owner"],
+                    "input": entry["reset_input"],
+                }, check
+        assert len(matched) == len(templates), (group, templates)
+    assert seen == set(range(len(expected))), (seen, expected)
+    return [check for check in checks if check["kind"] == "assert"]
+
+
 def main():
     parser = argparse.ArgumentParser()
     for name in ("repo", "source-compiler", "linker", "cxx", "scratch"):
@@ -154,6 +216,28 @@ def main():
             ):
                 continue
             symbol = "execution." + name + "." + module_name
+            rule_nodes = set(ast.walk(rule))
+            compiler_sites = [
+                {
+                    "check": occurrence(symbol, site),
+                    # Control IDs retain their source statement; an associated
+                    # condition/value may have the precise sampled expression span.
+                    "locations": [
+                        {
+                            "path": path.name,
+                            "line": child.lineno,
+                            "column": child.col_offset + 1,
+                            "end_line": child.end_lineno,
+                            "end_column": child.end_col_offset + 1,
+                        }
+                        for child in [*ast.walk(node), rule]
+                        if hasattr(child, "lineno")
+                    ],
+                }
+                for node, site in nodes
+                if node in rule_nodes and hasattr(node, "lineno")
+            ]
+            authored_ordinal = 0
             for check, site in nodes:
                 if not isinstance(check, ast.Assert) or check not in list(
                     ast.walk(rule)
@@ -175,6 +259,9 @@ def main():
                     {
                         "id": identity,
                         "location": location,
+                        "authored_ordinal": authored_ordinal,
+                        "reset_input": len(owner.args.args) + 1,
+                        "compiler_sites": compiler_sites,
                         "message": (
                             check.msg.value
                             if check.msg
@@ -182,6 +269,7 @@ def main():
                         ),
                     }
                 )
+                authored_ordinal += 1
         assert expected, name
         return expected
 
@@ -431,56 +519,58 @@ def main():
         }, emission
         manifest = json.loads((generated / "native-checks.json").read_text())
         expected = [entry for group in expected_groups for entry in group]
-        for check in manifest["checks"]:
-            assert any(
-                check["id"] == entry["id"] and check["location"] == entry["location"]
-                for entry in expected
-            ), check
+        authored_checks = authenticate_check_metadata(manifest, expected)
+        compiler_checks = [
+            check for check in manifest["checks"] if check["kind"] == "guard_known"
+        ]
         if name == "matrix":
-            assert (
-                len(manifest["checks"]) == 1
-                and not manifest["checks"][0]["reset"]["physical"]
-            )
+            assert len(authored_checks) == 1 and authored_checks[0]["reset"] == {
+                "physical": True,
+                "owner": 0,
+                "input": 3,
+            }
         elif name == "snapshots":
-            assert len(manifest["checks"]) == 3
+            assert len(authored_checks) == 3
             assert all(
                 c["reset"] == {"physical": True, "owner": 0, "input": 4}
-                for c in manifest["checks"]
+                for c in authored_checks
             )
         elif name == "hierarchy":
-            assert len(manifest["checks"]) == 4
-            assert all(c["reset"]["physical"] for c in manifest["checks"])
-            physical_owners = {c["reset"]["owner"] for c in manifest["checks"]}
-            assert len(physical_owners) == 2
+            assert len(authored_checks) == 4
+            assert all(c["reset"]["physical"] for c in authored_checks)
+            physical_owners = {c["reset"]["owner"] for c in authored_checks}
+            # Cell and its state-free Guard each have an actual sampled domain.
+            assert len(physical_owners) == 4
+            assert physical_owners == {c["owner"] for c in authored_checks}
         elif name == "collections":
             family, ordinary, ordinary11 = expected
-            assert len(manifest["owners"]) == 8 and len(manifest["checks"]) == 8
+            assert len(manifest["owners"]) == 8 and len(authored_checks) == 8
             for lane in range(6):
                 owner = manifest["owners"][lane + 1]
                 assert owner["path"][0]["coordinates"] == [lane // 3, lane % 3]
-                assert manifest["checks"][lane]["reset"] == {
+                assert authored_checks[lane]["reset"] == {
                     "physical": True,
                     "owner": lane + 1,
                     "input": 2,
                 }
-            assert [c["id"]["obligation"] for c in manifest["checks"][-2:]] == [3, 11]
-            assert all(not c["reset"]["physical"] for c in manifest["checks"][-2:])
+            assert [c["id"]["obligation"] for c in authored_checks[-2:]] == [3, 11]
+            assert all(not c["reset"]["physical"] for c in authored_checks[-2:])
         elif name == "address_grants":
-            assert len(manifest["checks"]) == 2
+            assert len(authored_checks) == 2
             assert all(
                 c["reset"] == {"physical": True, "owner": 0, "input": 8}
-                for c in manifest["checks"]
+                for c in authored_checks
             )
             assert len(manifest["commits"]) >= 3 and all(
                 c["kind"] == "dffe" for c in manifest["commits"]
             )
         elif name == "domains":
-            assert len(manifest["checks"]) == 4
+            assert len(authored_checks) == 4
             assert sorted(c["kind"] for c in manifest["commits"]) == ["dffe", "dffe"]
-            assert len({c["reset"]["owner"] for c in manifest["checks"]}) == 2
+            assert len({c["reset"]["owner"] for c in authored_checks}) == 2
             assert all(
                 c["reset"]["physical"] and c["reset"]["input"] == 3
-                for c in manifest["checks"]
+                for c in authored_checks
             )
         else:
             assert sorted(c["kind"] for c in manifest["commits"]) == [
@@ -492,6 +582,13 @@ def main():
                 "sync_mem",
                 "sync_mem_dp",
             ]
+        for control in compiler_checks:
+            assert any(
+                control["owner"] == check["owner"]
+                and control["id"]["registration"] == check["id"]["registration"]
+                and control["reset"] == check["reset"]
+                for check in authored_checks
+            ), control
         cpp = [generated / path for path in manifest["files"] if path.endswith(".cpp")]
         runner = root / ("runner-" + name)
         run(

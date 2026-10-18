@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "ACIRSourceContracts.h"
 
 #include "llvm/ADT/STLExtras.h"
 
@@ -109,6 +110,24 @@ LogicalResult BitsSelectOp::verify() {
     return failure();
   return requireSameWidth(*this, getTrueValue().getType(),
                           getFalseValue().getType(), getResult().getType());
+}
+
+LogicalResult ValueRequireOp::verify() {
+  auto error = [&] { return emitOpError(); };
+  auto package = (*this)->getParentOfType<mlir::ModuleOp>();
+  if (auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+      stage && stage.getValue() == "source")
+    return emitOpError() << "is compiler-owned final availability evidence";
+  if (!isa<RuleOp, ModuleOp>((*this)->getParentOp()))
+    return emitOpError() << "requires an immediate hardware Module or Rule";
+  if (failed(requireOneBit(getAvailability().getType(), *this,
+                           "required availability")) ||
+      failed(requireOneBit(getPath().getType(), *this, "required use path")) ||
+      failed(requireOneBit(getResult().getType(), *this, "required use result")) ||
+      failed(detail::verifyOccurrence(getOccurrence(), error)) ||
+      failed(detail::verifySourceSpan(getSourceLocation(), error)))
+    return failure();
+  return success();
 }
 
 LogicalResult BitsConcatOp::verify() {

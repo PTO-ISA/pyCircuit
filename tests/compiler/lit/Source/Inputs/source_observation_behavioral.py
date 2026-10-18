@@ -241,11 +241,11 @@ ACCEPTED["attribute-report"] = (
 REJECTED = {
     "print": (
         '    print("leaf.r.q", old)',
-        "unsupported behavioral rule statement 'Expr'",
+        "Rule/Method expression requires a direct Method call",
     ),
     "unknown-callee": (
         "    other(in_x)",
-        "unsupported behavioral rule statement 'Expr'",
+        "Rule/Method expression requires a direct Method call",
     ),
     "log-keywords": (
         '    log("info", "leaf.r.q", old, flush=True)',
@@ -274,23 +274,21 @@ REJECTED = {
     ),
     "report-untypeable-value": (
         '    report("leaf.r.q", -1)',
-        "cannot infer finite hardware expression type",
+        "unsupported hardware expression 'UnaryOp'",
     ),
-    "if-nested-report": (
-        '    if in_x == 0:\n        report("leaf.r.q", old)',
-        "report observation must be an unconditional rule statement",
-    ),
-    "if-nested-log": (
-        '    if in_x == 0:\n        log("info", "leaf.r.q", old)',
-        "log observation must be an unconditional rule statement",
-    ),
+}
+
+CONDITIONAL_ACCEPTED = {
+    "if-nested-report": ('    if in_x == 0:\n        report("leaf.r.q", old)', 1, 7),
+    "if-nested-log": ('    if in_x == 0:\n        log("info", "leaf.r.q", old)', 1, 7),
     "match-nested-report": (
         "    match in_x:\n"
         "        case 0:\n"
         '            report("leaf.r.q", old)\n'
         "        case _:\n"
         '            report("leaf.r.other", old)',
-        "report observation must be an unconditional rule statement",
+        2,
+        8,
     ),
     "match-nested-log": (
         "    match in_x:\n"
@@ -298,7 +296,8 @@ REJECTED = {
         '            log("info", "leaf.r.q", old)\n'
         "        case _:\n"
         '            log("info", "leaf.r.other", old)',
-        "log observation must be an unconditional rule statement",
+        2,
+        8,
     ),
 }
 
@@ -473,7 +472,9 @@ def main():
         for fragment in fragments:
             assert fragment in body, (name, fragment, body)
         if name == "report-with-assert":
-            assert body.count('"ac.expect"') == 1, name
+            expects = [line for line in body.splitlines() if '"ac.expect"(' in line]
+            assert sum('kind = "assert"' in line for line in expects) == 1, body
+            assert sum('kind = "guard_known"' in line for line in expects) == 1, body
         behavioral_receipts.append(
             {
                 "case": name,
@@ -483,6 +484,55 @@ def main():
                 "link_exit_status": 0,
                 "ac_observe": observed,
                 "ac_expect": body.count('"ac.expect"'),
+            }
+        )
+
+    conditional_receipts = []
+    for name, (statement, observation_count, guard_count) in sorted(
+        CONDITIONAL_ACCEPTED.items()
+    ):
+        text = BEHAVIORAL.replace("{body}", statement)
+        _, unit = compile_source("conditional-" + name, text, "conditional")
+        receipt = json.loads((unit / "unit.json").read_text())
+        source_body = (unit / receipt["files"]["body"]).read_text()
+        assert source_body.count('"ac.observe"') == observation_count, source_body
+        assert source_body.count('"ac.expect"') == 0, source_body
+        final = link(unit, "conditional-" + name, "conditional", "LeafUnit")
+        body = body_of(final)
+        assert body.count('"ac.observe"') == observation_count, body
+        expects = [line for line in body.splitlines() if '"ac.expect"(' in line]
+        assert (
+            sum('kind = "guard_known"' in line for line in expects) == guard_count
+        ), body
+        assert sum('kind = "assert"' in line for line in expects) == 0, body
+        emitted = {}
+        for target in ("cpp", "verilog"):
+            output = units / (stem_of("conditional-" + name) + "-" + target)
+            result = cli(
+                "emit",
+                final,
+                "--target",
+                target,
+                "-o",
+                output,
+                code=0 if target == "cpp" else 1,
+            )
+            emitted[target] = result.returncode
+            if target == "verilog":
+                assert (
+                    "hardware instrumentation emission is not implemented"
+                    in result.stderr
+                )
+                assert not output.exists(), target
+        conditional_receipts.append(
+            {
+                "case": name,
+                "statement": statement,
+                "source_sha256": digests(text),
+                "source_observations": observation_count,
+                "final_observations": observation_count,
+                "generated_guard_checks": guard_count,
+                "emitted": emitted,
             }
         )
 
@@ -737,9 +787,10 @@ def main():
     chain_body = body_of(chain_final)
     assert chain_body.count('"ac.observe"') == 1, chain_body
     # The shape keeps both instances and one state register distinct.
-    assert chain_body.count('instance_name = "__pyc_call_0"') == 1, chain_body
-    assert chain_body.count('instance_name = "__pyc_call_1"') == 1, chain_body
-    assert chain_body.count('dffe, instance_name = "r"') == 1, chain_body
+    assert chain_body.count('instance_name = "u0"') == 1, chain_body
+    assert chain_body.count('instance_name = "u1"') == 1, chain_body
+    assert chain_body.count('dff, instance_name = "r"') == 1, chain_body
+    assert 'dffe, instance_name = "r"' not in chain_body, chain_body
     chain = {
         "ac_observe": 1,
         "leaf_instances": 2,
@@ -774,6 +825,7 @@ def main():
             {
                 "scope": "behavioral/structural source observation acceptance",
                 "behavioral_observations": behavioral_receipts,
+                "conditional_observations": conditional_receipts,
                 "pure_behavioral_agreement": agreement_receipts,
                 "importer_decision_agreement": decision_receipts,
                 "behavioral_rejections": rejection_receipts,

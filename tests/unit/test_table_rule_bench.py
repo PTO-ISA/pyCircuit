@@ -1,4 +1,4 @@
-"""Preserve the table_rule system trace without importing the design source."""
+"""Retain the historical table_rule trace as an independent regression asset."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ import pytest
 
 pytestmark = pytest.mark.unit
 ROOT = Path(__file__).resolve().parents[2]
-BENCH = ROOT / "examples/table_rule/bench.py"
+BENCH = ROOT / "tests/fixtures/historical_examples/system_benches/table_rule/bench.py"
 
 FIELDS = (
     "valid",

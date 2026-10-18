@@ -350,7 +350,7 @@ def NegativeIndex() -> {"out": ac.u1}:
         ),
         "negative-branch-boolean-output": (
             negative_branch.replace('-> {"out": ac.u1}:', '-> {"out": bool}:'),
-            ("unsigned", "integer", "negative", "represent", "range", "proven"),
+            ("boolean", "binding", "source", "kind"),
         ),
         "negative-inverted-integer": (
             negative_invert,

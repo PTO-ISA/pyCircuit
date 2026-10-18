@@ -40,8 +40,9 @@ low bits. Drawing uses strict rectangle boundaries and four-bit RGB values with
 only bit 3 active. Coordinate upper bounds retain the original four-bit
 `position + 1` wrap before widening and multiplying by 40.
 
-The single rule saves explicit old-Q snapshots for every RHS and output before
-proposing any updates. Guarded writes retain their original last-assignment
+The single nested Rule owns all fourteen lexical state variables and saves
+explicit old-Q snapshots for every RHS and output before proposing any updates.
+Guarded writes retain their original last-assignment
 priority. In play state, collision overrides the FSM write for `RST_BTN`;
 the later `old_j + 1` overrides both the button reset and the `j == 20` reset.
 The later object motion writes likewise override those resets, even when their
@@ -106,53 +107,3 @@ coverage, and this example has no existing RTL four-state macro. No new
 four-state result is claimed.
 
 See [generated excerpts and verification inputs](GENERATED.md).
-
-## Local cost comparison
-
-The source shrinks from 1,268 lines / 45,943 bytes to
-271 lines / 21,706 bytes. Measurements use the same checkout-built
-compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
-build and first-run values are single serial observations; warm medians use
-three alternating full-length pairs. Every fresh process includes initialization.
-These local results do not guarantee performance on other platforms or
-optimization levels.
-
-| Measurement | Expanded expressions | Interval Table |
-| --- | ---: | ---: |
-| Compile bench | 0.973 s | 0.588 s |
-| Link system | 1.618 s | 1.136 s |
-| Emit C++ | 1.495 s | 1.045 s |
-| Emit Verilog | 1.242 s | 0.882 s |
-| Build C++ | 1.065 s | 0.969 s |
-| Build Verilog | 1.451 s | 1.604 s |
-| First measured full C++ run | 4.823 s | 3.256 s |
-| First measured full Verilog run | 1.341 s | 1.393 s |
-| Warm C++ median, one worker | 4.644236 s | 2.936177 s |
-| Warm Verilog median | 1.069004 s | 1.087912 s |
-| Warm native peak RSS median | 3.36 MiB | 2.81 MiB |
-
-| Artifact size | Expanded expressions | Interval Table |
-| --- | ---: | ---: |
-| Final IR | 6,826,447 bytes | 4,612,128 bytes |
-| Generated C++ total | 1,619,153 bytes | 1,394,184 bytes |
-| Generated Verilog total | 316,383 bytes | 265,103 bytes |
-
-Recorded first-run regressions: RTL 1.341 → 1.393 s.
-They remain separate from warm medians; one observation does not identify a cause.
-
-Warm RTL median increases from 1.069004 to 1.087912 s (1.77%, about 18.91 ms).
-Two paired runs are slower and one faster. RTL build also increases from 1.451
-to 1.604 s; the first RTL run increases from 1.341 to 1.393 s. These observed costs
-remain explicit alongside smaller source/artifacts and improved native runs.
-They do not establish a cause or a universal regression.
-
-Three warm pairs describe these local runs; they do not establish causes or
-performance across platforms.
-Complete source-import/transformed artifacts reproduce the published units, and
-the public and measured builds share identical final IR and generated outputs.
-DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
-
-```sh
-pycircuit run examples/dodgeball_game --target cpp --cycles 4001
-pycircuit run examples/dodgeball_game --target verilog --cycles 4001
-```

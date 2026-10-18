@@ -2,6 +2,19 @@
 // spelling: pyc_7079635f636c6b / pyc_7079635f727374.
 module tb;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1,enable=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared rob row failed completion/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   logic [2:0] index=0;
   logic [6:0] value=0;
   wire [6:0] prior_payload;
@@ -23,11 +36,11 @@ module tb;
     if(clock_level && !pyc_7079635f636c6b && en)begin
       golden_values[idx]=val;golden_active[idx]=1;golden_cursor=nc;golden_audit=na;
     end
-    pyc_7079635f636c6b=clock_level;#1;
+    pyc_7079635f636c6b=clock_level;#1;managed_commit();
   endtask
   initial begin
     for(int i=0;i<8;i++)begin golden_values[i]=0;golden_active[i]=0;end
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;managed_commit();
     for(int i=0;i<128;i++)begin row(0,0,i%8,i);row(1,1,i%8,i);end
     row(1,0,0,0);row(1,1,0,67);row(0,0,0,0);
     row(0,1,0,88);row(1,1,0,99);row(0,0,0,0);

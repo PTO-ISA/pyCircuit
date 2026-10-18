@@ -4,19 +4,20 @@ pyCircuit turns a small Python hardware description into C++ and Verilog through
 one compiler flow. This complete counter is the smallest stateful example:
 
 ```python
+# ruff: noqa: F823 -- Module state captured by Rules is compiler-owned.
 from pycircuit import bits, log, rule, system
 
 
-@rule
-def increment(count):
-    log("info", "count", count)
-    count = count + 1
-
-
 @system
-def HelloCounter():
+def HelloCounter():  # noqa: N802
     count: bits[8] = 0
-    increment(count)
+
+    @rule
+    def increment() -> None:
+        log("info", "count", count)
+        count = count + 1
+
+    increment()
 ```
 
 `count` is persistent eight-bit storage. Its rule logs the current value and

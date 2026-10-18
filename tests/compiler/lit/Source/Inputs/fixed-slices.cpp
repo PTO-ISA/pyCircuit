@@ -71,7 +71,10 @@ int main(int argc, char **argv) {
     return result;
   };
   auto row = [&](std::string_view value, const char *prefix) {
-    pyc_dut::Inputs inputs; inputs.value=fromText<8>(value); dut.drive(inputs);
+    pyc_dut::Inputs inputs; inputs.value=fromText<8>(value);
+    inputs.pyc_7079635f636c6b = known<1>(0);
+    inputs.pyc_7079635f727374 = known<1>(0);
+    dut.drive(inputs);
     PycircuitModelStepResultV1 status{sizeof(status)};
     require(executor.Step(&status)==PYCIRCUIT_MODEL_STATUS_V1_OK);
     require(status.state==PYCIRCUIT_MODEL_STEP_V1_RUNNING);
@@ -116,6 +119,8 @@ int main(int argc, char **argv) {
     pyc_dut::Inputs inputs;
     inputs.value = fromText<8>(value); inputs.raw = fromText<8>(raw);
     inputs.choose = fromText<1>(std::string(1, guard));
+    inputs.pyc_7079635f636c6b = known<1>(0);
+    inputs.pyc_7079635f727374 = known<1>(0);
     dut.drive(inputs);
     PycircuitModelStepResultV1 status{sizeof(status)};
     require(executor.Step(&status) == PYCIRCUIT_MODEL_STATUS_V1_OK);
@@ -187,7 +192,12 @@ int main(int argc, char **argv) {
   }
 #else
   auto row = [&](const pyc_dut::Inputs &inputs, const char *prefix) {
-    dut.drive(inputs);
+    auto driven = inputs;
+    // A pure Rule root still carries the physical domain pins. Drive them at a
+    // known inactive level so the whole-system check can sample the epoch.
+    driven.pyc_7079635f636c6b = known<1>(0);
+    driven.pyc_7079635f727374 = known<1>(0);
+    dut.drive(driven);
     PycircuitModelStepResultV1 status{sizeof(status)};
     require(executor.Step(&status) == PYCIRCUIT_MODEL_STATUS_V1_OK);
     require(status.state == PYCIRCUIT_MODEL_STEP_V1_RUNNING);

@@ -3,6 +3,10 @@ module tb;
 `ifdef SELECT_FACTS
   logic [7 : 0] value;
   wire [50 : 0] result;
+  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic [7 : 0] bounded,atmost,reversed_value,false_branch,equal_value;
   logic [50 : 0] expected;
   pyc_root dut(.*);
@@ -29,6 +33,10 @@ module tb;
   logic [7:0] value,raw;
   logic choose;
   wire [64:0] result;
+  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic [2:0] original;
   logic [3:0] old_alias;
   logic [7:0] widened;
@@ -67,12 +75,25 @@ module tb;
   end
 `elsif TABLE_SLICES
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic index=0,write=0;
   logic [12:0] value=0;
   wire [19:0] result;
   logic [12:0] cells[2];
   bit last_clock=0;
   pyc_root dut(.*);
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared slice table row failed completion/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   task row(input bit clock_level,reset,idx,input logic [12:0] data,input bit wr,input integer mode);
     pyc_7079635f727374=reset;index=idx;value=data;write=wr;#1;
     if(result !== {cells[idx],cells[idx][8:2]}) $fatal(1,"Table old-Q/full index/field slice failed");
@@ -82,7 +103,7 @@ module tb;
       if(reset)begin cells[0]=0;cells[1]=0;end
       else if(wr)cells[idx]=data;
     end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;managed_commit();
   endtask
   task unknown_row(input logic [12:0] data);
     row(0,0,1,data,1,0);row(1,0,1,data,1,0);row(0,0,1,0,0,2);
@@ -90,7 +111,7 @@ module tb;
   endtask
   initial begin
     cells[0]=0;cells[1]=0;
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;#1;managed_commit();pyc_7079635f727374=0;#1;
     row(0,0,0,1,1,1);row(1,0,0,8191,1,1);row(1,0,0,2,1,1);row(0,0,0,3,0,1);
     row(1,0,1,4096,1,1);row(0,0,1,0,0,1);row(1,0,0,0,0,1);row(0,0,1,2047,1,1);
     row(1,0,1,31,1,1);row(0,0,1,0,0,1);row(0,1,0,7,1,1);row(1,1,0,7,1,1);
@@ -103,6 +124,10 @@ module tb;
   end
 `else
   logic tiny,choose;
+  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic [12:0] n13;
   logic [39:0] address;
   logic [72:0] wide;

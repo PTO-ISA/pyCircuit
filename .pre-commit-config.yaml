@@ -6,9 +6,9 @@ repos:
       - id: check-yaml
         args: [--unsafe]
       - id: end-of-file-fixer
-        exclude: ^(docs/gates/logs/|examples/dodgeball_game/reference/)
+        exclude: ^(docs/gates/logs/|tests/fixtures/historical_examples/|examples/dodgeball_game/reference/)
       - id: trailing-whitespace
-        exclude: ^(docs/gates/logs/|examples/dodgeball_game/reference/)
+        exclude: ^(docs/gates/logs/|tests/fixtures/historical_examples/|examples/dodgeball_game/reference/)
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.11.8
@@ -27,9 +27,10 @@ repos:
     rev: v0.18.1
     hooks:
       - id: markdownlint-cli2
+        # Archived example assets retain exact source/oracle/document bytes.
         # Keep exact approved proposal bytes; constructor provenance spelling
         # in C2-DECL-R is interpreted as Markdown emphasis by the style checker.
-        exclude: ^(docs/gates/logs/|docs/rfcs/contracts/(c2-n1-namespaces|c2-decl-record-final)\.md$|docs/acir/spec/|docs/development/acir/|docs/simulation\.md$|examples/agentic-circuit/|python/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|docs/cycle_balance_improvement.*\.md$)
+        exclude: ^(docs/gates/logs/|tests/fixtures/historical_examples/|docs/rfcs/contracts/(c2-n1-namespaces|c2-decl-record-final)\.md$|docs/acir/spec/|docs/development/acir/|docs/simulation\.md$|examples/agentic-circuit/|python/agentic-circuit/|tests/(python|mlir|cpp|integration|goldens)/agentic-circuit/|docs/cycle_balance_improvement.*\.md$)
 
   - repo: local
     hooks:

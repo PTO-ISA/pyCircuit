@@ -318,6 +318,7 @@ def main():
                 rtl_executable,
                 rtl / "design_top.sv",
                 *rtl.rglob("*.v"),
+                repo / "include/verilog/dff.v",
                 repo / "include/verilog/dffe.v",
                 repo / "include/verilog/fifo.v",
                 sv_driver,

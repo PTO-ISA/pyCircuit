@@ -32,77 +32,11 @@ class Deadline:
     value: u64
 
 
-@rule
 def execution_deadline(epoch: u64, cost: bits[8]) -> Deadline:
     extended: u64 = cost
     return Deadline(value=epoch + extended)
 
 
-@rule
-def advance(
-    entries,
-    epoch,
-    admit,
-    free_index,
-    head,
-    duplicate,
-    issue0,
-    issue_index0,
-    deadline0,
-    issue1,
-    issue_index1,
-    deadline1,
-    retire,
-    done_index,
-    complete0,
-    complete1,
-    complete2,
-    complete3,
-    old0,
-    old1,
-    old2,
-    old3,
-    seen,
-    completed,
-):
-    resource_check: u2 = head.resource
-    if admit:
-        assert head.cost != 0, "dependency_nonpositive_cost"
-        assert head.sequence < 255, "dependency_duplicate_key"
-        assert duplicate == 0, "dependency_duplicate_key"
-        assert resource_check < 2, "dependency_resource_out_of_range"
-    if issue0:
-        assert deadline0 >= epoch, "dependency_time_overflow"
-    if issue1:
-        assert deadline1 >= epoch, "dependency_time_overflow"
-
-    if retire:
-        entries[done_index].valid = 0
-    if complete0:
-        entries[0].state = 2
-        completed[old0.data.sequence] = 1
-    if complete1:
-        entries[1].state = 2
-        completed[old1.data.sequence] = 1
-    if complete2:
-        entries[2].state = 2
-        completed[old2.data.sequence] = 1
-    if complete3:
-        entries[3].state = 2
-        completed[old3.data.sequence] = 1
-    if issue0:
-        entries[issue_index0].state = 1
-        entries[issue_index0].deadline = deadline0
-    if issue1:
-        entries[issue_index1].state = 1
-        entries[issue_index1].deadline = deadline1
-    if admit:
-        entries[free_index].valid = 1
-        entries[free_index].state = 0
-        entries[free_index].deadline = 0
-        entries[free_index].data = head
-        seen[head.sequence] = 1
-    epoch = epoch + 1
 
 
 @module
@@ -212,30 +146,46 @@ def PersistentSchedule(
         ready_policy="local_occupancy",
     )
     retire = done_valid & space
-    advance(
-        entries,
-        epoch,
-        admit,
-        free_index,
-        head,
-        duplicate,
-        issue0,
-        issue_index0,
-        deadline0,
-        issue1,
-        issue_index1,
-        deadline1,
-        retire,
-        done_index,
-        complete0,
-        complete1,
-        complete2,
-        complete3,
-        old0,
-        old1,
-        old2,
-        old3,
-        seen,
-        completed,
-    )
+    @rule
+    def advance():
+        resource_check: u2 = head.resource
+        if admit:
+            assert head.cost != 0, "dependency_nonpositive_cost"
+            assert head.sequence < 255, "dependency_duplicate_key"
+            assert duplicate == 0, "dependency_duplicate_key"
+            assert resource_check < 2, "dependency_resource_out_of_range"
+        if issue0:
+            assert deadline0 >= epoch, "dependency_time_overflow"  # noqa: F823 - captured hardware state or child instance.
+        if issue1:
+            assert deadline1 >= epoch, "dependency_time_overflow"
+
+        if retire:
+            entries[done_index].valid = 0
+        if complete0:
+            entries[0].state = 2
+            completed[old0.data.sequence] = 1
+        if complete1:
+            entries[1].state = 2
+            completed[old1.data.sequence] = 1
+        if complete2:
+            entries[2].state = 2
+            completed[old2.data.sequence] = 1
+        if complete3:
+            entries[3].state = 2
+            completed[old3.data.sequence] = 1
+        if issue0:
+            entries[issue_index0].state = 1
+            entries[issue_index0].deadline = deadline0
+        if issue1:
+            entries[issue_index1].state = 1
+            entries[issue_index1].deadline = deadline1
+        if admit:
+            entries[free_index].valid = 1
+            entries[free_index].state = 0
+            entries[free_index].deadline = 0
+            entries[free_index].data = head
+            seen[head.sequence] = 1
+        epoch = epoch + 1  # noqa: F841 - captured hardware state or child instance.
+
+    advance()
     return Result(ready=ready, available=completed_valid, head=completed_head)

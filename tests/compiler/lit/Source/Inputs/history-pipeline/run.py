@@ -1,6 +1,7 @@
 """Compile historical source systems and compare public observations to host oracles."""
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
@@ -19,6 +20,46 @@ def load(path):
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def source_for_root(source_text, root):
+    """Keep one root's declaration closure verbatim at its original line numbers."""
+    tree = ast.parse(source_text)
+    declarations = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
+    assert root in declarations, root
+    needed = set()
+    pending = [root]
+    while pending:
+        name = pending.pop()
+        if name in needed:
+            continue
+        needed.add(name)
+        pending.extend(
+            node.id
+            for node in ast.walk(declarations[name])
+            if isinstance(node, ast.Name)
+            and node.id in declarations
+            and node.id not in needed
+        )
+    lines = source_text.splitlines(keepends=True)
+    for name, node in declarations.items():
+        if name not in needed:
+            first = min([node.lineno, *[item.lineno for item in node.decorator_list]])
+            lines[first - 1 : node.end_lineno] = ["\n"] * (node.end_lineno - first + 1)
+    result = "".join(lines)
+    assert len(result.splitlines()) == len(source_text.splitlines())
+    filtered = ast.parse(result)
+    retained = {
+        node.name: node.lineno
+        for node in filtered.body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
+    assert retained == {name: declarations[name].lineno for name in needed}
+    return result
 
 
 def main():
@@ -97,17 +138,8 @@ def main():
     input_hashes = {str(path.relative_to(repo)): digest(path) for path in input_paths}
     helper_paths = (Path(args.source_compiler), Path(args.linker), Path(args.emitter))
     helper_hashes = {str(path): digest(path) for path in helper_paths}
-    units = []
-    for name, source, package, imports in (
-        ("provider", provider, "q4_queue", []),
-        ("expect", fixtures / "gfsim_expect_pipeline.py", "history_pipeline", []),
-        (
-            "credit",
-            fixtures / "pyc_credit_pipeline.py",
-            "history_pipeline",
-            ["-I", scratch / "provider"],
-        ),
-    ):
+
+    def compile_unit(name, source, package, output, imports=()):
         cli(
             "compile-" + name,
             "compile",
@@ -119,10 +151,41 @@ def main():
             package,
             *imports,
             "-o",
-            scratch / name,
+            output,
             "--replace",
         )
-        units.append(scratch / name)
+        return output
+
+    provider_unit = compile_unit("provider", provider, "q4_queue", scratch / "provider")
+    expect_unit = compile_unit(
+        "expect",
+        fixtures / "gfsim_expect_pipeline.py",
+        "history_pipeline",
+        scratch / "expect",
+    )
+    credit_source = fixtures / "pyc_credit_pipeline.py"
+    credit_text = credit_source.read_text()
+    credit_units = {}
+    split_hashes = {}
+    for symbol in (
+        "pyc_credit_pipeline",
+        "credit_c4",
+        "credit_c5",
+        "credit_c7",
+        "credit_c8",
+    ):
+        source_directory = scratch / "credit-sources" / symbol
+        source_directory.mkdir(parents=True, exist_ok=True)
+        split_source = source_directory / "pyc_credit_pipeline.py"
+        split_source.write_text(source_for_root(credit_text, symbol))
+        split_hashes[symbol] = digest(split_source)
+        credit_units[symbol] = compile_unit(
+            "credit-" + symbol,
+            split_source,
+            "history_pipeline",
+            scratch / ("credit-" + symbol),
+            ("-I", provider_unit),
+        )
 
     oracle = load(oracle_path)
     expectations = load(models_path).historical_expect_contracts()
@@ -134,7 +197,9 @@ def main():
     ):
         rows = expectations[mode]["rows"]
         fault = expectations[mode]["first_failure"]
-        cases.append(("gfsim_expect_pipeline", symbol, cycles, rows, fault, [units[1]]))
+        cases.append(
+            ("gfsim_expect_pipeline", symbol, cycles, rows, fault, [expect_unit])
+        )
     for section in oracle.program():
         if section["name"] not in ("C1", "C4", "C5", "C7", "C8"):
             continue
@@ -167,7 +232,7 @@ def main():
                 section["epochs"],
                 expected,
                 None,
-                [units[0], units[2]],
+                [provider_unit, credit_units[symbol]],
             )
         )
 
@@ -296,6 +361,7 @@ def main():
         "candidate_inputs": input_hashes,
         "native_helpers": helper_hashes,
         "runtime_archive": {"path": str(runtime), "sha256": runtime_hash},
+        "credit_source_closures": split_hashes,
         "expectation_ledgers": {
             mode: {key: value for key, value in contract.items() if key != "rows"}
             for mode, contract in expectations.items()

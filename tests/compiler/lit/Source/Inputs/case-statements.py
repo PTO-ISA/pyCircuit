@@ -1212,7 +1212,7 @@ controls["table-projection"] = table.replace("match subject:", "match subject[0]
 SOURCE_GUARDS = {
     "mathematical-selector": "match signed or mathematical Integer selectors are unsupported",
     "signed-selector": "match signed or mathematical Integer selectors are unsupported",
-    "unresolved-selector": "hardware static reference must name an integer formal of its owning module",
+    "unresolved-selector": "match selector requires a closed positive width",
     "guard": "match guards are unsupported",
     "capture": "match capture/as patterns are unsupported; use a qualified member",
     "as": "match capture/as patterns are unsupported; use a qualified member",
@@ -1239,11 +1239,11 @@ SOURCE_GUARDS = {
     "enum-other-member": "match Enum key requires a member of the same nominal type",
     "wide-overflow": "match Integer key is outside the selector's unsigned width",
     "huge-overflow": "match Integer key is outside the selector's unsigned width",
-    "arm-return": "rule return inside a match arm is unsupported",
+    "arm-return": "return in a Method/Rule branch is unsupported",
     "arm-allocation": "unsupported hardware expression 'Call'",
     "arm-module-call": "direct module calls are only admitted at module scope",
-    "arm-rule-call": "unsupported behavioral rule statement 'Expr'",
-    "arm-external-effect": "unsupported behavioral rule statement 'Expr'",
+    "arm-rule-call": "Rule/Method expression requires a direct Method call",
+    "arm-external-effect": "Rule/Method expression requires a direct Method call",
     "partial-known-exhaustive": "unknown hardware value 'value'",
     "partial-arm": "unknown hardware value 'value'",
     "overlapping_writers": "overlapping state writes across rule registrations",
@@ -1251,7 +1251,7 @@ SOURCE_GUARDS = {
     "enum-shadow-in-arm": "Enum member declaration is shadowed in its lexical scope",
     "marker-shadow-in-arm": "source binding is shadowed in its lexical scope: 'ac'",
     "ordered-join-proof": "fixed branch peer requires a closed source Integer or Boolean constant",
-    "arm-reannotation": "annotation cannot replace a declared binding boundary",
+    "arm-reannotation": "Method/Rule local annotation cannot redeclare a binding",
     "struct-selector": "match selector requires authoritative Boolean, unsigned bits, finite nonnegative Integer or nominal Enum",
     "table-selector": "match selector requires authoritative Boolean, unsigned bits, finite nonnegative Integer or nominal Enum",
 }
@@ -1356,6 +1356,32 @@ for name, case in cases.items():
     archived = source_case_archive / ("bad-" + name + ".py")
     archived.write_text(case["source"])
     absent = build / ("guard-absent-" + name)
+    if name == "overlapping_writers":
+        # Overlapping outer writers are admitted at capture and rejected by the
+        # lowered transaction proof at link time.
+        compile_unit(control["filename"], absent, source_imports)
+        link_diagnostic = "multiple outer writers require a declared transaction order"
+        cli(
+            "link",
+            absent,
+            "--top",
+            "cases." + Path(control["filename"]).stem + ".Top",
+            "-o",
+            build / ("overlapping-linked-" + name + ".ac"),
+            code=1,
+            diagnostic=link_diagnostic,
+        )
+        source_guard_receipts.append(
+            {
+                "case": name,
+                "control": case["control"],
+                "diagnostic": link_diagnostic,
+                "fresh_exit_status": 0,
+                "replacement_exit_status": 1,
+                "source_sha256": digest(archived),
+            }
+        )
+        continue
     fresh = compile_unit(
         control["filename"],
         absent,

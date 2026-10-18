@@ -38,8 +38,10 @@ authoring syntax; capture parses the source without executing the design.
   same final artifact, with source ownership preserved across compilation units.
 - **Executable systems.** A closed `@system` describes the DUT, stimulus and
   checks. The compiler generates native and Verilator simulation harnesses.
-- **Atomic simulation steps.** Rules read the old state. Whole-system checks
-  precede commit; a failed epoch commits neither state nor clock history and
+- **Atomic simulation steps.** Independent autonomous Rules start from committed state;
+  nested calls share that Rule's sequential candidates. Explicit local `after`
+  ordering also exposes predecessor candidates. Whole-system checks
+  precede commit, so a failed epoch changes no state or clock history and
   publishes no source observations.
 - **A separate Runtime package.** Generated C++ consumers use the Runtime CMake
   component without installing LLVM or the compiler development package.
@@ -53,19 +55,20 @@ The [language reference](docs/reference/language.md) defines supported construct
 ## A complete counter
 
 ```python
-from pycircuit import bits, log, rule, system
+# ruff: noqa: F823 -- the nested Rule updates System-owned state.
+import pycircuit as ac
 
 
-@rule
-def increment(count):
-    log("info", "count", count)
-    count = count + 1
-
-
-@system
+@ac.system
 def HelloCounter():
-    count: bits[8] = 0
-    increment(count)
+    count: ac.u8 = 0
+
+    @ac.rule
+    def increment() -> None:
+        ac.log("info", "count", count)
+        count = count + 1
+
+    increment()
 ```
 
 `count` is eight-bit persistent storage. The rule observes its current value and
@@ -142,18 +145,20 @@ Independent source units ── explicit link closure ── verified final IR
 | `pycircuit emit` | Emit C++ or Verilog from the verified final artifact. |
 | `pycircuit run` | Build and execute a closed system through those same public stages. |
 
-`@module` defines reusable hardware, `@rule` defines stateless computations, and
-`@system` defines a closed simulation composition. The current system path owns
-its generated clock/reset scaffolding; ordinary module drivers can provide
-explicit physical inputs. See [system execution](docs/architecture/system-execution.md)
-for sampling, reset, observation and failure semantics.
+`@module` defines reusable hardware, `@rule` defines an atomic stateless
+transition, and `@system` defines a closed simulation composition. The current
+system path owns its generated clock/reset scaffolding; ordinary module drivers
+can provide explicit physical inputs. See
+[system execution](docs/architecture/system-execution.md) for sampling, reset,
+observation and failure semantics.
 
 ## Explore and contribute
 
 | Start with | For |
 | --- | --- |
 | [Repository map](docs/development/repository-layout.md) | Folder responsibilities, source boundaries and the right place for a change. |
-| [Example catalog](examples/README.md) | Counters, pipelines, queues, tables and larger designs, with their verification owners. |
+| [Recommended examples](examples/GUIDE.md) | The 17 current teaching and design examples, ordered by purpose. |
+| [Example catalog](examples/README.md) | Generated navigation and exact verification owners for those examples. |
 | [Python language](docs/reference/language.md) | Types, source constructs, composition and rejection boundaries. |
 | [Compiler architecture](docs/architecture/compiler-pipeline.md) | Capture, MLIR analyses, source publication and code generation. |
 | [Build and test workflow](docs/development/testing-and-gates.md) | Bounded gates, native tests and nightly coverage. |
@@ -173,10 +178,11 @@ in the testing guide. PR CI checks Python, publication, repository hygiene and
 documentation; native, example and release evidence have their own documented
 entrypoints. A green CI badge does not imply full backend or platform coverage.
 
-Unfinished historical example migration and full-catalog validation are tracked
-in [issue #272](https://github.com/PTO-ISA/pyCircuit/issues/272). A catalog entry
-or a removed example is not a claim of completed verification. Retired frontends
-and compiler aliases are not compatibility paths.
+The active catalog contains 17 current examples. Fifty-four superseded wrappers
+and their original oracles remain in the
+[historical fixture archive](tests/fixtures/historical_examples/README.md); an
+archived fixture is not a passing result. Retired frontends, Signal APIs and
+compiler aliases are not compatibility paths.
 
 ## License
 

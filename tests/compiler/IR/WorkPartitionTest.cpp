@@ -28,12 +28,10 @@ protected:
         mlir::dyn_cast_or_null<ac::ModuleOp>(mlir::SymbolTable::lookupSymbolIn(
             *package, "example_loop.module_loop.Top"));
     ASSERT_TRUE(top);
-    for (auto instance : top.getBody().front().getOps<ac::InstanceOp>()) {
-      if (instance.getInstanceName() == "left_cell")
-        left = instance;
-      if (instance.getInstanceName() == "right_cell")
-        right = instance;
-    }
+    auto outputs = mlir::cast<ac::YieldOp>(top.getBody().front().back());
+    ASSERT_EQ(outputs.getValues().size(), 2u);
+    left = outputs.getValues()[0].getDefiningOp<ac::InstanceOp>();
+    right = outputs.getValues()[1].getDefiningOp<ac::InstanceOp>();
     ASSERT_TRUE(left);
     ASSERT_TRUE(right);
   }

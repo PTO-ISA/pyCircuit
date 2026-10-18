@@ -15,6 +15,7 @@ struct Totality {
   Operation *guard = nullptr;
   Operation *call = nullptr;
   Operation *selection = nullptr;
+  Operation *resource = nullptr;
 };
 struct Callable {
   Operation *module = nullptr;
@@ -155,14 +156,18 @@ public:
               : !callable.row.getAs<ArrayAttr>("result_types").empty();
       if (callable.definition)
         transactions[callable.definition] = proof.total;
-      if (valued && !proof.total) {
+      if (valued && !proof.total &&
+          !callable.module->getAttrOfType<ArrayAttr>("ac.result_availability")) {
         auto diagnostic =
             (callable.definition ? callable.definition : callable.module)
                 ->emitOpError();
         diagnostic << "ordinary transaction results require a total guard and "
-                      "required Method calls and branch selections; use -> "
+                      "required Method calls, branch selections and queue resources; use -> "
                       "None for a potentially "
                       "guarded Rule";
+        if (proof.resource)
+          diagnostic.attachNote(proof.resource->getLoc())
+              << "this required queue resource may block";
         if (proof.call)
           diagnostic.attachNote(proof.call->getLoc())
               << "this required Method call may block";
@@ -238,9 +243,10 @@ private:
       if (failed(resolved))
         return failure();
       auto symbol = resolved->method.getSymbol();
+      bool terminal = resolved->method.isNativeQueueTerminal();
       if (!append(calls, Call{op, row, std::move(*resolved)}, callable.module))
         return failure();
-      if (callable.symbol) {
+      if (callable.symbol && !terminal) {
         auto &summary = methods[callable.symbol];
         if (!contains<SymbolRefAttr>(summary.callees, symbol,
                                      callable.module)) {
@@ -361,7 +367,22 @@ private:
       if (!charge(site))
         return failure();
       Operation *target = lookup(callee);
-      auto bound = hardware.bindCallee(target, parameters, types, parent, site);
+      // The registry's authority may live in another header ModuleOp. Bind
+      // through its authenticated local snapshot so TypeParam ownership agrees
+      // with this HardwareAnalysis symbol table; retain registry authority for
+      // closure traversal and the expected signature below.
+      Operation *bindingTarget = hardware.lookupDefinition(callee.getValue());
+      if (!bindingTarget) bindingTarget = target;
+      if (bindingTarget != target) {
+        if (!target || !isa<ModuleImportOp>(bindingTarget))
+          return site->emitOpError() << "instance provider snapshot is invalid";
+        for (StringRef field : {"source_owner", "function_type", "parameters",
+                                "type_parameters", "primitive_kind"})
+          if (bindingTarget->getAttr(field) != target->getAttr(field))
+            return site->emitOpError()
+                   << "instance provider snapshot differs from authority: " << field;
+      }
+      auto bound = hardware.bindCallee(bindingTarget, parameters, types, parent, site);
       if (failed(bound))
         return failure();
       auto envelope = module->getParentOfType<mlir::ModuleOp>();
@@ -377,10 +398,12 @@ private:
                                       "source ac.interfaces closure";
       auto signature = cast<FunctionType>(
           target->getAttrOfType<TypeAttr>("function_type").getValue());
-      auto check = [&](TypeRange actual, TypeRange formal) -> LogicalResult {
+      auto check = [&](TypeRange actual, TypeRange formal,
+                        StringRef direction) -> LogicalResult {
         if (actual.size() != formal.size())
           return site->emitOpError() << "instance signature arity mismatch";
-        for (auto [a, f] : llvm::zip(actual, formal)) {
+        for (auto [ordinal, pair] : llvm::enumerate(llvm::zip(actual, formal))) {
+          auto [a, f] = pair;
           auto at = hardware.resolveType(a, parent, site),
                ft = hardware.resolveType(f, *bound, site);
           if (failed(at) || failed(ft))
@@ -393,12 +416,15 @@ private:
               return failure();
           }
           if (!areEquivalentHardwareTypes(*at, *ft))
-            return site->emitOpError() << "instance payload type mismatch";
+            return site->emitOpError()
+                   << "instance payload type mismatch for " << direction << " "
+                   << ordinal << " of " << callee << ": actual " << *at
+                   << ", expected " << *ft;
         }
         return success();
       };
-      if (failed(check(inputs, signature.getInputs())) ||
-          failed(check(outputs, signature.getResults())))
+      if (failed(check(inputs, signature.getInputs(), "input")) ||
+          failed(check(outputs, signature.getResults(), "output")))
         return failure();
       return instances(target, lookup, depth + 1);
     };
@@ -533,6 +559,9 @@ private:
                  : rowFact(call.row.getAs<DictionaryAttr>("path"), arguments);
       if (path == PredicateFact::False)
         return {true, nullptr, nullptr};
+      if (call.resolved.method.isNativeQueueTerminal())
+        return {false, nullptr, nullptr, nullptr,
+                call.definition ? call.definition : callable.module};
       auto symbol = call.resolved.method.getSymbol();
       auto summary = methods.find(symbol);
       if (summary != methods.end() && !summary->second.mayBlock)
@@ -776,7 +805,11 @@ FailureOr<bool> SourceMethodSummariesAnalysis::requiresTransactionPublication(
         if (++work > 1024 * 1024)
           return definition.emitOpError()
                  << "transaction publication instance closure budget exceeded";
-        if (isa<SourceStateOp, SourceMethodOp, SourceTransactionOp>(op))
+        if (isa<SourceStateOp, SourceMethodOp, SourceTransactionOp>(op) ||
+            (isa<InstanceOp>(op) &&
+             (op.hasAttr("ac.source_unbound_push") ||
+              op.hasAttr("ac.source_unbound_pop") ||
+              op.hasAttr("ac.payload_constraint"))))
           result = true;
         if (isa<InstanceOp, CollectionOp>(op)) {
           auto symbol = op.getAttrOfType<FlatSymbolRefAttr>("callee");

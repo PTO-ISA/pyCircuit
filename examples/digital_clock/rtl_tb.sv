@@ -1,6 +1,9 @@
 // Independent calendar oracle. Observe old Q before applying the next clock level.
 module tb;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic btn_set=0,btn_plus=0,btn_minus=0;
   wire [26:0] result;
   pyc_root dut(.*);
@@ -15,6 +18,16 @@ module tb;
     return {8'(bcd(time_of_day/3600)),8'(bcd((time_of_day/60)%60)),
             8'(bcd(time_of_day%60)),2'(mode),1'(blink)};
   endfunction
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared DigitalClock row failed completion/sampling/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   task row(input bit clock_level,reset,set_value,plus_value,minus_value,input bit emit);
     integer unit_value,modulus,old_field,new_field;
     btn_set=set_value;btn_plus=plus_value;btn_minus=minus_value;
@@ -43,7 +56,7 @@ module tb;
         if(set_value)mode=(mode+1)%4;
       end
     end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;managed_commit();
   endtask
   task edges(input integer count,input bit set_value,plus_value,minus_value);
     for(integer n=0;n<count;n=n+1)begin
@@ -66,7 +79,8 @@ module tb;
   endtask
 `ifdef PYC_DIGITAL_CLOCK_FOUR_STATE
   task four_edge;
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
+    #1;pyc_7079635f636c6b=1;#1;managed_commit();
+    pyc_7079635f636c6b=0;#1;managed_commit();
   endtask
   task four_reset;
     pyc_7079635f636c6b=0;pyc_7079635f727374=1;btn_set=0;btn_plus=0;btn_minus=0;#1;
@@ -96,7 +110,8 @@ module tb;
     longint unsigned edge_limit,local_epoch,edge_number,total_epochs;
     bit is_pilot,set_value,minus_value,emit;
     // Prime RTL reset before the counted stream, matching native executor.Reset.
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();
+    pyc_7079635f636c6b=0;#1;managed_commit();pyc_7079635f727374=0;#1;
     short_trace();
 `ifdef PYC_DIGITAL_CLOCK_FOUR_STATE
     for(integer scenario=0;scenario<5;scenario=scenario+1)begin

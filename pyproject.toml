@@ -71,6 +71,7 @@ target-version = ["py310", "py311", "py312", "py313"]
 # Static compiler sources are byte/line-sensitive diagnostic fixtures. Keep
 # executable fixture generators and verification helpers formatted.
 force-exclude = '''
+tests/fixtures/historical_examples/|
 tests/compiler/lit/Source/Inputs/(?!(?:
 bits-(?:concat|count-zeros|popcount|priority-encoding)|
 case-statements|case_capture_guards|defaults-composition|
@@ -111,6 +112,7 @@ ignore = ["E501"]
 "tests/system/fixtures/source_system/*.py" = ["N802", "F821"]
 "tests/system/fixtures/source_system/atomic_bench.py" = ["B011"] # Hardware assertion.
 "examples/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
+"tests/fixtures/historical_examples/**/*.py" = ["F401", "F841", "I001", "N803", "N806", "N999", "T201"]
 "tools/*.py" = ["T201"]
 "cmake/prepare_output.py" = ["T201"]
 "cmake/verify_example.py" = ["T201"]

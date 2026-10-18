@@ -37,7 +37,7 @@ package tests and receipts. No new native executable is needed for this split.
 | Entry point | Gate | Additional nightly coverage |
 | --- | --- | --- |
 | API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
-| Examples | `hello_counter`, `module_loop`, `counter`, `arith`, `wire_ops`, `rob`, `table_rule`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
+| Examples | `hello_counter`, `multi_outputs`, `struct_transform`, `enum_payload_pipeline`, `rob`, `table_rule`, `queue_rule_pipeline`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
 
 The example registry is explicit. Gate configures only its seven smoke designs,
 so it does not compile the full nightly set first. Direct aggregate CMake builds
@@ -85,8 +85,12 @@ Runtime/source diagnostic coverage remains in gate.
 
 Long coverage, differential/reference-model and mutation matrices run when
 nightly is requested or scheduled. Ordinary authoring/review does not require
-running them immediately. This migration review requests preservation and
-execution of the stronger original oracles. Record each actual result and
+running them immediately. The current examples selection contains 17 designs. The 54 superseded wrappers
+are retained under `tests/fixtures/historical_examples/`, outside the example
+selection. Their retirement is not a pass or a claim that every old scenario has
+an equivalent API test. Active API/package fixtures still reference their
+archived inputs explicitly. Current complete-design Module oracles retain their
+independent checks; short teaching Systems have their own documented scenarios. Record each actual result and
 remaining NOT-RUN case; focused passes do not establish a full nightly result.
 
 ## Contract under validation

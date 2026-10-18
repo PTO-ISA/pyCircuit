@@ -566,6 +566,72 @@ def MethodEffectsSystem():
             for word in ("dependency", "provider", "interface")
         ), missing.stderr
         assert not (archive / "missing-provider").exists()
+        # A dynamic Method guard now gates the enclosing value-returning Rule.
+        # Preserve the original source case as positive publication coverage;
+        # the compiler must route its implicit output validity through link and
+        # both emitters, with the previously published control artifacts intact.
+        guarded_text = consumer_text.replace(
+            "        before = alias.chain(delta)",
+            "        owner.guarded(permitted)\n        before = alias.chain(delta)",
+        )
+        assert guarded_text != consumer_text
+        consumer_source.write_text(guarded_text)
+        guarded_unit = archive / "guarded-valued-rule"
+        compile_unit(consumer_source.name, guarded_unit, [provider_unit, relay_unit])
+        guarded_extracted = archive / "guarded-valued-extracted.ac"
+        extract(payload(guarded_unit, "body"), guarded_extracted)
+        assert normalize(guarded_extracted, archive / "guarded-actual.ac") == normalize(
+            payload(guarded_unit, "interface"), archive / "guarded-expected.ac"
+        )
+        # The broad publication graph above deliberately repeats named reports
+        # on one owner; MethodEffectsSystem separately covers instrumentation.
+        # Use the same published owner for a hardware value and guarded proposal.
+        guarded_source = source / "guarded_value.py"
+        guarded_source.write_text(
+            """import pycircuit as ac
+from interfaces.method_provider import Counter
+@ac.module
+def GuardedValue(delta: ac.u8, permitted: bool) -> ac.u8:
+    owner = Counter()
+    @ac.rule
+    def work() -> ac.u8:
+        owner.guarded(permitted)
+        return owner.read() + delta
+    return work()
+"""
+        )
+        guarded_execution = archive / "guarded-value-execution"
+        compile_unit(guarded_source.name, guarded_execution, [provider_unit])
+        guarded_final = archive / "guarded-valued-rule.ac"
+        cli(
+            "link",
+            provider_unit,
+            guarded_execution,
+            "--top",
+            "interfaces.guarded_value.GuardedValue",
+            "-o",
+            guarded_final,
+        )
+        guarded_body = guarded_final.read_text()
+        assert "ac.output_validity" in guarded_body
+        assert "ac.sampled_admission" in guarded_body
+        assert '"ac.method.call"' not in guarded_body
+        for target in ("cpp", "verilog"):
+            cli(
+                "emit",
+                guarded_final,
+                "--target",
+                target,
+                "-o",
+                archive / ("guarded-valued-" + target),
+            )
+        assert snapshot(consumer_unit) == before_unit
+        assert final.read_bytes() == before_final
+        assert all(
+            snapshot(archive / target) == expected
+            for target, expected in emitted.items()
+        )
+        consumer_source.write_text(consumer_text)
         cases = {
             "unknown-method": consumer_text.replace(
                 "alias.chain(delta)", "alias.missing(delta)"
@@ -607,10 +673,6 @@ def MethodEffectsSystem():
                 "@ac.module\ndef Consumer",
                 "@ac.struct\nclass Other:\n    value: ac.u8\n@ac.module\ndef Consumer",
             ).replace("owner.packet(payload)", "owner.packet(Other(value=delta))"),
-            "guarded-valued-rule": consumer_text.replace(
-                "        before = alias.chain(delta)",
-                "        owner.guarded(permitted)\n        before = alias.chain(delta)",
-            ),
         }
         for name, text in cases.items():
             assert text != consumer_text, name

@@ -229,6 +229,11 @@ if not args.four_state:
     for name, words in cases.items():
         fixture = "shift_bad_" + name + ".py"
         absent = root / ("bad-" + name)
+        if name in {"import", "import_binding"}:
+            # The typed Struct result / bits[8] port makes these previously
+            # rejected imported-Integer forms legal under boundary proof.
+            compile_unit(fixture, absent, [child], accepted=True)
+            continue
         rejected = compile_unit(fixture, absent, [child], accepted=False)
         assert any(word in rejected.stderr.lower() for word in words), rejected.stderr
         assert not absent.exists()

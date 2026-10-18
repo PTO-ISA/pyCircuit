@@ -8,6 +8,49 @@
 using namespace mlir;
 
 namespace acir::compiler::detail {
+FailureOr<SmallVector<AstNode>> normalizeCallArguments(
+    const AstNode &call, ArrayRef<StringRef> formals,
+    ac::detail::EmitError emitError, StringRef arityDiagnostic,
+    SmallVectorImpl<size_t> *evaluationOrder) {
+  if (call.array("args").size() + call.array("keywords").size() != formals.size())
+    return emitError() << arityDiagnostic;
+  SmallVector<AstNode> actuals(formals.size());
+  if (evaluationOrder) evaluationOrder->clear();
+  for (size_t i = 0; i < call.array("args").size(); ++i) {
+    auto actual = call.item("args", i);
+    if (actual.kind() == "Starred")
+      return emitError() << "starred callable arguments are unsupported";
+    actuals[i] = actual;
+    if (evaluationOrder) evaluationOrder->push_back(i);
+  }
+  for (size_t i = 0; i < call.array("keywords").size(); ++i) {
+    auto keyword = call.item("keywords", i);
+    StringRef name = keyword.string("arg");
+    auto formal = llvm::find(formals, name);
+    if (name.empty() || formal == formals.end())
+      return emitError() << "unknown callable keyword argument";
+    size_t index = formal - formals.begin();
+    if (actuals[index]) return emitError() << "duplicate callable argument";
+    actuals[index] = keyword.child("value");
+    if (evaluationOrder) evaluationOrder->push_back(index);
+  }
+  if (llvm::any_of(actuals, [](const AstNode &actual) { return !actual; }))
+    return emitError() << "missing required callable argument";
+  return actuals;
+}
+
+LogicalResult forEachAssignmentLeaf(const AstNode &target,
+    llvm::function_ref<LogicalResult(const AstNode &)> visit) {
+  if (target.kind() == "Tuple" || target.kind() == "List") {
+    auto elements = target.array("elts");
+    for (size_t i = 0; elements && i < elements.size(); ++i)
+      if (failed(forEachAssignmentLeaf(target.item("elts", i), visit)))
+        return failure();
+    return success();
+  }
+  return visit(target);
+}
+
 namespace {
 
 LogicalResult verifyCapturedSpan(DictionaryAttr span,

@@ -12,6 +12,9 @@
 #include "gtest/gtest.h"
 
 #include <initializer_list>
+#include <atomic>
+#include <thread>
+#include <vector>
 #include <string>
 #include <utility>
 
@@ -208,6 +211,83 @@ TEST_F(SourceIdentityContractsTest,
              detail::verifySourceOwner));
 }
 
+TEST_F(SourceIdentityContractsTest,
+       SourceSpanGrammarMemoRejectsChangedMalformedSpans) {
+  auto span = dictionary(builder, {{"path", builder.getStringAttr("model.py")},
+      {"line", u64(builder, 7)}, {"column", u64(builder, 3)},
+      {"end_line", u64(builder, 7)}, {"end_column", u64(builder, 9)}});
+  EXPECT_FALSE(detail::isVerifiedSourceSpanGrammar(span));
+  ASSERT_TRUE(verify(span, detail::verifySourceSpan).passed);
+  ASSERT_TRUE(detail::isVerifiedSourceSpanGrammar(span));
+  mlir::NamedAttrList updated(span);
+  updated.set("end_column", u64(builder, 10));
+  auto changed = updated.getDictionary(&context);
+  EXPECT_FALSE(detail::isVerifiedSourceSpanGrammar(changed));
+  EXPECT_TRUE(verify(changed, detail::verifySourceSpan).passed);
+  EXPECT_TRUE(detail::isVerifiedSourceSpanGrammar(changed));
+  for (unsigned mutation = 0; mutation < 3; ++mutation) {
+    SCOPED_TRACE(mutation);
+    mlir::NamedAttrList fields(span);
+    if (mutation == 0)
+      fields.set("end_line", u64(builder, 6));
+    else if (mutation == 1)
+      fields.set("end_column", u64(builder, 2));
+    else
+      fields.set("extra", mlir::TypeAttr::get(builder.getI1Type()));
+    auto malformed = fields.getDictionary(&context);
+    expectRejected(verify(malformed, detail::verifySourceSpan));
+    EXPECT_FALSE(detail::isVerifiedSourceSpanGrammar(malformed));
+    EXPECT_TRUE(detail::isVerifiedSourceSpanGrammar(span));
+  }
+}
+
+TEST_F(SourceIdentityContractsTest,
+       WarmSourceSpanGrammarStillChecksCurrentSourceOwnerPath) {
+  auto span = dictionary(builder, {{"path", builder.getStringAttr("model.py")},
+      {"line", u64(builder, 2)}, {"column", u64(builder, 1)},
+      {"end_line", u64(builder, 2)}, {"end_column", u64(builder, 5)}});
+  ASSERT_TRUE(verify(span, detail::verifySourceSpan).passed);
+  ASSERT_TRUE(detail::isVerifiedSourceSpanGrammar(span));
+  auto makeOwner = [&](llvm::StringRef path) {
+    mlir::OperationState state(mlir::UnknownLoc::get(&context), ModuleOp::getOperationName());
+    state.addAttribute("sym_name", builder.getStringAttr("demo.Model"));
+    state.addAttribute("source_owner", dictionary(builder, {
+        {"package", builder.getStringAttr("demo")}, {"path", builder.getStringAttr(path)}}));
+    return mlir::OwningOpRef<ModuleOp>(mlir::cast<ModuleOp>(mlir::Operation::create(state)));
+  };
+  auto owner = makeOwner("model.py"), foreignSource = makeOwner("other.py");
+  auto origin = occurrence(builder);
+  EXPECT_TRUE(check(context, [&](EmitError emit) {
+    return detail::verifySourceEffectMetadata(origin, span, owner->getOperation(), emit);
+  }).passed);
+  expectRejected(check(context, [&](EmitError emit) {
+    return detail::verifySourceEffectMetadata(origin, span, foreignSource->getOperation(), emit);
+  }));
+  EXPECT_TRUE(detail::isVerifiedSourceSpanGrammar(span));
+}
+
+TEST_F(SourceIdentityContractsTest,
+       SourceSpanGrammarMemoDoesNotCrossContexts) {
+  auto makeSpan = [](mlir::OpBuilder &b) {
+    return dictionary(b, {{"path", b.getStringAttr("model.py")},
+        {"line", u64(b, 7)}, {"column", u64(b, 3)},
+        {"end_line", u64(b, 7)}, {"end_column", u64(b, 9)}});
+  };
+  auto span = makeSpan(builder);
+  ASSERT_TRUE(verify(span, detail::verifySourceSpan).passed);
+  mlir::MLIRContext otherContext;
+  otherContext.loadDialect<ACIRDialect>();
+  mlir::OpBuilder other(&otherContext);
+  auto sameSpelling = makeSpan(other);
+  EXPECT_FALSE(detail::isVerifiedSourceSpanGrammar(sameSpelling));
+  EXPECT_EQ(detail::sourceSpanGrammarCacheShape(&otherContext).first, 0u);
+  EXPECT_TRUE(check(otherContext, [&](EmitError emit) {
+    return detail::verifySourceSpan(sameSpelling, emit);
+  }).passed);
+  EXPECT_TRUE(detail::isVerifiedSourceSpanGrammar(sameSpelling));
+  EXPECT_TRUE(detail::isVerifiedSourceSpanGrammar(span));
+}
+
 TEST_F(SourceIdentityContractsTest, ExpansionFramesAcceptBothClosedVariants) {
   EXPECT_TRUE(
       verify(callFrame(builder, ""), detail::verifyExpansionFrame).passed);
@@ -266,6 +346,216 @@ TEST_F(SourceIdentityContractsTest,
   expectRejected(nested);
   EXPECT_NE(nested.diagnostic.find("expansion[0]"), std::string::npos)
       << nested.diagnostic;
+}
+
+TEST_F(SourceIdentityContractsTest,
+       WarmOccurrenceGrammarDoesNotAuthorizeForeignOwnerOrSourcePath) {
+  auto origin = occurrence(builder);
+  ASSERT_TRUE(verify(origin, detail::verifyOccurrence).passed);
+  ASSERT_TRUE(detail::isVerifiedOccurrenceGrammar(origin));
+  auto makeOwner = [&](llvm::StringRef name, llvm::StringRef path) {
+    mlir::OperationState state(mlir::UnknownLoc::get(&context),
+                               ModuleOp::getOperationName());
+    state.addAttribute("sym_name", builder.getStringAttr(name));
+    state.addAttribute(
+        "source_owner",
+        dictionary(builder, {{"package", builder.getStringAttr("demo")},
+                             {"path", builder.getStringAttr(path)}}));
+    return mlir::OwningOpRef<ModuleOp>(
+        mlir::cast<ModuleOp>(mlir::Operation::create(state)));
+  };
+  auto location =
+      dictionary(builder, {{"path", builder.getStringAttr("model.py")},
+                           {"line", u64(builder, 1)},
+                           {"column", u64(builder, 1)},
+                           {"end_line", u64(builder, 1)},
+                           {"end_column", u64(builder, 2)}});
+  auto owner = makeOwner("demo.Model", "model.py");
+  auto foreign = makeOwner("demo.Other", "model.py");
+  auto wrongSource = makeOwner("demo.Model", "other.py");
+  auto metadata = [&](mlir::Operation *module) {
+    return check(context, [&](EmitError emit) {
+      return detail::verifySourceEffectMetadata(origin, location, module, emit);
+    });
+  };
+  EXPECT_TRUE(metadata(owner->getOperation()).passed);
+  expectRejected(metadata(foreign->getOperation()));
+  expectRejected(metadata(wrongSource->getOperation()));
+  // The scope shortcut cannot admit a dictionary containing a hardware type.
+  auto changed = dictionary(
+      builder, {{"site", site(builder)},
+                {"expansion", builder.getArrayAttr({})},
+                {"extra", mlir::TypeAttr::get(builder.getI1Type())}});
+  expectRejected(verify(changed, detail::verifyOccurrence));
+  EXPECT_FALSE(detail::isVerifiedOccurrenceGrammar(changed));
+  EXPECT_TRUE(detail::isVerifiedOccurrenceGrammar(origin));
+}
+
+TEST_F(SourceIdentityContractsTest,
+       OccurrenceGrammarMemoSeparatesChangedAttributesAndContexts) {
+  auto good = occurrence(
+      builder, builder.getArrayAttr({iterationFrame(
+                   builder, u64(builder, 2), integerValue(builder, "5"))}));
+  ASSERT_TRUE(verify(good, detail::verifyOccurrence).passed);
+  auto changed = occurrence(
+      builder,
+      builder.getArrayAttr({iterationFrame(builder, builder.getBoolAttr(true),
+                                           integerValue(builder, "5"))}));
+  expectRejected(verify(changed, detail::verifyOccurrence));
+  EXPECT_FALSE(detail::isVerifiedOccurrenceGrammar(changed));
+  mlir::MLIRContext second;
+  second.loadDialect<ACIRDialect>();
+  mlir::OpBuilder other(&second);
+  auto separate = occurrence(other);
+  EXPECT_FALSE(detail::isVerifiedOccurrenceGrammar(separate));
+  EXPECT_TRUE(check(second, [&](EmitError emit) {
+                return detail::verifyOccurrence(separate, emit);
+              }).passed);
+  EXPECT_TRUE(detail::isVerifiedOccurrenceGrammar(separate));
+}
+
+TEST_F(SourceIdentityContractsTest,
+       StaticLiteralGrammarMemoRejectsChangedAndMalformedTrees) {
+  auto location = dictionary(
+      builder, {{"path", builder.getStringAttr("literal.py")},
+                {"line", u64(builder, 1)}, {"column", u64(builder, 1)},
+                {"end_line", u64(builder, 1)}, {"end_column", u64(builder, 2)}});
+  auto literal = [&](llvm::StringRef value) {
+    return dictionary(builder, {{"kind", builder.getStringAttr("literal")},
+                                {"value", integerValue(builder, value)},
+                                {"origin", occurrence(builder)},
+                                {"location", location}});
+  };
+  auto verifyTree = [&](mlir::DictionaryAttr tree) {
+    return check(context, [&](EmitError emit) {
+      return StaticExprAttr::verify(emit, tree);
+    });
+  };
+  auto original = literal("7");
+  EXPECT_FALSE(detail::isVerifiedStaticExpressionGrammar(original));
+  ASSERT_TRUE(verifyTree(original).passed);
+  ASSERT_TRUE(detail::isVerifiedStaticExpressionGrammar(original));
+  auto changed = literal("8");
+  EXPECT_NE(changed, original);
+  EXPECT_FALSE(detail::isVerifiedStaticExpressionGrammar(changed));
+  EXPECT_TRUE(verifyTree(changed).passed);
+  EXPECT_TRUE(detail::isVerifiedStaticExpressionGrammar(changed));
+  for (unsigned mutation = 0; mutation < 3; ++mutation) {
+    SCOPED_TRACE(mutation);
+    mlir::NamedAttrList fields(original);
+    if (mutation == 0)
+      fields.set("value", dictionary(builder, {{"kind", builder.getStringAttr("integer")},
+                                              {"value", builder.getI64IntegerAttr(7)}}));
+    else if (mutation == 1)
+      fields.set("extra", mlir::TypeAttr::get(builder.getI1Type()));
+    else
+      fields.erase("location");
+    auto malformed = fields.getDictionary(&context);
+    expectRejected(verifyTree(malformed));
+    EXPECT_FALSE(detail::isVerifiedStaticExpressionGrammar(malformed));
+    EXPECT_TRUE(detail::isVerifiedStaticExpressionGrammar(original));
+    EXPECT_TRUE(verifyTree(original).passed);
+  }
+}
+
+TEST_F(SourceIdentityContractsTest,
+       StaticExpressionGrammarMemoDoesNotCrossContexts) {
+  auto tree = [](mlir::OpBuilder &b) {
+    return dictionary(b, {{"kind", b.getStringAttr("literal")},
+                          {"value", integerValue(b, "19")},
+                          {"origin", occurrence(b)},
+                          {"location", dictionary(b, {
+                              {"path", b.getStringAttr("literal.py")},
+                              {"line", u64(b, 1)}, {"column", u64(b, 1)},
+                              {"end_line", u64(b, 1)}, {"end_column", u64(b, 2)}})}});
+  };
+  auto first = tree(builder);
+  ASSERT_TRUE(check(context, [&](EmitError emit) {
+    return StaticExprAttr::verify(emit, first);
+  }).passed);
+  ASSERT_TRUE(detail::isVerifiedStaticExpressionGrammar(first));
+  mlir::MLIRContext otherContext;
+  otherContext.loadDialect<ACIRDialect>();
+  mlir::OpBuilder other(&otherContext);
+  auto separate = tree(other);
+  EXPECT_FALSE(detail::isVerifiedStaticExpressionGrammar(separate));
+  EXPECT_EQ(detail::staticExpressionGrammarCacheShape(&otherContext).first, 0u);
+  ASSERT_TRUE(check(otherContext, [&](EmitError emit) {
+    return StaticExprAttr::verify(emit, separate);
+  }).passed);
+  EXPECT_TRUE(detail::isVerifiedStaticExpressionGrammar(separate));
+  EXPECT_TRUE(detail::isVerifiedStaticExpressionGrammar(first));
+}
+
+TEST_F(SourceIdentityContractsTest,
+       WarmStaticReferenceAndTypeWidthGrammarKeepLexicalOwnerChecks) {
+  auto makeOwner = [&](llvm::StringRef name) {
+    mlir::OperationState state(mlir::UnknownLoc::get(&context), ModuleOp::getOperationName());
+    state.addAttribute("sym_name", builder.getStringAttr(name));
+    state.addAttribute("parameters", builder.getArrayAttr({
+        dictionary(builder, {{"name", builder.getStringAttr("WIDTH")}})}));
+    state.addAttribute("type_parameters", builder.getArrayAttr({builder.getStringAttr("T")}));
+    return mlir::OwningOpRef<ModuleOp>(mlir::cast<ModuleOp>(mlir::Operation::create(state)));
+  };
+  auto owner = makeOwner("demo.Model");
+  auto foreign = makeOwner("demo.Other");
+  auto location = dictionary(builder, {{"path", builder.getStringAttr("literal.py")},
+      {"line", u64(builder, 1)}, {"column", u64(builder, 1)},
+      {"end_line", u64(builder, 1)}, {"end_column", u64(builder, 2)}});
+  for (bool typeWidth : {false, true}) {
+    SCOPED_TRACE(typeWidth);
+    mlir::NamedAttrList fields;
+    fields.set("kind", builder.getStringAttr(typeWidth ? "type_width" : "reference"));
+    fields.set("origin", occurrence(builder));
+    fields.set("location", location);
+    if (typeWidth)
+      fields.set("type", mlir::TypeAttr::get(TypeParamType::get(
+          &context, symbol(builder, "demo.Model"), builder.getStringAttr("T"))));
+    else
+      fields.set("ref", dictionary(builder, {{"kind", builder.getStringAttr("parameter")},
+          {"owner", symbol(builder, "demo.Model")}, {"name", builder.getStringAttr("WIDTH")}}));
+    auto tree = fields.getDictionary(&context);
+    ASSERT_TRUE(check(context, [&](EmitError emit) {
+      return StaticExprAttr::verify(emit, tree);
+    }).passed);
+    ASSERT_TRUE(detail::isVerifiedStaticExpressionGrammar(tree));
+    auto expression = StaticExprAttr::get(&context, tree);
+    EXPECT_TRUE(check(context, [&](EmitError) {
+      return detail::verifyHardwareAttributeScope(expression, owner->getOperation());
+    }).passed);
+    expectRejected(check(context, [&](EmitError) {
+      return detail::verifyHardwareAttributeScope(expression, foreign->getOperation());
+    }));
+    EXPECT_TRUE(detail::isVerifiedStaticExpressionGrammar(tree));
+  }
+}
+
+TEST_F(SourceIdentityContractsTest,
+       ConcurrentOccurrenceGrammarMemoRecordsOnlyUniqueSuccesses) {
+  std::vector<mlir::DictionaryAttr> roots;
+  for (unsigned i = 0; i < 32; ++i)
+    roots.push_back(occurrence(
+        builder, builder.getArrayAttr({iterationFrame(
+                     builder, u64(builder, i), integerValue(builder, "7"))})));
+  auto before = detail::occurrenceGrammarCacheShape(&context).first;
+  std::atomic<bool> accepted{true};
+  auto location = mlir::UnknownLoc::get(&context);
+  std::vector<std::thread> threads;
+  for (unsigned i = 0; i < 8; ++i)
+    threads.emplace_back([&] {
+      for (unsigned repeat = 0; repeat < 16; ++repeat)
+        for (auto root : roots)
+          if (mlir::failed(detail::verifyOccurrence(
+                  root, [&] { return mlir::emitError(location); })))
+            accepted.store(false, std::memory_order_relaxed);
+    });
+  for (auto &thread : threads)
+    thread.join();
+  EXPECT_TRUE(accepted.load(std::memory_order_relaxed));
+  EXPECT_EQ(detail::occurrenceGrammarCacheShape(&context).first,
+            before + roots.size());
+  for (auto root : roots)
+    EXPECT_TRUE(detail::isVerifiedOccurrenceGrammar(root));
 }
 
 TEST_F(SourceIdentityContractsTest,

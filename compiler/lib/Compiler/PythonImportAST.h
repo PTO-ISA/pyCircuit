@@ -36,6 +36,19 @@ struct AstNode {
                           llvm::StringRef sourcePath) const;
 };
 
+// Resolve required positional-or-keyword actuals once for import and owner
+// analysis. The returned order is the declaration order, never keyword order.
+mlir::FailureOr<llvm::SmallVector<AstNode>> normalizeCallArguments(
+    const AstNode &call, llvm::ArrayRef<llvm::StringRef> formals,
+    ac::detail::EmitError emitError,
+    llvm::StringRef arityDiagnostic = "callable argument arity mismatch",
+    llvm::SmallVectorImpl<size_t> *evaluationOrder = nullptr);
+
+// Walk binding syntax without treating it as a hardware tuple value. Target
+// validation and ownership checks remain at the consuming boundary.
+mlir::LogicalResult forEachAssignmentLeaf(const AstNode &target,
+    llvm::function_ref<mlir::LogicalResult(const AstNode &)> visit);
+
 struct CapturedSource {
   std::string path;
   AstNode module;

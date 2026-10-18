@@ -15,7 +15,7 @@ import pytest
 
 pytestmark = pytest.mark.system
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples/module_loop"
+EXAMPLE = ROOT / "tests/fixtures/historical_examples/module_loop"
 DEFAULT_PREFIX = ROOT / ".pycircuit_out/measurement-02-install"
 SOURCES = ("child", "module_loop")
 PRIVATE_HELPERS = (

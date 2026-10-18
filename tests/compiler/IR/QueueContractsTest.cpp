@@ -1,4 +1,4 @@
-// Independent actual QueueOp/schema/source-unit dependency tests.
+// Independent canonical FIFO Instance/schema/source-unit dependency tests.
 #include "Compiler/HardwareEmitCommon.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
@@ -14,6 +14,7 @@
 #include "mlir/Transforms/Passes.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/STLExtras.h"
@@ -87,13 +88,12 @@ protected:
 module {
   "ac.module"() ({
   ^bb0(%valid: !control, %data: !data, %take: !control, %clk: !control, %rst: !control):
-    %ready, %available, %head = "ac.queue"(%clk, %rst, %valid, %data, %take) {
-      instance_name = "fifo", depth = #depth, ready_policy = ")mlir" +
-           policy.str() + R"mlir(",
-      availability_latency = #one, head_read_latency = #zero, empty_flow = false,
-      read_during_write = "old", reset_policy = "sync_high_empty", empty_data = "zero",
+    %ready, %available, %head, %head_capacity = "ac.instance"(%clk, %rst, %valid, %data, %take) {
+      instance_name = "fifo", callee = @pycircuit.__builtins__.)mlir" +
+           (policy == "local_occupancy" ? "fifo_local" : "fifo_downstream_pop") + R"mlir(,
+      parameters = [#depth, #one], type_arguments = [!data],
       occurrence = {site = {definition = @Provider, ast_path = []}, expansion = []}
-    } : (!control, !control, !control, !data, !control) -> (!control, !control, !data)
+    } : (!control, !control, !control, !data, !control) -> (!control, !control, !data, !control)
     "ac.yield"(%ready, %available, %head) : (!control, !control, !data) -> ()
   }) {sym_name = "Provider", source_owner = {package = "", path = "__init__.py"},
       parameters = [], type_parameters = [],
@@ -124,7 +124,13 @@ module {
       if (auto imported = dyn_cast<ac::ModuleImportOp>(op)) {
         imported->setAttr("ac.declaration_role",
                           b.getStringAttr("import_snapshot"));
-        if (!llvm::is_contained(owners, Attribute(imported.getSourceOwner())))
+        auto importedOwner = imported.getSourceOwner();
+        bool builtin = importedOwner.getAs<StringAttr>("package").getValue() ==
+                           "pycircuit" &&
+                       importedOwner.getAs<StringAttr>("path").getValue() ==
+                           "__builtins__.py";
+        if (!builtin &&
+            !llvm::is_contained(owners, Attribute(importedOwner)))
           owners.push_back(imported.getSourceOwner());
         continue;
       }
@@ -153,9 +159,12 @@ module {
   OwningOpRef<mlir::ModuleOp> provider(unsigned width, unsigned depth,
                                        StringRef policy) {
     auto unit = parseSourceString<mlir::ModuleOp>(
-        providerText(width, depth, policy), &context);
-    if (unit)
+        providerText(width, depth, policy), ParserConfig(&context, false));
+    if (unit) {
+      addQueueBuiltins(*unit);
       envelope(*unit, "__init__.py");
+      EXPECT_TRUE(succeeded(mlir::verify(*unit)));
+    }
     return unit;
   }
   LogicalResult extract(mlir::ModuleOp unit) {
@@ -329,9 +338,13 @@ module {
       ac.struct "HeaderB" fields [{name = "flag", type = !control}, {name = "length", type = !ac.bits<#tag>}]
       ac.struct "RecordB" fields [{name = "metadata", type = !ac.struct<"HeaderB">}, {name = "payload", type = !ac.bits<#lane>}]
     )mlir");
-    auto unit = parseSourceString<mlir::ModuleOp>(text, &context);
-    if (unit)
+    auto unit = parseSourceString<mlir::ModuleOp>(
+        text, ParserConfig(&context, false));
+    if (unit) {
+      addQueueBuiltins(*unit);
       envelope(*unit, "__init__.py");
+      EXPECT_TRUE(succeeded(mlir::verify(*unit)));
+    }
     return unit;
   }
   OwningOpRef<mlir::ModuleOp> fixture(StringRef name) {
@@ -360,13 +373,55 @@ module {
       return {};
     for (auto record : records->getOps<ac::StructOp>())
       body->getBody()->push_front(record->clone());
+    for (auto imported :
+         llvm::make_early_inc_range(body->getOps<ac::ModuleImportOp>()))
+      if (imported.getSymName().starts_with("pycircuit.__builtins__.fifo_"))
+        imported.erase();
+    addQueueBuiltins(*body);
     envelope(*body, "__init__.py");
     return body;
   }
-  ac::QueueOp onlyQueue(ac::ModuleOp module) {
-    auto range = module.getBody().front().getOps<ac::QueueOp>();
-    EXPECT_TRUE(llvm::hasSingleElement(range));
-    return *range.begin();
+  void addQueueBuiltins(mlir::ModuleOp unit) {
+    auto registry = compiler::SourceHeaderRegistry::create(
+        &context, {}, [&] { return emitError(UnknownLoc::get(&context)); });
+    ASSERT_TRUE(succeeded(registry));
+    OpBuilder insertion = OpBuilder::atBlockBegin(unit.getBody());
+    for (StringRef kind : {"fifo_local", "fifo_downstream_pop"}) {
+      auto builtin = registry->lookupBuiltin(kind);
+      ASSERT_TRUE(builtin);
+      if (!SymbolTable::lookupSymbolIn(unit, builtin.symbol))
+        insertion.insert(builtin.declaration->clone());
+    }
+  }
+  ac::InstanceOp onlyQueue(ac::ModuleOp module) {
+    SmallVector<ac::InstanceOp> queues;
+    for (auto instance : module.getBody().front().getOps<ac::InstanceOp>())
+      if (ac::isQueueInstance(instance))
+        queues.push_back(instance);
+    EXPECT_TRUE(llvm::hasSingleElement(queues));
+    return queues.empty() ? ac::InstanceOp() : queues.front();
+  }
+  void setQueueDepth(ac::InstanceOp queue, ac::StaticExprAttr depth) {
+    Builder b(&context);
+    queue->setAttr("parameters",
+                   b.getArrayAttr({depth, queue.getParameters()[1]}));
+  }
+  void setQueueLatency(ac::InstanceOp queue, ac::StaticExprAttr latency) {
+    Builder b(&context);
+    queue->setAttr("parameters",
+                   b.getArrayAttr({queue.getParameters()[0], latency}));
+  }
+  void setQueuePolicy(ac::InstanceOp queue, StringRef policy) {
+    queue->setAttr(
+        "callee",
+        FlatSymbolRefAttr::get(
+            &context,
+            policy == "local_occupancy"
+                ? "pycircuit.__builtins__.fifo_local"
+                : "pycircuit.__builtins__.fifo_downstream_pop"));
+  }
+  Type queuePayload(ac::InstanceOp queue) {
+    return queue.getInputs()[3].getType();
   }
   void updateResultSignature(ac::ModuleOp module) {
     SmallVector<Type> outputTypes;
@@ -576,7 +631,7 @@ TEST_F(QueueContractsTest,
         auto body = provider(width, depths[i], policy);
         ASSERT_TRUE(body);
         auto module = definition(*body);
-        auto queue = *module.getBody().front().getOps<ac::QueueOp>().begin();
+        auto queue = onlyQueue(module);
         ac::HardwareAnalysis analysis(*body);
         ac::HardwareBindings bindings;
         bindings.owner = module;
@@ -621,6 +676,67 @@ TEST_F(QueueContractsTest,
         ASSERT_TRUE(succeeded(compiler::linkHardwareUnits(
             {{*body, *header}}, "Provider", error())));
       }
+}
+
+TEST_F(QueueContractsTest,
+       LocalCapacityIsFourthIndependentCommittedStateEndpoint) {
+  auto body = provider(13, 1, "downstream_pop");
+  ASSERT_TRUE(body);
+  auto module = definition(*body);
+  auto queue = onlyQueue(module);
+  ASSERT_EQ(queue->getNumResults(), 4u);
+  EXPECT_EQ(queue.getOutputs()[0], queue->getResult(0));
+  EXPECT_EQ(queue.getOutputs()[1], queue->getResult(1));
+  EXPECT_EQ(queue.getOutputs()[2], queue->getResult(2));
+  EXPECT_EQ(queue.getOutputs()[3], queue->getResult(3));
+  setQueueLatency(queue, integer(3));
+  auto yielded = cast<ac::YieldOp>(module.getBody().front().back());
+  SmallVector<Value> results(yielded.getValues());
+  results.push_back(queue.getOutputs()[3]);
+  yielded->setOperands(results);
+  Builder b(&context);
+  module->setAttr("output_names", b.getStrArrayAttr({"in_ready", "out_valid", "out_data", "local_capacity"}));
+  updateResultSignature(module);
+  ac::HardwareAnalysis analysis(*body);
+  ac::HardwareBindings bindings;
+  bindings.owner = module;
+  auto facts = analysis.analyzeModule(module, bindings);
+  ASSERT_TRUE(succeeded(facts));
+  ASSERT_EQ(facts->dependencies.size(), 4u);
+  ASSERT_EQ(facts->dependencies[0].inputs.size(), 1u);
+  EXPECT_EQ(facts->dependencies[0].inputs[0].port, 2u);
+  EXPECT_TRUE(facts->dependencies[3].inputs.empty());
+  ASSERT_EQ(facts->storageWork.size(), 1u);
+  EXPECT_EQ(facts->storageWork[0], queue.getOperation());
+  auto config = analysis.resolveQueue(queue, bindings);
+  ASSERT_TRUE(succeeded(config));
+  EXPECT_EQ(config->depth, 1u);
+  EXPECT_EQ(config->storageBitCount, 13u);
+  EXPECT_EQ(config->timingStorageBitCount, 6u);
+  auto header = clone(*body);
+  ASSERT_TRUE(succeeded(extract(*header)));
+  auto published = analysis.getImportDependencies(declaration(*header), bindings);
+  ASSERT_TRUE(succeeded(published));
+  ASSERT_EQ(published->size(), 4u);
+  EXPECT_TRUE((*published)[3].inputs.empty());
+}
+
+TEST_F(QueueContractsTest, RetiredQueueOpFailsAtOwningContract) {
+  auto body = provider(13, 1, "local_occupancy");
+  ASSERT_TRUE(body);
+  auto module = definition(*body);
+  auto original = onlyQueue(module);
+  OpBuilder b(original);
+  OperationState state(original.getLoc(), ac::QueueOp::getOperationName());
+  state.addOperands(original.getInputs());
+  SmallVector<Type> legacyTypes;
+  for (unsigned i = 0; i < 3; ++i)
+    legacyTypes.push_back(original->getResult(i).getType());
+  state.addTypes(legacyTypes);
+  auto legacy = cast<ac::QueueOp>(b.create(state));
+  rejects([&] { return legacy.verify(); },
+          "retired ac.queue is not admitted");
+  legacy.erase();
 }
 
 TEST_F(QueueContractsTest, ActualUnchangedProviderRejectsReadyHeaderTamper) {
@@ -677,7 +793,7 @@ TEST_F(QueueContractsTest,
         ASSERT_TRUE(body);
         auto module = definition(*body);
         auto queue = onlyQueue(module);
-        queue->setAttr("availability_latency", exactInteger(latency));
+        setQueueLatency(queue, exactInteger(latency));
         ac::HardwareAnalysis analysis(*body);
         ac::HardwareBindings bindings;
         bindings.owner = module;
@@ -720,7 +836,7 @@ TEST_F(QueueContractsTest,
   ac::HardwareBindings bindings;
   bindings.owner = module;
   for (StringRef value : {"0", "-1", "18446744073709551616"}) {
-    queue->setAttr("availability_latency", exactInteger(value));
+    setQueueLatency(queue, exactInteger(value));
     rejects(
         [&] { return analysis.verifyQueueOperation(queue, bindings, false); },
         "availability_latency must be positive and fit u64");
@@ -728,12 +844,12 @@ TEST_F(QueueContractsTest,
             "availability_latency must be positive and fit u64");
   }
   for (bool value : {false, true}) {
-    queue->setAttr("availability_latency", boolean(value));
+    setQueueLatency(queue, boolean(value));
     rejects(
         [&] { return analysis.verifyQueueOperation(queue, bindings, false); },
-        "availability_latency requires an integer");
+        "integer formal requires mathematical integer");
     rejects([&] { return analysis.resolveQueue(queue, bindings); },
-            "availability_latency requires an integer");
+            "integer formal requires mathematical integer");
   }
 }
 
@@ -748,25 +864,25 @@ TEST_F(QueueContractsTest,
   bindings.owner = module;
   // T stays unbound: known timing must still reject both product overflow and
   // a representable deadline array whose metadata addition overflows.
-  queue->setAttr("depth", exactInteger("18446744073709551615"));
+  setQueueDepth(queue, exactInteger("18446744073709551615"));
   for (unsigned latency : {3u, 2u}) {
-    queue->setAttr("availability_latency", integer(latency));
+    setQueueLatency(queue, integer(latency));
     rejects(
         [&] { return analysis.verifyQueueOperation(queue, bindings, false); },
         "logical timing storage bit count overflows u64");
   }
   // This exactly fits the timing dimension with symbolic T; payload size is
   // deliberately not inferred from an unrelated occurrence.
-  queue->setAttr("depth", exactInteger("18446744073709551486"));
+  setQueueDepth(queue, exactInteger("18446744073709551486"));
   EXPECT_TRUE(succeeded(analysis.verifyQueueOperation(queue, bindings, false)));
-  queue->setAttr("depth", exactInteger("9223372036854775807"));
+  setQueueDepth(queue, exactInteger("9223372036854775807"));
   EXPECT_TRUE(succeeded(analysis.verifyQueueOperation(queue, bindings, false)));
   bindings.types["T"] = ac::BitsType::get(&context, integer(1));
   rejects([&] { return analysis.verifyQueueOperation(queue, bindings, false); },
           "combined logical storage bit count overflows u64");
   rejects([&] { return analysis.resolveQueue(queue, bindings); },
           "combined logical storage bit count overflows u64");
-  queue->setAttr("depth", integer(3));
+  setQueueDepth(queue, integer(3));
   auto valid = analysis.resolveQueue(queue, bindings);
   ASSERT_TRUE(succeeded(valid));
   EXPECT_EQ(valid->storageBitCount, 3u);
@@ -790,7 +906,7 @@ TEST_F(QueueContractsTest, SharedUnsignedRendererPreservesExactClosedLatency) {
     ASSERT_TRUE(succeeded(rtl));
     EXPECT_EQ(*cpp, decimal.str() + "ULL");
     EXPECT_EQ(*rtl, "64'd" + decimal.str());
-    queue->setAttr("availability_latency", value);
+    setQueueLatency(queue, value);
     auto final = finalForEmission(*body);
     ASSERT_TRUE(final);
     ac::HardwareAnalysis finalAnalysis(*final);
@@ -826,6 +942,27 @@ TEST_F(QueueContractsTest, SharedUnsignedRendererPreservesExactClosedLatency) {
 }
 
 TEST_F(QueueContractsTest,
+       CapacityWireStorageIsCountedBeforeAnyRuntimeAllocation) {
+  const uint64_t maximum = std::numeric_limits<std::ptrdiff_t>::max();
+  const uint64_t depth = (maximum - 128 - 192) / 24 - 5;
+  // One Bits1 token occupies three64-bit planes,24bytes.
+  // Independently derive the exact old/new metadata boundary; do not allocate.
+  ASSERT_EQ(24 * (depth + 5) + 192 + 128, maximum - 23);
+  ASSERT_EQ(24 * (depth + 5) + 216 + 128, maximum + 1);
+  auto body = provider(1, 1, "local_occupancy");
+  ASSERT_TRUE(body);
+  setQueueDepth(onlyQueue(definition(*body)),
+                exactInteger(std::to_string(depth)));
+  auto final = finalForEmission(*body);
+  ASSERT_TRUE(final);
+  auto before = print(*final);
+  ac::HardwareAnalysis analysis(*final);
+  compiler::HardwareEmitContext emitter(*final, analysis);
+  rejects([&] { return emitter.prepare(); }, "Runtime object capacity");
+  EXPECT_EQ(print(*final), before);
+}
+
+TEST_F(QueueContractsTest,
        EmissionChecksCombinedTimingAndFamilyCapacityBeforeAllocation) {
   // These broad capacity witnesses do not freeze padding or an exact emitted
   // storage recipe: L1 fits, but the D delayed timestamps cannot fit with it.
@@ -835,9 +972,9 @@ TEST_F(QueueContractsTest,
       auto body = provider(1, 3, "local_occupancy");
       ASSERT_TRUE(body);
       auto queue = onlyQueue(definition(*body));
-      queue->setAttr("depth", exactInteger(std::to_string(
-                                  capacity / (family ? 150 : 30))));
-      queue->setAttr("availability_latency", integer(latency));
+      setQueueDepth(queue, exactInteger(std::to_string(
+                               capacity / (family ? 150 : 30))));
+      setQueueLatency(queue, integer(latency));
       if (family)
         addQueueFamilyRoot(*body, 5);
       auto final = finalForEmission(*body, family ? "FamilyRoot" : "Provider");
@@ -852,8 +989,8 @@ TEST_F(QueueContractsTest,
   auto body = provider(1, 3, "local_occupancy");
   ASSERT_TRUE(body);
   auto queue = onlyQueue(definition(*body));
-  queue->setAttr("depth", exactInteger(std::to_string(capacity / 4)));
-  queue->setAttr("availability_latency", integer(2));
+  setQueueDepth(queue, exactInteger(std::to_string(capacity / 4)));
+  setQueueLatency(queue, integer(2));
   auto final = finalForEmission(*body);
   ASSERT_TRUE(final);
   ac::HardwareAnalysis analysis(*final);
@@ -868,7 +1005,7 @@ TEST_F(QueueContractsTest, UnusedConcreteQueuesStillReceiveTimingPreflight) {
   unused->setAttr("sym_name", Builder(&context).getStringAttr("Unused"));
   auto queue = onlyQueue(unused);
   queue->setAttr("occurrence", occurrence("Unused"));
-  queue->setAttr("availability_latency", integer(2));
+  setQueueLatency(queue, integer(2));
   body->getBody()->push_back(unused);
   envelope(*body, "__init__.py");
   auto safe = finalForEmission(*body);
@@ -876,9 +1013,8 @@ TEST_F(QueueContractsTest, UnusedConcreteQueuesStillReceiveTimingPreflight) {
   ac::HardwareAnalysis safeAnalysis(*safe);
   compiler::HardwareEmitContext safeEmitter(*safe, safeAnalysis);
   ASSERT_TRUE(succeeded(safeEmitter.prepare()));
-  queue->setAttr("depth",
-                 exactInteger(std::to_string(
-                     std::numeric_limits<std::ptrdiff_t>::max() / 30)));
+  setQueueDepth(queue, exactInteger(std::to_string(
+                           std::numeric_limits<std::ptrdiff_t>::max() / 30)));
   auto oversized = finalForEmission(*body);
   ASSERT_TRUE(oversized);
   ac::HardwareAnalysis analysis(*oversized);
@@ -892,13 +1028,13 @@ TEST_F(QueueContractsTest,
   ASSERT_TRUE(body);
   auto module = definition(*body);
   auto unbound = declaredUnbound(module);
-  auto queue = *module.getBody().front().getOps<ac::QueueOp>().begin();
+  auto queue = onlyQueue(module);
   ac::HardwareAnalysis analysis(*body);
   ac::HardwareBindings bindings;
   bindings.owner = module;
   Builder b(&context);
   auto table = ac::TableType::get(&context, b.getArrayAttr({integer(3)}),
-                                  queue.getInData().getType());
+                                  queuePayload(queue));
   auto width =
       expression("type_width", {b.getNamedAttr("type", TypeAttr::get(table))});
   EXPECT_TRUE(analysis.isStaticEvaluable(width, bindings));
@@ -909,16 +1045,15 @@ TEST_F(QueueContractsTest,
     auto depth = chosen ? select(boolean(true), integer(3), unbound)
                         : select(boolean(false), unbound, integer(3));
     EXPECT_TRUE(analysis.isStaticEvaluable(depth, bindings));
-    queue->setAttr("depth", depth);
+    setQueueDepth(queue, depth);
     auto resolved = analysis.resolveQueue(queue, bindings);
     ASSERT_TRUE(succeeded(resolved));
     EXPECT_EQ(resolved->depth, 3u);
     auto zeroDepth = chosen ? select(boolean(true), integer(0), unbound)
                             : select(boolean(false), unbound, integer(0));
     EXPECT_TRUE(analysis.isStaticEvaluable(zeroDepth, bindings));
-    queue->setAttr("depth", zeroDepth);
-    // The exact QueueOp depth diagnostic is attached after Q0 implementation;
-    // only the owning queue depth guard may reject this closed selected zero.
+    setQueueDepth(queue, zeroDepth);
+    // Only the owning FIFO depth guard may reject this closed selected zero.
     rejects([&] { return analysis.resolveQueue(queue, bindings); }, "depth");
   }
 }
@@ -929,7 +1064,7 @@ TEST_F(QueueContractsTest,
   ASSERT_TRUE(body);
   auto module = definition(*body);
   auto unbound = declaredUnbound(module);
-  auto queue = *module.getBody().front().getOps<ac::QueueOp>().begin();
+  auto queue = onlyQueue(module);
   ac::HardwareAnalysis analysis(*body);
   ac::HardwareBindings bindings;
   bindings.owner = module;
@@ -954,7 +1089,7 @@ TEST_F(QueueContractsTest,
   auto body = provider(13, 3, "local_occupancy");
   ASSERT_TRUE(body);
   auto module = definition(*body);
-  auto queue = *module.getBody().front().getOps<ac::QueueOp>().begin();
+  auto queue = onlyQueue(module);
   ac::HardwareAnalysis analysis(*body);
   ac::HardwareBindings bindings;
   bindings.owner = module;
@@ -1007,8 +1142,8 @@ TEST_F(QueueContractsTest, NominalAndTablePacketsKeepTokenGeometryAndIdentity) {
         if (table)
           EXPECT_EQ(config->tokenShape[0], 3u);
         EXPECT_TRUE(ac::areEquivalentHardwareTypes(
-            config->payloadType, queue.getInData().getType()));
-        queue->setAttr("availability_latency", integer(3));
+            config->payloadType, queuePayload(queue)));
+        setQueueLatency(queue, integer(3));
         auto delayed = analysis.resolveQueue(queue, bindings);
         ASSERT_TRUE(succeeded(delayed));
         EXPECT_EQ(delayed->packedWidth, width);
@@ -1060,7 +1195,7 @@ TEST_F(QueueContractsTest,
         for (bool tokenTable : {false, true}) {
           auto module = tokenTable ? table : generic;
           auto queue = tokenTable ? tableQueue : scalarQueue;
-          queue->setAttr("ready_policy", b.getStringAttr(policy));
+          setQueuePolicy(queue, policy);
           ac::HardwareBindings bound;
           bound.owner = module;
           bound.types["T"] = payload;
@@ -1078,10 +1213,70 @@ TEST_F(QueueContractsTest,
         }
   // Policy mutations only; generic declarations/signatures are not cloned or
   // specialized into width/shape recipes. Reset policy before byte comparison.
-  scalarQueue->setAttr("ready_policy", b.getStringAttr("local_occupancy"));
-  tableQueue->setAttr("ready_policy", b.getStringAttr("local_occupancy"));
+  setQueuePolicy(scalarQueue, "local_occupancy");
+  setQueuePolicy(tableQueue, "local_occupancy");
   EXPECT_EQ(print(*body), definitionBefore);
   EXPECT_FALSE(ac::areEquivalentHardwareTypes(payloads[4], payloads[5]));
+}
+
+TEST_F(QueueContractsTest, OrdinaryGenericModuleAcceptsWholeTableTypeActual) {
+  auto body = genericBody();
+  ASSERT_TRUE(body);
+  ac::HardwareAnalysis analysis(*body);
+  auto root = cast<ac::ModuleOp>(analysis.lookupDefinition("Root"));
+  ac::InstanceOp tableInstance;
+  for (auto instance : root.getBody().front().getOps<ac::InstanceOp>())
+    if (instance.getInstanceName() == "table")
+      tableInstance = instance;
+  ASSERT_TRUE(tableInstance);
+  auto tableType = tableInstance.getInputs()[1].getType();
+  ASSERT_TRUE(isa<ac::TableType>(tableType));
+  Builder b(&context);
+  tableInstance->setAttr("callee",
+                         FlatSymbolRefAttr::get(&context, "Generic"));
+  tableInstance->setAttr("type_arguments",
+                         b.getArrayAttr({TypeAttr::get(tableType)}));
+  ASSERT_TRUE(succeeded(analysis.verifyInstance(tableInstance)));
+  auto bindings = analysis.bindInstance(tableInstance);
+  ASSERT_TRUE(succeeded(bindings));
+  EXPECT_EQ(bindings->types.lookup("T"), tableType);
+  auto generic = cast<ac::ModuleOp>(analysis.lookupDefinition("Generic"));
+  auto config = analysis.resolveQueue(onlyQueue(generic), *bindings);
+  ASSERT_TRUE(succeeded(config));
+  EXPECT_EQ(config->packedWidth, 390u);
+  EXPECT_EQ(config->tokenCardinality, 3u);
+}
+
+TEST_F(QueueContractsTest,
+       OrdinaryStoragePrimitiveStillRejectsWholeTableTypeActual) {
+  auto body = genericBody();
+  ASSERT_TRUE(body);
+  auto registry = compiler::SourceHeaderRegistry::create(
+      &context, {}, [&] { return emitError(UnknownLoc::get(&context)); });
+  ASSERT_TRUE(succeeded(registry));
+  auto dffe = registry->lookupBuiltin("dffe");
+  ASSERT_TRUE(dffe);
+  OpBuilder::atBlockBegin(body->getBody()).insert(dffe.declaration->clone());
+  ac::HardwareAnalysis analysis(*body);
+  auto root = cast<ac::ModuleOp>(analysis.lookupDefinition("Root"));
+  auto &rootBody = root.getBody().front();
+  auto tableType = rootBody.getArgument(2).getType();
+  ASSERT_TRUE(isa<ac::TableType>(tableType));
+  OpBuilder insertion(rootBody.getTerminator());
+  OperationState state(root.getLoc(), ac::InstanceOp::getOperationName());
+  state.addOperands({rootBody.getArgument(4), rootBody.getArgument(5),
+                     rootBody.getArgument(0), rootBody.getArgument(2),
+                     rootBody.getArgument(2)});
+  state.addTypes(tableType);
+  state.addAttribute("instance_name", insertion.getStringAttr("table_state"));
+  state.addAttribute("callee", dffe.symbol);
+  state.addAttribute("parameters", insertion.getArrayAttr({}));
+  state.addAttribute("type_arguments",
+                     insertion.getArrayAttr({TypeAttr::get(tableType)}));
+  state.addAttribute("occurrence", occurrence("Root"));
+  auto storage = cast<ac::InstanceOp>(insertion.create(state));
+  rejects([&] { return analysis.verifyInstance(storage); },
+          "storage and memory primitives require a scalar payload binding");
 }
 
 TEST_F(QueueContractsTest, DirectBindingScalarContractCyclesAndAliasChain) {
@@ -1105,8 +1300,8 @@ TEST_F(QueueContractsTest, DirectBindingScalarContractCyclesAndAliasChain) {
   bound.types["T"] =
       ac::TableType::get(&context, b.getArrayAttr({integer(3)}), t);
   rejects([&] { return analysis.verifyQueueOperation(queue, bound, false); },
-          "scalar");
-  rejects([&] { return analysis.resolveQueue(queue, bound); }, "scalar");
+          "cyclic");
+  rejects([&] { return analysis.resolveQueue(queue, bound); }, "cyclic");
   bound.types["T"] = u;
   bound.types["U"] = t;
   rejects([&] { return analysis.verifyQueueOperation(queue, bound, false); },
@@ -1133,7 +1328,7 @@ TEST_F(QueueContractsTest,
   ac::HardwareAnalysis analysis(*body);
   ac::HardwareBindings bound;
   bound.owner = module;
-  queue->setAttr("depth", exactInteger("18446744073709551615"));
+  setQueueDepth(queue, exactInteger("18446744073709551615"));
   auto max = analysis.resolveQueue(queue, bound);
   ASSERT_TRUE(succeeded(max));
   EXPECT_EQ(max->depth, std::numeric_limits<uint64_t>::max());
@@ -1141,7 +1336,7 @@ TEST_F(QueueContractsTest,
   EXPECT_EQ(max->countWidth, 64u);
   EXPECT_EQ(max->storageBitCount, std::numeric_limits<uint64_t>::max());
   for (StringRef value : {"0", "-1", "18446744073709551616"}) {
-    queue->setAttr("depth", exactInteger(value));
+    setQueueDepth(queue, exactInteger(value));
     rejects([&] { return analysis.resolveQueue(queue, bound); },
             "depth must be positive and fit u64");
   }
@@ -1151,7 +1346,7 @@ TEST_F(QueueContractsTest,
   auto overflowModule = definition(*overflow);
   auto overflowQueue = onlyQueue(overflowModule);
   bound.owner = overflowModule;
-  overflowQueue->setAttr("depth", exactInteger("18446744073709551615"));
+  setQueueDepth(overflowQueue, exactInteger("18446744073709551615"));
   rejects([&] { return overflowAnalysis.resolveQueue(overflowQueue, bound); },
           "logical storage bit count overflows u64");
   auto nominal =
@@ -1160,7 +1355,7 @@ TEST_F(QueueContractsTest,
   ac::HardwareAnalysis nominalAnalysis(*nominal);
   auto nominalModule = definition(*nominal);
   auto nominalQueue = onlyQueue(nominalModule);
-  nominalQueue.getOutData().setType(ac::StructType::get(
+  nominalQueue.getOutputs()[2].setType(ac::StructType::get(
       &context, Builder(&context).getStringAttr("RecordB")));
   updateResultSignature(nominalModule);
   bound.owner = nominalModule;
@@ -1169,12 +1364,13 @@ TEST_F(QueueContractsTest,
 }
 
 TEST_F(QueueContractsTest,
-       ClosedAttributesMissingFieldsAndEveryControlWidthReject) {
+       NativeProfileTamperingAndEveryControlWidthReject) {
   Builder b(&context);
-  for (StringRef name :
-       {"instance_name", "depth", "ready_policy", "availability_latency",
-        "head_read_latency", "empty_flow", "read_during_write", "reset_policy",
-        "empty_data", "occurrence"}) {
+  for (auto [name, expected] :
+       {std::pair<StringRef, StringRef>{"instance_name",
+                                        "nonempty instance_name"},
+        {"parameters", "instance parameter arity mismatch"},
+        {"occurrence", "occurrence requires a dictionary"}}) {
     auto body = provider(13, 3, "local_occupancy");
     ASSERT_TRUE(body);
     auto module = definition(*body);
@@ -1184,10 +1380,11 @@ TEST_F(QueueContractsTest,
     ac::HardwareBindings bound;
     bound.owner = module;
     rejects([&] { return analysis.verifyQueueOperation(queue, bound); },
-            "missing queue attribute");
+            expected);
   }
-  for (StringRef name : {"ac.ready_override", "bypass", "pipe", "ready",
-                         "ready_expr", "cpp_binding", "rtl_binding"}) {
+  for (StringRef name : {"depth", "ready_policy", "availability_latency",
+                         "head_read_latency", "empty_flow",
+                         "read_during_write", "reset_policy", "empty_data"}) {
     auto body = provider(13, 3, "local_occupancy");
     ASSERT_TRUE(body);
     auto module = definition(*body);
@@ -1197,36 +1394,34 @@ TEST_F(QueueContractsTest,
     ac::HardwareBindings bound;
     bound.owner = module;
     rejects([&] { return analysis.verifyQueueOperation(queue, bound); },
-            "unknown queue attribute");
-  }
-  for (auto pair : {std::pair<StringRef, StringRef>{"ready_policy", "other"},
-                    {"read_during_write", "new"},
-                    {"reset_policy", "async"},
-                    {"empty_data", "hold"}}) {
-    auto body = provider(13, 3, "local_occupancy");
-    ASSERT_TRUE(body);
-    auto module = definition(*body);
-    auto queue = onlyQueue(module);
-    queue->setAttr(pair.first, b.getStringAttr(pair.second));
-    ac::HardwareAnalysis analysis(*body);
-    ac::HardwareBindings bound;
-    bound.owner = module;
-    rejects([&] { return analysis.verifyQueueOperation(queue, bound); },
-            pair.first);
+            "cannot duplicate retired");
   }
   {
     auto body = provider(13, 3, "local_occupancy");
     ASSERT_TRUE(body);
     auto module = definition(*body);
     auto queue = onlyQueue(module);
-    queue->setAttr("head_read_latency", integer(2));
+    queue->setAttr("callee", FlatSymbolRefAttr::get(&context, "Provider"));
     ac::HardwareAnalysis analysis(*body);
     ac::HardwareBindings bound;
     bound.owner = module;
     rejects([&] { return analysis.verifyQueueOperation(queue, bound); },
-            "head_read_latency");
+            "canonical FIFO instance");
   }
-  for (unsigned position = 0; position != 6; ++position) {
+  {
+    auto body = provider(13, 3, "local_occupancy");
+    ASSERT_TRUE(body);
+    auto module = definition(*body);
+    auto queue = onlyQueue(module);
+    queue->setAttr("parameters", b.getArrayAttr({integer(3)}));
+    ac::HardwareAnalysis analysis(*body);
+    ac::HardwareBindings bound;
+    bound.owner = module;
+    rejects([&] { return analysis.verifyQueueOperation(queue, bound); },
+            "canonical FIFO instance requires explicit DEPTH and "
+            "AVAILABILITY_LATENCY arguments");
+  }
+  for (unsigned position = 0; position != 7; ++position) {
     auto body = provider(13, 3, "local_occupancy");
     ASSERT_TRUE(body);
     auto module = definition(*body);
@@ -1240,7 +1435,7 @@ TEST_F(QueueContractsTest,
       queue->setOperand(position == 3 ? 4 : position,
                         builder.create(constant)->getResult(0));
     } else {
-      queue->getResult(position - 4).setType(wide);
+      queue->getResult(position == 6 ? 3 : position - 4).setType(wide);
       updateResultSignature(module);
     }
     ac::HardwareAnalysis analysis(*body);
@@ -1248,6 +1443,29 @@ TEST_F(QueueContractsTest,
     bound.owner = module;
     rejects([&] { return analysis.verifyQueueOperation(queue, bound); },
             "controls must have width one");
+  }
+}
+
+TEST_F(QueueContractsTest, CanonicalFifoRequiresMatchingTrustedImportProfile) {
+  for (unsigned mutation = 0; mutation != 2; ++mutation) {
+    auto body = provider(13, 3, "local_occupancy");
+    ASSERT_TRUE(body);
+    auto module = definition(*body);
+    auto queue = onlyQueue(module);
+    auto imported = cast<ac::ModuleImportOp>(
+        SymbolTable::lookupSymbolIn(*body, queue.getCalleeAttr()));
+    if (mutation == 0)
+      imported->removeAttr("primitive_kind");
+    else
+      imported->setAttr("primitive_kind",
+                        Builder(&context).getStringAttr("fifo_downstream_pop"));
+    ac::HardwareAnalysis analysis(*body);
+    ac::HardwareBindings bindings;
+    bindings.owner = module;
+    rejects([&] { return analysis.resolveQueue(queue, bindings); },
+            "canonical FIFO requires its trusted builtin import");
+    (*body)->setAttr("ac.stage", Builder(&context).getStringAttr("final"));
+    rejects([&] { return mlir::verify(*body); }, "trusted");
   }
 }
 
@@ -1279,8 +1497,7 @@ TEST_F(QueueContractsTest,
   auto local = clone(*body);
   auto module = definition(*local);
   auto queue = onlyQueue(module);
-  Builder b(&context);
-  queue->setAttr("ready_policy", b.getStringAttr("local_occupancy"));
+  setQueuePolicy(queue, "local_occupancy");
   rejects(
       [&] {
         return compiler::admitSourceLinkUnits({{*local, *stale}}, error());
@@ -1297,7 +1514,7 @@ TEST_F(QueueContractsTest, QueueOwnsStateAcrossCseAndAnalysis) {
   ASSERT_TRUE(body);
   auto module = definition(*body);
   auto first = onlyQueue(module);
-  auto second = cast<ac::QueueOp>(first->clone());
+  auto second = cast<ac::InstanceOp>(first->clone());
   second->setAttr("instance_name", Builder(&context).getStringAttr("other"));
   OpBuilder insertion(&module.getBody().front().back());
   insertion.insert(second);
@@ -1307,8 +1524,8 @@ TEST_F(QueueContractsTest, QueueOwnsStateAcrossCseAndAnalysis) {
   passes.addPass(createCSEPass());
   ASSERT_TRUE(succeeded(passes.run(*body)));
   EXPECT_EQ(
-      std::distance(module.getBody().front().getOps<ac::QueueOp>().begin(),
-                    module.getBody().front().getOps<ac::QueueOp>().end()),
+      std::distance(module.getBody().front().getOps<ac::InstanceOp>().begin(),
+                    module.getBody().front().getOps<ac::InstanceOp>().end()),
       2);
   ac::HardwareAnalysis analysis(*body);
   auto work = analysis.analyzeModule(module);
@@ -1350,21 +1567,19 @@ TEST_F(QueueContractsTest,
                                 read(control + "/" + file));
   auto forged = forgedReady(*header);
   auto changed = clone(*body);
-  onlyQueue(definition(*changed))
-      ->setAttr("ready_policy",
-                Builder(&context).getStringAttr("local_occupancy"));
+  setQueuePolicy(onlyQueue(definition(*changed)), "local_occupancy");
   auto missing = clone(*body), overrideBody = clone(*body),
        cyclic = clone(*body);
-  onlyQueue(definition(*missing))->removeAttr("ready_policy");
+  onlyQueue(definition(*missing))->removeAttr("parameters");
   onlyQueue(definition(*overrideBody))
-      ->setAttr("ac.ready_override", Builder(&context).getBoolAttr(true));
+      ->setAttr("ready_policy", Builder(&context).getStringAttr("local_occupancy"));
   auto cyclicModule = definition(*cyclic);
   auto cyclicQueue = onlyQueue(cyclicModule);
   OpBuilder cycleBuilder(cyclicQueue);
   OperationState cycle(cyclicQueue.getLoc(), "ac.bits.binary");
   cycle.addOperands({cyclicModule.getBody().front().getArgument(0),
                      cyclicModule.getBody().front().getArgument(0)});
-  cycle.addTypes(cyclicQueue.getInValid().getType());
+  cycle.addTypes(cyclicQueue.getInputs()[2].getType());
   cycle.addAttribute("opcode", cycleBuilder.getStringAttr("xor"));
   auto feedback = cycleBuilder.create(cycle);
   feedback->setOperand(0, feedback->getResult(0));
@@ -1373,8 +1588,8 @@ TEST_F(QueueContractsTest,
       "published dependency summary differs from module SSA: @Provider",
       "published dependency summary differs from module SSA: @Provider",
       "published dependency summary differs from module SSA: @Provider",
-      "requires attribute 'ready_policy'",
-      "unknown queue attribute '\"ac.ready_override\"'",
+      "requires attribute 'parameters'",
+      "cannot duplicate retired 'ready_policy'",
       "combinational cycle in hardware field dependencies"};
   for (unsigned mutation = 0; mutation != 6; ++mutation) {
     auto badBody = mutation == 2   ? *changed
@@ -1474,7 +1689,7 @@ TEST_F(QueueContractsTest, NumericActualAliasesPreserveDemandAndOwningFailure) {
   bound.integers["D"] = reference("E");
   bound.integers["E"] = ac::MathIntAttr::get(&context, llvm::APSInt("3"));
   auto depth = reference("D");
-  queue->setAttr("depth", depth);
+  setQueueDepth(queue, depth);
   EXPECT_TRUE(analysis.isStaticEvaluable(depth, bound));
   auto valid = analysis.resolveQueue(queue, bound);
   ASSERT_TRUE(succeeded(valid));
@@ -1482,14 +1697,14 @@ TEST_F(QueueContractsTest, NumericActualAliasesPreserveDemandAndOwningFailure) {
   bound.integers["E"] = ac::MathIntAttr::get(&context, llvm::APSInt("-1"));
   auto invalid =
       select(binary("lt", depth, integer(0)), integer(0), integer(2));
-  queue->setAttr("depth", invalid);
+  setQueueDepth(queue, invalid);
   EXPECT_TRUE(analysis.isStaticEvaluable(invalid, bound));
   rejects([&] { return analysis.verifyQueueOperation(queue, bound, false); },
           "depth must be positive and fit u64");
   rejects([&] { return analysis.resolveQueue(queue, bound); },
           "depth must be positive and fit u64");
   bound.integers["E"] = reference("D");
-  queue->setAttr("depth", depth);
+  setQueueDepth(queue, depth);
   EXPECT_TRUE(analysis.isStaticEvaluable(depth, bound));
   rejects([&] { return analysis.verifyQueueOperation(queue, bound, false); },
           "cyclic");
@@ -1511,7 +1726,7 @@ TEST_F(QueueContractsTest,
   auto forward = cast<ac::ModuleOp>(analysis.lookupDefinition("Forward"));
   addIntegerFormals(generic, {"L"});
   addIntegerFormals(forward, {"A"});
-  onlyQueue(generic)->setAttr("availability_latency", formal("Generic", "L"));
+  setQueueLatency(onlyQueue(generic), formal("Generic", "L"));
   auto inner = *forward.getBody().front().getOps<ac::InstanceOp>().begin();
   inner->setAttr("parameters", b.getArrayAttr({formal("Forward", "N"),
                                                formal("Forward", "A")}));
@@ -1583,7 +1798,7 @@ TEST_F(QueueContractsTest, LatencyBindingDemandScopeAndCyclesStayAtQueueOwner) {
   auto queue = onlyQueue(module);
   addIntegerFormals(module, {"L", "E"});
   auto latency = formal("Generic", "L");
-  queue->setAttr("availability_latency", latency);
+  setQueueLatency(queue, latency);
   ac::HardwareBindings bindings;
   bindings.owner = module;
   bindings.types["T"] = ac::BitsType::get(&context, integer(13));
@@ -1610,14 +1825,13 @@ TEST_F(QueueContractsTest, LatencyBindingDemandScopeAndCyclesStayAtQueueOwner) {
   // name a foreign formal, even in an unselected branch.
   for (bool selected : {false, true}) {
     auto foreign = formal("Forward", "N");
-    queue->setAttr("availability_latency",
-                   selected ? select(boolean(true), integer(3), foreign)
-                            : foreign);
+    setQueueLatency(queue, selected ? select(boolean(true), integer(3), foreign)
+                                    : foreign);
     rejects(
         [&] { return analysis.verifyQueueOperation(queue, bindings, false); },
         "formal of its owning module");
   }
-  queue->setAttr("availability_latency", latency);
+  setQueueLatency(queue, latency);
   bindings.integers["L"] = exactInteger("3");
   bindings.integers.erase("D");
   EXPECT_TRUE(succeeded(analysis.verifyQueueOperation(queue, bindings, false)));
@@ -1669,7 +1883,7 @@ TEST_F(QueueContractsTest, RuleAndMapPlacementRejectAtQueueOwner) {
     for (Type type : blockTypes)
       block->addArgument(type, original.getLoc());
     b.setInsertionPointToEnd(block);
-    auto nested = cast<ac::QueueOp>(b.insert(original->clone()));
+    auto nested = cast<ac::InstanceOp>(b.insert(original->clone()));
     if (mapped)
       nested->setOperands({block->getArgument(4), block->getArgument(5),
                            block->getArgument(2), block->getArgument(1),
@@ -1680,7 +1894,7 @@ TEST_F(QueueContractsTest, RuleAndMapPlacementRejectAtQueueOwner) {
                            block->getArgument(2)});
     OperationState yield(original.getLoc(), "ac.yield");
     if (mapped)
-      yield.addOperands(nested.getOutData());
+      yield.addOperands(nested.getOutputs()[2]);
     else
       yield.addOperands(nested->getResults());
     b.create(yield);
@@ -1766,10 +1980,10 @@ TEST_F(QueueContractsTest,
     if (mutation == 1)
       queue->setAttr("empty_flow", b.getBoolAttr(true));
     if (mutation == 2)
-      queue->setAttr("depth", boolean(true));
+      setQueueDepth(queue, boolean(true));
     if (mutation == 3 || mutation == 4)
-      queue->setAttr(
-          "depth",
+      setQueueDepth(
+          queue,
           expression(
               "reference",
               {b.getNamedAttr(
@@ -1780,14 +1994,15 @@ TEST_F(QueueContractsTest,
                                                    &context, "Foreign")),
                        b.getNamedAttr("name", b.getStringAttr("D"))}))}));
     if (mutation == 4) {
-      auto foreign = cast<ac::StaticExprAttr>(queue->getAttr("depth"));
-      queue->setAttr("depth", select(boolean(true), integer(3), foreign));
+      auto foreign = cast<ac::StaticExprAttr>(queue.getParameters()[0]);
+      setQueueDepth(queue, select(boolean(true), integer(3), foreign));
     }
     ac::HardwareAnalysis analysis(*body);
     ac::HardwareBindings bound;
     bound.owner = module;
     const StringRef guards[] = {"Occurrence must contain exactly 2 fields",
-                                "empty_flow=false", "depth requires an integer",
+                                "cannot duplicate retired",
+                                "integer formal requires mathematical integer",
                                 "formal of its owning module",
                                 "formal of its owning module"};
     rejects([&] { return analysis.verifyQueueOperation(queue, bound); },
@@ -1799,12 +2014,12 @@ TEST_F(QueueContractsTest,
     ac::HardwareAnalysis analysis(*body);
     auto module = cast<ac::ModuleOp>(analysis.lookupDefinition("Token3"));
     auto queue = onlyQueue(module);
-    auto original = cast<ac::TableType>(queue.getInData().getType());
+    auto original = cast<ac::TableType>(queuePayload(queue));
     auto malformed =
         ac::TableType::get(&context, b.getArrayAttr({exactInteger(axis)}),
                            original.getElementType());
-    queue.getInData().setType(malformed);
-    queue.getOutData().setType(malformed);
+    queue.getInputs()[3].setType(malformed);
+    queue.getOutputs()[2].setType(malformed);
     SmallVector<Type> inputs;
     for (Value arg : module.getBody().front().getArguments())
       inputs.push_back(arg.getType());
@@ -1819,6 +2034,178 @@ TEST_F(QueueContractsTest,
     rejects([&] { return analysis.verifyQueueOperation(queue, bound, false); },
             axis == "9223372036854775808" ? "signed 64" : "positive");
   }
+}
+
+
+TEST_F(QueueContractsTest, SourceQueueOwnerPreservesIdentityAndRejectsHeaderTamper) {
+  auto body = provider(13, 3, "downstream_pop");
+  ASSERT_TRUE(body);
+  auto module = definition(*body);
+  auto queue = onlyQueue(module);
+  ac::SourceMethodSummariesAnalysis summaries(*body);
+  ASSERT_TRUE(summaries.isValid());
+  auto published = summaries.getPublicationSummary(module);
+  ASSERT_TRUE(succeeded(published));
+  ASSERT_TRUE(succeeded(ac::verifySourceTransactionSummary(module, *published)));
+  auto owners = published->getAs<ArrayAttr>("owners");
+  ASSERT_EQ(owners.size(), 1u);
+  auto row = cast<DictionaryAttr>(owners[0]);
+  EXPECT_EQ(row.getAs<StringAttr>("kind").getValue(), "instance");
+  EXPECT_EQ(row.getAs<DictionaryAttr>("occurrence"), queue.getOccurrence());
+  EXPECT_EQ(row.getAs<FlatSymbolRefAttr>("callee"), queue.getCalleeAttr());
+  EXPECT_EQ(row.getAs<ArrayAttr>("parameters"), queue.getParameters());
+  EXPECT_EQ(row.getAs<ArrayAttr>("type_arguments"), queue.getTypeArguments());
+  EXPECT_EQ(cast<TypeAttr>(row.getAs<ArrayAttr>("result_types")[2]).getValue(),
+            queue.getOutputs()[2].getType());
+  ASSERT_EQ(row.getAs<ArrayAttr>("arguments").size(), 5u);
+  auto resolved = ac::lookupSourceQueue(module, "fifo", queue);
+  ASSERT_TRUE(succeeded(resolved));
+  EXPECT_EQ(resolved->allocation, queue);
+  EXPECT_FALSE(resolved->isPushUnbound());
+  EXPECT_FALSE(resolved->isPopUnbound());
+  Builder b(&context);
+  NamedAttrList damaged(row);
+  damaged.set("parameters",
+              b.getArrayAttr({queue.getParameters()[0], exactInteger("0")}));
+  NamedAttrList summary(*published);
+  summary.set("owners", b.getArrayAttr({damaged.getDictionary(&context)}));
+  rejects([&] { return ac::verifySourceTransactionSummary(
+                         module, summary.getDictionary(&context)); },
+          "availability_latency must be positive");
+  damaged = NamedAttrList(row);
+  damaged.set("unbound_pop", b.getBoolAttr(true));
+  summary.set("owners", b.getArrayAttr({damaged.getDictionary(&context)}));
+  rejects([&] { return ac::verifySourceTransactionSummary(
+                         module, summary.getDictionary(&context)); },
+          "payload constraint");
+}
+
+TEST_F(QueueContractsTest, SourceQueueDirectionsRequireZeroPinsAndLogicalContract) {
+  auto body = provider(13, 3, "downstream_pop");
+  ASSERT_TRUE(body);
+  auto module = definition(*body);
+  auto queue = onlyQueue(module);
+  ac::HardwareAnalysis analysis(*body);
+  ac::HardwareBindings bindings;
+  bindings.owner = module;
+  Builder b(&context);
+  queue->setAttr("ac.source_unbound_pop", b.getBoolAttr(false));
+  rejects([&] { return analysis.verifyQueueOperation(queue, bindings); },
+          "requires BoolAttr true");
+  queue->setAttr("ac.source_unbound_pop", b.getBoolAttr(true));
+  rejects([&] { return analysis.verifyQueueOperation(queue, bindings); },
+          "requires a zero placeholder");
+  OpBuilder at(queue);
+  OperationState zero(queue.getLoc(), ac::BitsConstantOp::getOperationName());
+  zero.addTypes(queue.getInputs()[4].getType());
+  zero.addAttribute("value", exactInteger("0"));
+  queue->setOperand(4, at.create(zero)->getResult(0));
+  rejects([&] { return analysis.verifyQueueOperation(queue, bindings); },
+          "declared payload constraint");
+  queue->setAttr("ac.payload_constraint", b.getDictionaryAttr({
+      b.getNamedAttr("kind", b.getStringAttr("hardware")),
+      b.getNamedAttr("type", TypeAttr::get(queue.getOutputs()[2].getType())),
+      b.getNamedAttr("source_kind", b.getStringAttr("fixed_bits"))}));
+  ASSERT_TRUE(succeeded(analysis.verifyQueueOperation(queue, bindings)));
+  auto resolved = ac::lookupSourceQueue(module, "fifo", queue);
+  ASSERT_TRUE(succeeded(resolved));
+  EXPECT_TRUE(resolved->isPopUnbound());
+  EXPECT_FALSE(resolved->isPushUnbound());
+  auto constraint = queue->getAttrOfType<DictionaryAttr>("ac.payload_constraint");
+  NamedAttrList logical(constraint);
+  logical.set("source_kind", b.getStringAttr("boolean"));
+  queue->setAttr("ac.payload_constraint", logical.getDictionary(&context));
+  rejects([&] { return analysis.verifyQueueOperation(queue, bindings); },
+          "fields or type scope are invalid");
+}
+
+TEST_F(QueueContractsTest, ImportedSourceQueueOwnerUsesOnlyPublishedTypeAuthority) {
+  auto body = provider(13, 3, "downstream_pop");
+  ASSERT_TRUE(body);
+  auto module = definition(*body);
+  auto queue = onlyQueue(module);
+  Builder b(&context);
+  queue->setAttr("ac.payload_constraint", b.getDictionaryAttr({
+      b.getNamedAttr("kind", b.getStringAttr("hardware")),
+      b.getNamedAttr("type", TypeAttr::get(queue.getOutputs()[2].getType())),
+      b.getNamedAttr("source_kind", b.getStringAttr("fixed_bits"))}));
+  auto header = clone(*body);
+  ASSERT_TRUE(succeeded(extract(*header)));
+  auto imported = declaration(*header);
+  ASSERT_TRUE(imported.getTransactionSummaryAttr());
+  auto resolved = ac::lookupSourceQueue(imported, "fifo", imported);
+  ASSERT_TRUE(succeeded(resolved));
+  EXPECT_FALSE(resolved->allocation);
+  EXPECT_EQ(resolved->getPayloadType(), queue.getOutputs()[2].getType());
+  EXPECT_EQ(resolved->getOccurrence(), queue.getOccurrence());
+  EXPECT_EQ(resolved->getPayloadConstraint(), queue->getAttr("ac.payload_constraint"));
+  // The header package has no provider body; changing the unrelated original
+  // cannot become an alternate authority for imported queue types.
+  setQueueDepth(queue, exactInteger("0"));
+  EXPECT_TRUE(succeeded(ac::lookupSourceQueue(imported, "fifo", imported)));
+}
+
+TEST_F(QueueContractsTest,
+       ImportedQueueOwnerRejectsMalformedTypesAndUnboundFactsWithoutCrash) {
+  auto body = provider(13, 3, "downstream_pop");
+  ASSERT_TRUE(body);
+  auto queue = onlyQueue(definition(*body));
+  Builder sourceBuilder(&context);
+  queue->setAttr("ac.payload_constraint", sourceBuilder.getDictionaryAttr({
+      sourceBuilder.getNamedAttr("kind",
+                                 sourceBuilder.getStringAttr("hardware")),
+      sourceBuilder.getNamedAttr(
+          "type", TypeAttr::get(queue.getOutputs()[2].getType())),
+      sourceBuilder.getNamedAttr(
+          "source_kind", sourceBuilder.getStringAttr("fixed_bits"))}));
+  auto header = clone(*body);
+  ASSERT_TRUE(succeeded(extract(*header)));
+  for (unsigned mutation = 0; mutation != 3; ++mutation) {
+    auto damaged = clone(*header);
+    auto imported = declaration(*damaged);
+    auto summary = imported.getTransactionSummaryAttr();
+    ASSERT_TRUE(summary);
+    auto owners = summary.getAs<ArrayAttr>("owners");
+    ASSERT_EQ(owners.size(), 1u);
+    NamedAttrList row(cast<DictionaryAttr>(owners[0]));
+    Builder b(&context);
+    if (mutation == 0) {
+      auto resultTypes = cast<ArrayAttr>(row.get("result_types"));
+      SmallVector<Attribute> results(resultTypes.begin(), resultTypes.end());
+      results[2] = b.getStringAttr("not-a-type");
+      row.set("result_types", b.getArrayAttr(results));
+    } else {
+      row.set(mutation == 1 ? "unbound_push" : "unbound_pop",
+              b.getStringAttr("not-a-bool"));
+    }
+    NamedAttrList changed(summary);
+    changed.set("owners", b.getArrayAttr({row.getDictionary(&context)}));
+    imported->setAttr("transaction_summary",
+                      changed.getDictionary(&context));
+    rejects(
+        [&] {
+          return success(
+              succeeded(ac::lookupSourceQueue(imported, "fifo", imported)));
+        },
+        mutation == 0
+            ? "transaction summary type must be a hardware TypeAttr"
+            : "queue unbound-direction facts require BoolAttr");
+  }
+}
+
+TEST_F(QueueContractsTest, SourceQueueOwnerRejectsAmbiguousProvenance) {
+  auto body = provider(13, 3, "local_occupancy");
+  ASSERT_TRUE(body);
+  auto module = definition(*body);
+  auto queue = onlyQueue(module);
+  Builder b(&context);
+  auto *copy = queue->clone();
+  copy->setAttr("instance_name", b.getStringAttr("other"));
+  OpBuilder(queue).insert(copy);
+  ASSERT_TRUE(succeeded(mlir::verify(*body)));
+  rejects([&] { return success(succeeded(ac::lookupSourceQueue(
+                         module, "fifo", queue))); },
+          "source queue allocations require distinct occurrence identities");
 }
 
 } // namespace

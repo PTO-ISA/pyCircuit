@@ -115,6 +115,8 @@ struct DrivenChecks {
     pyc_dut::Inputs inputs;
     inputs.path = known<1>(0);
     inputs.condition = known<1>(0);
+    inputs.pyc_7079635f636c6b = known<1>(0);
+    inputs.pyc_7079635f727374 = known<1>(0);
     self.dut.drive(inputs);
   }
   static bool drive(void *context, std::uint64_t epoch) {
@@ -124,6 +126,8 @@ struct DrivenChecks {
     pyc_dut::Inputs inputs;
     inputs.path = known<1>(epoch == 1);
     inputs.condition = known<1>(0);
+    inputs.pyc_7079635f636c6b = known<1>(epoch == 1);
+    inputs.pyc_7079635f727374 = known<1>(0);
     self.dut.drive(inputs);
     return true;
   }
@@ -159,6 +163,8 @@ int main(int argc, char **argv) {
     pyc_dut::Inputs inputs;
     inputs.path = known<1>(0);
     inputs.condition = known<1>(1);
+    inputs.pyc_7079635f636c6b = known<1>(1);
+    inputs.pyc_7079635f727374 = known<1>(0);
     dut.drive(inputs);
     report(dut, "runner-retry", step(dut));
     std::cout << "RUNNER initialized=1 drives=2 samples=1 bounded=8\n";
@@ -170,6 +176,8 @@ int main(int argc, char **argv) {
       pyc_dut::Inputs inputs;
       inputs.path = bit(path);
       inputs.condition = bit(condition);
+      inputs.pyc_7079635f636c6b = known<1>(1);
+      inputs.pyc_7079635f727374 = known<1>(0);
       dut.drive(inputs);
       require(step(dut) == gfsim::SimStepResult::InvalidState);
       ready(dut); // Construction and host Reset do not sample failing checks.

@@ -19,4 +19,12 @@ def ACIR_Dialect : Dialect {
   let useDefaultAttributePrinterParser = 1;
   let useDefaultTypePrinterParser = 1;
   let hasOperationAttrVerify = 1;
+  let extraClassDeclaration = [{
+  private:
+    friend struct ::acir::ac::detail::OccurrenceGrammarMemoAccess;
+    mutable std::mutex occurrenceGrammarMutex;
+    llvm::DenseSet<mlir::DictionaryAttr> verifiedOccurrenceGrammars;
+    llvm::DenseSet<mlir::DictionaryAttr> verifiedStaticExpressionGrammars;
+    llvm::DenseSet<mlir::DictionaryAttr> verifiedSourceSpanGrammars;
+  }];
 }

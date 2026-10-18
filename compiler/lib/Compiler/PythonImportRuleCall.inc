@@ -37,8 +37,8 @@ Importer::bindRuleFormal(const AstNode &formal, const AstNode &actual,
                               annotationKind(annotation),
                               fixedAnnotation(annotation)},
                              true};
-    if (binding.contract.sourceKind != declared.contract.sourceKind ||
-        binding.contract.fixedBits != declared.contract.fixedBits)
+    if (binding.contract().sourceKind != declared.contract().sourceKind ||
+        binding.contract().fixedBits != declared.contract().fixedBits)
       return mlir::emitError(actual.location(b.getContext(), source.path))
              << "rule parameter annotation disagrees with binding source kind";
     if (!sameBindingContract(binding, declared))
@@ -56,7 +56,7 @@ Importer::bindRuleFormal(const AstNode &formal, const AstNode &actual,
 FailureOr<SmallVector<Value>>
 Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                          llvm::StringMap<Value> &values,
-                         ArrayRef<StateOwner> states, bool statementCall) {
+                         ArrayRef<StateOwner> states, bool statementCall, bool tupleCall) {
   llvm::StringMap<Instance *> noInstances;
   auto rule = behavioralRules[call.child("func").string("id")];
   auto registration = checkedRuleRegistration(call, rule);
@@ -81,18 +81,11 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
     if (!statementCall)
       return error() << "void rule call cannot be used as a value";
   } else if (annotation) {
-    auto resultBinding = lookupBinding(annotation);
-    if (resultBinding && resultBinding->category == BindingCategory::Struct) {
-      auto type = portType(annotation, decl.symbol);
-      if (failed(type))
+    if (annotation.kind() != "Dict") {
+      llvm::StringSet<> resultNames;
+      for (const Port &input : decl.inputs) resultNames.insert(input.name);
+      if (failed(readReturnContract(contract, annotation, resultNames, true)))
         return failure();
-      contract.returnShape = ReturnShape::Struct;
-      contract.outputs = {{"result", *type, annotation, {}, false}};
-    } else if (annotation.kind() != "Dict") {
-      auto type = portType(annotation, decl.symbol);
-      if (failed(type)) return failure();
-      contract.returnShape = ReturnShape::Struct;
-      contract.outputs = {{"result", *type, annotation, annotationKind(annotation), fixedAnnotation(annotation)}};
     } else {
       if (decl.returnShape != ReturnShape::Mapping ||
           annotation.kind() != "Dict" ||
@@ -111,12 +104,17 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
       }
     }
   }
+  if (contract.returnShape == ReturnShape::Tuple && !statementCall && !tupleCall)
+    return error() << "tuple Rule call requires direct Tuple unpacking";
   auto args = rule.child("args");
   if (failed(validateRuleParameters(rule)))
     return failure();
-  if (call.array("args").size() != args.array("args").size() ||
-      !call.array("keywords").empty())
-    return error() << "behavioral rule call argument arity mismatch";
+  SmallVector<StringRef> formalNames;
+  for (size_t i = 0; i < args.array("args").size(); ++i)
+    formalNames.push_back(args.item("args", i).string("arg"));
+  auto actuals = normalizeCallArguments(call, formalNames, error,
+                                        "behavioral rule call argument arity mismatch");
+  if (failed(actuals)) return failure();
   llvm::StringMap<StringRef> fixedAssigned;
   auto classify = [&](auto &&self, AstNode node,
                       StringRef field) -> LogicalResult {
@@ -176,7 +174,7 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
              [](const auto &a, const auto &c) { return a.first < c.first; });
   for (size_t i = 0; i < args.array("args").size(); ++i) {
     auto formal = args.item("args", i);
-    auto actual = call.item("args", i);
+    auto actual = (*actuals)[i];
     StringRef name = formal.string("arg");
     if (failed(validateRuleFormalName(formal, formals)))
       return failure();
@@ -193,7 +191,7 @@ Importer::behavioralCall(ModuleDecl &decl, const AstNode &call, OpBuilder &at,
                  << " target cannot write persistent owner formal '" << name
                  << "'";
         binding = ownerBoundary(state);
-        binding.contract.name = name.str();
+        binding.unsharedContract().name = name.str();
         ownerActual = true;
       }
     auto bound = bindRuleFormal(formal, actual, *value, binding, ownerActual,

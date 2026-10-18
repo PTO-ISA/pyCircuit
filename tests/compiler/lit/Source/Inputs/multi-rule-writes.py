@@ -1,6 +1,7 @@
 """Independent source-intent, old-Q merge and four-state enable acceptance."""
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -64,7 +65,11 @@ def run(command, success=True):
         }
     )
     (scratch / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
-    assert result.returncode == (0 if success else 1), commands[-1]
+    assert (
+        result.returncode in (0, 1)
+        if success is None
+        else result.returncode == (0 if success else 1)
+    ), commands[-1]
     assert (
         "Assertion failed" not in result.stderr and "Traceback" not in result.stderr
     ), commands[-1]
@@ -122,6 +127,44 @@ def snapshot(path):
     }
 
 
+def error_diagnostics(result):
+    """Return diagnostic bodies without source paths or location prefixes."""
+    messages = re.findall(r"(?m)^[^\n]*?\berror:\s*(.*)$", result.stderr)
+    assert messages, result.stderr
+    return "\n".join(messages)
+
+
+def source_for_root(source_text, root):
+    """Keep a test root's declarations verbatim, including original line numbers."""
+    tree = ast.parse(source_text)
+    declarations = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
+    assert root in declarations, root
+    needed = set()
+    pending = [root]
+    while pending:
+        name = pending.pop()
+        if name in needed:
+            continue
+        needed.add(name)
+        pending.extend(
+            node.id
+            for node in ast.walk(declarations[name])
+            if isinstance(node, ast.Name)
+            and node.id in declarations
+            and node.id not in needed
+        )
+    lines = source_text.splitlines(keepends=True)
+    for name, node in declarations.items():
+        if name not in needed:
+            first = min([node.lineno, *[d.lineno for d in node.decorator_list]])
+            lines[first - 1 : node.end_lineno] = ["\n"] * (node.end_lineno - first + 1)
+    return "".join(lines)
+
+
 text = (fixtures / "multi-rule-writes/design.py").read_text()
 design = source / "design.py"
 design.write_text(text)
@@ -163,13 +206,20 @@ for name, before, after in (
 ):
     assert before in text
     negative_sources[name] = text.replace(before, after, 1)
+negative_roots = {
+    "same-table-owner": "Tables",
+    "dynamic-same-field": "Indexed",
+    "table-parent-child": "NestedElements",
+    "table-identity": "ScalarElements",
+}
 for name, negative_source in negative_sources.items():
+    top = negative_roots.get(name, "Multi")
     path = source / (name.replace("-", "_") + ".py")
-    path.write_text(negative_source)
+    path.write_text(source_for_root(negative_source, top))
     expected = (
         r"shadow|unshadowed|lexical"
         if name == "input-shadows-rule"
-        else r"overlap|conflict|writable.*alias"
+        else r"overlap|conflict|writable.*alias|multiple outer writers require"
     )
     immediate = name in {"writable-alias", "input-shadows-rule"}
     diagnostic = analyze(path, success=not immediate).stderr
@@ -183,12 +233,41 @@ for name, negative_source in negative_sources.items():
         re.I,
     ), diagnostic
     absent = scratch / ("invalid-" + name)
-    rejected = compile_source(path, absent, success=False)
-    assert re.search(expected, rejected.stderr, re.I), rejected.stderr
-    assert not absent.exists(), "rejected source published an output unit"
-    if name in {"identity-write", "dynamic-same-field", "table-parent-child"}:
-        compile_source(path, unit, success=False, replace=True)
-        assert snapshot(unit) == unit_before, "rejection changed accepted unit"
+    if immediate:
+        rejected = compile_source(path, absent, success=False)
+        assert re.search(expected, rejected.stderr, re.I), rejected.stderr
+        assert not absent.exists(), "rejected source published an output unit"
+    else:
+        # Actual-owner conflict proof belongs to native link, after callable
+        # formal bindings have been resolved. Compilation retains the proposal.
+        compile_source(path, absent)
+        final = scratch / ("invalid-" + name + ".ac")
+        rejected = cli(
+            "link",
+            absent,
+            "--top",
+            f"multi_rule.{path.stem}.{top}",
+            "-o",
+            final,
+            success=False,
+        )
+        assert re.search(expected, rejected.stderr, re.I), rejected.stderr
+        assert not final.exists(), "rejected link published a final design"
+        if name in {"identity-write", "dynamic-same-field", "table-parent-child"}:
+            final.write_bytes(b"existing final artifact\n")
+            before = final.read_bytes()
+            cli(
+                "link",
+                absent,
+                "--top",
+                f"multi_rule.{path.stem}.{top}",
+                "-o",
+                final,
+                "--replace",
+                success=False,
+            )
+            assert final.read_bytes() == before, "rejected link replaced final output"
+    assert snapshot(unit) == unit_before, "rejection changed accepted source unit"
 
 # Range evidence is independent of static-selector disjointness. The successful
 # non-power-of-two roots below exercise actual read/write, aliases and captures.
@@ -462,10 +541,21 @@ for name, candidate in proof_rejects.items():
     path.write_text(candidate)
     assert "awaiting lowered owner-enable proof" in analyze(path).stderr
     absent = scratch / ("invalid-proof-" + name)
-    rejected = compile_source(path, absent, success=False)
-    assert re.search(r"overlap|owner-enable|mutual", rejected.stderr), rejected.stderr
-    assert not absent.exists()
-    compile_source(path, unit, success=False, replace=True)
+    compile_source(path, absent)
+    final = scratch / ("invalid-proof-" + name + ".ac")
+    # The unused-later-module case intentionally links the valid Top: the
+    # conflicting unselected definition must still be verified in this unit.
+    top = "Top"
+    options = ("link", absent, "--top", f"multi_rule.{path.stem}.{top}", "-o", final)
+    rejected = cli(*options, success=False)
+    assert re.search(
+        r"overlap|owner-enable|mutual|multiple outer writers require", rejected.stderr
+    ), rejected.stderr
+    assert not final.exists()
+    final.write_bytes(b"existing final artifact\n")
+    before = final.read_bytes()
+    cli(*options, "--replace", success=False)
+    assert final.read_bytes() == before
     assert snapshot(unit) == unit_before
 
 # P0 target binding rejects invalid fields/types/ranges before publication.
@@ -505,16 +595,35 @@ for name, (before, after, diagnostic) in field_rejections.items():
     ), "invalid field replacement changed accepted unit"
 
 # One conditional field does not authorize an unconditional sibling's owner.
+# Both registrations must actually write b; complementary writes to a alone
+# are legal under field-level composition and do not test this rejection.
 conditional = source / "conditional_sibling.py"
 conditional.write_text(
-    text.replace(
-        "    WriteB(s, other, en_b)", "    WriteBoth(s, data, other, ~en_a)", 1
+    source_for_root(
+        text.replace(
+            "    WriteB(s, other, en_b)", "    WriteBoth(s, data, other, ~en_a)", 1
+        ).replace("    WriteA(s, data, en_a)", "    WriteB(s, data, en_a)", 1),
+        "Multi",
     )
 )
 assert "awaiting lowered owner-enable proof" in analyze(conditional).stderr
-compile_source(conditional, scratch / "invalid-conditional-sibling", success=False)
-assert not (scratch / "invalid-conditional-sibling").exists()
-compile_source(conditional, unit, success=False, replace=True)
+conditional_unit = scratch / "conditional-sibling-unit"
+compile_source(conditional, conditional_unit)
+conditional_final = scratch / "invalid-conditional-sibling.ac"
+conditional_options = (
+    "link",
+    conditional_unit,
+    "--top",
+    "multi_rule.conditional_sibling.Multi",
+    "-o",
+    conditional_final,
+)
+rejected = cli(*conditional_options, success=False)
+assert "multiple outer writers require" in rejected.stderr, rejected.stderr
+assert not conditional_final.exists()
+conditional_final.write_bytes(b"existing final artifact\n")
+cli(*conditional_options, "--replace", success=False)
+assert conditional_final.read_bytes() == b"existing final artifact\n"
 assert snapshot(unit) == unit_before
 
 
@@ -608,13 +717,37 @@ for name, candidate, exhaustion in budget_cases:
     if exhaustion == "pending pair":
         assert "pending pair budget exhausted" in analyzed.stderr
     output = scratch / ("budget-" + name)
-    result = compile_source(path, output, success=exhaustion is None)
-    if exhaustion:
-        assert f"{exhaustion} budget exhausted" in result.stderr, result.stderr
+    compile_rejection = exhaustion in {"recursion", "pending pair"}
+    result = compile_source(path, output, success=not compile_rejection)
+    if compile_rejection:
+        diagnostic = (
+            "transaction publication summary depth exceeded"
+            if name == "dag-depth-130"
+            else f"{exhaustion} budget exhausted"
+        )
+        assert diagnostic in result.stderr, result.stderr
         assert not output.exists()
         rejected = compile_source(path, unit, success=False, replace=True)
-        assert f"{exhaustion} budget exhausted" in rejected.stderr, rejected.stderr
-        assert snapshot(unit) == unit_before
+        assert diagnostic in rejected.stderr, rejected.stderr
+    elif exhaustion:
+        # Actual-owner grant proofs run at link after formal owner resolution.
+        # Accepted boundary probes retain their original compile-only scope.
+        final = scratch / ("budget-" + name + ".ac")
+        options = ("link", output, "--top", f"multi_rule.{path.stem}.Top", "-o", final)
+        result = cli(*options, success=exhaustion is None)
+        if exhaustion:
+            diagnostic = (
+                "source-check plan exceeds analysis work budget"
+                if exhaustion == "work"
+                else f"{exhaustion} budget exhausted"
+            )
+            assert diagnostic in result.stderr, result.stderr
+            assert not final.exists()
+            final.write_bytes(b"existing final artifact\n")
+            rejected = cli(*options, "--replace", success=False)
+            assert diagnostic in rejected.stderr, rejected.stderr
+            assert final.read_bytes() == b"existing final artifact\n"
+    assert snapshot(unit) == unit_before
 
 
 # Admission boundaries are source programs, independently of the emitted
@@ -666,7 +799,8 @@ address_rejects = {
         body_a="if enable:\n        entries = entries"
     ),
     "conditional-sibling-owner": address_program(
-        body_a="if enable:\n        entries[i].a = value\n    entries[i].b = value"
+        body_a="if enable:\n        entries[i].a = value\n    entries[i].b = value",
+        body_b="if enable:\n        entries[i].b = value",
     ),
     "select-independent-false-arm": address_program(
         grant="en_b if i != j else en_b & ~other[5:6]"
@@ -750,18 +884,43 @@ for name, candidate in address_accepts.items():
 for name, candidate in address_rejects.items():
     path = source / ("address_" + name.replace("-", "_") + ".py")
     path.write_text(candidate)
-    absent = scratch / ("c1-negative-" + name)
-    rejected = compile_source(path, absent, success=False)
-    assert re.search(
-        r"overlap|separat|owner|index|width|budget|bits", rejected.stderr, re.I
-    ), rejected.stderr
-    if "budget" in name or name == "shared-dag-130":
-        assert "budget exhausted" in rejected.stderr, rejected.stderr
-    assert not absent.exists(), "rejected address-grant source published an output"
-    compile_source(path, unit, success=False, replace=True)
-    assert (
-        snapshot(unit) == unit_before
-    ), "rejected address-grant replacement changed accepted unit"
+    output = scratch / ("c1-negative-" + name)
+    # Type/index errors can reject during source publication; actual-owner
+    # conflicts are verified after formal binding at link. Require a relevant
+    # diagnostic at the first rejection and protect that stage's existing output.
+    result = compile_source(path, output, success=None)
+    dedicated_budget = "budget" in name or name == "shared-dag-130"
+    if dedicated_budget:
+        diagnostic = (
+            r"budget exhausted|summary depth exceeded|exceeds analysis work budget"
+        )
+    else:
+        diagnostic = r"overlap|separat|owner-enable|multiple outer writers require|index|width|bits"
+
+    def check_rejection(rejected, *, dedicated=dedicated_budget, expected=diagnostic):
+        body = error_diagnostics(rejected)
+        if not dedicated:
+            assert not re.search(
+                r"budget exhausted|work budget|summary depth exceeded", body, re.I
+            ), rejected.stderr
+        assert re.search(expected, body, re.I), rejected.stderr
+
+    if result.returncode:
+        check_rejection(result)
+        assert not output.exists(), "rejected source published output"
+        rejected = compile_source(path, unit, success=False, replace=True)
+        check_rejection(rejected)
+    else:
+        final = scratch / ("c1-negative-" + name + ".ac")
+        options = ("link", output, "--top", f"multi_rule.{path.stem}.Top", "-o", final)
+        rejected = cli(*options, success=False)
+        check_rejection(rejected)
+        assert not final.exists(), "rejected link published a final design"
+        final.write_bytes(b"existing final artifact\n")
+        replaced = cli(*options, "--replace", success=False)
+        check_rejection(replaced)
+        assert final.read_bytes() == b"existing final artifact\n"
+    assert snapshot(unit) == unit_before, "rejection changed accepted source unit"
 
 
 # Independent per-leaf source-assignment oracle for P0. A table is a list of
@@ -1460,15 +1619,28 @@ for top, defines, masks in cases:
     )
     if rows:
         frames, masks = field_counts[top]
+    # These are independent roots, not a single hardware design. Keep every
+    # original root/oracle while publishing only its declaration closure.
+    case_unit = output / "unit"
+    design.write_text(source_for_root(text, top))
+    try:
+        compile_source(design, case_unit)
+    finally:
+        design.write_text(text)
     final = output / "design_top.ac"
-    cli("link", unit, "--top", "multi_rule.design." + top, "-o", final)
+    cli("link", case_unit, "--top", "multi_rule.design." + top, "-o", final)
     common = final.read_text()
     # These assert the accepted existing common-IR route, not generated recipes.
     if not any(flag.startswith("-DGRANT_MODE=") for flag in defines):
         assert '"ac.value.merge"' in common, "missing verified common field merge"
-    assert re.search(
-        r'"ac.bits.binary"\((%[^, )]+),\s*\1\).*opcode = "xor"', common
-    ), "missing common-IR four-state enable poison"
+    # The original combined unit found this poison in Multi even while testing
+    # unrelated roots. Per-root units require it only for the two core
+    # multi-registration order variants; each other root keeps its own complete
+    # native/RTL four-state oracle below.
+    if top in {"Multi", "Reverse"}:
+        assert re.search(
+            r'"ac.bits.binary"\((%[^, )]+),\s*\1\).*opcode = "xor"', common
+        ), "missing common-IR four-state enable poison"
     for target in ("cpp", "verilog"):
         cli("emit", final, "--target", target, "-o", output / target)
     receipt = json.loads((output / "cpp/generated.json").read_text())

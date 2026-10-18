@@ -1,18 +1,11 @@
 # Queue storage and dependency semantics
 
-The revision B design (historical local record) defines one
-FIFO contract across the common IR and both backends. The latency-one Runtime baseline
-is accepted (historical local record). Common QueueOp
-verification and dependency analysis are accepted (historical local record).
-Python queue authoring and ordinary cross-source calls are
-accepted (historical local record) for the bounded
-[source contract](language.md#queues).
-Generic C++/Verilog queue generation
-is accepted (historical local record), including
-generated-model lifecycle, family/token layout and installed consumers. See
-implementation progress (historical local record).
-The Q6 availability extension (historical local record) below
-retains the same operation, complete-token capacity and commit boundary.
+The FIFO contract is shared by the common IR and both backends. Python Queue
+construction and calls follow the [source contract](language.md#queues).
+Canonical native FIFO Modules use ordinary instances and Method calls; the
+existing FIFO kernels retain complete-token capacity, availability latency and
+the whole-system commit boundary. Historical design records do not substitute
+for current execution evidence.
 
 ## Complete tokens and capacity
 
@@ -23,11 +16,23 @@ an enclosing module collection describes independent queues. These dimensions
 must not be combined into one capacity. Waiting tokens consume the same slots
 as available tokens; increasing availability latency never adds storage slots.
 
-The internal `ac.queue` operation belongs directly to a module. It takes clock,
-reset, input-valid, input-data and output-ready wires and returns input-ready,
-output-valid and output-data. All control wires have width one. Input/output
-payloads retain the same nominal type, not just the same packed width. Each
-operation owns distinct state and is not a pure expression.
+An ordinary `ac.instance` directly owns the native FIFO allocation. Its canonical
+callee is `pycircuit.__builtins__.fifo_local` or
+`pycircuit.__builtins__.fifo_downstream_pop`, with type parameter `T` and integer
+parameters `DEPTH` and `AVAILABILITY_LATENCY`. It takes `clk`, `rst`, `in_valid`,
+`in_data` and `out_ready`, and returns `ready`, `valid`, `data` and
+`local_capacity`. The last result is compiler-only committed capacity, independent
+of current requests. Python exposes only the first three raw views. All control
+wires have width one. Payloads retain their declared type and layout; a Table
+remains one complete token. Separate allocations own distinct state and are not
+pure expressions.
+
+Native `push`/`pop`/`peek` calls enter the existing outer Rule transaction. They
+propose physical requests and require capacity or an available head; they do not
+speculatively advance the head or add an independent commit frame. The compiler
+verifies source ownership and final proposal wiring separately. Raw-bound
+directions remain exclusive with transactional requests. The retired `ac.queue`
+and dedicated queue-effect IR operations fail verification.
 
 ## Timing and ready policies
 

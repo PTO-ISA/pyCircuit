@@ -1,5 +1,9 @@
 # Four-tap signed FIR filter
 
+The filter Rule is nested in its Module and captures the delay state directly.
+The arithmetic order, saved old-tap values and original register boundaries
+remain unchanged.
+
 [Generated MLIR, C++ and RTL examples](GENERATED.md)
 
 This example implements a fixed four-tap filter:
@@ -42,7 +46,7 @@ Build through the same public compile/link/emit and installed example helper:
 
 ```sh
 cmake -S examples/digital_filter -B /absolute/build/digital-filter -G Ninja \
-  -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/digital-filter --parallel 4
 ctest --test-dir /absolute/build/digital-filter --output-on-failure --no-tests=error
 ```
@@ -88,43 +92,3 @@ also preserve all eight existing X/Z cases and the complete output. The shared
 CTest verifier does not invoke that macro automatically.
 
 See [generated excerpts and verification inputs](GENERATED.md).
-
-## Local cost comparison
-
-The source shrinks from 1,210 lines / 47,063 bytes to
-231 lines / 14,760 bytes. Measurements use the same checkout-built
-compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
-build and first-run values are single serial observations; warm medians use
-three alternating full-length pairs. Every fresh process includes initialization.
-These local results do not guarantee performance on other platforms or
-optimization levels.
-
-| Measurement | Expanded expressions | Typed Table |
-| --- | ---: | ---: |
-| Compile bench | 0.896 s | 0.419 s |
-| Link system | 1.333 s | 0.730 s |
-| Emit C++ | 1.235 s | 0.665 s |
-| Emit Verilog | 1.029 s | 0.566 s |
-| Build C++ | 0.891 s | 0.837 s |
-| Build Verilog | 1.440 s | 1.411 s |
-| First measured full C++ run | 0.690 s | 0.299 s |
-| First measured full Verilog run | 0.314 s | 0.282 s |
-| Warm C++ median, one worker | 0.142768 s | 0.014435 s |
-| Warm Verilog median | 0.010174 s | 0.009870 s |
-| Warm native peak RSS median | 2.80 MiB | 2.27 MiB |
-
-| Artifact size | Expanded expressions | Typed Table |
-| --- | ---: | ---: |
-| Final IR | 5,486,130 bytes | 2,684,951 bytes |
-| Generated C++ total | 1,119,433 bytes | 790,157 bytes |
-| Generated Verilog total | 237,336 bytes | 171,413 bytes |
-
-Three warm pairs do not establish statistical significance for small RTL changes.
-Complete source-import/transformed artifacts reproduce the published units, and
-the public and measured builds share identical final IR and generated outputs.
-DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
-
-```sh
-pycircuit run examples/digital_filter --target cpp --cycles 177
-pycircuit run examples/digital_filter --target verilog --cycles 177
-```

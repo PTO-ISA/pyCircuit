@@ -333,6 +333,86 @@ def Top(key: ac.u4, threshold: ac.u4) -> Result:
     }
 
 
+def owner_candidate_capture_case():
+    text = """import pycircuit as ac
+@ac.struct
+class Result:
+    saved: ac.u4
+    current: ac.u4
+    first_index: ac.u2
+    first_valid: ac.u1
+    mapped0: ac.u4
+    mapped1: ac.u4
+    mapped2: ac.u4
+    saved_map0: ac.u4
+    shadow0: ac.u4
+    shadow1: ac.u4
+    shadow2: ac.u4
+@ac.module
+def Top() -> Result:
+    x: ac.u4 = 2
+    rows = ac.table[3, ac.u4](init=0)
+    @ac.rule
+    def evaluate(x, rows) -> Result:
+        saved = x
+        x = x + 1
+        rows[0] = 3
+        rows[1] = 4
+        rows[2] = 5
+        first_index, first_valid = rows.first(where=lambda row: row == x)
+        mapped = rows.map(lambda row: row + x)
+        saved_map = rows.map(lambda row: row + saved)
+        shadowed = rows.map(lambda x: x)
+        return Result(saved=saved, current=x,
+                      first_index=first_index, first_valid=first_valid,
+                      mapped0=mapped[0], mapped1=mapped[1], mapped2=mapped[2],
+                      saved_map0=saved_map[0],
+                      shadow0=shadowed[0], shadow1=shadowed[1], shadow2=shadowed[2])
+    return evaluate(x, rows)
+"""
+    fields = {
+        "saved": 4,
+        "current": 4,
+        "first_index": 2,
+        "first_valid": 1,
+        "mapped0": 4,
+        "mapped1": 4,
+        "mapped2": 4,
+        "saved_map0": 4,
+        "shadow0": 4,
+        "shadow1": 4,
+        "shadow2": 4,
+    }
+    row = {CLOCK: "0", RESET: "0"}
+    gold = {
+        "saved": word(2, 4),
+        "current": word(3, 4),
+        "first_index": word(0, 2),
+        "first_valid": "1",
+        "mapped0": word(6, 4),
+        "mapped1": word(7, 4),
+        "mapped2": word(8, 4),
+        "saved_map0": word(5, 4),
+        "shadow0": word(3, 4),
+        "shadow1": word(4, 4),
+        "shadow2": word(5, 4),
+    }
+    return {
+        "name": "query_owner_candidate_capture",
+        "text": text,
+        "top": "Top",
+        "inputs": {CLOCK: 1, RESET: 1},
+        "fields": fields,
+        "rows": [row],
+        "gold": [gold],
+        "state": True,
+        "managed": True,
+        "probes": [(row, 0)],
+        "probe_gold": [gold],
+        "plane_inputs": {},
+    }
+
+
 def bounded_modulo(bits, extent):
     return (
         "x" * len(bits)
@@ -544,6 +624,9 @@ class Entry:
     valid: ac.u1
     key: ac.u4
 @ac.struct
+class Flag:
+    valid: ac.u1
+@ac.struct
 class Result:
     first_index: ac.u2
     first_valid: ac.u1
@@ -553,18 +636,16 @@ class Result:
     minimum_read: ac.u4
     outside: ac.u1
 @ac.module
-def Child(flag: bool) -> {"valid": bool}:
-    return {"valid": flag}
+def Child(flag: bool) -> Flag:
+    return Flag(valid=flag)
 @ac.module
-def Top(entries: ac.table[3, Entry], fake: bool) -> {"result": Result}:
-    child = Child()
-    @ac.rule
-    def bind_child():
-        child(flag=fake)
-    bind_child()
+def Top(entries: ac.table[3, Entry], fake: bool) -> Result:
+    child = Child(fake)
     a, av = entries.first(where=lambda child: child.valid)
     b, bv = entries.argmin(where=lambda child: child.valid, key=lambda child: child.key)
-    return {"result": Result(first_index=a, first_valid=av, minimum_index=b, minimum_valid=bv, first_read=entries[a].key, minimum_read=entries[b].key, outside=child.valid)}
+    return Result(first_index=a, first_valid=av, minimum_index=b, minimum_valid=bv,
+                  first_read=entries[a].key, minimum_read=entries[b].key,
+                  outside=child.valid)
 """
     fields = {
         "first_index": 2,
@@ -623,6 +704,7 @@ def execution_cases():
         sole_transport_case(3, 4, 1),
         sole_transport_case(5, 65, 4),
         snapshot_case(),
+        owner_candidate_capture_case(),
         instance_shadow_case(),
     ]
     cases += [gather_case(n, m) for n, m in ((3, 1), (3, 3), (5, 5), (3, 65))]

@@ -420,7 +420,34 @@ TEST_F(TransactionEffectsTest,
   copy->setAttr("name", builder.getStringAttr("second_registration"));
   transaction->getBlock()->getOperations().insert(transaction->getIterator(),
                                                   copy);
-  reject(*file, "declaration");
+  reject(*file, "registration occurrence");
+}
+
+TEST_F(TransactionEffectsTest,
+       DistinctRegistrationsMayInvokeOneCallableDeclaration) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *transaction = find(*file, "ac.transaction");
+  auto original = transaction->getAttrOfType<mlir::DictionaryAttr>("occurrence");
+  auto site = original.getAs<mlir::DictionaryAttr>("site");
+  llvm::SmallVector<mlir::Attribute> path(
+      site.getAs<mlir::ArrayAttr>("ast_path").getValue());
+  path.push_back(builder.getDictionaryAttr(
+      {builder.getNamedAttr("kind", builder.getStringAttr("index")),
+       builder.getNamedAttr("value", builder.getI64IntegerAttr(99))}));
+  auto distinct = changed(
+      original, "site", changed(site, "ast_path", builder.getArrayAttr(path)));
+  auto *copy = transaction->clone();
+  copy->setAttr("name", builder.getStringAttr("second_registration"));
+  copy->setAttr("occurrence", distinct);
+  transaction->getBlock()->getOperations().insert(transaction->getIterator(),
+                                                  copy);
+  EXPECT_EQ(copy->getAttr("declaration"), transaction->getAttr("declaration"));
+  EXPECT_NE(copy->getAttr("occurrence"), transaction->getAttr("occurrence"));
+  // This verifies declaration/call identity, not simultaneous writer admission.
+  // State conflict and EHR scheduling remain obligations of their analyses.
+  EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
 }
 
 TEST_F(TransactionEffectsTest, PureFinalRuleRejectsTypedStateAccess) {
@@ -921,7 +948,7 @@ TEST_F(TransactionEffectsTest, MethodMetadataArityAndReturnFormAreExact) {
       method->setAttr("ac.return_form", builder.getStringAttr("none"));
       break;
     case 6:
-      method->setAttr("ac.return_form", builder.getStringAttr("tuple"));
+      method->setAttr("ac.return_form", builder.getStringAttr("unknown"));
       break;
     }
     rejectsContract(*file);

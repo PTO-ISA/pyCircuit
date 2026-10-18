@@ -51,43 +51,29 @@ class MemoryResult:
     writer_response: DmaRequest
 
 
-@ac.rule
-def Advance(state, accepted, request, reader, raw_data, release, initial_delay):
-    # All branches read old busy; releasing cannot admit another request.
-    if state.busy:
-        if state.capture_old:
-            state.request.data = raw_data
-            state.capture_old = 0
-        if state.remaining > 1:
-            state.remaining = state.remaining - 1
-        if release:
-            state.busy = 0
-    else:
-        if accepted:
-            state.request = request
-            state.reader = reader
-            state.busy = 1
-            state.capture_old = 1
-            state.remaining = initial_delay
+@ac.struct
+class RequestChannel:
+    valid: ac.u1
+    data: DmaRequest
 
 
 @ac.module
 def Dram(
-    copy_valid: ac.u1,
-    copy: DmaRequest,
-    seed_valid: ac.u1,
-    seed: DmaRequest,
-    take_copy: ac.u1,
+    copy: RequestChannel,
+    seed: RequestChannel,
     take_seed: ac.u1,
 ) -> MemoryResult:
     state: MemoryState = MemoryState()
-    idle = ~state.busy
-    reader_ready = idle & copy_valid
-    writer_ready = idle & ~copy_valid
-    accepted_reader = copy_valid & reader_ready
-    accepted_writer = seed_valid & writer_ready
+    busy = state.busy
+    remaining = state.remaining
+    reader = state.reader
+    idle = ~busy
+    reader_ready = idle & copy.valid
+    writer_ready = idle & ~copy.valid
+    accepted_reader = copy.valid & reader_ready
+    accepted_writer = seed.valid & writer_ready
     accepted = accepted_reader | accepted_writer
-    selected = copy if copy_valid else seed
+    selected = copy.data if copy.valid else seed.data
     raw = ac.sync_mem[ac.u16](
         accepted,
         selected.dram_address,
@@ -97,51 +83,75 @@ def Dram(
         3,
         depth=16,
     )
-    eligible = state.busy & (state.remaining == 1)
-    old_data = raw if state.capture_old else state.request.data
+    eligible = busy & (remaining == 1)
     response = state.request
-    response.data = old_data
-    eligible_reader = eligible & state.reader
-    eligible_writer = eligible & ~state.reader
-    reader_space, reader_valid, reader_head = ac.queue[DmaRequest](
-        eligible_reader, response, take_copy, depth=2
+    response.data = raw if state.capture_old else state.request.data
+    writer_responses = ac.queue[DmaRequest](
+        depth=2, ready_policy="local_occupancy", out_ready=take_seed
     )
-    writer_space, writer_valid, writer_head = ac.queue[DmaRequest](
-        eligible_writer, response, take_seed, depth=2
-    )
-    enqueued_reader = eligible_reader & reader_space
-    enqueued_writer = eligible_writer & writer_space
-    release = enqueued_reader | enqueued_writer
-    Advance(state, accepted, selected, copy_valid, raw, release, 3)
+
+    @ac.rule(guard=lambda: busy & (remaining > 1))
+    def advance_latency() -> None:
+        if state.capture_old:
+            state.request.data = raw
+            state.capture_old = 0
+        state.remaining = state.remaining - 1
+
+    @ac.rule(guard=lambda: eligible & reader)
+    def finish_read() -> DmaRequest:
+        state.busy = 0
+        return response
+
+    @ac.rule(guard=lambda: eligible & ~reader)
+    def finish_write() -> None:
+        writer_responses.push(response)
+        state.busy = 0
+
+    @ac.rule(guard=lambda: accepted)
+    def accept_request() -> None:
+        # Admission uses the saved old idle state: release cannot accept again.
+        state.request = selected
+        state.reader = copy.valid
+        state.busy = 1
+        state.capture_old = 1
+        state.remaining = 3
+
+    advance_latency()
+    finish_write()
+    accept_request()
     return MemoryResult(
         reader_ready=reader_ready,
         writer_ready=writer_ready,
-        reader_valid=reader_valid,
-        writer_valid=writer_valid,
+        reader_valid=eligible & state.reader,
+        writer_valid=writer_responses.valid,
         accepted=ac.concat(accepted_writer, accepted_reader),
-        enqueued=ac.concat(enqueued_writer, enqueued_reader),
-        reader_response=reader_head,
-        writer_response=writer_head,
+        enqueued=ac.concat(
+            eligible & ~state.reader & writer_responses.ready,
+            eligible & state.reader,
+        ),
+        reader_response=response,
+        writer_response=writer_responses.data,
     )
 
 
 @ac.module
 def Sram(
-    check_valid: ac.u1,
-    check: DmaRequest,
-    copy_valid: ac.u1,
-    copy: DmaRequest,
+    check: RequestChannel,
     take_check: ac.u1,
     take_copy: ac.u1,
 ) -> MemoryResult:
     state: MemoryState = MemoryState()
-    idle = ~state.busy
-    reader_ready = idle & check_valid
-    writer_ready = idle & ~check_valid
-    accepted_reader = check_valid & reader_ready
-    accepted_writer = copy_valid & writer_ready
+    busy = state.busy
+    remaining = state.remaining
+    reader = state.reader
+    idle = ~busy
+    reader_ready = idle & check.valid
+    copy_requests = ac.queue[DmaRequest](depth=2, ready_policy="local_occupancy")
+    writer_ready = copy_requests.ready
+    accepted_reader = check.valid & reader_ready
+    accepted_writer = copy_requests.valid & idle & ~check.valid
     accepted = accepted_reader | accepted_writer
-    selected = check if check_valid else copy
+    selected = check.data if check.valid else copy_requests.data
     raw = ac.sync_mem[ac.u16](
         accepted,
         selected.sram_address,
@@ -151,31 +161,64 @@ def Sram(
         3,
         depth=16,
     )
-    eligible = state.busy & (state.remaining == 1)
-    old_data = raw if state.capture_old else state.request.data
+    eligible = busy & (remaining == 1)
     response = state.request
-    response.data = old_data
-    eligible_reader = eligible & state.reader
-    eligible_writer = eligible & ~state.reader
-    reader_space, reader_valid, reader_head = ac.queue[DmaRequest](
-        eligible_reader, response, take_check, depth=2
+    response.data = raw if state.capture_old else state.request.data
+    reader_responses = ac.queue[DmaRequest](
+        depth=2, ready_policy="local_occupancy", out_ready=take_check
     )
-    writer_space, writer_valid, writer_head = ac.queue[DmaRequest](
-        eligible_writer, response, take_copy, depth=2
+    writer_responses = ac.queue[DmaRequest](
+        depth=2, ready_policy="local_occupancy", out_ready=take_copy
     )
-    enqueued_reader = eligible_reader & reader_space
-    enqueued_writer = eligible_writer & writer_space
-    release = enqueued_reader | enqueued_writer
-    Advance(state, accepted, selected, check_valid, raw, release, 2)
+
+    @ac.rule
+    def enqueue_copy(request: DmaRequest) -> None:
+        copy_requests.push(request)
+
+    @ac.rule(guard=lambda: busy & (remaining > 1))
+    def advance_latency() -> None:
+        if state.capture_old:
+            state.request.data = raw
+            state.capture_old = 0
+        state.remaining = state.remaining - 1
+
+    @ac.rule(guard=lambda: eligible & reader)
+    def finish_read() -> None:
+        reader_responses.push(response)
+        state.busy = 0
+
+    @ac.rule(guard=lambda: eligible & ~reader)
+    def finish_write() -> None:
+        writer_responses.push(response)
+        state.busy = 0
+
+    @ac.rule(guard=lambda: accepted)
+    def accept_request() -> None:
+        # Admission uses the saved old idle state: release cannot accept again.
+        if ~check.valid:
+            copy_requests.pop()
+        state.request = selected
+        state.reader = check.valid
+        state.busy = 1
+        state.capture_old = 1
+        state.remaining = 2
+
+    advance_latency()
+    finish_read()
+    finish_write()
+    accept_request()
     return MemoryResult(
         reader_ready=reader_ready,
         writer_ready=writer_ready,
-        reader_valid=reader_valid,
-        writer_valid=writer_valid,
+        reader_valid=reader_responses.valid,
+        writer_valid=writer_responses.valid,
         accepted=ac.concat(accepted_writer, accepted_reader),
-        enqueued=ac.concat(enqueued_writer, enqueued_reader),
-        reader_response=reader_head,
-        writer_response=writer_head,
+        enqueued=ac.concat(
+            eligible & ~state.reader & writer_responses.ready,
+            eligible & state.reader & reader_responses.ready,
+        ),
+        reader_response=reader_responses.data,
+        writer_response=writer_responses.data,
     )
 
 
@@ -191,49 +234,54 @@ def Dma(
     take_copy: ac.u1,
     take_check: ac.u1,
 ) -> DmaResult:
-    seed_ready, seed_pending, seed_head = ac.queue[DmaRequest](
-        seed_valid,
-        seed,
-        dram.writer_ready,  # noqa: F821 - forward module connection
+    seed_requests = ac.queue[DmaRequest](
+        in_valid=seed_valid,
+        in_data=seed,
+        out_ready=dram.writer_ready,  # noqa: F821 - forward child connection
         depth=2,
-    )  # noqa: F821 -- forward module connection
-    copy_ready, copy_pending, copy_head = ac.queue[DmaRequest](
-        copy_valid,
-        copy,
-        dram.reader_ready,  # noqa: F821 - forward module connection
+        ready_policy="local_occupancy",
+    )
+    copy_requests = ac.queue[DmaRequest](
+        in_valid=copy_valid,
+        in_data=copy,
+        out_ready=dram.reader_ready,  # noqa: F821 - forward child connection
         depth=4,
-    )  # noqa: F821 -- forward module connection
-    check_ready, check_pending, check_head = ac.queue[DmaRequest](
-        check_valid,
-        check,
-        sram.reader_ready,  # noqa: F821 - forward module connection
+        ready_policy="local_occupancy",
+    )
+    check_requests = ac.queue[DmaRequest](
+        in_valid=check_valid,
+        in_data=check,
+        out_ready=sram.reader_ready,  # noqa: F821 - forward child connection
         depth=2,
-    )  # noqa: F821 -- forward module connection
+        ready_policy="local_occupancy",
+    )
     dram = Dram(
-        copy_pending,
-        copy_head,
-        seed_pending,
-        seed_head,
-        sram.writer_ready,  # noqa: F821 - forward module connection
+        RequestChannel(valid=copy_requests.valid, data=copy_requests.data),
+        RequestChannel(valid=seed_requests.valid, data=seed_requests.data),
         take_seed,
     )  # noqa: F821 -- forward module connection
     sram = Sram(
-        check_pending,
-        check_head,
-        dram.reader_valid,
-        dram.reader_response,
+        RequestChannel(valid=check_requests.valid, data=check_requests.data),
         take_check,
         take_copy,
     )
+
+    @ac.rule
+    def forward_copy() -> None:
+        sram.enqueue_copy(dram.finish_read())
+
+    forward_copy()
     return DmaResult(
-        seed_ready=seed_ready,
-        copy_ready=copy_ready,
-        check_ready=check_ready,
+        seed_ready=seed_requests.ready,
+        copy_ready=copy_requests.ready,
+        check_ready=check_requests.ready,
         seed_valid=dram.writer_valid,
         copy_valid=sram.writer_valid,
         check_valid=sram.reader_valid,
         dram_accepted=dram.accepted,
-        dram_enqueued=dram.enqueued,
+        dram_enqueued=ac.concat(
+            dram.enqueued[1:2], dram.reader_valid & sram.writer_ready
+        ),
         sram_accepted=sram.accepted,
         sram_enqueued=sram.enqueued,
         seed_response=dram.writer_response,

@@ -395,18 +395,18 @@ header = (
     / next(item["path"] for item in cpp_receipt["files"] if item["role"] == "header")
 )
 generated = header.read_text()
+storage_declarations = generated.count(
+    "std::make_shared<gfsim::collection_storage<::gfsim::dff_kernel"
+) + generated.count("std::make_shared<gfsim::collection_storage<::gfsim::dffe_kernel")
 assert (
-    generated.count("std::make_shared<gfsim::collection_storage<::gfsim::dffe_kernel")
-    == 1
+    storage_declarations == 1
 ), "the module definition must own exactly one register storage"
 instance_members = re.findall(
     r"std::shared_ptr<::[\w:]+::pyc_family_Counter<pyc_count>> pyc_instance_(\w+);",
     generated,
 )
 assert len(instance_members) == 2 and len(set(instance_members)) == 2, instance_members
-assert sorted(
-    bytes.fromhex(name.rsplit("pyc_", 1)[1]).decode() for name in instance_members
-) == ["__pyc_call_0", "__pyc_call_1"], instance_members
+assert sorted(instance_members) == ["first", "second"], instance_members
 
 # The RTL must place the one register inside the module definition and
 # instantiate that definition twice under distinct instance names.
@@ -417,12 +417,16 @@ rtl_paths = sorted(
     if item["role"] == "rtl"
 )
 rtl = "\n".join(path.read_text() for path in rtl_paths)
-assert rtl.count("dffe #(") == 1, "one register must exist in the whole design"
+assert (
+    rtl.count("dffe #(") + rtl.count("dff #(") == 1
+), "one register must exist in the whole design"
 bodies = {
     match.group(1): match.group(0)
     for match in re.finditer(r"^module (\w+) \(.*?^endmodule", rtl, re.S | re.M)
 }
-leaf_modules = [name for name, body in bodies.items() if "dffe #(" in body]
+leaf_modules = [
+    name for name, body in bodies.items() if "dff #(" in body or "dffe #(" in body
+]
 assert len(leaf_modules) == 1, leaf_modules
 leaf_module = leaf_modules[0]
 parents = {
@@ -434,8 +438,8 @@ parents = {name: names for name, names in parents.items() if names}
 assert len(parents) == 1, parents
 parent_module, instances = next(iter(parents.items()))
 assert len(instances) == 2 and len(set(instances)) == 2, instances
-call_names = [bytes.fromhex(name.rsplit("pyc_", 1)[1]).decode() for name in instances]
-assert sorted(call_names) == ["__pyc_call_0", "__pyc_call_1"], call_names
+call_names = sorted(instances)
+assert call_names == ["first", "second"], instances
 blocks = re.findall(
     re.escape(leaf_module) + r"\s+pyc_instance_\w+ \(([^;]*?)\);", rtl, re.S
 )

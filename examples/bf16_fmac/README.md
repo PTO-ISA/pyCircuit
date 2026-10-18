@@ -20,15 +20,15 @@ metadata remain at both S1 and S2, including the unused accumulator-zero flag.
 The Python source contains no clock/reset or register primitive API. The host
 drives generated physical sampling/reset pins.
 
-Module scope composes pure rules to compute each candidate from inputs or its
+Module scope composes pure typed helpers to compute each candidate from inputs or its
 preceding stage's old Q. These calls describe combinational computations and add
 no module instances or storage. `carry_save` serves six reduction sites;
 `ripple8` serves all three carry-select chains; `right_barrel26` serves both
 alignment paths and output normalization. The priority LZC and left barrel
 remain explicit gate networks. Helpers do not call other rules or write owners.
 
-One nine-argument `advance_fmac` rule snapshots old output Q and old S3 valid
-before proposing all three stage records. S1, S2 and S3 advance
+One nested zero-argument `advance_fmac` Rule snapshots old output Q and old S3
+valid before proposing its lexical Module owners. S1, S2 and S3 advance
 on every rising edge, including invalid inputs. Output valid always copies
 old S3 valid; output data updates only when old S3 valid is asserted and holds
 otherwise. An input captured at E0 reaches output Q after E3 commits: four
@@ -85,7 +85,7 @@ four-state or IEEE arithmetic claim.
 
 ```sh
 cmake -S examples/bf16_fmac -B /absolute/build/bf16_fmac -G Ninja \
-  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/bf16_fmac --parallel 2
 ctest --test-dir /absolute/build/bf16_fmac --output-on-failure --no-tests=error
 ```
@@ -131,43 +131,3 @@ macro or RTL four-state run. Native failure probes do not establish every owner'
 internal zero-commit state, and this is not IEEE FMA or exhaustive four-state coverage.
 
 See [generated excerpts and verification inputs](GENERATED.md).
-
-## Local cost comparison
-
-The source shrinks from 1,170 lines / 41,875 bytes to
-144 lines / 10,299 bytes. Measurements use the same checkout-built
-compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
-build and first-run values are single serial observations; warm medians use
-three alternating full-length pairs. Every fresh process includes initialization.
-These local results do not guarantee performance on other platforms or
-optimization levels.
-
-| Measurement | Expanded expressions | Typed Table |
-| --- | ---: | ---: |
-| Compile bench | 0.874 s | 0.376 s |
-| Link system | 1.630 s | 1.033 s |
-| Emit C++ | 1.579 s | 0.931 s |
-| Emit Verilog | 1.253 s | 0.702 s |
-| Build C++ | 1.100 s | 1.019 s |
-| Build Verilog | 1.427 s | 1.409 s |
-| First measured full C++ run | 0.418 s | 0.328 s |
-| First measured full Verilog run | 0.329 s | 0.278 s |
-| Warm C++ median, one worker | 0.093077 s | 0.029155 s |
-| Warm Verilog median | 0.006656 s | 0.006545 s |
-| Warm native peak RSS median | 3.33 MiB | 2.53 MiB |
-
-| Artifact size | Expanded expressions | Typed Table |
-| --- | ---: | ---: |
-| Final IR | 6,491,879 bytes | 3,175,505 bytes |
-| Generated C++ total | 1,793,919 bytes | 1,274,638 bytes |
-| Generated Verilog total | 319,319 bytes | 203,699 bytes |
-
-Three warm pairs do not establish statistical significance for small RTL changes.
-Complete source-import/transformed artifacts reproduce the published units, and
-the public and measured builds share identical final IR and generated outputs.
-DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
-
-```sh
-pycircuit run examples/bf16_fmac --target cpp --cycles 86
-pycircuit run examples/bf16_fmac --target verilog --cycles 86
-```

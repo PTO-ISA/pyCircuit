@@ -1,5 +1,7 @@
 """A fixed 50 MHz clock with raw, repeating setting buttons."""
 
+# ruff: noqa: F823 -- nested Rules update captured Module-owned state.
+
 import pycircuit as ac
 
 
@@ -17,8 +19,7 @@ class ClockResult:
     colon_blink: ac.u1
 
 
-@ac.rule
-def encode_bcd(value) -> BcdResult:
+def encode_bcd(value: ac.u6) -> BcdResult:
     tens = value // 10
     ones = value % 10
     tens8: ac.u8 = tens[:4]
@@ -29,78 +30,6 @@ def encode_bcd(value) -> BcdResult:
 @ac.module
 def EncodeBcd(value: ac.u6) -> BcdResult:  # noqa: N802
     return encode_bcd(value)
-
-
-@ac.rule
-def advance_clock(
-    prescaler,
-    sec,
-    minute,
-    hour,
-    mode,
-    blink,
-    btn_set,
-    btn_plus,
-    btn_minus,
-    hours_encoded,
-    minutes_encoded,
-    seconds_encoded,
-) -> ClockResult:
-    result = ClockResult(
-        hours_bcd=hours_encoded.value,
-        minutes_bcd=minutes_encoded.value,
-        seconds_bcd=seconds_encoded.value,
-        setting_mode=mode,
-        colon_blink=blink,
-    )
-
-    tick_1hz: ac.u1 = prescaler == 49_999_999
-    is_run: ac.u1 = mode == 0
-    is_set_hour: ac.u1 = mode == 1
-    is_set_min: ac.u1 = mode == 2
-    is_set_sec: ac.u1 = mode == 3
-    sec_wrap: ac.u1 = sec == 59
-    min_wrap: ac.u1 = minute == 59
-    hour_wrap: ac.u1 = hour == 23
-
-    prescaler_value: ac.u26 = 0 if tick_1hz else prescaler + 1
-    sec_run: ac.u6 = 0 if sec_wrap else sec + 1
-    min_run: ac.u6 = (0 if min_wrap else minute + 1) if sec_wrap else minute
-    hour_run: ac.u5 = (0 if hour_wrap else hour + 1) if sec_wrap & min_wrap else hour
-    tick_run = tick_1hz & is_run
-    sec_tick = sec_run if tick_run else sec
-    min_tick = min_run if tick_run else minute
-    hour_tick = hour_run if tick_run else hour
-
-    mode_value: ac.u2 = 0 if mode == 3 else mode + 1
-    blink_value = ~blink if tick_1hz else blink
-
-    hour_plus: ac.u5 = (
-        (0 if hour_wrap else hour + 1) if btn_plus & is_set_hour else hour_tick
-    )
-    min_plus: ac.u6 = (
-        (0 if min_wrap else minute + 1) if btn_plus & is_set_min else min_tick
-    )
-    sec_plus: ac.u6 = (
-        (0 if sec_wrap else sec + 1) if btn_plus & is_set_sec else sec_tick
-    )
-    hour_value: ac.u5 = (
-        (23 if hour == 0 else hour - 1) if btn_minus & is_set_hour else hour_plus
-    )
-    min_value: ac.u6 = (
-        (59 if minute == 0 else minute - 1) if btn_minus & is_set_min else min_plus
-    )
-    sec_value: ac.u6 = (
-        (59 if sec == 0 else sec - 1) if btn_minus & is_set_sec else sec_plus
-    )
-
-    prescaler = prescaler_value
-    sec = sec_value
-    minute = min_value
-    hour = hour_value
-    mode = mode_value if btn_set else mode
-    blink = blink_value
-    return result
 
 
 @ac.module
@@ -117,17 +46,57 @@ def DigitalClock(  # noqa: N802
     hours_encoded = EncodeBcd(hour)
     minutes_encoded = EncodeBcd(minute)
     seconds_encoded = EncodeBcd(sec)
-    return advance_clock(
-        prescaler,
-        sec,
-        minute,
-        hour,
-        mode,
-        blink,
-        btn_set,
-        btn_plus,
-        btn_minus,
-        hours_encoded,
-        minutes_encoded,
-        seconds_encoded,
-    )
+
+    @ac.rule
+    def advance_clock() -> ClockResult:
+        # Published outputs and all transition predicates use the old-Q snapshot.
+        prescaler_q = prescaler
+        sec_q = sec
+        minute_q = minute
+        hour_q = hour
+        mode_q = mode
+        blink_q = blink
+        result = ClockResult(
+            hours_bcd=hours_encoded.value,
+            minutes_bcd=minutes_encoded.value,
+            seconds_bcd=seconds_encoded.value,
+            setting_mode=mode_q,
+            colon_blink=blink_q,
+        )
+
+        tick_1hz: ac.u1 = prescaler_q == 49_999_999
+        is_run: ac.u1 = mode_q == 0
+        is_set_hour: ac.u1 = mode_q == 1
+        is_set_min: ac.u1 = mode_q == 2
+        is_set_sec: ac.u1 = mode_q == 3
+        sec_wrap: ac.u1 = sec_q == 59
+        min_wrap: ac.u1 = minute_q == 59
+        hour_wrap: ac.u1 = hour_q == 23
+
+        prescaler = 0 if tick_1hz else prescaler_q + 1
+        tick_run = tick_1hz & is_run
+        sec = (0 if sec_wrap else sec_q + 1) if tick_run else sec_q
+        minute = (0 if min_wrap else minute_q + 1) if tick_run & sec_wrap else minute_q
+        hour = (
+            (0 if hour_wrap else hour_q + 1)
+            if tick_run & sec_wrap & min_wrap
+            else hour_q
+        )
+
+        # Plus is applied first; minus intentionally wins when both are asserted.
+        hour = (0 if hour_wrap else hour_q + 1) if btn_plus & is_set_hour else hour
+        minute = (0 if min_wrap else minute_q + 1) if btn_plus & is_set_min else minute
+        sec = (0 if sec_wrap else sec_q + 1) if btn_plus & is_set_sec else sec
+        hour = (23 if hour_q == 0 else hour_q - 1) if btn_minus & is_set_hour else hour
+        minute = (
+            (59 if minute_q == 0 else minute_q - 1)
+            if btn_minus & is_set_min
+            else minute
+        )
+        sec = (59 if sec_q == 0 else sec_q - 1) if btn_minus & is_set_sec else sec
+
+        mode = (0 if mode_q == 3 else mode_q + 1) if btn_set else mode_q
+        blink = ~blink_q if tick_1hz else blink_q
+        return result
+
+    return advance_clock()

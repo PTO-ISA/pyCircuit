@@ -210,12 +210,30 @@ def verilog(kind, names):
     )
     return f"""module tb;
 logic clk=0,rst=0;
+logic [2:0] pyc_phase=0;
+logic pyc_root_commit_ok=0;
+wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
 logic [{result_width-1}:0] result,saved_result,low_result;
 bit occ[0:{qcount-1}],nxt[0:{qcount-1}],offer[0:{qcount-1}],inject[0:{qcount-1}],take[0:{qcount-1}];
 logic [50:0] data[0:{qcount-1}],offered[0:{qcount-1}],injected[0:{qcount-1}];
 integer file,epochs,status,o,j,t;
 string stimulus;
-pyc_root dut({connections}, .pyc_7079635f636c6b(clk),.pyc_7079635f727374(rst),.result(result));
+pyc_root dut({connections}, .pyc_7079635f636c6b(clk),.pyc_7079635f727374(rst),
+ .pyc_phase(pyc_phase),.pyc_root_commit_ok(pyc_root_commit_ok),
+ .pyc_check_complete(pyc_check_complete),.pyc_sampling_error(pyc_sampling_error),
+ .pyc_local_error(pyc_local_error),.result(result));
+task automatic checked_prepare;
+ pyc_root_commit_ok=0;pyc_phase=1;#1;
+ pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+ if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"resident prepared row failed completion/check validation");end
+endtask
+task automatic checked_xfer;
+ pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+endtask
+task automatic host_reset;
+ pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+ pyc_phase=0;pyc_root_commit_ok=0;#1;
+endtask
 function automatic logic [{width-1}:0] snapshot();
 logic [{width-1}:0] s;
 s='0;
@@ -225,7 +243,8 @@ return s;
 endfunction
 initial begin
  for(int q=0;q<{qcount};++q) begin occ[q]=0;data[q]=0;end
- rst=1; #2;clk=1;#2;clk=0;rst=0;#2;
+ rst=1;#1;host_reset();clk=1;#1;checked_prepare();checked_xfer();
+ clk=0;#1;checked_prepare();checked_xfer();rst=0;#1;
  if(!$value$plusargs("stimulus=%s",stimulus)) $fatal(1,"missing stimulus");
  file=$fopen(stimulus,"r");status=$fscanf(file,"%d",epochs); if(epochs>256) $fatal(1,"bound");
  for(int epoch=0;epoch<epochs;++epoch) begin
@@ -237,14 +256,14 @@ initial begin
    if(take[q]&&!occ[q]) $fatal(1,"host empty take");
    if(inject[q]) begin occ[q]=1;data[q]=injected[q];end
   end
-  #2; $write("%b ",snapshot()); low_result=result;
-  clk=1; saved_result=result; #2;
+  #1;checked_prepare();$write("%b ",snapshot());low_result=result;checked_xfer();
+  clk=1;#1;checked_prepare();saved_result=result;
   if(low_result!==saved_result) $fatal(1,"old Q pair changed");
   for(int q=0;q<{qcount};++q) begin nxt[q]=occ[q];if(take[q]) nxt[q]=0;end
   {result_effects(kind,'verilog')}
   for(int q=0;q<{qcount};++q) begin if(offer[q]) begin if(nxt[q]) $fatal(1,"host commit full");nxt[q]=1;data[q]=offered[q];end occ[q]=nxt[q];end
-  $display("%b %b",snapshot(),saved_result);
-  clk=0;#2;
+  checked_xfer();$display("%b %b",snapshot(),saved_result);
+  clk=0;#1;
  end
  $finish;
 end

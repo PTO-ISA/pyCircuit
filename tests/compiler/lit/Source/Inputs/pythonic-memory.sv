@@ -2,6 +2,9 @@ module tb;
 `ifdef MEM_PROTOCOL
   localparam P=`RESULT_BITS, R=`REQUEST_BITS;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
 `ifdef SHARED_PROTOCOL
   logic valid_writer=0,take_writer=0,valid_reader=0,take_reader=0;
   logic [R-1:0] writer=0,reader=0;
@@ -11,6 +14,19 @@ module tb;
 `endif
   wire [P-1:0] result;
   pyc_root dut(.*);
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin
+      pyc_phase=3;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+    end else begin
+      pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+    end
+  endtask
   integer file,count,n=0;
   integer clock_level,reset_level,v0,t0,v1,t1;
   longint unsigned p0,p1,wanted,mask;
@@ -18,7 +34,7 @@ module tb;
   initial begin
     if(!$value$plusargs("rows=%s",rows))$fatal(1,"missing rows");
     file=$fopen(rows,"r");if(!file)$fatal(1,"cannot open rows");
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;#1;managed_commit();
     while(!$feof(file))begin
       // Wanted and mask are packed unsigned 64-bit values; decimal scanf may
       // saturate them at INT64_MAX. Hex preserves every independently checked bit.
@@ -40,7 +56,7 @@ module tb;
         for(int bit_index=P-1;bit_index>=0;bit_index--)
           if(mask[bit_index])$write("%b",result[bit_index]);else $write("-");
         $write("\n");
-        pyc_7079635f636c6b=1'(clock_level);#1;n++;
+        pyc_7079635f636c6b=1'(clock_level);#1;managed_commit();n++;
       end else if(count!=-1)$fatal(1,"malformed row");
     end
     if(n!=`MEM_FRAMES)$fatal(1,"wrong protocol row count");
@@ -53,8 +69,24 @@ module tb;
   logic [W-1:0] wdata=0;
   logic [S-1:0] wstrb=0;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   wire [2*W-1:0] result;
   pyc_root dut(.*);
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin
+      pyc_phase=3;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+    end else begin
+      pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+    end
+  endtask
   integer file,count,n=0;
   integer clock_level,reset_level,r0,a0,r1,a1,write_en,wa,strobes,v0,v1;
   longint unsigned word,q0,q1;
@@ -64,7 +96,7 @@ module tb;
     file=$fopen(rows,"r"); if(!file)$fatal(1,"cannot open rows");
     // Native host Reset invalidates Q; a physical RTL reset establishes the
     // same state for valid-window comparisons and preserves fresh-zero RAM.
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;#1;managed_commit();
     while(!$feof(file))begin
       count=$fscanf(file,"%d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
         clock_level,reset_level,r0,a0,r1,a1,write_en,wa,word,strobes,q0,q1,v0,v1);
@@ -75,7 +107,7 @@ module tb;
         if(v1 && result[W-1:0] !== W'(q1))$fatal(1,"memory port1 row %0d",n);
         $write("WORK %0d ",n);if(v0)$write("%0d",q0);else $write("-");
         $write(" ");if(v1)$display("%0d",q1);else $display("-");
-        pyc_7079635f636c6b=clock_level;#1;n=n+1;
+        pyc_7079635f636c6b=clock_level;#1;managed_commit();n=n+1;
       end else if(count!=-1)$fatal(1,"malformed row");
     end
     if(n!=`MEM_FRAMES)$fatal(1,"wrong row count");

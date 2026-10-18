@@ -1,4 +1,4 @@
-from pycircuit import log, module, report, rule, system, u8, u16
+from pycircuit import log, module, report, rule, struct, system, u8, u16
 
 
 @rule
@@ -7,11 +7,16 @@ def capture(value, incoming):
     value = incoming
 
 
+@struct
+class LeafOut:
+    value: u8
+
+
 @module
-def GroupLeaf(incoming: u8) -> {"value": u8}:
+def GroupLeaf(incoming: u8) -> LeafOut:
     value: u8 = 0
     capture(value, incoming)
-    return {"value": value}
+    return LeafOut(value=value)
 
 
 @rule
@@ -61,24 +66,14 @@ def ObservationGroups():
     input_right: u8 = 51
     tag: u8 = 93
     stamp: u8 = 119
-    left = GroupLeaf()
-    right = GroupLeaf()
-
-    @rule
-    def drive_left():
-        left(incoming=input_left)
-
-    @rule
-    def drive_right():
-        right(incoming=input_right)
+    left = GroupLeaf(incoming=input_left)
+    right = GroupLeaf(incoming=input_right)
 
     @rule
     def inspect():
         assert left.value == (0 if phase == 0 else 16 + phase), "left old Q"
         assert right.value == (0 if phase == 0 else 50 + phase), "right old Q"
 
-    drive_left()
-    drive_right()
     inspect()
     root_observations(phase, input_left, input_right, tag, stamp)
     advance(input_left)
@@ -93,24 +88,14 @@ def ObservationGroupsFailure():
     input_right: u8 = 51
     tag: u8 = 93
     stamp: u8 = 119
-    left = GroupLeaf()
-    right = GroupLeaf()
-
-    @rule
-    def drive_left():
-        left(incoming=input_left)
-
-    @rule
-    def drive_right():
-        right(incoming=input_right)
+    left = GroupLeaf(incoming=input_left)
+    right = GroupLeaf(incoming=input_right)
 
     @rule
     def inspect():
         assert left.value == (0 if phase == 0 else 16 + phase), "left old Q"
         assert right.value == (0 if phase == 0 else 50 + phase), "right old Q"
 
-    drive_left()
-    drive_right()
     inspect()
     root_observations(phase, input_left, input_right, tag, stamp)
     advance(input_left)
@@ -119,8 +104,13 @@ def ObservationGroupsFailure():
     check_window(phase)
 
 
+@struct
+class ArithmeticOut:
+    seen: u8
+
+
 @module
-def ArithmeticLeaf(x: u8, wide: u16) -> {"seen": u8}:
+def ArithmeticLeaf(x: u8, wide: u16) -> ArithmeticOut:
     @rule
     def inspect():
         assert x <= 255, "arithmetic byte"
@@ -145,38 +135,32 @@ def ArithmeticLeaf(x: u8, wide: u16) -> {"seen": u8}:
         report("arithmetic_progress", x + 17)
 
     inspect()
-    return {"seen": x}
+    return ArithmeticOut(seen=x)
 
 
 @system
 def ArithmeticObservationGroups():
     phase: u8 = 0
-    dut = ArithmeticLeaf()
-
-    @rule
-    def drive():
-        dut(
-            x=(
-                0
-                if phase == 0
+    dut = ArithmeticLeaf(  # noqa: F841 - captured hardware state or child instance.
+        x=(
+            0
+            if phase == 0
+            else (
+                1
+                if phase == 1
                 else (
-                    1
-                    if phase == 1
+                    99
+                    if phase == 2
                     else (
-                        99
-                        if phase == 2
-                        else (
-                            100
-                            if phase == 3
-                            else (239 if phase == 4 else (240 if phase == 5 else 255))
-                        )
+                        100
+                        if phase == 3
+                        else (239 if phase == 4 else (240 if phase == 5 else 255))
                     )
                 )
-            ),
-            wide=1,
-        )
-
-    drive()
+            )
+        ),
+        wide=1,
+    )
     advance(phase)
 
 

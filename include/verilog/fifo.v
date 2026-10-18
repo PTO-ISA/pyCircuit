@@ -15,6 +15,7 @@ module fifo #(
     output wire in_ready,
     output wire out_valid,
     output wire T out_data,
+    output wire local_capacity,
     input wire [2:0] pyc_phase,
     input tri1 pyc_root_commit_ok,
     output wire pyc_local_error
@@ -32,6 +33,7 @@ module fifo #(
     wire do_pop = out_valid & out_ready;
     wire do_push = in_valid & in_ready;
 
+    assign local_capacity = initialized ? (count < DEPTH) : 1'bx;
     assign in_ready = initialized ?
         ((READY_POLICY == 0) ? (count < DEPTH) :
          (READY_POLICY == 1) ? ((count < DEPTH) | do_pop) : 1'bx) : 1'bx;

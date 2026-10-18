@@ -5,12 +5,15 @@ a short performance pilot alone does not establish historical-root acceptance.
 
 `DigitalClock(btn_set: ac.u1, btn_plus: ac.u1, btn_minus: ac.u1)` owns six
 zero-initialized variables: prescaler u26, seconds u6, minutes u6, hours u5,
-mode u2 and blink u1. One rule writes these owners. Three direct stateless
+mode u2 and blink u1. One nested rule writes these lexical owners as one atomic
+transaction. Three direct stateless
 `EncodeBcd(value: ac.u6)` calls encode old hours, minutes and seconds; the hour
 is zero-extended at the encoder's typed input boundary. Each encoder divides
 and takes remainder by literal 10, selects each digit's low four bits, then
 widens to u8 before shifting and combining them. Any input X/Z makes all eight
-BCD output bits X through the arithmetic operations.
+BCD output bits X through the arithmetic operations. The encoder arithmetic is
+an ordinary typed helper, so the independently linkable encoder Module remains
+pure combinational hardware rather than registering a transaction.
 
 The ordered `ClockResult` fields are `hours_bcd`, `minutes_bcd`, `seconds_bcd`
 (u8), `setting_mode` (u2) and `colon_blink` (u1). Mode 0 runs the clock; modes
@@ -29,7 +32,8 @@ clock gives one tick per second. Validation must execute the actual 50,000,000
 rising edges per tick; the historical emulator's 1000 Hz assumption is not the
 hardware behavior.
 
-All state writes use data selection, preserving the original X/Z bit merging.
+The nested rule saves all old-Q values before serial candidate updates. State
+writes use data selection, preserving the original X/Z bit merging.
 In particular, mode is assigned unconditionally from the set-button selection;
 an unknown set button is not a register-enable failure. The rule constructs its
 result before state assignments: a successful Work sample observes old Q, and
@@ -116,8 +120,9 @@ ctest --test-dir .pycircuit_out/digital-clock --output-on-failure --no-tests=err
 Use a fresh build directory when setting the environment variable: CMake uses
 it only to initialize a new cache. The module command budget remains 626 seconds,
 the long-system budget 1,800 seconds and the encoder command budget 240 seconds.
-DUT sources, independent oracles, clock divisor, scenario values, cycle counts
-and timeouts remain unchanged.
+DUT behavior, independent oracle computations, clock divisor, scenario values,
+cycle counts and timeouts remain unchanged. The RTL harness now drives the
+standard managed transaction phases required by the nested Rule.
 See [generated excerpts and verification inputs](GENERATED.md) for the module.
 
 ## Run either system
@@ -152,52 +157,3 @@ done
 "$out/build-cpp/bin/pycircuit_sim" --cycles 160 --workers 2
 "$out/build-verilog/bin/pycircuit_sim" +cycles=160
 ```
-
-## Local cost comparison
-
-The bench shrinks from 727 lines / 25,564 bytes to 253 lines / 8,665 bytes.
-Measurements below use the same compiler and Release settings on one machine.
-Bench compilation includes both system definitions; link, emit, build and runtime
-rows select the settings root. Stage and first-run costs are single serial
-observations. Warm values are medians of three alternating complete 160-cycle
-runs per version, each in a fresh process. These brief runs do not establish
-performance across workloads or platforms.
-
-| Measurement | Expanded expressions | Shared sequence |
-| --- | ---: | ---: |
-| Compile whole bench unit | 0.600656 s | 0.338999 s |
-| Link settings | 1.005927 s | 0.575888 s |
-| Emit C++ | 0.920965 s | 0.541200 s |
-| Emit Verilog | 0.770153 s | 0.444084 s |
-| Build C++ | 1.617890 s | 1.198993 s |
-| Build Verilog | 1.734965 s | 1.639034 s |
-| First native run, one worker | 0.389150 s | 0.738522 s |
-| First native run, two workers | 0.013732 s | 0.013228 s |
-| First RTL run | 0.265943 s | 0.280843 s |
-| Warm native, one worker median | 0.013359 s | 0.013674 s |
-| Warm native, one worker peak RSS median | 1.73 MiB | 1.70 MiB |
-| Warm native, two workers median | 0.013566 s | 0.013547 s |
-| Warm native, two workers peak RSS median | 1.80 MiB | 1.77 MiB |
-| Warm RTL median | 0.005440 s | 0.005306 s |
-| Warm RTL peak RSS median | 1.67 MiB | 1.62 MiB |
-
-| Artifact size | Expanded expressions | Shared sequence |
-| --- | ---: | ---: |
-| Settings final IR | 3,883,066 bytes | 2,030,342 bytes |
-| Settings generated C++ total | 1,044,939 bytes | 705,989 bytes |
-| Settings generated Verilog total | 187,480 bytes | 117,867 bytes |
-| Settings bench.hpp code | 908,076 bytes | 568,483 bytes |
-| Settings bench.v code | 146,693 bytes | 76,681 bytes |
-| Long root final IR | 3,883,061 bytes | 2,030,336 bytes |
-| Long root generated C++ total | 1,034,007 bytes | 695,072 bytes |
-| Long root generated Verilog total | 178,586 bytes | 109,013 bytes |
-| Long root bench.hpp code | 901,843 bytes | 562,265 bytes |
-| Long root bench.v code | 144,154 bytes | 74,182 bytes |
-
-The first one-worker native run is 89.78% slower and the first RTL run is
-5.60% slower in these single observations. The warm one-worker native median
-increases by 2.36%; all three paired runs are slower. The measurements do not
-identify the causes. Smaller source, IR and generated code therefore do not
-establish a runtime speedup.
-
-The long-root runs above are full acceptance checks, not a repeated performance matrix. No shortened long-root result is used.

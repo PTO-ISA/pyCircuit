@@ -313,6 +313,100 @@ protected:
          builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
   }
 
+  SourceMethodOp formalProposal(ModuleOp owner, llvm::StringRef form,
+                                unsigned publicCount, bool nominal = false) {
+    auto relay = named<SourceMethodOp>(owner, "relay");
+    auto method = mlir::cast<SourceMethodOp>(relay->clone());
+    method->setAttr("sym_name", builder.getStringAttr("proposal"));
+    method->setAttr("occurrence", occurrence("Child", 20));
+    auto byte = relay.getFunctionType().getInput(0);
+    auto payload =
+        nominal ? mlir::parseType("!ac.struct<\"Packet\">", &context) : byte;
+    auto bit = owner.getBody().front().getArgument(0).getType();
+    llvm::SmallVector<mlir::Type> types(publicCount + 1, payload);
+    types.push_back(bit);
+    method->setAttr("function_type",
+                    mlir::TypeAttr::get(
+                        mlir::FunctionType::get(&context, {payload}, types)));
+    auto data =
+        relay->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints")[0];
+    if (nominal) {
+      data = changed(mlir::cast<mlir::DictionaryAttr>(data), "type",
+                     mlir::TypeAttr::get(payload));
+      data = changed(mlir::cast<mlir::DictionaryAttr>(data), "source_kind",
+                     builder.getStringAttr("nominal"));
+      auto parameters = method->getAttrOfType<mlir::ArrayAttr>("ac.parameters");
+      method->setAttr("ac.parameters",
+                      builder.getArrayAttr({changed(
+                          mlir::cast<mlir::DictionaryAttr>(parameters[0]),
+                          "constraint", data)}));
+      for (auto &region : method->getRegions())
+        region.front().getArgument(0).setType(payload);
+    }
+    auto intent = changed(mlir::cast<mlir::DictionaryAttr>(data), "type",
+                          mlir::TypeAttr::get(bit));
+    intent =
+        changed(intent, "source_kind", builder.getStringAttr("fixed_bits"));
+    llvm::SmallVector<mlir::Attribute> constraints(publicCount + 1, data);
+    constraints.push_back(intent);
+    method->setAttr("ac.result_constraints", builder.getArrayAttr(constraints));
+    method->setAttr("ac.return_form", builder.getStringAttr(form));
+    method->setAttr("ac.formal_proposals",
+                    builder.getArrayAttr({builder.getI64IntegerAttr(0)}));
+    auto &body = method.getBody().front();
+    llvm::SmallVector<mlir::Value> yields(publicCount + 1, body.getArgument(0));
+    yields.push_back(body.getArgument(1));
+    body.getTerminator()->setOperands(yields);
+    owner.getBody().front().getOperations().insert(relay->getIterator(),
+                                                   method.getOperation());
+    return method;
+  }
+
+  SourceFormalWriteOp formalWrite(SourceMethodOp method, unsigned site,
+                                  bool scalarRhs = false) {
+    auto &body = method.getBody().front();
+    builder.setInsertionPoint(body.getTerminator());
+    mlir::Value payload = body.getArgument(0);
+    llvm::SmallVector<mlir::Attribute> selectors;
+    if (scalarRhs) {
+      auto declaration =
+          *method->getParentOfType<mlir::ModuleOp>().getOps<StructOp>().begin();
+      auto lanes = declaration.getFields()[0];
+      auto table = mlir::cast<mlir::DictionaryAttr>(lanes)
+                       .getAs<mlir::TypeAttr>("type")
+                       .getValue();
+      mlir::OperationState project(method.getLoc(),
+                                   StructGetOp::getOperationName());
+      project.addOperands(payload);
+      project.addTypes(table);
+      project.addAttribute("field", builder.getStringAttr("lanes"));
+      auto value = builder.create(project)->getResult(0);
+      mlir::OperationState element(method.getLoc(),
+                                   TableGetOp::getOperationName());
+      element.addOperands({value, body.getArgument(1)});
+      element.addTypes({mlir::cast<TableType>(table).getElementType(),
+                        body.getArgument(1).getType()});
+      payload = builder.create(element)->getResult(0);
+      selectors.push_back(builder.getDictionaryAttr(
+          {builder.getNamedAttr("field", builder.getStringAttr("lanes"))}));
+      selectors.push_back(builder.getDictionaryAttr(
+          {builder.getNamedAttr("index", builder.getI64IntegerAttr(0))}));
+    }
+    mlir::OperationState state(method.getLoc(),
+                               SourceFormalWriteOp::getOperationName());
+    state.addOperands({payload, body.getArgument(1), body.getArgument(0)});
+    if (scalarRhs)
+      state.addOperands(body.getArgument(1));
+    state.addAttribute("formal", builder.getI64IntegerAttr(0));
+    state.addAttribute("selectors", builder.getArrayAttr(selectors));
+    state.addAttribute(
+        "operandSegmentSizes",
+        builder.getDenseI32ArrayAttr({1, 1, 1, scalarRhs ? 1 : 0, 0}));
+    state.addAttribute("occurrence", occurrence("Child", site));
+    state.addAttribute("ac.location", method->getAttr("ac.guard_location"));
+    return mlir::cast<SourceFormalWriteOp>(builder.create(state));
+  }
+
   // Obtain a bodyless transaction declaration from real verified native IR,
   // then remove the provider. The summary never comes from a hand-built oracle.
   mlir::OwningOpRef<mlir::ModuleOp> importFixture(bool zeroOutputs = false) {
@@ -1666,7 +1760,8 @@ TEST_F(MethodSummaryAuthorityTest,
   auto &body = act.getBody().front();
   auto byte = body.getArgument(1).getType();
   auto packet = StructType::get(&context, builder.getStringAttr("LocalPacket"));
-  auto foreign = StructType::get(&context, builder.getStringAttr("ForeignPacket"));
+  auto foreign =
+      StructType::get(&context, builder.getStringAttr("ForeignPacket"));
   builder.setInsertionPointToStart(file->getBody());
   for (auto name : {"LocalPacket", "ForeignPacket"}) {
     mlir::OperationState declaration(act.getLoc(),
@@ -1716,7 +1811,9 @@ TEST_F(MethodSummaryAuthorityTest,
                     static_cast<unsigned>(ordinal), std::string("results"), 0u},
                    changedResult)),
       analysis);
-  auto tablePacket = StructType::get(&context, builder.getStringAttr("Packet")); // Existing declaration contains a Table.
+  auto tablePacket = StructType::get(
+      &context, builder.getStringAttr(
+                    "Packet")); // Existing declaration contains a Table.
   structureRejects(
       child,
       dict(replace(published,
@@ -1751,12 +1848,12 @@ TEST_F(MethodSummaryAuthorityTest,
         outer->setAttr("occurrence", occurrence("Child", 20));
         auto &nestedBody = outer->getRegion(1).front();
         auto *call = exemplar->clone();
-        call->setOperands({nestedBody.getArgument(1),
-                            nestedBody.getArgument(0)});
-        call->setAttr("callee", mlir::SymbolRefAttr::get(
-                                    &context, "Child",
-                                    {mlir::FlatSymbolRefAttr::get(&context,
-                                                                  "dynamic")}));
+        call->setOperands(
+            {nestedBody.getArgument(1), nestedBody.getArgument(0)});
+        call->setAttr("callee",
+                      mlir::SymbolRefAttr::get(
+                          &context, "Child",
+                          {mlir::FlatSymbolRefAttr::get(&context, "dynamic")}));
         call->setAttr("occurrence", occurrence("Child", 21));
         nestedBody.getOperations().insert(
             nestedBody.getTerminator()->getIterator(), call);
@@ -1765,7 +1862,7 @@ TEST_F(MethodSummaryAuthorityTest,
         target = "nested";
       }
       auto zero = *body.getOps<BitsConstantOp>().begin();
-      mlir::Value condition = selector == 0 ? mlir::Value(zero.getResult())
+      mlir::Value condition = selector == 0   ? mlir::Value(zero.getResult())
                               : selector == 1 ? body.getArgument(4)
                                               : body.getArgument(5);
       auto split = branch(act, body.getTerminator()->getIterator(), condition,
@@ -1775,10 +1872,10 @@ TEST_F(MethodSummaryAuthorityTest,
       auto &arm = selector == 1 ? split.getElseRegion().front()
                                 : split.getThenRegion().front();
       auto *call = exemplar->clone();
-      call->setAttr("callee", mlir::SymbolRefAttr::get(
-                                  &context, "Child",
-                                  {mlir::FlatSymbolRefAttr::get(&context,
-                                                                target)}));
+      call->setAttr("callee",
+                    mlir::SymbolRefAttr::get(
+                        &context, "Child",
+                        {mlir::FlatSymbolRefAttr::get(&context, target)}));
       call->setAttr("occurrence", occurrence("Child", 23));
       arm.getOperations().insert(arm.getTerminator()->getIterator(), call);
       ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
@@ -1797,12 +1894,13 @@ TEST_F(MethodSummaryAuthorityTest,
       EXPECT_TRUE(analysis->isTotal(run));
       auto published = summary(*analysis, child);
       ASSERT_TRUE(published);
-      auto effects = array(namedRow(published, "methods", "act"),
-                           "body_effects");
+      auto effects =
+          array(namedRow(published, "methods", "act"), "body_effects");
       auto row = dict(effects[effects.size() - 1]);
       EXPECT_EQ(kind(row), "branch");
       EXPECT_EQ(row.size(), 7u);
-      auto armRows = array(row, selector == 1 ? "else_effects" : "then_effects");
+      auto armRows =
+          array(row, selector == 1 ? "else_effects" : "then_effects");
       ASSERT_EQ(armRows.size(), 1u);
       EXPECT_EQ(kind(dict(armRows[0])), "call");
       structureAccepts(child, published);
@@ -2302,6 +2400,193 @@ TEST_F(MethodSummaryAuthorityTest,
 }
 
 TEST_F(MethodSummaryAuthorityTest,
+       ReceiverResolutionEagerlyRejectsDuplicateDirectInventoryIdentity) {
+  for (bool duplicateName : {false, true}) {
+    SCOPED_TRACE(duplicateName ? "name" : "occurrence");
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto root = module(*file, "Root");
+    auto left = named<SourceTransactionOp>(root, "run")
+                    .getBody()
+                    .front()
+                    .getOps<SourceMethodCallOp>()
+                    .begin();
+    auto exemplar = *root.getBody().front().getOps<InstanceOp>().begin();
+    auto first = mlir::cast<InstanceOp>(exemplar->clone());
+    auto second = mlir::cast<InstanceOp>(exemplar->clone());
+    first->setAttr("instance_name", builder.getStringAttr("unused_first"));
+    second->setAttr("instance_name",
+                    builder.getStringAttr(duplicateName ? "unused_first"
+                                                        : "unused_second"));
+    first->setAttr("occurrence", occurrence("Root", 20));
+    second->setAttr("occurrence", occurrence("Root", duplicateName ? 21 : 20));
+    auto where = root.getBody().front().getTerminator()->getIterator();
+    root.getBody().front().getOperations().insert(where, first);
+    root.getBody().front().getOperations().insert(where, second);
+
+    auto resolved = capture([&] { return resolveSourceMethodCall(*left); });
+    EXPECT_TRUE(mlir::failed(resolved));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ReceiverProofContextRejectsDuplicateImportedInventoryIdentity) {
+  for (bool duplicateName : {false, true}) {
+    SCOPED_TRACE(duplicateName ? "name" : "occurrence");
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto root = module(*file, "Root");
+    SourceMethodSummariesAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid()) << diagnostics;
+    auto published = summary(analysis, root);
+    ASSERT_TRUE(published);
+    auto publishedOwners = array(published, "owners");
+    llvm::SmallVector<mlir::Attribute> owners(publishedOwners.begin(),
+                                              publishedOwners.end());
+    llvm::SmallVector<unsigned> instances;
+    for (auto [index, raw] : llvm::enumerate(owners))
+      if (dict(raw).getAs<mlir::StringAttr>("kind").getValue() == "instance")
+        instances.push_back(index);
+    ASSERT_GE(instances.size(), 2u);
+    auto first = dict(owners[instances[0]]);
+    mlir::NamedAttrList second(dict(owners[instances[1]]));
+    if (duplicateName)
+      second.set("name", first.get("name"));
+    else
+      second.set("occurrence", first.get("occurrence"));
+    owners[instances[1]] = second.getDictionary(&context);
+    published = changed(published, "owners", builder.getArrayAttr(owners));
+    auto imported = replaceDefinition(root, published);
+
+    auto moduleMiss = [&](mlir::Operation *, mlir::Operation *) {
+      return mlir::success();
+    };
+    auto selectedMethod = [&](SourceMethodOp, mlir::Operation *) {
+      return mlir::success();
+    };
+    auto workStorage = [&](mlir::Operation *, uint64_t, uint64_t) {
+      return mlir::success();
+    };
+    auto instanceBinding = [&](mlir::Operation *, mlir::Operation *,
+                               mlir::Operation *,
+                               mlir::Operation *) { return mlir::success(); };
+    SourceReceiverProofFees fees{moduleMiss, selectedMethod, workStorage,
+                                 instanceBinding};
+    SourceReceiverProofContext proof;
+    EXPECT_TRUE(mlir::failed(
+        capture([&] { return proof.prepare(imported, imported, fees); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ReceiverProofContextWarmsInventoryButKeepsActualPathsDistinct) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root");
+  auto run = named<SourceTransactionOp>(root, "run");
+  auto calls = run.getBody().front().getOps<SourceMethodCallOp>();
+  auto left = calls.begin();
+  auto right = std::next(left, 2);
+  ASSERT_NE(right, calls.end());
+
+  unsigned misses = 0, selected = 0, bindings = 0;
+  bool rejectBinding = false;
+  uint64_t chargedWork = 0, chargedBytes = 0;
+  auto moduleMiss = [&](mlir::Operation *, mlir::Operation *) {
+    ++misses;
+    return mlir::success();
+  };
+  auto selectedMethod = [&](SourceMethodOp, mlir::Operation *) {
+    ++selected;
+    return mlir::success();
+  };
+  auto workStorage = [&](mlir::Operation *, uint64_t work, uint64_t bytes) {
+    chargedWork += work;
+    chargedBytes += bytes;
+    return mlir::success();
+  };
+  auto instanceBinding = [&](mlir::Operation *, mlir::Operation *,
+                             mlir::Operation *, mlir::Operation *) {
+    ++bindings;
+    return rejectBinding ? mlir::failure() : mlir::success();
+  };
+  SourceReceiverProofFees fees{moduleMiss, selectedMethod, workStorage,
+                               instanceBinding};
+  SourceReceiverProofContext proof;
+  HardwareBindings parent;
+  parent.owner = root;
+  mlir::SymbolTableCollection symbols;
+  auto lookup = [&](mlir::FlatSymbolRefAttr symbol) -> mlir::Operation * {
+    return symbols.lookupSymbolIn(*file, symbol);
+  };
+
+  auto first = capture([&] {
+    return resolveSourceMethodCall(*left, parent, lookup, &proof, &fees);
+  });
+  ASSERT_TRUE(mlir::succeeded(first)) << diagnostics;
+  unsigned warmMisses = misses;
+  unsigned firstBindings = bindings;
+  ASSERT_GT(warmMisses, 0u);
+  ASSERT_GT(firstBindings, 0u);
+  auto second = capture([&] {
+    return resolveSourceMethodCall(*right, parent, lookup, &proof, &fees);
+  });
+  ASSERT_TRUE(mlir::succeeded(second)) << diagnostics;
+  EXPECT_EQ(misses, warmMisses);
+  EXPECT_GT(bindings, firstBindings);
+  EXPECT_NE(first->receiver, second->receiver);
+  EXPECT_EQ(array(first->receiver, "instance_path")[0], occurrence("Root", 1));
+  EXPECT_EQ(array(second->receiver, "instance_path")[0], occurrence("Root", 2));
+  EXPECT_GT(selected, 0u);
+  EXPECT_GT(chargedWork + chargedBytes, 0u);
+
+  rejectBinding = true;
+  unsigned paidBindings = bindings;
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return resolveSourceMethodCall(*left, parent, lookup, &proof, &fees);
+  })));
+  EXPECT_EQ(misses, warmMisses);
+  EXPECT_GT(bindings, paidBindings);
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ReceiverProofContextDoesNotPublishBudgetFailedInventory) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root");
+  SourceReceiverProofContext proof;
+  unsigned misses = 0;
+  bool rejectStorage = true;
+  auto moduleMiss = [&](mlir::Operation *, mlir::Operation *) {
+    ++misses;
+    return mlir::success();
+  };
+  auto selectedMethod = [&](SourceMethodOp, mlir::Operation *) {
+    return mlir::success();
+  };
+  auto workStorage = [&](mlir::Operation *, uint64_t, uint64_t bytes) {
+    return rejectStorage && bytes > 0 ? mlir::failure() : mlir::success();
+  };
+  auto instanceBinding = [&](mlir::Operation *, mlir::Operation *,
+                             mlir::Operation *,
+                             mlir::Operation *) { return mlir::success(); };
+  SourceReceiverProofFees fees{moduleMiss, selectedMethod, workStorage,
+                               instanceBinding};
+
+  EXPECT_TRUE(
+      mlir::failed(capture([&] { return proof.prepare(root, root, fees); })));
+  unsigned failedMisses = misses;
+  ASSERT_GT(failedMisses, 0u);
+  rejectStorage = false;
+  auto prepared = capture([&] { return proof.prepare(root, root, fees); });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  EXPECT_GT(misses, failedMisses);
+  EXPECT_EQ((*prepared)->instanceCount, 2u);
+}
+
+TEST_F(MethodSummaryAuthorityTest,
        HeaderClosureChecksReceiversSignaturesAndAllCalls) {
   auto file = parse();
   ASSERT_TRUE(file);
@@ -2481,6 +2766,577 @@ TEST_F(MethodSummaryAuthorityTest,
   EXPECT_NE(llvm::StringRef(diagnostics).lower().find("recursive"),
             std::string::npos)
       << diagnostics;
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalProposalSuffixPreservesAuthoredReturnFormAndPublication) {
+  for (unsigned count = 0; count != 3; ++count) {
+    SCOPED_TRACE(count);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    auto method = formalProposal(child,
+                                 count == 0   ? "none"
+                                 : count == 1 ? "single"
+                                              : "tuple",
+                                 count);
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    SourceMethodView view{child, method, {}};
+    EXPECT_EQ(view.getNumPublicResults(), count);
+    EXPECT_EQ(view.getFormalProposals(),
+              builder.getArrayAttr({builder.getI64IntegerAttr(0)}));
+    SourceMethodSummariesAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid());
+    auto published = summary(analysis, child);
+    ASSERT_TRUE(published);
+    auto row = namedRow(published, "methods", "proposal");
+    EXPECT_EQ(row.get("ac.formal_proposals"), view.getFormalProposals());
+    EXPECT_EQ(array(row, "ac.result_constraints").size(), count + 2);
+    auto imported = replaceDefinition(child, published);
+    structureAccepts(imported, published);
+    auto resolved = capture(
+        [&] { return lookupSourceMethod(imported, "proposal", imported); });
+    ASSERT_TRUE(mlir::succeeded(resolved)) << diagnostics;
+    EXPECT_EQ(resolved->getNumPublicResults(), count);
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalProposalSchemaMutationsRejectInDefinitionsAndInterfaces) {
+  for (unsigned mutation = 0; mutation != 11; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    auto method = formalProposal(child, "none", 0);
+    SourceMethodSummariesAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid());
+    auto published = summary(analysis, child);
+    ASSERT_TRUE(published);
+    auto baseline = namedRow(published, "methods", "proposal");
+    llvm::StringRef key = "ac.formal_proposals";
+    mlir::Attribute bad;
+    switch (mutation) {
+    case 0:
+      bad = builder.getStringAttr("0");
+      break;
+    case 1:
+      bad = builder.getArrayAttr({builder.getI32IntegerAttr(0)});
+      break;
+    case 2:
+      bad = builder.getArrayAttr({builder.getI64IntegerAttr(-1)});
+      break;
+    case 3:
+      bad = builder.getArrayAttr({builder.getI64IntegerAttr(1)});
+      break;
+    case 4:
+      bad = builder.getArrayAttr(
+          {builder.getI64IntegerAttr(0), builder.getI64IntegerAttr(0)});
+      break;
+    case 5:
+      key = "ac.return_form";
+      bad = builder.getStringAttr("single");
+      break;
+    case 6:
+      key = "ac.return_form";
+      bad = builder.getStringAttr("tuple");
+      break;
+    case 7: {
+      key = "ac.result_constraints";
+      auto values = array(baseline, key);
+      auto logicalIntent = changed(dict(values[1]), "source_kind",
+                                   builder.getStringAttr("boolean"));
+      logicalIntent =
+          changed(logicalIntent, "domain",
+                  mlir::parseAttribute("#ac.source_domain<{kind = \"bool\"}>",
+                                       &context));
+      bad = builder.getArrayAttr({values[0], logicalIntent});
+      break;
+    }
+    case 8: {
+      key = "function_type";
+      auto signature = method.getFunctionType();
+      bad = mlir::TypeAttr::get(mlir::FunctionType::get(
+          &context, signature.getInputs(),
+          {signature.getResult(0), signature.getResult(0)}));
+      // Keep the ordinary result constraint valid; the intent is now eight
+      // bits.
+      auto values =
+          method->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints");
+      method->setAttr("ac.result_constraints",
+                      builder.getArrayAttr({values[0], values[0]}));
+      baseline = changed(baseline, "ac.result_constraints",
+                         builder.getArrayAttr({values[0], values[0]}));
+      break;
+    }
+    case 9: {
+      key = "ac.result_constraints";
+      auto values = array(baseline, key);
+      bad = builder.getArrayAttr({values[0]});
+      break;
+    }
+    case 10: {
+      key = "function_type";
+      auto signature = method.getFunctionType();
+      auto bit = signature.getResult(1);
+      bad = mlir::TypeAttr::get(
+          mlir::FunctionType::get(&context, signature.getInputs(), {bit, bit}));
+      auto values =
+          method->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints");
+      method->setAttr("ac.result_constraints",
+                      builder.getArrayAttr({values[1], values[1]}));
+      baseline = changed(baseline, "ac.result_constraints",
+                         builder.getArrayAttr({values[1], values[1]}));
+      break;
+    }
+    }
+    method->setAttr(key, bad);
+    EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })))
+        << mutation;
+    EXPECT_FALSE(diagnostics.empty());
+    llvm::SmallVector<mlir::Attribute> rows;
+    for (auto entry : array(published, "methods"))
+      rows.push_back(dict(entry).getAs<mlir::StringAttr>("name").getValue() ==
+                             "proposal"
+                         ? changed(baseline, key, bad)
+                         : entry);
+    auto invalid = changed(published, "methods", builder.getArrayAttr(rows));
+    structureRejects(child, invalid);
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalProposalDataCannotReinterpretLogicalKindsOrIntegerDomains) {
+  for (auto sourceKind : {"boolean", "integer"}) {
+    SCOPED_TRACE(sourceKind);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    auto method = formalProposal(child, "none", 0);
+    auto bit = child.getBody().front().getArgument(0).getType();
+    auto physical = std::string(sourceKind) == "boolean"
+                        ? bit
+                        : method.getFunctionType().getInput(0);
+    method->setAttr("function_type",
+                    mlir::TypeAttr::get(mlir::FunctionType::get(
+                        &context, {physical}, {physical, bit})));
+    for (auto &region : method->getRegions())
+      region.front().getArgument(0).setType(physical);
+    auto params = method->getAttrOfType<mlir::ArrayAttr>("ac.parameters");
+    auto parameter = dict(params[0]);
+    auto fixed = changed(dict(parameter.get("constraint")), "type",
+                         mlir::TypeAttr::get(physical));
+    auto logical =
+        changed(fixed, "source_kind", builder.getStringAttr(sourceKind));
+    logical = changed(
+        logical, "domain",
+        mlir::parseAttribute(std::string(sourceKind) == "boolean"
+                                 ? "#ac.source_domain<{kind = \"bool\"}>"
+                                 : "#ac.source_domain<{kind = \"integer\", "
+                                   "lower = #ac.math_int<0>, "
+                                   "upper = #ac.math_int<256>}>",
+                             &context));
+    method->setAttr(
+        "ac.parameters",
+        builder.getArrayAttr({changed(parameter, "constraint", logical)}));
+    auto intent =
+        method->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints")[1];
+    method->setAttr("ac.result_constraints",
+                    builder.getArrayAttr({logical, intent}));
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return method.verify(); })))
+        << diagnostics;
+    method->setAttr("ac.result_constraints",
+                    builder.getArrayAttr({fixed, intent}));
+    EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })));
+    EXPECT_NE(diagnostics.find("source kind and logical domain"),
+              std::string::npos)
+        << diagnostics;
+    if (std::string(sourceKind) == "integer") {
+      auto narrowed = changed(
+          logical, "domain",
+          mlir::parseAttribute(
+              "#ac.source_domain<{kind = \"integer\", lower = #ac.math_int<0>, "
+              "upper = #ac.math_int<128>}>",
+              &context));
+      method->setAttr("ac.result_constraints",
+                      builder.getArrayAttr({narrowed, intent}));
+      EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })));
+      // The ordinary source contract already rejects a domain that no longer
+      // spans its physical Integer representation.
+      EXPECT_NE(diagnostics.find("Integer domain"), std::string::npos)
+          << diagnostics;
+    }
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalProposalDataPreservesNominalTypeIdentity) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto method = formalProposal(child, "none", 0);
+  auto declaration = *file->getOps<StructOp>().begin();
+  auto *other = declaration->clone();
+  other->setAttr("sym_name", builder.getStringAttr("OtherPacket"));
+  file->getBody()->getOperations().insert(declaration->getIterator(), other);
+  auto packet = mlir::parseType("!ac.struct<\"Packet\">", &context);
+  auto otherPacket = mlir::parseType("!ac.struct<\"OtherPacket\">", &context);
+  auto bit = child.getBody().front().getArgument(0).getType();
+  method->setAttr("function_type", mlir::TypeAttr::get(mlir::FunctionType::get(
+                                       &context, {packet}, {packet, bit})));
+  for (auto &region : method->getRegions())
+    region.front().getArgument(0).setType(packet);
+  auto parameters = method->getAttrOfType<mlir::ArrayAttr>("ac.parameters");
+  auto parameter = dict(parameters[0]);
+  auto nominal = changed(dict(parameter.get("constraint")), "source_kind",
+                         builder.getStringAttr("nominal"));
+  nominal = changed(nominal, "type", mlir::TypeAttr::get(packet));
+  method->setAttr(
+      "ac.parameters",
+      builder.getArrayAttr({changed(parameter, "constraint", nominal)}));
+  auto intent =
+      method->getAttrOfType<mlir::ArrayAttr>("ac.result_constraints")[1];
+  method->setAttr("ac.result_constraints",
+                  builder.getArrayAttr({nominal, intent}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return method.verify(); })))
+      << diagnostics;
+  method->setAttr("function_type",
+                  mlir::TypeAttr::get(mlir::FunctionType::get(
+                      &context, {packet}, {otherPacket, bit})));
+  method->setAttr(
+      "ac.result_constraints",
+      builder.getArrayAttr(
+          {changed(nominal, "type", mlir::TypeAttr::get(otherPacket)),
+           intent}));
+  EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })));
+  EXPECT_NE(diagnostics.find("match its input contract"), std::string::npos)
+      << diagnostics;
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalWritesRetainEachRhsAndWholeCandidateInOrderedPublication) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto method = formalProposal(child, "none", 0, true);
+  auto first = formalWrite(method, 21, true);
+  auto second = formalWrite(method, 22);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  EXPECT_NE(first.getPayload().getType(), first.getCandidate().getType());
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid());
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  auto effects =
+      array(namedRow(published, "methods", "proposal"), "body_effects");
+  ASSERT_EQ(effects.size(), 2u);
+  EXPECT_EQ(kind(dict(effects[0])), "formal_write");
+  EXPECT_EQ(dict(effects[0]).size(), 9u);
+  auto selected = array(dict(effects[0]), "selectors");
+  ASSERT_EQ(selected.size(), 2u);
+  EXPECT_EQ(kind(dict(selected[0])), "field");
+  EXPECT_EQ(kind(dict(selected[1])), "any_element");
+  EXPECT_EQ(dict(effects[0]).get("occurrence"), first.getOccurrence());
+  EXPECT_EQ(dict(effects[1]).get("occurrence"), second.getOccurrence());
+  EXPECT_EQ(dict(effects[0]).getAs<mlir::TypeAttr>("payload_type").getValue(),
+            first.getPayload().getType());
+  auto candidate = dict(dict(effects[1]).get("candidate"));
+  // Value facts describe predicates only; the nominal candidate retains its
+  // exact formal dependency without pretending to be a one-bit predicate fact.
+  known(candidate, {0}, {});
+  EXPECT_EQ(kind(dict(candidate.get("fact"))), "unknown");
+  auto candidateType = first.getCandidate().getType();
+  auto imported = replaceDefinition(child, published);
+  structureAccepts(imported, published);
+  for (unsigned mutation = 0; mutation != 3; ++mutation) {
+    auto broken = selected;
+    if (mutation == 0)
+      broken = builder.getArrayAttr(
+          {changed(dict(selected[0]), "name", builder.getStringAttr("missing")),
+           selected[1]});
+    if (mutation == 1)
+      broken = builder.getArrayAttr(
+          {selected[0], changed(dict(selected[1]), "index", {})});
+    if (mutation == 2)
+      broken = builder.getArrayAttr(
+          {selected[0], changed(dict(selected[1]), "index_type",
+                                mlir::TypeAttr::get(candidateType))});
+    auto row = namedRow(published, "methods", "proposal");
+    auto badEffects = builder.getArrayAttr(
+        {changed(dict(effects[0]), "selectors", broken), effects[1]});
+    llvm::SmallVector<mlir::Attribute> changedMethods;
+    for (auto raw : array(published, "methods"))
+      changedMethods.push_back(
+          raw == row ? changed(dict(raw), "body_effects", badEffects) : raw);
+    structureRejects(imported, changed(published, "methods",
+                                       builder.getArrayAttr(changedMethods)));
+  }
+  // Locate by name rather than rely on source declaration placement.
+  llvm::SmallVector<mlir::Attribute> methods;
+  for (mlir::Attribute raw : array(published, "methods")) {
+    auto row = dict(raw);
+    if (row.getAs<mlir::StringAttr>("name").getValue() == "proposal") {
+      auto badEffects = array(row, "body_effects");
+      row = changed(row, "body_effects",
+                    builder.getArrayAttr({changed(dict(badEffects[0]), "formal",
+                                                  builder.getI64IntegerAttr(1)),
+                                          badEffects[1]}));
+    }
+    methods.push_back(row);
+  }
+  auto invalid = changed(published, "methods", builder.getArrayAttr(methods));
+  structureRejects(imported, invalid);
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ForwardedFormalSnapshotPublishesPairedPreviousAndWholeType) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto method = formalProposal(child, "none", 0);
+  auto &body = method.getBody().front();
+  builder.setInsertionPoint(body.getTerminator());
+  mlir::OperationState state(method.getLoc(),
+                             SourceFormalWriteOp::getOperationName());
+  state.addOperands({body.getArgument(0), body.getArgument(1),
+                     body.getArgument(0), body.getArgument(0)});
+  state.addTypes(body.getArgument(0).getType());
+  state.addAttribute("formal", builder.getI64IntegerAttr(0));
+  state.addAttribute("selectors", builder.getArrayAttr({}));
+  state.addAttribute("operandSegmentSizes",
+                     builder.getDenseI32ArrayAttr({1, 1, 1, 0, 1}));
+  state.addAttribute("occurrence", occurrence("Child", 21));
+  state.addAttribute("ac.location", method->getAttr("ac.guard_location"));
+  auto marker = mlir::cast<SourceFormalWriteOp>(builder.create(state));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  EXPECT_EQ(marker.getPrevious(), body.getArgument(0));
+  EXPECT_EQ(marker.getSnapshot().getType(), marker.getCandidate().getType());
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid());
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  auto row = dict(
+      array(namedRow(published, "methods", "proposal"), "body_effects")[0]);
+  EXPECT_EQ(row.size(), 11u);
+  EXPECT_TRUE(row.getAs<mlir::DictionaryAttr>("previous"));
+  EXPECT_EQ(row.getAs<mlir::TypeAttr>("snapshot_type").getValue(),
+            marker.getCandidate().getType());
+  auto imported = replaceDefinition(child, published);
+  structureAccepts(imported, published);
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       ForwardedFormalSnapshotRejectsMissingPairAndChangedWholeType) {
+  for (unsigned mutation = 0; mutation < 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto method = formalProposal(module(*file, "Child"), "none", 0);
+    auto &body = method.getBody().front();
+    builder.setInsertionPoint(body.getTerminator());
+    mlir::OperationState state(method.getLoc(),
+                               SourceFormalWriteOp::getOperationName());
+    state.addOperands(
+        {body.getArgument(0), body.getArgument(1), body.getArgument(0)});
+    if (mutation != 1)
+      state.addOperands(body.getArgument(mutation == 2 ? 1 : 0));
+    if (mutation != 0)
+      state.addTypes(body.getArgument(mutation == 3 ? 1 : 0).getType());
+    state.addAttribute("formal", builder.getI64IntegerAttr(0));
+    state.addAttribute("selectors", builder.getArrayAttr({}));
+    state.addAttribute(
+        "operandSegmentSizes",
+        builder.getDenseI32ArrayAttr({1, 1, 1, 0, mutation == 1 ? 0 : 1}));
+    state.addAttribute("occurrence", occurrence("Child", 21));
+    state.addAttribute("ac.location", method->getAttr("ac.guard_location"));
+    builder.create(state);
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalWriteSchemaRejectsWrongFormalCandidateMetadataAndPlacement) {
+  for (unsigned mutation = 0; mutation != 8; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto method = formalProposal(module(*file, "Child"), "none", 0);
+    auto marker = formalWrite(method, 21);
+    switch (mutation) {
+    case 0:
+      marker->setAttr("formal", builder.getI64IntegerAttr(-1));
+      break;
+    case 1:
+      marker->setAttr("formal", builder.getI64IntegerAttr(1));
+      break;
+    case 2:
+      method->removeAttr("ac.formal_proposals");
+      break;
+    case 3:
+      marker->setOperand(2, method.getBody().front().getArgument(1));
+      break;
+    case 4:
+      marker->removeAttr("ac.location");
+      break;
+    case 5:
+      marker->setAttr("ac.location", builder.getStringAttr("source.py"));
+      break;
+    case 6:
+      marker->setAttr("state", builder.getStringAttr("count"));
+      break;
+    case 7: {
+      auto &guard = method.getGuard().front();
+      marker->setOperands(
+          {guard.getArgument(0), guard.getArgument(1), guard.getArgument(0)});
+      marker->moveBefore(guard.getTerminator());
+      break;
+    }
+    }
+    EXPECT_TRUE(mlir::failed(capture([&] { return marker.verify(); })));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalWriteSelectedSchemaRejectsChangedFieldIndexPayloadAndSegments) {
+  for (unsigned mutation = 0; mutation != 6; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto method = formalProposal(module(*file, "Child"), "none", 0, true);
+    auto marker = formalWrite(method, 21, true);
+    auto selectors = marker.getSelectors();
+    if (mutation == 0)
+      marker->setAttr("selectors",
+                      builder.getArrayAttr(
+                          {builder.getDictionaryAttr({builder.getNamedAttr(
+                               "field", builder.getStringAttr("missing"))}),
+                           selectors[1]}));
+    if (mutation == 1)
+      marker->setAttr(
+          "selectors",
+          builder.getArrayAttr(
+              {selectors[0], builder.getDictionaryAttr({builder.getNamedAttr(
+                                 "index", builder.getI64IntegerAttr(1))})}));
+    if (mutation == 2)
+      marker->setOperand(3, marker.getCandidate());
+    if (mutation == 3)
+      marker->setOperand(0, marker.getCandidate());
+    if (mutation == 4) {
+      // Inherent segment properties ignore removeAttr(null) in MLIR 22.
+      // Rebuild the serialized omission instead of performing a no-op edit.
+      mlir::OperationState missing(marker.getLoc(),
+                                   SourceFormalWriteOp::getOperationName());
+      missing.addOperands(marker.getOperands());
+      missing.addTypes(marker.getResultTypes());
+      for (auto attr : marker->getAttrs())
+        if (attr.getName().getValue() != "operandSegmentSizes")
+          missing.addAttribute(attr.getName(), attr.getValue());
+      mlir::OpBuilder at(marker);
+      auto rebuilt = mlir::cast<SourceFormalWriteOp>(at.create(missing));
+      marker.erase();
+      marker = rebuilt;
+    }
+    if (mutation == 5)
+      marker->setAttr("operandSegmentSizes",
+                      builder.getDenseI32ArrayAttr({1, 1, 1, 0, 1}));
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       FormalOwnerBindingRowsHaveClosedSortedLexicalSchema) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto method = formalProposal(module(*file, "Child"), "none", 0);
+  auto proposals =
+      method->getAttrOfType<mlir::ArrayAttr>("ac.formal_proposals");
+  auto state = builder.getDictionaryAttr(
+      {builder.getNamedAttr("formal", builder.getI64IntegerAttr(0)),
+       builder.getNamedAttr("state", builder.getStringAttr("count"))});
+  auto forwarded = changed(state, "state", {});
+  forwarded = changed(forwarded, "caller_formal", builder.getI64IntegerAttr(0));
+  auto check = [&](mlir::Attribute rows) {
+    return capture([&] {
+      return verifySourceFormalOwnerBindings(
+          rows, 1, proposals, method.getFunctionType(), proposals,
+          [](llvm::StringRef name) { return name == "count"; }, method);
+    });
+  };
+  EXPECT_TRUE(mlir::succeeded(check(builder.getArrayAttr({state}))));
+  EXPECT_TRUE(mlir::succeeded(check(builder.getArrayAttr({forwarded}))));
+  for (mlir::Attribute invalid :
+       {mlir::Attribute(builder.getStringAttr("count")),
+        mlir::Attribute(builder.getArrayAttr({state, state})),
+        mlir::Attribute(builder.getArrayAttr(
+            {changed(state, "formal", builder.getI32IntegerAttr(0))})),
+        mlir::Attribute(builder.getArrayAttr(
+            {changed(state, "formal", builder.getI64IntegerAttr(1))})),
+        mlir::Attribute(builder.getArrayAttr(
+            {changed(state, "state", builder.getStringAttr("absent"))})),
+        mlir::Attribute(builder.getArrayAttr({changed(
+            forwarded, "caller_formal", builder.getI64IntegerAttr(1))})),
+        mlir::Attribute(builder.getArrayAttr({changed(
+            forwarded, "caller_formal", builder.getI32IntegerAttr(0))})),
+        mlir::Attribute(builder.getArrayAttr({changed(
+            state, "caller_formal", builder.getI64IntegerAttr(0))}))}) {
+    EXPECT_TRUE(mlir::failed(check(invalid)));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return verifySourceFormalOwnerBindings(
+        builder.getArrayAttr({state}), 1, mlir::ArrayAttr(), {}, {},
+        [](llvm::StringRef) { return true; }, method);
+  })));
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       PrivateMethodVisibilityPublishesAndRejectsCrossInstanceCalls) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child"), root = module(*file, "Root");
+  auto method = formalProposal(child, "none", 0);
+  method->setAttr("sym_visibility", builder.getStringAttr("private"));
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid());
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  EXPECT_EQ(namedRow(published, "methods", "proposal").get("visibility"),
+            builder.getStringAttr("private"));
+  auto relay = named<SourceMethodOp>(child, "relay");
+  relay->setAttr("sym_visibility", builder.getStringAttr("private"));
+  auto local = *named<SourceMethodOp>(child, "act")
+                    .getBody()
+                    .front()
+                    .getOps<SourceMethodCallOp>()
+                    .begin();
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return resolveSourceMethodCall(local);
+  }))) << diagnostics;
+  auto calls = named<SourceTransactionOp>(root, "run")
+                   .getBody()
+                   .front()
+                   .getOps<SourceMethodCallOp>();
+  auto external = *std::next(calls.begin());
+  EXPECT_TRUE(
+      mlir::failed(capture([&] { return resolveSourceMethodCall(external); })));
+  EXPECT_NE(diagnostics.find("private Method"), std::string::npos)
+      << diagnostics;
+  method->setAttr("sym_visibility", builder.getStringAttr("nested"));
+  EXPECT_TRUE(mlir::failed(capture([&] { return method.verify(); })));
+  auto imported = replaceDefinition(child, published);
+  structureAccepts(imported, published);
+  auto found = capture(
+      [&] { return lookupSourceMethod(imported, "proposal", imported); });
+  ASSERT_TRUE(mlir::succeeded(found));
+  EXPECT_EQ(found->getVisibility(), builder.getStringAttr("private"));
 }
 
 } // namespace

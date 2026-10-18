@@ -1,11 +1,14 @@
 #include "Compiler/PythonImportRecords.h"
+#include "Compiler/SourceLink.h"
 #include "Compiler/SourceMemoryBindings.h"
 #include "Compiler/SourceRuleWrites.h"
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Transforms/SourceControlFlow.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/OperationSupport.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/Parser/Parser.h"
@@ -50,8 +53,8 @@ def Memory(ren: ac.u1, raddr: ac.u2, wvalid: ac.u1,
     return value
 )py";
 
-// Each autonomous write has its own declaration. Shared bodies do not grant
-// a Rule multiple registrations in one owning module.
+// Distinct declarations keep writer fixtures explicit. Repeated calls to one
+// declaration are also distinct registrations under the current source contract.
 std::string writerRules(unsigned count, bool conditional = true) {
   std::string text;
   for (unsigned i = 0; i != count; ++i) {
@@ -269,7 +272,7 @@ def Top(seed: ac.u8) -> Packet:
 }
 
 TEST_F(SourceMemoryBindingsTest,
-       OrderedRuleRegistrationCountsCannotBeHiddenByEarlierData) {
+       OrderedRuleRegistrationsRemainDistinctAfterEarlierData) {
   for (StringRef calls :
        {StringRef(""), StringRef("    check(count)\n    check(count)\n")}) {
     auto captured =
@@ -288,9 +291,23 @@ def Top(seed: ac.u8) -> Packet:
     ASSERT_TRUE(captured);
     diagnostics.clear();
     source::SourceRuleWritesAnalysis writes(captured->getOperation());
-    EXPECT_FALSE(writes.isPlanValid());
-    EXPECT_NE(diagnostics.find("registered exactly once"), std::string::npos)
-        << diagnostics;
+    ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+    EXPECT_EQ(writes.pendingPairs().size(), calls.empty() ? 0u : 1u);
+    if (!calls.empty()) {
+      const auto &pair = writes.pendingPairs().front();
+      EXPECT_NE(pair.firstCall.value.get("span"), pair.secondCall.value.get("span"));
+    }
+    auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+    ASSERT_TRUE(succeeded(headers));
+    auto unit = compiler::compilePythonSourceUnit(
+        *captured, owner("ordered_counts.py"), *headers, error());
+    ASSERT_TRUE(succeeded(unit)) << diagnostics;
+    auto linked = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+        "memory_cache.ordered_counts.Top", error());
+    EXPECT_EQ(succeeded(linked), calls.empty()) << diagnostics;
+    if (!calls.empty())
+      EXPECT_NE(diagnostics.find("multiple outer writers"), std::string::npos)
+          << diagnostics;
   }
 }
 
@@ -454,7 +471,8 @@ TEST_F(SourceMemoryBindingsTest, InferenceStopsBeforeRuntimeBodyLowering) {
 }
 
 // A plan-valid capture can contain obligations. Inference must retain them,
-// and failed lowering must neither mutate the analysis nor publish a body.
+// source lowering preserves them until link. Failed link must not mutate the
+// source unit or the capture analysis.
 TEST_F(SourceMemoryBindingsTest, PendingGrantPlanIsNotProofAndRemainsImmutable) {
   for (bool complementary : {false, true}) {
     std::string text = "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
@@ -481,7 +499,18 @@ TEST_F(SourceMemoryBindingsTest, PendingGrantPlanIsNotProofAndRemainsImmutable) 
     ASSERT_TRUE(succeeded(bindings.initialize(owner("pending.py"), *headers, writes))) << diagnostics;
     noteLocations.clear();
     auto lowered = bindings.lower(owner("pending.py"), *headers);
-    EXPECT_EQ(succeeded(lowered), complementary) << diagnostics;
+    ASSERT_TRUE(succeeded(lowered)) << diagnostics;
+    auto unit = compiler::compilePythonSourceUnit(
+        *captured, owner("pending.py"), *headers, error());
+    ASSERT_TRUE(succeeded(unit)) << diagnostics;
+    OwningOpRef<ModuleOp> originalBody(
+        cast<ModuleOp>(unit->body->getOperation()->clone()));
+    auto linked = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+        "memory_cache.pending.Top", error());
+    EXPECT_EQ(succeeded(linked), complementary) << diagnostics;
+    EXPECT_TRUE(OperationEquivalence::isEquivalentTo(
+        originalBody->getOperation(), unit->body->getOperation(),
+        OperationEquivalence::IgnoreLocations));
     if (!complementary) {
       EXPECT_NE(std::find(noteLocations.begin(), noteLocations.end(),
                          pair.firstCall.location(&context, "pending.py")),
@@ -581,41 +610,75 @@ TEST_F(SourceMemoryBindingsTest, SourceWorkCapIsSharedAcrossUnusedModules) {
   }
 }
 
-TEST_F(SourceMemoryBindingsTest, LoweringWorkCapChargesPaddedConstantsAcrossModules) {
-  for (unsigned modules : {1u, 2u}) {
-    std::string text = "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n"
-        + writerRules(64);
-    for (unsigned moduleIndex = 0; moduleIndex < modules; ++moduleIndex) {
-      text += "@ac.module\ndef Top" + std::to_string(moduleIndex) +
-          "(p: ac.bits[1000000], data: ac.u8) -> Out:\n";
-      for (unsigned i = 0; i < (modules == 1 ? 32u : 20u); ++i)
-        text += "    v" + std::to_string(i) + ": ac.u8 = 0\n"
-            "    put" + std::to_string(2 * i) + "(v" + std::to_string(i) + ", data, p == 0)\n"
-            "    put" + std::to_string(2 * i + 1) + "(v" + std::to_string(i) + ", data, p == 1)\n";
-      text += "    return Out(value=v0)\n";
+TEST_F(SourceMemoryBindingsTest,
+       SourceLoweringSharesWideConstantsAcrossModulesUntilLink) {
+  for (unsigned width : {8u, 1000000u})
+    for (unsigned modules : {1u, 2u}) {
+      SCOPED_TRACE("width=" + std::to_string(width) +
+                   " modules=" + std::to_string(modules));
+      std::string text =
+          "import pycircuit as ac\n@ac.struct\nclass Out:\n    value: ac.u8\n" +
+          writerRules(64);
+      for (unsigned moduleIndex = 0; moduleIndex < modules; ++moduleIndex) {
+        text += "@ac.module\ndef Top" + std::to_string(moduleIndex) +
+                "(p: ac.bits[" + std::to_string(width) +
+                "], data: ac.u8) -> Out:\n";
+        unsigned owners = width == 8 ? 2u : modules == 1 ? 32u : 20u;
+        for (unsigned i = 0; i < owners; ++i)
+          text += "    v" + std::to_string(i) +
+                  ": ac.u8 = 0\n"
+                  "    put" +
+                  std::to_string(2 * i) + "(v" + std::to_string(i) +
+                  ", data, p == 0)\n"
+                  "    put" +
+                  std::to_string(2 * i + 1) + "(v" + std::to_string(i) +
+                  ", data, p == 1)\n";
+        text += "    return Out(value=v0)\n";
+      }
+      diagnostics.clear();
+      auto captured = capture("padded.py", text);
+      ASSERT_TRUE(captured);
+      const auto original = (*captured)->getAttr("ac.python_capture");
+      source::SourceRuleWritesAnalysis writes(captured->getOperation());
+      ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+      const auto spent = writes.spentWork();
+      auto headers =
+          compiler::SourceHeaderRegistry::create(&context, {}, error());
+      ASSERT_TRUE(succeeded(headers));
+      source::SourceMemoryBindingsAnalysis bindings(captured->getOperation());
+      ASSERT_TRUE(
+          succeeded(bindings.initialize(owner("padded.py"), *headers, writes)))
+          << diagnostics;
+      auto lowered = bindings.lower(owner("padded.py"), *headers);
+      ASSERT_TRUE(succeeded(lowered)) << diagnostics;
+      EXPECT_EQ(writes.spentWork(), spent);
+      EXPECT_EQ((*captured)->getAttr("ac.python_capture"), original);
+      EXPECT_TRUE(captured->getBody()->empty());
+      // Source capture now retains typed transaction effects. It does not build
+      // padded hardware constants per registration; link owns that
+      // materialization.
+      auto unit = compiler::compilePythonSourceUnit(
+          *captured, owner("padded.py"), *headers, error());
+      ASSERT_TRUE(succeeded(unit)) << diagnostics;
+      OwningOpRef<ModuleOp> originalBody(
+          cast<ModuleOp>(unit->body->getOperation()->clone()));
+      auto linked =
+          compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+                                      "memory_cache.padded.Top0", error());
+      EXPECT_EQ(succeeded(linked), width == 8) << diagnostics;
+      if (width != 8)
+        EXPECT_NE(
+            diagnostics.find("work budget"),
+            std::string::npos)
+            << diagnostics;
+      EXPECT_TRUE(OperationEquivalence::isEquivalentTo(
+          originalBody->getOperation(), unit->body->getOperation(),
+          OperationEquivalence::IgnoreLocations));
     }
-    diagnostics.clear();
-    auto captured = capture("padded.py", text);
-    ASSERT_TRUE(captured);
-    const auto original = (*captured)->getAttr("ac.python_capture");
-    source::SourceRuleWritesAnalysis writes(captured->getOperation());
-    ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
-    const auto spent = writes.spentWork();
-    auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
-    ASSERT_TRUE(succeeded(headers));
-    source::SourceMemoryBindingsAnalysis bindings(captured->getOperation());
-    ASSERT_TRUE(succeeded(bindings.initialize(owner("padded.py"), *headers, writes))) << diagnostics;
-    auto lowered = bindings.lower(owner("padded.py"), *headers);
-    EXPECT_EQ(succeeded(lowered), modules == 1) << diagnostics;
-    EXPECT_EQ(writes.spentWork(), spent);
-    EXPECT_EQ((*captured)->getAttr("ac.python_capture"), original);
-    EXPECT_TRUE(captured->getBody()->empty());
-    if (modules == 2)
-      EXPECT_NE(diagnostics.find("work budget exhausted"), std::string::npos) << diagnostics;
-  }
 }
 
-TEST_F(SourceMemoryBindingsTest, CyclicGrantProducerFailsWholeSourceVerification) {
+TEST_F(SourceMemoryBindingsTest,
+       CyclicGrantProducerFailsWholeSourceVerification) {
   // Grants may be complements of a shared opaque producer, but that does not
   // exempt the producer graph from ordinary whole-source cycle verification.
   auto captured = capture("cycle.py", R"py(import pycircuit as ac
@@ -652,8 +715,11 @@ def Top(data: ac.u8) -> Out:
   ASSERT_EQ(writes.pendingPairs().size(), 1u);
   auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
   ASSERT_TRUE(succeeded(headers));
-  EXPECT_TRUE(failed(compiler::compilePythonSourceUnit(
-      *captured, owner("cycle.py"), *headers, error())));
+  auto unit = compiler::compilePythonSourceUnit(
+      *captured, owner("cycle.py"), *headers, error());
+  ASSERT_TRUE(succeeded(unit)) << diagnostics;
+  EXPECT_TRUE(failed(compiler::linkHardwareUnits(
+      {{*unit->body, *unit->interface}}, "memory_cache.cycle.Top", error())));
   EXPECT_NE(diagnostics.find("combinational cycle"), std::string::npos) << diagnostics;
 }
 
@@ -707,9 +773,6 @@ def Top(entries: table[2, u8]) -> Out:
       << diagnostics;
   diagnostics.clear();
   EXPECT_TRUE(failed(bindings.lower(owner("loop.py"), *headers)));
-  EXPECT_NE(diagnostics.find("bounded for reachable iteration 2 failed"),
-            std::string::npos)
-      << diagnostics;
   EXPECT_NE(diagnostics.find("table index complete width is not proven in range"),
             std::string::npos)
       << diagnostics;
@@ -840,7 +903,8 @@ def Top(value: u8) -> Out:
       << diagnostics;
   auto lowered = bindings.lower(owner("provenance.py"), *headers);
   ASSERT_TRUE(succeeded(lowered)) << diagnostics;
-  ASSERT_TRUE(succeeded(mlir::verify(**lowered)));
+  ASSERT_TRUE(succeeded(acir::normalizeSourceControlFlow(**lowered))) << diagnostics;
+  ASSERT_TRUE(succeeded(mlir::verify(**lowered))) << diagnostics;
 
   auto originOf = [](Operation *operation) {
     auto origin = operation->getAttrOfType<DictionaryAttr>("ac.origin");
@@ -973,7 +1037,7 @@ def Top(value: u8) -> Out:
 }
 
 TEST_F(SourceMemoryBindingsTest,
-       LoopCapturePayloadBudgetIsSourceWideAndFailureRestoresTransport) {
+       LoopSharedCapturesStayLegalAndExpansionFailureRestoresTransport) {
   auto source = [](unsigned extent, bool loop, bool second, bool assignment) {
     std::string text =
         "from pycircuit import module, rule, struct, table, u1, u64\n"
@@ -1034,25 +1098,20 @@ TEST_F(SourceMemoryBindingsTest,
     return captured;
   };
 
-  // A large interface is legal without loop staging, and a small recursive
-  // capture is legal with it. The same large capture exceeds the three-plane
-  // loop snapshot budget before lowering any body operation.
+  // Source SCF carries SSA handles, so a pass-only loop adds no payload planes.
+  // Large captures remain legal with and without loop staging.
   compile("no_loop.py", source(350000, false, false, false), true);
   compile("small.py", source(3, true, false, false), true);
-  compile("large.py", source(350000, true, false, false), false,
-          "bounded for snapshot/header: resource counter exhausted");
+  compile("large.py", source(350000, true, false, false), true);
 
-  // Each heavy loop fits independently. Their combined source-wide charge
-  // exceeds the shared three-plane payload ledger and leaves the full
-  // transport unchanged.
+  // Separate modules retain their own lexical SSA while sharing immutable
+  // payload descriptions; they do not replicate three-plane snapshots.
   compile("one_heavy.py", source(180000, true, false, false), true);
-  compile("two_heavy.py", source(180000, true, true, false), false,
-          "bounded for snapshot/header: Table query payload words budget exhausted");
+  compile("two_heavy.py", source(180000, true, true, false), true);
 
-  // Assignment reconstruction has a separate cumulative constant-byte owner.
+  // Alias assignments also preserve the existing payload rather than rebuild it.
   compile("one_assignment.py", source(20000, true, false, true), true);
-  compile("two_assignments.py", source(20000, true, true, true), false,
-          "Table query constant bytes budget exhausted");
+  compile("two_assignments.py", source(20000, true, true, true), true);
 
   auto packageWork = [](unsigned tripCount) {
     std::string text =
@@ -1073,7 +1132,11 @@ TEST_F(SourceMemoryBindingsTest,
     return text;
   };
   compile("package_work_control.py", packageWork(1), true);
-  compile("package_work.py", packageWork(600), false, "work");
+  compile("package_work.py", packageWork(600), true);
+  // Real expansion still pays the unchanged shared work limit before cloning.
+  compile("package_work_overflow.py",
+          packageWork(ac::HardwareSourceCheckLimits{}.maxWorkUnits + 1), false,
+          "source for expansion limit exceeded");
 }
 
 TEST_F(SourceMemoryBindingsTest, OptionalSourceImportIsTheVerifiedUnsimplifiedBody) {

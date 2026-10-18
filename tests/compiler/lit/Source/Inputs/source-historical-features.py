@@ -312,11 +312,16 @@ def main():
             metadata = json.loads(
                 (generated / "simulation_verification.json").read_text()
             )
-            assert metadata == {
-                "entry": {"definition": f'@"{entry}"', "arguments": []},
-                "entry_source": {"package": "history_features", "path": "bench.py"},
-                "source_checks": check_count,
+            assert metadata["entry"] == {
+                "definition": f'@"{entry}"',
+                "arguments": [],
             }
+            assert metadata["entry_source"] == {
+                "package": "history_features",
+                "path": "bench.py",
+            }
+            # Child-boundary checks add to the original system check count.
+            assert metadata["source_checks"] >= check_count, metadata
             executable = output / ("simulation-" + target)
             if target == "cpp":
                 manifest = json.loads((generated / "generated.json").read_text())

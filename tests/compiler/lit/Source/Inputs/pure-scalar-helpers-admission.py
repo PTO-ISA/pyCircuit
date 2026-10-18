@@ -271,6 +271,7 @@ def admission_cases():
     cases.extend(named_map_admission_cases())
     cases.extend(ordinary_contract_cases())
     cases.extend(loop_contract_cases())
+    cases.extend(aggregate_fact_admission_cases())
     return cases
 
 
@@ -457,7 +458,128 @@ def positive_controls():
         ("helper_zero_trip_existing_binder", "index: u8 = value\n    for index in range(0):\n        index = index + 1\n    return index"),
     ):
         controls.append({"name": name, "text": design(identity.replace("return value", body))})
+    controls.extend(aggregate_fact_controls())
+    # Repeated calls register distinct transactions under the current Rule
+    # contract. Retain the old rejection fixture as an acceptance/count oracle.
+    controls.append({
+        "name": "duplicate_autonomous_registration",
+        "text": PRELUDE + "@rule\ndef helper(value: u8) -> u8:\n    return value\n@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    first = helper(value)\n    second = helper(value)\n    return Result(value=first)\n",
+        "expected_source_transactions": 2,
+        "expected_final_rules": 2,
+    })
     return controls
+
+
+def aggregate_fact_controls():
+    return [
+        {
+            "name": "aggregate_scalar_nests_preserve_projected_kinds_and_ranges",
+            "text": PRELUDE + """@struct
+class Packet:
+    word: u8
+    lanes: table[3, u8]
+def bump(value: u8) -> u8:
+    return value + 1
+def number(value: Annotated[int, range(1 << 1)]) -> Annotated[int, range(1 << 1)]:
+    return value
+def truth(value: bool) -> bool:
+    return value
+def pack(value: u8, flag: bool, index: Annotated[int, range(1 << 1)], lanes: table[3, u8]) -> Packet:
+    advanced = bump(value)
+    selected = lanes[number(index)] if truth(flag) else advanced
+    return Packet(word=selected, lanes=lanes)
+def relay(value: Packet) -> Packet:
+    return value
+def consume(value: u8, flag: bool, index: Annotated[int, range(1 << 1)], lanes: table[3, u8]) -> u8:
+    packet = relay(pack(value, flag, index, lanes))
+    lane: u8 = packet.lanes[number(index)]
+    nibble: bits[4] = packet.word[:4]
+    widened: u8 = nibble
+    return lane + widened if truth(flag) else packet.word
+@module
+def Top(value: u8, flag: bool, index: Annotated[int, range(1 << 1)], lanes: table[3, u8]) -> Packet:
+    packet = relay(pack(value, flag, index, lanes))
+    selected = consume(value, truth(flag), number(index), packet.lanes)
+    return Packet(word=selected, lanes=packet.lanes)
+""",
+        },
+        {
+            "name": "table_return_update_then_index_projection_and_arithmetic",
+            "text": PRELUDE + """@struct
+class Cell:
+    word: u8
+def edited(values: table[3, Cell]) -> table[3, Cell]:
+    candidate = values
+    candidate[1].word = candidate[2].word + 1
+    return candidate
+def alias(values: table[3, Cell]) -> table[3, Cell]:
+    return values
+def widen(value: bits[4]) -> u8:
+    return value
+@module
+def Top(values: table[3, Cell], index: u1) -> u8:
+    returned = alias(edited(values))
+    selected = returned[index].word
+    widened = widen(returned[2].word[:4])
+    return selected + widened
+""",
+        },
+        {
+            "name": "scalar_helper_internal_comparison_refines_table_index",
+            "text": PRELUDE + """def selected(value: u8, lanes: table[3, u8]) -> u8:
+    index = value if value < 3 else 0
+    return lanes[index]
+@module
+def Top(value: u8, lanes: table[3, u8]) -> u8:
+    return selected(value, lanes)
+""",
+        },
+    ]
+
+
+def aggregate_fact_admission_cases():
+    prefix = PRELUDE + """@struct
+class Packet:
+    word: u8
+def relay(value: Packet) -> Packet:
+    return value
+def integer(value: Annotated[int, range(1 << 1)]) -> u8:
+    return value
+def boolean(value: bool) -> u8:
+    return 1 if value else 0
+def predicate(packet: Packet, value: bool) -> bool:
+    return value if packet.word == 0 else value
+def number(packet: Packet, value: Annotated[int, range(1 << 1)]) -> Annotated[int, range(1 << 1)]:
+    return value
+"""
+    cases = []
+    for name, expression in (
+        ("aggregate_boolean_cannot_bind_integer", "integer(predicate(packet, flag))"),
+        ("aggregate_integer_cannot_bind_boolean", "boolean(number(packet, index))"),
+    ):
+        cases.append({
+            "name": name,
+            "text": prefix + """@module
+def Top(flag: bool, index: Annotated[int, range(1 << 1)]) -> u8:
+    packet = relay(Packet(word=0))
+    return """ + expression + "\n",
+            "categories": ("kind", "boolean", "integer"),
+        })
+    cases.append({
+        "name": "aggregate_return_does_not_narrow_unchecked_table_index",
+        "text": PRELUDE + """@struct
+class Packet:
+    index: u2
+def relay(value: Packet) -> Packet:
+    return value
+@module
+def Top(index: u2, lanes: table[3, u8]) -> u8:
+    packet = relay(Packet(index=index))
+    return lanes[packet.index]
+""",
+        "categories": ("index", "range", "bound"),
+    })
+    return cases
 
 
 def ordinary_contract_cases():
@@ -470,7 +592,6 @@ def ordinary_contract_cases():
         ("helper_missing_return_annotation", design(identity.replace(" -> u8", "")), ("return", "annotat", "helper")),
         ("helper_module_allocation", design(identity.replace("return value", "allocated = Child(value)\n    return allocated"), extra="@module\ndef Child(value: u8) -> u8:\n    return value\n"), ("module", "alloc", "helper", "pure")),
         ("helper_from_caller_local_definition", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def run() -> Result:\n        def helper(arg: u8) -> u8:\n            return arg\n        return Result(value=helper(value))\n    return run()\n", ("helper", "nested", "declaration", "scope")),
-        ("duplicate_autonomous_registration", PRELUDE + legacy + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    first = helper(value)\n    second = helper(value)\n    return Result(value=first)\n", ("once", "registration", "duplicate")),
         ("implicit_owner_capture", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    state: u8 = 0\n    @rule\n    def update():\n        state = value\n    update()\n    def helper(arg: u8) -> u8:\n        return state\n    return Result(value=helper(value))\n", ("owner", "state", "captur", "helper")),
         ("helper_calls_rule", PRELUDE + "@struct\nclass Result:\n    value: u8\n@module\ndef Top(value: u8) -> Result:\n    @rule\n    def tick() -> u8:\n        return value\n    def helper(arg: u8) -> u8:\n        return tick()\n    return Result(value=helper(value))\n", ("rule", "helper", "pure")),
     ]

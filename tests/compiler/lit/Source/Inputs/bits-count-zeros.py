@@ -135,7 +135,7 @@ TRACE_WIDTH = sum(width for _, width in FIELDS)
 DESIGN = """from enum import Enum
 import pycircuit as ac
 from pycircuit import count_leading_zeros as leading, count_trailing_zeros as trailing
-from count_zero_probe.provider import Fixed
+from count_zero_probe.provider import Fixed, FixedResult
 @ac.encoding(width=3)
 class State(Enum):
     ZERO = 0
@@ -145,19 +145,22 @@ class ProbeResult:
 """ + "".join(
     f"    {name}: ac.bits[{width}]\n" for name, width in FIELDS
 )
-DESIGN += (
-    "@ac.rule\ndef evaluate("
-    + ", ".join(f"w{w}" for w in WIDTHS)
-    + ", state, child) -> ProbeResult:\n"
-)
-DESIGN += "    alias = w5\n    result = ProbeResult()\n"
-DESIGN += "".join(
-    f"    result.{direction}{w} = ac.{HELPERS[direction]}(w{w})\n"
-    for w in WIDTHS
-    for direction in DIRECTIONS
-)
-DESIGN += "    local = alias + 1\n"
 for direction in DIRECTIONS:
+    direction_fields = [field for field in FIELDS if field[0].startswith(direction)]
+    result_name = direction.title() + "Result"
+    DESIGN += f"@ac.struct\nclass {result_name}:\n" + "".join(
+        f"    {name}: ac.bits[{width}]\n" for name, width in direction_fields
+    )
+    DESIGN += (
+        f"def evaluate_{direction}("
+        + ", ".join(f"w{w}: ac.bits[{w}]" for w in WIDTHS)
+        + f", state: State, child: FixedResult) -> {result_name}:\n"
+    )
+    DESIGN += f"    result = {result_name}()\n"
+    DESIGN += "".join(
+        f"    result.{direction}{w} = ac.{HELPERS[direction]}(w{w})\n" for w in WIDTHS
+    )
+    DESIGN += "    local = w5 + 1\n"
     helper = "ac." + HELPERS[direction]
     other = "trailing" if direction == "leading" else "leading"
     DESIGN += f"""    result.{direction}Widen1 = {direction}(w1)
@@ -168,17 +171,27 @@ for direction in DIRECTIONS:
     result.{direction}Child5 = {helper}(child.value)
     result.{direction}Nested73 = {helper}({other}(w73))
 """
-DESIGN += "    return result\n@ac.module\n"
+    DESIGN += "    return result\n"
+DESIGN += "@ac.module\n"
 DESIGN += (
     "def Top("
     + ", ".join(f"w{w}: ac.bits[{w}]" for w in WIDTHS)
     + ", state: State) -> ProbeResult:\n"
 )
 DESIGN += (
-    "    child = Fixed(w5)\n    return evaluate("
+    "    child = Fixed(w5)\n"
+    "    leading_result = evaluate_leading("
     + ", ".join(f"w{w}" for w in WIDTHS)
     + ", state, child)\n"
+    "    trailing_result = evaluate_trailing("
+    + ", ".join(f"w{w}" for w in WIDTHS)
+    + ", state, child)\n"
+    "    result = ProbeResult()\n"
 )
+for name, _ in FIELDS:
+    direction = next(item for item in DIRECTIONS if name.startswith(item))
+    DESIGN += f"    result.{name} = {direction}_result.{name}\n"
+DESIGN += "    return result\n"
 PREFIX = "from typing import Annotated\nfrom enum import Enum\nimport pycircuit as ac\n"
 
 
@@ -247,8 +260,14 @@ cases = {
         scalar("ac.count_leading_zeros(value)", "Record", prelude=struct_decl),
         fixed,
     ),
-    "tuple": (scalar("ac.count_leading_zeros((value, value))"), "unsupported"),
-    "list": (scalar("ac.count_leading_zeros([value])"), "unsupported"),
+    "tuple": (
+        scalar("ac.count_leading_zeros((value, value))"),
+        "tuple/list literal requires an expected Table type",
+    ),
+    "list": (
+        scalar("ac.count_leading_zeros([value])"),
+        "tuple/list literal requires an expected Table type",
+    ),
     "string": (scalar('ac.count_leading_zeros("bits")'), "literal"),
     "table": (
         scalar(
@@ -501,18 +520,19 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
                 direction + "-evaluate-once": scalar(f"{call}(value + 1)", width=3),
                 direction
                 + "-captured-rule": PREFIX
-                + f"""@ac.module
- def Child(value: ac.u3) -> {{"out": ac.u3}}:
-     return {{"out": value}}
+                + f"""@ac.struct
+ class Result:
+     out: ac.u3
+ @ac.rule
+ def Child(value: ac.u3) -> Result:
+     return Result(out=value)
  @ac.module
- def Top(value: ac.u5) -> {{"out": ac.u3}}:
+ def Top(value: ac.u5) -> Result:
      alias = value
-     child = Child()
      @ac.rule
-     def bind():
-         child(value={call}(alias))
-     bind()
-     return {{"out": child.out}}
+     def bind() -> Result:
+         return Child({call}(alias))
+     return bind()
 """.replace(
                     "\n ", "\n"
                 ),

@@ -40,6 +40,8 @@ struct Context {
     require(epoch < row_count);
     pyc_dut::Inputs ports;
     drive(ports, epoch);
+    ports.pyc_7079635f636c6b = input<1>("0");
+    ports.pyc_7079635f727374 = input<1>("0");
     self.dut.drive(ports);
     return true;
   }

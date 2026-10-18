@@ -16,7 +16,27 @@ module tb;
   // occupying the most significant bits. Unpack only for the existing oracle.
   assign {allocate_accepted, allocated_index, complete_accepted, retire_accepted,
           retired_tag, retired_value, count} = result;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   pyc_root dut(.*);
+  // Freeze permission from the complete prepared error channel before Xfer.
+  task automatic checked_prepare;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 &&
+                        pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin
+      pyc_phase=3;#1;
+      $fatal(1,"prepared ROB row failed completion/sampling/check validation");
+    end
+  endtask
+  task automatic checked_xfer;
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
 
   // Independent scoreboard: expected values only, never DUT state or outputs.
   bit valid[4], done[4];
@@ -27,6 +47,7 @@ module tb;
   task sample_row(input bit clock_level, a, input int tag,
                   input bit c, input int idx, ctag, val,
                   input bit r, f);
+    pyc_7079635f636c6b=clock_level;
     allocate=a; allocate_tag=8'(tag); complete=c; complete_index=2'(idx);
     complete_tag=8'(ctag); complete_value=16'(val); retire=r; flush=f;
     ea=0;ec=0;er=0;ei=0;et=0;ev=0;
@@ -46,7 +67,7 @@ module tb;
         tail=(tail+1)%4;occupancy=occupancy+1;
       end
     end
-    #1;
+    #1;checked_prepare();
     if(allocate_accepted!==1'(ea) || complete_accepted!==1'(ec) ||
        retire_accepted!==1'(er) || allocated_index!==2'(ei) ||
        retired_tag!==8'(et) || retired_value!==16'(ev) || count!==3'(occupancy))
@@ -55,7 +76,7 @@ module tb;
              retire_accepted,allocated_index,retired_tag,retired_value,count);
     $display("WORK %0d %0d %0d %0d %0d %0d %0d",allocate_accepted,
              complete_accepted,retire_accepted,allocated_index,retired_tag,retired_value,count);
-    pyc_7079635f636c6b=clock_level;#1;
+    checked_xfer();
   endtask
   task event_row(input bit a,input int tag,input bit c,input int idx,ctag,val,
                  input bit r,f);
@@ -65,7 +86,8 @@ module tb;
   initial begin
     for(int i=0;i<4;i++)begin valid[i]=0;done[i]=0;tags[i]=0;values[i]=0;end
     // Physical reset establishes the same starting state as native host Reset.
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;checked_prepare();checked_xfer();
+    pyc_7079635f636c6b=0;checked_prepare();checked_xfer();pyc_7079635f727374=0;#1;
     event_row(0,0,1,0,0,7,1,0);
     event_row(1,11,0,0,0,0,0,0);event_row(1,12,0,0,0,0,0,0);
     event_row(1,13,0,0,0,0,0,0);event_row(1,14,0,0,0,0,0,0);

@@ -1,3 +1,5 @@
+#include "Compiler/SourceUnit.h"
+#include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/Diagnostics.h"
@@ -21,6 +23,7 @@
 
 namespace acir::ac {
 namespace {
+namespace compiler = acir::compiler;
 
 // Native, intermediate-IR provenance tests. These are neither source admission
 // nor simulation or transaction materialization evidence.
@@ -624,7 +627,8 @@ TEST_F(TransactionStateSSATest,
       << "pure nominal selection introduces no effect-control knownness";
   split.getElseRegion().front().getTerminator()->setOperand(0, a);
   auto invalid = analyze(*file);
-  EXPECT_FALSE(invalid->isValid()) << "an aggregate from the other arm is unavailable";
+  EXPECT_FALSE(invalid->isValid())
+      << "an aggregate from the other arm is unavailable";
   EXPECT_FALSE(diagnostics.empty());
 }
 
@@ -657,7 +661,7 @@ TEST_F(TransactionStateSSATest,
   EXPECT_NE(join.whenTrue, join.entry);
   EXPECT_EQ(join.whenFalse, join.entry);
   auto intent = llvm::find_if(plan->writes, [&](const auto &write) {
-    return write.operation.operator->() == identity;
+    return write.operation == identity;
   });
   ASSERT_NE(intent, plan->writes.end());
   EXPECT_NE(intent->version, intent->predecessor);
@@ -818,7 +822,8 @@ TEST_F(TransactionStateSSATest,
     ASSERT_TRUE(std::holds_alternative<BranchSelectControl>(
         plan->controls[selection.control].boundary));
     EXPECT_EQ(std::get<BranchSelectControl>(
-                  plan->controls[selection.control].boundary).selection,
+                  plan->controls[selection.control].boundary)
+                  .selection,
               *record.selection);
     EXPECT_LE(record.thenExitPrefix, record.elseExitPrefix);
     if (effect == "call") {
@@ -863,19 +868,20 @@ TEST_F(TransactionStateSSATest,
     ASSERT_TRUE(file);
     auto run = transaction(*file);
     auto &body = run.getBody().front();
-    auto outer = branch(body, body.begin(), body.getArgument(0),
-                        std::nullopt, std::nullopt, 20);
+    auto outer = branch(body, body.begin(), body.getArgument(0), std::nullopt,
+                        std::nullopt, 20);
     auto &outerArm = outer.getThenRegion().front();
     auto inner = branch(outerArm, outerArm.getTerminator()->getIterator(),
                         body.getArgument(0), std::nullopt, std::nullopt, 21);
     auto &innerArm = inner.getElseRegion().front();
     auto exemplar = *body.getOps<SourceMethodCallOp>().begin();
-    mlir::OperationState call(run.getLoc(), SourceMethodCallOp::getOperationName());
+    mlir::OperationState call(run.getLoc(),
+                              SourceMethodCallOp::getOperationName());
     call.addAttributes(exemplar->getAttrs());
-    call.attributes.set("callee", mlir::SymbolRefAttr::get(
-                                     &context, "Child",
-                                     {mlir::FlatSymbolRefAttr::get(&context,
-                                                                   callee)}));
+    call.attributes.set("callee",
+                        mlir::SymbolRefAttr::get(
+                            &context, "Child",
+                            {mlir::FlatSymbolRefAttr::get(&context, callee)}));
     call.attributes.set("occurrence", occurrence("Root", 22));
     call.addOperands(body.getArgument(0));
     if (callee == "bump")
@@ -890,7 +896,8 @@ TEST_F(TransactionStateSSATest,
     ASSERT_NE(plan, nullptr);
     ASSERT_EQ(plan->branches.size(), 2u);
     ASSERT_EQ(plan->selections.size(), 2u);
-    EXPECT_EQ(plan->controls.size(), plan->guards.size() + plan->selections.size());
+    EXPECT_EQ(plan->controls.size(),
+              plan->guards.size() + plan->selections.size());
     EXPECT_EQ(plan->frames.size(), plan->guards.size());
     for (InvocationFrameId frame = 0; frame < plan->frames.size(); ++frame) {
       auto guard = plan->frames[frame].guard;
@@ -901,7 +908,8 @@ TEST_F(TransactionStateSSATest,
       ASSERT_TRUE(std::holds_alternative<CallableGuardControl>(
           plan->controls[control].boundary));
       EXPECT_EQ(std::get<CallableGuardControl>(plan->controls[control].boundary)
-                    .guard, guard);
+                    .guard,
+                guard);
     }
     EXPECT_TRUE(plan->branches[0].selection);
     EXPECT_TRUE(plan->branches[1].selection);
@@ -927,7 +935,8 @@ TEST_F(TransactionStateSSATest,
       EXPECT_GE(event.point.prefix, previous);
       EXPECT_LE(event.point.prefix, plan->controls.size());
       previous = event.point.prefix;
-      unsigned payloads = unsigned(bool(event.read)) + unsigned(bool(event.write)) +
+      unsigned payloads =
+          unsigned(bool(event.read)) + unsigned(bool(event.write)) +
           unsigned(bool(event.guard)) + unsigned(bool(event.call)) +
           unsigned(bool(event.selection)) + unsigned(bool(event.bodyCheck)) +
           unsigned(bool(event.observation)) + unsigned(bool(event.branch)) +
@@ -935,7 +944,8 @@ TEST_F(TransactionStateSSATest,
       EXPECT_EQ(payloads,
                 event.kind == TransactionStateEventKind::TransactionEnter ||
                         event.kind == TransactionStateEventKind::TransactionExit
-                    ? 0u : 1u);
+                    ? 0u
+                    : 1u);
     }
     EXPECT_EQ(previous, plan->controls.size());
   }
@@ -982,10 +992,12 @@ TEST_F(TransactionStateSSATest,
     auto *exit = event(*plan, TransactionStateEventKind::CallExit, id);
     ASSERT_NE(enter, nullptr);
     ASSERT_NE(exit, nullptr);
-    EXPECT_EQ(enter->point.prefix, plan->guards[plan->frames[plan->calls[id].callee].guard].control);
+    EXPECT_EQ(enter->point.prefix,
+              plan->guards[plan->frames[plan->calls[id].callee].guard].control);
     EXPECT_GT(exit->point.prefix, enter->point.prefix);
     for (const auto &result : plan->calls[id].results)
-      EXPECT_EQ(exit->point.prefix, plan->values[result.result].validity.prefix);
+      EXPECT_EQ(exit->point.prefix,
+                plan->values[result.result].validity.prefix);
   }
 
   for (StateReadId id = 0; id < plan->reads.size(); ++id) {
@@ -1005,12 +1017,13 @@ TEST_F(TransactionStateSSATest,
     ASSERT_LT(write.version, plan->versions.size());
     ASSERT_LT(write.value, plan->values.size());
     const auto &version = plan->versions[write.version];
-    EXPECT_EQ(
-        version.validity.prefix,
-        std::max(writeEvent->point.prefix, plan->values[write.value].validity.prefix));
+    EXPECT_EQ(version.validity.prefix,
+              std::max(writeEvent->point.prefix,
+                       plan->values[write.value].validity.prefix));
     auto *defining = plan->values[write.value].value.getDefiningOp();
     if (defining && mlir::isa<BitsBinaryOp>(defining))
-      EXPECT_EQ(plan->values[write.value].validity.prefix, writeEvent->point.prefix)
+      EXPECT_EQ(plan->values[write.value].validity.prefix,
+                writeEvent->point.prefix)
           << "pure payload results are defined under the current admission";
   }
 
@@ -1024,7 +1037,8 @@ TEST_F(TransactionStateSSATest,
   auto relayId = std::distance(plan->calls.begin(), relay);
   auto *relayExit = event(*plan, TransactionStateEventKind::CallExit, relayId);
   ASSERT_NE(relayExit, nullptr);
-  EXPECT_EQ(relayExit->point.prefix, 4u); // relay guard plus its nested bump guard.
+  EXPECT_EQ(relayExit->point.prefix,
+            4u); // relay guard plus its nested bump guard.
   EXPECT_EQ(plan->values[relay->results[0].yielded].validity.prefix,
             relayExit->point.prefix);
   EXPECT_EQ(plan->values[relay->results[0].result].validity.prefix,
@@ -1151,13 +1165,15 @@ TEST_F(TransactionStateSSATest,
   ASSERT_NE(binding, rootFrame.bodyArguments.end());
   EXPECT_EQ(plan->values[binding->actual].value, zero.getResult());
   EXPECT_EQ(plan->values[binding->actual].validity.prefix, 0u);
-  EXPECT_EQ(plan->versions[intent->version].validity.prefix, writeEvent->point.prefix);
+  EXPECT_EQ(plan->versions[intent->version].validity.prefix,
+            writeEvent->point.prefix);
   auto laterRead = llvm::find_if(plan->reads, [&](const auto &candidate) {
     return candidate.frame == plan->rootFrame &&
            candidate.version == intent->version;
   });
   ASSERT_NE(laterRead, plan->reads.end());
-  EXPECT_EQ(plan->values[laterRead->result].validity.prefix, writeEvent->point.prefix);
+  EXPECT_EQ(plan->values[laterRead->result].validity.prefix,
+            writeEvent->point.prefix);
 }
 
 TEST_F(TransactionStateSSATest,
@@ -1258,7 +1274,8 @@ TEST_F(TransactionStateSSATest,
   EXPECT_TRUE(noop->results.empty());
   EXPECT_TRUE(noop->entryVersions.empty());
   EXPECT_TRUE(noop->exitVersions.empty());
-  EXPECT_EQ(plan->guards[plan->frames[noop->callee].guard].domain, plan->domain);
+  EXPECT_EQ(plan->guards[plan->frames[noop->callee].guard].domain,
+            plan->domain);
 }
 
 TEST_F(TransactionStateSSATest,
@@ -1623,6 +1640,79 @@ TEST_F(TransactionStateSSATest,
   EXPECT_EQ(firstDump.find("0x"), std::string::npos);
 }
 
+TEST_F(TransactionStateSSATest,
+       LazyDumpOverflowKeepsCompletePlansAndPreservesPrepopulatedStream) {
+  // Generate repeated real state/call plans, rather than reading private work
+  // counters or changing the analysis cap. The bounded search selects a case
+  // where semantic construction succeeds but requested diagnostic spelling
+  // exceeds the remaining budget. An early small plan precedes every rich one.
+  bool found = false;
+  for (unsigned copies : {2u, 4u, 8u, 12u, 16u, 20u, 24u, 32u, 48u}) {
+    SCOPED_TRACE(copies);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto run = transaction(*file);
+    auto watch = transaction(*file, "watch");
+    watch->moveBefore(run);
+    llvm::SmallVector<SourceTransactionOp> registrations{watch, run};
+    auto root = module(*file, "Root");
+    for (unsigned i = 0; i < copies; ++i) {
+      auto extra = mlir::cast<SourceTransactionOp>(run->clone());
+      extra->setAttr("name",
+                     builder.getStringAttr("dump_copy_" + std::to_string(i)));
+      extra->setAttr("declaration", occurrence("Root", 100 + 2 * i));
+      extra->setAttr("occurrence", occurrence("Root", 101 + 2 * i));
+      root.getBody().front().getOperations().insert(
+          root.getBody().front().getTerminator()->getIterator(), extra);
+      registrations.push_back(extra);
+    }
+    auto operations = identities(*file);
+    std::vector<mlir::DictionaryAttr> attributes;
+    std::vector<std::vector<mlir::Value>> operands;
+    for (auto *operation : operations) {
+      attributes.push_back(operation->getAttrDictionary());
+      operands.emplace_back(operation->operand_begin(),
+                            operation->operand_end());
+    }
+    auto analysis = analyze(*file);
+    if (!analysis->isValid())
+      continue;
+    for (auto registration : registrations)
+      ASSERT_NE(analysis->lookup(registration), nullptr);
+    std::string probe;
+    llvm::raw_string_ostream probeStream(probe);
+    auto result = capture([&] { return analysis->print(probeStream); });
+    if (mlir::succeeded(result))
+      continue;
+    found = true;
+    EXPECT_TRUE(probe.empty()) << "no early-plan prefix may escape";
+    EXPECT_NE(diagnostics.find("transaction dump reservation"),
+              std::string::npos)
+        << diagnostics;
+    for (unsigned repeat = 0; repeat < 2; ++repeat) {
+      std::string protectedText = "existing destination bytes\n";
+      llvm::raw_string_ostream protectedStream(protectedText);
+      EXPECT_TRUE(mlir::failed(
+          capture([&] { return analysis->print(protectedStream); })));
+      protectedStream.flush();
+      EXPECT_EQ(protectedText, "existing destination bytes\n");
+      EXPECT_TRUE(analysis->isValid());
+      for (auto registration : registrations)
+        EXPECT_NE(analysis->lookup(registration), nullptr);
+    }
+    EXPECT_EQ(operations, identities(*file));
+    for (auto [i, operation] : llvm::enumerate(operations)) {
+      EXPECT_EQ(operation->getAttrDictionary(), attributes[i]);
+      EXPECT_EQ(std::vector<mlir::Value>(operation->operand_begin(),
+                                         operation->operand_end()),
+                operands[i]);
+    }
+    break;
+  }
+  EXPECT_TRUE(found)
+      << "bounded real-plan package must separate semantic and dump admission";
+}
+
 TEST_F(TransactionStateSSATest, AnalysisManagerInvalidatesAfterIRMutation) {
   auto file = parse();
   ASSERT_TRUE(file);
@@ -1645,6 +1735,39 @@ TEST_F(TransactionStateSSATest, AnalysisManagerInvalidatesAfterIRMutation) {
   });
   EXPECT_FALSE(rebuilt.isValid());
   EXPECT_EQ(rebuilt.lookup(run), nullptr);
+}
+
+TEST_F(TransactionStateSSATest,
+       FreshAnalysisRevalidatesReceiverInventoryAfterMutation) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  mlir::ModuleAnalysisManager manager(file->getOperation(), nullptr);
+  mlir::AnalysisManager am = manager;
+  auto &initial = capture([&]() -> SourceTransactionStateAnalysis & {
+    return am.getAnalysis<SourceTransactionStateAnalysis>();
+  });
+  ASSERT_TRUE(initial.isValid()) << diagnostics;
+
+  auto root = module(*file, "Root");
+  auto instances = root.getBody().front().getOps<InstanceOp>();
+  auto left = *instances.begin();
+  auto rightIterator = std::next(instances.begin());
+  ASSERT_NE(rightIterator, instances.end());
+  auto right = *rightIterator;
+  right->setAttr("occurrence", left.getOccurrence());
+  am.invalidate(mlir::detail::PreservedAnalyses());
+  EXPECT_FALSE(
+      am.getCachedAnalysis<SourceTransactionStateAnalysis>().has_value());
+
+  auto &rebuilt = capture([&]() -> SourceTransactionStateAnalysis & {
+    return am.getAnalysis<SourceTransactionStateAnalysis>();
+  });
+  EXPECT_FALSE(rebuilt.isValid());
+  EXPECT_EQ(rebuilt.lookup(transaction(*file)), nullptr);
+  EXPECT_EQ(rebuilt.lookup(transaction(*file, "watch")), nullptr);
+  EXPECT_NE(diagnostics.find("distinct names and occurrence identities"),
+            std::string::npos)
+      << diagnostics;
 }
 
 TEST_F(TransactionStateSSATest,
@@ -2446,6 +2569,138 @@ TEST_F(TransactionStateSSATest,
 }
 
 TEST_F(TransactionStateSSATest,
+       WarmStaticLiteralGrammarDoesNotBypassRawGraphBounds) {
+  // Warm the exact literal grammar first. Its raw graph still has to pass the
+  // depth and expanded-occurrence preflight before any native scope shortcut.
+  for (unsigned graph = 0; graph < 3; ++graph) {
+    SCOPED_TRACE(graph);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    auto base = first<BitsConstantOp>(child.getBody()).getValue();
+    auto tree = base.getTree();
+    if (graph != 2) {
+      auto value = tree.getAs<mlir::DictionaryAttr>("value");
+      for (unsigned i = 0; i < (graph == 1 ? 18u : 140u); ++i)
+        value = builder.getDictionaryAttr(
+            {builder.getNamedAttr("kind", builder.getStringAttr("list")),
+             builder.getNamedAttr(
+                 "values", graph == 1 ? builder.getArrayAttr({value, value})
+                                      : builder.getArrayAttr({value}))});
+      mlir::NamedAttrList changed(tree);
+      changed.set("value", value);
+      tree = changed.getDictionary(&context);
+    }
+    ASSERT_TRUE(mlir::succeeded(capture([&] {
+      return StaticExprAttr::verify(
+          [&] { return mlir::emitError(mlir::UnknownLoc::get(&context)); },
+          tree);
+    }))) << diagnostics;
+    ASSERT_TRUE(detail::isVerifiedStaticExpressionGrammar(tree));
+    mlir::Attribute payload = StaticExprAttr::get(&context, tree);
+    if (graph == 2)
+      for (unsigned i = 0; i < 140; ++i)
+        payload = builder.getArrayAttr({payload});
+    child->setAttr("test_warm_static_grammar", payload);
+    auto operations = identities(*file);
+    std::vector<mlir::DictionaryAttr> attributes;
+    for (mlir::Operation *operation : operations)
+      attributes.push_back(operation->getAttrDictionary());
+    auto analysis = analyzeRawPreflightFailure(*file);
+    EXPECT_FALSE(analysis->isValid());
+    EXPECT_NE(diagnostics.find(graph == 1 ? "attribute/type graph expansion"
+                                          : "attribute/type graph depth"),
+              std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(analysis->lookup(transaction(*file)), nullptr);
+    EXPECT_EQ(analysis->lookup(transaction(*file, "watch")), nullptr);
+    EXPECT_EQ(operations, identities(*file));
+    for (auto [index, operation] : llvm::enumerate(operations))
+      EXPECT_EQ(operation->getAttrDictionary(), attributes[index]);
+    EXPECT_EQ(child->getAttr("test_warm_static_grammar"), payload);
+    std::string partial;
+    llvm::raw_string_ostream stream(partial);
+    EXPECT_TRUE(mlir::failed(analysis->print(stream)));
+    EXPECT_TRUE(partial.empty());
+  }
+}
+
+TEST_F(TransactionStateSSATest,
+       WarmStaticReferenceGrammarStillRejectsForeignModuleOwnership) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto base = first<BitsConstantOp>(child.getBody()).getValue();
+  mlir::NamedAttrList fields(base.getTree());
+  fields.set("kind", builder.getStringAttr("reference"));
+  fields.erase("value");
+  fields.set(
+      "ref",
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("kind", builder.getStringAttr("parameter")),
+           builder.getNamedAttr(
+               "owner", mlir::FlatSymbolRefAttr::get(&context, "Child")),
+           builder.getNamedAttr("name", builder.getStringAttr("WIDTH"))}));
+  auto tree = fields.getDictionary(&context);
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return StaticExprAttr::verify(
+        [&] { return mlir::emitError(mlir::UnknownLoc::get(&context)); }, tree);
+  }))) << diagnostics;
+  ASSERT_TRUE(detail::isVerifiedStaticExpressionGrammar(tree));
+  module(*file, "Root")
+      ->setAttr("test_foreign_static_reference",
+                StaticExprAttr::get(&context, tree));
+  reject(*file);
+  EXPECT_NE(diagnostics.find("hardware static reference must name an integer "
+                             "formal of its owning module"),
+            std::string::npos)
+      << diagnostics;
+  EXPECT_TRUE(detail::isVerifiedStaticExpressionGrammar(tree));
+}
+
+TEST_F(TransactionStateSSATest,
+       WarmOccurrenceGrammarDoesNotBypassRawAttributeGraphBounds) {
+  for (bool exponential : {false, true}) {
+    SCOPED_TRACE(exponential ? "expanded" : "depth");
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    mlir::DictionaryAttr value = builder.getDictionaryAttr(
+        {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+         builder.getNamedAttr("value",
+                              MathIntAttr::get(&context, llvm::APSInt("1")))});
+    for (unsigned i = 0; i < (exponential ? 18u : 140u); ++i)
+      value = builder.getDictionaryAttr(
+          {builder.getNamedAttr("kind", builder.getStringAttr("list")),
+           builder.getNamedAttr(
+               "values", exponential ? builder.getArrayAttr({value, value})
+                                     : builder.getArrayAttr({value}))});
+    auto origin = occurrence("Child", 90);
+    auto frame = builder.getDictionaryAttr(
+        {builder.getNamedAttr("kind", builder.getStringAttr("iteration")),
+         builder.getNamedAttr("site", origin.get("site")),
+         builder.getNamedAttr("ordinal", builder.getI64IntegerAttr(0)),
+         builder.getNamedAttr("value", value)});
+    origin = builder.getDictionaryAttr(
+        {builder.getNamedAttr("site", origin.get("site")),
+         builder.getNamedAttr("expansion", builder.getArrayAttr({frame}))});
+    ASSERT_TRUE(mlir::succeeded(capture([&] {
+      return detail::verifyOccurrence(origin, [&] {
+        return mlir::emitError(mlir::UnknownLoc::get(&context));
+      });
+    }))) << diagnostics;
+    ASSERT_TRUE(detail::isVerifiedOccurrenceGrammar(origin));
+    child->setAttr("test_warm_grammar", origin);
+    auto analysis = analyzeRawPreflightFailure(*file);
+    EXPECT_FALSE(analysis->isValid());
+    EXPECT_NE(diagnostics.find(exponential ? "attribute/type graph expansion"
+                                           : "attribute/type graph depth"),
+              std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(TransactionStateSSATest,
        DeepAndExponentiallyRepeatedInvocationsAreBounded) {
   for (bool exponential : {false, true}) {
     auto file = parse();
@@ -2504,6 +2759,289 @@ TEST_F(TransactionStateSSATest,
                 diagnostics.find("budget") != std::string::npos)
         << diagnostics;
   }
+}
+
+// These registered-IR tests cover queue plan records only, not execution.
+std::string queueStateFixture(llvm::StringRef effects,
+                              bool conditional = false) {
+  std::string text = stateFixture();
+  auto replace = [&](llvm::StringRef from, llvm::StringRef to) {
+    size_t at = text.find(from.str());
+    EXPECT_NE(at, std::string::npos) << from.str();
+    if (at != std::string::npos)
+      text.replace(at, from.size(), to.str());
+  };
+  replace("%answer = \"ac.transaction\"", "\"ac.transaction\"");
+  replace("\"ac.yield\"(%first) : (!b8) -> ()", "\"ac.yield\"() : () -> ()");
+  replace("(!b1, !b1, !b1, !b8, !b8, !b1, !b1) -> !b8",
+          "(!b1, !b1, !b1, !b8, !b8, !b1, !b1) -> ()");
+  replace("\"ac.yield\"(%answer) : (!b8) -> ()", "\"ac.yield\"() : () -> ()");
+  replace(
+      "function_type = (!b8, !b1, !b1, !b1) -> !b8, input_names = [\"seed\", "
+      "\"flag\", \"pyc_clk\", \"pyc_rst\"], output_names = [\"answer\"]",
+      "function_type = (!b8, !b1, !b1, !b1) -> (), input_names = [\"seed\", "
+      "\"flag\", \"pyc_clk\", \"pyc_rst\"], output_names = []");
+  std::string allocation = R"ir(
+    %ready, %valid, %head, %head_capacity = "ac.instance"(%clk, %rst, %no, %initial, %no) {
+      instance_name = "fifo", occurrence = #c25,
+      callee = @pycircuit.__builtins__.fifo_downstream_pop,
+      parameters = [#w1, #w1], type_arguments = [!b8],
+      ac.source_unbound_push = true, ac.source_unbound_pop = true,
+      ac.payload_constraint = #byte
+    } : (!b1, !b1, !b1, !b8, !b1) -> (!b1, !b1, !b8, !b1)
+)ir";
+  std::string noop = R"ir(    "ac.method"(%yes) ({
+    ^bb0(%path: !b1):
+      "ac.yield"(%path) : (!b1) -> ()
+    }, {
+    ^bb0(%path: !b1):
+      "ac.yield"() : () -> ()
+    }) {sym_name = "noop")ir";
+  std::string definition = conditional ? R"ir(    "ac.method"(%yes, %flag) ({
+    ^bb0(%path: !b1, %select: !b1):
+      "ac.yield"(%path) : (!b1) -> ()
+    }, {
+    ^bb0(%path: !b1, %select: !b1):
+)ir"
+                                       : R"ir(    "ac.method"(%yes) ({
+    ^bb0(%path: !b1):
+      "ac.yield"(%path) : (!b1) -> ()
+    }, {
+    ^bb0(%path: !b1):
+)ir";
+  definition += effects.str();
+  definition += R"ir(
+      "ac.yield"() : () -> ()
+    }) {sym_name = "noop")ir";
+  replace(noop, allocation + definition);
+  if (conditional)
+    replace("ac.return_form = \"none\", ac.guard_location = #span, occurrence "
+            "= #c11} : (!b1) -> ()",
+            "ac.return_form = \"none\", ac.guard_location = #span, occurrence "
+            "= #c11} : (!b1, !b1) -> ()");
+  return text;
+}
+
+mlir::OwningOpRef<mlir::ModuleOp>
+parseQueueStateFixture(llvm::StringRef text, mlir::MLIRContext &context) {
+  auto file = mlir::parseSourceString<mlir::ModuleOp>(
+      text, mlir::ParserConfig(&context, /*verifyAfterParse=*/false));
+  if (!file)
+    return {};
+  auto registry = compiler::SourceHeaderRegistry::create(&context, {}, [&] {
+    return mlir::emitError(mlir::UnknownLoc::get(&context));
+  });
+  if (failed(registry))
+    return {};
+  mlir::OpBuilder insertion = mlir::OpBuilder::atBlockBegin(file->getBody());
+  for (llvm::StringRef kind : {"fifo_local", "fifo_downstream_pop"}) {
+    auto builtin = registry->lookupBuiltin(kind);
+    if (!builtin)
+      return {};
+    insertion.insert(builtin.declaration->clone());
+  }
+  if (failed(mlir::verify(*file)))
+    return {};
+  return file;
+}
+
+TEST_F(TransactionStateSSATest,
+       QueuePlanRetainsCommittedHeadAndOrderedDemands) {
+  auto text = queueStateFixture(R"ir(
+      %peek0 = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@peek, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+      %peek1 = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@peek, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
+      %popped = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c28, ac.location = #span} : (!b1) -> !b8
+      "ac.method.call"(%path, %popped) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@push, instance_path = ["fifo"], occurrence = #c29, ac.location = #span} : (!b1, !b8) -> ()
+)ir");
+  auto file = parseQueueStateFixture(text, context);
+  ASSERT_TRUE(file);
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->queueOwners.size(), 1u);
+  ASSERT_EQ(plan->queueAccesses.size(), 4u);
+  const auto &owner = plan->queueOwners[0];
+  EXPECT_EQ(owner.instancePath.size(), 1u);
+  EXPECT_EQ(owner.domain, plan->domain);
+  EXPECT_EQ(owner.config.depth, 1u);
+  EXPECT_TRUE(owner.unboundPush);
+  EXPECT_TRUE(owner.unboundPop);
+  auto allocation = owner.allocation;
+  EXPECT_EQ(plan->values[owner.data].value, allocation.getOutputs()[2]);
+  EXPECT_EQ(plan->values[owner.valid].value, allocation.getOutputs()[1]);
+  EXPECT_EQ(plan->queueAccesses[0].kind, TransactionQueueAccessKind::Peek);
+  EXPECT_EQ(plan->queueAccesses[1].kind, TransactionQueueAccessKind::Peek);
+  EXPECT_EQ(plan->queueAccesses[2].kind, TransactionQueueAccessKind::Pop);
+  EXPECT_EQ(plan->queueAccesses[3].kind, TransactionQueueAccessKind::Push);
+  EXPECT_NE(plan->queueAccesses[0].result, plan->queueAccesses[1].result);
+  EXPECT_EQ(plan->queueAccesses[3].payload, plan->queueAccesses[2].result);
+  for (const auto &access : plan->queueAccesses) {
+    ASSERT_TRUE(access.location);
+    EXPECT_EQ(
+        access.location,
+        access.operation->getAttrOfType<mlir::DictionaryAttr>("ac.location"));
+  }
+  unsigned eventCount = 0;
+  for (const auto &event : plan->events)
+    if (event.kind == TransactionStateEventKind::QueueAccess) {
+      ASSERT_TRUE(event.queueAccess);
+      EXPECT_EQ(*event.queueAccess, eventCount++);
+    }
+  EXPECT_EQ(eventCount, 4u);
+  std::string dump;
+  llvm::raw_string_ostream output(dump);
+  EXPECT_TRUE(mlir::succeeded(analysis->print(output)));
+  EXPECT_NE(dump.find("queue-owner q0"), std::string::npos);
+  EXPECT_NE(dump.find("kind=pop"), std::string::npos);
+}
+
+TEST_F(TransactionStateSSATest,
+       ReceiverInventoryReuseKeepsMultiQueueFanoutAcrossPlansWithinBudget) {
+  auto text = queueStateFixture(R"ir(
+      %popped = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+)ir");
+  auto file = parseQueueStateFixture(text, context);
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto noop = method(*file, "noop");
+  auto allocation = *child.getBody().front().getOps<InstanceOp>().begin();
+  auto call = *noop.getBody().front().getOps<SourceMethodCallOp>().begin();
+  constexpr unsigned queueCount = 24;
+  auto appendCall = [&](SourceMethodCallOp exemplar, SourceMethodOp target,
+                        llvm::StringRef name, unsigned ordinal) {
+    auto copy = mlir::cast<SourceMethodCallOp>(exemplar->clone());
+    copy->setOperand(0, target.getBody().front().getArgument(0));
+    copy->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr(name)}));
+    copy->setAttr("occurrence", occurrence("Child", ordinal));
+    target.getBody().front().getOperations().insert(
+        target.getBody().front().getTerminator()->getIterator(), copy);
+  };
+  for (unsigned i = 1; i < queueCount; ++i) {
+    std::string name = "fifo_" + std::to_string(i);
+    auto copy = mlir::cast<InstanceOp>(allocation->clone());
+    copy->setAttr("instance_name", builder.getStringAttr(name));
+    copy->setAttr("occurrence", occurrence("Child", 40 + i));
+    child.getBody().front().getOperations().insert(
+        child.getBody().front().getTerminator()->getIterator(), copy);
+    appendCall(call, noop, name, 100 + i);
+  }
+
+  auto run = transaction(*file);
+  auto watch = transaction(*file, "watch");
+  SourceMethodCallOp rootNoop;
+  for (auto candidate : run.getBody().front().getOps<SourceMethodCallOp>())
+    if (candidate.getCalleeAttr().getLeafReference().getValue() == "noop")
+      rootNoop = candidate;
+  ASSERT_TRUE(rootNoop);
+  auto oldWatchCall = first<SourceMethodCallOp>(watch.getBody());
+  auto watchNoop = mlir::cast<SourceMethodCallOp>(rootNoop->clone());
+  watchNoop->setOperand(0, watch.getBody().front().getArgument(0));
+  watchNoop->setAttr("instance_path",
+                     builder.getArrayAttr({builder.getStringAttr("right")}));
+  watchNoop->setAttr("occurrence", oldWatchCall.getOccurrence());
+  watch.getBody().front().getOperations().insert(oldWatchCall->getIterator(),
+                                                 watchNoop);
+  oldWatchCall.erase();
+  llvm::SmallVector<SourceTransactionOp> registrations{run, watch};
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  llvm::SmallVector<mlir::ArrayAttr> receiverPaths;
+  for (auto registration : registrations) {
+    SCOPED_TRACE(registration.getName().str());
+    const auto *plan = analysis->lookup(registration);
+    ASSERT_NE(plan, nullptr);
+    ASSERT_EQ(plan->queueOwners.size(), queueCount);
+    ASSERT_EQ(plan->queueAccesses.size(), queueCount);
+    llvm::DenseSet<mlir::Operation *> allocations;
+    llvm::DenseSet<QueueOwnerId> owners;
+    for (const auto &owner : plan->queueOwners) {
+      EXPECT_TRUE(allocations.insert(owner.allocation).second);
+      ASSERT_EQ(owner.instancePath.size(), 1u);
+    }
+    for (const auto &access : plan->queueAccesses) {
+      EXPECT_EQ(access.kind, TransactionQueueAccessKind::Pop);
+      EXPECT_TRUE(owners.insert(access.owner).second);
+    }
+    EXPECT_EQ(allocations.size(), queueCount);
+    EXPECT_EQ(owners.size(), queueCount);
+    auto anchor = plan->queueOwners.front().anchor;
+    ASSERT_LT(anchor, plan->instances.size());
+    receiverPaths.push_back(plan->instances[anchor].occurrencePath);
+  }
+  ASSERT_EQ(receiverPaths.size(), 2u);
+  EXPECT_NE(receiverPaths[0], receiverPaths[1]);
+}
+
+TEST_F(TransactionStateSSATest, QueuePlanRejectsTwoClaimsOnOnePhysicalPort) {
+  auto text = queueStateFixture(R"ir(
+      %first = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+      %second = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
+)ir");
+  auto file = parseQueueStateFixture(text, context);
+  ASSERT_TRUE(file);
+  auto analysis = analyze(*file);
+  EXPECT_FALSE(analysis->isValid());
+  EXPECT_EQ(analysis->lookup(transaction(*file)), nullptr);
+  EXPECT_NE(diagnostics.find("potentially simultaneous same-port accesses"),
+            std::string::npos);
+}
+
+TEST_F(TransactionStateSSATest, QueuePlanKeepsExcludedBranchClaimsSeparate) {
+  auto text = queueStateFixture(R"ir(
+      "ac.branch"(%select) ({
+        %first = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+        "ac.yield"() : () -> ()
+      }, {
+        %second = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
+        "ac.yield"() : () -> ()
+      }) {occurrence = #c28, ac.condition_location = #span} : (!b1) -> ()
+)ir",
+                                true);
+  auto file = parseQueueStateFixture(text, context);
+  ASSERT_TRUE(file);
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  const auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->queueAccesses.size(), 2u);
+  EXPECT_EQ(plan->queueAccesses[0].point.path.branch,
+            plan->queueAccesses[1].point.path.branch);
+  EXPECT_NE(plan->queueAccesses[0].point.path.whenTrue,
+            plan->queueAccesses[1].point.path.whenTrue);
+}
+
+TEST_F(TransactionStateSSATest,
+       QueuePlanSeparatesSameTypedReceiverAllocations) {
+  auto text = queueStateFixture(R"ir(
+      %popped = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+)ir");
+  std::string call =
+      R"ir("ac.method.call"(%path) {callee = @Child::@noop, instance_path = ["left"], occurrence = #r13} : (!b1) -> ())ir";
+  auto at = text.find(call);
+  ASSERT_NE(at, std::string::npos);
+  text.insert(at + call.size(), R"ir(
+      "ac.method.call"(%path) {callee = @Child::@noop, instance_path = ["right"], occurrence = #r18} : (!b1) -> ()
+)ir");
+  auto file = parseQueueStateFixture(text, context);
+  ASSERT_TRUE(file);
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  const auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->queueOwners.size(), 2u);
+  ASSERT_EQ(plan->queueAccesses.size(), 2u);
+  EXPECT_EQ(plan->queueOwners[0].allocation, plan->queueOwners[1].allocation);
+  EXPECT_NE(plan->queueOwners[0].anchor, plan->queueOwners[1].anchor);
+  EXPECT_NE(plan->queueOwners[0].instancePath,
+            plan->queueOwners[1].instancePath);
+  EXPECT_NE(plan->queueOwners[0].data, plan->queueOwners[1].data);
+  EXPECT_NE(plan->queueAccesses[0].owner, plan->queueAccesses[1].owner);
+  EXPECT_NE(plan->queueAccesses[0].frame, plan->queueAccesses[1].frame);
 }
 
 } // namespace

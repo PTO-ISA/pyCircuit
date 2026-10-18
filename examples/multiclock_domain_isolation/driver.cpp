@@ -94,8 +94,8 @@ void drive(pyc_dut &dut, const Row &row) {
   dut.drive(in);
 }
 void check(const pyc_dut::Outputs &out, unsigned a, unsigned b) {
-  require(out.a_count.isFullyKnown() && out.a_count.value().value() == a);
-  require(out.b_count.isFullyKnown() && out.b_count.value().value() == b);
+  require(out.result_0.isFullyKnown() && out.result_0.value().value() == a);
+  require(out.result_1.isFullyKnown() && out.result_1.value().value() == b);
 }
 struct RunnerContext {
   pyc_dut &dut;
@@ -114,8 +114,8 @@ struct RunnerContext {
     const auto row = knownRow(self.sampled);
     const auto out = self.dut.sample();
     check(out, row.a, row.b);
-    std::cout << "WORK " << out.a_count.value().value() << ' '
-              << out.b_count.value().value() << '\n';
+    std::cout << "WORK " << out.result_0.value().value() << ' '
+              << out.result_1.value().value() << '\n';
     ++self.sampled;
   }
 };

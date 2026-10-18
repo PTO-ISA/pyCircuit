@@ -15,7 +15,7 @@ import pytest
 pytestmark = pytest.mark.system
 
 ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE = ROOT / "examples/module_loop"
+EXAMPLE = ROOT / "tests/fixtures/historical_examples/module_loop"
 DEFAULT_WHEEL_DIR = ROOT / ".pycircuit_out/source-wheel"
 SOURCES = ("child.py", "module_loop.py")
 BUILD_HELPERS = {
@@ -25,6 +25,7 @@ BUILD_HELPERS = {
 ACTIVE_EXPORTS = {
     "module",
     "rule",
+    "method",
     "system",
     "dff",
     "dffe",

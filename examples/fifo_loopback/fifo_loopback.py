@@ -16,12 +16,14 @@ class FifoResult:
 def FifoLoopback(  # noqa: N802
     in_valid: ac.u1, in_data: ac.u8, out_ready: ac.u1
 ) -> FifoResult:
-    in_ready, out_valid, out_data = ac.queue[ac.u8](
-        in_valid,
-        in_data,
-        out_ready,
+    buffer = ac.queue[ac.u8](
         depth=2,
-        ready_policy="downstream_pop",
         latency=1,
+        ready_policy="downstream_pop",
+        in_valid=in_valid,
+        in_data=in_data,
+        out_ready=out_ready,
     )
-    return FifoResult(in_ready=in_ready, out_valid=out_valid, out_data=out_data)
+    return FifoResult(
+        in_ready=buffer.ready, out_valid=buffer.valid, out_data=buffer.data
+    )

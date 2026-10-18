@@ -1,0 +1,81 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "multiclock_domain_isolation",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_multiclock_domain_isolation.multiclock_domain_isolation.MulticlockDomainIsolation\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "7d62bf2a6ac67fd490c7efbb7a7e35b8dd53444b47f7c82bf275f9bf88ba00fc",
+      "source/config.json": "3926419054e3547db55c695b04d0bf32ac2e9709755567d1a14b45609a2394e3",
+      "source/counter_lane.py": "d39627da73e003dc3a4d357b71e8278cb6cbdaf04d8e13ad2ecbb022e88a6090",
+      "source/driver.cpp": "0c3e81a9b7504f3a57b17d098815fab2c5c19499c948a2be2e74aa5a2f428c17",
+      "source/multiclock_domain_isolation.py": "caf9b5cecc978dae30f1e7deec86beae604443dde7d7748e0c327e23431d7be4",
+      "source/rtl_tb.sv": "b4f5aa34c6ec872986e63f1b67ebd66e96b3e19d8aba788c587b24e9fd26a617",
+      "build/cpp/generated.json": "b0a1234959c75bb8968bc79a364abcfc1d9b562bf1db161f87da211ab73bd14c",
+      "build/cpp/CMakeLists.txt": "c4711000169ef60825c22c7bb5b112605ad02819adfbcd7d3da257d74c59afbb",
+      "build/cpp/pycircuit_support.hpp": "04dafb5bcce855aa5e8f8f7c6bba0a6c1383759a9b0c7cd8ff266c96a0b98544",
+      "build/cpp/pycircuit_system.hpp": "a31a5c5518d44153296d1c0bbb9b71802ebf7a4f4372d88993e8274d374065c0",
+      "build/cpp/sources/example_multiclock_domain_isolation/counter_lane.cpp": "4de917b006995c4bae0fdd200812bf9172aacf749f8911c88815347a62f9d80b",
+      "build/cpp/sources/example_multiclock_domain_isolation/counter_lane.hpp": "9898b6df3e4f65dccf90b83755c4424ae65aa83b6bf3225dac17b663cfbf9879",
+      "build/cpp/sources/example_multiclock_domain_isolation/counter_lane.source-map.json": "142521c9b9bbd8f2b1faf14199f686ee4343ea7b0f5cc9855f3747068175c03f",
+      "build/cpp/sources/example_multiclock_domain_isolation/multiclock_domain_isolation.cpp": "2f6be7a20d99fc3453c99c721d9c26de1715ff9ab3504e087a0ac6c4cd69f00e",
+      "build/cpp/sources/example_multiclock_domain_isolation/multiclock_domain_isolation.hpp": "35ada2dfe4b9d13ccd3afa2f4705bbc37f8135c7383f3cd2a621e9b67f9b133b",
+      "build/cpp/sources/example_multiclock_domain_isolation/multiclock_domain_isolation.source-map.json": "fcdf27e5e928f6a0f31dc4d401aa8c9d3a1e27793b43b25d47fc475051a12ac4",
+      "build/verilog/generated.json": "4113ab7bd80517fb6b615b3148777ad32b83dcf464aed8a61cbbfc94cdcec662",
+      "build/verilog/CMakeLists.txt": "023b9ddc2a97845810af6fc1299e533eb61c8486f61ff81907fbdc5d3dbe4abc",
+      "build/verilog/design_top.sv": "20de906a50a5aed6c634975c730b10642eb39b7150cbf74028bf59d9927ec566",
+      "build/verilog/sources/example_multiclock_domain_isolation/counter_lane.source-map.json": "970fadb865eee6b18c12d4e768867f5ac979f51b4815fe62dfc4058b8a9fd836",
+      "build/verilog/sources/example_multiclock_domain_isolation/counter_lane.v": "a1ceec31a161e75aa5d4ffcb61df43723775cbcd00a1aa802f24987f9896e6a9",
+      "build/verilog/sources/example_multiclock_domain_isolation/multiclock_domain_isolation.source-map.json": "198cc00031c893673dbea8bf14928259449192e736ac47b4a95691591428df33",
+      "build/verilog/sources/example_multiclock_domain_isolation/multiclock_domain_isolation.v": "a5f77c16bc16402ef5db1da7c586953fec5fb4a2670dcd22c256ee422d5f675e",
+      "build/multiclock_domain_isolation.ac": "1a65ac098f3871bbdb9b453d7c326103b799af10a09f63479fbf869deaf0808d",
+      "build/units/.counter_lane.pycircuit-publication/owner.json": "a280a248e0ebb7b1aadefd081eff02cdaa0438319da7ab979159e7c7afc9662b",
+      "build/units/.multiclock_domain_isolation.pycircuit-publication/owner.json": "58b8c24b229b844fdd014fbc435f1c50b30fb0fe5eb201b9cd9a53bcab81d5be",
+      "build/units/counter_lane/counter_lane.ac": "8139bcaf4e62f5d81c249e50ab5a33c50528964ae55a0aba1e6eff71958a21ee",
+      "build/units/counter_lane/counter_lane.d": "c7cacc09511e4cba0c596fd9c7f1fce40842860a170fb67f60bb5d2521e667d4",
+      "build/units/counter_lane/counter_lane.interface.ac": "47bcabd67f648e121306ff434ec4d55411c232e0fbf2679bebf3b4aaf4d007ef",
+      "build/units/counter_lane/unit.json": "79780a11dfb113b6a7ca9548e8ddecbfbc595ea00cb7664f09e4a4166f191ea5",
+      "build/units/multiclock_domain_isolation/multiclock_domain_isolation.ac": "2589bbec5b28b822da7c708ce6ea0080c99bb2da138876d3b7180b19220cdca9",
+      "build/units/multiclock_domain_isolation/multiclock_domain_isolation.d": "8cf23c4fe6581fbdf9f5c0a6571b3f74be49a6355491eb70fe12d7ea88bcf43f",
+      "build/units/multiclock_domain_isolation/multiclock_domain_isolation.interface.ac": "5bf32c7fd0298eee66bbb58c0c77ed4f3ac73544ce13582e5b98dd4a831bfd6b",
+      "build/units/multiclock_domain_isolation/unit.json": "503392b595d96e75a78e311573441abfedafeb80c2a95013c0cbe4710a93476a",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "74dbc7bcfa54290b07a5e0fda13424bcb7dcdafadca4a0e89a15388d36a64828"
+    },
+    "execution_sha256": "f669fb943ed320877894a4e3ae96d5e87ffaa2ff94859bf665fc994731edf0c9",
+    "work_samples": 1567,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "5069d4e8177bd39aa67e89274bc17203ad79015c37023c0e382a533a16935379"
+  },
+  "excerpts": [
+    {
+      "path": "multiclock_domain_isolation.ac",
+      "line": 6,
+      "sha256": "1a65ac098f3871bbdb9b453d7c326103b799af10a09f63479fbf869deaf0808d"
+    },
+    {
+      "path": "cpp/sources/example_multiclock_domain_isolation/multiclock_domain_isolation.hpp",
+      "line": 25,
+      "sha256": "35ada2dfe4b9d13ccd3afa2f4705bbc37f8135c7383f3cd2a621e9b67f9b133b"
+    },
+    {
+      "path": "verilog/sources/example_multiclock_domain_isolation/multiclock_domain_isolation.v",
+      "line": 1,
+      "sha256": "a5f77c16bc16402ef5db1da7c586953fec5fb4a2670dcd22c256ee422d5f675e"
+    }
+  ]
+}

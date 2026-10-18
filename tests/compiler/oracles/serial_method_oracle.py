@@ -237,13 +237,10 @@ def expected_trace(stimuli, width, initial, first, second, bias, last, mode="loc
                 enable = int(
                     owner == "old_seen" or (advancing and owner in external_writes)
                 )
-                # The uniform physical interface requires known-zero D/E for
-                # an occurrence with no external writer; Q still holds.
-                data = (
-                    bits(0)
-                    if not advancing and owner in external_writes
-                    else candidate[owner]
-                )
+                # The incoming proposal is closed against old Q before storage:
+                # an inactive external writer has D=Q and E=0. The candidate
+                # model already retains exactly that Q when it does not advance.
+                data = candidate[owner]
                 tokens.extend((state[owner], data, str(enable), str(clock)))
             candidates.append(candidate)
         lines.append(" ".join(tokens))

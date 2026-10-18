@@ -243,22 +243,13 @@ FailureOr<FinalCppSourceParts>
 emitCppSourceParts(ModuleOp package, ac::HardwareAnalysis &analysis) {
   HardwareEmitContext context(package, analysis);
   // Native preparation builds the shared observation and source-check plans.
-  // Closed system roots consume both through their generated runner; module
-  // roots retain the existing public assertion rejection until they own an
-  // equivalent execution boundary.
+  // Closed systems and checked module roots consume reachable checks through
+  // their generated execution boundary. Checks belonging only to unselected
+  // definitions are still verified but do not require a root check lifecycle.
   if (failed(context.prepareNativeChecks()))
     return failure();
   auto root = rootModule(context);
   if (failed(root))
-    return failure();
-  const bool managedRoot = context.managesChecks();
-  auto unsupported = package.walk([&](Operation *op) {
-    if (!isa<ac::SourceExpectOp>(op) || managedRoot)
-      return WalkResult::advance();
-    op->emitOpError() << "hardware instrumentation emission is not implemented";
-    return WalkResult::interrupt();
-  });
-  if (unsupported.wasInterrupted())
     return failure();
   return emitPreparedCppSourceParts(context);
 }
@@ -432,14 +423,16 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
       out << "  };\n";
       return success();
     };
+    SmallVector<Attribute> exposedOutputs(
+        root->getOutputNames().getValue().take_front(rootLayout->sourceOutputCount));
+    for (int64_t companion : rootLayout->outputValidity)
+      if (companion >= 0)
+        exposedOutputs.push_back(root->getOutputNames()[companion]);
     if (failed(ports("Inputs",
                      root->getInputNames().getValue().take_front(
                          rootLayout->sourceInputCount),
                      inputs)) ||
-        failed(ports("Outputs",
-                     root->getOutputNames().getValue().take_front(
-                         rootLayout->sourceOutputCount),
-                     outputs)))
+        failed(ports("Outputs", exposedOutputs, outputs)))
       return failure();
     out << "  explicit pyc_dut(std::size_t workers = 1) : executor_(workers), ";
     if (observes)

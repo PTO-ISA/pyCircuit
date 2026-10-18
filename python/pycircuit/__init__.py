@@ -38,7 +38,7 @@ def module(declaration):
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 
-def rule(declaration=None, *, guard=None):
+def rule(declaration=None, *, guard=None, after=()):
     """Declare a rule whose computations and state updates are compiler owned."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 

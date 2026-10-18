@@ -43,111 +43,111 @@ class BankResult:
     enqueued: ac.u1
 
 
-@ac.rule
-def Advance(state, accepted, request, raw_data, release, initial_delay):
-    # Old busy excludes acceptance on the response-release edge.
-    if state.busy:
-        if state.capture_old:
-            state.request.data = raw_data
-            state.capture_old = 0
-        if state.remaining > 1:
-            state.remaining = state.remaining - 1
-        if release:
-            state.busy = 0
-    else:
-        if accepted:
-            state.request = request
-            state.busy = 1
-            state.capture_old = 1
-            state.remaining = initial_delay
-
-
 @ac.module
-def Bank(valid: ac.u1, request: BankRequest, take: ac.u1) -> BankResult:
+def Bank() -> BankResult:
     state: BankState = BankState()
-    request_ready = ~state.busy
-    input_ready, pending, head = ac.queue[BankRequest](
-        valid, request, request_ready, depth=2
-    )
-    accepted = pending & request_ready
+    requests = ac.queue[BankRequest](depth=2, ready_policy="local_occupancy")
+    responses = ac.queue[BankRequest](depth=2, ready_policy="local_occupancy")
+    # Each transaction reads the same committed state. Admission deliberately
+    # waits until the edge after a completion, preserving the release bubble.
+    busy = state.busy
+    capture_old = state.capture_old
+    remaining = state.remaining
+    idle = ~busy
+    accepted = requests.valid & idle
     raw = ac.sync_mem[ac.u16](
         accepted,
-        head.offset,
-        accepted & head.write,
-        head.offset,
-        head.data,
+        requests.data.offset,
+        accepted & requests.data.write,
+        requests.data.offset,
+        requests.data.data,
         3,
         depth=16,
     )
-    eligible = state.busy & (state.remaining == 1)
-    old_data = raw if state.capture_old else state.request.data
+    eligible = busy & (remaining == 1)
     response = state.request
-    response.data = old_data
-    response_space, response_valid, response_head = ac.queue[BankRequest](
-        eligible, response, take, depth=2
-    )
-    release = eligible & response_space
-    Advance(state, accepted, head, raw, release, 2)
+    response.data = raw if capture_old else state.request.data
+
+    @ac.rule
+    def enqueue(request: BankRequest) -> None:
+        requests.push(request)
+
+    @ac.rule
+    def dequeue() -> BankRequest:
+        return responses.pop()
+
+    @ac.rule
+    def step() -> None:
+        if idle:
+            request = requests.pop()
+            state.request = request
+            state.busy = 1
+            state.capture_old = 1
+            state.remaining = 2
+        elif capture_old:
+            # Capture is a separate phase from publishing the response, so a
+            # full response Queue cannot lose the RAM's read-first value.
+            state.request.data = raw
+            state.capture_old = 0
+            state.remaining = remaining - 1
+        elif remaining > 1:
+            state.remaining = remaining - 1
+        elif eligible:
+            responses.push(response)
+            state.busy = 0
+
+    step()
     return BankResult(
-        input_ready=input_ready,
-        output_valid=response_valid,
-        response=response_head,
+        input_ready=requests.ready,
+        output_valid=responses.valid,
+        response=responses.data,
         accepted=accepted,
-        enqueued=release,
+        enqueued=eligible & responses.ready,
     )
 
 
 @ac.module
 def MemoryBanks(valid: ac.u1, request: BankRequest, take: ac.u1) -> BanksResult:
-    input_ready, input_pending, input_head = ac.queue[BankRequest](
-        valid,
-        request,
-        input_pending
-        & (
-            bank0.input_ready
-            if input_head.bank == 0
-            else (
-                bank1.input_ready
-                if input_head.bank == 1
-                else bank2.input_ready if input_head.bank == 2 else bank3.input_ready
-            )
-        ),
-        depth=8,
+    inputs = ac.queue[BankRequest](
+        in_valid=valid, in_data=request, depth=8, ready_policy="local_occupancy"
     )
-    bank0 = Bank(input_pending & (input_head.bank == 0), input_head, merge_space)
-    bank1 = Bank(
-        input_pending & (input_head.bank == 1),
-        input_head,
-        merge_space & ~bank0.output_valid,
+    merged = ac.queue[BankRequest](
+        out_ready=take, depth=2, ready_policy="local_occupancy"
     )
-    bank2 = Bank(
-        input_pending & (input_head.bank == 2),
-        input_head,
-        merge_space & ~bank0.output_valid & ~bank1.output_valid,
-    )
-    bank3 = Bank(
-        input_pending & (input_head.bank == 3),
-        input_head,
-        merge_space & ~bank0.output_valid & ~bank1.output_valid & ~bank2.output_valid,
-    )
-    selected = (
-        bank0.response
-        if bank0.output_valid
-        else (
-            bank1.response
-            if bank1.output_valid
-            else bank2.response if bank2.output_valid else bank3.response
-        )
-    )
-    available = (
-        bank0.output_valid
-        | bank1.output_valid
-        | bank2.output_valid
-        | bank3.output_valid
-    )
-    merge_space, output_valid, response = ac.queue[BankRequest](
-        available, selected, take, depth=2
-    )
+    bank0 = Bank()
+    bank1 = Bank()
+    bank2 = Bank()
+    bank3 = Bank()
+    input_pending = inputs.valid
+    input_head = inputs.data
+    merge_space = merged.ready
+
+    @ac.rule
+    def route_request() -> None:
+        head = inputs.pop()
+        if head.bank == 0:
+            bank0.enqueue(head)
+        elif head.bank == 1:
+            bank1.enqueue(head)
+        elif head.bank == 2:
+            bank2.enqueue(head)
+        else:
+            bank3.enqueue(head)
+
+    @ac.rule
+    def merge_response() -> None:
+        if bank0.output_valid:
+            response = bank0.dequeue()
+        elif bank1.output_valid:
+            response = bank1.dequeue()
+        elif bank2.output_valid:
+            response = bank2.dequeue()
+        else:
+            response = bank3.dequeue()
+        merged.push(response)
+
+    route_request()
+    merge_response()
     route0 = input_pending & (input_head.bank == 0) & bank0.input_ready
     route1 = input_pending & (input_head.bank == 1) & bank1.input_ready
     route2 = input_pending & (input_head.bank == 2) & bank2.input_ready
@@ -165,9 +165,9 @@ def MemoryBanks(valid: ac.u1, request: BankRequest, take: ac.u1) -> BanksResult:
         & bank3.output_valid
     )
     return BanksResult(
-        input_ready=input_ready,
-        output_valid=output_valid,
-        response=response,
+        input_ready=inputs.ready,
+        output_valid=merged.valid,
+        response=merged.data,
         route=ac.concat(route3, route2, route1, route0),
         accepted=ac.concat(
             bank3.accepted, bank2.accepted, bank1.accepted, bank0.accepted

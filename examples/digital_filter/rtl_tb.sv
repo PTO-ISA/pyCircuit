@@ -8,7 +8,20 @@ module tb;
   logic [33:0] expected_data=0;
   bit expected_valid=0,last_clock=0;
   logic [31:0] random_state=32'h9273a61d;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   pyc_root dut(.*);
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared example row failed completion/sampling/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   function automatic longint signed signed16(input logic [15:0] raw);
     return raw < 16'd32768 ? longint'(raw) : longint'(raw)-64'sd65536;
   endfunction
@@ -31,7 +44,7 @@ module tb;
         expected_valid=valid;
       end
     end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;managed_commit();
   endtask
   task scenario(input integer which);
     integer sample_value;
@@ -97,7 +110,7 @@ module tb;
 `endif
   initial begin
     // Match native cold Reset before the compared Work epochs.
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;managed_commit();pyc_7079635f727374=0;#1;
     for(integer scenario_index=0;scenario_index<8;scenario_index=scenario_index+1)
       scenario(scenario_index);
     row(0,1,999,1);row(1,1,999,1);row(0,0,0,0);

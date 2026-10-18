@@ -642,6 +642,44 @@ protected:
 };
 
 TEST_F(HardwareSampledAdmissionTest,
+       SampledAndGuardWitnessesCannotBorrowValidityOnlyPortExemption) {
+  for (unsigned mutation = 0; mutation < 3; ++mutation) {
+    SCOPED_TRACE(mutation);
+    build(false, 1);
+    auto &body = definition.getBody().front();
+    body.addArgument(bit(), loc());
+    definition->setAttr("function_type", TypeAttr::get(b.getFunctionType({bit(), bit(), bit(), bit()}, {})));
+    definition->setAttr("input_names", b.getStrArrayAttr({"enabled", "pyc_clk", "pyc_rst", "available"}));
+    definition->setAttr("ac.internal_ports", d({
+        f("source_inputs", b.getI64IntegerAttr(3)),
+        f("source_outputs", b.getI64IntegerAttr(0)),
+        f("root_inputs", b.getArrayAttr({b.getI64IntegerAttr(1)}))}));
+    definition->setAttr("ac.input_validity", b.getArrayAttr({b.getI64IntegerAttr(3), b.getI64IntegerAttr(-1), b.getI64IntegerAttr(-1)}));
+    definition->setAttr("ac.output_validity", b.getArrayAttr({}));
+    auto wiringProof = [&] {
+      ac::HardwareAnalysis analysis(*package);
+      ac::HardwareBindings bindings;
+      bindings.owner = definition;
+      detail::SourceCheckBudget budget({1 << 22});
+      detail::SampledAdmissionValidation validation(analysis, budget);
+      return detail::verifyTransactionWiring(analysis, {{definition, bindings}}, validation, budget);
+    };
+    definition->setAttr("ac.transaction_wiring", wiring({d({
+        f("registration", occurrence(2)), f("ordinary_results", b.getI64IntegerAttr(0)),
+        f("candidates", b.getArrayAttr({}))})}));
+    ASSERT_TRUE(succeeded(capture(wiringProof))) << diagnostics;
+    definition->removeAttr("ac.transaction_wiring");
+    if (mutation >= 1)
+      rule->removeAttr("ac.sampled_admission");
+    if (mutation == 2)
+      rule->removeAttr("ac.required_checks");
+    EXPECT_TRUE(failed(capture(wiringProof)));
+    EXPECT_NE(diagnostics.find("transaction_wiring companion"), std::string::npos)
+        << diagnostics;
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
        LocalPrefixProofCoversStatefreeReadonlyLiteralAndValuedShapes) {
   // This is the local prefix proof only. Package wiring separately owns the
   // rule that ordinary results require total literal-true guards.
@@ -656,6 +694,20 @@ TEST_F(HardwareSampledAdmissionTest,
       EXPECT_TRUE(succeeded(capture([&] { return verifyAdmission(); })))
           << diagnostics;
     }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       SampledCatalogOrdinalIndexPreservesSemanticCheckIdentity) {
+  build(false, {}, 2);
+  ASSERT_TRUE(succeeded(capture([&] { return verifyDefinition(); }))) << diagnostics;
+  NamedAttrList equivalent(expect->getAttrOfType<DictionaryAttr>("ac.check_id"));
+  equivalent.set("obligation", b.getIntegerAttr(b.getIntegerType(128), 0));
+  expect->setAttr("ac.check_id", b.getDictionaryAttr(equivalent));
+  EXPECT_TRUE(succeeded(capture([&] { return verifyDefinition(); }))) << diagnostics;
+  equivalent.set("check", occurrence(99));
+  expect->setAttr("ac.check_id", b.getDictionaryAttr(equivalent));
+  EXPECT_TRUE(failed(capture([&] { return verifyDefinition(); })));
+  EXPECT_NE(diagnostics.find("orphan source check"), std::string::npos) << diagnostics;
 }
 
 TEST_F(HardwareSampledAdmissionTest,
@@ -1873,6 +1925,43 @@ TEST_F(HardwareSampledAdmissionTest,
     ASSERT_TRUE(succeeded(result)) << diagnostics;
     EXPECT_EQ(result->value, mutation == 0 ? rule.getResult(0) : expected);
     EXPECT_EQ(before, printPackage());
+  }
+}
+
+TEST_F(HardwareSampledAdmissionTest,
+       QueueProposalCannotDropCommonOrSelectedArmAdmission) {
+  // Exercise the prefix proof directly with a parsed ordinary admission view.
+  // Physical queue identity and the serialized proposal schema have separate
+  // tests; this test isolates the mutation which formerly made readiness loops
+  // tempting to repair by dropping arbitrary admission terms.
+  for (unsigned mutation = 0; mutation != 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    buildConditional();
+    b.setInsertionPoint(rule.getBody().front().getTerminator());
+    Value prefix = binary("and", conditional.knownEither, conditional.thenBypass);
+    Value rawPath = conditional.selector;
+    if (mutation == 2) prefix = conditional.one; // Drops selector knownness.
+    Value enable = binary("and", prefix,
+                          mutation == 3 ? conditional.one : rawPath);
+    ac::HardwareAnalysis analysis(*package);
+    ac::HardwareBindings bindings;
+    bindings.owner = definition;
+    detail::SourceCheckBudget budget({1 << 20});
+    auto parsed = detail::parseSampledAdmission(rule, analysis, bindings, budget);
+    ASSERT_TRUE(succeeded(parsed));
+    auto prepared = detail::prepareSampledBoundaries(definition, analysis, bindings, budget);
+    ASSERT_TRUE(succeeded(prepared));
+    ASSERT_TRUE(prepared->has_value());
+    detail::SampledQueueProposalView proposal;
+    proposal.kind = b.getStringAttr("pop");
+    proposal.rawPath = rawPath;
+    proposal.path = enable;
+    proposal.excludedControls.push_back(mutation == 1 ? 2 : 3);
+    parsed->queueProposals.push_back(proposal);
+    auto result = capture([&] {
+      return detail::proveSampledAdmission(*parsed, **prepared, analysis, bindings, budget);
+    });
+    EXPECT_EQ(succeeded(result), mutation == 0) << diagnostics;
   }
 }
 

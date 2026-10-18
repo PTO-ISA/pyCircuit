@@ -1,0 +1,72 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "multi_input_rule_pipeline",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_multi_input_rule_pipeline.multi_input_rule_pipeline.MultiInputRulePipeline\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "a6b1ee1ab290b86819c43fab19b5185145c536651251c95fc5089f1eda36027a",
+      "source/bench.py": "0faca076c53bc2e43bd300244e86c3495439ef792e353bfe08f956c0d00fc033",
+      "source/config.json": "82b121d6ac01f49ed85fa0b5b6c5e584a43721ded154c457417dad82d4c37145",
+      "source/driver.cpp": "8b54d299eec244fbc720582fc5d1ddce65c028e8d44a7e4c6eeb538e66babc0b",
+      "source/four_state.py": "afe605e358ad4adaf174e99043746ec2532dbb5e810390853f835009c8df7000",
+      "source/multi_input_rule_pipeline.py": "f87e62d5f9b655de84c8e428dc331716c37f6e0060335d8f9bb53e540001cded",
+      "source/rtl_tb.sv": "b1aa539f6e83284535ab643670ae9e4a4569bbff78eeabce7b0a7897e1c1bdb0",
+      "build/cpp/generated.json": "11a9c0acc7d30b86d6963748e3ffb00481ce9768b4f704f7c16f4874b2bb82b4",
+      "build/cpp/CMakeLists.txt": "53def62bc13b6998efe4156cee89e2c150a93d5d6319f9d1c67417351e058659",
+      "build/cpp/pycircuit_support.hpp": "8b493420f6c45b0bafacdc9b81bb5f8068977353ee5ac8391231a2a1eebacd61",
+      "build/cpp/pycircuit_system.hpp": "49c08a67aed5a8fd61e06646d743c2b4975a1a5ec99547b10f48c1493e83cbf6",
+      "build/cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.cpp": "99de4eec02ea1af8fe10003390d47aac7ba1780287933940e0b0835cb93b96c9",
+      "build/cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.hpp": "fa3d12c88fa225ee313106d80600d09a1b1737328c3b591000bca9cd062d119d",
+      "build/cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.source-map.json": "8e0bd3bb1bef33999d1c0117ae23962b6b2d9d47d908b41068c2ea58c42ee4e5",
+      "build/verilog/generated.json": "83b8f5ebdc8730b8fa3e7c1a86e7afa1289c87c0bc1e1b4857d4ae6e7ff46a9f",
+      "build/verilog/CMakeLists.txt": "00bd392242e86aa78643c21c2d6dec3e9b7fcf5435758991a4cbc313189c6e80",
+      "build/verilog/design_top.sv": "70137afe3041aac75c12f6cca9105160008addfd8c6c5f118e8f40b6a1fc14e2",
+      "build/verilog/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.source-map.json": "d09a5aed51f920e77734092a6108b5c26099ee47ff052a6637f50fd71fa22fec",
+      "build/verilog/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.v": "c64af20b444cdab32bfdaef93f425f5ec9014af5e641728a32a7fc8613d1fb0d",
+      "build/multi_input_rule_pipeline.ac": "822b4c738024fb7f6202375f6abe7d6c804ac4ba79882ac35682cee93ceeb3b3",
+      "build/units/.multi_input_rule_pipeline.pycircuit-publication/owner.json": "3c8b3d1c957c65f387a7f5fab7843cae728b6e233e653a06734d45a4494576ff",
+      "build/units/multi_input_rule_pipeline/multi_input_rule_pipeline.ac": "b761e7c9cb1a92140f9ac0486c0055b9c990c69322c8b3cf82f21002e772ba96",
+      "build/units/multi_input_rule_pipeline/multi_input_rule_pipeline.d": "118cb883b14924e15f8c2dedb81f3d568c2073aae40ad910ba75e18704060099",
+      "build/units/multi_input_rule_pipeline/multi_input_rule_pipeline.interface.ac": "03dcb5e13a7b1bce5f07b0dc870d7be9ea14afc84101a8ca1f4f09d5fb452030",
+      "build/units/multi_input_rule_pipeline/unit.json": "e76faecc71e3e64107cb8aed8b69c7e3074a5c0544e000c893a960b7a99c6e36",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "a29d29220807eeadfa75851297e616db3094fdd347e38f210e68bf4940b3ca6c"
+    },
+    "execution_sha256": "e71bd339f9eb53a7224a0be89af133c2f273b994b7fe4d34dce1325cdb13499c",
+    "work_samples": 8751,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "b185e759a72c0314cb973a98d979cd7958817c94d4e14668f6300ea998247c58"
+  },
+  "excerpts": [
+    {
+      "path": "multi_input_rule_pipeline.ac",
+      "line": 8,
+      "sha256": "822b4c738024fb7f6202375f6abe7d6c804ac4ba79882ac35682cee93ceeb3b3"
+    },
+    {
+      "path": "cpp/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.hpp",
+      "line": 139,
+      "sha256": "fa3d12c88fa225ee313106d80600d09a1b1737328c3b591000bca9cd062d119d"
+    },
+    {
+      "path": "verilog/sources/example_multi_input_rule_pipeline/multi_input_rule_pipeline.v",
+      "line": 1,
+      "sha256": "c64af20b444cdab32bfdaef93f425f5ec9014af5e641728a32a7fc8613d1fb0d"
+    }
+  ]
+}

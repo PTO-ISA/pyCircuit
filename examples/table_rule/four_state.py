@@ -66,22 +66,18 @@ receipt_path = main_build / "verilog/generated.json"
 receipt = json.loads(receipt_path.read_text())
 final_path = main_build / "table_rule.ac"
 final_text = final_path.read_text()
-assert final_text.count('"ac.queue"(') == 2
-assert '"ac.instance"(' not in final_text, "direct table root has no helper instance"
-for line in final_text.splitlines():
-    if '"ac.queue"(' in line:
-        assert 'ready_policy = "downstream_pop"' in line
-        assert "empty_flow = false" in line and 'read_during_write = "old"' in line
-        assert 'empty_data = "zero"' in line
-        for attribute, value in (
-            ("availability_latency", 1),
-            ("head_read_latency", 0),
-        ):
-            match = re.search(
-                attribute + r" = #ac.static_expr<.*?value = #ac.math_int<([0-9]+)>",
-                line,
-            )
-            assert match and int(match.group(1)) == value, (attribute, line)
+assert '"ac.queue"(' not in final_text
+instances = [line for line in final_text.splitlines() if '"ac.instance"(' in line]
+queues = [
+    line for line in instances if "callee = @pycircuit.__builtins__.fifo_" in line
+]
+assert len(queues) == 2
+assert len(instances) == len(queues), "direct table root has no helper instance"
+for line in queues:
+    assert "callee = @pycircuit.__builtins__.fifo_downstream_pop" in line
+    parameters = line.split("parameters = [", 1)[1].split("], type_arguments", 1)[0]
+    values = [int(value) for value in re.findall(r"#ac.math_int<([0-9]+)>", parameters)]
+    assert len(values) == 2 and values[1] == 1, (values, line)
 
 # Direct root: two Entry8 queues and one two-element DFFE collection.
 namespace = "example_table_rule.table_rule."
@@ -104,15 +100,15 @@ assert re.findall(
     result_line,
 ) == [("ready", "1"), ("valid", "1")]
 assert '{name = "data", type = !ac.struct<"' + namespace + 'Entry">}' in result_line
-queues = [line for line in final_text.splitlines() if '"ac.queue"(' in line]
 assert len(queues) == 2 and all(
     line.count('!ac.struct<"' + namespace + 'Entry">') >= 2 for line in queues
 )
 depths = [
     int(
-        re.search(
-            r"depth = #ac.static_expr<.*?value = #ac.math_int<([0-9]+)>", line
-        ).group(1)
+        re.findall(
+            r"#ac.math_int<([0-9]+)>",
+            line.split("parameters = [", 1)[1].split("], type_arguments", 1)[0],
+        )[0]
     )
     for line in queues
 ]
@@ -232,7 +228,7 @@ for label, defines in negative_defines:
     run(
         [args.vvp, binary],
         label + "-run",
-        rejection="fifo: effective transfers must be known",
+        rejection="prepared table_rule row failed completion/sampling/check validation",
     )
 for label in ("serial", "parallel"):
     native = (main_build / (label + ".stdout")).read_text().splitlines()

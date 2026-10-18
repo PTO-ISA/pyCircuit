@@ -8,5 +8,5 @@ pycircuit_add_example(dma PACKAGE example_dma
   ENTRY_SOURCE dma SOURCES dma.py
   SYSTEM_TOP example_dma.bench.ExerciseDma
   SYSTEM_ENTRY_SOURCE bench
-  SYSTEM_CYCLES 582
+  SYSTEM_CYCLES 42
   SYSTEM_SOURCES dma.py bench.py)

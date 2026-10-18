@@ -455,7 +455,7 @@ diagnostics.update(
         "old-boolean-alias-not-fixed": "slice requires explicitly unsigned fixed bits",
         "wide-fixed-boolean-peer-left": "closed Boolean branch requires a bits[1] peer",
         "wide-fixed-boolean-peer-right": "closed Boolean branch requires a bits[1] peer",
-        "fixed-proof-not-integer-formal": "rule parameter annotation disagrees with binding source kind",
+        "fixed-proof-not-integer-formal": "binding boundary requires declared Integer source kind",
         "select-no-implicit-narrowing": "unsigned boundary implicit narrowing is unsupported",
         "select-no-logical-authority": "binding boundary requires declared Integer source kind",
     }
@@ -498,6 +498,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
         sys.exit(0)
     compile_source(unit)
     retained = scratch / "retained"
+    shutil.rmtree(retained, ignore_errors=True)
     retained.mkdir()
     shutil.copyfile(design, retained / "design.py")
     shutil.copytree(unit, retained / "unit")
@@ -525,8 +526,6 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
             reproduced / "design.interface.ac",
             "--deps-out",
             reproduced / "consumed.json",
-            "--source-import-out",
-            reproduced / "design.source-import.ac",
         ]
     )
     for filename in ("design.ac", "design.interface.ac"):
@@ -717,7 +716,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-slices-", dir=scratch) as tempora
                 "protected_rejections": len(cases) * 2,
                 "icarus_four_state": bool(args.iverilog and args.vvp),
                 "main_capture_transport_native_reproduction": "existing capture/transport API, identical source/package/path/no headers; published body/interface byte equal",
-                "transient_source_import_stage": "full post-Lower/pre-Simplify source-import ACIR retained by matching native reproduction; not a sidecar from the original public compile invocation",
+                "transient_source_import_stage": "not requested for transaction packages; source effects are retained until link, while body/interface reproduction is still byte-compared",
                 "retained_artifacts_sha256": {
                     str(path.relative_to(retained)): hashlib.sha256(
                         path.read_bytes()

@@ -12,11 +12,10 @@ def advance(phase):
 @system
 def ResetInvalidateOrderSystem():
     phase: u8 = 0
-    dut = ResetInvalidateOrder()
+    dut = ResetInvalidateOrder(en=1)
 
     @rule
     def drive():
-        dut(en=1)
         assert dut.y == (phase if phase < 2 else 2), "counter old Q"
         log("info", "counter", dut.y)
 
@@ -27,11 +26,10 @@ def ResetInvalidateOrderSystem():
 @system
 def TraceDslSystem():
     phase: u8 = 0
-    dut = TraceDsl()
+    dut = TraceDsl(in_x=0x12 if phase == 0 else 0x34)
 
     @rule
     def drive():
-        dut(in_x=0x12 if phase == 0 else 0x34)
         assert dut.y0 == (
             0 if phase == 0 else (0x12 if phase == 1 else 0x34)
         ), "first leaf old Q"
@@ -47,11 +45,10 @@ def TraceDslSystem():
 @system
 def XzValueModelSystem():
     phase: u8 = 0
-    dut = XzValueModel()
+    dut = XzValueModel(in_a=0x12 if phase == 0 else 0x56)
 
     @rule
     def drive():
-        dut(in_a=0x12 if phase == 0 else 0x56)
         assert dut.y == (
             0 if phase == 0 else (0x12 if phase == 1 else 0x56)
         ), "capture old Q"

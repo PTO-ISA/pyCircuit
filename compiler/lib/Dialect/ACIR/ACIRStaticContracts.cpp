@@ -239,6 +239,8 @@ LogicalResult verifyTree(DictionaryAttr tree, detail::EmitError error,
                          StaticVerification &verification) {
   if (!tree)
     return error() << "StaticExpr tree must be a DictionaryAttr";
+  if (detail::isVerifiedStaticExpressionGrammar(tree))
+    return success();
   auto known = verification.completed.find(tree);
   if (known != verification.completed.end())
     return success(known->second);
@@ -247,6 +249,8 @@ LogicalResult verifyTree(DictionaryAttr tree, detail::EmitError error,
   LogicalResult result = verifyTreeContents(tree, error, verification);
   verification.active.erase(tree);
   verification.completed.try_emplace(tree, succeeded(result));
+  if (succeeded(result))
+    detail::rememberVerifiedStaticExpressionGrammar(tree);
   return result;
 }
 
@@ -256,7 +260,7 @@ LogicalResult
 StaticExprAttr::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
                        DictionaryAttr tree) {
   // Completed facts are intrinsic to this immutable grammar dictionary. The
-  // cache lives for one call only; owning-source checks use their own context.
+  // success memo has context lifetime; owning-source checks use their own context.
   StaticVerification verification;
   return verifyTree(tree, emitError, verification);
 }

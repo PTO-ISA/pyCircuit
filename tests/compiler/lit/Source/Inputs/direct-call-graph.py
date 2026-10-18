@@ -134,6 +134,27 @@ class FeedbackResult:
     q: ac.bits[73]
     computed: ac.bits[73]
 
+@ac.struct
+class Header:
+    value: ac.u8
+
+@ac.struct
+class Payload:
+    value: ac.u8
+
+@ac.struct
+class TupleResult:
+    header: ac.u8
+    payload: ac.u8
+    valid: ac.u1
+    fanout_header: ac.u8
+    fanout_payload: ac.u8
+    fanout_valid: ac.u1
+    right_header: ac.u8
+    right_payload: ac.u8
+    right_valid: ac.u1
+    singleton: ac.u8
+
 @ac.module
 def Graph(x: ac.u13, y: ac.u13, wide: ac.bits[73]) -> GraphResult:
     a = Side(b.pair.left, x, wide)
@@ -178,6 +199,34 @@ def Feedback(delta: ac.bits[73], enable: ac.u1) -> FeedbackResult:
     stored = Store(mixed.value, enable)
     mixed = Mix(stored.value, delta)
     return FeedbackResult(q=stored.value, computed=mixed.value)
+
+@ac.module
+def Split(header: ac.u8, payload: ac.u8, valid: ac.u1) -> tuple[Header, Payload, ac.u1]:
+    return Header(value=header), Payload(value=payload), valid
+
+@ac.module
+def Singleton(value: ac.u8) -> tuple[Header]:
+    return (Header(value=value),)
+
+@ac.module
+def Logical(flag: ac.u1) -> tuple[bool]:
+    return (flag == 1,)
+
+@ac.module
+def TupleComposition(left: ac.u8, right: ac.u8, valid: ac.u1) -> TupleResult:
+    header = Header(value=right)
+    header, payload, accepted = Split(left, right, valid)
+    saved_right_payload = other_payload.value
+    other_header, other_payload, other_valid = Split(right, left, valid)
+    same, = Logical(valid)
+    selected = left if same else left
+    only, = Singleton(selected)
+    return TupleResult(
+        header=header.value, payload=payload.value, valid=accepted,
+        fanout_header=header.value, fanout_payload=payload.value,
+        fanout_valid=accepted, right_header=other_header.value,
+        right_payload=saved_right_payload, right_valid=other_valid,
+        singleton=only.value)
 
 @ac.module
 def Side(incoming: ac.u13, own: ac.u13, wide: ac.bits[73]) -> Node:
@@ -276,6 +325,55 @@ class PairBytes:
     left: ac.u8
     right: ac.u8
 """
+
+TUPLE_PROVIDER = """import pycircuit as ac
+@ac.struct
+class Header:
+    value: ac.u8
+@ac.struct
+class Payload:
+    value: ac.u8
+@ac.module
+def Split(header: ac.u8, payload: ac.u8, valid: ac.u1) -> tuple[Header, Payload, ac.u1]:
+    return Header(value=header), Payload(value=payload), valid
+@ac.module
+def Singleton(value: ac.u8) -> tuple[Header]:
+    return (Header(value=value),)
+@ac.module
+def Logical(flag: ac.u1) -> tuple[bool]:
+    return (flag == 1,)
+"""
+
+TUPLE_CONSUMER = """import pycircuit as ac
+from graph_binding.tuple_provider import Header, Logical, Payload, Singleton, Split
+@ac.struct
+class TupleResult:
+    header: ac.u8
+    payload: ac.u8
+    valid: ac.u1
+    fanout_header: ac.u8
+    fanout_payload: ac.u8
+    fanout_valid: ac.u1
+    right_header: ac.u8
+    right_payload: ac.u8
+    right_valid: ac.u1
+    singleton: ac.u8
+@ac.module
+def TupleComposition(left: ac.u8, right: ac.u8, valid: ac.u1) -> TupleResult:
+    header = Header(value=right)
+    header, payload, accepted = Split(left, right, valid)
+    saved_right_payload = other_payload.value
+    other_header, other_payload, other_valid = Split(right, left, valid)
+    same, = Logical(valid)
+    selected = left if same else left
+    only, = Singleton(selected)
+    return TupleResult(
+        header=header.value, payload=payload.value, valid=accepted,
+        fanout_header=header.value, fanout_payload=payload.value,
+        fanout_valid=accepted, right_header=other_header.value,
+        right_payload=saved_right_payload, right_valid=other_valid,
+        singleton=only.value)
+"""
 for top, (child, *_rest) in HISTORICAL_ROOTS.items():
     HISTORICAL_CONSUMER += f"""
 @ac.module
@@ -333,6 +431,33 @@ def ordinary(body):
     )
 
 
+TUPLE_PREFIX = """import pycircuit as ac
+@ac.struct
+class Header:
+    value: ac.u8
+@ac.struct
+class Payload:
+    value: ac.u8
+@ac.struct
+class Result:
+    header: ac.u8
+    payload: ac.u8
+    valid: ac.u1
+@ac.module
+def Split(header: ac.u8, payload: ac.u8, valid: ac.u1) -> tuple[Header, Payload, ac.u1]:
+    return Header(value=header), Payload(value=payload), valid
+"""
+
+
+def tuple_top(body):
+    return (
+        TUPLE_PREFIX
+        + "@ac.module\ndef Top(left: ac.u8, right: ac.u8, valid: ac.u1) -> Result:\n"
+        + body
+        + "    return Result(header=left, payload=right, valid=valid)\n"
+    )
+
+
 cases = {
     "arbitrary-local-forward": ordinary(
         "    a = Single(local)\n    local = first\n    return a\n"
@@ -374,6 +499,52 @@ cases = {
     "dead-cycle": ordinary(
         "    a = Single(b.value)\n    b = Single(a.value)\n    return Scalar()\n"
     ),
+    "tuple-scalar-target": tuple_top("    combined = Split(left, right, valid)\n"),
+    "tuple-list-target": tuple_top(
+        "    [header, payload, accepted] = Split(left, right, valid)\n"
+    ),
+    "tuple-star-target": tuple_top(
+        "    header, *rest, accepted = Split(left, right, valid)\n"
+    ),
+    "tuple-nested-target": tuple_top(
+        "    header, (payload,), accepted = Split(left, right, valid)\n"
+    ),
+    "tuple-short-target": tuple_top(
+        "    header, payload = Split(left, right, valid)\n"
+    ),
+    "tuple-long-target": tuple_top(
+        "    header, payload, accepted, extra = Split(left, right, valid)\n"
+    ),
+    "tuple-duplicate-target": tuple_top(
+        "    header, header, accepted = Split(left, right, valid)\n"
+    ),
+    "tuple-input-target": tuple_top(
+        "    left, payload, accepted = Split(left, right, valid)\n"
+    ),
+    "tuple-owner-target": TUPLE_PREFIX
+    + "@ac.module\ndef Top(left: ac.u8, right: ac.u8, valid: ac.u1) -> Result:\n"
+    + "    saved: ac.u8 = 0\n"
+    + "    saved, payload, accepted = Split(left, right, valid)\n"
+    + "    return Result(header=left, payload=right, valid=valid)\n",
+    "tuple-direct-return": TUPLE_PREFIX
+    + "@ac.module\ndef Top(left: ac.u8, right: ac.u8, valid: ac.u1) -> tuple[Header, Payload, ac.u1]:\n"
+    + "    return Split(left, right, valid)\n",
+    "tuple-return-short": TUPLE_PREFIX.replace(
+        "return Header(value=header), Payload(value=payload), valid",
+        "return Header(value=header), Payload(value=payload)",
+    ),
+    "tuple-return-swapped-nominals": TUPLE_PREFIX.replace(
+        "return Header(value=header), Payload(value=payload), valid",
+        "return Payload(value=payload), Header(value=header), valid",
+    ),
+    "tuple-fixed-to-boolean": TUPLE_PREFIX
+    + "@ac.module\ndef Wrong(value: ac.u1) -> tuple[bool]:\n"
+    + "    return (value,)\n",
+    "tuple-empty-annotation": TUPLE_PREFIX.replace(
+        "tuple[Header, Payload, ac.u1]", "tuple[()]"
+    ).replace(
+        "return Header(value=header), Payload(value=payload), valid", "return ()"
+    ),
 }
 
 diagnostics = {
@@ -396,6 +567,20 @@ diagnostics = {
     "observed-cycle": "'ac.module' op combinational cycle in hardware field dependencies",
     "self-cycle": "'ac.module' op combinational cycle in hardware field dependencies",
     "dead-cycle": "'ac.module' op combinational cycle in hardware field dependencies",
+    "tuple-scalar-target": "tuple module result target arity must match its declaration",
+    "tuple-list-target": "tuple module result target arity must match its declaration",
+    "tuple-star-target": "tuple module result targets must be ordinary Names",
+    "tuple-nested-target": "tuple module result targets must be ordinary Names",
+    "tuple-short-target": "tuple module result target arity must match its declaration",
+    "tuple-long-target": "tuple module result target arity must match its declaration",
+    "tuple-duplicate-target": "tuple module result targets must be distinct Names",
+    "tuple-input-target": "tuple module result cannot write a protected owner",
+    "tuple-owner-target": "tuple module result cannot write a protected owner",
+    "tuple-direct-return": "tuple module return requires an explicit Tuple with matching arity",
+    "tuple-return-short": "tuple module return requires an explicit Tuple with matching arity",
+    "tuple-return-swapped-nominals": "struct constructor nominal type disagrees with destination",
+    "tuple-fixed-to-boolean": "binding boundary requires declared Boolean source kind",
+    "tuple-empty-annotation": "callable tuple return requires nonempty fixed arity",
 }
 assert cases.keys() == diagnostics.keys()
 
@@ -496,6 +681,57 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
         for suffix in (".ac", ".d"):
             (hidden / (basename + suffix)).rename(provider / (basename + suffix))
 
+    tuple_provider_source = source / "tuple_provider.py"
+    tuple_consumer_source = source / "tuple_consumer.py"
+    tuple_provider_source.write_text(TUPLE_PROVIDER)
+    tuple_consumer_source.write_text(TUPLE_CONSUMER)
+    tuple_provider = build / "tuple-provider"
+    tuple_consumer = build / "tuple-consumer"
+    compile_source(tuple_provider_source, tuple_provider)
+    tuple_receipt = json.loads((tuple_provider / "unit.json").read_text())
+    tuple_interface = (tuple_provider / tuple_receipt["files"]["interface"]).read_text()
+    split_contract = next(
+        line
+        for line in tuple_interface.splitlines()
+        if 'sym_name = "graph_binding.tuple_provider.Split"' in line
+    )
+    assert 'output_names = ["result_0", "result_1", "result_2"]' in split_contract
+    assert 'ac.return_form = "tuple"' in split_contract
+    assert split_contract.count('source_kind = "nominal"') == 2
+    assert split_contract.count('source_kind = "fixed_bits"') >= 1
+    singleton_contract = next(
+        line
+        for line in tuple_interface.splitlines()
+        if 'sym_name = "graph_binding.tuple_provider.Singleton"' in line
+    )
+    assert 'output_names = ["result_0"]' in singleton_contract
+    assert 'ac.return_form = "tuple"' in singleton_contract
+    logical_contract = next(
+        line
+        for line in tuple_interface.splitlines()
+        if 'sym_name = "graph_binding.tuple_provider.Logical"' in line
+    )
+    assert 'output_names = ["result_0"]' in logical_contract
+    assert 'ac.return_form = "tuple"' in logical_contract
+    assert 'source_kind = "boolean"' in logical_contract
+    assert 'domain = #ac.source_domain<{kind = "bool"}>' in logical_contract
+    tuple_body = tuple_provider / tuple_receipt["files"]["body"]
+    tuple_depfile = tuple_provider / tuple_receipt["files"]["depfile"]
+    hidden_tuple_body = hidden / tuple_body.name
+    hidden_tuple_depfile = hidden / tuple_depfile.name
+    hidden_tuple_source = hidden / tuple_provider_source.name
+    tuple_provider_source.rename(hidden_tuple_source)
+    tuple_body.rename(hidden_tuple_body)
+    tuple_depfile.rename(hidden_tuple_depfile)
+    compile_source(tuple_consumer_source, tuple_consumer, interfaces=[tuple_provider])
+    tuple_dependencies = (tuple_consumer / "tuple_consumer.d").read_text()
+    assert str(tuple_provider / "tuple_provider.interface.ac") in tuple_dependencies
+    assert str(tuple_body) not in tuple_dependencies
+    assert str(tuple_provider_source) not in tuple_dependencies
+    hidden_tuple_source.rename(tuple_provider_source)
+    hidden_tuple_body.rename(tuple_body)
+    hidden_tuple_depfile.rename(tuple_depfile)
+
     toolroot = Path(args.source_compiler).resolve().parent.parent
     runtime = next(
         (
@@ -516,6 +752,7 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
         ("Lexical", "DIRECT_LEXICAL", 12, 0),
         ("Calls", "DIRECT_CALLS", 12, 4),
         ("Feedback", "DIRECT_FEEDBACK", 16, 4),
+        ("TupleComposition", "DIRECT_TUPLE", 12, 4),
     ]
     execution_cases += [
         (top, define, frames, masks)
@@ -523,11 +760,24 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
     ]
     for top, define, frames, masks in execution_cases:
         reference = None
-        for variant, active_unit in (("design", unit), ("reverse", reverse_unit)):
+        variants = [("design", unit), ("reverse", reverse_unit)]
+        if top == "TupleComposition":
+            variants.append(("tuple_consumer", tuple_consumer))
+        for variant, active_unit in variants:
             output = build / (top + "-" + variant)
             output.mkdir()
             final = output / "design_top.ac"
-            if top in HISTORICAL_ROOTS:
+            if variant == "tuple_consumer":
+                cli(
+                    "link",
+                    tuple_provider,
+                    tuple_consumer,
+                    "--top",
+                    "graph_binding.tuple_consumer.TupleComposition",
+                    "-o",
+                    final,
+                )
+            elif top in HISTORICAL_ROOTS:
                 module = "historical" if variant == "design" else "historical_reverse"
                 cli(
                     "link",
@@ -565,6 +815,11 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
                 assert sum(".Constant" in line for line in calls) == 1
             if top == "Graph":
                 assert len(calls) == 2 and all(".Side" in line for line in calls), calls
+            if top == "TupleComposition":
+                assert len(calls) == 4, calls
+                assert sum(".Split" in line for line in calls) == 2
+                assert sum(".Singleton" in line for line in calls) == 1
+                assert sum(".Logical" in line for line in calls) == 1
             for target in ("cpp", "verilog"):
                 cli("emit", final, "--target", target, "-o", output / target)
             receipt = json.loads((output / "cpp/generated.json").read_text())

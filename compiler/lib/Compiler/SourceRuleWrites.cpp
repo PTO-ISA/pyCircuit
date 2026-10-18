@@ -292,8 +292,7 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
       auto found = rules.find(function.string("id"));
       if (found == rules.end())
         return success();
-      if (++registrations[function.string("id")] != 1)
-        return diagnostic(call) << "Rule declaration must be registered exactly once";
+      ++registrations[function.string("id")];
       if (!nestedRuleNames.contains(function.string("id")) &&
           sourceBindingShadowed(source, function, function.string("id")))
         return diagnostic(function)
@@ -301,16 +300,19 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
                << function.string("id") << "'";
       SourceRuleCallPlan plan{module, call, found->second, {}};
       auto formals = plan.rule.child("args");
-      if (formals.array("args").size() != call.array("args").size() ||
-          !call.array("keywords").empty())
-        return diagnostic(call)
-               << "behavioral rule call argument arity mismatch";
+      SmallVector<StringRef> formalNames;
+      for (size_t j = 0; j < formals.array("args").size(); ++j)
+        formalNames.push_back(formals.item("args", j).string("arg"));
+      auto actuals = normalizeCallArguments(call, formalNames,
+          [&] { return diagnostic(call); },
+          "behavioral rule call argument arity mismatch");
+      if (failed(actuals)) return failure();
       llvm::StringMap<size_t> ownerForFormal;
       llvm::StringMap<unsigned> aliases;
       for (size_t j = 0; j < formals.array("args").size(); ++j) {
         if (!charge())
           return failure();
-        auto actual = call.item("args", j);
+        auto actual = (*actuals)[j];
         if (actual.kind() != "Name")
           continue;
         auto owner = owners.find(actual.string("id"));
@@ -336,18 +338,20 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
             for (size_t k = 0; k < count; ++k) {
               auto target = stmt.kind() == "Assign" ? stmt.item("targets", k)
                                                     : stmt.child("target");
-              SmallVector<SourceWriteSelector> selectors;
-              auto root = targetPath(
-                  target, selectors, builder, [&] { return diagnostic(stmt); },
-                  [&](uint64_t amount) { return charge(amount); });
-              if (failed(root))
-                return failure();
-              auto owner = ownerForFormal.find(*root);
-              if (owner != ownerForFormal.end() &&
-                  !addPath(plan.writes[owner->second],
-                           {std::move(selectors), stmt},
-                           [&](uint64_t amount) { return charge(amount); }))
-                return failure();
+              if (failed(forEachAssignmentLeaf(target, [&](const AstNode &leaf) -> LogicalResult {
+                if (!charge()) return failure();
+                SmallVector<SourceWriteSelector> selectors;
+                auto root = targetPath(
+                    leaf, selectors, builder, [&] { return diagnostic(stmt); },
+                    [&](uint64_t amount) { return charge(amount); });
+                if (failed(root)) return failure();
+                auto owner = ownerForFormal.find(*root);
+                if (owner != ownerForFormal.end() &&
+                    !addPath(plan.writes[owner->second], {std::move(selectors), stmt},
+                             [&](uint64_t amount) { return charge(amount); }))
+                  return failure();
+                return success();
+              }))) return failure();
             }
           }
           if (stmt.kind() == "For") {
@@ -412,13 +416,16 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
     auto expressions = [&](auto &&self, const AstNode &node,
                            const AstNode &registration,
                            const llvm::StringSet<> &shadows,
-                           bool callableScope, const AstNode *captureSite) -> LogicalResult {
+                           bool callableScope, const AstNode *captureSite,
+                           bool transactionScope = false) -> LogicalResult {
       if (!charge()) return failure();
       if (!node) return success();
       llvm::StringSet<> nestedShadows;
       const llvm::StringSet<> *scope = &shadows;
       if (node.kind() == "FunctionDef" || node.kind() == "Lambda") {
         callableScope = true;
+        transactionScope = node.kind() == "FunctionDef" &&
+            (hasDecorator(node, "rule") || hasDecorator(node, "method"));
         if (node.kind() == "FunctionDef" && node.array("decorator_list").empty())
           captureSite = &node;
         nestedShadows = shadows;
@@ -458,14 +465,21 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
         if (earlierData && node.kind() == "Call")
           return diagnostic(node) << "ordinary data binding is not a callable Rule";
       }
+      // Transaction calls use the complete callable inventory, including
+      // source-global Rules whose actual owners are bound by the caller.
+      bool nestedCall = transactionScope && node.kind() == "Call" &&
+          node.child("func").kind() == "Name" &&
+          rules.contains(node.child("func").string("id")) &&
+          !scope->contains(node.child("func").string("id")) && !earlierData;
+      AstNode invocation = nestedCall ? node : registration;
       if (node.kind() == "Name" && rules.contains(node.string("id")) && !scope->contains(node.string("id")) && !earlierData) {
-        auto function = registration ? registration.child("func") : AstNode();
+        auto function = invocation ? invocation.child("func") : AstNode();
         if (!function || !sameOccurrence(node, function))
           return diagnostic(node) << "Rule is only a complete Module/System registration; it is not a helper or callback";
       }
       if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
           rules.contains(node.child("func").string("id")) && !scope->contains(node.child("func").string("id")) && !earlierData) {
-        if (!registration || !sameOccurrence(node, registration))
+        if (!nestedCall && (!registration || !sameOccurrence(node, registration)))
           return diagnostic(node) << "Rule call must be a complete Module/System registration";
       }
       for (NamedAttribute raw : node.fields()) {
@@ -474,9 +488,9 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
         if (auto array = dyn_cast<ArrayAttr>(raw.getValue())) {
           for (size_t j = 0; j < array.size(); ++j)
             if (auto child = dyn_cast<DictionaryAttr>(array[j]); child && child.getAs<StringAttr>("kind"))
-              if (failed(self(self, node.item(name, j), registration, *scope, callableScope, captureSite))) return failure();
+              if (failed(self(self, node.item(name, j), invocation, *scope, callableScope, captureSite, transactionScope))) return failure();
         } else if (auto child = dyn_cast<DictionaryAttr>(raw.getValue())) {
-          if (child.getAs<StringAttr>("kind") && failed(self(self, node.child(name), registration, *scope, callableScope, captureSite))) return failure();
+          if (child.getAs<StringAttr>("kind") && failed(self(self, node.child(name), invocation, *scope, callableScope, captureSite, transactionScope))) return failure();
         }
       }
       return success();
@@ -541,9 +555,6 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
           if (failed(bind(bind, stmt.item("targets", k)))) return failure();
       }
     }
-    for (const auto &name : nestedRuleNames)
-      if (registrations.lookup(name.getKey()) != 1)
-        return diagnostic(rules[name.getKey()]) << "Rule declaration must be registered exactly once";
   }
   return success();
 }

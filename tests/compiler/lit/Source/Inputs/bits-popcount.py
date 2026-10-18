@@ -116,7 +116,7 @@ FIELDS = [(f"n{width}", width.bit_length()) for width in WIDTHS] + [
 DESIGN = """from enum import Enum
 import pycircuit as ac
 from pycircuit import popcount as count
-from popcount_probe.provider import Fixed
+from popcount_probe.provider import Fixed, FixedResult
 @ac.encoding(width=3)
 class State(Enum):
     ZERO = 0
@@ -127,9 +127,9 @@ class ProbeResult:
     f"    {name}: ac.bits[{width}]\n" for name, width in FIELDS
 )
 DESIGN += (
-    "@ac.rule\ndef evaluate("
-    + ", ".join(f"w{w}" for w in WIDTHS)
-    + ", state, child) -> ProbeResult:\n"
+    "def evaluate("
+    + ", ".join(f"w{w}: ac.bits[{w}]" for w in WIDTHS)
+    + ", state: State, child: FixedResult) -> ProbeResult:\n"
 )
 DESIGN += "    alias = w5\n    result = ProbeResult()\n"
 DESIGN += "".join(f"    result.n{w} = ac.popcount(w{w})\n" for w in WIDTHS)
@@ -216,8 +216,14 @@ cases = {
     ),
     "raw-enum": (scalar("ac.popcount(value)", "State", prelude=enum_decl), fixed),
     "raw-struct": (scalar("ac.popcount(value)", "Record", prelude=struct_decl), fixed),
-    "tuple": (scalar("ac.popcount((value, value))"), "unsupported"),
-    "list": (scalar("ac.popcount([value])"), "unsupported"),
+    "tuple": (
+        scalar("ac.popcount((value, value))"),
+        "tuple/list literal requires an expected Table type",
+    ),
+    "list": (
+        scalar("ac.popcount([value])"),
+        "tuple/list literal requires an expected Table type",
+    ),
     "string": (scalar('ac.popcount("bits")'), "literal"),
     "table": (
         scalar(
@@ -434,18 +440,19 @@ def Top(value: ac.u5) -> {"out": ac.u3}:
             "ac.popcount(ac.popcount(value))", base="ac.u1", width=1
         ),
         "captured-rule": PREFIX
-        + """@ac.module
-def Child(value: ac.u3) -> {"out": ac.u3}:
-    return {"out": value}
+        + """@ac.struct
+class Result:
+    out: ac.u3
+@ac.rule
+def Child(value: ac.u3) -> Result:
+    return Result(out=value)
 @ac.module
-def Top(value: ac.u5) -> {"out": ac.u3}:
+def Top(value: ac.u5) -> Result:
     alias = value
-    child = Child()
     @ac.rule
-    def bind():
-        child(value=ac.popcount(alias))
-    bind()
-    return {"out": child.out}
+    def bind() -> Result:
+        return Child(ac.popcount(alias))
+    return bind()
 """,
     }
     control_paths = []

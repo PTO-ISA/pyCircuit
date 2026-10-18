@@ -1,3 +1,13 @@
+static std::string sourceRuleSpecializationKey(FlatSymbolRefAttr owner,
+                                               StringRef name,
+                                               const SourceCallableDecl &callable) {
+  std::string key = (owner.getValue() + "|" + name).str();
+  for (const Port &port : callable.inputs)
+    if (auto alias = callable.stateFormals.find(port.name); alias != callable.stateFormals.end())
+      key += "|" + port.name + "=" + alias->second;
+  return key;
+}
+
 LogicalResult Importer::scanSourceCallables() {
   llvm::StringMap<SmallVector<std::pair<AstNode, CapturedCallableSyntax>, 0>>
       staged;
@@ -31,7 +41,7 @@ LogicalResult Importer::scanSourceCallables() {
       staged[moduleName].push_back({declaration, *syntax});
       if (syntax->marker == MarkerKind::Method)
         methodOwnerNames.insert(moduleName);
-      if (syntax->marker == MarkerKind::Rule && syntax->guard)
+      if (syntax->marker == MarkerKind::Rule && (syntax->guard || syntax->after))
         transactionModuleNames.insert(moduleName);
       if (syntax->marker != MarkerKind::Rule || syntax->guard)
         continue;
@@ -117,6 +127,171 @@ LogicalResult Importer::scanSourceCallables() {
       }
     }
   }
+  llvm::DenseSet<DictionaryAttr> globalRuleDefinitions;
+  for (const auto &global : behavioralRules) globalRuleDefinitions.insert(global.second.value);
+  for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+    AstNode module = source.module.item("body", i);
+    if (module.kind() != "FunctionDef" ||
+        (!hasDecorator(module, "module") && !hasDecorator(module, "system"))) continue;
+    auto &entries = staged[module.string("name")];
+    llvm::StringSet<> localNames;
+    for (const auto &entry : entries) localNames.insert(entry.first.string("name"));
+    auto visit = [&](auto &&self, const AstNode &node) -> LogicalResult {
+      if (node.kind() == "ClassDef" || node.kind() == "Lambda") return success();
+      if (node.kind() == "Call" && node.child("func").kind() == "Name") {
+        StringRef name = node.child("func").string("id");
+        auto global = behavioralRules.find(name);
+        if (global != behavioralRules.end() && !localNames.contains(name)) {
+          auto syntax = readCallableSyntax(global->second,
+              [&](const AstNode &site) { return resolveBinding(site); }, error);
+          if (failed(syntax)) return failure();
+          entries.push_back({global->second, *syntax});
+          localNames.insert(name);
+        }
+      }
+      for (NamedAttribute field : node.fields()) {
+        if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+          if (child.getAs<StringAttr>("kind") && failed(self(self, node.child(field.getName().getValue())))) return failure();
+        } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+          for (size_t k = 0; k < children.size(); ++k)
+            if (auto child = dyn_cast<DictionaryAttr>(children[k]); child && child.getAs<StringAttr>("kind") &&
+                failed(self(self, node.item(field.getName().getValue(), k)))) return failure();
+      }
+      return success();
+    };
+    for (size_t j = 0; j < module.array("body").size(); ++j)
+      if (failed(visit(visit, module.item("body", j)))) return failure();
+  }
+  // A Rule may be a callable definition without an autonomous registration.
+  // Local nested invocations use the same typed effect producer as Methods.
+  for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+    AstNode module = source.module.item("body", i);
+    auto entries = staged.find(module.string("name"));
+    if (module.kind() != "FunctionDef" || entries == staged.end()) continue;
+    StringRef moduleName = module.string("name");
+    llvm::StringSet<> localRules;
+    llvm::StringMap<unsigned> registrations;
+    for (const auto &entry : entries->second)
+      if (entry.second.marker == MarkerKind::Rule)
+        localRules.insert(entry.first.string("name"));
+    for (size_t j = 0; j < module.array("body").size(); ++j) {
+      auto statement = module.item("body", j);
+      auto call = statement.child("value");
+      if (call.kind() == "Call" && call.child("func").kind() == "Name" &&
+          localRules.contains(call.child("func").string("id")))
+        ++registrations[call.child("func").string("id")];
+    }
+    for (const auto &name : localRules)
+      if (!registrations.lookup(name.getKey()))
+        callableRuleNames[moduleName].insert(name.getKey());
+    auto visit = [&](auto &&self, const AstNode &node) -> void {
+      if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
+      if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
+          localRules.contains(node.child("func").string("id")))
+        callableRuleNames[moduleName].insert(node.child("func").string("id"));
+      for (NamedAttribute field : node.fields()) {
+        if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+          if (child.getAs<StringAttr>("kind")) self(self, node.child(field.getName().getValue()));
+        } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+          for (size_t k = 0; k < children.size(); ++k)
+            if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+                child && child.getAs<StringAttr>("kind"))
+              self(self, node.item(field.getName().getValue(), k));
+      }
+    };
+    llvm::StringSet<> moduleOwners;
+    for (size_t j = 0; j < module.array("body").size(); ++j) {
+      auto statement = module.item("body", j);
+      if (statement.kind() == "AnnAssign")
+        moduleOwners.insert(assignmentRoot(statement.child("target")));
+      auto value = statement.child("value");
+      if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+          value.kind() == "Call" && value.child("func").kind() == "Subscript" &&
+          intrinsic(value.child("func").child("value"), "table"))
+        moduleOwners.insert(assignmentRoot(statement.item("targets", 0)));
+    }
+    for (const auto &entry : entries->second) {
+      llvm::StringSet<> formals;
+      bool typedContract = static_cast<bool>(entry.first.child("returns"));
+      auto args = entry.first.child("args");
+      for (size_t k = 0; k < args.array("args").size(); ++k) {
+        formals.insert(args.item("args", k).string("arg"));
+        typedContract &= static_cast<bool>(args.item("args", k).child("annotation"));
+      }
+      if (typedContract && entry.second.marker == MarkerKind::Rule)
+        callableRuleNames[moduleName].insert(entry.first.string("name"));
+      auto effects = [&](auto &&self, const AstNode &node) -> void {
+        if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
+        if (typedContract && (node.kind() == "For" || node.kind() == "While"))
+          transactionModuleNames.insert(moduleName);
+        auto ownerWrite = [&](const AstNode &target) {
+          (void)forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
+            StringRef root = assignmentRoot(leaf);
+            if (moduleOwners.contains(root) && !formals.contains(root))
+              transactionModuleNames.insert(moduleName);
+            return success();
+          });
+        };
+        if (node.kind() == "Assign")
+          for (size_t k = 0; k < node.array("targets").size(); ++k)
+            ownerWrite(node.item("targets", k));
+        else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For")
+          ownerWrite(node.child("target"));
+        for (StringRef field : {"body", "orelse"}) {
+          auto statements = node.array(field);
+          for (size_t k = 0; statements && k < statements.size(); ++k)
+            self(self, node.item(field, k));
+        }
+      };
+      for (size_t j = 0; j < entry.first.array("body").size(); ++j) {
+        auto statement = entry.first.item("body", j);
+        visit(visit, statement);
+        effects(effects, statement);
+      }
+    }
+    if (!callableRuleNames[moduleName].empty() ||
+        llvm::any_of(registrations, [](const auto &entry) { return entry.second > 1; }))
+      transactionModuleNames.insert(moduleName);
+  }
+  // Static instance binding Rules retain their elaboration route. Every other
+  // executable Rule uses the common transaction producer, with actual SSA
+  // specialization when its historical source signature is unannotated.
+  for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+    AstNode module = source.module.item("body", i);
+    auto found = staged.find(module.string("name"));
+    if (module.kind() != "FunctionDef" || found == staged.end() || found->second.empty()) continue;
+    llvm::StringSet<> allocations;
+    for (size_t j = 0; j < module.array("body").size(); ++j) {
+      auto statement = module.item("body", j);
+      auto call = statement.child("value");
+      if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+          statement.item("targets", 0).kind() == "Name" && call.kind() == "Call" &&
+          lookupBinding(call.child("func")) &&
+          lookupBinding(call.child("func"))->category == BindingCategory::Module)
+        allocations.insert(statement.item("targets", 0).string("id"));
+    }
+    bool structural = false;
+    auto visit = [&](auto &&self, const AstNode &node) -> void {
+      if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
+      if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
+          allocations.contains(node.child("func").string("id"))) structural = true;
+      for (NamedAttribute field : node.fields()) {
+        if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+          if (child.getAs<StringAttr>("kind")) self(self, node.child(field.getName().getValue()));
+        } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+          for (size_t k = 0; k < children.size(); ++k)
+            if (auto child = dyn_cast<DictionaryAttr>(children[k]); child && child.getAs<StringAttr>("kind"))
+              self(self, node.item(field.getName().getValue(), k));
+      }
+    };
+    for (const auto &entry : found->second)
+      for (size_t j = 0; j < entry.first.array("body").size(); ++j)
+        visit(visit, entry.first.item("body", j));
+    // Static Module parameters remain on their existing elaboration route
+    // unless a separately supported transaction feature selected this Module.
+    if (!structural && module.child("args").array("kwonlyargs").empty())
+      transactionModuleNames.insert(module.string("name"));
+  }
   // Classify the actual static module-call graph before reading callable
   // contracts. This includes imported transaction value modules and propagates
   // their publication route through local parents without making them handles.
@@ -190,6 +365,7 @@ LogicalResult Importer::scanSourceCallables() {
       AstNode declaration = entry.first;
       CapturedCallableSyntax syntax = entry.second;
       SourceCallableDecl callable{declaration, syntax};
+      callable.lexical = !globalRuleDefinitions.contains(declaration.value);
       AstNode arguments = declaration.child("args");
       if (!arguments.array("posonlyargs").empty() ||
           !arguments.array("kwonlyargs").empty() ||
@@ -200,10 +376,15 @@ LogicalResult Importer::scanSourceCallables() {
       llvm::StringSet<> names;
       for (size_t k = 0; k < arguments.array("args").size(); ++k) {
         AstNode argument = arguments.item("args", k);
-        if (!argument.child("annotation") ||
-            !names.insert(argument.string("arg")).second)
-          return error()
-                 << "Method parameter requires a unique explicit annotation";
+        if (!names.insert(argument.string("arg")).second)
+          return error() << "Rule/Method parameter requires a unique name";
+        if (!argument.child("annotation")) {
+          if (syntax.marker == MarkerKind::Method)
+            return error() << "Method parameter requires an explicit annotation";
+          callable.inferredSignature = true;
+          callable.inputs.push_back({argument.string("arg").str(), {}, argument, {}, false});
+          continue;
+        }
         auto type = portType(
             argument.child("annotation"),
             FlatSymbolRefAttr::get(b.getContext(), qualify(moduleName)));
@@ -214,26 +395,72 @@ LogicalResult Importer::scanSourceCallables() {
              annotationKind(argument.child("annotation")),
              fixedAnnotation(argument.child("annotation"))});
       }
+      if (syntax.marker == MarkerKind::Rule) {
+        auto assigned = [&](auto &&self, const AstNode &node) -> void {
+          if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
+          auto target = [&](const AstNode &binding) {
+            (void)forEachAssignmentLeaf(binding, [&](const AstNode &leaf) {
+              StringRef root = assignmentRoot(leaf);
+              if (llvm::any_of(callable.inputs, [&](const Port &port) { return port.name == root; }))
+                callable.assignedFormals.insert(root);
+              return success();
+            });
+          };
+          if (node.kind() == "Assign")
+            for (size_t k = 0; k < node.array("targets").size(); ++k)
+              target(node.item("targets", k));
+          else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For")
+            target(node.child("target"));
+          for (NamedAttribute field : node.fields()) {
+            if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+              if (child.getAs<StringAttr>("kind")) self(self, node.child(field.getName().getValue()));
+            } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+              for (size_t k = 0; k < children.size(); ++k)
+                if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+                    child && child.getAs<StringAttr>("kind"))
+                  self(self, node.item(field.getName().getValue(), k));
+          }
+        };
+        for (size_t k = 0; k < declaration.array("body").size(); ++k)
+          assigned(assigned, declaration.item("body", k));
+      }
       AstNode returns = declaration.child("returns");
       bool none =
           returns.kind() == "Constant" && isa<UnitAttr>(returns.get("value"));
-      if (!returns)
-        return error() << "Method/Rule requires an explicit return annotation";
+      if (!returns) {
+        if (syntax.marker == MarkerKind::Method)
+          return error() << "Method requires an explicit return annotation";
+        callable.inferredSignature = true;
+        bool valueReturn = false;
+        for (size_t k = 0; k < declaration.array("body").size(); ++k) {
+          auto statement = declaration.item("body", k);
+          auto value = statement.child("value");
+          if (statement.kind() == "Return" && value &&
+              !(value.kind() == "Constant" && isa<UnitAttr>(value.get("value")))) valueReturn = true;
+        }
+        callable.inferResults = valueReturn;
+        none = true;
+      }
       if (!none) {
-        auto type = portType(returns, FlatSymbolRefAttr::get(
-                                          b.getContext(), qualify(moduleName)));
-        if (failed(type))
+        if (returns.kind() == "Dict" && syntax.marker == MarkerKind::Method)
+          return error() << "Method returns require a scalar, nominal type or fixed tuple";
+        ModuleDecl contract;
+        contract.symbol = FlatSymbolRefAttr::get(b.getContext(), qualify(moduleName));
+        llvm::StringSet<> resultNames;
+        if (returns.kind() != "Dict")
+          for (const Port &input : callable.inputs) resultNames.insert(input.name);
+        if (failed(readReturnContract(contract, returns, resultNames, true)))
           return failure();
-        callable.results.push_back(*type);
-        callable.resultContracts.push_back({"result", *type, returns,
-                                            annotationKind(returns),
-                                            fixedAnnotation(returns)});
+        callable.returnShape = contract.returnShape;
+        callable.resultContracts = std::move(contract.outputs);
+        for (const Port &result : callable.resultContracts)
+          callable.results.push_back(result.type);
       }
       SmallVector<Type> inputs;
       for (const Port &port : callable.inputs)
         inputs.push_back(port.type);
-      callable.type =
-          FunctionType::get(b.getContext(), inputs, callable.results);
+      if (llvm::all_of(inputs, [](Type type) { return static_cast<bool>(type); }))
+        callable.type = FunctionType::get(b.getContext(), inputs, callable.results);
       auto &inventory = syntax.marker == MarkerKind::Method
                             ? sourceMethods[moduleName]
                             : sourceRules[moduleName];
@@ -241,8 +468,134 @@ LogicalResult Importer::scanSourceCallables() {
         return error() << "duplicate Rule/Method declaration name";
     }
   }
-  // A guarded top-level Rule is newly recognized syntax. The old pure-rule
-  // route has no place to preserve its guard, so reject it explicitly.
+  // Forwarded owner parameters retain write intent through the whole static
+  // Rule call graph. This pass records which formal positions can propose;
+  // the emitted body still derives the actual D and raw intent SSA.
+  llvm::StringMap<llvm::StringMap<FlatSymbolRefAttr>> receiverSymbols;
+  llvm::StringMap<FlatSymbolRefAttr> sourceModuleSymbols;
+  for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+    auto node = source.module.item("body", i);
+    if (node.kind() == "FunctionDef" && (hasDecorator(node, "module") || hasDecorator(node, "system")))
+      sourceModuleSymbols[node.string("name")] = FlatSymbolRefAttr::get(b.getContext(), qualify(node.string("name")));
+  }
+  for (size_t moduleIndex = 0; moduleIndex < source.module.array("body").size(); ++moduleIndex) {
+    auto module = source.module.item("body", moduleIndex);
+    if (!sourceModuleSymbols.contains(module.string("name"))) continue;
+    auto &receivers = receiverSymbols[module.string("name")];
+    for (size_t i = 0; i < module.array("body").size(); ++i) {
+      auto statement = module.item("body", i);
+      if (statement.kind() != "Assign" || statement.array("targets").size() != 1 ||
+          statement.item("targets", 0).kind() != "Name") continue;
+      StringRef name = statement.item("targets", 0).string("id");
+      auto value = statement.child("value");
+      if (value.kind() == "Call") {
+        auto function = value.child("func");
+        if (function.kind() == "Name" && sourceModuleSymbols.contains(function.string("id")) &&
+            !lexicallyShadowed(function, function.string("id")))
+          receivers[name] = sourceModuleSymbols.lookup(function.string("id"));
+        else if (auto binding = lookupBinding(function);
+                 binding && binding->category == BindingCategory::Module)
+          receivers[name] = binding->symbol;
+      } else if (value.kind() == "Name" && receivers.contains(value.string("id")))
+        receivers[name] = receivers.lookup(value.string("id"));
+    }
+  }
+  do {
+    changed = false;
+    for (auto &module : sourceRules)
+      for (auto &entry : module.second) {
+        SourceCallableDecl &caller = entry.second;
+        auto visit = [&](auto &&self, const AstNode &node) -> LogicalResult {
+          if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return success();
+          if (failed(chargeLoopDescriptorWork(node, "Rule formal proposal closure")))
+            return failure();
+          if (node.kind() == "Call") {
+            auto function = node.child("func");
+            SourceCallableDecl *target = nullptr;
+            std::optional<ac::SourceMethodView> imported;
+            StringRef calleeName;
+            FlatSymbolRefAttr receiver;
+            if (function.kind() == "Name") {
+              calleeName = function.string("id");
+              auto found = module.second.find(calleeName);
+              if (found != module.second.end()) target = &found->second;
+            } else if (function.kind() == "Attribute" && function.child("value").kind() == "Name") {
+              calleeName = function.string("attr");
+              receiver = receiverSymbols[module.first()].lookup(function.child("value").string("id"));
+              if (receiver) {
+                for (const auto &decl : sourceModuleSymbols)
+                  if (decl.second == receiver) {
+                    auto found = sourceRules[decl.first()].find(calleeName);
+                    if (found != sourceRules[decl.first()].end()) target = &found->second;
+                    break;
+                  }
+                if (!target) {
+                  auto view = headers.lookupModule(receiver);
+                  if (view) {
+                    auto method = ac::lookupSourceMethod(view.declaration, calleeName, body->getOperation());
+                    if (failed(method)) return failure();
+                    imported = *method;
+                  }
+                }
+              }
+            }
+            SmallVector<StringRef> names;
+            SmallVector<unsigned> writable;
+            if (target) {
+              for (auto [index, port] : llvm::enumerate(target->inputs)) {
+                names.push_back(port.name);
+                if (target->assignedFormals.contains(port.name)) writable.push_back(index);
+              }
+            } else if (imported) {
+              for (Attribute raw : imported->getParameters())
+                names.push_back(cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue());
+              auto proposals = imported->getFormalProposals();
+              if (proposals)
+                for (Attribute raw : proposals) writable.push_back(cast<IntegerAttr>(raw).getInt());
+            }
+            if (!writable.empty()) {
+              auto actuals = normalizeCallArguments(node, names, error);
+              if (failed(actuals)) return failure();
+              for (unsigned index : writable) {
+                auto actual = (*actuals)[index];
+                if (actual.kind() != "Name") continue;
+                StringRef name = actual.string("id");
+                if (llvm::any_of(caller.inputs, [&](const Port &port) { return port.name == name; }))
+                  changed |= caller.assignedFormals.insert(name).second;
+              }
+            }
+          }
+          for (NamedAttribute field : node.fields()) {
+            if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+              if (child.getAs<StringAttr>("kind") && failed(self(self, node.child(field.getName().getValue()))))
+                return failure();
+            } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+              for (size_t k = 0; k < children.size(); ++k)
+                if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+                    child && child.getAs<StringAttr>("kind") &&
+                    failed(self(self, node.item(field.getName().getValue(), k))))
+                  return failure();
+          }
+          return success();
+        };
+        for (size_t i = 0; i < caller.declaration.array("body").size(); ++i)
+          if (failed(visit(visit, caller.declaration.item("body", i)))) return failure();
+      }
+  } while (changed);
+  for (auto &module : callableRuleNames)
+    for (const auto &name : module.second) {
+      auto rule = sourceRules[module.first()].find(name.getKey());
+      if (rule == sourceRules[module.first()].end())
+        return error() << "callable Rule lacks a source declaration";
+      if (!sourceMethods[module.first()].try_emplace(name.getKey(), rule->second).second)
+        return error() << "Rule and Method callable names conflict";
+    }
+  for (auto &module : sourceRules)
+    for (const auto &entry : module.second)
+      if (entry.second.inferredSignature)
+        sourceMethods[module.first()].try_emplace(entry.first(), entry.second);
+  // Ordering metadata remains lexical to an owning Module. A source-global
+  // Rule can carry a guard but cannot name an outer Module registration.
   for (size_t i = 0; i < source.module.array("body").size(); ++i) {
     AstNode declaration = source.module.item("body", i);
     if (declaration.kind() != "FunctionDef")
@@ -260,10 +613,8 @@ LogicalResult Importer::scanSourceCallables() {
     auto syntax = readCallableSyntax(
         declaration, [&](const AstNode &node) { return resolveBinding(node); },
         error);
-    if (succeeded(syntax) && syntax->marker == MarkerKind::Rule &&
-        syntax->guard)
-      return error()
-             << "guarded top-level Rule requires the typed transaction route";
+    if (succeeded(syntax) && syntax->after)
+      return error() << "Rule after requires a nested owning Module";
     if (failed(syntax))
       return failure();
   }
@@ -307,9 +658,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     if (port.fixedBits)
       fixedValues.insert(value);
   }
-  auto clock = moduleValues.find("pyc_clk"),
-       reset = moduleValues.find("pyc_rst");
-  if (clock == moduleValues.end() || reset == moduleValues.end())
+  // Keep SSA values, not StringMap iterators: later ordinary bindings and
+  // compiler-owned Queue view captures can grow this lexical map.
+  Value clock = moduleValues.lookup("pyc_clk"),
+        reset = moduleValues.lookup("pyc_rst");
+  if (!clock || !reset)
     return error() << "typed transactions require inferred clock and reset";
   OpBuilder at = OpBuilder::atBlockEnd(graph);
   llvm::StringMap<StateOwner> states;
@@ -319,7 +672,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       [&] { activeBehavioralDecl = previousBehavioralDecl; });
   if (failed(predeclareDirectCalls(decl, at)))
     return failure();
-
   SmallVector<Instance, 0> instanceStorage;
   llvm::StringMap<Instance *> instances;
   auto &methods = sourceMethods[decl.node.string("name")];
@@ -333,177 +685,20 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
 
   auto snapshot = [&](CaptureSnapshot &captures) {
     captures.clear();
+    llvm::DenseSet<Value> seen;
     for (const auto &value : moduleValues)
-      if (value.first() != "pyc_clk" && value.first() != "pyc_rst")
+      if (value.first() != "pyc_clk" && value.first() != "pyc_rst") {
         captures.push_back({value.first().str(), value.second});
+        seen.insert(value.second);
+      }
+    // Instance outputs are ordinary lexical SSA captures. Empty names keep
+    // them out of the source value namespace while captureValue records their
+    // actual producer identity for raw-view lookup inside Method/Rule regions.
+    for (const auto &entry : instances)
+      for (Value output : entry.second->op->getResults())
+        if (seen.insert(output).second)
+          captures.push_back({"", output});
   };
-
-  size_t instanceCount = 0;
-  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
-    AstNode statement = decl.node.item("body", i);
-    if (statement.kind() == "Assign" &&
-        statement.array("targets").size() == 1 &&
-        statement.item("targets", 0).kind() == "Name" &&
-        statement.child("value").kind() == "Call")
-      ++instanceCount;
-  }
-  instanceStorage.reserve(instanceCount);
-  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
-    AstNode statement = decl.node.item("body", i);
-    if (statement.kind() == "FunctionDef") {
-      StringRef name = statement.string("name");
-      if (statement.array("decorator_list").empty()) {
-        if (failed(declareValueHelper(statement, decl.symbol, moduleValues))) return failure();
-      } else if (!methods.contains(name) && !rules.contains(name))
-        return error() << "nested callable requires Rule, Method or ordinary typed helper";
-      if (methods.contains(name))
-        snapshot(methodCaptures[name]);
-      else if (rules.contains(name))
-        snapshot(ruleCaptures[name]);
-      continue;
-    }
-    if (docstring(statement) || statement.kind() == "Return" ||
-        statement.kind() == "Expr" || statement.kind() == "Pass")
-      continue;
-    if (statement.kind() == "Assign" &&
-        statement.child("value").kind() == "Call" &&
-        statement.child("value").child("func").kind() == "Name" &&
-        rules.contains(statement.child("value").child("func").string("id")))
-      continue;
-    if (statement.kind() == "AnnAssign") {
-      if (statement.child("target").kind() != "Name" ||
-          !statement.child("value"))
-        return error() << "typed owner state requires a fixed annotated Name "
-                          "initializer";
-      StringRef name = statement.child("target").string("id");
-      if (states.contains(name) || methods.contains(name) ||
-          rules.contains(name))
-        return error() << "persistent owner name is duplicated";
-      AstNode annotation = statement.child("annotation");
-      if (!fixedAnnotation(annotation))
-        return error() << "typed transaction state requires explicitly fixed "
-                          "Bits annotation";
-      auto type = portType(annotation, decl.symbol);
-      if (failed(type) || !isa<ac::BitsType>(*type))
-        return error()
-               << "typed transaction state requires fixed Bits scalar type";
-      llvm::StringMap<Instance *> none;
-      auto initial = expression(statement.child("value"), at, decl.symbol,
-                                moduleValues, none, *type);
-      if (failed(initial))
-        return failure();
-      Port boundaryPort{name.str(), *type, annotation,
-                        annotationKind(annotation), true};
-      auto converted = applyBindingBoundary(
-          *initial, BindingBoundary{boundaryPort, true}, statement.child("value"),
-          at, decl.symbol);
-      if (failed(converted))
-        return failure();
-      Operation *state = createOp(
-          at, statement.location(b.getContext(), source.path),
-          ac::SourceStateOp::getOperationName(),
-          ValueRange{clock->second, reset->second, *converted},
-          TypeRange{*type},
-          {at.getNamedAttr("instance_name", at.getStringAttr(name)),
-           at.getNamedAttr("occurrence",
-                           sourceOccurrence(at, decl.symbol, statement))});
-      helperOwnerBindings.insert(name);
-      states[name] = {name.str(), *type, *converted, state, statement};
-      continue;
-    }
-    if (statement.kind() == "Assign" &&
-        statement.array("targets").size() == 1 &&
-        statement.item("targets", 0).kind() == "Name") {
-      StringRef name = statement.item("targets", 0).string("id");
-      AstNode value = statement.child("value");
-      if (states.contains(name))
-        return error()
-               << "instance handle assignment shadows a persistent owner";
-      if (methods.contains(name) || rules.contains(name) ||
-          instances.contains(name))
-        return error() << "instance handle cannot be rebound and requires a "
-                          "fresh immutable name";
-      if (value.kind() == "Name" && instances.contains(value.string("id"))) {
-        if (moduleValues.contains(name))
-          return error() << "instance handle cannot be rebound and requires a "
-                            "fresh immutable name";
-        instances[name] = instances[value.string("id")];
-        continue;
-      }
-      if (value.kind() == "Call" && value.child("func").kind() == "Attribute" &&
-          value.child("func").child("value").kind() == "Name" &&
-          instances.contains(value.child("func").child("value").string("id")))
-        return error() << "Method call requires a Rule transaction scope";
-      if (value.kind() == "Call" && methodOwner(value.child("func"))) {
-        if (moduleValues.contains(name))
-          return error() << "instance handle cannot be rebound and requires a "
-                            "fresh immutable name";
-        if (!value.array("args").empty() || !value.array("keywords").empty())
-          return error()
-                 << "Method owner construction takes no authored parameters";
-        AstNode function = value.child("func");
-        FlatSymbolRefAttr callee;
-        Operation *declaration = nullptr;
-        unsigned clockInput = 0, resetInput = 1;
-        auto target = function.kind() == "Name"
-                          ? local.find(function.string("id"))
-                          : local.end();
-        if (target != local.end()) {
-          if (modules[target->second].system)
-            return error() << "@system is root-only and cannot be called as a child";
-          callee = modules[target->second].symbol;
-        } else {
-          auto binding = lookupBinding(function);
-          auto view = headers.lookupModule(binding->symbol);
-          if (view.declaration->hasAttr("ac.root_kind"))
-            return error() << "@system is root-only and cannot be called as a child";
-          callee = view.symbol;
-          declaration = view.declaration;
-          clockInput = view.domainInputs.getAs<IntegerAttr>("clock").getInt();
-          resetInput = view.domainInputs.getAs<IntegerAttr>("reset").getInt();
-        }
-        SmallVector<Value> inputs(2);
-        inputs[clockInput] = clock->second;
-        inputs[resetInput] = reset->second;
-        Operation *instance = createOp(
-            at, statement.location(b.getContext(), source.path),
-            ac::InstanceOp::getOperationName(), inputs, TypeRange{},
-            {at.getNamedAttr("instance_name", at.getStringAttr(name)),
-             at.getNamedAttr("callee", callee),
-             at.getNamedAttr("parameters", at.getArrayAttr({})),
-             at.getNamedAttr("type_arguments", at.getArrayAttr({})),
-             at.getNamedAttr("occurrence",
-                             sourceOccurrence(at, decl.symbol, statement))});
-        instanceStorage.push_back({name.str(), statement, callee, declaration});
-        instanceStorage.back().op = instance;
-        instanceStorage.back().clockInput = clockInput;
-        instanceStorage.back().resetInput = resetInput;
-        instances[name] = &instanceStorage.back();
-        continue;
-      }
-      if (authoredInputs.contains(name))
-        return error()
-               << "module-local assignment cannot rebind an authored input";
-      // Ordinary module expressions capture physical old Q. Keep this view
-      // local: state initializers and callable captures retain their existing
-      // bindings, and transaction reads continue to use source effects.
-      llvm::StringMap<Value> ordinaryValues(moduleValues);
-      for (const auto &entry : states) {
-        Value oldQ = entry.second.op->getResult(0);
-        ordinaryValues[entry.first()] = oldQ;
-        fixedValues.insert(oldQ);
-      }
-      auto ordinary =
-          expression(value, at, decl.symbol, ordinaryValues, instances);
-      if (failed(ordinary))
-        return failure();
-      moduleValues[name] = *ordinary;
-      ordinaryModuleAssignments.insert(
-          sourceOccurrence(at, decl.symbol, statement));
-      continue;
-    }
-    return error() << "unsupported typed transaction module statement";
-  }
 
   auto boundHardwareIdentity = [&](StringRef name) {
     return methods.contains(name) || rules.contains(name) ||
@@ -511,12 +706,47 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
            structs.contains(name) || enums.contains(name) ||
            behavioralRules.contains(name);
   };
-
-  SmallVector<ValueHelperDecl *> lexicalHelpers;
-  for (auto &entry : valueHelpers)
-    if (entry.second->lexicalOwner == decl.symbol) lexicalHelpers.push_back(entry.second.get());
-  for (auto *helper : lexicalHelpers)
-    if (failed(lowerValueHelper(*helper))) return failure();
+  llvm::StringSet<> authoredOwnerNames;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto statement = decl.node.item("body", i);
+    if (statement.kind() == "AnnAssign")
+      authoredOwnerNames.insert(assignmentRoot(statement.child("target")));
+    auto value = statement.child("value");
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        value.kind() == "Call" && value.child("func").kind() == "Subscript" &&
+        intrinsic(value.child("func").child("value"), "table"))
+      authoredOwnerNames.insert(assignmentRoot(statement.item("targets", 0)));
+  }
+  // Bind local writable actuals to the physical owner before producing the
+  // callable body. A delayed D/E suffix alone would miss lexical aliases and
+  // nested calls that observe the same owner's intermediate candidate.
+  llvm::StringSet<> lexicalNames;
+  auto collectNames = [&](auto &&self, const AstNode &node) -> LogicalResult {
+    if (failed(chargeLoopDescriptorWork(node, "Rule specialization name hygiene"))) return failure();
+    if (node.kind() == "Name") lexicalNames.insert(node.string("id"));
+    if (node.kind() == "arg") lexicalNames.insert(node.string("arg"));
+    if (node.kind() == "FunctionDef") lexicalNames.insert(node.string("name"));
+    for (NamedAttribute field : node.fields()) {
+      if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+        if (child.getAs<StringAttr>("kind") && failed(self(self, node.child(field.getName().getValue()))))
+          return failure();
+      } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+        for (size_t k = 0; k < children.size(); ++k)
+          if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+              child && child.getAs<StringAttr>("kind") &&
+              failed(self(self, node.item(field.getName().getValue(), k))))
+            return failure();
+    }
+    return success();
+  };
+  if (failed(collectNames(collectNames, decl.node))) return failure();
+  SmallVector<std::string> methodWork;
+  llvm::StringSet<> queuedMethods;
+  for (const auto &entry : methods)
+    if (!entry.second.inferredSignature) {
+      methodWork.push_back(entry.first().str());
+      queuedMethods.insert(entry.first());
+    }
   auto retainHelperSnapshots = [&](CaptureSnapshot &captures) {
     for (const auto &entry : valueHelpers) {
       if (entry.second->lexicalOwner != decl.symbol) continue;
@@ -525,14 +755,80 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           captures.push_back({{}, capture.second});
     }
   };
-  for (auto &entry : methodCaptures) retainHelperSnapshots(entry.second);
-  for (auto &entry : ruleCaptures) retainHelperSnapshots(entry.second);
+  llvm::StringMap<Operation *> emittedMethods;
+  std::function<LogicalResult(StringRef)> emitMethod;
+  std::function<FailureOr<std::string>(StringRef, const SourceCallableDecl &)> specialize =
+      [&](StringRef name, const SourceCallableDecl &specialized) -> FailureOr<std::string> {
+    if (failed(chargeLoopDescriptorWork(specialized.declaration, "Rule actual-SSA specialization")))
+      return failure();
+    if (specialized.lexical) retainHelperSnapshots(methodCaptures[name]);
+    std::string key = sourceRuleSpecializationKey(decl.symbol, name, specialized);
+    llvm::raw_string_ostream encoded(key);
+    for (auto [index, port] : llvm::enumerate(specialized.inputs)) {
+      // Types and closed attributes are uniqued in this compiler context.
+      // Identity keys avoid serializing their full provenance trees again.
+      encoded << "|" << port.name << ":" << port.type.getAsOpaquePointer()
+              << ":" << port.fixedBits << ":";
+      if (port.sourceKind) encoded << static_cast<unsigned>(*port.sourceKind);
+      if (index < specialized.actualFacts.size()) {
+        auto facts = valueInfo(specialized.actualFacts[index]);
+        if (facts.closedSourceConstant)
+          encoded << ":" << facts.closedSourceConstant.getAsOpaquePointer();
+      }
+    }
+    encoded << "|return:" << specialized.inferResults << ":"
+            << static_cast<unsigned>(specialized.returnShape);
+    for (const Port &port : specialized.resultContracts) {
+      encoded << ":" << port.type.getAsOpaquePointer() << ":" << port.fixedBits;
+      if (port.sourceKind) encoded << ":" << static_cast<unsigned>(*port.sourceKind);
+    }
+    for (const auto &capture : methodCaptures[name])
+      encoded << "|capture:" << capture.first << ":" << capture.second.getAsOpaquePointer();
+    encoded.flush();
+    auto existing = sourceRuleSpecializations.find(key);
+    if (existing != sourceRuleSpecializations.end()) return existing->second;
+    std::string privateName;
+    size_t serial = sourceRuleSpecializations.size();
+    do {
+      privateName = "_pyc_owner_" + name.str() + "_" + std::to_string(serial++);
+    } while (methods.contains(privateName) || lexicalNames.contains(privateName) ||
+             this->names.contains(privateName) || structs.contains(privateName) || enums.contains(privateName));
+    sourceRuleSpecializations[key] = privateName;
+    auto &created = methods[privateName];
+    created = specialized;
+    created.inferredSignature = false;
+    created.privateSpecialization = true;
+    methodCaptures[privateName] = methodCaptures[name];
+    if (queuedMethods.insert(privateName).second) methodWork.push_back(privateName);
+    if (created.inferResults && failed(emitMethod(privateName))) return failure();
+    return privateName;
+  };
 
   auto emitStatements = [&](SourceCallableDecl &callable, OpBuilder &inside,
                             llvm::StringMap<Value> &values,
                             bool guard) -> FailureOr<SmallVector<Value>> {
+    // Owner-bound Rule formals name the analyzed physical owner. Ordinary
+    // Method/value parameters remain SSA, and saved read results stay snapshots.
+    auto callableStates = callable.lexical ? states : llvm::StringMap<StateOwner>();
+    for (const Port &port : callable.inputs) callableStates.erase(port.name);
+    for (const auto &formal : callable.stateFormals)
+      callableStates[formal.first()] = states.lookup(formal.second);
+    auto &states = callableStates;
+    auto callableInstances = callable.lexical ? instances : llvm::StringMap<Instance *>();
+    auto &instances = callableInstances;
+    auto boundHardwareIdentity = [&](StringRef name) {
+      return names.contains(name) || structs.contains(name) || enums.contains(name) ||
+             behavioralRules.contains(name) ||
+             (callable.lexical && (methods.contains(name) || rules.contains(name) || instances.contains(name)));
+    };
     SourceEffectContext context{&decl,      &callable, &states,
                                 &instances, &methods,  guard};
+    context.specialize = &specialize;
+    auto *savedNestedScope = activeNestedRuleScope;
+    if (!callable.lexical) activeNestedRuleScope = nullptr;
+    auto restoreNestedScope = llvm::scope_exit([&] {
+      activeNestedRuleScope = savedNestedScope;
+    });
     auto *saved = activeSourceEffects;
     activeSourceEffects = &context;
     llvm::scope_exit restore([&] { activeSourceEffects = saved; });
@@ -564,16 +860,212 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     auto restoreValues = llvm::scope_exit([&] {
       environment.values.swap(values);
     });
+    // A Rule's explicit parameter boundary applies to every assignment, even
+    // when the actual argument is an ordinary value rather than an owner.
+    for (const Port &port : callable.inputs)
+      if (!states.contains(port.name))
+        environment.boundaries[port.name] = port.node.child("annotation")
+            ? BindingBoundary{port, true}
+            : inferredBoundary(port.name, environment.values.lookup(port.name), port.node, true);
+    bool formalProposals = isa<ac::SourceMethodOp>(inside.getBlock()->getParentOp()) &&
+                           callable.syntax.marker == MarkerKind::Rule;
+    auto intentName = [](StringRef formal) { return ("$intent." + formal).str(); };
+    auto writeSelectors = [&](const AstNode &target,
+                              OpBuilder &at) -> FailureOr<ArrayAttr> {
+      SmallVector<Attribute> selectors;
+      AstNode current = target;
+      while (current.kind() == "Attribute" || current.kind() == "Subscript") {
+        TableQueryCharge charge;
+        std::string reason;
+        if (!TableQueryBudget::add(charge, TableQueryResource::Work, 1) ||
+            !TableQueryBudget::add(charge, TableQueryResource::Slots, 4) ||
+            !queryBudget.reserve(charge, reason))
+          return error() << "selected write footprint: " << reason;
+        if (current.kind() == "Attribute")
+          selectors.push_back(at.getDictionaryAttr({at.getNamedAttr(
+              "field", at.getStringAttr(current.string("attr")))}));
+        else {
+          if (current.child("value").kind() != "Name")
+            return error() << "indexed assignment requires a named table";
+          selectors.push_back(at.getDictionaryAttr(
+              {at.getNamedAttr("index", at.getI64IntegerAttr(0))}));
+        }
+        current = current.child("value");
+      }
+      if (current.kind() != "Name")
+        return error() << "selected write requires a named payload root";
+      std::reverse(selectors.begin(), selectors.end());
+      return at.getArrayAttr(selectors);
+    };
+    auto emitFormalWrite = [&](StringRef name, Value payload,
+                               const AstNode &site, OpBuilder &at,
+                               BranchEnvironment &environment,
+                               Value active = Value(), ArrayAttr selectors = {},
+                               ValueRange indices = {}) -> LogicalResult {
+      if (!formalProposals || !callable.assignedFormals.contains(name) ||
+          callable.stateFormals.contains(name))
+        return success();
+      auto formal = llvm::find_if(callable.inputs, [&](const Port &port) { return port.name == name; });
+      if (formal == callable.inputs.end())
+        return error() << "formal write lacks its parameter contract";
+      auto path = active ? FailureOr<Value>(active) : trueValue(site, at, decl.symbol);
+      if (failed(path))
+        return failure();
+      SmallVector<Value> operands{payload, *path,
+                                  environment.values.lookup(name)};
+      llvm::append_range(operands, indices);
+      createOp(
+          at, site.location(b.getContext(), source.path), "ac.formal.write",
+          operands, {},
+          {at.getNamedAttr("formal", at.getI64IntegerAttr(std::distance(
+                                         callable.inputs.begin(), formal))),
+           at.getNamedAttr("selectors",
+                           selectors ? selectors : at.getArrayAttr({})),
+           at.getNamedAttr(
+               "operandSegmentSizes",
+               at.getDenseI32ArrayAttr(
+                   {1, 1, 1, static_cast<int32_t>(indices.size()), 0})),
+           at.getNamedAttr("occurrence",
+                           sourceOccurrence(at, decl.symbol, site)),
+           at.getNamedAttr("ac.location", sourceSpan(at, source.path, site))});
+      return success();
+    };
+    if (formalProposals)
+      for (const Port &port : callable.inputs)
+        if (callable.assignedFormals.contains(port.name) &&
+            !callable.stateFormals.contains(port.name)) {
+          auto zero = constant(internalBits(1, callable.declaration, decl.symbol), 0,
+                               callable.declaration, inside, decl.symbol);
+          if (failed(zero)) return failure();
+          remember(*zero, ac::detail::ValueKind::Boolean);
+          fixedValues.erase(*zero);
+          environment.values[intentName(port.name)] = *zero;
+        }
     std::function<LogicalResult(const AstNode &, StringRef, OpBuilder &,
                                 BranchEnvironment &, bool)> emitBody;
-    emitBody = [&](const AstNode &parent, StringRef field, OpBuilder &inside,
+    struct LoopControl { std::string live, continuing; };
+    SmallVector<LoopControl> loopControls;
+    unsigned loopOrdinal = 0;
+    auto loopControl = [&](const AstNode &loop) {
+      std::pair<bool, bool> control{false, false};
+      auto scan = [&](auto &&self, const AstNode &node) -> void {
+        if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
+        control.first |= node.kind() == "Break";
+        control.second |= node.kind() == "Continue";
+        bool nestedLoop = node.kind() == "For" || node.kind() == "While";
+        for (StringRef childField : {"body", "orelse"}) {
+          if (nestedLoop && childField == "body") continue;
+          auto statements = node.array(childField);
+          for (size_t k = 0; statements && k < statements.size(); ++k)
+            self(self, node.item(childField, k));
+        }
+      };
+      for (size_t k = 0; k < loop.array("body").size(); ++k)
+        scan(scan, loop.item("body", k));
+      return control;
+    };
+    auto emitLoopElse = [&](const AstNode &statement, OpBuilder &at,
+                            BranchEnvironment &environment, bool inBranch,
+                            Value live) -> LogicalResult {
+      if (!live) return emitBody(statement, "orelse", at, environment, inBranch);
+      if (statement.array("orelse").empty()) return success();
+      auto predicate = predicateView(live, statement, decl.symbol);
+      if (failed(predicate) || failed(reserveSourceEnvironmentCopies(statement, environment))) return failure();
+      auto branch = cast<ac::SourceBranchOp>(createOp(at,
+          statement.location(b.getContext(), source.path), ac::SourceBranchOp::getOperationName(),
+          {live}, {},
+          {at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol, statement)),
+           at.getNamedAttr("ac.condition_location", sourceSpan(at, source.path, statement)),
+           at.getNamedAttr("ac.loop_continuation", at.getBoolAttr(true))}, 2));
+      branch.getThenRegion().push_back(new Block());
+      branch.getElseRegion().push_back(new Block());
+      OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
+      BranchEnvironment yes = environment, no = environment;
+      if (failed(emitBody(statement, "orelse", thenAt, yes, inBranch))) return failure();
+      auto joined = joinBranches(*predicate, environment, yes, no, statement, at, decl.symbol, branch);
+      if (failed(joined)) return failure();
+      environment = std::move(*joined);
+      return success();
+    };
+    std::function<LogicalResult(const AstNode &, StringRef, OpBuilder &,
+                                BranchEnvironment &, bool, size_t, bool)> emitRange;
+    emitRange = [&](const AstNode &parent, StringRef field, OpBuilder &inside,
                    BranchEnvironment &environment,
-                   bool inBranch) -> LogicalResult {
+                   bool inBranch, size_t start, bool guarded) -> LogicalResult {
       auto &values = environment.values;
-      for (size_t i = 0; i < parent.array(field).size(); ++i) {
+      Value entryContinue = loopControls.empty() ? Value()
+          : values.lookup(loopControls.back().continuing);
+      for (size_t i = start; i < parent.array(field).size(); ++i) {
         AstNode statement = parent.item(field, i);
+        if (docstring(statement))
+          continue;
+        if (!loopControls.empty()) {
+          Value continuing = values.lookup(loopControls.back().continuing);
+          auto known = continuing ? dyn_cast_or_null<BoolAttr>(valueInfo(continuing).closedSourceConstant) : BoolAttr();
+          if (continuing && ((i == start && !guarded && !(known && known.getValue())) ||
+                             (i != start && continuing != entryContinue))) {
+            if (failed(reserveSourceEnvironmentCopies(statement, environment))) return failure();
+            auto predicate = predicateView(continuing, statement, decl.symbol);
+            if (failed(predicate)) return failure();
+            auto branch = cast<ac::SourceBranchOp>(createOp(inside,
+                statement.location(b.getContext(), source.path),
+                ac::SourceBranchOp::getOperationName(), {continuing}, {},
+                {inside.getNamedAttr("occurrence", sourceOccurrence(inside, decl.symbol, statement)),
+                 inside.getNamedAttr("ac.condition_location", sourceSpan(inside, source.path, statement)),
+                 inside.getNamedAttr("ac.loop_continuation", inside.getBoolAttr(true))}, 2));
+            branch.getThenRegion().push_back(new Block());
+            branch.getElseRegion().push_back(new Block());
+            OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
+            BranchEnvironment yes = environment, no = environment;
+            if (failed(emitRange(parent, field, thenAt, yes, inBranch, i, true))) return failure();
+            auto joined = joinBranches(*predicate, environment, yes, no, statement,
+                                        inside, decl.symbol, branch);
+            if (failed(joined)) return failure();
+            environment = std::move(*joined);
+            return success();
+          }
+        }
         if (returned)
           return error() << "declaration after Method/Rule return is unsupported";
+        if (statement.kind() == "Break" || statement.kind() == "Continue") {
+          if (loopControls.empty()) return error() << "loop control requires an enclosing loop";
+          auto zero = constant(internalBits(1, statement, decl.symbol), 0, statement, inside, decl.symbol);
+          if (failed(zero)) return failure();
+          remember(*zero, ac::detail::ValueKind::Boolean);
+          fixedValues.erase(*zero);
+          remember(*zero, ac::detail::ValueKind::Boolean, std::nullopt, inside.getBoolAttr(false));
+          values[loopControls.back().continuing] = *zero;
+          if (statement.kind() == "Break") values[loopControls.back().live] = *zero;
+          return success();
+        }
+        if (formalProposals) {
+          auto markIntent = [&](const AstNode &target) -> LogicalResult {
+            return forEachAssignmentLeaf(target, [&](const AstNode &leaf) -> LogicalResult {
+              StringRef name = assignmentRoot(leaf);
+              if (!callable.assignedFormals.contains(name) || callable.stateFormals.contains(name)) return success();
+              auto enabled = trueValue(statement, inside, decl.symbol);
+              if (failed(enabled)) return failure();
+              remember(*enabled, ac::detail::ValueKind::Boolean);
+              environment.values[intentName(name)] = *enabled;
+              return success();
+            });
+          };
+          if (statement.kind() == "Assign") {
+            for (size_t k = 0; k < statement.array("targets").size(); ++k)
+              if (failed(markIntent(statement.item("targets", k)))) return failure();
+          } else if (statement.kind() == "AnnAssign" || statement.kind() == "AugAssign")
+            if (failed(markIntent(statement.child("target")))) return failure();
+        }
+        if (statement.kind() == "Match") {
+          llvm::StringSet<> owners;
+          auto arm = [&](const AstNode &site, OpBuilder &at,
+                          BranchEnvironment &branchEnvironment) {
+            return emitRange(site, "body", at, branchEnvironment, true, 0, true);
+          };
+          if (failed(matchStatement(statement, inside, decl.symbol, environment,
+                                     owners, arm, &instances))) return failure();
+          continue;
+        }
         if (statement.kind() == "If") {
           std::string reason;
           if (!queryBudget.enter(reason))
@@ -646,8 +1138,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           branch.getElseRegion().push_back(new Block());
           OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
           OpBuilder elseAt = OpBuilder::atBlockEnd(&branch.getElseRegion().front());
-          if (failed(emitBody(statement, "body", thenAt, yes, true)) ||
-              failed(emitBody(statement, "orelse", elseAt, no, true)) ||
+          // Reaching this statement already establishes the enclosing loop's
+          // continuation. The authored selector controls its two arms; adding
+          // the same continuation guard inside each arm duplicates proof IR.
+          if (failed(emitRange(statement, "body", thenAt, yes, true, 0, true)) ||
+              failed(emitRange(statement, "orelse", elseAt, no, true, 0, true)) ||
               failed(reserveSourceEnvironmentCopies(statement, environment, &yes, &no)))
             return failure();
           auto joined = joinBranches(*predicate, environment, yes, no, statement,
@@ -657,8 +1152,482 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           environment = std::move(*joined);
           continue;
         }
-        if (statement.kind() == "For" || statement.kind() == "While")
-          return error() << "effectful loop in Method/Rule is unsupported";
+        if (statement.kind() == "For") {
+          AstNode target = statement.child("target"), range = statement.child("iter");
+          if (target.kind() != "Name" || range.kind() != "Call" ||
+              range.child("func").kind() != "Name" || range.child("func").string("id") != "range" ||
+              lexicallyShadowed(range.child("func"), "range") || !range.array("keywords").empty() ||
+              range.array("args").empty() || range.array("args").size() > 3)
+            return error() << "typed for requires an ordinary Name and finite range";
+          StringRef inductionName = target.string("id");
+          bool stateInduction = states.contains(inductionName);
+          bool formalInduction = formalProposals && callable.assignedFormals.contains(inductionName) &&
+                                 !stateInduction;
+          if (boundHardwareIdentity(inductionName) ||
+              helperOwnerBindings.contains(inductionName) ||
+              llvm::is_contained(ArrayRef<StringRef>{"pyc_clk", "pyc_rst", "range", "int", "bool", "tuple", "Annotated"}, inductionName))
+            return error() << "typed for induction requires an assignable ordinary Name or state owner";
+          auto exactBound = [&](const AstNode &node) -> FailureOr<int64_t> {
+            bool savedPure = std::exchange(context.pureExpression, true);
+            auto restorePure = llvm::scope_exit([&] { context.pureExpression = savedPure; });
+            auto value = expression(node, inside, decl.symbol, values, instances);
+            if (failed(value)) return failure();
+            auto info = valueInfo(*value);
+            auto integer = dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant);
+            if (info.sourceKind != ac::detail::ValueKind::Integer || fixedValues.contains(*value) || !integer)
+              return error() << "typed for range bounds require closed Integer values";
+            llvm::APSInt number(integer.getCanonicalValue());
+            if ((number.isUnsigned() && number.getActiveBits() > 63) ||
+                (!number.isUnsigned() && !number.isSignedIntN(64)))
+              return error() << "typed for range exceeds signed index representation";
+            return number.isUnsigned() ? static_cast<int64_t>(number.getZExtValue()) : number.getSExtValue();
+          };
+          auto hasNestedFor = [&](auto &&self, const AstNode &node) -> bool {
+            if (node.kind() == "FunctionDef" || node.kind() == "Lambda")
+              return false;
+            if (node.kind() == "For")
+              return true;
+            for (StringRef field : {"body", "orelse"}) {
+              auto statements = node.array(field);
+              for (size_t k = 0; statements && k < statements.size(); ++k)
+                if (self(self, node.item(field, k)))
+                  return true;
+            }
+            return false;
+          };
+          for (size_t k = 0; k < statement.array("body").size(); ++k)
+            if (hasNestedFor(hasNestedFor, statement.item("body", k)))
+              return error() << "nested source for loops are unsupported";
+          if (statement.array("orelse").size())
+            return error() << "typed for else is unsupported";
+          size_t arity = range.array("args").size();
+          if (arity != 1)
+            return error() << "typed for range requires a single literal bound";
+          const AstNode &boundNode = range.item("args", 0);
+          auto encodedBound = boundNode.kind() == "Constant"
+                                  ? dyn_cast_or_null<DictionaryAttr>(boundNode.get("value"))
+                                  : DictionaryAttr();
+          if (!encodedBound || !encodedBound.getAs<StringAttr>("integer"))
+            return error() << "typed for range requires a single literal bound";
+          int64_t lower = 0, upper, step = 1;
+          auto first = exactBound(range.item("args", 0));
+          if (failed(first)) return failure();
+          if (arity == 1) upper = *first;
+          else {
+            lower = *first;
+            auto last = exactBound(range.item("args", 1));
+            if (failed(last)) return failure();
+            upper = *last;
+          }
+          if (arity == 3) {
+            auto increment = exactBound(range.item("args", 2));
+            if (failed(increment)) return failure();
+            step = *increment;
+          }
+          if (step <= 0) return error() << "typed for range requires a positive step";
+          llvm::APInt lo(128, static_cast<uint64_t>(lower), true),
+              hi(128, static_cast<uint64_t>(upper), true), increment(128, step);
+          llvm::APInt count(128, 0);
+          if (lo.slt(hi)) count = (hi - lo + increment - 1).udiv(increment);
+          if (count.getActiveBits() > 64)
+            return error() << "typed for range is not finitely representable";
+          uint64_t trips = count.getZExtValue();
+          // A statically zero-trip loop without an else clause executes no body
+          // statements: keep the environment unchanged and do not resolve dead
+          // body references.
+          if (trips == 0 && statement.array("orelse").empty())
+            continue;
+          llvm::APInt last = trips ? lo + increment * (trips - 1) : lo;
+          bool signedIndex = lower < 0;
+          unsigned indexWidth = std::max(1u, signedIndex
+              ? std::max(lo.getSignificantBits(), last.getSignificantBits())
+              : std::max(lo.getActiveBits(), last.getActiveBits()));
+          Type indexType = internalBits(indexWidth, target, decl.symbol);
+          auto controlKinds = loopControl(statement);
+          std::optional<LoopControl> control;
+          if (controlKinds.first || controlKinds.second) {
+            std::string suffix = std::to_string(loopOrdinal++);
+            control = LoopControl{"$loop.live." + suffix, "$loop.continue." + suffix};
+            auto live = trueValue(statement, inside, decl.symbol);
+            if (failed(live)) return failure();
+            remember(*live, ac::detail::ValueKind::Boolean);
+            values[control->live] = *live;
+            if (controlKinds.first && trips && !stateInduction) {
+              auto boundary = environment.boundaries.find(inductionName);
+              if (boundary == environment.boundaries.end() || !boundary->second.declared ||
+                  !values.contains(inductionName)) {
+                auto seed = constant(indexType, 0, statement, inside, decl.symbol);
+                if (failed(seed)) return failure();
+                remember(*seed, ac::detail::ValueKind::Integer);
+                fixedValues.erase(*seed);
+                values[inductionName] = *seed;
+              }
+            }
+          }
+          llvm::StringSet<> assigned;
+          auto assignments = [&](auto &&self, const AstNode &node) -> void {
+            if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
+            auto mark = [&](const AstNode &target) {
+              (void)forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
+                assigned.insert(assignmentRoot(leaf));
+                return success();
+              });
+            };
+            if (node.kind() == "Assign")
+              for (size_t k = 0; k < node.array("targets").size(); ++k)
+                mark(node.item("targets", k));
+            else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For")
+              mark(node.child("target"));
+            for (StringRef field : {"body", "orelse"}) {
+              auto statements = node.array(field);
+              for (size_t k = 0; statements && k < statements.size(); ++k)
+                self(self, node.item(field, k));
+            }
+          };
+          for (size_t k = 0; k < statement.array("body").size(); ++k)
+            assignments(assignments, statement.item("body", k));
+          SmallVector<std::string> carriedNames;
+          for (const auto &name : assigned)
+            if (name.getKey() != inductionName && values.contains(name.getKey()) &&
+                !states.contains(name.getKey())) {
+              carriedNames.push_back(name.getKey().str());
+              if (formalProposals && callable.assignedFormals.contains(name.getKey()) &&
+                  !callable.stateFormals.contains(name.getKey()))
+                carriedNames.push_back(intentName(name.getKey()));
+            }
+          llvm::sort(carriedNames);
+          if (control) carriedNames.push_back(control->live);
+          if (controlKinds.first && trips && !stateInduction) carriedNames.push_back(inductionName.str());
+          if (formalInduction) carriedNames.push_back(intentName(inductionName));
+          auto location = statement.location(b.getContext(), source.path);
+          SmallVector<Value> operands;
+          for (int64_t bound : {lower, upper, step})
+            operands.push_back(arith::ConstantIndexOp::create(inside, location, bound));
+          SmallVector<Type> resultTypes;
+          for (const auto &name : carriedNames) {
+            operands.push_back(values.lookup(name));
+            resultTypes.push_back(values.lookup(name).getType());
+          }
+          auto occurrence = sourceOccurrence(inside, decl.symbol, statement);
+          Operation *loop = createOp(inside, location, scf::ForOp::getOperationName(),
+              operands, resultTypes, {inside.getNamedAttr("occurrence", occurrence)}, 1);
+          auto *block = new Block();
+          loop->getRegion(0).push_back(block);
+          Value index = block->addArgument(inside.getIndexType(), location);
+          if (failed(chargeLoopDescriptorWork(statement, "source for statement")) ||
+              failed(reserveSourceEnvironmentCopies(statement, environment)))
+            return failure();
+          BranchEnvironment iteration = environment;
+          for (const auto &name : carriedNames) {
+            Value original = values.lookup(name);
+            auto kind = valueInfo(original).sourceKind;
+            if (kind == ac::detail::ValueKind::Integer && name != inductionName) {
+              auto boundary = iteration.boundaries.find(name);
+              if (boundary == iteration.boundaries.end() || !boundary->second.declared ||
+                  boundary->second.integerMode != IntegerBoundaryMode::Range) {
+                auto formal = llvm::find_if(callable.inputs, [&](const Port &port) {
+                  return port.name == name && port.sourceKind == kind;
+                });
+                if (formal == callable.inputs.end())
+                  return error() << "Integer loop carries require an explicit bounded annotation";
+                iteration.boundaries[name] = BindingBoundary{*formal, true};
+              }
+            }
+            Value argument = block->addArgument(original.getType(), location);
+            remember(argument, kind);
+            if (fixedValues.contains(original)) fixedValues.insert(argument);
+            iteration.values[name] = argument;
+            if (!iteration.boundaries.contains(name))
+              iteration.boundaries[name] = inferredBoundary(name, argument, statement, true);
+          }
+          OpBuilder loopAt = OpBuilder::atBlockEnd(block);
+          Value induction = createOp(loopAt, location, ac::SourceIndexOp::getOperationName(),
+              {index}, {indexType},
+              {loopAt.getNamedAttr("occurrence", sourceOccurrence(loopAt, decl.symbol, target)),
+               loopAt.getNamedAttr("source_location", sourceSpan(loopAt, source.path, target)),
+               loopAt.getNamedAttr("is_signed", loopAt.getBoolAttr(signedIndex))})->getResult(0);
+          remember(induction, ac::detail::ValueKind::Integer,
+              IntegerInterval{llvm::APSInt(lo, false), llvm::APSInt(last + 1, false)});
+          if (auto boundary = iteration.boundaries.find(inductionName);
+              boundary != iteration.boundaries.end()) {
+            auto converted = applyBindingBoundary(induction, boundary->second,
+                                                   target, loopAt, decl.symbol);
+            if (failed(converted)) return failure();
+            induction = *converted;
+          }
+          if (stateInduction) {
+            auto converted = applyBindingBoundary(induction, ownerBoundary(states[inductionName]),
+                                                   target, loopAt, decl.symbol);
+            if (failed(converted)) return failure();
+            induction = *converted;
+            auto path = control ? FailureOr<Value>(iteration.values.lookup(control->live))
+                                : trueValue(statement, loopAt, decl.symbol);
+            if (failed(path)) return failure();
+            createOp(loopAt, location, ac::SourceStateWriteOp::getOperationName(), {*path, induction}, {},
+                {loopAt.getNamedAttr("state", loopAt.getStringAttr(states[inductionName].name)),
+                 loopAt.getNamedAttr("selectors", loopAt.getArrayAttr({})),
+                 loopAt.getNamedAttr("occurrence", sourceOccurrence(loopAt, decl.symbol, target))});
+          } else if (controlKinds.first && trips) {
+            auto facts = valueInfo(induction);
+            Value prior = iteration.values.lookup(inductionName);
+            if (induction.getType() != prior.getType() &&
+                ac::areEquivalentHardwareTypes(induction.getType(), prior.getType()))
+              induction = boundaryBitsIdentity(induction, prior.getType(), target, loopAt, decl.symbol);
+            auto selected = select(iteration.values.lookup(control->live), induction, prior,
+                                   target, loopAt, decl.symbol);
+            if (failed(selected)) return failure();
+            induction = *selected;
+            remember(induction, facts.sourceKind, facts.interval);
+          }
+          iteration.values[inductionName] = induction;
+          if (formalInduction) {
+            auto active = control ? FailureOr<Value>(iteration.values.lookup(control->live))
+                                  : trueValue(statement, loopAt, decl.symbol);
+            if (failed(active)) return failure();
+            remember(*active, ac::detail::ValueKind::Boolean);
+            auto key = intentName(inductionName);
+            Value prior = iteration.values.lookup(key);
+            Value intent = createOp(loopAt, location, ac::BitsBinaryOp::getOperationName(),
+                {prior, *active}, {prior.getType()},
+                {loopAt.getNamedAttr("opcode", loopAt.getStringAttr("or"))})->getResult(0);
+            remember(intent, ac::detail::ValueKind::Boolean);
+            iteration.values[key] = intent;
+            if (failed(emitFormalWrite(inductionName, induction, target, loopAt, iteration, *active))) return failure();
+          }
+          if (control) {
+            iteration.values[control->continuing] = iteration.values.lookup(control->live);
+            loopControls.push_back(*control);
+          }
+          auto emitted = emitBody(statement, "body", loopAt, iteration, true);
+          if (control) {
+            loopControls.pop_back();
+            iteration.values.erase(control->continuing);
+            iteration.boundaries.erase(control->continuing);
+          }
+          if (failed(emitted)) return failure();
+          if (stateInduction) iteration.values.erase(inductionName);
+          SmallVector<Value> yielded;
+          for (const auto &name : carriedNames) {
+            Value value = iteration.values.lookup(name);
+            Type originalType = values.lookup(name).getType();
+            if (value && value.getType() != originalType &&
+                isa<ac::BitsType>(value.getType()) &&
+                isa<ac::BitsType>(originalType) &&
+                ac::areEquivalentHardwareTypes(value.getType(), originalType)) {
+              value = boundaryBitsIdentity(value, originalType, statement,
+                                            loopAt, decl.symbol);
+            }
+            if (!value || value.getType() != values.lookup(name).getType())
+              return error() << "typed for carried values must retain their declared hardware type";
+            yielded.push_back(value);
+          }
+          if (trips) {
+            SmallVector<std::string> introduced;
+            for (const auto &binding : iteration.values)
+              if ((binding.first() == inductionName && !controlKinds.first) || !values.contains(binding.first()))
+                introduced.push_back(binding.first().str());
+            llvm::sort(introduced);
+            OpBuilder seeds(loop);
+            for (const auto &name : introduced) {
+              Value value = iteration.values.lookup(name);
+              auto seed = inactiveCarrier(value.getType(), statement, seeds, decl.symbol);
+              if (failed(seed)) return failure();
+              operands.push_back(*seed);
+              resultTypes.push_back(value.getType());
+              block->addArgument(value.getType(), location);
+              carriedNames.push_back(name);
+              yielded.push_back(value);
+            }
+          }
+          createOp(loopAt, location, scf::YieldOp::getOperationName(), yielded, {}, {});
+          Operation *complete = createOp(inside, location, scf::ForOp::getOperationName(),
+              operands, resultTypes, {inside.getNamedAttr("occurrence", occurrence)}, 1);
+          complete->getRegion(0).takeBody(loop->getRegion(0));
+          loop->erase();
+          for (auto [ordinal, name] : llvm::enumerate(carriedNames)) {
+            Value result = complete->getResult(ordinal);
+            Value authority = trips ? yielded[ordinal] : values.lookup(name);
+            auto facts = valueInfo(authority);
+            remember(result, facts.sourceKind, facts.interval,
+                     trips ? Attribute() : facts.closedSourceConstant);
+            if (fixedValues.contains(authority)) fixedValues.insert(result);
+            bool introduced = !values.contains(name);
+            values[name] = result;
+            if (introduced && iteration.boundaries.contains(name) &&
+                iteration.boundaries.lookup(name).declared)
+              environment.boundaries[name] = iteration.boundaries.lookup(name);
+          }
+          if (trips && !assigned.contains(inductionName) && !controlKinds.first && !stateInduction) {
+            Value final = values.lookup(inductionName);
+            remember(final, valueInfo(final).sourceKind,
+                IntegerInterval{llvm::APSInt(last, false), llvm::APSInt(last + 1, false)},
+                ac::MathIntAttr::get(b.getContext(), llvm::APSInt(last, false)));
+          }
+          Value live = control ? values.lookup(control->live) : Value();
+          if (control) {
+            values.erase(control->live);
+            environment.boundaries.erase(control->live);
+          }
+          if (failed(emitLoopElse(statement, inside, environment, inBranch, live))) return failure();
+          continue;
+        }
+        if (statement.kind() == "While") {
+          if (failed(chargeLoopDescriptorWork(statement, "source while statement")) ||
+              failed(reserveSourceEnvironmentCopies(statement, environment)))
+            return failure();
+          auto controlKinds = loopControl(statement);
+          std::optional<LoopControl> control;
+          if (controlKinds.first || controlKinds.second) {
+            std::string suffix = std::to_string(loopOrdinal++);
+            control = LoopControl{"$loop.live." + suffix, "$loop.continue." + suffix};
+            auto live = trueValue(statement, inside, decl.symbol);
+            if (failed(live)) return failure();
+            remember(*live, ac::detail::ValueKind::Boolean);
+            values[control->live] = *live;
+          }
+          llvm::StringSet<> assigned;
+          auto assignments = [&](auto &&self, const AstNode &node) -> void {
+            if (node.kind() == "FunctionDef" || node.kind() == "Lambda") return;
+            auto mark = [&](const AstNode &target) {
+              (void)forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
+                assigned.insert(assignmentRoot(leaf));
+                return success();
+              });
+            };
+            if (node.kind() == "Assign")
+              for (size_t k = 0; k < node.array("targets").size(); ++k)
+                mark(node.item("targets", k));
+            else if (node.kind() == "AnnAssign" || node.kind() == "AugAssign" || node.kind() == "For")
+              mark(node.child("target"));
+            for (StringRef childField : {"body", "orelse"}) {
+              auto statements = node.array(childField);
+              for (size_t k = 0; statements && k < statements.size(); ++k)
+                self(self, node.item(childField, k));
+            }
+          };
+          for (size_t k = 0; k < statement.array("body").size(); ++k)
+            assignments(assignments, statement.item("body", k));
+          SmallVector<std::string> carriedNames;
+          for (const auto &name : assigned)
+            if (values.contains(name.getKey()) && !states.contains(name.getKey())) {
+              carriedNames.push_back(name.getKey().str());
+              if (formalProposals && callable.assignedFormals.contains(name.getKey()) &&
+                  !callable.stateFormals.contains(name.getKey()))
+                carriedNames.push_back(intentName(name.getKey()));
+            }
+          llvm::sort(carriedNames);
+          if (control) carriedNames.push_back(control->live);
+          SmallVector<Value> operands;
+          SmallVector<Type> resultTypes;
+          for (const auto &name : carriedNames) {
+            operands.push_back(values.lookup(name));
+            resultTypes.push_back(values.lookup(name).getType());
+          }
+          auto location = statement.location(b.getContext(), source.path);
+          Operation *loop = createOp(inside, location, scf::WhileOp::getOperationName(),
+              operands, resultTypes,
+              {inside.getNamedAttr("occurrence", sourceOccurrence(inside, decl.symbol, statement)),
+               inside.getNamedAttr("ac.condition_location",
+                                   sourceSpan(inside, source.path, statement.child("test")))}, 2);
+          BranchEnvironment conditionEnvironment = environment;
+          BranchEnvironment iteration = environment;
+          auto *before = new Block(), *after = new Block();
+          loop->getRegion(0).push_back(before);
+          loop->getRegion(1).push_back(after);
+          for (const auto &name : carriedNames) {
+            Value original = values.lookup(name);
+            auto kind = valueInfo(original).sourceKind;
+            if (kind == ac::detail::ValueKind::Integer) {
+              auto boundary = environment.boundaries.find(name);
+              if (boundary == environment.boundaries.end() || !boundary->second.declared ||
+                  boundary->second.integerMode != IntegerBoundaryMode::Range) {
+                auto formal = llvm::find_if(callable.inputs, [&](const Port &port) {
+                  return port.name == name && port.sourceKind == kind;
+                });
+                if (formal == callable.inputs.end())
+                  return error() << "Integer loop carries require an explicit bounded annotation";
+                conditionEnvironment.boundaries[name] = BindingBoundary{*formal, true};
+                iteration.boundaries[name] = BindingBoundary{*formal, true};
+              }
+            }
+            for (auto [block, local] : {std::pair{before, &conditionEnvironment},
+                                       std::pair{after, &iteration}}) {
+              Value argument = block->addArgument(original.getType(), location);
+              remember(argument, kind);
+              if (fixedValues.contains(original)) fixedValues.insert(argument);
+              local->values[name] = argument;
+              if (!local->boundaries.contains(name))
+                local->boundaries[name] = inferredBoundary(name, argument, statement, true);
+            }
+          }
+          OpBuilder conditionAt = OpBuilder::atBlockEnd(before);
+          auto test = [&]() {
+            bool savedPure = std::exchange(context.pureExpression, true);
+            auto restorePure = llvm::scope_exit([&] { context.pureExpression = savedPure; });
+            return expression(statement.child("test"), conditionAt, decl.symbol,
+                              conditionEnvironment.values, instances);
+          }();
+          if (failed(test)) return failure();
+          auto predicate = predicateView(*test, statement.child("test"), decl.symbol);
+          if (failed(predicate)) return failure();
+          Value continuation = predicate->value;
+          if (control) {
+            auto live = checkAnd(continuation, conditionEnvironment.values.lookup(control->live),
+                                  statement, conditionAt, decl.symbol);
+            if (failed(live)) return failure();
+            continuation = *live;
+          }
+          Value transported = createOp(conditionAt, location,
+              ac::SourcePredicateOp::getOperationName(), {continuation},
+              {conditionAt.getI1Type()}, {})->getResult(0);
+          SmallVector<Value> forwarded{transported};
+          llvm::append_range(forwarded, before->getArguments());
+          createOp(conditionAt, location, scf::ConditionOp::getOperationName(), forwarded, {}, {});
+          OpBuilder loopAt = OpBuilder::atBlockEnd(after);
+          if (control) {
+            auto continuing = trueValue(statement, loopAt, decl.symbol);
+            if (failed(continuing)) return failure();
+            remember(*continuing, ac::detail::ValueKind::Boolean, std::nullopt,
+                     loopAt.getBoolAttr(true));
+            iteration.values[control->continuing] = *continuing;
+            loopControls.push_back(*control);
+          }
+          auto emitted = emitBody(statement, "body", loopAt, iteration, true);
+          if (control) {
+            loopControls.pop_back();
+            iteration.values.erase(control->continuing);
+            iteration.boundaries.erase(control->continuing);
+          }
+          if (failed(emitted)) return failure();
+          SmallVector<Value> nextValues;
+          for (const auto &name : carriedNames) {
+            Value next = iteration.values.lookup(name);
+            Type originalType = values.lookup(name).getType();
+            if (next && next.getType() != originalType &&
+                isa<ac::BitsType>(next.getType()) && isa<ac::BitsType>(originalType) &&
+                ac::areEquivalentHardwareTypes(next.getType(), originalType)) {
+              next = boundaryBitsIdentity(next, originalType, statement,
+                                           loopAt, decl.symbol);
+            }
+            if (!next || next.getType() != originalType)
+              return error() << "typed while carried values must retain their declared hardware type";
+            nextValues.push_back(next);
+          }
+          createOp(loopAt, location, scf::YieldOp::getOperationName(), nextValues, {}, {});
+          for (auto [ordinal, name] : llvm::enumerate(carriedNames)) {
+            Value original = values.lookup(name), result = loop->getResult(ordinal);
+            remember(result, valueInfo(original).sourceKind);
+            if (fixedValues.contains(original)) fixedValues.insert(result);
+            values[name] = result;
+          }
+          Value live = control ? values.lookup(control->live) : Value();
+          if (control) {
+            values.erase(control->live);
+            environment.boundaries.erase(control->live);
+          }
+          if (failed(emitLoopElse(statement, inside, environment, inBranch, live))) return failure();
+          continue;
+        }
         if (statement.kind() == "FunctionDef")
           return error() << "nested Rule/Method declaration is unsupported";
         if (statement.kind() == "Pass")
@@ -667,28 +1636,71 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (inBranch)
             return error() << "return in a Method/Rule branch is unsupported";
           returned = statement;
-          if (statement.child("value")) {
-            if (callable.results.size() != 1)
-              return error() << "None Method/Rule cannot return a value";
-            auto value = expression(statement.child("value"), inside, decl.symbol,
-                                    values, instances, callable.results.front());
-            if (failed(value))
-              return failure();
-            const Port &contract = callable.resultContracts.front();
-            auto converted = applyBindingBoundary(
-                *value, BindingBoundary{contract, true}, statement.child("value"),
-                inside, decl.symbol);
-            if (failed(converted))
-              return failure();
-            if (converted->getType() != contract.type &&
-                isa<ac::BitsType>(converted->getType()) &&
-                isa<ac::BitsType>(contract.type) &&
-                ac::areEquivalentHardwareTypes(converted->getType(),
-                                               contract.type))
-              converted = boundaryBitsIdentity(*converted, contract.type,
-                                               statement.child("value"), inside,
-                                               decl.symbol);
-            yielded.push_back(*converted);
+          AstNode valueNode = statement.child("value");
+          bool none = !valueNode || (valueNode.kind() == "Constant" &&
+                                     isa<UnitAttr>(valueNode.get("value")));
+          if (callable.inferResults) {
+            callable.results.clear();
+            callable.resultContracts.clear();
+            callable.returnShape = none ? ReturnShape::None :
+                valueNode.kind() == "Tuple" ? ReturnShape::Tuple : ReturnShape::Struct;
+            if (valueNode.kind() == "Dict")
+              return error() << "unannotated named mapping return requires its enclosing Module result context";
+            size_t count = none ? 0 : callable.returnShape == ReturnShape::Tuple
+                ? valueNode.array("elts").size() : 1;
+            if (!none && callable.returnShape == ReturnShape::Tuple && !count)
+              return error() << "inferred tuple Rule return requires at least one finite result";
+            for (size_t index = 0; index < count; ++index) {
+              auto element = callable.returnShape == ReturnShape::Tuple
+                  ? valueNode.item("elts", index) : valueNode;
+              auto value = expression(element, inside, decl.symbol, values, instances);
+              if (failed(value)) return failure();
+              auto binding = inferredBoundary("result", *value, element, true);
+              binding.unsharedContract().name = count == 1 ? "result" : "result_" + std::to_string(index);
+              if (failed(sourceConstraint(binding.contract()))) return failure();
+              callable.resultContracts.push_back(binding.contract());
+              callable.results.push_back(value->getType());
+              yielded.push_back(*value);
+            }
+            callable.inferResults = false;
+            callable.type = FunctionType::get(b.getContext(), callable.type.getInputs(), callable.results);
+            continue;
+          }
+          if (callable.results.empty()) {
+            if (!none) return error() << "None Method/Rule cannot return a value";
+          } else {
+            if (none) return error() << "Method/Rule must return its declared results";
+            bool tuple = callable.returnShape == ReturnShape::Tuple;
+            bool mapping = callable.returnShape == ReturnShape::Mapping;
+            if (mapping && (valueNode.kind() != "Dict" ||
+                valueNode.array("keys").size() != callable.results.size() ||
+                valueNode.array("values").size() != callable.results.size()))
+              return error() << "named Rule return requires the enclosing Module result mapping";
+            if (tuple && (valueNode.kind() != "Tuple" ||
+                valueNode.array("elts").size() != callable.results.size()))
+              return error() << "tuple Method/Rule return requires explicit Tuple with matching arity";
+            for (auto [index, contract] : llvm::enumerate(callable.resultContracts)) {
+              AstNode element = tuple ? valueNode.item("elts", index) :
+                  mapping ? valueNode.item("values", index) : valueNode;
+              if (mapping) {
+                auto key = dyn_cast_or_null<StringAttr>(valueNode.item("keys", index).get("value"));
+                if (!key || key.getValue() != contract.name)
+                  return error() << "named Rule return key disagrees with its result contract";
+              }
+              auto value = expression(element, inside, decl.symbol, values,
+                                      instances, contract.type);
+              if (failed(value)) return failure();
+              auto converted = applyBindingBoundary(*value,
+                  BindingBoundary{contract, true}, element, inside, decl.symbol);
+              if (failed(converted)) return failure();
+              if (converted->getType() != contract.type &&
+                  isa<ac::BitsType>(converted->getType()) &&
+                  isa<ac::BitsType>(contract.type) &&
+                  ac::areEquivalentHardwareTypes(converted->getType(), contract.type))
+                converted = boundaryBitsIdentity(*converted, contract.type,
+                                                 element, inside, decl.symbol);
+              yielded.push_back(*converted);
+            }
           }
           continue;
         }
@@ -769,7 +1781,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           AstNode expressionNode = statement.child("value");
           if (expressionNode.kind() == "Call" &&
               expressionNode.child("func").kind() == "Name" &&
-              rules.contains(expressionNode.child("func").string("id")))
+              rules.contains(expressionNode.child("func").string("id")) &&
+              !methods.contains(expressionNode.child("func").string("id")))
             return error() << "nested Rule calls are unsupported";
           auto helper = expressionNode.kind() == "Call" ? resolveValueHelper(expressionNode.child("func"), decl.symbol)
                                                       : FailureOr<ValueHelperDecl *>(static_cast<ValueHelperDecl *>(nullptr));
@@ -779,13 +1792,128 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             continue;
           }
           auto results = sourceMethodCall(statement.child("value"), inside,
-                                          decl.symbol, values, instances);
+                                          decl.symbol, values, instances, std::nullopt);
           if (failed(results))
             return error()
                    << "Rule/Method expression requires a direct Method call";
           continue;
         } else {
           return error() << "unsupported Method/Rule statement";
+        }
+        llvm::StringSet<> fixedForbidden;
+        for (const auto &state : states) fixedForbidden.insert(state.first());
+        for (const auto &method : methods) fixedForbidden.insert(method.first());
+        for (const auto &rule : rules) fixedForbidden.insert(rule.first());
+        auto fixed = bindFixedResults(statement, inside, decl.symbol, values,
+                                      instances, &environment.boundaries,
+                                      fixedForbidden, false);
+        if (failed(fixed)) return failure();
+        if (*fixed) {
+          if (failed(forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
+                StringRef name = assignmentRoot(leaf);
+                return emitFormalWrite(name, values.lookup(name), statement,
+                                       inside, environment);
+              }))) return failure();
+          continue;
+        }
+        if (statement.kind() == "Assign" && target.kind() == "Tuple" &&
+            rhs.kind() == "Call") {
+          if (rhs.child("func").kind() == "Name" &&
+              rules.contains(rhs.child("func").string("id")) &&
+            !methods.contains(rhs.child("func").string("id")))
+            return error() << "nested Rule calls are unsupported";
+          llvm::StringSet<> forbidden;
+          for (const auto &state : states) forbidden.insert(state.first());
+          for (const auto &method : methods) forbidden.insert(method.first());
+          for (const auto &rule : rules) forbidden.insert(rule.first());
+          auto results = sourceMethodCall(rhs, inside, decl.symbol, values,
+                                          instances, true);
+          if (failed(results) || failed(bindCallableResults(statement, *results,
+                  inside, decl.symbol, values, instances, forbidden,
+                  &environment.boundaries)))
+            return failure();
+          if (failed(forEachAssignmentLeaf(target, [&](const AstNode &leaf) {
+                StringRef name = assignmentRoot(leaf);
+                return emitFormalWrite(name, values.lookup(name), statement, inside, environment);
+              }))) return failure();
+          continue;
+        }
+        StringRef ownerRoot = assignmentRoot(target);
+        if (statement.kind() == "Assign" && target.kind() != "Name" && rhs &&
+            states.contains(ownerRoot)) {
+          const StateOwner &owner = states[ownerRoot];
+          llvm::StringMap<Value> typeValues(values);
+          typeValues[ownerRoot] = owner.op->getResult(0);
+          auto selectedType = expressionType(target, typeValues, instances, decl.symbol);
+          if (failed(selectedType)) return failure();
+          auto replacement = expression(rhs, inside, decl.symbol, values,
+                                          instances, *selectedType);
+          if (failed(replacement)) return failure();
+          auto converted = unsignedBoundary(*replacement, *selectedType, rhs,
+                                             inside, decl.symbol);
+          if (failed(converted)) return failure();
+          auto selectors = writeSelectors(target, inside);
+          if (failed(selectors))
+            return failure();
+          SmallVector<Value> operands;
+          auto path = trueValue(statement, inside, decl.symbol);
+          if (failed(path))
+            return failure();
+          operands.append({*path, *converted});
+          // Bind the target index once after the RHS. Native state lowering
+          // reconstructs this selected write against the current candidate.
+          AstNode element = target.kind() == "Subscript"
+                                ? target
+                                : indexedFieldTarget(target);
+          if (element) {
+            auto index = expression(element.child("slice"), inside, decl.symbol,
+                                    values, instances);
+            if (failed(index) ||
+                failed(proveIndex(owner.op->getResult(0), *index, statement)))
+              return failure();
+            operands.push_back(*index);
+          }
+          createOp(
+              inside, statement.location(b.getContext(), source.path),
+              ac::SourceStateWriteOp::getOperationName(), operands, TypeRange{},
+              {inside.getNamedAttr("state", inside.getStringAttr(owner.name)),
+               inside.getNamedAttr("selectors", *selectors),
+               inside.getNamedAttr(
+                   "occurrence",
+                   sourceOccurrence(inside, decl.symbol, statement))});
+          continue;
+        }
+        if (statement.kind() == "Assign" && rhs &&
+            (target.kind() == "Attribute" || target.kind() == "Subscript") &&
+            values.contains(ownerRoot) &&
+            isa<ac::TableType>(values.lookup(ownerRoot).getType())) {
+          if (failed(chargeLoopDescriptorWork(statement, "local Table reconstruction")))
+            return failure();
+          auto selectedType = expressionType(target, values, instances, decl.symbol);
+          if (failed(selectedType)) return failure();
+          auto replacement = expression(rhs, inside, decl.symbol, values,
+                                          instances, *selectedType);
+          if (failed(replacement)) return failure();
+          auto converted = unsignedBoundary(*replacement, *selectedType, rhs,
+                                             inside, decl.symbol);
+          SmallVector<Value> indices;
+          if (failed(converted) ||
+              failed(updateAssignment(target, *converted, statement, inside,
+                                      decl.symbol, values, &indices)))
+            return failure();
+          if (auto boundary = environment.boundaries.find(ownerRoot);
+              boundary != environment.boundaries.end()) {
+            auto bounded = applyBindingBoundary(values.lookup(ownerRoot), boundary->second,
+                                                 target, inside, decl.symbol);
+            if (failed(bounded)) return failure();
+            values[ownerRoot] = *bounded;
+          }
+          auto selectors = writeSelectors(target, inside);
+          if (failed(selectors) ||
+              failed(emitFormalWrite(ownerRoot, *converted, statement, inside,
+                                     environment, {}, *selectors, indices)))
+            return failure();
+          continue;
         }
         if (statement.kind() == "Assign" && target.kind() == "Attribute" && rhs) {
           auto reserveLocal = [&](uint64_t work, uint64_t slots,
@@ -889,17 +2017,33 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (values.lookup(root).getType() != original.getType())
             return error() << "local field reconstruction changed root nominal type";
           environment.boundaries[root] = std::move(rootBoundary);
+          auto selectors = writeSelectors(target, inside);
+          if (failed(selectors) ||
+              failed(emitFormalWrite(root, *converted, statement, inside,
+                                     environment, {}, *selectors)))
+            return failure();
           continue;
         }
+        if (target.kind() == "Subscript")
+          return error() << "indexed assignment requires a table";
         if (target.kind() != "Name" || !rhs)
-          return error() << "Method/Rule assignment requires a Name or local Struct field";
+          return error()
+                 << "Method/Rule assignment requires a Name or local Struct field";
         StringRef name = target.string("id");
         if (rhs.kind() == "Call" && rhs.child("func").kind() == "Name" &&
-            rules.contains(rhs.child("func").string("id")))
+            rules.contains(rhs.child("func").string("id")) &&
+            !methods.contains(rhs.child("func").string("id")))
           return error() << "nested Rule calls are unsupported";
         if (rhs.kind() == "Attribute" && rhs.child("value").kind() == "Name" &&
-            instances.contains(rhs.child("value").string("id")))
-          return error() << "indirect Method values are unsupported";
+            instances.contains(rhs.child("value").string("id")) &&
+            !values.contains(rhs.child("value").string("id"))) {
+          auto *instance = instances.lookup(rhs.child("value").string("id"));
+          bool output = llvm::any_of(instance->outputs, [&](const Port &port) {
+            return port.name == rhs.string("attr");
+          });
+          if (!output)
+            return error() << "indirect Method values are unsupported";
+        }
         if (states.contains(name)) {
           if (statement.kind() == "AnnAssign")
             return error() << "owner shadow declaration is unsupported";
@@ -917,7 +2061,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           createOp(inside, statement.location(b.getContext(), source.path),
                    ac::SourceStateWriteOp::getOperationName(),
                    ValueRange{*path, *converted}, TypeRange{},
-                   {inside.getNamedAttr("state", inside.getStringAttr(name)),
+                   {inside.getNamedAttr("state", inside.getStringAttr(states[name].name)),
                     inside.getNamedAttr("selectors", inside.getArrayAttr({})),
                     inside.getNamedAttr(
                         "occurrence",
@@ -965,26 +2109,57 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             values[name] = *value;
           }
         }
+        if (failed(emitFormalWrite(name, values.lookup(name), statement, inside, environment))) return failure();
       }
       return success();
+    };
+    emitBody = [&](const AstNode &parent, StringRef field, OpBuilder &at,
+                   BranchEnvironment &environment, bool inBranch) {
+      return emitRange(parent, field, at, environment, inBranch, 0, false);
     };
     if (failed(emitBody(callable.declaration, "body", inside, environment, false)))
       return failure();
     if (callable.results.size() != yielded.size())
       return error() << "Method/Rule result requires one final return";
+    if (formalProposals)
+      for (const Port &port : callable.inputs)
+        if (callable.assignedFormals.contains(port.name) &&
+            !callable.stateFormals.contains(port.name)) {
+          auto proposal = applyBindingBoundary(environment.values.lookup(port.name),
+              BindingBoundary{port, true}, callable.declaration, inside, decl.symbol);
+          if (failed(proposal)) return failure();
+          Value data = *proposal;
+          if (data.getType() != port.type && isa<ac::BitsType>(data.getType()) &&
+              isa<ac::BitsType>(port.type) && ac::areEquivalentHardwareTypes(data.getType(), port.type))
+            data = boundaryBitsIdentity(data, port.type, callable.declaration, inside, decl.symbol);
+          yielded.push_back(data);
+          Value intent = environment.values.lookup(intentName(port.name));
+          Type predicateType = internalBits(1, callable.declaration, decl.symbol);
+          if (intent.getType() != predicateType)
+            intent = boundaryBitsIdentity(intent, predicateType, callable.declaration,
+                                           inside, decl.symbol);
+          yielded.push_back(intent);
+        }
     return yielded;
   };
 
-  for (auto &entry : methods) {
+
+  emitMethod = [&](StringRef requestedName) -> LogicalResult {
+    std::string methodName = requestedName.str();
+    if (emittedMethods.contains(methodName)) return success();
+    auto &entry = *methods.find(methodName);
     SourceCallableDecl &callable = entry.second;
     for (const Port &port : callable.inputs) {
-      if (states.contains(port.name))
+      if (states.contains(port.name) && callable.syntax.marker == MarkerKind::Method)
         return error() << "Method parameter shadows an owner state";
-      if (boundHardwareIdentity(port.name))
+      if (callable.lexical ? boundHardwareIdentity(port.name) :
+          names.contains(port.name) || structs.contains(port.name) ||
+          enums.contains(port.name) || behavioralRules.contains(port.name))
         return error()
                << "Method parameter shadows a bound callable, instance, "
                   "import or type declaration";
     }
+    if (callable.lexical) retainHelperSnapshots(methodCaptures[entry.first()]);
     SmallVector<Value> captures;
     SmallVector<StringRef> captureNames;
     for (const auto &value : methodCaptures[entry.first()]) {
@@ -995,7 +2170,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       captureNames.push_back(value.first);
       captures.push_back(value.second);
     }
-    SmallVector<Attribute> argumentNames, parameters, resultConstraints;
+    SmallVector<Attribute> argumentNames, parameters, resultConstraints, formalProposals;
+    SmallVector<Type> physicalResults(callable.results);
     for (const Port &port : callable.inputs) {
       argumentNames.push_back(at.getStringAttr(port.name));
       auto constraint = sourceConstraint(port);
@@ -1012,12 +2188,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
            at.getNamedAttr("location",
                            sourceSpan(at, source.path, port.node))}));
     }
-    for (const Port &port : callable.resultContracts) {
-      auto constraint = sourceConstraint(port);
-      if (failed(constraint))
-        return failure();
-      resultConstraints.push_back(*constraint);
-    }
     Operation *method = createOp(
         at, callable.declaration.location(b.getContext(), source.path),
         ac::SourceMethodOp::getOperationName(), captures, TypeRange{},
@@ -1029,7 +2199,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                          at.getArrayAttr(resultConstraints)),
          at.getNamedAttr(
              "ac.return_form",
-             at.getStringAttr(callable.results.empty() ? "none" : "single")),
+             at.getStringAttr(callable.results.empty() ? "none" :
+                 (callable.returnShape == ReturnShape::Tuple ||
+                  (callable.returnShape == ReturnShape::Mapping && callable.results.size() != 1)) ? "tuple" : "single")),
          at.getNamedAttr("ac.guard_location",
                          sourceSpan(at, source.path,
                                     callable.syntax.guard
@@ -1038,14 +2210,30 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
          at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol,
                                                         callable.declaration))},
         2);
+
+    emittedMethods[methodName] = method;
+    for (auto [index, port] : llvm::enumerate(callable.inputs))
+      if (callable.syntax.marker == MarkerKind::Rule &&
+          callable.assignedFormals.contains(port.name) && !callable.stateFormals.contains(port.name))
+        formalProposals.push_back(at.getI64IntegerAttr(index));
+    if (!formalProposals.empty())
+      method->setAttr("ac.formal_proposals", at.getArrayAttr(formalProposals));
+    if (callable.privateSpecialization || !callable.stateFormals.empty())
+      method->setAttr("sym_visibility", at.getStringAttr("private"));
     for (unsigned regionIndex = 0; regionIndex < 2; ++regionIndex) {
       auto *block = new Block();
       method->getRegion(regionIndex).push_back(block);
       llvm::StringMap<Value> values;
-      for (const Port &port : callable.inputs) {
+      for (auto [index, port] : llvm::enumerate(callable.inputs)) {
         Value argument = block->addArgument(port.type, method->getLoc());
         values[port.name] = argument;
-        remember(argument, port.sourceKind);
+        if (callable.privateSpecialization && index < callable.actualFacts.size()) {
+          auto facts = valueInfo(callable.actualFacts[index]);
+          facts.value = argument;
+          if (!isa<ac::EnumType>(argument.getType())) numericValues[argument] = facts;
+          if (arithmeticValues.contains(callable.actualFacts[index]))
+            arithmeticValues.insert(argument);
+        } else remember(argument, port.sourceKind);
         if (port.fixedBits)
           fixedValues.insert(argument);
       }
@@ -1061,9 +2249,632 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                callable.declaration.location(b.getContext(), source.path),
                ac::YieldOp::getOperationName(), *yielded, {}, {});
     }
+    formalProposals.clear();
+    physicalResults = callable.results;
+    for (const Port &port : callable.resultContracts) {
+      auto constraint = sourceConstraint(port);
+      if (failed(constraint))
+        return failure();
+      resultConstraints.push_back(*constraint);
+    }
+    if (callable.syntax.marker == MarkerKind::Rule)
+      for (auto [index, port] : llvm::enumerate(callable.inputs))
+        if (callable.assignedFormals.contains(port.name) &&
+            !callable.stateFormals.contains(port.name)) {
+          formalProposals.push_back(at.getI64IntegerAttr(index));
+          auto data = sourceConstraint(port);
+          Type predicateType = internalBits(1, callable.declaration, decl.symbol);
+          Port predicate{"intent", predicateType, callable.declaration,
+                         std::nullopt, true};
+          auto intent = sourceConstraint(predicate);
+          if (failed(data) || failed(intent)) return failure();
+          resultConstraints.push_back(*data);
+          resultConstraints.push_back(*intent);
+          physicalResults.push_back(port.type);
+          physicalResults.push_back(predicateType);
+        }
+    auto physicalType = FunctionType::get(b.getContext(), callable.type.getInputs(),
+                                          physicalResults);
+    method->setAttr("function_type", TypeAttr::get(physicalType));
+    method->setAttr("ac.result_constraints", at.getArrayAttr(resultConstraints));
+    method->setAttr("ac.return_form", at.getStringAttr(callable.results.empty() ? "none" :
+        (callable.returnShape == ReturnShape::Tuple ||
+         (callable.returnShape == ReturnShape::Mapping && callable.results.size() != 1)) ? "tuple" : "single"));
+    return success();
+  };
+
+  llvm::DenseMap<DictionaryAttr, Operation *> registeredTransactions;
+  llvm::DenseMap<DictionaryAttr, SmallVector<Value>> ruleArguments;
+  llvm::DenseMap<DictionaryAttr, std::string> registrationMethods;
+  llvm::DenseMap<DictionaryAttr, SourceCallableDecl> registeredCallables;
+  llvm::StringMap<SmallVector<Operation *>> transactionsForCallable;
+  llvm::StringSet<> transactionNames;
+  auto registerRule = [&](const AstNode &statement,
+                          const AstNode &call) -> LogicalResult {
+    StringRef name = call.child("func").string("id");
+    DictionaryAttr invocation = sourceOccurrence(at, decl.symbol, call);
+    SourceCallableDecl &callable = registeredCallables[invocation];
+    callable = rules[name];
+    if (callable.inferResults && statement.kind() == "Return") {
+      callable.resultContracts = decl.outputs;
+      callable.returnShape = decl.returnShape;
+      for (const Port &port : decl.outputs) callable.results.push_back(port.type);
+      callable.inferResults = false;
+    }
+    for (const Port &port : callable.inputs)
+      if ((callable.lexical ? boundHardwareIdentity(port.name) :
+               names.contains(port.name) || structs.contains(port.name) ||
+               enums.contains(port.name) || behavioralRules.contains(port.name)) ||
+          port.name == "pyc_clk" || port.name == "pyc_rst")
+        return error() << "Rule parameter shadows a protected hardware binding";
+    auto plan = ruleWrites.lookup(decl.node, call, [&](uint64_t work) {
+      return succeeded(chargeLoopDescriptorWork(call, "typed Rule owner binding", work));
+    });
+    if (failed(plan) || !*plan ||
+        !sameSourceSite((*plan)->rule, callable.declaration))
+      return error() << "typed Rule registration differs from its source owner plan";
+    for (const auto &write : (*plan)->writes) {
+      auto state = llvm::find_if(states, [&](const auto &entry) {
+        return sameSourceSite(entry.second.node, write.owner);
+      });
+      auto formal = llvm::find_if(callable.inputs, [&](const Port &port) {
+        return port.name == write.formal;
+      });
+      if (state == states.end() || formal == callable.inputs.end())
+        return error() << "typed Rule writable formal lacks its actual state owner";
+      if (formal->type && !sameBindingContract(ownerBoundary(state->second),
+                               BindingBoundary{*formal, true}))
+        return error() << "Rule owner formal annotation must match its actual owner";
+      callable.stateFormals[write.formal] = state->first().str();
+    }
+    SmallVector<StringRef> formalNames;
+    for (const Port &port : callable.inputs) formalNames.push_back(port.name);
+    auto actuals = normalizeCallArguments(call, formalNames, error);
+    if (failed(actuals)) return failure();
+    llvm::StringSet<> writableOwners;
+    for (auto [index, port] : llvm::enumerate(callable.inputs)) {
+      if (!callable.assignedFormals.contains(port.name)) continue;
+      auto actual = (*actuals)[index];
+      if (actual.kind() != "Name") continue;
+      auto state = states.find(actual.string("id"));
+      if (state == states.end()) continue;
+      if (!writableOwners.insert(state->second.name).second)
+        return error() << "overlapping writable owner aliases";
+      if (port.type && !sameBindingContract(ownerBoundary(state->second), BindingBoundary{port, true}))
+        return error() << "Rule owner formal annotation must match its actual owner";
+      callable.stateFormals[port.name] = state->first().str();
+    }
+    llvm::StringMap<Value> actualValues(moduleValues);
+    for (const auto &entry : states) {
+      Value oldQ = entry.second.op->getResult(0);
+      actualValues[entry.first()] = oldQ;
+      rememberState(oldQ, entry.second);
+    }
+    auto arguments = bindCallableArguments(call, callable.inputs, at, decl.symbol,
+                                           actualValues, instances);
+    if (failed(arguments)) return failure();
+    for (auto [index, port] : llvm::enumerate(callable.inputs)) {
+      auto binding = inferredBoundary(port.name, (*arguments)[index], (*actuals)[index], true);
+      bool ownerActual = callable.stateFormals.contains(port.name);
+      if (ownerActual) binding = ownerBoundary(states.lookup(callable.stateFormals.lookup(port.name)));
+      auto bound = bindRuleFormal(port.node, (*actuals)[index], (*arguments)[index],
+                                   binding, ownerActual, at, decl.symbol);
+      if (failed(bound)) return failure();
+      if (!port.type) {
+        port = bound->boundary.contract();
+        port.name = bound->name;
+        port.node = callable.declaration.child("args").item("args", index);
+      }
+      (*arguments)[index] = bound->value;
+    }
+    callable.actualFacts.assign(arguments->begin(), arguments->end());
+    SmallVector<Type> inferredInputs;
+    for (const Port &port : callable.inputs) inferredInputs.push_back(port.type);
+    callable.type = FunctionType::get(b.getContext(), inferredInputs, callable.results);
+    if (callable.inferredSignature || !callable.stateFormals.empty()) {
+      auto specialized = specialize(name, callable);
+      if (failed(specialized)) return failure();
+      registrationMethods[invocation] = *specialized;
+      callable = methods.find(*specialized)->second;
+    } else registrationMethods[invocation] = name.str();
+    for (auto [index, port] : llvm::enumerate(callable.inputs))
+      if ((*arguments)[index].getType() != port.type && isa<ac::BitsType>(port.type) &&
+          ac::areEquivalentHardwareTypes((*arguments)[index].getType(), port.type))
+        (*arguments)[index] = boundaryBitsIdentity((*arguments)[index], port.type,
+                                                   (*actuals)[index], at, decl.symbol);
+    ruleArguments[invocation] = std::move(*arguments);
+    std::string transactionName = name.str();
+    unsigned collision = 1;
+    while (!transactionNames.insert(transactionName).second)
+      transactionName = name.str() + "_" + std::to_string(collision++);
+    Operation *transaction = createOp(
+        at, call.location(b.getContext(), source.path),
+        ac::SourceTransactionOp::getOperationName(),
+        SmallVector<Value>{clock, reset}, callable.results,
+        {at.getNamedAttr("name", at.getStringAttr(transactionName)),
+         at.getNamedAttr("declaration", sourceOccurrence(at, decl.symbol,
+                                                         callable.declaration)),
+         at.getNamedAttr("ac.guard_location",
+                         sourceSpan(at, source.path,
+                                    callable.syntax.guard
+                                        ? callable.syntax.guard
+                                        : callable.declaration)),
+         at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol, call))},
+        2);
+    registeredTransactions[invocation] = transaction;
+    transactionsForCallable[name].push_back(transaction);
+    for (auto [result, contract] : llvm::zip(transaction->getResults(),
+                                            callable.resultContracts)) {
+      remember(result, contract.sourceKind);
+      if (contract.fixedBits) fixedValues.insert(result);
+    }
+    if (statement.kind() == "Return" && callable.returnShape == ReturnShape::Tuple)
+      return error() << "tuple Rule call requires direct Tuple unpacking";
+    if (statement.kind() != "Assign") return success();
+    llvm::StringSet<> forbidden;
+    for (const auto &input : authoredInputs) forbidden.insert(input.getKey());
+    for (const auto &state : authoredOwnerNames) forbidden.insert(state.getKey());
+    for (const auto &method : methods) forbidden.insert(method.first());
+    for (const auto &rule : rules) forbidden.insert(rule.first());
+    if (callable.returnShape == ReturnShape::Tuple)
+      return bindCallableResults(statement, transaction->getResults(), at,
+                                  decl.symbol, moduleValues, instances, forbidden);
+    if (statement.array("targets").size() != 1 ||
+        statement.item("targets", 0).kind() != "Name" ||
+        callable.results.size() != 1)
+      return error() << "single Rule result requires one ordinary Name target";
+    StringRef target = statement.item("targets", 0).string("id");
+    if (forbidden.contains(target) || boundHardwareIdentity(target) ||
+        target == "pyc_clk" || target == "pyc_rst" ||
+        queueResultNames.contains(target) || memoryResultNames.contains(target))
+      return error() << "Rule result cannot write a protected hardware binding";
+    moduleValues[target] = transaction->getResult(0);
+    return success();
+  };
+
+  llvm::StringMap<unsigned> moduleAssignmentCounts;
+  bool sawStructuralReturn = false;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "Return") {
+      sawStructuralReturn = true;
+      continue;
+    }
+    if (sawStructuralReturn &&
+        (statement.kind() == "Assign" || statement.kind() == "AnnAssign" ||
+         statement.kind() == "AugAssign"))
+      return error() << "new local binding after structural return";
+  }
+  size_t instanceCount = 0;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "Assign" &&
+        statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name" &&
+        statement.child("value").kind() == "Call")
+      ++instanceCount;
+  }
+  instanceStorage.reserve(instanceCount);
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    AstNode statement = decl.node.item("body", i);
+    if (statement.kind() == "FunctionDef") {
+      StringRef name = statement.string("name");
+      if (statement.array("decorator_list").empty()) {
+        if (failed(declareValueHelper(statement, decl.symbol, moduleValues))) return failure();
+      } else if (!methods.contains(name) && !rules.contains(name))
+        return error() << "nested callable requires Rule, Method or ordinary typed helper";
+      if (decl.returnShape == ReturnShape::Mapping && rules.contains(name) &&
+          moduleAssignmentCounts.lookup(name) > 1)
+        return error() << "structural local '" << name
+                       << "' cannot be rebound before its Rule declaration";
+      if (rules.contains(name) && rules[name].lexical &&
+          failed(noteNestedRuleDeclaration(statement))) return failure();
+      if (methods.contains(name)) snapshot(methodCaptures[name]);
+      if (rules.contains(name) && rules[name].lexical) snapshot(ruleCaptures[name]);
+      continue;
+    }
+    if (statement.kind() == "Assign" &&
+        !memoryKind(statement.child("value")).empty()) {
+      llvm::StringMap<Value> memoryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        memoryValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      auto bound = bindMemoryResults(statement, at, decl.symbol, memoryValues,
+                                     instances);
+      if (failed(bound) || !*bound) return failure();
+      auto *plan = memoryPlan(statement.child("value"), decl.symbol);
+      if (!plan) return failure();
+      for (const auto &name : plan->resultNames)
+        moduleValues[name] = memoryValues.lookup(name);
+      ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
+      continue;
+    }
+    if (statement.kind() == "Assign" &&
+        queueCall(statement.child("value"))) {
+      llvm::StringMap<Value> queueValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        queueValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      auto queued = bindQueueResults(statement, at, decl.symbol, queueValues,
+                                     instances, instanceStorage);
+      if (failed(queued)) return failure();
+      if (*queued) {
+        if (queueCall(statement.child("value"))) {
+          auto targets = queueTargets(statement);
+          if (failed(targets)) return failure();
+          if (targets->size() == 3)
+            for (StringRef name : *targets) moduleValues[name] = queueValues.lookup(name);
+        }
+        ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
+        continue;
+      }
+    }
+    AstNode registrationCall =
+        statement.kind() == "Expr" || statement.kind() == "Return" ||
+                statement.kind() == "Assign"
+            ? statement.child("value") : AstNode();
+    if (registrationCall.kind() == "Call" &&
+        registrationCall.child("func").kind() == "Name" &&
+        rules.contains(registrationCall.child("func").string("id"))) {
+      auto *binding = nestedRuleBinding(registrationCall.child("func").string("id"));
+      if (binding && binding->phase == NestedRulePhase::Data) {
+        auto order = nestedRuleOrder(registrationCall, binding->declaration);
+        if (failed(order)) return failure();
+        if (*order == SourceDeclarationOrder::Before)
+          return error() << "ordinary data binding is not a callable Rule";
+      }
+      if (failed(registerRule(statement, registrationCall))) return failure();
+      if (binding) binding->registered = true;
+      continue;
+    }
+    if (docstring(statement) || statement.kind() == "Return" ||
+        statement.kind() == "Expr" || statement.kind() == "Pass")
+      continue;
+    // Module-scope fixed-result queries (typically Table `.first`/`.argmin`)
+    // publish independent ordinary values. They cannot write a persistent
+    // owner, input, Method or Rule registration.
+    if (statement.kind() == "Assign" &&
+        statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Tuple" &&
+        !fixedResultCall(statement.child("value")).empty()) {
+      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        ordinaryValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      llvm::StringSet<> forbidden;
+      for (const auto &input : authoredInputs)
+        forbidden.insert(input.getKey());
+      for (const auto &entry : methods)
+        forbidden.insert(entry.first());
+      for (const auto &entry : rules)
+        forbidden.insert(entry.first());
+      for (const auto &entry : states)
+        forbidden.insert(entry.first());
+      auto fixed = bindFixedResults(statement, at, decl.symbol, ordinaryValues,
+                                    instances, nullptr, forbidden, false);
+      if (failed(fixed)) return failure();
+      if (*fixed) {
+        auto target = statement.item("targets", 0);
+        for (size_t i = 0; i < target.array("elts").size(); ++i) {
+          AstNode leaf = target.item("elts", i);
+          StringRef name = assignmentRoot(leaf);
+          moduleValues[name] = ordinaryValues.lookup(name);
+          noteNestedRuleDataBinding(name);
+        }
+        ordinaryModuleAssignments.insert(
+            sourceOccurrence(at, decl.symbol, statement));
+        continue;
+      }
+    }
+    if (statement.kind() == "Assign" &&
+        statement.child("value").kind() == "Call" &&
+        moduleCall(statement.child("value")) &&
+        !methodOwner(statement.child("value").child("func"))) {
+      llvm::StringSet<> forbidden;
+      for (const auto &input : authoredInputs)
+        forbidden.insert(input.getKey());
+      for (const auto &entry : methods)
+        forbidden.insert(entry.first());
+      for (const auto &entry : rules)
+        forbidden.insert(entry.first());
+      for (size_t j = 0; j < decl.node.array("body").size(); ++j) {
+        auto declaration = decl.node.item("body", j);
+        if (declaration.kind() == "AnnAssign")
+          forbidden.insert(assignmentRoot(declaration.child("target")));
+      }
+      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        ordinaryValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      auto target = statement.array("targets").size() == 1
+          ? statement.item("targets", 0) : AstNode();
+      if (target.kind() == "Name") {
+        StringRef name = target.string("id");
+        if (forbidden.contains(name) || boundHardwareIdentity(name) ||
+            moduleValues.contains(name) || name == "pyc_clk" || name == "pyc_rst")
+          return error() << "Module instance binding requires a fresh ordinary Name";
+        auto call = statement.child("value");
+        auto contract = callable(call.child("func"));
+        if (failed(contract)) return failure();
+        auto results = directModuleResults(call, at, decl.symbol, ordinaryValues, instances);
+        if (failed(results)) return failure();
+        auto site = directCallSites.find(sourceOccurrence(at, decl.symbol, call));
+        if (site == directCallSites.end())
+          return error() << "named Module instance lacks its actual allocation";
+        auto binding = lookupBinding(call.child("func"));
+        Operation *op = site->second.op;
+        op->setAttr("instance_name", at.getStringAttr(name));
+        instanceStorage.push_back({name.str(),
+            statement, contract->symbol, binding ? binding->declaration : nullptr});
+        Instance &instance = instanceStorage.back();
+        instance.op = op;
+        instance.bound = true;
+        instance.valueHandle = true;
+        instance.returnShape = contract->returnShape;
+        instance.inputs = contract->inputs;
+        instance.outputs = contract->results;
+        instances[name] = &instance;
+        if (results->size() == 1 && contract->returnShape != ReturnShape::Tuple)
+          moduleValues[name] = results->front();
+        ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
+        continue;
+      }
+      auto bound = bindModuleResults(statement, at, decl.symbol, ordinaryValues,
+                                     instances, forbidden);
+      if (failed(bound))
+        return failure();
+      if (*bound) {
+        auto target = statement.item("targets", 0);
+        for (size_t j = 0; j < target.array("elts").size(); ++j) {
+          StringRef name = target.item("elts", j).string("id");
+          moduleValues[name] = ordinaryValues[name];
+        }
+        ordinaryModuleAssignments.insert(
+            sourceOccurrence(at, decl.symbol, statement));
+        continue;
+      }
+    }
+    if (statement.kind() == "Assign" && statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Tuple" &&
+        statement.child("value").kind() == "Name") {
+      auto instance = instances.find(statement.child("value").string("id"));
+      if (instance != instances.end() && instance->second->valueHandle &&
+          instance->second->returnShape == ReturnShape::Tuple) {
+        llvm::StringSet<> forbidden;
+        for (const auto &name : authoredInputs) forbidden.insert(name.getKey());
+        for (const auto &name : authoredOwnerNames) forbidden.insert(name.getKey());
+        for (const auto &name : methods) forbidden.insert(name.first());
+        for (const auto &name : rules) forbidden.insert(name.first());
+        if (failed(bindCallableResults(statement, instance->second->op->getResults(),
+                at, decl.symbol, moduleValues, instances, forbidden)))
+          return failure();
+        ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
+        continue;
+      }
+    }
+    AstNode allocation = statement.child("value");
+    bool tableState = statement.kind() == "Assign" &&
+        statement.array("targets").size() == 1 &&
+        allocation.kind() == "Call" && allocation.child("func").kind() == "Subscript" &&
+        intrinsic(allocation.child("func").child("value"), "table");
+    if (statement.kind() == "AnnAssign" || tableState) {
+      auto target = tableState ? statement.item("targets", 0) : statement.child("target");
+      AstNode annotation = tableState ? allocation.child("func") : statement.child("annotation");
+      AstNode initializer = statement.child("value");
+      if (tableState) {
+        if (!allocation.array("args").empty() || allocation.array("keywords").size() != 1 ||
+            allocation.item("keywords", 0).string("arg") != "init")
+          return error() << "table allocation requires exactly init";
+        initializer = allocation.item("keywords", 0).child("value");
+      }
+      if (target.kind() != "Name" || !initializer)
+        return error() << "typed owner state requires an annotated Name initializer";
+      StringRef name = target.string("id");
+      if (states.contains(name) || boundHardwareIdentity(name) ||
+          moduleValues.contains(name) || name == "pyc_clk" || name == "pyc_rst")
+        return error() << "persistent owner name is duplicated or protected";
+      auto type = portType(annotation, decl.symbol);
+      if (failed(type)) return failure();
+      Port boundaryPort{name.str(), *type, annotation, annotationKind(annotation),
+                        fixedAnnotation(annotation)};
+      llvm::StringMap<Instance *> none;
+      if (initializer.kind() == "Name" &&
+          states.contains(initializer.string("id")))
+        return error()
+               << "persistent initializer must be a static complete value";
+      auto initial = stateInitializer(boundaryPort, initializer, statement,
+                                       at, decl.symbol, moduleValues, none, true);
+      if (failed(initial)) return failure();
+      auto payloadConstraint = sourceConstraint(boundaryPort);
+      if (failed(payloadConstraint)) return failure();
+      Operation *state = createOp(
+          at, statement.location(b.getContext(), source.path),
+          ac::SourceStateOp::getOperationName(),
+          ValueRange{clock, reset, *initial}, TypeRange{*type},
+          {at.getNamedAttr("instance_name", at.getStringAttr(name)),
+           at.getNamedAttr("ac.payload_constraint", *payloadConstraint),
+           at.getNamedAttr("occurrence", sourceOccurrence(at, decl.symbol, statement))});
+      helperOwnerBindings.insert(name);
+      states[name] = {name.str(), *type, *initial, state, statement};
+      rememberState(state->getResult(0), states[name]);
+      continue;
+    }
+    if (statement.kind() == "Assign" &&
+        statement.array("targets").size() == 1 &&
+        (statement.item("targets", 0).kind() == "Attribute" ||
+         statement.item("targets", 0).kind() == "Subscript")) {
+      auto target = statement.item("targets", 0);
+      StringRef root = assignmentRoot(target);
+      if (root.empty() || states.contains(root) || authoredInputs.contains(root) ||
+          instances.contains(root))
+        return error() << "module-local assignment cannot write a persistent "
+                          "owner, input or instance handle";
+      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        ordinaryValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      auto selectedType = expressionType(target, ordinaryValues, instances, decl.symbol);
+      if (failed(selectedType)) return failure();
+      auto replacement = expression(statement.child("value"), at, decl.symbol,
+                                     ordinaryValues, instances, *selectedType);
+      if (failed(replacement) ||
+          failed(updateAssignment(target, *replacement, statement, at,
+                                  decl.symbol, ordinaryValues)))
+        return failure();
+      moduleValues[root] = ordinaryValues.lookup(root);
+      ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
+      continue;
+    }
+    if (statement.kind() == "Assign" &&
+        statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name") {
+      StringRef name = statement.item("targets", 0).string("id");
+      AstNode value = statement.child("value");
+      if (decl.methodOwner && rules.contains(name))
+        return error() << "Method-owner module local '" << name
+                       << "' conflicts with Rule registration";
+      if (names.contains(name))
+        return error()
+               << "module-local assignment cannot rebind imported binding '"
+               << name << "'";
+      if (states.contains(name))
+        return error()
+               << "instance handle assignment shadows a persistent owner";
+      bool earlierRuleData = nestedRuleBinding(name) &&
+          (methods.contains(name) || rules.contains(name));
+      if (earlierRuleData && failed(requireNestedRuleDataTarget(name, statement)))
+        return failure();
+      if ((!earlierRuleData && (methods.contains(name) || rules.contains(name))) ||
+          instances.contains(name))
+        return error() << "instance handle cannot be rebound and requires a "
+                          "fresh immutable name";
+      if (value.kind() == "Name" && instances.contains(value.string("id"))) {
+        if (earlierRuleData || moduleValues.contains(name))
+          return error() << "instance handle cannot be rebound and requires a "
+                            "fresh immutable name";
+        instances[name] = instances[value.string("id")];
+        if (auto payload = moduleValues.lookup(value.string("id")))
+          moduleValues[name] = payload;
+        continue;
+      }
+      if (value.kind() == "Call" && value.child("func").kind() == "Attribute" &&
+          value.child("func").child("value").kind() == "Name" &&
+          instances.contains(value.child("func").child("value").string("id")))
+        return error() << "Method call requires a Rule transaction scope";
+      if (value.kind() == "Call" && methodOwner(value.child("func"))) {
+        if (earlierRuleData || moduleValues.contains(name))
+          return error() << "instance handle cannot be rebound and requires a "
+                            "fresh immutable name";
+        if (!value.array("args").empty() || !value.array("keywords").empty())
+          return error()
+                 << "Method owner construction takes no authored parameters";
+        AstNode function = value.child("func");
+        FlatSymbolRefAttr callee;
+        Operation *declaration = nullptr;
+        unsigned clockInput = 0, resetInput = 1;
+        auto target = function.kind() == "Name"
+                          ? local.find(function.string("id"))
+                          : local.end();
+        if (target != local.end()) {
+          if (modules[target->second].system)
+            return error() << "@system is root-only and cannot be called as a child";
+          callee = modules[target->second].symbol;
+        } else {
+          auto binding = lookupBinding(function);
+          auto view = headers.lookupModule(binding->symbol);
+          if (view.declaration->hasAttr("ac.root_kind"))
+            return error() << "@system is root-only and cannot be called as a child";
+          callee = view.symbol;
+          declaration = view.declaration;
+          clockInput = view.domainInputs.getAs<IntegerAttr>("clock").getInt();
+          resetInput = view.domainInputs.getAs<IntegerAttr>("reset").getInt();
+        }
+        SmallVector<Value> inputs(2);
+        inputs[clockInput] = clock;
+        inputs[resetInput] = reset;
+        Operation *instance = createOp(
+            at, statement.location(b.getContext(), source.path),
+            ac::InstanceOp::getOperationName(), inputs, TypeRange{},
+            {at.getNamedAttr("instance_name", at.getStringAttr(name)),
+             at.getNamedAttr("callee", callee),
+             at.getNamedAttr("parameters", at.getArrayAttr({})),
+             at.getNamedAttr("type_arguments", at.getArrayAttr({})),
+             at.getNamedAttr("occurrence",
+                             sourceOccurrence(at, decl.symbol, statement))});
+        instanceStorage.push_back({name.str(), statement, callee, declaration});
+        instanceStorage.back().op = instance;
+        instanceStorage.back().clockInput = clockInput;
+        instanceStorage.back().resetInput = resetInput;
+        instances[name] = &instanceStorage.back();
+        continue;
+      }
+      if (authoredInputs.contains(name))
+        return error()
+               << "module-local assignment cannot rebind an authored input";
+      // Ordinary module expressions capture physical old Q. Keep this view
+      // local: state initializers and callable captures retain their existing
+      // bindings, and transaction reads continue to use source effects.
+      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        ordinaryValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      auto ordinary =
+          expression(value, at, decl.symbol, ordinaryValues, instances);
+      if (failed(ordinary))
+        return failure();
+      moduleValues[name] = *ordinary;
+      ++moduleAssignmentCounts[name];
+      noteNestedRuleDataBinding(name);
+      ordinaryModuleAssignments.insert(
+          sourceOccurrence(at, decl.symbol, statement));
+      continue;
+    }
+    return error() << "unsupported typed transaction module statement";
   }
 
-  llvm::StringMap<unsigned> registrationCounts;
+
+  for (const auto &entry : registeredCallables) {
+    auto after = entry.second.syntax.after;
+    if (!after) continue;
+    Operation *transaction = registeredTransactions.lookup(entry.first);
+    SmallVector<Attribute> predecessors;
+    for (size_t i = 0; i < after.array("elts").size(); ++i) {
+      StringRef name = after.item("elts", i).string("id");
+      auto matches = transactionsForCallable.find(name);
+      if (!rules.contains(name) || matches == transactionsForCallable.end() ||
+          matches->second.size() != 1)
+        return error() << "Rule after predecessor must identify exactly one local outer registration";
+      Operation *predecessor = matches->second.front();
+      if (predecessor == transaction)
+        return error() << "Rule after cannot name its own outer registration";
+      predecessors.push_back(predecessor->getAttr("occurrence"));
+    }
+    transaction->setAttr("ac.after", at.getArrayAttr(predecessors));
+  }
+
+  SmallVector<ValueHelperDecl *> lexicalHelpers;
+  for (auto &entry : valueHelpers)
+    if (entry.second->lexicalOwner == decl.symbol) lexicalHelpers.push_back(entry.second.get());
+  for (auto *helper : lexicalHelpers)
+    if (failed(lowerValueHelper(*helper))) return failure();
+
+  for (auto &entry : methodCaptures)
+    if (methods.find(entry.first()) != methods.end() && methods.find(entry.first())->second.lexical)
+      retainHelperSnapshots(entry.second);
+  for (auto &entry : ruleCaptures) retainHelperSnapshots(entry.second);
+
   SmallVector<Value> moduleOutputs;
   llvm::DenseSet<DictionaryAttr> ordinaryModuleReturns;
   bool returned = false;
@@ -1086,7 +2897,13 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     if (!registration) {
       if (statement.kind() != "Return")
         continue;
-      auto outputs = lowerReturn(decl, call, at, moduleValues, instances);
+      llvm::StringMap<Value> returnedValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        rememberState(oldQ, entry.second);
+        returnedValues[entry.first()] = oldQ;
+      }
+      auto outputs = lowerReturn(decl, call, at, returnedValues, instances);
       if (failed(outputs))
         return failure();
       llvm::append_range(moduleOutputs, *outputs);
@@ -1094,56 +2911,63 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       continue;
     }
     StringRef name = call.child("func").string("id");
-    if (++registrationCounts[name] != 1)
-      return error() << "Rule declaration must be registered exactly once";
-    SourceCallableDecl &callable = rules[name];
-    if (!callable.inputs.empty() || !call.array("args").empty() ||
-        !call.array("keywords").empty())
-      return error() << "nested Rule registration arguments are unsupported";
-    SmallVector<Value> captures;
-    SmallVector<StringRef> captureNames;
-    for (const auto &value : ruleCaptures[name]) {
-      captureNames.push_back(value.first);
-      captures.push_back(value.second);
-    }
-    Operation *transaction = createOp(
-        at, call.location(b.getContext(), source.path),
-        ac::SourceTransactionOp::getOperationName(),
-        SmallVector<Value>{clock->second, reset->second}, callable.results,
-        {at.getNamedAttr("name", at.getStringAttr(name)),
-         at.getNamedAttr("declaration", sourceOccurrence(at, decl.symbol,
-                                                         callable.declaration)),
-         at.getNamedAttr("ac.guard_location",
-                         sourceSpan(at, source.path,
-                                    callable.syntax.guard
-                                        ? callable.syntax.guard
-                                        : callable.declaration)),
-         at.getNamedAttr("occurrence",
-                         sourceOccurrence(at, decl.symbol, call))},
-        2);
+    DictionaryAttr invocation = sourceOccurrence(at, decl.symbol, call);
+    SourceCallableDecl &callable = registeredCallables[invocation];
+    Operation *transaction = registeredTransactions.lookup(invocation);
+    auto methodName = registrationMethods.find(invocation);
+    if (!transaction || methodName == registrationMethods.end())
+      return error() << "Rule registration lacks its shared callable entry";
+    transaction->setAttr("ac.registration_entry", at.getUnitAttr());
+    SmallVector<Value> captures(ruleArguments[invocation]);
     transaction->insertOperands(2, captures);
     for (unsigned regionIndex = 0; regionIndex < 2; ++regionIndex) {
       auto *block = new Block();
       transaction->getRegion(regionIndex).push_back(block);
-      llvm::StringMap<Value> values;
-      for (auto [captureName, original] : llvm::zip(captureNames, captures)) {
-        auto captured = captureValue(block, original, transaction->getLoc());
-        if (!captureName.empty()) values[captureName] = captured;
-      }
+      SmallVector<Value> arguments;
+      for (Value original : captures)
+        arguments.push_back(captureValue(block, original, transaction->getLoc()));
       OpBuilder inside = OpBuilder::atBlockEnd(block);
-      auto yielded = emitStatements(callable, inside, values, regionIndex == 0);
-      if (failed(yielded))
-        return failure();
-      createOp(inside,
-               callable.declaration.location(b.getContext(), source.path),
-               ac::YieldOp::getOperationName(), *yielded, {}, {});
+      auto path = trueValue(call, inside, decl.symbol);
+      if (failed(path)) return failure();
+      SmallVector<Value> yielded;
+      if (regionIndex == 0) yielded.push_back(*path);
+      else {
+        SmallVector<Type> physicalResults(callable.results);
+        for (const Port &port : callable.inputs)
+          if (callable.assignedFormals.contains(port.name) &&
+              !callable.stateFormals.contains(port.name)) {
+            physicalResults.push_back(port.type);
+            physicalResults.push_back(internalBits(1, callable.declaration, decl.symbol));
+          }
+        auto callee = SymbolRefAttr::get(b.getContext(), decl.symbol.getValue(),
+            {FlatSymbolRefAttr::get(b.getContext(), methodName->second)});
+        SmallVector<Value> operands{*path};
+        llvm::append_range(operands, arguments);
+        Operation *entry = createOp(inside, call.location(b.getContext(), source.path),
+            ac::SourceMethodCallOp::getOperationName(), operands, physicalResults,
+            {inside.getNamedAttr("callee", callee),
+             inside.getNamedAttr("instance_path", inside.getArrayAttr({})),
+             inside.getNamedAttr("occurrence", transaction->getAttr("occurrence")),
+             inside.getNamedAttr("ac.location",
+                                 sourceSpan(inside, source.path, call))});
+        llvm::append_range(yielded, entry->getResults().take_front(callable.results.size()));
+      }
+      createOp(inside, call.location(b.getContext(), source.path),
+          ac::YieldOp::getOperationName(), yielded, {}, {});
     }
-    if (statement.kind() == "Return")
+    if (statement.kind() == "Return") {
+      if (decl.outputs.size() != callable.resultContracts.size())
+        return error() << "Rule registration return contract disagrees with module outputs";
+      for (auto [output, result] : llvm::zip(decl.outputs, callable.resultContracts))
+        if (output.sourceKind != result.sourceKind || output.fixedBits != result.fixedBits ||
+            !ac::areEquivalentHardwareTypes(output.type, result.type))
+          return error() << "Rule registration return contract disagrees with module outputs";
       llvm::append_range(moduleOutputs, transaction->getResults());
+    }
   }
-  for (const auto &rule : rules)
-    if (registrationCounts[rule.first()] != 1)
-      return error() << "Rule declaration must be registered exactly once";
+  for (size_t pending = 0; pending < methodWork.size(); ++pending)
+    if (failed(emitMethod(methodWork[pending]))) return failure();
+
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
     if (statement.kind() == "FunctionDef" || statement.kind() == "AnnAssign" ||
@@ -1163,7 +2987,12 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                  instances.contains(value.string("id"));
     bool ordinary = ordinaryModuleAssignments.contains(
         sourceOccurrence(at, decl.symbol, statement));
-    if (registration || construction || alias || ordinary ||
+    bool stateDeclaration = statement.kind() == "Assign" &&
+        statement.array("targets").size() == 1 &&
+        states.contains(assignmentRoot(statement.item("targets", 0))) &&
+        sameSourceSite(states[assignmentRoot(statement.item("targets", 0))].node,
+                       statement);
+    if (registration || construction || alias || ordinary || stateDeclaration ||
         ordinaryModuleReturns.contains(
             sourceOccurrence(at, decl.symbol, statement)))
       continue;
@@ -1176,6 +3005,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   if (moduleOutputs.size() != decl.outputs.size())
     return error()
            << "typed transaction module return does not match its interface";
+  for (const auto &site : directCallSites)
+    if (!site.second.bound)
+      return error() << "direct module call site was not bound";
+  directCallSites.clear();
+  forwardCallBindings.clear();
   createOp(at, module->getLoc(), ac::YieldOp::getOperationName(), moduleOutputs,
            {}, {});
   return success();
@@ -1183,7 +3017,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
 
 FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
     const AstNode &node, OpBuilder &at, FlatSymbolRefAttr owner,
-    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    std::optional<bool> tupleCall) {
   if (!activeSourceEffects || node.kind() != "Call")
     return failure();
   AstNode function = node.child("func");
@@ -1191,7 +3026,9 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   std::optional<ac::SourceMethodView> imported;
   Instance *receiver = nullptr;
   bool recognizedReceiver = false;
+  bool nativeQueue = false;
   StringRef methodName;
+  std::string specializedMethodName;
   SmallVector<Attribute> path;
   FlatSymbolRefAttr moduleSymbol;
   if (function.kind() == "Name" && activeSourceEffects->methods) {
@@ -1209,6 +3046,10 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       recognizedReceiver = true;
       receiver = found->second;
       methodName = function.string("attr");
+      nativeQueue = queueInstance(receiver);
+      if (nativeQueue && methodName != "push" && methodName != "pop" &&
+          methodName != "peek")
+        return error() << "unknown Queue operation";
       bool localReceiver = false;
       for (auto &candidate : modules)
         if (candidate.symbol == receiver->callee) {
@@ -1221,7 +3062,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
           }
           break;
         }
-      if (!localReceiver) {
+      if (!localReceiver && !nativeQueue) {
         auto view = headers.lookupModule(receiver->callee);
         if (!view)
           return error() << "Method receiver lacks a validated module contract";
@@ -1236,10 +3077,22 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       path.push_back(at.getStringAttr(receiver->name));
     }
   }
-  if (!target && !imported && recognizedReceiver)
+  if (!target && !imported && !nativeQueue && recognizedReceiver)
     return error() << "unknown Method on statically identified instance";
-  if (!target && !imported)
+  if (!target && !imported && !nativeQueue)
     return failure();
+  if (nativeQueue && activeSourceEffects->callable &&
+      !activeSourceEffects->callable->lexical)
+    return error() << "global Rule cannot capture a caller Module Queue handle";
+  if (target && activeSourceEffects->callable &&
+      !activeSourceEffects->callable->lexical && target->lexical)
+    return error() << "source-global Rule cannot capture a Module-local callable";
+  auto importedVisibility = imported ? imported->getVisibility() : StringAttr();
+  if ((target && (target->privateSpecialization || !target->stateFormals.empty())) ||
+      (importedVisibility && importedVisibility.getValue() == "private"))
+    return error() << "private compiler callable is not an authored source interface";
+  if (target && target->inferredSignature && receiver)
+    return error() << "callable Rule export requires explicit parameter and result annotations";
   if (activeSourceEffects->guard)
     return error() << "guard cannot call a Method";
   if (activeSourceEffects->pureExpression)
@@ -1248,6 +3101,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
 
   SmallVector<Port> importedInputs, importedResults;
   SmallVector<Type> importedResultTypes;
+  SmallVector<unsigned> proposalInputs;
   if (imported) {
     for (Attribute raw : imported->getParameters()) {
       auto parameter = cast<DictionaryAttr>(raw);
@@ -1260,31 +3114,152 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
           sourceCallPort(cast<DictionaryAttr>(raw), "result", node));
     llvm::append_range(importedResultTypes,
                        imported->getFunctionType().getResults());
+    auto proposals = imported->getFormalProposals();
+    if (proposals)
+      for (Attribute raw : proposals)
+        proposalInputs.push_back(cast<IntegerAttr>(raw).getInt());
+  } else if (nativeQueue) {
+    Port payload = receiver->outputs[2];
+    if (methodName == "push") {
+      payload.name = "value";
+      importedInputs.push_back(payload);
+    } else {
+      payload.name = "result";
+      importedResults.push_back(payload);
+      importedResultTypes.push_back(payload.type);
+    }
   }
-  ArrayRef<Port> inputs = target ? ArrayRef<Port>(target->inputs)
-                                 : ArrayRef<Port>(importedInputs);
-  ArrayRef<Port> resultContracts = target
-                                      ? ArrayRef<Port>(target->resultContracts)
-                                      : ArrayRef<Port>(importedResults);
-  ArrayRef<Type> results = target ? ArrayRef<Type>(target->results)
-                                  : ArrayRef<Type>(importedResultTypes);
-  if (!node.array("keywords").empty() ||
-      node.array("args").size() != inputs.size())
-    return error() << "Method call arguments must match its typed signature";
-  SmallVector<Value> arguments;
-  for (auto [index, port] : llvm::enumerate(inputs)) {
-    AstNode actual = node.item("args", index);
-    auto value = expression(actual, at, owner, values, instances, port.type);
-    if (failed(value))
-      return failure();
-    // Typed actuals share declared-binding authority: fixed Bits use the
-    // unsigned boundary, while logical Integer/Boolean keep strict kind checks.
-    auto converted = applyBindingBoundary(
-        *value, BindingBoundary{port, true}, actual, at, owner);
-    if (failed(converted))
-      return failure();
-    arguments.push_back(*converted);
+  if (target && target->syntax.marker == MarkerKind::Rule)
+    for (auto [index, port] : llvm::enumerate(target->inputs))
+      if (target->assignedFormals.contains(port.name) &&
+          !target->stateFormals.contains(port.name)) proposalInputs.push_back(index);
+  SmallVector<Port> inputContracts = target ? target->inputs : importedInputs;
+  ArrayRef<Port> inputs = inputContracts;
+  SmallVector<StringRef> formalNames;
+  for (const Port &port : inputs) formalNames.push_back(port.name);
+  auto actuals = normalizeCallArguments(node, formalNames, error);
+  if (failed(actuals)) return failure();
+  llvm::StringSet<> writableOwners;
+  llvm::StringSet<> writableFormals;
+  SmallVector<Attribute> formalOwnerBindings;
+  SmallVector<unsigned> deferredReferences;
+  for (unsigned index : proposalInputs) {
+    auto actual = (*actuals)[index];
+    if (actual.kind() != "Name" || !activeSourceEffects->states) continue;
+    auto state = activeSourceEffects->states->find(actual.string("id"));
+    if (state == activeSourceEffects->states->end()) {
+      std::string intentName = ("$intent." + actual.string("id")).str();
+      if (!values.contains(intentName) || !activeSourceEffects->callable) continue;
+      if (!writableFormals.insert(actual.string("id")).second)
+        return error() << "overlapping writable owner aliases";
+      auto &callerInputs = activeSourceEffects->callable->inputs;
+      auto formal = llvm::find_if(callerInputs, [&](const Port &port) {
+        return port.name == actual.string("id");
+      });
+      if (formal == callerInputs.end()) return error() << "forwarded formal lacks its caller contract";
+      deferredReferences.push_back(index);
+      formalOwnerBindings.push_back(at.getDictionaryAttr(
+          {at.getNamedAttr("formal", at.getI64IntegerAttr(index)),
+           at.getNamedAttr("caller_formal", at.getI64IntegerAttr(std::distance(callerInputs.begin(), formal)))}));
+      continue;
+    }
+    if (!writableOwners.insert(state->second.name).second)
+      return error() << "overlapping writable owner aliases";
+    const Port &contract = inputs[index];
+    auto boundary = ownerBoundary(state->second);
+    auto equivalent = contract.type ? equivalentBoundaryTypes(boundary.contract().type, contract.type,
+                                               at.getBlock()->getParentOp()) : FailureOr<bool>(true);
+    if (contract.type && (failed(equivalent) || !*equivalent ||
+        boundary.contract().sourceKind != contract.sourceKind ||
+        boundary.contract().fixedBits != contract.fixedBits))
+      return error() << "writable Rule owner actual requires its exact declared type and kind";
+    deferredReferences.push_back(index);
+    formalOwnerBindings.push_back(at.getDictionaryAttr(
+        {at.getNamedAttr("formal", at.getI64IntegerAttr(index)),
+         at.getNamedAttr("state", at.getStringAttr(state->second.name))}));
   }
+  // Private local owner specializations omit D/E suffixes, but their owner
+  // reference inputs still use the same call-entry read ordering.
+  if (target)
+    for (auto [index, port] : llvm::enumerate(inputs))
+      if (target->stateFormals.contains(port.name))
+        deferredReferences.push_back(index);
+  auto arguments = bindCallableArguments(node, inputs, at, owner, values, instances,
+                                         deferredReferences);
+  if (failed(arguments)) return failure();
+  if (target && target->syntax.marker == MarkerKind::Rule && !receiver) {
+    SourceCallableDecl specialized = *target;
+    for (auto [index, port] : llvm::enumerate(specialized.inputs)) {
+      auto actual = (*actuals)[index];
+      auto binding = inferredBoundary(port.name, (*arguments)[index], actual, true);
+      bool ownerActual = false;
+      if (actual.kind() == "Name" && activeSourceEffects->states) {
+        auto state = activeSourceEffects->states->find(actual.string("id"));
+        if (state != activeSourceEffects->states->end()) {
+          binding = ownerBoundary(state->second);
+          ownerActual = true;
+          if (specialized.assignedFormals.contains(port.name))
+            specialized.stateFormals[port.name] = state->second.name;
+        }
+      }
+      auto bound = bindRuleFormal(port.node, actual, (*arguments)[index], binding,
+                                   ownerActual, at, owner);
+      if (failed(bound)) return failure();
+      if (!port.type) {
+        auto formalNode = port.node;
+        port = bound->boundary.contract();
+        port.name = bound->name;
+        port.node = formalNode;
+      }
+      (*arguments)[index] = bound->value;
+    }
+    if (specialized.inferredSignature || !specialized.stateFormals.empty()) {
+      if (!activeSourceEffects->specialize)
+        return error() << "Rule actual specialization lacks its lexical worklist";
+      if (activeSourceEffects->callable) {
+        const auto &caller = *activeSourceEffects->callable;
+        if (sameSourceSite(caller.declaration, specialized.declaration) ||
+            llvm::is_contained(caller.specializationAncestry, specialized.declaration.value))
+          return error() << "recursive Rule calls are unsupported";
+        specialized.specializationAncestry = caller.specializationAncestry;
+        specialized.specializationAncestry.push_back(caller.declaration.value);
+      }
+      specialized.actualFacts.assign(arguments->begin(), arguments->end());
+      SmallVector<Type> parameterTypes;
+      for (const Port &port : specialized.inputs) parameterTypes.push_back(port.type);
+      specialized.type = FunctionType::get(b.getContext(), parameterTypes, specialized.results);
+      auto resolved = (*activeSourceEffects->specialize)(methodName, specialized);
+      if (failed(resolved)) return failure();
+      specializedMethodName = *resolved;
+      methodName = specializedMethodName;
+      target = &activeSourceEffects->methods->find(methodName)->second;
+      inputContracts = target->inputs;
+      inputs = inputContracts;
+      llvm::erase_if(proposalInputs, [&](unsigned index) {
+        return target->stateFormals.contains(inputs[index].name);
+      });
+      llvm::erase_if(formalOwnerBindings, [&](Attribute raw) {
+        unsigned index = cast<DictionaryAttr>(raw).getAs<IntegerAttr>("formal").getInt();
+        return !llvm::is_contained(proposalInputs, index);
+      });
+    }
+  }
+  ArrayRef<Port> resultContracts = target ? ArrayRef<Port>(target->resultContracts)
+                                         : ArrayRef<Port>(importedResults);
+  SmallVector<Type> physicalResults = target ? target->results : importedResultTypes;
+  if (target)
+    for (unsigned index : proposalInputs) {
+      physicalResults.push_back(inputs[index].type);
+      physicalResults.push_back(internalBits(1, target->declaration, moduleSymbol));
+    }
+  size_t publicResults = physicalResults.size() - 2 * proposalInputs.size();
+  bool tupleResult = target ? target->returnShape == ReturnShape::Tuple ||
+                                 (target->returnShape == ReturnShape::Mapping && target->results.size() != 1)
+                            : imported ? imported->getReturnForm().getValue() == "tuple"
+                                       : false;
+  if (tupleCall && tupleResult != *tupleCall)
+    return error() << (tupleResult ? "tuple Method call requires direct Tuple unpacking"
+                                  : "single Method result cannot be Tuple-unpacked");
   auto enabled = trueValue(node, at, owner);
   if (failed(enabled))
     return failure();
@@ -1294,18 +3269,73 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   auto operation = createOp(
       at, node.location(b.getContext(), source.path),
       ac::SourceMethodCallOp::getOperationName(), SmallVector<Value>{*enabled},
-      results,
+      physicalResults,
       {at.getNamedAttr("callee", callee),
        at.getNamedAttr("instance_path", at.getArrayAttr(path)),
-       at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node))});
-  operation->insertOperands(1, arguments);
+       at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node)),
+       at.getNamedAttr("ac.location", sourceSpan(at, source.path, node))});
+  operation->insertOperands(1, *arguments);
+  if (!formalOwnerBindings.empty())
+    operation->setAttr("ac.formal_owner_bindings", at.getArrayAttr(formalOwnerBindings));
   for (auto [result, contract] :
        llvm::zip(operation->getResults(), resultContracts)) {
     remember(result, contract.sourceKind);
     if (contract.fixedBits)
       fixedValues.insert(result);
   }
-  return SmallVector<Value>(operation->getResults());
+  for (auto [ordinal, index] : llvm::enumerate(proposalInputs)) {
+    auto actual = (*actuals)[index];
+    if (actual.kind() != "Name") continue;
+    Value data = operation->getResult(publicResults + 2 * ordinal);
+    Value intent = operation->getResult(publicResults + 2 * ordinal + 1);
+    remember(data, inputs[index].sourceKind);
+    if (inputs[index].fixedBits) fixedValues.insert(data);
+    remember(intent, ac::detail::ValueKind::Boolean);
+    fixedValues.erase(intent);
+    std::string intentName = ("$intent." + actual.string("id")).str();
+    if (Value prior = values.lookup(intentName)) {
+      // A lexical Rule formal is an ordinary SSA snapshot until the outer
+      // invocation binds its proposal to an actual physical owner.
+      Value previous = values.lookup(actual.string("id"));
+      auto selected = select(intent, data, previous, node, at, owner);
+      if (failed(selected)) return failure();
+      values[intentName] = createOp(at, node.location(b.getContext(), source.path),
+          ac::BitsBinaryOp::getOperationName(), {prior, intent}, {prior.getType()},
+          {at.getNamedAttr("opcode", at.getStringAttr("or"))})->getResult(0);
+      remember(values.lookup(intentName), ac::detail::ValueKind::Boolean);
+      auto &callerInputs = activeSourceEffects->callable->inputs;
+      auto formal = llvm::find_if(callerInputs, [&](const Port &port) {
+        return port.name == actual.string("id");
+      });
+      if (formal == callerInputs.end()) return error() << "forwarded proposal lacks its caller formal";
+      Value snapshot =
+          createOp(
+              at, node.location(b.getContext(), source.path), "ac.formal.write",
+              {data, intent, *selected, previous}, {previous.getType()},
+              {at.getNamedAttr("formal", at.getI64IntegerAttr(std::distance(
+                                             callerInputs.begin(), formal))),
+               at.getNamedAttr("selectors", at.getArrayAttr({})),
+               at.getNamedAttr("operandSegmentSizes",
+                               at.getDenseI32ArrayAttr({1, 1, 1, 0, 1})),
+               at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node)),
+               at.getNamedAttr("ac.location",
+                               sourceSpan(at, source.path, node))})
+              ->getResult(0);
+      remember(snapshot, formal->sourceKind);
+      if (formal->fixedBits) fixedValues.insert(snapshot);
+      values[actual.string("id")] = snapshot;
+      continue;
+    }
+    if (!activeSourceEffects->states) continue;
+    auto state = activeSourceEffects->states->find(actual.string("id"));
+    if (state == activeSourceEffects->states->end()) continue;
+    createOp(at, node.location(b.getContext(), source.path),
+             ac::SourceStateWriteOp::getOperationName(), {intent, data}, {},
+             {at.getNamedAttr("state", at.getStringAttr(state->second.name)),
+              at.getNamedAttr("selectors", at.getArrayAttr({})),
+              at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node))});
+  }
+  return SmallVector<Value>(operation->getResults().take_front(publicResults));
 }
 
 FailureOr<std::optional<Value>> Importer::sourceEffectExpression(
@@ -1313,7 +3343,8 @@ FailureOr<std::optional<Value>> Importer::sourceEffectExpression(
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   if (!activeSourceEffects)
     return std::optional<Value>();
-  if (node.kind() == "Name" && activeSourceEffects->states) {
+  if (node.kind() == "Name" && !queryBound(node.string("id")) &&
+      activeSourceEffects->states) {
     auto found = activeSourceEffects->states->find(node.string("id"));
     if (found != activeSourceEffects->states->end()) {
       auto path = trueValue(node, at, owner);
@@ -1326,8 +3357,7 @@ FailureOr<std::optional<Value>> Importer::sourceEffectExpression(
           {at.getNamedAttr("state", at.getStringAttr(found->second.name)),
            at.getNamedAttr("selectors", at.getArrayAttr({})),
            at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node))});
-      if (isa<ac::BitsType>(found->second.type))
-        fixedValues.insert(read->getResult(0));
+      rememberState(read->getResult(0), found->second);
       return std::optional<Value>(read->getResult(0));
     }
   }

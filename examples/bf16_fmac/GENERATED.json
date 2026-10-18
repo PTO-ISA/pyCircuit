@@ -10,37 +10,37 @@
     "inputs": {
       "source/CMakeLists.txt": "111cf2c945bb29beaf25821b494ed5a8ff0401d02f335150d1bcf8bba5115adc",
       "source/bench.py": "f5454aba32d2013e26386991af6395de8c4b5f22550be25c2dbb11081446ff48",
-      "source/bf16_fmac.py": "7d32a404b96a30f59bb9d06562596dcfc884e46f3168dec32c04cf66cdc9ef1f",
+      "source/bf16_fmac.py": "ff6dd7b4c23e6a7185d8ab0174f2a2b44c51293eb3e6757e288b72751a737c73",
       "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
       "source/driver.cpp": "ce21c9684b680863c055fc0ed5af396531a8db44ae5061a401ad0954ce2c2226",
-      "source/rtl_tb.sv": "aafe9665d80cc31b877f5bc103e82317268c553a4b973ab7d9d2cb406ba0022f",
+      "source/rtl_tb.sv": "dcadde69398d2ce8de7b2971bf2c466a5030dbf8606dc218f3a849a387d0325e",
       "build/cpp/generated.json": "e7a3613421792d57c28cbc40a620301a65bff0d240c03b5e69f12df7e5af8cb7",
       "build/cpp/CMakeLists.txt": "0a6fcda3af4a5eafb78b49e944fb04a900259c44a625ad1f20456a94fe582905",
-      "build/cpp/pycircuit_support.hpp": "4410ede4d2f1731945f3961fc90731c3a6031cd166eee7a6e720a9b494de558e",
-      "build/cpp/pycircuit_system.hpp": "a34c89cf9567a22d56a539681fb80f5e003e11a4f32d5952195ab2eefac1b099",
+      "build/cpp/pycircuit_support.hpp": "1541ad97e1e13212400345f83d989c9dd22c8e94078b8d19d75fd4bbd88d3bc8",
+      "build/cpp/pycircuit_system.hpp": "63b464265337cd45634b3c9627cddf81d2e6bf456bc9ea228b36b302047cb1ff",
       "build/cpp/sources/example_bf16_fmac/bf16_fmac.cpp": "4f855aede9f779e345a013a35930839f7173ab5c33fe2c45713689cbb12cadd3",
-      "build/cpp/sources/example_bf16_fmac/bf16_fmac.hpp": "18316bd48a5fe6b9117614e2d6d04ae19769db92563b15e67bd668d32cab90fa",
-      "build/cpp/sources/example_bf16_fmac/bf16_fmac.source-map.json": "d3b77ac2b32cf29e2f2d8c13e3514024871c156e2010ea9ef2ea55b7e73f9dd8",
+      "build/cpp/sources/example_bf16_fmac/bf16_fmac.hpp": "060dce26bd9cba9e6b517c5ef2aa824d969097d84977264fc4fdc5ecc5ef4503",
+      "build/cpp/sources/example_bf16_fmac/bf16_fmac.source-map.json": "d5a120c42baea8ba82111b26da41d2ca5746e05612c163d01a393cc9812977e1",
       "build/verilog/generated.json": "2349bc488fa8cf4eeb22b18f7cc5ea0b0fa6a4d010dcde2d48818b0741c4dece",
-      "build/verilog/CMakeLists.txt": "fe883c6b8ac125aa3a5c1442840750f911b6fa5578bae8607bd7033aef2cfa33",
-      "build/verilog/design_top.sv": "4719f92a6a9c03aa8d408ed5d736b6a36b7faa03ec467396f9e1a79c52fc1b86",
-      "build/verilog/sources/example_bf16_fmac/bf16_fmac.source-map.json": "37b626aafb176a2c8446c4fc46d66d82870a215303aaaf7aa62638dbe420310f",
-      "build/verilog/sources/example_bf16_fmac/bf16_fmac.v": "665d26df0d4098f57207a6ef0a957e3c44625e4cfcaf28fa1b47c1c57385d740",
-      "build/bf16_fmac.ac": "a6b654c336305398fe4a2215f5cf350e7657b999efb9c4c146cf2a89ec5f6248",
+      "build/verilog/CMakeLists.txt": "1095dcf199d3ed6cbda173ab185aba5d25c0a0bf91fb99443175f5d96d2ed1c7",
+      "build/verilog/design_top.sv": "3f70e09c1cbe597b1f5cd78ce2151f69fe99fd72c1a2afeae18ec399a4cc445c",
+      "build/verilog/sources/example_bf16_fmac/bf16_fmac.source-map.json": "2cbc4f3f6dfd19a562f14ab9590a45411e3750d2ee282c91450fe8e2140afb5e",
+      "build/verilog/sources/example_bf16_fmac/bf16_fmac.v": "4d229007435b2c1b08de49b47b6d94057ba66f1bb14504022dca5f6b5395c3cc",
+      "build/bf16_fmac.ac": "2067163a835d8195108bc33b606235c7fcc745c102ab56afa3ad5ff68c0fdbd9",
       "build/units/.bf16_fmac.pycircuit-publication/owner.json": "a5163d5b8be5739b716c7d6591b0157e91b452a07bb57adac4d37f97f04880f7",
-      "build/units/bf16_fmac/bf16_fmac.ac": "8fb8b20e5f885610662fabd98a6f594f1dfda811f0a643488d1308f06846207f",
-      "build/units/bf16_fmac/bf16_fmac.d": "a7ae43f84b176182361f37a34186c109093c89e4cc5baeef0c480a3af9cd862d",
-      "build/units/bf16_fmac/bf16_fmac.interface.ac": "2aa781a5575c9e9ee64dca5f1504c2ec2bf03cc8f35c96d2f06cbe6e3acbea48",
+      "build/units/bf16_fmac/bf16_fmac.ac": "2888b7cd31a1e734f73fdbcfac85e5ac9904cb13f88dad96ad53104e97ab5c5d",
+      "build/units/bf16_fmac/bf16_fmac.d": "aad89ed87c0021997a215f7926015739848d5c6758956700ad41cd42ad0f2740",
+      "build/units/bf16_fmac/bf16_fmac.interface.ac": "d0d1d4195207ea832706ed101fe96ae77b8b4ea602e1356b1c23a36aa6a84a88",
       "build/units/bf16_fmac/unit.json": "eac91ff1ffaa1d715fcb3eaf87b03796bb843c345005aa935f679f965ae1d378",
       "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
       "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
       "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
-      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
       "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
       "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
-      "runner": "92bcb37ab21fc5b32810a43d016f8df6f478cdfc12ecbc13f2dd1d543ba47fd8"
+      "runner": "0c97f3f77878f60617eeef5f88ef2798d45013b6fedb3ce7752ca85bd7c03b11"
     },
-    "execution_sha256": "679017c60811d94dfa5fa7bd536b9db54e3d7b80e6f2d72f404bb9e3727ffb7b",
+    "execution_sha256": "ce63eadd76ec56cb88b5e9ec0c8ea80127bd436ed205d6f6a242c78e90b6ccc3",
     "work_samples": 169,
     "native_check_records": 501,
     "native_check_sha256": "d6781244bec082cd66e07ad22e4dc46ac67be307a96779fb3955c8fc7e6b61f3",
@@ -54,18 +54,18 @@
   "excerpts": [
     {
       "path": "bf16_fmac.ac",
-      "line": 26,
-      "sha256": "a6b654c336305398fe4a2215f5cf350e7657b999efb9c4c146cf2a89ec5f6248"
+      "line": 34,
+      "sha256": "2067163a835d8195108bc33b606235c7fcc745c102ab56afa3ad5ff68c0fdbd9"
     },
     {
       "path": "cpp/sources/example_bf16_fmac/bf16_fmac.hpp",
-      "line": 54,
-      "sha256": "18316bd48a5fe6b9117614e2d6d04ae19769db92563b15e67bd668d32cab90fa"
+      "line": 86,
+      "sha256": "060dce26bd9cba9e6b517c5ef2aa824d969097d84977264fc4fdc5ecc5ef4503"
     },
     {
       "path": "verilog/sources/example_bf16_fmac/bf16_fmac.v",
       "line": 1,
-      "sha256": "665d26df0d4098f57207a6ef0a957e3c44625e4cfcaf28fa1b47c1c57385d740"
+      "sha256": "4d229007435b2c1b08de49b47b6d94057ba66f1bb14504022dca5f6b5395c3cc"
     }
   ]
 }

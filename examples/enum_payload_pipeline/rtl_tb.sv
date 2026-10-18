@@ -1,10 +1,23 @@
 module tb;
 localparam integer WIDTH=26;
 logic pyc_7079635f636c6b=0,pyc_7079635f727374=1,valid=0,take=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
 logic [WIDTH-1:0] data='0;
 wire [WIDTH+1:0] result;
 wire ready=result[WIDTH+1],out_valid=result[WIDTH];wire [WIDTH-1:0] out_data=result[WIDTH-1:0];
 pyc_root dut(.*);
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared pipeline row failed completion/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
 bit first_valid=0,second_valid=0,last_clock=0;
 logic [WIDTH-1:0] first_data='0,second_data='0,history[0:1023];
 integer row_index=0,stalled=0,accepted=0,retired=0,dropped=0,outstanding=0,peak=0,replacements=0,head=0,tail=0;
@@ -37,7 +50,7 @@ function automatic logic[WIDTH-1:0] transformed(input logic[WIDTH-1:0] p);return
   end
   if(outstanding>peak)peak=outstanding;if(outstanding<0||outstanding>2)$fatal(1,"history capacity");
  end
- last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;row_index=row_index+1;
+ last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;managed_commit();row_index=row_index+1;
  endtask
  task edge_row(input logic[WIDTH-1:0]p,input bit v=1,t=1,r=0,four=0);row(1,r,v,p,t,four);row(0,r,v,p,t,four);endtask
 logic[WIDTH-1:0] values[0:283];logic[WIDTH-1:0] four_values[0:7];
@@ -70,10 +83,10 @@ four_values[5]=26'bzzzzzzzzzzzzzzzzzzzzzzzzzz;
 four_values[6]=26'bxxxxxxxxxxxxxxxxxxxxxxxxxx;
 four_values[7]=26'b11111101100000000000000000;
 `endif
-#1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+#1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
 sequence_rows(0);
 `ifdef PYC_ENUM_PIPELINE_FOUR_STATE
-pyc_7079635f727374=1;valid=0;take=0;#1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+pyc_7079635f727374=1;valid=0;take=0;#1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
 sequence_rows(1);
 `endif
 $finish;end

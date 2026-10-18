@@ -4,9 +4,11 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace acir::ac {
 
@@ -21,6 +23,11 @@ struct ModulePortLayout {
   unsigned sourceInputCount;
   unsigned sourceOutputCount;
   mlir::ArrayAttr rootInputDefaults;
+  /// Source-port ordinal -> physical Bits1 companion, or -1 when total.
+  llvm::SmallVector<int64_t> inputValidity;
+  llvm::SmallVector<int64_t> outputValidity;
+  /// Private lexical payload export -> physical availability companion.
+  llvm::SmallVector<std::pair<int64_t, int64_t>> routedOutputValidity;
 };
 /// Validate the closed ac.internal_ports contract. Without it, every physical
 /// port belongs to the source boundary and rootInputDefaults is an empty array.
@@ -39,6 +46,16 @@ struct EnumDefinitionView {
 };
 
 enum class QueueReadyPolicy { LocalOccupancy, DownstreamPop };
+/// Recognize the canonical FIFO allocation; schema and bindings are verified
+/// by the same instance and primitive checks used for other native leaves.
+bool isQueueInstance(InstanceOp instance);
+/// Derive the existing FIFO configuration from its canonical callee and
+/// ordinary static arguments. No duplicated configuration is stored on the IR.
+mlir::FailureOr<mlir::DictionaryAttr> getQueueConfiguration(InstanceOp instance);
+/// The same derivation for authenticated declaration-only instance rows.
+mlir::FailureOr<mlir::DictionaryAttr> getQueueConfiguration(
+    mlir::FlatSymbolRefAttr callee, mlir::ArrayAttr parameters,
+    mlir::Operation *diagnosticSite);
 struct ResolvedQueueConfig {
   mlir::Type payloadType;
   mlir::Type tokenElementType;
@@ -251,11 +268,11 @@ public:
   verifyEnumValueOperation(mlir::Operation *operation,
                            const HardwareBindings &bindings,
                            bool requireResolved = false) const;
-  mlir::LogicalResult verifyQueueOperation(QueueOp operation,
+  mlir::LogicalResult verifyQueueOperation(InstanceOp operation,
                                            const HardwareBindings &bindings,
                                            bool requireResolved = false) const;
   mlir::FailureOr<ResolvedQueueConfig>
-  resolveQueue(QueueOp operation, const HardwareBindings &bindings) const;
+  resolveQueue(InstanceOp operation, const HardwareBindings &bindings) const;
   mlir::LogicalResult verifyInstance(InstanceOp instance,
                                      const HardwareBindings &parent = {}) const;
   mlir::LogicalResult verifyInstance(CollectionOp collection,

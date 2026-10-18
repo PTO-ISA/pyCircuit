@@ -1,5 +1,8 @@
 module tb;
   logic pyc_7079635f636c6b=0,pyc_7079635f727374=1;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic RST_BTN=0,START=0,left=0,right=0;
   wire [49:0] result;
   pyc_root dut(.*);
@@ -14,6 +17,16 @@ module tb;
     if(partial>12)partial=12;
     return (12*(ticks/32)+partial)&15;
   endfunction
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared dodgeball row failed completion/sampling/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   task row(input bit c,r,button,start_level,left_level,right_level);
     integer pixels,h,v,blue;
     bit hs;
@@ -54,12 +67,12 @@ module tb;
         age=age+1;
       end
     end
-    last_clock=c;sampled=sampled+1;pyc_7079635f636c6b=c;#1;
+    last_clock=c;sampled=sampled+1;pyc_7079635f636c6b=c;#1;managed_commit();
   endtask
   bit s,b,l,a;
   initial begin
     // Synchronous initialization matches SystemRunner's host Reset snapshot.
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;#1;managed_commit();
     row(0,1,0,0,0,0);row(1,1,0,0,0,0);row(0,1,0,0,0,0);
     for(integer n=0;n<4000;n=n+1)begin
       s=n<16||(n>=928&&n<960)||(n>=992&&n<1024);

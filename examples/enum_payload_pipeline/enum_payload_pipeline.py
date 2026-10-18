@@ -32,7 +32,6 @@ class Result:
     data: Packet
 
 
-@ac.rule
 def classify(item: Packet) -> Packet:
     result = item
     result.header.mode = Mode.RUN
@@ -44,11 +43,22 @@ def classify(item: Packet) -> Packet:
 def EnumPayloadPipeline(  # noqa: N802
     valid: ac.u1, data: Packet, take: ac.u1
 ) -> Result:
-    ready, available, packet = ac.queue[Packet](
-        valid, data, stage_ready, depth=1, ready_policy="downstream_pop"  # noqa: F821
+    ingress = ac.queue[Packet](
+        depth=1,
+        latency=1,
+        ready_policy="downstream_pop",
+        in_valid=valid,
+        in_data=data,
     )
-    classified = classify(packet)
-    stage_ready, out_valid, out_data = ac.queue[Packet](
-        available, classified, take, depth=1, ready_policy="downstream_pop"
+    egress = ac.queue[Packet](
+        depth=1, latency=1, ready_policy="downstream_pop", out_ready=take
     )
-    return Result(ready=ready, valid=out_valid, data=out_data)
+
+    @ac.rule
+    def transfer() -> None:
+        packet = ingress.pop()
+        classified = classify(packet)
+        egress.push(classified)
+
+    transfer()
+    return Result(ready=ingress.ready, valid=egress.valid, data=egress.data)

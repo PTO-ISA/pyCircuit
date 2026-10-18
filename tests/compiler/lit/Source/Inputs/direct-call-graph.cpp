@@ -145,6 +145,15 @@ void byteDiscard(unsigned workers){
   bytePair(root,known<8>(5),known<8>(23));
 }
 #endif
+#ifdef DIRECT_TUPLE
+void tupleResult(const auto &output,const auto &left,const auto &right,
+                 const auto &valid){
+  equal<8>(output,51,left);equal<8>(output,43,right);equal<1>(output,42,valid);
+  equal<8>(output,34,left);equal<8>(output,26,right);equal<1>(output,25,valid);
+  equal<8>(output,17,right);equal<8>(output,9,left);equal<1>(output,8,valid);
+  equal<8>(output,0,left);
+}
+#endif
 int main(int argc,char **argv){
   require(argc==2);unsigned workers=static_cast<unsigned>(std::stoul(argv[1]));pyc_dut dut(workers);
   gfsim::SimExecutor executor(dut.system(),dut.observations(),{});
@@ -219,6 +228,19 @@ int main(int argc,char **argv){
   for(unsigned n=0;n!=12;++n){pyc_dut::Inputs input;input.first=known<13>(n*37);input.second=known<13>(n*101+17);auto output=step(input);
     const unsigned offsets[]={104,91,78,65,52,39,26,13,0};const bool later[]={false,true,true,false,false,true,false,false,true};
     for(unsigned field=0;field!=9;++field)equal<13>(output,offsets[field],later[field]?input.second:input.first);print<117>(output,"WORK");}
+#elif defined(DIRECT_TUPLE)
+  auto row=[&](const auto &left,const auto &right,const auto &valid,const char *prefix){
+    pyc_dut::Inputs input;input.left=left;input.right=right;input.valid=valid;
+    auto output=step(input);tupleResult(output,left,right,valid);print<59>(output,prefix);
+  };
+  for(unsigned n=0;n!=12;++n)
+    row(known<8>(n*17+3),known<8>(n*29+11),known<1>(n&1),"WORK");
+  for(unsigned n=0;n!=4;++n){
+    auto unknown=fromText<8>(n%2?"zzzzzzzz":"xxxxxxxx");
+    auto flag=n<2?fromText<1>(n?"z":"x"):known<1>(n&1);
+    if(n<2)row(unknown,known<8>(n?31:17),flag,"MASK");
+    else row(known<8>(n==2?255:0),unknown,flag,"MASK");
+  }
 #else
   auto row=[&](const auto &value,const auto &x,const auto &y,const char *prefix){pyc_dut::Inputs input;input.wide=value;
 #ifdef DIRECT_GRAPH

@@ -1,4 +1,9 @@
-from pycircuit import module, rule, u8
+from pycircuit import module, rule, struct, u8
+
+
+@struct
+class XzOut:
+    y: u8
 
 
 @rule
@@ -7,7 +12,7 @@ def capture(q, in_a):
 
 
 @module
-def XzValueModel(in_a: u8) -> {"y": u8}:
+def XzValueModel(in_a: u8) -> XzOut:
     q: u8 = 0
     capture(q, in_a)
-    return {"y": q}
+    return XzOut(y=q)

@@ -16,7 +16,7 @@ LogicalResult Importer::inferModuleGraph() {
         bool direct = false;
         if (binding && binding->category == BindingCategory::Module) {
           if (auto found = local.find(statement.child("value").child("func").string("id")); found != local.end())
-            direct = modules[found->second].returnShape == ReturnShape::Struct || modules[found->second].sourceInputCount;
+            direct = modules[found->second].returnShape != ReturnShape::Mapping || modules[found->second].sourceInputCount;
           else {
             auto view = headers.lookupModule(binding->symbol);
             direct = view && view.hasSourceCallContract();
@@ -100,7 +100,7 @@ LogicalResult Importer::inferModuleGraph() {
             decl.transactionEffects = true;
             decl.behavioral = true;
           }
-          if (modules[found->second].returnShape == ReturnShape::Struct ||
+          if (modules[found->second].returnShape != ReturnShape::Mapping ||
               !node.array("args").empty()) {
             if (controlled)
               return error() << "direct module calls under runtime control are "
@@ -188,6 +188,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
   queueResultNames.clear();
   memoryResultNames.clear();
   auto writes = sourceNameWrites(decl.node);
+  queueNameWrites = writes;
   llvm::StringSet<> shadows;
   for (const Port &port : decl.inputs)
     shadows.insert(port.name);
@@ -272,7 +273,7 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
           queueAssignments.find(sourceOccurrence(at, decl.symbol, node));
       if (found == queueAssignments.end())
         return error() << "queue allocation requires a direct module-body "
-                          "three-name Tuple assignment";
+                          "handle or three-name Tuple assignment";
       if (failed(
               declareQueue(found->second, decl, at, nextName("__pyc_queue_"))))
         return failure();
@@ -283,10 +284,13 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
       if (failed(callee))
         return failure();
       auto site = sourceOccurrence(at, decl.symbol, node);
+      SmallVector<Type> results;
+      for (const Port &result : callee->results)
+        results.push_back(result.type);
       auto op =
           createOp(at, node.location(b.getContext(), source.path),
                    ac::InstanceOp::getOperationName(), {},
-                   TypeRange{callee->result.type},
+                   results,
                    {at.getNamedAttr("instance_name",
                                     at.getStringAttr(nextName("__pyc_call_"))),
                     at.getNamedAttr("callee", callee->symbol),
@@ -294,6 +298,11 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
                     at.getNamedAttr("type_arguments", at.getArrayAttr({})),
                     at.getNamedAttr("occurrence", site)});
       directCallSites.try_emplace(site, DirectCallSite{op});
+      for (auto [value, contract] : llvm::zip(op->getResults(), callee->results)) {
+        remember(value, contract.sourceKind);
+        if (contract.fixedBits)
+          fixedValues.insert(value);
+      }
     }
     for (NamedAttribute field : node.fields()) {
       // Type annotations are declarations, not runtime expression sites.
@@ -323,26 +332,45 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
       if (failed(targets))
         return failure();
       auto site = sourceOccurrence(at, decl.symbol, stmt.child("value"));
-      for (auto [ordinal, name] : llvm::enumerate(*targets))
-        forwardCallBindings[name] = {site, true,
-                                     static_cast<unsigned>(ordinal)};
+      if (targets->size() == 3)
+        for (auto [ordinal, name] : llvm::enumerate(*targets))
+          forwardCallBindings[name] = {site, true,
+                                       static_cast<unsigned>(ordinal)};
       continue;
     }
     if (!memoryKind(stmt.child("value")).empty())
       continue;
-    if (stmt.kind() != "Assign" || stmt.array("targets").size() != 1 ||
-        stmt.item("targets", 0).kind() != "Name")
+    if (stmt.kind() != "Assign" || stmt.array("targets").size() != 1)
       continue;
     auto rhs = stmt.child("value");
     auto site = sourceOccurrence(at, decl.symbol, rhs);
     if (!directCallSites.contains(site))
       continue;
-    StringRef name = stmt.item("targets", 0).string("id");
-    bool eligible = writes[name] == 1 && !shadows.contains(name) &&
-                    !names.contains(name) && !structs.contains(name) &&
-                    !behavioralRules.contains(name) && name != "pyc_clk" &&
-                    name != "pyc_rst";
-    forwardCallBindings[name] = {site, eligible};
+    auto callee = callable(rhs.child("func"));
+    if (failed(callee))
+      return failure();
+    SmallVector<StringRef> targets;
+    // A named instance bundle has no scalar forward value. Its results are
+    // unpacked later while its actual allocation identity remains available.
+    if (callee->results.empty() ||
+        (callee->returnShape == ReturnShape::Tuple &&
+         stmt.item("targets", 0).kind() == "Name"))
+      continue;
+    if (callee->returnShape == ReturnShape::Tuple) {
+      auto unpacked = moduleResultTargets(stmt, callee->results.size());
+      if (failed(unpacked))
+        return failure();
+      targets = std::move(*unpacked);
+    } else if (stmt.item("targets", 0).kind() == "Name")
+      targets.push_back(stmt.item("targets", 0).string("id"));
+    for (auto [ordinal, name] : llvm::enumerate(targets)) {
+      bool eligible = writes[name] == 1 && !shadows.contains(name) &&
+                      !names.contains(name) && !structs.contains(name) &&
+                      !behavioralRules.contains(name) && name != "pyc_clk" &&
+                      name != "pyc_rst";
+      forwardCallBindings[name] = {site, eligible,
+                                   static_cast<unsigned>(ordinal)};
+    }
   }
   return success();
 }
@@ -358,7 +386,160 @@ FailureOr<Value> Importer::forwardModuleValue(StringRef name,
   return directCallSites.find(found->second.site)
       ->second.op->getResult(found->second.ordinal);
 }
+FailureOr<SmallVector<StringRef>>
+Importer::moduleResultTargets(const AstNode &assignment, size_t arity) {
+  if (assignment.kind() != "Assign" || assignment.array("targets").size() != 1)
+    return error() << "tuple module results require one flat Tuple target";
+  auto target = assignment.item("targets", 0);
+  if (target.kind() != "Tuple" || target.array("elts").size() != arity)
+    return error() << "tuple module result target arity must match its declaration";
+  SmallVector<StringRef> result;
+  for (size_t i = 0; i < arity; ++i) {
+    auto element = target.item("elts", i);
+    if (element.kind() != "Name")
+      return error() << "tuple module result targets must be ordinary Names";
+    StringRef name = element.string("id");
+    if (failed(requireNestedRuleDataTarget(name, assignment)))
+      return failure();
+    if (name.empty() || names.contains(name) || structs.contains(name) ||
+        enums.contains(name) ||
+        (behavioralRules.contains(name) && !nestedRuleBinding(name)) ||
+        llvm::is_contained(ArrayRef<StringRef>{"pyc_clk", "pyc_rst", "module",
+                                               "rule", "method", "system", "log",
+                                               "report", "bool", "int", "range",
+                                               "Annotated", "tuple"}, name))
+      return error() << "tuple module result target shadows a protected binding: '"
+                     << name << "'";
+    if (llvm::is_contained(result, name))
+      return error() << "tuple module result targets must be distinct Names";
+    result.push_back(name);
+  }
+  return result;
+}
+LogicalResult Importer::bindCallableResults(
+    const AstNode &assignment, ValueRange results, OpBuilder &at,
+    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    llvm::StringMap<Instance *> &instances,
+    const llvm::StringSet<> &forbidden,
+    llvm::StringMap<BindingBoundary> *boundaries) {
+  auto targets = moduleResultTargets(assignment, results.size());
+  if (failed(targets)) return failure();
+  SmallVector<Value> converted;
+  for (auto [index, name] : llvm::enumerate(*targets)) {
+    if (forbidden.contains(name) || instances.contains(name) ||
+        queueResultNames.contains(name) || memoryResultNames.contains(name))
+      return error() << "tuple callable result cannot write a protected owner: '"
+                     << name << "'";
+    auto boundary = boundaries && boundaries->contains(name)
+        ? boundaries->lookup(name)
+        : inferredBoundary(name, results[index], assignment);
+    auto value = applyBindingBoundary(results[index], boundary,
+                                       assignment.child("value"), at, symbol);
+    if (failed(value)) return failure();
+    converted.push_back(*value);
+  }
+  for (auto [index, name] : llvm::enumerate(*targets)) {
+    values[name] = converted[index];
+    noteNestedRuleDataBinding(name);
+  }
+  return success();
+}
+
+FailureOr<SmallVector<Value>> Importer::bindCallableArguments(
+    const AstNode &call, ArrayRef<Port> inputs, OpBuilder &at,
+    FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    llvm::StringMap<Instance *> &instances,
+    ArrayRef<unsigned> deferredReferences) {
+  SmallVector<StringRef> names;
+  for (const Port &port : inputs) names.push_back(port.name);
+  SmallVector<size_t> evaluationOrder;
+  auto actuals = normalizeCallArguments(call, names, error,
+      "callable argument arity mismatch", &evaluationOrder);
+  if (failed(actuals)) return failure();
+  SmallVector<Value> arguments(inputs.size());
+  // Bind by formal identity while evaluating effectful Method actuals in their
+  // source order. Keyword permutation must not reorder candidate updates.
+  auto bind = [&](size_t index) -> LogicalResult {
+    const auto &actual = (*actuals)[index];
+    const auto &port = inputs[index];
+    auto value = expression(actual, at, symbol, values, instances,
+                            port.type ? std::optional<Type>(port.type) : std::nullopt);
+    if (failed(value)) return failure();
+    if (!port.type) {
+      arguments[index] = *value;
+      return success();
+    }
+    auto converted = applyBindingBoundary(*value, BindingBoundary{port, true},
+                                           actual, at, symbol);
+    if (failed(converted)) return failure();
+    arguments[index] = *converted;
+    return success();
+  };
+  for (size_t index : evaluationOrder)
+    if (!llvm::is_contained(deferredReferences, index) && failed(bind(index)))
+      return failure();
+  // Owner actuals denote the candidate at call entry, after all ordinary
+  // argument expressions have executed. Saved value actuals remain snapshots.
+  for (size_t index : evaluationOrder)
+    if (llvm::is_contained(deferredReferences, index) && failed(bind(index)))
+      return failure();
+  return arguments;
+}
+
+FailureOr<bool> Importer::bindModuleResults(
+    const AstNode &assignment, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances,
+    const llvm::StringSet<> &forbidden) {
+  auto call = assignment.child("value");
+  if (!moduleCall(call) || methodOwner(call.child("func")))
+    return false;
+  auto callee = callable(call.child("func"));
+  if (failed(callee))
+    return failure();
+  if (callee->returnShape != ReturnShape::Tuple)
+    return false;
+  auto targets = moduleResultTargets(assignment, callee->results.size());
+  if (failed(targets))
+    return failure();
+  for (StringRef name : *targets)
+    if (forbidden.contains(name) || instances.contains(name) ||
+        queueResultNames.contains(name) || memoryResultNames.contains(name))
+      return error() << "tuple module result cannot write a protected owner: '"
+                     << name << "'";
+  auto results = directModuleResults(call, at, symbol, values, instances);
+  if (failed(results))
+    return failure();
+  SmallVector<Value> converted;
+  for (auto [index, name] : llvm::enumerate(*targets)) {
+    auto binding = inferredBoundary(name, (*results)[index], assignment);
+    auto value = applyBindingBoundary((*results)[index], binding, call, at, symbol);
+    if (failed(value))
+      return failure();
+    converted.push_back(*value);
+  }
+  // Publish the names only after all targets and conversions have succeeded.
+  for (auto [index, name] : llvm::enumerate(*targets)) {
+    values[name] = converted[index];
+    noteNestedRuleDataBinding(name);
+  }
+  return true;
+}
 FailureOr<Value> Importer::directModuleCall(
+    const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
+    llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
+  auto callee = callable(call.child("func"));
+  if (failed(callee))
+    return failure();
+  if (callee->returnShape == ReturnShape::Tuple)
+    return error() << "tuple module call requires direct Tuple unpacking";
+  auto results = directModuleResults(call, at, symbol, values, instances);
+  if (failed(results))
+    return failure();
+  if (results->size() != 1)
+    return error() << "Module instance without a scalar result cannot be used as a value";
+  return results->front();
+}
+FailureOr<SmallVector<Value>> Importer::directModuleResults(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
   if (!isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
@@ -367,16 +548,19 @@ FailureOr<Value> Importer::directModuleCall(
   if (found == directCallSites.end())
     return error() << "direct module call requires a static module site";
   if (found->second.bound)
-    return found->second.op->getResult(0);
+    return SmallVector<Value>(found->second.op->getResults());
   auto normalized = callable(call.child("func"));
   if (failed(normalized))
     return failure();
   const CallableDecl &callee = *normalized;
   SmallVector<AstNode> actuals(callee.inputs.size());
+  SmallVector<size_t> lexicalOrder;
   if (call.array("args").size() > actuals.size())
     return error() << "too many direct module arguments";
-  for (size_t i = 0; i < call.array("args").size(); ++i)
+  for (size_t i = 0; i < call.array("args").size(); ++i) {
     actuals[i] = call.item("args", i);
+    lexicalOrder.push_back(i);
+  }
   for (size_t i = 0; i < call.array("keywords").size(); ++i) {
     auto kw = call.item("keywords", i);
     auto name = dyn_cast_or_null<StringAttr>(kw.get("arg"));
@@ -387,25 +571,26 @@ FailureOr<Value> Importer::directModuleCall(
     if (ordinal == actuals.size() || actuals[ordinal])
       return error() << "unknown or repeated direct module argument";
     actuals[ordinal] = kw.child("value");
+    lexicalOrder.push_back(ordinal);
   }
-  SmallVector<Value> inputs;
-  for (size_t i = 0; i < actuals.size(); ++i) {
-    if (!actuals[i])
+  for (const AstNode &actual : actuals) {
+    if (!actual)
       return error() << "missing direct module argument";
-    if (actuals[i].kind() == "Starred")
+    if (actual.kind() == "Starred")
       return error() << "direct module calls do not admit *args";
+  }
+  SmallVector<Value> inputs(callee.inputs.size());
+  for (size_t i : lexicalOrder) {
     auto value = expression(actuals[i], at, symbol, values, instances,
                             callee.inputs[i].type);
     if (failed(value))
       return failure();
-    // Logical formals require their declared authority, just like local
-    // declared bindings. Predicate admission never promotes a fixed producer.
     auto converted =
         applyBindingBoundary(*value, BindingBoundary{callee.inputs[i], true},
                              actuals[i], at, symbol);
     if (failed(converted))
       return failure();
-    inputs.push_back(*converted);
+    inputs[i] = *converted;
   }
   if (callee.needsDomain) {
     if (!values.contains("pyc_clk") || !values.contains("pyc_rst"))
@@ -415,32 +600,101 @@ FailureOr<Value> Importer::directModuleCall(
   }
   found->second.op->setOperands(inputs);
   found->second.bound = true;
-  return found->second.op->getResult(0);
+  return SmallVector<Value>(found->second.op->getResults());
 }
+FailureOr<Value> Importer::stateInitializer(
+    const Port &contract, const AstNode &initializer, const AstNode &site,
+    OpBuilder &at, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+    llvm::StringMap<Instance *> &instances, bool allowCapturedConstants) {
+  ac::HardwareAnalysis analysis(*body);
+  if (auto table = dyn_cast<ac::TableType>(contract.type)) {
+    if (failed(analysis.getTableSize(table, {},
+                                     at.getInsertionBlock()->getParentOp())) ||
+        failed(analysis.getPackedWidth(table.getElementType(), {},
+                                       at.getInsertionBlock()->getParentOp())))
+      return failure();
+  } else if (failed(analysis.getPackedWidth(
+                 contract.type, {}, at.getInsertionBlock()->getParentOp())))
+    return failure();
+  // Typed states additionally admit closed captured constants; SourceStateOp
+  // verifies the complete actual initializer SSA before publication.
+  if (!allowCapturedConstants && !staticInitializer(initializer))
+    return error() << "persistent initializer must be a static complete value";
+  auto tableType = dyn_cast<ac::TableType>(contract.type);
+  auto encoded =
+      initializer.kind() == "Constant"
+          ? dyn_cast_or_null<DictionaryAttr>(initializer.get("value"))
+          : DictionaryAttr();
+  auto literalInteger =
+      encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
+  bool recursiveZero = literalInteger && literalInteger.getValue() == "0";
+  bool elementImage = tableType && !recursiveZero;
+  Type initType = elementImage ? tableType.getElementType() : contract.type;
+  auto init =
+      tableType && recursiveZero
+          ? constant(contract.type, 0, initializer, at, symbol)
+          : expression(initializer, at, symbol, values, instances, initType);
+  if (failed(init))
+    return failure();
+  BindingBoundary initialBoundary{
+      {contract.name, initType, contract.node, contract.sourceKind,
+       contract.fixedBits || (tableType && isa<ac::BitsType>(initType))},
+      true};
+  auto convertedInit =
+      applyBindingBoundary(*init, initialBoundary, initializer, at, symbol);
+  if (failed(convertedInit))
+    return failure();
+  init = *convertedInit;
+  if (elementImage)
+    init = createOp(at, site.location(b.getContext(), source.path),
+                    ac::TableSplatOp::getOperationName(), {*init},
+                    TypeRange{contract.type},
+                    {at.getNamedAttr("shape", tableType.getShape())})
+               ->getResult(0);
+  return *init;
+}
+
 FailureOr<SmallVector<Value>>
 Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
                       OpBuilder &at, llvm::StringMap<Value> &values,
                       llvm::StringMap<Instance *> &instances) {
   SmallVector<Value> outputs;
+  if (decl.returnShape == ReturnShape::None) {
+    if (node && !(node.kind() == "Constant" && isa<UnitAttr>(node.get("value"))))
+      return error() << "None Module cannot return an ordinary value";
+    return outputs;
+  }
   if (decl.returnShape == ReturnShape::Struct) {
     auto value = expression(node, at, decl.symbol, values, instances,
                             decl.outputs.front().type);
     if (failed(value))
       return failure();
-    auto converted = unsignedBoundary(*value, decl.outputs.front().type, node,
-                                      at, decl.symbol);
+    const Port &output = decl.outputs.front();
+    auto converted = output.sourceKind
+        ? applyBindingBoundary(*value, BindingBoundary{output, true}, node,
+                               at, decl.symbol)
+        : unsignedBoundary(*value, output.type, node, at, decl.symbol,
+                           output.fixedBits);
     if (failed(converted))
       return failure();
     outputs.push_back(*converted);
     return outputs;
   }
-  if (node.kind() != "Dict" || node.array("keys").size() != decl.outputs.size())
+  bool tuple = decl.returnShape == ReturnShape::Tuple;
+  if (tuple) {
+    if (node.kind() != "Tuple" || node.array("elts").size() != decl.outputs.size())
+      return error() << "tuple module return requires an explicit Tuple with matching arity";
+  } else if (node.kind() != "Dict" ||
+             node.array("keys").size() != decl.outputs.size())
     return error() << "return requires matching named output mapping";
   for (size_t i = 0; i < decl.outputs.size(); ++i) {
-    auto key = dyn_cast_or_null<StringAttr>(node.item("keys", i).get("value"));
-    if (!key || key.getValue() != decl.outputs[i].name)
-      return error() << "return output key/order mismatch";
-    auto value = expression(node.item("values", i), at, decl.symbol, values,
+    if (!tuple) {
+      auto key = dyn_cast_or_null<StringAttr>(node.item("keys", i).get("value"));
+      if (!key || key.getValue() != decl.outputs[i].name)
+        return error() << "return output key/order mismatch";
+    }
+    AstNode element = node.item(tuple ? "elts" : "values", i);
+    auto value = expression(element, at, decl.symbol, values,
                             instances, decl.outputs[i].type);
     if (failed(value))
       return failure();
@@ -449,9 +703,13 @@ Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
         decl.outputs[i].sourceKind != sourceKind)
       return error() << "source Boolean and Integer kinds cannot be implicitly "
                         "converted";
-    auto converted =
-        unsignedBoundary(*value, decl.outputs[i].type, node.item("values", i),
-                         at, decl.symbol, decl.outputs[i].fixedBits);
+    auto converted = tuple && decl.outputs[i].sourceKind
+                         ? applyBindingBoundary(
+                               *value, BindingBoundary{decl.outputs[i], true},
+                               element, at, decl.symbol)
+                         : unsignedBoundary(*value, decl.outputs[i].type, element,
+                                            at, decl.symbol,
+                                            decl.outputs[i].fixedBits);
     if (failed(converted))
       return failure();
     outputs.push_back(*converted);

@@ -57,6 +57,15 @@ void mismatch(unsigned row, unsigned bit, const char *plane, bool actual,
   std::abort();
 }
 
+template <class Inputs> void drive_known_domain(pyc_dut &dut, Inputs inputs) {
+  if constexpr (requires(Inputs value) { value.pyc_7079635f636c6b; }) {
+    inputs.pyc_7079635f636c6b =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+    inputs.pyc_7079635f727374 =
+        gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{0});
+  }
+  dut.drive(inputs);
+}
 struct Context {
   pyc_dut &dut;
   unsigned sampled = 0;
@@ -69,7 +78,7 @@ struct Context {
     require(epoch < row_count);
     pyc_dut::Inputs inputs;
     drive_inputs(inputs, epoch);
-    self.dut.drive(inputs);
+    drive_known_domain(self.dut, inputs);
     return true;
   }
   static void sample(void *opaque, std::uint64_t epoch) {

@@ -41,7 +41,7 @@ env = dict(
 commands = []
 
 
-def run(command, accepted=True, file_size_limit=None):
+def run(command, accepted=True, file_size_limit=None, expected_exit=None):
     command = list(map(str, command))
     started = time.monotonic()
     options = {}
@@ -83,7 +83,9 @@ def run(command, accepted=True, file_size_limit=None):
         }
     )
     (build / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
-    assert result.returncode == (0 if accepted else 1), commands[-1]
+    if expected_exit is None:
+        expected_exit = 0 if accepted else 1
+    assert result.returncode == expected_exit, commands[-1]
     assert (
         "Assertion failed" not in result.stderr and "Traceback" not in result.stderr
     ), commands[-1]
@@ -300,8 +302,6 @@ def native_compile(
     captured,
     owner_path,
     outputs,
-    diagnostic=None,
-    headers=(),
     accepted=True,
     file_size_limit=None,
 ):
@@ -320,177 +320,235 @@ def native_compile(
         "--deps-out",
         outputs[2],
     ]
-    for header_path in headers:
-        command.extend(["--header", header_path])
-    if diagnostic is not None:
-        command.append("--source-import-out=" + str(diagnostic))
     return run(command, accepted, file_size_limit)
 
 
 ordinary_names = ("design.ac", "design.interface.ac", "consumed.json")
 default = native / "default"
-enabled = native / "enabled"
-for directory in (default, enabled):
-    directory.mkdir()
+default.mkdir()
 off_outputs = [default / name for name in ordinary_names]
-on_outputs = [enabled / name for name in ordinary_names]
 native_compile(transport, "design.py", off_outputs)
 assert sorted(path.name for path in default.iterdir()) == sorted(ordinary_names)
-source_import = enabled / "source-import.ac"
-native_compile(transport, "design.py", on_outputs, source_import)
-for before, after in zip(off_outputs, on_outputs, strict=True):
-    assert before.read_bytes() == after.read_bytes(), before.name
 for name in ordinary_names[:2]:
-    assert (enabled / name).read_bytes() == (unit / name).read_bytes(), name
-imported_text = source_import.read_text()
-assert imported_text.endswith("\n")
-assert "ac.struct.create" in imported_text and "ac.struct.get" in imported_text
-transformed_text = (enabled / "design.ac").read_text()
-# Equivalent Table shapes with different source provenance cannot be replaced
-# directly in SSA. The verified projection stays as the representation bridge.
-assert "ac.struct.get" in transformed_text
-# The existing optimizer parser/verifier consumes the complete diagnostic; no
-# alternate lowering pipeline supplies it. Typed API checks own the relation.
+    assert (default / name).read_bytes() == (unit / name).read_bytes(), name
+stdout_result = native_compile(transport, "design.py", ["-", "-", "-"])
+assert stdout_result.stdout == "".join(
+    (default / name).read_text() for name in (ordinary_names[2], *ordinary_names[:2])
+)
+
+final = build / "design.ac"
+cli("link", unit, "--top", "record_probe.design.Top", "-o", final)
+replay_base = [
+    args.linker,
+    "--body",
+    unit / "design.ac",
+    "--header",
+    unit / "design.interface.ac",
+    "--top",
+    "record_probe.design.Top",
+    "--target",
+    "final",
+]
+replay = native / "replay-final.ac"
+transaction_input = native / "before-transactions.ac"
+transaction_output = native / "after-transactions.ac"
 run(
     [
-        Path(args.source_compiler).resolve().parent / "pycircuit-opt",
-        source_import,
-        "-o",
-        enabled / "parsed-source-import.ac",
+        *replay_base,
+        "--output",
+        replay,
+        "--transaction-input-out",
+        transaction_input,
+        "--transaction-output-out",
+        transaction_output,
     ]
 )
-stdout_import = native / "stdout-source-import.ac"
-stdout_result = native_compile(transport, "design.py", ["-", "-", "-"], stdout_import)
-assert stdout_result.stdout == "".join(
-    (enabled / name).read_text() for name in (ordinary_names[2], *ordinary_names[:2])
-)
+assert replay.read_bytes() == final.read_bytes() == transaction_output.read_bytes()
+before_text = transaction_input.read_text()
+after_text = transaction_output.read_text()
+assert '"ac.transaction"' in before_text and '"ac.transaction"' not in after_text
+assert '"ac.rule"' in after_text
+assert "ac.struct.create" in before_text and "ac.struct.get" in before_text
+# Equivalent Table shapes with different source provenance cannot be replaced
+# directly in SSA. The verified final projection stays as the representation bridge.
+assert "ac.struct.get" in after_text
+optimizer = Path(args.source_compiler).resolve().parent / "pycircuit-opt"
+for stage in (transaction_input, transaction_output):
+    run([optimizer, stage, "-o", native / ("parsed-" + stage.name)])
 
-# Supply a real independently compiled header for input-alias protection.
-provider = source / "provider.py"
-provider.write_text(
-    "import pycircuit as ac\n@ac.struct\n" "class HeaderPayload:\n    value: ac.u1\n"
-)
-provider_capture = capture_file(provider)
-provider_outputs = [native / ("provider-" + name) for name in ordinary_names]
-native_compile(provider_capture, "provider.py", provider_outputs)
-provider_header = provider_outputs[1]
-
-diagnostic_rejections = []
-for name in (
-    "existing-file",
-    "existing-directory",
-    "existing-symlink",
-    "dangling-diagnostic-symlink",
-    "capture-alias",
-    "header-alias",
-    "body-alias",
-    "interface-alias",
-    "deps-alias",
-    "symlink-parent-alias",
-    "dangling-output-alias",
-    "missing-parent",
-    "empty",
-    "stdout",
-    "late-body-open-error",
-    "late-deps-open-error",
-    "invalid-source",
-):
-    directory = native / name
-    directory.mkdir()
-    outputs = [directory / filename for filename in ordinary_names]
-    for path in outputs:
-        path.write_bytes(b"ordinary output sentinel\n")
-    protected = {path: path.read_bytes() for path in outputs}
-    protected.update(
-        {
-            transport: transport.read_bytes(),
-            provider_header: provider_header.read_bytes(),
-        }
-    )
-    destination = directory / "source-import.ac"
-    captured, owner_path, headers = transport, "design.py", ()
-    existing_link = None
-    if name == "existing-file":
-        destination.write_bytes(b"diagnostic sentinel\n")
-        protected[destination] = destination.read_bytes()
-    elif name == "existing-directory":
-        destination.mkdir()
-        marker = destination / "sentinel"
-        marker.write_bytes(b"directory sentinel\n")
-        protected[marker] = marker.read_bytes()
-    elif name in ("existing-symlink", "dangling-diagnostic-symlink"):
-        target = directory / "target"
-        if name == "existing-symlink":
-            target.write_bytes(b"symlink target sentinel\n")
-            protected[target] = target.read_bytes()
-        destination.symlink_to(target)
-        existing_link = (destination, target)
-    elif name == "capture-alias":
-        destination = transport
-    elif name == "header-alias":
-        destination, headers = provider_header, (provider_header,)
-    elif name in ("body-alias", "interface-alias", "deps-alias"):
-        index = {"body-alias": 0, "interface-alias": 1, "deps-alias": 2}[name]
-        outputs[index].unlink()
-        protected.pop(outputs[index])
-        destination = outputs[index]
-    elif name == "symlink-parent-alias":
-        real = directory / "real"
-        real.mkdir()
-        alias = directory / "alias"
-        alias.symlink_to(real, target_is_directory=True)
-        protected.pop(outputs[0])
-        outputs[0].unlink()
-        destination, outputs[0] = real / "fresh.ac", alias / "fresh.ac"
-    elif name == "dangling-output-alias":
-        protected.pop(outputs[0])
-        outputs[0].unlink()
-        outputs[0].symlink_to(destination)
-        existing_link = (outputs[0], destination)
-    elif name == "missing-parent":
-        destination = directory / "missing" / "source-import.ac"
-    elif name == "empty":
-        destination = ""
-    elif name == "stdout":
-        destination = "-"
-    elif name in ("late-body-open-error", "late-deps-open-error"):
-        index = 0 if name == "late-body-open-error" else 2
-        protected.pop(outputs[index])
-        outputs[index].unlink()
-        outputs[index].mkdir()
-        if index == 0:
-            # Dependencies precede the body in the existing sequential writer;
-            # this is deliberately not a cross-file atomicity assertion.
-            protected.pop(outputs[2])
-    elif name == "invalid-source":
-        invalid = source / "invalid.py"
-        invalid.write_text(
-            "import pycircuit as ac\n@ac.struct\nclass Payload:\n    value: ac.u1\n"
-            "@ac.module\ndef Invalid(value: ac.u1) -> Payload:\n    return Payload(value=missing)\n"
-        )
-        captured, owner_path = capture_file(invalid), "invalid.py"
-    rejected = native_compile(
-        captured, owner_path, outputs, destination, headers, accepted=False
+protection = native / "stage-output-protection"
+protection.mkdir()
+sentinel = protection / "sentinel"
+sentinel.write_bytes(b"existing stage bytes\n")
+protected = {
+    path: path.read_bytes() for path in (*unit.rglob("*"), final) if path.is_file()
+}
+protected[sentinel] = sentinel.read_bytes()
+body_alias = protection / "body-alias.ac"
+body_alias.symlink_to(unit / "design.ac")
+stage_cases = [
+    ("missing-pair", ["--transaction-input-out", protection / "before.ac"], 2),
+    (
+        "verify-mode",
+        [
+            "--verify-only",
+            "--transaction-input-out",
+            protection / "before.ac",
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        2,
+    ),
+    (
+        "duplicate-stage-flag",
+        [
+            "--transaction-input-out",
+            protection / "before.ac",
+            "--transaction-input-out",
+            protection / "extra-before.ac",
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        2,
+    ),
+    (
+        "same-stage",
+        [
+            "--transaction-input-out",
+            protection / "shared.ac",
+            "--transaction-output-out",
+            protection / "shared.ac",
+        ],
+        1,
+    ),
+    (
+        "body-input-alias",
+        [
+            "--transaction-input-out",
+            body_alias,
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        1,
+    ),
+    (
+        "header-input-alias",
+        [
+            "--transaction-input-out",
+            unit / "design.interface.ac",
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        1,
+    ),
+    (
+        "existing-stage",
+        [
+            "--transaction-input-out",
+            sentinel,
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        1,
+    ),
+    (
+        "missing-parent",
+        [
+            "--transaction-input-out",
+            protection / "before.ac",
+            "--transaction-output-out",
+            protection / "absent" / "after.ac",
+        ],
+        1,
+    ),
+    (
+        "final-alias",
+        [
+            "--transaction-input-out",
+            protection / "final.ac",
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        1,
+    ),
+    (
+        "empty-stage",
+        [
+            "--transaction-input-out",
+            "",
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        1,
+    ),
+    (
+        "stdout-stage",
+        [
+            "--transaction-input-out",
+            "-",
+            "--transaction-output-out",
+            protection / "after.ac",
+        ],
+        2,
+    ),
+]
+stage_rejections = []
+for name, options, expected_exit in stage_cases:
+    run(
+        [*replay_base, "--output", protection / "final.ac", *options],
+        accepted=False,
+        expected_exit=expected_exit,
     )
     assert all(path.read_bytes() == value for path, value in protected.items()), name
-    if existing_link is not None:
-        link, target = existing_link
-        assert link.is_symlink() and link.readlink() == target, name
-        if name in ("dangling-diagnostic-symlink", "dangling-output-alias"):
-            assert not target.exists(), name
-    elif (
-        isinstance(destination, Path)
-        and destination not in protected
-        and name != "existing-directory"
-    ):
-        assert not destination.exists(), name
-    if name == "invalid-source":
-        assert "unknown hardware value 'missing'" in rejected.stderr
-    diagnostic_rejections.append(name)
+    assert not any(
+        (protection / filename).exists()
+        for filename in (
+            "final.ac",
+            "before.ac",
+            "after.ac",
+            "shared.ac",
+            "extra-before.ac",
+        )
+    ), name
+    stage_rejections.append(name)
 
-# A child-only POSIX limit induces a real regular-file stream error, without
-# changing product behavior or writing to a special device. The bound derives
-# from the complete successful diagnostic rather than a compiler magic limit.
+hard_alias = protection / "hard-body-alias.ac"
+os.link(unit / "design.ac", hard_alias)
+run(
+    [
+        *replay_base,
+        "--output",
+        protection / "final.ac",
+        "--transaction-input-out",
+        hard_alias,
+        "--transaction-output-out",
+        protection / "after.ac",
+    ],
+    accepted=False,
+)
+assert all(path.read_bytes() == value for path, value in protected.items())
+assert not (protection / "final.ac").exists() and not (protection / "after.ac").exists()
+stage_rejections.append("hard-link-input-alias")
+run(
+    [
+        *replay_base,
+        "--output",
+        sentinel,
+        "--transaction-input-out",
+        protection / "before.ac",
+        "--transaction-output-out",
+        protection / "after.ac",
+    ],
+    accepted=False,
+)
+assert all(path.read_bytes() == value for path, value in protected.items())
+assert (
+    not (protection / "before.ac").exists() and not (protection / "after.ac").exists()
+)
+stage_rejections.append("existing-final")
+
+# A child-only POSIX limit induces a real regular-file stream error. All three
+# fresh final-link outputs must be removed when staged publication fails.
 try:
     import resource
     import signal
@@ -500,33 +558,29 @@ else:
     if not hasattr(resource, "RLIMIT_FSIZE") or not hasattr(signal, "SIGXFSZ"):
         stream_failure = "skipped: POSIX file-size limit or signal unavailable"
     else:
-        directory = native / "diagnostic-stream-error"
+        directory = native / "stage-stream-error"
         directory.mkdir()
-        outputs = [directory / filename for filename in ordinary_names]
-        for path in outputs:
-            path.write_bytes(b"ordinary stream-error sentinel\n")
-        protected = {path: path.read_bytes() for path in outputs}
-        destination = directory / "source-import.ac"
-        limit = max(1, len(source_import.read_bytes()) // 2)
-        native_compile(
-            transport,
-            "design.py",
-            outputs,
-            destination,
+        outputs = [directory / name for name in ("final.ac", "before.ac", "after.ac")]
+        limit = max(1, len(transaction_input.read_bytes()) // 2)
+        run(
+            [
+                *replay_base,
+                "--output",
+                outputs[0],
+                "--transaction-input-out",
+                outputs[1],
+                "--transaction-output-out",
+                outputs[2],
+            ],
             accepted=False,
             file_size_limit=limit,
         )
-        assert not destination.exists()
-        assert all(path.read_bytes() == value for path, value in protected.items())
-        diagnostic_rejections.append("diagnostic-stream-error")
+        assert not any(path.exists() for path in outputs)
+        stage_rejections.append("stage-stream-error")
         stream_failure = {
             "child_file_size_limit": limit,
-            "fresh_diagnostic_removed": True,
-            "ordinary_sentinels_unchanged": True,
+            "fresh_final_and_stages_removed": True,
         }
-
-final = build / "design.ac"
-cli("link", unit, "--top", "record_probe.design.Top", "-o", final)
 for target in ("cpp", "verilog"):
     cli("emit", final, "--target", target, "-o", build / target)
 toolroot = Path(args.source_compiler).resolve().parent.parent
@@ -690,15 +744,14 @@ paths = [
             "rejected_cases": sorted(cases),
             "failed_compile_preserved_unit_and_products": True,
             "state_defaults_branches_authority": "existing focused regression gates",
-            "source_import_retention": {
-                "default_and_enabled_ordinary_bytes_equal": True,
-                "enabled_body_interface_match_public_compile": True,
-                "complete_pre_simplify_parsed_verified": True,
+            "transaction_stage_retention": {
+                "native_body_interface_match_public_compile": True,
                 "ordinary_stdout_bytes_unchanged": True,
-                "protected_diagnostic_rejections": diagnostic_rejections,
-                "late_output_failure_removes_fresh_diagnostic": True,
-                "diagnostic_stream_failure": stream_failure,
-                "later_semantic_pipeline_failure": "no genuine post-Lower rejection fixture found; not executed",
+                "before_and_after_parsed_verified": True,
+                "after_matches_native_replay_and_public_final": True,
+                "projection_retained_across_final_lowering": True,
+                "protected_stage_rejections": stage_rejections,
+                "stage_stream_failure": stream_failure,
                 "artifacts_sha256": {
                     str(path.relative_to(native)): digest(path)
                     for path in sorted(native.rglob("*"))

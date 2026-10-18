@@ -163,6 +163,41 @@ module {
 !b1 = !ac.bits<#w1>
 module {
   ac.struct "Result" fields [{name = "value", type = !b1}]
-  // expected-error @+1 {{source module call contract requires a concrete single struct result and all four attributes}}
+  // expected-error @+1 {{source module call contract requires matching none, single or nonempty tuple results and all four attributes}}
   "ac.module"() ({^bb0(%flag: !b1): %result = "ac.struct.create"(%flag) : (!b1) -> !ac.struct<"Result"> "ac.yield"(%result) : (!ac.struct<"Result">) -> ()}) {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [{name = "N", type = !ac.math_int}], type_parameters = [], function_type = (!b1) -> !ac.struct<"Result">, input_names = ["flag"], output_names = ["result"], ac.return_form = "single", ac.parameters = [], ac.result_constraints = [{kind = "hardware", type = !ac.struct<"Result">, source_kind = "nominal"}], ac.domain_inputs = {}} : () -> ()
+}
+
+// -----
+
+// Tuple source modules publish one positional physical result and one source
+// constraint per element. Equal-layout nominal elements retain their distinct
+// identities, and fixed bits retain their source kind.
+#w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Provider, ast_path = []}, expansion = []}, location = {path = "provider.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+!b1 = !ac.bits<#w1>
+#span = {path = "provider.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
+#origin = {site = {definition = @Provider, ast_path = []}, expansion = []}
+module {
+  ac.struct "Header" fields [{name = "value", type = !b1}]
+  ac.struct "Payload" fields [{name = "value", type = !b1}]
+  "ac.module"() ({
+  ^bb0(%value: !b1):
+    %header = "ac.struct.create"(%value) : (!b1) -> !ac.struct<"Header">
+    %payload = "ac.struct.create"(%value) : (!b1) -> !ac.struct<"Payload">
+    "ac.yield"(%header, %payload, %value) : (!ac.struct<"Header">, !ac.struct<"Payload">, !b1) -> ()
+  }) {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> (!ac.struct<"Header">, !ac.struct<"Payload">, !b1), input_names = ["value"], output_names = ["result_0", "result_1", "result_2"], ac.return_form = "tuple", ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = {kind = "hardware", type = !b1, source_kind = "fixed_bits"}, default = {present = false}, origin = #origin, location = #span}], ac.result_constraints = [{kind = "hardware", type = !ac.struct<"Header">, source_kind = "nominal"}, {kind = "hardware", type = !ac.struct<"Payload">, source_kind = "nominal"}, {kind = "hardware", type = !b1, source_kind = "fixed_bits"}], ac.domain_inputs = {}} : () -> ()
+}
+
+// -----
+
+// Tampering result ordinal one to the equal-layout but wrong nominal type must
+// be rejected. Checking only arity or packed width would accept this change.
+#w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Provider, ast_path = []}, expansion = []}, location = {path = "provider.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+!b1 = !ac.bits<#w1>
+#span = {path = "provider.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
+#origin = {site = {definition = @Provider, ast_path = []}, expansion = []}
+module {
+  ac.struct "Header" fields [{name = "value", type = !b1}]
+  ac.struct "Payload" fields [{name = "value", type = !b1}]
+  // expected-error @+1 {{source module call hardware constraint disagrees with its physical type}}
+  "ac.module"() ({^bb0(%value: !b1): %header = "ac.struct.create"(%value) : (!b1) -> !ac.struct<"Header"> %payload = "ac.struct.create"(%value) : (!b1) -> !ac.struct<"Payload"> "ac.yield"(%header, %payload, %value) : (!ac.struct<"Header">, !ac.struct<"Payload">, !b1) -> ()}) {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!b1) -> (!ac.struct<"Header">, !ac.struct<"Payload">, !b1), input_names = ["value"], output_names = ["result_0", "result_1", "result_2"], ac.return_form = "tuple", ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = {kind = "hardware", type = !b1, source_kind = "fixed_bits"}, default = {present = false}, origin = #origin, location = #span}], ac.result_constraints = [{kind = "hardware", type = !ac.struct<"Header">, source_kind = "nominal"}, {kind = "hardware", type = !ac.struct<"Header">, source_kind = "nominal"}, {kind = "hardware", type = !b1, source_kind = "fixed_bits"}], ac.domain_inputs = {}} : () -> ()
 }

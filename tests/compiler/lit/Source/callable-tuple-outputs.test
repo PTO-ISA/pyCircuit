@@ -1,0 +1,17 @@
+# Public source publication and common-IR lowering of typed Rule/Method tuples.
+# This reuses the generated-System DUT fixture; execution and its independent
+# oracle live in test_source_system_execution.py.
+# RUN: rm -rf %t.dir
+# RUN: mkdir -p %t.dir
+# RUN: env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli compile -c %src/tests/system/fixtures/source_system/callable_outputs_provider.py --source-root %src/tests/system/fixtures/source_system --package-prefix checks -o %t.dir/provider
+# RUN: env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli compile -c %src/tests/system/fixtures/source_system/callable_outputs_bench.py --source-root %src/tests/system/fixtures/source_system --package-prefix checks -I %t.dir/provider -o %t.dir/consumer
+# RUN: env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli link %t.dir/provider %t.dir/consumer --top checks.callable_outputs_bench.ExerciseCallableOutputs -o %t.dir/final.ac
+# RUN: %pycircuit_opt %t.dir/final.ac -o %t.dir/verified-final.ac
+# RUN: %FileCheck %s < %t.dir/verified-final.ac
+# CHECK-NOT: "ac.method"
+# CHECK-NOT: "ac.method.call"
+# CHECK-NOT: "ac.transaction"
+# CHECK: checks.callable_outputs_bench.ExerciseCallableOutputs
+# CHECK-NOT: "ac.method"
+# CHECK-NOT: "ac.method.call"
+# CHECK-NOT: "ac.transaction"

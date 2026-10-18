@@ -45,3 +45,8 @@ these backend command differences.
 
 See [system execution](../architecture/system-execution.md) for the shared
 semantics and [the language reference](../reference/language.md) for admission.
+
+Continue with `examples/multi_outputs/README.md` for Module hierarchy, one Struct
+connection and independent tuple results. Then use
+`examples/queue_rule_pipeline/README.md` for named Queues, nested cross-Module
+Rule calls and explicit local `after` ordering.

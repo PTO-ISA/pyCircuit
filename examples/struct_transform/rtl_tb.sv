@@ -5,7 +5,20 @@ module tb;
   logic [31:0] word=0;
   logic valid=0;
   wire [42:0] result;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   pyc_root dut(.*);
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared example row failed completion/sampling/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   logic [31:0] first_word=0,second_word=0;
   logic first_valid=0,second_valid=0;
   logic [3:0] first_op=0;logic [5:0] first_dst=0;
@@ -19,7 +32,7 @@ module tb;
       if(reset)begin first_word=0;second_word=0;first_valid=0;second_valid=0;first_op=0;first_dst=0; end
       else begin  first_word=word_value;first_valid=valid_value;first_op=4'(op_value);first_dst=6'(dst_value); end
     end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;managed_commit();
   endtask
 `ifdef PYC_STRUCT_TRANSFORM_FOUR_STATE
   task four_reset;
@@ -64,7 +77,7 @@ module tb;
 `endif
   initial begin
     // Match native Reset before the compared Work epochs.
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;managed_commit();pyc_7079635f727374=0;#1;
     row(0,0,1,2,3,1);row(1,0,1,2,3,1);row(0,0,1,2,3,1);
     row(1,0,15,63,32'hffffffff,0);row(1,0,3,4,19,1);row(1,0,4,5,20,0);
     row(0,0,5,6,21,1);row(0,0,6,7,22,0);row(1,0,1,2,3,1);row(0,0,1,2,3,1);

@@ -194,8 +194,12 @@ def execution_tools(
         sv = [
             f"localparam integer row_count={len(rows)};",
             *[f"logic[{width - 1}:0] {name}=0;" for name, width in inputs.items()],
-            f"wire[{result_width - 1}:0] result;",
         ]
+        if CLOCK not in inputs:
+            sv.append(f"logic {CLOCK}=0;")
+        if "pyc_7079635f727374" not in inputs:
+            sv.append("logic pyc_7079635f727374=0;")
+        sv.append(f"wire[{result_width - 1}:0] result;")
         if state:
             sv += ["logic next_clock;"]
         sv += ["task drive(input integer row);case(row)"]
@@ -253,6 +257,7 @@ def execution_tools(
         probe_planes=(),
         plane_inputs=None,
         latent=False,
+        managed=False,
     ):
         output = build / ("semantics-" + name)
         output.mkdir()
@@ -281,6 +286,15 @@ def execution_tools(
         )
         for target in ("cpp", "verilog"):
             cli("emit", final, "--target", target, "-o", output / target)
+        managed_interface = (
+            "input wire [2:0] pyc_phase"
+            in (output / "verilog/design_top.sv").read_text()
+        )
+        if managed:
+            assert (
+                managed_interface
+            ), "managed query case lacks compiler-owned phase ports"
+        managed = managed_interface
         known = make_vectors(
             output,
             inputs,
@@ -304,6 +318,8 @@ def execution_tools(
             if item["path"].endswith(".cpp")
         ]
         defines = ["-DENUM_SOURCE_STATE"] if state else []
+        if managed:
+            defines.append("-DENUM_SOURCE_MANAGED")
         if latent:
             defines.append("-DENUM_SOURCE_LATENT")
         runner = output / "runner"

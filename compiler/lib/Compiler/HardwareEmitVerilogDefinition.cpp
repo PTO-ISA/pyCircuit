@@ -265,7 +265,7 @@ public:
     auto *op = value.getDefiningOp();
     if (!op)
       return definition.emitOpError() << "RTL wire has no producer";
-    if (isa<ac::InstanceOp, ac::CollectionOp, ac::QueueOp>(op)) {
+    if (isa<ac::InstanceOp, ac::CollectionOp>(op)) {
       auto name = "pyc_net_" + std::to_string(next++);
       auto type = context.rtlType(value.getType(), op);
       if (failed(type))
@@ -305,14 +305,19 @@ public:
         << ";\n";
     names.try_emplace(value, name);
     SmallVector<std::string> operands;
-    for (auto input : op->getOperands()) {
+    auto runtimeOperands = op->getOperands();
+    if (isa<ac::ValueRequireOp>(op))
+      runtimeOperands = runtimeOperands.drop_front();
+    for (auto input : runtimeOperands) {
       auto item = net(input);
       if (failed(item))
         return failure();
       operands.push_back(*item);
     }
     std::string expression;
-    if (auto create = dyn_cast<ac::EnumCreateOp>(op)) {
+    if (isa<ac::ValueRequireOp>(op))
+      expression = "(" + operands[1] + " ? " + operands[0] + " : 1'b1)";
+    else if (auto create = dyn_cast<ac::EnumCreateOp>(op)) {
       auto definition =
           context.analysis.resolveEnum(create.getResult().getType(), op);
       if (failed(definition))
@@ -808,7 +813,8 @@ public:
 
   LogicalResult emitInstances() {
     for (auto &operation : definition.getBody().front()) {
-      if (auto queue = dyn_cast<ac::QueueOp>(operation)) {
+      if (auto queue = dyn_cast<ac::InstanceOp>(operation);
+          queue && ac::isQueueInstance(queue)) {
         SmallVector<std::string> pins;
         for (auto input : queue->getOperands()) {
           auto value = net(input);
@@ -822,21 +828,20 @@ public:
             return failure();
           pins.push_back(*value);
         }
-        auto payload = context.rtlType(queue.getInData().getType(), queue);
-        auto depth = context.staticRtlValue(queue.getDepth(), queue);
+        auto config = ac::getQueueConfiguration(queue);
+        if (failed(config))
+          return failure();
+        auto payload = context.rtlType(queue.getInputs()[3].getType(), queue);
+        auto depth = context.staticRtlValue(
+            config->getAs<ac::StaticExprAttr>("depth"), queue);
         auto latency = context.unsignedStaticValue(
-            queue.getAvailabilityLatency(), queue, true);
+            config->getAs<ac::StaticExprAttr>("availability_latency"), queue, true);
         auto name = legalizeIdentifier(queue.getInstanceName(),
                                        [&] { return queue.emitOpError(); });
         if (failed(payload) || failed(depth) || failed(latency) || failed(name))
           return failure();
-        unsigned policy;
-        if (queue.getReadyPolicy() == "local_occupancy")
-          policy = 0;
-        else if (queue.getReadyPolicy() == "downstream_pop")
-          policy = 1;
-        else
-          return queue.emitOpError() << "unsupported queue ready policy";
+        unsigned policy =
+            config->getAs<StringAttr>("ready_policy").getValue() == "local_occupancy" ? 0 : 1;
         std::string error;
         if (context.managesChecks()) {
           error = "pyc_child_error_" + std::to_string(localErrors.size());
@@ -851,7 +856,7 @@ public:
         out << ")) pyc_instance_" << *name << " (\n";
         const StringRef ports[] = {"clk",       "rst",       "in_valid",
                                    "in_data",   "out_ready", "in_ready",
-                                   "out_valid", "out_data"};
+                                   "out_valid", "out_data", "local_capacity"};
         for (auto [index, port] : llvm::enumerate(ports))
           out << "    ." << port << "(" << pins[index] << ")"
               << (index + 1 == std::size(ports) && !context.managesChecks() ? "\n"

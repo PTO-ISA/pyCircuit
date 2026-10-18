@@ -1,5 +1,8 @@
 module tb;
   logic pyc_7079635f636c6b=0, pyc_7079635f727374=1;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   logic in_valid=0, out0_ready=0, out1_ready=0;
   logic [7:0] in_data=0;
   wire [18:0] result;
@@ -10,6 +13,17 @@ module tb;
   bit last_clock=0;
   integer count=0, sampled=0, accepted=0, retired=0, dropped=0, peak=0;
   integer stalled=0, replacements=0, dual=0, gated=0, reset_full=0;
+
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared picker row failed completion/sampling/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
 
   task row(input bit clock_level,reset_level,valid_level,
            input logic[7:0] data_level,input bit ready0_level,ready1_level);
@@ -48,14 +62,15 @@ module tb;
       if(count>4)$fatal(1,"picker capacity");
     end
     last_clock=clock_level; sampled=sampled+1;
-    pyc_7079635f636c6b=clock_level; #1;
+    pyc_7079635f636c6b=clock_level; #1; managed_commit();
   endtask
   task edge_row(input logic[7:0] d,input bit v=1,a=0,b=0,r=0);
     row(1,r,v,d,a,b); row(0,r,v,d,a,b);
   endtask
   initial begin
     // Establish host Reset's empty Q before comparable Work samples.
-    #1; pyc_7079635f636c6b=1; #1; pyc_7079635f636c6b=0; #1;
+    #1; host_reset(); pyc_7079635f636c6b=1; #1; managed_commit();
+    pyc_7079635f636c6b=0; #1; managed_commit();
     row(0,1,0,0,0,0); edge_row(0,0,0,0,1);
     edge_row(0,1,0,1); edge_row(255,1,0,1);
     edge_row(254,1,0,1); edge_row(128,1,0,1);

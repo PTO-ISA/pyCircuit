@@ -1,5 +1,9 @@
 # Registered packet transform
 
+The transform Rule is nested in its Module and captures its input and stored
+packet directly. Its temporary records remain combinational values; the original
+registered boundary and field transformation are unchanged.
+
 [Generated MLIR, C++ and RTL examples](GENERATED.md)
 
 This example implements the `features/struct_transform` hardware with its
@@ -28,7 +32,7 @@ package:
 
 ```sh
 cmake -S examples/struct_transform -B /absolute/build/struct-transform -G Ninja \
-  -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH=/absolute/pycircuit/install
 cmake --build /absolute/build/struct-transform --parallel 4
 ctest --test-dir /absolute/build/struct-transform --output-on-failure --no-tests=error
 ```
@@ -80,46 +84,4 @@ iverilog -g2012 -DPYC_STRUCT_TRANSFORM_FOUR_STATE -s tb \
   /absolute/build/struct-transform/verilog/sources/example_struct_transform/struct_transform.v \
   examples/struct_transform/rtl_tb.sv
 vvp /absolute/build/struct-transform/four-state.vvp
-```
-
-## Local cost comparison
-
-The source shrinks from 2,036 lines / 74,265 bytes to
-129 lines / 10,122 bytes. Measurements use the same checkout-built
-compiler, LLVM 22 C++ toolchain and `-O0` on one machine. Compile, link, emit,
-build and first-run figures are single serial observations; warm medians use
-three alternating full-length pairs. Every fresh process includes initialization.
-These local results do not guarantee performance on other platforms or
-optimization levels.
-
-| Measurement | Expanded cases | Compact source |
-| --- | ---: | ---: |
-| Compile bench | 1.610 s | 0.369 s |
-| Link system | 2.362 s | 0.615 s |
-| Emit C++ | 2.034 s | 0.576 s |
-| Emit Verilog | 1.662 s | 0.482 s |
-| Build C++ | 1.104 s | 0.784 s |
-| Build Verilog | 1.430 s | 1.307 s |
-| First measured full C++ run | 0.417 s | 0.287 s |
-| First measured full Verilog run | 0.524 s | 0.278 s |
-| Warm C++ median, one worker | 0.103926 s | 0.009365 s |
-| Warm Verilog median | 0.008483 s | 0.008451 s |
-| Warm native peak RSS median | 3.62 MiB | 2.16 MiB |
-
-| Artifact size | Expanded cases | Compact source |
-| --- | ---: | ---: |
-| Final IR | 9,513,490 bytes | 2,209,765 bytes |
-| Generated C++ total | 1,879,088 bytes | 653,955 bytes |
-| Generated Verilog total | 404,461 bytes | 133,362 bytes |
-
-The warm RTL median is effectively unchanged in this small sample. Three pairs
-do not establish statistical significance for such small differences.
-
-Complete source-import/transformed artifacts reproduce the published units, and
-the public and measured builds share identical final IR and generated outputs.
-DUTs, drivers, configuration, cycle limits and timeouts remain unchanged.
-
-```sh
-pycircuit run examples/struct_transform --target cpp --cycles 72
-pycircuit run examples/struct_transform --target verilog --cycles 72
 ```

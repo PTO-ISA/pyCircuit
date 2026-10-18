@@ -154,6 +154,12 @@ def _target_files(payload: dict, target: str):
             add(row["path"], row["text"], "rtl")
             group(row["source"]).append(row["path"])
             rtl_sources.append(row["path"])
+    if "port_availability" in payload:
+        add(
+            "ports.json",
+            json.dumps(payload["port_availability"], separators=(",", ":")) + "\n",
+            "runtime-glue",
+        )
     simulation = bool(
         payload.get("simulation_main")
         if target == "cpp"

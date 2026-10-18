@@ -57,6 +57,7 @@ bool hasSourceDecorator(const AstNode &declaration, MarkerKind marker,
 struct CapturedCallableSyntax {
   MarkerKind marker;
   AstNode guard;
+  AstNode after;
 };
 
 /// Decode only the bound Rule/Method decorator and its guard lambda signature.

@@ -342,11 +342,17 @@ def RegisterBank():
   auto ports = module->getAttrOfType<mlir::ArrayAttr>("ac.ports");
   ASSERT_TRUE(ports);
   EXPECT_TRUE(ports.empty());
-  bool foundQueue = false;
+  bool foundQueue = false, foundFifoInstance = false;
   listBody->walk([&](mlir::Operation *operation) {
     foundQueue |= operation->getName().getStringRef() == "ac.queue";
+    if (operation->getName().getStringRef() == "ac.instance") {
+      auto callee = operation->getAttrOfType<mlir::FlatSymbolRefAttr>("callee");
+      foundFifoInstance |=
+          callee && callee.getValue().starts_with("pycircuit.__builtins__.fifo_");
+    }
   });
   EXPECT_FALSE(foundQueue);
+  EXPECT_FALSE(foundFifoInstance);
 }
 
 TEST_F(RegContractsTest, V16_RejectsEmptyCollectionInitializer) {

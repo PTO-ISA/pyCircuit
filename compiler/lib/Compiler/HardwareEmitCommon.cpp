@@ -763,7 +763,8 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
     if (widths.wasInterrupted())
       return failure();
     for (auto &op : module.getBody().front()) {
-      if (auto queue = dyn_cast<ac::QueueOp>(op)) {
+      if (auto queue = dyn_cast<ac::InstanceOp>(op);
+          queue && ac::isQueueInstance(queue)) {
         auto config = analysis.resolveQueue(queue, bindings);
         if (failed(config))
           return failure();
@@ -788,7 +789,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
           return op.emitOpError() << "queue token representation overflows";
         uint64_t tokenBytes = config->tokenCardinality * scalarBytes;
         uint64_t capacity = std::numeric_limits<std::ptrdiff_t>::max();
-        // Six control planes (144), Current/Pending metadata (32/8), and a
+        // Seven control planes (168), Current/Pending metadata (32/8), and a
         // completion word (8) per lane; 128 reserves the shared owner. Besides
         // D slots, retain Pending, two data pin planes and two token buffers.
         // Delayed availability adds D u64 deadlines plus tick, maturity cursor
@@ -796,7 +797,7 @@ LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
         // reserve.
         uint64_t laneCapacity = (capacity - 128) / multiplicity;
         bool delayed = config->availabilityLatency > 1;
-        uint64_t fixedBytes = delayed ? 216 : 192;
+        uint64_t fixedBytes = delayed ? 240 : 216;
         if (laneCapacity <= fixedBytes)
           return op.emitOpError()
                  << "queue storage including enclosing collections exceeds "

@@ -140,8 +140,6 @@ def retain_ordered_stages(filename, unit):
             stages / "interface.ac",
             "--deps-out",
             stages / "deps.json",
-            "--source-import-out",
-            stages / "source-import.ac",
         ]
     )
     receipt = json.loads((unit / "unit.json").read_text())
@@ -149,14 +147,6 @@ def retain_ordered_stages(filename, unit):
         assert (stages / (kind + ".ac")).read_bytes() == (
             unit / receipt["files"][kind]
         ).read_bytes()
-    run(
-        [
-            args.optimizer,
-            stages / "source-import.ac",
-            "-o",
-            stages / "verified-source-import.ac",
-        ]
-    )
     return str(stages)
 
 
@@ -391,9 +381,18 @@ if not args.four_state:
         "rebind",
         "duplicate",
     )
+    legal_ordered = {
+        "ordered_duplicate_registration",
+        "ordered_missing_registration",
+    }
     for name in cases:
         fixture = "local_binding_bad_" + name + ".py"
         absent = root / ("bad-" + name)
+        if name in legal_ordered:
+            # API-owned tests establish that distinct invocations of one Rule
+            # and a registered-but-not-exercised local Rule are legal.
+            compile_unit(fixture, absent, [child], accepted=True)
+            continue
         rejected = compile_unit(fixture, absent, [child], accepted=False)
         if name.startswith("ordered_"):
             words = (
@@ -604,7 +603,7 @@ if not args.four_state:
     expects = [
         line for line in text.splitlines(keepends=True) if '"ac.expect"(' in line
     ]
-    assert len(expects) == 1 and "ac.required_checks" in text
+    assert len(expects) == 2 and "ac.required_checks" in text
     invalid = root / "missing-expect.ac"
     invalid.write_text(text.replace(expects[0], "", 1))
     assert invalid.read_text() != text and "ac.required_checks" in invalid.read_text()

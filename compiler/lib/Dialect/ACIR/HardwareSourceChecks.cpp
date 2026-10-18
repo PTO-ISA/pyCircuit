@@ -131,8 +131,8 @@ Operation *sourceEffectCallable(Operation *operation) {
              ? parent
              : nullptr;
 }
-int compareCheck(DictionaryAttr lhs, DictionaryAttr rhs) {
-  for (StringRef key : {"registration", "check", "obligation"})
+int compareCheckWithinRegistration(DictionaryAttr lhs, DictionaryAttr rhs) {
+  for (StringRef key : {"check", "obligation"})
     if (int order =
             detail::compareClosedSourceStructure(lhs.get(key), rhs.get(key)))
       return order;
@@ -435,10 +435,27 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
     return definition.emitOpError()
            << "source checks require one definition graph block";
   SmallVector<HardwareCheckBinding> result;
-  std::map<DictionaryAttr, size_t, bool (*)(DictionaryAttr, DictionaryAttr)>
-      identities([](DictionaryAttr lhs, DictionaryAttr rhs) {
-        return compareCheck(lhs, rhs) < 0;
-      });
+  // Keep registration ordering once per registration. IDs within a group
+  // have already proved that registration and compare only the remaining
+  // semantic fields. Integer widths/signedness still use the closed-source
+  // comparator rather than Attribute pointer identity.
+  struct CheckLess {
+    bool operator()(DictionaryAttr lhs, DictionaryAttr rhs) const {
+      return compareCheckWithinRegistration(lhs, rhs) < 0;
+    }
+  };
+  struct RegistrationLess {
+    bool operator()(DictionaryAttr lhs, DictionaryAttr rhs) const {
+      return detail::compareClosedSourceStructure(lhs, rhs) < 0;
+    }
+  };
+  using CheckMap = std::map<DictionaryAttr, size_t, CheckLess>;
+  struct CheckGroup {
+    CheckMap identities;
+    RuleOp sampled;
+    SmallVector<size_t, 0> direct;
+  };
+  std::map<DictionaryAttr, CheckGroup, RegistrationLess> registrations;
   llvm::DenseMap<Operation *, detail::SampledAdmissionView> sampledRules;
   auto prepared = validation.prepare(definition, bindings);
   if (failed(prepared))
@@ -478,6 +495,33 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       return error()
              << "source check suffix requires two results per obligation";
     uint64_t first = rule.getNumResults() - 2 * required.size();
+    // Sampled Rules may append private state-entry witnesses after checks.
+    // The authenticated inventory, rather than the total result count, owns
+    // the check base in that case.
+    if (auto sampled = sampledRules.find(rule); sampled != sampledRules.end())
+      first = sampled->second.checkBase;
+    CheckGroup *group = nullptr;
+    if (!required.empty()) {
+      auto [position, inserted] = registrations.try_emplace(rule.getOccurrence());
+      group = &position->second;
+      if (inserted && sampledRules.count(rule)) {
+        group->sampled = rule;
+        if (failed(budget.debit(detail::SourceCheckBudget::multiply(
+                                   required.size(),
+                                   detail::SourceCheckBudget::bytes(sizeof(size_t))),
+                               rule)))
+          return failure();
+        group->direct.reserve(required.size());
+      } else if (group->sampled) {
+        // Several Rules may share a semantic registration. Such groups use
+        // the general structural map, preserving cross-Rule duplicate checks
+        // and the same global ordering as ordinary Rules.
+        for (size_t index : group->direct)
+          group->identities.emplace(result[index].checkID, index);
+        group->direct.clear();
+        group->sampled = {};
+      }
+    }
     for (auto [index, raw] : llvm::enumerate(required)) {
       auto record = dyn_cast<DictionaryAttr>(raw);
       auto id = record ? record.getAs<DictionaryAttr>("id") : DictionaryAttr();
@@ -525,7 +569,11 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
                                   3 * sizeof(void *)),
                               rule)))
         return failure();
-      if (!identities.emplace(id, result.size()).second)
+      if (group->sampled) {
+        // validation.verify above proves each ID's obligation equals its
+        // RequiredCheck row ordinal, so this is an exact, duplicate-free key.
+        group->direct.push_back(result.size());
+      } else if (!group->identities.emplace(id, result.size()).second)
         return error() << "duplicate full source CheckID";
       if (failed(predicate(analysis, rule.getResult(conditionResult), bindings,
                            rule)) ||
@@ -550,11 +598,33 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
     if (failed(detail::verifySourceExpectOperation(analysis, expect, bindings)))
       return failure();
     auto id = expect->getAttrOfType<DictionaryAttr>("ac.check_id");
-    auto position = identities.find(id);
-    if (position == identities.end())
+    auto registration =
+        registrations.find(id.getAs<DictionaryAttr>("registration"));
+    if (registration == registrations.end())
       return expect.emitOpError()
              << "orphan source check without RequiredCheck owner";
-    auto &found = result[position->second];
+    auto &group = registration->second;
+    size_t foundIndex;
+    if (group.sampled) {
+      auto ordinal = detail::decodeU64(id.getAs<IntegerAttr>("obligation"),
+                                       "CheckID obligation",
+                                       [&] { return expect.emitOpError(); });
+      if (failed(ordinal))
+        return failure();
+      if (*ordinal >= group.direct.size() ||
+          compareCheckWithinRegistration(
+              id, result[group.direct[*ordinal]].checkID) != 0)
+        return expect.emitOpError()
+               << "orphan source check without RequiredCheck owner";
+      foundIndex = group.direct[*ordinal];
+    } else {
+      auto position = group.identities.find(id);
+      if (position == group.identities.end())
+        return expect.emitOpError()
+               << "orphan source check without RequiredCheck owner";
+      foundIndex = position->second;
+    }
+    auto &found = result[foundIndex];
     if (found.expect)
       return expect.emitOpError() << "duplicate expect for source CheckID";
     if (found.kind != expect.getKindAttr() ||
@@ -621,32 +691,39 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
               detail::SourceCheckBudget::bytes(sizeof(Operation *))),
           definition)))
     return failure();
-  for (const auto &[id, index] : identities) {
-    const auto &binding = result[index];
-    if (!sampledRules.count(binding.rule)) {
-      ordered.push_back(binding);
+  for (const auto &[registration, group] : registrations) {
+    if (group.sampled) {
+      for (size_t index : group.direct)
+        ordered.push_back(result[index]);
       continue;
     }
-    if (!emitted.insert(binding.rule).second)
-      continue;
-    const auto &sampled = sampledRules.find(binding.rule)->second;
-    uint64_t count = detail::SourceCheckBudget::add(sampled.controls.size(),
-                                                    sampled.bodyChecks.size());
-    if (index < binding.requiredIndex)
-      return definition.emitOpError()
-             << "sampled check ordering lost its first obligation";
-    uint64_t first = index - binding.requiredIndex;
-    if (first > result.size() || count > result.size() - first)
-      return definition.emitOpError()
-             << "sampled check ordering exceeds catalog";
-    for (uint64_t ordinal = 0; ordinal < count; ++ordinal) {
-      if (failed(budget.debit(1, definition)))
-        return failure();
-      const auto &found = result[first + ordinal];
-      if (found.rule != binding.rule || found.requiredIndex != ordinal)
+    for (const auto &[id, index] : group.identities) {
+      const auto &binding = result[index];
+      if (!sampledRules.count(binding.rule)) {
+        ordered.push_back(binding);
+        continue;
+      }
+      if (!emitted.insert(binding.rule).second)
+        continue;
+      const auto &sampled = sampledRules.find(binding.rule)->second;
+      uint64_t count = detail::SourceCheckBudget::add(sampled.controls.size(),
+                                                      sampled.bodyChecks.size());
+      if (index < binding.requiredIndex)
         return definition.emitOpError()
-               << "sampled check ordering lost an obligation";
-      ordered.push_back(found);
+               << "sampled check ordering lost its first obligation";
+      uint64_t first = index - binding.requiredIndex;
+      if (first > result.size() || count > result.size() - first)
+        return definition.emitOpError()
+               << "sampled check ordering exceeds catalog";
+      for (uint64_t ordinal = 0; ordinal < count; ++ordinal) {
+        if (failed(budget.debit(1, definition)))
+          return failure();
+        const auto &found = result[first + ordinal];
+        if (found.rule != binding.rule || found.requiredIndex != ordinal)
+          return definition.emitOpError()
+                 << "sampled check ordering lost an obligation";
+        ordered.push_back(found);
+      }
     }
   }
   return ordered;
@@ -768,11 +845,44 @@ resolveHardwareRootBindings(const HardwareAnalysis &analysis) {
 }
 } // namespace detail
 
+thread_local detail::NativeSourceCheckScope *detail::NativeSourceCheckScope::active = nullptr;
+
+detail::NativeSourceCheckScope::NativeSourceCheckScope(
+    const HardwareAnalysis &analysis, SampledAdmissionValidation &validation,
+    SourceCheckBudget &budget, Definitions &definitions)
+    : previous(active), analysis(analysis), validation(validation), budget(budget),
+      definitions(definitions) {
+  active = this;
+}
+detail::NativeSourceCheckScope::~NativeSourceCheckScope() { active = previous; }
+
+std::optional<LogicalResult>
+detail::NativeSourceCheckScope::verify(ModuleOp definition) {
+  if (!active || !definition ||
+      definition->getParentOp() != active->analysis.getPackage().getOperation())
+    return std::nullopt;
+  auto &scope = *active;
+  if (failed(scope.budget.debit(1, definition))) return failure();
+  // No transform can run inside this synchronous MLIR verification scope.
+  // This catalog holds current default-binding checks, never an edited-IR or
+  // occurrence verdict; bound occurrence checks still use their existing owner.
+  if (scope.definitions.contains(definition)) return success();
+  HardwareBindings bindings; bindings.owner = definition;
+  auto checks = definitionSourceChecks(scope.analysis, definition, bindings,
+                                      scope.validation, scope.budget);
+  if (failed(checks) || failed(scope.budget.debit(SourceCheckBudget::bytes(
+          sizeof(Definitions::value_type)), definition))) return failure();
+  scope.definitions.try_emplace(definition, std::move(*checks));
+  return success();
+}
+
 LogicalResult
 HardwareAnalysis::verifyDefinitionSourceChecks(ModuleOp definition) const {
   if (!definition || definition->getParentOp() != package.getOperation())
     return package.emitOpError()
            << "source check definition must belong to analyzed package";
+  if (auto shared = detail::NativeSourceCheckScope::verify(definition))
+    return *shared;
   HardwareBindings bindings;
   bindings.owner = definition;
   detail::SourceCheckBudget budget(HardwareSourceCheckLimits{});

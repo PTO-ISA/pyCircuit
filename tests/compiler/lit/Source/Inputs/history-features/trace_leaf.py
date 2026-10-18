@@ -1,4 +1,9 @@
-from pycircuit import module, rule, u8
+from pycircuit import module, rule, struct, u8
+
+
+@struct
+class LeafOut:
+    out_y: u8
 
 
 @rule
@@ -7,7 +12,7 @@ def capture(r, in_x):
 
 
 @module
-def TraceLeaf(in_x: u8) -> {"out_y": u8}:
+def TraceLeaf(in_x: u8) -> LeafOut:
     r: u8 = 0
     capture(r, in_x)
-    return {"out_y": r}
+    return LeafOut(out_y=r)

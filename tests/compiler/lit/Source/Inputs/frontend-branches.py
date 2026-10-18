@@ -968,7 +968,10 @@ cases["partial-local-read"] = (partial, "unknown hardware value 'local'")
 branch_return = statement("flag").replace(
     "        state = state + 1", "        return Result(value=state)"
 )
-cases["branch-return"] = (branch_return, "rule return inside a branch is unsupported")
+cases["branch-return"] = (
+    branch_return,
+    "return in a Method/Rule branch is unsupported",
+)
 formal = (
     'import pycircuit as ac\n@ac.module\ndef Top(data: ac.u13, flag: ac.u1, *, default: int = 2)->{"out": ac.u13}:\n'
     '    return {"out": data if flag else default}\n'
@@ -1021,11 +1024,11 @@ cases["boolean-formal-kind-conflict"] = (
     ).replace(
         "def step(state, flag)", "def step(state: Annotated[int, range(1 << 1)], flag)"
     ),
-    "rule parameter annotation disagrees with binding source kind",
+    "Rule owner formal annotation must match its actual owner",
 )
 cases["owner-reannotation"] = (
     bool_owner.replace("state = True", "state: ac.u1 = 1"),
-    "annotation cannot replace a declared binding boundary",
+    "owner shadow declaration is unsupported",
 )
 rule_local = (
     "import pycircuit as ac\nfrom typing import Annotated\n@ac.struct\nclass Result:\n    value: ac.u13\n"
@@ -1053,7 +1056,7 @@ cases["explicit-range-local-overflow"] = (
 )
 cases["explicit-local-reannotation"] = (
     rule_local.replace("BODY", "local: ac.u1 = 0\n    local: ac.u8 = 1"),
-    "annotation cannot replace a declared binding boundary",
+    "Method/Rule local annotation cannot redeclare a binding",
 )
 cases["branch-declaration-conflict"] = (
     rule_local.replace(
@@ -1111,7 +1114,7 @@ cases["representation-range-reannotation"] = (
     formal_capture.replace("BODY", "value: Annotated[int, range(1 << 1)] = 0").replace(
         "ACTUAL", "0 - 1"
     ),
-    "annotation cannot replace a declared binding boundary",
+    "Method/Rule local annotation cannot redeclare a binding",
 )
 
 protected = {p: snapshot(p) if p.is_dir() else p.read_bytes() for p in protected_paths}

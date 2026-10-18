@@ -94,12 +94,12 @@ def write_vectors(folder, rows, histories, persistent):
         )
     text += "};\nstruct History {const char *name; unsigned begin,end;};\nconstexpr History histories[]={\n"
     text += "".join(
-        "{" + json.dumps(h["name"]) + f',{h["begin"]},{h["end"]}' + "},\n"
+        "{" + json.dumps(h["name"]) + f",{h['begin']},{h['end']}" + "},\n"
         for h in histories
     )
     (folder / "scheduling_vectors.hpp").write_text(text + "};\n")
     (folder / "scheduling_widths.svh").write_text(
-        f"`define INPUT_BITS {input_bits}\n`define OUTPUT_BITS {input_bits+2}\n"
+        f"`define INPUT_BITS {input_bits}\n`define OUTPUT_BITS {input_bits + 2}\n"
     )
     # One dynamic loop consumes the same complete rows as the native host. Repeated
     # literal task calls make Verilator inline every state snapshot at every row.
@@ -440,7 +440,7 @@ def main():
         for history in histories:
             for workers in (1, 2):
                 assert (
-                    f'SCHEDULING_HISTORY_OK {history["name"]} views={history["end"]-history["begin"]} workers={workers}'
+                    f"SCHEDULING_HISTORY_OK {history['name']} views={history['end'] - history['begin']} workers={workers}"
                     in result.stdout
                 )
         verilog_sources = [
@@ -484,7 +484,7 @@ def main():
         result = run(label + "-rtl-history", [folder / "rtl-host"])
         for history in histories:
             assert (
-                f'SCHEDULING_HISTORY_OK {history["name"]} views={history["end"]-history["begin"]}'
+                f"SCHEDULING_HISTORY_OK {history['name']} views={history['end'] - history['begin']}"
                 in result.stdout
             )
         receipts.append(

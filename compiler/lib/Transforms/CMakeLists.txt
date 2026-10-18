@@ -1,13 +1,17 @@
 add_acir_library(ACIRTransforms SOURCES
   VerifyHardware.cpp
+  NormalizeSourceControlFlow.cpp
   ExtractSourceInterface.cpp
   SimplifyRecordWires.cpp
   AnalyzeSourceMethods.cpp
   AnalyzeTransactionStateSSA.cpp
   LowerTransactions.cpp
+  TransactionValueAvailability.cpp
   LINK_LIBRARIES
     ACIRDialect
     MLIRPass
+    MLIRArithDialect
+    MLIRSCFDialect
     MLIRTransformUtils
 )
 target_include_directories(ACIRTransforms PRIVATE

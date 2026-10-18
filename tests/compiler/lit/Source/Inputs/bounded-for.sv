@@ -1,4 +1,8 @@
 module tb;
+  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
   `include "bounded-for-vectors.svh"
   pyc_root dut(.*);
   initial begin

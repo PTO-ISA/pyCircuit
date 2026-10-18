@@ -97,9 +97,9 @@ def admission_cases():
                 "@ac.rule\ndef identity(lane: ac.bits[9]) -> ac.bits[9]:\n    return lane\n@ac.module",
             )
         if name == "map-qualified-callback-decorator":
-            categories = ("bare @rule",)
+            categories = ("rule is only a complete module/system registration",)
         elif name == "map-non-rule-callback":
-            categories = ("same-source rule declaration",)
+            categories = ("pure helper callable binding is shadowed by a local value",)
         else:
             categories = (
                 "map",

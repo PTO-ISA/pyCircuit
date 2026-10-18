@@ -19,6 +19,8 @@ int main() {
   in.value = known<8>(0x12);
   in.second = known<4>(0x5);
   in.ok = known<1>(1);
+  in.pyc_7079635f636c6b = known<1>(0);
+  in.pyc_7079635f727374 = known<1>(0);
   dut.drive(in);
   dut.system().Build();
   dut.system().Reset();

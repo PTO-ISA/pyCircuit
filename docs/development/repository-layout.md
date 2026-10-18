@@ -113,9 +113,11 @@ Examples stay flat under `examples/<design>/`. Each folder owns its source,
 standalone build, stimulus and oracle. Repeated small `config.json` files support
 independent builds and are not shared mutable configuration. `GENERATED.json`
 and `GENERATED.md` pairs are bound receipts/excerpts, not duplicate backends.
-Start with `examples/hello_counter/` or `examples/counter/`; the
+Start with `examples/hello_counter/` or `examples/queue_rule_pipeline/`; the
 [example catalog](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/README.md)
-provides the complete design navigation.
+provides the current design navigation. Older wrappers live under
+`tests/fixtures/historical_examples/` with their retained oracles; that archive
+is not the active examples registry.
 
 ## Documentation and records
 

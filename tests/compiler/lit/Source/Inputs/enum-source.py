@@ -295,17 +295,16 @@ GOOD_GUARD = (
 
 CONSTRUCTOR_CONTROL = (
     GOOD_GUARD
-    + """from pycircuit import module, rule
+    + """from pycircuit import module, struct
+@struct
+class LeafOut:
+    out: ac.u1
 @module
-def Leaf() -> {"out": bool}:
-    return {"out": False}
+def Leaf() -> LeafOut:
+    return LeafOut(out=0)
 @module
 def Top() -> {"out": bool}:
     child = Leaf()
-    @rule
-    def bind():
-        child()
-    bind()
     return {"out": child.out}
 """
 )
@@ -612,7 +611,7 @@ for category, target in (
         (
             "constructor-" + category + "-shadow",
             CONSTRUCTOR_CONTROL.replace("child", target),
-            "module instance shadows a source binding",
+            "shadows a source",
         )
     )
 sentinel = build / "source-executed"
@@ -1856,12 +1855,12 @@ S3C_GUARDS = {
     "shadow-module": "enum_from_bits target shadows a reserved/source binding: 'Top'",
     "shadow-rule": "enum_from_bits target shadows a reserved/source binding: 'evaluate'",
     "scalar-call": "enum_from_bits requires exactly two ordinary Names",
-    "return-tuple-call": "enum_from_bits requires one two-name Tuple target",
+    "return-tuple-call": "enum_from_bits produces fixed results; unpack first into ordinary local Names",
     "field-target": "enum_from_bits targets must be ordinary Names",
     "index-target": "enum_from_bits targets must be ordinary Names",
-    "persistent-owner-target": "enum_from_bits target cannot write persistent owner formal 'value'",
-    "readonly-owner-target": "enum_from_bits target cannot write persistent owner formal 'value'",
-    "nonlocal-target": "nonlocal writes are forbidden",
+    "persistent-owner-target": "enum_from_bits target cannot write an owner or shadow a binding: 'value'",
+    "readonly-owner-target": "overlapping writable owner aliases",
+    "nonlocal-target": "unsupported Method/Rule statement",
     "structural-rebind": "enum_from_bits target cannot write an owner or shadow a binding: 'decoded'",
     "structural-input-shadow": "enum_from_bits target cannot write an owner or shadow a binding: 'raw'",
     "partial-carrier-read": "unknown hardware value 'decoded'",
@@ -1869,8 +1868,8 @@ S3C_GUARDS = {
     "carrier-nominal-boundary": "binding boundary hardware type mismatch",
     "membership-integer-boundary": "binding boundary requires declared Integer source kind",
     "member-later-kind": "binding boundary requires declared Boolean source kind",
-    "carrier-later-kind": "source Integer/Boolean literals cannot be implicitly converted to Enum",
-    "both-arms-nominal-mismatch": "branch values require equal hardware types",
+    "carrier-later-kind": "binding boundary hardware type mismatch",
+    "both-arms-nominal-mismatch": "branch values require identical nominal types",
     "both-arms-member-kind-mismatch": "conditional branches have different known Boolean and Integer kinds",
     "atomic-second-boundary": "binding boundary hardware type mismatch",
     "raw-too-narrow": "'ac.enum.from_bits' op enum.from_bits input width must equal 2",
@@ -1879,8 +1878,8 @@ S3C_GUARDS = {
     "raw-boolean": "enum_from_bits requires authoritative fixed bits",
     "raw-nominal": "enum_from_bits requires authoritative fixed bits",
     "marker-shadow-formal": "module input shadows a source declaration or namespace",
-    "chained-tuple": "enum_from_bits requires one two-name Tuple target",
-    "arbitrary-tuple-producer": "tuple/list literal requires an expected Table type",
+    "chained-tuple": "unsupported Method/Rule statement",
+    "arbitrary-tuple-producer": "Method/Rule assignment requires a Name or local Struct field",
     "untyped-producer": "enum_from_bits[Enum] requires exactly one positional bits value",
 }
 
@@ -1897,7 +1896,7 @@ S3C = {
         "field-control": "import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass PairResult:\n    raw: ac.bits[2]\n    member: ac.u1\n\n@ac.struct\nclass Box:\n    value: State = State.ZERO\n\n@ac.rule\ndef evaluate(raw: ac.bits[2]) -> PairResult:\n    box = Box()\n    decoded, member = decode[State](raw)\n    box.value = decoded\n    return PairResult(raw=ac.enum_to_bits(box.value), member=member)\n\n@ac.module\ndef Top(raw: ac.bits[2]) -> PairResult:\n    return evaluate(raw)\n",
         "index-control": "import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass PairResult:\n    raw: ac.bits[2]\n    member: ac.u1\n\n@ac.rule\ndef evaluate(entries, raw: ac.bits[2], index) -> PairResult:\n    decoded, member = decode[State](raw)\n    entries[index] = decoded\n    return PairResult(raw=ac.enum_to_bits(decoded), member=member)\n\n@ac.module\ndef Top(raw: ac.bits[2], index: ac.u1) -> PairResult:\n    entries = ac.table[2, State](init=0)\n    return evaluate(entries, raw, index)\n",
         "readonly-control": "import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass PairResult:\n    raw: ac.bits[2]\n    member: ac.u1\n\n@ac.rule\ndef evaluate(value: State, saved: State, raw: ac.bits[2]) -> PairResult:\n    decoded, member = decode[State](raw)\n    return PairResult(raw=ac.enum_to_bits(saved), member=member)\n\n@ac.module\ndef Top(raw: ac.bits[2]) -> PairResult:\n    state: State = State.ZERO\n    return evaluate(state, state, raw)\n",
-        "nested-rule-control": 'import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.module\ndef Leaf(data: ac.bits[2]) -> {"out": ac.bits[2]}:\n    return {"out": data}\n@ac.module\ndef Top(raw: ac.bits[2]) -> {"out_raw": ac.bits[2], "out_member": bool}:\n    decoded, member = decode[State](raw)\n    child = Leaf()\n    @ac.rule\n    def inspect():\n        child(data=ac.enum_to_bits(decoded))\n    inspect()\n    return {"out_raw": child.out, "out_member": member}\n',
+        "nested-rule-control": 'import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass LeafOut:\n    out: ac.bits[2]\n@ac.module\ndef Leaf(data: ac.bits[2]) -> LeafOut:\n    return LeafOut(out=data)\n@ac.module\ndef Top(raw: ac.bits[2]) -> {"out_raw": ac.bits[2], "out_member": bool}:\n    decoded, member = decode[State](raw)\n    child = Leaf(data=ac.enum_to_bits(decoded))\n    return {"out_raw": child.out, "out_member": member}\n',
         "behavioral-rebind": "import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass PairResult:\n    raw: ac.bits[2]\n    member: ac.u1\n\n@ac.module\ndef Top(raw: ac.bits[3]) -> PairResult:\n    decoded, member = decode[State](raw[1:3])\n    decoded, member = decode[State](raw[1:3])\n    return PairResult(raw=ac.enum_to_bits(decoded), member=member)\n",
         "structural-tuple": 'import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass PairResult:\n    raw: ac.bits[2]\n    member: ac.u1\n\n@ac.module\ndef Top(raw: ac.bits[3]) -> {"out_raw": ac.bits[2], "out_member": bool}:\n    decoded, member = decode[State](raw[1:3])\n    return {"out_raw": ac.enum_to_bits(decoded), "out_member": member}\n',
     },
@@ -1993,7 +1992,7 @@ S3C = {
             "guard_intention": "owner identity is independent of writes/overlap: reject tuple target even when actual duplicates a read-only formal",
         },
         "nonlocal-target": {
-            "source": 'import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.module\ndef Leaf(data: ac.bits[2]) -> {"out": ac.bits[2]}:\n    return {"out": data}\n@ac.module\ndef Top(raw: ac.bits[2]) -> {"out_raw": ac.bits[2], "out_member": bool}:\n    decoded, member = decode[State](raw)\n    child = Leaf()\n    @ac.rule\n    def inspect():\n        nonlocal decoded\n        decoded, rule_member = ac.enum_from_bits[State](raw)\n    inspect()\n    return {"out_raw": child.out, "out_member": member}\n',
+            "source": 'import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass LeafOut:\n    out: ac.bits[2]\n@ac.module\ndef Leaf(data: ac.bits[2]) -> LeafOut:\n    return LeafOut(out=data)\n@ac.module\ndef Top(raw: ac.bits[2]) -> {"out_raw": ac.bits[2], "out_member": bool}:\n    decoded, member = decode[State](raw)\n    child = Leaf(data=ac.enum_to_bits(decoded))\n    @ac.rule\n    def inspect():\n        nonlocal decoded\n        decoded, rule_member = ac.enum_from_bits[State](raw)\n    inspect()\n    return {"out_raw": child.out, "out_member": member}\n',
             "control": "nested-rule-control",
             "guard_intention": "retired nonlocal ownership proposal is forbidden; structural rule-local assignment stays bounded",
         },

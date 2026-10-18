@@ -64,8 +64,9 @@ def check_text(design_ac, rtl_dir, cpp_dir):
     text = design_ac.read_text()
     ok(
         "V08-1",
-        f"design.ac carries {text.count(chr(34) + 'ac.queue' + chr(34))} "
-        f"ac.queue ops and {text.count(chr(34) + 'ac.rule' + chr(34))} ac.rule ops",
+        f"design.ac carries {text.count('@pycircuit.__builtins__.fifo_local')} "
+        f"canonical fifo_local instances and "
+        f"{text.count(chr(34) + 'ac.rule' + chr(34))} ac.rule ops",
     )
 
     rtl = sorted(rtl_dir.rglob("*.v")) + sorted(rtl_dir.rglob("*.sv"))
@@ -122,36 +123,39 @@ def check_text(design_ac, rtl_dir, cpp_dir):
         "payload 64-bit, all LocalOccupancy",
     )
 
-    # The boundary mapping: `ready` must be the input queue's in_ready, and
-    # `available`/`head` must be the merged queue's out_valid/out_data.  Packing
-    # is MSB-first, so the first operand of the outer concat is `ready`.
+    # The boundary mapping: `ready` must be the input queue's ready, and
+    # `available`/`head` must be the merged queue's valid/data. The current
+    # emitter assembles the result through explicit field slices.
     blob = "".join(path.read_text() for path in sorted(cpp_dir.rglob("*.hpp")))
-    marker = "RouteMergeResult>::fromPacked(gfsim::concat("
-    if marker not in blob:
-        raise AssertionError(
-            "result struct packing expression not found in emitted cpp"
-        )
-    tail = blob[blob.index(marker) :][:800]
-    order = {name: tail.index(name) for name in ("in_ready", "out_valid", "out_data")}
-    if not order["in_ready"] < order["out_valid"] < order["out_data"]:
-        raise AssertionError(
-            f"packed order is not {{ready, available, head}}: {tail[:400]}"
-        )
-    fields = re.findall(
-        r"pyc_queue_pyc_([0-9a-f]+)_(in_ready|out_valid|out_data)", tail
+    slices = {}
+    pattern = re.compile(
+        r"(pyc_value_\d+)\.element\([^\n]*?\.assignSlice\(([^,]+), "
+        r"this->pyc_queue_pyc_([0-9a-f]+)_(ready|valid|data)\.element"
     )
-    try:
-        ready_owner = next(q for q, role in fields if role == "in_ready")
-        valid_owner = next(q for q, role in fields if role == "out_valid")
-        data_owner = next(q for q, role in fields if role == "out_data")
-    except StopIteration as error:  # pragma: no cover - defensive
+    for aggregate, offset, owner, role in pattern.findall(blob):
+        slices.setdefault(aggregate, {})[role] = (owner, " ".join(offset.split()))
+    candidates = [
+        (aggregate, fields)
+        for aggregate, fields in slices.items()
+        if set(fields) == {"ready", "valid", "data"}
+        and re.search(rf"this->result\.element\([^\n]*= {aggregate}\.element", blob)
+    ]
+    if len(candidates) != 1:
         raise AssertionError(
-            f"could not attribute the result fields: {fields}"
-        ) from error
+            f"could not identify one result slice assembly: {candidates}"
+        )
+    _, fields = candidates[0]
+    ready_owner, ready_offset = fields["ready"]
+    valid_owner, valid_offset = fields["valid"]
+    data_owner, data_offset = fields["data"]
+    if data_offset != "0" or "Bits<64>" not in valid_offset:
+        raise AssertionError(f"data/valid slice packing changed: {fields}")
+    if "Bits<1>" not in ready_offset or "Bits<64>" not in ready_offset:
+        raise AssertionError(f"ready slice packing changed: {fields}")
     # hex ...5f30 == "__pyc_queue_0" (the source-side input queue) and
     # hex ...5f35 == "__pyc_queue_5" (the last queue, i.e. `merged`).
     if not ready_owner.endswith("5f30"):
-        raise AssertionError(f"`ready` is not the input queue in_ready: {ready_owner}")
+        raise AssertionError(f"`ready` is not the input queue ready: {ready_owner}")
     if not (valid_owner.endswith("5f35") and data_owner.endswith("5f35")):
         raise AssertionError(
             f"`available`/`head` are not the merged queue outputs: "
@@ -159,8 +163,8 @@ def check_text(design_ac, rtl_dir, cpp_dir):
         )
     ok(
         "V08-4",
-        "result = {ready=input_queue.in_ready (queue 0), "
-        "available=merged.out_valid, head=merged.out_data (queue 5)}",
+        "result = {ready=input_queue.ready (queue 0), "
+        "available=merged.valid, head=merged.data (queue 5)}",
     )
 
 

@@ -181,7 +181,8 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
                                          Value replacement, const AstNode &node,
                                          OpBuilder &at,
                                          FlatSymbolRefAttr symbol,
-                                         llvm::StringMap<Value> &values) {
+                                         llvm::StringMap<Value> &values,
+                                         SmallVectorImpl<Value> *boundIndices) {
   StringRef root = assignmentRoot(target);
   if (failed(requireNestedRuleDataTarget(root, node))) return failure();
   if (isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()) &&
@@ -216,6 +217,8 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
         expression(element.child("slice"), at, symbol, values, noInstances);
     if (failed(index))
       return failure();
+    if (boundIndices)
+      boundIndices->push_back(*index);
     SmallVector<Attribute> fieldPath;
     for (auto field = target; field.kind() == "Attribute";
          field = field.child("value"))
@@ -241,7 +244,7 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
     if (failed(updated))
       return failure();
     return updateAssignment(target.child("value"), *updated, node, at, symbol,
-                            values);
+                            values, boundIndices);
   }
   if (target.kind() == "Subscript" && target.child("value").kind() == "Name" &&
       values.contains(target.child("value").string("id"))) {
@@ -252,6 +255,8 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
         expression(target.child("slice"), at, symbol, values, noInstances);
     if (failed(index))
       return failure();
+    if (boundIndices)
+      boundIndices->push_back(*index);
     auto slot = addressDomainSlot(name, node, target.child("slice"));
     if (failed(slot))
       return failure();

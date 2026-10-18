@@ -15,7 +15,7 @@ output = Path(args.output).resolve()
 output.parent.mkdir(parents=True, exist_ok=True)
 units = output.parent / "module-loop-units"
 units.mkdir(parents=True, exist_ok=True)
-source = repo / "examples/module_loop"
+source = repo / "tests/fixtures/historical_examples/module_loop"
 env = os.environ.copy()
 env.update(
     PYTHONPATH=str(repo / "python"),

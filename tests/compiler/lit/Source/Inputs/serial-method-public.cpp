@@ -44,6 +44,16 @@ void probe(const Storage &storage, const Wire &data, const Enable &enable) {
   std::cout << ' '; print(enable.element(0));
   std::cout << ' ' << storage.current(0).clock;
 }
+template <class Storage, class Wire>
+void probe(const Storage &storage, const Wire &data, bool) {
+  // A plain DFF has no authored enable pin; its commit condition is constant
+  // one, which is what the paired RTL probe prints.
+  require(storage.size() == 1);
+  std::cout << ' '; print(storage.current(0).q);
+  std::cout << ' '; print(data.element(0));
+  std::cout << " 1";
+  std::cout << ' ' << storage.current(0).clock;
+}
 template <class Storage, class Pin>
 void inject(Storage &storage, Pin &pin, const std::string &bits) {
   // Test stimulus changes the real committed payload, never a calculated DUT

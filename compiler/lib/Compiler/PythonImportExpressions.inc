@@ -1,3 +1,8 @@
+// Queue construction produces an ordinary immutable instance handle. Its three
+// public raw views are ordinary instance outputs.
+auto queueRaw = queueRawExpression(node, at, ownerSymbol, values, instances);
+if (failed(queueRaw)) return failure();
+if (*queueRaw) return **queueRaw;
 if (activeSourceEffects &&
     (node.kind() == "Name" || node.kind() == "Call")) {
   auto effect = sourceEffectExpression(node, at, ownerSymbol, values, instances);
@@ -118,7 +123,8 @@ if (node.kind() == "Constant" && expected && !isa<ac::BitsType>(*expected)) {
 if (node.kind() == "Attribute" &&
     !(node.child("value").kind() == "Name" &&
       !queryBound(node.child("value").string("id")) &&
-      instances.contains(node.child("value").string("id")))) {
+      instances.contains(node.child("value").string("id")) &&
+      !values.contains(node.child("value").string("id")))) {
   auto base = expression(node.child("value"), at, ownerSymbol, values,
                          instances, {}, captures);
   if (failed(base))
@@ -255,7 +261,7 @@ if (node.kind() == "Subscript") {
   auto result =
       createOp(at, node.location(b.getContext(), source.path),
                ac::TableGetOp::getOperationName(), {*base, *index},
-               TypeRange{type.getElementType(), bits(1, node, ownerSymbol)}, {})
+               TypeRange{type.getElementType(), internalBits(1, node, ownerSymbol)}, {})
           ->getResult(0);
   if (isa<ac::BitsType>(result.getType()))
     fixedValues.insert(result);

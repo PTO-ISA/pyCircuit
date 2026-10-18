@@ -7,5 +7,5 @@
 # RUN: %python %inputs/check-constant-field-planes.py --self-test
 # RUN: %python %inputs/check-constant-field-planes.py %t.dir
 # RUN: %pycircuit_emit %t.final.mlir --target verilog --format source > %t.sv
-# RUN: iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/constant-field-planes.sv
+# RUN: iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dff.v %include/verilog/dffe.v %inputs/constant-field-planes.sv
 # RUN: vvp %t.vvp

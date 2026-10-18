@@ -26,7 +26,8 @@ LogicalResult verifyPublishedModule(ac::ModuleOp module,
            << "source module signature differs from its published interface: @"
            << module.getSymName();
   for (StringRef name : {"ac.root_kind", "ac.return_form", "ac.parameters",
-                         "ac.result_constraints", "ac.domain_inputs"})
+                         "ac.result_constraints", "ac.domain_inputs",
+                         "ac.result_availability"})
     if (module->getAttr(name) != declaration->getAttr(name))
       return emitError()
              << "source module call contract differs from its published "

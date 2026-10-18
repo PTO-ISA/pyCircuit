@@ -28,9 +28,11 @@ Importer::sourceNameWrites(const AstNode &module) const {
   auto target = [&](auto &&self, const AstNode &node) -> void {
     if (auto root = assignmentRoot(node); !root.empty())
       ++result[root];
-    else
+    else if (node.kind() == "Tuple" || node.kind() == "List")
       for (size_t i = 0; i < node.array("elts").size(); ++i)
         self(self, node.item("elts", i));
+    else if (node.kind() == "Starred")
+      self(self, node.child("value"));
   };
   auto walk = [&](auto &&self, const AstNode &node) -> void {
     if (node.kind() == "FunctionDef" || node.kind() == "ClassDef")

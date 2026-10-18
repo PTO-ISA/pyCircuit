@@ -24,7 +24,16 @@ for name in (
     parser.add_argument("--" + name, required=True)
 parser.add_argument(
     "--only",
-    choices=("all", "tokens", "latency", "huge", "atomic", "owners", "capacity"),
+    choices=(
+        "all",
+        "tokens",
+        "latency",
+        "huge",
+        "atomic",
+        "owners",
+        "capacity",
+        "local-capacity",
+    ),
     default="all",
 )
 args = parser.parse_args()
@@ -42,6 +51,10 @@ env = dict(
 commands = []
 bound_inputs = [
     fixtures / ("queue-emission." + suffix) for suffix in ("py", "mlir", "cpp", "sv")
+]
+bound_inputs += [
+    fixtures / "queue-local-capacity.cpp",
+    fixtures / "queue-local-capacity.sv",
 ]
 bound_inputs += [
     repo / "include/gfsim/fifo.h",
@@ -78,6 +91,12 @@ def run(command, code=0):
     (evidence / "commands.json").write_text(json.dumps(commands, indent=2) + "\n")
     assert r.returncode == code if code is not None else r.returncode != 0, commands[-1]
     return r
+
+
+def replace_exact(text, old, new, count):
+    actual = text.count(old)
+    assert actual == count, (old, actual, count)
+    return text.replace(old, new)
 
 
 def emit_case(name, targets, contents=None):
@@ -118,7 +137,7 @@ def emit_case(name, targets, contents=None):
     return final
 
 
-def native(name, define):
+def native(name, define, driver="queue-emission.cpp"):
     bundle = work / (name + "-cpp")
     receipt = json.loads((bundle / "generated.json").read_text())
     sources = [
@@ -138,7 +157,7 @@ def native(name, define):
             ],
             "-I" + str(repo / "include"),
             "-I" + str(bundle),
-            fixtures / "queue-emission.cpp",
+            fixtures / driver,
             *sources,
             runtime,
             "-o",
@@ -147,6 +166,80 @@ def native(name, define):
     )
     return run([runner])
 
+
+if args.only in ("all", "local-capacity"):
+    aliases = (fixtures / "queue-emission.mlir").read_text().split("module {", 1)[0]
+    capacity_ir = (
+        aliases
+        + r"""module {
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "pycircuit.__builtins__.fifo_downstream_pop", source_owner = {package = "pycircuit", path = "__builtins__.py"}, parameters = [{name = "DEPTH", type = !ac.math_int}, {name = "AVAILABILITY_LATENCY", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !fifo_pop_t, !b1) -> (!b1, !b1, !fifo_pop_t, !b1), input_names = ["clk", "rst", "in_valid", "in_data", "out_ready"], output_names = ["ready", "valid", "data", "local_capacity"], primitive_kind = "fifo_downstream_pop", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 4 : i64, path = []}]}, {output = {port = 1 : i64, path = []}, inputs = []}, {output = {port = 2 : i64, path = []}, inputs = []}, {output = {port = 3 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module"() ({
+  ^bb0(%clk: !b1, %rst: !b1, %push: !b1, %take: !b1, %data: !b13):
+    %ready, %valid, %head, %capacity = "ac.instance"(%clk, %rst, %push, %data, %take) {instance_name = "fifo", callee = @pycircuit.__builtins__.fifo_downstream_pop, parameters = [#n1, #n3], type_arguments = [!b13], occurrence = {site = {definition = @CapacityProbe, ast_path = []}, expansion = []}} : (!b1, !b1, !b1, !b13, !b1) -> (!b1, !b1, !b13, !b1)
+    "ac.yield"(%ready, %valid, %head, %capacity) : (!b1, !b1, !b13, !b1) -> ()
+  }) {sym_name = "CapacityProbe", source_owner = {package = "", path = "queue_capacity.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b1, !b13) -> (!b1, !b1, !b13, !b1), input_names = ["clk", "rst", "push", "take", "data"], output_names = ["ready", "available", "head", "capacity"]} : () -> ()
+  "ac.system"() {entry = {callee = @CapacityProbe, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+}
+"""
+    )
+    final = emit_case("local-capacity", ("cpp", "verilog"), capacity_ir)
+    generated = "\n".join(
+        p.read_text() for p in (work / "local-capacity-cpp/sources").rglob("*.hpp")
+    )
+    assert (
+        generated.count("std::shared_ptr<gfsim::collection_storage<gfsim::fifo_kernel<")
+        == 1
+    )
+    assert "dffe_kernel<" not in generated
+    result = native(
+        "local-capacity", "QUEUE_LOCAL_CAPACITY", "queue-local-capacity.cpp"
+    )
+    assert result.stdout.splitlines() == [
+        "LOCAL_CAPACITY_CPP_OK workers=1",
+        "LOCAL_CAPACITY_CPP_OK workers=2",
+    ]
+    bundle = work / "local-capacity-verilog"
+    receipt = json.loads((bundle / "generated.json").read_text())
+    rtl = [
+        bundle / row["path"]
+        for row in receipt["files"]
+        if row["path"].endswith((".v", ".sv"))
+    ]
+    blob = "\n".join(path.read_text() for path in rtl)
+    assert blob.count("fifo #(") == 1 and "dffe #(" not in blob
+    executable = work / "local-capacity.vvp"
+    run(
+        [
+            args.iverilog,
+            "-g2012",
+            "-s",
+            "tb",
+            "-o",
+            executable,
+            *sorted((repo / "include/verilog").glob("*.v")),
+            *rtl,
+            fixtures / "queue-local-capacity.sv",
+        ]
+    )
+    rtl_result = run([args.vvp, executable])
+    assert "LOCAL_CAPACITY_RTL_OK" in rtl_result.stdout
+    (evidence / "local-capacity.json").write_text(
+        json.dumps(
+            {
+                "workers": [1, 2],
+                "native_stdout": result.stdout,
+                "genuine_icarus_stdout": rtl_result.stdout,
+                "depth": 1,
+                "latency": 3,
+                "physical_queue_owners": 1,
+                "extra_registers": 0,
+                "scope": "committed occupancy, full waiting versus eligibility, sameepoch take independence, cold/reset/hold/Discard and full replacement",
+                "final_sha256": hashlib.sha256(final.read_bytes()).hexdigest(),
+            },
+            indent=2,
+        )
+        + "\n"
+    )
 
 if args.only in ("all", "atomic"):
     emit_case("atomic", ("cpp",))
@@ -184,8 +277,17 @@ if args.only in ("all", "atomic"):
         for s in (fixtures / "queue-emission.mlir").read_text().split("// -----")
         if "// QUEUE-CASE: atomic" in s
     )
-    delayed_atomic = atomic.replace(
-        "availability_latency = #n1", "availability_latency = #n2"
+    delayed_atomic = replace_exact(
+        atomic,
+        "parameters = [#depth_LocalWrapper, #n1]",
+        "parameters = [#depth_LocalWrapper, #n2]",
+        1,
+    )
+    delayed_atomic = replace_exact(
+        delayed_atomic,
+        "parameters = [#depth_PopWrapper, #n1]",
+        "parameters = [#depth_PopWrapper, #n2]",
+        1,
     )
     emit_case("atomic-delayed", ("cpp",), delayed_atomic)
     delayed_result = native("atomic-delayed", ("QUEUE_ATOMIC", "QUEUE_DELAYED_ATOMIC"))
@@ -219,8 +321,11 @@ if args.only in ("all", "owners"):
                 .split("// -----")
                 if "// QUEUE-CASE: dead" in s
             )
-            contents = contents.replace("depth = #n3", "depth = #n1").replace(
-                "availability_latency = #n1", "availability_latency = #n3"
+            contents = replace_exact(
+                contents,
+                "parameters = [#n3, #n1]",
+                "parameters = [#n1, #n3]",
+                1,
             )
         emit_case(name, ("cpp", "verilog"), contents)
         defines = ("QUEUE_OWNERS", "QUEUE_DEAD") if dead else ("QUEUE_OWNERS",)
@@ -278,6 +383,18 @@ if args.only in ("all", "capacity"):
     # 448693fe27c5a59c1997afc7a3890bbed1cbe6764dbbb30047f9d6ea1345f6ff
     text = (fixtures / "queue-emission.mlir").read_text().split("// -----")[0]
     aliases = text.split("module {", 1)[0]
+    native_import_lines = [
+        line
+        for line in text.splitlines()
+        if '"ac.module.import"' in line
+        and 'sym_name = "pycircuit.__builtins__.fifo_' in line
+    ]
+    assert len(native_import_lines) == 2, native_import_lines
+    assert any('primitive_kind = "fifo_local"' in line for line in native_import_lines)
+    assert any(
+        'primitive_kind = "fifo_downstream_pop"' in line for line in native_import_lines
+    )
+    native_imports = "\n".join(native_import_lines) + "\n"
     sections = text.split('  "ac.module"() ({')
     pair = '  "ac.module"() ({' + next(
         s for s in sections[1:] if 'sym_name = "QueueTablePair"' in s
@@ -319,6 +436,7 @@ if args.only in ("all", "capacity"):
         return (
             header
             + "module {\n"
+            + native_imports
             + definitions
             + f'  "ac.system"() {{entry = {{callee = @{entry}, parameters = [], type_arguments = []}}, domain = "default"}} : () -> ()\n}}\n'
         )
@@ -328,11 +446,11 @@ if args.only in ("all", "capacity"):
     token_bytes = 3 * 3 * 8 * ((130 + 63) // 64)
     packed_round_bytes = 3 * 8 * ((390 + 63) // 64)
     assert token_bytes == 216 and packed_round_bytes == 168
-    assert 216 * (44_000_000_000_000_000 + 5) + 192 + 128 > limit
-    assert 168 * (44_000_000_000_000_000 + 5) + 192 + 128 < limit
+    assert 216 * (44_000_000_000_000_000 + 5) + 216 + 128 > limit
+    assert 168 * (44_000_000_000_000_000 + 5) + 216 + 128 < limit
     assert 390 * 44_000_000_000_000_000 < (1 << 64)
-    assert 216 * (22_000_000_000_000_000 + 5) + 192 + 128 < limit
-    assert 2 * (216 * (22_000_000_000_000_000 + 5) + 192) + 128 > limit
+    assert 216 * (22_000_000_000_000_000 + 5) + 216 + 128 < limit
+    assert 2 * (216 * (22_000_000_000_000_000 + 5) + 216) + 128 > limit
     assert 12_000_000 * 390 > (1 << 32) - 1
     checks.append(
         {
@@ -388,8 +506,8 @@ if args.only in ("all", "capacity"):
     # These fit the old payload-only allocation bound and fail only when the
     # delayed timing storage is included. Arithmetic uses Python big integers.
     for d, f in ((41_600_000_000_000_000, 1), (20_800_000_000_000_000, 2)):
-        assert f * (216 * (d + 5) + 192) + 128 < limit
-        assert f * (216 * (d + 5) + 8 * d + 216) + 128 > limit
+        assert f * (216 * (d + 5) + 216) + 128 < limit
+        assert f * (216 * (d + 5) + 8 * d + 240) + 128 > limit
 
     def emit(path, target, destination, label, reject=None):
         r = run(
@@ -957,9 +1075,11 @@ def delayed_fixture(latencies, independent=False, huge=False):
         )
     if huge:
         for owner in ("QueuePair", "QueueTablePair"):
-            prefix = prefix.replace(
-                "availability_latency = #latency_" + owner,
-                "availability_latency = #lat18446744073709551615",
+            prefix = replace_exact(
+                prefix,
+                f"parameters = [#depth_{owner}, #latency_{owner}]",
+                f"parameters = [#depth_{owner}, #lat18446744073709551615]",
+                2,
             )
     prefix = "".join(declarations) + prefix
     c = "!controls"

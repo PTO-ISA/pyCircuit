@@ -133,7 +133,7 @@ def test_runtime_only_install_relocates_and_runs_without_llvm(
         [
             cmake,
             "-S",
-            str(ROOT / "examples/module_loop"),
+            str(ROOT / "tests/fixtures/historical_examples/module_loop"),
             "-B",
             str(tmp_path / "runtime-only-example"),
             "-G",

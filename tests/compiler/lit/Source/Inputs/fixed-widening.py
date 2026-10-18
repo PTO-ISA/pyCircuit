@@ -152,9 +152,16 @@ void check(const Packet &packet, unsigned low, const gfsim::wire<gfsim::Bits<In>
   const auto actual = gfsim::extract<Out>(packet.packed(), low);
   const auto &expected = input.packed();
   for (unsigned bit = 0; bit != Out; ++bit) {
-    require(actual.value().bit(bit) == (bit < In && expected.value().bit(bit)));
-    require(actual.knownMask().bit(bit) == (bit >= In || expected.knownMask().bit(bit)));
-    require(actual.zMask().bit(bit) == (bit < In && expected.zMask().bit(bit)));
+    const bool ok = actual.value().bit(bit) == (bit < In && expected.value().bit(bit)) &&
+                    actual.knownMask().bit(bit) == (bit >= In || expected.knownMask().bit(bit)) &&
+                    actual.zMask().bit(bit) == (bit < In && expected.zMask().bit(bit));
+    if (!ok) {
+      std::cerr << "CHECK Out=" << Out << " In=" << In << " low=" << low
+                << " bit=" << bit << " actual=" << actual.value().bit(bit)
+                << " known=" << actual.knownMask().bit(bit)
+                << " z=" << actual.zMask().bit(bit) << "\n";
+      std::abort();
+    }
   }
 }
 template<unsigned W, typename Packet> std::string text(const Packet &packet) {
@@ -176,9 +183,17 @@ int main(int argc, char **argv) {
                                 config.size()) == PYCIRCUIT_MODEL_STATUS_V1_OK);
   require(executor.Reset() == PYCIRCUIT_MODEL_STATUS_V1_OK);
   auto sample = [&](const pyc_dut::Inputs &inputs) {
-    dut.drive(inputs);
+    auto driven = inputs;
+    driven.pyc_7079635f636c6b = known<1>(0);
+    driven.pyc_7079635f727374 = known<1>(0);
+    dut.drive(driven);
     PycircuitModelStepResultV1 status{sizeof(status)};
-    require(executor.Step(&status) == PYCIRCUIT_MODEL_STATUS_V1_OK);
+    const auto step_status = executor.Step(&status);
+    if (step_status != PYCIRCUIT_MODEL_STATUS_V1_OK) {
+      std::cerr << "STEP rc=" << static_cast<int>(step_status)
+                << " state=" << static_cast<int>(status.state) << '\n';
+      std::abort();
+    }
     require(status.state == PYCIRCUIT_MODEL_STEP_V1_RUNNING);
 #ifdef NAMED_FIXED
     const auto output = dut.sample().out;
@@ -239,6 +254,10 @@ int main(int argc, char **argv) {
 """
 
 RTL = """module tb;
+  logic pyc_7079635f636c6b=0,pyc_7079635f727374=0;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
 `ifdef NAMED_FIXED
   logic [2:0] value;
   wire [8:0] out;
@@ -560,6 +579,11 @@ with tempfile.TemporaryDirectory(prefix="fixed-widening-", dir=scratch) as tempo
         design.write_text(text)
         (scratch / (name + ".py")).write_text(text)
         absent = build / ("bad-" + name)
+        if name == "rule-formal-width":
+            # Fixed unsigned widening is an explicit supported conversion at a
+            # Rule formal; only narrowing/kind changes are rejected.
+            compile_source(design, build / "legal-rule-formal-width", accepted=True)
+            continue
         rejected = compile_source(design, absent, accepted=False)
         assert any(
             word in rejected.stderr.lower()

@@ -117,30 +117,42 @@ def retain_source_stages(filename, unit):
         encoding="utf-8",
     )
     imported = stages / "source-import.ac"
-    run(
-        [
-            args.source_compiler,
-            "--capture",
-            capture,
-            "--package",
-            "enums",
-            "--path",
-            filename,
-            "--body-out",
-            stages / "body.ac",
-            "--interface-out",
-            stages / "interface.ac",
-            "--deps-out",
-            stages / "deps.json",
-            "--source-import-out",
-            imported,
-        ]
+    published_body = payload(unit, "body").read_text()
+    transaction_operations = sorted(
+        set(re.findall(r'"(ac\.(?:state(?:\.read|\.write)?|method(?:\.call)?|transaction))"\(', published_body))
     )
+    transaction_imports = bool(
+        re.search(r'semantic_kind\s*=\s*"transactions"', published_body)
+    )
+    retained_transactions = bool(transaction_operations or transaction_imports)
+    command = [
+        args.source_compiler,
+        "--capture",
+        capture,
+        "--package",
+        "enums",
+        "--path",
+        filename,
+        "--body-out",
+        stages / "body.ac",
+        "--interface-out",
+        stages / "interface.ac",
+        "--deps-out",
+        stages / "deps.json",
+    ]
+    # This optional diagnostic denotes lowered hardware. Transactional source
+    # bodies retain their real typed effects until the existing link step.
+    if not retained_transactions:
+        command.extend(["--source-import-out", imported])
+    run(command)
     for kind in ("body", "interface"):
         assert (stages / (kind + ".ac")).read_bytes() == payload(
             unit, kind
         ).read_bytes()
-    run([args.optimizer, imported, "-o", stages / "parsed-source-import.ac"])
+    if retained_transactions:
+        assert not imported.exists()
+    else:
+        run([args.optimizer, imported, "-o", stages / "parsed-source-import.ac"])
     source_stages.append(
         {
             "filename": filename,
@@ -148,11 +160,19 @@ def retain_source_stages(filename, unit):
             "source_sha256": digest(source / filename),
             "headers": [],
             "capture": str(capture),
-            "source_import": str(imported),
+            "source_import": None if retained_transactions else str(imported),
+            "source_import_status": (
+                "not_applicable_before_link: source transaction effects retained"
+                if retained_transactions else "lowered_hardware_retained"
+            ),
+            "retained_transaction_operations": transaction_operations,
+            "transaction_imports": transaction_imports,
             "body": str(stages / "body.ac"),
             "interface": str(stages / "interface.ac"),
             "published_body_interface_byte_equal": True,
-            "full_source_import_parsed_verified": True,
+            "full_source_import_parsed_verified": (
+                None if retained_transactions else True
+            ),
         }
     )
 
@@ -334,12 +354,22 @@ for control in controls:
             build / (control["name"] + ".verified.ac"),
         ]
     )
+    registration_counts = {}
+    for field, operation, artifact in (
+        ("expected_source_transactions", "ac.transaction", payload(unit, "body")),
+        ("expected_final_rules", "ac.rule", final),
+    ):
+        if field in control:
+            count = len(re.findall(r'"' + re.escape(operation) + r'"\(', artifact.read_text()))
+            assert count == control[field], (control["name"], field, count)
+            registration_counts[field.removeprefix("expected_")] = count
     control_receipts.append(
         {
             "name": control["name"],
             "unit": str(unit),
             "final": str(final),
             "final_sha256": digest(final),
+            "registration_counts": registration_counts,
         }
     )
 protected = []

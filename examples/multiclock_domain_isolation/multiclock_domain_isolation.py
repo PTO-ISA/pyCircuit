@@ -1,7 +1,7 @@
 from typing import Annotated
 
 import pycircuit as ac
-from pycircuit import module, rule, struct
+from pycircuit import module, struct
 from example_multiclock_domain_isolation.counter_lane import CounterLane
 
 
@@ -17,23 +17,9 @@ class DomainPins:
 def MulticlockDomainIsolation(  # noqa: N802
     d_a: DomainPins,
     d_b: DomainPins,
-) -> {
-    "a_count": Annotated[int, range(1 << 8)],  # noqa: F821
-    "b_count": Annotated[int, range(1 << 8)],  # noqa: F821
-}:
-    # (b) One reusable lane owns the register and its domain pins. Each lane is
-    # instantiated once and bound inside its own rule to a different record.
-    lane_a = CounterLane()
-    lane_b = CounterLane()
-
-    @rule
-    def bind_a():
-        lane_a(clk=d_a.clk, rst=d_a.rst)
-
-    @rule
-    def bind_b():
-        lane_b(clk=d_b.clk, rst=d_b.rst)
-
-    bind_a()
-    bind_b()
-    return {"a_count": lane_a.count, "b_count": lane_b.count}
+) -> tuple[Annotated[int, range(1 << 8)], Annotated[int, range(1 << 8)]]:
+    # (b) Each direct typed call creates one independent CounterLane instance
+    # and routes one unchanged physical domain record to its pins.
+    a_count = CounterLane(d_a.clk, d_a.rst)
+    b_count = CounterLane(d_b.clk, d_b.rst)
+    return a_count, b_count

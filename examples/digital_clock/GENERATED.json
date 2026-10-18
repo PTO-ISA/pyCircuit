@@ -11,39 +11,39 @@
       "source/CMakeLists.txt": "ab03cb36b8c4b541de2ef55b8b32eabc83198a8f4032e75876e17c3bc7d8b4cf",
       "source/bench.py": "35e6011db752ba52e702de2afa7abdd6120d417586014595dd812b847e6e297f",
       "source/config.json": "0572beea398584958ae25e802eb4787be5e193b8e8dc408b71b26dd96b15b230",
-      "source/digital_clock.py": "01cad6dbec542fed022806f41238d808de8901fbcc80f56ca22f70d09e81ddd6",
+      "source/digital_clock.py": "58ef18e6572fb3dd133125dd5e76ba9b1d4ae0afe3fa5c0c3b1b6879fdb297c5",
       "source/driver.cpp": "0ff7eb98e2912443a0a87a451f779358cb5890684cdb8b29254d126ac92561d1",
       "source/encoder_driver.cpp": "3a9048841d81c99bf70263a26db466c7ae21925d62aa902d8fb133fae6599c88",
       "source/encoder_tb.sv": "fea781840bdc1a3dc114032126880d31aa3622d5b37d37b3421827e41533759c",
-      "source/rtl_tb.sv": "6009e821951299bcb705b98ad40da0d387dbb924a67726b90a9c72c83a4f9bfe",
+      "source/rtl_tb.sv": "d95ebdcab2f73d9b2dc51dfeb354b45f3077e4735af797814c3aedaee85cb17f",
       "source/verify_encoder.py": "fa6579081da4fc213cf431d658663a635bc682dbd4f21459a96857f4e67ca561",
       "build/cpp/generated.json": "a0b9a84e50c985dca5e89d126017b08d871641f9b26335806f588b3249856699",
       "build/cpp/CMakeLists.txt": "2e3a77a2efedd8f46de468d790fc5b8728a337850e61141a69920c880f2cb55c",
-      "build/cpp/pycircuit_support.hpp": "8057d4dc2b23371f390903f1fbd223ba4c42fa242f4a66d8ceb167fedd9d549d",
-      "build/cpp/pycircuit_system.hpp": "caa0f81a134edd3a3fa19c84ec6d4e44ef4bf3b3f0c021945af22b9de593127f",
+      "build/cpp/pycircuit_support.hpp": "21725c49a2af50746225184eda518c302eb2056512e179fa79ccd032ba28eae3",
+      "build/cpp/pycircuit_system.hpp": "16ba0c159677b1a68e91d3d5d8ad23e9cfbac42157a186cbd2c036baa19297f9",
       "build/cpp/sources/example_digital_clock/digital_clock.cpp": "3aaa1642453d833191f2921458f9c138e73c132e68655404a8487fbda3c6f7ec",
-      "build/cpp/sources/example_digital_clock/digital_clock.hpp": "37e8f948a8415e16db6ac6f1a4703a944298e2cf34a35a777f35485aff49beba",
-      "build/cpp/sources/example_digital_clock/digital_clock.source-map.json": "fbf72c223f8ea3eca642ae227d1b128837b3eddb793021679688382e68396714",
+      "build/cpp/sources/example_digital_clock/digital_clock.hpp": "2c07ef865ac3d4598ff2ca7d46e0b99c3be71e549b64aae5d76a7fa7500f1b25",
+      "build/cpp/sources/example_digital_clock/digital_clock.source-map.json": "288f9fc24897d99e691de25c01c95d69f6eaef7e59a5eefbef5f1818622ae871",
       "build/verilog/generated.json": "e5918dd79efbd73fb1bc4ec8866a77d5d654660b866b434a856406d33bae390a",
-      "build/verilog/CMakeLists.txt": "a8f0206c1c5841bbc576ca3459ff8dc71f597cce341b58db0cc17ab598bf595b",
-      "build/verilog/design_top.sv": "e0fafa8b89ee898d0cb247b7f24e79e9e7f2faf322860e6e2373bc48a12d4f28",
-      "build/verilog/sources/example_digital_clock/digital_clock.source-map.json": "e906bc84dbee5b684ee0d9746b2b51139e9dbdb3ccc274f34c8b51af7c54c8b2",
-      "build/verilog/sources/example_digital_clock/digital_clock.v": "5ce19af85407f172d659ccdeddd518a4f954a887e7de4be8b9680abdcea00a73",
-      "build/digital_clock.ac": "fc987b26484ce737889f072f6106e1d2e45014fec6bc48efacfdd8df0f023bf1",
+      "build/verilog/CMakeLists.txt": "7d3e5e93758b9fa81ecfe3d5800617dd88fc61ffb4dcc54d944b5f78685c3957",
+      "build/verilog/design_top.sv": "adee855c307278f8a1f610f07243bf7469abf1819abbf91fc9cc4101df26c93c",
+      "build/verilog/sources/example_digital_clock/digital_clock.source-map.json": "1716cb81203385a88283d8f0702e98256b0f4ef4d180b923e7fe08179801262e",
+      "build/verilog/sources/example_digital_clock/digital_clock.v": "c33dc410b8b1c7c29c8a1ebf9006e26cf13e7326692d05b551ea394678c07324",
+      "build/digital_clock.ac": "58fe22221ea91685b4d5c9510f838e20e8858d97d8451793d1fdbb2c2c167cf9",
       "build/units/.digital_clock.pycircuit-publication/owner.json": "f793b7a7776a876e5d6e75168030744fc2daf0031244f4dccfb90bf3cfb26637",
-      "build/units/digital_clock/digital_clock.ac": "ec531ae8bce6013b09f7b66162d208bcbc78636adc66affdea6c81978621a9cc",
-      "build/units/digital_clock/digital_clock.d": "35fa2a4033449d3c0b4be13dcc9944c0135b1074a1bb7b8cffa1432f5bc0b94b",
-      "build/units/digital_clock/digital_clock.interface.ac": "e267c8d0a316d65b684803d1c818e309da010223ea2fe8292110c2f8beb028af",
+      "build/units/digital_clock/digital_clock.ac": "1ae58d3c8fd5a707ea92f411fc1058cad0aa5e46e562684dcbab7b52bc17313b",
+      "build/units/digital_clock/digital_clock.d": "b65e78c05df079ca48ff565aba0b0beb075fbb16d08d52afef7beca90e459b76",
+      "build/units/digital_clock/digital_clock.interface.ac": "1924b308df442128d3d0908369246081249821aaf62a25d5639fce34adfdb7e5",
       "build/units/digital_clock/unit.json": "07aa8e2a93133ce8091f94a82b5c0bef6eccf38c655b275dbf09f852d95421f9",
       "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
       "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
       "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
-      "runtime-rtl/fifo.v": "8b2f0796fdd7c0f4aee3f20bd52226ccb532c827c8618afd9fbef99e2713f97f",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
       "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
       "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
-      "runner": "5094b5d572e30e5f9f334da3ebd20a92da294de6b8cca2d89ecb580c196947cb"
+      "runner": "20edddef49097261599d48c70765ac3e4c3589fafbda904468af958763017ae3"
     },
-    "execution_sha256": "60ac27e52ecd584a3a9a898431cd56793342a2b6129d5f5dc6159ff8a0fd2b33",
+    "execution_sha256": "5af4f805bc73d4dada16fbe30e1479cac37dd22fd6c171b4e28d5e9d2ce63fc5",
     "work_samples": 546,
     "native_check_records": 0,
     "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
@@ -57,18 +57,18 @@
   "excerpts": [
     {
       "path": "digital_clock.ac",
-      "line": 9,
-      "sha256": "fc987b26484ce737889f072f6106e1d2e45014fec6bc48efacfdd8df0f023bf1"
+      "line": 17,
+      "sha256": "58fe22221ea91685b4d5c9510f838e20e8858d97d8451793d1fdbb2c2c167cf9"
     },
     {
       "path": "cpp/sources/example_digital_clock/digital_clock.hpp",
-      "line": 14,
-      "sha256": "37e8f948a8415e16db6ac6f1a4703a944298e2cf34a35a777f35485aff49beba"
+      "line": 16,
+      "sha256": "2c07ef865ac3d4598ff2ca7d46e0b99c3be71e549b64aae5d76a7fa7500f1b25"
     },
     {
       "path": "verilog/sources/example_digital_clock/digital_clock.v",
       "line": 1,
-      "sha256": "5ce19af85407f172d659ccdeddd518a4f954a887e7de4be8b9680abdcea00a73"
+      "sha256": "c33dc410b8b1c7c29c8a1ebf9006e26cf13e7326692d05b551ea394678c07324"
     }
   ]
 }

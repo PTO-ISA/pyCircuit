@@ -112,8 +112,8 @@ for the preceding straight-line slice.
 Consumer compilation reads the interfaces, without loading provider
 Python or Method bodies. Native final link lowers calls through ordinary
 static instances with bounded whole-Bits branches and statement-arm calls/effects,
-a shared actual clock/reset domain and one outer writer per physical scalar
-owner. Ordinary results escaping an outer Rule require total admission over
+a shared actual clock/reset domain and unordered writers admitted only through
+disjoint footprints or proven grant exclusivity. Ordinary results escaping an outer Rule require total admission over
 reachable controls; statically unreachable controls do not prevent totality.
 All arms still undergo structural/type/closure checks. A reachable effect
 selector whose knownness is unproved requires an outer `-> None` Rule; this
@@ -141,6 +141,21 @@ published module and rejects missing provider bodies. See the
 [summary contract](../rfcs/serial-rule-method/publication-summary.md) for fields,
 scopes and authority obligations.
 
+Receiver resolution shares fully verified declaration headers and direct-instance
+inventories within one immutable analysis invocation. Each actual call still
+checks its path, provider, parameter/type bindings and resource direction. The
+independent lowering proof constructs its own receiver context and SSA identity
+index from the original IR; it never accepts the producer's cached result as
+proof. Contexts do not survive IR mutation or cross analysis/proof invocations.
+
+Before transaction planning, link removes exact-type identity extracts and
+pools equal literal constants used exclusively by same-block aggregate
+constructors. Source units are authenticated before this normalization and are
+not modified. Local pure helper completion uses the same predicates; imported
+helper snapshots retain their published authority. Physical domain connections,
+state initializers, direct observations and effectful operations are outside
+this compaction boundary.
+
 Native module imports require an explicit `semantic_kind`. Hardware imports
 carry `dependency_summary`; transaction imports carry `transaction_summary`.
 The two summaries are mutually exclusive, and transaction imports cannot claim
@@ -149,14 +164,24 @@ rejects transaction imports throughout the actual instance closure, including
 result-free children; final package checking also rejects unused transaction
 imports. Publication alone does not establish hardware execution.
 
+FIFO Modules use canonical hardware imports and ordinary `ac.instance`
+allocations. Their native `push`/`pop`/`peek` contracts terminate ordinary Method
+resolution without an invented body or invocation frame. Published instance rows
+retain logical payload and raw-direction binding facts; configuration is derived
+from the canonical callee and ordinary parameters. The existing Queue access
+plan, source replay and final wiring proof use that same actual instance identity.
+Final hardware contains native FIFO instances, not dedicated Queue operations.
+Both emitters continue to use the existing FIFO kernels.
+
 Source compilation defers the hardware-only record simplifier for packages
 retaining transaction semantics. The existing `--source-import-out` diagnostic
 still denotes lowered hardware and rejects these packages; published source
 bodies retain their actual typed IR. Link checks complete source-unit authority,
 then applies the common transaction lowerer. It rechecks canonical primitive
 imports with the admitted registry; native transformation separately validates
-their hardware schema. Each admitted state becomes one DFFE with original
-clock/reset/init, and candidate D values come from isolated pure Rules. All
+their hardware schema. Each admitted scalar state becomes one compiler-selected
+DFF or DFFE with original clock/reset/init; Table states remain element
+Collections. Candidate D values come from isolated pure Rules. All
 staged hardware checks succeed before the package becomes final.
 
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves

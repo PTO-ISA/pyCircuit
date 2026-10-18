@@ -1,4 +1,6 @@
 #include "HardwareSampledAdmission.h"
+#include "HardwareValueAvailability.h"
+#include "HardwareGrantProof.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "mlir/IR/Verifier.h"
@@ -8,6 +10,7 @@
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/STLExtras.h"
 #include <algorithm>
+#include <functional>
 #include <limits>
 #include <map>
 #include <optional>
@@ -265,17 +268,35 @@ LogicalResult wholeStateID(DictionaryAttr state, Operation *site) {
     return failure();
   if (!state.getAs<ArrayAttr>("element").empty())
     return site->emitOpError()
-           << "sampled transaction state requires whole Bits ownership";
+           << "sampled transaction state requires whole finite ownership";
   return success();
 }
-FailureOr<InstanceOp> directState(ModuleOp module, DictionaryAttr declaration,
+// A Collection has scalar DFFE elements and replicated control columns.
+// Authenticate that replication before recovering the shared sampled control.
+FailureOr<Value> stateControl(Operation *storage, unsigned ordinal) {
+  Value value = storage->getOperand(ordinal);
+  auto collection = dyn_cast<CollectionOp>(storage);
+  if (!collection) return value;
+  auto splat = value.getDefiningOp<TableSplatOp>();
+  if (!splat || splat.getShape() != collection.getShape() ||
+      !isa<BitsType>(splat.getInput().getType()) || !areEquivalentHardwareTypes(
+          value.getType(), TableType::get(storage->getContext(), collection.getShape(),
+                                          splat.getInput().getType())))
+    return storage->emitOpError()
+           << "transaction Collection requires replicated scalar controls";
+  return splat.getInput();
+}
+FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
                                   const HardwareAnalysis &analysis,
                                   SourceCheckBudget &budget) {
   if (!module.getBody().hasOneBlock())
     return module->emitOpError()
            << "transaction state owner requires one graph block";
-  InstanceOp found;
-  for (auto instance : module.getBody().front().getOps<InstanceOp>()) {
+  Operation *found = nullptr;
+  for (Operation &operation : module.getBody().front()) {
+    auto *instance = &operation;
+    if (!isa<InstanceOp, CollectionOp>(instance))
+      continue;
     if (failed(budget.debit(1, instance)))
       return failure();
     auto actual = instance->getAttrOfType<DictionaryAttr>("occurrence");
@@ -290,15 +311,25 @@ FailureOr<InstanceOp> directState(ModuleOp module, DictionaryAttr declaration,
     if (found)
       return module->emitOpError()
              << "state declaration resolves to multiple direct instances";
-    if (analysis.getPrimitiveKind(analysis.resolveCallee(instance)) != "dffe" ||
-        instance->getNumOperands() != 5 || instance->getNumResults() != 1)
+    StringRef kind =
+        analysis.getPrimitiveKind(
+            isa<InstanceOp>(instance)
+                ? analysis.resolveCallee(cast<InstanceOp>(instance))
+                : analysis.resolveCallee(cast<CollectionOp>(instance)));
+    bool dff = kind == "dff";
+    if ((!dff && kind != "dffe") ||
+        instance->getNumOperands() != (dff ? 4u : 5u) ||
+        instance->getNumResults() != 1)
       return instance->emitOpError()
-             << "transaction inventory requires a direct verified DFFE";
+             << "transaction inventory requires a direct verified DFF/DFFE";
+    unsigned controls = dff ? 2 : 3;
+    for (unsigned ordinal = 0; ordinal < controls; ++ordinal)
+      if (failed(stateControl(instance, ordinal))) return failure();
     found = instance;
   }
   if (!found)
     return module->emitOpError()
-           << "transaction inventory has no matching direct DFFE";
+           << "transaction inventory has no matching direct DFF/DFFE";
   return found;
 }
 } // namespace
@@ -315,8 +346,32 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     return failure();
   auto module = dyn_cast<ModuleOp>(rule->getParentOp());
   auto row = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+  NamedAttrList core;
+  if (row) core.assign(row.getValue());
+  core.erase("ehr_entries");
+  core.erase("requirements");
+  core.erase("resources");
+  core.erase("queue_proposals");
+  core.erase("write_domains");
+  auto writeDomains = row ? row.getAs<ArrayAttr>("write_domains") : ArrayAttr();
+  if (row && row.get("write_domains") && (!writeDomains || writeDomains.empty()))
+    return rule->emitOpError() << "write_domains requires a nonempty array";
+  auto resources = row ? row.getAs<ArrayAttr>("resources") : ArrayAttr();
+  auto queueProposals = row ? row.getAs<ArrayAttr>("queue_proposals") : ArrayAttr();
+  for (StringRef key : {"resources", "queue_proposals"})
+    if (row && row.get(key)) {
+      auto entries = row.getAs<ArrayAttr>(key);
+      if (!entries || entries.empty())
+        return rule->emitOpError() << key << " requires a nonempty array";
+    }
+  auto requirements = row ? row.getAs<ArrayAttr>("requirements") : ArrayAttr();
+  if (row && row.get("requirements") && (!requirements || requirements.empty()))
+    return rule->emitOpError() << "requirements requires a nonempty array";
+  auto ehrEntries = row ? row.getAs<ArrayAttr>("ehr_entries") : ArrayAttr();
+  if (row && row.get("ehr_entries") && (!ehrEntries || ehrEntries.empty()))
+    return rule->emitOpError() << "ehr_entries requires a nonempty array";
   if (!module || rule->getNumRegions() != 1 || !rule.getBody().hasOneBlock() ||
-      failed(exact(row,
+      failed(exact(core.getDictionary(rule.getContext()),
                    {"clock_capture", "reset_capture", "fire_result", "controls",
                     "body_checks", "observations"},
                    rule, "ac.sampled_admission")))
@@ -353,8 +408,18 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   }
   uint64_t checkCount =
       SourceCheckBudget::add(controls.size(), bodyChecks.size());
-  uint64_t total = SourceCheckBudget::add(
+  uint64_t legacyTotal = SourceCheckBudget::add(
       checkBase, SourceCheckBudget::multiply(2, checkCount));
+  uint64_t total = SourceCheckBudget::add(legacyTotal, ehrEntries ? ehrEntries.size() : 0);
+  if (queueProposals)
+    for (Attribute raw : queueProposals) {
+      auto proposal = dyn_cast<DictionaryAttr>(raw);
+      auto kind = proposal ? proposal.getAs<StringAttr>("kind") : StringAttr();
+      if (!kind || (kind.getValue() != "pop" && kind.getValue() != "push"))
+        return rule->emitOpError() << "queue proposal kind must be pop or push";
+      total = SourceCheckBudget::add(total, kind.getValue() == "push" ? 3 : 2);
+    }
+  total = SourceCheckBudget::add(total, writeDomains ? writeDomains.size() : 0);
   if (total == std::numeric_limits<uint64_t>::max() ||
       total != rule->getNumResults() || yielded->getNumOperands() != total)
     return rule->emitOpError() << "sampled admission requires exact "
@@ -387,8 +452,13 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   result.clock = rule->getOperand(*clock);
   result.reset = rule->getOperand(*reset);
   result.fire = yielded->getOperand(*fire);
-  if (!rule->getResult(*fire).use_empty())
-    return rule->emitOpError() << "sampled external fire must have zero users";
+  if (!rule->getResult(*fire).use_empty()) {
+    auto availabilityUses = getVerifiedValueAvailabilityUses(analysis);
+    if (failed(availabilityUses)) return failure();
+    for (OpOperand &use : rule->getResult(*fire).getUses())
+      if (!availabilityUses->contains(&use))
+        return rule->emitOpError() << "sampled external fire escapes availability routing";
+  }
   auto parsePath = [&](DictionaryAttr row,
                        uint64_t before) -> FailureOr<SampledPathRef> {
     auto path = row.getAs<DictionaryAttr>("path");
@@ -450,7 +520,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     return success();
   };
   auto callable = [&](ArrayAttr invocation,
-                      bool parent) -> FailureOr<const SampledControlView *> {
+                      bool parent, bool pending = false) -> FailureOr<const SampledControlView *> {
     if (!invocation || (parent && invocation.empty()))
       return rule->emitOpError() << "sampled invocation has no callable owner";
     for (const auto &prior : result.controls) {
@@ -476,6 +546,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
           return &prior;
       }
     }
+    if (pending) return static_cast<const SampledControlView *>(nullptr);
     return rule->emitOpError()
            << "sampled invocation is absent from callable guard inventory";
   };
@@ -498,12 +569,16 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       return failure();
     auto kindAttr = guard.getAs<StringAttr>("kind");
     if (!kindAttr || !llvm::is_contained(
-                         ArrayRef<StringRef>{"callable_guard", "branch_select"},
+                         ArrayRef<StringRef>{"callable_guard", "branch_select", "value_available", "resource_available"},
                          kindAttr.getValue()))
       return rule->emitOpError() << "sampled control has an invalid role";
     auto role = kindAttr.getValue() == "callable_guard"
                     ? SampledControlKind::CallableGuard
-                    : SampledControlKind::BranchSelect;
+                    : kindAttr.getValue() == "branch_select"
+                          ? SampledControlKind::BranchSelect
+                          : kindAttr.getValue() == "value_available"
+                                ? SampledControlKind::ValueAvailable
+                                : SampledControlKind::ResourceAvailable;
     auto id = guard.getAs<DictionaryAttr>("id");
     auto invocation = guard.getAs<ArrayAttr>("invocation");
     auto predecessor = index(guard, "predecessor", rule, true);
@@ -520,7 +595,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     if (*predecessor != static_cast<int64_t>(ordinal) - 1 ||
         *obligation != static_cast<int64_t>(ordinal) || !invocation ||
         (ordinal == 0 && (!invocation.empty() || path->selectionControl ||
-                          role != SampledControlKind::CallableGuard)) ||
+                          role == SampledControlKind::BranchSelect)) ||
         !identical(id.get("registration"), rule->getAttr("occurrence")))
       return rule->emitOpError() << "sampled control has inconsistent ordinal, "
                                     "registration or invocation";
@@ -551,12 +626,20 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       }
     }
     const SampledControlView *owner = nullptr;
-    if (ordinal) {
-      auto found =
-          callable(invocation, role == SampledControlKind::CallableGuard);
+    if ((ordinal || role == SampledControlKind::ValueAvailable ||
+                    role == SampledControlKind::ResourceAvailable) &&
+        !(role == SampledControlKind::CallableGuard && invocation.empty())) {
+      auto found = callable(invocation,
+          role == SampledControlKind::CallableGuard,
+          role == SampledControlKind::ValueAvailable);
       if (failed(found))
         return failure();
       owner = *found;
+      if (!owner && !invocation.empty()) {
+        auto parent = callable(invocation, true);
+        if (failed(parent)) return failure();
+        owner = *parent;
+      }
     }
     if (failed(validatePath(*path, invocation, owner)))
       return failure();
@@ -583,6 +666,110 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
         {role, id, invocation, *predecessor, *path, predicate, reached,
          yielded->getOperand(predicate), yielded->getOperand(reached)});
   }
+  uint64_t nextRequirement = 0;
+  if (requirements && failed(charge(budget, rule, requirements.size(),
+                                     sizeof(SampledValueRequirement)))) return failure();
+  for (auto [ordinal, control] : llvm::enumerate(result.controls)) {
+    if (control.kind != SampledControlKind::ValueAvailable) continue;
+    if (!requirements || nextRequirement == requirements.size())
+      return rule->emitOpError() << "value_available control lacks its requirement";
+    auto requirement = dyn_cast<DictionaryAttr>(requirements[nextRequirement++]);
+    if (failed(exact(requirement,
+          {"control", "kind", "operand", "occurrence", "location"}, rule,
+          "sampled value requirement"))) return failure();
+    auto indexValue = index(requirement, "control", rule);
+    auto operand = index(requirement, "operand", rule);
+    auto kind = requirement.getAs<StringAttr>("kind");
+    auto occurrence = requirement.getAs<DictionaryAttr>("occurrence");
+    auto location = requirement.getAs<DictionaryAttr>("location");
+    auto operation = control.raw.getDefiningOp<ValueRequireOp>();
+    if (failed(indexValue) || failed(operand) || *indexValue != ordinal ||
+        !kind || !llvm::is_contained(ArrayRef<StringRef>{"guard", "branch",
+            "state_write", "write_path", "call_argument", "return", "assert",
+            "log", "formal_write", "formal_path", "formal_candidate", "queue_push"}, kind.getValue()) ||
+        !operation || operation->getParentOp() != rule ||
+        operation.getOccurrence() != occurrence ||
+        operation.getSourceLocation() != location ||
+        control.id.get("check") != occurrence ||
+        failed(verifyOccurrence(occurrence, [&] { return rule->emitOpError(); })) ||
+        failed(verifySourceSpan(location, [&] { return rule->emitOpError(); })))
+      return rule->emitOpError() << "sampled value requirement differs from actual use witness";
+    result.requirements.push_back({ordinal, static_cast<uint64_t>(*operand), kind, occurrence, location,
+                                  operation});
+  }
+  if (requirements && nextRequirement != requirements.size())
+    return rule->emitOpError() << "unlisted or duplicate sampled value requirement";
+  uint64_t nextResource = 0;
+  if (resources && failed(charge(budget, rule, resources.size(),
+                                 sizeof(SampledResourceView)))) return failure();
+  for (auto [ordinal, control] : llvm::enumerate(result.controls)) {
+    if (control.kind != SampledControlKind::ResourceAvailable) continue;
+    if (!resources || nextResource == resources.size())
+      return rule->emitOpError() << "resource_available control lacks resource metadata";
+    auto resource = dyn_cast<DictionaryAttr>(resources[nextResource++]);
+    if (!resource) return rule->emitOpError() << "sampled queue resource requires a dictionary";
+    NamedAttrList resourceCore(resource);
+    resourceCore.erase("prospective");
+    if (failed(exact(resourceCore.getDictionary(rule.getContext()), {"control", "kind", "owner", "declaration",
+                               "occurrence", "location"}, rule,
+                     "sampled queue resource"))) return failure();
+    auto controlIndex = index(resource, "control", rule);
+    auto kind = resource.getAs<StringAttr>("kind");
+    auto owner = resource.getAs<DictionaryAttr>("owner");
+    auto declaration = resource.getAs<DictionaryAttr>("declaration");
+    auto occurrence = resource.getAs<DictionaryAttr>("occurrence");
+    auto location = resource.getAs<DictionaryAttr>("location");
+    if (failed(controlIndex) || *controlIndex != ordinal || !kind ||
+        (kind.getValue() != "queue_valid" && kind.getValue() != "queue_ready") ||
+        failed(verifyOwnerRef(owner, [&] { return rule->emitOpError(); })) ||
+        failed(verifyOccurrence(declaration, [&] { return rule->emitOpError(); })) ||
+        failed(verifyOccurrence(occurrence, [&] { return rule->emitOpError(); })) ||
+        failed(verifySourceSpan(location, [&] { return rule->emitOpError(); })) ||
+        control.id.get("check") != occurrence ||
+        cast<DictionaryAttr>(required[ordinal]).get("location") != location)
+      return rule->emitOpError() << "queue resource differs from its control obligation";
+    SampledResourceView parsed{ordinal, kind, owner, declaration, occurrence, location, std::nullopt};
+    auto prospective = resource.getAs<DictionaryAttr>("prospective");
+    if (kind.getValue() == "queue_valid") {
+      if (resource.get("prospective"))
+        return rule->emitOpError() << "queue_valid cannot carry prospective capacity";
+    } else {
+      if (!prospective || (prospective.size() != 1 && prospective.size() != 4))
+        return rule->emitOpError() << "queue_ready requires closed prospective metadata";
+      bool downstream = prospective.size() == 4;
+      if (failed(downstream ? exact(prospective, {"capacity", "valid", "external_pop", "prior_pops"}, rule, "prospective queue readiness")
+                            : exact(prospective, {"capacity"}, rule, "prospective queue readiness"))) return failure();
+      auto capture = [&](StringRef key) -> FailureOr<uint64_t> {
+        auto ordinal = index(prospective, key, rule);
+        if (failed(ordinal) || uint64_t(*ordinal) >= rule.getNumOperands() ||
+            failed(bitOne(rule.getOperand(*ordinal), analysis, bindings, rule, budget)))
+          return rule->emitOpError() << "prospective queue capture requires a Bits1 Rule operand";
+        return uint64_t(*ordinal);
+      };
+      auto capacity = capture("capacity");
+      if (failed(capacity)) return failure();
+      SampledQueueProspectiveView view;
+      view.capacityCapture = *capacity;
+      if (downstream) {
+        auto valid = capture("valid"), external = capture("external_pop");
+        auto prior = prospective.getAs<ArrayAttr>("prior_pops");
+        if (failed(valid) || failed(external) || !prior) return failure();
+        view.validCapture = *valid; view.externalPopCapture = *external;
+        if (failed(charge(budget, rule, prior.size(), sizeof(uint64_t)))) return failure();
+        for (Attribute item : prior) {
+          auto value = dyn_cast<IntegerAttr>(item);
+          if (!value || !value.getType().isSignlessInteger(64) || value.getInt() < 0 ||
+              (!view.priorPops.empty() && uint64_t(value.getInt()) <= view.priorPops.back()))
+            return rule->emitOpError() << "prospective prior_pops requires increasing nonnegative i64 ordinals";
+          view.priorPops.push_back(value.getInt());
+        }
+      }
+      parsed.prospective = std::move(view);
+    }
+    result.resources.push_back(std::move(parsed));
+  }
+  if (resources && nextResource != resources.size())
+    return rule->emitOpError() << "unlisted or duplicate sampled queue resource";
   auto effectPath = [&](ArrayAttr invocation,
                         SampledPathRef path) -> LogicalResult {
     auto owner = callable(invocation, false);
@@ -700,6 +887,126 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     result.observations.push_back(std::move(observation));
     path += 1 + *count;
   }
+  if (ehrEntries) {
+    for (auto [ordinal, raw] : llvm::enumerate(ehrEntries)) {
+      auto row = dyn_cast<DictionaryAttr>(raw);
+      if (failed(exact(row, {"state", "old_q_capture", "predecessors", "result"},
+                       rule, "EHR entry"))) return failure();
+      auto state = row.getAs<DictionaryAttr>("state");
+      auto oldQ = index(row, "old_q_capture", rule);
+      auto output = index(row, "result", rule);
+      auto predecessors = row.getAs<ArrayAttr>("predecessors");
+      if (failed(oldQ) || failed(output) || !predecessors || predecessors.empty() ||
+          failed(wholeStateID(state, rule)) ||
+          uint64_t(*oldQ) >= rule->getNumOperands() || uint64_t(*output) != legacyTotal + ordinal)
+        return rule->emitOpError() << "EHR entry has invalid owner/capture/result";
+      SampledEhrEntry entry{state, uint64_t(*oldQ), uint64_t(*output),
+          rule->getOperand(*oldQ), yielded->getOperand(*output), {}};
+      for (auto prior : predecessors) {
+        auto item = dyn_cast<DictionaryAttr>(prior);
+        if (failed(exact(item, {"registration", "data_capture", "enable_capture"},
+                         rule, "EHR predecessor"))) return failure();
+        auto registration = item.getAs<DictionaryAttr>("registration");
+        auto data = index(item, "data_capture", rule);
+        auto enable = index(item, "enable_capture", rule);
+        if (failed(data) || failed(enable) ||
+            failed(verifyOccurrence(registration, [&] { return rule->emitOpError(); })) ||
+            uint64_t(*data) >= rule->getNumOperands() || uint64_t(*enable) != uint64_t(*data) + 1 ||
+            uint64_t(*enable) >= rule->getNumOperands() ||
+            failed(bitOne(rule->getOperand(*enable), analysis, bindings, rule, budget)))
+          return rule->emitOpError() << "EHR predecessor has invalid proposal captures";
+        if (failed(charge(budget, rule, 1, sizeof(SampledEhrPredecessor)))) return failure();
+        entry.predecessors.push_back({registration, uint64_t(*data), uint64_t(*enable),
+                                      rule->getOperand(*data), rule->getOperand(*enable)});
+      }
+      if (failed(charge(budget, rule, 1, sizeof(SampledEhrEntry)))) return failure();
+      result.ehrEntries.push_back(std::move(entry));
+    }
+  }
+  uint64_t queueResult = SourceCheckBudget::add(legacyTotal,
+      ehrEntries ? ehrEntries.size() : 0);
+  if (queueProposals && failed(charge(budget, rule, queueProposals.size(),
+                                      sizeof(SampledQueueProposalView)))) return failure();
+  if (queueProposals) for (Attribute raw : queueProposals) {
+    auto row = dyn_cast<DictionaryAttr>(raw);
+    NamedAttrList core(row);
+    core.erase("resource_control");
+    core.erase("data"); core.erase("excluded_controls");
+    if (failed(exact(core.getDictionary(rule.getContext()),
+                     {"queue", "kind", "occurrence", "location", "raw_path", "path"},
+                     rule, "sampled queue proposal"))) return failure();
+    auto queue = row.getAs<DictionaryAttr>("queue");
+    if (failed(exact(queue, {"owner", "declaration"}, rule, "queue identity")) ||
+        failed(verifyOwnerRef(queue.getAs<DictionaryAttr>("owner"),
+                              [&] { return rule->emitOpError(); })) ||
+        failed(verifyOccurrence(queue.getAs<DictionaryAttr>("declaration"),
+                                [&] { return rule->emitOpError(); }))) return failure();
+    auto kind = row.getAs<StringAttr>("kind");
+    auto occurrence = row.getAs<DictionaryAttr>("occurrence");
+    auto location = row.getAs<DictionaryAttr>("location");
+    auto rawPath = index(row, "raw_path", rule), path = index(row, "path", rule);
+    bool push = kind && kind.getValue() == "push";
+    if (!kind || (!push && kind.getValue() != "pop") ||
+        failed(rawPath) || failed(path) || uint64_t(*rawPath) != queueResult ||
+        uint64_t(*path) != queueResult + 1 ||
+        uint64_t(*rawPath) >= yielded->getNumOperands() ||
+        uint64_t(*path) >= yielded->getNumOperands() ||
+        failed(verifyOccurrence(occurrence, [&] { return rule->emitOpError(); })) ||
+        failed(verifySourceSpan(location, [&] { return rule->emitOpError(); })) ||
+        failed(bitOne(yielded->getOperand(*rawPath), analysis, bindings, rule, budget)) ||
+        failed(bitOne(yielded->getOperand(*path), analysis, bindings, rule, budget)))
+      return rule->emitOpError() << "queue proposal requires its exact raw-path/enable suffix";
+    SampledQueueProposalView proposal;
+    proposal.queue = queue; proposal.kind = kind;
+    proposal.occurrence = occurrence; proposal.location = location;
+    proposal.rawPathResult = *rawPath; proposal.pathResult = *path;
+    proposal.rawPath = yielded->getOperand(*rawPath);
+    proposal.path = yielded->getOperand(*path);
+    if (!row.get("resource_control"))
+      return rule->emitOpError() << "queue proposal requires its resource control";
+    {
+      auto control = index(row, "resource_control", rule);
+      if (failed(control) || uint64_t(*control) >= result.controls.size() ||
+          result.controls[*control].kind != SampledControlKind::ResourceAvailable)
+        return rule->emitOpError() << "queue proposal resource control must name a resource";
+      auto found = llvm::find_if(result.resources, [&](const auto &entry) {
+        return entry.control == uint64_t(*control);
+      });
+      if (found == result.resources.end() || found->owner != queue.get("owner") ||
+          found->declaration != queue.get("declaration") ||
+          found->occurrence != occurrence || found->location != location ||
+          found->kind.getValue() != (push ? "queue_ready" : "queue_valid"))
+        return rule->emitOpError() << "queue proposal resource identity must agree";
+      proposal.resourceControl = *control;
+    }
+    if (push) {
+      auto data = index(row, "data", rule);
+      if (failed(data) || uint64_t(*data) != queueResult + 2 ||
+          uint64_t(*data) >= yielded->getNumOperands())
+        return rule->emitOpError() << "queue push data must occupy its exact suffix slot";
+      proposal.dataResult = *data;
+      proposal.data = yielded->getOperand(*data);
+    } else if (row.get("data"))
+      return rule->emitOpError() << "queue pop cannot publish push data";
+    if (Attribute rawExcluded = row.get("excluded_controls")) {
+      auto excluded = dyn_cast<ArrayAttr>(rawExcluded);
+      if (!excluded || excluded.empty())
+        return rule->emitOpError() << "excluded_controls requires a nonempty sorted control array";
+      if (failed(charge(budget, rule, excluded.size(), sizeof(uint64_t)))) return failure();
+      std::optional<uint64_t> previous;
+      for (Attribute rawControl : excluded) {
+        auto attr = dyn_cast<IntegerAttr>(rawControl);
+        if (!attr || !attr.getType().isSignlessInteger(64) || attr.getInt() < 0 ||
+            uint64_t(attr.getInt()) >= result.controls.size() ||
+            (previous && uint64_t(attr.getInt()) <= *previous))
+          return rule->emitOpError() << "excluded_controls must name sorted unique local controls";
+        previous = attr.getInt(); proposal.excludedControls.push_back(*previous);
+      }
+    }
+    result.queueProposals.push_back(std::move(proposal));
+    queueResult += push ? 3 : 2;
+  }
+#include "HardwareWriteDomainParsing.inc"
   return result;
 }
 
@@ -728,11 +1035,27 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
   auto ports = getModulePortLayout(module);
   if (failed(ports))
     return failure();
-  if (SourceCheckBudget::add(ports->sourceInputCount,
-                             SourceCheckBudget::multiply(2, incoming.size())) !=
+  uint64_t validityInputs = llvm::count_if(ports->inputValidity,
+                                          [](int64_t i) { return i >= 0; });
+  uint64_t queueInputs = 0;
+  if (Attribute raw = module->getAttr("ac.queue_wiring")) {
+    auto queues = dyn_cast<DictionaryAttr>(raw);
+    auto routes = queues ? queues.getAs<ArrayAttr>("incoming") : ArrayAttr();
+    if (!routes) return module->emitOpError() << "queue wiring requires incoming routes";
+    for (Attribute item : routes) {
+      auto route = dyn_cast<DictionaryAttr>(item);
+      auto kind = route ? route.getAs<StringAttr>("kind") : StringAttr();
+      if (!kind || (kind.getValue() != "push" && kind.getValue() != "pop"))
+        return module->emitOpError() << "queue incoming route requires push or pop kind";
+      queueInputs = SourceCheckBudget::add(queueInputs, kind.getValue() == "push" ? 2 : 1);
+    }
+  }
+  if (SourceCheckBudget::add(SourceCheckBudget::add(ports->sourceInputCount,
+                             SourceCheckBudget::multiply(2, incoming.size())),
+                             SourceCheckBudget::add(validityInputs, queueInputs)) !=
       module.getFunctionType().getNumInputs())
     return module->emitOpError()
-           << "transaction incoming must exactly cover appended D/E inputs";
+           << "transaction, queue and availability routes must exactly cover appended inputs";
   if (failed(charge(budget, module, states.size(),
                     sizeof(TransactionStateInventoryEntry))) ||
       failed(charge(budget, module, incoming.size(),
@@ -765,12 +1088,12 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     if (failed(storage))
       return failure();
     auto type =
-        analysis.resolveType(storage->getResult(0).getType(), bindings, module);
+        analysis.resolveType((*storage)->getResult(0).getType(), bindings, module);
     if (failed(type))
       return failure();
-    if (!isa<BitsType>(*type))
-      return module->emitOpError()
-             << "transaction inventory requires whole Bits payloads";
+    auto width = analysis.getPackedWidth(*type, bindings, module);
+    if (failed(width) || !*width)
+      return module->emitOpError() << "transaction inventory requires finite payloads";
     result.states.push_back({declaration, *storage});
   }
   auto &body = module.getBody().front();
@@ -993,25 +1316,42 @@ resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
   if (failed(storage) ||
       failed(budget.debit(SourceCheckBudget::bindings(bound), owner)))
     return failure();
-  auto leaf = analysis.bindInstance(*storage, bound);
+  auto leaf = isa<InstanceOp>(*storage)
+                  ? analysis.bindInstance(cast<InstanceOp>(*storage), bound)
+                  : analysis.bindInstance(cast<CollectionOp>(*storage), bound);
   auto payload =
-      analysis.resolveType(storage->getResult(0).getType(), bound, owner);
+      analysis.resolveType((*storage)->getResult(0).getType(), bound, owner);
   if (failed(leaf) || failed(payload))
     return failure();
-  if (!isa<BitsType>(*payload))
-    return owner->emitOpError()
-           << "StateID terminal payload must be whole Bits";
+  auto width = analysis.getPackedWidth(*payload, bound, owner);
+  if (failed(width) || !*width)
+    return owner->emitOpError() << "StateID terminal payload must be finite";
   result.owner = owner;
   result.storage = *storage;
   result.ownerBindings = std::move(bound);
   result.storageBindings = std::move(*leaf);
   result.payloadType = *payload;
-  result.clock = storage->getOperand(0);
-  result.reset = storage->getOperand(1);
-  result.enable = storage->getOperand(2);
-  result.data = storage->getOperand(3);
-  result.initial = storage->getOperand(4);
-  result.q = storage->getResult(0);
+  auto clock = stateControl(*storage, 0);
+  auto reset = stateControl(*storage, 1);
+  if (failed(clock) || failed(reset)) return failure();
+  result.clock = *clock;
+  result.reset = *reset;
+  bool dff =
+      analysis.getPrimitiveKind(
+          isa<InstanceOp>(*storage)
+              ? analysis.resolveCallee(cast<InstanceOp>(*storage))
+              : analysis.resolveCallee(cast<CollectionOp>(*storage))) == "dff";
+  if (dff) {
+    result.data = (*storage)->getOperand(2);
+    result.initial = (*storage)->getOperand(3);
+  } else {
+    auto enable = stateControl(*storage, 2);
+    if (failed(enable)) return failure();
+    result.enable = *enable;
+    result.data = (*storage)->getOperand(3);
+    result.initial = (*storage)->getOperand(4);
+  }
+  result.q = (*storage)->getResult(0);
   return result;
 }
 
@@ -1039,11 +1379,17 @@ makeIdentityEndpoint(Value value, const HardwareIdentityScope &scope,
   return HardwareIdentityEndpoint{value, std::move(*copied), *type};
 }
 
-FailureOr<HardwareIdentityEndpoint>
-normalizeIdentityEndpoint(const HardwareIdentityEndpoint &endpoint,
-                          const HardwareIdentityStopPolicy &stops,
-                          const HardwareAnalysis &analysis,
-                          SourceCheckBudget &budget) {
+namespace {
+using IdentityStopIndex = std::multimap<const void *, size_t>;
+uint64_t orderedLookupCost(uint64_t count);
+}
+
+static FailureOr<HardwareIdentityEndpoint>
+normalizeIdentityEndpointImpl(const HardwareIdentityEndpoint &endpoint,
+                              const HardwareIdentityStopPolicy &stops,
+                              const HardwareAnalysis &analysis,
+                              SourceCheckBudget &budget,
+                              const IdentityStopIndex *stopIndex) {
   auto checked =
       makeIdentityEndpoint(endpoint.value, endpoint.scope, analysis, budget);
   if (failed(checked))
@@ -1055,17 +1401,36 @@ normalizeIdentityEndpoint(const HardwareIdentityEndpoint &endpoint,
   HardwareIdentityEndpoint current = std::move(*checked);
   for (;;) {
     Operation *site = valueSite(current.value);
-    if (failed(budget.debit(SourceCheckBudget::add(1, stops.boundaries.size()),
-                            site)))
-      return failure();
-    for (const auto &stop : stops.boundaries) {
+    auto matchesStop = [&](const HardwareIdentityEndpoint &stop)
+        -> FailureOr<bool> {
       if (stop.value != current.value)
-        continue;
+        return false;
       if (failed(payScope(stop.scope, budget, site)) ||
           failed(payScope(current.scope, budget, site)))
         return failure();
-      if (sameEndpoint(stop, current))
-        return current;
+      return sameEndpoint(stop, current);
+    };
+    if (stopIndex) {
+      if (failed(budget.debit(orderedLookupCost(stopIndex->size()), site)))
+        return failure();
+      const void *key = current.value.getAsOpaquePointer();
+      for (auto position = stopIndex->lower_bound(key);
+           position != stopIndex->end() && position->first == key; ++position) {
+        if (failed(budget.debit(1, site)))
+          return failure();
+        auto matches = matchesStop(stops.boundaries[position->second]);
+        if (failed(matches)) return failure();
+        if (*matches) return current;
+      }
+    } else {
+      if (failed(budget.debit(SourceCheckBudget::add(1, stops.boundaries.size()),
+                              site)))
+        return failure();
+      for (const auto &stop : stops.boundaries) {
+        auto matches = matchesStop(stop);
+        if (failed(matches)) return failure();
+        if (*matches) return current;
+      }
     }
     for (const auto &prior : seen) {
       if (failed(budget.debit(1, site)))
@@ -1169,7 +1534,36 @@ normalizeIdentityEndpoint(const HardwareIdentityEndpoint &endpoint,
   }
 }
 
+FailureOr<HardwareIdentityEndpoint>
+normalizeIdentityEndpoint(const HardwareIdentityEndpoint &endpoint,
+                          const HardwareIdentityStopPolicy &stops,
+                          const HardwareAnalysis &analysis,
+                          SourceCheckBudget &budget) {
+  return normalizeIdentityEndpointImpl(endpoint, stops, analysis, budget, nullptr);
+}
+
 namespace {
+// Red-black tree lookup is bounded by twice the binary height. Prepay the
+// complete lookup before touching the index, including an empty-tree probe.
+uint64_t orderedLookupCost(uint64_t count) {
+  uint64_t cost = 1;
+  for (uint64_t n = SourceCheckBudget::add(count, 1); n > 1;
+       n = n / 2 + n % 2)
+    cost = SourceCheckBudget::add(cost, 2);
+  return cost;
+}
+using PrefixIndexKey = std::pair<const void *, uint64_t>;
+struct PrefixIndexLess {
+  bool operator()(const PrefixIndexKey &a, const PrefixIndexKey &b) const {
+    std::less<const void *> less;
+    return less(a.first, b.first) ||
+           (a.first == b.first && a.second < b.second);
+  }
+};
+using PrefixIndex = std::map<PrefixIndexKey, uint64_t, PrefixIndexLess>;
+uint64_t prefixIndexStorageBytes() {
+  return sizeof(PrefixIndex::value_type) + 4 * sizeof(void *);
+}
 struct IdentityMemoEntry {
   HardwareIdentityEndpoint input, output;
 };
@@ -1183,12 +1577,29 @@ public:
     if (!value)
       return failure();
     Operation *site = valueSite(value);
-    for (const auto &entry : cache) {
-      if (failed(budget.debit(1, site)))
-        return failure();
-      if (entry.input.value != value)
-        continue;
-      if (failed(payScope(scope, budget, site)) ||
+    if (!stopIndexPrepared) {
+      IdentityStopIndex preparedIndex;
+      for (auto [ordinal, stop] : llvm::enumerate(policy.boundaries)) {
+        if (failed(budget.debit(orderedLookupCost(preparedIndex.size()), site)) ||
+            failed(charge(budget, site, 1,
+                          sizeof(IdentityStopIndex::value_type) +
+                              4 * sizeof(void *))))
+          return failure();
+        preparedIndex.emplace(stop.value.getAsOpaquePointer(), ordinal);
+      }
+      stopIndex = std::move(preparedIndex);
+      stopIndexPrepared = true;
+    }
+    const void *key = value.getAsOpaquePointer();
+    if (failed(budget.debit(orderedLookupCost(cache.size()), site)))
+      return failure();
+    auto position = cache.lower_bound(key);
+    // A shared callee SSA value may occur in several instance scopes. Index by
+    // SSA first, then retain the complete scope comparison within that range.
+    for (; position != cache.end() && position->first == key; ++position) {
+      const auto &entry = position->second;
+      if (failed(budget.debit(1, site)) ||
+          failed(payScope(scope, budget, site)) ||
           failed(payScope(entry.input.scope, budget, site)))
         return failure();
       // Immutable IR and this memo's fixed complete stop policy make the same
@@ -1203,24 +1614,37 @@ public:
     auto input = makeIdentityEndpoint(value, scope, analysis, budget);
     if (failed(input))
       return failure();
-    auto output = normalizeIdentityEndpoint(*input, policy, analysis, budget);
+    auto output = normalizeIdentityEndpointImpl(*input, policy, analysis, budget,
+                                                &stopIndex);
     if (failed(output) ||
         failed(
-            charge(budget, valueSite(value), 1, sizeof(IdentityMemoEntry))) ||
+            charge(budget, valueSite(value), 1, entryStorageBytes())) ||
+        failed(budget.debit(3, site)) ||
         failed(payScope(input->scope, budget, valueSite(value))) ||
         failed(payScope(output->scope, budget, valueSite(value))))
       return failure();
-    cache.push_back({std::move(*input), *output});
+    cache.emplace_hint(position, key,
+                       IdentityMemoEntry{std::move(*input), *output});
     return std::move(*output);
   }
 
+  static uint64_t entryStorageBytes() {
+    return sizeof(Cache::value_type) + 4 * sizeof(void *);
+  }
+
 private:
+  using Cache = std::multimap<const void *, IdentityMemoEntry>;
   const HardwareAnalysis &analysis;
   SourceCheckBudget &budget;
   // Immutable for this object's lifetime: traversal and complete stop contents
   // are part of every entry's implicit key, independent of ArrayRef address.
   HardwareIdentityStopPolicy policy;
-  SmallVector<IdentityMemoEntry, 0> cache;
+  // The policy is complete and immutable for this memo's lifetime. Indexing
+  // changes only candidate enumeration; normalization still authenticates every
+  // equal-SSA stop's complete scope, bindings and resolved payload type.
+  IdentityStopIndex stopIndex;
+  bool stopIndexPrepared = false;
+  Cache cache;
 };
 enum class KnownTest : uint8_t { Zero, One, Either };
 struct KnownAtom {
@@ -1280,11 +1704,13 @@ public:
       if (failed(endpoint))
         return failure();
       Operation *site = valueSite(input);
-      for (auto [i, entry] : llvm::enumerate(cache)) {
-        if (failed(budget.debit(1, site)))
-          return failure();
-        if (entry.mode != inputMode || entry.endpoint.value != endpoint->value)
-          continue;
+      PrefixIndexKey key{endpoint->value.getAsOpaquePointer(),
+                         static_cast<uint64_t>(inputMode)};
+      if (failed(budget.debit(orderedLookupCost(cacheIndex.size()), site)))
+        return failure();
+      auto indexed = cacheIndex.lower_bound(key);
+      if (indexed != cacheIndex.end() && indexed->first == key) {
+        const auto &entry = cache[indexed->second];
         if (failed(payScope(entry.endpoint.scope, budget, site)) ||
             failed(payScope(endpoint->scope, budget, site)))
           return failure();
@@ -1306,7 +1732,11 @@ public:
           failed(payScope(endpoint->scope, budget, site)))
         return failure();
       uint64_t position = cache.size();
+      if (failed(charge(budget, site, 1, prefixIndexStorageBytes())) ||
+          failed(budget.debit(3, site)))
+        return failure();
       cache.push_back({*endpoint, inputMode, {}, false});
+      cacheIndex.emplace_hint(indexed, key, position);
       auto known = literal(*endpoint, analysis, budget);
       if (failed(known))
         return failure();
@@ -1436,43 +1866,41 @@ public:
   }
   FailureOr<Prefix> knownValue(const HardwareIdentityEndpoint &raw,
                                KnownTest test, Operation *site) {
-    auto bindings = scopeBindings(raw.scope, analysis, budget, site);
-    if (failed(bindings) ||
-        failed(bitOne(raw.value, analysis, *bindings, site, budget)))
-      return failure();
-    auto known = literal(raw, analysis, budget);
-    if (failed(known))
-      return failure();
     Prefix result;
-    if (known->has_value())
-      result.impossible =
-          test != KnownTest::Either && (**known != (test == KnownTest::One));
-    else {
-      uint64_t index = knownAtoms.size();
-      for (auto [i, prior] : llvm::enumerate(knownAtoms)) {
-        if (failed(budget.debit(1, site)) ||
-            failed(payScope(prior.endpoint.scope, budget, site)) ||
-            failed(payScope(raw.scope, budget, site)))
-          return failure();
-        if (prior.test == test && sameEndpoint(prior.endpoint, raw)) {
-          index = i;
-          break;
-        }
-      }
-      uint64_t id = SourceCheckBudget::multiply(index, 2);
-      if (id == std::numeric_limits<uint64_t>::max())
-        return budget.debit(id, site);
-      if (index == knownAtoms.size()) {
-        if (failed(grow(knownAtoms, site)) || failed(budget.debit(1, site)) ||
-            failed(payScope(raw.scope, budget, site)))
-          return failure();
-        knownAtoms.push_back({test, raw});
-      }
-      if (failed(reserveAtoms(result, 1, site)) ||
-          failed(budget.debit(1, site)))
-        return failure();
-      result.atoms.push_back(id);
+    PrefixIndexKey key{raw.value.getAsOpaquePointer(), static_cast<uint64_t>(test)};
+    if (failed(budget.debit(orderedLookupCost(knownIndex.size()), site))) return failure();
+    auto indexed = knownIndex.lower_bound(key);
+    if (indexed != knownIndex.end() && indexed->first == key) {
+      const auto &prior = knownAtoms[indexed->second];
+      if (failed(payScope(prior.endpoint.scope, budget, site)) ||
+          failed(payScope(raw.scope, budget, site))) return failure();
+      if (!sameEndpoint(prior.endpoint, raw))
+        return site->emitOpError() << "sampled known atom differs from its fixed scope or type";
+      if (failed(reserveAtoms(result, 1, site)) || failed(budget.debit(1, site))) return failure();
+      result.atoms.push_back(SourceCheckBudget::multiply(indexed->second, 2));
+      return result;
     }
+    // A miss still performs complete admission against the actual immutable
+    // endpoint. Hits reuse only this exact endpoint/test's knownness atom.
+    auto bindings = scopeBindings(raw.scope, analysis, budget, site);
+    if (failed(bindings) || failed(bitOne(raw.value, analysis, *bindings, site, budget))) return failure();
+    auto known = literal(raw, analysis, budget);
+    if (failed(known)) return failure();
+    if (known->has_value()) {
+      result.impossible = test != KnownTest::Either && (**known != (test == KnownTest::One));
+      return result;
+    }
+    uint64_t index = knownAtoms.size();
+    uint64_t id = SourceCheckBudget::multiply(index, 2);
+    if (id == std::numeric_limits<uint64_t>::max()) return budget.debit(id, site);
+    if (failed(grow(knownAtoms, site)) || failed(budget.debit(1, site)) ||
+        failed(payScope(raw.scope, budget, site)) ||
+        failed(charge(budget, site, 1, prefixIndexStorageBytes())) ||
+        failed(budget.debit(3, site))) return failure();
+    knownAtoms.push_back({test, raw});
+    knownIndex.emplace_hint(indexed, key, index);
+    if (failed(reserveAtoms(result, 1, site)) || failed(budget.debit(1, site))) return failure();
+    result.atoms.push_back(id);
     return result;
   }
   FailureOr<Prefix> conjunction(const Prefix &lhs, const Prefix &rhs,
@@ -1660,7 +2088,9 @@ private:
   const HardwareIdentityScope *const fixedScope;
   IdentityMemo identity;
   SmallVector<KnownAtom, 0> knownAtoms;
+  PrefixIndex knownIndex;
   SmallVector<PrefixCache, 0> cache;
+  PrefixIndex cacheIndex;
   SmallVector<ConditionalAtom, 0> pool;
 };
 // One context fixes the immutable package, analysis, budget, definition, full
@@ -1679,6 +2109,7 @@ class IntentProof {
   struct Frame {
     HardwareIdentityEndpoint endpoint;
     BitsSelectOp select;
+    BitsBinaryOp accumulated;
     unsigned child = 0;
   };
 
@@ -1746,17 +2177,21 @@ public:
         return success();
       }
       auto select = endpoint.value.getDefiningOp<BitsSelectOp>();
-      if (!select)
+      auto accumulated = endpoint.value.getDefiningOp<BitsBinaryOp>();
+      if (accumulated && accumulated.getOpcode() != "or")
+        accumulated = {};
+      if (!select && !accumulated)
         return site->emitOpError() << "transaction intent admits only known "
-                                      "Bits1 zero/one and select";
+                                      "Bits1 zero/one, select and raw-path OR";
+      Operation *combine = select ? select.getOperation() : accumulated.getOperation();
       if (failed(analysis.verifyResolvedOperation(
-              select, prepared.getScope().rootBindings)) ||
-          failed(budget.debit(1, select)))
+              combine, prepared.getScope().rootBindings)) ||
+          failed(budget.debit(1, combine)))
         return failure();
-      auto selector = normalize(select.getCondition());
+      auto selector = normalize(select ? select.getCondition() : accumulated.getRhs());
       if (failed(selector) ||
           failed(bitOne(selector->value, analysis,
-                        prepared.getScope().rootBindings, select, budget)))
+                        prepared.getScope().rootBindings, combine, budget)))
         return failure();
       // The selector is Bits1 data and may be unknown. It is not an intent or
       // known-one guard, and contributes no admission obligation.
@@ -1779,25 +2214,29 @@ public:
       if (failed(budget.debit(1, site)) ||
           failed(payScope(endpoint.scope, budget, site)))
         return failure();
-      pending.push_back({std::move(endpoint), select, 0});
+      pending.push_back({std::move(endpoint), select, accumulated, 0});
       return success();
     };
     if (failed(push(std::move(*root))))
       return failure();
     while (!pending.empty()) {
       auto &frame = pending.back();
-      if (failed(budget.debit(1, frame.select)))
+      Operation *combine = frame.select ? frame.select.getOperation()
+                                       : frame.accumulated.getOperation();
+      if (failed(budget.debit(1, combine)))
         return failure();
-      if (frame.child < 2) {
-        Value child = frame.child++ == 0 ? frame.select.getTrueValue()
+      if (frame.child < (frame.select ? 2u : 1u)) {
+        Value child = frame.accumulated ? frame.accumulated.getLhs()
+                      : frame.child == 0 ? frame.select.getTrueValue()
                                          : frame.select.getFalseValue();
-        if (failed(budget.debit(1, frame.select)))
+        ++frame.child;
+        if (failed(budget.debit(1, combine)))
           return failure();
         auto normalized = normalize(child);
         if (failed(normalized) || failed(push(std::move(*normalized))))
           return failure();
       } else {
-        if (failed(lookup(nodes.size(), frame.select)))
+        if (failed(lookup(nodes.size(), combine)))
           return failure();
         nodes.find(key(frame.endpoint))->second = State::Complete;
         pending.pop_back();
@@ -1945,6 +2384,9 @@ prepareSampledBoundaries(ModuleOp definition, const HardwareAnalysis &analysis,
   return std::optional<PreparedSampledBoundaries>(std::move(prepared));
 }
 
+#include "HardwareQueueProposalProof.inc"
+#include "HardwareResourceDemandProof.inc"
+
 LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
                                     const PreparedSampledBoundaries &prepared,
                                     const HardwareAnalysis &analysis,
@@ -1965,6 +2407,8 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
                     sizeof(const HardwareIdentityScope *))))
     return failure();
   OrderedPrefixProof proof(analysis, budget, policy, scope);
+  auto orderedReaches = verifyResourceDemandReach(view, analysis, budget, proof);
+  if (failed(orderedReaches)) return failure();
   Prefix expected, root;
   SmallVector<ExpectedSelectionPaths, 0> selections;
   uint64_t count = llvm::count_if(view.controls, [](const auto &control) {
@@ -1993,7 +2437,7 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
     auto path = selectedPath(control.executionPath);
     if (failed(path))
       return failure();
-    auto reached = proof.parse(control.reached);
+    auto reached = proof.parse((*orderedReaches)[i]);
     if (failed(reached))
       return failure();
     if (control.executionPath.selectionControl) {
@@ -2008,8 +2452,8 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
       return failure();
     auto accepted = proof.knownValue(
         *raw,
-        control.kind == SampledControlKind::CallableGuard ? KnownTest::One
-                                                          : KnownTest::Either,
+        control.kind != SampledControlKind::BranchSelect ? KnownTest::One
+                                                        : KnownTest::Either,
         view.rule);
     if (failed(accepted))
       return failure();
@@ -2081,7 +2525,7 @@ LogicalResult proveSampledAdmission(const SampledAdmissionView &view,
   for (const auto &observation : view.observations)
     if (failed(effect(observation.path, observation.executionPath)))
       return failure();
-  return success();
+  return proveQueueProposalPrefixes(view, prepared, analysis, budget, proof);
 }
 
 struct SampledAdmissionValidation::Entry {
@@ -2099,6 +2543,12 @@ SampledAdmissionValidation::SampledAdmissionValidation(
 
 SampledAdmissionValidation::~SampledAdmissionValidation() = default;
 
+uint64_t SampledAdmissionValidation::identityMemoEntryStorageBytes() {
+  return IdentityMemo::entryStorageBytes();
+}
+uint64_t SampledAdmissionValidation::prefixIndexEntryStorageBytes() {
+  return prefixIndexStorageBytes();
+}
 uint64_t SampledAdmissionValidation::prefixKnownAtomStorageBytes() {
   return sizeof(KnownAtom);
 }
@@ -2258,9 +2708,9 @@ SampledAdmissionValidation::verifySampledAdmissionImpl(
       if (proven == rule)
         return std::move(*sampled);
     }
-    if (failed(proveSampledAdmission(*sampled, entry->prepared, analysis,
-                                     bindings, budget)) ||
-        failed(charge(budget, rule, 1, sizeof(RuleOp))))
+    auto proven = proveSampledAdmission(*sampled, entry->prepared, analysis,
+                                        bindings, budget);
+    if (failed(proven) || failed(charge(budget, rule, 1, sizeof(RuleOp))))
       return failure();
     entry->provenRules.push_back(rule);
     return std::move(*sampled);
@@ -2485,19 +2935,28 @@ struct Occurrence {
   std::optional<size_t> parent;
   InstanceOp allocation;
 };
+struct StateCandidate {
+  RuleOp rule;
+  uint64_t ordinal = 0;
+  size_t occurrence = 0;
+  HardwareIdentityEndpoint data, enable;
+};
 struct State {
   HardwareIdentityScope scope;
-  InstanceOp storage;
+  Operation *storage = nullptr;
   Type payload;
   std::optional<HardwareIdentityEndpoint> data, enable;
   std::optional<HardwareIdentityEndpoint> clock, reset;
   RuleOp writer;
   bool external = false;
+  SmallVector<StateCandidate, 0> candidates;
+  bool commitProven = false;
+  std::optional<bool> unordered;
 };
 struct PrivateRoute {
   HardwareIdentityEndpoint endpoint;
   size_t state = 0;
-  enum Kind { Data, Enable, EffectOperand } kind;
+  enum Kind { Data, Enable, Mask, EffectOperand } kind;
   Operation *terminal = nullptr;
   unsigned operand = 0;
 };
@@ -2530,9 +2989,10 @@ public:
   WiringProof(const HardwareAnalysis &analysis, SourceCheckBudget &budget,
               const llvm::DenseSet<Operation *> &relevant,
               SampledAdmissionValidation &validation,
-              EffectProofCache &effectProofCache)
+              EffectProofCache &effectProofCache, bool &provedAvailability)
       : analysis(analysis), budget(budget), validation(validation),
-        relevant(relevant), effectProofCache(effectProofCache) {}
+        relevant(relevant), effectProofCache(effectProofCache),
+        provedAvailability(provedAvailability) {}
   LogicalResult run(ModuleOp root, const HardwareBindings &bindings) {
     if (bindings.owner != root)
       return root->emitOpError()
@@ -2551,6 +3011,8 @@ public:
     budget.setPhase("sampled wiring writers");
     if (failed(writers()))
       return failure();
+    budget.setPhase("sampled wiring ordered entries");
+    if (failed(orderedEntries())) return failure();
     budget.setPhase("sampled wiring external inputs");
     if (failed(externalInputs()))
       return failure();
@@ -2621,7 +3083,42 @@ private:
       return failure();
     Occurrence entry{std::move(*copied), std::move(*bound), module, {}, parent,
                      allocation};
-    bool witness = module->hasAttr("ac.internal_ports");
+    bool witness = false;
+    if (module->hasAttr("ac.internal_ports")) {
+      auto signature = module.getFunctionType();
+      uint64_t ports = SourceCheckBudget::add(signature.getNumInputs(),
+                                               signature.getNumResults());
+      if (failed(budget.debit(ports, module)) ||
+          failed(charge(budget, module, 1,
+                        SourceCheckBudget::add(
+                            sizeof(ModulePortLayout),
+                            SourceCheckBudget::multiply(
+                                ports, sizeof(int64_t) + 64)))))
+        return failure();
+      auto layout = getModulePortLayout(module);
+      if (failed(layout))
+        return failure();
+      // Availability has an independently checked physical companion contract.
+      // Exact coverage of both suffixes distinguishes that transport from
+      // transaction proposal/capture routes; merely having validity metadata
+      // cannot exempt an unexplained private port from its wiring witness.
+      uint64_t validityInputs = llvm::count_if(
+          layout->inputValidity, [](int64_t ordinal) { return ordinal >= 0; });
+      uint64_t validityOutputs = llvm::count_if(
+          layout->outputValidity, [](int64_t ordinal) { return ordinal >= 0; });
+      witness = SourceCheckBudget::add(layout->sourceInputCount,
+                                      validityInputs) != signature.getNumInputs() ||
+                SourceCheckBudget::add(layout->sourceOutputCount,
+                                      validityOutputs) != signature.getNumResults();
+      // Direct wiring-proof entrypoints must establish the availability owner
+      // proof too; a syntactically valid suffix map alone is not authority to
+      // relabel an actual proposal data/enable route as availability.
+      if (!witness && !provedAvailability) {
+        if (failed(verifyHardwareValueAvailability(analysis)))
+          return failure();
+        provedAvailability = true;
+      }
+    }
     for (auto &operation : module.getBody().front()) {
       if (failed(budget.debit(1, &operation)))
         return failure();
@@ -2695,7 +3192,7 @@ private:
     if (failed(occurrence) || failed(budget.debit(1, entry.module)))
       return failure();
     auto found =
-        stateIndex.find({*occurrence, relative->storage.getOperation()});
+        stateIndex.find({*occurrence, relative->storage});
     if (found != stateIndex.end()) {
       const auto &state = states[found->second];
       if (failed(payScope(state.scope, budget, entry.module)) ||
@@ -2752,7 +3249,7 @@ private:
                             {},
                             {},
                             {},
-                            false});
+                            false, {}, false});
           std::pair<size_t, Operation *> key{occurrenceOrdinal, record.storage};
           if (stateIndex.contains(key))
             return record.storage->emitOpError()
@@ -2762,13 +3259,22 @@ private:
             return failure();
           stateIndex.try_emplace(key, states.size() - 1);
         }
-        for (const auto &writer : entry.wiring->writers) {
-          for (uint64_t ordinal = writer.ordinaryResults;
-               ordinal < writer.rule->getNumResults(); ++ordinal)
-            if (failed(boundary(writer.rule->getResult(ordinal), entry.scope,
-                                stops)))
-              return failure();
+      }
+      if (*prepared) {
+        if (failed((*prepared)->verifyFor(entry.module, entry.bindings, budget)))
+          return failure();
+        // Preparation already resolved these exact definition-local values and
+        // payload types under the complete bindings. Rebase only their scopes:
+        // each physical occurrence still owns a separately charged stop record.
+        for (const auto &endpoint : (*prepared)->getBoundaries()) {
+          Operation *site = valueSite(endpoint.value);
+          if (failed(charge(budget, site, 1, sizeof(HardwareIdentityEndpoint))))
+            return failure();
+          auto scope = copyScope(entry.scope, budget, site);
+          if (failed(scope)) return failure();
+          stops.push_back({endpoint.value, std::move(*scope), endpoint.resolvedType});
         }
+        continue;
       }
       // Non-sampled check suffixes are also immutable identity boundaries.
       for (auto rule : entry.module->getRegion(0).front().getOps<RuleOp>()) {
@@ -2983,6 +3489,45 @@ private:
                            RuleOp rule, Operation *terminal,
                            const HardwareIdentityEndpoint &clock,
                            const HardwareIdentityEndpoint &reset) {
+    // Registration and invocation determine the logical receiver independently
+    // of an individual check site. The immutable invocation cache already owns
+    // that complete receiver descent under these exact definition bindings.
+    // Reuse it across sibling checks, while authenticating each new site's
+    // origin/span and every physical occurrence's actual clock/reset below.
+    for (const auto &proof : effectProofCache.owners) {
+      if (failed(budget.debit(1, terminal)))
+        return failure();
+      if (proof.definition != entry.module || proof.rule != rule ||
+          proof.invocation != invocation)
+        continue;
+      if (failed(budget.debit(SourceCheckBudget::add(
+                                  SourceCheckBudget::bindings(proof.bindings),
+                                  SourceCheckBudget::bindings(entry.bindings)),
+                              terminal)))
+        return failure();
+      if (!sameHardwareBindings(proof.bindings, entry.bindings))
+        continue;
+      if (proof.terminal != terminal) {
+        auto site = id.getAs<DictionaryAttr>("check");
+        auto error = [&] { return terminal->emitOpError(); };
+        if (failed(payAttribute(site, budget, terminal)) ||
+            failed(payAttribute(location, budget, terminal)) ||
+            failed(verifyOccurrence(site, error)) ||
+            failed(verifySourceSpan(location, error)) ||
+            failed(budget.debit(2, terminal)) ||
+            failed(verifyOriginDefinition(
+                site, FlatSymbolRefAttr::get(proof.owner.terminal->getAttrOfType<StringAttr>("sym_name")),
+                "source effect site", error)))
+          return failure();
+        auto sourceOwner = proof.owner.terminal->getAttrOfType<DictionaryAttr>(
+            "source_owner");
+        if (location.getAs<StringAttr>("path") !=
+            sourceOwner.getAs<StringAttr>("path"))
+          return error()
+                 << "source effect span must match logical owner SourceOwner";
+      }
+      return effectDomain(entry, proof.owner, clock, reset, terminal);
+    }
     auto logical = effectOwner(entry, rule, terminal, invocation, [&] {
       return resolveSourceEffectOwner(analysis, entry.module, entry.bindings,
                                       id.getAs<DictionaryAttr>("registration"),
@@ -2996,6 +3541,343 @@ private:
       return failure();
     return effectDomain(entry, **logical, clock, reset, terminal);
   }
+  FailureOr<SmallVector<RuleOp>> finalPredecessors(RuleOp rule) {
+    SmallVector<RuleOp> result;
+    llvm::DenseSet<Operation *> active, seen;
+    std::function<LogicalResult(RuleOp, unsigned)> visit =
+        [&](RuleOp current, unsigned depth) -> LogicalResult {
+      if (depth > 128 || failed(budget.debit(1, current))) return failure();
+      if (!active.insert(current).second)
+        return current->emitOpError() << "final transaction after graph is cyclic";
+      if (Attribute raw = current->getAttr("ac.after")) {
+        auto after = dyn_cast<ArrayAttr>(raw);
+        if (!after) return current->emitOpError() << "final after requires an array";
+        llvm::DenseSet<Attribute> distinct;
+        auto module = cast<ModuleOp>(current->getParentOp());
+        for (Attribute identity : after) {
+          if (!distinct.insert(identity).second ||
+              failed(verifyOccurrence(dyn_cast<DictionaryAttr>(identity),
+                                      [&] { return current->emitOpError(); })))
+            return current->emitOpError() << "final after requires distinct registrations";
+          RuleOp predecessor;
+          unsigned count = 0;
+          for (auto possible : module.getBody().front().getOps<RuleOp>()) {
+            if (failed(budget.debit(1, current))) return failure();
+            if (possible->hasAttr("ac.sampled_admission") &&
+                identical(possible->getAttr("occurrence"), identity)) {
+              predecessor = possible;
+              ++count;
+            }
+          }
+          if (count != 1 || predecessor == current)
+            return current->emitOpError() << "final after requires one other local outer registration";
+          if (!seen.contains(predecessor)) {
+            if (failed(visit(predecessor, depth + 1))) return failure();
+            seen.insert(predecessor);
+            result.push_back(predecessor);
+          }
+        }
+      }
+      active.erase(current);
+      return success();
+    };
+    if (failed(visit(rule, 0))) return failure();
+    return result;
+  }
+
+  LogicalResult allowUse(const HardwareIdentityScope &scope, Operation *operation,
+                         unsigned operand, size_t state, PrivateRoute::Kind kind) {
+    auto occurrence = occurrenceFor(scope);
+    if (failed(occurrence) || failed(budget.debit(1, operation))) return failure();
+    allowedUses.emplace(*occurrence, operation, operand, state, kind);
+    return success();
+  }
+
+  FailureOr<HardwareIdentityEndpoint> projectionRoot(
+      Value value, const HardwareIdentityScope &scope, ArrayRef<Attribute> path,
+      size_t state) {
+    auto current = normal(value, scope);
+    if (failed(current)) return failure();
+    for (Attribute step : llvm::reverse(path)) {
+      if (auto field = dyn_cast<StringAttr>(step)) {
+        auto get = current->value.getDefiningOp<StructGetOp>();
+        if (!get || get.getFieldAttr() != field)
+          return valueSite(current->value)->emitOpError() << "EHR field projection differs";
+        if (failed(allowUse(current->scope, get, 0, state, PrivateRoute::Data))) return failure();
+        current = normal(get.getValue(), current->scope);
+      } else {
+        auto expected = cast<IntegerAttr>(step).getValue().getZExtValue();
+        auto get = current->value.getDefiningOp<TableGetOp>();
+        if (!get) return valueSite(current->value)->emitOpError() << "EHR Table projection differs";
+        auto index = normal(get.getIndex(), current->scope);
+        if (failed(index)) return failure();
+        auto constant = index->value.getDefiningOp<BitsConstantOp>();
+        auto bound = scopeBindings(index->scope, analysis, budget, get);
+        if (!constant || failed(bound)) return get->emitOpError() << "EHR Table index must be static";
+        auto number = analysis.evaluateStatic(constant.getValue(), *bound, get);
+        if (failed(number)) return failure();
+        auto integer = dyn_cast<MathIntAttr>(*number);
+        if (!integer) return get->emitOpError() << "EHR Table index must be an integer";
+        llvm::APSInt actual(integer.getCanonicalValue());
+        if (actual.isNegative() || actual.getActiveBits() > 64 || actual.getZExtValue() != expected)
+          return get->emitOpError() << "EHR Table element ordinal differs";
+        if (failed(allowUse(current->scope, get, 0, state, PrivateRoute::Data))) return failure();
+        current = normal(get.getInput(), current->scope);
+      }
+      if (failed(current)) return failure();
+    }
+    return *current;
+  }
+
+#include "HardwareWriteDomainProof.inc"
+
+  FailureOr<HardwareIdentityEndpoint> peelSelection(
+      const HardwareIdentityEndpoint &selected,
+      const HardwareIdentityEndpoint &condition,
+      const HardwareIdentityEndpoint &whenTrue, size_t state) {
+    std::optional<HardwareIdentityEndpoint> whenFalse;
+    SmallVector<Attribute> path;
+    std::function<LogicalResult(Value, Type, const HardwareIdentityScope &, unsigned)> visit =
+        [&](Value value, Type type, const HardwareIdentityScope &scope, unsigned depth) -> LogicalResult {
+      if (depth > 128 || failed(budget.debit(1, valueSite(value)))) return failure();
+      auto actual = normal(value, scope);
+      if (failed(actual)) return failure();
+      if (auto structure = dyn_cast<StructType>(type)) {
+        auto create = actual->value.getDefiningOp<StructCreateOp>();
+        auto declaration = analysis.lookupStruct(structure);
+        if (!create || !declaration || create->getNumOperands() != declaration.getFields().size())
+          return valueSite(actual->value)->emitOpError() << "EHR Struct selection reconstruction differs";
+        for (auto [ordinal, raw] : llvm::enumerate(declaration.getFields())) {
+          auto field = cast<DictionaryAttr>(raw);
+          path.push_back(field.getAs<StringAttr>("name"));
+          auto bindings = scopeBindings(actual->scope, analysis, budget, create);
+          if (failed(bindings)) return failure();
+          auto fieldType = analysis.resolveType(field.getAs<TypeAttr>("type").getValue(), *bindings, create);
+          if (failed(fieldType) ||
+              failed(allowUse(actual->scope, create, ordinal, state, PrivateRoute::Data)) ||
+              failed(visit(create->getOperand(ordinal), *fieldType, actual->scope, depth + 1))) return failure();
+          path.pop_back();
+        }
+        return success();
+      }
+      if (auto table = dyn_cast<TableType>(type)) {
+        auto create = actual->value.getDefiningOp<TableCreateOp>();
+        auto bindings = scopeBindings(actual->scope, analysis, budget, valueSite(actual->value));
+        if (!create || failed(bindings))
+          return valueSite(actual->value)->emitOpError() << "EHR Table selection reconstruction differs";
+        auto count = analysis.getTableSize(table, *bindings, create);
+        if (failed(count) || create->getNumOperands() != *count) return failure();
+        Builder b(create.getContext());
+        for (uint64_t ordinal = 0; ordinal < *count; ++ordinal) {
+          path.push_back(b.getI64IntegerAttr(ordinal));
+          if (failed(allowUse(actual->scope, create, ordinal, state, PrivateRoute::Data)) ||
+              failed(visit(create->getOperand(ordinal), table.getElementType(), actual->scope, depth + 1))) return failure();
+          path.pop_back();
+        }
+        return success();
+      }
+      Value carrier = actual->value;
+      if (isa<EnumType>(type)) {
+        auto conversion = carrier.getDefiningOp<EnumFromBitsOp>();
+        if (!conversion || failed(allowUse(actual->scope, conversion, 0, state, PrivateRoute::Data)))
+          return valueSite(carrier)->emitOpError() << "EHR Enum selection reconstruction differs";
+        carrier = conversion.getInput();
+      }
+      auto chosen = normal(carrier, actual->scope);
+      if (failed(chosen)) return failure();
+      auto select = chosen->value.getDefiningOp<BitsSelectOp>();
+      if (!select) return valueSite(chosen->value)->emitOpError() << "EHR selection requires a four-state select";
+      auto predicate = normal(select.getCondition(), chosen->scope);
+      if (failed(predicate) || !sameEndpoint(*predicate, condition))
+        return select->emitOpError() << "EHR selection must use predecessor final enable";
+      if (failed(allowUse(chosen->scope, select, 0, state, PrivateRoute::Enable)) ||
+          failed(allowUse(chosen->scope, select, 1, state, PrivateRoute::Data)) ||
+          failed(allowUse(chosen->scope, select, 2, state, PrivateRoute::Data))) return failure();
+      Value trueValue = select.getTrueValue(), falseValue = select.getFalseValue();
+      if (isa<EnumType>(type)) {
+        auto t = trueValue.getDefiningOp<EnumToBitsOp>();
+        auto f = falseValue.getDefiningOp<EnumToBitsOp>();
+        if (!t || !f || failed(allowUse(chosen->scope, t, 0, state, PrivateRoute::Data)) ||
+            failed(allowUse(chosen->scope, f, 0, state, PrivateRoute::Data)))
+          return select->emitOpError() << "EHR Enum carrier inputs differ";
+        trueValue = t.getInput();
+        falseValue = f.getInput();
+      }
+      auto t = projectionRoot(trueValue, chosen->scope, path, state);
+      auto f = projectionRoot(falseValue, chosen->scope, path, state);
+      if (failed(t) || failed(f) || !sameEndpoint(*t, whenTrue))
+        return select->emitOpError() << "EHR selection data origin differs";
+      if (whenFalse && !sameEndpoint(*whenFalse, *f))
+        return select->emitOpError() << "EHR aggregate selection mixes fallback owners";
+      whenFalse = *f;
+      return success();
+    };
+    if (failed(visit(selected.value, states[state].payload, selected.scope, 0)) || !whenFalse)
+      return failure();
+    return *whenFalse;
+  }
+
+  FailureOr<HardwareIdentityEndpoint> peelEnableOr(
+      const HardwareIdentityEndpoint &combined,
+      const HardwareIdentityEndpoint &latest, size_t state) {
+    auto binary = combined.value.getDefiningOp<BitsBinaryOp>();
+    if (!binary || binary.getOpcode() != "or")
+      return valueSite(combined.value)->emitOpError() << "EHR commit enable requires admitted-write OR";
+    auto lhs = normal(binary.getLhs(), combined.scope);
+    auto rhs = normal(binary.getRhs(), combined.scope);
+    if (failed(lhs) || failed(rhs)) return failure();
+    if (failed(allowUse(combined.scope, binary, 0, state, PrivateRoute::Enable)) ||
+        failed(allowUse(combined.scope, binary, 1, state, PrivateRoute::Enable))) return failure();
+    if (sameEndpoint(*rhs, latest)) return *lhs;
+    if (sameEndpoint(*lhs, latest)) return *rhs;
+    return binary->emitOpError() << "EHR commit enable misses predecessor final enable";
+  }
+
+  LogicalResult proveOrderedCommit(const HardwareIdentityEndpoint &data,
+                                   const HardwareIdentityEndpoint &enable, size_t stateIndex) {
+    auto &state = states[stateIndex];
+    if (state.commitProven)
+      return success(state.data && state.enable && sameEndpoint(*state.data, data) &&
+                     sameEndpoint(*state.enable, enable));
+    HardwareIdentityEndpoint selected = data, combined = enable;
+    for (uint64_t index = state.candidates.size(); index > 1; --index) {
+      const auto &latest = state.candidates[index - 1];
+      auto fallback = peelSelection(selected, latest.enable, latest.data, stateIndex);
+      auto earlier = peelEnableOr(combined, latest.enable, stateIndex);
+      if (failed(fallback) || failed(earlier)) return failure();
+      if (failed(privateRoute(selected.value, selected.scope, stateIndex, PrivateRoute::Data)) ||
+          failed(privateRoute(combined.value, combined.scope, stateIndex, PrivateRoute::Enable))) return failure();
+      selected = *fallback;
+      combined = *earlier;
+    }
+    const auto &first = state.candidates.front();
+    if (!sameEndpoint(selected, first.data) || !sameEndpoint(combined, first.enable))
+      return state.storage->emitOpError() << "EHR physical commit chain has a wrong first writer";
+    state.data = data;
+    state.enable = enable;
+    state.commitProven = true;
+    return success();
+  }
+
+  FailureOr<const SampledAdmissionView *>
+  writerAdmission(const Occurrence &entry, RuleOp rule) {
+    // Parse against current IR. Storage and completed prefix proofs belong only
+    // to this WiringProof invocation and exact occurrence.
+    PrefixIndexKey key{rule.getOperation(),
+                       static_cast<uint64_t>(&entry - occurrences.data())};
+    if (failed(budget.debit(orderedLookupCost(writerAdmissions.size()), rule)))
+      return failure();
+    auto position = writerAdmissions.lower_bound(key);
+    auto parsed = validation.verify(rule, entry.bindings);
+    if (failed(parsed))
+      return failure();
+    uint64_t moveWork = 1;
+    for (uint64_t count : {uint64_t(parsed->controls.size()),
+                           uint64_t(parsed->bodyChecks.size()),
+                           uint64_t(parsed->observations.size()),
+                           uint64_t(parsed->ehrEntries.size()),
+                           uint64_t(parsed->requirements.size()),
+                           uint64_t(parsed->resources.size()),
+                           uint64_t(parsed->queueProposals.size()),
+                           uint64_t(parsed->writeDomains.size())})
+      moveWork = SourceCheckBudget::add(moveWork, count);
+    if (failed(charge(budget, rule, 1,
+                      sizeof(decltype(writerAdmissions)::value_type) +
+                          4 * sizeof(void *))) ||
+        failed(budget.debit(SourceCheckBudget::add(moveWork, 3), rule)))
+      return failure();
+    if (position != writerAdmissions.end() && position->first == key) {
+      position->second = std::move(*parsed);
+      return &position->second;
+    }
+    auto saved = writerAdmissions.emplace_hint(position, key, std::move(*parsed));
+    return &saved->second;
+  }
+  FailureOr<const SampledAdmissionView *>
+  existingWriterAdmission(const Occurrence &entry, RuleOp rule) {
+    // writers() immediately precedes orderedEntries() in this immutable proof
+    // invocation and authenticates every writer at every exact occurrence.
+    // Reuse that current parsed view instead of recursively replaying sampled
+    // admission and queue wiring for the same key.
+    PrefixIndexKey key{rule.getOperation(),
+                       static_cast<uint64_t>(&entry - occurrences.data())};
+    if (failed(budget.debit(orderedLookupCost(writerAdmissions.size()), rule)))
+      return failure();
+    auto found = writerAdmissions.find(key);
+    if (found == writerAdmissions.end())
+      return rule->emitOpError()
+             << "ordered entry lacks its current authenticated writer view";
+    return &found->second;
+  }
+  LogicalResult orderedEntries() {
+    for (const auto &entry : occurrences) {
+      if (!entry.wiring) continue;
+      for (const auto &writer : entry.wiring->writers) {
+        auto ancestors = finalPredecessors(writer.rule);
+        auto parsed = existingWriterAdmission(entry, writer.rule);
+        if (failed(ancestors) || failed(parsed)) return failure();
+        const auto *sampled = *parsed;
+        auto clock = normal(sampled->clock, entry.scope), reset = normal(sampled->reset, entry.scope);
+        if (failed(clock) || failed(reset)) return failure();
+        for (auto predecessor : *ancestors) {
+          auto priorView = existingWriterAdmission(entry, predecessor);
+          if (failed(priorView)) return failure();
+          const auto *prior = *priorView;
+          auto c = normal(prior->clock, entry.scope), r = normal(prior->reset, entry.scope);
+          if (failed(c) || failed(r) || !sameEndpoint(*c, *clock) || !sameEndpoint(*r, *reset))
+            return writer.rule->emitOpError() << "EHR predecessor physical domain differs";
+        }
+        llvm::DenseSet<size_t> seen;
+        for (const auto &visible : sampled->ehrEntries) {
+          if (!writer.rule->getResult(visible.result).use_empty())
+            return writer.rule->emitOpError() << "private EHR entry witness escapes";
+          auto state = target(entry, visible.stateID);
+          if (failed(state) || !seen.insert(*state).second)
+            return writer.rule->emitOpError() << "duplicate EHR entry owner";
+          auto oldQ = normal(visible.oldQ, entry.scope);
+          auto physical = normal(states[*state].storage->getResult(0), states[*state].scope);
+          auto selected = normal(visible.selected, entry.scope);
+          if (failed(oldQ) || failed(physical) || failed(selected) || !sameEndpoint(*oldQ, *physical))
+            return writer.rule->emitOpError() << "EHR entry must start from its owner's old Q";
+          SmallVector<std::pair<RuleOp, const TransactionCandidateView *>> expected;
+          for (auto predecessor : *ancestors)
+            for (const auto &prior : entry.wiring->writers) {
+              if (prior.rule != predecessor) continue;
+              for (const auto &candidate : prior.candidates) {
+                auto destination = target(entry, candidate.stateID);
+                if (failed(destination)) return failure();
+                if (*destination == *state) expected.push_back({predecessor, &candidate});
+              }
+            }
+          if (expected.size() != visible.predecessors.size() || expected.empty())
+            return writer.rule->emitOpError() << "EHR entry misses its declared predecessor writers";
+          for (auto [ordinal, actual] : llvm::enumerate(visible.predecessors)) {
+            auto [predecessor, candidate] = expected[ordinal];
+            auto data = normal(actual.data, entry.scope), enable = normal(actual.enable, entry.scope);
+            auto d = normal(candidate->data, entry.scope), e = normal(candidate->enable, entry.scope);
+            if (failed(data) || failed(enable) || failed(d) || failed(e) ||
+                !identical(actual.registration, predecessor->getAttr("occurrence")) ||
+                !sameEndpoint(*data, *d) || !sameEndpoint(*enable, *e))
+              return writer.rule->emitOpError() << "EHR entry captures the wrong predecessor proposal";
+            if (failed(allowUse(entry.scope, writer.rule, actual.dataCapture, *state, PrivateRoute::Data)) ||
+                failed(allowUse(entry.scope, writer.rule, actual.enableCapture, *state, PrivateRoute::Enable))) return failure();
+          }
+          for (uint64_t ordinal = visible.predecessors.size(); ordinal > 0; --ordinal) {
+            const auto &predecessor = visible.predecessors[ordinal - 1];
+            auto data = normal(predecessor.data, entry.scope), enable = normal(predecessor.enable, entry.scope);
+            if (failed(data) || failed(enable)) return failure();
+            auto fallback = peelSelection(*selected, *enable, *data, *state);
+            if (failed(fallback)) return failure();
+            selected = *fallback;
+          }
+          if (!sameEndpoint(*selected, *oldQ))
+            return writer.rule->emitOpError() << "EHR entry fallback differs from old Q";
+        }
+      }
+    }
+    return success();
+  }
+
   LogicalResult writers() {
     for (const auto &entry : occurrences) {
       if (!entry.wiring)
@@ -3004,14 +3886,21 @@ private:
       if (failed(terminals))
         return failure();
       for (const auto &writer : entry.wiring->writers) {
-        auto sampled = validation.verify(writer.rule, entry.bindings);
-        if (failed(sampled))
+        auto parsed = writerAdmission(entry, writer.rule);
+        if (failed(parsed))
           return failure();
+        const auto *sampled = *parsed;
         auto clock = normal(sampled->clock, entry.scope);
         auto reset = normal(sampled->reset, entry.scope);
         if (failed(clock) || failed(reset))
           return failure();
-        if (writer.ordinaryResults) {
+        bool managed = entry.module->getAttrOfType<ArrayAttr>("ac.result_availability") &&
+                       !sampled->requirements.empty();
+        if (writer.ordinaryResults && managed && !provedAvailability) {
+          if (failed(verifyHardwareValueAvailability(analysis))) return failure();
+          provedAvailability = true;
+        }
+        if (writer.ordinaryResults && !managed) {
           using StaticPathFact =
               std::pair<std::optional<bool>, std::optional<bool>>;
           SmallVector<StaticPathFact, 0> facts;
@@ -3089,16 +3978,42 @@ private:
                    << "statefree sampled pins differ from its owning module "
                       "domain";
         }
-        for (const auto &candidate : writer.candidates) {
+        for (auto [candidateOrdinal, candidate] : llvm::enumerate(writer.candidates)) {
           auto stateIndex = target(entry, candidate.stateID);
           auto data = normal(candidate.data, entry.scope);
           auto enable = normal(candidate.enable, entry.scope);
           if (failed(stateIndex) || failed(data) || failed(enable))
             return failure();
           auto &state = states[*stateIndex];
-          if (state.writer)
-            return writer.rule->emitOpError()
-                   << "multiple outer transaction writers for one actual owner";
+          auto ancestors = finalPredecessors(writer.rule);
+          if (failed(ancestors)) return failure();
+          uint64_t position = state.candidates.size();
+          for (auto [ordinal, prior] : llvm::enumerate(state.candidates)) {
+            auto previous = finalPredecessors(prior.rule);
+            if (failed(previous)) return failure();
+            bool sameActualScope = prior.occurrence ==
+                                   size_t(&entry - occurrences.data());
+            bool follows = sameActualScope && llvm::is_contained(*ancestors, prior.rule);
+            bool precedes = sameActualScope && llvm::is_contained(*previous, writer.rule);
+            if (!sameActualScope) {
+              if (!ancestors->empty() || !previous->empty())
+                return writer.rule->emitOpError()
+                       << "cross-scope writers cannot participate in after composition";
+              // Unordered cross-scope writers are admitted by the independent
+              // write-domain grant proof below: different fields are disjoint
+              // and same-field/index pairs must prove exclusive enables.
+            } else if (prior.rule == writer.rule && prior.ordinal == candidateOrdinal) {
+              return writer.rule->emitOpError() << "duplicate actual transaction contributor";
+            }
+            bool unordered = !follows && !precedes;
+            if (state.unordered && *state.unordered != unordered)
+              return writer.rule->emitOpError() << "mixed ordered and unordered writers require a declared composition route";
+            state.unordered = unordered;
+            if (precedes) position = std::min(position, uint64_t(ordinal));
+          }
+          if (state.clock && (!sameEndpoint(*state.clock, *clock) ||
+                              !sameEndpoint(*state.reset, *reset)))
+            return writer.rule->emitOpError() << "ordered writers have different physical domains";
           if (failed(typeMatches(*data, state.payload, writer.rule)))
             return failure();
           if (failed(payScope(data->scope, budget, writer.rule)) ||
@@ -3106,13 +4021,34 @@ private:
               failed(payScope(clock->scope, budget, writer.rule)) ||
               failed(payScope(reset->scope, budget, writer.rule)))
             return failure();
-          state.writer = writer.rule;
-          state.data = *data;
-          state.enable = *enable;
+          state.candidates.insert(state.candidates.begin() + position,
+                                  StateCandidate{writer.rule, candidateOrdinal,
+                                                 size_t(&entry - occurrences.data()),
+                                                 *data, *enable});
+          state.writer = state.candidates.back().rule;
+          state.data = state.candidates.back().data;
+          state.enable = state.candidates.back().enable;
           state.clock = *clock;
           state.reset = *reset;
+          for (const auto &domain : sampled->writeDomains) {
+            if (domain.candidate != candidateOrdinal) continue;
+            auto checked = finalWriteDomain(domain, writer.rule, entry.scope, *stateIndex);
+            if (failed(checked) || failed(privateRoute(writer.rule->getResult(domain.maskResult),
+                  entry.scope, *stateIndex, PrivateRoute::Mask))) return failure();
+          }
+          bool dff =
+              analysis.getPrimitiveKind(
+                  isa<InstanceOp>(state.storage)
+                      ? analysis.resolveCallee(cast<InstanceOp>(state.storage))
+                      : analysis.resolveCallee(
+                            cast<CollectionOp>(state.storage))) == "dff";
           if (failed(privateRoute(candidate.data, entry.scope, *stateIndex,
-                                  PrivateRoute::Data)) ||
+                                  PrivateRoute::Data)))
+            return failure();
+          // A plain DFF has no enable pin, so its logical enable has no
+          // private physical route. The final composed enable is independently
+          // proven constant-true in connections().
+          if (!dff &&
               failed(privateRoute(candidate.enable, entry.scope, *stateIndex,
                                   PrivateRoute::Enable)))
             return failure();
@@ -3262,24 +4198,12 @@ private:
     if (occurrences.empty() || !occurrences.front().wiring)
       return success();
     const auto &entry = occurrences.front();
+    // A catalog definition is also checked as a standalone root. Its hidden
+    // incoming pair has the authenticated root default, never an invented
+    // external writer. Actual instances are proved through their parent wiring.
     for (const auto &incoming : entry.wiring->incoming) {
-      auto stateIndex = target(entry, incoming.stateID);
-      auto data = normal(incoming.data, entry.scope);
-      auto enable = normal(incoming.enable, entry.scope);
-      if (failed(stateIndex) || failed(data) || failed(enable))
+      if (failed(rootIncomingZero(entry, incoming)))
         return failure();
-      auto &state = states[*stateIndex];
-      if (state.writer || state.external)
-        return entry.module->emitOpError()
-               << "external incoming and local/descendant writer conflict for "
-                  "actual owner";
-      if (failed(typeMatches(*data, state.payload, entry.module)) ||
-          failed(payScope(data->scope, budget, entry.module)) ||
-          failed(payScope(enable->scope, budget, entry.module)))
-        return failure();
-      state.external = true;
-      state.data = *data;
-      state.enable = *enable;
     }
     return success();
   }
@@ -3318,7 +4242,8 @@ private:
   }
   LogicalResult samePair(Value dataValue, Value enableValue,
                          const HardwareIdentityScope &scope, size_t stateIndex,
-                         bool storage, Operation *site) {
+                         bool storage, Operation *site,
+                         std::optional<size_t> stageOccurrence = {}) {
     auto data = normal(dataValue, scope);
     auto enable = normal(enableValue, scope);
     if (failed(data) || failed(enable))
@@ -3326,6 +4251,20 @@ private:
     auto &state = states[stateIndex];
     if (failed(typeMatches(*data, state.payload, site)))
       return failure();
+    auto stage = stageOccurrence ? FailureOr<size_t>(*stageOccurrence)
+                                 : occurrenceFor(scope);
+    if (failed(stage)) return failure();
+    auto staged = hasIncomingStage(*stage, stateIndex);
+    if (failed(staged)) return failure();
+    if (*staged) {
+      // The contributor inventory authenticates after edges only within one
+      // actual occurrence and rejects mixed composition. Ordered local writers
+      // retain their existing priority semantics, even when their owner is
+      // reached through a child incoming route.
+      if (state.unordered.value_or(false) &&
+          failed(proveWriteDomainsDisjoint(stateIndex))) return failure();
+      return proveStagedCommit(*data, *enable, *stage, stateIndex, storage);
+    }
     // Appended child ports may remain an unused zero pair while a descendant
     // Rule owns its state. Such a pair is never counted as a writer.
     auto enLiteral = literal(*enable, analysis, budget);
@@ -3353,6 +4292,9 @@ private:
                       "incoming D=zero, with E=zero";
         }
       } else {
+        auto q = normal(state.storage->getResult(0), state.scope);
+        if (failed(q)) return failure();
+        if (sameEndpoint(*data, *q)) return success();
         auto dataLiteral = literal(*data, analysis, budget);
         if (failed(dataLiteral))
           return failure();
@@ -3362,6 +4304,14 @@ private:
       }
       return success();
     }
+    if (state.candidates.size() > 1)
+      return state.unordered.value_or(false)
+          ? proveUnorderedCommit(*data, *enable, stateIndex)
+          : proveOrderedCommit(*data, *enable, stateIndex);
+    if (state.candidates.size() == 1 &&
+        state.candidates.front().occurrence != *stage)
+      return proveSingleCandidate(*data, *enable, stateIndex,
+                                  state.candidates.front());
     if (!state.data || !state.enable || !sameEndpoint(*data, *state.data) ||
         !sameEndpoint(*enable, *state.enable))
       return site->emitOpError()
@@ -3388,7 +4338,8 @@ private:
           if (failed(
                   samePair(entry.allocation->getOperand(incoming.dataInput),
                            entry.allocation->getOperand(incoming.enableInput),
-                           parent.scope, *stateIndex, false, entry.allocation)))
+                           parent.scope, *stateIndex, false, entry.allocation,
+                           *entry.parent)))
             return failure();
         }
         if (failed(privateRoute(incoming.data, entry.scope, *stateIndex,
@@ -3399,29 +4350,182 @@ private:
       }
     }
     for (auto [ordinal, state] : llvm::enumerate(states)) {
-      if (failed(samePair(state.storage->getOperand(3),
-                          state.storage->getOperand(2), state.scope, ordinal,
-                          true, state.storage)))
-        return failure();
+      bool dff =
+          analysis.getPrimitiveKind(
+              isa<InstanceOp>(state.storage)
+                  ? analysis.resolveCallee(cast<InstanceOp>(state.storage))
+                  : analysis.resolveCallee(cast<CollectionOp>(state.storage))) ==
+          "dff";
+      if (dff) {
+        // A plain DFF has no enable pin. Its candidate data must still match
+        // the verified composition, and at least one actual contributor must
+        // have a literal-true enable; otherwise the leaf would update on a
+        // held epoch and the structural choice is invalid.
+        if (!state.writer || state.external || !state.enable)
+          return state.storage->emitOpError()
+                 << "plain DFF storage requires a live local writer";
+        auto bindings = scopeBindings(state.enable->scope, analysis, budget,
+                                      state.storage);
+        auto unconditional = failed(bindings)
+                                 ? FailureOr<std::optional<llvm::APSInt>>(failure())
+                                 : knownBit(state.enable->value, *bindings);
+        if (failed(unconditional) || !*unconditional ||
+            !(**unconditional).getBoolValue())
+          return state.storage->emitOpError()
+                 << "plain DFF storage requires a proven unconditional writer "
+                 << "(enable defining op "
+                 << state.enable->value.getDefiningOp()->getName() << ", known "
+                 << (failed(unconditional) ? -1 : *unconditional ? 1 : 0) << ")";
+        if (failed(samePair(state.storage->getOperand(2), state.enable->value,
+                            state.scope, ordinal, true, state.storage)))
+          return failure();
+      } else {
+        auto enable = stateControl(state.storage, 2);
+        if (failed(enable)) return failure();
+        if (failed(samePair(state.storage->getOperand(3), *enable, state.scope,
+                            ordinal, true, state.storage)))
+          return failure();
+      }
       if (state.writer) {
-        auto clock = normal(state.storage->getOperand(0), state.scope);
-        auto reset = normal(state.storage->getOperand(1), state.scope);
+        auto rawClock = stateControl(state.storage, 0);
+        auto rawReset = stateControl(state.storage, 1);
+        if (failed(rawClock) || failed(rawReset)) return failure();
+        auto clock = normal(*rawClock, state.scope);
+        auto reset = normal(*rawReset, state.scope);
         if (failed(clock) || failed(reset))
           return failure();
         if (!sameEndpoint(*clock, *state.clock) ||
             !sameEndpoint(*reset, *state.reset))
           return state.storage->emitOpError()
-                 << "transaction sampled domain differs from target DFFE "
+                 << "transaction sampled domain differs from target storage "
                     "physical pins";
       }
     }
     return success();
   }
-  bool stateTerminal(const HardwareIdentityScope &scope, InstanceOp instance,
+  bool stateTerminal(const HardwareIdentityScope &scope, Operation *instance,
                      size_t expected) const {
     return expected < states.size() && states[expected].storage == instance &&
            sameScope(states[expected].scope, scope);
   }
+  /// Evaluate an admitted Bits1 SSA expression whose operands are all closed
+  /// static constants. This is a local proof for plain-DFF admission only; an
+  /// unknown, multi-bit or unsupported operation returns nullopt rather than a
+  /// guessed value. It never executes design behavior.
+  FailureOr<std::optional<llvm::APSInt>> knownBit(
+      Value value, const HardwareBindings &bindings, unsigned depth = 0) {
+    Operation *site = valueSite(value);
+    if (depth > 64 || failed(budget.debit(1, site)))
+      return failure();
+    auto type = analysis.resolveType(value.getType(), bindings, site);
+    if (failed(type) || !isa<BitsType>(*type))
+      return std::optional<llvm::APSInt>();
+    auto width = analysis.getPackedWidth(*type, bindings, site);
+    if (failed(width) || *width != 1)
+      return std::optional<llvm::APSInt>();
+    auto known = [&](Value operand)
+        -> FailureOr<std::optional<llvm::APSInt>> {
+      return knownBit(operand, bindings, depth + 1);
+    };
+    if (auto rule = value.getDefiningOp<RuleOp>()) {
+      // Transaction candidate enables are yielded Rule results. Follow the
+      // actual yield operand rather than treating the rule result as opaque.
+      auto *terminator = rule.getBody().front().getTerminator();
+      auto yielded = dyn_cast_or_null<YieldOp>(terminator);
+      auto result = dyn_cast<OpResult>(value);
+      if (!yielded || !result || result.getResultNumber() >= yielded.getNumOperands())
+        return std::optional<llvm::APSInt>();
+      return knownBit(yielded.getOperand(result.getResultNumber()), bindings,
+                      depth + 1);
+    }
+    if (auto constant = value.getDefiningOp<BitsConstantOp>()) {
+      auto evaluated = analysis.evaluateStatic(constant.getValue(), bindings, constant);
+      if (failed(evaluated))
+        return failure();
+      auto integer = dyn_cast<MathIntAttr>(*evaluated);
+      if (!integer)
+        return std::optional<llvm::APSInt>();
+      return std::optional<llvm::APSInt>(llvm::APSInt(integer.getCanonicalValue()));
+    }
+    if (auto unary = value.getDefiningOp<BitsUnaryOp>()) {
+      if (unary.getOpcode() != "not")
+        return std::optional<llvm::APSInt>();
+      auto input = known(unary.getInput());
+      if (failed(input) || !*input)
+        return std::optional<llvm::APSInt>();
+      return std::optional<llvm::APSInt>(llvm::APSInt::get((**input).isZero() ? 1 : 0));
+    }
+    if (auto binary = value.getDefiningOp<BitsBinaryOp>()) {
+      StringRef opcode = binary.getOpcode();
+      if (opcode != "and" && opcode != "or" && opcode != "xor")
+        return std::optional<llvm::APSInt>();
+      auto lhs = known(binary.getLhs());
+      if (failed(lhs))
+        return failure();
+      if (*lhs && opcode == "and" && (**lhs).isZero())
+        return std::optional<llvm::APSInt>(llvm::APSInt::get(0));
+      if (*lhs && opcode == "or" && !(**lhs).isZero())
+        return std::optional<llvm::APSInt>(llvm::APSInt::get(1));
+      auto rhs = known(binary.getRhs());
+      if (failed(rhs))
+        return failure();
+      // Four-state OR is known one when either operand is known one. The
+      // materializer can recognize that condition on either side; final
+      // admission must independently establish the same unconditional write.
+      if (*rhs && opcode == "or" && !(**rhs).isZero())
+        return std::optional<llvm::APSInt>(llvm::APSInt::get(1));
+      if (!*lhs || !*rhs)
+        return std::optional<llvm::APSInt>();
+      llvm::APSInt result = llvm::APSInt::get(0);
+      if (opcode == "and")
+        result = llvm::APSInt::get((**lhs).getBoolValue() && (**rhs).getBoolValue() ? 1 : 0);
+      else if (opcode == "or")
+        result = llvm::APSInt::get((**lhs).getBoolValue() || (**rhs).getBoolValue() ? 1 : 0);
+      else
+        result = llvm::APSInt::get((**lhs).getBoolValue() != (**rhs).getBoolValue() ? 1 : 0);
+      return std::optional<llvm::APSInt>(std::move(result));
+    }
+    if (auto compare = value.getDefiningOp<BitsCompareOp>()) {
+      auto lhs = known(compare.getLhs());
+      auto rhs = known(compare.getRhs());
+      if (failed(lhs) || failed(rhs) || !*lhs || !*rhs)
+        return std::optional<llvm::APSInt>();
+      StringRef predicate = compare.getPredicate();
+      bool result = false;
+      if (predicate == "eq" || predicate == "case_eq")
+        result = **lhs == **rhs;
+      else if (predicate == "ne")
+        result = **lhs != **rhs;
+      else if (predicate == "ult")
+        result = (**lhs).ult(**rhs);
+      else if (predicate == "ule")
+        result = (**lhs).ule(**rhs);
+      else if (predicate == "ugt")
+        result = (**lhs).ugt(**rhs);
+      else if (predicate == "uge")
+        result = (**lhs).uge(**rhs);
+      else if (predicate == "slt")
+        result = (**lhs).slt(**rhs);
+      else if (predicate == "sle")
+        result = (**lhs).sle(**rhs);
+      else if (predicate == "sgt")
+        result = (**lhs).sgt(**rhs);
+      else if (predicate == "sge")
+        result = (**lhs).sge(**rhs);
+      else
+        return std::optional<llvm::APSInt>();
+      return std::optional<llvm::APSInt>(llvm::APSInt::get(result ? 1 : 0));
+    }
+    if (auto select = value.getDefiningOp<BitsSelectOp>()) {
+      auto condition = known(select.getCondition());
+      if (failed(condition) || !*condition)
+        return std::optional<llvm::APSInt>();
+      return known((**condition).getBoolValue() ? select.getTrueValue()
+                                                : select.getFalseValue());
+    }
+    return std::optional<llvm::APSInt>();
+  }
+
   FailureOr<bool> enableTarget(const PrivateRoute &route, size_t candidate) {
     if (route.state == candidate)
       return true;
@@ -3430,6 +4534,8 @@ private:
     auto origin = normal(route.endpoint.value, route.endpoint.scope);
     if (failed(origin))
       return failure();
+    for (const auto &writer : states[candidate].candidates)
+      if (sameEndpoint(*origin, writer.enable)) return true;
     return sameEndpoint(*origin, *states[candidate].enable);
   }
   FailureOr<size_t> occurrenceFor(const HardwareIdentityScope &scope) {
@@ -3472,6 +4578,7 @@ private:
     if (failed(budget.debit(1, site)))
       return failure();
     if (endpoint.value.use_empty()) {
+      if (route.kind == PrivateRoute::Mask) return success();
       return site->emitOpError()
              << "private transaction/check route has a dead end before its "
                 "corresponding D/E or expect";
@@ -3503,6 +4610,28 @@ private:
         return failure();
       Operation *consumer = use.getOwner();
       unsigned operand = use.getOperandNumber();
+      bool sanctioned = false;
+      if (route.kind != PrivateRoute::EffectOperand) {
+        auto first = allowedUses.lower_bound(
+            {currentOccurrence, consumer, operand, 0, PrivateRoute::Data});
+        for (; first != allowedUses.end(); ++first) {
+          const auto &allowed = *first;
+          if (std::get<0>(allowed) != currentOccurrence || std::get<1>(allowed) != consumer ||
+              std::get<2>(allowed) != operand) break;
+          if (failed(budget.debit(1, consumer))) return failure();
+          if (std::get<4>(allowed) != route.kind) continue;
+          if (std::get<3>(allowed) == route.state) { sanctioned = true; break; }
+          if (route.kind == PrivateRoute::Enable) {
+            auto shared = enableTarget(route, std::get<3>(allowed));
+            if (failed(shared)) return failure();
+            if (*shared) { sanctioned = true; break; }
+          }
+        }
+      }
+      if (sanctioned) continue;
+      if (route.kind == PrivateRoute::Mask)
+        return consumer->emitOpError() << "private write-domain mask escapes its verified composition";
+
       if (auto extract = dyn_cast<BitsExtractOp>(consumer)) {
         auto next = makeIdentityEndpoint(extract->getResult(0), endpoint.scope,
                                          analysis, budget);
@@ -3527,12 +4656,51 @@ private:
                << "private transaction/effect value escapes to unrelated "
                   "terminal operand";
       }
+      if (auto splat = dyn_cast<TableSplatOp>(consumer)) {
+        if (route.kind != PrivateRoute::Enable)
+          return splat->emitOpError() << "private transaction data escapes through splat";
+        auto next = makeIdentityEndpoint(splat.getResult(), endpoint.scope, analysis, budget);
+        if (failed(next) || failed(visitPrivate(*next, route, seen, currentOccurrence)))
+          return failure();
+        continue;
+      }
+      if (auto collection = dyn_cast<CollectionOp>(consumer)) {
+        if (analysis.getPrimitiveKind(analysis.resolveCallee(collection)) == "dffe") {
+          if (route.kind == PrivateRoute::Data && operand == 3 &&
+              stateTerminal(endpoint.scope, collection, route.state))
+            continue;
+          if (route.kind == PrivateRoute::Enable && operand == 2) {
+            auto control = stateControl(collection, 2);
+            auto found = stateIndex.find({currentOccurrence, collection});
+            if (failed(control)) return failure();
+            if (found != stateIndex.end() &&
+                stateTerminal(endpoint.scope, collection, found->second)) {
+              auto allowed = enableTarget(route, found->second);
+              if (failed(allowed)) return failure();
+              if (*allowed) continue;
+            }
+          }
+        }
+        return collection->emitOpError()
+               << "private candidate reaches unrelated Collection pin or owner";
+      }
       if (auto instance = dyn_cast<InstanceOp>(consumer)) {
         if (route.kind == PrivateRoute::EffectOperand)
           return instance->emitOpError()
                  << "check suffix escapes its corresponding expect";
-        if (analysis.getPrimitiveKind(analysis.resolveCallee(instance)) ==
-            "dffe") {
+        StringRef primitive =
+            analysis.getPrimitiveKind(analysis.resolveCallee(instance));
+        if (primitive == "dff") {
+          // Plain DFF has no enable pin: only the verified candidate data may
+          // reach operand 2, and no private enable/mask route is admissible.
+          if (route.kind == PrivateRoute::Data && operand == 2 &&
+              stateTerminal(endpoint.scope, instance, route.state))
+            continue;
+          return instance->emitOpError()
+                 << "private candidate reaches a plain DFF pin that has no "
+                    "verified transaction role";
+        }
+        if (primitive == "dffe") {
           if (route.kind == PrivateRoute::Data && operand == 3 &&
               stateTerminal(endpoint.scope, instance, route.state))
             continue;
@@ -3650,8 +4818,11 @@ private:
   llvm::DenseMap<uint64_t, SmallVector<size_t>> occurrenceIndex;
   llvm::DenseMap<std::pair<size_t, Operation *>, size_t> stateIndex;
   llvm::DenseMap<std::pair<size_t, Attribute>, size_t> stateTargetProofs;
+  std::set<std::tuple<size_t, Operation *, unsigned, size_t, PrivateRoute::Kind>> allowedUses;
   EffectProofCache &effectProofCache;
+  bool &provedAvailability;
   std::optional<IdentityMemo> identity;
+  std::map<PrefixIndexKey, SampledAdmissionView, PrefixIndexLess> writerAdmissions;
 };
 bool localWitness(ModuleOp module) {
   if (module->hasAttr("ac.sampled_admission") ||
@@ -3727,12 +4898,12 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
       return module->emitOpError()
              << "transaction catalog requires one graph block";
     // The initial witness scan performed no allocations; account this catalog
-    // scan before using its result to seed the worklist.
+    // scan before using its result to seed the worklist. This query reads only
+    // the array handle and emptiness, so it does not traverse nested CheckIDs.
+    // Their semantic validators retain their own metadata accounting.
     bool hasCheckBoundary = false;
     for (auto &operation : module.getBody().front()) {
-      if (failed(budget.debit(1, &operation)) ||
-          failed(payAttribute(operation.getAttr("ac.required_checks"), budget,
-                              &operation)))
+      if (failed(budget.debit(1, &operation)))
         return failure();
       if (isa<RuleOp>(operation))
         if (auto required =
@@ -3822,6 +4993,7 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
   }
   SmallVector<const std::pair<ModuleOp, HardwareBindings> *, 0> verifiedRoots;
   EffectProofCache effectProofCache;
+  bool provedAvailability = false;
   for (const auto &entry : scopes) {
     const auto &[module, bindings] = entry;
     if (failed(budget.debit(1, module)))
@@ -3846,7 +5018,8 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
     }
     if (verified)
       continue;
-    WiringProof proof(analysis, budget, relevant, validation, effectProofCache);
+    WiringProof proof(analysis, budget, relevant, validation, effectProofCache,
+                      provedAvailability);
     if (failed(proof.run(module, bindings)))
       return failure();
     // Record only completed root proofs; child visits do not prove that child

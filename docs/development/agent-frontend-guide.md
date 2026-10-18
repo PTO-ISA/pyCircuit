@@ -13,13 +13,386 @@ ac.enum_from_bits[State](raw)` creates a nominal carrier and separate Boolean
 membership. Decode into ordinary locals before assigning a persistent owner;
 source variables still use the existing proposal/commit flow.
 
+## Module hierarchy and independent outputs
+
+Use ordinary typed `@module` functions to describe hardware hierarchy. Each
+static module-call occurrence creates one child instance. Reusing its output
+values fans out the existing wires; it does not create another instance or add
+a clock cycle.
+
+Choose the interface grouping before choosing the return syntax. When several
+fields normally travel together to one downstream module, prefer one named
+Struct output and a matching Struct input. Connect that value directly instead
+of passing every field as a separate port and rebuilding it downstream. Adding
+or removing fields then changes the shared type and affected field users while
+keeping the module's input/output count and wiring call shape stable.
+
+Use a fixed, nonempty heterogeneous `tuple[T0, T1, ...]` for independent interfaces
+or outputs routed separately. Return them in order and unpack the call directly;
+each position is a separate ACIR result and may itself be a Struct. Group related
+fields within each interface, rather than wrapping unrelated interfaces together
+or flattening every field into an output. The following shows the tuple syntax:
+
+```python
+import pycircuit as ac
+
+@ac.struct
+class Header:
+    tag: ac.u4
+
+@ac.struct
+class Payload:
+    data: ac.u8
+
+@ac.module
+def Decode(word: ac.u8, enable: ac.u1) -> tuple[Header, Payload, ac.u1]:
+    header = Header(tag=word[:4])
+    payload = Payload(data=word)
+    return header, payload, enable
+
+@ac.module
+def Parent(word: ac.u8, enable: ac.u1) -> tuple[Header, Payload, ac.u1]:
+    header, payload, valid = Decode(word, enable)
+    return header, payload, valid
+```
+
+If `header`, `payload` and `valid` instead all feed the same execution interface,
+use a shared structured connection:
+
+```python
+@ac.struct
+class Decoded:
+    header: Header
+    payload: Payload
+    valid: ac.u1
+
+@ac.module
+def DecodePacket(word: ac.u8, enable: ac.u1) -> Decoded:
+    return Decoded(
+        header=Header(tag=word[:4]),
+        payload=Payload(data=word),
+        valid=enable,
+    )
+```
+
+The consumer declares one parameter, such as `Execute(decoded: Decoded)`. Its
+parent passes `decoded = DecodePacket(word, enable)` directly to
+`Execute(decoded)`; it does not repeat the field list at each module boundary.
+The Struct is a single typed input/output in ACIR. This grouping adds no state,
+cycle or scheduling semantics. Field changes still change the payload type/layout
+and may require consumer updates and recompilation; stable port count does not
+mean binary interface compatibility.
+
+Every element retains its declared type and source kind. Two different Struct
+outputs remain distinct nominal types even if their packed widths match. An
+existing single-Struct return still means one Struct output, not several ports.
+A singleton tuple uses `-> tuple[T]`, `return (value,)` and `value, = Child(...)`.
+
+One scalar or nominal result uses its admitted type directly: `-> ac.u8`,
+`-> bool`, an Enum, a Struct or a fixed Table. Bind it with `value = Child(...)`.
+This preserves its source kind and boundary constraints; Boolean and Integer
+remain distinct even when both occupy one bit.
+
+For a tuple signature, the return must be an explicit tuple of the declared arity. At a call site use
+one flat tuple of distinct ordinary local names. Starred, nested, list, field
+and index targets are rejected, as is treating the multi-output call as a scalar
+hardware payload. Ordinary local rebinding retains its existing behavior; unpacking cannot
+write persistent owners or protected hardware bindings. Modules, Rules and
+Methods share this fixed output-signature convention; it does not create a
+general hardware tuple value.
+
+A named Module result also retains its immutable instance identity. For a single
+result, `child = Child(request)` is both the result value and the handle used by
+`child.update(...)` inside a Rule. A named multiple-result bundle can be unpacked
+later with `header, payload = child`; a zero-result Module still supplies a handle.
+An immutable alias refers to the same allocation. Unpacked output names alone
+are values, not instance handles.
+
+Output order is part of the published interface. Generated ports are named
+`result_0`, `result_1`, and so on, with deterministic suffixes on name collisions;
+caller variable names do not rename the callee's ports. Independent source-unit
+interfaces publish the tuple return form and every result constraint, so imported
+calls use the same rules without reading provider Python. Eligible forward
+references to unpacked outputs keep the existing unambiguous-name and acyclic
+connection requirements.
+
+Apply this grouping rule to new or deliberately migrated module interfaces.
+Existing examples are not a reason to flatten a shared interface or bundle
+unrelated destinations. Preserve their timing and independent
+oracles when migrating them. See the runnable example at
+`examples/multi_outputs/README.md` and the
+[language reference](../reference/language.md#direct-module-composition).
+
+Examples should teach a current, distinct pattern. Start from `examples/GUIDE.md`;
+the historical fixture archive is not a porting checklist. Keep syntax/type
+stress in API tests and avoid repeating full host/RTL/System harnesses for a
+small variation. Follow `examples/STANDARD.md` when retaining, combining or
+retiring an old example.
+
+## Rule authoring contract
+
+Keep each Rule simple and cohesive. A Rule describes one function, including
+related outputs and effects that must succeed together. Use separate Rules for
+independent functions. Nesting a Rule or Method call keeps its state proposals,
+guards and body effects within the caller's outer atomic transaction.
+
+Defining a Rule does not execute it. Each static Module-scope Rule call registers
+one outer transaction; repeated calls are distinct registrations. Inside a Rule,
+a Rule or Method call invokes the existing callable body in that same transaction.
+A Method is callable-only and cannot be registered in Module scope. These forms
+share one Python capture, common verified IR and C++/Verilog route.
+
+Use explicit finite input and result annotations for published callable
+interfaces. A result can be one admitted scalar or nominal payload, `None`, or a
+fixed, nonempty heterogeneous tuple. Use ordered tuple returns and direct flat
+unpacking, including `value, = call()` for a singleton tuple. Group fields that
+travel together as one named Struct; use separate tuple positions for independent
+interfaces. A callable invocation creates no Module instance, state or extra cycle.
+For example, using `Header` and `Payload` from the Module example above:
+
+```python
+@ac.module
+def Split(word: ac.u8, tag: ac.u4) -> tuple[Header, Payload]:
+    @ac.rule
+    def decode(data: ac.u8, kind: ac.u4) -> tuple[Header, Payload]:
+        return Header(tag=kind), Payload(data=data)
+
+    header, payload = decode(word, tag)
+    return header, payload
+```
+
+Existing unannotated executable Rules remain supported. Their finite argument
+contracts come from actual SSA values and declared owners, preserving Boolean,
+Integer, fixed-bit and nominal distinctions. Different actual contracts use
+separate private specializations. A direct Module-return call keeps its enclosing
+declared result context; unannotated assigned or nested calls infer their scalar
+or tuple result from the returned SSA. Closed actual constants can supply an
+admitted static loop bound. This does not treat defaults as actuals, invent a
+public ABI from the first registration, or admit arbitrary Python execution.
+Callable-only external interfaces without an unambiguous published contract need
+explicit annotations. A source-global Rule receives its explicit arguments; it
+does not capture unrelated locals or state from a calling Module.
+
+Module variables own storage. Rule parameters, local annotations, saved values
+and returned payloads are SSA values. Passing an actual writable owner name to a
+Rule binds proposals to that owner; forwarding such a formal through another
+call preserves the same actual owner. Direct assignments within the callee see
+its current candidate. A saved ordinary value remains a snapshot and never gains
+owner identity merely because it has the same type or came from a state read.
+For example:
+
+```python
+@ac.struct
+class Update:
+    before: ac.u8
+    after: ac.u8
+
+@ac.module
+def Counter() -> Update:
+    count: ac.u8 = 5
+
+    @ac.rule
+    def bump(target: ac.u8) -> Update:
+        before = target
+        target = target + 1
+        return Update(before=before, after=target)
+
+    return bump(count)
+```
+
+Here `before` is the old candidate and `after` is the updated candidate. Passing a
+saved value instead of `count` computes a local result without writing `count` or
+rebinding the caller's saved value. Ordinary argument expressions execute once
+in source order, including keyword actuals; writable owner references are read at
+call entry after those expressions finish. Each reached owner proposal retains
+its payload and address obligations even if a later proposal overwrites it.
+
+A static child handle supports calls such as `child.update(amount)` inside a
+Rule. Resolve the actual allocation, not its alias spelling or an equal type.
+Aliases share state; separate calls constructing child Modules own separate
+state. Calls route typed arguments, results and proposals through the existing
+hierarchy, including independently compiled providers. Authors do not add
+forwarding ports, writeback wires or handshake wrappers.
+
+Ordinary outputs carry compiler-owned availability. A non-firing Rule produces
+an unavailable value, with no implicit zero, default or holding register.
+Availability follows calls, fields, joins and Module boundaries; a reached use of
+an unavailable operand prevents admission. Valid payload X/Z bits remain data.
+Authors do not add `valid` fields solely to represent this availability. Authored
+protocol `valid`/`ready` signals retain their own interface meaning.
+
+Within one transaction, reads observe sequential candidates and saved SSA values
+keep their earlier snapshots. Independent outer transactions observe committed
+state. Explicit `@ac.rule(after=(earlier,))` ordering can provide predecessor
+candidate visibility in the same cycle; each named predecessor must identify one
+unique local outer registration. A missing or ambiguous registration, a cycle,
+or a conflicting writer is not resolved by source order or implicit priority.
+The [EHR design reference](https://csg.csail.mit.edu/pubs/memos/Memo-479/memo479.pdf)
+explains why forwarding visibility and the final storage choice must agree.
+
+Whole-owner updates from ancestor and descendant Rule registrations may share
+one state owner when the compiler proves their grants mutually exclusive from
+the actual instance wiring and SSA values. Each Rule keeps its own atomic
+boundary. The compiler combines incoming and local proposals before storage;
+authors do not add forwarding or commit code. Repeated instances retain separate
+state, including occurrences without an upstream writer. Cross-hierarchy
+admission covers whole-owner updates and unordered field/index writers whose
+write footprints are provably disjoint: a different Struct field at the common
+selector prefix, a provably different one-dimensional Table address, or
+mutually exclusive write paths. An ancestor partial lane is composed with its
+captured old Q by its own domains before it crosses a hierarchy port; selectors
+and masks are not new ports. The receiving definition composes its local
+domains over that complete lane. Each proof layer re-derives the lane and
+footprint independently. Independent cross-hierarchy `after=` ordering remains
+unsupported; ordering between effects on one object is expressed by one parent
+Rule calling child Methods in sequence inside a single outer transaction.
+Mixed ordered/unordered groups on one owner also remain unsupported. Existing
+local ordered and disjoint field/index behavior keeps its documented bounds.
+
+Keep algorithmic conditions explicit. General queue/resource admission and its
+full conflict, capacity and four-state matrix remain implementation and runtime
+acceptance work in [issue #319](https://github.com/PTO-ISA/pyCircuit/issues/319).
+Existing explicit handshakes must remain until equivalent inferred guards pass
+the original oracles. Native Queue schemas or captured resource operations alone
+do not establish that execution support. Finite SCF normalization likewise does
+not admit arbitrary Python loops or every SCF operation; complex loop-control
+combinations need their own generated execution evidence.
+
+## Queue-facing interfaces
+
+Ordinary hardware sources should expose typed Rule calls for queue traffic,
+without repeating FIFO `valid`/`ready` or full/empty guards in each Module.
+Declare a named Queue, call `push`/`pop` inside a Rule, and let the compiler
+carry admission and output availability across calls. For example:
+
+```python
+@ac.module
+def Increment():
+    ingress = ac.queue[ac.u16](depth=2, latency=1)
+    egress = ac.queue[ac.u16](depth=2, latency=1)
+
+    @ac.rule
+    def put(value: ac.u16) -> None:
+        ingress.push(value)
+
+    @ac.rule
+    def get() -> ac.u16:
+        return egress.pop()
+
+    @ac.rule
+    def transfer() -> None:
+        value = ingress.pop()
+        egress.push(value + 1)
+
+    transfer()
+```
+
+`put` and `get` are callable interfaces; only `transfer()` is registered here
+as autonomous work. A caller Rule can use `destination.put(source.get())` so
+both queue operations share its atomic boundary. A denied required operation
+stalls that whole Rule. Rule-local values remain combinational SSA.
+
+Queue is a native child Module in the same instance and call graph. Its Python
+constructor remains `ac.queue[T]`; authors do not import native FIFO symbols or
+add a wrapper Module to obtain this behavior. `peek()` is a non-consuming read
+of the committed head. Separate Queue constructions remain separate instances;
+an alias keeps the original instance identity.
+
+The runnable example at `examples/queue_rule_pipeline/README.md`
+combines this pattern with a stateful child Module, a finite loop, local
+`after` ordering and an ordinary Rule result consumed without an authored valid
+field. Use this small complete System as the starting example for current Rule
+and Queue authoring. Its output-backpressure checks require the Queue operations
+and both parent/child state proposals to commit together or all hold.
+
+Group fields that travel together in a named Struct payload. Do not add a
+`Stream.valid` wrapper solely to transport compiler-owned Rule availability.
+Explicit external RTL protocols may retain handshake fields in a boundary
+adapter. Preserve existing arbitration, capacity, latency and four-state
+oracles during migration; unsupported arbitration or routing remains an
+implementation gap, not permission to invent author-facing readiness helpers.
+
+Module/Rule connections use typed parameters and return values, with
+compiler-propagated output availability. The standalone Signal resource design
+has been cancelled: do not add Signal declarations, set/get operations or an
+author-facing relation table to express these connections. Continue to use
+module state and Queue for cross-cycle storage.
+
+## Module state declarations and storage children
+
+A Module declares both child modules and its own persistent state variables.
+Authors express a state variable with a module-scope declaration such as
+`count: ac.u8 = 0` or `saved: Packet = Packet()`. The compiler supplies the
+storage instance and its connections; authors do not write DFF/DFFE plumbing.
+
+Treat these state variables as storage children of the enclosing Module after
+lowering. They use the same `ac.instance` representation, instance identity and
+typed input/output connections as other children. A DFFE leaf has clock, reset,
+enable, data and initialization inputs, and a Q output. Its data, initialization
+and Q share the variable's hardware payload type. DFF is the corresponding
+unconditionally enabled storage behavior. Storage remains a stateful primitive
+leaf; it is not a pure function and separate instances do not share state.
+
+The storage requirement is based on the declared type, not a whitelist of the
+`u1` through `u63` convenience spellings:
+
+| Declared state type | Required storage treatment |
+| --- | --- |
+| `bits[W]` and fixed-width aliases, including wider widths | Preserve the declared width and four-state payload. |
+| Enum | Preserve nominal identity and its declared encoding through storage. |
+| Struct, including admitted nested records | Carry the structured value as a typed storage payload; retain its field layout and state ownership. |
+| Boolean, bounded Integer and other arithmetic data types with a specified finite storage representation | Use the common type/lowering path, preserving the logical kind, range and arithmetic conversion rules. |
+
+Arithmetic operations compute values; they do not determine whether a value is
+stored. A module-scope state declaration establishes storage. An ordinary
+combination such as `next_count = count + 1`, a helper local, or a child output
+binding is still a value/wire, even if it has the same type as a state variable.
+Do not add registers to these bindings. Initializers follow the existing static
+initialization contract; a runtime arithmetic expression is not a new kind of
+state initializer.
+
+The arithmetic row is a required coverage principle, not an assertion that every
+MLIR `arith` type or arbitrary Python value is already admitted. A type needs a
+defined storage representation and a supported source contract. If an intended
+Enum/Struct/arithmetic state type lacks its normal register-lowering path, record
+and fix that implementation gap; do not hide it by requiring hand-written
+register instances or unapproved casts to Bits.
+
+### Required state-declaration checks
+
+- Account for every persistent declaration and its owning Module/storage child;
+  do not leave it as an ordinary temporary or merge independent instances.
+- Check the declared logical type through initialization, updates and Q. Include
+  Enum, structured and arithmetic state, not just `uN` examples. Preserve the
+  applicable width, range, encoding, layout and four-state rules.
+- Check that compiler-owned clock/reset/enable/data connections use the normal
+  child-instance interface. An enable gates updates; absence of an update holds
+  state. Grouping fields must preserve their update conditions and ownership.
+- Preserve reset, hold, sampling and failed-commit behavior in the owning flow;
+  the simplified frontend declaration does not add cycles or change visibility.
+- Check each claimed type/path through source compilation, explicit linking and
+  both generated targets. A successful type declaration or IR schema check alone
+  does not establish C++/RTL execution support.
+
+The common transaction path retains admitted finite Bits, Enum, Struct, Table,
+Boolean and bounded Integer state. Wide Bits are not limited to host integer
+width. Declared kinds, nominal identity, layout and four-state payloads survive
+initialization, partial updates, joins and storage lowering. Fixed Tables use
+collections of existing storage leaves. Existing restrictions on shapes,
+initializers and nested indexing still apply; this adds no new floating-point or
+arbitrary MLIR arithmetic type. Separate Rules with dynamic disjoint-address
+writes to one Table currently reject on the unified callable path; restoring the
+existing address-grant behavior remains unfinished. The
+[language reference](../reference/language.md#method-execution-and-remaining-capabilities)
+records the execution and remaining resource/control boundaries.
+
 ## Behavioral source profile
 
-The [ROB example](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/rob/rob.py) uses ordinary annotated
-variables, nominal `@ac.struct` values, `ac.table[4, Entry](init=0)` allocation and a
-same-source top-level `@ac.rule`. It returns a typed `RobResult`, using default
-construction and field assignments, through the direct `Rob` → `RobStorage`
-module call. Source capture remains syntax-only. The owning
+The example at `examples/rob/README.md` uses ordinary annotated
+variables, nominal `@ac.struct` values, `ac.table[4, Entry](init=0)` allocation
+and nested Rules in the owning storage Module. It returns a typed `RobResult`,
+using default construction and field assignments, through the direct
+`Rob` → `RobStorage` module call. Source capture remains syntax-only. The owning
 MLIR source pass validates static defaults, infers storage, sequential rule SSA,
 guarded writes and existing instance/collection connections before interface
 extraction. Static module-call analysis propagates hidden domain requirements
@@ -37,9 +410,11 @@ closed one-dimensional Tables. Contextual tuple/list literals construct their
 elements under the declared type; static defaults, zero initialization and
 whole-field replacement use the existing Struct/Table flow. Indexed partial
 writes within these fields and a second source index level remain unsupported.
-Dynamic same-field indices require
-explicit address-separating grants proved against assignment-time SSA, or proven
-mutually exclusive whole-owner grants. Range facts alone do not separate addresses.
+The address-grant contract requires dynamic same-field indices to have explicit
+address separation proved against assignment-time SSA, or proven mutually
+exclusive whole-owner grants. Separate-Rule dynamic address separation currently
+rejects on the unified callable path and remains restoration work. Range facts
+alone do not separate addresses.
 Rules may register through ordinary statement
 calls with no value return. The source write-analysis pass records potentially overlapping registrations;
 lowering may discharge them using whole-owner grants or exact index separation,
@@ -57,7 +432,8 @@ for exact boundaries and the remaining dynamic-check limitations. Existing
 structural sources below continue through the same importer and public flow.
 
 Use `index, valid = entries.first(where=lambda entry: ...)` for first-match
-selection, or `entries.argmin(where=lambda entry: ..., key=lambda entry: ...)`
+selection, including at module scope when the selected values feed later Rules,
+or `entries.argmin(where=lambda entry: ..., key=lambda entry: ...)`
 for the minimum unsigned fixed-bit key. Both bind exactly two ordinary names;
 valid is fixed one-bit, and a miss returns zero/zero. Pure one-argument lambdas
 can capture immutable values and read captured Tables under the existing index
@@ -89,15 +465,21 @@ clock cycle. Helpers can update ordinary local Table elements and Struct fields
 without modifying their caller's saved values. Preserve the loop's exact
 range grammar, binder behavior, effect exclusions and resource bounds.
 
-Use `ready, valid, data = ac.queue[T](valid, data, take, depth=N)`
-for a complete-token FIFO. Allocation is module-scoped, with three fresh immutable
-result names; Python does not expose clocks, reset or proposal wires. The default
-ready policy uses local occupancy; full replacement requires explicit
-`ready_policy="downstream_pop"`. Static `latency=L` delays availability while
+Prefer `tokens = ac.queue[T](depth=N, latency=L)` and call
+`tokens.push(value)`, `tokens.pop()` or `tokens.peek()` inside a Rule. Allocation
+is module-scoped and each construction creates a distinct Queue child; an alias
+keeps the same instance identity. The compiler derives admission and returned
+value availability, while Python exposes no clocks, reset or proposal wires. The
+named form defaults to `ready_policy="downstream_pop"`; use
+`ready_policy="local_occupancy"` when a full Queue must wait for capacity rather
+than replace a popped head. Static `latency=L` delays availability while
 keeping all waiting tokens within the declared depth. A birth at E0 becomes
 available after E(L-1) commits; EL is the earliest consumption. An unavailable
 head reads as packed zero after initialization. Existing Work/Xfer and
-whole-system discard apply. See [queues](../reference/language.md#queues) for exact admission.
+whole-system discard apply. Use the raw three-output constructor only at an
+explicit external protocol boundary; do not build inter-Module handshakes from
+it. See [queues](../reference/language.md#queues) for both forms and exact
+admission.
 
 Behavioral statement `if` and pure conditional expressions share Boolean or
 authoritative fixed-one-bit predicate checks. `and/or/not` use those same checks;
@@ -207,19 +589,18 @@ fixed-bit state may instead use the runtime operation.
 See the [language reference](../reference/language.md) for the exact admission
 boundary; this does not add runtime mathematical Integer division.
 
-## Structural module source profile
+## Explicit physical storage leaves
 
-A `@module` definition declares ordinary typed input arguments and a named return
-mapping for output types. Its body declares child instances, immutable local
-wires and nested stateless
-`@rule` functions. Explicit calls register those rules. State belongs to standard
-leaf instances, including `dffe`; `nonlocal` persistent-state writes are rejected.
+Ordinary designs declare Module-owned variables and let the compiler infer
+storage. Examples that test physical clocks, independent domains, dynamic reset
+values or primitive enables may instantiate canonical `dff`/`dffe` leaves
+explicitly. These leaves use the same typed Module results as other children:
 
 ```python
 from pycircuit import dffe, module, rule
 
 @module
-def Cell(clk: bool, rst: bool, en: bool, data: bool, init: bool) -> {"q": bool}:
+def Cell(clk: bool, rst: bool, en: bool, data: bool, init: bool) -> bool:
     state = dffe(T=bool)
 
     @rule
@@ -227,12 +608,16 @@ def Cell(clk: bool, rst: bool, en: bool, data: bool, init: bool) -> {"q": bool}:
         state(clk=clk, rst=rst, en=en, d=state.q ^ data, init=init)
 
     bind_state()
-    return {"q": state.q}
+    return state.q
 ```
 
-A parent imports `Cell`, declares `cell = Cell()`, binds all its inputs in a
-registered rule, and reads `cell.q`. Definition and instance are distinct.
-Instance declarations are structural; rule bodies do not allocate hardware.
+A parent uses `q = Cell(clk, rst, en, data, init)`. Each call allocates a distinct
+child; reusing `q` fans out its output. Only the canonical storage leaf uses
+allocation followed by complete binding in a Rule. Do not generalize that leaf
+syntax to ordinary user Modules. Preserve each leaf's physical clock, reset,
+enable and initializer, and retain independent-domain and four-state tests.
+The legacy named output mapping remains admitted for existing source units;
+new and migrated examples use scalar, Struct or tuple results as described above.
 
 Use a single local assignment to share a supported pure expression, for example
 `next_value = (x + 1) & 255`. Outputs and rules then reuse the original SSA value.
@@ -246,7 +631,8 @@ data is needed afterwards: from that declaration onward, the original spelling
 identifies the Rule and requires an admitted registration. Earlier helper captures keep their snapshots; later helpers
 cannot capture the retired data spelling. Storage, instances, imports, formal
 names and intrinsic grammar remain protected. This exception does not extend
-typed transaction/Method-owner binding or change forward/once-only registration. Aliasing does not make shift
+typed transaction/Method-owner binding or change that structural profile's
+forward-registration rules. Aliasing does not make shift
 counts, divisors or parameter/default positions static. See
 [immutable local wires](../reference/language.md#immutable-local-wires).
 
@@ -271,16 +657,16 @@ Equivalent hardware types may have different source locations; provenance is
 preserved for diagnostics and declaration authority. Different widths and
 nominal types remain different types.
 
-The verified IR supports more than these source surfaces. General collection
-authoring, complete `@system`, remaining mathematical lowering,
-FIFO protocols, automatic clock-domain scheduling and CDC are separate unfinished work.
+The verified IR supports more than these source surfaces. Remaining collection
+forms, mathematical lowering, automatic clock-domain scheduling, CDC and some
+physical/four-state System inputs are separate unfinished work.
 Do not infer Python support from a hand-authored IR test. Unsupported source
 and emission capabilities must diagnose; there is no old-route fallback.
 
 ## Source ownership and build
 
-The public commands are `pycircuit compile`, `pycircuit link` and
-`pycircuit emit`.
+The public commands are `pycircuit compile`, `pycircuit link`, `pycircuit emit`
+and `pycircuit run`.
 
 Compile each source independently. Parent compilation consumes published child
 interfaces through `-I`, not the child's Python or body as a fallback. The native
@@ -334,10 +720,10 @@ compilation, validation or emission fails.
 
 ## Method body checks and observations
 
-The conditional-call/effect and local nominal-join candidate is awaiting
-acceptance. The authoring rules below describe its implemented scope; they do not establish a
-passing compile, simulation or gate result. Verification remains bound to the
-exact candidate.
+The common callable path supports statement-arm calls and body effects, finite
+state, nominal joins and compiler-managed results. Generated C++ workers 1/2 and
+RTL tests exercise this bounded path. Those tests do not establish general
+resource admission, arbitrary control flow or a full example/nightly gate.
 
 Within the supported Method route, use ordinary `assert`, `log` and `report` in
 the body or statement `if`/`elif`/`else` arms. A saved local value remains the
@@ -347,8 +733,8 @@ transaction fire, so a later false guard suppresses earlier body effects too.
 Put unrelated autonomous work in another registered Rule.
 
 Rule and Method transaction bodies may use bounded statement `if`/`elif`/`else`
-and `pass` for whole fixed-width Bits state, scalar locals, nominal Enums and
-finite acyclic Struct locals containing Bits, Enum and nested Struct fields.
+and `pass` over admitted finite state and scalar, Enum, Struct and Table locals.
+The existing finite type, shape and indexed-update restrictions still apply.
 Both arms start from the same incoming candidate. A missing write preserves that candidate
 and its write intent, including a write made before the branch. A changed local
 read after the join must have a value on both arms; an existing local inherits
@@ -402,9 +788,11 @@ declared Enum member. `saved` and `payload` retain their original fields. Nested
 field and subtree replacement checks the declared field type and preserves the
 root nominal boundary. Direct Enum locals can also join. Pure joins preserve
 four-state Bits and raw Enum carriers without introducing membership faults.
-Changed Table-containing joins and reconstruction, indexed/slice targets,
-annotated field targets and augmented assignments remain rejected; unchanged
-Table-containing captures keep their existing admission.
+Admitted Struct/Table values retain their declared field and element types
+through reconstruction and joins. Field and element updates preserve the current
+root candidate; saved aliases remain snapshots. This does not admit arbitrary
+nested indexing, slice updates, annotated field targets or new augmented-assignment
+forms.
 
 Unselected guards bypass even when false or X/Z. A selected false guard holds
 the entire outer Rule across all owners and suppresses all its effects, including
@@ -417,18 +805,17 @@ selected observations can publish after a successful held/falling epoch.
 
 A call result becomes available after that call completes on its source path,
 even for a returned literal or capture. Bind a changed local on both arms to
-use it after the join. A value-returning outer Rule needs proven total admission;
-statically unreachable controls do not block totality, but a reachable dynamic effect
-selector generally requires `-> None`. Dead arms still receive type, recursion,
-closure, domain and writer checks. A conditional `log` or `report` alone needs
+use it after the join. A value-returning outer Rule may have dynamic admission;
+the compiler propagates its result availability rather than requiring `-> None`.
+Dead arms still receive type, recursion, closure, domain and writer checks. A conditional `log` or `report` alone needs
 no dummy Method, state or guard. Reports with the same owner/name still conflict
 across mutually exclusive arms; put one report after the join.
 
 Keep selectors, guards, pure helpers, collection callbacks and conditional
-expressions free of Method calls and effects. Effectful loops, early returns,
-partial or aggregate state writes, resources, cross-domain transactions,
-multiple outer writers and changed Table-containing locals escaping a join
-remain rejected. See the
+expressions free of Rule/Method calls and effects. Early or branch-local returns,
+cross-domain transactions and ambiguous competing writers remain rejected.
+Complex SCF loop-control and general resource admission remain outside the
+execution claim in this section. See the
 [conditional-effect contract](../rfcs/serial-rule-method/conditional-effects.md)
 and [whole-Bits branch contract](../rfcs/serial-rule-method/branch-state-ssa.md).
 
@@ -438,8 +825,8 @@ source paths and physical wiring. Authors do not supply final IDs or
 transaction ports. A closed `@system` keeps its
 compiler-generated clocks, resets and `pycircuit_sim` harness. Verification must
 include actual generated C++/RTL execution and failed-epoch publication checks;
-publication alone is insufficient. Partial updates and transaction resources
-remain unsupported. See the
+publication alone is insufficient. Admitted finite partial state updates use
+this same path; transaction resources still require their separate acceptance. See the
 [language boundary](../reference/language.md#method-execution-and-remaining-capabilities)
 and [body-effect contract](../rfcs/serial-rule-method/sampled-body-effects.md).
 
@@ -472,8 +859,10 @@ not clear its contents; use a fresh DUT for an independent cold run.
 
 ## Examples
 
-The current examples live under `examples/<name>/` and are listed in
+The 17 current examples live under `examples/<name>/` and are listed in
 `examples/catalog.json`. Each directory owns its Python sources and explicit
-module closure. Retained independent native/RTL oracles validate hardware
-behavior in the existing gate/nightly entrypoints; authoring and ordinary
-simulation do not establish those oracle results.
+module closure. Fifty-four superseded wrappers and their original oracles live
+under `tests/fixtures/historical_examples/`; they are comparison assets, not
+current examples or passing results. Retained independent native/RTL oracles
+validate hardware behavior in the existing gate/nightly entrypoints; authoring
+and ordinary simulation do not establish those oracle results.

@@ -1,5 +1,18 @@
 // Independently specified field values and one-register temporal feedback.
 module tb;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
+  task automatic host_reset;
+    pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
+    pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
+  task automatic managed_commit;
+    pyc_root_commit_ok=0;pyc_phase=1;#1;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 && pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok!==1'b1)begin pyc_phase=3;#1;$fatal(1,"prepared graph row failed completion/check validation");end
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;#1;
+  endtask
   function automatic logic [72:0] wide_value(input integer n);
     logic [63:0] low_word;
     low_word=64'h0123456789abcdef ^ (64'(n)*64'h0101010101010101);
@@ -44,10 +57,10 @@ module tb;
       if(reset)begin state_left=0;state_right=0;end
       else begin state_left=next_left;state_right=next_right;end
     end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;managed_commit();
   endtask
   initial begin
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;managed_commit();
     byte_row(0,0,0,0,1);byte_row(1,0,1,10,1);byte_row(0,0,0,0,1);
     byte_row(1,0,2,0,1);byte_row(0,0,0,0,1);byte_row(1,0,253,1,1);
     byte_row(0,0,0,0,1);byte_row(1,0,0,245,1);
@@ -86,11 +99,11 @@ module tb;
     if(result !== {state,state^value})$fatal(1,"direct-call old-Q/hold/reset/one-edge feedback mismatch");
     if(mode==1)$display("WORK %b",result);if(mode==2)$display("MASK %b",result);
     if(clock_level&&!last_clock)begin if(reset)state=0;else if(en)state=state^value;end
-    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;
+    last_clock=clock_level;pyc_7079635f636c6b=clock_level;#1;managed_commit();
   endtask
   initial begin
     bit [15:0] clocks=16'b0101011001010110;
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    #1;host_reset();pyc_7079635f636c6b=1;#1;managed_commit();pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;managed_commit();
     for(int n=0;n<16;n++)row(clocks[n],n==9,n!=4&&n!=6,wide_value(n),1);
 `ifdef DIRECT_FOUR_STATE
     for(int n=0;n<4;n++)begin
@@ -112,6 +125,27 @@ module tb;
         $fatal(1,"direct-call lexical early/late/call snapshots or local mutation mismatch");
       $display("WORK %b",result);
     end
+    $finish;
+  end
+`elsif DIRECT_TUPLE
+  logic [7:0] left,right;
+  logic valid;
+  wire [58:0] result;
+  task tuple_row(input logic [7:0] lv,rv,input logic accepted,input bit unknown_case);
+    left=lv;right=rv;valid=accepted;#1;
+    if(result !== {left,right,valid,left,right,valid,right,left,valid,left})
+      $fatal(1,"tuple result order, fanout, singleton, or call identity mismatch");
+    if(unknown_case)$display("MASK %b",result);else $display("WORK %b",result);
+  endtask
+  initial begin
+    for(int n=0;n<12;n++)
+      tuple_row(8'(n*17+3),8'(n*29+11),1'(n&1),0);
+`ifdef DIRECT_FOUR_STATE
+    tuple_row(8'bxxxxxxxx,8'd17,1'bx,1);
+    tuple_row(8'bzzzzzzzz,8'd31,1'bz,1);
+    tuple_row(8'd255,8'bxxxxxxxx,1'b0,1);
+    tuple_row(8'd0,8'bzzzzzzzz,1'b1,1);
+`endif
     $finish;
   end
 `else

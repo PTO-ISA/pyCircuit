@@ -1,6 +1,7 @@
 """Compile resident algorithms and check complete independent host histories."""
 
 import argparse
+import ast
 import hashlib
 import json
 import os
@@ -34,6 +35,45 @@ SNAPSHOT_WIDTH = {"rob": 974, "isq": 616}
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def source_for_root(source_text, root):
+    """Keep one System's declaration closure verbatim at original line numbers."""
+    tree = ast.parse(source_text)
+    declarations = {
+        node.name: node
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
+    assert root in declarations, root
+    needed = set()
+    pending = [root]
+    while pending:
+        name = pending.pop()
+        if name in needed:
+            continue
+        needed.add(name)
+        pending.extend(
+            node.id
+            for node in ast.walk(declarations[name])
+            if isinstance(node, ast.Name)
+            and node.id in declarations
+            and node.id not in needed
+        )
+    lines = source_text.splitlines(keepends=True)
+    for name, node in declarations.items():
+        if name not in needed:
+            first = min([node.lineno, *[item.lineno for item in node.decorator_list]])
+            lines[first - 1 : node.end_lineno] = ["\n"] * (node.end_lineno - first + 1)
+    result = "".join(lines)
+    assert len(result.splitlines()) == len(source_text.splitlines())
+    retained = {
+        node.name: node.lineno
+        for node in ast.parse(result).body
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef))
+    }
+    assert retained == {name: declarations[name].lineno for name in needed}
+    return result
 
 
 def packed(kind, name, record):
@@ -167,6 +207,7 @@ def main():
         *fixtures.glob("baseline/*"),
         *oracle.parent.glob("*.py"),
         oracle,
+        repo / "include/verilog/dff.v",
         repo / "include/verilog/dffe.v",
         repo / "cmake/verify_example.py",
     ]
@@ -189,7 +230,6 @@ def main():
         PYCIRCUIT_SOURCE_COMPILER=args.source_compiler,
         PYCIRCUIT_LINKER=args.linker,
         PYCIRCUIT_EMITTER=args.emitter,
-        MAKEFLAGS="CFG_CXXFLAGS_PCH_I=-include",
     )
     commands, receipts, visibility = [], [], []
 
@@ -220,47 +260,69 @@ def main():
     def cli(label, *arguments):
         return run(label, [sys.executable, "-m", "pycircuit.cli", *arguments])
 
-    units = []
-    for name in (
-        "reusable_circular_rob",
-        "reusable_oldest_ready_isq",
-        "resident_pairs",
-        "resident_systems",
-    ):
-        unit = scratch / (name + "-unit")
-        imports = (
-            [arg for published in units[:2] for arg in ("-I", published)]
-            if name.startswith("resident_")
-            else []
-        )
+    def compile_unit(name, source, output, imports=()):
         cli(
             "compile-" + name,
             "compile",
             "-c",
-            fixtures / (name + ".py"),
+            source,
             "--source-root",
-            fixtures,
+            source.parent,
             "--package-prefix",
             "history_resident",
             *imports,
             "-o",
-            unit,
+            output,
             "--replace",
         )
-        units.append(unit)
+        return output
 
-    for kind, symbol in (
-        ("rob", "reusable_circular_rob"),
-        ("isq", "reusable_oldest_ready_isq"),
+    provider_units = []
+    for name in (
+        "reusable_circular_rob",
+        "reusable_oldest_ready_isq",
     ):
-        for profile in ("module", "system"):
+        unit = scratch / (name + "-unit")
+        provider_units.append(compile_unit(name, fixtures / (name + ".py"), unit))
+    provider_imports = tuple(
+        argument for published in provider_units for argument in ("-I", published)
+    )
+    pairs_unit = compile_unit(
+        "resident_pairs",
+        fixtures / "resident_pairs.py",
+        scratch / "resident_pairs-unit",
+        provider_imports,
+    )
+    systems_source = fixtures / "resident_systems.py"
+    systems_text = systems_source.read_text()
+    system_hashes = {}
+
+    for profile in ("module", "system"):
+        for kind, symbol in (
+            ("rob", "reusable_circular_rob"),
+            ("isq", "reusable_oldest_ready_isq"),
+        ):
             top = (
                 f"history_resident.resident_pairs.dual_{kind}"
                 if profile == "module"
                 else "history_resident.resident_systems." + symbol
             )
             final = scratch / f"{kind}-{profile}.ac"
-            closure = [*units[:2], units[2 if profile == "module" else 3]]
+            if profile == "module":
+                closure = [*provider_units, pairs_unit]
+            else:
+                source_directory = scratch / "system-sources" / kind
+                source_directory.mkdir(parents=True, exist_ok=True)
+                split_source = source_directory / "resident_systems.py"
+                split_source.write_text(source_for_root(systems_text, symbol))
+                system_hashes[kind] = digest(split_source)
+                system_unit = compile_unit(
+                    "resident_systems-" + kind,
+                    split_source,
+                    scratch / ("resident_systems-" + kind + "-unit"),
+                    provider_imports,
+                )
+                closure = [*provider_units, system_unit]
             cli(
                 f"{kind}-{profile}-link",
                 "link",
@@ -351,6 +413,8 @@ def main():
                     names = drivers.instances(native_header.read_text(), kind)
                     driver = scratch / (label + "-driver.sv")
                     driver.write_text(drivers.verilog(kind, names))
+                    verilator_build = scratch / (label + "-build")
+                    shutil.rmtree(verilator_build, ignore_errors=True)
                     run(
                         label + "-build",
                         [
@@ -365,11 +429,12 @@ def main():
                             "2",
                             "-Wno-fatal",
                             "--Mdir",
-                            scratch / (label + "-build"),
+                            verilator_build,
                             "-o",
                             executable,
                             generated / "design_top.sv",
                             *generated.rglob("*.v"),
+                            repo / "include/verilog/dff.v",
                             repo / "include/verilog/dffe.v",
                             driver,
                         ],
@@ -532,6 +597,7 @@ def main():
         "candidate_inputs": input_hashes,
         "native_helpers": helper_hashes,
         "runtime_archive": {"path": str(runtime), "sha256": runtime_hash},
+        "system_source_closures": system_hashes,
         "read_only_visibility": visibility,
         "limits": [
             "Original exceptional committed-host readiness actions are exact module coverage, not closed-system equivalence.",

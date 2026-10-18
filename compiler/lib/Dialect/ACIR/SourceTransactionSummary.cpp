@@ -8,6 +8,8 @@
 #include <algorithm>
 #include <set>
 
+#include <functional>
+
 using namespace mlir;
 namespace acir::ac {
 namespace detail {
@@ -165,6 +167,8 @@ LogicalResult chargeTypeSpelling(PublicationBudget &budget, Type type) {
 
 struct ValueScope {
   SmallVector<Type> arguments, captures;
+  FunctionType methodSignature;
+  ArrayAttr formalProposals;
 };
 
 class PublicationBuilder {
@@ -192,6 +196,11 @@ public:
                          {"domain", *domain}});
         if (!row)
           return failure();
+        if (Attribute constraint = state->getAttr("ac.payload_constraint")) {
+          NamedAttrList fields(row);
+          fields.append("payload_constraint", constraint);
+          row = fields.getDictionary(builder.getContext());
+        }
         owners.push_back(row);
       } else if (auto instance = dyn_cast<InstanceOp>(operation)) {
         if (failed(hardware.verifyInstance(instance)))
@@ -199,19 +208,22 @@ public:
         auto arguments = values(instance.getInputs(), nullptr);
         if (failed(arguments))
           return failure();
-        auto row =
-            dict({{"kind", str("instance")},
-                  {"name", instance.getInstanceNameAttr()},
-                  {"occurrence", instance.getOccurrence()},
-                  {"callee", instance.getCalleeAttr()},
-                  {"parameters", instance.getParameters()},
-                  {"type_arguments", instance.getTypeArguments()},
-                  {"input_types", types(instance.getInputs().getTypes())},
-                  {"arguments", *arguments},
-                  {"result_types", types(instance.getResultTypes())}});
-        if (!row)
+        FailureOr<DictionaryAttr> row = isQueueInstance(instance)
+                                            ? getSourceQueueOwnerRow(instance)
+                                            : FailureOr<DictionaryAttr>(dict(
+                                                  {{"kind", str("instance")},
+                                                   {"name", instance.getInstanceNameAttr()},
+                                                   {"occurrence", instance.getOccurrence()},
+                                                   {"callee", instance.getCalleeAttr()},
+                                                   {"parameters", instance.getParameters()},
+                                                   {"type_arguments", instance.getTypeArguments()},
+                                                   {"input_types", types(instance.getInputs().getTypes())},
+                                                   {"result_types", types(instance.getResultTypes())}}));
+        if (failed(row))
           return failure();
-        owners.push_back(row);
+        NamedAttrList fields(*row);
+        fields.append("arguments", *arguments);
+        owners.push_back(fields.getDictionary(builder.getContext()));
       } else if (auto method = dyn_cast<SourceMethodOp>(operation)) {
         auto row = callable(method);
         if (failed(row))
@@ -650,13 +662,20 @@ private:
          llvm::zip(branch.getResultTypes(), trueValues, falseValues)) {
       HardwareBindings bindings;
       bindings.owner = definition;
-      auto admitted = detail::resolveSourceBranchResultType(
-          type, hardware, bindings, branch,
-          [&](uint64_t work, uint64_t bytes) {
-            return success(budget.charge(work) && budget.storage(1, bytes));
-          });
-      if (failed(admitted))
-        return failure();
+      if (!budget.charge()) return failure();
+      // One publication request has one fixed lexical Module binding. Reuse
+      // its admission of an identical type instead of rewalking the same
+      // source width and nominal declarations for every loop join result.
+      if (!admittedBranchTypes.contains(type)) {
+        auto admitted = detail::resolveSourceBranchResultType(
+            type, hardware, bindings, branch,
+            [&](uint64_t work, uint64_t bytes) {
+              return success(budget.charge(work) && budget.storage(1, bytes));
+            });
+        if (failed(admitted) || !budget.storage(1, 3 * sizeof(Type)))
+          return failure();
+        admittedBranchTypes.insert(type);
+      }
       auto physical = TypeAttr::get(type);
       if (failed(metadata(physical)))
         return failure();
@@ -674,6 +693,11 @@ private:
                      {"then_effects", *whenTrue},
                      {"else_effects", *whenFalse},
                      {"results", array(results)}});
+    if (row && branch->hasAttr("ac.loop_continuation")) {
+      NamedAttrList marked(row);
+      marked.append("loop_continuation", builder.getBoolAttr(true));
+      row = marked.getDictionary(builder.getContext());
+    }
     return row ? FailureOr<DictionaryAttr>(row)
                : FailureOr<DictionaryAttr>(failure());
   }
@@ -686,9 +710,9 @@ private:
     for (Operation &operation : region.front().without_terminator()) {
       if (!budget.charge())
         return failure();
-      if (isa<SourceBranchOp, SourceMethodCallOp, SourceExpectOp,
-              SourceObserveOp, SourceStateReadOp, SourceStateWriteOp>(
-              operation))
+      if (isa<SourceBranchOp, SourceFormalWriteOp, SourceMethodCallOp,
+              SourceExpectOp, SourceObserveOp, SourceStateReadOp,
+              SourceStateWriteOp>(operation))
         ++count;
     }
     if (count > result.max_size() || !budget.storage(count, sizeof(Attribute)))
@@ -711,6 +735,15 @@ private:
         auto owner = receiver(call);
         if (failed(actuals) || failed(owner))
           return failure();
+        StringRef receiverSymbol =
+            call.getCalleeAttr().getRootReference().getValue();
+        bool nativeQueue =
+            receiverSymbol == "pycircuit.__builtins__.fifo_local" ||
+            receiverSymbol == "pycircuit.__builtins__.fifo_downstream_pop";
+        Attribute location = call->getAttr("ac.location");
+        if (nativeQueue && failed(metadata(location)))
+          return call.emitOpError()
+                 << "native FIFO call publication requires ac.location";
         auto row = dict({{"kind", str("call")},
                          {"occurrence", call.getOccurrence()},
                          {"path", fact(call.getPath(), scope)},
@@ -719,6 +752,40 @@ private:
                          {"arguments", *actuals}});
         if (!row)
           return failure();
+        NamedAttrList fields(row);
+        if (nativeQueue)
+          fields.append("location", location);
+        if (Attribute bindings = call->getAttr("ac.formal_owner_bindings")) {
+          fields.append("ac.formal_owner_bindings", bindings);
+        }
+        result.push_back(fields.getDictionary(builder.getContext()));
+      } else if (auto write = dyn_cast<SourceFormalWriteOp>(operation)) {
+        if (failed(metadata(write.getSourceLocation())))
+          return failure();
+        auto selected =
+            selectors(write.getSelectors(), write.getIndices(), scope);
+        if (failed(selected))
+          return failure();
+        auto row =
+            dict({{"kind", str("formal_write")},
+                  {"occurrence", write.getOccurrence()},
+                  {"path", fact(write.getPath(), scope)},
+                  {"formal", write.getFormalAttr()},
+                  {"selectors", *selected},
+                  {"payload_type", TypeAttr::get(write.getPayload().getType())},
+                  {"payload", value(write.getPayload(), scope)},
+                  {"candidate", value(write.getCandidate(), scope)},
+                  {"location", write.getSourceLocation()}});
+        if (!row)
+          return failure();
+        if (write.getPrevious()) {
+          NamedAttrList forwarded(row);
+          auto previous = value(write.getPrevious(), scope);
+          if (!previous) return failure();
+          forwarded.append("previous", previous);
+          forwarded.append("snapshot_type", TypeAttr::get(write.getSnapshot().getType()));
+          row = forwarded.getDictionary(builder.getContext());
+        }
         result.push_back(row);
       } else if (auto check = dyn_cast<SourceExpectOp>(operation)) {
         if (failed(metadata(check->getAttr("occurrence"))) ||
@@ -784,11 +851,10 @@ private:
           return operation.emitOpError()
                  << "publication requires an actual local state";
         bool write = isa<SourceStateWriteOp>(operation);
-        auto selectedRows = operation.getAttrOfType<ArrayAttr>("selectors");
-        if (arm &&
-            (!selectedRows.empty() || !isa<BitsType>(state.getQ().getType())))
+        if (arm && !isa<BitsType, EnumType, StructType, TableType>(
+                       state.getQ().getType()))
           return operation.emitOpError()
-                 << "source branch arms require whole Bits state accesses";
+                 << "source branch arms require selected finite state accesses";
         ValueRange indices = operation.getOperands().drop_front(write ? 2 : 1);
         auto selected = selectors(
             operation.getAttrOfType<ArrayAttr>("selectors"), indices, scope);
@@ -825,6 +891,12 @@ private:
     return rows ? FailureOr<ArrayAttr>(rows) : FailureOr<ArrayAttr>(failure());
   }
   FailureOr<DictionaryAttr> callable(Operation *operation) {
+    std::optional<SourceRegistrationEntryView> entry;
+    if (auto transaction = dyn_cast<SourceTransactionOp>(operation)) {
+      auto checked = getSourceRegistrationEntry(transaction);
+      if (failed(checked)) return failure();
+      entry = *checked;
+    }
     auto guardLocation =
         operation->getAttrOfType<DictionaryAttr>("ac.guard_location");
     if (failed(detail::verifySourceGuardLocation(
@@ -864,6 +936,10 @@ private:
       for (StringRef key :
            {"ac.parameters", "ac.result_constraints", "ac.return_form"})
         row.append(key, method->getAttr(key));
+      if (auto proposals = method->getAttr("ac.formal_proposals"))
+        row.append("ac.formal_proposals", proposals);
+      if (auto visibility = method->getAttr("sym_visibility"))
+        row.append("visibility", visibility);
     } else {
       auto transaction = cast<SourceTransactionOp>(operation);
       auto domain = getDomain(transaction.getClk(), transaction.getRst());
@@ -872,6 +948,10 @@ private:
       row.append("name", transaction.getNameAttr());
       row.append("declaration", transaction.getDeclaration());
       row.append("registration", transaction.getOccurrence());
+      if (entry)
+        row.append("registration_entry", entry->call.getCalleeAttr());
+      if (auto after = transaction->getAttrOfType<ArrayAttr>("ac.after");
+          after && !after.empty()) row.append("after", after);
       row.append("domain", *domain);
       auto resultTypes = types(transaction.getResultTypes());
       if (!resultTypes)
@@ -890,6 +970,7 @@ private:
   PublicationBudget budget;
   llvm::DenseSet<Operation *> visiting, visited;
   llvm::DenseMap<std::pair<Value, Operation *>, DictionaryAttr> dependencyCache;
+  llvm::DenseSet<Type> admittedBranchTypes;
   bool invalid = false;
 };
 
@@ -937,18 +1018,37 @@ public:
         return error("owner names must be unique");
       DictionaryAttr identity;
       if (kind.getValue() == "state") {
-        if (failed(exact(row, {"kind", "name", "state", "type", "domain"})))
+        NamedAttrList core(row);
+        core.erase("payload_constraint");
+        if (failed(exact(core.getDictionary(declaration->getContext()),
+                         {"kind", "name", "state", "type", "domain"})))
           return failure();
         auto state = row.getAs<DictionaryAttr>("state");
         if (failed(ownedState(state)) || failed(type(row.get("type"))) ||
             failed(domain(row.getAs<DictionaryAttr>("domain"))))
           return failure();
+        if (Attribute constraint = row.get("payload_constraint"))
+          if (failed(detail::verifySourceCallHardwareConstraint(
+                  constraint, row.getAs<TypeAttr>("type").getValue(), hardware,
+                  declaration, declaration, "transaction summary state payload")))
+            return failure();
         identity = state.getAs<DictionaryAttr>("declaration");
         stateRows[state] = row.getAs<TypeAttr>("type").getValue();
+        stateNames.insert(name.getValue());
       } else if (kind.getValue() == "instance") {
-        if (failed(exact(row, {"kind", "name", "occurrence", "callee",
-                               "parameters", "type_arguments", "input_types",
-                               "arguments", "result_types"})))
+        NamedAttrList core(row);
+        Attribute payloadConstraint = row.get("payload_constraint");
+        Attribute rawUnboundPush = row.get("unbound_push");
+        Attribute rawUnboundPop = row.get("unbound_pop");
+        auto unboundPush = row.getAs<BoolAttr>("unbound_push");
+        auto unboundPop = row.getAs<BoolAttr>("unbound_pop");
+        core.erase("payload_constraint");
+        core.erase("unbound_push");
+        core.erase("unbound_pop");
+        if (failed(exact(core.getDictionary(declaration->getContext()),
+                         {"kind", "name", "occurrence", "callee",
+                          "parameters", "type_arguments", "input_types",
+                          "arguments", "result_types"})))
           return failure();
         identity = row.getAs<DictionaryAttr>("occurrence");
         auto callee = row.getAs<FlatSymbolRefAttr>("callee");
@@ -961,6 +1061,9 @@ public:
             !typeArguments || !inputs || !results || !actuals ||
             inputs.size() != actuals.size())
           return error("instance binding fields or input arity are invalid");
+        if ((rawUnboundPush && !unboundPush) ||
+            (rawUnboundPop && !unboundPop))
+          return error("queue unbound-direction facts require BoolAttr");
         for (Attribute parameter : parameters)
           if (!isa<StaticExprAttr>(parameter) ||
               failed(
@@ -973,9 +1076,53 @@ public:
         for (Attribute raw : results)
           if (failed(type(raw)))
             return failure();
+        for (Attribute raw : inputs)
+          if (failed(type(raw)))
+            return failure();
+        bool queue = callee.getValue() == "pycircuit.__builtins__.fifo_local" ||
+                     callee.getValue() ==
+                         "pycircuit.__builtins__.fifo_downstream_pop";
+        if (!queue && (payloadConstraint || unboundPush || unboundPop))
+          return error("queue binding facts require a canonical FIFO instance");
+        if (queue) {
+          if ((unboundPush && !unboundPush.getValue()) ||
+              (unboundPop && !unboundPop.getValue()))
+            return error("queue unbound-direction facts must be true when present");
+          if (inputs.size() != 5 || results.size() != 4 ||
+              typeArguments.size() != 1 || parameters.size() != 2)
+            return error("canonical FIFO instance summary shape is invalid");
+          auto payload = cast<TypeAttr>(results[2]).getValue();
+          auto config =
+              getQueueConfiguration(callee, parameters, declaration);
+          if (failed(config) ||
+              failed(verifySourceQueueConfiguration(
+                  declaration, *config, payload, declaration)))
+            return failure();
+          if (payloadConstraint &&
+              failed(detail::verifySourceCallHardwareConstraint(
+                  payloadConstraint, payload, hardware, declaration,
+                  declaration, "transaction summary queue payload")))
+            return failure();
+          if ((unboundPush || unboundPop) && !payloadConstraint)
+            return error("source Queue methods require a checked payload constraint");
+          for (auto [index, unbound] :
+               {std::pair<unsigned, bool>{2, unboundPush && unboundPush.getValue()},
+                {4, unboundPop && unboundPop.getValue()}}) {
+            auto binding = dyn_cast<DictionaryAttr>(actuals[index]);
+            auto fact = binding
+                            ? binding.getAs<DictionaryAttr>("fact")
+                            : DictionaryAttr();
+            auto valueKind =
+                fact ? fact.getAs<StringAttr>("kind") : StringAttr();
+            if (unbound &&
+                (!valueKind || valueKind.getValue() != "constant" ||
+                 !fact.getAs<BoolAttr>("value") ||
+                 fact.getAs<BoolAttr>("value").getValue()))
+              return error("unbound queue request binding must be constant false");
+          }
+        }
         for (auto [input, actual] : llvm::zip(inputs, actuals)) {
-          if (failed(type(input)) ||
-              failed(
+          if (failed(
                   value(actual, moduleScope, cast<TypeAttr>(input).getValue())))
             return failure();
         }
@@ -1007,10 +1154,14 @@ public:
       if (failed(callable(cast<DictionaryAttr>(raw), true)))
         return failure();
     DictionaryAttr previousRegistration;
-    llvm::DenseSet<Attribute> declarations;
+    llvm::DenseMap<Attribute, DictionaryAttr> registrations;
     for (Attribute raw : autonomous) {
       auto row = dyn_cast<DictionaryAttr>(raw);
-      if (failed(exact(row,
+      NamedAttrList core;
+      if (row) core.assign(row.getValue());
+      core.erase("after");
+      core.erase("registration_entry");
+      if (failed(exact(core.getDictionary(declaration->getContext()),
                        {"name", "declaration", "registration", "domain",
                         "guard_location", "captures", "guard", "guard_effects",
                         "body_effects", "result_types", "results"})) ||
@@ -1025,11 +1176,43 @@ public:
         return error(
             "autonomous registrations must be unique and canonically ordered");
       previousRegistration = registration;
-      if (!declarations.insert(row.get("declaration")).second)
-        return error("autonomous declarations must be registered exactly once");
+      registrations.try_emplace(registration, row);
+      if (Attribute rawAfter = row.get("after")) {
+        auto after = dyn_cast<ArrayAttr>(rawAfter);
+        if (!after || after.empty())
+          return error("after requires a nonempty registration array");
+        llvm::DenseSet<Attribute> seen;
+        for (Attribute predecessor : after)
+          if (failed(occurrence(dyn_cast<DictionaryAttr>(predecessor))) ||
+              !seen.insert(predecessor).second || predecessor == registration)
+            return error("after requires distinct other local registrations");
+      }
       if (failed(callable(row, false)))
         return failure();
+      if (failed(registrationEntry(row)))
+        return failure();
     }
+    llvm::DenseMap<Attribute, unsigned> colors;
+    std::function<LogicalResult(Attribute, unsigned)> visit =
+        [&](Attribute registration, unsigned depth) -> LogicalResult {
+      if (depth > 128 || !budget.charge()) return error("after graph depth exceeded");
+      if (colors.lookup(registration) == 1) return error("after graph is cyclic");
+      if (colors.lookup(registration) == 2) return success();
+      colors[registration] = 1;
+      auto row = registrations.lookup(registration);
+      if (!row) return error("after target is not a local outer registration");
+      if (auto after = row.getAs<ArrayAttr>("after"))
+        for (Attribute predecessor : after) {
+          auto target = registrations.lookup(predecessor);
+          if (!target || target.get("domain") != row.get("domain"))
+            return error("after target must have the same local domain");
+          if (failed(visit(predecessor, depth + 1))) return failure();
+        }
+      colors[registration] = 2;
+      return success();
+    };
+    for (auto row : registrations)
+      if (failed(visit(row.first, 0))) return failure();
     return success(budget.ok());
   }
 
@@ -1269,7 +1452,15 @@ private:
     return occurrence(state.getAs<DictionaryAttr>("declaration"));
   }
   LogicalResult methodHeader(DictionaryAttr row) {
-    if (failed(exact(row,
+    NamedAttrList core(row);
+    core.erase("ac.formal_proposals");
+    core.erase("visibility");
+    if (Attribute raw = row.get("visibility")) {
+      auto visibility = dyn_cast<StringAttr>(raw);
+      if (!visibility || visibility.getValue() != "private")
+        return error("Method visibility must be absent or private");
+    }
+    if (failed(exact(core.getDictionary(declaration->getContext()),
                      {"name", "declaration", "function_type", "argument_names",
                       "ac.parameters", "ac.result_constraints",
                       "ac.return_form", "guard_location", "captures", "guard",
@@ -1287,9 +1478,7 @@ private:
     if (!function || !names || !parameters || !constraints || !form ||
         names.size() != function.getNumInputs() ||
         parameters.size() != function.getNumInputs() ||
-        constraints.size() != function.getNumResults() ||
-        function.getNumResults() > 1 ||
-        form.getValue() != (function.getNumResults() ? "single" : "none"))
+        constraints.size() != function.getNumResults())
       return error("method source signature fields disagree");
     llvm::StringSet<> argumentNames;
     for (auto [index, raw] : llvm::enumerate(names)) {
@@ -1315,6 +1504,72 @@ private:
               declaration, "transaction summary method")))
         return failure();
     }
+    SourceMethodView contract{declaration, {}, row};
+    if (failed(verifySourceMethodFormalProposals(contract, declaration)))
+      return failure();
+    unsigned publicCount = contract.getNumPublicResults();
+    if (!((form.getValue() == "none" && publicCount == 0) ||
+          (form.getValue() == "single" && publicCount == 1) ||
+          (form.getValue() == "tuple" && publicCount != 0)))
+      return error("method ac.return_form disagrees with public results");
+    return success();
+  }
+  LogicalResult registrationEntry(DictionaryAttr row) {
+    Attribute raw = row.get("registration_entry");
+    if (!raw) return success();
+    auto symbol = dyn_cast<SymbolRefAttr>(raw);
+    if (!symbol || symbol.getRootReference() !=
+                       declaration->getAttrOfType<StringAttr>("sym_name") ||
+        symbol.getNestedReferences().size() != 1)
+      return error("registration_entry requires a local Method reference");
+    auto found = methodRows.find(symbol.getNestedReferences().front().getAttr());
+    if (found == methodRows.end())
+      return error("registration_entry must name a local Method row");
+    auto method = found->second;
+    if (method.get("declaration") != row.get("declaration") ||
+        method.get("guard_location") != row.get("guard_location"))
+      return error("registration_entry Method declaration/guard must agree");
+    auto guard = row.getAs<DictionaryAttr>("guard").getAs<DictionaryAttr>("fact");
+    auto guardKind = guard.getAs<StringAttr>("kind");
+    auto guardValue = guard.getAs<BoolAttr>("value");
+    auto body = row.getAs<ArrayAttr>("body_effects");
+    if (!guardKind || guardKind.getValue() != "constant" || !guardValue ||
+        !guardValue.getValue() ||
+        !row.getAs<ArrayAttr>("guard_effects").empty() || body.size() != 1)
+      return error("registration_entry requires a true guard and one call");
+    auto call = dyn_cast<DictionaryAttr>(body[0]);
+    auto receiver = call ? call.getAs<DictionaryAttr>("receiver") : DictionaryAttr();
+    auto path = call ? call.getAs<DictionaryAttr>("path") : DictionaryAttr();
+    auto pathKind = path ? path.getAs<StringAttr>("kind") : StringAttr();
+    auto pathValue = path ? path.getAs<BoolAttr>("value") : BoolAttr();
+    auto kind = call ? call.getAs<StringAttr>("kind") : StringAttr();
+    if (!kind || kind.getValue() != "call" || call.get("callee") != symbol ||
+        call.get("occurrence") != row.get("registration") ||
+        call.get("ac.formal_owner_bindings") || !receiver ||
+        !receiver.getAs<ArrayAttr>("instance_path").empty() ||
+        !pathKind || pathKind.getValue() != "constant" || !pathValue ||
+        !pathValue.getValue())
+      return error("registration_entry requires an exact local registration call");
+    auto signature = cast<FunctionType>(
+        method.getAs<TypeAttr>("function_type").getValue());
+    auto captures = row.getAs<ArrayAttr>("captures");
+    if (captures.size() != signature.getNumInputs())
+      return error("registration_entry captures must match explicit arguments");
+    for (auto [capture, input] : llvm::zip(captures, signature.getInputs()))
+      if (!areEquivalentHardwareTypes(
+              cast<DictionaryAttr>(capture).getAs<TypeAttr>("type").getValue(), input))
+        return error("registration_entry capture types must match Method inputs");
+    SourceMethodView contract{declaration, {}, method};
+    auto results = row.getAs<ArrayAttr>("result_types");
+    if (results.size() != contract.getNumPublicResults())
+      return error("registration_entry exposes only the Method public prefix");
+    for (auto [index, result] : llvm::enumerate(results))
+      if (!areEquivalentHardwareTypes(cast<TypeAttr>(result).getValue(),
+                                     signature.getResult(index)))
+        return error("registration_entry public result order must match Method");
+    // This compact reference does not claim to prove SSA forwarding. Linking
+    // authenticates the provider body and rederives this row through the strict
+    // native registration-entry view before using the shared Method body.
     return success();
   }
   LogicalResult callable(DictionaryAttr row, bool method) {
@@ -1330,6 +1585,8 @@ private:
           cast<FunctionType>(row.getAs<TypeAttr>("function_type").getValue());
       scope.arguments.assign(function.getInputs().begin(),
                              function.getInputs().end());
+      scope.methodSignature = function;
+      scope.formalProposals = row.getAs<ArrayAttr>("ac.formal_proposals");
       outputs.assign(function.getResults().begin(),
                      function.getResults().end());
     } else {
@@ -1372,16 +1629,11 @@ private:
       return failure();
     return effects(bodyEffects, scope, false);
   }
-  FailureOr<Type> selectedType(DictionaryAttr state, ArrayAttr selectors,
+  FailureOr<Type> selectedType(Type root, ArrayAttr selectors,
                                const ValueScope &scope) {
-    auto found = stateRows.find(state);
-    if (found == stateRows.end()) {
-      (void)error("effect state must name a local owner row");
-      return failure();
-    }
     HardwareBindings bindings;
     bindings.owner = declaration;
-    auto resolved = hardware.resolveType(found->second, bindings, declaration);
+    auto resolved = hardware.resolveType(root, bindings, declaration);
     if (failed(resolved))
       return failure();
     Type current = *resolved;
@@ -1450,11 +1702,34 @@ private:
     }
     return current;
   }
-  LogicalResult call(DictionaryAttr row, const ValueScope &scope) {
-    if (failed(exact(row, {"kind", "occurrence", "path", "callee", "receiver",
-                           "arguments"})))
+  FailureOr<Type> selectedType(DictionaryAttr state, ArrayAttr selectors,
+                               const ValueScope &scope) {
+    auto found = stateRows.find(state);
+    if (found == stateRows.end()) {
+      (void)error("effect state must name a local owner row");
       return failure();
+    }
+    return selectedType(found->second, selectors, scope);
+  }
+  LogicalResult call(DictionaryAttr row, const ValueScope &scope) {
+    NamedAttrList core(row);
+    core.erase("ac.formal_owner_bindings");
     auto callee = row.getAs<SymbolRefAttr>("callee");
+    bool nativeQueue =
+        callee &&
+        (callee.getRootReference().getValue() ==
+             "pycircuit.__builtins__.fifo_local" ||
+         callee.getRootReference().getValue() ==
+             "pycircuit.__builtins__.fifo_downstream_pop");
+    if ((nativeQueue &&
+         failed(exact(core.getDictionary(declaration->getContext()),
+                      {"kind", "occurrence", "path", "callee", "receiver",
+                       "arguments", "location"}))) ||
+        (!nativeQueue &&
+         failed(exact(core.getDictionary(declaration->getContext()),
+                      {"kind", "occurrence", "path", "callee", "receiver",
+                       "arguments"}))))
+      return failure();
     auto receiver = row.getAs<DictionaryAttr>("receiver");
     auto actuals = row.getAs<ArrayAttr>("arguments");
     if (!callee || callee.getRootReference().getValue().empty() ||
@@ -1463,7 +1738,14 @@ private:
             receiver, [&] { return declaration->emitOpError(); })))
       return error("call requires a qualified Module::Method, OwnerRef and "
                    "argument array");
+    if (nativeQueue &&
+        failed(detail::verifySourceEffectMetadata(
+            row.getAs<DictionaryAttr>("occurrence"),
+            row.getAs<DictionaryAttr>("location"), declaration,
+            [&] { return declaration->emitOpError(); })))
+      return failure();
     auto path = receiver.getAs<ArrayAttr>("instance_path");
+    std::optional<ArrayAttr> proposals;
     if (path.empty()) {
       if (callee.getRootReference() !=
           declaration->getAttrOfType<StringAttr>("sym_name"))
@@ -1474,6 +1756,7 @@ private:
         return error("self call must name a local Method row");
       auto function = cast<FunctionType>(
           found->second.getAs<TypeAttr>("function_type").getValue());
+      proposals = found->second.getAs<ArrayAttr>("ac.formal_proposals");
       if (actuals.size() != function.getNumInputs())
         return error("self call argument arity must match Method signature");
       for (auto [actual, type] : llvm::zip(actuals, function.getInputs()))
@@ -1499,7 +1782,10 @@ private:
         if (failed(value(actual, scope)))
           return failure();
     }
-    return success();
+    return verifySourceFormalOwnerBindings(
+        row.get("ac.formal_owner_bindings"), actuals.size(), proposals,
+        scope.methodSignature, scope.formalProposals,
+        [&](StringRef name) { return stateNames.contains(name); }, declaration);
   }
   LogicalResult effects(ArrayAttr rows, const ValueScope &scope, bool guard,
                         unsigned depth = 0, bool arm = false) {
@@ -1518,7 +1804,15 @@ private:
       if (kind.getValue() == "branch") {
         if (guard)
           return error("guard effects permit reads only");
-        if (failed(exact(row, {"kind", "occurrence", "condition_location",
+        NamedAttrList branchCore(row);
+        branchCore.erase("loop_continuation");
+        if (Attribute marker = row.get("loop_continuation")) {
+          auto enabled = dyn_cast<BoolAttr>(marker);
+          if (!enabled || !enabled.getValue())
+            return error("loop_continuation requires BoolAttr true");
+        }
+        if (failed(exact(branchCore.getDictionary(declaration->getContext()),
+                              {"kind", "occurrence", "condition_location",
                                "condition", "then_effects", "else_effects",
                                "results"})))
           return failure();
@@ -1547,12 +1841,15 @@ private:
           auto physical = physicalAttr.getValue();
           HardwareBindings bindings;
           bindings.owner = declaration;
-          if (failed(detail::resolveSourceBranchResultType(
-                  physical, hardware, bindings, declaration,
-                  [&](uint64_t work, uint64_t bytes) {
-                    return success(budget.charge(work) && budget.storage(1, bytes));
-                  })))
-            return failure();
+          if (!admittedBranchTypes.contains(physical)) {
+            if (failed(detail::resolveSourceBranchResultType(
+                    physical, hardware, bindings, declaration,
+                    [&](uint64_t work, uint64_t bytes) {
+                      return success(budget.charge(work) && budget.storage(1, bytes));
+                    })) || !budget.storage(1, 3 * sizeof(Type)))
+              return failure();
+            admittedBranchTypes.insert(physical);
+          }
           if (failed(value(result.get("when_true"), scope, physical)) ||
               failed(value(result.get("when_false"), scope, physical)))
             return failure();
@@ -1565,6 +1862,59 @@ private:
         if (guard)
           return error("guard effects permit reads only");
         if (failed(call(row, scope)))
+          return failure();
+      } else if (kind.getValue() == "formal_write") {
+        if (guard || !scope.methodSignature)
+          return error("formal write requires a Method body");
+        NamedAttrList core(row);
+        bool forwarded = bool(row.get("previous")) || bool(row.get("snapshot_type"));
+        if (forwarded) {
+          if (!row.getAs<DictionaryAttr>("previous") || !row.getAs<TypeAttr>("snapshot_type"))
+            return error("forwarded formal previous and snapshot type must be present together");
+          core.erase("previous");
+          core.erase("snapshot_type");
+        }
+        if (failed(exact(core.getDictionary(declaration->getContext()),
+                         {"kind", "occurrence", "path", "formal", "selectors",
+                          "payload_type", "payload", "candidate", "location"})))
+          return failure();
+        auto formal = row.getAs<IntegerAttr>("formal");
+        if (!formal || !formal.getType().isSignlessInteger(64) ||
+            formal.getInt() < 0 || static_cast<uint64_t>(formal.getInt()) >=
+                                       scope.arguments.size() ||
+            !scope.formalProposals ||
+            !llvm::is_contained(scope.formalProposals, formal))
+          return error("formal write must identify a writable input formal");
+        auto selectors = row.getAs<ArrayAttr>("selectors");
+        if (!selectors)
+          return error("formal write requires a selector array");
+        auto selected =
+            selectedType(scope.arguments[formal.getInt()], selectors, scope);
+        if (failed(selected))
+          return failure();
+        auto payloadType = row.getAs<TypeAttr>("payload_type");
+        if (!payloadType ||
+            !areEquivalentHardwareTypes(*selected, payloadType.getValue()))
+          return error(
+              "formal write payload must match selected input formal type");
+        if (forwarded && !selectors.empty())
+          return error(
+              "forwarded formal proposal must inherit callee write domains");
+        if (forwarded &&
+            (failed(value(row.get("previous"), scope, scope.arguments[formal.getInt()])) ||
+             failed(type(row.get("snapshot_type"))) ||
+             !areEquivalentHardwareTypes(row.getAs<TypeAttr>("snapshot_type").getValue(),
+                                          scope.arguments[formal.getInt()])))
+          return error("forwarded formal snapshot must preserve the whole formal type");
+        if (failed(type(row.get("payload_type"))) ||
+            failed(value(row.get("payload"), scope,
+                         row.getAs<TypeAttr>("payload_type").getValue())) ||
+            failed(value(row.get("candidate"), scope,
+                         scope.arguments[formal.getInt()])) ||
+            failed(detail::verifySourceEffectMetadata(
+                row.getAs<DictionaryAttr>("occurrence"),
+                row.getAs<DictionaryAttr>("location"), declaration,
+                [&] { return declaration->emitOpError(); })))
           return failure();
       } else if (kind.getValue() == "check") {
         if (guard)
@@ -1636,8 +1986,8 @@ private:
         auto selected = selectedType(state, selectors, scope);
         if (failed(selected))
           return failure();
-        if (arm && (!selectors.empty() || !isa<BitsType>(*selected)))
-          return error("branch arms require whole Bits state accesses");
+        if (arm && !isa<BitsType, EnumType, StructType, TableType>(*selected))
+          return error("branch arms require selected finite state accesses");
         if (write && failed(value(row.get("value"), scope, *selected)))
           return failure();
       } else
@@ -1649,8 +1999,10 @@ private:
   HardwareAnalysis hardware;
   PublicationBudget budget;
   FunctionType signature;
+  llvm::DenseSet<Type> admittedBranchTypes;
   ValueScope moduleScope;
   llvm::DenseMap<DictionaryAttr, Type> stateRows;
+  llvm::StringSet<> stateNames;
   llvm::DenseMap<DictionaryAttr, DictionaryAttr> instanceRows;
   llvm::DenseMap<StringAttr, DictionaryAttr> methodRows;
 };

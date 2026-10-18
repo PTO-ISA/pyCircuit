@@ -1,0 +1,71 @@
+{
+  "schema": "pycircuit-generated-example-v1",
+  "example": "fastfwd",
+  "entry": {
+    "arguments": [],
+    "definition": "@\"example_fastfwd.fastfwd.Fastfwd\""
+  },
+  "verification": {
+    "schema": "pycircuit-example-verification-v1",
+    "inputs": {
+      "source/CMakeLists.txt": "efa14133cac9797e5b23b3f72d76eb85a2bad90ce70eacf96f7fadaa7db3284e",
+      "source/bench.py": "1990c35d3d0897a613e922ab6e4a62b8e08c9640c921a0468d51eb24a9ba9081",
+      "source/config.json": "a681bec2e456382359adfd5b5eb8e6f11ae0e5b21a0237463ae246caecbe1e3d",
+      "source/driver.cpp": "c80e935904734d9dd6052fe36454545d3f8a2d27edbd0af461c48ad94fd8b8ec",
+      "source/fastfwd.py": "a20056ed5459df4a9aa32447a46eeecb8f65534a6e5743bfecdb024e269da851",
+      "source/rtl_tb.sv": "605ab7564106aba02b14392fc1f6a8d928c212fb09cced6b2b9cfc9b90b1b798",
+      "build/cpp/generated.json": "7715a9dcadaf7de32c6cb5cd60644077c2151bd663219362d726820bd2af7df6",
+      "build/cpp/CMakeLists.txt": "7791fb5a143abf7be55edb4bdad5408eb189fc0439d33094c82d4ab053ec737a",
+      "build/cpp/pycircuit_support.hpp": "78d326501972bfb55a0fb400e135a2f49f295b388eedf394e83775dad9094c38",
+      "build/cpp/pycircuit_system.hpp": "9b760eb296ae30ec11fa67a691aef853069fbd767600745e20b77ae73860c8e3",
+      "build/cpp/sources/example_fastfwd/fastfwd.cpp": "abd16ea959e92f5186827723d59cdbbf94df3ac29e965135d36247bd84c6e3a8",
+      "build/cpp/sources/example_fastfwd/fastfwd.hpp": "d7af3c5962468a6a975cabb0401e8a5ad986b07242fa7e355fb35c8106139cc1",
+      "build/cpp/sources/example_fastfwd/fastfwd.source-map.json": "576254830f2b2a46d978d4bcd34adc8e095104416343e73612c0a0225c5ad1ba",
+      "build/verilog/generated.json": "70a40cdc0b51a0fd78b4633a5a9d65a7855ceb9028207a8af8c950cd067f8ed8",
+      "build/verilog/CMakeLists.txt": "8a2aed5f1b3bb059d49a0a675e06dbf75127414d0205852e4f4d13535cb51efc",
+      "build/verilog/design_top.sv": "7f11363c1b3199175c2eba08e807b1c3f8ed6f5978aa6024a0564c91a42eb2d9",
+      "build/verilog/sources/example_fastfwd/fastfwd.source-map.json": "66b6bdc7382ac5ef5e4e2fcb9d15f64f1bd7f07955e0c403fe84316fdd0ad865",
+      "build/verilog/sources/example_fastfwd/fastfwd.v": "4e93dee5fc7543fedc3ed543a566e8f55707e733a41245230f925f4335bc2373",
+      "build/fastfwd.ac": "2770eb1d99bb014043869f632ce1247905f8577cf50c2c509ab82d1842077131",
+      "build/units/.fastfwd.pycircuit-publication/owner.json": "212ffffdf58b1aff4eea83180a891ec17cd232e098708814612c8d39d1b04423",
+      "build/units/fastfwd/fastfwd.ac": "b5144fb1234c17f57c427c5f82a105a9cff5af9e0f1d736cb3f9db49835855d8",
+      "build/units/fastfwd/fastfwd.d": "5b0a4f5bd9fd7e5b4552a7c83c17c017008775981364b26d6c7d80b1ade2904a",
+      "build/units/fastfwd/fastfwd.interface.ac": "30b0b58895f5288aa7d86f03a2c5f9e34be038b5784f824dd5fb50e7c8194413",
+      "build/units/fastfwd/unit.json": "cc7f1fcfb263d533d6338f1c10aa01a904591149fbc89d7d055d6f5b3a9dc136",
+      "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
+      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
+      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
+      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
+      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
+      "runner": "0bb8fb093923a6ab011af6d3ae67acaae82810955ff8dc06e8c9041b5c82510b"
+    },
+    "execution_sha256": "8b811b39e95c5c3f7ac7057c40ec8f27907a9c139adab9b3bcf3a48e4a5c9e1d",
+    "work_samples": 24,
+    "native_check_records": 0,
+    "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
+    "workers": [
+      1,
+      2
+    ],
+    "rtl": "verilator",
+    "trace_sha256": "c44593cc53be4e619dcc361b05d3df914a2512116e4573d4dc555a002d706c39"
+  },
+  "excerpts": [
+    {
+      "path": "fastfwd.ac",
+      "line": 8,
+      "sha256": "2770eb1d99bb014043869f632ce1247905f8577cf50c2c509ab82d1842077131"
+    },
+    {
+      "path": "cpp/sources/example_fastfwd/fastfwd.hpp",
+      "line": 16,
+      "sha256": "d7af3c5962468a6a975cabb0401e8a5ad986b07242fa7e355fb35c8106139cc1"
+    },
+    {
+      "path": "verilog/sources/example_fastfwd/fastfwd.v",
+      "line": 1,
+      "sha256": "4e93dee5fc7543fedc3ed543a566e8f55707e733a41245230f925f4335bc2373"
+    }
+  ]
+}

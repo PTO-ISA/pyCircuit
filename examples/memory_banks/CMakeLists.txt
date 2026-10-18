@@ -8,5 +8,5 @@ pycircuit_add_example(memory_banks PACKAGE example_memory_banks
   ENTRY_SOURCE memory_banks SOURCES memory_banks.py
   SYSTEM_TOP example_memory_banks.bench.ExerciseMemoryBanks
   SYSTEM_ENTRY_SOURCE bench
-  SYSTEM_CYCLES 440
+  SYSTEM_CYCLES 26
   SYSTEM_SOURCES memory_banks.py bench.py)

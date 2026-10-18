@@ -20,6 +20,9 @@ module tb;
   localparam int FRAMES = 2 * EDGES;
 
   logic pyc_7079635f636c6b = 0, pyc_7079635f727374 = 1;
+  logic [2:0] pyc_phase = 0;
+  logic pyc_root_commit_ok = 0;
+  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;
   logic [4:0] key = 0;
   logic key_press = 0;
   calc_result_t result;
@@ -88,6 +91,25 @@ module tb;
     for (int i = 0; i < digits.len(); i++) pair(int'(digits.getc(i)) - 48);
   endtask
 
+  task automatic host_reset;
+    pyc_phase = 4; #1;
+    pyc_root_commit_ok = 1; pyc_phase = 2; #1;
+    pyc_phase = 0; pyc_root_commit_ok = 0; #1;
+  endtask
+
+  task automatic managed_commit;
+    pyc_root_commit_ok = 0; pyc_phase = 1; #1;
+    pyc_root_commit_ok =
+        pyc_check_complete === 1'b1 &&
+        pyc_sampling_error === 1'b0 && pyc_local_error === 1'b0;
+    if (pyc_root_commit_ok !== 1'b1) begin
+      pyc_phase = 3; #1;
+      $fatal(1, "prepared calculator row failed completion/sampling/check validation");
+    end
+    pyc_phase = 2; #1;
+    pyc_phase = 0; pyc_root_commit_ok = 0; #1;
+  endtask
+
   task automatic buildTrace();
     cursor = 0;
     // Historical idle shape: reset window, then a stronger idle hold.
@@ -112,7 +134,7 @@ module tb;
   initial begin
     buildTrace();
     // Physical reset establishes the same starting state as native host Reset.
-    #1; pyc_7079635f636c6b = 1; #1;
+    #1; host_reset(); pyc_7079635f636c6b = 1; #1; managed_commit();
     pyc_7079635f636c6b = 0; pyc_7079635f727374 = 0; #1;
     lhs = 0; rhs = 0; shown = 0; pending = 0; entering_rhs = 0;
 
@@ -136,7 +158,7 @@ module tb;
       end
       $display("WORK %0d %0d %0d", frame, result.display, result.op_pending);
       pyc_7079635f636c6b = 1'(frame % 2);
-      #1;
+      #1; managed_commit();
       if (frame % 2 == 1 && tpress[frame / 2])
         press(int'(tkey[frame / 2]));
     end

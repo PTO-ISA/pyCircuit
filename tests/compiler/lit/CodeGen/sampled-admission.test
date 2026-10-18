@@ -11,7 +11,7 @@
 # RUN: diff -u %t.cpp1 %t.cpp2
 # RUN: %FileCheck %s < %t.cpp1
 # RUN: %pycircuit_emit %t.final.mlir --target verilog --format source > %t.sv
-# RUN: iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dffe.v %inputs/sampled-admission.sv
+# RUN: iverilog -g2012 -s tb -o %t.vvp %t.sv %include/verilog/dff.v %include/verilog/dffe.v %inputs/sampled-admission.sv
 # RUN: vvp %t.vvp > %t.rtl
 # RUN: diff -u %t.cpp1 %t.rtl
 
