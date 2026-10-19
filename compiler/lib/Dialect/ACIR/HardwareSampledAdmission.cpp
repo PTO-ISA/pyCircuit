@@ -879,9 +879,10 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       auto width = analysis.getPackedWidth(*type, bindings, rule);
       if (failed(width))
         return failure();
-      if (*width > 64)
-        return rule->emitOpError()
-               << "sampled observation exceeds 64-bit scalar slot limit";
+      if (failed(budget.debit(
+              SourceCheckBudget::multiply(6, *width / 64 + (*width % 64 != 0)),
+              rule)))
+        return failure();
       observation.values.push_back(value);
     }
     result.observations.push_back(std::move(observation));

@@ -1,13 +1,17 @@
 {
   "date": "2026-10-19",
-  "status": "compiler_repairs_validated; reset_X_policy_and_PR_integration_pending",
+  "status": "four_state_and_benchmark_validation_passed; PR_review_and_integration_pending",
   "authored_sources": 131,
   "verilogeval": {
-    "passed": 86,
+    "passed": 88,
     "total": 156,
     "selected": 88,
-    "physical_control_faults": 2,
-    "not_selected": 68
+    "physical_control_faults": 0,
+    "not_selected": 68,
+    "reset_policy_counts": {
+      "strict": 79,
+      "if_one": 9
+    }
   },
   "resbench": {
     "functional_testbench_passed": 43,
@@ -24,22 +28,30 @@
     "physical_runtime_and_startup": 24,
     "physical_init_rejection_and_synthesis": 5,
     "protected_projection": 4,
-    "unit_passed": 627,
+    "unit_passed": 650,
     "unit_skipped": 5,
     "unit_deselected": 82,
-    "precommit": "passed",
+    "precommit": "passed full PR diff",
     "docs_strict": "passed",
-    "nightly": "not_run"
+    "nightly": "not_run",
+    "four_state_system": 36,
+    "sampled_clock": 6,
+    "broader_system_passed": 125,
+    "broader_system_failed": 0,
+    "source_system_cases": 59,
+    "source_system_evidence": "58 full-file plus final case targeted pass",
+    "runtime_install": 2,
+    "observation_runtime_cases": 14
   },
   "incomplete": [
-    "Physical reset-X semantics for m2014_q4c/lfsr32 unchanged upstream TBs",
+    "Full Queue/memory reset-policy matrix and full API/example nightly not run this round",
     "PR push, submission and integration",
     "RTL-Repo Parquet payload downloaded but reader unavailable",
     "RealBench encrypted descriptions downloaded; gpg unavailable",
     "Full CVDP/TuRTLe/repair/HLS/formal/PPA protocols not run",
     "Remaining question corpus not ported"
   ],
-  "evidence": "docs/gates/logs/20261019-compiler-delivery/",
+  "evidence": "docs/gates/logs/20261019-four-state-integration/",
   "source_lock_sha256": "3723d9e1e5e58499aa55a264214013bb9f764eac7aac9e1b9197410ad42562ad",
   "catalog_task_variants": 3771,
   "final_source_hashes_verified": true

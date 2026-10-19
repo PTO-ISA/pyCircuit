@@ -4135,8 +4135,9 @@ public:
       }
       for (auto *operation : candidate.availabilityOperations) {
         if (!operations.contains(operation) || !reachable.contains(operation) ||
-            !isa<ac::BitsConstantOp, ac::BitsBinaryOp, ac::BitsCompareOp,
-                 ac::BitsSelectOp>(operation) || failed(cover(operation)))
+            !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsBinaryOp,
+                 ac::BitsCompareOp, ac::BitsSelectOp>(operation) ||
+            failed(cover(operation)))
           return reject("original generated availability graph has extra operations");
       }
     } else if (!candidate.availabilityOperations.empty()) {

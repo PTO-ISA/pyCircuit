@@ -36,6 +36,9 @@ public:
   // checked module callers; each emitter retains its observation boundary.
   mlir::LogicalResult prepareNativeChecks();
   const ac::HardwareSourceCheckPlan &sourceChecks() const;
+  bool resetIfOne() const;
+  std::string cppReset(llvm::StringRef expression) const;
+  std::string rtlReset(llvm::StringRef expression) const;
   const EmitNames &names(mlir::Operation *definition) const;
   mlir::FailureOr<std::string> cppFormalName(llvm::StringRef name,
                                              mlir::Operation *site) const;
@@ -134,6 +137,9 @@ struct ObservationEmissionPlan {
 };
 mlir::FailureOr<ObservationEmissionPlan>
 observationEmissionPlan(HardwareEmitContext &context);
+mlir::FailureOr<uint64_t>
+observationPayloadWidth(HardwareEmitContext &context,
+                        const ObservationEmissionOccurrence &occurrence);
 mlir::FailureOr<std::string> emissionMetadataJson(mlir::Attribute value,
                                                   mlir::Operation *site);
 mlir::FailureOr<std::string>

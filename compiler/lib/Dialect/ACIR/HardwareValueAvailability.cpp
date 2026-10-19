@@ -219,7 +219,7 @@ class AvailabilityProof {
                     "availability has unsupported region argument provenance");
     }
     Operation *op = value.getDefiningOp();
-    if (isa<BitsConstantOp, EnumCreateOp>(op))
+    if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp>(op))
       return 1;
     if (auto rule = dyn_cast<RuleOp>(op)) {
       auto yields = cast<YieldOp>(rule.getBody().front().back()).getValues();

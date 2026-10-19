@@ -837,3 +837,34 @@ def test_map_only_facade_group_needs_no_fake_generated_source(
     _validate_generated_bundle(bundle, owner)
     snapshot = _read_generated_bundle(bundle, owner, _PublicationFileSystem())
     assert dict(snapshot.files) == files
+
+
+def test_execution_metadata_is_preserved_in_generated_receipt(tmp_path):
+    receipt = _receipt()
+    receipt.update(
+        system_samples=["00", "1x", "0z"],
+        needs_four_state=True,
+        reset_semantics="if_one",
+    )
+    _write_bundle(tmp_path / "bundle", receipt=receipt)
+    _validate_generated_bundle(tmp_path / "bundle", OWNER)
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {"system_samples": []},
+        {"needs_four_state": False},
+        {"system_samples": ["1X"], "needs_four_state": True},
+        {"system_samples": ["1x"], "needs_four_state": False},
+        {"system_samples": ["010"], "needs_four_state": True},
+        {"system_samples": [], "needs_four_state": 1},
+    ],
+)
+def test_generated_execution_metadata_rejects_incomplete_or_forged_shapes(
+    tmp_path, extra
+):
+    receipt = _receipt()
+    receipt.update(extra)
+    _write_bundle(tmp_path / "bundle", receipt=receipt)
+    _validate_or_fail(tmp_path / "bundle")

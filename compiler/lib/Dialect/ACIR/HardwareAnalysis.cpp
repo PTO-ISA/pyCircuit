@@ -736,6 +736,9 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
       return failure();
     outputs.push_back(*width);
   }
+  if (auto observe = dyn_cast<SourceObserveOp>(op))
+    if (observe.getKind() == "report" && inputs.size() == 2 && inputs[1] > 64)
+      return op->emitOpError() << "numeric report requires at most 64 bits";
   if (auto constant = dyn_cast<BitsConstantOp>(op)) {
     auto value = evaluateStatic(constant.getValue(), bindings, op);
     if (failed(value))
@@ -748,6 +751,10 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
       return op->emitOpError()
              << "bits constant does not fit bound result width";
   }
+  if (auto constant = dyn_cast<BitsConstant4Op>(op))
+    if (constant.getPattern().size() != outputs[0])
+      return op->emitOpError()
+             << "four-state pattern does not match bound width";
   if (isa<BitsUnaryOp, BitsBinaryOp, BitsSelectOp>(op)) {
     unsigned first = isa<BitsSelectOp>(op) ? 1 : 0;
     if (first && inputs[0] != 1)

@@ -37,6 +37,9 @@ struct RunnerCallbacks {
   void (*initialize)(void *) = nullptr;
   bool (*drive)(void *, std::uint64_t epoch) = nullptr;
   void (*sample)(void *, std::uint64_t committedEpoch) = nullptr;
+  // Reporting and completion metadata from the verified generated root.
+  std::string_view resetSemantics = "strict";
+  std::uint64_t expectedEpochs = 0;
 };
 
 class SystemRunner {

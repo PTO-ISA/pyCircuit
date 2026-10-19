@@ -646,6 +646,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       1);
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
+  if (decl.systemSamples)
+    module->setAttr("ac.system_samples", decl.systemSamples);
   for (NamedAttribute attr : decl.sourceCallAttrs)
     module->setAttr(attr.getName(), attr.getValue());
   auto *graph = new Block();

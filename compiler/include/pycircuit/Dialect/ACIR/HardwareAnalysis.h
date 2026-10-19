@@ -7,10 +7,21 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <utility>
 
 namespace acir::ac {
+
+/// Validated raw clock/reset rows on a System Module/ModuleImport declaration.
+/// The empty array means no authored sequence; present sequences are nonempty.
+mlir::FailureOr<mlir::ArrayAttr> getSystemSamples(mlir::Operation *declaration);
+
+enum class HardwareResetSemantics { Strict, IfOne };
+/// Read the closed policy on the single root selection and reject overrides.
+/// A saved package without the attribute means strict; this never mutates IR.
+mlir::FailureOr<HardwareResetSemantics>
+getHardwareResetSemantics(mlir::ModuleOp package);
 
 /// Compare hardware payload types without source origin/location provenance.
 /// Nominal struct/enum and type-parameter owner identities remain significant.
@@ -145,6 +156,7 @@ struct HardwareSourceCheckLimits {
   uint64_t maxWorkUnits = 4 * 1024 * 1024;
 };
 struct HardwareSourceCheckPlan {
+  HardwareResetSemantics resetSemantics = HardwareResetSemantics::Strict;
   llvm::SmallVector<HardwareCheckBinding> bindings;
   llvm::SmallVector<HardwareCheckOwnerOccurrence> owners;
   llvm::SmallVector<HardwareResolvedSourceCheck> checks;
@@ -242,9 +254,10 @@ public:
                                            const HardwareBindings &bindings,
                                            mlir::Operation *site) const;
   /// Shape-only paths retain opaque type formals and symbolic bit widths.
-  mlir::FailureOr<llvm::SmallVector<FieldPath>>
-  getFieldPaths(mlir::Type type, const HardwareBindings &bindings,
-                mlir::Operation *site) const;
+  mlir::FailureOr<llvm::SmallVector<FieldPath>> getFieldPaths(
+      mlir::Type type, const HardwareBindings &bindings, mlir::Operation *site,
+      const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)>
+          &debit = {}) const;
   mlir::FailureOr<llvm::SmallVector<OutputDependency>>
   getImportDependencies(ModuleImportOp imported,
                         const HardwareBindings &bindings = {}) const;
@@ -264,9 +277,11 @@ public:
   mlir::FailureOr<ModuleAnalysis>
   analyzeModule(ModuleOp definition,
                 const HardwareBindings &bindings = {}) const;
-  mlir::FailureOr<llvm::SmallVector<WireEndpoint>>
-  getDependencies(mlir::Value value, llvm::ArrayRef<mlir::StringAttr> path,
-                  const HardwareBindings &bindings = {}) const;
+  mlir::FailureOr<llvm::SmallVector<WireEndpoint>> getDependencies(
+      mlir::Value value, llvm::ArrayRef<mlir::StringAttr> path,
+      const HardwareBindings &bindings = {},
+      const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)>
+          &debit = {}) const;
   mlir::LogicalResult
   verifyResolvedOperation(mlir::Operation *operation,
                           const HardwareBindings &bindings) const;

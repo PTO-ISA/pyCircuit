@@ -65,7 +65,8 @@ The current module profile uses typed values, Module-owned variables and
 source-global or nested `@rule` functions. ACIR infers storage, control and
 transaction lowering; Work/Xfer belongs to generated execution. See the language reference for supported
 source expressions and the typed C++ DUT. Closed default-domain `@system`
-simulation is supported through generated C++/Verilator closures. Broader system forms, source collection authoring,
+simulation uses generated C++ and Verilator/Icarus closures; explicit X/Z
+scenarios require the four-state Icarus path. Broader system forms, source collection authoring,
 general arithmetic and automatic multi-clock scheduling remain unfinished.
 Unsupported uses must fail clearly; retired frontends are not fallback
 implementations. Existing user authorization remains valid for its scope.

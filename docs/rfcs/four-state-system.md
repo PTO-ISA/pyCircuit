@@ -1,6 +1,6 @@
 # 四态值、复位控制与 System 设计补充
 
-状态：设计提案；以下新增接口尚未实现。基线为 `d5f57426`。
+状态：已实施并通过四态定向验收；完整资源矩阵仍保留为后续验证。设计基线为 `d5f57426`。
 本提案补齐前端、共同 IR、C++/Verilog codegen 和生成式 System 的契约。
 它不追认两道失败 benchmark 为通过，也不直接修改已冻结的 sampled-admission 记录。
 
@@ -67,7 +67,7 @@ proposal/commit 由编译器生成。Rule 可以在 Module 内或外定义，定
 
 ### 3.2 显式常量
 
-拟议接口：
+接口：
 
 ```python
 pattern = ac.four_state("10xz")  # bits[4]，从高位到低位
@@ -129,8 +129,8 @@ header 声明的 verification-only 标签。遍历复用现有 source-analysis �
 不得只用 value 位判断，否则带隐藏 value=1 的 X/Z 会被错误当成复位。
 strict 保持 raw reset；未知复位错误在采样边界报告，不改变其载荷。
 
-建议公开入口为 `pycircuit link ... --reset-semantics strict|if_one`。
-这是拟议接口，不是当前已支持命令。缺省显式序列化为 strict；source units 不携带
+公开入口为 `pycircuit link ... --reset-semantics strict|if_one`。
+缺省显式序列化为 strict；source units 不携带
 各自的策略，因而可用于不同根。`emit`、Runtime 配置和某个 leaf 不允许覆盖策略。
 `--rtl-mode managed|physical` 只选择执行适配，不能替代 reset 策略。
 
@@ -166,7 +166,7 @@ strict 保持 raw reset；未知复位错误在采样边界报告，不改变其
 
 ### 5.1 四态常量
 
-新增一个窄的纯操作，拟名 `ac.bits.constant4`：规范 pattern 字符串，结果为 Bits。
+新增一个窄的纯操作，名为 `ac.bits.constant4`：规范 pattern 字符串，结果为 Bits。
 `ac.bits.constant` 继续表示已知数学值；不能给旧操作添加隐含未知 mask，破坏
 现有常量折叠、static evaluator、区间和 knownness 证明。
 
@@ -230,7 +230,7 @@ knownness 错误仍使用现有结构化失败路径；physical fault marker 仍
 
 ## 7. System：源码声明刺激，编译器执行
 
-拟议示例（尚不可编译）：
+前端示例：
 
 ```python
 @ac.system(samples=((0, 0), (1, ac.four_state("x"))))

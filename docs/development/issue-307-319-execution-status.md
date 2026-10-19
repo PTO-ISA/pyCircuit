@@ -1,5 +1,32 @@
 # #307 / #319 本轮执行状态
 
+## 四态 System 与 benchmark 验证（2026-10-19）
+
+四态源码、共同 IR、双后端和生成式 System 已贯通：`ac.four_state`、诊断用途的
+`case_eq/is_known`、有限 samples、根级 strict/if_one reset 策略和 Bits4 日志。
+Module/Rule 继续使用顺序 Python，DUT 没有新增 clk/reset/q/d 或 Signal 接口。
+同一 final 选择的 reset 策略作用于两端；真正四态的 System 使用 Icarus。
+审查发现的运行时除零 X 漏选仿真器问题已修复并用独立 mask oracle 验证。
+
+本轮已执行：API gate 23/23、examples gate 13/13、unit 650 passed / 5 skipped /
+82 deselected；新四态 System 36项、迁移后 source-System 59项、physical/projection
+33项和安装消费者2项通过。source-System 的59项由58项全文件通过与最后1项
+定向复验组成；没有跳过失败例。Observation Runtime 14项通过，包含新增4项缓存
+生命周期检查；sampled-clock 定向6项通过。原语回滚、实例隔离、刺激及失败替换
+保护均保留，旧fixture改为直接标量Module调用和当前编译阶段。
+
+VerilogEval 已迁移88/88通过（全库156题，68题尚未移植）：79项strict、9项if_one。
+ResBench 已实现43/43通过，13题仍unsupported；四个输出破坏负对照均被检出。
+原上游测试台、刺激和成功判据未修改。这是辅助移植功能验证，不是模型pass@k或
+官方Vivado/PPA分数。逐题证据见 `benchmark/results/`。
+
+本轮完整 API/example nightly、完整Queue/memory reset策略矩阵、其他benchmark
+协议及PPA未运行；上述结果不关闭 #307/#319 的整体能力清单。
+当前原始日志位于 `docs/gates/logs/20261019-four-state-integration/`；
+独立新增测试日志还位于 `docs/gates/logs/20261019-compiler-delivery/`。
+以下章节保留先前轮次和历史缺口，不作为本轮候选的通过计数。
+
+
 ## 仓库巡查与提交前修复（2026-10-18）
 
 本轮修复编程手册、quickstart、示例导引和测试入口，维持单一 capture → MLIR → final IR → C++/Verilog 流程。本轮没有增加编译器特例或改变证明上限。

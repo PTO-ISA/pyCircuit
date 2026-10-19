@@ -129,10 +129,10 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
   if (!unit)
     return emitError() << "source unit is required";
   auto forged = unit.walk([&](Operation *operation) {
-    for (StringRef name : {"ac.internal_ports", "ac.input_validity",
-                           "ac.output_validity", "ac.routed_output_validity",
-                           "ac.sampled_admission",
-                           "ac.transaction_wiring"}) {
+    for (StringRef name :
+         {"ac.internal_ports", "ac.input_validity", "ac.output_validity",
+          "ac.routed_output_validity", "ac.sampled_admission",
+          "ac.execution_policy", "ac.transaction_wiring"}) {
       if (!operation->hasAttr(name))
         continue;
       operation->emitOpError()

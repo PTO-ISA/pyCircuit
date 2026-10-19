@@ -1,9 +1,8 @@
 # System compilation and simulation
 
-The [four-state/System design supplement](../rfcs/four-state-system.md) proposes
-finite four-state domain stimuli, a shared root reset policy and lossless
-observation values. It extends the existing generated harness; it is not an
-implemented replacement for the execution contract below.
+The [four-state/System supplement](../rfcs/four-state-system.md) defines finite
+four-state domain stimuli, the shared root reset policy and lossless observation
+values within this generated execution flow.
 
 `@system` is a current pyCircuit language construct for a closed simulation
 composition. Authors describe the DUT, stimulus state, checks and observations
@@ -39,7 +38,7 @@ this authority; they do not recognize clock names or counter recipes.
 | C++ modules and typed DUT | Existing source-owned code generation and shared GFSIM Runtime. |
 | Generated native main | Shared SystemRunner, inferred control driving, finite runtime limits and source events. |
 | Verilog modules and simulation top | Same final IR, standard hardware leaves and managed simulation lifecycle. |
-| Generated CMake and manifest | Build a native executable or a Verilator executable without author scaffolding. |
+| Generated CMake and manifest | Build a native executable, Verilator executable or Icarus image without author scaffolding. |
 
 `pycircuit run <example-directory> --target cpp|verilog --cycles N` composes the
 existing build and public compile/link/emit commands. The example's small CMake
@@ -51,7 +50,28 @@ Runtime package. Generated files remain outside the authored source tree.
 ## Execution and failure
 
 The generated driver performs host Reset, then a finite number of low/high
-sampling pairs. Each sampling epoch performs Work, whole-system checks and
+sampling pairs unless the System declares explicit `samples`. With
+`@ac.system(samples=((0, 0), (1, ac.four_state("x"))))`, each literal pair is one
+raw `(clock, reset)` epoch. Rows are finite, nonempty and one bit per component.
+Any explicit cycles option conflicts with samples, including a coincidentally
+matching count. Omitting cycles on an unscheduled System retains ten cycles.
+The driver stops after the last row or the first failure; truncation by a runtime
+limit is a failed incomplete schedule, not successful completion.
+
+The linked `ac.system` owns `ac.execution_policy={reset="strict"|"if_one"}`.
+Default strict rejects unknown reset on a rising sample; explicit if_one treats
+only known 1 as reset. Native, managed RTL and physical RTL use the same policy.
+Unknown clock, effective enable and reached guard/effect selector still fail.
+The raw domain pins and their IR identities remain unchanged. There is no
+per-backend or runtime reset policy override.
+
+Generated metadata records `system_samples`, `needs_four_state` and
+`reset_semantics`. X/Z literals in the reachable root closure or sample rows
+select Icarus/vvp in the existing generated CMake flow. Runtime X producers
+(such as unproved-nonzero division/remainder, table reads and resources) and
+four-state observers conservatively select the same engine. Other Systems retain
+Verilator. Two-state Verilator runs are not four-state acceptance evidence.
+ Each sampling epoch performs Work, whole-system checks and
 one successful Xfer or a complete discard. Hardware expressions—including
 write enables—remain untouched. Source fixture state supplies stimuli and
 expected behavior; the runner invents neither data inputs nor golden answers.
@@ -139,7 +159,19 @@ or inconsistent paths fail. A fully staged false-path group is inactive even whe
 payload validity differs. On a true path, all-invalid is inactive, partially valid
 fails, and all-valid proceeds to type and capacity checks. Authored X/Z paths stay
 inactive in both targets, including native unknown values with nonzero value bits.
-These rules do not extend scalar widths or introduce four-state observation output.
+Known Boolean and at-most-64-bit integer log values retain their old JSON
+format. Unknown Bits and Bits wider than 64 use the tagged value
+`{"kind":"bits4","width":4,"value":"8","known":"c","z":"1"}` for `10xz`.
+Each plane uses lowercase hexadecimal padded to ceil(width/4) digits. Padding
+and value bits under unknown positions are zero; known and Z do not overlap.
+Generated descriptors reserve pending and committed plane storage at
+configuration, and failed epochs preserve the last committed batch. Numeric
+reports still require known values of at most 64 bits; use logs for X/Z payloads.
+
+`case_eq` and `is_known` are diagnostic predicates with known Boolean results.
+They may control diagnostic branches but cannot drive functional output, state,
+indices, admission or hardware calls. Common source analysis follows aliases,
+helper results and control dependencies before general optimization.
 
 ## Acceptance and example adaptation
 

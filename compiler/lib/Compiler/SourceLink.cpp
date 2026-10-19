@@ -166,11 +166,12 @@ admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
   return std::move(*registry);
 }
 
-FailureOr<OwningOpRef<ModuleOp>>
-linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
-                  ac::detail::EmitError emitError,
-                  SourceLinkStages *retainedStages,
-                  ArrayRef<SourceLinkParameterBinding> parameters) {
+FailureOr<OwningOpRef<ModuleOp>> linkHardwareUnits(
+    ArrayRef<SourceLinkUnit> units, StringRef top,
+    ac::detail::EmitError emitError, SourceLinkStages *retainedStages,
+    ArrayRef<SourceLinkParameterBinding> parameters, StringRef resetSemantics) {
+  if (resetSemantics != "strict" && resetSemantics != "if_one")
+    return emitError() << "reset semantics must be strict or if_one";
   auto admitted = admitSourceLinkUnits(units, emitError);
   if (failed(admitted))
     return failure();
@@ -296,6 +297,9 @@ linkHardwareUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
            builder.getNamedAttr("parameters", builder.getArrayAttr(arguments)),
            builder.getNamedAttr("type_arguments", builder.getArrayAttr({}))}));
   state.addAttribute("domain", builder.getStringAttr("default"));
+  state.addAttribute("ac.execution_policy",
+                     builder.getDictionaryAttr({builder.getNamedAttr(
+                         "reset", builder.getStringAttr(resetSemantics))}));
   (*linked).getBody()->push_back(Operation::create(state));
   auto residualCall = linked->walk([&](func::CallOp call) {
     if (call->getParentOfType<func::FuncOp>())

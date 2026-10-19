@@ -1,6 +1,8 @@
 #ifndef GFSIM_OBSERVATIONSLOT_H
 #define GFSIM_OBSERVATIONSLOT_H
 
+#include "gfsim/four_state.h"
+
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -11,11 +13,13 @@
 
 namespace gfsim {
 
-enum class SlotValueKind : std::uint8_t { Bool, Signed, Unsigned };
+enum class SlotValueKind : std::uint8_t { Bool, Signed, Unsigned, Bits4 };
 
 struct SlotValue {
   SlotValueKind kind = SlotValueKind::Unsigned;
   std::uint64_t bits = 0;
+  std::uint32_t width = 0;
+  std::span<const std::uint64_t> valueWords{}, knownWords{}, zWords{};
 
   static constexpr SlotValue Bool(bool value) noexcept {
     return {SlotValueKind::Bool, value ? 1u : 0u};
@@ -27,7 +31,41 @@ struct SlotValue {
     return {SlotValueKind::Unsigned, value};
   }
 
-  bool operator==(const SlotValue &) const = default;
+  static SlotValue Bits4(std::uint32_t width,
+                         std::span<const std::uint64_t> value,
+                         std::span<const std::uint64_t> known,
+                         std::span<const std::uint64_t> z) noexcept {
+    return {SlotValueKind::Bits4, 0, width, value, known, z};
+  }
+
+  bool isCanonicalBits4() const noexcept {
+    const std::size_t words = width / 64 + (width % 64 != 0);
+    if (kind != SlotValueKind::Bits4 || !width || valueWords.size() != words ||
+        knownWords.size() != words || zWords.size() != words)
+      return false;
+    for (std::size_t index = 0; index < words; ++index) {
+      const auto mask = index + 1 == words && width % 64 != 0
+                            ? (std::uint64_t{1} << (width % 64)) - 1
+                            : ~std::uint64_t{0};
+      if ((knownWords[index] & zWords[index]) != 0 ||
+          (valueWords[index] & ~knownWords[index]) != 0 ||
+          ((valueWords[index] | knownWords[index] | zWords[index]) & ~mask) !=
+              0)
+        return false;
+    }
+    return true;
+  }
+
+  bool operator==(const SlotValue &other) const noexcept {
+    if (kind != other.kind || bits != other.bits || width != other.width)
+      return false;
+    auto equal = [](auto left, auto right) {
+      return left.size() == right.size() &&
+             std::equal(left.begin(), left.end(), right.begin());
+    };
+    return equal(valueWords, other.valueWords) &&
+           equal(knownWords, other.knownWords) && equal(zWords, other.zWords);
+  }
 };
 
 enum class ObservationKind : std::uint8_t { Event, Gauge };
@@ -40,6 +78,9 @@ struct ObservationDescriptor {
   ObservationKind kind = ObservationKind::Event;
   std::uint32_t groupIndex = 0;
   std::uint32_t groupSize = 0;
+  // Zero preserves legacy scalar callers. Generated descriptors resolve the
+  // exact width before Configure reserves pending and committed plane storage.
+  std::uint32_t payloadWidth = 0;
 
   bool operator==(const ObservationDescriptor &) const = default;
 };
@@ -68,6 +109,45 @@ struct GaugeSnapshot {
 
 class ObservationSlots {
 public:
+  ObservationSlots() = default;
+  ObservationSlots(const ObservationSlots &other) { *this = other; }
+  ObservationSlots &operator=(const ObservationSlots &other) {
+    if (this == &other)
+      return *this;
+    configured_ = other.configured_;
+    eventCapacity_ = other.eventCapacity_;
+    payloadOffsets_ = other.payloadOffsets_;
+    pendingPlanes_ = other.pendingPlanes_;
+    committedPlanes_ = other.committedPlanes_;
+    descriptors_ = other.descriptors_;
+    slots_ = other.slots_;
+    gaugeIndexBySlot_ = other.gaugeIndexBySlot_;
+    events_ = other.events_;
+    events_.reserve(eventCapacity_);
+    gauges_ = other.gauges_;
+    // SlotValue borrows its owner's reserved snapshots. Rebind copied views
+    // so copying a configured owner never retains another owner's buffers.
+    for (std::size_t index = 0; index < slots_.size(); ++index)
+      if (slots_[index].value.kind == SlotValueKind::Bits4)
+        slots_[index].value =
+            planeView(pendingPlanes_, index, slots_[index].value.width);
+    for (auto &event : events_) {
+      if (event.value.kind != SlotValueKind::Bits4)
+        continue;
+      auto descriptor = std::find_if(
+          descriptors_.begin(), descriptors_.end(), [&](const auto &item) {
+            return item.stableOrdinal == event.descriptor.stableOrdinal;
+          });
+      event.value =
+          planeView(committedPlanes_,
+                    static_cast<std::size_t>(descriptor - descriptors_.begin()),
+                    event.value.width);
+    }
+    return *this;
+  }
+  ObservationSlots(ObservationSlots &&) = default;
+  ObservationSlots &operator=(ObservationSlots &&) = default;
+
   bool Configure(std::span<const ObservationDescriptor> descriptors,
                  std::size_t eventCapacity) {
     if (configured_)
@@ -103,6 +183,28 @@ public:
       begin += size;
     }
 
+    std::size_t payloadWords = 0;
+    const std::size_t capacity = std::min(
+        std::vector<std::uint64_t>().max_size(),
+        static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max()) /
+            sizeof(std::uint64_t));
+    for (const auto &descriptor : descriptors) {
+      const std::size_t words =
+          descriptor.payloadWidth / 64 + (descriptor.payloadWidth % 64 != 0);
+      // Three planes in each of two reusable snapshots. Reject overflow
+      // before any allocation or assignment changes the configured inventory.
+      if (words > capacity / 6 - payloadWords)
+        return false;
+      payloadWords += words;
+    }
+    payloadOffsets_.reserve(descriptors.size() + 1);
+    payloadOffsets_.push_back(0);
+    for (const auto &descriptor : descriptors)
+      payloadOffsets_.push_back(payloadOffsets_.back() +
+                                descriptor.payloadWidth / 64 +
+                                (descriptor.payloadWidth % 64 != 0));
+    pendingPlanes_.resize(payloadWords * 3);
+    committedPlanes_.resize(payloadWords * 3);
     descriptors_.assign(descriptors.begin(), descriptors.end());
     slots_.resize(descriptors_.size());
     gaugeIndexBySlot_.assign(descriptors_.size(), kNoGauge);
@@ -123,6 +225,12 @@ public:
              std::uint64_t evaluationEpoch) noexcept {
     if (!configured_ || slot >= slots_.size() || slots_[slot].pending)
       return false;
+    if (value.kind == SlotValueKind::Bits4) {
+      if (!value.isCanonicalBits4() ||
+          descriptors_[slot].payloadWidth != value.width)
+        return false;
+      value = copyBits4(value, pendingPlanes_, slot);
+    }
     ObservationSlot &pending = slots_[slot];
     pending.pending = true;
     pending.value = value;
@@ -130,6 +238,32 @@ public:
     pending.path = path;
     pending.evaluationEpoch = evaluationEpoch;
     return true;
+  }
+
+  template <unsigned Width>
+  bool StagePacked(std::size_t slot, const FourState<Width> &value,
+                   bool eventBool, bool valid, bool path,
+                   std::uint64_t evaluationEpoch) noexcept {
+    if (!configured_ || slot >= slots_.size() || slots_[slot].pending ||
+        descriptors_[slot].payloadWidth != Width)
+      return false;
+    if constexpr (Width <= 64) {
+      if (value.isFullyKnown())
+        return Stage(slot,
+                     eventBool ? SlotValue::Bool(value.value().toBool())
+                               : SlotValue::Unsigned(value.value().value()),
+                     valid, path, evaluationEpoch);
+    }
+    auto packed = planeView(pendingPlanes_, slot, Width);
+    const std::size_t words = packed.valueWords.size();
+    const auto offset = 3 * payloadOffsets_[slot];
+    for (std::size_t index = 0; index < words; ++index) {
+      const auto known = value.knownMask().word(index);
+      pendingPlanes_[offset + index] = value.value().word(index) & known;
+      pendingPlanes_[offset + words + index] = known;
+      pendingPlanes_[offset + 2 * words + index] = value.zMask().word(index);
+    }
+    return Stage(slot, packed, valid, path, evaluationEpoch);
   }
 
   bool Check() const noexcept { return checkGroups(nullptr); }
@@ -152,8 +286,12 @@ public:
           slot.evaluationEpoch + 1 == committedEpoch) {
         const ObservationDescriptor &descriptor = descriptors_[index];
         if (descriptor.kind == ObservationKind::Event) {
-          if (events_.size() < eventCapacity_)
-            events_.push_back({committedEpoch, descriptor, slot.value});
+          if (events_.size() < eventCapacity_) {
+            auto value = slot.value.kind == SlotValueKind::Bits4
+                             ? copyBits4(slot.value, committedPlanes_, index)
+                             : slot.value;
+            events_.push_back({committedEpoch, descriptor, value});
+          }
         } else {
           GaugeSnapshot &gauge = gauges_[gaugeIndexBySlot_[index]];
           gauge.value = slot.value;
@@ -182,6 +320,27 @@ public:
   }
 
 private:
+  SlotValue planeView(std::vector<std::uint64_t> &storage, std::size_t slot,
+                      std::uint32_t width) noexcept {
+    const auto words = payloadOffsets_[slot + 1] - payloadOffsets_[slot];
+    auto *start = storage.data() + 3 * payloadOffsets_[slot];
+    return SlotValue::Bits4(width, {start, words}, {start + words, words},
+                            {start + 2 * words, words});
+  }
+
+  SlotValue copyBits4(const SlotValue &value,
+                      std::vector<std::uint64_t> &storage,
+                      std::size_t slot) noexcept {
+    const auto words = value.valueWords.size();
+    const auto offset = 3 * payloadOffsets_[slot];
+    for (std::size_t index = 0; index < words; ++index) {
+      storage[offset + index] = value.valueWords[index];
+      storage[offset + words + index] = value.knownWords[index];
+      storage[offset + 2 * words + index] = value.zWords[index];
+    }
+    return planeView(storage, slot, value.width);
+  }
+
   static constexpr std::size_t kNoGauge =
       std::numeric_limits<std::size_t>::max();
 
@@ -228,7 +387,9 @@ private:
             return false;
         } else {
           if (kind != SlotValueKind::Bool && kind != SlotValueKind::Signed &&
-              kind != SlotValueKind::Unsigned)
+              kind != SlotValueKind::Unsigned &&
+              (kind != SlotValueKind::Bits4 ||
+               !slots_[index].value.isCanonicalBits4()))
             return false;
           if (additions == eventCapacity_)
             return false;
@@ -251,6 +412,8 @@ private:
 
   bool configured_ = false;
   std::size_t eventCapacity_ = 0;
+  std::vector<std::size_t> payloadOffsets_;
+  std::vector<std::uint64_t> pendingPlanes_, committedPlanes_;
   std::vector<ObservationDescriptor> descriptors_;
   std::vector<ObservationSlot> slots_;
   std::vector<std::size_t> gaugeIndexBySlot_;

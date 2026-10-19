@@ -184,6 +184,7 @@ def link_command(
     top: str,
     output: str | Path,
     parameters: str | Path | None = None,
+    reset_semantics: str = "strict",
     replace: bool = False,
     filesystem: _PublicationFileSystem | None = None,
 ) -> _PublicationResult:
@@ -193,6 +194,8 @@ def link_command(
     exactly as the private per-source entry already allows.
     """
 
+    if reset_semantics not in ("strict", "if_one"):
+        raise _DriverError("reset semantics must be strict or if_one")
     parameter_bindings = _read_parameter_bindings(parameters)
     fs = filesystem or _PublicationFileSystem()
     destination = Path(output)
@@ -261,7 +264,7 @@ def link_command(
             ],
             filesystem=fs,
         ) as locks:
-            command = [str(harness)]
+            command = [str(harness), "--reset-semantics", reset_semantics]
             if parameter_bindings:
                 command += ["--parameters", str(parameter_snapshot)]
             for index, key in enumerate(sorted(directories)):

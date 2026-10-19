@@ -11,6 +11,8 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/MemoryBuffer.h"
@@ -108,6 +110,83 @@ int main(int argc, char **argv) {
                                     "@\"" + callee.getValue().str() + "\""},
                                    {"arguments", std::move(arguments)}}},
       {"entry_source", sourceOwner(root.getSourceOwner())}};
+  auto resetPolicy = acir::ac::getHardwareResetSemantics(*package);
+  if (failed(resetPolicy))
+    return 1;
+  result["reset_semantics"] =
+      *resetPolicy == acir::ac::HardwareResetSemantics::IfOne ? "if_one"
+                                                              : "strict";
+  auto samples = acir::ac::getSystemSamples(root);
+  if (failed(samples))
+    return 1;
+  llvm::json::Array sampleRows;
+  bool needsFourState = false;
+  for (Attribute raw : *samples) {
+    StringRef row = cast<StringAttr>(raw).getValue();
+    sampleRows.emplace_back(row);
+    needsFourState |= row.contains('x') || row.contains('z');
+  }
+  // Only direct known, nonzero literals discharge division's X-on-zero
+  // behavior. Do not invent a runtime knownness/range proof in this driver.
+  auto knownNonzeroLiteral = [](Value value) {
+    if (auto constant = value.getDefiningOp<acir::ac::BitsConstantOp>()) {
+      auto tree = constant.getValue().getTree();
+      auto kind = tree.getAs<StringAttr>("kind");
+      auto literal = tree.getAs<DictionaryAttr>("value");
+      auto number = literal ? literal.getAs<acir::ac::MathIntAttr>("value")
+                            : acir::ac::MathIntAttr();
+      return kind && kind.getValue() == "literal" && number &&
+             number.getCanonicalValue() != "0";
+    }
+    if (auto constant = value.getDefiningOp<acir::ac::BitsConstant4Op>()) {
+      StringRef pattern = constant.getPattern();
+      return !pattern.contains('x') && !pattern.contains('z') &&
+             pattern.contains('1');
+    }
+    return false;
+  };
+  // Select the simulator from the executable instance closure. Unselected
+  // declarations from the same published source unit do not change the mode.
+  // Initialized DFF/DFFE and known-preserving arithmetic retain the binary
+  // route. Observers and operations/resources with runtime X results require
+  // a real four-state engine even without an explicit X/Z constant.
+  llvm::DenseSet<Operation *> reached;
+  llvm::SmallVector<acir::ac::ModuleOp> pending{root};
+  while (!pending.empty()) {
+    auto definition = pending.pop_back_val();
+    if (!reached.insert(definition).second)
+      continue;
+    definition.walk([&](Operation *operation) {
+      if (auto constant = dyn_cast<acir::ac::BitsConstant4Op>(operation)) {
+        StringRef pattern = constant.getPattern();
+        needsFourState |= pattern.contains('x') || pattern.contains('z');
+      }
+      if (operation->hasAttr("ac.verification_observer"))
+        needsFourState = true;
+      if (auto compare = dyn_cast<acir::ac::BitsCompareOp>(operation))
+        needsFourState |= compare.getPredicate() == "case_eq";
+      if (auto binary = dyn_cast<acir::ac::BitsBinaryOp>(operation))
+        if ((binary.getOpcode() == "udiv" || binary.getOpcode() == "urem") &&
+            !knownNonzeroLiteral(binary.getRhs()))
+          needsFourState = true;
+      if (isa<acir::ac::TableGetOp>(operation))
+        needsFourState = true;
+      Operation *callee = nullptr;
+      if (auto instance = dyn_cast<acir::ac::InstanceOp>(operation))
+        callee = analysis.resolveCallee(instance);
+      else if (auto collection = dyn_cast<acir::ac::CollectionOp>(operation))
+        callee = analysis.resolveCallee(collection);
+      if (auto child = dyn_cast_or_null<acir::ac::ModuleOp>(callee))
+        pending.push_back(child);
+      else if (callee) {
+        StringRef primitive = analysis.getPrimitiveKind(callee);
+        if (!primitive.empty() && primitive != "dff" && primitive != "dffe")
+          needsFourState = true;
+      }
+    });
+  }
+  result["system_samples"] = std::move(sampleRows);
+  result["needs_four_state"] = needsFourState;
   auto units = acir::ac::collectFinalSourceUnits(*package, emitError);
   if (failed(units))
     return 1;

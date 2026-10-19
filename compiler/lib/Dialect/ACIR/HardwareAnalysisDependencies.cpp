@@ -308,7 +308,7 @@ struct Engine {
         out.push_back({input, path});
       return success();
     };
-    if (isa<BitsConstantOp, EnumCreateOp>(op))
+    if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp>(op))
       return out;
     if (isa<EnumToBitsOp, EnumFromBitsOp>(op)) {
       out.push_back({op->getOperand(0), {}});
@@ -899,10 +899,11 @@ struct Engine {
   }
 };
 } // namespace
-FailureOr<SmallVector<FieldPath>>
-HardwareAnalysis::getFieldPaths(Type type, const HardwareBindings &bindings,
-                                Operation *site) const {
+FailureOr<SmallVector<FieldPath>> HardwareAnalysis::getFieldPaths(
+    Type type, const HardwareBindings &bindings, Operation *site,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) const {
   Engine engine{*this, {}};
+  engine.debit = debit;
   return engine.paths(type, bindings, site);
 }
 FailureOr<SmallVector<OutputDependency>>
@@ -911,10 +912,11 @@ HardwareAnalysis::getImportDependencies(
   Engine engine{*this, {}};
   return engine.summary(imported, bindings);
 }
-FailureOr<SmallVector<WireEndpoint>>
-HardwareAnalysis::getDependencies(Value value, ArrayRef<StringAttr> path,
-                                  const HardwareBindings &bindings) const {
+FailureOr<SmallVector<WireEndpoint>> HardwareAnalysis::getDependencies(
+    Value value, ArrayRef<StringAttr> path, const HardwareBindings &bindings,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) const {
   Engine engine{*this, {}};
+  engine.debit = debit;
   return engine.dependencies({value, FieldPath(path.begin(), path.end())},
                              bindings);
 }

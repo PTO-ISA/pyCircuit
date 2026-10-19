@@ -22,12 +22,13 @@ bool equivalentTypes(TypeRange lhs, TypeRange rhs) {
 } // namespace
 namespace detail {
 bool isCombinationalHardwareOperation(Operation *operation) {
-  return isa<BitsConstantOp, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
-             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
-             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
-             EnumFromBitsOp, TableCreateOp, TableSplatOp, TableMapOp,
-             TableViewOp, TableIndexOp, TableGetOp, TableMatchOp, TableChooseOp,
-             TableFoldOp, ValueMergeOp, ValueRequireOp>(operation);
+  return isa<BitsConstantOp, BitsConstant4Op, BitsUnaryOp, BitsBinaryOp,
+             BitsCompareOp, BitsSelectOp, BitsConcatOp, BitsExtractOp,
+             BitsResizeOp, StructCreateOp, StructGetOp, EnumCreateOp,
+             EnumToBitsOp, EnumFromBitsOp, TableCreateOp, TableSplatOp,
+             TableMapOp, TableViewOp, TableIndexOp, TableGetOp, TableMatchOp,
+             TableChooseOp, TableFoldOp, ValueMergeOp, ValueRequireOp>(
+      operation);
 }
 
 LogicalResult verifyHardwareTypeScope(Type type, Operation *owner);
@@ -126,6 +127,8 @@ LogicalResult verifyModuleSignature(Operation *op) {
   auto rootKind = dyn_cast_or_null<StringAttr>(rawRootKind);
   if (rawRootKind && (!rootKind || rootKind.getValue() != "system"))
     return error() << "ac.root_kind must be 'system' when present";
+  if (failed(getSystemSamples(op)))
+    return failure();
   llvm::StringSet<> names;
   for (ArrayAttr list : {inputs, outputs})
     for (Attribute raw : list) {

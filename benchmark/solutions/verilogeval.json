@@ -1035,7 +1035,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1056,7 +1057,8 @@
       "clock": "clk",
       "reset": "r",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1074,7 +1076,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1092,7 +1095,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1110,7 +1114,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1128,7 +1133,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1146,7 +1152,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1164,7 +1171,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {
@@ -1182,7 +1190,8 @@
       "clock": "clk",
       "reset": "reset",
       "reset_active": "high",
-      "edge": "posedge"
+      "edge": "posedge",
+      "reset_semantics": "if_one"
     }
   },
   {

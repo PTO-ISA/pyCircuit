@@ -366,3 +366,93 @@ def test_cli_runtime_diagnostic_has_no_traceback(tmp_path, capsys, cycles):
     assert captured.out == ""
     assert captured.err.startswith("pycircuit run: ")
     assert "Traceback" not in captured.err
+
+
+def test_cli_cycles_omission_and_duplicates_preserve_intent(monkeypatch, capsys):
+    captured = []
+    monkeypatch.setattr(_run, "run_command", lambda **kwargs: captured.append(kwargs))
+    assert main(["run", "example"]) == 0
+    assert captured[-1]["cycles"] is None
+    with pytest.raises(SystemExit) as duplicate:
+        main(["run", "example", "--cycles", "2", "--cycles", "3"])
+    assert duplicate.value.code == 2
+    assert "duplicate --cycles" in capsys.readouterr().err
+    assert len(captured) == 1
+
+
+@pytest.mark.parametrize("cycles", [1, 3])
+def test_finite_samples_reject_every_explicit_cycle_count(project, cycles):
+    source, prefix, build, calls = project
+    _write_generated_bundle(build, "cpp")
+    path = build / "cpp/generated.json"
+    receipt = json.loads(path.read_text())
+    receipt.update(system_samples=["00", "1x", "0z"], needs_four_state=True)
+    path.write_text(json.dumps(receipt))
+    with pytest.raises(_DriverError, match="--cycles.*finite System samples"):
+        _run.run_command(**{**_arguments(source, prefix, build), "cycles": cycles})
+    assert len(calls) == 2
+    assert not (build / "simulation").exists()
+
+
+@pytest.mark.parametrize("target", ["cpp", "verilog"])
+def test_finite_samples_use_bound_actual_backend_without_cycle_override(
+    project, target
+):
+    source, prefix, build, calls = project
+    _write_generated_bundle(build, target)
+    path = build / target / "generated.json"
+    receipt = json.loads(path.read_text())
+    receipt.update(
+        system_samples=["00", "1x", "0z"],
+        needs_four_state=True,
+        reset_semantics="if_one",
+    )
+    path.write_text(json.dumps(receipt))
+    binary = _write_simulation_binary(build / "simulation" / target)
+    if target == "verilog":
+        compiler, runner = prefix / "iverilog", prefix / "vvp"
+        compiler.write_text("four-state compiler")
+        runner.write_text("four-state interpreter")
+        Path(str(binary) + ".backend.json").write_text(
+            json.dumps(
+                {
+                    "backend": "iverilog",
+                    "compiler": str(compiler),
+                    "runner": str(runner),
+                }
+            )
+        )
+    _run.run_command(
+        **{**_arguments(source, prefix, build), "target": target, "cycles": None}
+    )
+    executed = json.loads((build / "run-execution.json").read_text())
+    assert executed["sampling_epochs"] == 3
+    assert executed["reset_semantics"] == "if_one"
+    assert "--cycles" not in calls[-1] and not any(
+        "+cycles=" in arg for arg in calls[-1]
+    )
+    if target == "verilog":
+        assert calls[-1] == [str(runner), str(binary)]
+        assert executed["backend"] == "iverilog"
+        assert str(runner) in executed["inputs"] and str(compiler) in executed["inputs"]
+    else:
+        assert calls[-1] == [str(binary), "--workers", "1"]
+        assert executed["backend"] == "cpp"
+
+
+def test_generated_system_cmake_requires_four_state_tools_only_when_needed():
+    from pycircuit._emit import _cmake
+
+    four_state = _cmake(
+        [],
+        [],
+        target="verilog",
+        standard_sources=[],
+        simulation=True,
+        needs_four_state=True,
+    )
+    assert "find_program(PYCIRCUIT_IVERILOG iverilog REQUIRED)" in four_state
+    assert '--vvp "${PYCIRCUIT_VVP}"' in four_state
+    assert "find_program(PYCIRCUIT_VERILATOR" not in four_state
+    binary = _cmake([], [], target="verilog", standard_sources=[], simulation=True)
+    assert "find_program(PYCIRCUIT_VERILATOR verilator REQUIRED)" in binary

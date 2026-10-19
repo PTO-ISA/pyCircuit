@@ -157,7 +157,7 @@ void emitCppCheckStorage(HardwareEmitContext &context, ac::ModuleOp definition,
            "const gfsim::wire<gfsim::Bits<1>> &reset) noexcept {\n"
         << "    const auto evaluation = gfsim::evaluateSampledClock("
            "pyc_sampling_clock_"
-        << ordinal << "[lane], clock, reset);\n"
+        << ordinal << "[lane], clock, " << context.cppReset("reset") << ");\n"
         << "    pyc_sampling_evaluation_" << ordinal << "[lane] = evaluation;\n"
         << "    pyc_sampling_pending_clock_" << ordinal
         << "[lane] = evaluation.nextClock;\n"
@@ -416,6 +416,7 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
         auto resetLane = std::to_string(resetOwner->lane);
         reset = resetOwner->object + "->__pyc_check_reset(" + resetLane +
                 ").packed()";
+        reset = context.cppReset(reset);
       }
       out << "    {\n      const auto pyc_error = gfsim::bit_and("
              "gfsim::bit_and("

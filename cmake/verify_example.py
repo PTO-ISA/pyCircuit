@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import math
+import re
 import shutil
 import subprocess
 import sys
@@ -196,9 +197,89 @@ def verify(source, build, runner, include, verilator, timeout=180):
     print(f"{len(serial)} samples agree: one worker, two workers, and RTL")
 
 
-def compile_system(source, output, include, verilator, timeout=180):
-    """Build a generated system without interpreting or verifying its hardware."""
+def system_execution_metadata(receipt):
+    rows = receipt.get("system_samples", [])
+    needs_four_state = receipt.get("needs_four_state", False)
+    policy = receipt.get("reset_semantics", "strict")
+    if (
+        type(rows) is not list
+        or type(needs_four_state) is not bool
+        or policy not in ("strict", "if_one")
+        or any(
+            type(row) is not str
+            or len(row) != 2
+            or any(bit not in "01xz" for bit in row)
+            for row in rows
+        )
+        or (any("x" in row or "z" in row for row in rows) and not needs_four_state)
+    ):
+        raise ValueError("generated System execution metadata is invalid")
+    return rows, needs_four_state, policy
+
+
+def validate_observation_values(record):
+    values = record.get("values", [])
+    if type(values) is not list:
+        raise ValueError("observation values must be an array")
+    for value in values:
+        if type(value) is not dict:
+            raise ValueError("observation value requires a tagged payload")
+        kind = value.get("kind")
+        if kind == "bits4" and record.get("kind") != "report":
+            width = value.get("width")
+            if (
+                set(value) != {"kind", "width", "value", "known", "z"}
+                or type(width) is not int
+                or width <= 0
+            ):
+                raise ValueError("Bits4 observation width/fields are invalid")
+            planes = [value[key] for key in ("value", "known", "z")]
+            digits = (width + 3) // 4
+            if any(
+                type(plane) is not str
+                or len(plane) != digits
+                or re.fullmatch("[0-9a-f]+", plane) is None
+                for plane in planes
+            ):
+                raise ValueError("Bits4 observation planes require fixed canonical hex")
+            payload, known, z = (int(plane, 16) for plane in planes)
+            if (
+                any(plane.bit_length() > width for plane in (payload, known, z))
+                or known & z
+                or payload & ~known
+            ):
+                raise ValueError("Bits4 observation masks are not canonical")
+        elif kind == "bool" and record.get("kind") != "report":
+            if set(value) != {"kind", "value"} or type(value["value"]) is not bool:
+                raise ValueError("Boolean observation payload is invalid")
+        elif kind == "integer":
+            if (
+                set(value) != {"kind", "value"}
+                or type(value["value"]) is not str
+                or re.fullmatch(r"0|-?[1-9][0-9]*", value["value"]) is None
+            ):
+                raise ValueError("integer observation payload is invalid")
+        else:
+            raise ValueError("observation has an unsupported value kind")
+
+
+def compile_system(
+    source, output, include, verilator=None, timeout=180, *, iverilog=None, vvp=None
+):
+    """Compile the existing generated System with the required logic domain."""
     receipt = json.loads((source / "generated.json").read_text())
+    _, needs_four_state, _ = system_execution_metadata(receipt)
+    backend = "iverilog" if needs_four_state else "verilator"
+    compiler = shutil.which(
+        str(iverilog if needs_four_state else verilator)
+        if (iverilog if needs_four_state else verilator)
+        else backend
+    )
+    runner = shutil.which(str(vvp) if vvp else "vvp") if needs_four_state else None
+    if compiler is None or (needs_four_state and runner is None):
+        raise ValueError(
+            f"{backend} simulation tools are required by the selected System"
+        )
     rtl = []
     for item in receipt["files"]:
         relative = Path(item["path"])
@@ -209,8 +290,8 @@ def compile_system(source, output, include, verilator, timeout=180):
     if not rtl or not (source / "simulation_top.sv").is_file():
         raise ValueError("generated bundle has no source-system simulation top")
     rtl.sort(key=lambda path: (path.name != "design_top.sv", path.as_posix()))
-    # Verilator delegates to GNU Make, which cannot use whitespace in paths.
-    # Stage compiler-owned sources and standard leaves, never the authored DUT.
+    # Reuse staging for both simulators. Verilator's GNU Make runtime cannot
+    # use whitespace in build paths; authored source authority stays untouched.
     with tempfile.TemporaryDirectory(prefix="pycircuit-system-rtl-") as temporary:
         stage = Path(temporary).resolve()
         for item in receipt["files"]:
@@ -219,34 +300,54 @@ def compile_system(source, output, include, verilator, timeout=180):
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source / relative, destination)
         shutil.copytree(include / "verilog", stage / "include/verilog")
-        executable = (
-            stage
-            / "bin"
-            / ("pycircuit_sim.exe" if sys.platform == "win32" else "pycircuit_sim")
-        )
+        executable = stage / "bin" / output.name
         executable.parent.mkdir()
-        command = [
-            str(verilator),
-            "--binary",
-            "--timing",
-            "-CFLAGS",
-            "-std=c++20",
-            "--top-module",
-            "pycircuit_sim",
-            "--Mdir",
-            str(stage / "build"),
-            "-o",
-            str(executable),
-            "-j",
-            "2",
-            "-Wno-fatal",
-            *[str(path) for path in sorted((stage / "include/verilog").glob("*.v"))],
-            *[str(stage / "source" / path) for path in rtl],
-            str(stage / "source/simulation_top.sv"),
+        sources = [
+            str(path) for path in sorted((stage / "include/verilog").glob("*.v"))
         ]
+        sources += [str(stage / "source" / path) for path in rtl]
+        sources.append(str(stage / "source/simulation_top.sv"))
+        if needs_four_state:
+            command = [
+                compiler,
+                "-g2012",
+                "-s",
+                "pycircuit_sim",
+                "-o",
+                str(executable),
+                *sources,
+            ]
+        else:
+            command = [
+                compiler,
+                "--binary",
+                "--timing",
+                "-CFLAGS",
+                "-std=c++20",
+                "--top-module",
+                "pycircuit_sim",
+                "--Mdir",
+                str(stage / "build"),
+                "-o",
+                str(executable),
+                "-j",
+                "2",
+                "-Wno-fatal",
+                *sources,
+            ]
         subprocess.run(command, check=True, timeout=positive_timeout(timeout))
         output.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(executable, output)
+        Path(str(output) + ".backend.json").write_text(
+            json.dumps(
+                {
+                    "backend": backend,
+                    "compiler": str(Path(compiler).resolve()),
+                    "runner": str(Path(runner).resolve()) if runner else None,
+                }
+            )
+            + "\n"
+        )
 
 
 def verify_system(source, build, driver, include, toolchain, cycles, timeout):
@@ -259,7 +360,7 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
     proof = build / "verification.json"
     proof.unlink(missing_ok=True)
     timeout = positive_timeout(timeout)
-    if cycles <= 0:
+    if cycles is not None and cycles <= 0:
         raise ValueError("system cycles must be positive")
     commands = []
     traces = []
@@ -267,6 +368,8 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
     system_metadata = []
     final_ir = []
     execution_inputs = {}
+    backend_labels = []
+    expected_epochs = None
 
     def immutable_inputs():
         bound = {}
@@ -323,8 +426,7 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
             str(build / target),
             "--toolchain",
             str(toolchain),
-            "--cycles",
-            str(cycles),
+            *(["--cycles", str(cycles)] if cycles is not None else []),
             "--workers",
             str(workers),
             "--timeout",
@@ -364,22 +466,55 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
             )
         ):
             raise ValueError("system inputs changed during verification")
+        target_build = build / target
+        bundle = target_build / target
+        receipt = json.loads((bundle / "generated.json").read_text())
+        metadata = json.loads((bundle / "simulation_verification.json").read_text())
+        base_fields = {"entry", "entry_source", "source_checks"}
+        execution_fields = {"system_samples", "needs_four_state", "reset_semantics"}
+        if (
+            set(metadata) not in (base_fields, base_fields | execution_fields)
+            or metadata.get("entry") != receipt.get("entry")
+            or metadata.get("entry_source") != receipt.get("entry_source")
+            or type(metadata.get("source_checks")) is not int
+            or metadata["source_checks"] < 0
+            or any(
+                metadata.get(key) != receipt.get(key)
+                for key in execution_fields
+                if key in metadata or key in receipt
+            )
+        ):
+            raise ValueError(
+                "system check metadata does not identify the selected root"
+            )
+        sample_rows, needs_four_state, reset_semantics = system_execution_metadata(
+            metadata
+        )
+        if sample_rows and cycles is not None:
+            raise ValueError("--cycles is not allowed with finite System samples")
+        expected_epochs = (
+            len(sample_rows) if sample_rows else 2 * (10 if cycles is None else cycles)
+        )
         records = [
             json.loads(line) for line in stdout.splitlines() if line.startswith("{")
         ]
         trace = [row for row in records if row.get("kind") in {"log", "report"}]
+        for row in trace:
+            validate_observation_values(row)
         results = [row for row in records if row.get("kind") == "result"]
         if (
             len(results) != 1
             or results[0].get("status") != "TERMINATED"
-            or epoch_number(results[0].get("epoch_time")) != 2 * cycles
+            or epoch_number(results[0].get("epoch_time")) != expected_epochs
+            or results[0].get("reset_semantics", "strict") != reset_semantics
+            or results[0].get("error") is not None
         ):
             raise ValueError(
                 f"{label}: system did not complete its full sampling duration"
             )
         if any(
             epoch_number(row.get("evaluation_epoch")) is None
-            or not 0 <= epoch_number(row["evaluation_epoch"]) < 2 * cycles
+            or not 0 <= epoch_number(row["evaluation_epoch"]) < expected_epochs
             for row in trace
         ):
             raise ValueError(
@@ -397,11 +532,29 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
         )
         if (
             executed.get("status") != "success"
-            or executed.get("command", [None])[0] != str(executable)
+            or str(executable) not in executed.get("command", [])[:2]
             or executed.get("inputs") != executed.get("inputs_after")
             or str(executable) not in executed.get("inputs", {})
         ):
             raise ValueError("system execution lacks a successful bound binary receipt")
+        expected_backend = (
+            "cpp"
+            if target == "cpp"
+            else ("iverilog" if needs_four_state else "verilator")
+        )
+        actual_backend = executed.get(
+            "backend",
+            expected_backend if not execution_fields & set(metadata) else None,
+        )
+        if (
+            actual_backend != expected_backend
+            or executed.get("sampling_epochs", expected_epochs) != expected_epochs
+            or executed.get("reset_semantics", "strict") != reset_semantics
+        ):
+            raise ValueError(
+                "system execution backend or schedule differs from the generated root"
+            )
+        backend_labels.append(actual_backend)
         for name, expected in executed["inputs"].items():
             if digest(Path(name)) != expected:
                 raise ValueError("system execution inputs changed during verification")
@@ -418,19 +571,6 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
         final_ir.append(
             {path.name: digest(path) for path in sorted(target_build.glob("*.ac"))}
         )
-        bundle = target_build / target
-        receipt = json.loads((bundle / "generated.json").read_text())
-        metadata = json.loads((bundle / "simulation_verification.json").read_text())
-        if (
-            set(metadata) != {"entry", "entry_source", "source_checks"}
-            or metadata["entry"] != receipt.get("entry")
-            or metadata["entry_source"] != receipt.get("entry_source")
-            or type(metadata["source_checks"]) is not int
-            or metadata["source_checks"] < 0
-        ):
-            raise ValueError(
-                "system check metadata does not identify the selected root"
-            )
         system_metadata.append(metadata)
         for relative in ["generated.json", *[row["path"] for row in receipt["files"]]]:
             relative = Path(relative)
@@ -457,12 +597,17 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
         json.dumps(
             {
                 "schema": "pycircuit-system-example-verification-v1",
-                "cycles": cycles,
-                "sampling_epochs": 2 * cycles,
+                "cycles": (
+                    None
+                    if system_metadata[0].get("system_samples")
+                    else (10 if cycles is None else cycles)
+                ),
+                "sampling_epochs": expected_epochs,
+                "reset_semantics": system_metadata[0].get("reset_semantics", "strict"),
                 "observations": len(traces[0]),
                 "source_checks": check_count,
                 "workers": [1, 2],
-                "rtl": "verilator",
+                "rtl": backend_labels[-1],
                 "inputs": inputs,
                 "execution_inputs": execution_inputs,
                 "execution_sha256": digest(build / "execution.json"),
@@ -474,14 +619,18 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
         )
         + "\n"
     )
-    print(f"{2 * cycles} system epochs agree: one worker, two workers, and RTL")
+    print(
+        f"{expected_epochs} system epochs agree: one worker, two workers, and {backend_labels[-1]}"
+    )
 
 
 def main():
     if "--compile-system" in sys.argv[1:]:
         parser = argparse.ArgumentParser()
-        for name in ("compile-system", "output", "include", "verilator"):
+        for name in ("compile-system", "output", "include"):
             parser.add_argument("--" + name, required=True)
+        for name in ("verilator", "iverilog", "vvp"):
+            parser.add_argument("--" + name)
         parser.add_argument("--timeout", type=positive_timeout, default=180)
         args = parser.parse_args()
         compile_system(
@@ -490,6 +639,8 @@ def main():
             Path(args.include).resolve(),
             args.verilator,
             args.timeout,
+            iverilog=args.iverilog,
+            vvp=args.vvp,
         )
         return
     if "--system" in sys.argv[1:]:
@@ -497,7 +648,7 @@ def main():
         parser.add_argument("--system", action="store_true")
         for name in ("runner", "build", "include", "source", "toolchain"):
             parser.add_argument("--" + name, required=True)
-        parser.add_argument("--cycles", type=int, required=True)
+        parser.add_argument("--cycles", type=int, default=None)
         parser.add_argument("--timeout", type=positive_timeout, default=180)
         args = parser.parse_args()
         verify_system(

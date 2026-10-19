@@ -78,7 +78,8 @@ FailureOr<ac::ModuleOp> rootModule(HardwareEmitContext &context) {
 struct SystemControls {
   std::string clock, reset;
 };
-FailureOr<std::string> managedReset(ac::ModuleOp root) {
+FailureOr<std::string> managedReset(HardwareEmitContext &context,
+                                    ac::ModuleOp root) {
   auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
   if (!domain || domain.empty())
     return std::string("1'b0");
@@ -92,9 +93,12 @@ FailureOr<std::string> managedReset(ac::ModuleOp root) {
       reset.getValue().getZExtValue() >= names.size())
     return root.emitOpError()
            << "managed module requires verified reset context";
-  return legalizeIdentifier(
+  auto name = legalizeIdentifier(
       cast<StringAttr>(names[reset.getValue().getZExtValue()]).getValue(),
       [&] { return root.emitOpError(); });
+  if (failed(name))
+    return failure();
+  return context.rtlReset(*name);
 }
 FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   auto domain = root->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
@@ -198,37 +202,6 @@ observationHierarchy(const ObservationEmissionPlan &plan,
   return ObservationAddress{std::move(result),
                             static_cast<size_t>(found - sites->second.begin())};
 }
-FailureOr<uint64_t>
-observationWidth(HardwareEmitContext &context,
-                 const ObservationEmissionOccurrence &occurrence) {
-  auto rootBindings = context.rootBindings();
-  if (failed(rootBindings))
-    return failure();
-  ac::HardwareBindings bindings = std::move(*rootBindings);
-  for (auto [operation, lane] : occurrence.path) {
-    (void)lane;
-    auto child = isa<ac::InstanceOp>(operation)
-                     ? context.analysis.bindInstance(
-                           cast<ac::InstanceOp>(operation), bindings)
-                     : context.analysis.bindInstance(
-                           cast<ac::CollectionOp>(operation), bindings);
-    if (failed(child))
-      return failure();
-    bindings = std::move(*child);
-  }
-  auto observe = cast<ac::SourceObserveOp>(occurrence.site.op);
-  Value observed = occurrence.site.carriesValue
-                       ? observe.getValues()[occurrence.site.valueIndex]
-                       : observe.getPath();
-  auto width =
-      context.analysis.getPackedWidth(observed.getType(), bindings, observe);
-  if (failed(width))
-    return failure();
-  if (*width == 0 || *width > 64)
-    return observe.emitOpError()
-           << "RTL observation requires a scalar payload of at most 64 bits";
-  return *width;
-}
 FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
                                            ac::ModuleOp root,
                                            StringRef wrapper) {
@@ -236,6 +209,32 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
   auto plan = observationEmissionPlan(context);
   if (failed(controls) || failed(plan))
     return failure();
+  auto samples = ac::getSystemSamples(root);
+  if (failed(samples))
+    return failure();
+  std::string scheduleDeclaration, scheduleSteps, cycleGuard;
+  if (!samples->empty()) {
+    std::string pattern;
+    for (Attribute row : *samples)
+      pattern += cast<StringAttr>(row).getValue().str();
+    scheduleDeclaration =
+        "  localparam logic [" + std::to_string(pattern.size() - 1) +
+        ":0] pyc_samples = " + std::to_string(pattern.size()) + "'b" + pattern +
+        ";\n";
+    cycleGuard =
+        "    if ($test$plusargs(\"cycles\")) $fatal(1, \"pycircuit_sim: "
+        "explicit cycles conflicts with samples\");\n";
+    scheduleSteps =
+        "    for (pyc_cycle=0; pyc_cycle<" + std::to_string(samples->size()) +
+        "; pyc_cycle=pyc_cycle+1) begin\n      pyc_step(pyc_samples[(" +
+        std::to_string(samples->size()) + "-1-pyc_cycle)*2+1], pyc_samples[(" +
+        std::to_string(samples->size()) + "-1-pyc_cycle)*2]);\n    end\n";
+  } else {
+    scheduleSteps =
+        "    for (pyc_cycle=0; pyc_cycle<pyc_cycles; pyc_cycle=pyc_cycle+1) "
+        "begin\n"
+        "      pyc_step(1'b0, 1'b0);\n      pyc_step(1'b1, 1'b0);\n    end\n";
+  }
   struct ReportOutput {
     uint64_t ordinal;
     std::string instance, name;
@@ -341,7 +340,7 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
         return observe.emitOpError()
                << "observation group layout is inconsistent";
       auto hierarchy = observationHierarchy(*plan, lane);
-      auto width = observationWidth(context, lane);
+      auto width = observationPayloadWidth(context, lane);
       if (failed(hierarchy) || failed(width))
         return failure();
       group.addresses.push_back(std::move(*hierarchy));
@@ -386,13 +385,57 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
     for (size_t index = 1; index < group.size; ++index)
       out << "          if (" << signal(group.addresses[index], "valid")
           << " !== " << signal(first, "valid") << ") accepted = 1'b0;\n";
+    if (plan->occurrences[group.begin].site.gauge)
+      out << "          if ($isunknown(" << signal(first, "value")
+          << ")) accepted = 1'b0;\n";
     out << "          if (" << signal(first, "valid") << " === 1'b1)\n"
         << "            pyc_observation_active_" << group.begin << " = 1'b1;\n"
         << "        end\n"
         << "      end\n";
   }
-  out << "    end\n  endtask\n"
-         "  task automatic pyc_publish_observations;\n    begin\n";
+  out << "    end\n  endtask\n";
+  llvm::DenseSet<uint64_t> formattedWidths;
+  for (const auto &group : groups) {
+    for (uint64_t width : group.widths) {
+      if (!formattedWidths.insert(width).second)
+        continue;
+      uint64_t padded = (width / 4 + (width % 4 != 0)) * 4;
+      out << "  function automatic string pyc_observation_json_" << width
+          << "(input logic [" << width - 1 << ":0] raw, input bit as_bool);\n"
+          << "    bit [" << padded - 1
+          << ":0] value_plane, known_plane, z_plane;\n"
+          << "    longint unsigned index;\n    begin\n";
+      if (width <= 64)
+        out << "      if (!$isunknown(raw)) begin\n"
+            << "        if (as_bool) pyc_observation_json_" << width
+            << " = raw ? \"{\\\"kind\\\":\\\"bool\\\",\\\"value\\\":true}\" : "
+               "\"{\\\"kind\\\":\\\"bool\\\",\\\"value\\\":false}\";\n"
+            << "        else pyc_observation_json_" << width
+            << " = "
+               "$sformatf(\"{\\\"kind\\\":\\\"integer\\\",\\\"value\\\":\\\"%"
+               "0d\\\"}\", $unsigned(raw));\n"
+            << "      end else begin\n";
+      out << "      value_plane = '0; known_plane = '0; z_plane = '0;\n"
+          << "      for (index = 0; index < " << width
+          << "; index = index + 1) begin\n"
+          << "        case (raw[index])\n"
+          << "          1'b0: known_plane[index] = 1'b1;\n"
+          << "          1'b1: begin value_plane[index] = 1'b1; "
+             "known_plane[index] = 1'b1; end\n"
+          << "          1'bz: z_plane[index] = 1'b1;\n"
+          << "          default: begin end\n"
+          << "        endcase\n      end\n"
+          << "      pyc_observation_json_" << width
+          << " = $sformatf(\"{\\\"kind\\\":\\\"bits4\\\",\\\"width\\\":"
+          << width
+          << ",\\\"value\\\":\\\"%h\\\",\\\"known\\\":\\\"%h\\\",\\\"z\\\":"
+             "\\\"%h\\\"}\", value_plane, known_plane, z_plane);\n";
+      if (width <= 64)
+        out << "      end\n";
+      out << "    end\n  endfunction\n";
+    }
+  }
+  out << "  task automatic pyc_publish_observations;\n    begin\n";
   for (const auto &group : groups) {
     const auto &occurrence = plan->occurrences[group.begin];
     auto observe = cast<ac::SourceObserveOp>(occurrence.site.op);
@@ -429,14 +472,13 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
       if (index)
         record += ',';
       const std::string value = signal(group.addresses[index], "value");
-      if (group.widths[index] == 1 && !occurrence.site.gauge) {
-        record += displayLiteral("{\"kind\":\"bool\",\"value\":") + "%s}";
-        arguments += ", " + value + " ? \"true\" : \"false\"";
-      } else {
-        record += displayLiteral("{\"kind\":\"integer\",\"value\":\"") + "%0d" +
-                  displayLiteral("\"}");
-        arguments += ", $unsigned(" + value + ")";
-      }
+      record += "%s";
+      arguments +=
+          ", pyc_observation_json_" + std::to_string(group.widths[index]) +
+          "(" + value + ", " +
+          (group.widths[index] == 1 && !occurrence.site.gauge ? "1'b1"
+                                                              : "1'b0") +
+          ")";
     }
     record += "]}";
     out << "      if (pyc_observation_active_" << group.begin << ") begin\n";
@@ -452,9 +494,11 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
         << "      end\n";
   }
   out << "    end\n  endtask\n"
-         "  task automatic pyc_step(input logic level);\n"
+      << scheduleDeclaration
+      << "  task automatic pyc_step(input logic level, input logic "
+         "reset_level);\n"
          "    begin\n"
-         "      pyc_clk = level;\n"
+         "      pyc_clk = level; pyc_rst = reset_level;\n"
          "      pyc_root_commit_ok = 1'b0;\n"
          "      #1; // Settle combinational pins before the shared PREPARE "
          "edge.\n"
@@ -489,7 +533,8 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "      pyc_epoch = pyc_epoch + 1;\n"
          "    end\n  endtask\n"
          "  initial begin\n"
-         "    if ($value$plusargs(\"cycles=%s\", pyc_cycles_text)) begin\n"
+      << cycleGuard
+      << "    if ($value$plusargs(\"cycles=%s\", pyc_cycles_text)) begin\n"
          "      pyc_parse_cycles(pyc_cycles_text, pyc_cycles_valid, "
          "pyc_cycles);\n"
          "      if (!pyc_cycles_valid)\n"
@@ -503,11 +548,11 @@ FailureOr<std::string> systemSimulationTop(HardwareEmitContext &context,
          "    pyc_root_commit_ok = 1'b1; pyc_phase = 3'd4; #1;\n"
          "    pyc_phase = 3'd2; #1;\n"
          "    pyc_phase = 3'd0; pyc_root_commit_ok = 1'b0;\n"
-         "    for (pyc_cycle = 0; pyc_cycle < pyc_cycles; pyc_cycle = "
-         "pyc_cycle + 1) begin\n"
-         "      pyc_step(1'b0);\n      pyc_step(1'b1);\n    end\n"
-         "    "
-         "$write(\"{\\\"kind\\\":\\\"result\\\",\\\"status\\\":"
+      << scheduleSteps
+      << "    "
+         "$write(\"{\\\"reset_semantics\\\":\\\""
+      << (context.resetIfOne() ? "if_one" : "strict")
+      << "\\\",\\\"kind\\\":\\\"result\\\",\\\"status\\\":"
          "\\\"TERMINATED\\\",\\\"epoch_time\\\":\\\"%0d\\\",\\\"statistics\\\":"
          "[\", pyc_epoch);\n"
          "    "
@@ -613,7 +658,7 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
            "`ifndef SYNTHESIS\n"
            "  bit pyc_physical_fault = 1'b0;\n"
            "  wire pyc_physical_error = pyc_local_error | $isunknown("
-        << *reset
+        << context.rtlReset(*reset)
         << ");\n"
            "  assign pyc_root_commit_ok = !pyc_physical_fault && "
            "!pyc_physical_error;\n"
@@ -680,7 +725,7 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
       return failure();
   }
   if (context.managesChecks()) {
-    auto reset = managedReset(root);
+    auto reset = managedReset(context, root);
     if (failed(reset))
       return failure();
     out << (first ? "\n" : ",\n")
@@ -694,7 +739,7 @@ LogicalResult emitWrapper(HardwareEmitContext &context, ac::ModuleOp root,
     first = false;
   }
   if (context.isPhysical()) {
-    auto reset = managedReset(root);
+    auto reset = managedReset(context, root);
     if (failed(reset))
       return failure();
     out << (first ? "\n" : ",\n")

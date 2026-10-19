@@ -775,6 +775,9 @@ FailureOr<TableQueryCharge> Importer::valueHelperCost(func::FuncOp root,
           bool retained = retainsFacts(value);
           chargeValue(value, retained ? 2 : 1, retained);
         }
+        if (auto pattern = dyn_cast<ac::BitsConstant4Op>(operation))
+          fits &= TableQueryBudget::add(cost, TableQueryResource::ConstantBytes,
+                                        pattern.getPattern().size());
         chargeAttribute(chargeAttribute, operation->getAttrDictionary(), 0);
       }
       for (Region &region : operation->getRegions())

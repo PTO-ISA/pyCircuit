@@ -14,6 +14,277 @@
 using namespace mlir;
 namespace acir::ac {
 namespace {
+// Author observers are distinguished from compiler-internal case equality by
+// retained body provenance. Helpers are expanded into this definition before
+// publication; the source-unit contract authenticates their actual bodies.
+// Follow every use, including branch control, before any generic folding can
+// remove a diagnostic/functional mixed use. Field paths and ordinary operation
+// dependencies come from the same analysis as hardware scheduling.
+LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
+                                 ModuleOp definition,
+                                 const HardwareBindings &bindings,
+                                 detail::SourceCheckBudget &budget) {
+  using Budget = detail::SourceCheckBudget;
+  llvm::DenseMap<Value, SmallVector<FieldPath, 0>> seen;
+  SmallVector<WireEndpoint, 0> pending;
+  auto debit = [&](uint64_t units, Operation *site) {
+    return budget.debit(units, site);
+  };
+  auto push = [&](Value value, ArrayRef<StringAttr> path,
+                  Operation *site) -> LogicalResult {
+    if (failed(debit(Budget::add(1, path.size()), site)))
+      return failure();
+    auto &paths = seen[value];
+    for (const auto &prior : paths) {
+      if (failed(debit(Budget::add(1, path.size()), site)))
+        return failure();
+      if (ArrayRef<StringAttr>(prior) == path)
+        return success();
+    }
+    if (failed(
+            debit(Budget::bytes(Budget::add(
+                      4 * sizeof(WireEndpoint),
+                      Budget::multiply(4 * sizeof(StringAttr), path.size()))),
+                  site)))
+      return failure();
+    paths.emplace_back(path.begin(), path.end());
+    pending.push_back({value, FieldPath(path.begin(), path.end())});
+    return success();
+  };
+  auto results = [&](Operation *operation) -> LogicalResult {
+    for (Value result : operation->getResults()) {
+      auto paths =
+          analysis.getFieldPaths(result.getType(), bindings, operation, debit);
+      if (failed(paths))
+        return failure();
+      for (const auto &path : *paths)
+        if (failed(push(result, path, operation)))
+          return failure();
+    }
+    return success();
+  };
+  auto scan = definition.walk([&](Operation *operation) {
+    if (failed(debit(1, operation)))
+      return WalkResult::interrupt();
+    auto marker = operation->getAttr("ac.verification_observer");
+    if (!marker)
+      return WalkResult::advance();
+    auto name = dyn_cast<StringAttr>(marker);
+    auto compare = dyn_cast<BitsCompareOp>(operation);
+    auto origin = operation->getAttrOfType<DictionaryAttr>("ac.origin");
+    if (!name ||
+        (name.getValue() != "case_eq" && name.getValue() != "is_known") ||
+        !compare || compare.getPredicate() != "case_eq" || !origin ||
+        failed(detail::verifyOccurrence(
+            origin, [&] { return operation->emitOpError(); }))) {
+      operation->emitOpError() << "four-state observer requires authenticated "
+                                  "source comparison provenance";
+      return WalkResult::interrupt();
+    }
+    return failed(results(operation)) ? WalkResult::interrupt()
+                                      : WalkResult::advance();
+  });
+  if (scan.wasInterrupted())
+    return failure();
+  auto reject = [](Operation *operation) -> LogicalResult {
+    return operation->emitOpError()
+           << "four-state observer is verification-only; its data or control "
+              "dependency reaches a functional use";
+  };
+  auto diagnosticBranch = [&](Operation *branch) -> LogicalResult {
+    auto checked = branch->walk([&](Operation *operation) {
+      if (failed(debit(1, operation)))
+        return WalkResult::interrupt();
+      if (operation == branch)
+        return WalkResult::advance();
+      // SourceExpect's own verifier authenticates authored assertions and the
+      // generated range/knownness obligations. They are all diagnostic sinks.
+      if (isa<SourceExpectOp, SourceObserveOp, YieldOp, SourcePredicateOp>(
+              operation) ||
+          operation->getName().getStringRef() == "scf.yield" ||
+          operation->getName().getStringRef() == "scf.if" ||
+          isa<SourceBranchOp>(operation) ||
+          detail::isCombinationalHardwareOperation(operation))
+        return WalkResult::advance();
+      (void)reject(operation);
+      return WalkResult::interrupt();
+    });
+    if (checked.wasInterrupted())
+      return failure();
+    // An unchanged SSA yield in both arms has no control dependence.
+    for (auto [index, result] : llvm::enumerate(branch->getResults())) {
+      bool unchanged = branch->getNumRegions() == 2;
+      Value common;
+      for (Region &region : branch->getRegions()) {
+        if (!region.hasOneBlock() || region.front().empty()) {
+          unchanged = false;
+          break;
+        }
+        Operation *terminator = region.front().getTerminator();
+        if (index >= terminator->getNumOperands()) {
+          unchanged = false;
+          break;
+        }
+        Value yielded = terminator->getOperand(index);
+        if (common && common != yielded)
+          unchanged = false;
+        common = yielded;
+      }
+      if (unchanged)
+        continue;
+      auto paths =
+          analysis.getFieldPaths(result.getType(), bindings, branch, debit);
+      if (failed(paths))
+        return failure();
+      for (const auto &path : *paths)
+        if (failed(push(result, path, branch)))
+          return failure();
+    }
+    return success();
+  };
+  // Memoize only direct dependency edges within this immutable invocation.
+  // Common Struct/ValueMerge/Table rules preserve unrelated field authority.
+  struct ResultEdges {
+    WireEndpoint output;
+    SmallVector<WireEndpoint> inputs;
+  };
+  llvm::DenseMap<Operation *, SmallVector<ResultEdges, 0>> edges;
+  auto propagate = [&](Operation *operation,
+                       const WireEndpoint &input) -> LogicalResult {
+    auto found = edges.find(operation);
+    if (found == edges.end()) {
+      SmallVector<ResultEdges, 0> described;
+      for (Value result : operation->getResults()) {
+        auto paths = analysis.getFieldPaths(result.getType(), bindings,
+                                            operation, debit);
+        if (failed(paths))
+          return failure();
+        for (const auto &path : *paths) {
+          auto dependencies =
+              analysis.getDependencies(result, path, bindings, debit);
+          if (failed(dependencies))
+            return failure();
+          uint64_t storage = sizeof(ResultEdges);
+          for (const auto &endpoint : *dependencies)
+            storage = Budget::add(
+                storage, Budget::add(sizeof(WireEndpoint),
+                                     Budget::multiply(endpoint.path.size(),
+                                                      sizeof(StringAttr))));
+          if (failed(debit(Budget::bytes(Budget::multiply(4, storage)),
+                           operation)))
+            return failure();
+          described.push_back({{result, path}, std::move(*dependencies)});
+        }
+      }
+      found = edges.try_emplace(operation, std::move(described)).first;
+    }
+    for (const auto &edge : found->second)
+      for (const auto &dependency : edge.inputs) {
+        if (failed(debit(Budget::add(1, dependency.path.size()), operation)))
+          return failure();
+        if (dependency == input &&
+            failed(push(edge.output.value, edge.output.path, operation)))
+          return failure();
+      }
+    return success();
+  };
+  while (!pending.empty()) {
+    WireEndpoint endpoint = pending.pop_back_val();
+    Value value = endpoint.value;
+    for (OpOperand &use : value.getUses()) {
+      Operation *user = use.getOwner();
+      unsigned index = use.getOperandNumber();
+      if (failed(debit(1, user)))
+        return failure();
+      if (isa<SourceExpectOp>(user)) {
+        if (index < 2)
+          continue;
+        return reject(user);
+      }
+      if (isa<SourceObserveOp>(user))
+        continue;
+      if (isa<SourceBranchOp>(user) ||
+          user->getName().getStringRef() == "scf.if") {
+        if (failed(diagnosticBranch(user)))
+          return failure();
+        continue;
+      }
+      if (isa<RuleOp, SourceTransactionOp, SourceMethodOp>(user)) {
+        unsigned argument = index;
+        if (isa<SourceTransactionOp>(user)) {
+          if (index < 2)
+            return reject(user);
+          argument -= 2;
+        } else if (auto method = dyn_cast<SourceMethodOp>(user)) {
+          // A Method declaration's operands bind lexical captures, not authored
+          // hardware call arguments. Its regions put those after formals.
+          argument += method.getFunctionType().getNumInputs();
+        }
+        for (Region &region : user->getRegions()) {
+          if (!region.hasOneBlock() ||
+              argument >= region.front().getNumArguments())
+            return reject(user);
+          if (failed(push(region.front().getArgument(argument), endpoint.path,
+                          user)))
+            return failure();
+        }
+        continue;
+      }
+      if (isa<YieldOp>(user) || user->getName().getStringRef() == "scf.yield") {
+        Operation *owner = user->getParentOp();
+        if (isa<ModuleOp, SourceMethodOp>(owner))
+          return reject(user);
+        if (auto transaction = dyn_cast<SourceTransactionOp>(owner))
+          if (user->getParentRegion() == &transaction.getGuard())
+            return reject(user);
+        if (!isa<RuleOp, SourceTransactionOp, SourceBranchOp, TableMapOp,
+                 TableMatchOp>(owner) &&
+            owner->getName().getStringRef() != "scf.if")
+          return reject(user);
+        if (index >= owner->getNumResults())
+          return reject(user);
+        if (failed(push(owner->getResult(index), endpoint.path, user)))
+          return failure();
+        continue;
+      }
+      if (isa<SourcePredicateOp>(user)) {
+        if (failed(push(user->getResult(0), {}, user)))
+          return failure();
+        continue;
+      }
+      // Index/admission/resource/call operands remain functional boundaries.
+      if ((isa<TableGetOp>(user) && index != 0) || isa<TableIndexOp>(user))
+        return reject(user);
+      if (detail::isCombinationalHardwareOperation(user)) {
+        if (failed(propagate(user, endpoint)))
+          return failure();
+        // The common dependency analysis specifies Table region bindings too.
+        for (Region &region : user->getRegions())
+          for (Block &block : region)
+            for (BlockArgument argument : block.getArguments()) {
+              auto paths = analysis.getFieldPaths(argument.getType(), bindings,
+                                                  user, debit);
+              if (failed(paths))
+                return failure();
+              for (const auto &path : *paths) {
+                auto dependencies =
+                    analysis.getDependencies(argument, path, bindings, debit);
+                if (failed(dependencies))
+                  return failure();
+                for (const auto &dependency : *dependencies)
+                  if (dependency == endpoint &&
+                      failed(push(argument, path, user)))
+                    return failure();
+              }
+            }
+        continue;
+      }
+      return reject(user);
+    }
+  }
+  return success();
+}
+
 LogicalResult predicate(const HardwareAnalysis &analysis, Value value,
                         const HardwareBindings &bindings, Operation *site) {
   if (!isa<BitsType>(value.getType()))
@@ -434,6 +705,8 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
   if (definition->getNumRegions() != 1 || !definition.getBody().hasOneBlock())
     return definition.emitOpError()
            << "source checks require one definition graph block";
+  if (failed(verifyObserverUses(analysis, definition, bindings, budget)))
+    return failure();
   SmallVector<HardwareCheckBinding> result;
   // Keep registration ordering once per registration. IDs within a group
   // have already proved that registration and compare only the remaining
@@ -921,7 +1194,8 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
     return package.emitOpError()
            << "source check plan differs from current hardware package";
   };
-  if (plan.bindings.size() != fresh->bindings.size() ||
+  if (plan.resetSemantics != fresh->resetSemantics ||
+      plan.bindings.size() != fresh->bindings.size() ||
       plan.owners.size() != fresh->owners.size() ||
       plan.checks.size() != fresh->checks.size() ||
       plan.commits.size() != fresh->commits.size() ||

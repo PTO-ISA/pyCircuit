@@ -137,6 +137,13 @@ def ACIR_BitsConstantOp : ACIR_Op<"bits.constant", [Pure]> {
   let hasVerifier = 1;
 }
 
+def ACIR_BitsConstant4Op : ACIR_Op<"bits.constant4", [Pure]> {
+  let summary = "Create an exact fixed-width four-state hardware bit vector";
+  let arguments = (ins StrAttr:$pattern);
+  let results = (outs ACIR_BitsType:$result);
+  let hasVerifier = 1;
+}
+
 def ACIR_BitsUnaryOp : ACIR_Op<"bits.unary", [Pure]> {
   let summary = "Apply one closed bit-vector unary operation";
   let arguments = (ins ACIR_BitsType:$input, StrAttr:$opcode);

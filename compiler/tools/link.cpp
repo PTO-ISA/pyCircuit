@@ -33,6 +33,7 @@ struct Options {
   std::vector<std::string> headers;
   std::optional<std::string> top;
   std::optional<std::string> parameters;
+  std::optional<std::string> resetSemantics;
   std::optional<std::string> design;
   std::optional<std::string> target;
   std::optional<std::string> output;
@@ -88,7 +89,7 @@ bool parseOptions(int argc, char **argv, Options &options) {
   for (int i = 1; i < argc; ++i) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
-        arg != "--parameters" &&
+        arg != "--parameters" && arg != "--reset-semantics" &&
         arg != "--design" && arg != "--target" && arg != "--output" &&
         arg != "--glue-output" && arg != "--entry-owner-out" &&
         arg != "--unit-owner-out" && arg != "--transaction-input-out" &&
@@ -118,6 +119,9 @@ bool parseOptions(int argc, char **argv, Options &options) {
         return false;
     } else if (arg == "--parameters") {
       if (!setOnce(options.parameters, value, arg))
+        return false;
+    } else if (arg == "--reset-semantics") {
+      if (!setOnce(options.resetSemantics, value, arg))
         return false;
     } else if (arg == "--design") {
       if (!setOnce(options.design, value, arg))
@@ -150,6 +154,13 @@ bool parseOptions(int argc, char **argv, Options &options) {
     llvm::errs()
         << "error: --transaction-input-out and --transaction-output-out "
            "must be supplied together\n";
+    return false;
+  }
+  if (options.resetSemantics && (options.verifyOnly || options.design ||
+                                 (*options.resetSemantics != "strict" &&
+                                  *options.resetSemantics != "if_one"))) {
+    llvm::errs() << "error: --reset-semantics strict|if_one requires "
+                    "source-unit link mode\n";
     return false;
   }
   if (options.parameters && (options.verifyOnly || options.design)) {
@@ -531,7 +542,8 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
   };
   auto program = acir::compiler::linkHardwareUnits(
       units, *options.top, emitError,
-      options.transactionInputOutput ? &stages : nullptr, parameters);
+      options.transactionInputOutput ? &stages : nullptr, parameters,
+      options.resetSemantics.value_or("strict"));
   if (mlir::failed(program))
     return mlir::failure();
   auto root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(

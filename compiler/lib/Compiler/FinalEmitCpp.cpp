@@ -139,9 +139,40 @@ FailureOr<SystemControls> systemControls(ac::ModuleOp root) {
   return SystemControls{std::move(*clockName), std::move(*resetName)};
 }
 std::string systemSimulationMain(const SystemControls &controls,
-                                 StringRef config) {
+                                 StringRef config, ArrayAttr samples,
+                                 bool resetIfOne) {
   std::string text;
   llvm::raw_string_ostream out(text);
+  std::string declarations, drive, cycleGuard;
+  if (!samples.empty()) {
+    declarations = "constexpr std::string_view pyc_samples[] = {";
+    for (Attribute raw : samples)
+      declarations += "\"" + cast<StringAttr>(raw).getValue().str() + "\",";
+    declarations +=
+        "};\n"
+        "auto pyc_symbol(char symbol) {\n"
+        "  if (symbol == '0' || symbol == '1') return pyc_bit(symbol == '1');\n"
+        "  if (symbol == 'x') return gfsim::wire<gfsim::Bits<1>>::unknown();\n"
+        "  return "
+        "gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::FourState<1>::"
+        "highImpedance());\n}\n";
+    drive = "    if (epoch >= " + std::to_string(samples.size()) +
+            ") return false;\n"
+            "    self.inputs." +
+            controls.clock +
+            " = pyc_symbol(pyc_samples[epoch][0]);\n"
+            "    self.inputs." +
+            controls.reset + " = pyc_symbol(pyc_samples[epoch][1]);\n";
+    cycleGuard = "      std::cerr << \"pycircuit_system: explicit --cycles "
+                 "conflicts with samples\\n\"; return 2;\n";
+  } else {
+    drive = "    if (epoch >= self.cycles * 2) return false;\n"
+            "    self.inputs." +
+            controls.clock +
+            " = pyc_bit((epoch & 1u) != 0);\n"
+            "    self.inputs." +
+            controls.reset + " = pyc_bit(false);\n";
+  }
   out << "#include <gfsim/SystemRunner.h>\n"
          "#include \"pycircuit_system.hpp\"\n"
          "#include <charconv>\n#include <cstdint>\n#include <iostream>\n"
@@ -156,7 +187,8 @@ std::string systemSimulationMain(const SystemControls &controls,
          "auto pyc_bit(bool value) {\n"
          "  return gfsim::wire<gfsim::Bits<1>>::known("
          "gfsim::Bits<1>{value ? 1u : 0u});\n}\n"
-         "struct pyc_run_context {\n"
+      << declarations
+      << "struct pyc_run_context {\n"
          "  pyc_dut &dut;\n  std::uint64_t cycles;\n"
          "  pyc_dut::Inputs inputs{};\n"
          "  static void initialize(void *opaque) {\n"
@@ -170,14 +202,8 @@ std::string systemSimulationMain(const SystemControls &controls,
          "    self.dut.drive(self.inputs);\n  }\n"
          "  static bool drive(void *opaque, std::uint64_t epoch) {\n"
          "    auto &self = *static_cast<pyc_run_context *>(opaque);\n"
-         "    if (epoch >= self.cycles * 2) return false;\n"
-         "    self.inputs."
-      << controls.clock
-      << " = pyc_bit((epoch & 1u) != 0);\n"
-         "    self.inputs."
-      << controls.reset
-      << " = pyc_bit(false);\n"
-         "    self.dut.drive(self.inputs);\n    return true;\n  }\n"
+      << drive
+      << "    self.dut.drive(self.inputs);\n    return true;\n  }\n"
          "};\n"
          "bool pyc_cycles(std::string_view text, std::uint64_t &value) {\n"
          "  if (text.empty()) return false;\n"
@@ -195,7 +221,8 @@ std::string systemSimulationMain(const SystemControls &controls,
          "  for (int index = 1; index < argc; ++index) {\n"
          "    std::string_view option = argv[index];\n"
          "    if (option == \"--cycles\") {\n"
-         "      if (has_cycles || ++index >= argc || "
+      << cycleGuard
+      << "      if (has_cycles || ++index >= argc || "
          "!pyc_cycles(argv[index], cycles)) {\n"
          "        std::cerr << \"pycircuit_system: --cycles requires one "
          "positive decimal value\\n\";\n        return 2;\n      }\n"
@@ -213,7 +240,9 @@ std::string systemSimulationMain(const SystemControls &controls,
          "  pyc_dut dut(runner.workers());\n"
          "  pyc_run_context context{dut, cycles};\n"
          "  const gfsim::RunnerCallbacks callbacks{&context, "
-         "&pyc_run_context::initialize, &pyc_run_context::drive, nullptr};\n"
+         "&pyc_run_context::initialize, &pyc_run_context::drive, nullptr, \""
+      << (resetIfOne ? "if_one" : "strict") << "\", " << samples.size()
+      << "};\n"
          "  return runner.Run(dut.system(), dut.observations(), "
          "pyc_observation_metadata(), callbacks);\n}\n";
   out.flush();
@@ -505,8 +534,12 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
         "{\"deadlock_window\":null,\"max_domain_cycles\":{},"
         "\"max_ticks\":9223372036854775807,"
         "\"schema\":\"pycircuit-model-config\",\"version\":\"1\"}\n";
+    auto samples = ac::getSystemSamples(*root);
+    if (failed(samples))
+      return failure();
     parts.simulationMain = systemSimulationMain(
-        *controls, StringRef(parts.simulationConfig).trim());
+        *controls, StringRef(parts.simulationConfig).trim(), *samples,
+        context.resetIfOne());
   }
   return parts;
 }

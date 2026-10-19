@@ -30,7 +30,8 @@ mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
 linkHardwareUnits(llvm::ArrayRef<SourceLinkUnit> units, llvm::StringRef top,
                   ac::detail::EmitError emitError,
                   SourceLinkStages *retainedStages = nullptr,
-                  llvm::ArrayRef<SourceLinkParameterBinding> parameters = {});
+                  llvm::ArrayRef<SourceLinkParameterBinding> parameters = {},
+                  llvm::StringRef resetSemantics = "strict");
 
 } // namespace acir::compiler
 

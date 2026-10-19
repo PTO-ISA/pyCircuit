@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 from ._driver import _DriverError, _validate_published_program
-from ._generated_bundle import _relative_file_path
+from ._generated_bundle import _execution_metadata, _relative_file_path
 from ._native_verify import native_helper, verify_program_owner
 from ._publication import (
     _paths_conflict,
@@ -59,26 +59,44 @@ def _cmake(
     standard_sources: list[str],
     root_rtl_name: str = "",
     simulation: bool = False,
+    needs_four_state: bool = False,
 ) -> str:
     if simulation and target == "verilog":
-        return """cmake_minimum_required(VERSION 3.25)
+        tools = (
+            "find_program(PYCIRCUIT_IVERILOG iverilog REQUIRED)\n"
+            "find_program(PYCIRCUIT_VVP vvp REQUIRED)\n"
+            if needs_four_state
+            else "find_program(PYCIRCUIT_VERILATOR verilator REQUIRED)\n"
+        )
+        arguments = (
+            '--iverilog "${PYCIRCUIT_IVERILOG}" --vvp "${PYCIRCUIT_VVP}"'
+            if needs_four_state
+            else '--verilator "${PYCIRCUIT_VERILATOR}"'
+        )
+        return (
+            """cmake_minimum_required(VERSION 3.25)
 project(PycircuitSimulation LANGUAGES C CXX)
 find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
-find_program(PYCIRCUIT_VERILATOR verilator REQUIRED)
-set(PYCIRCUIT_SIM "${CMAKE_CURRENT_BINARY_DIR}/bin/pycircuit_sim${CMAKE_EXECUTABLE_SUFFIX}")
+"""
+            + tools
+            + """set(PYCIRCUIT_SIM "${CMAKE_CURRENT_BINARY_DIR}/bin/pycircuit_sim${CMAKE_EXECUTABLE_SUFFIX}")
 file(GLOB_RECURSE PYCIRCUIT_RTL CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/*.v" "${CMAKE_CURRENT_SOURCE_DIR}/*.sv")
 file(GLOB PYCIRCUIT_PRIMITIVES CONFIGURE_DEPENDS "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}/verilog/*.v")
 add_custom_command(OUTPUT "${PYCIRCUIT_SIM}"
   COMMAND "${Python3_EXECUTABLE}" "${PYCIRCUIT_CMAKE_DIR}/verify_example.py"
     --compile-system "${CMAKE_CURRENT_SOURCE_DIR}" --output "${PYCIRCUIT_SIM}"
-    --include "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}" --verilator "${PYCIRCUIT_VERILATOR}"
+    --include "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}" """
+            + arguments
+            + """
+  BYPRODUCTS "${PYCIRCUIT_SIM}.backend.json"
   DEPENDS ${PYCIRCUIT_RTL} ${PYCIRCUIT_PRIMITIVES}
     "${CMAKE_CURRENT_SOURCE_DIR}/generated.json" "${PYCIRCUIT_CMAKE_DIR}/verify_example.py"
   VERBATIM)
 add_custom_target(pycircuit_sim DEPENDS "${PYCIRCUIT_SIM}")
 """
+        )
     text = """cmake_minimum_required(VERSION 3.25)
 project(PycircuitModules LANGUAGES C CXX)
 find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
@@ -116,6 +134,7 @@ target_link_libraries(pycircuit_modules PUBLIC pycircuit::pyc6_runtime)
 
 def _target_files(payload: dict, target: str):
     """Copy structured native outputs; never parse or split generated source."""
+    sample_rows, needs_four_state = _execution_metadata(payload)
     files: dict[str, tuple[str, str]] = {}
     groups: dict[tuple[str, str], dict] = {}
     sources: list[str] = []
@@ -176,6 +195,9 @@ def _target_files(payload: dict, target: str):
                     "entry": payload["entry"],
                     "entry_source": payload["entry_source"],
                     "source_checks": count,
+                    "system_samples": sample_rows,
+                    "needs_four_state": needs_four_state,
+                    "reset_semantics": payload.get("reset_semantics", "strict"),
                 },
                 separators=(",", ":"),
             )
@@ -199,6 +221,7 @@ def _target_files(payload: dict, target: str):
             standard_sources=payload.get("rtl_standard_sources", []),
             root_rtl_name=payload.get("root_rtl_name", ""),
             simulation=simulation,
+            needs_four_state=needs_four_state,
         ),
         "cmake",
     )
@@ -211,6 +234,9 @@ def _target_files(payload: dict, target: str):
         "entry_source": payload["entry_source"],
         "files": [{"path": path, "role": files[path][1]} for path in sorted(files)],
         "source_groups": [groups[key] for key in sorted(groups)],
+        "reset_semantics": payload.get("reset_semantics", "strict"),
+        "system_samples": sample_rows,
+        "needs_four_state": needs_four_state,
     }
     if target == "verilog":
         receipt["root_rtl_name"] = payload["root_rtl_name"]

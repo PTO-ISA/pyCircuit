@@ -278,6 +278,10 @@ def evaluate(
     ):
         env[key] = str(build / "bin" / name)
     row["source_sha256"] = sha256(source)
+    reset_semantics = solution.get("domain", {}).get("reset_semantics", "strict")
+    if reset_semantics not in {"strict", "if_one"}:
+        return row | {"status": "unsupported", "reason": "Invalid reset semantics"}
+    row["reset_semantics"] = reset_semantics
     final = folder / "final.ac"
     cli = [sys.executable, "-m", "pycircuit.cli"]
     stages = [
@@ -298,7 +302,17 @@ def evaluate(
         ),
         (
             "link",
-            [*cli, "link", folder / "unit", "--top", solution["top"], "-o", final],
+            [
+                *cli,
+                "link",
+                folder / "unit",
+                "--top",
+                solution["top"],
+                "--reset-semantics",
+                reset_semantics,
+                "-o",
+                final,
+            ],
         ),
         ("emit-cpp", [*cli, "emit", final, "--target", "cpp", "-o", folder / "cpp"]),
         (
@@ -325,6 +339,11 @@ def evaluate(
             }
     row["final_ir_sha256"] = sha256(final)
     manifest = json.loads((folder / "rtl/generated.json").read_text())
+    if manifest.get("reset_semantics", "strict") != reset_semantics:
+        return row | {
+            "status": "emit-verilog_failed",
+            "reason": "Reset policy mismatch",
+        }
     rtl = [
         folder / "rtl" / item["path"]
         for item in manifest["files"]
@@ -465,6 +484,16 @@ def main():
         "selected": len(results),
         "attempted": attempted,
         "counts": dict(counts),
+        "reset_policy_counts": {
+            policy: dict(
+                Counter(
+                    row["status"]
+                    for row in results
+                    if row.get("reset_semantics") == policy
+                )
+            )
+            for policy in ("strict", "if_one")
+        },
         "passed_over_full_suite": counts["passed"] / len(pool),
         "passed_over_attempted": counts["passed"] / attempted if attempted else None,
         "unselected": len(pool) - len(results),

@@ -202,7 +202,9 @@ class ValueAvailabilityMaterializer {
     }
     Operation *operation = value.getDefiningOp();
     if (!operation) return failure();
-    if (isa<ac::BitsConstantOp, ac::EnumCreateOp>(operation)) return Value();
+    if (isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::EnumCreateOp>(
+            operation))
+      return Value();
     if (auto rule = dyn_cast<ac::RuleOp>(operation)) {
       auto sampled = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
       auto yields = cast<ac::YieldOp>(rule.getBody().front().back()).getValues();

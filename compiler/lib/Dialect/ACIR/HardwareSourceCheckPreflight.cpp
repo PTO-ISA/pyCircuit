@@ -68,6 +68,10 @@ public:
       if (failed(mlir::verify(package, false))) return failure();
     }
     if (failed(verifyHardwarePackageEnvelope(analysis))) return failure();
+    auto resetSemantics = getHardwareResetSemantics(package);
+    if (failed(resetSemantics))
+      return failure();
+    plan.resetSemantics = *resetSemantics;
     budget.setPhase("definition catalog");
     auto root = resolveHardwareRootBindings(analysis);
     if (failed(root) || failed(catalog()))
@@ -1091,7 +1095,8 @@ private:
       }
       for (StringRef key :
            {"occurrence", "ac.required_checks", "ac.check_id", "location",
-            "ac.message", "ac.sampled_admission", "ac.transaction_wiring", "ac.queue_wiring"}) {
+            "ac.message", "ac.sampled_admission", "ac.transaction_wiring",
+            "ac.queue_wiring", "ac.system_samples"}) {
         Attribute attribute = op->getAttr(key);
         auto cost = structureCost(attribute, op);
         if (failed(cost))

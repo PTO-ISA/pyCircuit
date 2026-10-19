@@ -9,7 +9,7 @@ def checked_advance(value):
 
 
 @module
-def CheckedChild() -> {"value": u8}:
+def CheckedChild() -> u8:
     value: u8 = 0
     checked_advance(value)
-    return {"value": value}
+    return value

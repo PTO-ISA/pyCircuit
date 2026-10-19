@@ -68,6 +68,7 @@ struct ModuleDecl {
   bool behavioral = false;
   bool needsDomain = false;
   bool system = false;
+  DictionaryAttr systemSamples;
   bool methodOwner = false;
   bool transactionEffects = false;
   size_t sourceInputCount = 0;
@@ -387,7 +388,7 @@ struct LoopStatementEnvelope {
   TableQueryCharge reservation;
   uint64_t operations = 0, arguments = 0, values = 0, operands = 4;
   uint64_t precision = 1, words = 1, factWords = 1;
-  uint64_t nodes = 0, declarations = 0, maps = 0;
+  uint64_t nodes = 0, declarations = 0, maps = 0, patternBytes = 0;
 };
 struct LoopResourceShape {
   Type type;
@@ -488,6 +489,7 @@ private:
   LogicalResult scanModules();
   LogicalResult scanSourceCallables();
   bool intrinsic(const AstNode &node, StringRef name) const;
+  FailureOr<StringRef> fourStatePattern(const AstNode &node);
   bool fixedAnnotation(const AstNode &node) const;
   bool hasDecorator(const AstNode &node, StringRef name) const;
   LogicalResult scanStructs();
@@ -2437,6 +2439,81 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
   result.node = node;
   result.symbol =
       FlatSymbolRefAttr::get(b.getContext(), qualify(node.string("name")));
+  if (result.system) {
+    if (node.array("decorator_list").size() != 1)
+      return error() << "@system requires exactly one bound decorator";
+    auto decorator = node.item("decorator_list", 0);
+    if (decorator.kind() == "Call") {
+      if (!decorator.array("args").empty() ||
+          decorator.array("keywords").size() > 1)
+        return error()
+               << "@system accepts only samples=static clock/reset rows";
+      if (!decorator.array("keywords").empty()) {
+        auto keyword = decorator.item("keywords", 0);
+        if (keyword.string("arg") != "samples")
+          return error() << "@system accepts only the samples keyword";
+        auto sequence = keyword.child("value");
+        auto elements = sequence.array("elts");
+        uint64_t count = elements ? elements.size() : 0;
+        if ((sequence.kind() != "Tuple" && sequence.kind() != "List") || !count)
+          return error() << "System samples require a nonempty finite literal "
+                            "sequence";
+        // Pay for every row, cell and stored character before allocating the
+        // row vector or inspecting nested cell syntax.
+        TableQueryCharge charge;
+        std::string reason;
+        if (!TableQueryBudget::addProduct(charge, TableQueryResource::Work,
+                                          count, 8) ||
+            !TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
+                                          count, 3) ||
+            !TableQueryBudget::addProduct(
+                charge, TableQueryResource::ConstantBytes, count, 2) ||
+            !queryBudget.reserve(charge, reason))
+          return error() << "System samples budget exceeded: " << reason;
+        SmallVector<Attribute> rows;
+        rows.reserve(count);
+        for (uint64_t index = 0; index < count; ++index) {
+          auto row = sequence.item("elts", index);
+          if ((row.kind() != "Tuple" && row.kind() != "List") ||
+              row.array("elts").size() != 2)
+            return error()
+                   << "each System sample requires exactly clock and reset";
+          char encoded[2];
+          for (unsigned cellIndex = 0; cellIndex < 2; ++cellIndex) {
+            auto cell = row.item("elts", cellIndex);
+            auto integer =
+                mlir::dyn_cast_or_null<DictionaryAttr>(cell.get("value"));
+            auto spelling =
+                integer ? integer.getAs<StringAttr>("integer") : StringAttr();
+            if (cell.kind() == "Constant" && spelling &&
+                (spelling.getValue() == "0" || spelling.getValue() == "1")) {
+              encoded[cellIndex] = spelling.getValue().front();
+            } else if (cell.kind() == "Call" &&
+                       intrinsic(cell.child("func"), "four_state")) {
+              auto pattern = fourStatePattern(cell);
+              if (failed(pattern))
+                return failure();
+              if (pattern->size() != 1)
+                return error()
+                       << "System clock/reset samples require width one";
+              char bit = pattern->front();
+              encoded[cellIndex] = bit == 'X' ? 'x' : bit == 'Z' ? 'z' : bit;
+            } else {
+              return error() << "System samples require literal 0/1 or one-bit "
+                                "four_state";
+            }
+          }
+          rows.push_back(b.getStringAttr(StringRef(encoded, 2)));
+        }
+        result.systemSamples = b.getDictionaryAttr(
+            {b.getNamedAttr("rows", b.getArrayAttr(rows)),
+             b.getNamedAttr("origin",
+                            sourceOccurrence(b, result.symbol, decorator)),
+             b.getNamedAttr("location",
+                            sourceSpan(b, source.path, decorator))});
+      }
+    }
+  }
   AstNode args = node.child("args");
   if (result.system &&
       (!args.array("posonlyargs").empty() || !args.array("args").empty() ||
@@ -2593,6 +2670,8 @@ Importer::moduleSignatureAttrs(const ModuleDecl &target) {
   llvm::append_range(attrs, target.sourceCallAttrs);
   if (target.system)
     attrs.push_back(b.getNamedAttr("ac.root_kind", b.getStringAttr("system")));
+  if (target.systemSamples)
+    attrs.push_back(b.getNamedAttr("ac.system_samples", target.systemSamples));
   return b.getDictionaryAttr(attrs);
 }
 
@@ -3659,6 +3738,15 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
       return failure();
     return shape->resultType;
   }
+  if (node.kind() == "Call" && intrinsic(node.child("func"), "four_state")) {
+    auto pattern = fourStatePattern(node);
+    if (failed(pattern))
+      return failure();
+    return Type(internalBits(pattern->size(), node, ownerSymbol));
+  }
+  if (node.kind() == "Call" && (intrinsic(node.child("func"), "case_eq") ||
+                                intrinsic(node.child("func"), "is_known")))
+    return Type(internalBits(1, node, ownerSymbol));
   if (concatCall(node)) {
     if (failed(validateConcatCall(node)))
       return failure();
@@ -4546,6 +4634,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
       1);
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
+  if (decl.systemSamples)
+    module->setAttr("ac.system_samples", decl.systemSamples);
   for (NamedAttribute attr : decl.sourceCallAttrs)
     module->setAttr(attr.getName(), attr.getValue());
   if (failed(ac::detail::verifyModuleSourceCallContract(module)))
@@ -5270,8 +5360,9 @@ LogicalResult Importer::preflightQueryCallback(
     if (node.kind() == "Call") {
       auto function = node.child("func");
       bool pure = false;
-      for (StringRef name : {"concat", "popcount", "count_leading_zeros",
-                             "count_trailing_zeros", "enum_to_bits"})
+      for (StringRef name :
+           {"concat", "popcount", "count_leading_zeros", "count_trailing_zeros",
+            "enum_to_bits", "four_state", "case_eq", "is_known"})
         pure |= intrinsic(function, name);
       auto binding = lookupBinding(function);
       pure |= binding && binding->category == BindingCategory::Struct &&
@@ -5804,6 +5895,29 @@ LogicalResult Importer::prepare() {
     return failure();
   return success(!diagnosticFailed);
 }
+FailureOr<StringRef> Importer::fourStatePattern(const AstNode &node) {
+  auto argument = node.item("args", 0);
+  auto pattern = dyn_cast_or_null<StringAttr>(argument.get("value"));
+  if (node.array("args").size() != 1 || !node.array("keywords").empty() ||
+      argument.kind() != "Constant" || !pattern || pattern.getValue().empty() ||
+      !llvm::all_of(pattern.getValue(), [](char bit) {
+        return bit == '0' || bit == '1' || bit == 'x' || bit == 'X' ||
+               bit == 'z' || bit == 'Z';
+      }))
+    return mlir::emitError(node.location(b.getContext(), source.path))
+           << "four_state requires one nonempty source string literal "
+              "containing only 0/1/x/X/z/Z";
+  TableQueryCharge charge;
+  std::string reason;
+  if (!TableQueryBudget::add(charge, TableQueryResource::ConstantBytes,
+                             pattern.getValue().size()) ||
+      !TableQueryBudget::add(charge, TableQueryResource::Work,
+                             pattern.getValue().size()) ||
+      !queryBudget.reserve(charge, reason))
+    return error() << "four_state pattern budget exceeded: " << reason;
+  return pattern.getValue();
+}
+
 FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
   grantProof =
       std::make_unique<OwnerEnableProof>(*body, ruleWrites.spentWork());

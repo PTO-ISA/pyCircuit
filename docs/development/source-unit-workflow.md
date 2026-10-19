@@ -61,6 +61,15 @@ extra fields, unknown names and noncanonical decimals fail before publication.
 The driver snapshots the input once and forwards only that snapshot to the
 native linker; final IR records the selected actual bindings.
 
+`pycircuit link --reset-semantics strict|if_one` selects one root policy in the
+final artifact. Default `strict` rejects X/Z reset on a rising sample. `if_one`
+activates reset only for known 1; 0/X/Z enter normal operation. Both targets,
+all primitive reset inputs and all reset-masked source checks use this policy.
+Unknown clock, effective enable and reached guard/effect selectors still fault.
+No source unit, per-instance setting or emission option overrides the final policy.
+Generated receipts and simulation results record `reset_semantics`; legacy final
+artifacts without the attribute have strict semantics.
+
 For ordinary single-domain register hierarchies, `emit --target verilog
 --rtl-mode physical` selects physical-edge execution. The default remains
 managed execution. Physical mode keeps data and compiler domain ports public;

@@ -78,6 +78,21 @@ LogicalResult BitsConstantOp::verify() {
   return success();
 }
 
+LogicalResult BitsConstant4Op::verify() {
+  StringRef pattern = getPattern();
+  if (pattern.empty() || !llvm::all_of(pattern, [](char bit) {
+        return bit == '0' || bit == '1' || bit == 'x' || bit == 'z';
+      }))
+    return emitOpError()
+           << "pattern requires nonempty canonical lowercase 0/1/x/z";
+  auto width = literalInteger(getResult().getType().getWidth());
+  if (!width || width->isNegative() || width->getActiveBits() > 64 ||
+      width->getZExtValue() != pattern.size())
+    return emitOpError()
+           << "pattern length must equal the positive literal result width";
+  return success();
+}
+
 LogicalResult BitsUnaryOp::verify() {
   if (getOpcode() != "not")
     return emitOpError() << "opcode must be 'not'";

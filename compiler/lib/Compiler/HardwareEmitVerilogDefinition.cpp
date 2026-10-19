@@ -30,7 +30,10 @@ public:
     if (failed(type))
       return failure();
     std::string expression;
-    if (auto constant = dyn_cast<ac::BitsConstantOp>(op)) {
+    if (auto pattern = dyn_cast<ac::BitsConstant4Op>(op)) {
+      expression = std::to_string(pattern.getPattern().size()) + "'b" +
+                   pattern.getPattern().str();
+    } else if (auto constant = dyn_cast<ac::BitsConstantOp>(op)) {
       auto literal = context.staticRtlValue(constant.getValue(), op);
       auto width = context.payloadWidth(value.getType(), op, true);
       if (failed(literal) || failed(width))
@@ -144,7 +147,8 @@ public:
           << "        " << name << "_rising = 1'b0;\n"
           << "        " << name << "_reset_active = 1'b0;\n"
           << "        " << name << "_sampled_clock = " << *clock << ";\n"
-          << "        " << name << "_sampled_reset = " << *reset << ";\n"
+          << "        " << name
+          << "_sampled_reset = " << context.rtlReset(*reset) << ";\n"
           << "        if ($isunknown(" << name << "_sampled_clock))\n"
           << "          " << name << "_fault = 2'd1;\n"
           << "        else begin\n"
@@ -270,7 +274,8 @@ public:
           << "        " << name << "_complete = 1'b0;\n"
           << "        " << name << "_condition = " << *condition << ";\n"
           << "        " << name << "_path = " << *path << ";\n"
-          << "        " << name << "_reset = " << reset << ";\n"
+          << "        " << name << "_reset = " << context.rtlReset(reset)
+          << ";\n"
           << "        " << name << "_complete = 1'b1;\n"
           << "      end\n"
           << "      3'd2: begin\n"
@@ -324,7 +329,7 @@ public:
           << "        pyc_observation_value_" << index << " = " << *value
           << ";\n"
           << "        pyc_observation_valid_" << index << " = !$isunknown("
-          << *value << ") && !$isunknown(" << *path << ");\n"
+          << *path << ");\n"
           << "        pyc_observation_path_" << index << " = (" << *path
           << " === 1'b1);\n"
           << "        pyc_observation_pending_" << index << " = 1'b1;\n"
@@ -445,6 +450,9 @@ public:
                            : "(" + expression + " | " + equal + ")";
         }
       }
+    } else if (auto pattern = dyn_cast<ac::BitsConstant4Op>(op)) {
+      expression = std::to_string(pattern.getPattern().size()) + "'b" +
+                   pattern.getPattern().str();
     } else if (auto constant = dyn_cast<ac::BitsConstantOp>(op)) {
       auto literal = context.staticRtlValue(constant.getValue(), op);
       if (failed(literal))
@@ -960,6 +968,7 @@ public:
         const StringRef ports[] = {"clk",       "rst",       "in_valid",
                                    "in_data",   "out_ready", "in_ready",
                                    "out_valid", "out_data",  "local_capacity"};
+        pins[1] = context.rtlReset(pins[1]);
         for (auto [index, port] : llvm::enumerate(ports))
           out << "    ." << port << "(" << pins[index] << ")"
               << (index + 1 == std::size(ports) && !context.managesChecks()
@@ -1109,6 +1118,8 @@ public:
           net += "[((" + count + ")-1-" + i + ")*(" + *width + ") +: (" +
                  *width + ")]";
         }
+        if (!kind.empty() && port == "rst")
+          net = context.rtlReset(net);
         out << (first ? "\n" : ",\n") << "    ." << *id << "(" << net << ")";
         first = false;
         return success();

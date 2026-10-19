@@ -6,6 +6,13 @@ import argparse
 import sys
 
 
+class _UniqueCycles(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if getattr(namespace, self.dest, None) is not None:
+            parser.error("duplicate --cycles")
+        setattr(namespace, self.dest, values)
+
+
 def _cmd_emit(args: argparse.Namespace) -> int:
     from ._driver import _DriverError
     from ._emit import emit_command
@@ -73,6 +80,7 @@ def _cmd_link(args: argparse.Namespace) -> int:
             top=args.top,
             output=args.output,
             parameters=args.parameters,
+            reset_semantics=args.reset_semantics,
             replace=args.replace,
         )
     except (
@@ -174,6 +182,12 @@ def main(argv: list[str] | None = None) -> int:
         help='JSON file of {"name": "W", "value": "8"} Integer overrides; omitted names use defaults',
     )
     link_program.add_argument(
+        "--reset-semantics",
+        choices=("strict", "if_one"),
+        default="strict",
+        help="Root reset interpretation serialized into the final design",
+    )
+    link_program.add_argument(
         "-o",
         dest="output",
         required=True,
@@ -193,12 +207,14 @@ def main(argv: list[str] | None = None) -> int:
     emit.add_argument("-o", dest="output", required=True)
     emit.add_argument("--replace", action="store_true")
     emit.set_defaults(fn=_cmd_emit)
-    run = sub.add_parser("run", help="Build and simulate a closed source system.")
+    run = sub.add_parser(
+        "run", help="Build and simulate a closed source system.", allow_abbrev=False
+    )
     run.add_argument("source", help="Independent example directory")
     run.add_argument("--target", choices=("cpp", "verilog"), default="cpp")
     run.add_argument("--build-dir")
     run.add_argument("--toolchain", help="Installed pyCircuit prefix")
-    run.add_argument("--cycles", type=int, default=10)
+    run.add_argument("--cycles", type=int, default=None, action=_UniqueCycles)
     run.add_argument("--workers", type=int, default=1)
     run.add_argument(
         "--timeout", type=int, default=180, help="Seconds per build/run stage"

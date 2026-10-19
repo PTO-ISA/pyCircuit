@@ -742,3 +742,128 @@ def test_system_metadata_requires_all_selected_root_identity_fields(
     with pytest.raises(ValueError, match="selected root"):
         verify_system(helper, system_case)
     assert not proof.exists()
+
+
+@pytest.mark.parametrize(
+    "four_state,expected", [(False, "verilator"), (True, "iverilog")]
+)
+def test_compile_system_selects_and_records_the_actual_simulator(
+    helper, tmp_path, monkeypatch, four_state, expected
+):
+    source, include = tmp_path / "generated", tmp_path / "include"
+    source.mkdir()
+    (include / "verilog").mkdir(parents=True)
+    (source / "design_top.sv").write_text("module Root; endmodule\n")
+    (source / "simulation_top.sv").write_text("module pycircuit_sim; endmodule\n")
+    (source / "generated.json").write_text(
+        json.dumps(
+            {
+                "files": [
+                    {"path": "design_top.sv", "role": "rtl"},
+                    {"path": "simulation_top.sv", "role": "runtime-glue"},
+                ],
+                "system_samples": ["00", "1x"] if four_state else [],
+                "needs_four_state": four_state,
+            }
+        )
+    )
+    tools = {
+        name: executable(tmp_path / name, "pass\n")
+        for name in ("verilator", "iverilog", "vvp")
+    }
+    calls = []
+
+    def fake_compile(command, **kwargs):
+        calls.append(command)
+        Path(command[command.index("-o") + 1]).write_bytes(b"compiled System image")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(helper.subprocess, "run", fake_compile)
+    output = tmp_path / "binary/pycircuit_sim"
+    helper.compile_system(
+        source,
+        output,
+        include,
+        tools["verilator"],
+        iverilog=tools["iverilog"],
+        vvp=tools["vvp"],
+    )
+    assert calls[0][0] == str(tools[expected])
+    assert ("-g2012" in calls[0]) == four_state
+    assert output.read_bytes() == b"compiled System image"
+    backend = json.loads(Path(str(output) + ".backend.json").read_text())
+    assert backend["backend"] == expected
+    assert backend["runner"] == (str(tools["vvp"]) if four_state else None)
+
+
+@pytest.mark.parametrize("epoch,accepted", [(2, False), (3, True)])
+def test_finite_schedule_verification_uses_declared_rows_and_actual_backend(
+    helper, system_case, monkeypatch, epoch, accepted
+):
+    for target in ("cpp", "verilog"):
+        directory = system_case["build"] / target
+        for filename in ("generated.json", "simulation_verification.json"):
+            path = directory / target / filename
+            row = json.loads(path.read_text())
+            row.update(
+                system_samples=["00", "1x", "0z"],
+                needs_four_state=True,
+                reset_semantics="if_one",
+            )
+            path.write_text(json.dumps(row))
+        path = directory / "run-execution.json"
+        row = json.loads(path.read_text())
+        row.update(
+            backend="cpp" if target == "cpp" else "iverilog",
+            sampling_epochs=3,
+            reset_semantics="if_one",
+        )
+        path.write_text(json.dumps(row))
+        refresh_execution_inputs(system_case, target)
+    result = {
+        "kind": "result",
+        "status": "TERMINATED",
+        "epoch_time": epoch,
+        "reset_semantics": "if_one",
+    }
+    calls = system_runs(helper, monkeypatch, [[result]] * 3)
+    if not accepted:
+        with pytest.raises(ValueError, match="full sampling duration"):
+            verify_system(helper, system_case, cycles=None)
+        return
+    verify_system(helper, system_case, cycles=None)
+    proof = json.loads((system_case["build"] / "verification.json").read_text())
+    assert proof["sampling_epochs"] == 3 and proof["cycles"] is None
+    assert proof["rtl"] == "iverilog" and proof["reset_semantics"] == "if_one"
+    assert all("--cycles" not in command for command, _kwargs in calls)
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"kind": "bits4", "width": 4, "value": "8", "known": "c", "z": "1"},
+        {
+            "kind": "bits4",
+            "width": 65,
+            "value": "00000000000000000",
+            "known": "1ffffffffffffffff",
+            "z": "00000000000000000",
+        },
+    ],
+)
+def test_observation_reader_accepts_lossless_canonical_bits4(helper, value):
+    helper.validate_observation_values({"kind": "log", "values": [value]})
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"kind": "unknown", "value": "0"},
+        {"kind": "bits4", "width": 4, "value": "1", "known": "0", "z": "0"},
+        {"kind": "bits4", "width": 4, "value": "0", "known": "1", "z": "1"},
+        {"kind": "bits4", "width": 1, "value": "0", "known": "8", "z": "0"},
+    ],
+)
+def test_observation_reader_rejects_unknown_kinds_and_invalid_planes(helper, value):
+    with pytest.raises(ValueError, match="observation"):
+        helper.validate_observation_values({"kind": "log", "values": [value]})

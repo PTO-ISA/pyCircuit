@@ -824,6 +824,36 @@ this same path; transaction resources still require their separate acceptance. S
 [language boundary](../reference/language.md#method-execution-and-remaining-capabilities)
 and [body-effect contract](../rfcs/serial-rule-method/sampled-body-effects.md).
 
+## Four-state checks and finite System stimuli
+
+Use `ac.four_state("10xz")` for explicit Bits data and `ac.case_eq` / `ac.is_known`
+for verification. Do not build a Signal wrapper, add clock/reset parameters to a
+DUT, or use X detection to implement functional state or admission decisions.
+One scalar remains a scalar; related multiple fields use the usual Struct.
+
+A closed System can specify its raw domain samples in its decorator:
+
+```python
+@ac.system(samples=((0, 0), (1, ac.four_state("x"))))
+def Scenario():
+    observed = Register(ac.four_state("10xz0011"))
+
+    @ac.rule
+    def check():
+        assert ac.case_eq(observed, ac.four_state("00000000"))
+
+    check()
+```
+
+Here `Register` has an eight-bit state initialized to zero and an unconditional
+Rule storing its input. Each row is one Work/commit epoch. Checks see old state;
+the second row commits the new data only under an explicitly linked `if_one`
+reset policy. Under default `strict`, that row faults. The generated runner
+performs host Reset before row zero and stops at the end or first failure.
+Use no `--cycles` with explicit samples. Without samples, the existing low/high
+cycle driver remains available. Keep logs and assertions in cohesive Rules;
+the compiler owns clock driving, reset interpretation and atomic publication.
+
 ## Typed DUT and runner
 
 C++ emission provides source modules and `pycircuit_system.hpp` with `pyc_root`

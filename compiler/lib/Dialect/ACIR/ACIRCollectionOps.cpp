@@ -90,10 +90,10 @@ LogicalResult scalarRegion(Operation *op, TypeRange args, TypeRange results) {
     return op->emitOpError()
            << "scalar region yield types do not match results";
   for (auto &nested : region.front().without_terminator())
-    if (!isa<BitsConstantOp, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
-             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
-             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
-             EnumFromBitsOp, ValueMergeOp>(nested) &&
+    if (!isa<BitsConstantOp, BitsConstant4Op, BitsUnaryOp, BitsBinaryOp,
+             BitsCompareOp, BitsSelectOp, BitsConcatOp, BitsExtractOp,
+             BitsResizeOp, StructCreateOp, StructGetOp, EnumCreateOp,
+             EnumToBitsOp, EnumFromBitsOp, ValueMergeOp>(nested) &&
         !(isa<TableMapOp>(op) &&
           isa<TableCreateOp, TableSplatOp, TableGetOp, TableMapOp>(nested)))
       return nested.emitOpError()

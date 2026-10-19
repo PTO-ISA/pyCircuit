@@ -1,3 +1,65 @@
+if (node.kind() == "Call" && intrinsic(node.child("func"), "four_state")) {
+  auto pattern = fourStatePattern(node);
+  if (failed(pattern))
+    return failure();
+  auto result =
+      createOp(at, node.location(b.getContext(), source.path),
+               ac::BitsConstant4Op::getOperationName(), {},
+               TypeRange{internalBits(pattern->size(), node, ownerSymbol)},
+               {at.getNamedAttr("pattern", at.getStringAttr(pattern->lower()))})
+          ->getResult(0);
+  remember(result, std::nullopt);
+  fixedValues.insert(result);
+  return result;
+}
+if (node.kind() == "Call" && (intrinsic(node.child("func"), "case_eq") ||
+                              intrinsic(node.child("func"), "is_known"))) {
+  bool known = intrinsic(node.child("func"), "is_known");
+  if (node.array("args").size() != (known ? 1u : 2u) ||
+      !node.array("keywords").empty())
+    return error() << "four-state observer requires exactly "
+                   << (known ? "one" : "two") << " positional Bits operands";
+  auto lhs = expression(node.item("args", 0), at, ownerSymbol, values,
+                        instances, {}, captures);
+  if (failed(lhs))
+    return failure();
+  FailureOr<Value> rhs = known
+                             ? lhs
+                             : expression(node.item("args", 1), at, ownerSymbol,
+                                          values, instances, {}, captures);
+  if (failed(rhs))
+    return failure();
+  if (!isa<ac::BitsType>(lhs->getType()) ||
+      !isa<ac::BitsType>(rhs->getType()) || !fixedValues.contains(*lhs) ||
+      !fixedValues.contains(*rhs) ||
+      !ac::areEquivalentHardwareTypes(lhs->getType(), rhs->getType()))
+    return error()
+           << "four-state observer requires equal-width fixed Bits operands";
+  auto bit = internalBits(1, node, ownerSymbol);
+  auto compare = [&](Value left, Value right, StringRef predicate) {
+    return createOp(at, node.location(b.getContext(), source.path),
+                    ac::BitsCompareOp::getOperationName(), {left, right},
+                    TypeRange{bit},
+                    {at.getNamedAttr("predicate", at.getStringAttr(predicate))})
+        ->getResult(0);
+  };
+  Value result;
+  if (known) {
+    auto equal = compare(*lhs, *lhs, "eq");
+    auto one = constant(bit, 1, node, at, ownerSymbol);
+    if (failed(one))
+      return failure();
+    result = compare(equal, *one, "case_eq");
+  } else
+    result = compare(*lhs, *rhs, "case_eq");
+  result.getDefiningOp()->setAttr(
+      "ac.verification_observer",
+      at.getStringAttr(known ? "is_known" : "case_eq"));
+  result.getDefiningOp()->setAttr("ac.origin",
+                                  sourceOccurrence(at, ownerSymbol, node));
+  remember(result, ValueKind::Boolean);
+  return result;
+}
 // Queue construction produces an ordinary immutable instance handle. Its three
 // public raw views are ordinary instance outputs.
 auto queueRaw = queueRawExpression(node, at, ownerSymbol, values, instances);

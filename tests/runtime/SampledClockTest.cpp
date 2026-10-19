@@ -122,6 +122,39 @@ TEST(SampledClockTest, EvaluatorCoversEveryClockResetSymbolAndPriorLevel) {
 }
 
 TEST(SampledClockTest,
+     ResetInterpretationIgnoresHiddenUnknownValueAndPreservesStrictRawState) {
+  for (char symbol : {'x', 'z'}) {
+    for (bool hidden : {false, true}) {
+      SCOPED_TRACE(::testing::Message()
+                   << "symbol=" << symbol << " hidden=" << hidden);
+      const auto raw = control(symbol, hidden);
+      const auto strict =
+          gfsim::interpretReset(raw, gfsim::ResetSemantics::Strict);
+      EXPECT_FALSE(strict.isFullyKnown());
+      EXPECT_EQ(strict.packed().value().bit(0), hidden);
+      EXPECT_EQ(strict.packed().zMask().bit(0), symbol == 'z');
+
+      const auto ifOne =
+          gfsim::interpretReset(raw, gfsim::ResetSemantics::IfOne);
+      EXPECT_TRUE(ifOne.isFullyKnown());
+      EXPECT_FALSE(ifOne.value().toBool());
+
+      expectSample(
+          gfsim::evaluateSampledClock(false, control('1'), raw,
+                                      gfsim::ResetSemantics::Strict),
+          {false, true, false, gfsim::SampledClockFault::UnknownReset});
+      expectSample(gfsim::evaluateSampledClock(false, control('1'), raw,
+                                               gfsim::ResetSemantics::IfOne),
+                   {true, true, false, gfsim::SampledClockFault::None});
+      expectSample(
+          gfsim::evaluateSampledClock(false, control('x', hidden), raw,
+                                      gfsim::ResetSemantics::IfOne),
+          {false, false, false, gfsim::SampledClockFault::UnknownClock});
+    }
+  }
+}
+
+TEST(SampledClockTest,
      DffeFaultsReportExactMessagesAndRollbackAllPendingState) {
   RegisterHarness reg;
   reg.initialize();

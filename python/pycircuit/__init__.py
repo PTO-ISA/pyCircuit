@@ -16,6 +16,9 @@ __all__ = [
     "enum_to_bits",
     "enum_from_bits",
     "concat",
+    "four_state",
+    "case_eq",
+    "is_known",
     "popcount",
     "count_leading_zeros",
     "count_trailing_zeros",
@@ -114,7 +117,7 @@ for _width in range(1, 65):
 del _width, _name
 
 
-def system(declaration):
+def system(declaration=None, *, samples=None):
     """Declare a system in compiler input; capability checks happen in MLIR."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
@@ -139,3 +142,18 @@ def log(level, event, *items):
 def report(name, value):
     """Declare a compiler-owned gauge without host state."""
     raise RuntimeError("pyCircuit observations require pycircuit compile")
+
+
+def four_state(pattern):
+    """Declare exact fixed Bits from a nonempty 0/1/x/z source literal."""
+    raise RuntimeError("pyCircuit values require pycircuit compile")
+
+
+def case_eq(lhs, rhs):
+    """Compare exact four-state symbols for assertions and diagnostics."""
+    raise RuntimeError("pyCircuit values require pycircuit compile")
+
+
+def is_known(value):
+    """Observe whether all Bits are 0/1 for assertions and diagnostics."""
+    raise RuntimeError("pyCircuit values require pycircuit compile")

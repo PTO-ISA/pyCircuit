@@ -8,7 +8,7 @@ def accumulate(value, enable):
 
 
 @module
-def Accumulator(enable: bits[1]) -> {"value": bits[8]}:
+def Accumulator(enable: bits[1]) -> bits[8]:
     value: bits[8] = 0
     accumulate(value, enable)
-    return {"value": value}
+    return value

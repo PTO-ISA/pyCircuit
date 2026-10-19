@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <functional>
 #include <new>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -445,6 +446,146 @@ TEST(ObservationTest, GaugeStageDuplicateAndResetContracts) {
   EXPECT_EQ(slots.Gauges()[0].value, gfsim::SlotValue::Unsigned(0));
   EXPECT_EQ(slots.Gauges()[0].lastUpdate, 0u);
   EXPECT_TRUE(slots.Events().empty());
+}
+
+gfsim::FourState<130> bits4Pattern(bool alternate) {
+  gfsim::Bits<130> value{}, known{}, z{};
+  for (unsigned bit = 0; bit < 130; ++bit) {
+    const auto mask = std::uint64_t{1} << (bit % 64);
+    const unsigned word = bit / 64;
+    if (bit % 7 == (alternate ? 3u : 1u)) {
+      z.setWord(word, z.word(word) | mask);
+    } else if (bit % 5 != (alternate ? 2u : 4u)) {
+      known.setWord(word, known.word(word) | mask);
+      if ((bit + alternate) % 2)
+        value.setWord(word, value.word(word) | mask);
+    }
+  }
+  return gfsim::FourState<130>::fromMasks(value, known, z);
+}
+
+void expectBits4(const gfsim::SlotValue &actual,
+                 const gfsim::FourState<130> &expected) {
+  ASSERT_EQ(actual.kind, gfsim::SlotValueKind::Bits4);
+  ASSERT_EQ(actual.width, 130u);
+  ASSERT_EQ(actual.valueWords.size(), 3u);
+  for (unsigned word = 0; word < 3; ++word) {
+    EXPECT_EQ(actual.valueWords[word],
+              expected.value().word(word) & expected.knownMask().word(word));
+    EXPECT_EQ(actual.knownWords[word], expected.knownMask().word(word));
+    EXPECT_EQ(actual.zWords[word], expected.zMask().word(word));
+  }
+}
+
+TEST(ObservationTest,
+     Bits4PendingAndCommittedSnapshotsStaySeparateAcrossWorkAndDiscard) {
+  const std::array descriptors{
+      descriptor(0, 1, 1, 1, gfsim::ObservationKind::Event)};
+  auto row = descriptors;
+  row[0].payloadWidth = 130;
+  gfsim::ObservationSlots slots;
+  ASSERT_TRUE(slots.Configure(row, 1));
+  const auto first = bits4Pattern(false), second = bits4Pattern(true);
+
+  ASSERT_TRUE(slots.StagePacked(0, first, false, true, true, 0));
+  ASSERT_TRUE(slots.Precommit(0));
+  slots.Xfer(1);
+  ASSERT_EQ(slots.Events().size(), 1u);
+  expectBits4(slots.Events()[0].value, first);
+
+  ASSERT_TRUE(slots.StagePacked(0, second, false, true, true, 1));
+  // Staging the next Work writes only the pending snapshot.
+  expectBits4(slots.Events()[0].value, first);
+  slots.DiscardNext();
+  expectBits4(slots.Events()[0].value, first);
+
+  ASSERT_TRUE(slots.StagePacked(0, second, false, true, true, 1));
+  ASSERT_TRUE(slots.Precommit(1));
+  slots.Xfer(2);
+  ASSERT_EQ(slots.Events().size(), 1u);
+  expectBits4(slots.Events()[0].value, second);
+}
+
+TEST(ObservationTest, Bits4CopyAndMoveOwnersRebindBorrowedPlaneViews) {
+  const std::array descriptors{
+      descriptor(0, 1, 1, 1, gfsim::ObservationKind::Event)};
+  auto row = descriptors;
+  row[0].payloadWidth = 130;
+  const auto pattern = bits4Pattern(false);
+
+  auto pendingCopy = [&] {
+    gfsim::ObservationSlots source;
+    EXPECT_TRUE(source.Configure(row, 1));
+    EXPECT_TRUE(source.StagePacked(0, pattern, false, true, true, 0));
+    return gfsim::ObservationSlots(source);
+  }();
+  ASSERT_TRUE(pendingCopy.Precommit(0));
+  pendingCopy.Xfer(1);
+  ASSERT_EQ(pendingCopy.Events().size(), 1u);
+  expectBits4(pendingCopy.Events()[0].value, pattern);
+
+  gfsim::ObservationSlots committedCopy(pendingCopy);
+  const auto replacement = bits4Pattern(true);
+  ASSERT_TRUE(
+      pendingCopy.StagePacked(0, replacement, false, true, true, 1));
+  ASSERT_TRUE(pendingCopy.Precommit(1));
+  pendingCopy.Xfer(2);
+  expectBits4(pendingCopy.Events()[0].value, replacement);
+  // A shallow copied event would now observe replacement through the source's
+  // overwritten committed buffer. Free that owner as a second lifetime check.
+  expectBits4(committedCopy.Events()[0].value, pattern);
+  pendingCopy = gfsim::ObservationSlots{};
+  expectBits4(committedCopy.Events()[0].value, pattern);
+  gfsim::ObservationSlots moved(std::move(committedCopy));
+  ASSERT_EQ(moved.Events().size(), 1u);
+  expectBits4(moved.Events()[0].value, pattern);
+}
+
+TEST(ObservationTest, MalformedBits4NeverBecomesPendingOrCommitted) {
+  const std::array descriptors{
+      descriptor(0, 1, 1, 1, gfsim::ObservationKind::Event)};
+  auto row = descriptors;
+  row[0].payloadWidth = 65;
+  gfsim::ObservationSlots slots;
+  ASSERT_TRUE(slots.Configure(row, 1));
+  std::array<std::uint64_t, 2> value{0, 0}, known{0, 0}, z{0, 0};
+
+  value[0] = 1; // Value under an unknown bit is noncanonical.
+  EXPECT_FALSE(slots.Stage(
+      0, gfsim::SlotValue::Bits4(65, value, known, z), true, true, 0));
+  value[0] = 0;
+  known[0] = z[0] = 1; // Known and Z planes overlap.
+  EXPECT_FALSE(slots.Stage(
+      0, gfsim::SlotValue::Bits4(65, value, known, z), true, true, 0));
+  known[0] = z[0] = 0;
+  known[1] = 2; // Bit 65 is outside a width-65 payload.
+  EXPECT_FALSE(slots.Stage(
+      0, gfsim::SlotValue::Bits4(65, value, known, z), true, true, 0));
+
+  EXPECT_TRUE(slots.Check());
+  EXPECT_TRUE(slots.Precommit(0));
+  slots.Xfer(1);
+  EXPECT_TRUE(slots.Events().empty());
+}
+
+TEST(ObservationTest, KnownSmallStagePackedKeepsLegacyScalarKinds) {
+  const std::array descriptors{
+      descriptor(0, 1, 1, 1, gfsim::ObservationKind::Event),
+      descriptor(1, 2, 1, 1, gfsim::ObservationKind::Event)};
+  auto rows = descriptors;
+  rows[0].payloadWidth = 8;
+  rows[1].payloadWidth = 1;
+  gfsim::ObservationSlots slots;
+  ASSERT_TRUE(slots.Configure(rows, 2));
+  ASSERT_TRUE(slots.StagePacked(
+      0, gfsim::FourState<8>::known(gfsim::Bits<8>{37}), false, true, true, 0));
+  ASSERT_TRUE(slots.StagePacked(
+      1, gfsim::FourState<1>::known(gfsim::Bits<1>{1}), true, true, true, 0));
+  ASSERT_TRUE(slots.Precommit(0));
+  slots.Xfer(1);
+  ASSERT_EQ(slots.Events().size(), 2u);
+  EXPECT_EQ(slots.Events()[0].value, gfsim::SlotValue::Unsigned(37));
+  EXPECT_EQ(slots.Events()[1].value, gfsim::SlotValue::Bool(true));
 }
 
 TEST(ObservationTest, StageCheckAndXferDoNotAllocate) {

@@ -41,6 +41,9 @@ MarkerKind classifyImportedMarker(StringRef module, StringRef remoteName) {
       .Case("table", MarkerKind::Table)
       .Case("queue", MarkerKind::Queue)
       .Case("concat", MarkerKind::Concat)
+      .Case("four_state", MarkerKind::FourState)
+      .Case("case_eq", MarkerKind::CaseEq)
+      .Case("is_known", MarkerKind::IsKnown)
       .Case("popcount", MarkerKind::Popcount)
       .Case("count_leading_zeros", MarkerKind::CountLeadingZeros)
       .Case("count_trailing_zeros", MarkerKind::CountTrailingZeros)
@@ -63,7 +66,7 @@ bool hasSourceDecorator(const AstNode &declaration, MarkerKind marker,
     auto decorator = declaration.item("decorator_list", i);
     if (decorator.kind() == "Call" &&
         (marker == MarkerKind::Encoding || marker == MarkerKind::Rule ||
-         marker == MarkerKind::Method))
+         marker == MarkerKind::Method || marker == MarkerKind::System))
       decorator = decorator.child("func");
     if (resolvesMarker(decorator, marker, bindings))
       return true;

@@ -1,10 +1,10 @@
 # Physical-edge RTL export proposal
 
 Design supplement: [four-state values, reset policy and System](../rfcs/four-state-system.md)
-proposes explicit source literals, common root reset semantics and generated
-four-state stimuli. That supplement does not change this implementation's current
-strict reset behavior; its proposed APIs require separate implementation and
-acceptance. Reset policy must not be inferred from the RTL adapter choice.
+defines explicit source literals, common root reset semantics and generated
+four-state stimuli. The linked root now selects strict (default) or if_one for
+both native and RTL emission. References to reset below use that interpreted
+value. Reset policy is independent of the RTL adapter choice.
 
 Status: independently reviewed, ready for bounded implementation after the
 review corrections below. This does not claim

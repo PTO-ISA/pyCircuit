@@ -21,13 +21,11 @@ def TwoCheckedChildren():
 
     @rule
     def drive_left():
-        left()
-        log("info", "left", left.value)
+        log("info", "left", left)
 
     @rule
     def drive_right():
-        right()
-        log("info", "right", right.value)
+        log("info", "right", right)
 
     drive_left()
     drive_right()

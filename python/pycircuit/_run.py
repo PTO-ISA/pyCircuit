@@ -10,6 +10,8 @@ import subprocess
 from pathlib import Path
 
 from ._driver import _DriverError
+from ._generated_bundle import _execution_metadata
+from ._publication import _PublicationError
 from .packaged_toolchain import _installed_prefix_root, bundled_toolchain_root
 
 
@@ -39,11 +41,11 @@ def run_command(
     target: str,
     build_dir: str | None,
     toolchain: str | None,
-    cycles: int,
+    cycles: int | None,
     workers: int,
     timeout: int,
 ) -> None:
-    if cycles <= 0 or cycles > (2**63 - 1) // 2:
+    if cycles is not None and (cycles <= 0 or cycles > (2**63 - 1) // 2):
         raise _DriverError("cycles must be positive and fit the finite runtime limit")
     if workers <= 0 or timeout <= 0:
         raise _DriverError("workers and timeout must be positive")
@@ -131,6 +133,17 @@ def run_command(
     )
     generated = build / target
     receipt = json.loads((generated / "generated.json").read_text())
+    try:
+        sample_rows, needs_four_state = _execution_metadata(receipt)
+    except _PublicationError as error:
+        raise _DriverError(str(error)) from error
+    if sample_rows and cycles is not None:
+        raise _DriverError("--cycles is not allowed with finite System samples")
+    effective_cycles = 10 if cycles is None else cycles
+    expected_epochs = len(sample_rows) if sample_rows else 2 * effective_cycles
+    reset_semantics = receipt.get("reset_semantics", "strict")
+    if reset_semantics not in ("strict", "if_one"):
+        raise _DriverError("generated reset semantics are invalid")
     required = "simulation_main.cpp" if target == "cpp" else "simulation_top.sv"
     if required not in {row["path"] for row in receipt["files"]}:
         raise _DriverError(
@@ -162,12 +175,38 @@ def run_command(
         / "bin"
         / ("pycircuit_sim.exe" if os.name == "nt" else "pycircuit_sim")
     )
-    arguments = (
-        ["--cycles", str(cycles), "--workers", str(workers)]
-        if target == "cpp"
-        else [f"+cycles={cycles}"]
-    )
+    arguments = ["--workers", str(workers)] if target == "cpp" else []
+    if not sample_rows:
+        if target == "cpp":
+            arguments = ["--cycles", str(effective_cycles), *arguments]
+        else:
+            arguments = [f"+cycles={effective_cycles}"]
+    simulator = {"backend": "cpp" if target == "cpp" else "verilator"}
     candidates = [executable]
+    backend_receipt = Path(str(executable) + ".backend.json")
+    if target == "verilog" and backend_receipt.is_file():
+        simulator = json.loads(backend_receipt.read_text())
+        expected_backend = "iverilog" if needs_four_state else "verilator"
+        if (
+            type(simulator) is not dict
+            or set(simulator) != {"backend", "compiler", "runner"}
+            or simulator["backend"] != expected_backend
+            or type(simulator["compiler"]) is not str
+            or (expected_backend == "iverilog" and type(simulator["runner"]) is not str)
+            or (expected_backend == "verilator" and simulator["runner"] is not None)
+        ):
+            raise _DriverError("simulation backend receipt is inconsistent")
+        candidates.extend([backend_receipt, Path(simulator["compiler"])])
+        if simulator["runner"] is not None:
+            candidates.append(Path(simulator["runner"]))
+    elif target == "verilog" and "needs_four_state" in receipt:
+        raise _DriverError("simulation build produced no backend receipt")
+    execution_metadata = {
+        "backend": simulator["backend"],
+        "reset_semantics": reset_semantics,
+        "sampling_epochs": expected_epochs,
+        "executable": str(executable),
+    }
     candidates.extend(sorted(installed.glob("lib*/*pyc6_runtime*")))
     candidates.append(generated / "generated.json")
     for item in receipt["files"]:
@@ -187,12 +226,15 @@ def run_command(
 
     before = execution_inputs()
     command = [str(executable), *arguments]
+    if simulator["backend"] == "iverilog":
+        command.insert(0, simulator["runner"])
     try:
         _invoke(command, timeout=timeout, env=env)
     except Exception as error:
         execution.write_text(
             json.dumps(
                 {
+                    **execution_metadata,
                     "command": command,
                     "status": "failed",
                     "error": str(error),
@@ -208,6 +250,7 @@ def run_command(
         execution.write_text(
             json.dumps(
                 {
+                    **execution_metadata,
                     "command": command,
                     "status": "changed",
                     "inputs": before,
@@ -221,6 +264,7 @@ def run_command(
     execution.write_text(
         json.dumps(
             {
+                **execution_metadata,
                 "command": command,
                 "status": "success",
                 "inputs": before,

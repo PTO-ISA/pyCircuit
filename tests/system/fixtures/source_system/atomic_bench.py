@@ -4,18 +4,12 @@ from pycircuit import log, rule, system
 
 @system
 def AtomicFailure():
-    left = Accumulator()
-    right = Accumulator()
+    left = Accumulator(enable=1)
+    right = Accumulator(enable=1)  # noqa: F841 -- Independent rollback probe owner.
 
     @rule
     def drive_left():
-        left(enable=1)
         assert False, "atomic rejection"
-        log("info", "failed observation", left.value)
-
-    @rule
-    def drive_right():
-        right(enable=1)
+        log("info", "failed observation", left)
 
     drive_left()
-    drive_right()

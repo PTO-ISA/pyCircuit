@@ -90,6 +90,25 @@ def _relative_file_path(value: object) -> tuple[str, tuple[str, ...], bytes]:
     return value, components, encoded
 
 
+def _execution_metadata(value: Mapping[str, object]) -> tuple[list[str], bool]:
+    present = {"system_samples", "needs_four_state"} & set(value)
+    if not present:
+        return [], False
+    if present != {"system_samples", "needs_four_state"}:
+        raise _PublicationError("generated execution metadata is incomplete")
+    rows, needs_four_state = value["system_samples"], value["needs_four_state"]
+    if type(rows) is not list or type(needs_four_state) is not bool:
+        raise _PublicationError("generated execution metadata has invalid types")
+    if any(
+        type(row) is not str or len(row) != 2 or any(bit not in "01xz" for bit in row)
+        for row in rows
+    ):
+        raise _PublicationError("generated System sample rows are not canonical")
+    if any("x" in row or "z" in row for row in rows) and not needs_four_state:
+        raise _PublicationError("generated System samples require four-state execution")
+    return rows, needs_four_state
+
+
 def _generated_receipt(
     receipt: bytes, expected_owner: Mapping[str, object]
 ) -> list[tuple[str, str]]:
@@ -117,12 +136,24 @@ def _generated_receipt(
         "files",
         "source_groups",
     }
-    if type(value) is not dict or set(value) not in (
+    if type(value) is not dict or set(value) - {
+        "system_samples",
+        "needs_four_state",
+    } not in (
         fields,
         fields | {"root_rtl_name"},
         fields | {"root_rtl_name", "rtl_mode"},
+        fields | {"reset_semantics"},
+        fields | {"root_rtl_name", "reset_semantics"},
+        fields | {"root_rtl_name", "rtl_mode", "reset_semantics"},
     ):
         raise _PublicationError("generated.json fields are not closed")
+    _execution_metadata(value)
+    if "reset_semantics" in value and value["reset_semantics"] not in (
+        "strict",
+        "if_one",
+    ):
+        raise _PublicationError("generated.json reset semantics are invalid")
     if value["kind"] != "pycircuit-generated":
         raise _PublicationError("generated.json kind is invalid")
     if type(value["target"]) is not str or value["target"] != expected_owner["target"]:

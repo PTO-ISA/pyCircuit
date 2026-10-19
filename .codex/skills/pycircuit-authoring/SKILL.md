@@ -62,6 +62,20 @@ clock/reset/ABI requirement when the current compiler cannot express it.
 Direct primitive pins are reserved for explicitly scoped compiler/backend
 conformance fixtures. Their existence does not make them a fallback for designs.
 
+## Four-state verification
+
+Use `ac.four_state("10xz")` for exact-width simulation data. Use `ac.case_eq`
+and `ac.is_known` only for diagnostic assertions/logs/Boolean reports, not
+functional outputs, state, indexing or Rule guards. Ordinary equality still
+propagates unknowns. Available X data and unavailable Rule results are different.
+
+A System may declare finite `(clock, reset)` rows with `@ac.system(samples=...)`.
+Each row is one sampling epoch; omit cycles options for this form. The compiler
+runs the schedule and publishes only successful epochs. Select reset behavior
+at link with `--reset-semantics strict|if_one`; default strict faults on rising
+reset X/Z, while if_one treats only known 1 as reset. This never relaxes unknown
+clock, enable or reached guard checks. Keep these controls out of DUT signatures.
+
 ## Verify and report
 
 Use the existing capture → compile/link → verified ACIR → C++/Verilog route.

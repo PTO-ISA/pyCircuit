@@ -9,7 +9,7 @@
 
 | 数据集 | 已取得的题目库存 | 当前执行 |
 | --- | --- | --- |
-| VerilogEval 2023 | Human 156，Machine 143；两个 prompt 变体不可相加当成独立问题 | 最新编译器候选86/156通过；2项原TB首次边沿reset=X触发严格故障检查，68项未纳入本轮实现；最终交付验收尚未完成 |
+| VerilogEval 2023 | Human 156，Machine 143；两个 prompt 变体不可相加当成独立问题 | 本轮88/88已迁移题通过（全库88/156）；79项strict、9项显式if_one；68项尚未移植 |
 | VerilogEval v2 | spec-to-RTL 156，code-completion 156；与旧版有重叠 | 已分类，未运行 |
 | CVDP v1.1.0 | 872 条：749 generation +123 comprehension，7个配置 | 题目已下载；原容器/形式/PPA协议未运行 |
 | HWE-Bench | 417 个真实修复任务，6个仓库 | 已下载和分类；没有把模块重写当成 fail-to-pass 修复分数 |
@@ -36,7 +36,7 @@ C++仅完成emit，本轮功能判定使用Icarus12.0。ResBench上游使用Viva
   当前已编目3771条（含明示的密文描述指针），包含明确标注的变体，不能作为3771个独立问题的声称。
 - `solutions/`：可读pyCircuit源码及外部接口映射元数据，不包含参考RTL替代品。
 - `results/`：本轮逐题结果与汇总；完整产物和日志在忽略的 `runs/`。
-- `runs/compiler-delivery-verilogeval-current/`：2026-10-19物理导出候选的86通过/2失败记录；
+- `runs/four-state-verilogeval-final/`：2026-10-19四态候选的88通过记录；
   `results/`保留对应逐题结果及候选工具哈希，旧运行目录仍保留此前基线。
 - [COMPILER_FINDINGS.md](COMPILER_FINDINGS.md)：前端、MLIR、codegen、适配和数据问题。
 
@@ -80,7 +80,9 @@ python benchmark/run.py --suite verilogeval --tasks andgate zero \
 接入使用编译器的 `ports.json` 和 `root_rtl_name`，不再从生成RTL文本猜测端口类型、
 名称或domain角色。声明外部domain的时序题目请求 `--rtl-mode physical`，其余默认
 导出。`PYCIRCUIT_PHYSICAL_FAULT` 始终判失败，即使原TB同时打印成功。未知reset的
-协议差异不能通过改TB、注入reset或屏蔽诊断消除。
+协议由题目映射的 `domain.reset_semantics` 显式选择，链接为共同final策略，
+并记录在逐题结果中；原Verilog `if (reset)` 的同步复位题使用 `if_one`。
+其余题保持 `strict`。两种策略分别统计，不能通过改TB、注入reset或屏蔽故障迎合测试。
 
 上游v1 Python执行器的实际执行区被注释，且有全局pkill清理；这里直接运行同一原始
 测试台及其 `Mismatches` 判据，超时只终止本任务进程组。没有运行上游全局清理。

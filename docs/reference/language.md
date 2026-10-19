@@ -18,10 +18,9 @@ compile/link flow. See [nominal enums](spec-enums.md) for exact boundaries.
 
 ## Rule authoring requirements and current admission
 
-The [four-state/System design supplement](../rfcs/four-state-system.md) specifies
-proposed explicit X/Z literals, verification predicates, root reset policy and
-generated stimulus. These additions are not current source admission. Existing
-four-state payloads and strict sampled-control behavior remain as described here.
+The [four-state/System supplement](../rfcs/four-state-system.md) defines explicit
+X/Z literals, verification predicates, a shared root reset policy and generated
+finite stimuli. The source and execution boundaries are described below.
 
 The [Rule authoring contract](../development/agent-frontend-guide.md#rule-authoring-contract)
 requires simple, cohesive, stateless Rules, Module-style typed inputs and
@@ -58,6 +57,29 @@ General queue/resource admission and complex SCF loop-control combinations remai
 implementation and runtime acceptance work. Preserve explicit protocol checks
 until equivalent inferred guards pass the original oracles; algorithmic
 conditions remain part of authored behavior.
+
+## Four-state values and verification
+
+`ac.four_state("10xz")` constructs an exact-width `bits[4]` value, most significant
+symbol first. Its argument must be a nonempty literal containing only ASCII
+`0`, `1`, `x`, `X`, `z`, or `Z`. Uppercase is normalized. Prefixes, separators,
+whitespace and runtime strings reject. Widening zero-extends; narrowing requires
+an explicit slice. All-known patterns still have fixed-Bits source provenance,
+not mathematical Integer/static-parameter authority. Struct and Table Bits fields
+and closed state initializers preserve the same masks.
+
+`ac.case_eq(a, b)` compares equal-width Bits including X/Z symbols exactly.
+`ac.is_known(value)` tests whether all bits are 0/1. Both return a known Boolean
+at runtime; neither supplies a compile-time fact. Ordinary `==` retains its
+four-state behavior. These observer predicates are for assertions, logs and
+known-Boolean reports. Diagnostic branches and helper/alias transport are
+permitted; functional outputs, state writes, indices, Rule admission and hardware
+call arguments cannot depend on them. The compiler checks data and control uses.
+Availability is checked independently: an available X payload is legal, and an
+unavailable result cannot be consumed even just to inspect its knownness.
+
+These APIs describe deterministic simulation symbols. They do not establish
+synthesis support for X detection or introduce multi-driver resolution.
 
 ## Behavioral variables and rules
 

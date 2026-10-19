@@ -34,6 +34,19 @@ C08已有显式physical导出与closed初值支持，完整已实现VerilogEval�
 | C10 | 固定外部端口名及 domain 映射 | `FinalEmitVerilog`、`FinalCppNames` | 无碰撞命名和 verified layout 已有；公共完整端口映射/alias接口尚未提供 | **未实现**：后续应从既有布局输出元数据/公共 wrapper；不把 q/d/clk/reset 带回源码 |
 | C11 | 标量结果的带静态参数 Module | behavioral/structural route selection | mapping-return generic provider 可用，scalar-result Module 在更早阶段拒绝静态参数 | **未修复**：属于前端路径支持不一致，不能用单字段 Struct 掩盖；已与 C06 单独记录 |
 
+## 四态实施补充
+
+reset=X 的缺口通过共同根策略解决：`link --reset-semantics if_one` 表示仅已知1
+激活复位。原raw domain、未知clock/enable/guard错误和全根提交屏障均保留；
+不是按后端或题目名称隐藏故障。VerilogEval本轮88/88已实现题通过，包含此前失败
+的 `m2014_q4c` 和 `lfsr32`；两个策略在结果中分别统计。
+
+前端增加 `four_state`、仅诊断用途的 `case_eq/is_known` 和 System有限samples；
+ACIR保留fixed类型、observer来源和根reset策略。两端常量/日志保存value/known/Z，
+生成式System复用原runner。审查发现仅按字面量选仿真器会漏掉运行时除零产生X，
+现按选中调用闭包中的observer、潜在X运算和资源保守选择Icarus；独立除零oracle验证。
+未新增Signal接口、调度器或提高分析上限。
+
 ## C01、C02：修复事实传递，而非放松类型验证
 
 `PythonImportRecords.cpp` 中的分支合并保留 Integer 来源和区间，但此前

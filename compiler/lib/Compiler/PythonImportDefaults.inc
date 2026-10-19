@@ -5,6 +5,8 @@ bool Importer::staticInitializer(const AstNode &node) const {
     return false;
   if (*member)
     return true;
+  if (node.kind() == "Call" && intrinsic(node.child("func"), "four_state"))
+    return true;
   if (node.kind() == "Constant")
     return true;
   if (node.kind() == "Tuple" || node.kind() == "List") {

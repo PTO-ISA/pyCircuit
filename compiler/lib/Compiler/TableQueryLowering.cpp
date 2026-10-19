@@ -181,6 +181,10 @@ bool TableQueryLowering::describe(Operation *operation, uint64_t rows,
             TableQueryBudget::addProduct(
                 charge, TableQueryResource::PayloadWords,
                 succeeded(weight) ? *weight : 0, 3 * (rows - 1));
+    if (auto pattern = dyn_cast<ac::BitsConstant4Op>(operation))
+      fits &= TableQueryBudget::addProduct(charge,
+                                           TableQueryResource::ConstantBytes,
+                                           pattern.getPattern().size(), rows);
     if (isa<ac::BitsConstantOp>(operation))
       fits &= succeeded(weight) &&
               TableQueryBudget::addProduct(charge,
@@ -196,9 +200,9 @@ bool TableQueryLowering::describeWithoutReservation(Operation *operation,
       rows > TableQueryBudget::limit(TableQueryResource::Work) ||
       operation->getNumRegions() || operation->getNumSuccessors() ||
       operation->getNumResults() != 1 || operation->getNumOperands() > 3 ||
-      !isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsBinaryOp,
-           ac::BitsCompareOp, ac::BitsSelectOp, ac::BitsExtractOp,
-           ac::BitsResizeOp>(operation))
+      !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
+           ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
+           ac::BitsExtractOp, ac::BitsResizeOp>(operation))
     return false;
   // This descriptor is for the importer's precharged flat scalar template.
   // Do not introduce another aggregate or static-expression type walk here.

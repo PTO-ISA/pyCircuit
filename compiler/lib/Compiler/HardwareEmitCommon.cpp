@@ -567,6 +567,18 @@ bool HardwareEmitContext::managesChecks() {
   return !physical_ &&
          (isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty()));
 }
+bool HardwareEmitContext::resetIfOne() const {
+  return sourceChecks().resetSemantics == ac::HardwareResetSemantics::IfOne;
+}
+std::string HardwareEmitContext::cppReset(StringRef expression) const {
+  return resetIfOne() ? "gfsim::interpretReset(" + expression.str() +
+                            ", gfsim::ResetSemantics::IfOne)"
+                      : expression.str();
+}
+std::string HardwareEmitContext::rtlReset(StringRef expression) const {
+  return resetIfOne() ? "((" + expression.str() + ") === 1'b1)"
+                      : expression.str();
+}
 LogicalResult HardwareEmitContext::prepareImpl(bool allowSourceChecks) {
   sourceChecks_.reset();
   names_.clear();
@@ -1706,44 +1718,38 @@ FailureOr<std::string> HardwareEmitContext::cppBoundFamilyType(
   return result + ">";
 }
 
-static uint64_t nativeObservationWidth(const ac::HardwareAnalysis &analysis,
-                                       Type type,
-                                       const ac::HardwareBindings &bindings,
-                                       Operation *site,
-                                       llvm::DenseSet<Type> &active) {
-  auto resolved = analysis.resolveType(type, bindings, site);
-  if (failed(resolved))
-    return 0;
-  type = *resolved;
-  if (auto bits = dyn_cast<ac::BitsType>(type)) {
-    auto value = analysis.evaluateStatic(bits.getWidth(), bindings, site);
-    if (failed(value))
-      return 0;
-    auto integer = dyn_cast<ac::MathIntAttr>(*value);
-    if (!integer)
-      return 0;
-    return llvm::APSInt(integer.getCanonicalValue()).getZExtValue();
+FailureOr<uint64_t>
+observationPayloadWidth(HardwareEmitContext &context,
+                        const ObservationEmissionOccurrence &occurrence) {
+  auto rootBindings = context.rootBindings();
+  if (failed(rootBindings))
+    return failure();
+  ac::HardwareBindings bindings = std::move(*rootBindings);
+  for (auto [operation, lane] : occurrence.path) {
+    (void)lane;
+    auto child = isa<ac::InstanceOp>(operation)
+                     ? context.analysis.bindInstance(
+                           cast<ac::InstanceOp>(operation), bindings)
+                     : context.analysis.bindInstance(
+                           cast<ac::CollectionOp>(operation), bindings);
+    if (failed(child))
+      return failure();
+    bindings = std::move(*child);
   }
-  if (auto enumeration = dyn_cast<ac::EnumType>(type)) {
-    auto view = analysis.resolveEnum(enumeration, site);
-    return failed(view) ? 0 : view->width;
-  }
-  if (auto record = dyn_cast<ac::StructType>(type)) {
-    if (!active.insert(record).second)
-      return 0;
-    uint64_t total = 0;
-    for (Attribute raw : analysis.lookupStruct(record).getFields()) {
-      auto field = cast<DictionaryAttr>(raw).getAs<TypeAttr>("type").getValue();
-      uint64_t width =
-          nativeObservationWidth(analysis, field, bindings, site, active);
-      if (width == 0)
-        return 0;
-      total += width;
-    }
-    active.erase(record);
-    return total;
-  }
-  return 0;
+  auto observe = cast<ac::SourceObserveOp>(occurrence.site.op);
+  Value observed = occurrence.site.carriesValue
+                       ? observe.getValues()[occurrence.site.valueIndex]
+                       : observe.getPath();
+  auto width =
+      context.analysis.getPackedWidth(observed.getType(), bindings, observe);
+  if (failed(width))
+    return failure();
+  if (*width == 0 || *width > std::numeric_limits<std::uint32_t>::max())
+    return observe.emitOpError()
+           << "observation payload width exceeds Runtime capacity";
+  if (occurrence.site.gauge && *width > 64)
+    return observe.emitOpError() << "numeric report requires at most 64 bits";
+  return *width;
 }
 FailureOr<std::string>
 cppObservationDescriptorTable(HardwareEmitContext &context) {
@@ -1762,11 +1768,15 @@ cppObservationDescriptorTable(HardwareEmitContext &context) {
   for (auto [index, entry] : llvm::enumerate(plan->table)) {
     const auto &occurrence = plan->occurrences[index];
     auto observe = cast<ac::SourceObserveOp>(occurrence.site.op);
+    auto width = observationPayloadWidth(context, occurrence);
+    if (failed(width))
+      return failure();
     out << "\n    {" << entry[0] << ", " << entry[1] << ", " << entry[2] << ", "
         << entry[3]
         << ", gfsim::ObservationKind::" << (entry[4] ? "Gauge" : "Event")
         << ", " << occurrence.site.valueIndex << ", "
-        << std::max<std::size_t>(1, observe.getValues().size()) << "},";
+        << std::max<std::size_t>(1, observe.getValues().size()) << ", "
+        << *width << "},";
   }
   out << "\n};\n";
   out.flush();
@@ -1835,16 +1845,13 @@ cppObservationStaging(HardwareEmitContext &context, ac::ModuleOp definition,
       return failure();
     Value observed = site.carriesValue ? observe.getValues()[site.valueIndex]
                                        : observe.getPath();
-    llvm::DenseSet<Type> active;
-    uint64_t width = nativeObservationWidth(
-        context.analysis, observed.getType(), bindings, observe, active);
-    if (width == 0)
-      return observe.emitOpError()
-             << "native observation value type is unresolved";
-    if (width > 64)
-      return observe.emitOpError()
-             << "native observation value exceeds the 64-bit single-plane "
-                "slot; publish one scalar field per observation";
+    auto resolvedWidth =
+        context.analysis.getPackedWidth(observed.getType(), bindings, observe);
+    if (failed(resolvedWidth))
+      return failure();
+    uint64_t width = *resolvedWidth;
+    if (site.gauge && width > 64)
+      return observe.emitOpError() << "numeric report requires at most 64 bits";
     auto payload = context.cppType(observed.getType(), bindings, observe);
     if (failed(payload))
       return failure();
@@ -1866,8 +1873,7 @@ cppObservationStaging(HardwareEmitContext &context, ac::ModuleOp definition,
                 ? "false"
                 : "(gfsim::hardware_traits<" + *payload + ">::width == 1)")
         << ">(pyc_lane, " << index
-        << ", pyc_observed.value().value(), pyc_observed.isFullyKnown() && "
-           "pyc_observed_path.isFullyKnown(), "
+        << ", pyc_observed, pyc_observed_path.isFullyKnown(), "
         << "pyc_observed_path.isFullyKnown() && "
            "static_cast<bool>(pyc_observed_path.value().value() & 1u));\n"
         << "    }\n";

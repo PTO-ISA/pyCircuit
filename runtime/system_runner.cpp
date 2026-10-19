@@ -78,7 +78,29 @@ std::string signedDecimal(std::uint64_t bits) {
   return std::to_string(std::bit_cast<std::int64_t>(bits));
 }
 
+std::string planeHex(std::span<const std::uint64_t> words,
+                     std::uint32_t width) {
+  constexpr char digits[] = "0123456789abcdef";
+  std::string text(width / 4 + (width % 4 != 0), '0');
+  for (std::size_t nibble = 0; nibble < text.size(); ++nibble)
+    text[text.size() - 1 - nibble] =
+        digits[(words[nibble / 16] >> (4 * (nibble % 16))) & 15];
+  return text;
+}
+
 void appendValue(std::ostringstream &output, SlotValue value) {
+  if (value.kind == SlotValueKind::Bits4) {
+    if (!value.isCanonicalBits4())
+      throw std::runtime_error("observation has malformed Bits4 planes");
+    output << "{\"kind\":\"bits4\",\"width\":" << value.width << ",\"value\":";
+    appendString(output, planeHex(value.valueWords, value.width));
+    output << ",\"known\":";
+    appendString(output, planeHex(value.knownWords, value.width));
+    output << ",\"z\":";
+    appendString(output, planeHex(value.zWords, value.width));
+    output << '}';
+    return;
+  }
   if (value.kind == SlotValueKind::Bool) {
     output << "{\"kind\":\"bool\",\"value\":"
            << (value.bits != 0 ? "true" : "false") << '}';
@@ -205,7 +227,8 @@ std::string eventRecord(std::span<const OutputItem> group) {
     const SlotValue value = lane.event ? lane.event->value : lane.gauge->value;
     if (value.kind != SlotValueKind::Bool &&
         value.kind != SlotValueKind::Signed &&
-        value.kind != SlotValueKind::Unsigned)
+        value.kind != SlotValueKind::Unsigned &&
+        value.kind != SlotValueKind::Bits4)
       throw std::runtime_error("observation has an unsupported value kind");
     if (hasValue)
       output << ',';
@@ -218,7 +241,8 @@ std::string eventRecord(std::span<const OutputItem> group) {
 
 std::string resultRecord(std::string_view status, std::uint64_t epoch,
                          std::string_view statistics,
-                         std::string_view errorJson) {
+                         std::string_view errorJson,
+                         std::string_view resetSemantics) {
   std::ostringstream output;
   output.imbue(std::locale::classic());
   output << "{\"kind\":\"result\",\"status\":";
@@ -227,6 +251,8 @@ std::string resultRecord(std::string_view status, std::uint64_t epoch,
   appendString(output, std::to_string(epoch));
   output << ",\"statistics\":" << statistics << ",\"error\":";
   output << (errorJson.empty() ? "null" : std::string(errorJson));
+  output << ",\"reset_semantics\":";
+  appendString(output, resetSemantics);
   output << "}\n";
   return output.str();
 }
@@ -444,6 +470,12 @@ int SystemRunner::Run(SimSystem &system, ObservationSlots &observations,
                       RunnerCallbacks callbacks) {
   if (!ready_)
     return 2;
+  if ((callbacks.resetSemantics != "strict" &&
+       callbacks.resetSemantics != "if_one") ||
+      (callbacks.expectedEpochs != 0 && !callbacks.drive)) {
+    fail("runner requires validated root policy and a finite-schedule driver");
+    return 2;
+  }
   if (callbacks.drive && hasDomainLimit_) {
     fail("driven runner requires max_ticks in sampling epochs; "
          "max_domain_cycles needs a clock-domain driver");
@@ -497,10 +529,18 @@ int SystemRunner::Run(SimSystem &system, ObservationSlots &observations,
 
     std::string_view finalStatus;
     int resultCode = 0;
+    bool incompleteSchedule = false;
     while (true) {
       if (callbacks.drive &&
           !callbacks.drive(callbacks.context, executor.cycles())) {
         finalStatus = "TERMINATED";
+        break;
+      }
+      if (callbacks.expectedEpochs != 0 &&
+          executor.cycles() >= callbacks.expectedEpochs) {
+        finalStatus = "FAILED";
+        resultCode = 1;
+        incompleteSchedule = true;
         break;
       }
       PycircuitModelStepResultV1 step{sizeof(PycircuitModelStepResultV1)};
@@ -599,6 +639,12 @@ int SystemRunner::Run(SimSystem &system, ObservationSlots &observations,
       }
     }
 
+    if (resultCode == 0 && callbacks.expectedEpochs != 0 &&
+        executor.cycles() != callbacks.expectedEpochs) {
+      finalStatus = "FAILED";
+      resultCode = 1;
+      incompleteSchedule = true;
+    }
     PycircuitModelBufferV1 statistics{};
     if (executor.StatisticsJson(&statistics) != PYCIRCUIT_MODEL_STATUS_V1_OK ||
         !statistics.data || statistics.size == 0) {
@@ -614,14 +660,24 @@ int SystemRunner::Run(SimSystem &system, ObservationSlots &observations,
       fail("cannot obtain final error status");
       return 1;
     }
-    const std::string errorJson =
+    std::string errorJson =
         lastError.data && lastError.size
             ? std::string(reinterpret_cast<const char *>(lastError.data),
                           static_cast<std::size_t>(lastError.size))
             : std::string();
 
+    if (incompleteSchedule) {
+      errorJson = "{\"code\":\"incomplete_schedule\",\"message\":\"finite "
+                  "System sample schedule incomplete: expected " +
+                  std::to_string(callbacks.expectedEpochs) +
+                  " sampling epochs, committed " +
+                  std::to_string(executor.cycles()) +
+                  "\",\"phase\":\"runner\",\"instance\":null,\"source\":null,"
+                  "\"check_id\":null}";
+    }
     const std::string record =
-        resultRecord(finalStatus, executor.cycles(), statisticsJson, errorJson);
+        resultRecord(finalStatus, executor.cycles(), statisticsJson, errorJson,
+                     callbacks.resetSemantics);
     if (eventFile_ && !writeRecord(record)) {
       fail("events sink write failed");
       return 1;

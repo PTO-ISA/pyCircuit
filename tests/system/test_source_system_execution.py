@@ -108,7 +108,7 @@ def _source(
     if not assertions:
         bench = source / "bench.py"
         original = bench.read_text()
-        assertion = '        assert right.value < 4, "deliberate limit"\n'
+        assertion = '        assert right < 4, "deliberate limit"\n'
         assert assertion in original
         bench.write_text(original.replace(assertion, ""))
     return source
@@ -491,11 +491,15 @@ def _conditional_probe_rtl_observation_oracle(generated):
     ):
         display = re.search(r'\$display\(("(?:\\.|[^"\\])*")', body)
         assert display is not None
-        descriptor = json.loads(json.loads(display[1]))
+        # The generated formatter now renders each tagged value with %s. Read
+        # only its identity/spec prefix; payload expectations remain the
+        # independent constants below and are checked against frozen RTL slots.
+        template = json.loads(display[1])
+        descriptor = json.loads(template[: template.rindex(',"values":')] + "}")
         assert descriptor["instance"] == instance and descriptor["kind"] == kind
         assert descriptor["spec"].get("event", descriptor["spec"].get("name")) == name
         slots = re.findall(
-            r"\$unsigned\(dut\.dut\.pyc_observation_value_(\d+)\)",
+            r"pyc_observation_json_\d+\(dut\.dut\.pyc_observation_value_(\d+),",
             body[display.end() :],
         )
         assert len(slots) == len(values) and slots[0] == first
@@ -1687,10 +1691,18 @@ def _assert_run_receipt(build, target, status="success"):
     receipt = json.loads((build / "run-execution.json").read_text())
     assert receipt["status"] == status
     executable = build / "simulation" / target / "bin/pycircuit_sim"
-    assert receipt["command"][0] == str(executable)
+    backend_receipt = Path(str(executable) + ".backend.json")
+    backend_inputs = set()
+    if target == "verilog":
+        backend = json.loads(backend_receipt.read_text())
+        assert backend["backend"] == "iverilog"
+        assert receipt["command"][:2] == [backend["runner"], str(executable)]
+        backend_inputs = {str(backend_receipt), backend["compiler"], backend["runner"]}
+    else:
+        assert receipt["command"][0] == str(executable)
     generated = build / target
     manifest = json.loads((generated / "generated.json").read_text())
-    expected = {str(executable), str(generated / "generated.json")}
+    expected = {str(executable), str(generated / "generated.json"), *backend_inputs}
     expected.update(str(generated / row["path"]) for row in manifest["files"])
     runtimes = {str(path) for path in _install().glob("lib*/*pyc6_runtime*")}
     assert runtimes
@@ -1828,7 +1840,7 @@ def test_observation_marker_text_is_literal_in_cpp_and_verilator(tmp_path):
     assert report_statistics[0] == report_statistics[1]
 
 
-def test_duplicate_report_names_in_one_module_reject_and_preserve_unit(tmp_path):
+def test_duplicate_report_names_in_one_module_reject_and_preserve_program(tmp_path):
     source = tmp_path / "duplicate report source"
     source.mkdir()
     design = source / "duplicate_reports.py"
@@ -1852,26 +1864,42 @@ def test_duplicate_report_names_in_one_module_reject_and_preserve_unit(tmp_path)
     design.write_text(valid)
     output = tmp_path / "duplicate report unit"
     _ok(_compile(source, design.name, output))
+    published = tmp_path / "duplicate report program"
+    published.mkdir()
+    final = published / "reports.ac"
+    _ok(
+        _cli(
+            "link",
+            str(output),
+            "--top",
+            "checks.duplicate_reports.DistinctReports",
+            "-o",
+            str(final),
+        )
+    )
     before = {
-        path.name: path.read_bytes() for path in output.iterdir() if path.is_file()
+        str(path.relative_to(published)): path.read_bytes()
+        for path in published.rglob("*")
+        if path.is_file()
     }
     design.write_text(valid.replace("report('right', value)", "report('left', value)"))
+    conflicting = tmp_path / "conflicting report unit"
+    _ok(_compile(source, design.name, conflicting))
     rejected = _cli(
-        "compile",
-        "-c",
-        str(design),
-        "--source-root",
-        str(source),
-        "--package-prefix",
-        "checks",
+        "link",
+        str(conflicting),
+        "--top",
+        "checks.duplicate_reports.DistinctReports",
         "-o",
-        str(output),
+        str(final),
         "--replace",
     )
     assert rejected.returncode != 0
-    assert "report name must be unique within module: left" in rejected.stderr
+    assert "report name must be unique within logical owner: left" in rejected.stderr
     assert {
-        path.name: path.read_bytes() for path in output.iterdir() if path.is_file()
+        str(path.relative_to(published)): path.read_bytes()
+        for path in published.rglob("*")
+        if path.is_file()
     } == before
 
 
@@ -1886,9 +1914,9 @@ def test_duplicate_report_names_across_instances_execute_in_both_backends(tmp_pa
         "    report('shared', value)\n"
         "\n"
         "@module\n"
-        "def Probe(value: u8) -> {}:\n"
+        "def Probe(value: u8) -> u8:\n"
         "    observe(value)\n"
-        "    return {}\n"
+        "    return value\n"
     )
     (source / "bench.py").write_text(
         "from checks.probe import Probe\n"
@@ -1901,16 +1929,10 @@ def test_duplicate_report_names_across_instances_execute_in_both_backends(tmp_pa
         "@system\n"
         "def TwoProbes():\n"
         "    value: u8 = 0\n"
-        "    left = Probe()\n"
-        "    right = Probe()\n"
-        "\n"
-        "    @rule\n"
-        "    def drive():\n"
-        "        left(value=value)\n"
-        "        right(value=value)\n"
+        "    left = Probe(value)\n"
+        "    right = Probe(value)\n"
         "\n"
         "    advance(value)\n"
-        "    drive()\n"
     )
     probe = tmp_path / "probe unit"
     bench = tmp_path / "probe bench unit"
@@ -2137,7 +2159,7 @@ def FailingOwner():
 
 
 @pytest.mark.parametrize(
-    "selected,checks", [("UncheckedRoot", 0), ("TwoCheckedChildren", 4)]
+    "selected,checks", [("UncheckedRoot", 1), ("TwoCheckedChildren", 8)]
 )
 def test_emitted_verification_metadata_counts_selected_reachable_instances(
     tmp_path, selected, checks
@@ -2158,7 +2180,14 @@ def test_emitted_verification_metadata_counts_selected_reachable_instances(
     entry = f"checks.verification_bench.{selected}"
     final = tmp_path / "verification.ac"
     _ok(_cli("link", str(provider), str(unit), "--top", entry, "-o", str(final)))
-    assert final.read_text().count('"ac.expect"(') == 3
+    # Three authored assertions plus five compiler-owned bare-Rule guard
+    # obligations exist in the closure. Only the selected instance tree counts
+    # below: one unchecked Rule, or two parent Rules plus two checked children.
+    check_lines = [
+        line for line in final.read_text().splitlines() if '"ac.expect"(' in line
+    ]
+    assert sum('kind = "assert"' in line for line in check_lines) == 3
+    assert sum('kind = "guard_known"' in line for line in check_lines) == 5
     for target in ("cpp", "verilog"):
         generated = tmp_path / target
         _ok(_cli("emit", str(final), "--target", target, "-o", str(generated)))
@@ -2171,6 +2200,9 @@ def test_emitted_verification_metadata_counts_selected_reachable_instances(
             "entry": {"definition": f'@"{entry}"', "arguments": []},
             "entry_source": {"package": "checks", "path": "verification_bench.py"},
             "source_checks": checks,
+            "system_samples": [],
+            "needs_four_state": True,
+            "reset_semantics": "strict",
         }
 
 
@@ -2221,7 +2253,9 @@ def test_source_builtin_type_shadow_rejects_without_replacing_unit(
         "--replace",
     )
     assert rejected.returncode != 0
-    assert "shadow" in rejected.stderr.lower(), rejected.stderr
+    assert any(
+        word in rejected.stderr.lower() for word in ("shadow", "rebind")
+    ), rejected.stderr
     assert {
         path.name: path.read_bytes() for path in output.iterdir() if path.is_file()
     } == before
@@ -2339,7 +2373,7 @@ def test_imported_nested_struct_full_constructors_execute_with_nominal_rule_resu
         ("duplicate-field", "duplicate"),
         ("foreign-nominal", "type"),
         ("shadowed-constructor", "shadow"),
-        ("persistent-initializer", "initializer"),
+        ("persistent-initializer", "unknown hardware value 'count'"),
     ],
 )
 def test_imported_struct_constructor_refusals_preserve_published_unit(
@@ -2369,8 +2403,8 @@ def test_imported_struct_constructor_refusals_preserve_published_unit(
     elif mutation == "persistent-initializer":
         changed = original.replace(
             "    count: u8 = 0",
-            "    saved: Packet = Packet(inner=Inner(flag=1, data=0), sequence=3)\n"
-            "    count: u8 = 0",
+            "    count: u8 = 0\n"
+            "    saved: Packet = Packet(inner=Inner(flag=1, data=count), sequence=3)",
         )
     else:
         assert constructor in original
@@ -3510,7 +3544,6 @@ def OrderedBindings():
     )
     stages = tmp_path / "ordered source stages"
     stages.mkdir()
-    imported = stages / "source-import.ac"
     compiler = os.environ.get("PYCIRCUIT_SOURCE_COMPILER")
     assert compiler, "set PYCIRCUIT_SOURCE_COMPILER to this candidate's compiler"
     _ok(
@@ -3529,8 +3562,6 @@ def OrderedBindings():
                 str(stages / "interface.ac"),
                 "--deps-out",
                 str(stages / "deps.json"),
-                "--source-import-out",
-                str(imported),
             ]
         )
     )
@@ -3538,28 +3569,55 @@ def OrderedBindings():
         assert (stages / (kind + ".ac")).read_bytes() == (
             unit / receipt["files"][kind]
         ).read_bytes()
+    typed = stages / "body.ac"
+    assert '"ac.method"' in typed.read_text()
     _ok(
         _run(
             [
                 str(_install() / "bin/pycircuit-opt"),
-                str(imported),
+                str(typed),
                 "-o",
-                str(stages / "verified-source-import.ac"),
+                str(stages / "verified-source-body.ac"),
             ]
         )
     )
+    before_lowering = stages / "transaction-input.ac"
+    after_lowering = stages / "transaction-output.ac"
     final = tmp_path / "ordered.ac"
+    linker = os.environ.get("PYCIRCUIT_LINKER")
+    assert linker, "set PYCIRCUIT_LINKER to this candidate's native linker"
     _ok(
-        _cli(
-            "link",
-            str(unit),
-            "--top",
-            "checks.ordered.OrderedBindings",
-            "-o",
-            str(final),
+        _run(
+            [
+                linker,
+                "--body",
+                str(typed),
+                "--header",
+                str(stages / "interface.ac"),
+                "--top",
+                "checks.ordered.OrderedBindings",
+                "--target",
+                "final",
+                "--transaction-input-out",
+                str(before_lowering),
+                "--transaction-output-out",
+                str(after_lowering),
+                "--output",
+                str(final),
+            ]
         )
     )
-    artifacts = (capture, imported, stages / "body.ac", stages / "interface.ac", final)
+    assert '"ac.method.call"' in before_lowering.read_text()
+    assert '"ac.method.call"' not in after_lowering.read_text()
+    assert "ac.sampled_admission" in after_lowering.read_text()
+    artifacts = (
+        capture,
+        typed,
+        stages / "interface.ac",
+        before_lowering,
+        after_lowering,
+        final,
+    )
     digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
     transcripts = []
     for target in ("cpp", "verilog"):

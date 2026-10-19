@@ -302,9 +302,9 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
   auto push = [&](Value value) -> LogicalResult {
     auto *operation = value.getDefiningOp();
     if (!operation || operation->getParentOp() != bindings.owner ||
-        !isa<BitsConstantOp, EnumCreateOp, StructCreateOp, TableCreateOp,
-             TableSplatOp, StructGetOp, EnumToBitsOp, BitsExtractOp,
-             BitsResizeOp>(operation))
+        !isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp, StructCreateOp,
+             TableCreateOp, TableSplatOp, StructGetOp, EnumToBitsOp,
+             BitsExtractOp, BitsResizeOp>(operation))
       return state->emitOpError()
              << "state initializer requires a closed static "
                 "literal/constructor "

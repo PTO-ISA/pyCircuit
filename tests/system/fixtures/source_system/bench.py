@@ -10,21 +10,15 @@ def advance(phase):
 @system
 def ExerciseAccumulator():
     phase: bits[8] = 0
-    left = Accumulator()
-    right = Accumulator()
+    left = Accumulator(enable=(phase & 1) == 0)
+    right = Accumulator(enable=1)
 
     @rule
     def drive_left():
-        left(enable=(phase & 1) == 0)
-        assert right.value < 4, "deliberate limit"
-        log("info", "left", left.value)
-        log("info", "right", right.value)
+        assert right < 4, "deliberate limit"
+        log("info", "left", left)
+        log("info", "right", right)
         report("progress", phase)
-
-    @rule
-    def drive_right():
-        right(enable=1)
 
     advance(phase)
     drive_left()
-    drive_right()

@@ -16,17 +16,20 @@ function(pycircuit_label_example_tests)
 endfunction()
 
 function(pycircuit_add_system_verification name cycles timeout)
-  if(NOT cycles MATCHES "^[1-9][0-9]*$")
-    message(FATAL_ERROR "System verification requires an explicit positive cycle count")
+  set(_cycle_args)
+  if(NOT "${cycles}" STREQUAL "")
+    if(NOT cycles MATCHES "^[1-9][0-9]*$")
+      message(FATAL_ERROR "System verification cycles must be positive when supplied")
+    endif()
+    list(APPEND _cycle_args --cycles "${cycles}")
   endif()
-  find_program(VERILATOR_EXECUTABLE verilator REQUIRED)
   add_test(NAME ${name}_system COMMAND "${Python3_EXECUTABLE}"
     "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/verify_example.py"
     --system --source "${CMAKE_CURRENT_SOURCE_DIR}"
     --runner "${PYC_DRIVER}" --toolchain "${PYCIRCUIT_TOOLCHAIN_ROOT}"
     --build "${CMAKE_CURRENT_BINARY_DIR}/system-verification"
     --include "${PYCIRCUIT_RUNTIME_INCLUDE_DIR}"
-    --cycles "${cycles}" --timeout "${timeout}")
+    ${_cycle_args} --timeout "${timeout}")
   math(EXPR _system_timeout "3 * ${timeout} + 30")
   set_tests_properties(${name}_system PROPERTIES
     LABELS "${PYC_EXAMPLE_LABELS}" TIMEOUT "${_system_timeout}")
@@ -43,13 +46,18 @@ function(pycircuit_add_example name)
   if(EX_UNPARSED_ARGUMENTS)
     message(FATAL_ERROR "Unknown example arguments: ${EX_UNPARSED_ARGUMENTS}")
   endif()
+  foreach(_cycles_keyword CYCLES SYSTEM_CYCLES)
+    if("${_cycles_keyword}" IN_LIST EX_KEYWORDS_MISSING_VALUES)
+      message(FATAL_ERROR "${_cycles_keyword} requires a positive value when supplied")
+    endif()
+  endforeach()
   if(EX_SYSTEM_TOP OR EX_SYSTEM_ENTRY_SOURCE OR EX_SYSTEM_SOURCES OR EX_SYSTEM_CYCLES)
-    foreach(_required SYSTEM_TOP SYSTEM_ENTRY_SOURCE SYSTEM_SOURCES SYSTEM_CYCLES)
+    foreach(_required SYSTEM_TOP SYSTEM_ENTRY_SOURCE SYSTEM_SOURCES)
       if(NOT EX_${_required})
         message(FATAL_ERROR "System selection requires ${_required}")
       endif()
     endforeach()
-    if(NOT EX_SYSTEM_CYCLES MATCHES "^[1-9][0-9]*$")
+    if(DEFINED EX_SYSTEM_CYCLES AND NOT EX_SYSTEM_CYCLES MATCHES "^[1-9][0-9]*$")
       message(FATAL_ERROR "SYSTEM_CYCLES requires a positive integer number of cycles")
     endif()
     # Ordinary aggregate builds retain the reusable module and its independent

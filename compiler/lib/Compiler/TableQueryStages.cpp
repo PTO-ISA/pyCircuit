@@ -201,11 +201,12 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
       return emitError(loc) << "named callback scalar exceeds its envelope";
     if (!(mapAggregates &&
           isa<ac::TableCreateOp, ac::TableSplatOp>(operation)) &&
-        !isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsUnaryOp,
-             ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
-             ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
-             ac::StructCreateOp, ac::StructGetOp, ac::EnumCreateOp,
-             ac::EnumToBitsOp, ac::EnumFromBitsOp, ac::ValueMergeOp>(operation))
+        !isa<ac::TableGetOp, ac::BitsConstantOp, ac::BitsConstant4Op,
+             ac::BitsUnaryOp, ac::BitsBinaryOp, ac::BitsCompareOp,
+             ac::BitsSelectOp, ac::BitsConcatOp, ac::BitsExtractOp,
+             ac::BitsResizeOp, ac::StructCreateOp, ac::StructGetOp,
+             ac::EnumCreateOp, ac::EnumToBitsOp, ac::EnumFromBitsOp,
+             ac::ValueMergeOp>(operation))
       return operation.emitError()
              << "Table query scalar template is unsupported";
   }
@@ -368,11 +369,12 @@ TableQueryLowering::stage(Block &scalar, ValueRange rows, ValueRange receivers,
       if (!(mapAggregates &&
             isa<ac::TableGetOp, ac::TableCreateOp, ac::TableSplatOp>(
                 operation)) &&
-          !isa<ac::BitsConstantOp, ac::BitsUnaryOp, ac::BitsBinaryOp,
-               ac::BitsCompareOp, ac::BitsSelectOp, ac::BitsConcatOp,
-               ac::BitsExtractOp, ac::BitsResizeOp, ac::StructCreateOp,
-               ac::StructGetOp, ac::EnumCreateOp, ac::EnumToBitsOp,
-               ac::EnumFromBitsOp, ac::ValueMergeOp>(operation))
+          !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
+               ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
+               ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
+               ac::StructCreateOp, ac::StructGetOp, ac::EnumCreateOp,
+               ac::EnumToBitsOp, ac::EnumFromBitsOp, ac::ValueMergeOp>(
+              operation))
         return operation.emitError()
                << "Table query scalar stage is unsupported";
       pending.push_back(&operation);

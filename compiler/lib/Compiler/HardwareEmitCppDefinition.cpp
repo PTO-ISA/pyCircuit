@@ -414,6 +414,8 @@ private:
                        (index == 3
                             ? "input_tokens[" + lane.str() + "]"
                             : name.str() + ".element(" + lane.str() + ")"));
+      if (!resetting)
+        pins[1] = ctx.cppReset(pins[1]);
       return "typename " + leaf.kernel + "::Inputs{" + join(pins, ", ") + "}";
     }
     auto names = leaf.bindings.owner->getAttrOfType<ArrayAttr>("input_names");
@@ -425,6 +427,12 @@ private:
         return failure();
       pins.push_back(leaf.prefix + *name + ".element(" + lane.str() + ")");
     }
+    // Canonical primitive contracts place reset at ordinal one. Ordinary
+    // module connections retain raw pins; only the kernel consumes this view.
+    // Host Reset does not sample physical reset. Its accessor returns borrowed
+    // inputs, so retain persistent pin references rather than a temporary view.
+    if (!resetting)
+      pins[1] = ctx.cppReset(pins[1]);
     if (kind == "sync_mem")
       pins = {pins[0],
               pins[1],
@@ -621,12 +629,39 @@ private:
     return "gfsim::FourState<" + *w + ">::known(pyc_bits<" + *w + ">(" +
            *literal + "))";
   }
+  FailureOr<std::string> constant4(ac::BitsConstant4Op op, Scope &s) {
+    auto w = width(op.getResult().getType(), s, op);
+    if (failed(w))
+      return failure();
+    StringRef pattern = op.getPattern();
+    llvm::APInt value(pattern.size(), 0), known(pattern.size(), 0),
+        z(pattern.size(), 0);
+    for (auto [index, symbol] : llvm::enumerate(pattern)) {
+      unsigned bit = pattern.size() - 1 - index;
+      if (symbol == '0' || symbol == '1')
+        known.setBit(bit);
+      if (symbol == '1')
+        value.setBit(bit);
+      if (symbol == 'z')
+        z.setBit(bit);
+    }
+    auto bits = [&](const llvm::APInt &plane) {
+      SmallVector<std::string> words;
+      for (unsigned i = 0; i < plane.getNumWords(); ++i)
+        words.push_back(std::to_string(plane.getRawData()[i]) + "ULL");
+      return "gfsim::Bits<" + *w + ">{" + join(words, ", ") + "}";
+    };
+    return "gfsim::FourState<" + *w + ">::fromMasks(" + bits(value) + ", " +
+           bits(known) + ", " + bits(z) + ")";
+  }
   FailureOr<std::string>
   scalarExpression(Scope &s, Value value, Path path,
                    function_ref<FailureOr<std::string>(Value, Path)> operand) {
     Operation *op = value.getDefiningOp();
     if (!op)
       return failure();
+    if (auto pattern = dyn_cast<ac::BitsConstant4Op>(op))
+      return constant4(pattern, s);
     if (auto constantOp = dyn_cast<ac::BitsConstantOp>(op))
       return constant(constantOp, s);
     if (auto create = dyn_cast<ac::EnumCreateOp>(op)) {
@@ -1899,17 +1934,17 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
            "  // Gauge publishes the raw unsigned bit pattern; a one-bit "
            "Event\n"
            "  // keeps the source bool shape the runner protocol carries.\n"
-           "  template <bool pyc_event_bool>\n"
+           "  template <bool pyc_event_bool, unsigned pyc_width>\n"
            "  void __pyc_stage_observation(std::size_t pyc_lane, "
-           "std::size_t pyc_site, std::uint64_t pyc_value, bool pyc_valid, "
+           "std::size_t pyc_site, const gfsim::FourState<pyc_width> "
+           "&pyc_value, bool pyc_valid, "
            "bool pyc_path) noexcept {\n"
            "    if (pyc_sink_ == nullptr || pyc_sink_->slots == nullptr || "
            "pyc_sink_->system == nullptr) return;\n"
-           "    pyc_sink_->slots->Stage(pyc_observation_base_ + pyc_lane * "
+           "    pyc_sink_->slots->StagePacked(pyc_observation_base_ + pyc_lane "
+           "* "
         << *laneStride
-        << " + pyc_site, "
-           "pyc_event_bool ? gfsim::SlotValue::Bool(pyc_value != 0) : "
-           "gfsim::SlotValue::Unsigned(pyc_value), pyc_valid, pyc_path, "
+        << " + pyc_site, pyc_value, pyc_event_bool, pyc_valid, pyc_path, "
            "pyc_sink_->system->cycle());\n"
            "  }\n";
   out << "  void Work() {\n    __pyc_clear_check_snapshots();\n    try "
