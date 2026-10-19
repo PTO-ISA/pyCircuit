@@ -600,7 +600,12 @@ reduction does not implement a nonassociative prefix scan.
 
 ## Bounded source loops
 
-A pure behavioral rule or ordinary typed pure helper can use an ordinary `for`
+Pure helpers and typed Rule/Method bodies have distinct admission boundaries.
+Both compute within one Work evaluation; neither introduces a clock cycle.
+
+### Pure helper loops
+
+The pure expansion path, used by ordinary typed pure helpers, supports `for`
 with a single local name and an unshadowed builtin `range` call whose sole
 argument is an integer literal:
 
@@ -653,11 +658,45 @@ full-width shift counts and positive fitting static divisors. Table methods,
 other intrinsics, allocations, rule
 registration, assertions and observations inside loops remain unsupported.
 
-The restrictions above describe the pure-helper expansion path. Typed Rule
-loops use the existing SCF/transaction producer and additionally admit supported
-state writes, assertions, observations and loop control. Passing a Rule-loop
-test does not establish support in a pure helper. Nested loops and `for`/`else`
-remain rejected in both paths.
+### Typed Rule and Method loops
+
+Typed Rule/Method bodies use the SCF/transaction path and additionally admit
+supported state writes, assertions, observations, `break`, `continue` and loop
+`else`. Passing a Rule-loop test does not establish support in a pure helper.
+The existing literal `range(N)` and finite while comparison/progress proofs
+remain required. General nesting, dynamic range bounds and `while True` with a
+conditional break are not enabled by loop-else support.
+
+A loop's `else` suite executes exactly once on natural completion, including
+zero iterations. A reached `break` targeting that loop suppresses its else;
+`continue`, including in the last iteration, does not. For example, this tested
+scalar Rule adds fourteen with `u8` modular arithmetic:
+
+```python
+@ac.rule
+def finish(value: ac.u8) -> ac.u8:
+    for index in range(3):
+        value = value + 1
+    else:
+        value = value + 11
+    return value
+```
+
+For statically zero-trip typed `for` loops, else uses the incoming environment before any body
+construction. Dead body references are not resolved, an existing induction-name
+binding is preserved, and a name introduced only in the body remains unbound.
+Continue-only completion is unconditional: an else-only local can remain visible
+afterward. When break makes else conditional, ordinary definite-assignment rules
+apply; define a later-used local on every retained path. Returns inside such a
+conditional else remain unsupported branch-local returns.
+
+Loop iterations and else retain sequential candidate visibility and saved local
+snapshots in the surrounding transaction. Neither loop completion nor else
+creates a commit boundary. Reached unknown control, resource rejection and failed
+checks preserve the existing failure/discard behavior; they cannot publish else
+state changes or observations. An otherwise admitted finite while loop uses the
+same natural-completion/break distinction; a continue path that defeats its
+progress proof remains rejected.
 
 Expansion uses the existing source-wide resource limits. The compiler checks
 trip counts, work, operations, storage and constant sizes before expanding paid

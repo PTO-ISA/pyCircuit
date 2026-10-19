@@ -839,8 +839,13 @@ across mutually exclusive arms; put one report after the join.
 Keep selectors, guards, pure helpers, collection callbacks and conditional
 expressions free of Rule/Method calls and effects. Early or branch-local returns,
 cross-domain transactions and ambiguous competing writers remain rejected.
-Complex SCF loop-control and general resource admission remain outside the
-execution claim in this section. See the
+Bounded typed Rule/Method loops support Python-style `else`: natural completion
+(including zero trips) runs it once, `break` suppresses it and `continue` does not.
+Their effects remain in the outer transaction; a late failure commits neither
+body nor else proposals. Keep the existing finite-range/progress and branch
+binding/return restrictions. Pure helper loop-else remains unsupported. See the
+[loop profiles](../reference/language.md#bounded-source-loops) for exact boundaries.
+General SCF and resource admission remain outside this bounded claim. See the
 [conditional-effect contract](../rfcs/serial-rule-method/conditional-effects.md)
 and [branch-state contract](../rfcs/serial-rule-method/branch-state-ssa.md).
 

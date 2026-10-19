@@ -943,6 +943,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           fixedValues.erase(*zero);
           environment.values[intentName(port.name)] = *zero;
         }
+    auto statementError = [&](const AstNode &site) {
+      diagnosticFailed = true;
+      return mlir::emitError(site.location(b.getContext(), source.path));
+    };
     std::function<LogicalResult(const AstNode &, StringRef, OpBuilder &,
                                 BranchEnvironment &, bool)> emitBody;
     struct LoopControl { std::string live, continuing; };
@@ -983,7 +987,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       branch.getElseRegion().push_back(new Block());
       OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
       BranchEnvironment yes = environment, no = environment;
-      if (failed(emitBody(statement, "orelse", thenAt, yes, inBranch))) return failure();
+      if (failed(emitBody(statement, "orelse", thenAt, yes, true))) return failure();
       auto joined = joinBranches(*predicate, environment, yes, no, statement, at, decl.symbol, branch);
       if (failed(joined)) return failure();
       environment = std::move(*joined);
@@ -1030,7 +1034,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (returned)
           return error() << "declaration after Method/Rule return is unsupported";
         if (statement.kind() == "Break" || statement.kind() == "Continue") {
-          if (loopControls.empty()) return error() << "loop control requires an enclosing loop";
+          if (loopControls.empty()) return statementError(statement) << "loop control requires an enclosing loop";
           auto zero = constant(internalBits(1, statement, decl.symbol), 0, statement, inside, decl.symbol);
           if (failed(zero)) return failure();
           remember(*zero, ac::detail::ValueKind::Boolean);
@@ -1160,7 +1164,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               range.child("func").kind() != "Name" || range.child("func").string("id") != "range" ||
               lexicallyShadowed(range.child("func"), "range") || !range.array("keywords").empty() ||
               range.array("args").empty() || range.array("args").size() > 3)
-            return error() << "typed for requires an ordinary Name and finite range";
+            return statementError(statement) << "typed for requires an ordinary Name and finite range";
           StringRef inductionName = target.string("id");
           bool stateInduction = states.contains(inductionName);
           bool formalInduction = formalProposals && callable.assignedFormals.contains(inductionName) &&
@@ -1168,7 +1172,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (boundHardwareIdentity(inductionName) ||
               helperOwnerBindings.contains(inductionName) ||
               llvm::is_contained(ArrayRef<StringRef>{"pyc_clk", "pyc_rst", "range", "int", "bool", "tuple", "Annotated"}, inductionName))
-            return error() << "typed for induction requires an assignable ordinary Name or state owner";
+            return statementError(target) << "typed for induction requires an assignable ordinary Name or state owner";
           auto exactBound = [&](const AstNode &node) -> FailureOr<int64_t> {
             bool savedPure = std::exchange(context.pureExpression, true);
             auto restorePure = llvm::scope_exit([&] { context.pureExpression = savedPure; });
@@ -1177,11 +1181,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             auto info = valueInfo(*value);
             auto integer = dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant);
             if (info.sourceKind != ac::detail::ValueKind::Integer || fixedValues.contains(*value) || !integer)
-              return error() << "typed for range bounds require closed Integer values";
+              return statementError(node) << "typed for range bounds require closed Integer values";
             llvm::APSInt number(integer.getCanonicalValue());
             if ((number.isUnsigned() && number.getActiveBits() > 63) ||
                 (!number.isUnsigned() && !number.isSignedIntN(64)))
-              return error() << "typed for range exceeds signed index representation";
+              return statementError(node) << "typed for range exceeds signed index representation";
             return number.isUnsigned() ? static_cast<int64_t>(number.getZExtValue()) : number.getSExtValue();
           };
           auto hasNestedFor = [&](auto &&self, const AstNode &node) -> bool {
@@ -1199,18 +1203,16 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           };
           for (size_t k = 0; k < statement.array("body").size(); ++k)
             if (hasNestedFor(hasNestedFor, statement.item("body", k)))
-              return error() << "nested source for loops are unsupported";
-          if (statement.array("orelse").size())
-            return error() << "typed for else is unsupported";
+              return statementError(statement) << "nested source for loops are unsupported";
           size_t arity = range.array("args").size();
           if (arity != 1)
-            return error() << "typed for range requires a single literal bound";
+            return statementError(range) << "typed for range requires a single literal bound";
           const AstNode &boundNode = range.item("args", 0);
           auto encodedBound = boundNode.kind() == "Constant"
                                   ? dyn_cast_or_null<DictionaryAttr>(boundNode.get("value"))
                                   : DictionaryAttr();
           if (!encodedBound || !encodedBound.getAs<StringAttr>("integer"))
-            return error() << "typed for range requires a single literal bound";
+            return statementError(range) << "typed for range requires a single literal bound";
           int64_t lower = 0, upper, step = 1;
           auto first = exactBound(range.item("args", 0));
           if (failed(first)) return failure();
@@ -1226,19 +1228,21 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             if (failed(increment)) return failure();
             step = *increment;
           }
-          if (step <= 0) return error() << "typed for range requires a positive step";
+          if (step <= 0) return statementError(statement) << "typed for range requires a positive step";
           llvm::APInt lo(128, static_cast<uint64_t>(lower), true),
               hi(128, static_cast<uint64_t>(upper), true), increment(128, step);
           llvm::APInt count(128, 0);
           if (lo.slt(hi)) count = (hi - lo + increment - 1).udiv(increment);
           if (count.getActiveBits() > 64)
-            return error() << "typed for range is not finitely representable";
+            return statementError(statement) << "typed for range is not finitely representable";
           uint64_t trips = count.getZExtValue();
-          // A statically zero-trip loop without an else clause executes no body
-          // statements: keep the environment unchanged and do not resolve dead
-          // body references.
-          if (trips == 0 && statement.array("orelse").empty())
+          // Natural zero-trip completion runs else in the incoming environment;
+          // no induction binding or dead body reference is constructed.
+          if (trips == 0) {
+            if (failed(emitLoopElse(statement, inside, environment, inBranch, {})))
+              return failure();
             continue;
+          }
           llvm::APInt last = trips ? lo + increment * (trips - 1) : lo;
           bool signedIndex = lower < 0;
           unsigned indexWidth = std::max(1u, signedIndex
@@ -1331,7 +1335,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                   return port.name == name && port.sourceKind == kind;
                 });
                 if (formal == callable.inputs.end())
-                  return error() << "Integer loop carries require an explicit bounded annotation";
+                  return statementError(statement) << "Integer loop carries require an explicit bounded annotation";
                 iteration.boundaries[name] = BindingBoundary{*formal, true};
               }
             }
@@ -1420,7 +1424,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                             loopAt, decl.symbol);
             }
             if (!value || value.getType() != values.lookup(name).getType())
-              return error() << "typed for carried values must retain their declared hardware type";
+              return statementError(statement) << "typed for carried values must retain their declared hardware type";
             yielded.push_back(value);
           }
           if (trips) {
@@ -1465,7 +1469,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 IntegerInterval{llvm::APSInt(last, false), llvm::APSInt(last + 1, false)},
                 ac::MathIntAttr::get(b.getContext(), llvm::APSInt(last, false)));
           }
-          Value live = control ? values.lookup(control->live) : Value();
+          Value live = control && controlKinds.first
+                           ? values.lookup(control->live) : Value();
           if (control) {
             values.erase(control->live);
             environment.boundaries.erase(control->live);
@@ -1547,7 +1552,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                   return port.name == name && port.sourceKind == kind;
                 });
                 if (formal == callable.inputs.end())
-                  return error() << "Integer loop carries require an explicit bounded annotation";
+                  return statementError(statement) << "Integer loop carries require an explicit bounded annotation";
                 conditionEnvironment.boundaries[name] = BindingBoundary{*formal, true};
                 iteration.boundaries[name] = BindingBoundary{*formal, true};
               }
@@ -1612,7 +1617,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                            loopAt, decl.symbol);
             }
             if (!next || next.getType() != originalType)
-              return error() << "typed while carried values must retain their declared hardware type";
+              return statementError(statement) << "typed while carried values must retain their declared hardware type";
             nextValues.push_back(next);
           }
           createOp(loopAt, location, scf::YieldOp::getOperationName(), nextValues, {}, {});
@@ -1622,7 +1627,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             if (fixedValues.contains(original)) fixedValues.insert(result);
             values[name] = result;
           }
-          Value live = control ? values.lookup(control->live) : Value();
+          Value live = control && controlKinds.first
+                           ? values.lookup(control->live) : Value();
           if (control) {
             values.erase(control->live);
             environment.boundaries.erase(control->live);
@@ -1636,7 +1642,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           continue;
         if (statement.kind() == "Return") {
           if (inBranch)
-            return error() << "return in a Method/Rule branch is unsupported";
+            return statementError(statement) << "return in a Method/Rule branch is unsupported";
           returned = statement;
           AstNode valueNode = statement.child("value");
           bool none = !valueNode || (valueNode.kind() == "Constant" &&
