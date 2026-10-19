@@ -9,38 +9,40 @@
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
       "source/CMakeLists.txt": "e040262b0d1b172a04201b1f52812c0d561591966a32c4882ed061082cf6f74f",
-      "source/bench.py": "e25fc4d94393fe3ba1520c54a90c35fe69f63c159ba1601423a6a40cf5c86b5b",
+      "source/bench.py": "02d64965350325af3ed697e27d4de56a5317571075ddcd7e5f13814f6df50153",
       "source/config.json": "82b121d6ac01f49ed85fa0b5b6c5e584a43721ded154c457417dad82d4c37145",
       "source/driver.cpp": "c6771e4391fbfe1cbf10fc960cc4c847a7c25cd71b4566b6c59798fa89d67d37",
-      "source/memory_banks.py": "241361f75363121571cb3321b2827cec1ebb3609219c18fc56c1b3e8e2354feb",
+      "source/memory_banks.py": "b1c6cbcd7eafaa6422fdc8cb5a29d77a4c85dc4d44f40d07cbce3a9dbc1b0b64",
       "source/rtl_tb.sv": "683ac0fffb10316586b2fcb5aa43a388eebf6ff1b92a880244f2e19582ca5d42",
-      "build/cpp/generated.json": "c90935f398a44b03b4ad32120f96c874f53ccc0474b75de3b5f619c1fcd2381d",
+      "build/cpp/generated.json": "6fb58bb80ea6d9b14344c4766b121c34e6024576bf149ddc898f9d411ee52069",
       "build/cpp/CMakeLists.txt": "652343f0e0083fec6242f804e7925e769b2e060cca00e9c31e24c3f96864a5d9",
+      "build/cpp/ports.json": "138cbc07475f0f7d6ef5ff12734ba6429de6ffd5e9d3c0f91444a4c00e5dc349",
       "build/cpp/pycircuit_support.hpp": "b1d3da4b687f10de36e9325df440cfbcea801c1dc095d50782aef70eb3837cac",
-      "build/cpp/pycircuit_system.hpp": "b599fb1a45d8b1eaa46abec37a2d50492b3500314c6274359ac9dde0548cb958",
+      "build/cpp/pycircuit_system.hpp": "65126880ce2e1b74b6e33d54b3dc15817bcc845d484d13f467442777b010a6d7",
       "build/cpp/sources/example_memory_banks/memory_banks.cpp": "1e2f720f332100468efc326b815a71dfbc8671807d5ae839c449a6797a21e365",
-      "build/cpp/sources/example_memory_banks/memory_banks.hpp": "15ac7e947fa4bba5ea09b11b83f57563f9b737a213418f039981f0248fb445d6",
-      "build/cpp/sources/example_memory_banks/memory_banks.source-map.json": "08ecf27a406479181209495fcbd5de1b22a23c5ff8c19d3074eadea26b3cc6c2",
-      "build/verilog/generated.json": "322cb344e0332e943207822a88158fe72e0d0ead6f4c74532c08ea4172a6cd66",
+      "build/cpp/sources/example_memory_banks/memory_banks.hpp": "5dbe9a3049c1ef079c50c38150fa2c28f9abc09cfd9ea77675d59147734f7bc5",
+      "build/cpp/sources/example_memory_banks/memory_banks.source-map.json": "9e513bdd5a80a29cf5f3a79953670409f62e6df8756b5a77f99e3b1975464635",
+      "build/verilog/generated.json": "1cd14a15a35bc70b51ec43eaee9f64ee43e423b9c48cb65475e7b98db892389a",
       "build/verilog/CMakeLists.txt": "b7cef80bfb1fbafbaa6bc41c3eba39565f88b2bd94040ced8080a79a4f316cf3",
       "build/verilog/design_top.sv": "2997913795b5e44d228f4f10e529602acca00b46d02beb47c3efc0e42b80e2c1",
-      "build/verilog/sources/example_memory_banks/memory_banks.source-map.json": "fd286acaf1d109c5a81d7730410a2295641fee87040f5854b9e768af37e49be3",
-      "build/verilog/sources/example_memory_banks/memory_banks.v": "ed1a04897a1d0cf2b44f18251277c4227a8e063753e6cd11f8a581f0570e5c81",
-      "build/memory_banks.ac": "7aa8e52c14ef3bc08aa60589e5d33668dcb05114d5c4f679f665e92e4482e96a",
+      "build/verilog/ports.json": "a126a86d2d7dd9db8b40f548de94a5510e2ba004b799243116c82f11001dc24b",
+      "build/verilog/sources/example_memory_banks/memory_banks.source-map.json": "29472cdc3fa389a82ecab411d51bdae7ca6316c9b6a9513f63b7e5d5b050b62b",
+      "build/verilog/sources/example_memory_banks/memory_banks.v": "95a3473ba836808cae8a871f44579e62e9de113645838d53900e53889b994f85",
+      "build/memory_banks.ac": "30517fb70d5e045d592fbb0fbf300c105fcf2d13c55c6b70fba98039a5638aca",
       "build/units/.memory_banks.pycircuit-publication/owner.json": "2a5a24f66fc6d84476e6c04213596463a8b6d5ef887bf8eb44af5f54c70c3548",
-      "build/units/memory_banks/memory_banks.ac": "204c82104b44ccf4f37b28e3708278ad2fcb0f10da4df94df9b1c5f0012d0c70",
-      "build/units/memory_banks/memory_banks.d": "89808c258860a943e7e4ab3d2ba0ed250d04d1a616d76d7c4572d779df76bd21",
-      "build/units/memory_banks/memory_banks.interface.ac": "73f7838117be5be05b787909cce851e71f0f5175d3b4071291fa64eb15bea101",
+      "build/units/memory_banks/memory_banks.ac": "e0aa3324409d2fb70c7b543943f9b0bc02825ebc188d09d7a760d2ebae544e25",
+      "build/units/memory_banks/memory_banks.d": "7696ea3e520764b85ae1258b5ecb56492c5ea7dd92043be5b1244877523629d2",
+      "build/units/memory_banks/memory_banks.interface.ac": "2e0266cfbbcb5b33de88adab8ce0b83497dffc9efcf321f520615b253b820e7d",
       "build/units/memory_banks/unit.json": "b408f184a3661a7301c04f4c7bdd1dd77c2e09bfffef3fdaa33c4268a544b844",
       "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
-      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
-      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/dff.v": "4d43595c3f19905bb585bf0a6c376d885f1b635be92d44375a0ac3489ea81f24",
+      "runtime-rtl/dffe.v": "9db5924f343389be5fc6311f26b6be9070a756d1a4cfae4839b4d0311d773117",
       "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
-      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
-      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
-      "runner": "128c50193ce9e04a36c6dfe2beb03361371dad0bd52505a1f33d8530e39679fd"
+      "runtime-rtl/sync_mem.v": "457622820048dc0d83b779a8b00aec25f829b6a4a53f8f76831758a97fcdba4a",
+      "runtime-rtl/sync_mem_dp.v": "afb386d1ca3a51c294c87a3d5c2fed08e48a0c699fe340764a5c591503eacd29",
+      "runner": "af6cc240c805d09fbe4b0528b2dd5bcbb57329f09322e63ed759423641a0642c"
     },
-    "execution_sha256": "f2e726164b6c4b6ce0943bf20f350e57860d8d53aca54b0e67f8da7359704480",
+    "execution_sha256": "86518a2e0c7c4c2c5109c5b23e3748f669106b565063d81db1ab7a0c973d5b18",
     "work_samples": 883,
     "native_check_records": 2,
     "native_check_sha256": "be58c4b5b4206388b289441e3bca212b3557636c175cd98dd2deab01391f43d0",
@@ -55,17 +57,17 @@
     {
       "path": "memory_banks.ac",
       "line": 28,
-      "sha256": "7aa8e52c14ef3bc08aa60589e5d33668dcb05114d5c4f679f665e92e4482e96a"
+      "sha256": "30517fb70d5e045d592fbb0fbf300c105fcf2d13c55c6b70fba98039a5638aca"
     },
     {
       "path": "cpp/sources/example_memory_banks/memory_banks.hpp",
-      "line": 287,
-      "sha256": "15ac7e947fa4bba5ea09b11b83f57563f9b737a213418f039981f0248fb445d6"
+      "line": 345,
+      "sha256": "5dbe9a3049c1ef079c50c38150fa2c28f9abc09cfd9ea77675d59147734f7bc5"
     },
     {
       "path": "verilog/sources/example_memory_banks/memory_banks.v",
       "line": 1,
-      "sha256": "ed1a04897a1d0cf2b44f18251277c4227a8e063753e6cd11f8a581f0570e5c81"
+      "sha256": "95a3473ba836808cae8a871f44579e62e9de113645838d53900e53889b994f85"
     }
   ]
 }

@@ -9,38 +9,40 @@
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
       "source/CMakeLists.txt": "a6e89449d84632ac3364d41ed47e50310db9d24e9e16f0a963fdc9320a65db10",
-      "source/bench.py": "b3dfe5c60f6d1b3819dfb24e57c899d0f105032b55fd2aa21735b1bd0a674b84",
+      "source/bench.py": "41aeb7eccb397fbd1fb2162cf73a7412863bbdc4391f1bff4fe927377507bf5c",
       "source/calculator.py": "1e001bd4df258afa51e7dfad46684bbcef63b7ca88ec39db9afe03b4148c433d",
       "source/config.json": "9cf1afc7e50b138013304e2857f407acfb08b62643d945c52794a43e8e7a9027",
       "source/driver.cpp": "203455b467b1feecb85a89a8eff01b8c369ad40e6ef2d5a619a7c1b6bc803e78",
       "source/rtl_tb.sv": "3d68ef6e2c98b789ffa92a7e93778a95cd5ea98097925983a6d662886ba7edcb",
-      "build/cpp/generated.json": "ca567a40da3f95cb3a18ca0e98681bce7479cd708a291f6815374d9e4fd5be21",
+      "build/cpp/generated.json": "08165d5fb42489607f906663923eacf977bf752817851e0539a18e4760f8c01e",
       "build/cpp/CMakeLists.txt": "34f12c0acf4423d321abe0b8e2806d6a356620207de03dc28dc88131df5ecdcb",
+      "build/cpp/ports.json": "00264d1eeb64f45a13865a8f43bdfec4429aa1a270e5a8ea2684d1be38da6a2f",
       "build/cpp/pycircuit_support.hpp": "80c00ffebdafb77073a0737b63e89a272f0bdd584f33c05a4ae1dfe6c10040e4",
-      "build/cpp/pycircuit_system.hpp": "e5c1fdb7da0b8b6c5327abcd3e8731d67b4279631fa640a744ca7ae39a05806b",
+      "build/cpp/pycircuit_system.hpp": "7464ae7c01a60456bf5a719a3f9abfb2da0f8f652b6b4af54a1ab8ba8fc2ef61",
       "build/cpp/sources/example_calculator/calculator.cpp": "99f4213d9bf90afca83e3b53be217c2d1d12ff4321bda30fb9d3631d936d3e8c",
-      "build/cpp/sources/example_calculator/calculator.hpp": "40bd22ed8f6802009627cd1ddbd87a6f0848d712df53394be37ee3d0c74b0cea",
+      "build/cpp/sources/example_calculator/calculator.hpp": "f99b956982945a75ab1285785313246fba5a2bef4c7693e4d77e52c5231aef14",
       "build/cpp/sources/example_calculator/calculator.source-map.json": "774d8d8b09e98c4cc36eea1ae46081c45f3ebe853c5611455c5132eb9eb6ef6b",
-      "build/verilog/generated.json": "f2956547a711f915971cc647b5030835dec120dfa5d5ddcd97df41ac48fdda00",
+      "build/verilog/generated.json": "6ca38b9a886003da843aee2d25f9466014a62f732386e9ac11c20cbf9f039e3d",
       "build/verilog/CMakeLists.txt": "ce05696aa62ac2db3d6f62d587ce12b4aaa3ac1fa5876ded0ef6598e1f84f31d",
       "build/verilog/design_top.sv": "ae1672436b3fa5a427e3bc423e442c7b28b90573191253d39f16c3cbe9fe8e73",
+      "build/verilog/ports.json": "a77c4b0c4b97313ecd83cd1aaee9660c72387f36fc8c50ba2251bd2ae9041a87",
       "build/verilog/sources/example_calculator/calculator.source-map.json": "1859e825ab8f1b5b765a4a2af77c9ffb5fbf4a000dc8191d9e3344ba3586bb69",
-      "build/verilog/sources/example_calculator/calculator.v": "8a5cd99ec252ba7a0443713c60cdf4ec1bf7757bac54e756e5d6813ae6b75d51",
-      "build/calculator.ac": "e8f4f7d9846e79e6fdec52d670733aeaf31f8a4e59689234ec680442dbfca97c",
+      "build/verilog/sources/example_calculator/calculator.v": "29c6d061e591480b0aaf372317f3cc1fcfb913cff3f4166b4a1980a6b651bfca",
+      "build/calculator.ac": "f73a1fbaf07e5c501d4cb09b146b79f5676116e8ef29aeec9c822539b558a35a",
       "build/units/.calculator.pycircuit-publication/owner.json": "0bf4f1b0d9833fcea360451e7c1e834c92c73669ce5ea63536fd941cae9557b8",
-      "build/units/calculator/calculator.ac": "a752ae194100d14f1f5e55ebe7a78ff20dcb6244eaa691c126a95afda77a0a71",
-      "build/units/calculator/calculator.d": "0eb4a8e98ca62d69749df609cb41981483c2e9c1ef61f751fffa340a10f96366",
+      "build/units/calculator/calculator.ac": "51a8dc0b6cf3b9af18c56fdeccbd5f1ca6a4fdc4ddaadffd6e0874735857b5fd",
+      "build/units/calculator/calculator.d": "2856a054870ea8088cbcc61f47f24741bf87b4ff15a23fbb469c156a7998b134",
       "build/units/calculator/calculator.interface.ac": "a85db27740bf50794046da4c2ed5eeded3af7aa5060b8758313d2777f6fd73d1",
       "build/units/calculator/unit.json": "fc520dceb9e7dbff8d5b50bacc876ac4e1e21c00c523a317298c0b5489f5252c",
       "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
-      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
-      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/dff.v": "4d43595c3f19905bb585bf0a6c376d885f1b635be92d44375a0ac3489ea81f24",
+      "runtime-rtl/dffe.v": "9db5924f343389be5fc6311f26b6be9070a756d1a4cfae4839b4d0311d773117",
       "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
-      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
-      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
-      "runner": "3723493b40111683311f247c7d061a9ebb0951a79f4702cc18ab79bd56bc6cb1"
+      "runtime-rtl/sync_mem.v": "457622820048dc0d83b779a8b00aec25f829b6a4a53f8f76831758a97fcdba4a",
+      "runtime-rtl/sync_mem_dp.v": "afb386d1ca3a51c294c87a3d5c2fed08e48a0c699fe340764a5c591503eacd29",
+      "runner": "90ff948896c95cddbf808811a2a7269799daed6573e1dbecf3724d4f035501f8"
     },
-    "execution_sha256": "994a6eb8fbc8a9c4ad51bcc1044fa54eb9b0893d33fbf9c755709af8faaa30b9",
+    "execution_sha256": "4c1e223eafeea6d1035d5d26ff6f6b7b2732485235fb3227455c74f239bfc230",
     "work_samples": 474,
     "native_check_records": 0,
     "native_check_sha256": "01ba4719c80b6fe911b091a7c05124b64eeece964e09c058ef8f9805daca546b",
@@ -55,17 +57,17 @@
     {
       "path": "calculator.ac",
       "line": 11,
-      "sha256": "e8f4f7d9846e79e6fdec52d670733aeaf31f8a4e59689234ec680442dbfca97c"
+      "sha256": "f73a1fbaf07e5c501d4cb09b146b79f5676116e8ef29aeec9c822539b558a35a"
     },
     {
       "path": "cpp/sources/example_calculator/calculator.hpp",
       "line": 83,
-      "sha256": "40bd22ed8f6802009627cd1ddbd87a6f0848d712df53394be37ee3d0c74b0cea"
+      "sha256": "f99b956982945a75ab1285785313246fba5a2bef4c7693e4d77e52c5231aef14"
     },
     {
       "path": "verilog/sources/example_calculator/calculator.v",
       "line": 1,
-      "sha256": "8a5cd99ec252ba7a0443713c60cdf4ec1bf7757bac54e756e5d6813ae6b75d51"
+      "sha256": "29c6d061e591480b0aaf372317f3cc1fcfb913cff3f4166b4a1980a6b651bfca"
     }
   ]
 }

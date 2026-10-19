@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **378**. Final artifact SHA-256: `1349c71930dde514ff7eca6ebbddcf42800a83f4eee53311368afa0b542c8ea3`.
+Verified WORK trace rows: **378**. Final artifact SHA-256: `937568d48a6aa7d2c397eecd59f77e7d7093fdc4b9cee3e3847a695cf117f0cd`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example digital_filter \
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_digital_filter::digital_filter::FilterResult, (pyc_count * (1))>> pyc_value_0;
     for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<1>>::width), this->pyc_instance_y_out_q.element(pyc_lane * (1) + pyc_field).packed());

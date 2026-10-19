@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **603**. Final artifact SHA-256: `972ca7079d824d57563279a075f8843a545d7e96136e1001f008d9f58c6c1006`.
+Verified WORK trace rows: **603**. Final artifact SHA-256: `61b51a0722b858681ec3f0726f0ee5affd42192d871a92d848ba3d62a63817cc`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example enum_payload_pipeline \
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_enum_payload_pipeline::enum_payload_pipeline::Result, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_1;
