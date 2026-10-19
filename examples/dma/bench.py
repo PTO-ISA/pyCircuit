@@ -37,8 +37,8 @@ class Scenario:
     check_response_tag: ac.u8
 
 
-@ac.struct
-class Scenarios:
+def scenario_rows() -> ac.table[42, Scenario]:
+    # fmt: off
     rows: ac.table[42, Scenario] = (
         Scenario(),
         Scenario(seed_valid=1, seed_dram=5, seed_sram=3, seed_data=0x1234, seed_tag=1),
@@ -100,14 +100,16 @@ class Scenarios:
         ),
         Scenario(),
     )
+    # fmt: on
+    return rows
 
 
 @ac.system
 def ExerciseDma():  # noqa: N802
     phase: ac.u6 = 0
-    scenarios = Scenarios()
+    scenarios = scenario_rows()
     position = phase if phase < 42 else 41
-    scenario = scenarios.rows[position]
+    scenario = scenarios[position]
     seed = DmaRequest(
         dram_address=scenario.seed_dram,
         sram_address=scenario.seed_sram,

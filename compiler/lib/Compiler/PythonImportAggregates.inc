@@ -954,8 +954,9 @@ FailureOr<Value> Importer::select(Value guard, Value yes, Value no,
   createOp(nested, loc, ac::YieldOp::getOperationName(), {*merged}, {}, {});
   return map->getResult(0);
 }
-LogicalResult Importer::proveIndex(Value table, Value index,
-                                   const AstNode &node) {
+LogicalResult Importer::proveIndexExtent(Value index, uint64_t extent,
+                                         const AstNode &node,
+                                         StringRef indexedKind) {
   auto info = valueInfo(index);
   bool knownUnsigned = fixedValues.contains(index) ||
                        info.sourceKind == ac::detail::ValueKind::Boolean ||
@@ -963,30 +964,38 @@ LogicalResult Importer::proveIndex(Value table, Value index,
                         info.interval && !info.interval->lower.isNegative());
   if (!knownUnsigned)
     return mlir::emitError(node.location(b.getContext(), source.path))
-           << "table index requires proven nonnegative unsigned provenance";
+           << indexedKind
+           << " index requires proven nonnegative unsigned provenance";
+  ac::HardwareAnalysis analysis(*body);
+  auto width = analysis.getPackedWidth(
+      index.getType(), {},
+      index.getDefiningOp()
+          ? index.getDefiningOp()
+          : cast<BlockArgument>(index).getOwner()->getParentOp());
+  if (failed(width))
+    return failure();
+  if (info.interval && !info.interval->lower.isNegative() &&
+      llvm::APSInt::compareValues(info.interval->lower, info.interval->upper) <
+          0 &&
+      llvm::APSInt::compareValues(info.interval->upper,
+                                  llvm::APSInt::getUnsigned(extent)) <= 0)
+    return success();
+  if (*width >= 64 || (uint64_t(1) << *width) > extent)
+    return mlir::emitError(node.location(b.getContext(), source.path))
+           << indexedKind << " index complete width is not proven in range";
+  return success();
+}
+LogicalResult Importer::proveIndex(Value table, Value index,
+                                   const AstNode &node) {
   ac::HardwareAnalysis analysis(*body);
   auto size = analysis.getTableSize(
       cast<ac::TableType>(table.getType()), {},
       table.getDefiningOp()
           ? table.getDefiningOp()
           : cast<BlockArgument>(table).getOwner()->getParentOp());
-  auto width = analysis.getPackedWidth(
-      index.getType(), {},
-      index.getDefiningOp()
-          ? index.getDefiningOp()
-          : cast<BlockArgument>(index).getOwner()->getParentOp());
-  if (failed(size) || failed(width))
+  if (failed(size))
     return failure();
-  if (info.interval && !info.interval->lower.isNegative() &&
-      llvm::APSInt::compareValues(info.interval->lower, info.interval->upper) <
-          0 &&
-      llvm::APSInt::compareValues(info.interval->upper,
-                                  llvm::APSInt::getUnsigned(*size)) <= 0)
-    return success();
-  if (*width >= 64 || (uint64_t(1) << *width) > *size)
-    return mlir::emitError(node.location(b.getContext(), source.path))
-           << "table index complete width is not proven in range";
-  return success();
+  return proveIndexExtent(index, *size, node, "table");
 }
 FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                                        Value replacement,

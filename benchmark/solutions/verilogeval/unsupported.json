@@ -1,9 +1,5 @@
 [
   {
-    "task_id": "rotate100",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
     "task_id": "dff8ar",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
@@ -17,10 +13,6 @@
   },
   {
     "task_id": "fsm_hdlc",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "review2015_count1k",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
@@ -38,14 +30,6 @@
   {
     "task_id": "2012_q1g",
     "reason": "not-authored-in-this-slice"
-  },
-  {
-    "task_id": "count1to10",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "m2014_q4d",
-    "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
     "task_id": "fsm1",
@@ -92,18 +76,6 @@
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
-    "task_id": "gatesv100",
-    "reason": "wide-static-unroll-deferred"
-  },
-  {
-    "task_id": "countslow",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "mt2015_q4",
-    "reason": "not-authored-in-this-slice"
-  },
-  {
     "task_id": "alwaysblock2",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
@@ -148,10 +120,6 @@
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
-    "task_id": "mt2015_q4b",
-    "reason": "not-authored-in-this-slice"
-  },
-  {
     "task_id": "m2014_q6",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
@@ -160,15 +128,7 @@
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
-    "task_id": "rule110",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
     "task_id": "review2015_shiftcount",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "dff8",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
@@ -181,18 +141,6 @@
   },
   {
     "task_id": "fsm3",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "lfsr5",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "dff",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "lfsr32",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
@@ -212,15 +160,7 @@
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
-    "task_id": "mux256to1",
-    "reason": "dynamic-packed-bit-selection-unsupported"
-  },
-  {
     "task_id": "review2015_fsmshift",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "count10",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
@@ -229,10 +169,6 @@
   },
   {
     "task_id": "dualedge",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "edgedetect2",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
@@ -248,15 +184,7 @@
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
-    "task_id": "edgedetect",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
     "task_id": "fsm_ps2",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "count15",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
@@ -269,10 +197,6 @@
   },
   {
     "task_id": "edgecapture",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "dff8r",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
@@ -304,24 +228,12 @@
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
-    "task_id": "rule90",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
     "task_id": "lemmings2",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {
     "task_id": "ece241_2014_q5a",
     "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "m2014_q6b",
-    "reason": "not-authored-in-this-slice"
-  },
-  {
-    "task_id": "circuit2",
-    "reason": "not-authored-in-this-slice"
   },
   {
     "task_id": "ece241_2013_q12",
@@ -333,10 +245,6 @@
   },
   {
     "task_id": "shift18",
-    "reason": "explicit-clock-or-reset-state-not-authored"
-  },
-  {
-    "task_id": "m2014_q4c",
     "reason": "explicit-clock-or-reset-state-not-authored"
   },
   {

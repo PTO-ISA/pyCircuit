@@ -1,12 +1,23 @@
 """Regular-clock digital_clock scenario; original physical-control oracles remain."""
 
 from example_digital_clock.digital_clock import DigitalClock
-from pycircuit import bits, log, rule, system, struct, table
+from pycircuit import bits, log, rule, system, table
 
 
-@struct
-class EditingSequence:
-    values: table[64, bits[8]]
+def editing_sequence() -> table[64, bits[8]]:
+    # fmt: off
+    values: table[64, bits[8]] = (
+        89, 0, 1, 2, 3, 4, 5, 6,
+        7, 8, 9, 16, 17, 18, 19, 20,
+        21, 22, 23, 24, 25, 32, 33, 34,
+        35, 36, 37, 38, 39, 40, 41, 48,
+        49, 50, 51, 52, 53, 54, 55, 56,
+        57, 64, 65, 66, 67, 68, 69, 70,
+        71, 72, 73, 80, 81, 82, 83, 84,
+        85, 86, 87, 88, 89, 0, 89, 88,
+    )
+    # fmt: on
+    return values
 
 
 @rule
@@ -18,71 +29,38 @@ def advance(phase):
 def ExerciseDigitalClockSettings():  # noqa: N802
     phase: bits[64] = 0
 
-    # fmt: off
-    sequence = EditingSequence(
-        values=(
-            89, 0, 1, 2, 3, 4, 5, 6,
-            7, 8, 9, 16, 17, 18, 19, 20,
-            21, 22, 23, 24, 25, 32, 33, 34,
-            35, 36, 37, 38, 39, 40, 41, 48,
-            49, 50, 51, 52, 53, 54, 55, 56,
-            57, 64, 65, 66, 67, 68, 69, 70,
-            71, 72, 73, 80, 81, 82, 83, 84,
-            85, 86, 87, 88, 89, 0, 89, 88,
-        ),
-    )
-    # fmt: on
+    sequence = editing_sequence()
     minute_index = (phase - 30)[:6]
     second_index = (phase - 94)[:6]
     btn_set = (
-        (
-            (((phase[:1] & 0) | 1) if phase < 1 else ((phase[:1] & 0) | 0))
-            if phase < 28
-            else (((phase[:1] & 0) | 1) if phase < 29 else ((phase[:1] & 0) | 0))
-        )
+        (((1) if phase < 1 else (0)) if phase < 28 else ((1) if phase < 29 else (0)))
         if phase < 92
         else (
-            (((phase[:1] & 0) | 1) if phase < 93 else ((phase[:1] & 0) | 0))
+            ((1) if phase < 93 else (0))
             if phase < 156
-            else (((phase[:1] & 0) | 1) if phase < 157 else ((phase[:1] & 0) | 0))
+            else ((1) if phase < 157 else (0))
         )
     )
     btn_plus = (
-        (
-            ((phase[:1] & 0) | 0)
-            if phase < 2
-            else (((phase[:1] & 0) | 1) if phase < 29 else ((phase[:1] & 0) | 0))
-        )
+        ((0) if phase < 2 else ((1) if phase < 29 else (0)))
         if phase < 30
         else (
-            (((phase[:1] & 0) | 1) if phase < 92 else ((phase[:1] & 0) | 0))
+            ((1) if phase < 92 else (0))
             if phase < 94
-            else (((phase[:1] & 0) | 1) if phase < 159 else ((phase[:1] & 0) | 0))
+            else ((1) if phase < 159 else (0))
         )
     )
     btn_minus = (
         (
-            (((phase[:1] & 0) | 0) if phase < 1 else ((phase[:1] & 0) | 1))
+            ((0) if phase < 1 else (1))
             if phase < 2
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 27
-                else (((phase[:1] & 0) | 1) if phase < 28 else ((phase[:1] & 0) | 0))
-            )
+            else ((0) if phase < 27 else ((1) if phase < 28 else (0)))
         )
         if phase < 29
         else (
-            (
-                ((phase[:1] & 0) | 1)
-                if phase < 30
-                else (((phase[:1] & 0) | 0) if phase < 91 else ((phase[:1] & 0) | 1))
-            )
+            ((1) if phase < 30 else ((0) if phase < 91 else (1)))
             if phase < 94
-            else (
-                ((phase[:1] & 0) | 0)
-                if phase < 155
-                else (((phase[:1] & 0) | 1) if phase < 159 else ((phase[:1] & 0) | 0))
-            )
+            else ((0) if phase < 155 else ((1) if phase < 159 else (0)))
         )
     )
     dut = DigitalClock(btn_set, btn_plus, btn_minus)
@@ -163,10 +141,10 @@ def ExerciseDigitalClockSettings():  # noqa: N802
         )
     )
     expected_minutes_bcd = (
-        0 if phase < 30 else (sequence.values[minute_index] if phase < 94 else 88)
+        0 if phase < 30 else (sequence[minute_index] if phase < 94 else 88)
     )
     expected_seconds_bcd = (
-        0 if phase < 94 else (sequence.values[second_index] if phase < 158 else 88)
+        0 if phase < 94 else (sequence[second_index] if phase < 158 else 88)
     )
     expected_setting_mode = (
         (((phase[:2] & 0) | 0) if phase < 1 else ((phase[:2] & 0) | 1))
@@ -177,7 +155,7 @@ def ExerciseDigitalClockSettings():  # noqa: N802
             else (((phase[:2] & 0) | 3) if phase < 157 else ((phase[:2] & 0) | 0))
         )
     )
-    expected_colon_blink = (phase[:1] & 0) | 0
+    expected_colon_blink = 0
 
     @rule
     def check_and_advance():
@@ -210,7 +188,7 @@ def ExerciseDigitalClock():  # noqa: N802
         | (phase == 99_999_999)
     )
     minus_pressed = (phase >= 1) & (phase < 4)
-    zero1 = phase[:1] & 0
+    zero1 = 0
     dut = DigitalClock(set_pressed, zero1, minus_pressed)
 
     # Calendar oracle in closed form: first four raw presses set 23:59:59.

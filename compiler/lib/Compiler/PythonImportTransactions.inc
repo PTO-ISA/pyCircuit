@@ -2435,6 +2435,44 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   };
 
   llvm::StringMap<unsigned> moduleAssignmentCounts;
+  llvm::StringMap<BindingBoundary> ordinaryBoundaries;
+  auto ordinaryStatement = [&](size_t ordinal) -> LogicalResult {
+    auto ordinaryValues = std::move(moduleValues);
+    auto restoreValues = llvm::scope_exit([&] {
+      for (const auto &entry : states)
+        ordinaryValues.erase(entry.first());
+      moduleValues = std::move(ordinaryValues);
+    });
+    llvm::StringSet<> protectedNames;
+    for (const auto &input : authoredInputs)
+      protectedNames.insert(input.getKey());
+    for (const auto &entry : states) {
+      Value oldQ = entry.second.op->getResult(0);
+      ordinaryValues[entry.first()] = oldQ;
+      rememberState(oldQ, entry.second);
+      protectedNames.insert(entry.first());
+    }
+    // A nested Rule can also have a shared Method entry in this inventory.
+    // Its earlier data spelling is governed by requireNestedRuleDataTarget,
+    // not by the later callable's presence in either map.
+    for (const auto &entry : methods)
+      if (!nestedRuleBinding(entry.first()))
+        protectedNames.insert(entry.first());
+    for (const auto &entry : rules)
+      if (!nestedRuleBinding(entry.first()))
+        protectedNames.insert(entry.first());
+    if (failed(moduleStatement(decl, ordinal, at, ordinaryValues,
+                               ordinaryBoundaries, instances, protectedNames)))
+      return failure();
+    auto statement = decl.node.item("body", ordinal);
+    if (statement.kind() == "Assign" &&
+        statement.array("targets").size() == 1 &&
+        statement.item("targets", 0).kind() == "Name")
+      ++moduleAssignmentCounts[statement.item("targets", 0).string("id")];
+    ordinaryModuleAssignments.insert(
+        sourceOccurrence(at, decl.symbol, statement));
+    return success();
+  };
   bool sawStructuralReturn = false;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
@@ -2444,7 +2482,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     }
     if (sawStructuralReturn &&
         (statement.kind() == "Assign" || statement.kind() == "AnnAssign" ||
-         statement.kind() == "AugAssign"))
+         statement.kind() == "AugAssign" || statement.kind() == "If" ||
+         statement.kind() == "Match" || statement.kind() == "For"))
       return error() << "new local binding after structural return";
   }
   size_t instanceCount = 0;
@@ -2531,6 +2570,12 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       }
       if (failed(registerRule(statement, registrationCall))) return failure();
       if (binding) binding->registered = true;
+      continue;
+    }
+    if (statement.kind() == "If" || statement.kind() == "Match" ||
+        statement.kind() == "For") {
+      if (failed(ordinaryStatement(i)))
+        return failure();
       continue;
     }
     if (docstring(statement) || statement.kind() == "Return" ||
@@ -2719,22 +2764,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           instances.contains(root))
         return error() << "module-local assignment cannot write a persistent "
                           "owner, input or instance handle";
-      llvm::StringMap<Value> ordinaryValues(moduleValues);
-      for (const auto &entry : states) {
-        Value oldQ = entry.second.op->getResult(0);
-        ordinaryValues[entry.first()] = oldQ;
-        rememberState(oldQ, entry.second);
-      }
-      auto selectedType = expressionType(target, ordinaryValues, instances, decl.symbol);
-      if (failed(selectedType)) return failure();
-      auto replacement = expression(statement.child("value"), at, decl.symbol,
-                                     ordinaryValues, instances, *selectedType);
-      if (failed(replacement) ||
-          failed(updateAssignment(target, *replacement, statement, at,
-                                  decl.symbol, ordinaryValues)))
+      if (failed(ordinaryStatement(i)))
         return failure();
-      moduleValues[root] = ordinaryValues.lookup(root);
-      ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
       continue;
     }
     if (statement.kind() == "Assign" &&
@@ -2823,24 +2854,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       if (authoredInputs.contains(name))
         return error()
                << "module-local assignment cannot rebind an authored input";
-      // Ordinary module expressions capture physical old Q. Keep this view
-      // local: state initializers and callable captures retain their existing
-      // bindings, and transaction reads continue to use source effects.
-      llvm::StringMap<Value> ordinaryValues(moduleValues);
-      for (const auto &entry : states) {
-        Value oldQ = entry.second.op->getResult(0);
-        ordinaryValues[entry.first()] = oldQ;
-        rememberState(oldQ, entry.second);
-      }
-      auto ordinary =
-          expression(value, at, decl.symbol, ordinaryValues, instances);
-      if (failed(ordinary))
+      // The shared statement owner reads committed state and retains ordinary
+      // binding facts; it cannot publish a candidate or write a state owner.
+      if (failed(ordinaryStatement(i)))
         return failure();
-      moduleValues[name] = *ordinary;
-      ++moduleAssignmentCounts[name];
-      noteNestedRuleDataBinding(name);
-      ordinaryModuleAssignments.insert(
-          sourceOccurrence(at, decl.symbol, statement));
       continue;
     }
     return error() << "unsupported typed transaction module statement";

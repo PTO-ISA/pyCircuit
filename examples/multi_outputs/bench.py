@@ -13,8 +13,8 @@ class Scenario:
     expected_valid: ac.u1
 
 
-@ac.struct
-class Scenarios:
+def scenario_rows() -> ac.table[8, Scenario]:
+    # fmt: off
     rows: ac.table[8, Scenario] = (
         Scenario(word=0, enable=0, expected_tag=1, expected_data=255, expected_valid=0),
         Scenario(word=1, enable=1, expected_tag=2, expected_data=254, expected_valid=1),
@@ -35,6 +35,8 @@ class Scenarios:
         ),
         Scenario(word=255, enable=0, expected_tag=0, expected_data=0, expected_valid=0),
     )
+    # fmt: on
+    return rows
 
 
 @ac.rule
@@ -45,8 +47,8 @@ def advance(phase):
 @ac.system
 def MultiOutputsSystem():  # noqa: N802
     phase: ac.u3 = 0
-    scenarios = Scenarios()
-    row = scenarios.rows[phase]
+    scenarios = scenario_rows()
+    row = scenarios[phase]
     tag, data, valid = MultiOutputs(row.word, row.enable)
     grouped_tag, grouped_data, grouped_valid = GroupedOutputs(row.word, row.enable)
 

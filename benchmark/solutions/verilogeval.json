@@ -1406,5 +1406,17 @@
       "incoming": "in"
     },
     "status": "implemented"
+  },
+  {
+    "task_id": "mux256to1",
+    "source": "benchmark/solutions/verilogeval/mux256to1.py",
+    "top": "verilogeval.mux256to1.Top",
+    "outputs": [
+      {
+        "name": "out",
+        "width": 1
+      }
+    ],
+    "status": "implemented"
   }
 ]

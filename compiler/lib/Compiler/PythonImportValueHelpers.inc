@@ -49,6 +49,27 @@ LogicalResult Importer::preflightValueHelper(const AstNode &node,
             if (failed(self(self, site.item(field, i), true, false))) return failure();
         return success();
       }
+      if (kind == "Match") {
+        if (failed(self(self, site.child("subject"), false, false)))
+          return failure();
+        // Traverse source patterns under the ordinary helper work/depth budget
+        // before the shared closed-pattern reader prepares its arm views.
+        for (size_t i = 0; i < site.array("cases").size(); ++i) {
+          auto arm = site.item("cases", i);
+          if (failed(chargeSourceWalk(arm, sourceWork)) ||
+              failed(self(self, arm.child("pattern"), false, false)))
+            return failure();
+        }
+        auto syntax = readMatchSyntax(site, diagnostic);
+        if (failed(syntax))
+          return failure();
+        for (const auto &arm : *syntax)
+          for (size_t i = 0; i < arm.originalSite.array("body").size(); ++i)
+            if (failed(
+                    self(self, arm.originalSite.item("body", i), true, false)))
+              return failure();
+        return success();
+      }
       if (kind == "For") {
         if (loopDepth)
           return diagnostic(site) << "nested bounded for is unsupported";
@@ -356,6 +377,7 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   auto savedPure = std::exchange(activeValueHelper, true);
   auto savedLexical = std::exchange(activeHelperLexicalOwner, helper.lexicalOwner);
   auto savedRule = std::exchange(activeRule, nullptr);
+  auto savedModuleStatements = std::exchange(activeModuleStatements, nullptr);
   auto savedDecl = std::exchange(activeBehavioralDecl, nullptr);
   auto savedStates = std::exchange(activeStates, nullptr);
   auto savedEffects = std::exchange(activeSourceEffects, nullptr);
@@ -365,7 +387,10 @@ LogicalResult Importer::lowerValueHelper(ValueHelperDecl &helper) {
   auto restore = llvm::scope_exit([&] {
     activeHelperFrame = savedFrame;
     activeValueHelper = savedPure; activeHelperLexicalOwner = savedLexical;
-    activeRule = savedRule; activeBehavioralDecl = savedDecl; activeStates = savedStates;
+    activeRule = savedRule;
+    activeModuleStatements = savedModuleStatements;
+    activeBehavioralDecl = savedDecl;
+    activeStates = savedStates;
     activeSourceEffects = savedEffects; activeLoop = savedLoop;
     activeSourceExpansion = std::move(savedExpansion);
   });

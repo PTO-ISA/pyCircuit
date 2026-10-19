@@ -83,6 +83,28 @@ synthesis support for X detection or introduce multi-driver resolution.
 
 ## Behavioral variables and rules
 
+Ordinary Module computations use the same assignment, `if`, `match` and admitted
+literal-`for` value lowering as pure helpers. For example:
+
+```python
+@ac.module
+def Adjust(value: ac.u8, enabled: ac.u1) -> ac.u8:
+    result = value
+    if enabled:
+        result = result + 1
+    return result
+```
+
+These unannotated locals are combinational values. Pure branches retain four-state
+value merging; they do not implicitly allocate registers or require a known
+selector. A name first defined inside a branch must be defined on every arm
+before use. Module-top annotations retain their persistent declaration meaning;
+updates to persistent owners belong in Rules. Hardware allocation, Rule
+registration and annotated declarations remain outside runtime-controlled Module
+branches. Protected ports, imports and instance bindings cannot be reassigned.
+An existing child or Rule does not select a different ordinary statement language.
+The current terminal-return and loop-admission restrictions still apply.
+
 The behavioral slice uses `import pycircuit as ac`, unsigned `ac.bits[W]`
 and `ac.u1` through `ac.u64`, and same-source `@ac.struct` declarations.
 Struct fields are ordered, nominal and immutable values. Same-source constructors
@@ -209,6 +231,23 @@ This analysis does not change the comparison or selection hardware, declare
 unknown bits known, or turn a singleton result range into a source constant.
 It does not recursively analyze compound guards or imply an implicit narrowing
 conversion.
+
+`value[index]` reads one bit from an authoritative fixed-Bits value; index zero
+is the least significant bit and the result is fixed `bits[1]`. Literal and
+runtime selectors reuse the Table index rule: the complete nonnegative known
+range must fit the actual resolved width. A wider selector is never truncated
+before checking or shifting. A selector containing X/Z yields X, while a known
+selector reading a Z bit preserves Z. Known out-of-range, negative and unproved
+ranges reject. Boolean and bounded Integer selectors cross the existing fresh
+unsigned boundary; this does not change their saved aliases' source kinds.
+Boolean/Integer *data carriers* do not become indexable Bits implicitly.
+Dynamic-width slices and bit/slice assignment are not admitted by this read API.
+
+Closed power-of-two Integer port bounds may use equivalent static expressions,
+for example `Annotated[int, range(8)]`, `range(4 + 4)` or `range(1 << 3)`.
+The existing evaluator derives the exact width; symbolic `1 << WIDTH` retains
+its original parameter binding. Bounds must yield a positive hardware width;
+Boolean, non-power-of-two, zero, negative and singleton bounds remain rejected.
 
 `ac.concat(first, second, ...)` joins one or more unsigned fixed-bit values,
 with the first operand in the most significant positions. A singleton preserves

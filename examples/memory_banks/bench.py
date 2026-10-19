@@ -20,8 +20,8 @@ class Scenario:
     response_tag: ac.u8
 
 
-@ac.struct
-class Scenarios:
+def scenario_rows() -> ac.table[26, Scenario]:
+    # fmt: off
     rows: ac.table[26, Scenario] = (
         Scenario(),
         Scenario(valid=1, write=1, data=41, tag=1),
@@ -54,14 +54,16 @@ class Scenarios:
         Scenario(output_valid=1, response_bank=2, response_tag=10),
         Scenario(output_valid=1, response_bank=3, response_data=0x3333, response_tag=7),
     )
+    # fmt: on
+    return rows
 
 
 @ac.system
 def ExerciseMemoryBanks():  # noqa: N802
     phase: ac.u5 = 0
-    scenarios = Scenarios()
+    scenarios = scenario_rows()
     position = phase if phase < 26 else 25
-    scenario = scenarios.rows[position]
+    scenario = scenarios[position]
     request = BankRequest(
         bank=scenario.bank,
         offset=3,

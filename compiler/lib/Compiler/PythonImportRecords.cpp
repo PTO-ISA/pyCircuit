@@ -247,6 +247,15 @@ struct BranchEnvironment {
   llvm::StringMap<BindingBoundary> boundaries;
   Value ambient, continuation;
 };
+// Borrowed only while lowering an ordinary Module statement. Declarations and
+// callable registration remain owned by the surrounding Module dispatcher.
+struct ModuleStatementContext {
+  llvm::StringMap<Instance *> &instances;
+  const llvm::StringMap<Value> &values;
+  const llvm::StringSet<> &protectedNames;
+  llvm::StringSet<> &assignedNames;
+};
+
 // One entry of the rule result suffix that a source instrumentation site
 // contributes. A source assertion contributes exactly one entry; a source
 // observation contributes one entry per hardware value operand, or a single
@@ -745,6 +754,8 @@ private:
                                                      const AstNode &assignment,
                                                      const AstNode &index);
   LogicalResult proveIndex(Value table, Value index, const AstNode &node);
+  LogicalResult proveIndexExtent(Value index, uint64_t extent,
+                                 const AstNode &node, StringRef indexedKind);
   FailureOr<Value> unsignedBoundary(Value value, Type target,
                                     const AstNode &node, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
@@ -758,7 +769,9 @@ private:
                                       OpBuilder &at, FlatSymbolRefAttr symbol);
   FailureOr<Value> fixedUnsignedShift(Value input, Value count,
                                       StringRef opcode, const AstNode &node,
-                                      OpBuilder &at, FlatSymbolRefAttr symbol);
+                                      const AstNode &inputSite,
+                                      const AstNode &countSite, OpBuilder &at,
+                                      FlatSymbolRefAttr symbol);
   FailureOr<Value> compareSourceValues(Value lhs, Value rhs,
                                        StringRef predicate,
                                        const AstNode &leftSite,
@@ -781,6 +794,14 @@ private:
                            llvm::StringSet<> &owners, AstNode &returned,
                            size_t begin = 0,
                            size_t end = std::numeric_limits<size_t>::max());
+  LogicalResult moduleStatement(const ModuleDecl &decl, size_t ordinal,
+                                OpBuilder &at, llvm::StringMap<Value> &values,
+                                llvm::StringMap<BindingBoundary> &boundaries,
+                                llvm::StringMap<Instance *> &instances,
+                                const llvm::StringSet<> &protectedNames);
+  LogicalResult validateModuleStatement(const AstNode &statement,
+                                        const ModuleStatementContext &context);
+  bool isModuleInstanceHandle(Value value) const;
   // Source assertion sites only. A structural rule publishes its observations
   // through the module-level instrumentation pass, so the rule result suffix it
   // reserves must not include them.
@@ -987,6 +1008,7 @@ private:
   ModuleDecl *activeBehavioralDecl = nullptr;
   SmallVector<StateOwner> *activeStates = nullptr;
   RuleEvaluation *activeRule = nullptr;
+  ModuleStatementContext *activeModuleStatements = nullptr;
   SourceEffectContext *activeSourceEffects = nullptr;
   llvm::StringMap<size_t> local;
   SmallVector<ModuleDecl, 0> modules;
@@ -2321,19 +2343,46 @@ FailureOr<Type> Importer::portType(const AstNode &node,
   AstNode range = tuple.item("elts", 1);
   if (range.kind() != "Call" || range.child("func").kind() != "Name" ||
       range.child("func").string("id") != "range" ||
-      range.array("args").size() != 1)
-    return error() << "integer port requires range(1 << WIDTH)";
+      range.array("args").size() != 1 || !range.array("keywords").empty())
+    return error() << "integer port requires one power-of-two range bound";
   AstNode bound = range.item("args", 0);
-  if (bound.kind() != "BinOp" || bound.child("op").kind() != "LShift")
-    return error() << "integer port range must be a power of two";
-  auto lhs = dyn_cast_or_null<DictionaryAttr>(bound.child("left").get("value"));
-  if (bound.child("left").kind() != "Constant" || !lhs ||
-      lhs.getAs<StringAttr>("integer").getValue() != "1")
-    return error() << "integer port range must start with one";
-  auto width = staticExpr(bound.child("right"), ownerSymbol);
-  if (failed(width))
+  // Retain symbolic widths as source expressions. A parameter default is not
+  // evidence for every actual binding of the module.
+  if (bound.kind() == "BinOp" && bound.child("op").kind() == "LShift") {
+    auto lhs =
+        dyn_cast_or_null<DictionaryAttr>(bound.child("left").get("value"));
+    auto one = lhs ? lhs.getAs<StringAttr>("integer") : StringAttr();
+    if (bound.child("left").kind() == "Constant" && one &&
+        one.getValue() == "1") {
+      auto width = staticExpr(bound.child("right"), ownerSymbol);
+      if (failed(width))
+        return failure();
+      return Type(ac::BitsType::get(b.getContext(), *width));
+    }
+  }
+  // Every other spelling goes through the existing static evaluator. Infer
+  // the exact width only from a closed mathematical value, never an AST recipe
+  // or a runtime range. The resulting Integer domain remains [0, 2**width).
+  auto expression = staticExpr(bound, ownerSymbol);
+  if (failed(expression))
     return failure();
-  return Type(ac::BitsType::get(b.getContext(), *width));
+  ac::HardwareAnalysis analysis(*body);
+  if (!analysis.isStaticEvaluable(*expression, {}))
+    return error() << "integer port range requires a closed power-of-two bound "
+                      "or symbolic 1 << WIDTH";
+  auto evaluated =
+      analysis.evaluateStatic(*expression, {}, body->getOperation());
+  if (failed(evaluated))
+    return failure();
+  auto integer = dyn_cast<ac::MathIntAttr>(*evaluated);
+  if (!integer)
+    return error()
+           << "integer port range bound must be an Integer, not Boolean";
+  llvm::APSInt value(integer.getCanonicalValue());
+  if (value.isNegative() || !value.isPowerOf2() || value == 1)
+    return error() << "integer port range must be a power of two with positive "
+                      "hardware width";
+  return internalBits(value.getActiveBits() - 1, bound, ownerSymbol);
 }
 
 LogicalResult Importer::readReturnContract(ModuleDecl &result,
@@ -2917,7 +2966,8 @@ Importer::fixedUnsignedShift(Value input, const llvm::APSInt &count,
 
 FailureOr<Value>
 Importer::fixedUnsignedShift(Value input, Value count, StringRef opcode,
-                             const AstNode &node, OpBuilder &at,
+                             const AstNode &node, const AstNode &inputSite,
+                             const AstNode &countSite, OpBuilder &at,
                              FlatSymbolRefAttr symbol) {
   auto loc = node.location(b.getContext(), source.path);
   for (Value operand : {input, count})
@@ -2941,8 +2991,8 @@ Importer::fixedUnsignedShift(Value input, Value count, StringRef opcode,
   // The existing binary op has equal-width operands. Widen rather than truncate
   // a count: high count bits and X/Z must still determine the shift result.
   Type common = *inputWidth >= *countWidth ? input.getType() : count.getType();
-  auto value = unsignedBoundary(input, common, node.child("left"), at, symbol);
-  auto amount = unsignedBoundary(count, common, node.child("right"), at, symbol);
+  auto value = unsignedBoundary(input, common, inputSite, at, symbol);
+  auto amount = unsignedBoundary(count, common, countSite, at, symbol);
   if (failed(value) || failed(amount))
     return failure();
   Value result =
@@ -3354,9 +3404,9 @@ FailureOr<Value> Importer::expression(
                                  instances, {}, captures);
         if (failed(amount) || !fixedValues.contains(*amount))
           return staticCountError();
-        return fixedUnsignedShift(*input, *amount,
-                                  form == "LShift" ? "shl" : "lshr", node, at,
-                                  ownerSymbol);
+        return fixedUnsignedShift(
+            *input, *amount, form == "LShift" ? "shl" : "lshr", node,
+            node.child("left"), node.child("right"), at, ownerSymbol);
       }
       if (count->isNegative())
         return error() << (form == "RShift"
@@ -3883,9 +3933,11 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
         return failure();
       return shape->type;
     }
+    if (isa<ac::BitsType>(*base))
+      return internalBits(1, node, ownerSymbol);
     auto table = dyn_cast<ac::TableType>(*base);
     if (!table)
-      return error() << "subscript requires a table";
+      return error() << "subscript requires fixed bits or a table";
     return table.getElementType();
   }
   if (node.kind() == "IfExp")

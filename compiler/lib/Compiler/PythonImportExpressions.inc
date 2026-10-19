@@ -323,9 +323,40 @@ if (node.kind() == "Subscript") {
                           instances, {}, captures);
   if (failed(index))
     return failure();
+  if (isa<ac::BitsType>(base->getType())) {
+    if (!fixedValues.contains(*base))
+      return error() << "bit index requires authoritative fixed bits, not a "
+                        "Boolean or Integer carrier";
+    ac::HardwareAnalysis analysis(*body);
+    auto width = analysis.getPackedWidth(base->getType(), {},
+                                         at.getInsertionBlock()->getParentOp());
+    if (failed(width) || failed(proveIndexExtent(*index, *width, node, "bit")))
+      return failure();
+    // Keep the complete index carrier, including high X/Z bits. A logical
+    // Boolean/Integer index crosses an explicit fresh fixed-Bits boundary;
+    // aliases of the original source value retain their source-kind facts.
+    auto count = unsignedBoundary(*index, index->getType(), node.child("slice"),
+                                  at, ownerSymbol);
+    if (failed(count))
+      return failure();
+    auto shifted =
+        fixedUnsignedShift(*base, *count, "lshr", node, node.child("value"),
+                           node.child("slice"), at, ownerSymbol);
+    if (failed(shifted))
+      return failure();
+    auto result =
+        createOp(at, node.location(b.getContext(), source.path),
+                 ac::BitsExtractOp::getOperationName(), {*shifted},
+                 TypeRange{internalBits(1, node, ownerSymbol)},
+                 {at.getNamedAttr("low", literal(0, node, ownerSymbol))})
+            ->getResult(0);
+    remember(result, std::nullopt);
+    fixedValues.insert(result);
+    return result;
+  }
   auto type = dyn_cast<ac::TableType>(base->getType());
   if (!type)
-    return error() << "subscript requires a table";
+    return error() << "subscript requires fixed bits or a table";
   if (failed(proveIndex(*base, *index, node)))
     return failure();
   auto result =
