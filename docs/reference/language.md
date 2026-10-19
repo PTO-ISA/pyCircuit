@@ -18,6 +18,11 @@ compile/link flow. See [nominal enums](spec-enums.md) for exact boundaries.
 
 ## Rule authoring requirements and current admission
 
+The [four-state/System design supplement](../rfcs/four-state-system.md) specifies
+proposed explicit X/Z literals, verification predicates, root reset policy and
+generated stimulus. These additions are not current source admission. Existing
+four-state payloads and strict sampled-control behavior remain as described here.
+
 The [Rule authoring contract](../development/agent-frontend-guide.md#rule-authoring-contract)
 requires simple, cohesive, stateless Rules, Module-style typed inputs and
 heterogeneous multi-output calls, Struct grouping by interface, and compiler-owned

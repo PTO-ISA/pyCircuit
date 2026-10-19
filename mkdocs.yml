@@ -112,6 +112,7 @@ nav:
           - Execution Prompt: development/issue-307-319-agent-prompt.md
       - Project Governance: development/project-governance.md
       - Extension Specifications:
+          - Four-state Values and System: rfcs/four-state-system.md
           - Serial Rule and Method: rfcs/serial-rule-method/README.md
           - Source Semantics: rfcs/serial-rule-method/source-semantics.md
           - Pure Helpers: rfcs/serial-rule-method/pure-helpers.md

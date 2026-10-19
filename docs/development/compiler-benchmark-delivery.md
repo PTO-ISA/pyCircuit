@@ -5,6 +5,16 @@ the affected benchmarks and submit a PR. The audited findings are recorded in
 `benchmark/findings/compiler-audit-20261019.md`. Passing prior gates does not
 close the remaining findings.
 
+Four-state design follow-up: the user requested a complete frontend/IR/codegen/
+System design after discussing reset=X. The proposed
+[four-state/System supplement](../rfcs/four-state-system.md) retains strict as
+default and places an explicit reset-only if_one policy in common final IR,
+shared by native and both RTL adapters. It also specifies literals, exact
+verification, finite System stimuli and lossless observations. This replaces the
+earlier idea of choosing different reset semantics for different backends.
+Implementation and fresh benchmark acceptance remain outstanding; the committed
+compiler still has the strict behavior and results recorded below.
+
 ## Required work
 
 - [x] Audit each failure through its existing source/IR/backend owner.
@@ -77,7 +87,6 @@ unchanged upstream TB has not initialized reset; strict versus native-Verilog
 reset-X policy is pending direct user clarification. The compiler does not hide
 that fault. Remaining acceptance covers wide/nested/Collection startup and
 negative physical projection cases; refreshed API/example gates are running.
-
 
 Final local checkpoint validation: API23/23, Examples13/13, unit627 passed/
 5 skipped/82 deselected, strict docs build and changed-file pre-commit checks

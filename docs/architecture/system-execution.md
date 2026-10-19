@@ -1,5 +1,10 @@
 # System compilation and simulation
 
+The [four-state/System design supplement](../rfcs/four-state-system.md) proposes
+finite four-state domain stimuli, a shared root reset policy and lossless
+observation values. It extends the existing generated harness; it is not an
+implemented replacement for the execution contract below.
+
 `@system` is a current pyCircuit language construct for a closed simulation
 composition. Authors describe the DUT, stimulus state, checks and observations
 in Python. The compiler generates the GFSIM system and system Verilog, including
