@@ -427,6 +427,40 @@ def test_inferred_loop_else_returns_reload_and_execute(tmp_path):
             "    else:\n        return None\n",
             "return contract",
         ),
+        (
+            "    cursor: ac.u2 = 0\n    for outer in range(0):\n        pass\n"
+            "    else:\n        while cursor < 2:\n            cursor = cursor + 1\n"
+            "    return value\n",
+            "nested source loop in for else",
+        ),
+        (
+            "    cursor: ac.u2 = 0\n    for outer in range(1):\n        pass\n"
+            "    else:\n        while cursor < 2:\n            cursor = cursor + 1\n"
+            "    return value\n",
+            "nested source loop in for else",
+        ),
+        (
+            "    cursor: ac.u2 = 0\n    for outer in range(0):\n        pass\n"
+            "    else:\n        if value == 0:\n            while cursor < 2:\n"
+            "                cursor = cursor + 1\n    return value\n",
+            "nested source loop in for else",
+        ),
+        (
+            "    for outer in range(0):\n        pass\n"
+            "    else:\n        match value:\n            case 0:\n"
+            "                for inner in range(1):\n                    value = value + 1\n"
+            "            case _:\n                value = value + 2\n"
+            "    return value\n",
+            "nested source loop in for else",
+        ),
+        (
+            "    cursor: ac.u2 = 0\n    for outer in range(1):\n        pass\n"
+            "    else:\n        match value:\n            case 0:\n"
+            "                while cursor < 2:\n                    cursor = cursor + 1\n"
+            "            case _:\n                value = value + 2\n"
+            "    return value\n",
+            "nested source loop in for else",
+        ),
     ],
     ids=[
         "nested-zero-else",
@@ -438,6 +472,11 @@ def test_inferred_loop_else_returns_reload_and_execute(tmp_path):
         "after-else-return",
         "bare-return-as-value",
         "none-return-as-value",
+        "while-in-zero-else",
+        "while-in-nonzero-else",
+        "while-under-if-in-else",
+        "for-under-match-in-else",
+        "while-under-match-in-else",
     ],
 )
 def test_loop_else_return_and_nesting_rejections_preserve_outputs(
@@ -557,3 +596,128 @@ def test_conditional_loop_else_reserves_its_branch_occurrence(tmp_path):
     }
     after[final] = final.read_bytes()
     assert after == before
+
+
+def test_body_while_and_sequential_else_release_nesting_budget(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    filename = "scf_while_controls.py"
+    text = (FIXTURE / filename).read_text()
+    clause = (
+        "    for index in range(1):\n"
+        "        if False:\n            break\n"
+        "    else:\n        pass\n"
+    )
+    assert text.count(clause) == 1
+    # Sequential shallow clauses must release nesting depth. 130 exceeds the
+    # private 128 active-depth cap while remaining small in every cumulative cap.
+    repetitions = 130
+    (source / filename).write_text(text.replace(clause, clause * repetitions))
+    # Admission owns the active-depth cap. Later independent link-proof budgets
+    # need not accept this many clauses; execute the small control separately.
+    _ok(_compile(source, filename, tmp_path / "many-clauses-unit"))
+    (source / filename).write_text(text)
+    unit = tmp_path / "unit"
+    _ok(_compile(source, filename, unit))
+    final = tmp_path / "while-controls.ac"
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.scf_while_controls.ExerciseWhileControls",
+            "-o",
+            str(final),
+        )
+    )
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    expected = [(5, 15), (7, 18), (9, 21), (11, 24)]
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        root = tmp_path / target
+        root.mkdir()
+        binary = _bundle(final, root, target)
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "4", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=4"]
+            )
+            records = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            events = [
+                row
+                for row in records
+                if row["kind"] == "log" and row["spec"]["event"] == "while controls"
+            ]
+            assert [
+                tuple(int(v["value"]) for v in row["values"]) for row in events
+            ] == [v for v in expected for _ in range(2)]
+            assert [int(row["evaluation_epoch"]) for row in events] == list(range(8))
+            _assert_closed_observation_identities(records)
+            transcripts.append([row for row in records if row["kind"] != "result"])
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+
+
+def test_native_conditional_else_charges_active_branch_nesting(tmp_path):
+    import ast
+    import copy
+    from dataclasses import replace
+
+    from pycircuit._source_capture import _capture_source_file
+    from pycircuit._source_transport import _emit_source_transport
+
+    source = tmp_path / "nesting_seed.py"
+    source.write_text(
+        "import pycircuit as ac\n@ac.rule\ndef evaluate() -> ac.u1:\n"
+        "    for index in range(1):\n        if True:\n            break\n"
+        "    else:\n        pass\n    return 0\n"
+        "@ac.module\ndef Top() -> ac.u1:\n    return evaluate()\n"
+    )
+    captured = _capture_source_file(source, source_root=tmp_path)
+    transport = tmp_path / "capture.mlir"
+    outputs = [tmp_path / "body.ac", tmp_path / "interface.ac"]
+    command = [
+        os.environ["PYCIRCUIT_SOURCE_COMPILER"],
+        "--capture",
+        str(transport),
+        "--package",
+        "checks",
+        "--path",
+        source.name,
+        "--body-out",
+        str(outputs[0]),
+        "--interface-out",
+        str(outputs[1]),
+    ]
+
+    def ingress(depth):
+        syntax = copy.deepcopy(captured.syntax)
+        declaration = next(
+            node
+            for node in syntax.body
+            if isinstance(node, ast.FunctionDef) and node.name == "evaluate"
+        )
+        loop = declaration.body[0]
+        seed = loop.orelse[0]
+        nested = copy.deepcopy(seed)
+        # This is test-owned native captured-AST ingress. All spans refer to
+        # the valid seed statement; no 128-indent Python-text admission claim.
+        for _ in range(depth):
+            condition = ast.copy_location(ast.Constant(value=True), seed)
+            nested = ast.copy_location(
+                ast.If(test=condition, body=[nested], orelse=[]), seed
+            )
+        loop.orelse = [nested]
+        transport.write_text(_emit_source_transport(replace(captured, syntax=syntax)))
+        return _run(command)
+
+    _ok(ingress(2))
+    published = {path: path.read_bytes() for path in outputs}
+    rejected = ingress(128)
+    assert rejected.returncode != 0, rejected.stdout + rejected.stderr
+    assert "source branch: Table query nesting budget exhausted" in rejected.stderr
+    assert 'loc("nesting_seed.py":8:9)' in rejected.stderr
+    assert "publication summary depth" not in rejected.stderr
+    assert "callable traversal depth" not in rejected.stderr
+    assert {path: path.read_bytes() for path in outputs} == published

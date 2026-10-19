@@ -989,8 +989,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                             Value live) -> LogicalResult {
       if (!live) return emitBody(statement, "orelse", at, environment, inBranch);
       if (statement.array("orelse").empty()) return success();
-      TableQueryCharge charge;
       std::string reason;
+      if (!queryBudget.enter(reason))
+        return statementError(statement) << "source loop-else branch: " << reason;
+      auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
+      TableQueryCharge charge;
       bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
                   TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
                   TableQueryBudget::add(charge, TableQueryResource::Slots, 12) &&
@@ -1228,6 +1231,30 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             for (size_t k = 0; k < statement.array(field).size(); ++k)
               if (hasNestedFor(hasNestedFor, statement.item(field, k)))
                 return statementError(statement) << "nested source for loops are unsupported";
+          // The newly admitted else suite retains the bounded For profile;
+          // existing finite While in a For body or after the For is unchanged.
+          auto hasElseLoop = [&](auto &&self, const AstNode &node) -> bool {
+            if (node.kind() == "FunctionDef" || node.kind() == "Lambda")
+              return false;
+            if (node.kind() == "For" || node.kind() == "While")
+              return true;
+            for (NamedAttribute field : node.fields()) {
+              if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+                if (child.getAs<StringAttr>("kind") &&
+                    self(self, node.child(field.getName().getValue())))
+                  return true;
+              } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+                for (size_t k = 0; k < children.size(); ++k)
+                  if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+                      child && child.getAs<StringAttr>("kind") &&
+                      self(self, node.item(field.getName().getValue(), k)))
+                    return true;
+            }
+            return false;
+          };
+          for (size_t k = 0; k < statement.array("orelse").size(); ++k)
+            if (hasElseLoop(hasElseLoop, statement.item("orelse", k)))
+              return statementError(statement) << "nested source loop in for else is unsupported";
           size_t arity = range.array("args").size();
           if (arity != 1)
             return statementError(range) << "typed for range requires a single literal bound";
