@@ -1741,7 +1741,7 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
       }
       joined.boundaries[item.first()] = item.second;
     }
-  SmallVector<PreparedBranchJoin> prepared;
+  SmallVector<PreparedBranchJoin, 0> prepared;
   SmallVector<StringRef> resultNames;
   std::optional<OpBuilder> thenAt, elseAt;
   if (sourceBranch) {
