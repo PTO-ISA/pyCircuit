@@ -132,7 +132,8 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
     for (StringRef name :
          {"ac.internal_ports", "ac.input_validity", "ac.output_validity",
           "ac.routed_output_validity", "ac.sampled_admission",
-          "ac.execution_policy", "ac.transaction_wiring"}) {
+          "ac.execution_policy", "ac.transaction_wiring", "ac.queue_wiring",
+          "ac.routed_contract"}) {
       if (!operation->hasAttr(name))
         continue;
       operation->emitOpError()

@@ -306,7 +306,7 @@ struct Engine {
         out.push_back({input, path});
       return success();
     };
-    if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp>(op))
+    if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp, SourceStateOp>(op))
       return out;
     if (isa<EnumToBitsOp, EnumFromBitsOp>(op)) {
       out.push_back({op->getOperand(0), {}});
@@ -708,7 +708,7 @@ struct Engine {
     for (Operation &op : module.getBody().front().without_terminator()) {
       if (failed(charge(1, &op)))
         return failure();
-      if (isa<SourceObserveOp, SourceExpectOp>(op)) {
+      if (isa<SourceObserveOp, SourceExpectOp, StateUpdateOp>(op)) {
         for (auto operand : op.getOperands()) {
           auto leaves = paths(operand.getType(), bindings, &op);
           if (failed(leaves))
@@ -728,6 +728,30 @@ struct Engine {
         for (auto path : *leaves)
           if (failed(visit({value, path})))
             return failure();
+      }
+      if (auto logical = dyn_cast<SourceStateOp>(op)) {
+        for (Value input : logical->getOperands()) {
+          auto leaves = paths(input.getType(), bindings, logical);
+          if (failed(leaves)) return failure();
+          for (auto path : *leaves)
+            if (failed(visit({input, path}))) return failure();
+        }
+      }
+      if (validationOnly && op.getNumRegions()) {
+        // A dead operation within a normalized Rule/Table body must not hide a
+        // cycle simply because no yield or update reads its result.
+        auto nested = op.walk([&](Operation *inner) {
+          if (inner == &op) return WalkResult::advance();
+          if (failed(charge(1, inner))) return WalkResult::interrupt();
+          for (Value value : inner->getResults()) {
+            auto leaves = paths(value.getType(), bindings, inner);
+            if (failed(leaves)) return WalkResult::interrupt();
+            for (auto path : *leaves)
+              if (failed(visit({value, path}))) return WalkResult::interrupt();
+          }
+          return WalkResult::advance();
+        });
+        if (nested.wasInterrupted()) return failure();
       }
       if (isa<InstanceOp, CollectionOp>(op)) {
         Operation *instance = &op;

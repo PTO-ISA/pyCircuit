@@ -250,6 +250,16 @@ def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
     dependency cuts; asynchronous memory reads retain their address dependency.
     Backend class names, filenames and runtime lifecycle hooks are not part of
     this declaration's hardware semantics.
+
+    An ordinary hardware import may carry ac.external_contract with exactly
+    {state = "none", effects = [], latency = 0 : i64,
+     availability = "all_inputs", value_domain = "four_state", failure = "none"}.
+    It declares a deterministic total combinational function of the inputs and
+    bound parameters, without hidden state or effects. Every output's
+    availability depends on all inputs, independently of dependency_summary.
+    This declaration is legal at the routed boundary; executable hardware still
+    requires an implementation. Definitions and built-in imports cannot carry
+    this contract, and ordinary imports without it do not acquire extern status.
   }];
   let arguments = (ins StrAttr:$sym_name, DictionaryAttr:$source_owner,
       DictArrayAttr:$parameters, StrArrayAttr:$type_parameters,
@@ -284,7 +294,7 @@ def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
     Instance-local wire values and leaf state belong to each occurrence,
     never to the shared definition.
 
-    In a final package only, optional ac.internal_ports records the original
+    In a routed or final package, optional ac.internal_ports records the original
     physical prefix and appended compiler-generated wiring ports. Its exact
     dictionary is {source_inputs: i64, source_outputs: i64, root_inputs: array}.
     Prefix counts are nonnegative and bounded by the full signature, include
@@ -334,8 +344,9 @@ def ACIR_RuleOp : ACIR_Op<"rule", [IsolatedFromAbove, SingleBlock, Pure]> {
   let hasRegionVerifier = 1;
 }
 
-// Typed source effects remain explicit until transaction lowering. These
-// operations are not executable final hardware and are never marked Pure.
+// Typed source effects remain explicit until routing; logical declarations and
+// their updates remain until state refinement. None is executable final
+// hardware, and state effects are never marked Pure.
 def ACIR_SourceStateOp : ACIR_Op<"state", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Declare one source-owned state and its old-Q value";
@@ -349,6 +360,24 @@ def ACIR_SourceStateOp : ACIR_Op<"state", [
       return (*this)->getAttrOfType<::mlir::DictionaryAttr>("ac.payload_constraint");
     }
   }];
+}
+
+def ACIR_StateUpdateOp : ACIR_Op<"state.update", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Bind one routed logical state's candidate and write intent";
+  let description = [{
+    A declarative binding in the owning module graph of a routed package.
+    state is the direct old-Q result of one same-block ac.state declaration;
+    candidate has exactly that payload type and intent resolves to one bit.
+    Every routed logical state has exactly one update. This operation has no
+    attributes, results or regions and is not a Work-time state mutation.
+    False intent holds old Q; commit, reset and failure retain the package's
+    verified transaction semantics. Hardware refinement removes the logical
+    declaration and update together before final verification and emission.
+  }];
+  let arguments = (ins ACIR_HardwareType:$state,
+      ACIR_HardwareType:$candidate, ACIR_BitsType:$intent);
+  let hasVerifier = 1;
 }
 
 def ACIR_SourceStateReadOp : ACIR_Op<"state.read", [

@@ -100,6 +100,8 @@ private:
 };
 mlir::FailureOr<HardwareSourceCheckPlan>
 buildSourceCheckPlan(const HardwareAnalysis &analysis,
-                     HardwareSourceCheckLimits limits);
+                     HardwareSourceCheckLimits limits,
+                     PackageVerificationProfile profile =
+                         PackageVerificationProfile::Hardware);
 } // namespace acir::ac::detail
 #endif

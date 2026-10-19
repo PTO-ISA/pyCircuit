@@ -1,4 +1,5 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "HardwareSourceCheckPreflight.h"
 #include "SourceValueSemantics.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/IR/Verifier.h"
@@ -723,6 +724,14 @@ LogicalResult verifyHardwarePackage(mlir::ModuleOp package) {
   if (!package)
     return failure();
   return HardwareAnalysis(package).verify();
+}
+LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
+                                  HardwareSourceCheckLimits limits) {
+  if (!package)
+    return failure();
+  HardwareAnalysis analysis(package);
+  return success(succeeded(detail::buildSourceCheckPlan(
+      analysis, limits, detail::PackageVerificationProfile::Routed)));
 }
 } // namespace acir::ac
 namespace acir::ac {

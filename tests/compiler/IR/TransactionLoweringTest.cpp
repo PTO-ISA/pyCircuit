@@ -240,6 +240,7 @@ protected:
   mlir::LogicalResult lower(mlir::ModuleOp file) {
     return capture([&] {
       mlir::PassManager manager(&context);
+      manager.addPass(acir::createRouteTransactionsPass());
       manager.addPass(acir::createLowerTransactionsPass());
       return manager.run(file);
     });
@@ -1575,8 +1576,30 @@ TEST_F(TransactionLoweringTest,
     }
     if (mutation == 3)
       first<SourceStateOp>(definition.getBody())->setOperand(1, no.getResult());
-    if (mutation == 4)
+    if (mutation == 4) {
       (*file->getOps<ModuleImportOp>().begin())->erase();
+      // Logical graph legality does not require a physical storage provider.
+      ASSERT_TRUE(mlir::succeeded(capture([&] {
+        mlir::PassManager route(&context);
+        route.addPass(acir::createRouteTransactionsPass());
+        return route.run(*file);
+      }))) << diagnostics;
+      ASSERT_TRUE(mlir::succeeded(capture([&] {
+        return verifyRoutedPackage(*file);
+      }))) << diagnostics;
+      auto routedIdentities = identities(*file);
+      auto routedText = print(file->getOperation());
+      EXPECT_TRUE(mlir::failed(capture([&] {
+        mlir::PassManager refine(&context);
+        refine.addPass(acir::createLowerTransactionsPass());
+        return refine.run(*file);
+      })));
+      EXPECT_NE(diagnostics.find("verified DFFE primitive"), std::string::npos)
+          << diagnostics;
+      unchanged(*file, routedIdentities);
+      EXPECT_EQ(routedText, print(file->getOperation()));
+      continue;
+    }
     if (mutation == 5)
       (*file->getOps<SystemOp>().begin())->erase();
     if (mutation == 6)
@@ -2276,6 +2299,129 @@ TEST_F(TransactionLoweringTest,
   ASSERT_TRUE(restored);
   EXPECT_TRUE(mlir::succeeded(capture([&] {
     return verifyHardwarePackage(*restored);
+  }))) << diagnostics;
+}
+
+TEST_F(TransactionLoweringTest,
+       RouteSuffixesFollowFirstDiscoveryAndDeduplicateSharedDefinitions) {
+  auto file = crossFixture();
+  ASSERT_TRUE(file);
+  auto provider = owner(*file);
+  auto relay = module(*file, "Relay");
+  auto root = module(*file, "Root");
+  auto zeta = instance(relay, "counter");
+  zeta->setAttr("instance_name", builder.getStringAttr("zeta"));
+  zeta->setAttr("occurrence", occurrence("Relay", 90));
+  auto alpha = addInstance(relay, provider, "alpha", zeta->getOperands(), 0);
+  alpha->moveBefore(zeta);
+  // Declaration order, occurrence order and lexical name order all put alpha
+  // first. The actual method encounter is zeta, alpha; repeated forward calls
+  // and both Root instances must reuse those two definition-relative routes.
+  auto forward = named<SourceMethodOp>(relay, "forward");
+  auto nested = first<SourceMethodCallOp>(forward.getBody());
+  nested->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("zeta")}));
+  builder.setInsertionPoint(forward.getBody().front().getTerminator());
+  call(forward.getBody().front().getArgument(1),
+       forward.getBody().front().getArgument(0), relay, "Owner", "bump",
+       "alpha", {provider.getFunctionType().getResult(0)}, 3);
+  root.walk([&](SourceMethodCallOp op) {
+    if (op.getInstancePath().size() == 2)
+      op->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("left"),
+                                        builder.getStringAttr("zeta")}));
+  });
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = capture([&] {
+    return std::make_unique<SourceTransactionStateAnalysis>(
+        file->getOperation());
+  });
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  HardwareSourceCheckLimits limits;
+  detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = capture([&] {
+    return acir::detail::prepareTransactionLowering(*file, *analysis,
+                                                    preparationBudget);
+  });
+  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+  const auto &relayRoutes = prepared->definitions[
+      prepared->definitionIndex.lookup(relay.getOperation())];
+  ASSERT_EQ(relayRoutes.downward.size(), 2u);
+  ASSERT_EQ(relayRoutes.downward[0].path.size(), 1u);
+  ASSERT_EQ(relayRoutes.downward[1].path.size(), 1u);
+  EXPECT_EQ(relayRoutes.downward[0].path[0], zeta);
+  EXPECT_EQ(relayRoutes.downward[1].path[0], alpha);
+  auto state = first<SourceStateOp>(provider.getBody());
+  EXPECT_EQ(relayRoutes.downward[0].value, state.getQ());
+  EXPECT_EQ(relayRoutes.downward[1].value, state.getQ());
+  const auto &providerRoutes = prepared->definitions[
+      prepared->definitionIndex.lookup(provider.getOperation())];
+  ASSERT_EQ(providerRoutes.downward.size(), 1u);
+  EXPECT_TRUE(providerRoutes.downward[0].path.empty());
+  EXPECT_EQ(providerRoutes.downward[0].value, state.getQ());
+  unsigned downwardCount = 0;
+  for (const auto &definition : prepared->definitions)
+    downwardCount += definition.downward.size();
+  EXPECT_EQ(downwardCount, 3u);
+
+  auto stateOccurrence = state.getOccurrence();
+  auto zetaOccurrence = zeta.getOccurrence();
+  auto alphaOccurrence = alpha.getOccurrence();
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    mlir::PassManager manager(&context);
+    manager.addPass(acir::createRouteTransactionsPass());
+    return manager.run(*file);
+  }))) << diagnostics;
+  relay = module(*file, "Relay");
+  provider = owner(*file);
+  auto incoming = relay->getAttrOfType<mlir::DictionaryAttr>(
+      "ac.transaction_wiring").getAs<mlir::ArrayAttr>("incoming");
+  ASSERT_EQ(incoming.size(), 2u);
+  for (unsigned ordinal = 0; ordinal < 2; ++ordinal) {
+    SCOPED_TRACE(ordinal);
+    auto entry = mlir::cast<mlir::DictionaryAttr>(incoming[ordinal]);
+    auto endpoint = entry.getAs<mlir::DictionaryAttr>("state");
+    EXPECT_EQ(endpoint.getAs<mlir::DictionaryAttr>("declaration"),
+              stateOccurrence);
+    EXPECT_EQ(endpoint.getAs<mlir::DictionaryAttr>("owner")
+                  .getAs<mlir::ArrayAttr>("instance_path"),
+              builder.getArrayAttr({ordinal == 0 ? zetaOccurrence
+                                                : alphaOccurrence}));
+    EXPECT_EQ(entry.getAs<mlir::IntegerAttr>("data").getInt(),
+              3 + 2 * ordinal);
+    EXPECT_EQ(entry.getAs<mlir::IntegerAttr>("enable").getInt(),
+              4 + 2 * ordinal);
+    EXPECT_EQ(relay.getInputNames()[3 + 2 * ordinal],
+              builder.getStringAttr("__ac_transaction_d_" +
+                                    std::to_string(ordinal)));
+    EXPECT_EQ(relay.getInputNames()[4 + 2 * ordinal],
+              builder.getStringAttr("__ac_transaction_e_" +
+                                    std::to_string(ordinal)));
+    auto allocation = instance(relay, ordinal == 0 ? "zeta" : "alpha");
+    auto closed = allocation->getOperand(3).getDefiningOp<ValueMergeOp>();
+    ASSERT_TRUE(closed);
+    ASSERT_EQ(closed.getGuards().size(), 1u);
+    ASSERT_EQ(closed.getValues().size(), 1u);
+    auto guard = closed.getGuards()[0].getDefiningOp<BitsBinaryOp>();
+    ASSERT_TRUE(guard);
+    EXPECT_EQ(guard.getOpcode(), "and");
+    EXPECT_EQ(guard.getLhs(),
+              relay.getBody().front().getArgument(4 + 2 * ordinal));
+    EXPECT_EQ(closed.getValues()[0],
+              relay.getBody().front().getArgument(3 + 2 * ordinal));
+    EXPECT_EQ(closed.getBase().getDefiningOp(), allocation.getOperation());
+    EXPECT_EQ(allocation->getOperand(4),
+              relay.getBody().front().getArgument(4 + 2 * ordinal));
+  }
+  EXPECT_EQ(relay.getFunctionType().getNumInputs(), 7u);
+  EXPECT_EQ(provider.getFunctionType().getNumInputs(), 5u);
+  EXPECT_EQ(provider->getAttrOfType<mlir::DictionaryAttr>(
+                "ac.transaction_wiring").getAs<mlir::ArrayAttr>("incoming")
+                .size(),
+            1u);
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyRoutedPackage(*file);
   }))) << diagnostics;
 }
 
@@ -3213,6 +3359,7 @@ TEST_F(TransactionLoweringTest,
   auto result = capture([&] {
     mlir::PassManager manager(&context);
     manager.addPass(std::make_unique<PrimeTransactionAnalysesPass>(&primed));
+    manager.addPass(acir::createRouteTransactionsPass());
     manager.addPass(acir::createLowerTransactionsPass());
     manager.addPass(
         std::make_unique<CheckTransactionInvalidationPass>(&invalidated));
@@ -3595,11 +3742,14 @@ protected:
     return result;
   }
   auto link(mlir::ModuleOp body, mlir::ModuleOp interface,
-            compiler::SourceLinkStages *stages) {
+            compiler::SourceLinkStages *stages,
+            compiler::SourceLinkTarget target =
+                compiler::SourceLinkTarget::Hardware) {
     return capture([&] {
-      return compiler::linkHardwareUnits(
+      return compiler::linkSourceUnits(
           {{body, interface}}, "lower.Owner",
-          [&] { return mlir::emitError(builder.getUnknownLoc()); }, stages);
+          [&] { return mlir::emitError(builder.getUnknownLoc()); }, target,
+          stages);
     });
   }
 };
@@ -3655,13 +3805,21 @@ TEST_F(SourceLinkStageTest,
   auto interface = header(*body);
   ASSERT_TRUE(interface);
   auto before = identities(*body);
-  compiler::SourceLinkStages stages{"input sentinel", "output sentinel"};
+  compiler::SourceLinkStages stages{"input sentinel", "routed sentinel",
+                                    "output sentinel"};
   auto linked = link(*body, *interface, &stages);
   ASSERT_TRUE(mlir::succeeded(linked)) << diagnostics;
   EXPECT_NE(stages.beforeTransactions.find("ac.transaction"),
             std::string::npos);
   EXPECT_EQ(stages.beforeTransactions.find("ac.stage = \"final\""),
             std::string::npos);
+  auto routedStage = mlir::parseSourceString<mlir::ModuleOp>(
+      stages.routedTransactions, mlir::ParserConfig(&context, false));
+  ASSERT_TRUE(routedStage);
+  EXPECT_TRUE(mlir::succeeded(verifyRoutedPackage(*routedStage)));
+  EXPECT_EQ(
+      (*routedStage)->getAttrOfType<mlir::StringAttr>("ac.stage").getValue(),
+      "routed");
   auto loweredStage = mlir::parseSourceString<mlir::ModuleOp>(
       stages.afterTransactions, mlir::ParserConfig(&context, false));
   ASSERT_TRUE(loweredStage);
@@ -3691,7 +3849,8 @@ TEST_F(SourceLinkStageTest,
   auto interface = header(*body);
   ASSERT_TRUE(interface);
   auto before = identities(*body), headerBefore = identities(*interface);
-  compiler::SourceLinkStages stages{"input sentinel", "output sentinel"};
+  compiler::SourceLinkStages stages{"input sentinel", "routed sentinel",
+                                    "output sentinel"};
   auto admitted = capture([&] {
     return compiler::admitSourceLinkUnits({{*body, *interface}}, [&] {
       return mlir::emitError(builder.getUnknownLoc());
@@ -3703,6 +3862,7 @@ TEST_F(SourceLinkStageTest,
   EXPECT_NE(diagnostics.find("multiple outer writers"), std::string::npos)
       << diagnostics;
   EXPECT_EQ(stages.beforeTransactions, "input sentinel");
+  EXPECT_EQ(stages.routedTransactions, "routed sentinel");
   EXPECT_EQ(stages.afterTransactions, "output sentinel");
   unchanged(*body, before);
   unchanged(*interface, headerBefore);
@@ -3727,14 +3887,107 @@ TEST_F(
     return;
   }
   auto before = identities(*body), headerBefore = identities(*interface);
-  compiler::SourceLinkStages stages{"input sentinel", "output sentinel"};
+  compiler::SourceLinkStages stages{"input sentinel", "routed sentinel",
+                                    "output sentinel"};
   EXPECT_TRUE(mlir::failed(link(*body, *interface, &stages)));
   EXPECT_NE(diagnostics.find("primitive"), std::string::npos) << diagnostics;
   EXPECT_EQ(diagnostics.find("symbol does not match"), std::string::npos);
   EXPECT_EQ(stages.beforeTransactions, "input sentinel");
+  EXPECT_EQ(stages.routedTransactions, "routed sentinel");
   EXPECT_EQ(stages.afterTransactions, "output sentinel");
   unchanged(*body, before);
   unchanged(*interface, headerBefore);
+}
+
+TEST_F(SourceLinkStageTest,
+       RoutedTargetPublishesRoutedSnapshotWithoutFinalStage) {
+  std::string saved;
+  {
+    auto body = sourceBody();
+    ASSERT_TRUE(body);
+    auto interface = header(*body);
+    ASSERT_TRUE(interface);
+    auto bodyBefore = identities(*body), headerBefore = identities(*interface);
+    const auto bodyText = print(body->getOperation());
+    const auto headerText = print(interface->getOperation());
+    compiler::SourceLinkStages stages{"before sentinel", "routed sentinel",
+                                      "final sentinel"};
+    auto linked =
+        link(*body, *interface, &stages, compiler::SourceLinkTarget::Routed);
+    ASSERT_TRUE(mlir::succeeded(linked)) << diagnostics;
+    ASSERT_TRUE(mlir::succeeded(verifyRoutedPackage(**linked)));
+    EXPECT_EQ((*linked)
+                  ->getOperation()
+                  ->getAttrOfType<mlir::StringAttr>("ac.stage")
+                  .getValue(),
+              "routed");
+    EXPECT_NE(stages.beforeTransactions.find("ac.transaction"),
+              std::string::npos);
+    EXPECT_EQ(stages.routedTransactions,
+              print((*linked)->getOperation(), true));
+    EXPECT_TRUE(stages.afterTransactions.empty());
+    const auto routedBefore = identities(**linked);
+    for (unsigned repeat = 0; repeat < 2; ++repeat) {
+      SCOPED_TRACE(repeat);
+      auto rerouted = capture([&] {
+        mlir::PassManager manager(&context);
+        manager.addPass(acir::createRouteTransactionsPass());
+        return manager.run(**linked);
+      });
+      ASSERT_TRUE(mlir::succeeded(rerouted)) << diagnostics;
+      EXPECT_EQ(stages.routedTransactions,
+                print((*linked)->getOperation(), true));
+      unchanged(**linked, routedBefore);
+      EXPECT_TRUE(mlir::succeeded(verifyRoutedPackage(**linked)));
+    }
+    auto withoutRetention =
+        link(*body, *interface, nullptr, compiler::SourceLinkTarget::Routed);
+    ASSERT_TRUE(mlir::succeeded(withoutRetention)) << diagnostics;
+    EXPECT_EQ(stages.routedTransactions,
+              print((*withoutRetention)->getOperation(), true));
+    unchanged(*body, bodyBefore);
+    unchanged(*interface, headerBefore);
+    EXPECT_EQ(print(body->getOperation()), bodyText);
+    EXPECT_EQ(print(interface->getOperation()), headerText);
+    saved = stages.routedTransactions;
+  }
+  // Source units and linked operations are gone; no producer-side preparation
+  // object or source registry is supplied to the standalone consumer.
+  mlir::MLIRContext fresh;
+  fresh.loadDialect<ACIRDialect>();
+  auto restored = mlir::parseSourceString<mlir::ModuleOp>(saved, &fresh);
+  ASSERT_TRUE(restored);
+  EXPECT_TRUE(mlir::succeeded(verifyRoutedPackage(*restored)));
+  EXPECT_EQ(print(restored->getOperation(), true), saved);
+}
+
+TEST_F(SourceLinkStageTest,
+       FailedRoutedTargetPreservesAllStagesAndSourceInputs) {
+  auto body = sourceBody();
+  ASSERT_TRUE(body);
+  auto write = first<SourceStateWriteOp>(
+      named<SourceTransactionOp>(*body, "watch").getBody());
+  ASSERT_TRUE(write);
+  write->setAttr("state", builder.getStringAttr("count"));
+  auto interface = header(*body);
+  ASSERT_TRUE(interface);
+  const auto bodyText = print(body->getOperation());
+  const auto headerText = print(interface->getOperation());
+  auto bodyBefore = identities(*body), headerBefore = identities(*interface);
+  compiler::SourceLinkStages stages{"before sentinel", "routed sentinel",
+                                    "final sentinel"};
+  auto linked =
+      link(*body, *interface, &stages, compiler::SourceLinkTarget::Routed);
+  EXPECT_TRUE(mlir::failed(linked));
+  EXPECT_NE(diagnostics.find("multiple outer writers"), std::string::npos)
+      << diagnostics;
+  EXPECT_EQ(stages.beforeTransactions, "before sentinel");
+  EXPECT_EQ(stages.routedTransactions, "routed sentinel");
+  EXPECT_EQ(stages.afterTransactions, "final sentinel");
+  unchanged(*body, bodyBefore);
+  unchanged(*interface, headerBefore);
+  EXPECT_EQ(print(body->getOperation()), bodyText);
+  EXPECT_EQ(print(interface->getOperation()), headerText);
 }
 
 } // namespace

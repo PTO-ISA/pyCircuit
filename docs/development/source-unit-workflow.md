@@ -18,7 +18,8 @@ Python or infers a different hardware meaning.
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check the complete Method call closure and recursion, then prove conservative total admission for reachable guards and effect-branch selections. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
 | Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of whole-Bits candidate data/write-intent pairs, bounded branch joins, scalar and admitted nominal local joins, invocation snapshots, source-path availability and ordered guard/selection controls. Link uses this before lowering packages containing source transaction operations. |
-| Lower transactions | `LowerTransactions` | Materialize same-domain whole-Bits transactions, including bounded statement branches, with sampled metadata and complete D/E wiring records. Authenticate against the original plan, then run canonical final verification before atomic replacement. Ordinary hardware retains existing verification without transaction-analysis limits. |
+| Route transactions | `ac-route-transactions` | Normalize source calls/candidates into typed hierarchy routes, logical state/update pairs and sampled/effect metadata. Authenticate against original source, then independently verify the routed anchor before atomic replacement. |
+| Refine storage | `ac-lower-transactions` | Convert verified logical state to physical storage; independently check SSA/pin correspondence and strict hardware final legality before atomic replacement. Hardware-only graphs retain their normal verification limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -100,15 +101,17 @@ its scope without claiming fresh gate or execution results. Native sampled admis
 verifies closed metadata, ordered path-sensitive admission prefixes, real D/E
 and domain routes, private terminal uses, Collection limits,
 and per-occurrence sampling plans. Source bodies/interfaces cannot supply the
-final-only attributes. The common lowerer now materializes these records for
+routed/final-only attributes. The routing pass materializes these records for
 all transactions, including literal true/false, state-free and read-only cases.
 Original-source authentication checks captures, candidate versions, guard and
 selection identities/locations, original branch paths, invocation bindings and
-exact affected-definition inventories before canonical
-final verification checks the retained SSA, wiring and dependency closure.
-Both proofs succeed before atomic replacement; mappings locate candidate
-objects but do not supply semantic authority. The canonical final verifier
-owns its independent budget and runs once at this lowering seam.
+exact affected-definition inventories before standalone routed verification
+checks the retained SSA, wiring and dependency closure. A separate refinement
+proof checks logical-to-physical storage correspondence before strict final
+verification. Each transition verifies a detached candidate before replacement;
+mappings locate objects but do not supply semantic authority. The
+[routed-anchor contract](../architecture/routed-anchor.md) defines these native
+boundaries, stage markers, graph/executable distinction and retained snapshots.
 
 C++ and managed RTL consume the same sampling plan, freeze physical pins and
 ordered checks during Work/PREPARE, and commit pending history only after

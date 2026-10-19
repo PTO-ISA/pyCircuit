@@ -809,7 +809,7 @@ verifyPreparedEffectInventory(const PreparedTransactionLowering &prepared,
 }
 
 LogicalResult mergedEnvelope(mlir::ModuleOp package) {
-  if (package->hasAttr("ac.stage"))
+  if (package->hasAttr("ac.stage") || package->hasAttr("ac.routed_contract"))
     return package.emitError()
            << "transaction lowering requires a merged package without ac.stage";
   for (StringRef name : {"ac.source_owner", "ac.unit_kind", "ac.interfaces",
@@ -833,7 +833,8 @@ LogicalResult mergedEnvelope(mlir::ModuleOp package) {
     systems += isa<ac::SystemOp>(op);
     if (auto imported = dyn_cast<ac::ModuleImportOp>(op))
       if (imported.getSemanticKind() != "hardware" ||
-          !imported->getAttrOfType<StringAttr>("primitive_kind"))
+          (!imported->getAttrOfType<StringAttr>("primitive_kind") &&
+           !imported->hasAttr("ac.external_contract")))
         return imported.emitOpError()
                << "transaction lowering requires resolved provider definitions";
   }
@@ -944,19 +945,7 @@ public:
     for (auto imported : package.getOps<ac::ModuleImportOp>()) {
       if (!charge(budget, imported) || failed(hardware.verifyImport(imported)))
         return failure();
-      StringRef kind = hardware.getPrimitiveKind(imported);
-      if (kind == "dffe") {
-        ++dffeCount;
-        if (!dffe)
-          dffe = imported;
-      } else if (kind == "dff") {
-        if (!dff)
-          dff = imported;
-      }
     }
-    if (!states.empty() && (!dffe || dffeCount != 1))
-      return package.emitError() << "transaction state requires exactly one "
-                                    "verified DFFE primitive";
     budget.setPhase("prep: inventory");
     for (auto module : package.getOps<ac::ModuleOp>()) {
       auto signature = module.getFunctionType();
@@ -2028,13 +2017,6 @@ private:
   llvm::DenseMap<Operation *, unsigned> summaryStatus;
   std::map<Operation *, SmallVector<Writer>> summaries;
   BranchTypeAdmissionCache branchTypes;
-  unsigned dffeCount = 0;
-};
-
-struct StateStorage {
-  ac::SourceStateOp declaration;
-  Operation *instance;
-  bool dff = false;
 };
 
 /// Translate a definition-relative demand through the rebuilt physical
@@ -3233,14 +3215,13 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
                           SourceCheckBudget &budget) {
   ac::HardwareAnalysis hardware(prepared.original);
   Builder attributes(staged.getContext());
-  // The schema is final-only, including on this detached candidate. No source
-  // envelope or input object is changed by admission or late verification.
-  staged->setAttr("ac.stage", attributes.getStringAttr("final"));
+  // No source envelope or input object is changed before the complete proof.
+  staged->setAttr("ac.stage", attributes.getStringAttr("routed"));
+  staged->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(1));
   using CandidateMap = llvm::DenseMap<RoutingKey, std::pair<Value, Value>>;
   llvm::DenseMap<Operation *, CandidateMap> nextValues;
   llvm::DenseMap<Operation *, SmallVector<std::pair<Value, Value>>> incoming;
   MaterializationRoutes routes(prepared, mapping);
-  SmallVector<StateStorage> storage;
 
   // Definitions receive the union of demands from every caller occurrence.
   // Source types/names/domain ordinals are preserved as an exact prefix.
@@ -3364,41 +3345,8 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
     }
   }
 
-  // State remains at its lexical declaration: scalar DFFE or element Collection.
-  for (auto original : prepared.states) {
-    auto state = cast<ac::SourceStateOp>(mapping.lookup(original.operator->()));
-    auto table = dyn_cast<ac::TableType>(original.getQ().getType());
-    bool dff = false;
-    Type element = table ? table.getElementType() : original.getQ().getType();
-    OperationState leaf(state.getLoc(), table ? ac::CollectionOp::getOperationName()
-                                              : ac::InstanceOp::getOperationName());
-    if (table)
-      leaf.addAttribute("shape", table.getShape());
-    leaf.addTypes(original.getQ().getType());
-    leaf.addAttribute("instance_name", original.getInstanceNameAttr());
-    leaf.addAttribute("occurrence", original.getOccurrence());
-    auto primitive = dff ? prepared.dff : prepared.dffe;
-    if (!primitive)
-      return state.emitOpError()
-             << "state storage requires its verified "
-             << (dff ? "DFF" : "DFFE") << " primitive import";
-    leaf.addAttribute(
-        "callee",
-        FlatSymbolRefAttr::get(
-            staged.getContext(),
-            primitive->getAttrOfType<StringAttr>("sym_name").getValue()));
-    leaf.addAttribute("parameters", attributes.getArrayAttr({}));
-    leaf.addAttribute(
-        "type_arguments",
-        attributes.getArrayAttr({TypeAttr::get(element)}));
-    auto *instance = Operation::create(leaf);
-    state->getBlock()->getOperations().insert(state->getIterator(), instance);
-    state.getQ().replaceAllUsesWith(instance->getResult(0));
-    mapping.map(original.getQ(), instance->getResult(0));
-    storage.push_back({original, instance, dff});
-    mapping.map(original.operator->(), instance);
-    state.erase();
-  }
+  // Logical declarations and their Q values retain their exact clone identity.
+  // Physical primitive choice belongs to the separate hardware refinement.
 
   // Close every incoming definition-relative prefix against the actual Q0.
   // Disabled occurrences may bind arbitrary typed D: only E gives write intent.
@@ -3674,55 +3622,17 @@ LogicalResult materialize(PreparedTransactionLowering &prepared,
       yield->setOperands(outputs);
     }
   }
-  for (auto row : storage) {
-    auto original = row.declaration;
+  for (auto original : prepared.states) {
+    auto state = cast<ac::SourceStateOp>(mapping.lookup(original.operator->()));
     auto module = original->getParentOfType<ac::ModuleOp>();
-    OpBuilder builder(row.instance);
-    auto [d, enable] =
+    OpBuilder builder(state->getBlock()->getTerminator());
+    auto [data, intent] =
         candidate(module, {}, original.getQ(), original.getQ().getType(),
                   original.getClk().getType(), original.getOccurrence(),
                   original.getLoc(), builder);
-    auto table = dyn_cast<ac::TableType>(original.getQ().getType());
-    // Final DFF admission authenticates one local candidate. A composed
-    // enable has no physical pin after DFF selection, so retain DFFE for
-    // ordered/unordered or incoming composition until its full independent
-    // enable proof is supported. Single-candidate enables are direct Rule
-    // results; composition above produces module-level operations/arguments.
-    auto localWriter = enable.getDefiningOp<ac::RuleOp>();
-    bool dff = !table && localWriter &&
-               localWriter->getParentOfType<ac::ModuleOp>() ==
-                   row.instance->getParentOfType<ac::ModuleOp>() &&
-               knownTrue(enable, hardware, budget);
-    SmallVector<Value> inputs{mapping.lookup(original.getClk()),
-                              mapping.lookup(original.getRst())};
-    SmallVector<Value> controls{enable, d, mapping.lookup(original.getInitial())};
-    if (dff)
-      controls.erase(controls.begin());
-    llvm::append_range(inputs, controls);
-    if (table)
-      for (unsigned i : {0u, 1u, 2u}) {
-        OperationState splat(original.getLoc(), ac::TableSplatOp::getOperationName());
-        splat.addOperands(inputs[i]);
-        splat.addTypes(ac::TableType::get(staged.getContext(), table.getShape(),
-                                          inputs[i].getType()));
-        splat.addAttribute("shape", table.getShape());
-        inputs[i] = builder.create(splat)->getResult(0);
-      }
-    if (dff) {
-      if (!prepared.dff)
-        return row.instance->emitOpError()
-               << "unconditional state requires the verified DFF primitive";
-      row.instance->setAttr(
-          "callee",
-          FlatSymbolRefAttr::get(
-              staged.getContext(),
-              cast<StringAttr>(prepared.dff->getAttr(
-                                   SymbolTable::getSymbolAttrName()))
-                  .getValue()));
-      row.dff = true;
-      prepared.dffStates.insert(original.getOperation());
-    }
-    row.instance->setOperands(inputs);
+    OperationState update(original.getLoc(), ac::StateUpdateOp::getOperationName());
+    update.addOperands({state.getQ(), data, intent});
+    builder.create(update);
   }
   SmallVector<Operation *> retired;
   for (auto replacement : replacements) {
@@ -4085,7 +3995,9 @@ public:
       return reject("original package shape differs");
     NamedAttrList expectedEnvelope(prepared.original->getAttrs());
     expectedEnvelope.set("ac.stage",
-                         StringAttr::get(staged.getContext(), "final"));
+                         StringAttr::get(staged.getContext(), "routed"));
+    expectedEnvelope.set("ac.routed_contract",
+                         IntegerAttr::get(IntegerType::get(staged.getContext(), 64), 1));
     if (staged->getAttrs() != expectedEnvelope.getAttrs() ||
         staged->getPropertiesAsAttribute() !=
             prepared.original->getPropertiesAsAttribute())
@@ -4977,23 +4889,27 @@ private:
     }
     for (auto state : prepared.states) {
       auto module = state->getParentOfType<ac::ModuleOp>();
-      auto *storage = candidate.packageMap.lookup(state.operator->());
-      bool dff = prepared.dffStates.contains(state.operator->());
-      std::optional<Value> enable;
-      if (dff)
-        enable = storage->getOperand(2);
-      else
-        enable = isa<ac::CollectionOp>(storage)
-                      ? cast<ac::TableSplatOp>(
-                            storage->getOperand(2).getDefiningOp())
-                            .getInput()
-                      : storage->getOperand(2);
-      Value data = dff ? storage->getOperand(2) : storage->getOperand(3);
-      if (dff)
-        enable = std::nullopt;
-      if (failed(candidatePairProof(
-              module, {}, state.getQ(), data, enable, state.getQ().getType(),
-              state.getClk().getType(), state.getOccurrence(), state.getLoc())))
+      auto declaration = cast<ac::SourceStateOp>(
+          candidate.packageMap.lookup(state.operator->()));
+      ac::StateUpdateOp update;
+      for (auto user : declaration.getQ().getUsers())
+        if (auto actual = dyn_cast<ac::StateUpdateOp>(user);
+            actual && actual.getState() == declaration.getQ()) {
+          if (update && update != actual)
+            return reject("original logical state has multiple updates");
+          update = actual;
+        }
+      if (!update)
+        return reject("original logical state update is missing");
+      if (failed(generatedProof(
+              update, ac::StateUpdateOp::getOperationName(),
+              {declaration.getQ(), update.getCandidate(), update.getIntent()}, {},
+              DictionaryAttr::get(state.getContext()), state.getLoc(),
+              declaration->getBlock())) ||
+          failed(candidatePairProof(
+              module, {}, state.getQ(), update.getCandidate(), update.getIntent(),
+              state.getQ().getType(), state.getClk().getType(),
+              state.getOccurrence(), state.getLoc())))
         return failure();
     }
     for (const auto &parent : prepared.definitions) {
@@ -5285,91 +5201,9 @@ private:
           target->getBlock() != &module.getBody().front())
         return reject("original module-body operation owner differs");
       if (auto state = dyn_cast<ac::SourceStateOp>(op)) {
-        auto *storage = target;
-        auto table = dyn_cast<ac::TableType>(state.getQ().getType());
-        Type element = table ? table.getElementType() : state.getQ().getType();
-        if ((table && !isa<ac::CollectionOp>(storage)) ||
-            (!table && !isa<ac::InstanceOp>(storage)))
-          return reject("original typed state allocation kind differs");
-        bool dff = prepared.dffStates.contains(state.getOperation());
-        unsigned arity = dff ? 4 : 5;
-        if (storage->getNumOperands() != arity || storage->getNumResults() != 1)
-          return reject("original typed state storage arity differs");
-        SmallVector<Value> scalarControls;
-        if (table) {
-          for (unsigned i : {0u, 1u, 2u}) {
-            auto splat = storage->getOperand(i).getDefiningOp<ac::TableSplatOp>();
-            if (!splat || !operations.contains(splat) ||
-                splat.getShape() != table.getShape())
-              return reject("original Table state requires replicated controls");
-            scalarControls.push_back(splat.getInput());
-            Builder b(original.getContext());
-            Type expected = ac::TableType::get(original.getContext(), table.getShape(),
-                                               splat.getInput().getType());
-            if (failed(generatedProof(splat, ac::TableSplatOp::getOperationName(),
-                       {splat.getInput()}, {expected}, b.getDictionaryAttr({
-                           b.getNamedAttr("shape", table.getShape())}),
-                       state.getLoc(), &module.getBody().front())))
-              return failure();
-          }
-        } else if (dff) {
-          scalarControls.push_back(storage->getOperand(0));
-          scalarControls.push_back(storage->getOperand(1));
-        } else {
-          for (unsigned i : {0u, 1u, 2u})
-            scalarControls.push_back(storage->getOperand(i));
-        }
-        if (!storage || !arity || storage->getNumOperands() != arity ||
-            storage->getNumResults() != 1 ||
-            storage->getAttr("occurrence") != state.getOccurrence() ||
-            storage->getAttr("instance_name") != state.getInstanceNameAttr() ||
-            storage->getAttr("callee") !=
-                FlatSymbolRefAttr::get(
-                    original.getContext(),
-                    cast<StringAttr>((dff ? prepared.dff : prepared.dffe)
-                                         ->getAttr(SymbolTable::getSymbolAttrName()))
-                        .getValue()) ||
-            storage->getAttr("parameters") !=
-                ArrayAttr::get(original.getContext(), {}) ||
-            storage->getAttr("type_arguments") !=
-                ArrayAttr::get(original.getContext(),
-                               {TypeAttr::get(element)}) ||
-            storage->getResult(0).getType() != state.getQ().getType() ||
-            candidate.packageMap.lookupOrNull(state.getQ()) !=
-                storage->getResult(0) ||
-            scalarControls[0] != authenticated.lookupOrNull(state.getClk()) ||
-            scalarControls[1] != authenticated.lookupOrNull(state.getRst()) ||
-            storage->getOperand(dff ? 3 : 4) !=
-                authenticated.lookupOrNull(state.getInitial()))
-          return reject("original state owner/Q/type/domain/initial differs");
-        Builder b(original.getContext());
-        auto primitive = dff ? prepared.dff : prepared.dffe;
-        NamedAttrList storageAttributes(b.getDictionaryAttr({
-            b.getNamedAttr("instance_name", state.getInstanceNameAttr()),
-            b.getNamedAttr("occurrence", state.getOccurrence()),
-            b.getNamedAttr(
-                "callee",
-                FlatSymbolRefAttr::get(
-                    original.getContext(),
-                    cast<StringAttr>(primitive->getAttr(
-                                         SymbolTable::getSymbolAttrName()))
-                        .getValue())),
-            b.getNamedAttr("parameters", b.getArrayAttr({})),
-            b.getNamedAttr("type_arguments", b.getArrayAttr({TypeAttr::get(element)}))}));
-        if (table)
-          storageAttributes.append("shape", table.getShape());
-        SmallVector<Value> storageOperands;
-        for (unsigned i = 0; i < arity - 1; ++i)
-          storageOperands.push_back(storage->getOperand(i));
-        storageOperands.push_back(authenticated.lookup(state.getInitial()));
-        if (failed(generatedProof(
-                storage, table ? ac::CollectionOp::getOperationName()
-                               : ac::InstanceOp::getOperationName(),
-                storageOperands, {state.getQ().getType()},
-                storageAttributes.getDictionary(original.getContext()),
-                state.getLoc(), &module.getBody().front())))
-          return failure();
-        authenticated.map(state.getQ(), storage->getResult(0));
+        if (!isa<ac::SourceStateOp>(target) ||
+            failed(exactClone(state, target, authenticated, candidate.packageMap)))
+          return reject("original logical state owner/Q/type/domain/initial differs");
       } else if (auto memory = dyn_cast<ac::InstanceOp>(op);
                  memory && memory->hasAttr("ac.source_memory")) {
         NamedAttrList expected(memory->getAttrs());
@@ -8078,6 +7912,8 @@ private:
   DenseSet<Value> values;
 };
 
+#include "TransactionHardwareState.inc"
+
 } // namespace
 
 namespace detail {
@@ -8127,33 +7963,129 @@ LogicalResult verifyTransactionMaterialization(
       !candidate.module ||
       failed(OriginalSourceProof(prepared, candidate, budget).run()))
     return failure();
-  // The canonical verifier owns final IR admission and its independent budget.
-  return ac::verifyHardwarePackage(*candidate.module);
+  // Standalone legality supplements, never replaces, original-source proof.
+  return ac::verifyRoutedPackage(*candidate.module);
+}
+FailureOr<OwningOpRef<mlir::ModuleOp>> materializeHardwareState(
+    mlir::ModuleOp routed, SourceCheckBudget &budget) {
+  budget.setPhase("routed hardware state preparation");
+  if (failed(ac::verifyRoutedPackage(routed)) ||
+      failed(prepayClone(routed, budget)))
+    return failure();
+  auto primitives = hardwareStatePrimitives(routed, budget);
+  if (failed(primitives)) return failure();
+  // Pay every inferred allocation and all three Table control splats before
+  // cloning or constructing physical state. Width/layout is already verified.
+  for (auto module : routed.getOps<ac::ModuleOp>())
+    for (auto state : module.getBody().front().getOps<ac::SourceStateOp>())
+      if (!charge(budget, state, 128)) return failure();
+  OwningOpRef<mlir::ModuleOp> staged = cast<mlir::ModuleOp>(routed->clone());
+  ac::HardwareAnalysis analysis(*staged);
+  Builder attributes(routed.getContext());
+  for (auto module : staged->getOps<ac::ModuleOp>())
+    for (auto state : llvm::make_early_inc_range(
+             module.getBody().front().getOps<ac::SourceStateOp>())) {
+      auto update = logicalUpdate(state, budget);
+      if (failed(update)) return failure();
+      bool dff = unconditionalScalarState(state, *update, analysis, budget);
+      auto primitive = dff ? primitives->dff : primitives->dffe;
+      if (!primitive)
+        return state.emitOpError()
+               << "unconditional hardware state requires the verified DFF primitive";
+      auto table = dyn_cast<ac::TableType>(state.getQ().getType());
+      OperationState leaf(state.getLoc(), table ? ac::CollectionOp::getOperationName()
+                                                : ac::InstanceOp::getOperationName());
+      leaf.addTypes(state.getQ().getType());
+      leaf.addAttribute("instance_name", state.getInstanceNameAttr());
+      leaf.addAttribute("occurrence", state.getOccurrence());
+      leaf.addAttribute("callee", FlatSymbolRefAttr::get(primitive.getSymNameAttr()));
+      leaf.addAttribute("parameters", attributes.getArrayAttr({}));
+      leaf.addAttribute("type_arguments", attributes.getArrayAttr({TypeAttr::get(
+          table ? table.getElementType() : state.getQ().getType())}));
+      if (table) leaf.addAttribute("shape", table.getShape());
+      OpBuilder builder(state);
+      // Establish Q first so a hold candidate or forward dependency is rebound
+      // through ordinary SSA use replacement, without dangling copied Values.
+      auto *storage = builder.create(leaf);
+      state.getQ().replaceAllUsesWith(storage->getResult(0));
+      SmallVector<Value> inputs{state.getClk(), state.getRst()};
+      if (!dff) inputs.push_back(update->getIntent());
+      inputs.push_back(update->getCandidate());
+      inputs.push_back(state.getInitial());
+      if (table)
+        for (unsigned i = 0; i < 3; ++i) {
+          OperationState splat(state.getLoc(), ac::TableSplatOp::getOperationName());
+          splat.addOperands(inputs[i]);
+          splat.addTypes(ac::TableType::get(state.getContext(), table.getShape(),
+                                            inputs[i].getType()));
+          splat.addAttribute("shape", table.getShape());
+          OpBuilder before(storage);
+          inputs[i] = before.create(splat)->getResult(0);
+        }
+      storage->setOperands(inputs);
+      update->erase();
+      state.erase();
+    }
+  staged->getOperation()->setAttr("ac.stage", attributes.getStringAttr("final"));
+  return std::move(staged);
+}
+
+LogicalResult verifyHardwareStateMaterialization(
+    mlir::ModuleOp routed, mlir::ModuleOp candidate, SourceCheckBudget &budget) {
+  budget.setPhase("routed hardware state correspondence proof");
+  if (!candidate || failed(ac::verifyRoutedPackage(routed))) return failure();
+  auto primitives = hardwareStatePrimitives(routed, budget);
+  if (failed(primitives) ||
+      failed(HardwareStateProof(routed, candidate, budget, *primitives).run()))
+    return failure();
+  return ac::verifyHardwarePackage(candidate);
 }
 } // namespace detail
 
 namespace {
 
-class LowerTransactionsPass
-    : public PassWrapper<LowerTransactionsPass, OperationPass<mlir::ModuleOp>> {
+void acceptTransactionCandidate(mlir::ModuleOp input, mlir::ModuleOp staged) {
+  // All verification finishes before the first original mutation.
+  input->setAttrs(staged->getAttrs());
+  input->getRegion(0).takeBody(staged->getRegion(0));
+}
+
+class RouteTransactionsPass
+    : public PassWrapper<RouteTransactionsPass, OperationPass<mlir::ModuleOp>> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LowerTransactionsPass)
-  StringRef getArgument() const final { return "ac-lower-transactions"; }
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RouteTransactionsPass)
+  StringRef getArgument() const final { return "ac-route-transactions"; }
   StringRef getDescription() const final {
-    return "Lower sampled transactions through ordinary instance ports and "
-           "original DFFE storage";
+    return "Route sampled transactions to independently verified logical-state ACIR";
   }
   void runOnOperation() final {
     auto input = getOperation();
+    if (auto stage = input->getAttrOfType<StringAttr>("ac.stage");
+        stage && stage.getValue() == "routed") {
+      if (failed(ac::verifyRoutedPackage(input))) signalPassFailure();
+      return;
+    }
     if (!ac::detail::findUnloweredTransaction(input)) {
-      // Existing ordinary hardware retains its own admission and budgets. No
-      // transaction analysis, invocation accounting or clone is introduced.
-      if (failed(getAnalysis<ac::HardwareAnalysis>().verify()) ||
-          failed(mergedEnvelope(input))) {
+      // Already-normal hardware has no source transaction or logical state to
+      // authenticate or normalize. Preserve ordinary graph admission and its
+      // budget instead of imposing source transaction analysis. The exact clone
+      // changes only the versioned envelope; routed verification also admits a
+      // complete ordinary external declaration without executable hardware.
+      ac::HardwareSourceCheckLimits graphLimits;
+      SourceCheckBudget graphBudget(graphLimits);
+      if (failed(mergedEnvelope(input)) || failed(prepayClone(input, graphBudget))) {
         signalPassFailure();
         return;
       }
-      input->setAttr("ac.stage", StringAttr::get(input.getContext(), "final"));
+      OwningOpRef<mlir::ModuleOp> staged = cast<mlir::ModuleOp>(input->clone());
+      Builder attributes(input.getContext());
+      (*staged)->setAttr("ac.stage", attributes.getStringAttr("routed"));
+      (*staged)->setAttr("ac.routed_contract", attributes.getI64IntegerAttr(1));
+      if (failed(ac::verifyRoutedPackage(*staged, graphLimits))) {
+        signalPassFailure();
+        return;
+      }
+      acceptTransactionCandidate(input, *staged);
       return;
     }
     const auto &analysis = getAnalysis<ac::SourceTransactionStateAnalysis>();
@@ -8165,26 +8097,60 @@ public:
     limits.maxWorkUnits = 1024 * 1024;
     SourceCheckBudget budget(limits);
     auto prepared = detail::prepareTransactionLowering(input, analysis, budget);
-    if (failed(prepared)) {
-      signalPassFailure();
-      return;
-    }
+    if (failed(prepared)) { signalPassFailure(); return; }
     auto candidate = detail::materializeTransactionLowering(*prepared, budget);
     if (failed(candidate) || failed(detail::verifyTransactionMaterialization(
                                  *prepared, *candidate, budget))) {
       signalPassFailure();
       return;
     }
-    auto &staged = candidate->module;
-    // Verification is complete. Preserve the pass root and replace contents
-    // atomically, with no fallible step after this first original mutation.
-    input->setAttrs((*staged)->getAttrs());
-    input->getRegion(0).takeBody((*staged)->getRegion(0));
+    acceptTransactionCandidate(input, *candidate->module);
+  }
+};
+
+class LowerTransactionsPass
+    : public PassWrapper<LowerTransactionsPass, OperationPass<mlir::ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(LowerTransactionsPass)
+  StringRef getArgument() const final { return "ac-lower-transactions"; }
+  StringRef getDescription() const final {
+    return "Refine verified routed logical state to final hardware storage";
+  }
+  void runOnOperation() final {
+    auto input = getOperation();
+    auto stage = input->getAttrOfType<StringAttr>("ac.stage");
+    if (stage && stage.getValue() == "final") {
+      if (failed(ac::verifyHardwarePackage(input))) signalPassFailure();
+      return;
+    }
+    if (!stage || stage.getValue() != "routed") {
+      input.emitError() << "hardware state lowering requires routed ACIR; run ac-route-transactions first";
+      signalPassFailure();
+      return;
+    }
+    ac::HardwareSourceCheckLimits limits;
+    // In valid routed IR the only unlowered operations are logical state and
+    // its update. State-free graphs retain ordinary hardware limits through
+    // clone, exact correspondence proof and final verification in this phase,
+    // just as they do through the routing envelope transition above.
+    if (ac::detail::findUnloweredTransaction(input))
+      limits.maxWorkUnits = 1024 * 1024;
+    SourceCheckBudget budget(limits);
+    auto candidate = detail::materializeHardwareState(input, budget);
+    if (failed(candidate) || failed(detail::verifyHardwareStateMaterialization(
+                                 input, **candidate, budget))) {
+      signalPassFailure();
+      return;
+    }
+    acceptTransactionCandidate(input, **candidate);
   }
 };
 
 } // namespace
 
+std::unique_ptr<Pass> createRouteTransactionsPass() {
+  return std::make_unique<RouteTransactionsPass>();
+}
 std::unique_ptr<Pass> createLowerTransactionsPass() {
   return std::make_unique<LowerTransactionsPass>();
 }

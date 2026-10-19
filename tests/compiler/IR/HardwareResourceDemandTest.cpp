@@ -150,7 +150,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
         return {};
     }
     auto final =
-        compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+        compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                     wrapper ? "execution.resource_demand_wrapper.Top"
                   : rawBound ? "execution.resource_demand_raw_bound_bits1.Top"
                   : prospective ? "execution.resource_demand_prospective.ExerciseQueueHierarchy"

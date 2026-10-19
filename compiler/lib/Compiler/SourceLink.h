@@ -14,6 +14,7 @@ struct SourceLinkUnit {
 // Updated only after complete link success; failure preserves prior contents.
 struct SourceLinkStages {
   std::string beforeTransactions;
+  std::string routedTransactions;
   std::string afterTransactions;
 };
 
@@ -26,9 +27,12 @@ mlir::FailureOr<SourceHeaderRegistry>
 admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
                      ac::detail::EmitError emitError);
 
+enum class SourceLinkTarget { Routed, Hardware };
+
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
-linkHardwareUnits(llvm::ArrayRef<SourceLinkUnit> units, llvm::StringRef top,
+linkSourceUnits(llvm::ArrayRef<SourceLinkUnit> units, llvm::StringRef top,
                   ac::detail::EmitError emitError,
+                  SourceLinkTarget target = SourceLinkTarget::Hardware,
                   SourceLinkStages *retainedStages = nullptr,
                   llvm::ArrayRef<SourceLinkParameterBinding> parameters = {},
                   llvm::StringRef resetSemantics = "strict");

@@ -147,8 +147,51 @@ LogicalResult HardwareAnalysis::verifyImport(ModuleImportOp imported) const {
     return failure();
   return success(succeeded(getImportDependencies(imported, {})));
 }
-LogicalResult
-detail::verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis) {
+LogicalResult detail::verifyHardwarePackageStage(
+    const HardwareAnalysis &analysis, PackageVerificationProfile profile) {
+  auto package = analysis.getPackage();
+  auto rawStage = package->getAttr("ac.stage");
+  auto stage = dyn_cast_or_null<StringAttr>(rawStage);
+  auto marker = dyn_cast_or_null<IntegerAttr>(package->getAttr("ac.routed_contract"));
+  bool routed = profile == PackageVerificationProfile::Routed;
+  if (package->hasAttr("ac.unit_kind") ||
+      (routed ? !stage || stage.getValue() != "routed"
+              : rawStage && (!stage || stage.getValue() != "final")))
+    return package.emitOpError()
+           << (routed ? "routed verification requires ac.stage = routed"
+                      : "executable hardware verification requires final hardware; routed packages require state refinement");
+  if ((routed || package->hasAttr("ac.routed_contract")) &&
+      (!marker || !marker.getType().isSignlessInteger(64) ||
+       marker.getValue() != 1))
+    return package.emitOpError()
+           << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
+  auto closed = package.walk([&](Operation *operation) {
+    if (operation != package.getOperation() && operation->hasAttr("ac.routed_contract")) {
+      operation->emitOpError() << "ac.routed_contract belongs only to the top-level package";
+      return WalkResult::interrupt();
+    }
+    if (routed && isa<InstanceOp>(operation) &&
+        (operation->hasAttr("ac.source_unbound_push") ||
+         operation->hasAttr("ac.source_unbound_pop") ||
+         operation->hasAttr("ac.source_memory") ||
+         operation->hasAttr("ac.payload_constraint"))) {
+      operation->emitOpError() << "unlowered source resource binding cannot cross the routed boundary";
+      return WalkResult::interrupt();
+    }
+    if (!routed || operation == package.getOperation() ||
+        isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, SystemOp, InstanceOp,
+            CollectionOp, RuleOp, YieldOp, SourceExpectOp, SourceObserveOp,
+            SourceStateOp, StateUpdateOp>(operation) ||
+        isCombinationalHardwareOperation(operation))
+      return WalkResult::advance();
+    operation->emitOpError() << "operation outside closed routed hardware package";
+    return WalkResult::interrupt();
+  });
+  return failure(closed.wasInterrupted());
+}
+LogicalResult detail::verifyHardwarePackageEnvelope(
+    const HardwareAnalysis &analysis, PackageVerificationProfile profile,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   auto package = analysis.getPackage();
   if (!package)
     return failure();
@@ -161,7 +204,7 @@ detail::verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis) {
     if (!isa<ModuleOp>(operation)) {
       operation->emitOpError()
           << "ac.internal_ports is permitted only on a real module "
-             "in a final package";
+             "in a routed or final package";
       return WalkResult::interrupt();
     }
     return failed(getModulePortLayout(operation)) ? WalkResult::interrupt()
@@ -169,7 +212,8 @@ detail::verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis) {
   });
   if (layouts.wasInterrupted())
     return failure();
-  if (failed(verifyNoUnloweredTransactions(package)))
+  if (profile == PackageVerificationProfile::Hardware &&
+      failed(verifyNoUnloweredTransactions(package)))
     return failure();
   if (failed(collectFinalSourceUnits(package,
                                      [&] { return package.emitOpError(); })))
@@ -191,11 +235,17 @@ detail::verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis) {
   for (auto imported : package.getOps<ModuleImportOp>()) {
     if (failed(analysis.verifyImport(imported)))
       return failure();
-    if (analysis.getPrimitiveKind(imported).empty())
-      return imported.emitOpError() << "executable hardware package has "
-                                       "unresolved ordinary module import";
+    if (analysis.getPrimitiveKind(imported).empty()) {
+      if (!imported->hasAttr("ac.external_contract") &&
+          profile == PackageVerificationProfile::Routed)
+        return imported.emitOpError()
+               << "routed ordinary module import requires ac.external_contract";
+      if (profile == PackageVerificationProfile::Hardware)
+        return imported.emitOpError()
+               << "executable hardware package has unresolved ordinary module import; implementation is required for execution completeness";
+    }
   }
-  return verifyHardwareValueAvailability(analysis);
+  return verifyHardwareValueAvailability(analysis, debit);
 }
 LogicalResult HardwareAnalysis::verify() const {
   // The shared builder orders raw budget preflight, structural verification,

@@ -70,7 +70,7 @@ protected:
     EXPECT_TRUE(succeeded(unit)) << diagnostics;
     if (failed(unit))
       return {};
-    auto final = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+    auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                              top, error());
     EXPECT_TRUE(succeeded(final)) << diagnostics;
     return succeeded(final) ? std::move(*final) : OwningOpRef<ModuleOp>{};

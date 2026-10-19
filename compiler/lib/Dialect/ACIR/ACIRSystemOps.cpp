@@ -35,7 +35,7 @@ getHardwareResetSemantics(mlir::ModuleOp package) {
       return mlir::WalkResult::advance();
     auto stage = package->getAttrOfType<mlir::StringAttr>("ac.stage");
     if (operation != system.getOperation() ||
-        (stage && stage.getValue() != "final") ||
+        (stage && stage.getValue() != "final" && stage.getValue() != "routed") ||
         package->hasAttr("ac.unit_kind")) {
       operation->emitOpError() << "ac.execution_policy belongs only to the "
                                   "executable root ac.system";

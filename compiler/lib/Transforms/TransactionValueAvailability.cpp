@@ -202,7 +202,8 @@ class ValueAvailabilityMaterializer {
     }
     Operation *operation = value.getDefiningOp();
     if (!operation) return failure();
-    if (isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::EnumCreateOp>(
+    if (isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::EnumCreateOp,
+            ac::SourceStateOp>(
             operation))
       return Value();
     if (auto rule = dyn_cast<ac::RuleOp>(operation)) {

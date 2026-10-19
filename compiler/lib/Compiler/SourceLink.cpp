@@ -57,21 +57,24 @@ public:
 
 struct TransactionStageCapture {
   unsigned beforeCount = 0;
+  unsigned routedCount = 0;
   unsigned afterCount = 0;
   SourceLinkStages stages;
 };
 
 class TransactionStageInstrumentation final : public PassInstrumentation {
 public:
-  TransactionStageInstrumentation(Pass *lower, Operation *package,
+  TransactionStageInstrumentation(Pass *route, Pass *lower, Operation *package,
                                   TransactionStageCapture &capture)
-      : lower(lower), package(package), capture(capture) {}
+      : route(route), lower(lower), package(package), capture(capture) {}
 
   void runBeforePass(Pass *pass, Operation *operation) override {
-    if (pass == lower && operation == package && ++capture.beforeCount == 1)
+    if (pass == route && operation == package && ++capture.beforeCount == 1)
       print(operation, capture.stages.beforeTransactions);
   }
   void runAfterPass(Pass *pass, Operation *operation) override {
+    if (pass == route && operation == package && ++capture.routedCount == 1)
+      print(operation, capture.stages.routedTransactions);
     if (pass == lower && operation == package && ++capture.afterCount == 1)
       print(operation, capture.stages.afterTransactions);
   }
@@ -82,6 +85,7 @@ private:
     operation->print(output, OpPrintingFlags().enableDebugInfo());
     output << '\n';
   }
+  Pass *route;
   Pass *lower;
   Operation *package;
   TransactionStageCapture &capture;
@@ -166,9 +170,10 @@ admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
   return std::move(*registry);
 }
 
-FailureOr<OwningOpRef<ModuleOp>> linkHardwareUnits(
+FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
     ArrayRef<SourceLinkUnit> units, StringRef top,
-    ac::detail::EmitError emitError, SourceLinkStages *retainedStages,
+    ac::detail::EmitError emitError, SourceLinkTarget target,
+    SourceLinkStages *retainedStages,
     ArrayRef<SourceLinkParameterBinding> parameters, StringRef resetSemantics) {
   if (resetSemantics != "strict" && resetSemantics != "if_one")
     return emitError() << "reset semantics must be strict or if_one";
@@ -332,18 +337,22 @@ FailureOr<OwningOpRef<ModuleOp>> linkHardwareUnits(
   pipeline.addPass(std::make_unique<CompactLiteralPayloadWiresPass>());
   if (ac::detail::findUnloweredTransaction(linked->getOperation()))
     pipeline.addPass(acir::createAnalyzeTransactionStateSSAPass());
-  else
-    pipeline.addPass(acir::createVerifyHardwarePass());
-  auto lower = acir::createLowerTransactionsPass();
+  auto route = acir::createRouteTransactionsPass();
+  auto lower = target == SourceLinkTarget::Hardware
+                   ? acir::createLowerTransactionsPass()
+                   : std::unique_ptr<Pass>();
   if (retainedStages)
     pipeline.addInstrumentation(
         std::make_unique<TransactionStageInstrumentation>(
-            lower.get(), linked->getOperation(), capture));
-  pipeline.addPass(std::move(lower));
+            route.get(), lower.get(), linked->getOperation(), capture));
+  pipeline.addPass(std::move(route));
+  if (lower)
+    pipeline.addPass(std::move(lower));
   if (failed(pipeline.run(*linked)))
     return failure();
   if (retainedStages) {
-    if (capture.beforeCount != 1 || capture.afterCount != 1)
+    if (capture.beforeCount != 1 || capture.routedCount != 1 ||
+        capture.afterCount != (target == SourceLinkTarget::Hardware ? 1u : 0u))
       return emitError()
              << "transaction link stages were not captured exactly once";
     *retainedStages = std::move(capture.stages);

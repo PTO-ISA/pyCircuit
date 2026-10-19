@@ -540,8 +540,8 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
   auto emitError = [&] {
     return mlir::emitError(mlir::UnknownLoc::get(&context));
   };
-  auto program = acir::compiler::linkHardwareUnits(
-      units, *options.top, emitError,
+  auto program = acir::compiler::linkSourceUnits(
+      units, *options.top, emitError, acir::compiler::SourceLinkTarget::Hardware,
       options.transactionInputOutput ? &stages : nullptr, parameters,
       options.resetSemantics.value_or("strict"));
   if (mlir::failed(program))

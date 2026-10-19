@@ -21,7 +21,8 @@ FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
     if (declaration->hasAttr("ac.input_validity") ||
         declaration->hasAttr("ac.output_validity") ||
         declaration->hasAttr("ac.routed_output_validity"))
-      return error() << "availability companions require final internal ports";
+      return error()
+             << "availability companions require routed or final internal ports";
     layout.inputValidity.assign(layout.sourceInputCount, -1);
     layout.outputValidity.assign(layout.sourceOutputCount, -1);
     return layout;
@@ -29,9 +30,11 @@ FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
   auto package = dyn_cast_or_null<mlir::ModuleOp>(declaration->getParentOp());
   auto stage =
       package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
-  if (!isa<ModuleOp>(declaration) || !stage || stage.getValue() != "final")
+  if (!isa<ModuleOp>(declaration) || !stage ||
+      (stage.getValue() != "routed" && stage.getValue() != "final") ||
+      package->hasAttr("ac.unit_kind"))
     return error() << "ac.internal_ports is permitted only on a real module "
-                      "in a final package";
+                      "in a routed or final package";
   auto fields = dyn_cast<DictionaryAttr>(raw);
   auto inputs =
       fields ? fields.getAs<IntegerAttr>("source_inputs") : IntegerAttr();
@@ -216,6 +219,33 @@ LogicalResult verifyModuleImportSummarySelection(ModuleImportOp imported) {
                 kind.getValue() != "transactions"))
     return imported.emitOpError()
            << "semantic_kind must be hardware or transactions";
+  if (Attribute raw = imported->getAttr("ac.external_contract")) {
+    auto contract = dyn_cast<DictionaryAttr>(raw);
+    auto matches = [&](StringRef key, StringRef expected) {
+      auto value = contract ? contract.getAs<StringAttr>(key) : StringAttr();
+      return value && value.getValue() == expected;
+    };
+    auto effects = contract ? contract.getAs<ArrayAttr>("effects") : ArrayAttr();
+    auto latency = contract ? contract.getAs<IntegerAttr>("latency")
+                            : IntegerAttr();
+    if (kind.getValue() != "hardware" ||
+        imported->hasAttr("primitive_kind") ||
+        imported->hasAttr("transaction_summary") ||
+        imported.getSymName().starts_with("pycircuit.__builtins__."))
+      return imported.emitOpError()
+             << "ac.external_contract requires an ordinary hardware import "
+                "without primitive_kind or transaction_summary";
+    if (!contract || contract.size() != 6 || !matches("state", "none") ||
+        !effects || !effects.empty() || !latency ||
+        !latency.getType().isSignlessInteger(64) ||
+        !latency.getValue().isZero() ||
+        !matches("availability", "all_inputs") ||
+        !matches("value_domain", "four_state") || !matches("failure", "none"))
+      return imported.emitOpError()
+             << "ac.external_contract requires exactly state = none, effects = "
+                "[], latency = 0 : i64, availability = all_inputs, value_domain "
+                "= four_state and failure = none";
+  }
   if (kind.getValue() == "hardware") {
     if (!imported->getAttrOfType<ArrayAttr>("dependency_summary") ||
         imported->hasAttr("transaction_summary"))

@@ -484,7 +484,7 @@ TEST_F(SourceModuleScalarResultsTest,
   ASSERT_TRUE(singleton);
   EXPECT_EQ(singleton->getAttrOfType<StringAttr>("ac.return_form").getValue(),
             "tuple");
-  auto final = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+  auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                            "scalars.Top", error());
   ASSERT_TRUE(succeeded(final)) << diagnostics;
   dualEmit(**final);
@@ -547,7 +547,7 @@ def Top(value: ac.u3, flag: bool) -> tuple[ac.u8, bool]:
                           "consumer.py", {*provider->interface});
   ASSERT_TRUE(succeeded(consumer)) << diagnostics;
   auto final =
-      compiler::linkHardwareUnits({{*provider->body, *provider->interface},
+      compiler::linkSourceUnits({{*provider->body, *provider->interface},
                                    {*consumer->body, *consumer->interface}},
                                   "consumer.Top", error());
   ASSERT_TRUE(succeeded(final)) << diagnostics;
@@ -575,7 +575,7 @@ TEST_F(SourceModuleScalarResultsTest,
         registry->verifyBodySnapshots(*body, *unit->interface, error())));
     EXPECT_NE(diagnostics.find("published interface"), std::string::npos)
         << diagnostics;
-    auto final = compiler::linkHardwareUnits({{*body, *unit->interface}},
+    auto final = compiler::linkSourceUnits({{*body, *unit->interface}},
                                              "scalars.Top", error());
     EXPECT_TRUE(failed(final));
   }
@@ -635,7 +635,7 @@ def Top(index: ac.u2, data: ac.u8) -> ac.u8:
 )py", "consumer.py", {*provider->interface});
   ASSERT_TRUE(succeeded(consumer)) << diagnostics;
   auto linked =
-      compiler::linkHardwareUnits({{*provider->body, *provider->interface},
+      compiler::linkSourceUnits({{*provider->body, *provider->interface},
                                    {*consumer->body, *consumer->interface}},
                                   "consumer.Top", error());
   ASSERT_TRUE(succeeded(linked)) << diagnostics;
@@ -699,8 +699,8 @@ TEST_F(SourceModuleScalarResultsTest,
   auto bodyBefore = text(unit->body->getOperation());
   auto interfaceBefore = text(unit->interface->getOperation());
   compiler::SourceLinkStages stages;
-  auto linked = compiler::linkHardwareUnits(
-      {{*unit->body, *unit->interface}}, "literal_wires.Top", error(), &stages);
+  auto linked = compiler::linkSourceUnits(
+      {{*unit->body, *unit->interface}}, "literal_wires.Top", error(), compiler::SourceLinkTarget::Hardware, &stages);
   ASSERT_TRUE(succeeded(linked)) << diagnostics;
   auto linkedTop = definition(**linked, "literal_wires.Top");
   ASSERT_TRUE(linkedTop);
@@ -752,7 +752,7 @@ TEST_F(SourceModuleScalarResultsTest,
     auto bodyBefore = text(body->getOperation());
     auto interfaceBefore = text(unit->interface->getOperation());
     diagnostics.clear();
-    auto linked = compiler::linkHardwareUnits({{*body, *unit->interface}},
+    auto linked = compiler::linkSourceUnits({{*body, *unit->interface}},
                                               "literal_wires.Top", error());
     ASSERT_TRUE(succeeded(linked)) << diagnostics;
     auto finalTop = definition(**linked, "literal_wires.Top");
@@ -882,10 +882,10 @@ TEST_F(SourceModuleScalarResultsTest,
   ASSERT_TRUE(succeeded(verify(*body))) << diagnostics;
   auto bodyBefore = text(body->getOperation());
   auto interfaceBefore = text(unit->interface->getOperation());
-  compiler::SourceLinkStages stages{"before sentinel", "after sentinel"};
+  compiler::SourceLinkStages stages{"before sentinel", "routed sentinel", "after sentinel"};
   diagnostics.clear();
-  auto linked = compiler::linkHardwareUnits(
-      {{*body, *unit->interface}}, "literal_wires.Top", error(), &stages);
+  auto linked = compiler::linkSourceUnits(
+      {{*body, *unit->interface}}, "literal_wires.Top", error(), compiler::SourceLinkTarget::Hardware, &stages);
   EXPECT_TRUE(failed(linked));
   EXPECT_NE(diagnostics.find("published interface"), std::string::npos)
       << diagnostics;
@@ -915,7 +915,7 @@ TEST_F(SourceModuleScalarResultsTest,
   auto representativeLocation = same.front().getLoc();
   auto bodyBefore = text(unit->body->getOperation());
   auto interfaceBefore = text(unit->interface->getOperation());
-  auto linked = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+  auto linked = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                             "literal_wires.Top", error());
   ASSERT_TRUE(succeeded(linked)) << diagnostics;
   auto finalTop = definition(**linked, "literal_wires.Top");
@@ -947,7 +947,7 @@ TEST_F(SourceModuleScalarResultsTest,
     mutate(values.front());
     auto candidateBefore = text(body->getOperation());
     diagnostics.clear();
-    auto result = compiler::linkHardwareUnits({{*body, *unit->interface}},
+    auto result = compiler::linkSourceUnits({{*body, *unit->interface}},
                                               "literal_wires.Top", error());
     ASSERT_TRUE(succeeded(result)) << diagnostics;
     auto linkedCandidate = definition(**result, "literal_wires.Top");

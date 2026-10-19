@@ -11,6 +11,32 @@ namespace acir::ac {
 LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                                                     NamedAttribute attribute) {
   StringRef name = attribute.getName().getValue();
+  if (name == "ac.routed_contract") {
+    auto package = dyn_cast<mlir::ModuleOp>(operation);
+    auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")
+                         : StringAttr();
+    auto version = dyn_cast<IntegerAttr>(attribute.getValue());
+    // Assembly parsing verifies while the parsed package still has a temporary
+    // container. Root placement belongs to the independent package verifier's
+    // closed walk, which rejects markers on every retained non-root operation.
+    if (!package ||
+        package->hasAttr("ac.unit_kind") || !stage ||
+        (stage.getValue() != "routed" && stage.getValue() != "final") ||
+        !version || !version.getType().isSignlessInteger(64) ||
+        version.getValue() != 1)
+      return operation->emitOpError()
+             << "ac.routed_contract requires version 1 : i64 on the top-level "
+                "routed or final package; regenerate unsupported artifacts";
+    return success();
+  }
+  if (name == "ac.external_contract") {
+    auto imported = dyn_cast<ModuleImportOp>(operation);
+    if (!imported || imported->hasAttr("primitive_kind") ||
+        imported.getSymName().starts_with("pycircuit.__builtins__."))
+      return operation->emitOpError()
+             << "ac.external_contract belongs only to an ordinary module import";
+    return success();
+  }
   if (name == "ac.source_memory") {
     if (!isa<InstanceOp>(operation) ||
         !isa_and_nonnull<ModuleOp>(operation->getParentOp()) ||
@@ -33,7 +59,7 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
     auto stage =
         package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
     if (!isa<SystemOp>(operation) || !package ||
-        (stage && stage.getValue() != "final") ||
+        (stage && stage.getValue() != "final" && stage.getValue() != "routed") ||
         package->hasAttr("ac.unit_kind"))
       return operation->emitOpError()
              << "ac.execution_policy is permitted only on the root ac.system "
@@ -46,25 +72,33 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                          : StringAttr();
     if (!isa<SourceTransactionOp>(operation) ||
         !isa<UnitAttr>(attribute.getValue()) ||
-        (stage && stage.getValue() == "final"))
+        (stage && (stage.getValue() == "final" || stage.getValue() == "routed")))
       return operation->emitOpError()
              << "ac.registration_entry is a source transaction unit marker";
     return success();
   }
-  if (name != "ac.sampled_admission" && name != "ac.transaction_wiring" && name != "ac.queue_wiring")
+  bool arrayLayout = name == "ac.input_validity" ||
+                     name == "ac.output_validity" ||
+                     name == "ac.routed_output_validity";
+  if (name != "ac.sampled_admission" && name != "ac.transaction_wiring" &&
+      name != "ac.queue_wiring" && name != "ac.internal_ports" && !arrayLayout)
     return success();
   auto package = operation->getParentOfType<mlir::ModuleOp>();
   auto stage =
       package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
   bool placement = name == "ac.sampled_admission" ? isa<RuleOp>(operation)
                                                   : isa<ModuleOp>(operation);
-  if (!placement || !stage || stage.getValue() != "final")
+  if (!placement || !stage ||
+      (stage.getValue() != "routed" && stage.getValue() != "final") ||
+      package->hasAttr("ac.unit_kind"))
     return operation->emitOpError()
            << name << " is permitted only on its owning "
            << (name == "ac.sampled_admission" ? "rule" : "module")
-           << " in a final package";
-  if (!isa<DictionaryAttr>(attribute.getValue()))
-    return operation->emitOpError() << name << " must be a dictionary";
+           << " in a routed or final package";
+  if (arrayLayout ? !isa<ArrayAttr>(attribute.getValue())
+                  : !isa<DictionaryAttr>(attribute.getValue()))
+    return operation->emitOpError()
+           << name << (arrayLayout ? " must be an array" : " must be a dictionary");
   return success();
 }
 

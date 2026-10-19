@@ -6,6 +6,7 @@
 #include <functional>
 
 namespace acir::ac::detail {
+enum class PackageVerificationProfile { Routed, Hardware };
 class SourceCheckBudget;
 class SampledAdmissionValidation;
 mlir::LogicalResult verifySourceObservationSpec(
@@ -36,7 +37,12 @@ mlir::FailureOr<ResolvedSourceEffectOwner> resolveObservationOwner(
     const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)>
         &debit);
 mlir::LogicalResult
-verifyHardwarePackageEnvelope(const HardwareAnalysis &analysis);
+verifyHardwarePackageStage(const HardwareAnalysis &analysis,
+                           PackageVerificationProfile profile);
+mlir::LogicalResult
+verifyHardwarePackageEnvelope(
+    const HardwareAnalysis &analysis, PackageVerificationProfile profile,
+    const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
 mlir::LogicalResult verifySourceCheckDependencies(
     const HardwareAnalysis &analysis,
     llvm::ArrayRef<std::pair<ModuleOp, HardwareBindings>> scopes,

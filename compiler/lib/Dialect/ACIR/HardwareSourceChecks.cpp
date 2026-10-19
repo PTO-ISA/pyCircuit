@@ -1235,7 +1235,7 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
     if (lhs.ownerOccurrence != rhs.ownerOccurrence ||
         lhs.allocation != rhs.allocation ||
         lhs.coordinates != rhs.coordinates ||
-        lhs.primitiveKind != rhs.primitiveKind)
+        lhs.primitiveKind != rhs.primitiveKind || lhs.form != rhs.form)
       return mismatch();
   for (auto [lhs, rhs] :
        llvm::zip(plan.samplingBindings, fresh->samplingBindings))

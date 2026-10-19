@@ -21,6 +21,8 @@ struct Allocation {
   std::optional<size_t> child;
   StringAttr primitive;
   uint64_t count = 1;
+  HardwareCheckCommitEndpointForm form = HardwareCheckCommitEndpointForm::Physical;
+  bool combinationalExternal = false;
 };
 struct BoundDefinition {
   ModuleOp definition;
@@ -34,8 +36,9 @@ struct BoundDefinition {
 };
 class Builder {
 public:
-  Builder(const HardwareAnalysis &analysis, HardwareSourceCheckLimits limits)
-      : analysis(analysis), budget(limits), validation(analysis, budget) {}
+  Builder(const HardwareAnalysis &analysis, HardwareSourceCheckLimits limits,
+          PackageVerificationProfile profile)
+      : analysis(analysis), profile(profile), budget(limits), validation(analysis, budget) {}
   FailureOr<HardwareSourceCheckPlan> build() {
     auto package = analysis.getPackage();
     budget.setPhase("raw preflight");
@@ -46,6 +49,7 @@ public:
       if (failed(rawPreflight()))
         return failure();
     }
+    if (failed(verifyHardwarePackageStage(analysis, profile))) return failure();
     {
       NativeSourceCheckScope native(analysis, validation, budget, nativeChecks);
       // Establish the builtin package's own ODS/trait/custom shape before any
@@ -67,7 +71,10 @@ public:
       // cross-child region/dominance checks without scheduling them again.
       if (failed(mlir::verify(package, false))) return failure();
     }
-    if (failed(verifyHardwarePackageEnvelope(analysis))) return failure();
+    if (failed(verifyHardwarePackageEnvelope(
+            analysis, profile, [&](uint64_t units, Operation *site) {
+              return budget.debit(units, site);
+            }))) return failure();
     auto resetSemantics = getHardwareResetSemantics(package);
     if (failed(resetSemantics))
       return failure();
@@ -1152,8 +1159,9 @@ private:
         if (key == "ac.queue_wiring" && attribute) {
           auto package = analysis.getPackage();
           auto stage = package->getAttrOfType<StringAttr>("ac.stage");
-          if (op != definition || !stage || stage.getValue() != "final") {
-            op->emitOpError() << "ac.queue_wiring requires its owning module in a final package";
+          if (op != definition || !stage ||
+              (stage.getValue() != "final" && stage.getValue() != "routed")) {
+            op->emitOpError() << "ac.queue_wiring requires its owning module in a routed or final package";
             return WalkResult::interrupt();
           }
           auto schema = queueWiringSchemaCost(attribute, op);
@@ -1499,7 +1507,7 @@ private:
     }
     SmallVector<Operation *> allocations;
     for (Operation &op : definition.getBody().front()) {
-      if (!isa<InstanceOp, CollectionOp>(op))
+      if (!isa<InstanceOp, CollectionOp, SourceStateOp>(op))
         continue;
       if (failed(budget.debit(Budget::bytes(sizeof(Allocation)), &op)) ||
           failed(
@@ -1525,7 +1533,9 @@ private:
                << "duplicate allocation occurrence identity";
     for (Operation *allocation : allocations) {
       Allocation edge{allocation, {}, {}, {}};
-      if (auto queue = dyn_cast<InstanceOp>(allocation);
+      if (isa<SourceStateOp>(allocation)) {
+        edge.form = HardwareCheckCommitEndpointForm::Logical;
+      } else if (auto queue = dyn_cast<InstanceOp>(allocation);
           queue && isQueueInstance(queue)) {
         if (failed(analysis.resolveQueue(queue, scope)))
           return failure();
@@ -1570,9 +1580,15 @@ private:
           edge.primitive = StringAttr::get(definition.getContext(), primitive);
         } else {
           auto childDefinition = dyn_cast<ModuleOp>(child->owner);
-          if (!childDefinition)
-            return allocation->emitOpError()
-                   << "source check plan requires explicit provider body";
+          if (!childDefinition) {
+            if (profile != PackageVerificationProfile::Routed ||
+                !child->owner->hasAttr("ac.external_contract"))
+              return allocation->emitOpError()
+                     << "source check plan requires explicit provider body";
+            edge.combinationalExternal = true;
+            bound.allocations.push_back(std::move(edge));
+            continue;
+          }
           auto childIndex = visit(childDefinition, *child);
           if (failed(childIndex))
             return failure();
@@ -1616,6 +1632,7 @@ private:
             Budget::add(
                 1, Budget::bytes(sizeof(HardwareCheckSamplingOccurrence)))));
     for (auto &edge : node.allocations) {
+      if (edge.combinationalExternal) continue;
       for (uint64_t extent : edge.shape)
         edge.count = Budget::multiply(edge.count, extent);
       if (edge.child) {
@@ -1705,6 +1722,7 @@ private:
           {bindingIndex, owner, reset, plan.checks.size(), samplingOccurrence});
     }
     for (const auto &edge : node.allocations) {
+      if (edge.combinationalExternal) continue;
       for (uint64_t lane = 0; lane < edge.count; ++lane) {
         // Debit before creating either coordinate or copied path payload.
         if (failed(budget.debit(edge.shape.size(), edge.operation)))
@@ -1736,13 +1754,14 @@ private:
                   edge.operation)))
             return failure();
           plan.commits.push_back(
-              {owner, edge.operation, std::move(coordinates), edge.primitive});
+              {owner, edge.operation, std::move(coordinates), edge.primitive, edge.form});
         }
       }
     }
     return success();
   }
   const HardwareAnalysis &analysis;
+  PackageVerificationProfile profile;
   SourceCheckBudget budget;
   SampledAdmissionValidation validation;
   HardwareSourceCheckPlan plan;
@@ -1757,7 +1776,8 @@ private:
 } // namespace
 FailureOr<HardwareSourceCheckPlan>
 buildSourceCheckPlan(const HardwareAnalysis &analysis,
-                     HardwareSourceCheckLimits limits) {
-  return Builder(analysis, limits).build();
+                     HardwareSourceCheckLimits limits,
+                     PackageVerificationProfile profile) {
+  return Builder(analysis, limits, profile).build();
 }
 } // namespace acir::ac::detail

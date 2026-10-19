@@ -167,11 +167,13 @@ struct HardwareResolvedSourceCheck {
   uint64_t ordinal = 0;
   std::optional<uint64_t> samplingOccurrenceIndex;
 };
+enum class HardwareCheckCommitEndpointForm { Physical, Logical };
 struct HardwareCheckCommitEndpoint {
   uint64_t ownerOccurrence = 0;
   mlir::Operation *allocation = nullptr;
   llvm::SmallVector<uint64_t> coordinates;
   mlir::StringAttr primitiveKind;
+  HardwareCheckCommitEndpointForm form = HardwareCheckCommitEndpointForm::Physical;
 };
 struct HardwareSourceCheckLimits {
   uint64_t maxWorkUnits = 4 * 1024 * 1024;
@@ -362,6 +364,10 @@ private:
 
 /// Verify common hardware shape, binding, dependency and execution contracts.
 mlir::LogicalResult verifyHardwarePackage(mlir::ModuleOp package);
+/// Verify the versioned routed graph without requiring physical state refinement
+/// or an implementation for a declared ordinary external combinational module.
+mlir::LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
+                                       HardwareSourceCheckLimits limits = {});
 
 } // namespace acir::ac
 #endif

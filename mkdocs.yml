@@ -91,6 +91,7 @@ nav:
   - Architecture:
       - Overview: architecture/overview.md
       - Compiler Pipeline: architecture/compiler-pipeline.md
+      - Routed ACIR Anchor: architecture/routed-anchor.md
       - Simulation: architecture/simulation.md
       - System Execution: architecture/system-execution.md
   - Development:

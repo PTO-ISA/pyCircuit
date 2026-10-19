@@ -1,6 +1,6 @@
-// RUN: %pycircuit_opt %s --ac-lower-transactions --ac-verify-hardware | %FileCheck %s
+// RUN: %pycircuit_opt %s --ac-route-transactions --ac-lower-transactions --ac-verify-hardware | %FileCheck %s
 // RUN: sed '/EFFECT$/s/#w1/#w0/' %s > %t.conditional.mlir
-// RUN: not %pycircuit_opt %t.conditional.mlir --ac-lower-transactions 2>&1 | %FileCheck %s --check-prefix=REJECT
+// RUN: not %pycircuit_opt %t.conditional.mlir --ac-route-transactions --ac-lower-transactions 2>&1 | %FileCheck %s --check-prefix=REJECT
 // REJECT: error:
 // Native schema-valid lowering; canonical public authority belongs to SourceLink.
 // CHECK: ac.stage = "final"

@@ -195,3 +195,17 @@ Do not infer implementation or complete coverage from documentation, one
 passing lane or an older candidate. See the [source-unit workflow](source-unit-workflow.md)
 for build ownership and the [language reference](../reference/language.md) for
 unsupported capabilities.
+
+## Routed anchor checks
+
+The native `ACIRRoutedAnchorTests` executable separates local operation checks
+from standalone graph legality, including fresh-context parse/verify, state
+ownership and temporal cuts, metadata mutations and ordinary extern availability.
+Existing transaction-effect tests retain original-source authentication and add
+independent routed-to-physical mutation checks. A graph-only pass does not prove
+either transformation preserved its input.
+
+Run focused native tests before the API and example gates. Hardware-only budget
+regressions, failed-stage/output preservation, shared-definition state isolation
+and generated C++/four-state RTL execution remain required. The native routed
+link target does not establish high-level emission or public anchor packaging.
