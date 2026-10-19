@@ -45,7 +45,7 @@
   },
   "incomplete": [
     "Full Queue/memory reset-policy matrix and full API/example nightly not run this round",
-    "PR push, submission and integration",
+    "PR #321 CODEOWNER review, CI and integration",
     "RTL-Repo Parquet payload downloaded but reader unavailable",
     "RealBench encrypted descriptions downloaded; gpg unavailable",
     "Full CVDP/TuRTLe/repair/HLS/formal/PPA protocols not run",
@@ -54,5 +54,6 @@
   "evidence": "docs/gates/logs/20261019-four-state-integration/",
   "source_lock_sha256": "3723d9e1e5e58499aa55a264214013bb9f764eac7aac9e1b9197410ad42562ad",
   "catalog_task_variants": 3771,
-  "final_source_hashes_verified": true
+  "final_source_hashes_verified": true,
+  "pull_request": "https://github.com/PTO-ISA/pyCircuit/pull/321"
 }

@@ -26,7 +26,6 @@ ResBench 已实现43/43通过，13题仍unsupported；四个输出破坏负对�
 独立新增测试日志还位于 `docs/gates/logs/20261019-compiler-delivery/`。
 以下章节保留先前轮次和历史缺口，不作为本轮候选的通过计数。
 
-
 ## 仓库巡查与提交前修复（2026-10-18）
 
 本轮修复编程手册、quickstart、示例导引和测试入口，维持单一 capture → MLIR → final IR → C++/Verilog 流程。本轮没有增加编译器特例或改变证明上限。
