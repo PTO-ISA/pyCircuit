@@ -432,12 +432,26 @@ LogicalResult Importer::scanSourceCallables() {
           return error() << "Method requires an explicit return annotation";
         callable.inferredSignature = true;
         bool valueReturn = false;
-        for (size_t k = 0; k < declaration.array("body").size(); ++k) {
-          auto statement = declaration.item("body", k);
+        // Seed result inference from the suites that may execute in the outer
+        // statement context. Actual zero-trip and targeting-break admission
+        // remains with emitLoopElse: a dead body's break cannot make else
+        // conditional, and a live conditional return must still be rejected.
+        auto resultPresence = [&](auto &&self, const AstNode &statement) -> LogicalResult {
+          if (failed(chargeLoopDescriptorWork(statement, "Rule result presence")))
+            return failure();
           auto value = statement.child("value");
           if (statement.kind() == "Return" && value &&
-              !(value.kind() == "Constant" && isa<UnitAttr>(value.get("value")))) valueReturn = true;
-        }
+              !(value.kind() == "Constant" && isa<UnitAttr>(value.get("value"))))
+            valueReturn = true;
+          if (statement.kind() == "For" || statement.kind() == "While")
+            for (size_t k = 0; k < statement.array("orelse").size(); ++k)
+              if (failed(self(self, statement.item("orelse", k))))
+                return failure();
+          return success();
+        };
+        for (size_t k = 0; k < declaration.array("body").size(); ++k)
+          if (failed(resultPresence(resultPresence, declaration.item("body", k))))
+            return failure();
         callable.inferResults = valueReturn;
         none = true;
       }
@@ -975,6 +989,15 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                             Value live) -> LogicalResult {
       if (!live) return emitBody(statement, "orelse", at, environment, inBranch);
       if (statement.array("orelse").empty()) return success();
+      TableQueryCharge charge;
+      std::string reason;
+      bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
+                  TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
+                  TableQueryBudget::add(charge, TableQueryResource::Slots, 12) &&
+                  TableQueryBudget::add(charge, TableQueryResource::Work, 4);
+      if (!fits || !queryBudget.reserve(charge, reason))
+        return statementError(statement) << "source loop-else branch construction: "
+               << (fits ? reason : "operation storage counter exhausted");
       auto predicate = predicateView(live, statement, decl.symbol);
       if (failed(predicate) || failed(reserveSourceEnvironmentCopies(statement, environment))) return failure();
       auto branch = cast<ac::SourceBranchOp>(createOp(at,
@@ -1201,9 +1224,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             }
             return false;
           };
-          for (size_t k = 0; k < statement.array("body").size(); ++k)
-            if (hasNestedFor(hasNestedFor, statement.item("body", k)))
-              return statementError(statement) << "nested source for loops are unsupported";
+          for (StringRef field : {"body", "orelse"})
+            for (size_t k = 0; k < statement.array(field).size(); ++k)
+              if (hasNestedFor(hasNestedFor, statement.item(field, k)))
+                return statementError(statement) << "nested source for loops are unsupported";
           size_t arity = range.array("args").size();
           if (arity != 1)
             return statementError(range) << "typed for range requires a single literal bound";
