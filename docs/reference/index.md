@@ -5,6 +5,7 @@ compiler and the `pycircuit compile`, `link`, `emit` and `run` commands. Import 
 such as `pyc` and `ac` do not select a different frontend.
 
 - [Python source language](language.md)
+- [Functional floating-point source units](functional-float-source-units.md)
 - [Language and execution semantics](language-specification.md)
 - [Diagnostics](diagnostics.md)
 - [Source ownership and generated names](name-mangling.md)

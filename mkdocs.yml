@@ -82,6 +82,7 @@ nav:
   - Language:
       - Overview: reference/index.md
       - Python Source: reference/language.md
+      - Functional Floating Source Units: reference/functional-float-source-units.md
       - Language and Execution: reference/language-specification.md
       - Diagnostics: reference/diagnostics.md
       - Names and Source Ownership: reference/name-mangling.md

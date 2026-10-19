@@ -9,6 +9,12 @@ The current catalog inventories **17** registered designs and **25** API-owned c
 - [Machine-readable catalog](catalog.json)
 - [Current language](../docs/reference/language.md)
 
+[functional_float](functional_float/README.md) is a source-unit library
+example rather than a registered `@system`; it is compiled and linked directly
+with the public `pycircuit compile/link/emit` commands. Its README gives the
+bounded Product/Sum command flow and does not add it to the system example
+catalog.
+
 ## Full registered inventory
 
 | Design | Source | System run | Native oracle | RTL oracle | Generated output |
