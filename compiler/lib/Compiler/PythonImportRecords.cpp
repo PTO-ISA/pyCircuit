@@ -1741,7 +1741,10 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
       }
       joined.boundaries[item.first()] = item.second;
     }
-  SmallVector<PreparedBranchJoin> prepared;
+  // LLVM 22 rejects default SmallVector inline storage when the element is a
+  // large variant (PreparedScalarJoin is intentionally rich).  Branch joins
+  // are normally tiny and the vector grows dynamically for larger joins.
+  SmallVector<PreparedBranchJoin, 1> prepared;
   SmallVector<StringRef> resultNames;
   std::optional<OpBuilder> thenAt, elseAt;
   if (sourceBranch) {
