@@ -77,9 +77,11 @@ FailureOr<std::string> legalizeIdentifier(StringRef source,
   bool simple = !isAsciiDigit(source.front());
   for (char byte : source)
     simple &= isAsciiAlpha(byte) || isAsciiDigit(byte) || byte == '_';
-  simple &= !source.starts_with("pyc_") && !source.starts_with("__") &&
-            !(source.size() > 1 && source[0] == '_' && source[1] >= 'A' &&
-              source[1] <= 'Z');
+  // The same spelling is used at namespace scope and inside compiler-owned
+  // compound names. Avoid reserved C++ identifiers and underscore pairs formed
+  // when an owner appends a separator to a legalized source component.
+  simple &= !source.starts_with("pyc_") && !source.starts_with("_") &&
+            !source.ends_with("_") && !source.contains("__");
   static const llvm::StringSet<> reserved = [] {
     llvm::StringSet<> names;
     for (StringRef name :

@@ -31,7 +31,7 @@ std::string hex(std::string_view value) {
 }
 void report(pyc_root &root, std::string_view label, bool accepted) {
   gfsim::SimFailureInfo error;
-  require(root.__pyc_validate_checks(error) == accepted);
+  require(root.pyc_validate_checks(error) == accepted);
   std::cout << "COMPLETION " << label << ' ' << accepted << ' '
             << static_cast<unsigned>(error.phase) << ' ' << hex(error.code)
             << ' ' << hex(error.message) << ' ' << hex(error.instance) << ' '
@@ -45,52 +45,52 @@ int main(int argc, char **argv) {
   pyc_root root("root", &executor);
   auto family = root.pyc_implementation;
 #if T3_COMPLETION == 1
-  family->__pyc_clear_check_snapshots();
+  family->pyc_clear_check_snapshots();
   // Compiler controls are complete; the authored assertions below retain
   // their original missing/false/reset-only scenarios.
-  family->__pyc_capture_check_0(0, known(true), known(true));
-  family->__pyc_capture_sampling_0(0, known(true), known(false));
-  family->__pyc_capture_reset(0, known(false));
-  family->__pyc_capture_check_1(0, known(true), known(true));
-  family->__pyc_capture_check_2(0, known(true), known(true));
+  family->pyc_capture_check_0(0, known(true), known(true));
+  family->pyc_capture_sampling_0(0, known(true), known(false));
+  family->pyc_capture_reset(0, known(false));
+  family->pyc_capture_check_1(0, known(true), known(true));
+  family->pyc_capture_check_2(0, known(true), known(true));
   report(root, "snapshots-later-check-missing", false);
-  family->__pyc_capture_check_1(0, known(false), known(true));
+  family->pyc_capture_check_1(0, known(false), known(true));
   report(root, "snapshots-earlier-false-later-missing", false);
-  family->__pyc_capture_check_3(0, known(true), known(true));
+  family->pyc_capture_check_3(0, known(true), known(true));
   report(root, "snapshots-restored-check", false);
-  family->__pyc_clear_check_snapshots();
+  family->pyc_clear_check_snapshots();
   // Compiler controls are complete; the authored assertions below retain
   // their original missing/false/reset-only scenarios.
-  family->__pyc_capture_check_0(0, known(true), known(true));
-  family->__pyc_capture_sampling_0(0, known(true), known(false));
-  family->__pyc_capture_check_1(0, known(true), known(true));
-  family->__pyc_capture_check_2(0, known(true), known(true));
-  family->__pyc_capture_check_3(0, known(true), known(true));
+  family->pyc_capture_check_0(0, known(true), known(true));
+  family->pyc_capture_sampling_0(0, known(true), known(false));
+  family->pyc_capture_check_1(0, known(true), known(true));
+  family->pyc_capture_check_2(0, known(true), known(true));
+  family->pyc_capture_check_3(0, known(true), known(true));
   report(root, "snapshots-reset-only-missing", false);
-  family->__pyc_capture_reset(0, known(false));
+  family->pyc_capture_reset(0, known(false));
   report(root, "snapshots-restored-reset", true);
 #elif T3_COMPLETION == 5
   auto a = family->pyc_instance_zzz;
   auto b = family->pyc_instance_aaa;
   auto aPure = a->pyc_instance_pyc_70757265;
   auto bPure = b->pyc_instance_pyc_70757265;
-  family->__pyc_clear_check_snapshots();
-  a->__pyc_capture_check_0(0, known(false), known(true));
-  aPure->__pyc_capture_check_0(0, known(true), known(true));
-  b->__pyc_capture_check_0(0, known(true), known(true));
-  bPure->__pyc_capture_check_0(0, known(true), known(true));
-  a->__pyc_capture_reset(0, known(false));
+  family->pyc_clear_check_snapshots();
+  a->pyc_capture_check_0(0, known(false), known(true));
+  aPure->pyc_capture_check_0(0, known(true), known(true));
+  b->pyc_capture_check_0(0, known(true), known(true));
+  bPure->pyc_capture_check_0(0, known(true), known(true));
+  a->pyc_capture_reset(0, known(false));
   report(root, "domains-earlier-false-later-reset-missing", false);
-  b->__pyc_capture_reset(0, known(false));
+  b->pyc_capture_reset(0, known(false));
   report(root, "domains-restored-later-reset", false);
-  family->__pyc_clear_check_snapshots();
-  a->__pyc_capture_check_0(0, known(true), known(true));
-  aPure->__pyc_capture_check_0(0, known(true), known(true));
-  b->__pyc_capture_check_0(0, known(true), known(true));
-  bPure->__pyc_capture_check_0(0, known(false), known(true));
-  a->__pyc_capture_reset(0, known(false));
+  family->pyc_clear_check_snapshots();
+  a->pyc_capture_check_0(0, known(true), known(true));
+  aPure->pyc_capture_check_0(0, known(true), known(true));
+  b->pyc_capture_check_0(0, known(true), known(true));
+  bPure->pyc_capture_check_0(0, known(false), known(true));
+  a->pyc_capture_reset(0, known(false));
   report(root, "domains-grandchild-authoritative-reset-missing", false);
-  b->__pyc_capture_reset(0, known(false));
+  b->pyc_capture_reset(0, known(false));
   report(root, "domains-restored-grandchild-reset", false);
 #else
 #error Unsupported completion test fixture

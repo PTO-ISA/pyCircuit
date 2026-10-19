@@ -1927,17 +1927,17 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
       return failure();
   }
   emitCppCheckStorage(ctx, definition, out);
-  out << "  void __pyc_clear_check_snapshots() noexcept {\n";
+  out << "  void pyc_clear_check_snapshots() noexcept {\n";
   emitCppCheckClear(ctx, definition, out);
   for (auto &child : *children)
     if (!child.leaf)
-      out << "    " << child.name << "->__pyc_clear_check_snapshots();\n";
+      out << "    " << child.name << "->pyc_clear_check_snapshots();\n";
   out << "  }\n";
-  out << "  void __pyc_stage_sampling_reset() noexcept {\n";
+  out << "  void pyc_stage_sampling_reset() noexcept {\n";
   emitCppSamplingReset(ctx, definition, out);
   for (auto &child : *children)
     if (!child.leaf)
-      out << "    " << child.name << "->__pyc_stage_sampling_reset();\n";
+      out << "    " << child.name << "->pyc_stage_sampling_reset();\n";
   out << "  }\n";
   if (observes)
     out << "  // One staging entry per descriptor owned by this definition. A\n"
@@ -1945,7 +1945,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
            "Event\n"
            "  // keeps the source bool shape the runner protocol carries.\n"
            "  template <bool pyc_event_bool, unsigned pyc_width>\n"
-           "  void __pyc_stage_observation(std::size_t pyc_lane, "
+           "  void pyc_stage_observation(std::size_t pyc_lane, "
            "std::size_t pyc_site, const gfsim::FourState<pyc_width> "
            "&pyc_value, bool pyc_valid, "
            "bool pyc_path) noexcept {\n"
@@ -1957,7 +1957,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
         << " + pyc_site, pyc_value, pyc_event_bool, pyc_valid, pyc_path, "
            "pyc_sink_->system->cycle());\n"
            "  }\n";
-  out << "  void Work() {\n    __pyc_clear_check_snapshots();\n    try "
+  out << "  void Work() {\n    pyc_clear_check_snapshots();\n    try "
          "{\n";
   WorkEmitter work(ctx, definition, out);
   if (failed(work.run()))
@@ -1966,7 +1966,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   for (StringRef method : {"Xfer", "DiscardNext"}) {
     out << "  void " << method << "() noexcept {\n";
     if (method == "DiscardNext")
-      out << "    __pyc_clear_check_snapshots();\n";
+      out << "    pyc_clear_check_snapshots();\n";
     for (auto &child : *children) {
       if (!child.leaf) {
         out << "    " << child.name << "->" << method << "();\n";
@@ -2010,12 +2010,12 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     }
     if (method == "Xfer") {
       emitCppSamplingXfer(ctx, definition, out);
-      out << "    __pyc_clear_check_snapshots();\n";
+      out << "    pyc_clear_check_snapshots();\n";
     }
     out << "  }\n";
   }
-  out << "  void Reset() noexcept {\n    __pyc_clear_check_snapshots();\n"
-         "    __pyc_stage_sampling_reset();\n";
+  out << "  void Reset() noexcept {\n    pyc_clear_check_snapshots();\n"
+         "    pyc_stage_sampling_reset();\n";
   WorkEmitter reset(ctx, definition, out, true);
   if (failed(reset.run()))
     return failure();
@@ -2043,7 +2043,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     out << ", pyc_sink, pyc_observation_base";
   out << ")) {\n";
   if (bindRootInputs)
-    out << "    __pyc_bind_root_inputs();\n";
+    out << "    pyc_bind_root_inputs();\n";
   if (cppHasRootChecks(ctx, definition) &&
       failed(emitCppCheckInstanceNames(ctx, out)))
     return failure();
@@ -2107,7 +2107,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (failed(bridge(true)))
     return failure();
   if (bindRootInputs)
-    out << "    __pyc_bind_root_inputs();\n";
+    out << "    pyc_bind_root_inputs();\n";
   out << "    pyc_implementation->Work();\n";
   if (failed(bridge(false)))
     return failure();
@@ -2120,7 +2120,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
   if (failed(bridge(true)))
     return failure();
   if (bindRootInputs)
-    out << "    __pyc_bind_root_inputs();\n";
+    out << "    pyc_bind_root_inputs();\n";
   out << "    pyc_implementation->Reset();\n  }\n  bool HasWork() const "
          "noexcept "
          "override { return true; }\n";
@@ -2129,7 +2129,7 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
     return failure();
   out << "private:\n";
   if (bindRootInputs) {
-    out << "  void __pyc_bind_root_inputs() noexcept {\n";
+    out << "  void pyc_bind_root_inputs() noexcept {\n";
     for (unsigned index = scalarInputCount;
          index < definition.getFunctionType().getNumInputs(); ++index) {
       auto type =

@@ -11,6 +11,22 @@ under the approved target-legalization rules. A legalized name collision is an
 error; the compiler does not append a counter or content digest to make it
 unique. Static-argument admission follows the [language reference](language.md).
 
+The shared legalizer preserves ordinary ASCII identifiers that are legal in
+both targets and do not use reserved names. Other names use `pyc_` followed by
+the lowercase hexadecimal UTF-8 bytes of the original component. This includes
+keywords, non-ASCII names, names beginning with a digit or underscore, names
+ending with an underscore, names containing `__`, and source names beginning
+with `pyc_`. Encoding trailing underscores also prevents compiler-added
+separators from creating reserved double underscores in compound C++ names.
+
+The `pyc_` prefix reserves a disjoint compiler namespace: source spellings under
+that prefix are encoded, while generated families and helper methods use
+semantic names such as `pyc_family_` and `pyc_validate_checks`. Generated C++
+helpers use this spelling throughout declarations and calls. No compatibility
+aliases using the C++ implementation-reserved `__pyc_` prefix are emitted.
+Original source spellings remain in source ownership and provenance records;
+target legalization does not change semantic identity.
+
 The shared generation preflight checks module classes, generated family classes,
 nominal Enum/Struct types and C++ class/namespace conflicts. RTL typedefs are
 checked in their package namespace, separately from global module names. The
