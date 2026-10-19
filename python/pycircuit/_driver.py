@@ -19,6 +19,7 @@ from pathlib import Path
 
 from . import _native_verify
 from ._publication import (
+    _paths_conflict,
     _paths_for,
     _publication_lock_set,
     _publication_owner_program,
@@ -27,6 +28,7 @@ from ._publication import (
     _PublicationInput,
     _PublicationOutput,
     _PublicationResult,
+    _publish_directory,
     _publish_file,
     _require_initialized_control,
 )
@@ -180,11 +182,14 @@ def _validate_published_program(path: Path, owner: Mapping[str, object]) -> None
 
 def link_command(
     *,
-    units: Sequence[str | Path],
-    top: str,
-    output: str | Path,
+    units: Sequence[str | Path] = (),
+    top: str | None = None,
+    output: str | Path | None = None,
     parameters: str | Path | None = None,
-    reset_semantics: str = "strict",
+    reset_semantics: str | None = None,
+    target: str | None = None,
+    from_anchor: str | Path | None = None,
+    verify_only: bool = False,
     replace: bool = False,
     filesystem: _PublicationFileSystem | None = None,
 ) -> _PublicationResult:
@@ -194,12 +199,51 @@ def link_command(
     exactly as the private per-source entry already allows.
     """
 
+    if from_anchor is not None:
+        if (
+            units
+            or top is not None
+            or parameters is not None
+            or reset_semantics is not None
+        ):
+            raise _DriverError(
+                "--from-anchor forbids units, --top, --parameters and --reset-semantics"
+            )
+        if verify_only:
+            if output is not None or target is not None or replace:
+                raise _DriverError(
+                    "--verify-only forbids output and transformation options"
+                )
+        elif target != "final" or output is None:
+            raise _DriverError(
+                "--from-anchor refinement requires --target final and -o"
+            )
+        return _link_from_anchor(
+            from_anchor,
+            output=output,
+            verify_only=verify_only,
+            replace=replace,
+            filesystem=filesystem,
+        )
+    if verify_only:
+        raise _DriverError("--verify-only requires --from-anchor")
+    if top is None or output is None:
+        raise _DriverError("source link requires --top and -o")
+    target = target or "final"
+    if target not in ("final", "anchor"):
+        raise _DriverError("link target must be final or anchor")
+    reset_semantics = reset_semantics or "strict"
     if reset_semantics not in ("strict", "if_one"):
         raise _DriverError("reset semantics must be strict or if_one")
     parameter_bindings = _read_parameter_bindings(parameters)
     fs = filesystem or _PublicationFileSystem()
     destination = Path(output)
     harness = _native_helper("design")
+    from ._anchor_files import _capture_anchor, _validate_anchor
+
+    validate_output = (
+        _validate_anchor if target == "anchor" else _validate_published_program
+    )
 
     # Discovery reads declared owners only to name the expected inputs; the lock
     # set re-validates every owner and artifact under the lock, so a
@@ -259,7 +303,7 @@ def link_command(
             outputs=[
                 _PublicationOutput(
                     destination=destination,
-                    recovery_validate=_validate_published_program,
+                    recovery_validate=validate_output,
                 )
             ],
             filesystem=fs,
@@ -281,13 +325,13 @@ def link_command(
                 body.write_text(view.body, encoding="utf-8")
                 header.write_text(view.interface, encoding="utf-8")
                 command += ["--body", str(body), "--header", str(header)]
-            program = scratch / "design_top.ac"
+            program = scratch / ("anchor" if target == "anchor" else "design_top.ac")
             report = scratch / "entry-owner.json"
             command += [
                 "--top",
                 top,
                 "--target",
-                "final",
+                target,
                 "--output",
                 str(program),
                 "--entry-owner-out",
@@ -299,12 +343,28 @@ def link_command(
             if completed.returncode != 0:
                 detail = completed.stderr.strip() or completed.stdout.strip()
                 raise _DriverError(f"native link rejected the unit set: {detail}")
-            if not program.is_file() or not report.is_file():
+            if not report.is_file() or (target == "final" and not program.is_file()):
                 raise _DriverError("native link produced no program or owner report")
+            owner = _program_owner_from_report(_read_entry_owner_report(report))
+            if target == "anchor":
+                owner["kind"] = "anchor"
+                manifest = _capture_anchor(program)
+                if manifest["owner"] != owner:
+                    raise _DriverError(
+                        "native anchor manifest and owner report disagree"
+                    )
+                return _publish_directory(
+                    destination,
+                    owner=owner,
+                    build=lambda stage: _capture_anchor(program, stage),
+                    validate=_validate_anchor,
+                    replace=replace,
+                    filesystem=fs,
+                    locks=locks,
+                )
+            if not program.is_file():
+                raise _DriverError("native link produced no program")
             text = program.read_text(encoding="utf-8")
-            owner = _program_owner_from_report(
-                json.loads(report.read_text(encoding="utf-8"))
-            )
 
             def build(stage: Path) -> None:
                 stage.write_text(text, encoding="utf-8")
@@ -320,3 +380,113 @@ def link_command(
             )
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _read_entry_owner_report(path: Path) -> object:
+    from ._anchor_files import _MANIFEST_LIMIT, _read_bounded, _unique_object
+
+    try:
+        return json.loads(
+            _read_bounded(path, _MANIFEST_LIMIT, _PublicationFileSystem()).decode(
+                "utf-8"
+            ),
+            object_pairs_hook=_unique_object,
+        )
+    except (ValueError, UnicodeError, RecursionError) as error:
+        raise _DriverError(
+            f"native entry owner report is not bounded strict JSON: {error}"
+        ) from error
+
+
+def _link_from_anchor(
+    anchor: str | Path,
+    *,
+    output: str | Path | None,
+    verify_only: bool,
+    replace: bool,
+    filesystem: _PublicationFileSystem | None,
+) -> _PublicationResult:
+    from ._anchor_files import _capture_anchor, _discover_anchor_owner, _validate_anchor
+
+    fs = filesystem or _PublicationFileSystem()
+    source = fs.absolute(anchor)
+    owner, managed = _discover_anchor_owner(source)
+    paths = _paths_for(source, fs)
+    outputs = []
+    if output is not None:
+        output_paths = _paths_for(output, fs)
+        for left in (paths.destination, paths.control):
+            for right in (output_paths.destination, output_paths.control):
+                if _paths_conflict(left, right):
+                    raise _PublicationError(
+                        "anchor input and publication output overlap"
+                    )
+        if replace and fs.kind(output_paths.destination) is not None:
+            _require_initialized_control(output_paths, fs)
+        outputs.append(_PublicationOutput(output, _validate_published_program))
+    inputs = (
+        [_PublicationInput(source, owner, _validate_anchor, _validate_anchor)]
+        if managed
+        else []
+    )
+    with tempfile.TemporaryDirectory(prefix="pycircuit-anchor-link-") as scratch_name:
+        scratch = Path(scratch_name).resolve()
+        snapshot = scratch / "anchor"
+        with _publication_lock_set(
+            inputs=inputs, outputs=outputs, filesystem=fs
+        ) as locks:
+            if managed:
+                manifest = locks.snapshot(
+                    source, lambda path: _capture_anchor(path, snapshot)
+                )
+            else:
+                if fs.kind(paths.control) is not None:
+                    raise _PublicationError(
+                        "anchor controls appeared before portable snapshot"
+                    )
+                manifest = _capture_anchor(source, snapshot)
+                if fs.kind(paths.control) is not None:
+                    raise _PublicationError(
+                        "anchor controls appeared while capturing portable snapshot"
+                    )
+            if manifest["owner"] != owner:
+                raise _PublicationError("anchor owner changed while capturing")
+            actual_owner = _native_verify.verify_anchor_owner(snapshot)
+            if actual_owner != owner:
+                raise _PublicationError("native anchor owner does not match manifest")
+            if verify_only:
+                return _PublicationResult(committed=False)
+            program, report = scratch / "final.ac", scratch / "entry-owner.json"
+            _native_verify._run(
+                [
+                    str(_native_helper("design")),
+                    "--from-anchor",
+                    str(snapshot),
+                    "--target",
+                    "final",
+                    "--output",
+                    str(program),
+                    "--entry-owner-out",
+                    str(report),
+                ],
+                "anchor refinement",
+            )
+            program_owner = _program_owner_from_report(_read_entry_owner_report(report))
+            if program_owner != {**owner, "kind": "program"}:
+                raise _PublicationError(
+                    "refined program owner differs from saved anchor"
+                )
+            if not program.is_file() or program.is_symlink():
+                raise _DriverError(
+                    "anchor refinement produced no ordinary final artifact"
+                )
+            text = program.read_text(encoding="utf-8")
+            return _publish_file(
+                output,
+                owner=program_owner,
+                build=lambda stage: stage.write_text(text, encoding="utf-8"),
+                validate=_validate_published_program,
+                replace=replace,
+                filesystem=fs,
+                locks=locks,
+            )

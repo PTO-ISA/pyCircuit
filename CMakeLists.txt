@@ -62,6 +62,7 @@ if(PYC_BUILD_COMPILER_DEV)
     SourceMemoryBindings.h
     SourceIdentifierUnicodeData.h
     SourceLink.h
+    AnchorArtifact.h
     SourceNamespace.h
     SourceRuleWrites.h
     SourceUnit.h

@@ -180,6 +180,14 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   auto admitted = admitSourceLinkUnits(units, emitError);
   if (failed(admitted))
     return failure();
+  SmallVector<SourceLinkUnit> orderedUnits(units);
+  llvm::sort(orderedUnits, [](const SourceLinkUnit &left,
+                             const SourceLinkUnit &right) {
+    return ac::detail::compareClosedSourceStructure(
+               left.header->getAttr("ac.source_owner"),
+               right.header->getAttr("ac.source_owner")) < 0;
+  });
+  units = orderedUnits;
   MLIRContext *context = units.front().body->getContext();
   OwningOpRef<ModuleOp> linked(ModuleOp::create(UnknownLoc::get(context)));
   Builder builder(context);

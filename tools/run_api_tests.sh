@@ -36,6 +36,8 @@ nightly_python_tests=(
   tests/system/test_rule_formal_proposals.py
   tests/system/test_rule_formal_demands.py
   tests/system/test_rule_scf_control.py
+  tests/system/test_saved_anchor.py
+  tests/system/test_saved_anchor_variants.py
   tests/system/test_selected_module_proposals.py
   tests/system/test_source_rule_queues.py
   tests/system/test_rule_resource_demand.py

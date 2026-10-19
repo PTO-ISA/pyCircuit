@@ -2,10 +2,10 @@
 
 The native compiler has a verified boundary between source transactions and
 physical storage refinement. Both stages use ACIR and the existing module graph.
-The Python API and public `compile` → `link` → `emit` workflow remain unchanged:
-public link produces hardware final, and both current emitters consume that
-same final artifact. A high-level emitter, independent anchor package publication
-and general extern implementation bindings remain separate work.
+Public link produces hardware final by default, and both current emitters consume
+that same final artifact. The optional [saved-anchor workflow](saved-anchor.md)
+publishes and reloads the routed boundary independently. A high-level emitter and
+general extern implementation bindings remain separate work.
 
 ## Stages and entrypoints
 
@@ -32,8 +32,8 @@ The internal `linkSourceUnits` API selects `SourceLinkTarget::Routed` or
 `SourceLinkTarget::Hardware` (default). `SourceLinkStages` records
 `beforeTransactions`, `routedTransactions` and `afterTransactions` only after the
 entire requested link succeeds. Routed-only linking leaves the last string
-empty. These native boundaries do not establish a public saved-anchor CLI or a
-long-term file compatibility promise.
+empty. Saved publication adds its own versioned manifest, closed definition
+inventory and independent loader over this native boundary.
 
 ## Logical state and candidate updates
 

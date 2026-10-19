@@ -27,7 +27,7 @@ _PHASES = {
     "rollback_cleanup",
     "committed",
 }
-_ARTIFACT_KINDS = {"source-unit", "generated", "program"}
+_ARTIFACT_KINDS = {"source-unit", "generated", "program", "anchor"}
 
 
 class _PublicationError(RuntimeError):
@@ -143,6 +143,14 @@ def _publication_owner_generated(
         "source": {"package": package, "path": path},
         "definition": definition,
         "target": target,
+    }
+
+
+def _publication_owner_anchor(*, package: str, path: str, definition: str) -> _Owner:
+    return {
+        "kind": "anchor",
+        "source": {"package": package, "path": path},
+        "definition": definition,
     }
 
 
@@ -705,6 +713,7 @@ def _validate_owner(value: object) -> _Owner:
         "source-unit": {"kind", "source"},
         "generated": {"kind", "source", "definition", "target"},
         "program": {"kind", "source", "definition"},
+        "anchor": {"kind", "source", "definition"},
     }
     if type(kind) is not str or kind not in fields or set(value) != fields[kind]:
         raise _PublicationError("publication owner fields are not closed")
@@ -718,7 +727,7 @@ def _validate_owner(value: object) -> _Owner:
     _validate_package(package)
     _validate_source_path(path)
     result: _Owner = {"kind": kind, "source": dict(source)}
-    if kind in {"generated", "program"}:
+    if kind in {"generated", "program", "anchor"}:
         definition = value["definition"]
         if type(definition) is not str:
             raise _PublicationError("publication definition is invalid")
@@ -772,8 +781,10 @@ def _validate_artifact(
             f"publication artifact has type {actual_kind!r}, "
             f"expected {expected_kind}: {path}"
         )
-    if expected_kind == "directory":
+    if expected_kind == "directory" and owner["kind"] != "anchor":
         fs.validate_plain_tree(path)
+    # Anchor validation owns the bounded tree scan; an unbounded generic walk
+    # here would run before the format's file/directory limits can reject it.
     try:
         validate(path, owner)
     except _PublicationError:
@@ -1012,6 +1023,7 @@ __all__ = [
     "_PublicationResult",
     "_publication_lock_set",
     "_publication_owner_generated",
+    "_publication_owner_anchor",
     "_publication_owner_program",
     "_publication_owner_source_unit",
     "_publish_directory",

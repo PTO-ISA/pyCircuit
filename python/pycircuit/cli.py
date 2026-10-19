@@ -82,6 +82,9 @@ def _cmd_link(args: argparse.Namespace) -> int:
             parameters=args.parameters,
             reset_semantics=args.reset_semantics,
             replace=args.replace,
+            target=args.target,
+            from_anchor=args.from_anchor,
+            verify_only=args.verify_only,
         )
     except (
         _DriverError,
@@ -170,12 +173,10 @@ def main(argv: list[str] | None = None) -> int:
     )
     link_program.add_argument(
         "units",
-        nargs="+",
+        nargs="*",
         help="Published source unit directories: the complete closure",
     )
-    link_program.add_argument(
-        "--top", required=True, help="Qualified module of the source graph root"
-    )
+    link_program.add_argument("--top", help="Qualified module of the source graph root")
     link_program.add_argument(
         "--parameters",
         default=None,
@@ -184,20 +185,24 @@ def main(argv: list[str] | None = None) -> int:
     link_program.add_argument(
         "--reset-semantics",
         choices=("strict", "if_one"),
-        default="strict",
-        help="Root reset interpretation serialized into the final design",
+        default=None,
+        help="Root reset interpretation (source default: strict)",
     )
     link_program.add_argument(
         "-o",
         dest="output",
-        required=True,
-        help="Final design artifact path (for example design_top.ac)",
+        help="Final artifact file or saved anchor directory",
     )
     link_program.add_argument(
         "--replace",
         action="store_true",
         help="Republish the target under the same owner and definition",
     )
+    link_program.add_argument("--target", choices=("final", "anchor"), default=None)
+    link_program.add_argument(
+        "--from-anchor", help="Reload a self-contained saved anchor"
+    )
+    link_program.add_argument("--verify-only", action="store_true")
     link_program.set_defaults(fn=_cmd_link)
 
     emit = sub.add_parser("emit", help="Emit C++ or Verilog from a saved final design.")
@@ -221,6 +226,44 @@ def main(argv: list[str] | None = None) -> int:
     )
     run.set_defaults(fn=_cmd_run)
     args = p.parse_args(argv)
+    if args.cmd == "link":
+        if args.from_anchor is None:
+            missing = []
+            if not args.units:
+                missing.append("units")
+            if args.top is None:
+                missing.append("--top")
+            if args.output is None:
+                missing.append("-o")
+            if missing:
+                link_program.error(
+                    "the following arguments are required: " + ", ".join(missing)
+                )
+        elif (
+            args.units
+            or args.top is not None
+            or args.parameters is not None
+            or args.reset_semantics is not None
+        ):
+            link_program.error(
+                "--from-anchor forbids units, --top, --parameters and --reset-semantics"
+            )
+        if args.verify_only:
+            if (
+                args.from_anchor is None
+                or args.output is not None
+                or args.target is not None
+                or args.replace
+            ):
+                link_program.error(
+                    "--verify-only requires --from-anchor and forbids output and transformation options"
+                )
+        elif args.from_anchor is not None and (
+            args.target != "final" or args.output is None
+        ):
+            link_program.error(
+                "--from-anchor refinement requires --target final and -o"
+            )
     try:
         return args.fn(args)
     except KeyboardInterrupt:

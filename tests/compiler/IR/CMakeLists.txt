@@ -29,6 +29,8 @@ endfunction()
 add_acir_api_test(ACIRSourceValueSemanticsTests SourceValueSemanticsTest.cpp)
 add_acir_api_test(ACIRRoutedAnchorTests RoutedAnchorTest.cpp)
 target_link_libraries(ACIRRoutedAnchorTests PRIVATE ACIRSourceCompiler)
+add_acir_api_test(ACIRAnchorArtifactTests AnchorArtifactTest.cpp)
+target_link_libraries(ACIRAnchorArtifactTests PRIVATE ACIRSourceCompiler ACIRTransforms MLIRPass)
 add_acir_api_test(ACIRExactIntegerLoweringTests ExactIntegerLoweringTest.cpp)
 target_link_libraries(ACIRExactIntegerLoweringTests PRIVATE ACIRSourceCompiler)
 add_acir_api_test(ACIRFixedUnsignedDivRemLoweringTests FixedUnsignedDivRemLoweringTest.cpp)
@@ -184,7 +186,7 @@ add_custom_target(check-pycircuit
     -L "^api$" -L "^${PYC_TEST_TIER}$" --output-junit "api-${PYC_TEST_TIER}.xml"
   WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
   DEPENDS pycircuit-opt pycircuit-emit pycircuit-source-unit pycircuit-link
-    ACIRRoutedAnchorTests ACIRSourceValueSemanticsTests ACIRSourceStaticEvaluationTests ACIRSourceIdentifierTests
+    ACIRRoutedAnchorTests ACIRAnchorArtifactTests ACIRSourceValueSemanticsTests ACIRSourceStaticEvaluationTests ACIRSourceIdentifierTests
     ACIRExactIntegerLoweringTests
     ACIRFixedUnsignedDivRemLoweringTests
     ACIRSourceInterfacePassTests

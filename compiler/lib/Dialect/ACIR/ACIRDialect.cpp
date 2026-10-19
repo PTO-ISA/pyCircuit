@@ -11,6 +11,32 @@ namespace acir::ac {
 LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                                                     NamedAttribute attribute) {
   StringRef name = attribute.getName().getValue();
+  if (name == "ac.anchor_provenance") {
+    auto package = dyn_cast<mlir::ModuleOp>(operation);
+    auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")
+                         : StringAttr();
+    auto record = dyn_cast<DictionaryAttr>(attribute.getValue());
+    auto isDigest = [](Attribute value) {
+      auto text = dyn_cast_or_null<StringAttr>(value);
+      if (!text || text.getValue().size() != 64)
+        return false;
+      for (char byte : text.getValue())
+        if (!((byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'f')))
+          return false;
+      return true;
+    };
+    if (!package || package->hasAttr("ac.unit_kind") || !stage ||
+        stage.getValue() != "final" || !record || record.size() != 2 ||
+        !isDigest(record.get("content_identity")) ||
+        !isDigest(record.get("configuration_identity")))
+      return operation->emitOpError()
+             << "ac.anchor_provenance requires exactly content_identity and "
+                "configuration_identity lowercase SHA256 strings on the final "
+                "package";
+    // Like the routed marker, root placement is checked after parser wrappers
+    // have been removed. These identities are provenance, never proof authority.
+    return success();
+  }
   if (name == "ac.routed_contract") {
     auto package = dyn_cast<mlir::ModuleOp>(operation);
     auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")

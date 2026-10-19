@@ -1,4 +1,5 @@
 add_acir_library(ACIRSourceCompiler SOURCES
+  AnchorArtifact.cpp
   FixedUnsignedDivRemLowering.cpp
   NumericLowering.cpp
   PythonImportAST.cpp

@@ -160,3 +160,38 @@ def verify_source_unit_owners(
         _owner_object(value["body"], "source unit body owner"),
         _owner_object(value["header"], "source unit header owner"),
     )
+
+
+def verify_anchor_owner(path: Path) -> dict[str, object]:
+    """Verify an immutable captured anchor with the reusable native loader."""
+    from ._anchor_files import _MANIFEST_LIMIT, _read_bounded, _unique_object
+    from ._publication import _PublicationFileSystem, _validate_owner
+
+    helper = native_helper("design")
+    with tempfile.TemporaryDirectory(prefix="pycircuit-anchor-owner-") as scratch:
+        report = Path(scratch).resolve() / "entry-owner.json"
+        _run(
+            [
+                str(helper),
+                "--from-anchor",
+                str(path),
+                "--verify-only",
+                "--entry-owner-out",
+                str(report),
+            ],
+            "saved anchor",
+        )
+        value = _strict_object(
+            json.loads(
+                _read_bounded(report, _MANIFEST_LIMIT, _PublicationFileSystem()).decode(
+                    "utf-8"
+                ),
+                object_pairs_hook=_unique_object,
+            ),
+            {"source", "definition"},
+            "anchor owner",
+        )
+    source = _owner_object(value["source"], "anchor owner")
+    return _validate_owner(
+        {"kind": "anchor", "source": source, "definition": value["definition"]}
+    )

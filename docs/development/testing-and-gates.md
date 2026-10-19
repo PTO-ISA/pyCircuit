@@ -110,6 +110,7 @@ fallback dispatch. The language reference records the current source surface.
 | --- | --- |
 | Capture/source semantics | Accepted module/rule fixtures, source provenance, range/type rejection, explicit registration, current/next and child-state identity |
 | Unit compile and link | One producer per source, published interface use, complete closure, duplicate/missing/mismatched unit rejection, verified final artifact |
+| Saved anchors | Exact schema/spec/body/configuration identities, managed and portable snapshots, source removal and relocation, native direct rejection, explicit refinement, unchanged dual-target execution and failure rollback |
 | C++ emit | Source-owned module groups and `pycircuit_modules` CMake target, bound root arguments, Runtime-only consumer build and explicit test drivers |
 | Verilog emit | Same final artifact, source-owned RTL/map inventory, unsupported configuration rejection, target output preservation |
 | Runtime/package | Runtime-only install without LLVM discovery; CompilerDev install with LLVM/MLIR 22.1.8; exported target and external consumer smoke |

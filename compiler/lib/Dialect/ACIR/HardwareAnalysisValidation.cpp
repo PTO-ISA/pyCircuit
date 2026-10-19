@@ -166,6 +166,12 @@ LogicalResult detail::verifyHardwarePackageStage(
     return package.emitOpError()
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
   auto closed = package.walk([&](Operation *operation) {
+    if (operation->hasAttr("ac.anchor_provenance") &&
+        (operation != package.getOperation() || routed)) {
+      operation->emitOpError()
+          << "ac.anchor_provenance belongs only to the top-level final package";
+      return WalkResult::interrupt();
+    }
     if (operation != package.getOperation() && operation->hasAttr("ac.routed_contract")) {
       operation->emitOpError() << "ac.routed_contract belongs only to the top-level package";
       return WalkResult::interrupt();

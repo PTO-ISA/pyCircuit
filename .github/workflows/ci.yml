@@ -99,3 +99,4 @@ jobs:
           tests/unit/test_publication.py
           tests/unit/test_publication_fs.py
           tests/unit/test_driver_commands.py
+          tests/unit/test_anchor_files.py

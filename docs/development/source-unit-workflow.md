@@ -336,6 +336,17 @@ pycircuit emit .pycircuit_out/design_top.ac --target verilog \
   -o .pycircuit_out/verilog
 ```
 
+To preserve the routed boundary before physical refinement, use the same explicit
+unit closure with `--target anchor -o ANCHOR_DIR`. The resulting
+[saved anchor](../architecture/saved-anchor.md) contains a versioned graph,
+separate exact definition specs/bodies and retained source interfaces. After the
+original sources and units are removed, `pycircuit link --from-anchor ANCHOR_DIR
+--verify-only` checks it without routing or refinement. `pycircuit link
+--from-anchor ANCHOR_DIR --target final -o FINAL.ac` explicitly refines that
+verified graph. Reload cannot override its root, parameters or reset policy.
+It reuses the existing publisher for outputs and accepts portable artifact-only
+copies through a bounded stable snapshot.
+
 Generated CMake builds source-owned `pycircuit_modules` against the Runtime
 component. Host drivers use the typed `pyc_dut` and shared SystemRunner, supply
 inputs and explicit clock/reset levels, and set a finite run limit. Work reads
