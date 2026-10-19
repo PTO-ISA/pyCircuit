@@ -210,7 +210,9 @@ public:
           return failure();
         FailureOr<DictionaryAttr> row = isQueueInstance(instance)
                                             ? getSourceQueueOwnerRow(instance)
-                                            : FailureOr<DictionaryAttr>(dict(
+                                            : instance->hasAttr("ac.source_memory")
+                                                ? getSourceMemoryOwnerRow(instance)
+                                                : FailureOr<DictionaryAttr>(dict(
                                                   {{"kind", str("instance")},
                                                    {"name", instance.getInstanceNameAttr()},
                                                    {"occurrence", instance.getOccurrence()},
@@ -739,7 +741,10 @@ private:
             call.getCalleeAttr().getRootReference().getValue();
         bool nativeQueue =
             receiverSymbol == "pycircuit.__builtins__.fifo_local" ||
-            receiverSymbol == "pycircuit.__builtins__.fifo_downstream_pop";
+            receiverSymbol == "pycircuit.__builtins__.fifo_downstream_pop" ||
+            receiverSymbol == "pycircuit.__builtins__.sync_mem" ||
+            receiverSymbol == "pycircuit.__builtins__.sync_mem_dp" ||
+            receiverSymbol == "pycircuit.__builtins__.byte_mem";
         Attribute location = call->getAttr("ac.location");
         if (nativeQueue && failed(metadata(location)))
           return call.emitOpError()
@@ -1042,6 +1047,9 @@ public:
         Attribute rawUnboundPop = row.get("unbound_pop");
         auto unboundPush = row.getAs<BoolAttr>("unbound_push");
         auto unboundPop = row.getAs<BoolAttr>("unbound_pop");
+        Attribute rawMemory = row.get("source_memory");
+        auto memory = row.getAs<BoolAttr>("source_memory");
+        core.erase("source_memory");
         core.erase("payload_constraint");
         core.erase("unbound_push");
         core.erase("unbound_pop");
@@ -1082,8 +1090,43 @@ public:
         bool queue = callee.getValue() == "pycircuit.__builtins__.fifo_local" ||
                      callee.getValue() ==
                          "pycircuit.__builtins__.fifo_downstream_pop";
-        if (!queue && (payloadConstraint || unboundPush || unboundPop))
-          return error("queue binding facts require a canonical FIFO instance");
+        bool memoryKind = callee.getValue() == "pycircuit.__builtins__.sync_mem" ||
+                          callee.getValue() == "pycircuit.__builtins__.sync_mem_dp" ||
+                          callee.getValue() == "pycircuit.__builtins__.byte_mem";
+        if (rawMemory && (!memoryKind || !memory || !memory.getValue()))
+          return error("source Memory binding requires a true fact on a canonical memory");
+        if (!queue && ((!memory && payloadConstraint) || unboundPush || unboundPop))
+          return error("native binding facts require their canonical resource owner");
+        if (memory) {
+          bool byte = callee.getValue() == "pycircuit.__builtins__.byte_mem";
+          unsigned ports = callee.getValue() == "pycircuit.__builtins__.sync_mem_dp" ? 2 : 1;
+          unsigned write = byte ? 3 : ports == 2 ? 6 : 4;
+          if (inputs.size() != write + 4 || results.size() != (byte ? 1 : 2 * ports) ||
+              typeArguments.size() != 1 || parameters.size() != 2 || !payloadConstraint)
+            return error("source Memory instance summary shape is invalid");
+          auto payload = cast<TypeAttr>(results[0]).getValue();
+          if (failed(detail::verifySourceCallHardwareConstraint(
+                  payloadConstraint, payload, hardware, declaration, declaration,
+                  "transaction summary Memory payload"))) return failure();
+          for (unsigned port = 0; port < ports; ++port) {
+            if (!areEquivalentHardwareTypes(cast<TypeAttr>(results[port]).getValue(), payload))
+              return error("source Memory payload result types disagree");
+            if (!byte) {
+              auto live = hardware.getPackedWidth(cast<TypeAttr>(results[ports + port]).getValue(), {}, declaration);
+              if (failed(live) || *live != 1) return error("Memory live result requires one bit");
+            }
+          }
+          SmallVector<unsigned> controls{write};
+          if (!byte) for (unsigned port = 0; port < ports; ++port) controls.push_back(2 + 2 * port);
+          for (unsigned ordinal : controls) {
+            auto binding = dyn_cast<DictionaryAttr>(actuals[ordinal]);
+            auto fact = binding ? binding.getAs<DictionaryAttr>("fact") : DictionaryAttr();
+            auto kind = fact ? fact.getAs<StringAttr>("kind") : StringAttr();
+            if (!kind || kind.getValue() != "constant" || !fact.getAs<BoolAttr>("value") ||
+                fact.getAs<BoolAttr>("value").getValue())
+              return error("source Memory issue ports require known-false idle bindings");
+          }
+        }
         if (queue) {
           if ((unboundPush && !unboundPush.getValue()) ||
               (unboundPop && !unboundPop.getValue()))
@@ -1720,7 +1763,10 @@ private:
         (callee.getRootReference().getValue() ==
              "pycircuit.__builtins__.fifo_local" ||
          callee.getRootReference().getValue() ==
-             "pycircuit.__builtins__.fifo_downstream_pop");
+             "pycircuit.__builtins__.fifo_downstream_pop" ||
+         callee.getRootReference().getValue() == "pycircuit.__builtins__.sync_mem" ||
+         callee.getRootReference().getValue() == "pycircuit.__builtins__.sync_mem_dp" ||
+         callee.getRootReference().getValue() == "pycircuit.__builtins__.byte_mem");
     if ((nativeQueue &&
          failed(exact(core.getDictionary(declaration->getContext()),
                       {"kind", "occurrence", "path", "callee", "receiver",

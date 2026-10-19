@@ -219,9 +219,7 @@ bool SourceQueueView::isPopUnbound() const {
                  : row.getAs<BoolAttr>("unbound_pop");
   return value && value.getValue();
 }
-FailureOr<DictionaryAttr> getSourceQueueOwnerRow(InstanceOp queue) {
-  if (!isQueueInstance(queue))
-    return queue.emitOpError() << "source queue owner requires a canonical FIFO instance";
+static FailureOr<DictionaryAttr> getSourceNativeOwnerRow(InstanceOp queue) {
   if (failed(queue.verifyInvariantsImpl()) || failed(queue.verify()))
     return failure();
   auto owner = dyn_cast_or_null<ModuleOp>(queue->getParentOp());
@@ -282,7 +280,41 @@ FailureOr<DictionaryAttr> getSourceQueueOwnerRow(InstanceOp queue) {
     fields.append("unbound_push", builder.getBoolAttr(true));
   if (queue->hasAttr("ac.source_unbound_pop"))
     fields.append("unbound_pop", builder.getBoolAttr(true));
+  if (queue->hasAttr("ac.source_memory"))
+    fields.append("source_memory", builder.getBoolAttr(true));
   return fields.getDictionary(queue->getContext());
+}
+FailureOr<DictionaryAttr> getSourceQueueOwnerRow(InstanceOp queue) {
+  if (!isQueueInstance(queue))
+    return queue.emitOpError() << "source queue owner requires a canonical FIFO instance";
+  return getSourceNativeOwnerRow(queue);
+}
+FailureOr<DictionaryAttr> getSourceMemoryOwnerRow(InstanceOp memory) {
+  if (!isMemoryInstance(memory) ||
+      !isa_and_nonnull<UnitAttr>(memory->getAttr("ac.source_memory")))
+    return memory.emitOpError() << "native Memory calls require a source-owned canonical allocation";
+  auto layout = getMemoryPrimitiveLayout(memory);
+  if (failed(layout)) return failure();
+  HardwareAnalysis hardware(memory->getParentOfType<mlir::ModuleOp>());
+  HardwareBindings bindings;
+  bindings.owner = memory->getParentOp();
+  auto zero = [&](Value value) -> LogicalResult {
+    auto constant = value.getDefiningOp<BitsConstantOp>();
+    if (!constant)
+      return memory.emitOpError() << "source Memory idle operands must be known zero literals";
+    auto evaluated = hardware.evaluateStatic(constant.getValue(), bindings, memory);
+    auto integer = succeeded(evaluated) ? dyn_cast<MathIntAttr>(*evaluated) : MathIntAttr();
+    if (!integer || integer.getCanonicalValue() != "0")
+      return memory.emitOpError() << "source Memory cannot mix raw pin bindings with Method calls";
+    return success();
+  };
+  for (unsigned ordinal : layout->readEnableOperands)
+    if (failed(zero(memory.getOperand(ordinal)))) return failure();
+  if (failed(zero(memory.getOperand(layout->writeEnableOperand)))) return failure();
+  if (!layout->isSynchronous() &&
+      failed(zero(memory.getOperand(layout->readAddressOperands.front()))))
+    return failure();
+  return getSourceNativeOwnerRow(memory);
 }
 FailureOr<SourceQueueView> lookupSourceQueue(Operation *module, StringRef name,
                                             Operation *site) {
@@ -326,6 +358,23 @@ FailureOr<SourceQueueView> lookupSourceQueue(Operation *module, StringRef name,
   return result;
 }
 FunctionType SourceMethodView::getFunctionType() const {
+  if (isNativeMemoryTerminal()) {
+    auto signature = cast<FunctionType>(module->getAttrOfType<TypeAttr>("function_type").getValue());
+    auto kind = module->getAttrOfType<StringAttr>("primitive_kind").getValue();
+    unsigned address = kind == "byte_mem" ? 2 : 3 + 2 * nativeMemoryPort;
+    unsigned write = kind == "byte_mem" ? 3 : kind == "sync_mem_dp" ? 6 : 4;
+    SmallVector<Type> inputs, results;
+    if (nativeMemoryAction == NativeMemoryAction::Request ||
+        nativeMemoryAction == NativeMemoryAction::Read)
+      inputs.push_back(signature.getInput(address));
+    else if (nativeMemoryAction == NativeMemoryAction::Write)
+      for (unsigned ordinal : {write + 1, write + 2, write + 3})
+        inputs.push_back(signature.getInput(ordinal));
+    if (nativeMemoryAction == NativeMemoryAction::Result ||
+        nativeMemoryAction == NativeMemoryAction::Read)
+      results.push_back(signature.getResult(nativeMemoryPort));
+    return FunctionType::get(module->getContext(), inputs, results);
+  }
   if (isNativeQueueTerminal()) {
     auto moduleType = cast<FunctionType>(
         module->getAttrOfType<TypeAttr>("function_type").getValue());
@@ -342,6 +391,13 @@ FunctionType SourceMethodView::getFunctionType() const {
                           row.getAs<TypeAttr>("function_type").getValue());
 }
 ArrayAttr SourceMethodView::getArgumentNames() const {
+  if (isNativeMemoryTerminal()) {
+    Builder builder(module->getContext());
+    if (nativeMemoryAction == NativeMemoryAction::Result) return builder.getArrayAttr({});
+    if (nativeMemoryAction == NativeMemoryAction::Write)
+      return builder.getStrArrayAttr({"address", "value", "mask"});
+    return builder.getStrArrayAttr({"address"});
+  }
   if (isNativeQueueTerminal()) {
     Builder builder(module->getContext());
     return nativeQueueAction == NativeQueueAction::Push
@@ -352,6 +408,27 @@ ArrayAttr SourceMethodView::getArgumentNames() const {
                     : row.getAs<ArrayAttr>("argument_names");
 }
 ArrayAttr SourceMethodView::getParameters() const {
+  if (isNativeMemoryTerminal()) {
+    Builder builder(module->getContext());
+    auto signature = getFunctionType();
+    auto names = getArgumentNames();
+    SmallVector<Attribute> parameters;
+    for (auto [ordinal, type] : llvm::enumerate(signature.getInputs())) {
+      Attribute constraint = nativeMemoryAction == NativeMemoryAction::Write && ordinal == 1
+          ? nativeMemoryPayloadConstraint
+          : builder.getDictionaryAttr({
+              builder.getNamedAttr("kind", builder.getStringAttr("hardware")),
+              builder.getNamedAttr("type", TypeAttr::get(type)),
+              builder.getNamedAttr("source_kind", builder.getStringAttr("fixed_bits"))});
+      parameters.push_back(builder.getDictionaryAttr({
+          builder.getNamedAttr("name", names[ordinal]),
+          builder.getNamedAttr("binding", builder.getStringAttr("positional_or_keyword")),
+          builder.getNamedAttr("constraint", constraint),
+          builder.getNamedAttr("default", builder.getDictionaryAttr({
+              builder.getNamedAttr("present", builder.getBoolAttr(false))}))}));
+    }
+    return builder.getArrayAttr(parameters);
+  }
   if (isNativeQueueTerminal()) {
     Builder builder(module->getContext());
     if (nativeQueueAction != NativeQueueAction::Push)
@@ -370,6 +447,11 @@ ArrayAttr SourceMethodView::getParameters() const {
                     : row.getAs<ArrayAttr>("ac.parameters");
 }
 ArrayAttr SourceMethodView::getResultConstraints() const {
+  if (isNativeMemoryTerminal()) {
+    Builder builder(module->getContext());
+    return getFunctionType().getNumResults()
+        ? builder.getArrayAttr({nativeMemoryPayloadConstraint}) : builder.getArrayAttr({});
+  }
   if (isNativeQueueTerminal()) {
     Builder builder(module->getContext());
     return nativeQueueAction == NativeQueueAction::Push
@@ -381,7 +463,7 @@ ArrayAttr SourceMethodView::getResultConstraints() const {
              : row.getAs<ArrayAttr>("ac.result_constraints");
 }
 ArrayAttr SourceMethodView::getFormalProposals() const {
-  if (isNativeQueueTerminal())
+  if (isNativeTerminal())
     return {};
   return definition
              ? definition->getAttrOfType<ArrayAttr>("ac.formal_proposals")
@@ -395,6 +477,7 @@ unsigned SourceMethodView::getNumPublicResults() const {
 LogicalResult
 verifySourceMethodFormalProposals(const SourceMethodView &method,
                                   Operation *site) {
+  if (method.isNativeTerminal()) return success();
   Attribute raw = method.definition
                       ? method.definition->getAttr("ac.formal_proposals")
                       : method.row.get("ac.formal_proposals");
@@ -513,6 +596,8 @@ LogicalResult verifySourceFormalOwnerBindings(
   return success();
 }
 StringAttr SourceMethodView::getReturnForm() const {
+  if (isNativeMemoryTerminal())
+    return StringAttr::get(module->getContext(), getFunctionType().getNumResults() ? "single" : "none");
   if (isNativeQueueTerminal())
     return StringAttr::get(module->getContext(),
                            nativeQueueAction == NativeQueueAction::Push
@@ -522,12 +607,15 @@ StringAttr SourceMethodView::getReturnForm() const {
                     : row.getAs<StringAttr>("ac.return_form");
 }
 StringAttr SourceMethodView::getVisibility() const {
-  if (isNativeQueueTerminal())
+  if (isNativeTerminal())
     return StringAttr::get(module->getContext(), "public");
   return definition ? definition->getAttrOfType<StringAttr>("sym_visibility")
                     : row.getAs<StringAttr>("visibility");
 }
 DictionaryAttr SourceMethodView::getDeclaration() const {
+  if (isNativeMemoryTerminal())
+    return nativeMemoryInstance ? nativeMemoryInstance->getAttrOfType<DictionaryAttr>("occurrence")
+        : nativeMemoryOwnerRow.getAs<DictionaryAttr>("occurrence");
   if (isNativeQueueTerminal())
     return nativeQueueInstance
                ? nativeQueueInstance->getAttrOfType<DictionaryAttr>(
@@ -538,13 +626,22 @@ DictionaryAttr SourceMethodView::getDeclaration() const {
                     : row.getAs<DictionaryAttr>("declaration");
 }
 DictionaryAttr SourceMethodView::getGuardLocation() const {
-  if (isNativeQueueTerminal())
+  if (isNativeTerminal())
     return {};
   return definition
              ? definition->getAttrOfType<DictionaryAttr>("ac.guard_location")
              : row.getAs<DictionaryAttr>("guard_location");
 }
 SymbolRefAttr SourceMethodView::getSymbol() const {
+  if (isNativeMemoryTerminal()) {
+    std::string name = nativeMemoryAction == NativeMemoryAction::Request ? "request" :
+        nativeMemoryAction == NativeMemoryAction::Result ? "result" :
+        nativeMemoryAction == NativeMemoryAction::Read ? "read" : "write";
+    if (nativeMemoryAction == NativeMemoryAction::Request || nativeMemoryAction == NativeMemoryAction::Result)
+      name += std::to_string(nativeMemoryPort);
+    return SymbolRefAttr::get(module->getContext(), SymbolTable::getSymbolName(module).getValue(),
+        {FlatSymbolRefAttr::get(module->getContext(), name)});
+  }
   if (isNativeQueueTerminal()) {
     StringRef name = nativeQueueAction == NativeQueueAction::Push
                          ? "push"
@@ -828,7 +925,46 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
             "pycircuit.__builtins__.fifo_local" ||
         terminalOwnerRow.getAs<FlatSymbolRefAttr>("callee").getValue() ==
             "pycircuit.__builtins__.fifo_downstream_pop"));
-  if (nativeQueue) {
+  StringRef memoryKind = hardware.getPrimitiveKind(owner);
+  bool nativeMemory = memoryKind == "sync_mem" || memoryKind == "sync_mem_dp" || memoryKind == "byte_mem";
+  if (nativeMemory) {
+    bool owned = terminalInstance
+        ? isa_and_nonnull<UnitAttr>(terminalInstance->getAttr("ac.source_memory"))
+        : terminalOwnerRow && terminalOwnerRow.getAs<BoolAttr>("source_memory") &&
+          terminalOwnerRow.getAs<BoolAttr>("source_memory").getValue();
+    if (!owned) return site->emitOpError() << "native Memory calls require source-owned pins";
+    NativeMemoryAction action = NativeMemoryAction::None;
+    unsigned port = 0;
+    if (methodName == "write") action = NativeMemoryAction::Write;
+    else if (memoryKind == "byte_mem" && methodName == "read") action = NativeMemoryAction::Read;
+    else if (memoryKind != "byte_mem") {
+      if (methodName == "request0" || methodName == "request1") action = NativeMemoryAction::Request;
+      if (methodName == "result0" || methodName == "result1") action = NativeMemoryAction::Result;
+      port = methodName.ends_with("1") ? 1 : 0;
+    }
+    if (action == NativeMemoryAction::None || (port && memoryKind != "sync_mem_dp"))
+      return site->emitOpError() << "native Memory action or static port is invalid";
+    DictionaryAttr ownerRow = terminalOwnerRow;
+    if (terminalInstance) {
+      auto checked = getSourceMemoryOwnerRow(terminalInstance);
+      if (failed(checked)) return failure();
+      ownerRow = *checked;
+    }
+    Type payload = terminalInstance ? terminalInstance.getResult(0).getType()
+        : cast<TypeAttr>(ownerRow.getAs<ArrayAttr>("result_types")[0]).getValue();
+    Attribute constraint = terminalInstance ? terminalInstance->getAttr("ac.payload_constraint")
+                                           : ownerRow.get("payload_constraint");
+    if (!constraint || failed(detail::verifySourceCallHardwareConstraint(
+            constraint, payload, hardware, caller, site, "native Memory payload")))
+      return site->emitOpError() << "native Memory requires its checked logical payload constraint";
+    method.module = owner;
+    method.nativeMemoryAction = action;
+    method.nativeMemoryPort = port;
+    method.nativeMemoryInstance = terminalInstance;
+    method.nativeMemoryOwnerRow = ownerRow;
+    method.nativeMemoryPayloadType = payload;
+    method.nativeMemoryPayloadConstraint = constraint;
+  } else if (nativeQueue) {
     NativeQueueAction action = methodName == "push"
                                    ? NativeQueueAction::Push
                                    : methodName == "pop"

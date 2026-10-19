@@ -146,6 +146,13 @@ static FailureOr<SmallVector<Value, 0>> verifyResourceDemandReach(
         if (failed(yes) || failed(no)) return failure();
         result = append(Kind::Select, control.raw, *yes, *no);
       } else if (control.kind == SampledControlKind::ResourceAvailable) {
+        auto metadata = llvm::find_if(view.resources, [&](const auto &resource) {
+          return resource.control == ordinal;
+        });
+        if (metadata == view.resources.end()) return failure();
+        // Memory snapshots admit forward execution. They do not suppress
+        // already-reached diagnostics through Queue's speculative demand.
+        if (metadata->kind.getValue() == "memory_live") continue;
         auto resource = leaf(ordinal);
         if (failed(resource)) return failure();
         auto required = append(Kind::And, resource->predicate, continuation);

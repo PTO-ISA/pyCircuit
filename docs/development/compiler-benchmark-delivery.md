@@ -30,21 +30,22 @@ unnecessary wrappers/workarounds → Memory and instance collection calls.
 - [x] Replace single-Table `Scenarios` wrappers with already-supported typed
   helper locals; remove computation-helper detours after direct statements pass.
   Preserve every stimulus row, cycle count, expected value and independent oracle.
-- [ ] Unify Memory argument/call normalization with existing primitive owners.
-  First specify asynchronous versus registered read timing and request/result
-  availability; never disguise a delayed response as a same-call read result.
+- [x] Unify Memory argument/call normalization with existing primitive owners.
+  Named synchronous request/result snapshots and asynchronous byte reads now
+  use existing resource admission, atomic proposals and committed storage.
+  DMA and Memory Banks retain their original Module oracles and System timing.
 - [ ] Support homogeneous instance collection calls through actual lane identity,
   existing collections, selected-owner writes and per-element availability.
   Static selection, dynamic dispatch and broadcast are distinct cases. Existing
   routed-port/transaction proofs must be completed before removing their guards.
 
-The first two bounded contracts have independent architect/decomposition review.
-Implementation and test ownership stay separate. Memory/collection design is
-being reviewed in parallel; no new public spelling or scheduler is assumed by
-this checklist. Each step must pass its focused common-IR and dual-backend
+The bounded contracts have independent architect/decomposition review.
+Implementation and test ownership stay separate. The user selected Memory
+snapshot timing below; Memory and collection implementation continues through
+existing native resource and transaction owners. Each step must pass its focused common-IR and dual-backend
 checks before the next step removes its source workaround.
 
-## Memory and collection interface contract for review
+## Approved Memory and collection interface contract
 
 The user selected **existing synchronous timing with request/result snapshots**.
 No response-consumption state, extra response FIFO, hidden wait or new scheduler
@@ -114,6 +115,15 @@ inside their owning Rule transaction.
   four-state RAM storage. Live/payload independence is tested separately at the
   primitive sideband boundary, without relaxing existing write checks.
 
+The asynchronous backend reuses the existing pure committed-state read helper
+while emitting combinational SSA, then calls the existing Memory Work once to
+validate all pins and stage updates. Xfer remains the only storage commit.
+Read-dependent writes require no extra sample or lifecycle hook. Ordinary
+read-address dependency-cycle checks remain active. Opposite-arm read-demand
+controls are omitted only with the existing source-path exclusion proof;
+diagnostics retain their full reached prefixes. Dominated equal-address reads
+retain all source records/checks while sharing the physical address demand.
+
 The first collection interface is a fixed positive one-dimensional homogeneous
 family, written as a static list comprehension such as
 `banks = [Bank() for _ in range(4)]`. It creates independent static children and
@@ -138,11 +148,44 @@ three-lane family an unconstrained bits[2] selector is not proven in range;
 source range refinement must establish the bound without selector truncation.
 Broadcast syntax is not introduced by this first contract.
 
-This section fixes intended semantics for independent review. Neither a frontend
+This section records reviewed semantics and the user's Memory timing decision. Neither a frontend
 receiver parser nor static per-lane unrolling alone completes Memory or compact
 Collection transaction support. Required evidence includes imported providers,
 port/lane conflicts, live-X versus unavailable values, reset/expiry, four-state
 indices, independent lanes, whole-root discard and generated C++/RTL execution.
+
+## Remaining compact collection implementation
+
+This is follow-up work after the independently deliverable Memory slice. The
+interface contract above is approved; it is not a claim of implemented support.
+Existing raw ACIR collection/runtime support does not yet admit the ordinary
+Python family-call surface.
+
+- [ ] Capture fixed homogeneous list-comprehension allocations and aliases into
+  one compact `ac.collection`; never substitute scalar instance unrolling.
+- [ ] Extend existing Method receiver resolution with allocation identity and
+  separate lane-selection operands. Evaluate the selector once and retain the
+  full-width nonnegative/in-range proof; do not overload state field identity.
+- [ ] Lift existing state, Queue and Memory proposal/private-port routing over
+  the family. Project/scatter selected lanes using existing Table operations,
+  with one candidate per actual owner and selected-lane availability.
+- [ ] Preserve autonomous work, clocks and Memory expiry on unselected lanes;
+  selected-child stalls inhibit the complete outer Rule. Reached X/Z selectors
+  must fault and preserve whole-root discard.
+- [ ] Extend alias/conflict analysis, original-source replay and standalone
+  final proofs before removing collection-route/availability restrictions.
+- [ ] Validate imported providers, static and dynamic lanes, same-lane aliases,
+  independent lanes, per-lane stalls, unknown selectors and output protection
+  on native workers 1/2 and RTL. Existing raw collection tests are regression
+  coverage, not proof of the new source interface.
+- [ ] Migrate Memory Banks to compact calls, retaining its original 883-sample
+  oracle and 26-cycle System; update manual and source skill after validation.
+
+Dynamic-width Bits slices/writes, broader static-parameter/state initialization
+support and remaining historical API callers are separate capabilities. Full
+API/example nightly and the complete Queue/Memory reset-policy matrix remain
+unexecuted on this candidate. The broader #307/#319 checklist remains open;
+Signal and other explicitly cancelled interfaces are not future tasks.
 
 ## Required work
 

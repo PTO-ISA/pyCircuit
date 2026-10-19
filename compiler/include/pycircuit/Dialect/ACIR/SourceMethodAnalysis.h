@@ -42,6 +42,10 @@ mlir::LogicalResult verifySourceQueueConfiguration(
 mlir::FailureOr<mlir::DictionaryAttr> getSourceQueueOwnerRow(InstanceOp queue);
 
 enum class NativeQueueAction { None, Push, Pop, Peek };
+enum class NativeMemoryAction { None, Request, Result, Read, Write };
+/// Source-owned Memory authority is reconstructed from the actual allocation;
+/// imported rows are checked again against the canonical primitive signature.
+mlir::FailureOr<mlir::DictionaryAttr> getSourceMemoryOwnerRow(InstanceOp memory);
 
 /// A checked, borrowed Method contract from a definition or interface row.
 struct SourceMethodView {
@@ -58,6 +62,18 @@ struct SourceMethodView {
   mlir::Attribute nativeQueuePayloadConstraint;
   bool isNativeQueueTerminal() const {
     return nativeQueueAction != NativeQueueAction::None;
+  }
+  NativeMemoryAction nativeMemoryAction = NativeMemoryAction::None;
+  unsigned nativeMemoryPort = 0;
+  InstanceOp nativeMemoryInstance;
+  mlir::DictionaryAttr nativeMemoryOwnerRow;
+  mlir::Type nativeMemoryPayloadType;
+  mlir::Attribute nativeMemoryPayloadConstraint;
+  bool isNativeMemoryTerminal() const {
+    return nativeMemoryAction != NativeMemoryAction::None;
+  }
+  bool isNativeTerminal() const {
+    return isNativeQueueTerminal() || isNativeMemoryTerminal();
   }
   mlir::FunctionType getFunctionType() const;
   mlir::ArrayAttr getArgumentNames() const;

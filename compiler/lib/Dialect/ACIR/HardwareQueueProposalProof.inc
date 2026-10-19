@@ -3,7 +3,7 @@
 static LogicalResult proveQueueProposalPrefixes(
     const SampledAdmissionView &view, const PreparedSampledBoundaries &prepared,
     const HardwareAnalysis &analysis, SourceCheckBudget &budget, OrderedPrefixProof &proof) {
-  if (view.queueProposals.empty()) return success();
+  if (view.queueProposals.empty() && view.memoryProposals.empty()) return success();
   struct Factor { HardwareIdentityEndpoint value; bool positive; bool expandedSelector = false; bool literal = false; };
   struct Factors { SmallVector<Factor> atoms; bool alwaysFalse = false; };
   auto factors = [&](Value value) -> FailureOr<Factors> {
@@ -149,5 +149,6 @@ static LogicalResult proveQueueProposalPrefixes(
     }
 
   }
+#include "HardwareMemoryProposalProof.inc"
   return success();
 }

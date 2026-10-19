@@ -9,7 +9,7 @@
 
 | 数据集 | 已取得的题目库存 | 当前执行 |
 | --- | --- | --- |
-| VerilogEval 2023 | Human 156，Machine 143；两个 prompt 变体不可相加当成独立问题 | 本轮88/88已迁移题通过（全库88/156）；79项strict、9项显式if_one；68项尚未移植 |
+| VerilogEval 2023 | Human 156，Machine 143；两个 prompt 变体不可相加当成独立问题 | 本轮89/89已迁移题通过（全库89/156）；80项strict、9项显式if_one；67项尚未移植 |
 | VerilogEval v2 | spec-to-RTL 156，code-completion 156；与旧版有重叠 | 已分类，未运行 |
 | CVDP v1.1.0 | 872 条：749 generation +123 comprehension，7个配置 | 题目已下载；原容器/形式/PPA协议未运行 |
 | HWE-Bench | 417 个真实修复任务，6个仓库 | 已下载和分类；没有把模块重写当成 fail-to-pass 修复分数 |
@@ -36,7 +36,8 @@ C++仅完成emit，本轮功能判定使用Icarus12.0。ResBench上游使用Viva
   当前已编目3771条（含明示的密文描述指针），包含明确标注的变体，不能作为3771个独立问题的声称。
 - `solutions/`：可读pyCircuit源码及外部接口映射元数据，不包含参考RTL替代品。
 - `results/`：本轮逐题结果与汇总；完整产物和日志在忽略的 `runs/`。
-- `runs/four-state-verilogeval-final/`：2026-10-19四态候选的88通过记录；
+- `runs/phase4b-final-verilogeval/` 与 `runs/phase4b-final-resbench/`：2026-10-19
+  普通语句、动态位读取与 Memory 候选的89/43通过记录；
   `results/`保留对应逐题结果及候选工具哈希，旧运行目录仍保留此前基线。
 - [COMPILER_FINDINGS.md](COMPILER_FINDINGS.md)：前端、MLIR、codegen、适配和数据问题。
 

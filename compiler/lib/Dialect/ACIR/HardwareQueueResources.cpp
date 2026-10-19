@@ -1,4 +1,5 @@
 #include "HardwareQueueResources.h"
+#include "HardwareGrantProof.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
 #include "llvm/ADT/APSInt.h"
@@ -33,10 +34,26 @@ struct QueueDemandDefinition {
 };
 // One complete lexical demand closure for a synchronous, read-only public
 // invocation. Root/binding and physical occurrence proofs remain separate.
+struct QueueSampleEntry {
+  HardwareBindings bindings;
+  std::unique_ptr<SampledAdmissionView> view;
+};
+struct MemoryClosureFacts {
+  bool allocation = false, effect = false;
+};
+struct MemoryClosureEntry {
+  HardwareBindings bindings;
+  MemoryClosureFacts facts;
+  bool complete = false;
+};
 struct QueueDemandInventory {
   SmallVector<QueueDemandDefinition, 0> definitions;
   llvm::DenseMap<Operation *, size_t> definitionIndex;
   bool complete = false;
+  // Parsed schema belongs to this immutable analysis/budget invocation. Actual
+  // occurrence resource, domain and physical routing proofs remain separate.
+  llvm::DenseMap<Operation *, SmallVector<QueueSampleEntry, 0>> sampled;
+  llvm::DenseMap<Operation *, SmallVector<std::unique_ptr<MemoryClosureEntry>, 0>> memoryClosure;
 };
 bool same(const HardwareIdentityEndpoint &a, const HardwareIdentityEndpoint &b) {
   return a.value == b.value && a.scope.root == b.scope.root &&
@@ -70,7 +87,10 @@ public:
         scope{module, bindings, {}}, verifiedUses(verifiedUses),
         demandInventory(demandInventory), authenticate(authenticate) {}
 
+  FailureOr<uint64_t> incomingMemoryPorts() { return memoryIncomingCount(); }
+
   LogicalResult run() {
+    if (authenticate && failed(memoryWiring())) return failure();
     if (failed(childSummaryRoots())) return failure();
     auto raw = module->getAttr("ac.queue_wiring");
     if (!raw) {
@@ -85,7 +105,13 @@ public:
         }
       if (authenticate && module.getBody().hasOneBlock()) for (auto rule : module.getBody().front().getOps<RuleOp>()) {
         auto row = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
-        if (row && (row.get("resources") || row.get("queue_proposals")))
+        auto resources = row ? row.getAs<ArrayAttr>("resources") : ArrayAttr();
+        bool queueResource = resources && llvm::any_of(resources, [](Attribute raw) {
+          auto resource = dyn_cast<DictionaryAttr>(raw);
+          auto kind = resource ? resource.getAs<StringAttr>("kind") : StringAttr();
+          return !kind || kind.getValue() != "memory_live";
+        });
+        if (row && (queueResource || row.get("queue_proposals")))
           return rule->emitOpError() << "sampled queue metadata requires owning module queue wiring";
       }
       return privateUses();
@@ -299,16 +325,31 @@ private:
     privateRoots[value] |= kind;
     return success();
   }
-  FailureOr<const SampledAdmissionView *> sample(RuleOp rule) {
-    if (auto found = sampledRules.find(rule); found != sampledRules.end())
-      return found->second.get();
-    auto view = parseSampledAdmission(rule, analysis, bindings, budget);
-    if (failed(view) || failed(pay(sizeof(std::unique_ptr<SampledAdmissionView>) +
-                                  sizeof(Operation *) + sizeof(SampledAdmissionView)))) return failure();
+  FailureOr<const SampledAdmissionView *> sampleFor(RuleOp rule,
+                                                   const HardwareBindings &bound) {
+    if (failed(step(rule))) return failure();
+    auto found = demandInventory.sampled.find(rule);
+    if (found != demandInventory.sampled.end())
+      for (const auto &entry : found->second) {
+        if (failed(step(rule, SourceCheckBudget::add(SourceCheckBudget::bindings(bound),
+                                                    SourceCheckBudget::bindings(entry.bindings))))) return failure();
+        if (sameHardwareBindings(bound, entry.bindings)) return entry.view.get();
+      }
+    auto view = parseSampledAdmission(rule, analysis, bound, budget);
+    if (failed(view) || failed(pay(sizeof(QueueSampleEntry) + sizeof(SampledAdmissionView) +
+                                  SourceCheckBudget::multiply(8, SourceCheckBudget::bindings(bound)) +
+                                  (found == demandInventory.sampled.end() ? sizeof(Operation *) + 64 : 0))))
+      return failure();
     auto owned = std::make_unique<SampledAdmissionView>(std::move(*view));
     auto *result = owned.get();
-    sampledRules.try_emplace(rule, std::move(owned));
+    // Parsing never reenters this sample cache. Publish only the complete view.
+    if (found == demandInventory.sampled.end())
+      found = demandInventory.sampled.try_emplace(rule).first;
+    found->second.push_back({bound, std::move(owned)});
     return result;
+  }
+  FailureOr<const SampledAdmissionView *> sample(RuleOp rule) {
+    return sampleFor(rule, bindings);
   }
   LogicalResult privateUses() {
     // Rule yields and identity routes may expose an enable through another
@@ -395,10 +436,34 @@ private:
     return budget.debit(count, site);
   }
   FailureOr<HardwareIdentityEndpoint> normal(Value value, const HardwareIdentityScope &at) {
+    if (failed(step(module))) return failure();
+    auto found = normalized.find(value);
+    if (found != normalized.end())
+      for (const auto &entry : found->second) {
+        if (failed(step(module, 1 + std::min(entry.input.path.size(), at.path.size())))) return failure();
+        if (entry.input.root != at.root || entry.input.path != at.path) continue;
+        if (failed(step(module, SourceCheckBudget::add(SourceCheckBudget::bindings(entry.input.rootBindings),
+                                                      SourceCheckBudget::bindings(at.rootBindings))))) return failure();
+        if (!sameHardwareBindings(entry.input.rootBindings, at.rootBindings)) continue;
+        // The graph, complete bindings and ordinary-instance stop policy are
+        // immutable for this proof object. Reuse only route normalization;
+        // actual occurrence/domain/resource and physical pin proofs still run.
+        if (failed(step(module, SourceCheckBudget::add(1 + entry.output.scope.path.size(),
+                                                      SourceCheckBudget::bindings(entry.output.scope.rootBindings))))) return failure();
+        return entry.output;
+      }
     auto endpoint = makeIdentityEndpoint(value, at, analysis, budget);
     if (failed(endpoint)) return failure();
-    return normalizeIdentityEndpoint(*endpoint,
+    auto output = normalizeIdentityEndpoint(*endpoint,
         {HardwareIdentityTraversal::OrdinaryInstances, {}}, analysis, budget);
+    if (failed(output) || failed(pay(sizeof(NormalizedEntry) +
+          SourceCheckBudget::multiply(sizeof(InstanceOp), at.path.size() + output->scope.path.size()) +
+          SourceCheckBudget::multiply(8, SourceCheckBudget::add(SourceCheckBudget::bindings(at.rootBindings),
+                                                              SourceCheckBudget::bindings(output->scope.rootBindings))) +
+          (found == normalized.end() ? sizeof(Value) + 64 : 0)))) return failure();
+    if (found == normalized.end()) found = normalized.try_emplace(value).first;
+    found->second.push_back({at, *output});
+    return *output;
   }
   // The caller may already have authenticated the complete normalized scope.
   // Read that endpoint once instead of repeating normalization for both bits.
@@ -780,8 +845,9 @@ private:
   }
 #include "HardwareQueueProspectiveRoutingProof.inc"
   LogicalResult resourcePath(const SampledAdmissionView &view,
-                             const SampledControlView &control, Value condition) {
-    auto full = normal(condition, scope);
+                             const SampledControlView &control, Value condition,
+                             const HardwareIdentityScope &at) {
+    auto full = normal(condition, at);
     if (failed(full)) return failure();
     auto root = full->value.getDefiningOp<BitsBinaryOp>();
     if (!root || root.getOpcode() != "and")
@@ -805,7 +871,7 @@ private:
       if (!part || part.getOpcode() != "and")
         return module->emitOpError() << "queue resource ancestry is incomplete";
       auto actual = normal(part.getRhs(), ancestry->scope);
-      auto expected = normal(view.controls[*parent.selectionControl].raw, scope);
+      auto expected = normal(view.controls[*parent.selectionControl].raw, at);
       if (failed(actual) || failed(expected)) return failure();
       if (!parent.whenTrue) {
         auto inverse = actual->value.getDefiningOp<BitsUnaryOp>();
@@ -828,6 +894,7 @@ private:
   LogicalResult resources(const SampledAdmissionView &sampled) {
     mlir::Builder b(module.getContext());
     for (const auto &resource : sampled.resources) {
+      if (resource.kind.getValue() == "memory_live") continue;
       auto id = b.getDictionaryAttr({b.getNamedAttr("owner", resource.owner),
                                     b.getNamedAttr("declaration", resource.declaration)});
       auto target = resolve(id);
@@ -841,7 +908,7 @@ private:
       if (resource.kind.getValue() == "queue_ready" &&
           failed(prospectivePredicate(sampled, resource, *target, select.getTrueValue()))) return failure();
       auto bypass = literal(select.getFalseValue(), raw->scope, true);
-      if (failed(resourcePath(sampled, control, select.getCondition()))) return failure();
+      if (failed(resourcePath(sampled, control, select.getCondition(), scope))) return failure();
       auto clock = normal(sampled.clock, scope), reset = normal(sampled.reset, scope);
       auto queueClock = normal(target->queue.getInputs()[0], target->scope),
            queueReset = normal(target->queue.getInputs()[1], target->scope);
@@ -850,27 +917,41 @@ private:
           failed(queueClock) || failed(queueReset) || !same(*clock, *queueClock) || !same(*reset, *queueReset))
         return module->emitOpError() << "queue resource predicate or domain differs from actual allocation";
     }
-    return sampled.resources.empty() ? success() : prospectiveUseClosure(sampled);
+    return llvm::any_of(sampled.resources, [](const auto &resource) {
+      return resource.kind.getValue() == "queue_ready";
+    }) ? prospectiveUseClosure(sampled) : success();
   }
+#include "HardwareMemoryResources.inc"
 #include "HardwareQueueProspectiveStructuralUses.inc"
   const HardwareAnalysis &analysis;
   SourceCheckBudget &budget;
   ModuleOp module;
   const HardwareBindings &bindings;
   HardwareIdentityScope scope;
+  struct NormalizedEntry {
+    HardwareIdentityScope input;
+    HardwareIdentityEndpoint output;
+  };
+  llvm::DenseMap<Value, SmallVector<NormalizedEntry, 0>> normalized;
   SmallVector<QueuePins> incomingPins, localPins;
   llvm::DenseMap<Value, unsigned> privateRoots;
   llvm::DenseMap<OpOperand *, unsigned> allowed;
   llvm::DenseSet<OpOperand *> terminals;
   llvm::DenseSet<OpOperand *> prospectiveAllowed;
   llvm::DenseSet<Value> prospectivePrivate, prospectiveLeaves, unusedSummaryRoots;
-  llvm::DenseMap<Operation *, std::unique_ptr<SampledAdmissionView>> sampledRules;
   llvm::DenseSet<OpOperand *> &verifiedUses;
   QueueDemandInventory &demandInventory;
   bool authenticate;
 
 };
 } // namespace
+FailureOr<uint64_t> getMemoryIncomingPortCount(ModuleOp module,
+    const HardwareAnalysis &analysis, const HardwareBindings &bindings,
+    SourceCheckBudget &budget) {
+  llvm::DenseSet<OpOperand *> uses;
+  QueueDemandInventory demands;
+  return QueueWiringProof(analysis, budget, module, bindings, uses, demands, false).incomingMemoryPorts();
+}
 LogicalResult verifyQueueResourceWiring(const HardwareAnalysis &analysis,
     ArrayRef<std::pair<ModuleOp, HardwareBindings>> scopes, SourceCheckBudget &budget) {
   QueueDemandInventory demands;

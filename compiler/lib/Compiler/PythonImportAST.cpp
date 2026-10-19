@@ -11,8 +11,10 @@ namespace acir::compiler::detail {
 FailureOr<SmallVector<AstNode>> normalizeCallArguments(
     const AstNode &call, ArrayRef<StringRef> formals,
     ac::detail::EmitError emitError, StringRef arityDiagnostic,
-    SmallVectorImpl<size_t> *evaluationOrder) {
-  if (call.array("args").size() + call.array("keywords").size() != formals.size())
+    SmallVectorImpl<size_t> *evaluationOrder, size_t optionalTrailing) {
+  size_t supplied = call.array("args").size() + call.array("keywords").size();
+  if (optionalTrailing > formals.size() || supplied > formals.size() ||
+      supplied < formals.size() - optionalTrailing)
     return emitError() << arityDiagnostic;
   SmallVector<AstNode> actuals(formals.size());
   if (evaluationOrder) evaluationOrder->clear();
@@ -34,7 +36,8 @@ FailureOr<SmallVector<AstNode>> normalizeCallArguments(
     actuals[index] = keyword.child("value");
     if (evaluationOrder) evaluationOrder->push_back(index);
   }
-  if (llvm::any_of(actuals, [](const AstNode &actual) { return !actual; }))
+  if (llvm::any_of(ArrayRef<AstNode>(actuals).drop_back(optionalTrailing),
+                   [](const AstNode &actual) { return !actual; }))
     return emitError() << "missing required callable argument";
   return actuals;
 }

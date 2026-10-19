@@ -2523,7 +2523,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         rememberState(oldQ, entry.second);
       }
       auto bound = bindMemoryResults(statement, at, decl.symbol, memoryValues,
-                                     instances);
+                                     instances, instanceStorage);
       if (failed(bound) || !*bound) return failure();
       auto *plan = memoryPlan(statement.child("value"), decl.symbol);
       if (!plan) return failure();
@@ -3065,6 +3065,9 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       recognizedReceiver = true;
       receiver = found->second;
       methodName = function.string("attr");
+      if (memoryInstance(receiver))
+        return memoryMethodCall(node, *receiver, at, owner, values, instances,
+                                tupleCall);
       nativeQueue = queueInstance(receiver);
       if (nativeQueue && methodName != "push" && methodName != "pop" &&
           methodName != "peek")

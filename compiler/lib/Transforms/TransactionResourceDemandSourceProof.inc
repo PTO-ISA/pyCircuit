@@ -167,7 +167,7 @@
                 std::distance(plan.queueAccesses.begin(), access);
             auto resource = llvm::find_if(
                 preparation.resources, [&](const auto &candidate) {
-                  return candidate.access == accessId;
+                  return !candidate.memoryAccess && candidate.access == accessId;
                 });
             if (resource == preparation.resources.end())
               return reject("original resource demand queue leaf is absent");
@@ -188,6 +188,12 @@
                                    call.getLoc());
             if (failed(selected)) return failure();
             continuation = *selected;
+          } else if (auto memory = llvm::find_if(plan.memoryAccesses, [&](const auto &item) {
+                       return item.frame == frame && item.operation == call;
+                     }); memory != plan.memoryAccesses.end()) {
+            // Memory live is an ordinary forward admission boundary. It must
+            // not retroactively suppress a previously reached selector check.
+            // Its actual predicate/control is proven in MemorySourceProof.
           } else {
             auto found = llvm::find_if(plan.calls, [&](const auto &candidate) {
               return candidate.caller == frame && candidate.operation == call;

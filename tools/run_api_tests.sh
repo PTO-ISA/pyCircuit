@@ -32,6 +32,7 @@ nightly_python_tests=(
   tests/system/test_four_state_runtime_unknown.py
   tests/system/test_module_statement_parity.py
   tests/system/test_dynamic_bits_index.py
+  tests/system/test_memory_rule_calls.py
   tests/system/test_rule_formal_proposals.py
   tests/system/test_rule_formal_demands.py
   tests/system/test_rule_scf_control.py

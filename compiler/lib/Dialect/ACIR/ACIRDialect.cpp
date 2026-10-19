@@ -11,6 +11,14 @@ namespace acir::ac {
 LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                                                     NamedAttribute attribute) {
   StringRef name = attribute.getName().getValue();
+  if (name == "ac.source_memory") {
+    if (!isa<InstanceOp>(operation) ||
+        !isa_and_nonnull<ModuleOp>(operation->getParentOp()) ||
+        !isa<UnitAttr>(attribute.getValue()))
+      return operation->emitOpError()
+             << "ac.source_memory is a source Memory allocation unit marker";
+    return success();
+  }
   if (name == "ac.system_samples") {
     auto role = operation->getAttrOfType<StringAttr>("ac.root_kind");
     if (!isa<ModuleOp, ModuleImportOp>(operation) || !role ||

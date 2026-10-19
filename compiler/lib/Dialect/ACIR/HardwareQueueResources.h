@@ -13,6 +13,10 @@ getVerifiedQueueResourceUses(const HardwareAnalysis &analysis,
                              SourceCheckBudget &budget);
 mlir::FailureOr<llvm::DenseSet<mlir::OpOperand *>>
 getVerifiedQueueResourceUses(const HardwareAnalysis &analysis);
+// Parse-free coverage of private Memory path/data pairs by actual pin SSA.
+mlir::FailureOr<uint64_t> getMemoryIncomingPortCount(
+    ModuleOp module, const HardwareAnalysis &analysis,
+    const HardwareBindings &bindings, SourceCheckBudget &budget);
 mlir::LogicalResult verifyQueueResourceWiring(
     const HardwareAnalysis &analysis,
     llvm::ArrayRef<std::pair<ModuleOp, HardwareBindings>> scopes,

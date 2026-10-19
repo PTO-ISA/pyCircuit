@@ -32,6 +32,13 @@ struct QueuePopSummaryRoute {
 };
 using QueueRoutingKey = std::pair<RoutingKey, unsigned>;
 
+struct MemoryPinRoute {
+  llvm::SmallVector<ac::InstanceOp> path;
+  ac::InstanceOp allocation;
+  unsigned operand = 0;
+  mlir::Type type, predicateType;
+};
+
 struct DefinitionRouting {
   ac::ModuleOp module;
   llvm::SmallVector<Route> upward, downward;
@@ -41,6 +48,8 @@ struct DefinitionRouting {
   llvm::DenseMap<QueueRoutingKey, unsigned> queueIncomingIndex;
   llvm::SmallVector<QueuePopSummaryRoute, 0> queuePopSummaries;
   llvm::DenseMap<RoutingKey, unsigned> queuePopSummaryIndex;
+  llvm::SmallVector<MemoryPinRoute, 0> memoryIncoming;
+  llvm::DenseMap<QueueRoutingKey, unsigned> memoryIncomingIndex;
   unsigned sourceInputs = 0, sourceOutputs = 0;
   mlir::DictionaryAttr expectedWiring, expectedQueueWiring;
 };
@@ -73,6 +82,39 @@ struct TransactionQueueResource {
   mlir::StringAttr kind;
   llvm::SmallVector<uint64_t, 0> priorPops;
   std::optional<uint64_t> externalPop;
+  std::optional<uint64_t> memoryAccess;
+};
+inline ac::TransactionPoint resourcePoint(const ac::TransactionStatePlan &plan,
+    const TransactionQueueResource &resource) {
+  return resource.memoryAccess ? plan.memoryAccesses[*resource.memoryAccess].point
+                               : plan.queueAccesses[resource.access].point;
+}
+inline mlir::Operation *resourceOperation(const ac::TransactionStatePlan &plan,
+    const TransactionQueueResource &resource) {
+  return resource.memoryAccess ? plan.memoryAccesses[*resource.memoryAccess].operation
+                               : plan.queueAccesses[resource.access].operation;
+}
+inline ac::InvocationFrameId resourceFrame(const ac::TransactionStatePlan &plan,
+    const TransactionQueueResource &resource) {
+  return resource.memoryAccess ? plan.memoryAccesses[*resource.memoryAccess].frame
+                               : plan.queueAccesses[resource.access].frame;
+}
+inline mlir::DictionaryAttr resourceOccurrence(const ac::TransactionStatePlan &plan,
+    const TransactionQueueResource &resource) {
+  return resource.memoryAccess ? plan.memoryAccesses[*resource.memoryAccess].occurrence
+                               : plan.queueAccesses[resource.access].occurrence;
+}
+inline mlir::DictionaryAttr resourceLocation(const ac::TransactionStatePlan &plan,
+    const TransactionQueueResource &resource) {
+  return resource.memoryAccess ? plan.memoryAccesses[*resource.memoryAccess].location
+                               : plan.queueAccesses[resource.access].location;
+}
+struct TransactionMemoryProposal {
+  uint64_t access = 0, rawResult = 0, pathResult = 0;
+  std::optional<uint64_t> physicalReuse;
+  uint64_t reachedControlEnd = 0;
+  llvm::SmallVector<uint64_t, 0> excludedControls;
+  llvm::SmallVector<uint64_t, 0> argumentResults;
 };
 struct TransactionQueueExternalPop {
   ac::QueueOwnerId owner = 0;
@@ -111,6 +153,7 @@ struct TransactionPreparation {
   llvm::SmallVector<TransactionQueueResource, 0> resources;
   llvm::SmallVector<TransactionQueueExternalPop, 0> externalPops;
   llvm::SmallVector<TransactionQueueProposal, 0> queueProposals;
+  llvm::SmallVector<TransactionMemoryProposal, 0> memoryProposals;
   llvm::SmallVector<TransactionWriteDomain, 0> writeDomains;
   llvm::SmallVector<uint64_t, 0> sourceControls;
   uint64_t clockCapture = 0, resetCapture = 0, fireResult = 0;
@@ -187,6 +230,7 @@ struct MaterializedTransaction {
   llvm::SmallVector<ac::ValueRequireOp, 0> requirements;
   llvm::SmallVector<ac::BitsSelectOp, 0> resources;
   llvm::SmallVector<mlir::Value, 0> queuePaths;
+  llvm::SmallVector<mlir::Value, 0> memoryPaths, memoryReadPrefixes;
   llvm::SmallVector<MaterializedSelectedWrite, 0> selectedWrites;
   MaterializedResourceDemand resourceDemand;
   llvm::SmallVector<std::pair<uint64_t, uint64_t>, 0> validityCaptures;
@@ -207,6 +251,13 @@ struct MaterializedIncomingCommit {
   MaterializedBranchResult data;
 };
 
+struct MaterializedMemoryPin {
+  ac::ModuleOp module;
+  QueueRoutingKey key;
+  mlir::Value active, data, idle;
+  llvm::SmallVector<MaterializedBranchResult, 0> selections;
+};
+
 struct MaterializedTransactionLowering {
   mlir::OwningOpRef<mlir::ModuleOp> module;
   mlir::IRMapping packageMap;
@@ -215,6 +266,7 @@ struct MaterializedTransactionLowering {
   llvm::SmallVector<mlir::Operation *, 0> availabilityOperations;
   llvm::SmallVector<MaterializedQueueMerge, 0> queueMerges;
   llvm::SmallVector<mlir::Value, 0> queueDisabled;
+  llvm::SmallVector<MaterializedMemoryPin, 0> memoryPins;
 };
 
 mlir::FailureOr<PreparedTransactionLowering>

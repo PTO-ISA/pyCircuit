@@ -60,6 +60,14 @@ if (node.kind() == "Call" && (intrinsic(node.child("func"), "case_eq") ||
   remember(result, ValueKind::Boolean);
   return result;
 }
+// Memory handles are static identities; all data accesses are Rule operations.
+AstNode memoryBase = node.kind() == "Attribute" ? node.child("value") : node;
+if (memoryBase.kind() == "Name") {
+  auto found = instances.find(memoryBase.string("id"));
+  if (found != instances.end() && memoryInstance(found->second) &&
+      !values.contains(memoryBase.string("id")))
+    return error() << "Memory handle is a static allocation identity, not a payload value";
+}
 // Queue construction produces an ordinary immutable instance handle. Its three
 // public raw views are ordinary instance outputs.
 auto queueRaw = queueRawExpression(node, at, ownerSymbol, values, instances);

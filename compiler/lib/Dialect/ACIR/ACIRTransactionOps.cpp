@@ -993,7 +993,10 @@ LogicalResult SourceMethodCallOp::verify() {
       callee.getRootReference().getValue() ==
           "pycircuit.__builtins__.fifo_local" ||
       callee.getRootReference().getValue() ==
-          "pycircuit.__builtins__.fifo_downstream_pop";
+          "pycircuit.__builtins__.fifo_downstream_pop" ||
+      callee.getRootReference().getValue() == "pycircuit.__builtins__.sync_mem" ||
+      callee.getRootReference().getValue() == "pycircuit.__builtins__.sync_mem_dp" ||
+      callee.getRootReference().getValue() == "pycircuit.__builtins__.byte_mem";
   auto owner = (*this)->getParentOfType<ModuleOp>();
   Attribute rawLocation = (*this)->getAttr("ac.location");
   auto location = dyn_cast_or_null<DictionaryAttr>(rawLocation);

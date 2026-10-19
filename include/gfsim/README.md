@@ -106,9 +106,12 @@ Memory therefore retains its known-data storage contract; typed payloads do
 not silently authorize storing unknown write data.
 
 Module combinational outputs are observed after successful Work. Xfer alone
-does not refresh cached parent outputs or byte-memory read pins. The private byte-memory kernel exposes a pure read helper for combinational
-reset-initializer dependencies; Work retains its existing address diagnostics.
-This is not a SimObj lifecycle hook or an arbitrary feedback scheduler.
+does not refresh cached parent outputs or byte-memory read pins. Generated models
+use the existing pure byte-memory read helper while evaluating combinational
+SSA and reset initializers. Normal Work still runs once per leaf, validates all
+pins and stages writes after their inputs are ready. This admits read-dependent
+writes without another sample. Read-address cycles remain invalid. No SimObj
+lifecycle hook or feedback scheduler is added.
 
 ## FIFO storage kernel
 

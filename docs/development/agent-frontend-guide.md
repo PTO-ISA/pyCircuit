@@ -329,6 +329,37 @@ has been cancelled: do not add Signal declarations, set/get operations or an
 author-facing relation table to express these connections. Continue to use
 module state and Queue for cross-cycle storage.
 
+## Memory-facing interfaces
+
+Use a named `ac.sync_mem[T](depth=N)`, `ac.sync_mem_dp[T](depth=N)` or
+`ac.byte_mem[T](depth=N)` in the owning Module. Inside a Rule, write
+`memory.request(address)`, `memory.result()` and `memory.write(address, value)`;
+use `memory.read(address)` for asynchronous byte memory. Keep the value scalar
+when it has one field. Physical controls, response availability, port conflicts
+and atomic commit belong to the compiler.
+
+A synchronous result is a committed snapshot with the existing two-idle-edge
+lifetime. It does not wait for a request on the preceding source line, consume a
+response or prolong its lifetime. A request followed by an unavailable result
+in one Rule holds both operations. Separate request production from response
+consumption, preserving the algorithm's latency/controller phases. Save the
+snapshot in Module state if it must survive longer stalls. Do not use
+`is_known(data)` as a readiness test or add authored valid/ready wrappers.
+
+Prefer `previous = memory.read(address)` followed by ordinary computation and
+`memory.write(address, updated)` for asynchronous read-dependent updates. Reuse
+that local snapshot when possible. Memory aliases share physical port limits;
+source order cannot authorize two simultaneous writes on one port. See
+[Memory operations](../reference/language.md#memory-operations) for masks,
+static ports, reset and address behavior. The DMA and Memory Banks examples use
+operation calls while retaining their real controller phases and timing oracles.
+
+For finite System schedules, state advances on successful rising edges; logs
+observe each successful Work sample. A low/rising pair can therefore log the
+same committed state twice. Use fixed `ac.uN` for wrapping counters; a checked
+`Annotated[int, range(N)]` variable requires every assigned value to remain in
+its declared range. Keep comparison literals representable in fixed-width peers.
+
 ## Module state declarations and storage children
 
 A Module declares both child modules and its own persistent state variables.

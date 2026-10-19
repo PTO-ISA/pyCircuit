@@ -51,7 +51,6 @@
       std::optional<PathFactors> rawFactors;
     };
     SmallVector<Proposal, 0> all;
-    SmallVector<std::unique_ptr<SampledAdmissionView>> nestedViews;
     SmallVector<ModuleOp> active;
     std::function<LogicalResult(ModuleOp, const HardwareBindings &, HardwareIdentityScope)> collect =
         [&](ModuleOp definition, const HardwareBindings &bound, HardwareIdentityScope at) -> LogicalResult {
@@ -62,17 +61,9 @@
       for (auto rule : definition.getBody().front().getOps<RuleOp>()) {
         if (failed(step(rule))) return failure();
         if (!rule->hasAttr("ac.sampled_admission")) continue;
-        const SampledAdmissionView *view;
-        if (definition == module) {
-          auto parsed = sample(rule);
-          if (failed(parsed)) return failure();
-          view = *parsed;
-        } else {
-          auto parsed = parseSampledAdmission(rule, analysis, bound, budget);
-          if (failed(parsed) || failed(pay(sizeof(SampledAdmissionView) + sizeof(void *)))) return failure();
-          nestedViews.push_back(std::make_unique<SampledAdmissionView>(std::move(*parsed)));
-          view = nestedViews.back().get();
-        }
+        auto parsed = sampleFor(rule, bound);
+        if (failed(parsed)) return failure();
+        const auto *view = *parsed;
         for (const auto &proposal : view->queueProposals) {
           auto target = physicalQueue(proposal.queue, definition, at);
           if (failed(target) || failed(pay(sizeof(Proposal) + at.path.size() * sizeof(InstanceOp)))) return failure();

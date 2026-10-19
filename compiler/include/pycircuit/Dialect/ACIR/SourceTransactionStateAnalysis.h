@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 #include "llvm/Support/raw_ostream.h"
 #include <cstdint>
 #include <optional>
@@ -20,6 +21,8 @@ using BoundValueId = uint64_t;
 using StateOwnerId = uint64_t;
 using QueueOwnerId = uint64_t;
 using QueueAccessId = uint64_t;
+using MemoryOwnerId = uint64_t;
+using MemoryAccessId = uint64_t;
 using StateVersionId = uint64_t;
 using StateReadId = uint64_t;
 using StateWriteId = uint64_t;
@@ -183,6 +186,34 @@ struct TransactionQueueAccess {
   BoundValueId authoredPath = 0;
   mlir::BoolAttr pathFact;
   std::optional<BoundValueId> payload, result;
+  TransactionPoint point;
+  mlir::DictionaryAttr occurrence, location;
+};
+
+/// Existing Memory allocation and committed physical response wires, bound to
+/// one lexical owner. No response consumption or replacement storage is added.
+struct TransactionMemoryOwner {
+  LexicalInstanceId anchor = 0;
+  mlir::ArrayAttr instancePath;
+  InstanceOp allocation;
+  mlir::DictionaryAttr occurrence;
+  mlir::Type payloadType;
+  mlir::Attribute payloadConstraint;
+  TransactionDomain domain;
+  MemoryPrimitiveLayout layout;
+  llvm::SmallVector<BoundValueId, 0> inputs, outputs;
+};
+enum class TransactionMemoryAccessKind { Request, Result, Read, Write };
+struct TransactionMemoryAccess {
+  mlir::Operation *operation = nullptr;
+  InvocationFrameId frame = 0;
+  MemoryOwnerId owner = 0;
+  TransactionMemoryAccessKind kind = TransactionMemoryAccessKind::Result;
+  unsigned port = 0;
+  BoundValueId authoredPath = 0;
+  mlir::BoolAttr pathFact;
+  llvm::SmallVector<BoundValueId, 0> arguments;
+  std::optional<BoundValueId> result;
   TransactionPoint point;
   mlir::DictionaryAttr occurrence, location;
 };
@@ -387,6 +418,7 @@ enum class TransactionStateEventKind {
   BodyCheck,
   Observe,
   QueueAccess,
+  MemoryAccess,
   CallEnter,
   CallExit,
   BranchEnter,
@@ -419,6 +451,7 @@ struct TransactionStateEvent {
   std::optional<BodyCheckId> bodyCheck;
   std::optional<ObservationId> observation;
   std::optional<QueueAccessId> queueAccess;
+  std::optional<MemoryAccessId> memoryAccess;
   std::optional<BranchId> branch;
   std::optional<StateJoinId> join;
   std::optional<BranchResultId> branchResult;
@@ -443,6 +476,8 @@ struct TransactionStatePlan {
   llvm::SmallVector<TransactionStateOwner, 0> owners;
   llvm::SmallVector<TransactionQueueOwner, 0> queueOwners;
   llvm::SmallVector<TransactionQueueAccess, 0> queueAccesses;
+  llvm::SmallVector<TransactionMemoryOwner, 0> memoryOwners;
+  llvm::SmallVector<TransactionMemoryAccess, 0> memoryAccesses;
   llvm::SmallVector<StateVersion, 0> versions;
   llvm::SmallVector<StateReadBinding, 0> reads;
   llvm::SmallVector<StateWriteIntent, 0> writes;
@@ -462,6 +497,20 @@ struct TransactionStatePlan {
   BoundValueId clockValue = 0;
   BoundValueId resetValue = 0;
 };
+
+namespace detail {
+/// Caller adapters supply independently reconstructed invocation-relative SSA
+/// identities. These queries never accept a serialized equality/reuse flag.
+mlir::FailureOr<bool> memoryAddressesEqual(
+    const TransactionStatePlan &plan, BoundValueId left, BoundValueId right,
+    TransactionPoint point, const HardwareAnalysis &hardware,
+    llvm::function_ref<mlir::FailureOr<BoundValueId>(BoundValueId, TransactionPoint)> identity,
+    llvm::function_ref<mlir::LogicalResult(uint64_t)> pay);
+mlir::FailureOr<bool> memoryReadCoveredBy(
+    const TransactionStatePlan &plan, MemoryAccessId earlier, MemoryAccessId later,
+    llvm::function_ref<mlir::FailureOr<bool>(BoundValueId, BoundValueId, TransactionPoint)> same,
+    llvm::function_ref<mlir::LogicalResult(uint64_t)> pay);
+} // namespace detail
 
 /// Read-only analysis of every definition transaction in a builtin ModuleOp
 /// package owning its closure. Native verification and Method summaries remain

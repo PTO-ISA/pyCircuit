@@ -239,7 +239,7 @@
   }
 
 
-  FailureOr<bool> queuePathsDisjoint(const ac::TransactionStatePlan &plan,
+  FailureOr<bool> resourcePathsDisjoint(const ac::TransactionStatePlan &plan,
       ac::TransactionSourcePath left, ac::TransactionSourcePath right, Operation *site) {
     for (unsigned depth = 0; left.branch; ++depth) {
       if (depth > 128 || !charge(budget, site)) return failure();
@@ -254,25 +254,43 @@
     return false;
   }
 
-  LogicalResult queueSpecializations(TransactionPreparation &prepared) {
+  LogicalResult resourceExclusions(const TransactionPreparation &prepared,
+      ac::TransactionSourcePath source, Operation *site, uint64_t end,
+      SmallVectorImpl<uint64_t> &excluded) {
+    const auto &plan = *prepared.plan;
+    if (end > prepared.controls.size()) return failure();
+    for (uint64_t ordinal = 0; ordinal < end; ++ordinal) {
+      const auto &control = prepared.controls[ordinal];
+      ac::TransactionSourcePath path;
+      if (control.source) path = plan.controls[*control.source].path;
+      else if (control.requirement) path = prepared.requirements[*control.requirement].point.path;
+      else if (control.resource) path = resourcePoint(plan, prepared.resources[*control.resource]).path;
+      else return failure();
+      auto disjoint = resourcePathsDisjoint(plan, source, path, site);
+      if (failed(disjoint)) return failure();
+      if (*disjoint) {
+        if (!charge(budget, site, 2 + SourceCheckBudget::bytes(sizeof(uint64_t)))) return failure();
+        excluded.push_back(ordinal);
+      }
+    }
+    return success();
+  }
+
+  LogicalResult resourceSpecializations(TransactionPreparation &prepared) {
     const auto &plan = *prepared.plan;
     for (auto &proposal : prepared.queueProposals) {
       const auto &access = plan.queueAccesses[proposal.access];
-      for (auto [ordinal, control] : llvm::enumerate(prepared.controls)) {
-        ac::TransactionSourcePath path;
-        if (control.source) path = plan.controls[*control.source].path;
-        else if (control.requirement) path = prepared.requirements[*control.requirement].point.path;
-        else if (control.resource)
-          path = plan.queueAccesses[prepared.resources[*control.resource].access].point.path;
-        else return failure();
-        auto disjoint = queuePathsDisjoint(plan, access.point.path, path, access.operation);
-        if (failed(disjoint)) return failure();
-        if (*disjoint) {
-          if (!charge(budget, access.operation, 2 + SourceCheckBudget::bytes(sizeof(uint64_t))))
-            return failure();
-          proposal.excludedControls.push_back(ordinal);
-        }
-      }
+      if (failed(resourceExclusions(prepared, access.point.path, access.operation,
+              prepared.controls.size(), proposal.excludedControls))) return failure();
+    }
+    // A combinational read needs only the reached source demand. Opposite-arm
+    // controls cannot affect that demand, even when they depend on its data.
+    // Keep every raw diagnostic on its original complete reached prefix.
+    for (auto &proposal : prepared.memoryProposals) {
+      const auto &access = plan.memoryAccesses[proposal.access];
+      if (access.kind != ac::TransactionMemoryAccessKind::Read) continue;
+      if (failed(resourceExclusions(prepared, access.point.path, access.operation,
+              proposal.reachedControlEnd, proposal.excludedControls))) return failure();
     }
     return success();
   }
@@ -282,6 +300,20 @@
     Builder b(package.getContext());
     SmallVector<Attribute> resources, proposals;
     for (const auto &resource : prepared.resources) {
+      if (resource.memoryAccess) {
+        const auto &access = plan.memoryAccesses[*resource.memoryAccess];
+        const auto &owner = plan.memoryOwners[access.owner];
+        auto identity = queueID(anchorPath(plan, owner.anchor), owner.allocation);
+        resources.push_back(b.getDictionaryAttr({
+            b.getNamedAttr("control", b.getI64IntegerAttr(resource.control)),
+            b.getNamedAttr("kind", resource.kind),
+            b.getNamedAttr("port", b.getI64IntegerAttr(access.port)),
+            b.getNamedAttr("owner", identity.get("owner")),
+            b.getNamedAttr("declaration", identity.get("declaration")),
+            b.getNamedAttr("occurrence", access.occurrence),
+            b.getNamedAttr("location", access.location)}));
+        continue;
+      }
       const auto &access = plan.queueAccesses[resource.access];
       const auto &owner = plan.queueOwners[access.owner];
       auto identity = queueID(anchorPath(plan, owner.anchor), owner.allocation);

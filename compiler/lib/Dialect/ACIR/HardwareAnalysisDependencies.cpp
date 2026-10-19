@@ -19,7 +19,6 @@ bool prefix(ArrayRef<StringAttr> a, ArrayRef<StringAttr> b) {
 struct Engine {
   const HardwareAnalysis &analysis;
   llvm::DenseSet<Operation *> active;
-  bool operational = false;
   // Validation consumes dependency summaries and cycle checks, not schedules.
   // Retain the full ModuleAnalysis only for public scheduling requests.
   bool validationOnly = false;
@@ -35,7 +34,6 @@ struct Engine {
   struct CompletedModule {
     ModuleOp module;
     HardwareBindings bindings;
-    bool operational;
     ModuleAnalysis result;
     SmallVector<LocalReport, 0> reports;
   };
@@ -365,13 +363,6 @@ struct Engine {
               : analysis.bindInstance(cast<CollectionOp>(op), bindings);
       if (failed(binding))
         return failure();
-      if (operational &&
-          analysis.getPrimitiveKind(binding->owner) == "byte_mem") {
-        for (Value input : instance->getOperands())
-          if (failed(addAll(input)))
-            return failure();
-        return out;
-      }
       SmallVector<OutputDependency> entries;
       if (auto imported = dyn_cast<ModuleImportOp>(binding->owner)) {
         auto deps = summary(imported, *binding);
@@ -482,8 +473,7 @@ struct Engine {
                          detail::SourceCheckBudget::bindings(cached.bindings))),
               module)))
         return failure();
-      if (cached.module == module && cached.operational == operational &&
-          sameBindings(cached.bindings, bindings)) {
+      if (cached.module == module && sameBindings(cached.bindings, bindings)) {
         if (failed(charge(resultCost(cached.result), module)))
           return failure();
         return cached.result;
@@ -593,17 +583,10 @@ struct Engine {
                            return isa<TableType>(node.value.getType());
                          });
         return module.emitOpError()
-               << (operational
-                       ? (tableSummary
-                              ? "cannot prove absence of single-Work sampling "
-                                "cycle in compact table field dependencies"
-                              : "single-Work sampling cycle in hardware field "
-                                "dependencies")
-                       : (tableSummary
-                              ? "cannot prove absence of combinational cycle "
-                                "in compact table field dependencies"
-                              : "combinational cycle in hardware field "
-                                "dependencies"));
+               << (tableSummary
+                       ? "cannot prove absence of combinational cycle "
+                         "in compact table field dependencies"
+                       : "combinational cycle in hardware field dependencies");
       }
       if (failed(
               charge(detail::SourceCheckBudget::add(
@@ -784,48 +767,7 @@ struct Engine {
         auto primitive = analysis.getPrimitiveKind(binding->owner);
         if (!primitive.empty() && !validationOnly)
           result.storageWork.push_back(&op);
-        if (primitive == "byte_mem") {
-          // This leaf produces its asynchronous output and samples all write
-          // pins in one Work. Any output-to-pin feedback would need two Work
-          // calls, which is outside its common runtime contract.
-          std::function<LogicalResult(WireEndpoint,
-                                      SmallVector<WireEndpoint> &)>
-              feedback;
-          feedback = [&](WireEndpoint e,
-                         SmallVector<WireEndpoint> &seen) -> LogicalResult {
-            if (e.value.getDefiningOp() == instance)
-              return instance->emitOpError()
-                     << "byte_mem feedback requires multiple Work samples";
-            if (failed(charge(
-                    detail::SourceCheckBudget::add(
-                        seen.size(),
-                        detail::SourceCheckBudget::add(
-                            e.path.size(), detail::SourceCheckBudget::bytes(
-                                               sizeof(WireEndpoint)))),
-                    instance)))
-              return failure();
-            if (llvm::is_contained(seen, e))
-              return success();
-            seen.push_back(e);
-            auto deps = dependencies(e, bindings);
-            if (failed(deps))
-              return failure();
-            for (auto d : *deps)
-              if (failed(feedback(d, seen)))
-                return failure();
-            return success();
-          };
-          for (auto input : instance->getOperands()) {
-            auto leaves = paths(input.getType(), bindings, instance);
-            if (failed(leaves))
-              return failure();
-            for (auto path : *leaves) {
-              SmallVector<WireEndpoint> seen;
-              if (failed(feedback({input, path}, seen)))
-                return failure();
-            }
-          }
-        }
+
       }
     }
     // A local downward owner can collide only with a direct report declared
@@ -859,8 +801,7 @@ struct Engine {
                                            cached.bindings))),
                             instance)))
             return failure();
-          if (cached.module == child && cached.operational == operational &&
-              sameBindings(cached.bindings, *childBindings)) {
+          if (cached.module == child && sameBindings(cached.bindings, *childBindings)) {
             proof = &cached;
             break;
           }
@@ -894,7 +835,7 @@ struct Engine {
                       module)))
       return failure();
     completed.push_back(
-        {module, bindings, operational, result, std::move(reports)});
+        {module, bindings, result, std::move(reports)});
     return result;
   }
 };
@@ -931,27 +872,13 @@ LogicalResult verifySourceCheckDependencies(
     const HardwareAnalysis &analysis,
     ArrayRef<std::pair<ModuleOp, HardwareBindings>> scopes,
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
-  // The verified primitive catalog is complete before this preflight. Only
-  // byte_mem adds sampled-input edges in operational mode; without it the
-  // complete combinational proof also establishes operational acyclicity.
-  // Charge discovery even when the package needs both analyses.
-  bool needsOperational = false;
-  for (Operation &operation : analysis.getPackage().getBody()->getOperations()) {
-    if (debit && failed(debit(1, &operation)))
-      return failure();
-    if (isa<ModuleImportOp>(operation) &&
-        analysis.getPrimitiveKind(&operation) == "byte_mem")
-      needsOperational = true;
-  }
+  // Byte memory's pure committed read follows the verified raddr dependency.
+  // Every input is still visited; write pins are sampled once after pure SSA.
   Engine combinational{analysis, {}};
-  Engine operational{analysis, {}, true};
   combinational.validationOnly = true;
-  operational.validationOnly = true;
   combinational.debit = debit;
-  operational.debit = debit;
   for (const auto &[module, bindings] : scopes)
-    if (failed(combinational.analyze(module, bindings)) ||
-        (needsOperational && failed(operational.analyze(module, bindings))))
+    if (failed(combinational.analyze(module, bindings)))
       return failure();
   return success();
 }

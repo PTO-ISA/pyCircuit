@@ -1,6 +1,7 @@
 #include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
 
 #include "ACIRSourceContracts.h"
+#include "HardwareSourceChecks.h"
 #include "SourceTransactionSummary.h"
 #include "SourceFormalCandidateSelection.h"
 #include "SourceFormalProposalProof.h"
@@ -11,6 +12,7 @@
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/PointerUnion.h"
 #include "llvm/ADT/STLExtras.h"
 #include <limits>
@@ -1103,6 +1105,9 @@ private:
     case TransactionStateEventKind::QueueAccess:
       next.queueAccess = record;
       break;
+    case TransactionStateEventKind::MemoryAccess:
+      next.memoryAccess = record;
+      break;
     case TransactionStateEventKind::GuardEnter:
     case TransactionStateEventKind::GuardExit:
       next.guard = record;
@@ -1202,6 +1207,7 @@ private:
   }
 
 #include "SourceTransactionQueueAnalysis.inc"
+#include "SourceTransactionMemoryAnalysis.inc"
 #include "SourceTransactionSelectedWriteAnalysis.inc"
 #include "SourceTransactionFormalAnalysis.inc"
 
@@ -1532,6 +1538,10 @@ private:
           !budget.reserveMapInsert(operation, resolutions))
         return failure();
       resolutions.try_emplace(resolutionKey, *resolved);
+    }
+    if (resolved->method.isNativeMemoryTerminal()) {
+      if (guard) return operation.emitOpError() << "Memory terminal calls are not admitted in guards";
+      return memoryAccess(operation, parent, *resolved, *path, actuals);
     }
     if (resolved->method.isNativeQueueTerminal()) {
       if (guard)
@@ -2094,7 +2104,7 @@ private:
       return site->emitOpError()
              << "transaction control, path or validity inventory is invalid";
     };
-    if (failed(verifyQueueRecords()))
+    if (failed(verifyQueueRecords()) || failed(verifyMemoryRecords()))
       return failure();
     if (currentPrefix != plan.controls.size() ||
         plan.controls.size() != plan.guards.size() + plan.selections.size() ||
@@ -2313,6 +2323,7 @@ private:
     BodyCheckId nextCheck = 0;
     ObservationId nextObservation = 0;
     QueueAccessId nextQueueAccess = 0;
+    MemoryAccessId nextMemoryAccess = 0;
     FormalWriteId nextFormalWrite = 0;
     AdmissionControlId nextControl = 0;
     std::optional<AdmissionControlId> openControl;
@@ -2329,6 +2340,7 @@ private:
                             unsigned(event.bodyCheck.has_value()) +
                             unsigned(event.observation.has_value()) +
                             unsigned(event.queueAccess.has_value()) +
+                            unsigned(event.memoryAccess.has_value()) +
                             unsigned(event.branch.has_value()) +
                             unsigned(event.join.has_value()) +
                             unsigned(event.branchResult.has_value());
@@ -2510,6 +2522,14 @@ private:
           return invalid();
         ++nextQueueAccess;
         break;
+      case TransactionStateEventKind::MemoryAccess:
+        if (!event.memoryAccess || *event.memoryAccess != nextMemoryAccess ||
+            nextMemoryAccess >= plan.memoryAccesses.size() ||
+            plan.memoryAccesses[nextMemoryAccess].frame != event.frame ||
+            !samePoint(plan.memoryAccesses[nextMemoryAccess].point, cursor))
+          return invalid();
+        ++nextMemoryAccess;
+        break;
       case TransactionStateEventKind::BodyCheck:
         if (!event.bodyCheck || *event.bodyCheck != nextCheck ||
             nextCheck >= plan.bodyChecks.size() ||
@@ -2534,6 +2554,7 @@ private:
         nextCheck != plan.bodyChecks.size() ||
         nextObservation != plan.observations.size() ||
         nextQueueAccess != plan.queueAccesses.size() ||
+        nextMemoryAccess != plan.memoryAccesses.size() ||
         nextFormalWrite != plan.formalWrites.size() || frames.size() != 1 ||
         !branches.empty())
       return invalid();
@@ -2602,6 +2623,9 @@ private:
   llvm::DenseMap<OwnerKey, QueueOwnerId> queueOwnerIds;
   llvm::DenseMap<std::pair<QueueOwnerId, unsigned>, SmallVector<QueueAccessId, 0>>
       queuePortClaims;
+  llvm::DenseMap<OwnerKey, MemoryOwnerId> memoryOwnerIds;
+  llvm::DenseMap<std::pair<MemoryOwnerId, unsigned>, SmallVector<MemoryAccessId, 0>>
+      memoryPortClaims;
   llvm::DenseMap<OwnerKey, LexicalInstanceId> instances;
   llvm::DenseMap<OwnerKey, ResolvedSourceMethod> resolutions;
   SmallVector<SmallVector<BoundValueId, 0>, 0> formalValues;
@@ -2628,7 +2652,8 @@ LogicalResult chargePlanDump(const TransactionStatePlan &plan,
   for (uint64_t count :
        {plan.values.size(), plan.versions.size(), plan.bodyChecks.size(),
         plan.observations.size(), plan.queueOwners.size(),
-        plan.queueAccesses.size(), plan.formalWrites.size(), plan.events.size()})
+        plan.queueAccesses.size(), plan.memoryOwners.size(), plan.memoryAccesses.size(),
+        plan.formalWrites.size(), plan.events.size()})
     if (!budget.charge(site, saturatedMultiply(96, count)))
       return failure();
   for (uint64_t count :
@@ -2639,7 +2664,8 @@ LogicalResult chargePlanDump(const TransactionStatePlan &plan,
         plan.finalVersions.size(), plan.results.size(), plan.branches.size(),
         plan.joins.size(), plan.branchResults.size(), plan.controls.size(),
         plan.selections.size(), plan.queueOwners.size(),
-        plan.queueAccesses.size(), plan.formalWrites.size()})
+        plan.queueAccesses.size(), plan.memoryOwners.size(), plan.memoryAccesses.size(),
+        plan.formalWrites.size()})
     if (!budget.charge(site, count))
       return failure();
   if (!budget.chargeOccurrence(site, transaction.getOccurrence()) ||
@@ -2701,6 +2727,15 @@ LogicalResult chargePlanDump(const TransactionStatePlan &plan,
         !budget.chargeOccurrence(site, access.occurrence) ||
         !budget.chargeAttribute(site, access.location))
       return failure();
+  for (const auto &memory : plan.memoryOwners)
+    if (!budget.charge(site, 256 + memory.inputs.size() + memory.outputs.size()) ||
+        !budget.chargeOccurrence(site, memory.occurrence) ||
+        !budget.chargeAttribute(site, TypeAttr::get(memory.payloadType)) ||
+        !budget.chargeAttribute(site, memory.payloadConstraint)) return failure();
+  for (const auto &access : plan.memoryAccesses)
+    if (!budget.charge(site, 160 + access.arguments.size()) ||
+        !budget.chargeOccurrence(site, access.occurrence) ||
+        !budget.chargeAttribute(site, access.location)) return failure();
   for (const auto &check : plan.bodyChecks)
     if (!budget.charge(site, 8) ||
         !budget.chargeOccurrence(site, check.occurrence) ||
@@ -2741,6 +2776,8 @@ StringRef eventName(TransactionStateEventKind kind) {
     return "observe";
   case TransactionStateEventKind::QueueAccess:
     return "queue-access";
+  case TransactionStateEventKind::MemoryAccess:
+    return "memory-access";
   case TransactionStateEventKind::CallEnter:
     return "call-enter";
   case TransactionStateEventKind::CallExit:
@@ -3058,6 +3095,8 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
       out << " observation=o" << *event.observation;
     if (event.queueAccess)
       out << " queue-access=q" << *event.queueAccess;
+    if (event.memoryAccess)
+      out << " memory-access=m" << *event.memoryAccess;
     if (event.branch)
       out << " branch=h" << *event.branch;
     if (event.join)
@@ -3074,6 +3113,8 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
 }
 
 } // namespace
+
+#include "SourceTransactionMemoryProof.inc"
 
 SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
   auto package = dyn_cast_or_null<mlir::ModuleOp>(op);

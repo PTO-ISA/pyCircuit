@@ -55,18 +55,9 @@ def Bank() -> BankResult:
     remaining = state.remaining
     idle = ~busy
     accepted = requests.valid & idle
-    raw = ac.sync_mem[ac.u16](
-        accepted,
-        requests.data.offset,
-        accepted & requests.data.write,
-        requests.data.offset,
-        requests.data.data,
-        3,
-        depth=16,
-    )
+    memory = ac.sync_mem[ac.u16](depth=16)
     eligible = busy & (remaining == 1)
     response = state.request
-    response.data = raw if capture_old else state.request.data
 
     @ac.rule
     def enqueue(request: BankRequest) -> None:
@@ -80,6 +71,9 @@ def Bank() -> BankResult:
     def step() -> None:
         if idle:
             request = requests.pop()
+            memory.request(request.offset)
+            if request.write:
+                memory.write(request.offset, request.data)
             state.request = request
             state.busy = 1
             state.capture_old = 1
@@ -87,7 +81,7 @@ def Bank() -> BankResult:
         elif capture_old:
             # Capture is a separate phase from publishing the response, so a
             # full response Queue cannot lose the RAM's read-first value.
-            state.request.data = raw
+            state.request.data = memory.result()
             state.capture_old = 0
             state.remaining = remaining - 1
         elif remaining > 1:

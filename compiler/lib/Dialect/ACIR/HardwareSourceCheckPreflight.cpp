@@ -448,6 +448,7 @@ private:
     auto requirements = sampled ? sampled.getAs<ArrayAttr>("requirements") : ArrayAttr();
     auto resources = sampled ? sampled.getAs<ArrayAttr>("resources") : ArrayAttr();
     auto proposals = sampled ? sampled.getAs<ArrayAttr>("queue_proposals") : ArrayAttr();
+    auto memoryProposals = sampled ? sampled.getAs<ArrayAttr>("memory_proposals") : ArrayAttr();
     auto domains = sampled ? sampled.getAs<ArrayAttr>("write_domains") : ArrayAttr();
     auto fail = [&]() -> LogicalResult {
       emitError(UnknownLoc::get(site->getContext()))
@@ -469,7 +470,7 @@ private:
     auto clock = rawIndex(sampled, "clock_capture"),
          reset = rawIndex(sampled, "reset_capture"),
          fire = rawIndex(sampled, "fire_result");
-    if (!sampled || sampled.size() != (6 + bool(ehr) + bool(requirements) + bool(resources) + bool(proposals) + bool(domains)) || !controls || controls.empty() ||
+    if (!sampled || sampled.size() != (6 + bool(ehr) + bool(requirements) + bool(resources) + bool(proposals) + bool(memoryProposals) + bool(domains)) || !controls || controls.empty() ||
         !checks || !observations || !clock || !reset || !fire ||
         *clock >= site->getNumOperands() || *reset >= site->getNumOperands())
       return fail();
@@ -707,13 +708,16 @@ private:
         auto row = dyn_cast<DictionaryAttr>(resources[nextResource++]);
         auto controlIndex = rawIndex(row, "control");
         auto kind = kindOf(row);
-        if (!row || row.size() != 6 + unsigned(bool(row.get("prospective"))) || !controlIndex || *controlIndex != ordinal ||
-            !kind || (kind.getValue() != "queue_valid" && kind.getValue() != "queue_ready") ||
+        if (!row || row.size() != 6 + unsigned(bool(row.get("prospective"))) + unsigned(kind && kind.getValue() == "memory_live") || !controlIndex || *controlIndex != ordinal ||
+            !kind || (kind.getValue() != "queue_valid" && kind.getValue() != "queue_ready" && kind.getValue() != "memory_live") ||
             !row.getAs<DictionaryAttr>("owner") || !row.getAs<DictionaryAttr>("declaration") ||
             !row.getAs<DictionaryAttr>("occurrence") || !row.getAs<DictionaryAttr>("location"))
           return fail();
+        if (kind.getValue() == "memory_live") {
+          if (!rawIndex(row, "port")) return fail();
+        } else if (row.get("port")) return fail();
         auto prospective = row.getAs<DictionaryAttr>("prospective");
-        if (kind.getValue() == "queue_valid") {
+        if (kind.getValue() != "queue_ready") {
           if (row.get("prospective")) return fail();
         } else {
           if (!prospective || (prospective.size() != 1 && prospective.size() != 4)) return fail();
@@ -782,6 +786,31 @@ private:
         // Each private suffix endpoint is visited by the parser and physical
         // resource verifier. Attribute traversal was prepaid above.
         cost = add(cost, multiply(push ? 3 : 2, schemaRecordCost<Value>()));
+      }
+    }
+    if (memoryProposals) {
+      if (memoryProposals.empty()) return fail();
+      cost = add(cost, multiply(memoryProposals.size(), schemaRecordCost<SampledMemoryProposalView>()));
+      for (Attribute raw : memoryProposals) {
+        auto row = dyn_cast<DictionaryAttr>(raw);
+        auto kind = kindOf(row);
+        auto memory = row ? row.getAs<DictionaryAttr>("memory") : DictionaryAttr();
+        auto port = rawIndex(row, "port"), rawPath = rawIndex(row, "raw_path"), path = rawIndex(row, "path");
+        auto arguments = row ? row.getAs<ArrayAttr>("arguments") : ArrayAttr();
+        if (!row || row.size() != 8 || !kind || !memory || memory.size() != 2 ||
+            !memory.getAs<DictionaryAttr>("owner") || !memory.getAs<DictionaryAttr>("declaration") ||
+            !row.getAs<DictionaryAttr>("occurrence") || !row.getAs<DictionaryAttr>("location") ||
+            !port || !rawPath || !path || *rawPath != total || *path != add(total, 1) || !arguments ||
+            (kind.getValue() != "request" && kind.getValue() != "read" && kind.getValue() != "write") ||
+            arguments.size() != (kind.getValue() == "write" ? 3 : 1)) return fail();
+        for (auto [ordinal, rawArgument] : llvm::enumerate(arguments)) {
+          auto argument = dyn_cast<IntegerAttr>(rawArgument);
+          if (!argument || !argument.getType().isSignlessInteger(64) || argument.getInt() < 0 ||
+              uint64_t(argument.getInt()) != add(total, add(2, ordinal))) return fail();
+        }
+        cost = add(cost, multiply(arguments.size(), add(schemaRecordCost<uint64_t>(), schemaRecordCost<Value>())));
+        cost = add(cost, multiply(add(2, arguments.size()), schemaRecordCost<Value>()));
+        total = add(total, add(2, arguments.size()));
       }
     }
     if (domains) {

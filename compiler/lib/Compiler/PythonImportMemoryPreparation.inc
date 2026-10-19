@@ -91,7 +91,10 @@ LogicalResult Importer::prepareMemoryBindings() {
         auto statement = found->second;
         if (statement.array("targets").size() != 1)
           return diagnostic() << "memory allocation requires one target";
-        unsigned resultCount = kind == "sync_mem_dp" ? 2 : 1;
+        bool named = node.array("args").empty();
+        for (size_t i = 0; i < node.array("keywords").size(); ++i)
+          named &= node.item("keywords", i).string("arg") == "depth";
+        unsigned resultCount = named ? 1 : kind == "sync_mem_dp" ? 2 : 1;
         auto target = statement.item("targets", 0);
         if ((resultCount == 1 && target.kind() != "Name") ||
             (resultCount == 2 &&
@@ -101,6 +104,7 @@ LogicalResult Importer::prepareMemoryBindings() {
         MemoryCallPlan plan;
         plan.module = decl.node;
         plan.call = node;
+        if (named) plan.handleName = target.string("id").str();
         plan.occurrence = sourceOccurrence(b, decl.symbol, node);
         for (unsigned i = 0; i < resultCount; ++i) {
           auto element = resultCount == 1 ? target : target.item("elts", i);
@@ -114,7 +118,7 @@ LogicalResult Importer::prepareMemoryBindings() {
               name == "pyc_clk" || name == "pyc_rst")
             return diagnostic()
                    << "memory results require fresh immutable ordinary Names";
-          plan.resultNames.push_back(name.str());
+          if (!named) plan.resultNames.push_back(name.str());
         }
         auto builtin = headers.lookupBuiltin(kind);
         if (!builtin || !headers.isTrustedBuiltin(builtin.declaration))
@@ -213,9 +217,10 @@ LogicalResult Importer::prepareMemoryBindings() {
           if (failed(resolved))
             return failure();
           plan.resultTypes.push_back(*resolved);
-          if (index < resultCount)
+          if (!named && index < resultCount)
             plan.resultFixedBits.push_back(isa<ac::BitsType>(*resolved));
         }
+        if (!named) {
         plan.actuals.resize(plan.inputTypes.size());
         if (node.array("args").size() > plan.actuals.size())
           return diagnostic() << "too many memory runtime arguments";
@@ -249,6 +254,7 @@ LogicalResult Importer::prepareMemoryBindings() {
                                                   plan.inputTypes[i]))
                 return diagnostic() << "memory address width disagrees with "
                                        "depth-derived signature";
+        }
         }
         memoryPlans.push_back(std::move(plan));
         decl.queueDomain = decl.behavioral = true;

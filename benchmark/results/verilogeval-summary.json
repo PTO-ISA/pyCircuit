@@ -2,30 +2,30 @@
   "suite": "verilogeval",
   "metric": "assisted_pycircuit_port_validation_not_model_pass_at_k",
   "full_task_count": 156,
-  "selected": 88,
-  "attempted": 88,
+  "selected": 89,
+  "attempted": 89,
   "counts": {
-    "passed": 88
+    "passed": 89
   },
   "reset_policy_counts": {
     "strict": {
-      "passed": 79
+      "passed": 80
     },
     "if_one": {
       "passed": 9
     }
   },
-  "passed_over_full_suite": 0.5641025641025641,
+  "passed_over_full_suite": 0.5705128205128205,
   "passed_over_attempted": 1.0,
-  "unselected": 68,
+  "unselected": 67,
   "cpp": "emitted, not simulated",
   "resource_score": "not_run",
   "runner_sha256": "03654521bf46ddef4060432c8cadd869b391fa0cf1393aa0729ab88590157d19",
-  "solutions_manifest_sha256": "94735b22d3e498ad7eb7bb78ecdea33684497d0f59ab30e3165dde8f749535bb",
+  "solutions_manifest_sha256": "94edcf3ea4a4594b400e9d083912c1d82a4aff055612d1159f8f377937fb4a4f",
   "sources_lock_sha256": "3723d9e1e5e58499aa55a264214013bb9f764eac7aac9e1b9197410ad42562ad",
   "tool_sha256": {
-    "pycircuit-source-unit": "a9804152bfc183994a9dd5d172456bd55efac359682f2c6360d6709e36bc79b0",
-    "pycircuit-link": "2c9a7bcfde8c03384ea394b15d84b01d0765ae8421ec70aca32dd0d81abd519d",
-    "pycircuit-emit": "ef38486d20f5abe73fa7c2e50660765f383cc58ddc709fb581c9a136aa2c7373"
+    "pycircuit-source-unit": "1c0c201fa04a5cdd7150f11b3e64e5cca26cf6023cb6c37f7dcf3676f7afbe04",
+    "pycircuit-link": "60060b92bb266638b517324e70b6e8c192f4a4c709648762dec122fb6a956205",
+    "pycircuit-emit": "453609ebdb4298c547e37bbc9d082db5688f24afbf9ebeb7352c60b5be142604"
   }
 }

@@ -42,7 +42,8 @@ mlir::FailureOr<llvm::SmallVector<AstNode>> normalizeCallArguments(
     const AstNode &call, llvm::ArrayRef<llvm::StringRef> formals,
     ac::detail::EmitError emitError,
     llvm::StringRef arityDiagnostic = "callable argument arity mismatch",
-    llvm::SmallVectorImpl<size_t> *evaluationOrder = nullptr);
+    llvm::SmallVectorImpl<size_t> *evaluationOrder = nullptr,
+    size_t optionalTrailing = 0);
 
 // Walk binding syntax without treating it as a hardware tuple value. Target
 // validation and ownership checks remain at the consuming boundary.

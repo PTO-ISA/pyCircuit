@@ -1,20 +1,20 @@
     // Replay the raw source path independently. Prefix/knownness and private
     // pin closure are checked by the final resource verifier on actual SSA.
-    for (auto [id, access] : llvm::enumerate(plan.queueAccesses)) {
-      Value path = record.queuePaths[id];
+    auto rawStatementPathProof = [&](Value path, ac::BoundValueId authoredPath,
+                                     ac::TransactionSourcePath source,
+                                     Operation *operation) -> LogicalResult {
       auto peel = [&](Value expected) -> LogicalResult {
         auto conjunction = path.getDefiningOp<ac::BitsBinaryOp>();
         if (!conjunction || conjunction.getOpcode() != "and" ||
             conjunction.getRhs() != expected ||
-            failed(binaryProof(path, conjunction.getLhs(), expected, "and", access.operation->getLoc())))
+            failed(binaryProof(path, conjunction.getLhs(), expected, "and", operation->getLoc())))
           return reject("original queue raw path differs");
         path = conjunction.getLhs(); return success();
       };
-      if (failed(peel(bound(access.authoredPath)))) return failure();
+      if (failed(peel(bound(authoredPath)))) return failure();
       SmallVector<std::pair<ac::BranchId, bool>> ancestry;
-      auto source = access.point.path;
       while (source.branch) {
-        if (!charge(budget, access.operation) || ancestry.size() > 128) return failure();
+        if (!charge(budget, operation) || ancestry.size() > 128) return failure();
         ancestry.push_back({*source.branch, source.whenTrue});
         source = plan.branches[*source.branch].entry.path;
       }
@@ -26,14 +26,47 @@
           if (!invert || invert.getInput() != selector ||
               failed(generatedProof(invert, ac::BitsUnaryOp::getOperationName(), {selector}, {selector.getType()},
                 b.getDictionaryAttr({b.getNamedAttr("opcode", b.getStringAttr("not"))}),
-                access.operation->getLoc(), &rule.getBody().front()))) return failure();
+                operation->getLoc(), &rule.getBody().front()))) return failure();
           selector = invert.getResult();
         }
         if (failed(peel(selector))) return failure();
       }
-      if (failed(literalProof(path, bit, transaction.getOccurrence(), access.operation->getLoc(),
+      if (failed(literalProof(path, bit, transaction.getOccurrence(), operation->getLoc(),
                               true, &rule.getBody().front()))) return failure();
-    }
+      return success();
+    };
+    for (auto [id, access] : llvm::enumerate(plan.queueAccesses))
+      if (failed(rawStatementPathProof(record.queuePaths[id], access.authoredPath,
+                                       access.point.path, access.operation)))
+        return failure();
+    auto sourceExclusions = [&](ac::TransactionSourcePath accessPath, uint64_t end,
+                                Operation *site) -> FailureOr<SmallVector<uint64_t, 0>> {
+      if (end > preparation.controls.size()) return failure();
+      SmallVector<uint64_t, 0> excluded;
+      for (uint64_t ordinal = 0; ordinal < end; ++ordinal) {
+        const auto &scheduled = preparation.controls[ordinal];
+        auto controlPath = scheduled.source ? plan.controls[*scheduled.source].path
+            : scheduled.requirement ? preparation.requirements[*scheduled.requirement].point.path
+            : detail::resourcePoint(plan, preparation.resources[*scheduled.resource]).path;
+        auto left = accessPath;
+        bool disjoint = false;
+        for (unsigned depth = 0; left.branch; ++depth) {
+          if (depth > 128 || !charge(budget, site)) return failure();
+          auto right = controlPath;
+          for (unsigned otherDepth = 0; right.branch; ++otherDepth) {
+            if (otherDepth > 128 || !charge(budget, site)) return failure();
+            disjoint |= left.branch == right.branch && left.whenTrue != right.whenTrue;
+            right = plan.branches[*right.branch].entry.path;
+          }
+          left = plan.branches[*left.branch].entry.path;
+        }
+        if (disjoint) {
+          if (!prepayAppend(budget, site, excluded)) return failure();
+          excluded.push_back(ordinal);
+        }
+      }
+      return excluded;
+    };
     auto prospectiveBinaryProof = [&](Value output, Value lhs, Value rhs,
                                       StringRef opcode, Location location) -> LogicalResult {
       auto result = dyn_cast_or_null<OpResult>(output);
@@ -50,17 +83,21 @@
               b.getNamedAttr("opcode", b.getStringAttr(opcode))}),
           location, &rule.getBody().front());
     };
-    SmallVector<Attribute> resourceRows, proposalRows;
+    SmallVector<Attribute> resourceRows(preparation.resources.size()), proposalRows;
     uint64_t resourceIndex = 0, proposalIndex = 0;
     for (auto [accessId, access] : llvm::enumerate(plan.queueAccesses)) {
       const auto &owner = plan.queueOwners[access.owner];
       auto identity = b.getDictionaryAttr({b.getNamedAttr("owner", b.getDictionaryAttr({
           b.getNamedAttr("instance_path", routePath(transaction.getContext(), anchorPath(plan, owner.anchor)))})),
           b.getNamedAttr("declaration", owner.occurrence)});
-      // Every access contributes exactly one resource in intact source order.
-      // Prior credit is derived from earlier source accesses, not proposal maps.
+      // Locate by original access identity; Memory resources interleave in
+      // source order and are authenticated separately below.
+      auto resourceEntry = llvm::find_if(preparation.resources, [&](const auto &entry) {
+        return !entry.memoryAccess && entry.access == accessId;
+      });
+      resourceIndex = std::distance(preparation.resources.begin(), resourceEntry);
       if (resourceIndex >= preparation.resources.size() ||
-          resourceIndex >= record.resources.size())
+          resourceIndex >= record.resources.size() || resourceRows[resourceIndex])
         return reject("original queue resource inventory is incomplete");
       std::optional<uint64_t> resource = resourceIndex;
       const auto &entry = preparation.resources[resourceIndex];
@@ -171,7 +208,7 @@
       resourceRow.append("occurrence", access.occurrence);
       resourceRow.append("location", access.location);
       if (access.payload) resourceRow.append("prospective", prospective.getDictionary(b.getContext()));
-      resourceRows.push_back(resourceRow.getDictionary(b.getContext()));
+      resourceRows[resourceIndex] = resourceRow.getDictionary(b.getContext());
       ++resourceIndex;
       if (access.kind == ac::TransactionQueueAccessKind::Peek) {
         if (!resource) return reject("original queue peek lacks resource admission");
@@ -187,29 +224,8 @@
         return reject("original queue proposal access/data differs");
       // The sharing key is the exact independently replayed exclusion set,
       // never a proposal label, cached prefix or candidate certificate.
-      SmallVector<uint64_t, 0> excludedControls;
-      for (auto [ordinal, scheduled] : llvm::enumerate(preparation.controls)) {
-        auto controlPath = scheduled.source ? plan.controls[*scheduled.source].path
-            : scheduled.requirement ? preparation.requirements[*scheduled.requirement].point.path
-            : plan.queueAccesses[preparation.resources[*scheduled.resource].access].point.path;
-        auto left = access.point.path;
-        bool disjoint = false;
-        for (unsigned depth = 0; left.branch; ++depth) {
-          if (depth > 128 || !charge(budget, access.operation)) return failure();
-          auto right = controlPath;
-          for (unsigned otherDepth = 0; right.branch; ++otherDepth) {
-            if (otherDepth > 128 || !charge(budget, access.operation)) return failure();
-            disjoint |= left.branch == right.branch && left.whenTrue != right.whenTrue;
-            right = plan.branches[*right.branch].entry.path;
-          }
-          left = plan.branches[*left.branch].entry.path;
-        }
-        if (disjoint) {
-          if (!prepayAppend(budget, access.operation, excludedControls)) return failure();
-          excludedControls.push_back(ordinal);
-        }
-      }
-      if (excludedControls != proposal.excludedControls)
+      auto exclusions = sourceExclusions(access.point.path, preparation.controls.size(), access.operation);
+      if (failed(exclusions) || *exclusions != proposal.excludedControls)
         return reject("original queue retained-control sharing identity differs");
       NamedAttrList row;
       row.append("queue", identity); row.append("kind", b.getStringAttr(access.payload ? "push" : "pop"));
@@ -228,7 +244,9 @@
       }
       proposalRows.push_back(row.getDictionary(b.getContext()));
     }
-    if (resourceIndex != preparation.resources.size() || proposalIndex != preparation.queueProposals.size() ||
+#include "TransactionMemorySourceProof.inc"
+    if (llvm::any_of(resourceRows, [](Attribute row) { return !row; }) ||
+        proposalIndex != preparation.queueProposals.size() ||
         (resourceRows.empty() ? bool(preparation.expectedAdmission.get("resources"))
           : preparation.expectedAdmission.get("resources") != b.getArrayAttr(resourceRows)) ||
         (proposalRows.empty() ? bool(preparation.expectedAdmission.get("queue_proposals"))

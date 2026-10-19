@@ -586,7 +586,13 @@ private:
   FailureOr<bool> bindMemoryResults(const AstNode &statement, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
                                     llvm::StringMap<Value> &values,
-                                    llvm::StringMap<Instance *> &instances);
+                                    llvm::StringMap<Instance *> &instances,
+                                    SmallVectorImpl<Instance> &instanceStorage);
+  Instance *memoryInstance(Instance *instance) const;
+  FailureOr<SmallVector<Value>> memoryMethodCall(
+      const AstNode &node, Instance &receiver, OpBuilder &at,
+      FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
+      llvm::StringMap<Instance *> &instances, std::optional<bool> tupleCall);
   llvm::StringMap<unsigned> sourceNameWrites(const AstNode &module) const;
   LogicalResult predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at);
   FailureOr<Value> forwardModuleValue(StringRef name, FlatSymbolRefAttr symbol);
@@ -3758,6 +3764,18 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
                                          FlatSymbolRefAttr ownerSymbol) {
   if ((node.kind() == "Name" || node.kind() == "Attribute" || node.kind() == "Subscript") &&
       failed(requireNestedRuleDataVisible(assignmentRoot(node), node))) return failure();
+
+  AstNode memoryMember = node.kind() == "Call" ? node.child("func") : node;
+  if (memoryMember.kind() == "Attribute" &&
+      memoryMember.child("value").kind() == "Name") {
+    auto found = instances.find(memoryMember.child("value").string("id"));
+    if (found != instances.end() && memoryInstance(found->second)) {
+      StringRef member = memoryMember.string("attr");
+      if (node.kind() == "Call" && (member == "result" || member == "read"))
+        return found->second->outputs.front().type;
+      return error() << "Memory handle exposes operations, not raw payload fields";
+    }
+  }
 
   auto queued = queueExpressionType(node, ownerSymbol, values, instances);
   if (failed(queued)) return failure();

@@ -113,11 +113,12 @@ protected:
     });
     return ac::HardwareAnalysis(*package).getSourceCheckPlan(limits);
   }
-  void memories(bool cycle) {
-    // Each read depends only on its independent raddr in the ordinary graph.
-    // Only operational all-input dependencies expose the cross-memory cycle.
+  void memories(bool crossWriteData, bool crossReadAddress = false) {
+    // Crossed write data consumes committed reads and remains acyclic. The
+    // optional form extracts each read into the peer's combinational raddr.
     const std::string header = R"mlir(
 #one = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, location = {path = "dependency.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+#zero = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<0>}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, location = {path = "dependency.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #four = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<4>}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, location = {path = "dependency.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #eight = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, location = {path = "dependency.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #seven = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<7>}, origin = {site = {definition = @Root, ast_path = []}, expansion = []}, location = {path = "dependency.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -135,10 +136,10 @@ module {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %addr_a: !b4, %addr_b: !b4, %valid: !b1, %strobe: !b1, %seed: !b8):
 )mlir";
-    auto instance = [](StringRef name, StringRef address, StringRef data,
-                       unsigned site) {
+    auto instance = [](StringRef name, StringRef readAddress,
+                       StringRef writeAddress, StringRef data, unsigned site) {
       return "    %" + name.str() + " = \"ac.instance\"(%clk, %rst, %" +
-             address.str() + ", %valid, %" + address.str() + ", %" +
+             readAddress.str() + ", %valid, %" + writeAddress.str() + ", %" +
              data.str() + ", %strobe) {instance_name = \"" + name.str() +
              "\", callee = @Memory, parameters = [#four, #seven], "
              "type_arguments = [!b8], occurrence = {site = {definition = "
@@ -153,10 +154,17 @@ module {
   "ac.system"() {entry = {callee = @Root, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 )mlir";
-    package = parseSourceString<mlir::ModuleOp>(
-        header + instance("a", "addr_a", cycle ? "b" : "seed", 0) +
-            instance("b", "addr_b", "a", 1) + tail,
-        &context);
+    const std::string body =
+        crossReadAddress ? instance("a", "b_addr", "addr_a", "seed", 0) +
+                               "    %a_addr = \"ac.bits.extract\"(%a) "
+                               "{low = #zero} : (!b8) -> !b4\n" +
+                               instance("b", "a_addr", "addr_b", "seed", 1) +
+                               "    %b_addr = \"ac.bits.extract\"(%b) "
+                               "{low = #zero} : (!b8) -> !b4\n"
+                         : instance("a", "addr_a", "addr_a",
+                                    crossWriteData ? "b" : "seed", 0) +
+                               instance("b", "addr_b", "addr_b", "a", 1);
+    package = parseSourceString<mlir::ModuleOp>(header + body + tail, &context);
     ASSERT_TRUE(package);
     root = *package->getOps<ac::ModuleOp>().begin();
   }
@@ -198,12 +206,29 @@ TEST_F(HardwareDependencyModeReuseTest, UnobservedNoMemoryCycleStillRejects) {
 }
 
 TEST_F(HardwareDependencyModeReuseTest,
-       CrossMemoryOperationalCycleStillRejects) {
+       CrossMemoryWriteDataUsesCommittedValues) {
   memories(true);
   ASSERT_TRUE(package);
   ASSERT_TRUE(succeeded(mlir::verify(*package)));
+  auto result = plan();
+  ASSERT_TRUE(succeeded(result)) << diagnostics;
+  EXPECT_TRUE(
+      succeeded(ac::HardwareAnalysis(*package).verifySourceCheckPlan(*result)));
+  EXPECT_EQ(
+      std::distance(root.getBody().front().getOps<ac::InstanceOp>().begin(),
+                    root.getBody().front().getOps<ac::InstanceOp>().end()),
+      2);
+}
+
+TEST_F(HardwareDependencyModeReuseTest,
+       CrossMemoryReadAddressCycleStillRejects) {
+  memories(false, true);
+  ASSERT_TRUE(package);
+  ASSERT_TRUE(succeeded(mlir::verify(*package)));
   EXPECT_TRUE(failed(plan()));
-  EXPECT_NE(diagnostics.find("single-Work sampling cycle"), std::string::npos)
+  EXPECT_NE(
+      diagnostics.find("combinational cycle in hardware field dependencies"),
+      std::string::npos)
       << diagnostics;
   EXPECT_EQ(
       std::distance(root.getBody().front().getOps<ac::InstanceOp>().begin(),

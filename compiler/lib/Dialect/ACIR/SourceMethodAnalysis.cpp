@@ -243,7 +243,7 @@ private:
       if (failed(resolved))
         return failure();
       auto symbol = resolved->method.getSymbol();
-      bool terminal = resolved->method.isNativeQueueTerminal();
+      bool terminal = resolved->method.isNativeTerminal();
       if (!append(calls, Call{op, row, std::move(*resolved)}, callable.module))
         return failure();
       if (callable.symbol && !terminal) {
@@ -559,7 +559,7 @@ private:
                  : rowFact(call.row.getAs<DictionaryAttr>("path"), arguments);
       if (path == PredicateFact::False)
         return {true, nullptr, nullptr};
-      if (call.resolved.method.isNativeQueueTerminal())
+      if (call.resolved.method.isNativeTerminal())
         return {false, nullptr, nullptr, nullptr,
                 call.definition ? call.definition : callable.module};
       auto symbol = call.resolved.method.getSymbol();

@@ -100,6 +100,27 @@ struct HardwareBindings {
   llvm::StringMap<mlir::Type> types;
 };
 
+/// Checked pin roles for the existing canonical Memory primitive. Payloads
+/// precede committed live outputs; no runtime state or source alias is stored.
+struct MemoryPrimitiveLayout {
+  InstanceOp allocation;
+  ModuleImportOp primitive;
+  llvm::StringRef kind;
+  HardwareBindings bindings;
+  mlir::Type payloadType, addressType, maskType, predicateType;
+  unsigned readPorts = 0;
+  llvm::SmallVector<unsigned, 2> readEnableOperands, readAddressOperands;
+  unsigned writeEnableOperand = 0, writeAddressOperand = 0;
+  unsigned writeDataOperand = 0, writeMaskOperand = 0;
+  bool isSynchronous() const { return kind != "byte_mem"; }
+  unsigned dataResult(unsigned port) const { return port; }
+  unsigned liveResult(unsigned port) const { return readPorts + port; }
+};
+bool isMemoryInstance(InstanceOp instance);
+mlir::FailureOr<MemoryPrimitiveLayout>
+getMemoryPrimitiveLayout(InstanceOp instance,
+                         const HardwareBindings &parentBindings = {});
+
 struct HardwareCheckSamplingBinding {
   ModuleOp definition;
   mlir::Value clock, reset;

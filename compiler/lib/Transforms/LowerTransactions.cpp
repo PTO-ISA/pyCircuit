@@ -40,6 +40,11 @@ using detail::RoutingKey;
 using detail::QueueRoutingKey;
 using detail::TransactionQueueProposal;
 using detail::TransactionPreparation;
+using detail::resourcePoint;
+using detail::resourceOperation;
+using detail::resourceFrame;
+using detail::resourceOccurrence;
+using detail::resourceLocation;
 
 bool charge(SourceCheckBudget &budget, Operation *site, uint64_t units = 1) {
   return succeeded(budget.debit(units, site));
@@ -291,6 +296,10 @@ DictionaryAttr selectionSourceLocation(Operation *source) {
   if (!span)
     if (auto method = source->getParentOfType<ac::SourceMethodOp>())
       span = method->getAttrOfType<DictionaryAttr>("ac.guard_location");
+  // A resource pin join belongs to its original primitive allocation. Keep
+  // carrier provenance at that authored allocation's exact source span.
+  if (!span && isa<ac::InstanceOp>(source))
+    span = source->getAttrOfType<DictionaryAttr>("ac.location");
   return span;
 }
 
@@ -416,7 +425,7 @@ FailureOr<bool> staticTotality(const ac::TransactionStatePlan &plan,
                               SourceCheckBudget &budget) {
   if (!plan.transaction->getNumResults())
     return true;
-  if (!plan.queueAccesses.empty())
+  if (!plan.queueAccesses.empty() || !plan.memoryAccesses.empty())
     return false;
   enum class Fact { False, True, Unknown };
   auto conjunction = [](Fact lhs, Fact rhs) {
@@ -572,7 +581,7 @@ verifyPreparedEffectInventory(const PreparedTransactionLowering &prepared,
           (requirement.point.path.branch && *requirement.point.path.branch >= plan.branches.size()))
         return site.emitOpError() << "transaction required-use bounds are inconsistent";
     if (item.expectedAdmission.size() != (6 + !item.entryOwners.empty() + !item.requirements.empty() +
-            !item.resources.empty() + !item.queueProposals.empty() + !item.writeDomains.empty()) ||
+            !item.resources.empty() + !item.queueProposals.empty() + !item.memoryProposals.empty() + !item.writeDomains.empty()) ||
         (item.entryOwners.empty() ? bool(entries) : (!entries || entries.size() != item.entryOwners.size())) ||
         !guards || !checks ||
         !observations || guards.size() != item.controls.size() ||
@@ -605,6 +614,32 @@ verifyPreparedEffectInventory(const PreparedTransactionLowering &prepared,
           (proposal.dataResult && *proposal.dataResult != total + 2))
         return site.emitOpError() << "queue proposal result layout is inconsistent";
       total += proposal.dataResult ? 3 : 2;
+    }
+    for (const auto &proposal : item.memoryProposals) {
+      if (proposal.access >= plan.memoryAccesses.size() || proposal.rawResult != total ||
+          proposal.pathResult != total + 1 || proposal.argumentResults.size() != plan.memoryAccesses[proposal.access].arguments.size())
+        return site.emitOpError() << "Memory proposal result layout is inconsistent";
+      if (proposal.reachedControlEnd > item.controls.size() ||
+          (plan.memoryAccesses[proposal.access].kind != ac::TransactionMemoryAccessKind::Read &&
+           (proposal.reachedControlEnd || !proposal.excludedControls.empty())))
+        return site.emitOpError() << "Memory reached control boundary is inconsistent";
+      uint64_t previousExcluded = UINT64_MAX;
+      for (uint64_t excluded : proposal.excludedControls) {
+        if (excluded >= proposal.reachedControlEnd ||
+            (previousExcluded != UINT64_MAX && excluded <= previousExcluded))
+          return site.emitOpError() << "Memory excluded control layout is inconsistent";
+        previousExcluded = excluded;
+      }
+      if (proposal.physicalReuse) {
+        const auto &access = plan.memoryAccesses[proposal.access];
+        if (*proposal.physicalReuse >= proposal.access ||
+            access.kind != ac::TransactionMemoryAccessKind::Read ||
+            plan.memoryAccesses[*proposal.physicalReuse].kind != ac::TransactionMemoryAccessKind::Read)
+          return site.emitOpError() << "Memory physical read reuse layout is inconsistent";
+      }
+      total += 2;
+      for (uint64_t result : proposal.argumentResults)
+        if (result != total++) return site.emitOpError() << "Memory argument result layout is inconsistent";
     }
     for (const auto &domain : item.writeDomains) {
       if (domain.write >= plan.writes.size() || domain.candidate >= item.outputs.size() ||
@@ -864,6 +899,30 @@ SmallVector<ac::InstanceOp> anchorPath(const ac::TransactionStatePlan &plan,
   return result;
 }
 
+// Physical Memory issue operands in canonical primitive order. Result snapshots
+// claim no port; their data and live state are ordinary routed captures.
+StringRef memoryKind(ac::TransactionMemoryAccessKind kind) {
+  using K = ac::TransactionMemoryAccessKind;
+  switch (kind) {
+  case K::Request: return "request";
+  case K::Result: return "result";
+  case K::Read: return "read";
+  case K::Write: return "write";
+  }
+  llvm_unreachable("invalid Memory access kind");
+}
+SmallVector<unsigned, 4> memoryOperands(const ac::TransactionMemoryAccess &access,
+                                       const ac::MemoryPrimitiveLayout &layout) {
+  using K = ac::TransactionMemoryAccessKind;
+  if (access.kind == K::Request)
+    return {layout.readEnableOperands[access.port], layout.readAddressOperands[access.port]};
+  if (access.kind == K::Read) return {layout.readAddressOperands[0]};
+  if (access.kind == K::Write)
+    return {layout.writeEnableOperand, layout.writeAddressOperand,
+            layout.writeDataOperand, layout.writeMaskOperand};
+  return {};
+}
+
 #include "TransactionSourceGrantProof.inc"
 
 /// Admission and growth accounting finish on the intact input before cloning.
@@ -945,7 +1004,7 @@ public:
     for (const auto &prepared : transactions) {
       auto total = staticTotality(*prepared.plan, budget);
       if (failed(total)) return failure();
-      if (!prepared.plan->queueAccesses.empty()) valueAvailability = true;
+      if (!prepared.plan->queueAccesses.empty() || !prepared.plan->memoryAccesses.empty()) valueAvailability = true;
       if (!*total) {
         if (!prepared.plan->lexicalModule->getAttrOfType<ArrayAttr>("ac.result_availability"))
           return prepared.plan->transaction->emitOpError()
@@ -964,7 +1023,8 @@ public:
     budget.setPhase("prep: requirements/expansion/queues/admission");
     for (auto &prepared : transactions)
       if (failed(valueRequirements(prepared)) || failed(expansion(prepared)) ||
-          failed(queueSpecializations(prepared)) || failed(queueRoutes(prepared)) ||
+          failed(resourceSpecializations(prepared)) || failed(queueRoutes(prepared)) ||
+          failed(memoryRoutes(prepared)) ||
           failed(admissionMetadata(prepared)))
         return failure();
     budget.setPhase("prep: prospective queue routes");
@@ -983,7 +1043,8 @@ public:
         if (callee && (!routing(callee).upward.empty() ||
                        !routing(callee).downward.empty() ||
                        !routing(callee).queueIncoming.empty() ||
-                       !routing(callee).queuePopSummaries.empty()))
+                       !routing(callee).queuePopSummaries.empty() ||
+                       !routing(callee).memoryIncoming.empty()))
           return collection.emitOpError()
                  << "transaction routing cannot extend a definition shared "
                     "with Collection";
@@ -993,7 +1054,7 @@ public:
     for (auto &definition : definitions) {
       uint64_t ports =
           definition.upward.size() + 2 * definition.downward.size() +
-          queueInputCount(definition) + definition.queuePopSummaries.size();
+          queueInputCount(definition) + 2 * definition.memoryIncoming.size() + definition.queuePopSummaries.size();
       if (!charge(budget, definition.module, 16 * ports + 1))
         return failure();
       for (auto allocation :
@@ -1006,7 +1067,7 @@ public:
         if (!charge(budget, allocation,
                     allocation.getNumOperands() + allocation.getNumResults() +
                         32 * (child.upward.size() + 2 * child.downward.size() +
-                              queueInputCount(child) + child.queuePopSummaries.size()) +
+                              queueInputCount(child) + 2 * child.memoryIncoming.size() + child.queuePopSummaries.size()) +
                         1))
           return failure();
         // Each actual occurrence prepends itself to every descendant proposal
@@ -1033,6 +1094,7 @@ public:
 
 private:
 #include "TransactionQueuePreparation.inc"
+#include "TransactionMemoryPreparation.inc"
 
 #include "TransactionSelectedWritePreparation.inc"
 
@@ -1043,7 +1105,7 @@ private:
       prepared.sourceControls[source] = prepared.controls.size();
       prepared.controls.push_back({source, std::nullopt});
     };
-    if (!valueAvailability && plan.queueAccesses.empty()) {
+    if (!valueAvailability && plan.queueAccesses.empty() && plan.memoryAccesses.empty()) {
       for (uint64_t i = 0; i < plan.controls.size(); ++i) control(i);
       return success();
     }
@@ -1108,6 +1170,13 @@ private:
               *access.payload, "queue_push", 1, event.point,
               access.authoredPath))) return failure();
         if (failed(queueControl(prepared, *event.queueAccess))) return failure();
+      } else if (event.kind == K::MemoryAccess) {
+        const auto &access = plan.memoryAccesses[*event.memoryAccess];
+        for (auto [ordinal, argument] : llvm::enumerate(access.arguments))
+          if (failed(append(access.operation, access.frame, argument,
+                            "memory_argument", ordinal, event.point,
+                            access.authoredPath))) return failure();
+        if (failed(memoryControl(prepared, *event.memoryAccess))) return failure();
       } else if (event.kind == K::FormalWrite) {
         const auto &formal = plan.formalWrites[*event.formalWrite];
         if (!formal.owner) continue;
@@ -1248,6 +1317,14 @@ private:
       if (plan.queueAccesses[proposal.access].payload)
         proposal.dataResult = prepared.totalResults++;
     }
+    for (auto &proposal : prepared.memoryProposals) {
+      proposal.rawResult = prepared.totalResults++;
+      proposal.pathResult = prepared.totalResults++;
+      for (auto argument : plan.memoryAccesses[proposal.access].arguments) {
+        (void)argument;
+        proposal.argumentResults.push_back(prepared.totalResults++);
+      }
+    }
     for (auto &domain : prepared.writeDomains) {
       if (!charge(budget, transaction)) return failure();
       domain.result = prepared.totalResults;
@@ -1271,13 +1348,14 @@ private:
           ? &prepared.requirements[*scheduled.requirement] : nullptr;
       const auto *resource = scheduled.resource ? &prepared.resources[*scheduled.resource] : nullptr;
       ac::TransactionSourcePath sourcePath = original ? original->path : requirement
-          ? requirement->point.path : plan.queueAccesses[resource->access].point.path;
+          ? requirement->point.path : resourcePoint(plan, *resource).path;
       ac::InvocationFrameId frame;
       DictionaryAttr occurrence, location;
       StringRef kind;
       if (resource) {
-        const auto &access = plan.queueAccesses[resource->access];
-        frame = access.frame; occurrence = access.occurrence; location = access.location;
+        frame = resourceFrame(plan, *resource);
+        occurrence = resourceOccurrence(plan, *resource);
+        location = resourceLocation(plan, *resource);
         kind = "resource_available";
       } else if (requirement) {
         frame = requirement->frame;
@@ -1404,7 +1482,7 @@ private:
       admission.append("ehr_entries", b.getArrayAttr(entries));
       prepared.expectedAdmission = admission.getDictionary(b.getContext());
     }
-    if (failed(queueAdmissionMetadata(prepared))) return failure();
+    if (failed(queueAdmissionMetadata(prepared)) || failed(memoryAdmissionMetadata(prepared))) return failure();
     if (!prepared.writeDomains.empty()) {
       SmallVector<Attribute> domains;
       for (const auto &domain : prepared.writeDomains) {
@@ -2134,6 +2212,8 @@ public:
         controls(prepared.controls.size()), selections(plan.selections.size()),
         requirements(prepared.requirements.size()), resources(prepared.resources.size()),
         queuePaths(prepared.plan->queueAccesses.size()),
+        memoryPaths(prepared.plan->memoryAccesses.size()),
+        memoryReadPrefixes(prepared.plan->memoryAccesses.size()),
         selectedWrites(prepared.writeDomains.empty() ? 0 : prepared.plan->writes.size()) {
     prefixes.reserve(prepared.controls.size() + 1);
     for (auto [id, requirement] : llvm::enumerate(prepared.requirements))
@@ -2201,6 +2281,11 @@ public:
       types.push_back(predicateType); types.push_back(predicateType);
       if (proposal.dataResult)
         types.push_back(plan.queueOwners[plan.queueAccesses[proposal.access].owner].payloadType);
+    }
+    for (const auto &proposal : prepared.memoryProposals) {
+      types.push_back(predicateType); types.push_back(predicateType);
+      for (auto argument : plan.memoryAccesses[proposal.access].arguments)
+        types.push_back(plan.values[argument].value.getType());
     }
     for (const auto &domain : prepared.writeDomains)
       types.push_back(domain.maskType);
@@ -2347,6 +2432,24 @@ public:
         results.push_back(*data);
       }
     }
+    for (const auto &proposal : prepared.memoryProposals) {
+      const auto &access = plan.memoryAccesses[proposal.access];
+      Value reached = prefix;
+      if (access.kind == ac::TransactionMemoryAccessKind::Read) {
+        auto retained = retainedPrefix(access.operation, proposal.excludedControls,
+                                       proposal.reachedControlEnd, builder);
+        if (failed(retained)) return failure();
+        reached = *retained;
+      }
+      auto path = binary(reached, memoryPaths[proposal.access], "and", access.operation->getLoc(), builder);
+      if (failed(path)) return failure();
+      results.push_back(memoryPaths[proposal.access]); results.push_back(*path);
+      for (auto argument : access.arguments) {
+        auto value = bound(argument);
+        if (failed(value)) return failure();
+        results.push_back(*value);
+      }
+    }
     for (const auto &domain : prepared.writeDomains) {
       if (!selectedWrites[domain.write].mask)
         return transaction.emitOpError() << "transaction write domain mask is unmapped";
@@ -2407,6 +2510,8 @@ public:
     record.requirements = std::move(requirements);
     record.resources = std::move(resources);
     record.queuePaths = std::move(queuePaths);
+    record.memoryPaths = std::move(memoryPaths);
+    record.memoryReadPrefixes = std::move(memoryReadPrefixes);
     record.selectedWrites = std::move(selectedWrites);
     record.resourceDemand = std::move(resourceDemand);
     return record;
@@ -2532,6 +2637,7 @@ private:
   }
 #include "TransactionRawStatementPath.inc"
 #include "TransactionQueueMaterialization.inc"
+#include "TransactionMemoryMaterialization.inc"
 #include "TransactionResourceDemandMaterialization.inc"
 
   LogicalResult admitControl(ac::AdmissionControlId id, Value raw,
@@ -2543,7 +2649,7 @@ private:
     auto sourcePath = !generated ? plan.controls[source].path
         : prepared.controls[id].requirement
             ? prepared.requirements[*prepared.controls[id].requirement].point.path
-            : plan.queueAccesses[prepared.resources[*prepared.controls[id].resource].access].point.path;
+            : resourcePoint(plan, prepared.resources[*prepared.controls[id].resource]).path;
     auto path = selectedPath(sourcePath);
     if (failed(path))
       return failure();
@@ -2806,6 +2912,13 @@ private:
         }
       } else if (auto call = dyn_cast<ac::SourceMethodCallOp>(op)) {
         if (failed(emitRequirements(call, frame, builder))) return failure();
+        auto memory = llvm::find_if(plan.memoryAccesses, [&](const auto &access) {
+          return access.operation == call && access.frame == frame;
+        });
+        if (memory != plan.memoryAccesses.end()) {
+          if (failed(emitMemoryAccess(call, frame, builder))) return failure();
+          continue;
+        }
         auto queue = llvm::find_if(plan.queueAccesses, [&](const auto &access) {
           return access.operation == call && access.frame == frame;
         });
@@ -2927,7 +3040,7 @@ private:
 
   SmallVector<ac::ValueRequireOp, 0> requirements;
   SmallVector<ac::BitsSelectOp, 0> resources;
-  SmallVector<Value, 0> queuePaths;
+  SmallVector<Value, 0> queuePaths, memoryPaths, memoryReadPrefixes;
   llvm::DenseMap<Key, SmallVector<uint64_t, 2>> requirementSites;
   const TransactionPreparation &prepared;
   const ac::TransactionStatePlan &plan;
@@ -2991,6 +3104,7 @@ Value bitsLiteral(Type payload, DictionaryAttr occurrence, Location location,
 
 #include "TransactionDomainCommitMaterialization.inc"
 #include "TransactionQueuePins.inc"
+#include "TransactionMemoryPins.inc"
 
 /// Remove every clone-map entry whose target lies in one of the retired
 /// subtrees. The map is package-wide and immutable during cleanup, so one
@@ -4081,7 +4195,7 @@ public:
       if (failed(exactClone(&op, target, authenticated, candidate.packageMap)))
         return failure();
     }
-    if (failed(routingProof()) || failed(queueWiringProof()))
+    if (failed(routingProof()) || failed(queueWiringProof()) || failed(memoryPinsProof()))
       return failure();
     if (prepared.valueAvailability) {
       SmallVector<Value> pending;
@@ -4278,6 +4392,7 @@ private:
   }
 
 #include "TransactionQueueWiringProof.inc"
+#include "TransactionMemoryPinsProof.inc"
 
   LogicalResult cover(Operation *op) {
     if (!charge(budget, prepared.original, 4))
@@ -4324,7 +4439,9 @@ private:
                                  Value condition, Value whenTrue,
                                  Value whenFalse,
                                  const MaterializedBranchResult &record,
-                                 Block *parent, Operation *&last) {
+                                 Block *parent, Operation *&last,
+                                 BranchTypeAdmissionCache *typeCache = nullptr) {
+    auto &admissionCache = typeCache ? *typeCache : branchTypes;
     if (!record.value || !values.contains(record.value) ||
         !values.contains(condition) || !values.contains(whenTrue) ||
         !values.contains(whenFalse))
@@ -4338,7 +4455,7 @@ private:
       return reject("original local branch input type differs");
 
     if (isa<ac::StructType, ac::TableType>(resolvedRoot)) {
-      auto admitted = branchTypes.admit(resolvedRoot, hardware, bindings, branch, budget);
+      auto admitted = admissionCache.admit(resolvedRoot, hardware, bindings, branch, budget);
       if (failed(admitted) || *admitted != resolvedRoot)
         return reject("original aggregate branch root admission differs");
     }
@@ -4388,7 +4505,7 @@ private:
           if (isa<ac::StructType, ac::EnumType>(declared))
             resolved = declared;
           else if (isa<ac::BitsType>(declared))
-            resolved = admittedBranchField(declared, hardware, bindings, branch, budget, &branchTypes);
+            resolved = admittedBranchField(declared, hardware, bindings, branch, budget, &admissionCache);
           else
             return reject("original local branch field type is unsupported");
           if (failed(resolved) || !prepayAppend(budget, branch, counting))
@@ -4523,7 +4640,7 @@ private:
         if (isa<ac::StructType, ac::EnumType>(declared))
           fieldType = declared;
         else if (isa<ac::BitsType>(declared))
-          fieldType = admittedBranchField(declared, hardware, bindings, branch, budget, &branchTypes);
+          fieldType = admittedBranchField(declared, hardware, bindings, branch, budget, &admissionCache);
         else
           return reject("original local branch field type is unsupported");
         if (failed(fieldType))
@@ -5053,7 +5170,7 @@ private:
           pair.second != availabilityBase + publicValidityCount + ordinal)
         return reject("original routed capture validity does not follow its exported payload");
     if (targetType.getNumInputs() !=
-            definition.sourceInputs + 2 * definition.downward.size() + queueInputCount(definition) + validityInputs ||
+            definition.sourceInputs + 2 * definition.downward.size() + queueInputCount(definition) + 2 * definition.memoryIncoming.size() + validityInputs ||
         targetType.getNumResults() !=
             definition.sourceOutputs + definition.upward.size() + definition.queuePopSummaries.size() + validityOutputs ||
         targetType.getInputs().take_front(definition.sourceInputs) !=
@@ -5073,6 +5190,11 @@ private:
           targetType.getInput(definition.sourceInputs + 2 * ordinal + 1) !=
               route.enableType)
         return reject("original appended incoming route types differ");
+    for (auto [ordinal, route] : llvm::enumerate(definition.memoryIncoming)) {
+      uint64_t input = definition.sourceInputs + 2 * definition.downward.size() + queueInputCount(definition) + 2 * ordinal;
+      if (targetType.getInput(input) != route.predicateType || targetType.getInput(input + 1) != route.type)
+        return reject("original appended Memory pin route types differ");
+    }
     for (auto [ordinal, route] : llvm::enumerate(definition.upward))
       if (targetType.getResult(definition.sourceOutputs + ordinal) !=
           route.type)
@@ -5082,14 +5204,14 @@ private:
           route.predicateType)
         return reject("original appended queue summary type differs");
     if (definition.upward.empty() && definition.downward.empty() && definition.queueIncoming.empty() &&
-        definition.queuePopSummaries.empty() &&
+        definition.memoryIncoming.empty() && definition.queuePopSummaries.empty() &&
         !validityInputs && !validityOutputs) {
       if (module->getAttr("ac.internal_ports") !=
           original->getAttr("ac.internal_ports"))
         return reject("original unextended internal port metadata differs");
     } else {
       Builder b(original.getContext());
-      SmallVector<Attribute> defaults(2 * definition.downward.size() + queueInputCount(definition),
+      SmallVector<Attribute> defaults(2 * definition.downward.size() + queueInputCount(definition) + 2 * definition.memoryIncoming.size(),
                                       b.getI64IntegerAttr(0));
       defaults.append(validityInputs, b.getI64IntegerAttr(1));
       auto internal = b.getDictionaryAttr(
@@ -5248,6 +5370,24 @@ private:
                 state.getLoc(), &module.getBody().front())))
           return failure();
         authenticated.map(state.getQ(), storage->getResult(0));
+      } else if (auto memory = dyn_cast<ac::InstanceOp>(op);
+                 memory && memory->hasAttr("ac.source_memory")) {
+        NamedAttrList expected(memory->getAttrs());
+        expected.erase("ac.source_memory"); expected.erase("ac.payload_constraint");
+        if (!isa<ac::InstanceOp>(target) || target->getAttrs() != expected.getAttrs() ||
+            target->getPropertiesAsAttribute() != memory->getPropertiesAsAttribute() ||
+            target->getLoc() != memory.getLoc() || target->getNumOperands() != memory->getNumOperands() ||
+            target->getNumResults() != memory->getNumResults() ||
+            target->getResultTypes() != memory->getResultTypes() || failed(cover(target)))
+          return reject("original Memory allocation identity differs");
+        for (unsigned operand = 0; operand < 2; ++operand)
+          if (target->getOperand(operand) != authenticated.lookupOrNull(memory.getInputs()[operand]))
+            return reject("original Memory clock/reset domain binding differs");
+        for (auto [source, result] : llvm::zip(memory.getOutputs(), target->getResults())) {
+          if (candidate.packageMap.lookupOrNull(source) != result)
+            return reject("original Memory data/live result ordinal differs");
+          authenticated.map(source, result);
+        }
       } else if (auto queue = dyn_cast<ac::InstanceOp>(op);
                  queue && ac::isQueueInstance(queue)) {
         NamedAttrList expected(queue->getAttrs());
@@ -5273,7 +5413,7 @@ private:
           const auto &routing =
               prepared.definitions[prepared.definitionIndex.lookup(
                   child.operator->())];
-          extraInputs = 2 * routing.downward.size() + queueInputCount(routing);
+          extraInputs = 2 * routing.downward.size() + queueInputCount(routing) + 2 * routing.memoryIncoming.size();
           extraOutputs = routing.upward.size() + routing.queuePopSummaries.size();
           auto rebuilt = cast<ac::ModuleOp>(candidate.packageMap.lookup(child.operator->()));
           auto layout = ac::getModulePortLayout(rebuilt);
@@ -5462,6 +5602,13 @@ private:
         return reject("original queue proposal layout differs");
       expectedTotal += proposal.dataResult ? 3 : 2;
     }
+    for (const auto &proposal : preparation.memoryProposals) {
+      if (proposal.rawResult != expectedTotal || proposal.pathResult != expectedTotal + 1)
+        return reject("original Memory proposal layout differs");
+      expectedTotal += 2;
+      for (uint64_t argument : proposal.argumentResults)
+        if (argument != expectedTotal++) return reject("original Memory argument layout differs");
+    }
     SmallVector<Attribute> expectedDomains;
     uint64_t domainCursor = 0;
     bool partialWrites = llvm::any_of(plan.writes, [](const auto &write) {
@@ -5553,7 +5700,7 @@ private:
         preparation.totalResults != expectedTotal ||
         preparation.expectedAdmission.size() !=
             (6 + !expectedEntryOwners.empty() + !preparation.requirements.empty() +
-             !preparation.resources.empty() + !preparation.queueProposals.empty() +
+             !preparation.resources.empty() + !preparation.queueProposals.empty() + !preparation.memoryProposals.empty() +
              !expectedDomains.empty()) ||
         preparation.expectedAdmission.getAs<IntegerAttr>("clock_capture") !=
             Builder(transaction.getContext())
@@ -5596,6 +5743,8 @@ private:
         record.requirements.size() != preparation.requirements.size() ||
         record.resources.size() != preparation.resources.size() ||
         record.queuePaths.size() != plan.queueAccesses.size() ||
+        record.memoryPaths.size() != plan.memoryAccesses.size() ||
+        record.memoryReadPrefixes.size() != plan.memoryAccesses.size() ||
         record.commits.size() != preparation.outputs.size())
       return reject(
           "original transaction layout/domain/check metadata differs");
@@ -5790,7 +5939,7 @@ private:
                  1 + SourceCheckBudget::bytes(sizeof(SmallVector<uint64_t, 0>)))) return failure();
     SmallVector<SmallVector<uint64_t, 0>, 0> replayFormalIntents(plan.frames.size());
     uint64_t eventIndex = 0, readIndex = 0, writeIndex = 0, callIndex = 0,
-             branchIndex = 0, joinIndex = 0, resultIndex = 0, guardIndex = 0, queueIndex = 0;
+             branchIndex = 0, joinIndex = 0, resultIndex = 0, guardIndex = 0, queueIndex = 0, memoryIndex = 0;
     ac::AdmissionPrefix admission = 0;
     ac::TransactionSourcePath sourcePath;
     auto point = [&] { return ac::TransactionPoint{admission, sourcePath}; };
@@ -5810,6 +5959,9 @@ private:
       switch (kind) {
       case K::QueueAccess:
         expected.queueAccess = id;
+        break;
+      case K::MemoryAccess:
+        expected.memoryAccess = id;
         break;
       case K::Read:
         expected.read = id;
@@ -5859,6 +6011,7 @@ private:
       if (actual.kind != expected.kind || actual.frame != expected.frame ||
           !sameSourcePoint(actual.point, expected.point) ||
           actual.read != expected.read || actual.queueAccess != expected.queueAccess ||
+          actual.memoryAccess != expected.memoryAccess ||
           actual.selection != expected.selection ||
           actual.write != expected.write || actual.formalWrite != expected.formalWrite ||
           actual.guard != expected.guard ||
@@ -6135,6 +6288,14 @@ private:
                 root == "pycircuit.__builtins__.fifo_downstream_pop") &&
                (leaf == "push" || leaf == "pop" || leaf == "peek");
       };
+      auto isNativeMemoryCallee = [](ac::SourceMethodCallOp call) {
+        auto symbol = call.getCalleeAttr();
+        if (!symbol || symbol.getNestedReferences().size() != 1) return false;
+        auto root = symbol.getRootReference().getValue();
+        return root == "pycircuit.__builtins__.sync_mem" ||
+               root == "pycircuit.__builtins__.sync_mem_dp" ||
+               root == "pycircuit.__builtins__.byte_mem";
+      };
       for (Operation &op : source.without_terminator()) {
         if (!charge(budget, &op, 8))
           return failure();
@@ -6143,7 +6304,7 @@ private:
           return op.emitOpError()
                  << "retired dedicated queue effects are not admitted";
         } else if (auto call = dyn_cast<ac::SourceMethodCallOp>(op);
-                   call && isNativeQueueCallee(call)) {
+                   call && (isNativeQueueCallee(call) || isNativeMemoryCallee(call))) {
           auto payModule = [&](Operation *module, Operation *) {
             return prepayClone(module, budget);
           };
@@ -6170,9 +6331,13 @@ private:
               !charge(budget, call,
                       32 + resolved->bindings.integers.size() +
                           resolved->bindings.types.size()) ||
-              !resolved->method.isNativeQueueTerminal())
-            return reject("original native queue terminal resolution differs");
+              !resolved->method.isNativeTerminal())
+            return reject("original native terminal resolution differs");
+          if (resolved->method.isNativeMemoryTerminal()) {
+#include "TransactionMemorySourceReplay.inc"
+          } else {
 #include "TransactionQueueSourceReplay.inc"
+          }
         } else if (auto read = dyn_cast<ac::SourceStateReadOp>(op)) {
           if (readIndex == plan.reads.size())
             return reject("original read inventory differs");
@@ -7108,6 +7273,7 @@ private:
     if (eventIndex != plan.events.size() || readIndex != plan.reads.size() ||
         writeIndex != plan.writes.size() || formalIndex != plan.formalWrites.size() ||
         callIndex != plan.calls.size() || queueIndex != plan.queueAccesses.size() ||
+        memoryIndex != plan.memoryAccesses.size() ||
         branchIndex != plan.branches.size() || joinIndex != plan.joins.size() ||
         resultIndex != plan.branchResults.size() ||
         guardIndex != plan.guards.size() ||
@@ -7371,10 +7537,38 @@ private:
         if (access.payload && failed(requireUse(access.operation, access.frame,
               *access.payload, "queue_push", 1, event.point, access.authoredPath))) return failure();
         for (auto [index, resource] : llvm::enumerate(preparation.resources)) {
-          if (resource.access != *event.queueAccess) continue;
+          if (resource.memoryAccess || resource.access != *event.queueAccess) continue;
           if (resource.control != scheduledControl || scheduledControl >= preparation.controls.size() ||
               preparation.controls[scheduledControl].resource != index)
             return reject("original queue resource schedule differs");
+          ++scheduledControl;
+        }
+      } else if (event.kind == K::MemoryAccess) {
+        const auto &access = plan.memoryAccesses[*event.memoryAccess];
+        for (auto [ordinal, argument] : llvm::enumerate(access.arguments))
+          if (failed(requireUse(access.operation, access.frame, argument,
+                                "memory_argument", ordinal, event.point,
+                                access.authoredPath))) return failure();
+        if (*event.memoryAccess >= record.memoryReadPrefixes.size() ||
+            (access.kind == ac::TransactionMemoryAccessKind::Read
+                 ? record.memoryReadPrefixes[*event.memoryAccess] !=
+                       record.prefixes[scheduledControl]
+                 : bool(record.memoryReadPrefixes[*event.memoryAccess])))
+          return reject("original Memory reached prefix differs");
+        if (access.kind == ac::TransactionMemoryAccessKind::Read) {
+          auto proposal = llvm::find_if(preparation.memoryProposals, [&](const auto &item) {
+            return item.access == *event.memoryAccess;
+          });
+          if (proposal == preparation.memoryProposals.end() ||
+              proposal->reachedControlEnd != scheduledControl)
+            return reject("original Memory read prefix endpoint differs");
+        }
+        for (auto [index, resource] : llvm::enumerate(preparation.resources)) {
+          if (resource.memoryAccess != event.memoryAccess) continue;
+          if (resource.control != scheduledControl ||
+              scheduledControl >= preparation.controls.size() ||
+              preparation.controls[scheduledControl].resource != index)
+            return reject("original Memory resource schedule differs");
           ++scheduledControl;
         }
       } else if (event.kind == K::FormalWrite) {
@@ -7441,7 +7635,7 @@ private:
       bool selection =
           control && std::holds_alternative<ac::BranchSelectControl>(control->boundary);
       Location location = transaction.getLoc();
-      if (resource) location = plan.queueAccesses[resource->access].operation->getLoc();
+      if (resource) location = detail::resourceOperation(plan, *resource)->getLoc();
       else if (requirement) location = requirement->site->getLoc();
       else if (auto *guard =
               std::get_if<ac::CallableGuardControl>(&control->boundary))
@@ -7454,7 +7648,7 @@ private:
                               .branch]
                 .operation->getLoc();
       auto selected = sourceSelected(control ? control->path : requirement ? requirement->point.path
-          : plan.queueAccesses[resource->access].point.path);
+          : detail::resourcePoint(plan, *resource).path);
       Value yieldedReached = yield->getOperand(preparation.checkBase + 2 * id + 1);
       if (failed(selected) || actual.raw != raw ||
           actual.selectedPath != *selected ||
@@ -7522,6 +7716,7 @@ private:
       return failure();
     }
 #include "TransactionQueuePrefixSourceProof.inc"
+#include "TransactionMemoryPrefixSourceProof.inc"
     if (yield->getOperand(preparation.fireResult) != prefix)
       return reject("original final admission prefix differs");
     auto effectPathProof =
@@ -7631,13 +7826,14 @@ private:
           ? &preparation.requirements[*scheduled.requirement] : nullptr;
       const auto *resource = scheduled.resource ? &preparation.resources[*scheduled.resource] : nullptr;
       auto sourcePath = control ? control->path : requirement ? requirement->point.path
-          : plan.queueAccesses[resource->access].point.path;
+          : detail::resourcePoint(plan, *resource).path;
       ac::InvocationFrameId frame;
       DictionaryAttr occurrence, location;
       StringRef kind;
       if (resource) {
-        const auto &access = plan.queueAccesses[resource->access];
-        frame = access.frame; occurrence = access.occurrence; location = access.location;
+        frame = detail::resourceFrame(plan, *resource);
+        occurrence = detail::resourceOccurrence(plan, *resource);
+        location = detail::resourceLocation(plan, *resource);
         kind = "resource_available";
       } else if (requirement) {
         frame = requirement->frame;
@@ -7916,6 +8112,7 @@ materializeTransactionLowering(PreparedTransactionLowering &prepared,
                          result.transactions, result.incomingCommits, budget)))
     return failure();
   if (failed(QueuePinMaterializer(prepared, result, budget).run())) return failure();
+  if (failed(MemoryPinMaterializer(prepared, result, budget).run())) return failure();
   if (failed(materializeTransactionValueAvailability(prepared, result, budget)))
     return failure();
   return std::move(result);

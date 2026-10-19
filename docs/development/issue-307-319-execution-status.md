@@ -1,5 +1,52 @@
 # #307 / #319 本轮执行状态
 
+## 普通语句、动态位读取与 Memory 接口推进（2026-10-19）
+
+普通 Module 语句复用 helper 的 statement lowering，动态 Bits 索引复用完整位宽
+范围证明与 shift/extract。35 项独立定向测试通过；API gate 23/23、examples
+gate 13/13，以及另外 8 个受影响 System 的原生 workers 1/2 和实际 RTL 通过。
+13 个单字段场景包装已移除；1,994 行刺激的 AST 哈希、assert 和多字段 payload
+保持一致。新增 mux256to1 与简化的 fsm3comb 通过原测试台及输出破坏负对照。
+合并重跑 VerilogEval 89/89（80 strict、9 if_one）和 ResBench 43/43 通过，
+ResBench 另 13 项 unsupported。`benchmark/results/` 已刷新；下面 88 项为历史汇总。
+
+Memory 用户语义已确定：`request(address)` / `result()` 非消费快照，保持原有
+read-first、响应失效和 reset 时序，不新增响应队列或背压状态。底层已在提交
+`bf88bb1f` 暴露已有 live 状态，SP 为 data/live，DP 为 data0/data1/live0/live1；
+raw primitive 源码返回值数量不变。live/idle 状态可综合，失效 payload 的 X
+填充仍只用于仿真。独立审查无发现。
+
+该底层候选的 API gate 23/23、原生寄存器/Memory 25/25、Collection Runtime
+15/15、相关 lit 8/8 通过；另直接运行 managed-memory 的实际 native/RTL 与
+综合配置检查通过。该脚本并非当前 lit 自动入口，不重复计入 8 项。
+证据位于 `docs/gates/logs/20261019-authoring-unification/`，API gate 原始目录
+为 `docs/gates/logs/20261019-175430/`。
+
+**Memory 操作接口已完成本轮端到端验证。** 命名 Memory 的 request/result/read/write
+复用原有资源分析、proposal 和提交；同步 result 为非消费的已提交快照。异步
+byte read 复用现有 committed-state read，随后一次 Work 检查和暂存写入；没有
+新增调度器或时序。DMA/Memory Banks 已迁移到操作接口，保留原 oracle 和时序。
+
+最终冻结候选：API gate 23/23、examples gate 13/13、Memory/Queue pytest
+43/43（其中 Memory 27）通过。DMA 与 Memory Banks 的原 Module oracle 和
+42/26 周期 System 共4项通过，包含原生 workers 1/2 和 RTL。VerilogEval
+89/89、ResBench 43/43 的原测试台已用当前工具重新运行；13项 ResBench
+unsupported 和67项 VerilogEval 未移植不计为通过。Memory 相关 IR/codegen
+8/8、managed sync-memory 实际 native/RTL/综合配置检查、unit 650 passed /
+5 skipped / 82 deselected、变更文件 pre-commit 和 strict MkDocs 均通过。
+
+独立实现审查为 clear；相对 `bf88bb1f` 的57个编译器文件内容清单 SHA256 为
+`d51fc97cf0385a01814e4518bf9692dd65648d356acc2c612fd51f94d395534c`。
+最终日志在同一 `20261019-authoring-unification` 目录的 `phase4b-*-final.log`，
+API 和 examples 机读目录分别为 `20261019-phase4b-api-final`、
+`20261019-phase4b-examples`。远端 PR 描述提供可访问的结果摘要。
+
+**仍未实现：compact 实例集合的 Python 构造、lane 身份、调用路由与逐实例有效性。**
+详细实现与验收清单见[交付清单](compiler-benchmark-delivery.md#remaining-compact-collection-implementation)。
+原始 collection Runtime 通过不代表新前端可用；14项本地草拟测试未注册、未计为通过。
+本次按用户授权分段推送与合入，#307/#319 保持开放。完整 nightly、长 digital_clock、
+完整 Queue/Memory reset 策略矩阵及官方 PPA 未在本候选重跑。
+
 ## 四态 System 与 benchmark 验证（2026-10-19）
 
 四态源码、共同 IR、双后端和生成式 System 已贯通：`ac.four_state`、诊断用途的

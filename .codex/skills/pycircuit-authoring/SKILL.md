@@ -47,6 +47,22 @@ Retain actual algorithmic predicates and real external protocol fields.
 Do not add full/empty/ready plumbing to ordinary internal connections or restore
 Signal declaration/set/get APIs.
 
+## Memory and sample timing
+
+Use named Memory allocations and Rule operations, following the
+[Memory contract](../../../docs/reference/language.md#memory-operations).
+Synchronous `request` proposes a read; `result` is a nonconsuming committed
+snapshot with the existing expiry, not an implicit wait. Separate producer and
+consumer phases; save results in Module state when longer retention is needed.
+For byte memory, read once into a local, compute, then write. Compiler-owned
+availability and port checks must not become frontend ready/valid plumbing.
+
+When authoring System scenarios, derive state changes from successful rising
+edges and observations from Work samples. Use fixed `ac.uN` for wrapping
+counters; checked bounded Integers require a proven in-range assignment. Keep
+fixed-width comparison literals representable. Do not change stimuli or
+independent expected values to hide a compiler or timing failure.
+
 ## External Verilog is an export boundary
 
 Translate behavior into pyCircuit; do not transliterate `always` blocks or

@@ -254,12 +254,24 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
           at, node.location(b.getContext(), source.path),
           ac::InstanceOp::getOperationName(), {}, plan->resultTypes,
           {at.getNamedAttr("instance_name",
-                           at.getStringAttr(nextName("__pyc_memory_"))),
+                           at.getStringAttr(plan->handleName.empty()
+                               ? nextName("__pyc_memory_") : plan->handleName)),
            at.getNamedAttr("callee", plan->callee),
            at.getNamedAttr("parameters", at.getArrayAttr(plan->parameters)),
            at.getNamedAttr("type_arguments",
                            at.getArrayAttr(plan->typeArguments)),
            at.getNamedAttr("occurrence", plan->occurrence)});
+      if (!plan->handleName.empty()) {
+        Port payload{"result", plan->resultTypes.front(),
+                     node.child("func").child("slice"),
+                     annotationKind(node.child("func").child("slice")),
+                     fixedAnnotation(node.child("func").child("slice"))};
+        auto constraint = sourceConstraint(payload);
+        if (failed(constraint)) return failure();
+        op->setAttr("ac.source_memory", at.getUnitAttr());
+        op->setAttr("ac.payload_constraint", *constraint);
+        op->setAttr("ac.location", sourceSpan(at, source.path, node));
+      }
       directCallSites.try_emplace(plan->occurrence, DirectCallSite{op});
       for (auto [ordinal, name] : llvm::enumerate(plan->resultNames)) {
         memoryResultNames.insert(name);

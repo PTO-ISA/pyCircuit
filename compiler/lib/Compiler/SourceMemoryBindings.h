@@ -10,6 +10,7 @@ class SourceDeclarationContext;
 class SourceRuleWritesAnalysis;
 struct MemoryCallPlan {
   AstNode module, call;
+  std::string handleName;
   mlir::DictionaryAttr occurrence;
   mlir::FlatSymbolRefAttr callee;
   llvm::SmallVector<AstNode> actuals;

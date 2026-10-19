@@ -406,7 +406,7 @@ module {
 }
 
 // -----
-// Single-Work memory feedback through conversions retains owning guard.
+// Committed memory data may feed the next write through nominal conversions.
 #w0 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<0>}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w2 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<2>}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -443,12 +443,35 @@ module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !address, !b1, !address, !ac.type_param<@memory, "T">, !b1) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %address: !b1, %write: !b1):
-    // expected-error @+1 {{byte_mem feedback requires multiple Work samples}}
     %q = "ac.instance"(%clk, %rst, %address, %write, %address, %feedback, %write) {instance_name = "memory", callee = @memory, parameters = [#w1, #w2], type_arguments = [!byte], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b1, !b1, !b1, !byte, !b1) -> !byte
     %raw = "ac.enum.to_bits"(%q) : (!byte) -> !b8
     %feedback, %member = "ac.enum.from_bits"(%raw) : (!b8) -> (!byte, !b1)
     "ac.yield"(%q) : (!byte) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b1) -> (!byte), input_names = ["clk", "rst", "address", "write"], output_names = ["q"]} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+}
+
+// -----
+// Nominal-to-bits feedback into the asynchronous read address remains a cycle.
+#w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+#w2 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<2>}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+#w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+!b1 = !ac.bits<#w1>
+!b8 = !ac.bits<#w8>
+!byte = !ac.enum<"types.Byte">
+#address = #ac.static_expr<{kind = "reference", ref = {kind = "parameter", owner = @memory, name = "ADDR_WIDTH"}, origin = {site = {definition = @memory, ast_path = []}, expansion = []}, location = {path = "byte_mem.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
+!address = !ac.bits<#address>
+module {
+  "ac.enum"() {sym_name = "types.Byte", width = #ac.math_int<8>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}, {name = "ONE", code = #ac.math_int<1>}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !address, !b1, !address, !ac.type_param<@memory, "T">, !b1) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
+  // expected-error @+1 {{combinational cycle in hardware field dependencies}}
+  "ac.module"() ({
+  ^bb0(%clk: !b1, %rst: !b1, %write: !b1):
+    %q = "ac.instance"(%clk, %rst, %raw, %write, %raw, %feedback, %write) {instance_name = "memory", callee = @memory, parameters = [#w8, #w2], type_arguments = [!byte], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b8, !b1, !b8, !byte, !b1) -> !byte
+    %raw = "ac.enum.to_bits"(%q) : (!byte) -> !b8
+    %feedback, %member = "ac.enum.from_bits"(%raw) : (!b8) -> (!byte, !b1)
+    "ac.yield"(%q) : (!byte) -> ()
+  }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1) -> (!byte), input_names = ["clk", "rst", "write"], output_names = ["q"]} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
 

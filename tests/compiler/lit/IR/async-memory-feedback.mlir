@@ -1,4 +1,4 @@
-// RUN: %pycircuit_opt %s --ac-verify-hardware --verify-diagnostics
+// RUN: %pycircuit_opt %s --split-input-file --ac-verify-hardware --verify-diagnostics
 #w1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>
 !b1 = !ac.bits<#w1>
 #w5 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<5>}}>
@@ -26,9 +26,33 @@ module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !addr, !b1, !addr, !ac.type_param<@memory, "T">, !strb) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %raddr: !b4, %wvalid: !b1, %waddr: !b4, %wstrb: !b1):
-    // expected-error @+1 {{byte_mem feedback requires multiple Work samples}}
+    // Committed read data may drive next write data in one Work sample.
     %q = "ac.instance"(%clk, %rst, %raddr, %wvalid, %waddr, %q, %wstrb) {instance_name = "ram", callee = @memory, parameters = [#four, #seven], type_arguments = [!b8], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b4, !b1, !b4, !b8, !b1) -> !b8
     "ac.yield"(%q) : (!b8) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b4, !b1, !b4, !b1) -> !b8, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wstrb"], output_names = ["rdata"]} : () -> ()
+  "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+}
+
+// -----
+// A true committed-read-address cycle still requires another Work sample.
+#w1 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>
+!b1 = !ac.bits<#w1>
+#w8 = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<8>}}>
+!b8 = !ac.bits<#w8>
+#addr_width = #ac.static_expr<{kind = "reference", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, ref = {kind = "parameter", owner = @memory, name = "ADDR_WIDTH"}}>
+#payload_width = #ac.static_expr<{kind = "type_width", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, type = !ac.type_param<@memory, "T">}>
+#seven = #ac.static_expr<{kind = "literal", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<7>}}>
+#rounded = #ac.static_expr<{kind = "binary", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, operator = "add", lhs = #payload_width, rhs = #seven}>
+#lanes = #ac.static_expr<{kind = "binary", location = {path = "top.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @top, ast_path = []}, expansion = []}, operator = "floordiv", lhs = #rounded, rhs = #w8}>
+!addr = !ac.bits<#addr_width>
+!strb = !ac.bits<#lanes>
+module {
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "byte_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !addr, !b1, !addr, !ac.type_param<@memory, "T">, !strb) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "byte_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 2 : i64, path = []}]}]} : () -> ()
+  // expected-error @+1 {{combinational cycle in hardware field dependencies}}
+  "ac.module"() ({
+  ^bb0(%clk: !b1, %rst: !b1, %wvalid: !b1, %wdata: !b8, %wstrb: !b1):
+    %q = "ac.instance"(%clk, %rst, %q, %wvalid, %q, %wdata, %wstrb) {instance_name = "ram", callee = @memory, parameters = [#w8, #seven], type_arguments = [!b8], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b8, !b1, !b8, !b8, !b1) -> !b8
+    "ac.yield"(%q) : (!b8) -> ()
+  }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b8, !b1) -> !b8, input_names = ["clk", "rst", "wvalid", "wdata", "wstrb"], output_names = ["rdata"]} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }

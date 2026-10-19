@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "SourceValueSemantics.h"
+#include "ACIRSourceContracts.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSet.h"
@@ -647,6 +648,21 @@ HardwareAnalysis::verifyInstance(InstanceOp instance,
     return failure();
   if (isQueueInstance(instance))
     return verifyQueueOperation(instance, parent);
+  if (instance->hasAttr("ac.source_memory")) {
+    if (!isa<UnitAttr>(instance->getAttr("ac.source_memory")))
+      return instance.emitOpError() << "ac.source_memory requires a unit marker";
+    auto layout = getMemoryPrimitiveLayout(instance, parent);
+    if (failed(layout)) return failure();
+    auto constraint = instance->getAttr("ac.payload_constraint");
+    if (!constraint || failed(detail::verifySourceCallHardwareConstraint(
+            constraint, layout->payloadType, *this, instance->getParentOp(),
+            instance, "source Memory payload")))
+      return failure();
+    for (StringRef flag : {"ac.source_unbound_push", "ac.source_unbound_pop"})
+      if (instance->hasAttr(flag))
+        return instance.emitOpError() << "Queue binding flag is invalid on Memory";
+    return success();
+  }
   for (StringRef name : {"ac.payload_constraint", "ac.source_unbound_push",
                          "ac.source_unbound_pop"})
     if (instance->hasAttr(name))
@@ -845,5 +861,59 @@ LogicalResult HardwareAnalysis::verifyResolvedOperation(
     }
   }
   return success();
+}
+bool isMemoryInstance(InstanceOp instance) {
+  if (!instance) return false;
+  auto callee = instance.getCallee();
+  return callee == "pycircuit.__builtins__.sync_mem" ||
+         callee == "pycircuit.__builtins__.sync_mem_dp" ||
+         callee == "pycircuit.__builtins__.byte_mem";
+}
+
+FailureOr<MemoryPrimitiveLayout>
+getMemoryPrimitiveLayout(InstanceOp instance,
+                         const HardwareBindings &parentBindings) {
+  if (!isMemoryInstance(instance))
+    return instance.emitOpError() << "Memory requires an actual canonical primitive allocation";
+  auto package = instance->getParentOfType<mlir::ModuleOp>();
+  HardwareAnalysis analysis(package);
+  auto bound = analysis.bindInstance(instance, parentBindings);
+  if (failed(bound)) return failure();
+  auto primitive = dyn_cast_or_null<ModuleImportOp>(bound->owner);
+  StringRef kind = analysis.getPrimitiveKind(primitive);
+  if (!primitive || (kind != "sync_mem" && kind != "sync_mem_dp" && kind != "byte_mem") ||
+      failed(analysis.verifyImport(primitive)))
+    return instance.emitOpError() << "Memory requires its checked canonical primitive declaration";
+  MemoryPrimitiveLayout result;
+  result.allocation = instance;
+  result.primitive = primitive;
+  result.kind = kind;
+  result.bindings = *bound;
+  result.readPorts = kind == "sync_mem_dp" ? 2 : 1;
+  result.readAddressOperands = kind == "byte_mem" ? SmallVector<unsigned, 2>{2}
+                              : kind == "sync_mem_dp" ? SmallVector<unsigned, 2>{3, 5}
+                                                       : SmallVector<unsigned, 2>{3};
+  if (kind != "byte_mem")
+    result.readEnableOperands = kind == "sync_mem_dp" ? SmallVector<unsigned, 2>{2, 4}
+                                                       : SmallVector<unsigned, 2>{2};
+  result.writeEnableOperand = kind == "byte_mem" ? 3 : kind == "sync_mem_dp" ? 6 : 4;
+  result.writeAddressOperand = result.writeEnableOperand + 1;
+  result.writeDataOperand = result.writeEnableOperand + 2;
+  result.writeMaskOperand = result.writeEnableOperand + 3;
+  unsigned outputs = kind == "byte_mem" ? 1 : 2 * result.readPorts;
+  if (instance.getNumOperands() != result.writeMaskOperand + 1 ||
+      instance.getNumResults() != outputs)
+    return instance.emitOpError() << "Memory pin layout differs from canonical signature";
+  auto resolve = [&](Type type) { return analysis.resolveType(type, parentBindings, instance); };
+  auto payload = resolve(instance.getResult(0).getType());
+  auto address = resolve(instance.getOperand(result.readAddressOperands[0]).getType());
+  auto mask = resolve(instance.getOperand(result.writeMaskOperand).getType());
+  auto bit = resolve(instance.getOperand(0).getType());
+  if (failed(payload) || failed(address) || failed(mask) || failed(bit)) return failure();
+  result.payloadType = *payload;
+  result.addressType = *address;
+  result.maskType = *mask;
+  result.predicateType = *bit;
+  return result;
 }
 } // namespace acir::ac

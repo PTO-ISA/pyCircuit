@@ -781,6 +781,74 @@ construction. A raw-bound direction cannot also be driven transactionally, even
 when the authored raw request is constant zero. Read-only `peek` does not claim
 the dequeue port.
 
+## Memory operations
+
+Allocate a named Memory in its Module and call it from Rules:
+
+```python
+memory = ac.sync_mem[ac.u16](depth=16)
+
+@ac.rule
+def request_read(address: ac.u4) -> None:
+    memory.request(address)
+
+@ac.rule
+def read_response() -> ac.u16:
+    return memory.result()
+
+@ac.rule
+def store(address: ac.u4, value: ac.u16) -> None:
+    memory.write(address, value)
+```
+
+`sync_mem[T]`, `sync_mem_dp[T]` and `byte_mem[T]` reuse the existing native
+Memory Modules. `T` is fixed Bits or an admitted Struct/Enum; byte memory requires
+a whole-byte payload. Depth is a positive closed static Integer. Allocation
+handles are immutable; aliases retain the same physical memory. Clock, reset,
+read/write enables, response validity and commit wiring are compiler-owned.
+
+Synchronous `request(address, port=0)` proposes a read. `result(port=0)` returns
+the committed response snapshot without consuming or refreshing it. The port
+is a closed static Integer: zero for `sync_mem`, zero or one for `sync_mem_dp`.
+A request becomes visible after a successful rising-edge Xfer. Concurrent reads
+and writes to one address return the old data. The first idle rising edge retains
+the response; the second invalidates it at Xfer. Work on that second edge still
+observes the previous snapshot. Low, held, falling and discarded epochs do not
+age responses. Reset invalidates responses and retains RAM.
+
+A reached unavailable `result()` inhibits its entire outer Rule, including
+previous requests, writes and child calls. An untaken access does not inhibit
+it. Request and result in one Rule observe the previous response; they cannot
+bootstrap an initially empty response. Use separate producer/consumer Rules or
+an explicit controller phase. Save a returned value in Module state when the
+algorithm must retain it beyond the response lifetime. Availability comes from
+the primitive's live state, independently of payload knownness.
+
+`byte_mem.read(address)` is an asynchronous read of committed storage. It may
+feed later computation and a write in the same Rule. It has no request/result
+pair. The compiler derives its reached read demand, drives a safe idle address
+when inactive, and preserves reached selector diagnostics. A genuine
+read-data-to-read-address combinational cycle remains invalid.
+
+`write(address, value, mask=...)` uses the single write port shared by each
+Memory's read ports. The default mask enables all byte lanes; low packed byte
+lanes come first, including the partial last byte of a synchronous payload.
+Enabled write data and masks retain the existing knownness requirements.
+Known out-of-range synchronous reads return zero and writes do nothing; source
+address widths still match the depth-derived signature. Memory addresses do
+not acquire Table indexing's source in-range requirement.
+
+Multiple potentially simultaneous requests or writes to one physical port
+require an exclusivity proof or reject at link. Statement order and `after`
+do not create ports. Repeated byte reads may share a proven-equal full-width
+address; a dominating read supplies a later equivalent access without adding
+a feedback dependency. Multiple snapshot readers do not claim a request port.
+The compiler checks these properties through actual owners and aliases.
+
+The raw pin-oriented Memory calls remain available to primitive conformance
+tests with their original payload arity. Ordinary examples use named operations.
+Both targets consume the same verified final IR and existing storage kernels.
+
 ## Branches and binding boundaries
 
 Ordinary `assert predicate` with an optional static string message is captured

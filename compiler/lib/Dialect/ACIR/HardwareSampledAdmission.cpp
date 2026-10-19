@@ -1,4 +1,5 @@
 #include "HardwareSampledAdmission.h"
+#include "HardwareQueueResources.h"
 #include "HardwareValueAvailability.h"
 #include "HardwareGrantProof.h"
 #include "ACIRSourceContracts.h"
@@ -352,13 +353,15 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   core.erase("requirements");
   core.erase("resources");
   core.erase("queue_proposals");
+  core.erase("memory_proposals");
   core.erase("write_domains");
   auto writeDomains = row ? row.getAs<ArrayAttr>("write_domains") : ArrayAttr();
   if (row && row.get("write_domains") && (!writeDomains || writeDomains.empty()))
     return rule->emitOpError() << "write_domains requires a nonempty array";
   auto resources = row ? row.getAs<ArrayAttr>("resources") : ArrayAttr();
   auto queueProposals = row ? row.getAs<ArrayAttr>("queue_proposals") : ArrayAttr();
-  for (StringRef key : {"resources", "queue_proposals"})
+  auto memoryProposals = row ? row.getAs<ArrayAttr>("memory_proposals") : ArrayAttr();
+  for (StringRef key : {"resources", "queue_proposals", "memory_proposals"})
     if (row && row.get(key)) {
       auto entries = row.getAs<ArrayAttr>(key);
       if (!entries || entries.empty())
@@ -418,6 +421,13 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       if (!kind || (kind.getValue() != "pop" && kind.getValue() != "push"))
         return rule->emitOpError() << "queue proposal kind must be pop or push";
       total = SourceCheckBudget::add(total, kind.getValue() == "push" ? 3 : 2);
+    }
+  if (memoryProposals)
+    for (Attribute raw : memoryProposals) {
+      auto proposal = dyn_cast<DictionaryAttr>(raw);
+      auto arguments = proposal ? proposal.getAs<ArrayAttr>("arguments") : ArrayAttr();
+      if (!arguments) return rule->emitOpError() << "Memory proposal requires argument suffix";
+      total = SourceCheckBudget::add(total, SourceCheckBudget::add(2, arguments.size()));
     }
   total = SourceCheckBudget::add(total, writeDomains ? writeDomains.size() : 0);
   if (total == std::numeric_limits<uint64_t>::max() ||
@@ -686,7 +696,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     if (failed(indexValue) || failed(operand) || *indexValue != ordinal ||
         !kind || !llvm::is_contained(ArrayRef<StringRef>{"guard", "branch",
             "state_write", "write_path", "call_argument", "return", "assert",
-            "log", "formal_write", "formal_path", "formal_candidate", "queue_push"}, kind.getValue()) ||
+            "log", "formal_write", "formal_path", "formal_candidate", "queue_push", "memory_argument"}, kind.getValue()) ||
         !operation || operation->getParentOp() != rule ||
         operation.getOccurrence() != occurrence ||
         operation.getSourceLocation() != location ||
@@ -710,6 +720,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     if (!resource) return rule->emitOpError() << "sampled queue resource requires a dictionary";
     NamedAttrList resourceCore(resource);
     resourceCore.erase("prospective");
+    resourceCore.erase("port");
     if (failed(exact(resourceCore.getDictionary(rule.getContext()), {"control", "kind", "owner", "declaration",
                                "occurrence", "location"}, rule,
                      "sampled queue resource"))) return failure();
@@ -720,7 +731,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     auto occurrence = resource.getAs<DictionaryAttr>("occurrence");
     auto location = resource.getAs<DictionaryAttr>("location");
     if (failed(controlIndex) || *controlIndex != ordinal || !kind ||
-        (kind.getValue() != "queue_valid" && kind.getValue() != "queue_ready") ||
+        (kind.getValue() != "queue_valid" && kind.getValue() != "queue_ready" && kind.getValue() != "memory_live") ||
         failed(verifyOwnerRef(owner, [&] { return rule->emitOpError(); })) ||
         failed(verifyOccurrence(declaration, [&] { return rule->emitOpError(); })) ||
         failed(verifyOccurrence(occurrence, [&] { return rule->emitOpError(); })) ||
@@ -729,8 +740,14 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
         cast<DictionaryAttr>(required[ordinal]).get("location") != location)
       return rule->emitOpError() << "queue resource differs from its control obligation";
     SampledResourceView parsed{ordinal, kind, owner, declaration, occurrence, location, std::nullopt};
+    if (kind.getValue() == "memory_live") {
+      auto port = index(resource, "port", rule);
+      if (failed(port)) return failure();
+      parsed.memoryPort = *port;
+    } else if (resource.get("port"))
+      return rule->emitOpError() << "Queue resource cannot carry a Memory port";
     auto prospective = resource.getAs<DictionaryAttr>("prospective");
-    if (kind.getValue() == "queue_valid") {
+    if (kind.getValue() != "queue_ready") {
       if (resource.get("prospective"))
         return rule->emitOpError() << "queue_valid cannot carry prospective capacity";
     } else {
@@ -1007,6 +1024,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     result.queueProposals.push_back(std::move(proposal));
     queueResult += push ? 3 : 2;
   }
+#include "HardwareMemoryProposalParsing.inc"
 #include "HardwareWriteDomainParsing.inc"
   return result;
 }
@@ -1051,12 +1069,14 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
       queueInputs = SourceCheckBudget::add(queueInputs, kind.getValue() == "push" ? 2 : 1);
     }
   }
+  auto memoryInputs = getMemoryIncomingPortCount(module, analysis, bindings, budget);
+  if (failed(memoryInputs)) return failure();
   if (SourceCheckBudget::add(SourceCheckBudget::add(ports->sourceInputCount,
                              SourceCheckBudget::multiply(2, incoming.size())),
-                             SourceCheckBudget::add(validityInputs, queueInputs)) !=
+                             SourceCheckBudget::add(SourceCheckBudget::add(validityInputs, queueInputs), *memoryInputs)) !=
       module.getFunctionType().getNumInputs())
     return module->emitOpError()
-           << "transaction, queue and availability routes must exactly cover appended inputs";
+           << "transaction, Queue, Memory and availability routes must exactly cover appended inputs";
   if (failed(charge(budget, module, states.size(),
                     sizeof(TransactionStateInventoryEntry))) ||
       failed(charge(budget, module, incoming.size(),
@@ -2978,9 +2998,18 @@ struct EffectOwnerProof {
   ArrayAttr invocation;
   ResolvedSourceEffectOwner owner;
 };
+struct BoundWriterAdmission {
+  ModuleOp definition;
+  HardwareBindings bindings;
+  RuleOp rule;
+  SampledAdmissionView sampled;
+};
 struct EffectProofCache {
   SmallVector<EffectTerminalIndex, 0> terminals;
   SmallVector<EffectOwnerProof, 0> owners;
+  // Complete definition/binding admission proofs belong to this one immutable
+  // verification invocation. Actual occurrence/domain/route proofs stay local.
+  SmallVector<std::unique_ptr<BoundWriterAdmission>, 0> admissions;
 };
 // A proof invocation owns one actual root. The catalog caller supplies every
 // definition/binding root, including unselected definitions; no package closure
@@ -3762,37 +3791,38 @@ private:
 
   FailureOr<const SampledAdmissionView *>
   writerAdmission(const Occurrence &entry, RuleOp rule) {
-    // Parse against current IR. Storage and completed prefix proofs belong only
-    // to this WiringProof invocation and exact occurrence.
     PrefixIndexKey key{rule.getOperation(),
                        static_cast<uint64_t>(&entry - occurrences.data())};
     if (failed(budget.debit(orderedLookupCost(writerAdmissions.size()), rule)))
       return failure();
     auto position = writerAdmissions.lower_bound(key);
-    auto parsed = validation.verify(rule, entry.bindings);
-    if (failed(parsed))
-      return failure();
-    uint64_t moveWork = 1;
-    for (uint64_t count : {uint64_t(parsed->controls.size()),
-                           uint64_t(parsed->bodyChecks.size()),
-                           uint64_t(parsed->observations.size()),
-                           uint64_t(parsed->ehrEntries.size()),
-                           uint64_t(parsed->requirements.size()),
-                           uint64_t(parsed->resources.size()),
-                           uint64_t(parsed->queueProposals.size()),
-                           uint64_t(parsed->writeDomains.size())})
-      moveWork = SourceCheckBudget::add(moveWork, count);
-    if (failed(charge(budget, rule, 1,
-                      sizeof(decltype(writerAdmissions)::value_type) +
-                          4 * sizeof(void *))) ||
-        failed(budget.debit(SourceCheckBudget::add(moveWork, 3), rule)))
-      return failure();
-    if (position != writerAdmissions.end() && position->first == key) {
-      position->second = std::move(*parsed);
-      return &position->second;
+    if (position != writerAdmissions.end() && position->first == key)
+      return position->second;
+    const SampledAdmissionView *sampled = nullptr;
+    for (const auto &proof : effectProofCache.admissions) {
+      if (failed(budget.debit(1, rule))) return failure();
+      if (proof->definition != entry.module || proof->rule != rule) continue;
+      if (failed(budget.debit(SourceCheckBudget::add(SourceCheckBudget::bindings(proof->bindings),
+                                                    SourceCheckBudget::bindings(entry.bindings)), rule)))
+        return failure();
+      if (sameHardwareBindings(proof->bindings, entry.bindings)) {
+        sampled = &proof->sampled; break;
+      }
     }
-    auto saved = writerAdmissions.emplace_hint(position, key, std::move(*parsed));
-    return &saved->second;
+    if (!sampled) {
+      auto parsed = validation.verify(rule, entry.bindings);
+      if (failed(parsed) || failed(charge(budget, rule, 1,
+            sizeof(BoundWriterAdmission) + sizeof(std::unique_ptr<BoundWriterAdmission>))) ||
+          failed(budget.debit(SourceCheckBudget::bindings(entry.bindings), rule))) return failure();
+      auto proof = std::make_unique<BoundWriterAdmission>(BoundWriterAdmission{
+          entry.module, entry.bindings, rule, std::move(*parsed)});
+      sampled = &proof->sampled;
+      effectProofCache.admissions.push_back(std::move(proof));
+    }
+    if (failed(charge(budget, rule, 1,
+                      sizeof(decltype(writerAdmissions)::value_type) + 4 * sizeof(void *)))) return failure();
+    writerAdmissions.emplace_hint(position, key, sampled);
+    return sampled;
   }
   FailureOr<const SampledAdmissionView *>
   existingWriterAdmission(const Occurrence &entry, RuleOp rule) {
@@ -3808,7 +3838,7 @@ private:
     if (found == writerAdmissions.end())
       return rule->emitOpError()
              << "ordered entry lacks its current authenticated writer view";
-    return &found->second;
+    return found->second;
   }
   LogicalResult orderedEntries() {
     for (const auto &entry : occurrences) {
@@ -4823,7 +4853,7 @@ private:
   EffectProofCache &effectProofCache;
   bool &provedAvailability;
   std::optional<IdentityMemo> identity;
-  std::map<PrefixIndexKey, SampledAdmissionView, PrefixIndexLess> writerAdmissions;
+  std::map<PrefixIndexKey, const SampledAdmissionView *, PrefixIndexLess> writerAdmissions;
 };
 bool localWitness(ModuleOp module) {
   if (module->hasAttr("ac.sampled_admission") ||

@@ -2914,7 +2914,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
             return error() << "hardware result binding conflicts with nested Rule";
     }
     auto memory = bindMemoryResults(stmt, at, decl.symbol, values,
-                                    structuralInstances);
+                                    structuralInstances, structuralStorage);
     if (failed(memory))
       return failure();
     if (*memory)

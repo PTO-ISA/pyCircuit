@@ -56,7 +56,7 @@
       frames[frame].map(original, *data);
     }
     for (auto [ordinal, resource] : llvm::enumerate(prepared.resources)) {
-      if (resource.access != static_cast<uint64_t>(id)) continue;
+      if (resource.memoryAccess || resource.access != static_cast<uint64_t>(id)) continue;
       auto raw = queueBareReadiness(resource, builder);
       auto one = intentLiteral(prefix.getType(), true, operation->getLoc(), builder);
       if (failed(raw) || failed(one)) return failure();
@@ -71,48 +71,56 @@
 
   SmallVector<std::pair<uint64_t, Value>, 0> queuePrefixes;
 
+  // Construct a prefix using the independently checked raw-control bypasses.
+  // Queue proposals use the final boundary; async reads use their source point.
+  FailureOr<Value> retainedPrefix(Operation *site, ArrayRef<uint64_t> excluded,
+                                  uint64_t end, OpBuilder &builder) {
+    if (end >= prefixes.size() || end > controls.size()) return failure();
+    if (excluded.empty()) return prefixes[end];
+    uint64_t first = excluded.front();
+    if (first >= end) return failure();
+    Value complete = prefixes[first];
+    uint64_t omitted = 0;
+    for (uint64_t ordinal = first; ordinal < end; ++ordinal) {
+      if (!charge(budget, site)) return failure();
+      if (omitted < excluded.size() && excluded[omitted] == ordinal) { ++omitted; continue; }
+      const auto &scheduled = prepared.controls[ordinal];
+      auto sourcePath = scheduled.source ? plan.controls[*scheduled.source].path
+          : scheduled.requirement ? prepared.requirements[*scheduled.requirement].point.path
+          : resourcePoint(plan, prepared.resources[*scheduled.resource]).path;
+      auto projected = sampledPath(plan, sourcePath, budget);
+      while (succeeded(projected) && !projected->empty()) {
+        uint64_t source = projected->getAs<IntegerAttr>("selection").getInt();
+        if (llvm::is_contained(excluded, prepared.sourceControls[source]))
+          return site->emitOpError() << "retained resource bypass references an omitted ancestor selector";
+        projected = sampledPath(plan, plan.controls[source].path, budget);
+      }
+      if (failed(projected)) return failure();
+      // The bypass depends on its exact raw control and selector ancestry,
+      // independently of the full reached/admission prefix.
+      auto next = binary(complete, controls[ordinal].bypass, "and", site->getLoc(), builder);
+      if (failed(next)) return failure();
+      complete = *next;
+    }
+    if (omitted != excluded.size()) return failure();
+    return complete;
+  }
+
   FailureOr<Value> queueProposalPath(const TransactionQueueProposal &proposal,
                                       OpBuilder &builder) {
     const auto &access = plan.queueAccesses[proposal.access];
-    Value complete = prefix;
     if (!proposal.excludedControls.empty()) {
       for (auto [previous, value] : queuePrefixes) {
         if (!charge(budget, access.operation, 1 + proposal.excludedControls.size())) return failure();
         if (prepared.queueProposals[previous].excludedControls == proposal.excludedControls)
           return binary(value, queuePaths[proposal.access], "and", access.operation->getLoc(), builder);
       }
-      uint64_t first = proposal.excludedControls.front();
-      if (first >= controls.size() || first >= prefixes.size()) return failure();
-      complete = prefixes[first];
-      uint64_t omitted = 0;
-      for (uint64_t ordinal = first; ordinal < controls.size(); ++ordinal) {
-        if (!charge(budget, access.operation)) return failure();
-        if (omitted < proposal.excludedControls.size() &&
-            proposal.excludedControls[omitted] == ordinal) { ++omitted; continue; }
-        const auto &scheduled = prepared.controls[ordinal];
-        auto sourcePath = scheduled.source ? plan.controls[*scheduled.source].path
-            : scheduled.requirement ? prepared.requirements[*scheduled.requirement].point.path
-            : plan.queueAccesses[prepared.resources[*scheduled.resource].access].point.path;
-        auto projected = sampledPath(plan, sourcePath, budget);
-        while (succeeded(projected) && !projected->empty()) {
-          uint64_t source = projected->getAs<IntegerAttr>("selection").getInt();
-          if (llvm::is_contained(proposal.excludedControls, prepared.sourceControls[source]))
-            return access.operation->emitOpError() << "retained queue bypass references an omitted ancestor selector";
-          projected = sampledPath(plan, plan.controls[source].path, budget);
-        }
-        if (failed(projected)) return failure();
-        // admitControl proves this node depends only on the exact raw control
-        // and pure selector ancestry, never on reached or admission prefixes.
-        auto next = binary(complete, controls[ordinal].bypass, "and", access.operation->getLoc(), builder);
-        if (failed(next)) return failure();
-        complete = *next;
-      }
-      if (omitted != proposal.excludedControls.size() ||
-          !prepayAppend(budget, access.operation, queuePrefixes)) return failure();
-      queuePrefixes.push_back({uint64_t(&proposal - prepared.queueProposals.data()), complete});
     }
-    // Always canonical, including false paths. The independent prefix proof
-    // authenticates every omission; global fire/check/commit wiring is intact.
-    return binary(complete, queuePaths[proposal.access], "and",
-                  access.operation->getLoc(), builder);
+    auto complete = retainedPrefix(access.operation, proposal.excludedControls, controls.size(), builder);
+    if (failed(complete)) return failure();
+    if (!proposal.excludedControls.empty()) {
+      if (!prepayAppend(budget, access.operation, queuePrefixes)) return failure();
+      queuePrefixes.push_back({uint64_t(&proposal - prepared.queueProposals.data()), *complete});
+    }
+    return binary(*complete, queuePaths[proposal.access], "and", access.operation->getLoc(), builder);
   }

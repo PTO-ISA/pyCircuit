@@ -167,7 +167,7 @@
                 std::distance(plan.queueAccesses.begin(), access);
             auto resource = llvm::find_if(
                 prepared.resources,
-                [&](const auto &item) { return item.access == accessId; });
+                [&](const auto &item) { return !item.memoryAccess && item.access == accessId; });
             if (resource != prepared.resources.end()) {
               uint64_t ordinal =
                   std::distance(prepared.resources.begin(), resource);
@@ -182,6 +182,12 @@
               if (failed(selected)) return failure();
               continuation = *selected;
             }
+          } else if (auto memory = llvm::find_if(plan.memoryAccesses, [&](const auto &item) {
+                       return item.frame == frame && item.operation == call;
+                     }); memory != plan.memoryAccesses.end()) {
+            // A committed response is an ordinary forward admission boundary.
+            // Unlike Queue prospective credits, unavailable Memory data cannot
+            // erase earlier reached selector/guard checks through suffix demand.
           } else {
             auto found = calls.find({frame, call});
             if (found == calls.end())

@@ -67,6 +67,7 @@ struct Leaf {
   ac::HardwareBindings bindings;
   std::string prefix, count, kernel;
   bool sampled = false;
+  bool readComputed = false;
   std::array<bool, 4> queueRead{};
 };
 class WorkEmitter {
@@ -530,6 +531,8 @@ private:
         << "; ++pyc_lane) " << leaf.prefix << "state->work(pyc_lane, " << *in
         << ", " << *q << ");\n";
     leaf.sampled = true;
+    if (ctx.analysis.getPrimitiveKind(leaf.bindings.owner) == "byte_mem")
+      leaf.readComputed = true;
     return success();
   }
   std::string name() { return "pyc_value_" + std::to_string(nextName++); }
@@ -1265,7 +1268,10 @@ private:
       if (ctx.analysis.getPrimitiveKind(b->owner) == "byte_mem")
         for (auto &leaf : storage)
           if (leaf.scope == &s && leaf.op == op) {
-            if (resetting && !leaf.sampled) {
+            // Read only committed storage while evaluating combinational SSA.
+            // The existing sampling loop still invokes Work once, after all
+            // write pins are ready, to validate and stage the pending update.
+            if (!leaf.readComputed) {
               auto address = emit(s, op->getOperand(2));
               if (failed(address) || failed(setPort(s, op, 2, {}, *address)))
                 return failure();
@@ -1276,9 +1282,8 @@ private:
                   << leaf.count << "; ++pyc_lane) " << leaf.kernel << "::read("
                   << leaf.prefix << "state->current(pyc_lane), " << leaf.prefix
                   << "raddr.element(pyc_lane), " << *pins << ");\n";
-              leaf.sampled = true;
-            } else if (!resetting && failed(sample(leaf)))
-              return failure();
+              leaf.readComputed = true;
+            }
           }
       auto pin = pinObject(s, op, port, true);
       if (failed(pin))

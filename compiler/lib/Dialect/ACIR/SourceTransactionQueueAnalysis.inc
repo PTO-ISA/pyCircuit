@@ -56,7 +56,8 @@
     return id;
   }
 
-  FailureOr<bool> queuePathUnreachable(const TransactionQueueAccess &access,
+  template <class Access>
+  FailureOr<bool> resourcePathUnreachable(const Access &access,
                                         Operation *site) {
     if (access.pathFact && !access.pathFact.getValue())
       return true;
@@ -76,7 +77,7 @@
     return boundedError(site) << "queue source path depth exceeded";
   }
 
-  FailureOr<bool> queuePathsExclusive(TransactionSourcePath left,
+  FailureOr<bool> resourcePathsExclusive(TransactionSourcePath left,
                                       TransactionSourcePath right,
                                       Operation *site) {
     for (unsigned leftDepth = 0; leftDepth <= maxDepth; ++leftDepth) {
@@ -158,7 +159,7 @@
     }
     SmallVector<QueueAccessId, 0> *claims = nullptr;
     if (record.kind != TransactionQueueAccessKind::Peek) {
-      auto unreachable = queuePathUnreachable(record, operation);
+      auto unreachable = resourcePathUnreachable(record, operation);
       if (failed(unreachable))
         return failure();
       if (!*unreachable) {
@@ -170,7 +171,7 @@
             if (!budget.charge(operation))
               return failure();
             const auto &previous = plan.queueAccesses[id];
-            auto exclusive = queuePathsExclusive(previous.point.path,
+            auto exclusive = resourcePathsExclusive(previous.point.path,
                                                   record.point.path, operation);
             if (failed(exclusive))
               return failure();

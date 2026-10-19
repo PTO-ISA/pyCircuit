@@ -74,18 +74,18 @@ def Dram(
     accepted_writer = seed.valid & writer_ready
     accepted = accepted_reader | accepted_writer
     selected = copy.data if copy.valid else seed.data
-    raw = ac.sync_mem[ac.u16](
-        accepted,
-        selected.dram_address,
-        accepted_writer,
-        selected.dram_address,
-        selected.data,
-        3,
-        depth=16,
-    )
+    memory = ac.sync_mem[ac.u16](depth=16)
     eligible = busy & (remaining == 1)
-    response = state.request
-    response.data = raw if state.capture_old else state.request.data
+
+    @ac.rule
+    def current_response() -> DmaRequest:
+        # The public response includes the RAM snapshot before reader_valid.
+        response = state.request
+        if state.capture_old:
+            response.data = memory.result()
+        return response
+
+    response = current_response()
     writer_responses = ac.queue[DmaRequest](
         depth=2, ready_policy="local_occupancy", out_ready=take_seed
     )
@@ -93,7 +93,7 @@ def Dram(
     @ac.rule(guard=lambda: busy & (remaining > 1))
     def advance_latency() -> None:
         if state.capture_old:
-            state.request.data = raw
+            state.request.data = memory.result()
             state.capture_old = 0
         state.remaining = state.remaining - 1
 
@@ -110,6 +110,9 @@ def Dram(
     @ac.rule(guard=lambda: accepted)
     def accept_request() -> None:
         # Admission uses the saved old idle state: release cannot accept again.
+        memory.request(selected.dram_address)
+        if accepted_writer:
+            memory.write(selected.dram_address, selected.data)
         state.request = selected
         state.reader = copy.valid
         state.busy = 1
@@ -152,18 +155,9 @@ def Sram(
     accepted_writer = copy_requests.valid & idle & ~check.valid
     accepted = accepted_reader | accepted_writer
     selected = check.data if check.valid else copy_requests.data
-    raw = ac.sync_mem[ac.u16](
-        accepted,
-        selected.sram_address,
-        accepted_writer,
-        selected.sram_address,
-        selected.data,
-        3,
-        depth=16,
-    )
+    memory = ac.sync_mem[ac.u16](depth=16)
     eligible = busy & (remaining == 1)
     response = state.request
-    response.data = raw if state.capture_old else state.request.data
     reader_responses = ac.queue[DmaRequest](
         depth=2, ready_policy="local_occupancy", out_ready=take_check
     )
@@ -178,7 +172,7 @@ def Sram(
     @ac.rule(guard=lambda: busy & (remaining > 1))
     def advance_latency() -> None:
         if state.capture_old:
-            state.request.data = raw
+            state.request.data = memory.result()
             state.capture_old = 0
         state.remaining = state.remaining - 1
 
@@ -197,6 +191,9 @@ def Sram(
         # Admission uses the saved old idle state: release cannot accept again.
         if ~check.valid:
             copy_requests.pop()
+        memory.request(selected.sram_address)
+        if accepted_writer:
+            memory.write(selected.sram_address, selected.data)
         state.request = selected
         state.reader = check.valid
         state.busy = 1

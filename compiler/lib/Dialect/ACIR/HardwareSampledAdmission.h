@@ -64,6 +64,7 @@ struct SampledResourceView {
   mlir::StringAttr kind;
   mlir::DictionaryAttr owner, declaration, occurrence, location;
   std::optional<SampledQueueProspectiveView> prospective;
+  std::optional<uint64_t> memoryPort;
 };
 struct SampledQueueProposalView {
   mlir::DictionaryAttr queue;
@@ -74,6 +75,15 @@ struct SampledQueueProposalView {
   std::optional<uint64_t> resourceControl, dataResult;
   mlir::Value data;
   llvm::SmallVector<uint64_t> excludedControls;
+};
+struct SampledMemoryProposalView {
+  mlir::DictionaryAttr memory;
+  mlir::StringAttr kind;
+  uint64_t port = 0, rawPathResult = 0, pathResult = 0;
+  mlir::DictionaryAttr occurrence, location;
+  mlir::Value rawPath, path;
+  llvm::SmallVector<uint64_t> argumentResults;
+  llvm::SmallVector<mlir::Value> arguments;
 };
 struct SampledWriteDomainView {
   uint64_t candidate = 0, maskResult = 0;
@@ -97,6 +107,7 @@ struct SampledAdmissionView {
   llvm::SmallVector<SampledValueRequirement> requirements;
   llvm::SmallVector<SampledResourceView> resources;
   llvm::SmallVector<SampledQueueProposalView> queueProposals;
+  llvm::SmallVector<SampledMemoryProposalView> memoryProposals;
   llvm::SmallVector<SampledWriteDomainView> writeDomains;
 };
 struct TransactionStateInventoryEntry {
