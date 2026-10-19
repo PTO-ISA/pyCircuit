@@ -88,6 +88,15 @@ second makes it unknown. Each dual-read output has its own lifetime. Writes
 do not refresh Q. Reset invalidates Q and suppresses writes without clearing
 storage. Simulation memory contents start at zero.
 
+Synchronous leaves also publish known one-bit response availability: `rlive`
+for `sync_mem`, and `rlive0`/`rlive1` for `sync_mem_dp`. These wires reflect the
+existing committed response lifetime, independently of payload knownness. A
+request sets live at Xfer; the first idle rising edge retains it and the second
+clears it. Reset clears live without clearing RAM. Work, discarded updates and
+non-rising samples do not age responses. Reading a response does not refresh
+its lifetime. Canonical physical result order is data first, then live outputs;
+raw Python primitive calls continue to return only their original data values.
+
 Full addresses are checked before narrowing: invalid reads return known zero
 and invalid writes are ignored. Byte lanes are checked separately at the end
 of storage, without address-addition overflow. Enabled unknown controls,

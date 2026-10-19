@@ -22,10 +22,10 @@
 !addr = !ac.bits<#addr_width>
 !strb = !ac.bits<#lanes>
 module {
-  "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "sync_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !addr, !b1, !addr, !ac.type_param<@memory, "T">, !strb) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "sync_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
+  "ac.module.import"() {semantic_kind = "hardware", sym_name = "memory", source_owner = {package = "gfsim", path = "sync_mem.py"}, parameters = [{name = "ADDR_WIDTH", type = !ac.math_int}, {name = "DEPTH", type = !ac.math_int}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !addr, !b1, !addr, !ac.type_param<@memory, "T">, !strb) -> (!ac.type_param<@memory, "T">, !b1), input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata", "rlive"], primitive_kind = "sync_mem", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}, {output = {port = 1 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %ren: !b1, %raddr: !b4, %wvalid: !b1, %waddr: !b4, %wdata: !b13, %wstrb: !b2):
-    %q = "ac.instance"(%clk, %rst, %ren, %raddr, %wvalid, %waddr, %wdata, %wstrb) {instance_name = "ram", callee = @memory, parameters = [#four, #seven], type_arguments = [!b13], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b1, !b4, !b1, !b4, !b13, !b2) -> !b13
+    %q, %q_live = "ac.instance"(%clk, %rst, %ren, %raddr, %wvalid, %waddr, %wdata, %wstrb) {instance_name = "ram", callee = @memory, parameters = [#four, #seven], type_arguments = [!b13], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b1, !b4, !b1, !b4, !b13, !b2) -> (!b13, !b1)
     "ac.yield"(%q) : (!b13) -> ()
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !b1, !b4, !b1, !b4, !b13, !b2) -> !b13, input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"]} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()

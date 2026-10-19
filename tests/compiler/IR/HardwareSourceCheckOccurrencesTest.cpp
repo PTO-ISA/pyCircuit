@@ -505,14 +505,14 @@ protected:
     if (kind == "sync_mem") {
       pins = {"clk",    "rst",   "ren",   "raddr",
               "wvalid", "waddr", "wdata", "wstrb"};
-      outputs = {"rdata"};
+      outputs = {"rdata", "rlive"};
     }
     if (kind == "sync_mem_dp") {
       pins = {"clk",    "rst",    "ren0",  "raddr0", "ren1",
               "raddr1", "wvalid", "waddr", "wdata",  "wstrb"};
-      outputs = {"rdata0", "rdata1"};
+      outputs = {"rdata0", "rdata1", "rlive0", "rlive1"};
     }
-    SmallVector<Type> types;
+    SmallVector<Type> types, resultTypes;
     SmallVector<Attribute> names, outputNames, params, dependencies;
     bool memory = kind.contains("mem");
     for (StringRef pin : pins) {
@@ -523,6 +523,7 @@ protected:
     }
     for (auto [i, name] : llvm::enumerate(outputs)) {
       outputNames.push_back(b.getStringAttr(name));
+      resultTypes.push_back(name.starts_with("rlive") ? bits(1) : payload);
       dependencies.push_back(ac::getOutputDependencyAttr(
           b, i,
           kind == "byte_mem" ? ArrayRef<unsigned>{2} : ArrayRef<unsigned>{}));
@@ -539,8 +540,7 @@ protected:
          f("parameters", b.getArrayAttr(params)),
          f("type_parameters", b.getArrayAttr({b.getStringAttr("T")})),
          f("function_type",
-           TypeAttr::get(b.getFunctionType(
-               types, SmallVector<Type>(outputs.size(), payload)))),
+           TypeAttr::get(b.getFunctionType(types, resultTypes))),
          f("input_names", b.getArrayAttr(names)),
          f("output_names", b.getArrayAttr(outputNames)),
          f("primitive_kind", b.getStringAttr(kind)),
@@ -558,9 +558,12 @@ protected:
         bool data = name == "d" || name == "init" || name == "wdata";
         inputs.push_back(constant(0, data ? 8 : 1));
       }
+      SmallVector<Type> outputs;
+      for (Attribute raw : imported.getOutputNames())
+        outputs.push_back(cast<StringAttr>(raw).getValue().starts_with("rlive")
+                              ? bits(1) : bits(8));
       storage.push_back(op(
-          ac::InstanceOp::getOperationName(), inputs,
-          SmallVector<Type>(imported.getOutputNames().size(), bits(8)),
+          ac::InstanceOp::getOperationName(), inputs, outputs,
           {f("callee", FlatSymbolRefAttr::get(&context, imported.getSymName())),
            f("instance_name", b.getStringAttr(kind)),
            f("parameters", kind.contains("mem")

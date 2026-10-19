@@ -86,10 +86,17 @@ without clearing memory. Each synchronous read restarts that output's lifetime:
 one idle rising edge holds Q, the second makes it X. Writes do not refresh it,
 and the two read ports age independently.
 
-Under SYNTHESIS, diagnostics, simulation initialization and Q lifetime logic
-are excluded. Synchronous read Q resets to zero and holds when reading is
-disabled. Existing FPGA RAM attributes remain. These simulation conventions
-are not a claim of physical memory power-on initialization.
+Synchronous leaves expose `rlive` (single read port) or `rlive0`/`rlive1`
+(dual read ports). They reflect response availability independently of payload
+knownness, clear on reset, and expire on the second idle rising edge. The
+existing live/idle state is synthesizable because it can guard consuming Rule
+transactions. Reading a snapshot does not refresh its lifetime.
+
+Under SYNTHESIS, diagnostics, simulation initialization and invalid-Q X
+poisoning are excluded. Synchronous read Q resets to zero and holds when reading
+is disabled, while live still expires. Existing FPGA RAM attributes remain.
+These simulation conventions are not a claim of physical memory power-on
+initialization.
 
 ## Generated collections and validation
 

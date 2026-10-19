@@ -234,6 +234,7 @@ template <std::size_t Ports> struct MemoryFamily {
   gfsim::collection_storage<K> state{2};
   std::array<Pins, 2> pins;
   std::array<std::array<gfsim::wire<gfsim::Bits<16>>, Ports>, 2> q;
+  std::array<std::array<gfsim::wire<gfsim::Bits<1>>, Ports>, 2> live;
   typename K::Inputs inputs(std::size_t i) const {
     auto &p = pins[i];
     typename K::Inputs result{p.clk,    p.rst,   {},      {},
@@ -246,8 +247,10 @@ template <std::size_t Ports> struct MemoryFamily {
   }
   typename K::Outputs outputs(std::size_t i) {
     typename K::Outputs result{};
-    for (std::size_t j = 0; j < Ports; ++j)
+    for (std::size_t j = 0; j < Ports; ++j) {
       result.rdata[j] = &q[i][j];
+      result.rlive[j] = &live[i][j];
+    }
     return result;
   }
   void work() {
@@ -272,6 +275,8 @@ TEST(CollectionRuntimeTest,
      SyncMemoriesIndependentOldDataStrobesAndTwoIdleExpiry) {
   MemoryFamily<1> family;
   family.reset();
+  EXPECT_FALSE(family.live[0][0].value().toBool());
+  EXPECT_FALSE(family.live[1][0].value().toBool());
   family.pins[0].wdata = known<16>(0x1234);
   family.pins[1].wdata = known<16>(0x5678);
   for (auto &p : family.pins) {
@@ -280,6 +285,8 @@ TEST(CollectionRuntimeTest,
   }
   family.edge(true);
   EXPECT_EQ(family.q[0][0].value(), gfsim::Bits<16>{0});
+  EXPECT_TRUE(family.live[0][0].value().toBool());
+  EXPECT_TRUE(family.live[1][0].value().toBool());
   EXPECT_EQ(family.state.current(0).memory[1], gfsim::Bits<16>{0x1234});
   EXPECT_EQ(family.state.current(1).memory[1], gfsim::Bits<16>{0x5678});
   family.edge(false);
@@ -299,12 +306,15 @@ TEST(CollectionRuntimeTest,
   family.edge(false);
   family.edge(true);
   EXPECT_TRUE(family.q[0][0].isFullyKnown());
+  EXPECT_TRUE(family.live[0][0].value().toBool());
   family.edge(false);
   family.edge(true);
   EXPECT_FALSE(family.q[0][0].isFullyKnown());
+  EXPECT_FALSE(family.live[0][0].value().toBool());
   family.reset();
   EXPECT_EQ(family.state.current(1).memory[1], gfsim::Bits<16>{0x56ef});
   EXPECT_FALSE(family.q[1][0].isFullyKnown());
+  EXPECT_FALSE(family.live[1][0].value().toBool());
   EXPECT_FALSE(family.state.current(0).clock);
 }
 TEST(CollectionRuntimeTest, SyncMemoryFailureCancelsWritesAndCanRetrySameEdge) {
@@ -357,6 +367,24 @@ TEST(CollectionRuntimeTest, DualPortReadOutputsAndStorageRemainPerLane) {
   EXPECT_EQ(family.q[0][1].value(), gfsim::Bits<16>{31});
   EXPECT_EQ(family.q[1][0].value(), gfsim::Bits<16>{29});
   EXPECT_EQ(family.q[1][1].value(), gfsim::Bits<16>{47});
+  for (const auto &lane : family.live)
+    for (const auto &port : lane)
+      EXPECT_TRUE(port.value().toBool());
+}
+TEST(CollectionRuntimeTest, SyncMemoryKernelDataOnlyOutputsRemainCompatible) {
+  MemoryFamily<1> family;
+  family.reset();
+  family.pins[0].ren[0] = known<1>(1);
+  family.pins[1].ren[0] = known<1>(1);
+  for (auto &p : family.pins)
+    p.clk = known<1>(1);
+  family.work();
+  using Outputs = typename MemoryFamily<1>::K::Outputs;
+  family.state.xfer([&](std::size_t i) noexcept {
+    return Outputs{{&family.q[i][0]}};
+  });
+  EXPECT_EQ(family.q[0][0].value(), gfsim::Bits<16>{0});
+  EXPECT_EQ(family.q[1][0].value(), gfsim::Bits<16>{0});
 }
 TEST(CollectionRuntimeTest, ByteMemoryAsyncReadsUseOldDataAndDiscardAllLanes) {
   using K = gfsim::byte_mem_kernel<gfsim::Bits<16>, 3, 5>;

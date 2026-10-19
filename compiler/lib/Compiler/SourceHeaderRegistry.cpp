@@ -311,6 +311,12 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
       outputs.append({{"rdata0", data}, {"rdata1", data}});
     else
       outputs.push_back({"rdata", data});
+    if (!asynchronousRead) {
+      if (dualPort)
+        outputs.append({{"rlive0", one(kind)}, {"rlive1", one(kind)}});
+      else
+        outputs.push_back({"rlive", one(kind)});
+    }
     SmallVector<SmallVector<unsigned>> dependencies(outputs.size());
     if (asynchronousRead)
       dependencies[0].push_back(2);

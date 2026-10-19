@@ -108,12 +108,11 @@ class MemoryFrames:
                     return None
                 candidate["q"][port] = self.read(pins[f"r{port}"])
                 candidate["last"][port] = candidate["edge"]
-            elif (
-                not self.synthesis
-                and self.last_read[port] is not None
-                and candidate["edge"] >= self.last_read[port] + 2
+            elif self.last_read[port] is not None and (
+                candidate["edge"] >= self.last_read[port] + 2
             ):
-                candidate["q"][port] = "x" * self.width
+                if not self.synthesis:
+                    candidate["q"][port] = "x" * self.width
                 candidate["last"][port] = None
         if pins["write"] == "1":
             address = int(pins["wa"], 2)
@@ -918,8 +917,6 @@ def run_memory(args):
                     assert not any(
                         name.startswith(
                             (
-                                "idle",
-                                "live",
                                 "clock_current",
                                 "clock_pending",
                                 "pending_valid",
@@ -946,6 +943,125 @@ def run_memory(args):
                 "stimulus_sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
             }
         return receipts
+
+    def synthesis_live(kind):
+        name = leaf_names[kind] + "-synthesis-live"
+        source = scratch / (name + ".sv")
+        source.write_text(
+            """`timescale 1ps/1ps
+module tb_live;
+  parameter integer KIND = 1;
+  typedef logic [15:0] payload_t;
+  logic clk = 0, rst = 0, ren0 = 0, ren1 = 0, wvalid = 0;
+  logic [3:0] raddr0 = 0, raddr1 = 0, waddr = 0;
+  logic [15:0] wdata = 0;
+  logic [1:0] wstrb = 2'b11;
+  wire [15:0] q0, q1;
+  wire live0, live1;
+  wire local_error;
+  generate if (KIND == 1) begin : single
+    sync_mem #(.T(payload_t), .ADDR_WIDTH(4), .DEPTH(4)) dut (
+      .clk(clk), .rst(rst), .ren(ren0), .raddr(raddr0), .rdata(q0),
+      .rlive(live0), .wvalid(wvalid), .waddr(waddr), .wdata(wdata),
+      .wstrb(wstrb), .pyc_phase(3'd0), .pyc_root_commit_ok(1'b1),
+      .pyc_local_error(local_error));
+    assign q1 = '0;
+    assign live1 = 1'b0;
+  end else begin : dual
+    sync_mem_dp #(.T(payload_t), .ADDR_WIDTH(4), .DEPTH(4)) dut (
+      .clk(clk), .rst(rst), .ren0(ren0), .raddr0(raddr0), .rdata0(q0),
+      .rlive0(live0), .ren1(ren1), .raddr1(raddr1), .rdata1(q1),
+      .rlive1(live1), .wvalid(wvalid), .waddr(waddr), .wdata(wdata),
+      .wstrb(wstrb), .pyc_phase(3'd0), .pyc_root_commit_ok(1'b1),
+      .pyc_local_error(local_error));
+  end endgenerate
+  task automatic pulse_edge;
+    begin clk = 0; #1; clk = 1; #1; end
+  endtask
+  task automatic check(input logic condition, input string message);
+    if (condition !== 1'b1) $fatal(1, "%s", message);
+  endtask
+  initial begin
+    rst = 1; pulse_edge();
+    check(live0 === 1'b0 && live1 === 1'b0, "reset must invalidate");
+    check(q0 === 16'h0000, "synthesis reset Q must be zero");
+    rst = 0; wvalid = 1; wdata = 16'h1234; pulse_edge();
+    wvalid = 0; ren0 = 1; ren1 = 1; pulse_edge();
+    check(live0 === 1'b1, "single read must become live");
+    check(KIND == 1 || live1 === 1'b1, "dual reads must become live");
+    check(q0 === 16'h1234, "read payload mismatch");
+    ren0 = 0; ren1 = KIND == 2; pulse_edge();
+    check(live0 === 1'b1, "first idle edge must retain live");
+    check(KIND == 1 || live1 === 1'b1, "refreshed port must remain live");
+    #1;
+    check(live0 === 1'b1, "held clock must not age live");
+    ren1 = 0; pulse_edge();
+    check(live0 === 1'b0, "second idle edge must expire live");
+    check(KIND == 1 || live1 === 1'b1, "dual port ages independently");
+    check(q0 === 16'h1234, "synthesis expiry must hold Q");
+    pulse_edge();
+    check(live1 === 1'b0, "second dual-port idle edge must expire live");
+    rst = 1; pulse_edge();
+    check(live0 === 1'b0 && live1 === 1'b0, "reset live mismatch");
+    rst = 0; ren0 = 1; ren1 = KIND == 2; pulse_edge();
+    check(q0 === 16'h1234 && live0 === 1'b1,
+            "reset must preserve RAM and permit a new response");
+    $display("PASS synthesis live kind=%0d", KIND);
+    $finish;
+  end
+  initial begin #1000; $fatal(1, "synthesis live timeout"); end
+endmodule
+"""
+        )
+        for engine in ("icarus", "verilator"):
+            if engine == "icarus":
+                executable = scratch / (name + ".vvp")
+                run(
+                    [
+                        args.iverilog,
+                        "-g2012",
+                        "-DSYNTHESIS",
+                        "-s",
+                        "tb_live",
+                        "-P",
+                        f"tb_live.KIND={kind}",
+                        "-o",
+                        executable,
+                        source,
+                        *leaves,
+                    ],
+                    name + "-icarus-build",
+                )
+                run(
+                    [args.vvp, executable],
+                    name + "-icarus-run",
+                    marker="PASS synthesis live",
+                )
+            else:
+                directory = scratch / (name + "-verilator")
+                run(
+                    [
+                        args.verilator,
+                        "--binary",
+                        "--timing",
+                        "-Wno-fatal",
+                        "--top-module",
+                        "tb_live",
+                        "--Mdir",
+                        directory,
+                        "-DSYNTHESIS",
+                        f"-GKIND={kind}",
+                        source,
+                        *leaves,
+                    ],
+                    name + "-verilator-build",
+                )
+                run(
+                    [directory / "Vtb_live"],
+                    name + "-verilator-run",
+                    marker="PASS synthesis live",
+                )
+        return {"case": name, "kind": kind, "engines": ["icarus", "verilator"]}
 
     for command in (
         [args.iverilog, "-V"],
@@ -1035,6 +1151,8 @@ def run_memory(args):
                     "engines": receipts,
                 }
             )
+            if synthesis and kind:
+                cases.append(synthesis_live(kind))
             if not synthesis:
                 executable = scratch / (name + ".vvp")
                 run(

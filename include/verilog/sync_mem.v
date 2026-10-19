@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Entry-addressed 1R1W memory with packed-payload ports.
-// Reads sample pre-write data; simulation Q expires on its second idle edge.
+// Reads sample pre-write data; response live expires on its second idle edge.
 module sync_mem #(
     parameter type T = logic [63:0],
     parameter int unsigned ADDR_WIDTH = 64,
@@ -19,7 +19,8 @@ module sync_mem #(
     input wire [($bits(T)/8 + (($bits(T)%8) != 0))-1:0] wstrb,
     input wire [2:0] pyc_phase,
     input tri1 pyc_root_commit_ok,
-    output wire pyc_local_error
+    output wire pyc_local_error,
+    output wire rlive
 );
     localparam int unsigned PAYLOAD_BITS = $bits(T);
     localparam int unsigned LIVE_WINDOW = 2;
@@ -40,18 +41,15 @@ module sync_mem #(
 
     typedef struct packed {
         T q;
-`ifndef SYNTHESIS
         int unsigned idle;
         logic live;
-`endif
     } read_candidate_t;
     T rdata_current;
     read_candidate_t rdata_candidate;
-`ifndef SYNTHESIS
-    int unsigned idle_current;
-    logic live_current;
-`endif
+    int unsigned idle_current = 0;
+    logic live_current = 1'b0;
     assign rdata = rdata_current;
+    assign rlive = live_current;
 
     // Read complete unsigned addresses before narrowing to a RAM index.
     function automatic T read_entry(input logic [ADDR_WIDTH-1:0] address);
@@ -65,7 +63,8 @@ module sync_mem #(
     endfunction
 
     // Sole read/lifetime transition, shared by every read port and adapter.
-    // The synthesis projection contains no live/idle state or expiry action.
+    // Response availability is functional state in simulation and synthesis.
+    // Only invalid-payload X poisoning is excluded from synthesis.
     function automatic read_candidate_t next_read(
         input read_candidate_t current,
         input logic rising, reset, enabled,
@@ -74,25 +73,25 @@ module sync_mem #(
         result = current;
         if (rising) begin
             if (reset) begin
-`ifndef SYNTHESIS
-                result.q = 'x;
                 result.idle = 0;
                 result.live = 1'b0;
+`ifndef SYNTHESIS
+                result.q = 'x;
 `else
                 result.q = '0;
 `endif
             end else if (enabled) begin
                 result.q = old_entry;
-`ifndef SYNTHESIS
                 result.idle = 0;
                 result.live = 1'b1;
             end else if (current.live) begin
                 result.idle = current.idle + 1;
                 if (result.idle >= LIVE_WINDOW) begin
-                    result.q = 'x;
                     result.live = 1'b0;
-                end
+`ifndef SYNTHESIS
+                    result.q = 'x;
 `endif
+                end
             end
         end
         return result;
@@ -138,8 +137,6 @@ module sync_mem #(
         for (init_index = 0; init_index < DEPTH; init_index = init_index + 1)
             mem[init_index] = '0;
         rdata_current = 'x;
-        idle_current = 0;
-        live_current = 1'b0;
     end
 `endif
 
@@ -168,10 +165,8 @@ module sync_mem #(
                 write_candidate_enable[bit_index] = strobes[bit_index / 8];
         end
         current_read.q = rdata_current;
-`ifndef SYNTHESIS
         current_read.idle = idle_current;
         current_read.live = live_current;
-`endif
         old_entry = '0;
         if (rising) begin
             if (reset) begin end
@@ -191,10 +186,8 @@ module sync_mem #(
                     mem[write_candidate_index][bit_index] <= write_candidate_bits[bit_index];
         end
         rdata_current <= rdata_candidate.q;
-`ifndef SYNTHESIS
         idle_current <= rdata_candidate.idle;
         live_current <= rdata_candidate.live;
-`endif
     endtask
 
 `ifndef SYNTHESIS

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: BSD-3-Clause
 // Entry-addressed 2R1W memory with packed-payload ports.
-// Reads sample pre-write data; simulation Q expires on its second idle edge.
+// Reads sample pre-write data; response live expires on its second idle edge.
 module sync_mem_dp #(
     parameter type T = logic [63:0],
     parameter int unsigned ADDR_WIDTH = 64,
@@ -22,7 +22,9 @@ module sync_mem_dp #(
     input wire [($bits(T)/8 + (($bits(T)%8) != 0))-1:0] wstrb,
     input wire [2:0] pyc_phase,
     input tri1 pyc_root_commit_ok,
-    output wire pyc_local_error
+    output wire pyc_local_error,
+    output wire rlive0,
+    output wire rlive1
 );
     localparam int unsigned PAYLOAD_BITS = $bits(T);
     localparam int unsigned LIVE_WINDOW = 2;
@@ -43,25 +45,21 @@ module sync_mem_dp #(
 
     typedef struct packed {
         T q;
-`ifndef SYNTHESIS
         int unsigned idle;
         logic live;
-`endif
     } read_candidate_t;
     T rdata0_current;
     read_candidate_t rdata0_candidate;
-`ifndef SYNTHESIS
-    int unsigned idle0_current;
-    logic live0_current;
-`endif
+    int unsigned idle0_current = 0;
+    logic live0_current = 1'b0;
     assign rdata0 = rdata0_current;
+    assign rlive0 = live0_current;
     T rdata1_current;
     read_candidate_t rdata1_candidate;
-`ifndef SYNTHESIS
-    int unsigned idle1_current;
-    logic live1_current;
-`endif
+    int unsigned idle1_current = 0;
+    logic live1_current = 1'b0;
     assign rdata1 = rdata1_current;
+    assign rlive1 = live1_current;
 
     // Read complete unsigned addresses before narrowing to a RAM index.
     function automatic T read_entry(input logic [ADDR_WIDTH-1:0] address);
@@ -75,7 +73,8 @@ module sync_mem_dp #(
     endfunction
 
     // Sole read/lifetime transition, shared by every read port and adapter.
-    // The synthesis projection contains no live/idle state or expiry action.
+    // Response availability is functional state in simulation and synthesis.
+    // Only invalid-payload X poisoning is excluded from synthesis.
     function automatic read_candidate_t next_read(
         input read_candidate_t current,
         input logic rising, reset, enabled,
@@ -84,25 +83,25 @@ module sync_mem_dp #(
         result = current;
         if (rising) begin
             if (reset) begin
-`ifndef SYNTHESIS
-                result.q = 'x;
                 result.idle = 0;
                 result.live = 1'b0;
+`ifndef SYNTHESIS
+                result.q = 'x;
 `else
                 result.q = '0;
 `endif
             end else if (enabled) begin
                 result.q = old_entry;
-`ifndef SYNTHESIS
                 result.idle = 0;
                 result.live = 1'b1;
             end else if (current.live) begin
                 result.idle = current.idle + 1;
                 if (result.idle >= LIVE_WINDOW) begin
-                    result.q = 'x;
                     result.live = 1'b0;
-                end
+`ifndef SYNTHESIS
+                    result.q = 'x;
 `endif
+                end
             end
         end
         return result;
@@ -153,11 +152,7 @@ module sync_mem_dp #(
         for (init_index = 0; init_index < DEPTH; init_index = init_index + 1)
             mem[init_index] = '0;
         rdata0_current = 'x;
-        idle0_current = 0;
-        live0_current = 1'b0;
         rdata1_current = 'x;
-        idle1_current = 0;
-        live1_current = 1'b0;
     end
 `endif
 
@@ -188,10 +183,8 @@ module sync_mem_dp #(
                 write_candidate_enable[bit_index] = strobes[bit_index / 8];
         end
         current_read.q = rdata0_current;
-`ifndef SYNTHESIS
         current_read.idle = idle0_current;
         current_read.live = live0_current;
-`endif
         old_entry = '0;
         if (rising) begin
             if (reset) begin end
@@ -201,10 +194,8 @@ module sync_mem_dp #(
         rdata0_candidate = next_read(current_read, rising, reset,
                                      read_enabled0, old_entry);
         current_read.q = rdata1_current;
-`ifndef SYNTHESIS
         current_read.idle = idle1_current;
         current_read.live = live1_current;
-`endif
         old_entry = '0;
         if (rising) begin
             if (reset) begin end
@@ -224,15 +215,11 @@ module sync_mem_dp #(
                     mem[write_candidate_index][bit_index] <= write_candidate_bits[bit_index];
         end
         rdata0_current <= rdata0_candidate.q;
-`ifndef SYNTHESIS
         idle0_current <= rdata0_candidate.idle;
         live0_current <= rdata0_candidate.live;
-`endif
         rdata1_current <= rdata1_candidate.q;
-`ifndef SYNTHESIS
         idle1_current <= rdata1_candidate.idle;
         live1_current <= rdata1_candidate.live;
-`endif
     endtask
 
 `ifndef SYNTHESIS

@@ -204,13 +204,17 @@ LogicalResult Importer::prepareMemoryBindings() {
           plan.inputNames.push_back(
               cast<StringAttr>(inputNames[i]).getValue().str());
         }
-        for (Type type : signature.getResults()) {
+        // All canonical results belong to the physical instance. Raw source
+        // calls retain their one/two authored payload results; response-live
+        // sidebands remain compiler-owned and do not change source arity.
+        for (auto [index, type] : llvm::enumerate(signature.getResults())) {
           auto resolved =
               analysis.resolveType(type, bindings, body->getOperation());
           if (failed(resolved))
             return failure();
           plan.resultTypes.push_back(*resolved);
-          plan.resultFixedBits.push_back(isa<ac::BitsType>(*resolved));
+          if (index < resultCount)
+            plan.resultFixedBits.push_back(isa<ac::BitsType>(*resolved));
         }
         plan.actuals.resize(plan.inputTypes.size());
         if (node.array("args").size() > plan.actuals.size())

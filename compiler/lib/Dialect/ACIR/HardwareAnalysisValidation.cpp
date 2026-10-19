@@ -24,11 +24,11 @@ LogicalResult primitiveSchema(const HardwareAnalysis &analysis,
   } else if (kind == "sync_mem") {
     inputs = {"clk",    "rst",   "ren",   "raddr",
               "wvalid", "waddr", "wdata", "wstrb"};
-    outputs = {"rdata"};
+    outputs = {"rdata", "rlive"};
   } else if (kind == "sync_mem_dp") {
     inputs = {"clk",    "rst",    "ren0",  "raddr0", "ren1",
               "raddr1", "wvalid", "waddr", "wdata",  "wstrb"};
-    outputs = {"rdata0", "rdata1"};
+    outputs = {"rdata0", "rdata1", "rlive0", "rlive1"};
   } else if (kind == "byte_mem") {
     inputs = {"clk", "rst", "raddr", "wvalid", "waddr", "wdata", "wstrb"};
     outputs = {"rdata"};
@@ -102,14 +102,19 @@ LogicalResult primitiveSchema(const HardwareAnalysis &analysis,
     }
   }
   for (auto [index, type] : llvm::enumerate(sig.getResults())) {
-    if (fifo && index != 2) {
+    bool memoryLive = (kind == "sync_mem" && index == 1) ||
+                      (kind == "sync_mem_dp" && index >= 2);
+    if ((fifo && index != 2) || memoryLive) {
       auto bits = dyn_cast<BitsType>(type);
+      StringRef message = memoryLive
+          ? "trusted synchronous memory live output must be one bit"
+          : "trusted FIFO status output must be one bit";
       if (!bits)
-        return op.emitOpError() << "trusted FIFO status output must be one bit";
+        return op.emitOpError() << message;
       auto width = analysis.evaluateStatic(bits.getWidth(), {}, op);
       auto integer = succeeded(width) ? dyn_cast<MathIntAttr>(*width) : MathIntAttr();
       if (!integer || integer.getCanonicalValue() != "1")
-        return op.emitOpError() << "trusted FIFO status output must be one bit";
+        return op.emitOpError() << message;
     } else if (type != payload)
       return op.emitOpError() << "trusted primitive output requires payload T";
   }

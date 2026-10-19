@@ -81,13 +81,13 @@ module {
         + types
         + memory_reference
         + f"""module {{
-  "ac.module.import"() {{semantic_kind = "hardware", sym_name = "memory", source_owner = {{package = "gfsim", path = "sync_mem.py"}}, parameters = [{{name = "ADDR_WIDTH", type = !ac.math_int}}, {{name = "DEPTH", type = !ac.math_int}}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.bits<#aw>, !b1, !ac.bits<#aw>, !ac.type_param<@memory, "T">, !b1) -> !ac.type_param<@memory, "T">, input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata"], primitive_kind = "sync_mem", dependency_summary = [{{output = {{port = 0 : i64, path = []}}, inputs = []}}]}} : () -> ()
+  "ac.module.import"() {{semantic_kind = "hardware", sym_name = "memory", source_owner = {{package = "gfsim", path = "sync_mem.py"}}, parameters = [{{name = "ADDR_WIDTH", type = !ac.math_int}}, {{name = "DEPTH", type = !ac.math_int}}], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.bits<#aw>, !b1, !ac.bits<#aw>, !ac.type_param<@memory, "T">, !b1) -> (!ac.type_param<@memory, "T">, !b1), input_names = ["clk", "rst", "ren", "raddr", "wvalid", "waddr", "wdata", "wstrb"], output_names = ["rdata", "rlive"], primitive_kind = "sync_mem", dependency_summary = [{{output = {{port = 0 : i64, path = []}}, inputs = []}}, {{output = {{port = 1 : i64, path = []}}, inputs = []}}]}} : () -> ()
   "ac.module"() ({{
     %zero = "ac.bits.constant"() {{value = #w0}} : () -> !b1
     %one = "ac.bits.constant"() {{value = #w1}} : () -> !b1
     %address = "ac.bits.constant"() {{value = #w0}} : () -> !ac.bits<#w63>
     %data = "ac.bits.constant"() {{value = #w0}} : () -> !b8
-    %q = "ac.instance"(%zero, %zero, %zero, %address, %zero, %address, %data, %one) {{instance_name = "memory", callee = @memory, parameters = [#w63, #w9223372036854775807], type_arguments = [!b8], occurrence = {occurrence}}} : (!b1, !b1, !b1, !ac.bits<#w63>, !b1, !ac.bits<#w63>, !b8, !b1) -> !b8
+    %q, %q_live = "ac.instance"(%zero, %zero, %zero, %address, %zero, %address, %data, %one) {{instance_name = "memory", callee = @memory, parameters = [#w63, #w9223372036854775807], type_arguments = [!b8], occurrence = {occurrence}}} : (!b1, !b1, !b1, !ac.bits<#w63>, !b1, !ac.bits<#w63>, !b8, !b1) -> (!b8, !b1)
     "ac.yield"() : () -> ()
   }}) {{sym_name = "Root", source_owner = {{package = "", path = "root.py"}}, parameters = [], type_parameters = [], function_type = () -> (), input_names = [], output_names = []}} : () -> ()
   "ac.system"() {{entry = {{callee = @Root, parameters = [], type_arguments = []}}, domain = "default"}} : () -> ()

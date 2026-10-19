@@ -48,6 +48,8 @@ struct sync_mem_kernel {
   };
   struct Outputs {
     std::array<wire<T> *, READ_PORTS> rdata;
+    // Optional committed response status, independent of payload knownness.
+    std::array<wire<Bits<1>> *, READ_PORTS> rlive{};
   };
 
   static void discard(const Current &current, Pending &pending) noexcept {
@@ -146,6 +148,9 @@ struct sync_mem_kernel {
         *outputs.rdata[port] = current.q[port];
         current.live[port] = pending.read[port];
       }
+      if (outputs.rlive[port])
+        *outputs.rlive[port] =
+            wire<Bits<1>>::known(Bits<1>{current.live[port]});
     }
     current.idle = pending.idle;
     discard(current, pending);
@@ -172,13 +177,16 @@ public:
   wire<Bits<1>> clk, rst, ren;
   wire<Bits<ADDR_WIDTH>> raddr;
   wire<T> rdata;
+  wire<Bits<1>> rlive = wire<Bits<1>>::known(Bits<1>{0});
   wire<Bits<1>> wvalid;
   wire<Bits<ADDR_WIDTH>> waddr;
   wire<T> wdata;
   wire<Bits<STRB_WIDTH>> wstrb;
-  void Work() override { Kernel::work(current_, pins(), pending_, {{&rdata}}); }
+  void Work() override {
+    Kernel::work(current_, pins(), pending_, {{&rdata}, {&rlive}});
+  }
   void Xfer() noexcept override {
-    Kernel::xfer(current_, pending_, {{&rdata}});
+    Kernel::xfer(current_, pending_, {{&rdata}, {&rlive}});
   }
   void DiscardNext() noexcept override { Kernel::discard(current_, pending_); }
   void Reset() noexcept override { Kernel::reset(current_, pins(), pending_); }
@@ -212,15 +220,18 @@ public:
   wire<Bits<1>> clk, rst, ren0, ren1;
   wire<Bits<ADDR_WIDTH>> raddr0, raddr1;
   wire<T> rdata0, rdata1;
+  wire<Bits<1>> rlive0 = wire<Bits<1>>::known(Bits<1>{0});
+  wire<Bits<1>> rlive1 = wire<Bits<1>>::known(Bits<1>{0});
   wire<Bits<1>> wvalid;
   wire<Bits<ADDR_WIDTH>> waddr;
   wire<T> wdata;
   wire<Bits<STRB_WIDTH>> wstrb;
   void Work() override {
-    Kernel::work(current_, pins(), pending_, {{&rdata0, &rdata1}});
+    Kernel::work(current_, pins(), pending_,
+                 {{&rdata0, &rdata1}, {&rlive0, &rlive1}});
   }
   void Xfer() noexcept override {
-    Kernel::xfer(current_, pending_, {{&rdata0, &rdata1}});
+    Kernel::xfer(current_, pending_, {{&rdata0, &rdata1}, {&rlive0, &rlive1}});
   }
   void DiscardNext() noexcept override { Kernel::discard(current_, pending_); }
   void Reset() noexcept override { Kernel::reset(current_, pins(), pending_); }

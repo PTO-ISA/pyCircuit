@@ -469,10 +469,15 @@ private:
     }
     StringRef kind = ctx.analysis.getPrimitiveKind(leaf.bindings.owner);
     if (kind == "sync_mem" || kind == "sync_mem_dp") {
+      unsigned reads = kind == "sync_mem_dp" ? 2 : 1;
+      if (pins.size() != 2 * reads)
+        return leaf.op->emitOpError()
+               << "synchronous memory output layout mismatch";
       for (auto &pin : pins)
         pin = "&" + pin;
-      return "typename " + leaf.kernel + "::Outputs{{" + join(pins, ", ") +
-             "}}";
+      return "typename " + leaf.kernel + "::Outputs{{" +
+             join(ArrayRef<std::string>(pins).take_front(reads), ", ") + "}, {" +
+             join(ArrayRef<std::string>(pins).drop_front(reads), ", ") + "}}";
     }
     return "typename " + leaf.kernel + "::Outputs{" + join(pins, ", ") + "}";
   }
@@ -1981,9 +1986,15 @@ LogicalResult emitHardwareCppDefinition(HardwareEmitContext &ctx,
         auto kind = ctx.analysis.getPrimitiveKind(child.bindings.owner);
         std::string result;
         if (kind == "sync_mem" || kind == "sync_mem_dp") {
+          unsigned reads = kind == "sync_mem_dp" ? 2 : 1;
+          if (q.size() != 2 * reads)
+            return child.op->emitOpError()
+                   << "synchronous memory output layout mismatch";
           for (auto &pin : q)
             pin = "&" + pin;
-          result = "{{" + join(q, ", ") + "}}";
+          result = "{{" + join(ArrayRef<std::string>(q).take_front(reads), ", ") +
+                   "}, {" +
+                   join(ArrayRef<std::string>(q).drop_front(reads), ", ") + "}}";
         } else
           result = "{" + join(q, ", ") + "}";
         out << "    " << child.name

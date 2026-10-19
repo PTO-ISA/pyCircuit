@@ -20,6 +20,7 @@ TEST(TypedMemoryTest, SyncReadWriteCollisionOldDataPartialStrobeAndDiscard) {
   gfsim::sync_mem<gfsim::Bits<13>, 4, 7> mem("mem");
   mem.pokeEntry(3, gfsim::Bits<13>{0x1234});
   mem.Reset(); mem.Xfer(); EXPECT_FALSE(mem.rdata.isFullyKnown());
+  EXPECT_TRUE(mem.rlive.isFullyKnown()); EXPECT_FALSE(mem.rlive.value().toBool());
   mem.clk = known<1>(1); mem.rst = known<1>(0);
   mem.ren = known<1>(1); mem.raddr = known<4>(3);
   mem.wvalid = known<1>(1); mem.waddr = known<4>(3);
@@ -27,18 +28,26 @@ TEST(TypedMemoryTest, SyncReadWriteCollisionOldDataPartialStrobeAndDiscard) {
   mem.Work(); EXPECT_EQ(mem.peekEntry(3), gfsim::Bits<13>{0x1234});
   EXPECT_FALSE(mem.rdata.isFullyKnown());
   mem.Xfer(); EXPECT_EQ(mem.rdata.value(), gfsim::Bits<13>{0x1234});
+  EXPECT_TRUE(mem.rlive.value().toBool());
   EXPECT_EQ(mem.peekEntry(3), gfsim::Bits<13>{0x12bc});
+  mem.rdata = gfsim::wire<gfsim::Bits<13>>::unknown();
+  mem.Work(); mem.Xfer();
+  EXPECT_FALSE(mem.rdata.isFullyKnown());
+  EXPECT_TRUE(mem.rlive.value().toBool());
   fallingEdge(mem); mem.clk = known<1>(1); mem.wstrb = known<2>(2);
   mem.Work(); mem.DiscardNext(); mem.Xfer();
   EXPECT_EQ(mem.peekEntry(3), gfsim::Bits<13>{0x12bc});
+  EXPECT_TRUE(mem.rlive.value().toBool());
   mem.Work(); mem.Xfer();
   EXPECT_EQ(mem.rdata.value(), gfsim::Bits<13>{0x12bc});
   EXPECT_EQ(mem.peekEntry(3), gfsim::Bits<13>{0x1abc});
   fallingEdge(mem); mem.clk = known<1>(1); mem.ren = known<1>(0);
   mem.wvalid = known<1>(0); mem.Work(); mem.Xfer();
   EXPECT_TRUE(mem.rdata.isFullyKnown());
+  EXPECT_TRUE(mem.rlive.value().toBool());
   fallingEdge(mem); mem.clk = known<1>(1); mem.Work(); mem.Xfer();
   EXPECT_FALSE(mem.rdata.isFullyKnown());
+  EXPECT_FALSE(mem.rlive.value().toBool());
 }
 TEST(TypedMemoryTest, SyncBoundsUnknownControlsAndResetKeepContents) {
   gfsim::sync_mem<gfsim::Bits<8>, 70, 3> mem("wide_address");
@@ -52,6 +61,7 @@ TEST(TypedMemoryTest, SyncBoundsUnknownControlsAndResetKeepContents) {
   EXPECT_THROW(mem.Work(), gfsim::FourStateViolation);
   mem.DiscardNext(); mem.Xfer(); EXPECT_EQ(mem.peekEntry(1), gfsim::Bits<8>{91});
   mem.Reset(); mem.Xfer(); EXPECT_FALSE(mem.rdata.isFullyKnown());
+  EXPECT_TRUE(mem.rlive.isFullyKnown()); EXPECT_FALSE(mem.rlive.value().toBool());
   EXPECT_EQ(mem.peekEntry(1), gfsim::Bits<8>{91});
 }
 TEST(TypedMemoryTest, ByteReadIsCurrentStateAndWritesCommitOnlyAtXfer) {
@@ -81,7 +91,47 @@ TEST(TypedMemoryTest, DualPortReadsShareOldStorageAndIndependentOutputs) {
   mem.Work(); mem.Xfer();
   EXPECT_EQ(mem.rdata0.value(), gfsim::Bits<8>{7});
   EXPECT_EQ(mem.rdata1.value(), gfsim::Bits<8>{19});
+  EXPECT_TRUE(mem.rlive0.value().toBool());
+  EXPECT_TRUE(mem.rlive1.value().toBool());
   EXPECT_EQ(mem.peekEntry(0), gfsim::Bits<8>{101});
+  mem.rdata0 = gfsim::wire<gfsim::Bits<8>>::unknown();
+  mem.rdata1 = gfsim::wire<gfsim::Bits<8>>::unknown();
+  mem.Work(); mem.Xfer();
+  EXPECT_FALSE(mem.rdata0.isFullyKnown());
+  EXPECT_FALSE(mem.rdata1.isFullyKnown());
+  EXPECT_TRUE(mem.rlive0.value().toBool());
+  EXPECT_TRUE(mem.rlive1.value().toBool());
+}
+TEST(TypedMemoryTest, DualPortLiveAgesIndependentlyOnSuccessfulEdges) {
+  gfsim::sync_mem_dp<gfsim::Bits<8>, 3, 5> mem("dual_live");
+  mem.pokeEntry(0, gfsim::Bits<8>{7}); mem.pokeEntry(1, gfsim::Bits<8>{19});
+  mem.Reset(); mem.Xfer();
+  EXPECT_FALSE(mem.rlive0.value().toBool());
+  EXPECT_FALSE(mem.rlive1.value().toBool());
+  mem.clk = known<1>(1); mem.rst = known<1>(0);
+  mem.ren0 = known<1>(1); mem.ren1 = known<1>(1);
+  mem.raddr0 = known<3>(0); mem.raddr1 = known<3>(1);
+  mem.wvalid = known<1>(0); mem.Work(); mem.Xfer();
+  EXPECT_TRUE(mem.rlive0.value().toBool());
+  EXPECT_TRUE(mem.rlive1.value().toBool());
+
+  fallingEdge(mem); mem.clk = known<1>(1);
+  mem.ren0 = known<1>(0); mem.ren1 = known<1>(1);
+  mem.Work(); mem.Xfer();
+  EXPECT_TRUE(mem.rlive0.value().toBool());
+  EXPECT_TRUE(mem.rlive1.value().toBool());
+
+  fallingEdge(mem); mem.clk = known<1>(1); mem.ren1 = known<1>(0);
+  mem.Work(); mem.DiscardNext(); mem.Xfer();
+  EXPECT_TRUE(mem.rlive0.value().toBool());
+  EXPECT_TRUE(mem.rlive1.value().toBool());
+  mem.Work(); mem.Xfer();
+  EXPECT_FALSE(mem.rlive0.value().toBool());
+  EXPECT_TRUE(mem.rlive1.value().toBool());
+
+  fallingEdge(mem); mem.clk = known<1>(1); mem.Work(); mem.Xfer();
+  EXPECT_FALSE(mem.rlive0.value().toBool());
+  EXPECT_FALSE(mem.rlive1.value().toBool());
 }
 TEST(TypedMemoryTest, StructPayloadStrobesUseDeclaredPackedLayout) {
   gfsim::sync_mem<MemoryPayload, 3, 4> mem("typed");
