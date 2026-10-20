@@ -302,8 +302,8 @@ TEST_F(ObservationIdentityTest, ClosedIdentitySchemaAcceptsOnlyFiveFields) {
 TEST_F(ObservationIdentityTest, AllKindsUseClosedStructureAndProvenance) {
   beginPackage();
   auto root = module("Root", "root.py");
-  for (auto [ordinal, kind] :
-       llvm::enumerate(ArrayRef<StringRef>{"print", "log", "report"}))
+  const StringRef kinds[] = {"print", "log", "report"};
+  for (auto [ordinal, kind] : llvm::enumerate(kinds))
     observe(root, kind, (Twine("item_") + Twine(ordinal)).str(),
             identity("Root", 1, "Root", ordinal + 2, ordinal), "root.py");
   finish(root);
