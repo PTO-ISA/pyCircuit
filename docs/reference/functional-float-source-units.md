@@ -251,3 +251,18 @@ The independent rational oracle in `tests/system/functional_lowp_oracle.py`
 checks every decode byte and representable values, midpoints with adjacent
 binary32 values, signed boundaries, special values and deterministic random
 encodes. Both generated targets consume the same linked artifact.
+
+
+`e8m0_encode.E8M0Encode` is a separate positive exponent-only scale example.
+Its seven exponent-rounding modes (nearest-even, floor, ceiling, toward-zero,
+nearest-away, odd, hybrid) use exact integer comparison with the geometric
+midpoint. Zero, negative and NaN sources return known FF and NV; out-of-range
+exponents retain OF/UF/NX with explicit saturation selection. It accepts raw
+binary32; half/BF16 consumers can first use exact expansion. The independent
+rational native/RTL oracle checks35,840 raw/status vectors. This scale policy
+is separate from HiF8 and `FP32NegativePower` sentinel conventions.
+
+Decode kind3 additionally expands every E8M0 byte: code0 is positive2**(-127),
+1..254 are powers of two and255 is canonical quiet NaN. The four-format decode
+oracle covers2,048 native/RTL raw/status requests, including inactive requests.
+The LowpEncode kind3 selector remains unsupported; use E8M0Encode for scales.

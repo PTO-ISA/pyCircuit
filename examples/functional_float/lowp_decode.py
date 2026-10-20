@@ -79,11 +79,16 @@ def decode_lowp(value: ac.u8, kind: ac.u2, request_valid: ac.u1) -> FloatWordRes
     hif = 2139095040 if value == 111 else hif
     hif = 4286578688 if value == 239 else hif
     raw = hif if kind == 2 else raw
+    scale: ac.u32 = value
+    scale = scale << 23
+    scale = 4194304 if value == 0 else scale
+    scale = 2143289344 if value == 255 else scale
+    raw = scale if kind == 3 else raw
     invalid: ac.u1 = snan & (kind == 1)
     result: ac.u64 = raw
     return FloatWordResponse(
         result=result,
-        valid=request_valid & (kind != 3) & ~invalid,
+        valid=request_valid & ~invalid,
         invalid=invalid,
         overflow=0,
         underflow=0,

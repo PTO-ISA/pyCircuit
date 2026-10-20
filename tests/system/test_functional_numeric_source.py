@@ -921,7 +921,7 @@ if(!dut.result.isFullyKnown())return 2;std::cout<<std::hex<<dut.result.value().v
 
 
 @pytest.mark.system
-@pytest.mark.parametrize("mode", ["decode", "encode"])
+@pytest.mark.parametrize("mode", ["decode", "encode", "scale"])
 def test_lowp_codec_native_and_rtl(tmp_path: Path, mode: str) -> None:
     helpers = {
         key: _helper(key)
@@ -934,7 +934,7 @@ def test_lowp_codec_native_and_rtl(tmp_path: Path, mode: str) -> None:
     if not all(helpers.values()) or not shutil.which("iverilog"):
         pytest.skip("native compiler helpers and Icarus Verilog are required")
     env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
-    unit = f"lowp_{mode}"
+    unit = "e8m0_encode" if mode == "scale" else f"lowp_{mode}"
     subprocess.run(
         [
             sys.executable,
@@ -947,7 +947,11 @@ def test_lowp_codec_native_and_rtl(tmp_path: Path, mode: str) -> None:
         env=env,
         check=True,
     )
-    fields = [("value", 8 if mode == "decode" else 32), ("kind", 2)]
+    fields = [("value", 8 if mode == "decode" else 32)]
+    if mode != "scale":
+        fields += [("kind", 2)]
+    else:
+        fields += [("rounding", 3), ("saturating", 1)]
     if mode == "encode":
         fields += [("rounding", 1), ("saturating", 1)]
     fields += [("request_valid", 1)]
@@ -959,7 +963,8 @@ def test_lowp_codec_native_and_rtl(tmp_path: Path, mode: str) -> None:
         + ";while(std::cin>>std::hex"
     )
     body += "".join(">>" + n for n, _ in fields) + "){\n"
-    body += f'functional_float::{unit}::Lowp{mode.capitalize()} dut("codec");\n'
+    top = "E8M0Encode" if mode == "scale" else f"Lowp{mode.capitalize()}"
+    body += f'functional_float::{unit}::{top} dut("codec");\n'
     for name, width in fields:
         body += (
             f"dut.{name}=decltype(dut.{name})::known(gfsim::Bits<{width}>{{{name}}});\n"
@@ -999,11 +1004,14 @@ def test_lowp_codec_native_and_rtl(tmp_path: Path, mode: str) -> None:
         text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+    oracle = (
+        "functional_e8m0_oracle.py" if mode == "scale" else "functional_lowp_oracle.py"
+    )
     subprocess.run(
         [
             sys.executable,
-            str(Path(__file__).with_name("functional_lowp_oracle.py")),
-            mode,
+            str(Path(__file__).with_name(oracle)),
+            *([] if mode == "scale" else [mode]),
             str(binary),
             str(tmp_path / ("verilog_" + unit)),
             str(tmp_path / "oracle"),

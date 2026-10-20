@@ -52,6 +52,17 @@ def finite(code, kind):
 
 def decode(code, kind):
     invalid = 0
+    if kind == 3:
+        return [
+            0x7FC00000 if code == 255 else (code << 23) if code else 0x00400000,
+            1,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
     if kind == 2 and code == 128 or kind == 0 and code & 127 == 127:
         raw = 0x7FC00000
     elif kind == 1 and code & 127 >= 124:
@@ -206,7 +217,7 @@ def main():
     if args.mode == "decode":
         rows = [
             {"value": c, "kind": k, "request_valid": v}
-            for k in range(3)
+            for k in range(4)
             for c in range(256)
             for v in (0, 1)
         ]
@@ -235,7 +246,9 @@ def main():
                 0x7FC00000,
                 0x7F7FFFFF,
             }
-            for q in positive + [(a + b) / 2 for a, b in zip(positive[:-1], positive[1:], strict=True)]:
+            for q in positive + [
+                (a + b) / 2 for a, b in zip(positive[:-1], positive[1:], strict=True)
+            ]:
                 raw = rounded_ratio(0, q.numerator, q.denominator, 0, 8, 23).result
                 samples.update([raw, max(0, raw - 1), raw + 1])
             samples.update(rng.getrandbits(31) for _ in range(512))
