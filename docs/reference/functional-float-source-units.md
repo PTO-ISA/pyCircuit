@@ -207,3 +207,19 @@ Product and Sum detect tininess after rounding: an inexact value that rounds
 to the minimum normal result asserts NX without UF. Directed native/RTL
 ProductSum cases cover both corrections while retaining two separate rounds
 and the union of stage effects.
+
+
+## Finite 19-bit parameter format
+
+[`FP19FiniteExpand`](../../examples/functional_float/fp19_expansion.py) expands
+a sign/E8/M10 scalar to binary64 exactly. All256 exponent codes are finite,
+including255; code0 includes subnormals and signed zeros. The scalar result
+uses no one-field wrapper or ISA-specific descriptor. This explicit finite
+format differs from IEEE special-value encodings and is useful for compact
+scale parameters. All524,288 raw inputs match an independent exact-rational
+reference in native execution;5,632 RTL inputs cover both signs, every exponent
+with boundary fractions and deterministic random cases.
+
+Use `build_units.py --only fp19_expansion`; the same numeric source test owns
+its compile/link/dual-emit and execution oracle. This exact expansion does not
+certify the surrounding consumer's quantization pipeline.

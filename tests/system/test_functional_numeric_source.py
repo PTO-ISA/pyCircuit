@@ -790,3 +790,67 @@ std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.i
         ],
         check=True,
     )
+
+
+@pytest.mark.system
+def test_fp19_expansion_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "fp19_expansion",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text(r"""#include "sources/functional_float/fp19_expansion.hpp"
+#include <iostream>
+int main(){unsigned value;while(std::cin>>std::hex>>value){
+functional_float::fp19_expansion::FP19FiniteExpand dut("finite19");
+dut.value=decltype(dut.value)::known(gfsim::Bits<19>{value});dut.Work();
+if(!dut.result.isFullyKnown())return 2;std::cout<<std::hex<<dut.result.value().value()<<'\n';}}
+""")
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_fp19_expansion'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_fp19_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_fp19_expansion"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )

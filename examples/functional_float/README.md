@@ -197,3 +197,10 @@ existing two-format FloatFused interface; its independent native/RTL oracle has
 25-term natural-log approximation with 1,043 Decimal100 native/RTL raw/status
 matches. Both are selectable through `build_units.py`. Their algorithms,
 exception behavior and bounded coverage are described in the reference above.
+
+
+`FP19FiniteExpand` is an exact scalar expansion of a finite sign/E8/M10 scale
+format to binary64, including exponent255 as a finite exponent. Native checks
+cover all524,288 payloads;RTL checks cover5,632 directed/random payloads.
+Select `--only fp19_expansion`; the numeric reference explains its distinct
+finite-format contract.
