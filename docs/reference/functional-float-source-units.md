@@ -27,6 +27,7 @@ Each top below is prefixed with `functional_float.`. The source directory is
 | `fp32_divide.FP32Divide` | Binary32 quotient, normalized widened integer division, remainder sticky and RNE; reciprocal is numerator one |
 | `fp64_product.FP64Product`, `fp64_sum.FP64Sum`, `fp64_divide.FP64Divide` | Binary64 multiply/add/quotient using `ac.bits[128]`, RNE, subnormals and special values |
 | `float_compare.FloatCompare` | Binary32/binary64 eq/ne/lt/ge, explicit quiet/signaling policy; all comparisons false for NaN |
+| `float_to_integer.FloatToInteger` | Binary32/binary64 to signed/unsigned 8/16/32/64-bit integers; RNE/RTM/RTP/RTZ/nearest-away, saturated invalid endpoints and NV/NX |
 | `float_from_integer.FloatFromInteger` | Signed/unsigned 64-bit integers directly rounded once to binary32, binary64, binary16 or bfloat16 (format selector 0/1/2/3) |
 | `fp32_max.FP32Max` | Binary32 maximumNumber/minimumNumber, signed-zero tie and signaling-NaN effects |
 | `fp32_to_fp16.FP32ToFP16`, `fp32_to_bf16.FP32ToBF16` | Binary32 to binary16/bfloat16 conversion and effects |
@@ -93,7 +94,7 @@ and [`test_functional_numeric_source.py`](../../tests/system/test_functional_num
 They cover compile/link and both emitters; generated native/RTL ProductSum
 exception propagation and separate rounding; 5,852 exact integer/rational
 raw-and-status vectors for binary64 arithmetic, four integer-conversion formats
-and quiet/signaling comparisons; and 4,112 bit-loop reference cases on native
+and quiet/signaling comparisons; 5,856 floating-to-integer raw-and-status vectors over both formats, five rounding modes and eight integer targets; and 4,112 bit-loop reference cases on native
 and RTL. Native drivers compile with `-O1`. The example build driver also
 compiles, links and emits every published top; emission alone is not numerical
 execution coverage of every provider.

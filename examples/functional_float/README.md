@@ -151,3 +151,10 @@ that its support header owns the correct nominal response declarations. A source
 composition linked as one final design is the alternative when providers need
 to be in the same generated hierarchy. Native test drivers use `-O1`; emission
 or these bounded vectors do not establish exhaustive IEEE coverage.
+
+`FloatToInteger` adds direct binary32/binary64 conversion to signed/unsigned
+8/16/32/64-bit results. Its explicit rounding selectors are RNE, RTM, RTP,
+RTZ and nearest-away (0..4); invalid conversion returns the corresponding
+saturated endpoint with NV and without NX. The public numeric source test
+checks 5,856 independent exact-rational raw-and-status vectors against both
+native and RTL in addition to the earlier numerical and bit cases.

@@ -272,3 +272,63 @@ if(!v.valid.toBool())return 3;std::cout<<std::hex<<v.result.value()<<"\n";}}
         ],
         check=True,
     )
+
+
+@pytest.mark.system
+def test_float_to_integer_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "float_to_integer",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text(
+        "#include \"sources/functional_float/float_to_integer.hpp\"\n#include <iostream>\nint main(){uint64_t a;unsigned w,u,c,r;while(std::cin>>std::hex>>a>>std::dec>>w>>u>>c>>r){\nfunctional_float::float_to_integer::FloatToInteger dut(\"conversion\");\ndut.value=decltype(dut.value)::known(gfsim::Bits<64>{a});dut.wide64=decltype(dut.wide64)::known(gfsim::Bits<1>{w});\ndut.unsigned_output=decltype(dut.unsigned_output)::known(gfsim::Bits<1>{u});dut.width_code=decltype(dut.width_code)::known(gfsim::Bits<2>{c});\ndut.rounding=decltype(dut.rounding)::known(gfsim::Bits<3>{r});dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});\ndut.Work();if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();\nstd::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()<<' '\n<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\\n';}}\n"
+    )
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_float_to_integer'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_float_to_integer_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_float_to_integer"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )
