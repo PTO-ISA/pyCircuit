@@ -121,3 +121,33 @@ zero yields zero; zero-denominator remainder yields the dividend. Unknown
 selectors reject the request. Compile `word_arithmetic.py` without imports,
 link the published unit with top `functional_float.word_arithmetic.WordArithmetic`,
 and emit both targets through the same commands above.
+
+## Additional public providers
+
+The complete current inventory and value/effect contracts are maintained in the
+[functional numeric reference](../../docs/reference/functional-float-source-units.md).
+It includes binary64 Product/Sum/Divide using exact widened integer arithmetic,
+quiet/signaling binary32/binary64 comparisons, direct signed/unsigned integer
+conversion to four formats, min/max, binary16/bfloat16 casts and expansion,
+row-major addresses, bounded integer elements, and reusable bit transformations.
+They use the same public source-capture API; no ISA decoder or SSM state lives
+in these providers.
+
+Generate all providers, or just a selected top and its complete import closure:
+
+```bash
+PYTHONPATH=python python3 examples/functional_float/build_units.py \
+  .pycircuit_out/functional_numeric --replace
+PYTHONPATH=python python3 examples/functional_float/build_units.py \
+  .pycircuit_out/functional_bits --only bit_transform --replace
+```
+
+`tests/system/test_functional_numeric_source.py` executes 5,852 independent
+integer/rational raw-and-status vectors for binary64 arithmetic, four integer
+conversion formats and quiet/signaling comparisons against both emitted targets.
+It additionally checks 4,112 bit-loop reference cases against native and RTL.
+Each separately linked C++ artifact is compiled in its own translation unit so
+that its support header owns the correct nominal response declarations. A source
+composition linked as one final design is the alternative when providers need
+to be in the same generated hierarchy. Native test drivers use `-O1`; emission
+or these bounded vectors do not establish exhaustive IEEE coverage.

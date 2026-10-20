@@ -5,6 +5,12 @@ hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never
 executes design functions.
 
+The [functional numeric provider example](../reference/functional-float-source-units.md)
+shows reusable independent source functions, response Structs and explicit
+provider closures. Its public build driver emits C++ and Verilog from each
+same linked design; the generated boundary carries values and numerical effects
+while an external consumer retains scheduling and architectural state ownership.
+
 ## Ownership through the compiler
 
 The public commands separate source publication, linking and emission. Each

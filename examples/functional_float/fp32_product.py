@@ -253,7 +253,7 @@ def mul_finite(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32Response:
     inf_zero: ac.u1 = (a.inf & b.zero) | (a.zero & b.inf)
     invalid: ac.u1 = (a.snan | b.snan) | inf_zero
     qnan: ac.u32 = 0x7FC00000
-    inf_sign32: ac.u32 = a.sign if a.inf else b.sign
+    inf_sign32: ac.u32 = a.sign ^ b.sign
     inf_result: ac.u32 = (inf_sign32 << 31) | 0x7F800000
     special_nan: ac.u1 = nan_any | invalid
     result: ac.u32 = qnan if special_nan else (inf_result if inf_any else rounded.result)
