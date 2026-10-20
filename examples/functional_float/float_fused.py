@@ -22,18 +22,18 @@ def shift_jam(value: ac.bits[128], amount: ac.u13) -> ac.bits[128]:
     return (value >> shift) | sticky
 
 
-def fused_bits(
-    lhs: ac.u64, rhs: ac.u64, addend: ac.u64, wide64: ac.u1, request_valid: ac.u1
+def fused_formats(
+    lhs: ac.u64, rhs: ac.u64, addend: ac.u64, format_code: ac.u2, request_valid: ac.u1
 ) -> FloatWordResponse:
-    format_code: ac.u2 = 1 if wide64 else 0
+    precision: ac.u7 = fraction_bits(format_code)
     a = unpack_float(lhs, format_code)
     b = unpack_float(rhs, format_code)
     c = unpack_float(addend, format_code)
     am: ac.bits[128] = a.significand
     bm: ac.bits[128] = b.significand
     cm: ac.bits[128] = c.significand
-    product_pad: ac.u7 = 21 if wide64 else 79
-    addend_pad: ac.u7 = 74 if wide64 else 103
+    product_pad: ac.u7 = 125 - (precision << 1)
+    addend_pad: ac.u7 = 126 - precision
     product_pad13: ac.u13 = product_pad
     addend_pad13: ac.u13 = addend_pad
     product_lsb: ac.u13 = a.lsb_bias + b.lsb_bias - 4096 - product_pad13
@@ -72,7 +72,6 @@ def fused_bits(
     invalid = invalid | (product_inf & c.inf & (product_sign != c.sign))
     any_nan: ac.u1 = a.nan | b.nan | c.nan | invalid
     any_inf: ac.u1 = product_inf | c.inf
-    precision: ac.u7 = fraction_bits(format_code)
     maximum: ac.u64 = exponent_max(format_code)
     infinity_sign: ac.u64 = product_sign if product_inf else c.sign
     position: ac.u6 = sign_position(format_code)
@@ -93,6 +92,13 @@ def fused_bits(
         zero=rounded.zero & finite,
         divide_by_zero=0,
     )
+
+
+def fused_bits(
+    lhs: ac.u64, rhs: ac.u64, addend: ac.u64, wide64: ac.u1, request_valid: ac.u1
+) -> FloatWordResponse:
+    format_code: ac.u2 = 1 if wide64 else 0
+    return fused_formats(lhs, rhs, addend, format_code, request_valid)
 
 
 @ac.module

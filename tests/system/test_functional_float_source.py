@@ -123,6 +123,9 @@ def test_functional_float_source_units_compile_link_and_emit(tmp_path: Path) -> 
     # Every row independently exposes an exception from the product stage,
     # including a case whose rounded final result is exactly zero (not FMA).
     vectors = [
+        (0x007fffff, 0x3f800001, 0, 0x00800000, 1, 0, 0, 0, 1, 0),
+        (0xbf800000, 0x3f800000, 0xbf800000, 0xc0000000, 1, 0, 0, 0, 0, 0),
+        (0xc0000000, 0x3f800000, 0xc0000000, 0xc0800000, 1, 0, 0, 0, 0, 0),
         (0x7f800000, 0xc0000000, 0, 0xff800000, 1, 0, 0, 0, 0, 0),
         (0xff800000, 0xc0000000, 0, 0x7f800000, 1, 0, 0, 0, 0, 0),
         (0xbf800000, 0x7f800000, 0, 0xff800000, 1, 0, 0, 0, 0, 0),

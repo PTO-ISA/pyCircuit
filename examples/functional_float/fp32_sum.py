@@ -224,7 +224,7 @@ def round_pack(sign: ac.u1, magnitude: ac.u64, lsb_bias: ac.u11) -> Rounded:
     result: ac.u32 = signed_zero if zero else packed
     inexact_raw: ac.u1 = is_right & (guard | round_out | sticky)
     inexact: ac.u1 = inexact_raw | overflow
-    underflow: ac.u1 = (~normal) & inexact_raw
+    underflow: ac.u1 = (exp_final == 0) & inexact_raw
     return Rounded(
         result=result,
         overflow=overflow,
@@ -260,7 +260,7 @@ def add_finite(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32Response:
     sum_ext: ac.u32 = big_ext + aligned
     diff_ext: ac.u32 = big_ext - aligned
     magnitude: ac.u32 = sum_ext if same_sign else diff_ext
-    result_sign: ac.u1 = big_sign if diff_ext != 0 else 0
+    result_sign: ac.u1 = big_sign if same_sign | (diff_ext != 0) else 0
     big_e11: ac.u11 = big_e
     lsb_bias: ac.u11 = big_e11 + 359
     magnitude64: ac.u64 = magnitude

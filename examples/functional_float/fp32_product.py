@@ -224,7 +224,7 @@ def round_pack(sign: ac.u1, magnitude: ac.u64, lsb_bias: ac.u11) -> Rounded:
     result: ac.u32 = signed_zero if zero else packed
     inexact_raw: ac.u1 = is_right & (guard | round_out | sticky)
     inexact: ac.u1 = inexact_raw | overflow
-    underflow: ac.u1 = (~normal) & inexact_raw
+    underflow: ac.u1 = (exp_final == 0) & inexact_raw
     return Rounded(
         result=result,
         overflow=overflow,

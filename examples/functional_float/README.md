@@ -189,3 +189,11 @@ explicit fused operations. It has 5,508 independent integer/rational native and
 RTL raw/status matches. ProductSum remains separately rounded and does not
 call this top. Use `--only float_fused` and consult the reference above for the
 value/effect contract.
+
+
+`FloatFusedFormat` adds direct one-round FP16/BF16 results while preserving the
+existing two-format FloatFused interface; its independent native/RTL oracle has
+11,016 raw/status matches over all four formats. `FP32Log` supplies a Q80,
+25-term natural-log approximation with 1,043 Decimal100 native/RTL raw/status
+matches. Both are selectable through `build_units.py`. Their algorithms,
+exception behavior and bounded coverage are described in the reference above.

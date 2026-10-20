@@ -171,3 +171,39 @@ This is an explicitly selected algorithm for consumers that request a fused
 operation. `FP32ProductSum` and ordinary matrix consumers continue to execute
 Product-RNE followed by Sum-RNE; neither invokes this provider. No compiler
 fusion of ordinary multiply/add expressions is introduced by this example.
+
+
+## Four-format fused provider and logarithm approximation
+
+[`FloatFusedFormat`](../../examples/functional_float/float_fused_format.py)
+extends explicit one-round multiply-add to the same four format selectors as
+FloatConvert. The raw carrier is 64 bits; binary16/bfloat16 results round
+directly to their destination, rather than through binary32. Its exact-integer
+reference checks 11,016 native/RTL raw-and-all-status cases, including all
+earlier binary32/binary64 cases and 16-bit cancellation/subnormal inputs.
+The existing `FloatFused(..., wide64, ...)` interface is preserved.
+
+[`FP32Log`](../../examples/functional_float/fp32_log.py) normalizes the raw
+binary32 significand, applies a 25-term atanh expansion with Q80 fixed-point
+integers, and combines the exponent contribution using a fixed Q80 ln(2).
+[`fp32_log_step.py`](../../examples/functional_float/fp32_log_step.py) holds
+the pure repeated step and exact partial-product helper. Both units fit the
+current source evaluator's constant/slot budgets without raising them. The
+independent Decimal100 reference checks 1,043 native/RTL raw/status vectors,
+including adjacent values around one, subnormals, infinities, NaNs and domain
+errors. Zero returns negative infinity with DZ; negative nonzero inputs return
+canonical quiet NaN with NV. This is a bounded approximation with evidence on
+the recorded vectors, not an exhaustive correctly-rounded logarithm claim.
+
+Generate the selected closures with `build_units.py --only float_fused_format`
+or `--only fp32_log`. These source providers introduce no instruction decoder,
+ELF policy, consumer state or host numerical fallback.
+
+
+## Binary32 boundary corrections
+
+Equal negative addends retain their common sign (for example -1 + -1 = -2).
+Product and Sum detect tininess after rounding: an inexact value that rounds
+to the minimum normal result asserts NX without UF. Directed native/RTL
+ProductSum cases cover both corrections while retaining two separate rounds
+and the union of stage effects.
