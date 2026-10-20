@@ -158,3 +158,10 @@ RTZ and nearest-away (0..4); invalid conversion returns the corresponding
 saturated endpoint with NV and without NX. The public numeric source test
 checks 5,856 independent exact-rational raw-and-status vectors against both
 native and RTL in addition to the earlier numerical and bit cases.
+
+`FloatSqrt` uses 55 restoring integer-root steps, retaining guard/sticky bits
+for the binary64 RNE result and for binary32. The shared `SqrtState` and digit
+step are ordinary source providers. Zero sign, negative inputs, infinity,
+quiet/signaling NaNs and NX are explicit. Native and RTL both match 1,060
+independent integer-isqrt midpoint raw/status cases. This implementation uses
+the existing compiler resource limits unchanged.
