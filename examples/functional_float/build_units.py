@@ -26,6 +26,8 @@ SOURCES = {
     'float_to_integer': ('fp64_types',),
     'float_sqrt_step': (),
     'float_sqrt': ('fp32_types', 'fp32_product', 'fp64_types', 'fp64_round', 'float_sqrt_step'),
+    'word_division': ('word_arithmetic',),
+    'fp32_remainder': ('fp32_types', 'fp32_product', 'fp32_sum', 'fp32_divide'),
     'word_arithmetic': (), 'bit_transform': ('word_arithmetic',),
     'address': (), 'integer_element': (), 'fp32_u32_add': (), 'input_expand': (),
 }
@@ -38,6 +40,7 @@ TOPS = {
     'float_compare': 'FloatCompare', 'float_from_integer': 'FloatFromInteger',
     'float_to_integer': 'FloatToInteger',
     'float_sqrt': 'FloatSqrt',
+    'word_division': 'WordDivision', 'fp32_remainder': 'FP32FloorModulo',
     'word_arithmetic': 'WordArithmetic', 'bit_transform': 'BitTransform',
     'address': 'RowMajorAddress', 'integer_element': 'IntegerElement',
     'fp32_u32_add': 'U32Add', 'input_expand': 'InputExpand',

@@ -165,3 +165,11 @@ step are ordinary source providers. Zero sign, negative inputs, infinity,
 quiet/signaling NaNs and NX are explicit. Native and RTL both match 1,060
 independent integer-isqrt midpoint raw/status cases. This implementation uses
 the existing compiler resource limits unchanged.
+
+`WordDivision` adds an explicit zero-denominator policy while preserving the
+existing WordArithmetic zero default. `FP32FloorModulo` provides the current
+SSM-style divide/floor/product/subtract sequence, with every arithmetic step
+rounded independently. Their public tests add 2,320 quotient-policy and 1,348
+staged rational raw/status matches against both generated targets. See the
+reference's consumer-policy section for the documented ASL differences and
+special-value boundary; no FMA or host-float path supplies these results.

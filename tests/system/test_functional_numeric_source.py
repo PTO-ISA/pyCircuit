@@ -392,3 +392,123 @@ def test_square_root_native_and_rtl(tmp_path: Path) -> None:
         ],
         check=True,
     )
+
+
+@pytest.mark.system
+def test_fp32_remainder_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "fp32_remainder",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text(
+        "#include \"sources/functional_float/fp32_remainder.hpp\"\n#include <iostream>\nint main(){uint32_t a,b;while(std::cin>>std::hex>>a>>b){\nfunctional_float::fp32_remainder::FP32FloorModulo dut(\"modulo\");\ndut.lhs=decltype(dut.lhs)::known(gfsim::Bits<32>{a});dut.rhs=decltype(dut.rhs)::known(gfsim::Bits<32>{b});\ndut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();if(!dut.result.isFullyKnown())return 2;\nconst auto v=dut.result.value();std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()\n<<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<'\\n';}}\n"
+    )
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_fp32_remainder'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_floor_modulo_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_fp32_remainder"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )
+
+
+@pytest.mark.system
+def test_word_division_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "word_division",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text(
+        "#include \"sources/functional_float/word_division.hpp\"\n#include <iostream>\nint main(){uint64_t a,b;unsigned s,w,z,v;while(std::cin>>std::hex>>a>>b>>std::dec>>s>>w>>z>>v){\nfunctional_float::word_division::WordDivision dut(\"quotient\");\ndut.lhs=decltype(dut.lhs)::known(gfsim::Bits<64>{a});dut.rhs=decltype(dut.rhs)::known(gfsim::Bits<64>{b});\ndut.is_signed=decltype(dut.is_signed)::known(gfsim::Bits<1>{s});dut.word32=decltype(dut.word32)::known(gfsim::Bits<1>{w});\ndut.zero_ones=decltype(dut.zero_ones)::known(gfsim::Bits<1>{z});dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{v});\ndut.Work();if(!dut.result.isFullyKnown())return 2;const auto out=dut.result.value();\nstd::cout<<std::hex<<out.result.value()<<std::dec<<' '<<out.valid.toBool()<<'\\n';}}\n"
+    )
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_word_division'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_word_division_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_word_division"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )

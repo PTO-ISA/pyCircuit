@@ -33,6 +33,8 @@ Each top below is prefixed with `functional_float.`. The source directory is
 | `fp32_max.FP32Max` | Binary32 maximumNumber/minimumNumber, signed-zero tie and signaling-NaN effects |
 | `fp32_to_fp16.FP32ToFP16`, `fp32_to_bf16.FP32ToBF16` | Binary32 to binary16/bfloat16 conversion and effects |
 | `input_expand.InputExpand` | Exact binary16/bfloat16 raw expansion to binary32 |
+| `word_division.WordDivision` | Signed/unsigned 32/64-bit quotient with explicit zero-result or all-ones zero-denominator policy; generic WordArithmetic defaults remain unchanged |
+| `fp32_remainder.FP32FloorModulo` | Divide-RNE, floating floor, Product-RNE, then Sum-RNE; explicit positive-zero divisor-zero policy |
 | `word_arithmetic.WordArithmetic` | Wrapping 32/64-bit add/subtract/multiply, bitwise logic, shifts, signed/unsigned divide/remainder; word results sign extend |
 | `bit_transform.BitTransform` | Rotating signed/unsigned extraction, wrapping inclusive insertion, CLZ/CTZ/popcount, select and predicates |
 | `integer_element.IntegerElement` | Unsigned wrapping 16/32-bit arithmetic, sequence and copy; division/remainder reject zero divisor |
@@ -51,12 +53,13 @@ Floating responses group the result with invalid, overflow, underflow, inexact
 and zero. Quotient and binary64 word responses additionally carry
 divide-by-zero. ProductSum retains effects from both rounded stages and always
 requests Sum with the original request predicate; it never substitutes an FMA.
-A canonical IEEE-invalid result is represented by `invalid=1` and a known NaN;
+For an active request, a canonical IEEE-invalid result is represented by `invalid=1` and a known NaN;
 the arithmetic leaves clear `valid` for that outcome. An IEEE consumer can
 commit the defined NaN and NV after checking the whole response. A response
 with neither `valid` nor `invalid` authorizes no numerical commit. Request
 availability, IEEE invalid, and an unknown runtime wire are distinct conditions.
-Consumers must inspect the actual response contract rather than treating all
+A false input request never authorizes a numerical commit, even when a
+numerical status field is independently asserted. Consumers must inspect the actual response contract rather than treating all
 false `valid` values as success or replacing unknown data with zero.
 
 The generated runtime adapter assigns known typed input wires, evaluates Work,
@@ -107,3 +110,27 @@ SSM release ledger (476 fixed inputs, including 439 historical PASS and 37
 original FAIL) is consumer evidence and remains separate from these numerical
 oracles. Its current OFF/PYC results and exceptions belong in the SSM report;
 a historical 439/439 does not certify the current branch.
+
+## Consumer-selected arithmetic policies
+
+`WordDivision` exposes `zero_ones` rather than changing WordArithmetic's
+published zero-quotient default. Both zero policies, signedness/word width and
+inactive requests have 2,320 independent native/RTL raw-and-valid matches.
+A consumer can select the policy its architectural model actually declares.
+
+`FP32FloorModulo` models a specific, separately rounded sequence. It first
+rounds division to binary32, floors that floating quotient, rounds its product
+with the divisor, then separately rounds subtraction. A zero divisor returns
+positive zero. It is not an exact-real modulo with a single final rounding;
+intermediate overflow and rounding remain visible. Its canonical NaN/effect
+outputs are deterministic and do not depend on a host floating-point library.
+The independent staged rational oracle checks 1,348 raw/status cases on native
+and RTL. Existing ProductSum and matrix multiply/add paths keep their separate
+rounding; this provider introduces no FMA replacement.
+
+The current SSM consumer selects its existing floor sequence and all-ones
+scalar zero quotient. The referenced PTO ASL instead declares a truncating
+floating remainder and zero scalar quotient. These differences are explicitly
+consumer policy and are not an ISA-conformance claim for this example library.
+The user chose to preserve SSM floor behavior for the paired release experiment;
+neither the ISA/ASL nor the ordinary OFF arithmetic is modified by the example.
