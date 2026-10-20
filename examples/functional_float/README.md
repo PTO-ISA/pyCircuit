@@ -1,4 +1,4 @@
-# Functional floating-point source units
+# Functional numeric source units
 
 This example keeps the IEEE-like floating-point algorithms in ordinary
 source-captured Python and exposes them through the public `pycircuit` compiler
@@ -12,6 +12,7 @@ The reusable top units are:
 - `functional_float.fp32_product_sum.FP32ProductSum`
 - `functional_float.fp32_exp.FP32Exp`
 - `functional_float.fp32_divide.FP32Divide`
+- `functional_float.word_arithmetic.WordArithmetic`
 
 `FP32ProductSum` composes the independently published Product and Sum units and
 performs separate multiply-round then add-round; it is not an FMA. Each result
@@ -111,3 +112,12 @@ units, both emission targets, and native/RTL ProductSum exception propagation
 with an input that distinguishes separate rounding from FMA. It uses the
 configured CompilerDev tools and Runtime install; generated products remain
 outside the checked-in example.
+
+`WordArithmetic` is an independent source unit for wrapping 32/64-bit add,
+subtract, multiply, logical operations and shifts, plus signed/unsigned division
+and remainder. Its operation selector describes a numerical function rather
+than an instruction encoding. Word results sign extend to 64 bits. Division by
+zero yields zero; zero-denominator remainder yields the dividend. Unknown
+selectors reject the request. Compile `word_arithmetic.py` without imports,
+link the published unit with top `functional_float.word_arithmetic.WordArithmetic`,
+and emit both targets through the same commands above.

@@ -51,6 +51,7 @@ def test_functional_float_source_units_compile_link_and_emit(tmp_path: Path) -> 
     units.mkdir()
     compile_args = {
         "types": ("fp32_types.py", ()),
+        "word": ("word_arithmetic.py", ()),
         "product": ("fp32_product.py", ("types",)),
         "sum": ("fp32_sum.py", ("types",)),
         "exp": ("fp32_exp.py", ("types", "product", "sum")),
@@ -106,13 +107,14 @@ def test_functional_float_source_units_compile_link_and_emit(tmp_path: Path) -> 
     assert any(generated.rglob("fp32_product.cpp"))
 
     for name, top, closure in (
+        ("word_arithmetic", "WordArithmetic", ("word",)),
         ("product_sum", "FP32ProductSum", ("types", "product", "sum", "product_sum")),
         ("exp", "FP32Exp", ("types", "product", "sum", "exp")),
         ("divide", "FP32Divide", ("types", "product", "divide")),
     ):
         final = linked / f"{name}.ac"
         _run("link", *(str(units / unit) for unit in closure),
-             "--top", f"functional_float.fp32_{name}.{top}",
+             "--top", f"functional_float.{Path(compile_args[closure[-1]][0]).stem}.{top}",
              "-o", str(final), "--replace", env=env)
         for target in ("cpp", "verilog"):
             _run("emit", "--target", target, "-o", str(tmp_path / f"{target}_{name}"),
@@ -203,6 +205,42 @@ int main() {
                     str(exp_driver), str(runtime / "lib/libpyc6_runtime.a"),
                     "-pthread", "-o", str(exp_binary)], check=True, capture_output=True)
     subprocess.run([str(exp_binary)], check=True)
+
+    word_driver = tmp_path / "word.cpp"
+    word_driver.write_text('''
+#include "sources/functional_float/word_arithmetic.hpp"
+#include <cstdint>
+int main() {
+    const uint64_t rows[][5] = {
+        {0xffffffffffffffffULL,1,0,0,0},
+        {0x7fffffff,1,0,1,0xffffffff80000000ULL},
+        {0x100000001,0x100000001,2,0,0x200000001},
+        {0xfffffffffffffff9ULL,2,11,0,0xfffffffffffffffdULL},
+        {0xfffffffffffffff9ULL,2,12,0,0xffffffffffffffffULL},
+        {0x80000000,31,10,1,0xffffffffffffffffULL},
+        {0xffffffff,31,9,1,1}, {7,0,3,0,0}, {7,0,4,0,7}};
+    for (const auto& row : rows) {
+        functional_float::word_arithmetic::WordArithmetic dut("word");
+        dut.lhs = decltype(dut.lhs)::known(gfsim::Bits<64>{row[0]});
+        dut.rhs = decltype(dut.rhs)::known(gfsim::Bits<64>{row[1]});
+        dut.operation = decltype(dut.operation)::known(gfsim::Bits<4>{row[2]});
+        dut.word32 = decltype(dut.word32)::known(gfsim::Bits<1>{row[3]});
+        dut.request_valid = decltype(dut.request_valid)::known(gfsim::Bits<1>{1});
+        dut.Work();
+        if (!dut.result.isFullyKnown() || !dut.result.value().valid.toBool() ||
+            dut.result.value().result.value() != row[4]) return 1;
+        dut.operation = decltype(dut.operation)::known(gfsim::Bits<4>{15});
+        dut.Work();
+        if (!dut.result.isFullyKnown() || dut.result.value().valid.toBool()) return 2;
+    }
+}
+''', encoding="utf-8")
+    word_binary = tmp_path / "word"
+    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1",
+                    f"-I{tmp_path / 'cpp_word_arithmetic'}", f"-I{runtime / 'include'}",
+                    str(word_driver), str(runtime / "lib/libpyc6_runtime.a"),
+                    "-pthread", "-o", str(word_binary)], check=True, capture_output=True)
+    subprocess.run([str(word_binary)], check=True)
 
     if not (shutil.which("iverilog") and shutil.which("vvp")):
         pytest.fail("Icarus is required to verify the changed composition on RTL")
