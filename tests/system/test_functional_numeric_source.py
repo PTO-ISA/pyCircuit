@@ -918,3 +918,95 @@ if(!dut.result.isFullyKnown())return 2;std::cout<<std::hex<<dut.result.value().v
         ],
         check=True,
     )
+
+
+@pytest.mark.system
+@pytest.mark.parametrize("mode", ["decode", "encode"])
+def test_lowp_codec_native_and_rtl(tmp_path: Path, mode: str) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    unit = f"lowp_{mode}"
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            unit,
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    fields = [("value", 8 if mode == "decode" else 32), ("kind", 2)]
+    if mode == "encode":
+        fields += [("rounding", 1), ("saturating", 1)]
+    fields += [("request_valid", 1)]
+    source = tmp_path / "runner.cpp"
+    body = f'#include "sources/functional_float/{unit}.hpp"\n#include <iostream>\n'
+    body += (
+        "int main(){unsigned "
+        + ",".join(n for n, _ in fields)
+        + ";while(std::cin>>std::hex"
+    )
+    body += "".join(">>" + n for n, _ in fields) + "){\n"
+    body += f'functional_float::{unit}::Lowp{mode.capitalize()} dut("codec");\n'
+    for name, width in fields:
+        body += (
+            f"dut.{name}=decltype(dut.{name})::known(gfsim::Bits<{width}>{{{name}}});\n"
+        )
+    body += (
+        "dut.Work();if(!dut.result.isFullyKnown())return 2;auto v=dut.result.value();"
+    )
+    body += "std::cout<<std::hex<<v.result.value()<<std::dec"
+    for name in [
+        "valid",
+        "invalid",
+        "overflow",
+        "underflow",
+        "inexact",
+        "zero",
+        "divide_by_zero",
+    ]:
+        body += f"<<' '<<v.{name}.toBool()"
+    body += "<<'\\n';}}\n"
+    source.write_text(body)
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    result = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / ('cpp_' + unit)}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_lowp_oracle.py")),
+            mode,
+            str(binary),
+            str(tmp_path / ("verilog_" + unit)),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )

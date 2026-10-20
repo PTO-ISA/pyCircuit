@@ -235,3 +235,19 @@ arithmetic status belongs to a subsequent consumer of that encoded scale.
 All256 codes match an independent exact-rational reference on native and RTL.
 Use `build_units.py --only fp32_negative_power`. This numerical convention is
 separate from the finite19 format above and adds no ISA decoding policy.
+
+
+The reusable `lowp_decode.LowpDecode` and `lowp_encode.LowpEncode` examples
+provide integer-only E4M3FN (kind0), E5M2 (kind1) and HiF8 (kind2) codecs.
+Decode expands every raw byte exactly to binary32, with canonical special
+values. Encode accepts binary32 and returns raw bytes plus effects. FP8 uses
+RNE; HiF8 also supports RHB ties toward positive infinity and explicit finite
+saturation. E4M3FN clamps overflow to its largest finite value without OF;
+HiF8 reports source tininess before rounding. These example conventions are
+explicit policies, not a claim of a complete low-precision arithmetic library.
+`lowp_formats.py` derives adjacent HiF8 values from exponent bins, and
+`float_formats.pack_float` shares the integer RNE packing algorithm.
+The independent rational oracle in `tests/system/functional_lowp_oracle.py`
+checks every decode byte and representable values, midpoints with adjacent
+binary32 values, signed boundaries, special values and deterministic random
+encodes. Both generated targets consume the same linked artifact.

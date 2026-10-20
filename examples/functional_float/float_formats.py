@@ -71,13 +71,18 @@ def unpack_float(value: ac.u64, format: ac.u2) -> FloatParts:  # noqa: A002
     )
 
 
-def round_format(
-    sign: ac.u1, magnitude: ac.bits[128], lsb_bias: ac.u13, format: ac.u2  # noqa: A002
-) -> FloatWordResponse:  # noqa: A002
-    precision: ac.u7 = fraction_bits(format)
+def pack_float(
+    sign: ac.u1,
+    magnitude: ac.bits[128],
+    lsb_bias: ac.u13,
+    precision: ac.u7,
+    bias: ac.u13,
+    maximum: ac.u13,
+    position: ac.u6,
+) -> FloatWordResponse:
     precision14: ac.u14 = precision
-    bias14: ac.u14 = exponent_bias(format)
-    maximum14: ac.u14 = exponent_max(format)
+    bias14: ac.u14 = bias
+    maximum14: ac.u14 = maximum
     zeros: ac.u8 = ac.count_leading_zeros(magnitude)
     leading: ac.u8 = 127 - zeros
     leading = 0 if magnitude == 0 else leading
@@ -124,7 +129,6 @@ def round_format(
     fraction = 0 if carry | overflow else fraction
     exponent64: ac.u64 = exponent
     sign64: ac.u64 = sign
-    position: ac.u6 = sign_position(format)
     packed: ac.u64 = (sign64 << position) | (exponent64 << precision) | fraction
     zero: ac.u1 = (magnitude == 0) | (rounded == 0)
     result: ac.u64 = sign64 << position if zero else packed
@@ -137,4 +141,18 @@ def round_format(
         inexact=discarded | overflow,
         zero=zero,
         divide_by_zero=0,
+    )
+
+
+def round_format(
+    sign: ac.u1, magnitude: ac.bits[128], lsb_bias: ac.u13, format: ac.u2  # noqa: A002
+) -> FloatWordResponse:  # noqa: A002
+    return pack_float(
+        sign,
+        magnitude,
+        lsb_bias,
+        fraction_bits(format),
+        exponent_bias(format),
+        exponent_max(format),
+        sign_position(format),
     )
