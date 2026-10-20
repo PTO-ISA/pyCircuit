@@ -223,3 +223,15 @@ with boundary fractions and deterministic random cases.
 Use `build_units.py --only fp19_expansion`; the same numeric source test owns
 its compile/link/dual-emit and execution oracle. This exact expansion does not
 certify the surrounding consumer's quantization pipeline.
+
+
+## Encoded negative binary32 powers
+
+[`FP32NegativePower`](../../examples/functional_float/fp32_negative_power.py)
+constructs the raw RNE binary32 value2**(-code) for unsigned codes0..254.
+Code255 selects canonical quiet NaN. Codes127..149 produce subnormals;
+codes150..254 round to zero. The constructor returns a scalar raw word;
+arithmetic status belongs to a subsequent consumer of that encoded scale.
+All256 codes match an independent exact-rational reference on native and RTL.
+Use `build_units.py --only fp32_negative_power`. This numerical convention is
+separate from the finite19 format above and adds no ISA decoding policy.

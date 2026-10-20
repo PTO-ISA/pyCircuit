@@ -854,3 +854,67 @@ if(!dut.result.isFullyKnown())return 2;std::cout<<std::hex<<dut.result.value().v
         ],
         check=True,
     )
+
+
+@pytest.mark.system
+def test_fp32_negative_power_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "fp32_negative_power",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text(r"""#include "sources/functional_float/fp32_negative_power.hpp"
+#include <iostream>
+int main(){unsigned code;while(std::cin>>std::hex>>code){
+functional_float::fp32_negative_power::FP32NegativePower dut("negative-power");
+dut.code=decltype(dut.code)::known(gfsim::Bits<8>{code});dut.Work();
+if(!dut.result.isFullyKnown())return 2;std::cout<<std::hex<<dut.result.value().value()<<'\n';}}
+""")
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_fp32_negative_power'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_negative_power_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_fp32_negative_power"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )

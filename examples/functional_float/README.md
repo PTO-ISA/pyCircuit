@@ -204,3 +204,9 @@ format to binary64, including exponent255 as a finite exponent. Native checks
 cover all524,288 payloads;RTL checks cover5,632 directed/random payloads.
 Select `--only fp19_expansion`; the numeric reference explains its distinct
 finite-format contract.
+
+
+`FP32NegativePower` constructs encoded negative binary32 powers with a declared
+quiet-NaN sentinel. Every one of256 codes matches an exact-rational native/RTL
+reference, including normal/subnormal and underflow boundaries. Select
+`--only fp32_negative_power`; arithmetic effects remain with its consumers.
