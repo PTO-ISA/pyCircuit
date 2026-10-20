@@ -104,8 +104,8 @@ compiles, links and emits every published top; emission alone is not numerical
 execution coverage of every provider.
 
 The exp polynomial is an approximation, not correctly-rounded transcendental
-certification. Other rounding modes, exhaustive IEEE inputs, all format pairs,
-fused operations, and a complete ISA are outside this example's claim. The
+certification. Other arithmetic rounding modes, exhaustive IEEE inputs,
+a complete ISA are outside this example's claim. The
 SSM release ledger (476 fixed inputs, including 439 historical PASS and 37
 original FAIL) is consumer evidence and remains separate from these numerical
 oracles. Its current OFF/PYC results and exceptions belong in the SSM report;
@@ -134,3 +134,40 @@ floating remainder and zero scalar quotient. These differences are explicitly
 consumer policy and are not an ISA-conformance claim for this example library.
 The user chose to preserve SSM floor behavior for the paired release experiment;
 neither the ISA/ASL nor the ordinary OFF arithmetic is modified by the example.
+
+
+## Direct floating format conversion
+
+[`FloatConvert`](../../examples/functional_float/float_convert.py) accepts a raw
+64-bit carrier and source/destination selectors: binary32=0, binary64=1,
+binary16=2, bfloat16=3. All 16 pairs perform one RNE step from the original
+significand, including subnormal inputs and post-rounding tininess. The
+[`float_formats.py`](../../examples/functional_float/float_formats.py) helpers
+provide shared unpacking and widened integer packing; an intermediate binary32
+cast is not used for binary64 to either 16-bit destination. NaNs become the
+positive canonical quiet NaN of the destination; signaling NaNs assert NV.
+Signed zeros and infinities retain their signs. Overflow, underflow and
+inexact describe the conversion, rather than a host floating-point cast.
+
+The public numeric source test checks 8,416 independent exact-rational raw and
+status vectors in generated native and RTL execution, including midpoints below
+minimum normal and inputs that distinguish direct rounding from two casts.
+Generate it with `build_units.py --only float_convert` using the same workflow
+above. This bounded evidence does not establish exhaustive correctly-rounded
+coverage of all floating operations.
+
+
+## Explicit fused multiply-add
+
+[`FloatFused`](../../examples/functional_float/float_fused.py) computes one-round
+RNE `lhs * rhs + addend` for binary32/binary64, selected by `wide64`. It uses
+an exact widened significand product, normalized alignment with retained sticky
+information, and one final pack. The 5,508 independent integer/rational cases
+check native and RTL raw results and all status fields, including cancellation,
+subnormals, infinities, NaNs and cases distinguishing fused from separate
+rounding. Generate it with `build_units.py --only float_fused`.
+
+This is an explicitly selected algorithm for consumers that request a fused
+operation. `FP32ProductSum` and ordinary matrix consumers continue to execute
+Product-RNE followed by Sum-RNE; neither invokes this provider. No compiler
+fusion of ordinary multiply/add expressions is introduced by this example.

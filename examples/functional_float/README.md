@@ -173,3 +173,19 @@ rounded independently. Their public tests add 2,320 quotient-policy and 1,348
 staged rational raw/status matches against both generated targets. See the
 reference's consumer-policy section for the documented ASL differences and
 special-value boundary; no FMA or host-float path supplies these results.
+
+
+`FloatConvert` performs direct RNE conversion among binary32, binary64, FP16 and
+BF16 (all 16 source/destination pairs), preserving signed zero and infinity and
+reporting canonical NaN/IEEE effects. Its shared integer unpack/pack helpers
+avoid an intermediate binary32 rounding. The public test adds 8,416 independent
+raw/status cases on native and RTL, including subnormal ties and direct-rounding
+traps. Build this top with `--only float_convert`; selectors and scope are in the
+[functional numeric reference](../../docs/reference/functional-float-source-units.md).
+
+
+`FloatFused` is a separate binary32/binary64 one-round multiply-add example for
+explicit fused operations. It has 5,508 independent integer/rational native and
+RTL raw/status matches. ProductSum remains separately rounded and does not
+call this top. Use `--only float_fused` and consult the reference above for the
+value/effect contract.
