@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import subprocess
@@ -1195,3 +1196,42 @@ def test_finite_lowp_cast_native_and_rtl(tmp_path: Path) -> None:
         ],
         check=True,
     )
+
+
+@pytest.mark.system
+@pytest.mark.parametrize("unit,top", [
+    ("float_round_integral", "FloatRoundIntegral"),
+    ("packed4_encode", "Packed4Encode"),
+    ("packed4_decode", "Packed4Decode"),
+])
+def test_integral_and_packed_source_native_and_rtl(tmp_path: Path, unit: str, top: str) -> None:
+    helpers = {key: _helper(key) for key in (
+        "PYCIRCUIT_SOURCE_COMPILER", "PYCIRCUIT_LINKER", "PYCIRCUIT_EMITTER")}
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run([sys.executable, str(EXAMPLE / "build_units.py"), str(tmp_path),
+        "--only", unit, "--replace"], env=env, check=True)
+    ports = json.loads((tmp_path / f"verilog_{unit}" / "ports.json").read_text())
+    fields = ports["inputs"]
+    reads = "".join(f'>>values[{i}]' for i in range(len(fields)))
+    assignments = "\n".join(
+        f'dut.{p["name"]}=decltype(dut.{p["name"]})::known(gfsim::Bits<{p["width"]}>{{values[{i}]}});'
+        for i, p in enumerate(fields))
+    source = tmp_path / "runner.cpp"
+    source.write_text(f'''#include "sources/functional_float/{unit}.hpp"
+#include <iostream>
+int main(){{uint64_t values[{len(fields)}];while(std::cin>>std::hex{reads}){{
+functional_float::{unit}::{top} dut("numeric");
+{assignments}
+dut.Work();if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();
+std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()<<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\\n';}}}}
+''')
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1",
+        f"-I{runtime / 'include'}", f"-I{tmp_path / f'cpp_{unit}'}", str(source),
+        str(runtime / "lib/libpyc6_runtime.a"), "-pthread", "-o", str(binary)], capture_output=True, text=True)
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run([sys.executable, str(Path(__file__).with_name("functional_round_packed_oracle.py")),
+        unit, str(binary), str(tmp_path / f"verilog_{unit}"), str(tmp_path / "oracle")], check=True)

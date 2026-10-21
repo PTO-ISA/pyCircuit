@@ -55,6 +55,7 @@ def integer_bits(
     increment = ~sign & discarded if rounding == 2 else increment
     increment = 0 if rounding == 3 else increment
     increment = guard if rounding == 4 else increment
+    increment = guard & (sticky | ~sign) if rounding == 6 else increment
     increment_wide: ac.bits[128] = increment
     integral: ac.bits[128] = truncated | 1 if discarded else truncated
     rounded: ac.bits[128] = (
@@ -89,7 +90,7 @@ def integer_bits(
     inexact: ac.u1 = (discarded & ~left) | overflow
     return FloatWordResponse(
         result=selected,
-        valid=request_valid & (width >= 1) & (width <= 64) & (rounding <= 5),
+        valid=request_valid & (width >= 1) & (width <= 64) & (rounding <= 6),
         invalid=special,
         overflow=overflow & ~special,
         underflow=0,

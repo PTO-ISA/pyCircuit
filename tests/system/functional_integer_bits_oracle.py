@@ -48,6 +48,8 @@ def reference(row):
         rounded = value.numerator // value.denominator
     elif rounding == 2:
         rounded = -((-value.numerator) // value.denominator)
+    elif rounding == 6:
+        rounded = (value + Fraction(1, 2)).__floor__()
     elif rounding == 3:
         rounded = int(value)
     else:
@@ -107,7 +109,7 @@ def main():
                     ((1 << eb) - 1) << fb,
                     (((1 << eb) - 1) << fb) | 1,
                 ]
-                for mode in range(6):
+                for mode in range(7):
                     for sat in (0, 1):
                         rows += [
                             (v, wide, unsigned, width, mode, sat) for v in raw_values
@@ -121,7 +123,7 @@ def main():
                 wide,
                 rng.randrange(2),
                 rng.choice((5, 8, 9, 16, 17, 32, 64)),
-                rng.randrange(6),
+                rng.randrange(7),
                 rng.randrange(2),
             )
         )
@@ -196,7 +198,7 @@ def main():
     )
     subprocess.run(["vvp", str(binary)], check=True, capture_output=True)
     print(  # noqa: T201
-        f"integer_bits_oracle rc=0 native_raw_and_status_matches={len(rows)} rtl_raw_and_status_matches={len(rows)} modular_saturating=verified widths=5,8,9,16,17,32,64 rounding=6"
+        f"integer_bits_oracle rc=0 native_raw_and_status_matches={len(rows)} rtl_raw_and_status_matches={len(rows)} modular_saturating=verified widths=5,8,9,16,17,32,64 rounding=7"
     )
 
 

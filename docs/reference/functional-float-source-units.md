@@ -33,7 +33,7 @@ Each top below is prefixed with `functional_float.`. The source directory is
 | `float_sqrt.FloatSqrt` | Binary32/binary64 RNE square root from 55 restoring integer-root steps, subnormal and IEEE special-value handling |
 | `float_compare.FloatCompare` | Binary32/binary64 eq/ne/lt/ge, explicit quiet/signaling policy; all comparisons false for NaN |
 | `float_to_integer.FloatToInteger` | Binary32/binary64 to signed/unsigned 8/16/32/64-bit integers; RNE/RTM/RTP/RTZ/nearest-away, saturated invalid endpoints and NV/NX |
-| `float_to_integer_bits.FloatToIntegerBits` | Binary32/binary64 to dynamic signed/unsigned width1..64; six rounding modes, finite-overflow OF|NX, wrapping or saturation; separate endpoint/NV special policy |
+| `float_to_integer_bits.FloatToIntegerBits` | Binary32/binary64 to dynamic signed/unsigned width1..64; seven rounding modes, finite-overflow OF|NX, wrapping or saturation; separate endpoint/NV special policy |
 | `finite_lowp_cast.FiniteLowpCast` | One-round finite binary64 to E4M3/E5M2/HiF8 within each maximum finite magnitude; RNE plus HiF8 RHB, explicit domain rejection |
 | `float_from_integer.FloatFromInteger` | Signed/unsigned 64-bit integers directly rounded once to binary32, binary64, binary16 or bfloat16 (format selector 0/1/2/3) |
 | `fp32_max.FP32Max` | Binary32 maximumNumber/minimumNumber, signed-zero tie and signaling-NaN effects |
@@ -454,7 +454,7 @@ The focused tests live in
 with independent expectations in
 [`functional_integer_bits_oracle.py`](../../tests/system/functional_integer_bits_oracle.py)
 and [`functional_finite_lowp_oracle.py`](../../tests/system/functional_finite_lowp_oracle.py).
-The new gates have2,944 and3,033 native/RTL raw-and-status matches respectively.
+The new gates initially had2,944 and3,033 native/RTL raw-and-status matches respectively.
 The affected HiF8 encoder regression has20,348 such matches and checks that
 rounding to the minimum normal clears UF while retaining NX. Existing
 `FloatToInteger` endpoint/NV behavior and separated ProductSum rounding remain
@@ -469,3 +469,21 @@ They are not pyCircuit API defects. The documented conversion examples are
 public and reusable independently of the private SSM repository. Consumer
 release measurements and their current limits are recorded separately below
 and in the SSM documentation, with access to that repository required.
+
+
+The same public builder now exposes `float_round_integral.FloatRoundIntegral`,
+`packed4_encode.Packed4Encode`, and `packed4_decode.Packed4Decode`; their
+source/helper files are beside the other examples. The first composes numeric
+providers to round to integer-valued binary32/binary64 while retaining signed
+zero and large integral values. The latter implement the complete16-code
+E2M1/E1M2 value maps with RNE encode and an explicit overflow-endpoint input.
+These are reusable algorithms with declared policies, separate from a
+consumer's Tile packing, opcode, layout, lifetime and rounding admission.
+
+[`functional_round_packed_oracle.py`](../../tests/system/functional_round_packed_oracle.py)
+provides independent rational expectations. The registered source tests check
+C++ and RTL from the same final artifacts:4,340 integral-rounding,2,448 packed
+encode and64 packed decode result/status cases. The additional RHB selector
+in `FloatToIntegerBits` expands that provider's focused gate to3,392 cases.
+No compiler/runtime SDK rebuild or full IEEE/ISA certification is implied.
+See the [example policy details](../../examples/functional_float/README.md).

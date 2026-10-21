@@ -257,10 +257,10 @@ subnormals, the full exponent gap and quotient-rounding counterexamples.
 
 `float_to_integer_bits.FloatToIntegerBits` is a separate finite-overflow policy
 from `FloatToInteger`. It accepts raw binary32/binary64, a dynamic width1..64,
-signedness, RNE/RTM/RTP/RTZ/RNA/ROD (selectors0..5), and saturation selection.
+signedness, RNE/RTM/RTP/RTZ/RNA/ROD/RHB (selectors0..6), and saturation selection.
 Finite out-of-range results report OF|NX and clamp or wrap; NaN returns zero
 with NV and infinity returns the selected endpoint with NV. Signed output is
-sign-extended to64 bits. Its independent rational oracle checks2,944 native
+sign-extended to64 bits. Its independent rational oracle checks3,392 native
 and RTL result/status vectors. Build with `--only float_to_integer_bits`.
 Architectural consumers must select their own special-value/offset policy;
 this provider does not implicitly implement a particular ISA conversion.
@@ -281,3 +281,27 @@ to the minimum normal: result`0x7e`, NX=1, UF=0. The affected encode-only gate
 has20,348 independent native/RTL raw/status matches. This generic codec's
 post-round tininess policy is separate from an ISA operation that explicitly
 selects a different conversion owner.
+
+
+`float_round_integral.FloatRoundIntegral` composes the public dynamic-width
+integer rounding and integer-to-float providers to round binary32/binary64 to
+integer-valued results in the same format. Its seven policies0..6 match
+`FloatToIntegerBits`, including RHB ties toward positive infinity. Large
+already-integral values retain their encoding; NaNs canonicalize and signaling
+NaNs report NV, infinity and signed zero are preserved. Native and RTL each
+match4,340 independent rational/raw/status vectors. ISA consumers still apply
+their own allowed policy subset: for example, a TCVT owner can reject explicit
+RTO while the generic algorithm continues to expose odd rounding.
+
+`packed4_encode.Packed4Encode` and `packed4_decode.Packed4Decode` provide
+E2M1/E1M2 (kind0/1) codebooks. Encode accepts binary32, rounds once with RNE,
+and exposes a three-bit overflow endpoint policy input. Decode expands all16
+nibbles exactly to binary32, including both signed zeros. The endpoint is
+explicit: choosing6 versus7 for E2M1 deliberately chooses different finite
+values on overflow; consumers must follow their own owner rather than assuming
+a library-wide saturation rule. Encode maps quiet NaN to zero, signals NV for
+signaling NaN, and reports OF|NX for infinity/finite overflow. E2M1 tininess is
+after rounding; E1M2's declared policy uses source tininess below1/4. The
+independent rational codebook checks have2,448 encode and64 decode native/RTL
+result/status matches. These are value codecs, not a packed Tile layout,
+HiF4 conversion, complete FP4 arithmetic library, or ISA decoder.
