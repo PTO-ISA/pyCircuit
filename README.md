@@ -146,8 +146,9 @@ Independent source units ── explicit link closure ── verified final IR
 | `pycircuit run` | Build and execute a closed system through those same public stages. |
 
 Reusable [functional numeric source units](docs/reference/functional-float-source-units.md)
-provide binary32/binary64 arithmetic examples, conversions, word arithmetic
-and bit transformations through this public flow. Their inspectable providers,
+provide binary32/binary64 arithmetic examples, direct and integral rounding,
+configurable FP4/FP8 value codecs, word arithmetic and bit transformations
+through this public flow. Their inspectable providers,
 build driver and independent native/RTL oracles live in
 [`examples/functional_float`](examples/functional_float/README.md); they are
 bounded example algorithms, rather than a complete floating library or ISA.

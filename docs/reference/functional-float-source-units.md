@@ -1,8 +1,9 @@
 # Reusable functional numeric source units
 
-Current extension source/test pin: `39ff674`; latest consumer source/test:
-`cc7289f0`. The [post-repair799 measurement](#complete-post-repair-release-measurement)
-is separate from the earlier compatibility and frozen-release results below.
+Current computational source/test pin: `bc64496534588330e561904ec5c22c9a68e41420`.
+Consumer complete799 test: `3135bae7`; narrow final EXPDIF follow-up:
+`c9ac6d53`. Earlier compatibility/frozen measurements below remain historical.
+The current consumer report requires [SSM repository access](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/repair_batch_20261021.md).
 
 pyCircuit publishes reusable computation as typed, source-captured Python
 functions and `@ac.module` providers. These examples use the public
@@ -34,6 +35,8 @@ Each top below is prefixed with `functional_float.`. The source directory is
 | `float_compare.FloatCompare` | Binary32/binary64 eq/ne/lt/ge, explicit quiet/signaling policy; all comparisons false for NaN |
 | `float_to_integer.FloatToInteger` | Binary32/binary64 to signed/unsigned 8/16/32/64-bit integers; RNE/RTM/RTP/RTZ/nearest-away, saturated invalid endpoints and NV/NX |
 | `float_to_integer_bits.FloatToIntegerBits` | Binary32/binary64 to dynamic signed/unsigned width1..64; seven rounding modes, finite-overflow OF|NX, wrapping or saturation; separate endpoint/NV special policy |
+| `float_round_integral.FloatRoundIntegral` | Binary32/binary64 integral-valued rounding, seven explicit policies, signed zero, NaN/Inf and large already-integral values |
+| `packed4_encode.Packed4Encode`, `packed4_decode.Packed4Decode` | Complete16-code E2M1/E1M2 maps, RNE encode, explicit endpoint policy; raw-value codec only |
 | `finite_lowp_cast.FiniteLowpCast` | One-round finite binary64 to E4M3/E5M2/HiF8 within each maximum finite magnitude; RNE plus HiF8 RHB, explicit domain rejection |
 | `float_from_integer.FloatFromInteger` | Signed/unsigned 64-bit integers directly rounded once to binary32, binary64, binary16 or bfloat16 (format selector 0/1/2/3) |
 | `fp32_max.FP32Max` | Binary32 maximumNumber/minimumNumber, signed-zero tie and signaling-NaN effects |
@@ -487,3 +490,54 @@ encode and64 packed decode result/status cases. The additional RHB selector
 in `FloatToIntegerBits` expands that provider's focused gate to3,392 cases.
 No compiler/runtime SDK rebuild or full IEEE/ISA certification is implied.
 See the [example policy details](../../examples/functional_float/README.md).
+
+
+## Concentrated batch result and ownership
+
+The current public computational source isbc644965. The final focused source
+checks pass in both native C++ and RTL from the same linked IR: integer-bit
+conversion3,392; integral rounding4,340; packed encode2,448/decode64. The
+unchanged finite-lowp gate has3,033 cases and affected HiF8 encode20,348,
+recorded at3f15fca7 (those files are unchanged inbc644965). Selected changed
+Python sources pass Ruff and `git diff --check`. Whole API/native SDK checks
+are earlier23/23 and3/3 evidence, not repeated final-candidate certification.
+
+The private SSM consumer repairs cover mixed Local/Shared ACC schema, MX
+ScaleA/ScaleB roles and executable Word arithmetic policy, exact CScale,
+postprocess mode/descriptor ABI, one-round final casts, all13 Local binding
+forms and source lifetime, numeric status at publication, predicate/index
+consumers, packed transport and typed EXPDIF. Generated numerical providers
+remain the public dependency; no private bundle, hostfloat or old runtime is
+needed. Public compiler/runtime implementations are unchanged in this batch.
+
+The separate newcc799 run at3135bae7 uses accepted ASLb0165320 (0.59.0,
+publication0.59.0.0), official PE and180 seconds/path with8 workers:
+OFF761 rc0/R2=0,20 rc1,18 timeouts; PYC384 rc0/R2=0,414 rc2,1 timeout.
+Raw observations:364 MATCH /19 DIFFER /416 NOT_RUN. UNKNOWN R2:OFF38/PYC415.
+All19 DIFFER cases have individually recorded first-divergence BFI evidence:
+ASL/PYC0x200000002 versusOFF0x2 for first32,last63,lhs=rhs2. This proves the
+first divergence, not all later computation. Equality is not an ASL oracle.
+
+The final c9ac6d53 consumer follow-up repairs a missing FP16/BF16 SUB rounding
+before EXP, demonstrated by four legal profiles/128 raw values and Stores.
+The public FP32Exp algorithm is unchanged. Its full-response memo has96 direct
+provider binding checks. The14 opcode-selected release cases yield2 MATCH and
+12 NOT_RUN (OFF8 rc0/6 rc1, PYC2 rc0/12 rc2, R2 unknown6/12); former timeout442
+reaches invalid STD/SSRGET in45.251 seconds. The full799 result is not rewritten.
+The [consumer report](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/repair_batch_20261021.md)
+and complete/slim ledgers require SSM access. Old476/439 remains396 matched /
+43 failed, original37 separate. No full-release, whole-ISA or full-precision
+acceptance is claimed. Remote CI is NOT RUN/SKIPPED, not inferred green.
+
+This fixed-input batch measuresops-20261021-newcc (799). A final live API read
+also observes newer [ops-20261021](https://github.com/PTO-ISA/SuperNPUBench/releases/tag/ops-20261021)
+at2026-10-21 07:20:15 UTC (802 ELFs, different compiler); those assets are
+NOT RUN here. The measured release is not presented as GitHub's latest assets.
+Only separately proved release-ELF violations are tracked in
+[SuperNPUBench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235).
+Unmapped output-pointer invocation ownership remains UNKNOWN and is excluded.
+
+
+The concentrated release-ELF-only supplement and exact field/owner evidence
+are [recorded in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6318860003). It covers only
+ops-20261021-newcc; the separate hosted-entry discussion is unchanged.

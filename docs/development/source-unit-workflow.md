@@ -378,6 +378,25 @@ for evidence, bind its capture, headers, owner, tool and command, and compare
 the reproduced body/interface with the public compilation before associating
 its stages. The public compile/link/emit route is unchanged.
 
+## Stateless numeric provider composition
+
+The [functional numeric examples](../../examples/functional_float/README.md)
+place typed sequential intermediates in ordinary functions and expose a thin
+`@ac.module` entry that returns the complete result/status response. For
+example, `float_round_integral.py` composes independently published integer
+rounding and integer-to-float function bodies. Compile the provider interfaces
+first and pass the complete body closure to link; emit both targets from that
+same final artifact. The example driver records this route explicitly.
+
+An annotated variable declared directly in a `@ac.module` body is a
+module-owned variable and requires its specified static initializer. Use an
+ordinary function's typed SSA intermediates for stateless numeric calculation;
+a dynamic module-variable initializer is not a temporary-value workaround.
+Result availability and numeric flags remain part of each declared algorithm
+response. An ISA or architectural consumer owns source lifetime, type/layout
+admission, state commit and memory effects rather than encoding those concerns
+into the public arithmetic provider.
+
 ## Retired routes
 
 CycleAwareSignal/JIT, structural builders, Agentic Circuit/QueueGraph, `acc.py`,
