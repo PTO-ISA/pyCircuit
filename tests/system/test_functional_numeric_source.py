@@ -1078,3 +1078,120 @@ def test_lowp_codec_native_and_rtl(tmp_path: Path, mode: str) -> None:
         ],
         check=True,
     )
+
+
+@pytest.mark.system
+def test_float_to_integer_bits_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "float_to_integer_bits",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text('#include "sources/functional_float/float_to_integer_bits.hpp"\n#include <iostream>\nint main(){uint64_t value;unsigned wide,uns,width,round,sat;\nwhile(std::cin>>std::hex>>value>>std::dec>>wide>>uns>>width>>round>>sat){\nfunctional_float::float_to_integer_bits::FloatToIntegerBits dut("integer-bits");\ndut.value=decltype(dut.value)::known(gfsim::Bits<64>{value});\ndut.wide64=decltype(dut.wide64)::known(gfsim::Bits<1>{wide});\ndut.unsigned_output=decltype(dut.unsigned_output)::known(gfsim::Bits<1>{uns});\ndut.width=decltype(dut.width)::known(gfsim::Bits<7>{width});\ndut.rounding=decltype(dut.rounding)::known(gfsim::Bits<3>{round});\ndut.saturating=decltype(dut.saturating)::known(gfsim::Bits<1>{sat});\ndut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();\nif(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();\nstd::cout<<std::hex<<v.result.value()<<std::dec<<\' \'<<v.valid.toBool()<<\' \'<<v.invalid.toBool()<<\' \'<<v.overflow.toBool()<<\' \'<<v.underflow.toBool()<<\' \'<<v.inexact.toBool()<<\' \'<<v.zero.toBool()<<\' \'<<v.divide_by_zero.toBool()<<\'\\n\';}}\n')
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_float_to_integer_bits'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_integer_bits_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_float_to_integer_bits"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )
+
+
+
+@pytest.mark.system
+def test_finite_lowp_cast_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "finite_lowp_cast",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text('#include "sources/functional_float/finite_lowp_cast.hpp"\n#include <iostream>\nint main(){uint64_t value;unsigned kind,rhb;while(std::cin>>std::hex>>value>>std::dec>>kind>>rhb){\nfunctional_float::finite_lowp_cast::FiniteLowpCast dut("finite-lowp");\ndut.value=decltype(dut.value)::known(gfsim::Bits<64>{value});dut.kind=decltype(dut.kind)::known(gfsim::Bits<2>{kind});\ndut.rhb=decltype(dut.rhb)::known(gfsim::Bits<1>{rhb});dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();\nif(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();std::cout<<std::hex<<v.result.value()<<std::dec<<\' \'<<v.valid.toBool()<<\' \'<<v.invalid.toBool()<<\' \'<<v.overflow.toBool()<<\' \'<<v.underflow.toBool()<<\' \'<<v.inexact.toBool()<<\' \'<<v.zero.toBool()<<\' \'<<v.divide_by_zero.toBool()<<\'\\n\';}}\n')
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_finite_lowp_cast'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_finite_lowp_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_finite_lowp_cast"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )

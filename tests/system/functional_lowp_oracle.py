@@ -117,7 +117,7 @@ def encode(raw, kind, rounding=0, saturating=0):
                 )
             )
             inexact = int(best != 0)
-            underflow = int(q < pow2(-15) and inexact)
+            underflow = int(finite(code, 2) < pow2(-15) and inexact)
             code = code | (sign << 7) if code else 0
     elif e == 255:
         code = (126 if kind == 0 else 124) | (sign << 7)
@@ -245,6 +245,7 @@ def main():
                 0x7F800001,
                 0x7FC00000,
                 0x7F7FFFFF,
+                0x37FFFFFF,  # Rounds up to HiF8 normal: NX without UF.
             }
             for q in positive + [
                 (a + b) / 2 for a, b in zip(positive[:-1], positive[1:], strict=True)

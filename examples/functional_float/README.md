@@ -218,7 +218,7 @@ Decode expands every raw byte exactly to binary32, with canonical special
 values. Encode accepts binary32 and returns raw bytes plus effects. FP8 uses
 RNE; HiF8 also supports RHB ties toward positive infinity and explicit finite
 saturation. E4M3FN clamps overflow to its largest finite value without OF;
-HiF8 reports source tininess before rounding. These example conventions are
+HiF8 reports tininess after rounding; a tiny inexact value that rounds to the minimum normal sets NX without UF. These example conventions are
 explicit policies, not a claim of a complete low-precision arithmetic library.
 `lowp_formats.py` derives adjacent HiF8 values from exponent bins, and
 `float_formats.pack_float` shares the integer RNE packing algorithm.
@@ -253,3 +253,31 @@ The focused `test_fp32_trunc_modulo_native_and_rtl` uses an independent
 Fraction oracle: 1,350 native and 1,350 RTL raw/status matches, including
 subnormals, the full exponent gap and quotient-rounding counterexamples.
 `FP32FloorModulo` keeps its separately documented staged floor policy.
+
+
+`float_to_integer_bits.FloatToIntegerBits` is a separate finite-overflow policy
+from `FloatToInteger`. It accepts raw binary32/binary64, a dynamic width1..64,
+signedness, RNE/RTM/RTP/RTZ/RNA/ROD (selectors0..5), and saturation selection.
+Finite out-of-range results report OF|NX and clamp or wrap; NaN returns zero
+with NV and infinity returns the selected endpoint with NV. Signed output is
+sign-extended to64 bits. Its independent rational oracle checks2,944 native
+and RTL result/status vectors. Build with `--only float_to_integer_bits`.
+Architectural consumers must select their own special-value/offset policy;
+this provider does not implicitly implement a particular ISA conversion.
+
+`finite_lowp_cast.FiniteLowpCast` rounds raw binary64 directly once to E4M3,
+E5M2 or HiF8 (kind0/1/2). Its explicit domain is finite input with magnitude
+no greater than the selected maximum finite output. Other requests reject.
+RNE is supported for all three formats, and HiF8 additionally supports RHB.
+Exact Q96 distances retain binary64 information at HiF8 midpoints. The
+independent rational/codebook oracle checks3,033 native and RTL vectors,
+including adjacent binary64 values at ties. Build with
+`--only finite_lowp_cast`; consumers handle out-of-domain and architectural
+special-value policies explicitly. This avoids an intermediate binary32
+rounding when composing an exact widened product with a final lowp cast.
+
+The HiF8 encoder regression includes raw binary32 `0x37ffffff`, which rounds
+to the minimum normal: result`0x7e`, NX=1, UF=0. The affected encode-only gate
+has20,348 independent native/RTL raw/status matches. This generic codec's
+post-round tininess policy is separate from an ISA operation that explicitly
+selects a different conversion owner.

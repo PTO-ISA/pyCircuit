@@ -70,7 +70,7 @@ def encode_lowp(
         result = hif
         overflow = hif_overflow
         inexact = hif_inexact
-        underflow = (raw_magnitude < 939524096) & hif_inexact & finite
+        underflow = (chosen < 562949953421312) & hif_inexact & finite
     supported: ac.u1 = (kind != 3) & ((kind == 2) | (rounding == 0))
     invalid: ac.u1 = source.snan & supported
     zero: ac.u1 = (result == 0) if kind == 2 else ((result & 127) == 0)

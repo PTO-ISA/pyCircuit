@@ -33,6 +33,8 @@ Each top below is prefixed with `functional_float.`. The source directory is
 | `float_sqrt.FloatSqrt` | Binary32/binary64 RNE square root from 55 restoring integer-root steps, subnormal and IEEE special-value handling |
 | `float_compare.FloatCompare` | Binary32/binary64 eq/ne/lt/ge, explicit quiet/signaling policy; all comparisons false for NaN |
 | `float_to_integer.FloatToInteger` | Binary32/binary64 to signed/unsigned 8/16/32/64-bit integers; RNE/RTM/RTP/RTZ/nearest-away, saturated invalid endpoints and NV/NX |
+| `float_to_integer_bits.FloatToIntegerBits` | Binary32/binary64 to dynamic signed/unsigned width1..64; six rounding modes, finite-overflow OF|NX, wrapping or saturation; separate endpoint/NV special policy |
+| `finite_lowp_cast.FiniteLowpCast` | One-round finite binary64 to E4M3/E5M2/HiF8 within each maximum finite magnitude; RNE plus HiF8 RHB, explicit domain rejection |
 | `float_from_integer.FloatFromInteger` | Signed/unsigned 64-bit integers directly rounded once to binary32, binary64, binary16 or bfloat16 (format selector 0/1/2/3) |
 | `fp32_max.FP32Max` | Binary32 maximumNumber/minimumNumber, signed-zero tie and signaling-NaN effects |
 | `fp32_to_fp16.FP32ToFP16`, `fp32_to_bf16.FP32ToBF16` | Binary32 to binary16/bfloat16 conversion and effects |
@@ -314,7 +316,7 @@ Decode expands every raw byte exactly to binary32, with canonical special
 values. Encode accepts binary32 and returns raw bytes plus effects. FP8 uses
 RNE; HiF8 also supports RHB ties toward positive infinity and explicit finite
 saturation. E4M3FN clamps overflow to its largest finite value without OF;
-HiF8 reports source tininess before rounding. These example conventions are
+HiF8 reports tininess after rounding, retaining NX without UF when a tiny value rounds up to the minimum normal. These example conventions are
 explicit policies, not a claim of a complete low-precision arithmetic library.
 `lowp_formats.py` derives adjacent HiF8 values from exponent bins, and
 `float_formats.pack_float` shares the integer RNE packing algorithm.
@@ -434,3 +436,36 @@ The new public numerical code remains the independently tested exact RTZ
 provider at39ff674; no compiler/runtime/API defect was inferred from those
 consumer binding or admission failures. No remote CI success is inferred from
 local oracle or native evidence.
+
+
+## Concentrated conversion and consumer repair
+
+The additional source examples
+[`float_to_integer_bits.py`](../../examples/functional_float/float_to_integer_bits.py)
+and [`finite_lowp_cast.py`](../../examples/functional_float/finite_lowp_cast.py)
+use the same public source capture, separately compiled provider closure,
+verified final IR, and C++/RTL emission as the inventory above. They add example
+algorithms; the compiler and SDK do not gain hidden floating primitives.
+Their explicit request domains and selector policies are described in the
+[example README](../../examples/functional_float/README.md).
+
+The focused tests live in
+[`test_functional_numeric_source.py`](../../tests/system/test_functional_numeric_source.py),
+with independent expectations in
+[`functional_integer_bits_oracle.py`](../../tests/system/functional_integer_bits_oracle.py)
+and [`functional_finite_lowp_oracle.py`](../../tests/system/functional_finite_lowp_oracle.py).
+The new gates have2,944 and3,033 native/RTL raw-and-status matches respectively.
+The affected HiF8 encoder regression has20,348 such matches and checks that
+rounding to the minimum normal clears UF while retaining NX. Existing
+`FloatToInteger` endpoint/NV behavior and separated ProductSum rounding remain
+their own contracts. A consumer selects a provider and translates its policy
+according to its architectural owner; successful generation alone does not
+establish ISA correctness.
+
+SSM repairs in this batch belong to its consumer: ordered Local/Shared C/A/B
+and parameter roles, packed FP19 quantization descriptors, final single-round
+conversion, RowMaxInit, exact CScale, and cooperative publication scheduling.
+They are not pyCircuit API defects. The documented conversion examples are
+public and reusable independently of the private SSM repository. Consumer
+release measurements and their current limits are recorded separately below
+and in the SSM documentation, with access to that repository required.
