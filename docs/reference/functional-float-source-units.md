@@ -111,6 +111,27 @@ original FAIL) is consumer evidence and remains separate from these numerical
 oracles. Its current OFF/PYC results and exceptions belong in the SSM report;
 a historical 439/439 does not certify the current branch.
 
+The consumer's subsequent [43-target first-cause audit](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/frozen_failure_causes.md)
+keeps those historical targets open and the original37 failures separate.
+It binds actual frozen encodings to accepted ASL and distinguishes earlier
+consumer admission gaps from incompatible scale/auxiliary layouts, logical
+row indices and missing PE participants. SSM now also reuses the existing
+generated `BitTransform` provider for raw TGATHER/TSCATTER row selection,
+with its own144-profile encoded consumer test. This adds no pyCircuit ISA
+decoder, no new provider semantics and no new public numerical-oracle claim.
+The complete396 raw matches remain the sealed measurement at SSM9b0af112;
+the directed extension at71c636f7 does not promote its two invalid frozen
+inputs to PASS. SSM is private and its report/fixtures require repository
+access; this public example and all provider sources remain independently
+available. Public provider validation remains atb9f3da19; this documentation
+continuation does not rerun the sealed API/native/RTL gates.
+
+The [SuperNPUBench235 evidence supplement](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6307023978)
+reports only24 proven descriptor/index incompatibilities in ops-20260916,
+with accepted-ASL links and minimal reproductions. PYC capability gaps and19
+participant/configuration/compatibility cases are not attributed to Bench ELF
+bytes. That consumer report does not expand this provider's numerical scope.
+
 ## Consumer-selected arithmetic policies
 
 `WordDivision` exposes `zero_ones` rather than changing WordArithmetic's
