@@ -241,3 +241,15 @@ Decode kind3 additionally expands every E8M0 byte: code0 is positive2**(-127),
 1..254 are powers of two and255 is canonical quiet NaN. The four-format decode
 oracle covers2,048 native/RTL raw/status requests, including inactive requests.
 The LowpEncode kind3 selector remains unsupported; use E8M0Encode for scales.
+
+`functional_float.fp32_trunc_modulo.FP32TruncModulo` is an additional exact
+binary32 remainder policy with a quotient truncated toward zero. It uses
+integer modular exponentiation over normalized significands, then directly
+encodes the representable remainder; it does not round an intermediate
+floating quotient. Exact finite cancellation produces +0, a zero dividend
+retains its sign, and invalid operands produce canonical NaN plus invalid.
+Build it with `build_units.py OUT --only fp32_trunc_modulo --replace`.
+The focused `test_fp32_trunc_modulo_native_and_rtl` uses an independent
+Fraction oracle: 1,350 native and 1,350 RTL raw/status matches, including
+subnormals, the full exponent gap and quotient-rounding counterexamples.
+`FP32FloorModulo` keeps its separately documented staged floor policy.

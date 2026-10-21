@@ -196,7 +196,9 @@ neither the ISA/ASL nor the ordinary OFF arithmetic is modified by the example.
 The latest executable floating TREM/TREMS reference uses RTZ although related
 prose still says floor; integer Tile remainder remains floor. The separate
 SSM1051 gfrun task is a future dependency, not part of this example change.
-The user's selected PYC floor compatibility sequence remains unchanged.
+The earlier paired experiment used the named floor compatibility sequence.
+The subsequent ASL-led consumer repair selects the separately published RTZ
+provider for floating TREM/TREMS; integer Tile floor remains independent.
 
 
 ## Direct floating format conversion
@@ -329,3 +331,31 @@ Decode kind3 additionally expands every E8M0 byte: code0 is positive2**(-127),
 1..254 are powers of two and255 is canonical quiet NaN. The four-format decode
 oracle covers2,048 native/RTL raw/status requests, including inactive requests.
 The LowpEncode kind3 selector remains unsupported; use E8M0Encode for scales.
+
+## Exact RTZ-quotient binary32 remainder
+
+[`FP32TruncModulo`](../../examples/functional_float/fp32_trunc_modulo.py)
+adds a reusable numerical policy separate from `FP32FloorModulo`. Its public
+entry takes `lhs`, `rhs` raw binary32 and `request_valid`, returning
+`FP32Response`. Integer modular exponentiation computes the exact remainder
+without an intermediate rounded quotient. Finite nonzero results are exactly
+representable, including subnormals; exact cancellation is +0, while a zero
+input preserves its sign. Infinity as dividend or zero as divisor is invalid;
+quiet/signaling NaNs follow the explicit canonical-NaN/status contract.
+
+The current accepted ASL snapshot has a real owner conflict:
+[TREM's accepted contract](https://github.com/PTO-ISA/pto-spec/blob/b0165320a4b575b18d2f4d93faf40178f661ab49/asl/tile/elementwise-tile-tile/transcendental/TREM.asl)
+says floating floor, while
+[ReferenceTileFloatingModulo](https://github.com/PTO-ISA/pto-spec/blob/b0165320a4b575b18d2f4d93faf40178f661ab49/asl/tile/model/numeric/reference-conversion.asl#L238)
+uses an exact-real RTZ quotient and final encoding. For -7 and +3 these give
++2 and -1 respectively. This new provider implements the executable RTZ policy;
+it does not resolve or edit that ASL conflict. The existing floor provider is
+a named compatibility policy, not proof of conformance to the executable
+floating definition. Integer Tile floor semantics are independent.
+
+`tests/system/test_functional_numeric_source.py::test_fp32_trunc_modulo_native_and_rtl`
+and `tests/system/functional_trunc_modulo_oracle.py` publish the minimum
+reproduction. Compile/link and both emits completed with the existing SDK;
+1,350 independent Fraction vectors matched native and RTL raw/status. No
+compiler, language admission, runtime or public floor algorithm was changed.
+The consumer repository owns which policy is bound to each instruction.

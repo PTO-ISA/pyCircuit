@@ -455,6 +455,66 @@ def test_fp32_remainder_native_and_rtl(tmp_path: Path) -> None:
 
 
 @pytest.mark.system
+def test_fp32_trunc_modulo_native_and_rtl(tmp_path: Path) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
+    if not all(helpers.values()) or not shutil.which("iverilog"):
+        pytest.skip("native compiler helpers and Icarus Verilog are required")
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            "fp32_trunc_modulo",
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
+    source = tmp_path / "runner.cpp"
+    source.write_text(
+        "#include \"sources/functional_float/fp32_trunc_modulo.hpp\"\n#include <iostream>\nint main(){uint32_t a,b;while(std::cin>>std::hex>>a>>b){\nfunctional_float::fp32_trunc_modulo::FP32TruncModulo dut(\"modulo\");\ndut.lhs=decltype(dut.lhs)::known(gfsim::Bits<32>{a});dut.rhs=decltype(dut.rhs)::known(gfsim::Bits<32>{b});\ndut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();if(!dut.result.isFullyKnown())return 2;\nconst auto v=dut.result.value();std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()\n<<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<'\\n';}}\n"
+    )
+    runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
+    binary = tmp_path / "runner"
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / 'cpp_fp32_trunc_modulo'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_trunc_modulo_oracle.py")),
+            str(binary),
+            str(tmp_path / "verilog_fp32_trunc_modulo"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )
+
+
+@pytest.mark.system
 def test_word_division_native_and_rtl(tmp_path: Path) -> None:
     helpers = {
         key: _helper(key)
