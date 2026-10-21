@@ -1,5 +1,9 @@
 # Reusable functional numeric source units
 
+Current extension source/test pin: `39ff674`; latest consumer source/test:
+`cc7289f0`. The [post-repair799 measurement](#complete-post-repair-release-measurement)
+is separate from the earlier compatibility and frozen-release results below.
+
 pyCircuit publishes reusable computation as typed, source-captured Python
 functions and `@ac.module` providers. These examples use the public
 `pycircuit compile` → explicit `link` closure → verified final IR → `emit`
@@ -148,8 +152,10 @@ fused Shared C/D and late scalar parameters have9 profiles/4,608 matches;
 raw scalar fill has19 profiles/2,292 matches. Canonical THREAD_ID and HL.BFI
 field bindings receive separate native checks. These remain SSM instruction,
 descriptor, scheduling and state/effect work; they do not add pyCircuit ISA
-decoding or a full precision/ISA library. Provider code and its existing
-C++/RTL artifacts remain pinned atb9f3da19, with no SDK/public-oracle rerun.
+decoding or a full precision/ISA library. At that earlier compatibility stage, core provider code and its existing
+C++/RTL artifacts were pinned atb9f3da19. The later exact RTZ extension at
+39ff674 and the post-admission799 result are documented separately below;
+unchanged core oracles and SDK gates were not replayed.
 
 At consumer test head98ed0baa, all799 inputs were measured with independent
 OFF/ON outputs,180seconds/path and eight workers. OFF has761 rc0/R2=0,
