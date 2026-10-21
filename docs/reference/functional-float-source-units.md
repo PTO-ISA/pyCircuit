@@ -133,6 +133,42 @@ with accepted-ASL links and minimal reproductions. PYC capability gaps and19
 participant/configuration/compatibility cases are not attributed to Bench ELF
 bytes. That consumer report does not expand this provider's numerical scope.
 
+The subsequent [current release measurement](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/current_release_20261021.md)
+uses actual published
+[SuperNPUBench ops-20261021-newcc](https://github.com/PTO-ISA/SuperNPUBench/releases/tag/ops-20261021-newcc)
+assets and a rechecked accepted PTO0.59.0 /publication0.59.0.0 snapshot at
+pto-specb0165320. Its799 inputs and official PE policies are independent of
+the old476 freeze:415 common case names,384 added,61 absent; case names do
+not certify equal recompiled bytes or transfer an old PASS.
+
+SSM extends its own consumers of the existing Word/Bit, Product/Sum and
+negative-power providers: Local TIMG2COL has12 four-PE/two-generation native
+profiles and51,072 raw/Store matches; Shared CScale has9 profiles/6,168 matches;
+fused Shared C/D and late scalar parameters have9 profiles/4,608 matches;
+raw scalar fill has19 profiles/2,292 matches. Canonical THREAD_ID and HL.BFI
+field bindings receive separate native checks. These remain SSM instruction,
+descriptor, scheduling and state/effect work; they do not add pyCircuit ISA
+decoding or a full precision/ISA library. Provider code and its existing
+C++/RTL artifacts remain pinned atb9f3da19, with no SDK/public-oracle rerun.
+
+At consumer test head98ed0baa, all799 inputs were measured with independent
+OFF/ON outputs,180seconds/path and eight workers. OFF has761 rc0/R2=0,
+20 errors and18 timeouts; PYC has571 rc0/R2=0,226 errors and2 timeouts.
+Observed raw is479 MATCH,87 DIFFER,233 NOT_RUN. Failed paths retain UNKNOWN
+R2. Canonical identity and HL.BFI model-contract differences are recorded
+without filtering GPR/memory bytes or choosing an old arithmetic fallback.
+The old frozen439 result remains396 matched/43 failed, with original37
+separate. These are consumer/profile observations, not a799/799 or all-ASL
+claim for this public example library.
+
+The [new-release Bench235 follow-up](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6308383132)
+records actual new bytes before assigning defects: the old vector/RowMaxIn
+layout issues no longer apply; two row-index inputs and one explicit SYS
+envelope sample remain release-ELF issues. PYC gaps and model-side differences
+are excluded from that attribution. The consumer report keeps rc/R2/raw
+results, legacy model policies and accepted-ASL admission distinct; R2=0 or
+raw equality alone is not complete ASL or kernel-lifecycle certification.
+
 ## Consumer-selected arithmetic policies
 
 `WordDivision` exposes `zero_ones` rather than changing WordArithmetic's
@@ -156,6 +192,11 @@ floating remainder and zero scalar quotient. These differences are explicitly
 consumer policy and are not an ISA-conformance claim for this example library.
 The user chose to preserve SSM floor behavior for the paired release experiment;
 neither the ISA/ASL nor the ordinary OFF arithmetic is modified by the example.
+
+The latest executable floating TREM/TREMS reference uses RTZ although related
+prose still says floor; integer Tile remainder remains floor. The separate
+SSM1051 gfrun task is a future dependency, not part of this example change.
+The user's selected PYC floor compatibility sequence remains unchanged.
 
 
 ## Direct floating format conversion
