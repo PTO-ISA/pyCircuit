@@ -25,6 +25,33 @@
       "system_scope": "Three independent source units, shared sibling Counter reference and callable after propagation; independent 6, 7, 7, 7 observations with C++ workers 1/2 and RTL."
     },
     {
+      "name": "sibling_atomic",
+      "folder": "examples/sibling_atomic",
+      "source": "sibling_atomic.py",
+      "system": "SiblingAtomic",
+      "system_source": "bench.py",
+      "system_cycles": 4,
+      "system_scope": "A late sibling guard blocks the whole writer transaction; an ordered reader continues using committed state. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+    },
+    {
+      "name": "sibling_aliases",
+      "folder": "examples/sibling_aliases",
+      "source": "sibling_aliases.py",
+      "system": "SiblingAliases",
+      "system_source": "bench.py",
+      "system_cycles": 4,
+      "system_scope": "Static reference passthrough and aliases share sequential updates, while a second instance of the same Module stays independent. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+    },
+    {
+      "name": "sibling_transitive",
+      "folder": "examples/sibling_transitive",
+      "source": "sibling_transitive.py",
+      "system": "SiblingTransitive",
+      "system_source": "bench.py",
+      "system_cycles": 4,
+      "system_scope": "A callable order chain survives an uncalled middle Rule and propagates to sibling transactions. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+    },
+    {
       "name": "multiclock_domain_isolation",
       "folder": "examples/multiclock_domain_isolation",
       "source": "multiclock_domain_isolation.py",

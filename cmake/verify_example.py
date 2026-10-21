@@ -595,6 +595,52 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
                 raise ValueError(
                     "sibling_calls differs from independent 6, 7, 7, 7 count oracle"
                 )
+    sibling_scenarios = {
+        "sibling_atomic": {
+            "atomic visible": [(13, 110), (13, 110), (16, 120), (19, 130)],
+            "atomic committed": [(10, 100), (13, 110), (13, 110), (16, 120)],
+        },
+        "sibling_aliases": {
+            "alias snapshots": [(3, 4, 4), (5, 6, 6), (7, 8, 8), (9, 10, 10)],
+            "independent count": [(2,), (2,), (2,), (2,)],
+        },
+        "sibling_transitive": {
+            "transitive visible": [(3,), (5,), None, None],
+            "transitive committed": [(1,), (3,), (5,), (7,)],
+        },
+    }
+    if source.name in sibling_scenarios:
+        # Test-owned histories, independent of DUT/generated expressions:
+        # atomic: skip both updates at cycle 1; aliases: two sequential adds;
+        # transitive: read the +2 candidate only while it is at most five.
+        if expected_epochs != 8:
+            raise ValueError("small sibling scenarios require four complete cycles")
+        expected = sorted(
+            (
+                cycle * 2 + edge,
+                event,
+                [{"kind": "integer", "value": str(value)} for value in values],
+            )
+            for event, cycles in sibling_scenarios[source.name].items()
+            for cycle, values in enumerate(cycles)
+            if values is not None
+            for edge in (0, 1)
+        )
+        for trace in traces:
+            observed = [
+                (
+                    epoch_number(row["evaluation_epoch"]),
+                    row["spec"].get("event", ""),
+                    row["values"],
+                )
+                for row in trace
+                if row["kind"] == "log"
+            ]
+            observed.sort(key=lambda row: row[:2])
+            if observed != expected or len(trace) != len(expected):
+                raise ValueError(
+                    f"{source.name} differs from its independent four-cycle oracle"
+                )
     if traces[0] != traces[1] or traces[0] != traces[2]:
         raise ValueError("system source observations disagree across workers/backends")
     if not final_ir[0] or final_ir[0] != final_ir[1] or final_ir[0] != final_ir[2]:

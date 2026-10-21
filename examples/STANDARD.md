@@ -13,7 +13,7 @@ and API-owned coverage. The [navigation](README.md) is generated from that
 catalog. Each listed example retains its own hardware behavior and independent
 oracle; one example does not establish another example's behavior.
 
-The current catalog contains 18 examples. The 54 retired source directories in
+The current catalog contains 21 examples. The 54 retired source directories in
 `tests/fixtures/historical_examples/` preserve comparison assets and old oracles;
 their presence is not a catalog target or passing result. Do not add mechanisms
 whose purpose is to recover a historical example count.
@@ -223,7 +223,7 @@ prefix does not accept a historical design or replace its full timing test.
 `tools/run_examples.sh --tier gate|nightly` owns example build and
 behavior acceptance through the shared CMake helper and verifier. Gate runs the
 seven smoke designs listed in `examples/CMakeLists.txt`; nightly runs
-the complete 18-example registered set. Long stimuli for current examples stay
+the complete 21-example registered set. Long stimuli for current examples stay
 intact in nightly; archived long benches remain outside that pass claim. API
 contract, negative-admission and compiler analysis fixtures belong under `tests/`
 and run through `tools/run_api_tests.sh`, independently of example acceptance.

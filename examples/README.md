@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog inventories **17** registered designs and **25** API-owned coverage cases.
+The current catalog inventories **21** registered designs and **25** API-owned coverage cases.
 
 - [Recommended examples and learning path](GUIDE.md)
 - [Writing and verification standard](STANDARD.md)
@@ -15,6 +15,10 @@ The current catalog inventories **17** registered designs and **25** API-owned c
 | --- | --- | --- | --- | --- | --- |
 | [hello_counter](hello_counter/README.md) | [Python](hello_counter/hello_counter.py) | [HelloCounter](hello_counter/hello_counter.py) | compiler-generated | compiler-generated | — |
 | [multi_outputs](multi_outputs/README.md) | [Python](multi_outputs/multi_outputs.py) | [MultiOutputsSystem](multi_outputs/bench.py) | compiler-generated | compiler-generated | — |
+| [sibling_calls](sibling_calls/README.md) | [Python](sibling_calls/sibling_calls.py) | [SiblingCalls](sibling_calls/sibling_calls.py) | compiler-generated | compiler-generated | — |
+| [sibling_atomic](sibling_atomic/README.md) | [Python](sibling_atomic/sibling_atomic.py) | [SiblingAtomic](sibling_atomic/bench.py) | compiler-generated | compiler-generated | — |
+| [sibling_aliases](sibling_aliases/README.md) | [Python](sibling_aliases/sibling_aliases.py) | [SiblingAliases](sibling_aliases/bench.py) | compiler-generated | compiler-generated | — |
+| [sibling_transitive](sibling_transitive/README.md) | [Python](sibling_transitive/sibling_transitive.py) | [SiblingTransitive](sibling_transitive/bench.py) | compiler-generated | compiler-generated | — |
 | [multiclock_domain_isolation](multiclock_domain_isolation/README.md) | [Python](multiclock_domain_isolation/multiclock_domain_isolation.py) | — | [driver](multiclock_domain_isolation/driver.cpp) | [testbench](multiclock_domain_isolation/rtl_tb.sv) | [artifacts](multiclock_domain_isolation/GENERATED.md) |
 | [rob](rob/README.md) | [Python](rob/rob.py) | [ExerciseRob](rob/bench.py) | [driver](rob/driver.cpp) | [testbench](rob/rtl_tb.sv) | [artifacts](rob/GENERATED.md) |
 | [struct_transform](struct_transform/README.md) | [Python](struct_transform/struct_transform.py) | [ExerciseStructTransform](struct_transform/bench.py) | [driver](struct_transform/driver.cpp) | [testbench](struct_transform/rtl_tb.sv) | [artifacts](struct_transform/GENERATED.md) |

@@ -1,6 +1,6 @@
 # Recommended examples
 
-Start with these 18 current designs. Each teaches a distinct pattern. Superseded
+Start with these 21 current designs. Each teaches a distinct pattern. Superseded
 wrappers and their original oracles are preserved as 54 source directories in
 [the historical fixture archive](../tests/fixtures/historical_examples/README.md),
 outside the current example catalog.
@@ -12,6 +12,9 @@ outside the current example catalog.
 | [hello_counter](hello_counter/README.md) | A small System, persistent state and a nested Rule. |
 | [multi_outputs](multi_outputs/README.md) | Direct Module calls; Struct connections and independent tuple results. |
 | [sibling_calls](sibling_calls/README.md) | Existing Module references and callable order propagated between sibling transactions. |
+| [sibling_atomic](sibling_atomic/README.md) | A late sibling guard holds the whole transaction while the reader continues. |
+| [sibling_aliases](sibling_aliases/README.md) | Aliases and reference passthrough share state; separate allocations stay independent. |
+| [sibling_transitive](sibling_transitive/README.md) | Transitive callable order through an uncalled middle Rule. |
 | [struct_transform](struct_transform/README.md) | Structured payloads, combinational locals and registered state. |
 | [enum_payload_pipeline](enum_payload_pipeline/README.md) | Nominal Enum fields, structured updates and saved value snapshots. |
 | [queue_rule_pipeline](queue_rule_pipeline/README.md) | Typed cross-Module Rule calls, atomic Queue transfer, ordinary `for`, and local `after` ordering. |
