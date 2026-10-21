@@ -117,7 +117,8 @@ It binds actual frozen encodings to accepted ASL and distinguishes earlier
 consumer admission gaps from incompatible scale/auxiliary layouts, logical
 row indices and missing PE participants. SSM now also reuses the existing
 generated `BitTransform` provider for raw TGATHER/TSCATTER row selection,
-with its own144-profile encoded consumer test. This adds no pyCircuit ISA
+with its own36-profile encoded consumer test across four PEs (144 accepted
+PE executions). This adds no pyCircuit ISA
 decoder, no new provider semantics and no new public numerical-oracle claim.
 The complete396 raw matches remain the sealed measurement at SSM9b0af112;
 the directed extension at71c636f7 does not promote its two invalid frozen
