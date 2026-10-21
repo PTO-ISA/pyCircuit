@@ -399,3 +399,32 @@ requires SYS before effects. Compatibility-mode PE-identity output differences
 on those instructions cannot certify either whole ELF as ASL compliant. The
 remaining DIFFER rows retain their owner-specific or UNKNOWN status; they are
 not all pyCircuit defects, OFF defects or Bench defects.
+
+### Complete post-repair release measurement
+
+SSM source/test commit `cc7289f0fd99ee8517a8f7dfe282849ec9de3fb3` completed the
+one necessary post-admission799 run with the same release, official PE,
+180 seconds/path and8 workers. OFF has761 rc0/R2=0,20 rc1 and18 timeouts;
+PYC has376 rc0/R2=0 and423 rc2. R2 is UNKNOWN for38 OFF and423 PYC paths.
+Raw comparison is354 MATCH /19 DIFFER /426 NOT_RUN, with no skipped inputs.
+The [complete per-input result](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/release_ops_20261021_newcc_asl_results.json)
+requires private SSM access. This is observed process/raw verification, not
+whole-ISA ASL certification. Of the earlier87 raw differences,68 now reject
+before completion and19 remain DIFFER; the68 are not repaired numerical
+matches. The older compatibility measurement and frozen476 remain unchanged.
+
+The consumer also corrects its own SSRGET admission: supported SYS is required
+before effects; only the implemented accepted THREAD_ID0x26 returns a value,
+and other selectors explicitly reject instead of fabricating zero. Independent
+checks preserve destination and Store state on rejection. Of341 domain first
+rejections,302 have actual executing-PC plus STD0x0800/SSRGET0x26 byte evidence
+in this release;39 remain attribution-UNKNOWN. Only confirmed release defects
+belong to [Bench235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6308383132).
+Missing generated consumers remain SSM/pyCircuit capability work, including
+mixed Local/Shared ACC schemas, MX scales/types and remaining conversion or
+postprocess modes; their first rejection is not evidence of an ELF defect.
+
+The new public numerical code remains the independently tested exact RTZ
+provider at39ff674; no compiler/runtime/API defect was inferred from those
+consumer binding or admission failures. No remote CI success is inferred from
+local oracle or native evidence.
