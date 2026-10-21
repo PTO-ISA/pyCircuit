@@ -1,9 +1,12 @@
 # Reusable functional numeric source units
 
 Current computational source/test pin: `bc64496534588330e561904ec5c22c9a68e41420`.
-Consumer complete799 test: `3135bae7`; narrow final EXPDIF follow-up:
-`c9ac6d53`. Earlier compatibility/frozen measurements below remain historical.
-The current consumer report requires [SSM repository access](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/repair_batch_20261021.md).
+Latest selected-release consumer test: `c389ac0c` (complete 802), with the
+bounded matrix-default repair/follow-up at `3adf2e9f`. The earlier complete
+799 at `3135bae7` and EXPDIF follow-up at `c9ac6d53` remain separate.
+The [latest consumer report](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/latest_release_20261021.md)
+requires SSM repository access. Earlier compatibility/frozen measurements
+below remain historical.
 
 pyCircuit publishes reusable computation as typed, source-captured Python
 functions and `@ac.module` providers. These examples use the public
@@ -541,3 +544,69 @@ Unmapped output-pointer invocation ownership remains UNKNOWN and is excluded.
 The concentrated release-ELF-only supplement and exact field/owner evidence
 are [recorded in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6318860003). It covers only
 ops-20261021-newcc; the separate hosted-entry discussion is unchanged.
+
+
+## Fixed latest Bench release and ASL validation
+
+The consumer now actually validates the separately selected
+[ops-20261021 release](https://github.com/PTO-ISA/SuperNPUBench/releases/tag/ops-20261021),
+published 2026-10-21 07:20:15 UTC, against accepted ASL
+`b0165320a4b575b18d2f4d93faf40178f661ab49` (architecture 0.59.0,
+publication 0.59.0.0). These versions were selected once for the run. Both
+actual archives were downloaded: 428 microbenchmark and 374 one-level ELFs,
+802 total. All 799 common names with newcc were executed using the new assets;
+three additions and no removals are recorded. Official source policy gives
+401 PE1 / 401 PE4; the added matmul and both RMSNorm shapes require four PEs.
+No input-hash list, SDK rebuild or repeated sealed provider oracle is needed.
+
+The release reports a different producer compiler: LLVM 8610ef1c7 / TileOP
+8f43777, compared with newcc's 084bbc311 / 0150baa. Those are release-reported
+production versions, not later branch heads used as original provenance.
+The release's comparison against ops-20261020 does not replace this newcc
+inventory comparison or any actual numerical execution.
+
+At SSM test commit c389ac0c, the complete 802 run has OFF 772 rc0/R2=0,
+12 rc1 and 18 timeouts; PYC 384 rc0/R2=0 and 418 rc2; terminal R2 UNKNOWN
+30/418. Raw observations are **364 MATCH / 19 DIFFER / 419 NOT_RUN**, with
+no skips. Every path retains 180 seconds and the runner has eight workers;
+CLI defaults are unchanged and the existing explicit step guard avoids an
+extra 1M-step cutoff. Raw scope remains all 24 GPR words per PE plus writable
+ELF PT_LOAD bytes, excluding heap-only outputs; equality is not an ASL oracle.
+
+The new assets fix the earlier bad explicit GEMV M field by omitting LB0.
+Accepted descriptor-state.asl defaults absent dimensions to one. The SSM
+consumer had incorrectly used zero: this is an integration descriptor defect,
+not a pyCircuit public numeric defect. Fix 3adf2e9f initializes matrix M/N/K
+to one at block entry; explicit zero still overrides the default and rejects.
+The independent native contract passes 42 profiles across four PEs, with
+120 nonzero raw values / 120 actual Stores, plain/bias/ACC TMATMUL/TGEMV,
+explicit and omitted dimensions, zero-Store rejections and sentinels.
+No public model, compiler, generated Runtime or numerical algorithm changed.
+
+Seven affected/control actual release cases were separately rerun at3adf2e9f:
+OFF 7 rc0/R2=0; PYC 4 rc0/R2=0 and 3 rc2/UNKNOWN; **4 MATCH / 3 NOT_RUN**.
+Only two cases add matches; three valid GEMV bindings now reach their distinct
+illegal quant carrier. A composed observation view combining the initial run
+and those measured replacements is **366 MATCH / 19 DIFFER / 417 NOT_RUN**,
+OFF 772/PYC 386 rc0/R2=0, with R2 UNKNOWN 30/416. This is not a second full
+802 execution at the repaired source. The full initial and affected-final
+ledgers are separate in the [consumer report](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/latest_release_20261021.md),
+which requires access to the private SSM repository.
+
+Current first-stop groups retain 39 closed quant parameters, one overlong
+Local binding stream, 371 SYS rejects, two row-index and two TCVT-shape rejects,
+and one unmapped-Store UNKNOWN. Of the SYS group, actual executed-PC/ELF bytes
+prove 330 literal STD plus canonical THREAD_ID; 41 other envelopes/addresses
+remain UNKNOWN in this attribution. The 19 actual new-release DIFFER results
+remain failures; sealed prior BFI evidence is context, not a freshly repeated
+per-ELF trace claim. No unresolved pointer or model difference is reported as
+an ELF defect. No new required public capability gap remains after this
+bounded consumer repair; documented general format/rounding limits remain.
+Old 476/439 (396 matched / 43 failed, original 37 separate) and every 799
+ledger are unchanged. Remote action_required/SKIPPED is not a local-test pass.
+
+
+The fixed-release producer-side observations and corrected GEMV attribution
+are [cross-linked in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6320715013). Only
+proved released-asset violations are attributed there; PYC defects and
+unresolved ownership remain separate.

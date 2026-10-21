@@ -152,6 +152,9 @@ through this public flow. Their inspectable providers,
 build driver and independent native/RTL oracles live in
 [`examples/functional_float`](examples/functional_float/README.md); they are
 bounded example algorithms, rather than a complete floating library or ISA.
+The same reference separately records actual latest-selected Bench802/ASL
+validation and the SSM-owned matrix-default consumer fix; it does not replace
+older frozen or newcc799 measurements with new-asset results.
 
 `@module` defines reusable hardware, `@rule` defines an atomic stateless
 transition, and `@system` defines a closed simulation composition. The current
