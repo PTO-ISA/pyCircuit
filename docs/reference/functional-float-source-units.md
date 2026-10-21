@@ -186,8 +186,8 @@ The independent staged rational oracle checks 1,348 raw/status cases on native
 and RTL. Existing ProductSum and matrix multiply/add paths keep their separate
 rounding; this provider introduces no FMA replacement.
 
-The current SSM consumer selects its existing floor sequence and all-ones
-scalar zero quotient. The referenced PTO ASL instead declares a truncating
+The earlier paired-release SSM consumer selected its floor sequence and
+all-ones scalar zero quotient. The referenced PTO ASL instead declares a truncating
 floating remainder and zero scalar quotient. These differences are explicitly
 consumer policy and are not an ISA-conformance claim for this example library.
 The user chose to preserve SSM floor behavior for the paired release experiment;
@@ -359,3 +359,43 @@ reproduction. Compile/link and both emits completed with the existing SDK;
 1,350 independent Fraction vectors matched native and RTL raw/status. No
 compiler, language admission, runtime or public floor algorithm was changed.
 The consumer repository owns which policy is bound to each instruction.
+
+
+## ASL-led consumer repair evidence
+
+The public numerical source pin for the exact RTZ extension is
+`39ff674cefee19cd7bfb4502ea64a5732805ee44`. Current source compilation,
+explicit linking, C++/RTL generation and the1,350-vector independent oracle
+passed with the existing SDK; there is no SDK/compiler/runtime rebuild or
+new precision/tolerance policy.
+
+The consumer continuation distinguishes ownership instead of using OFF as an
+oracle. Shared TLOAD logical width/packed-lane addressing, Local M16/M32
+arithmetic and reduction pitch, CUBE conversion binding and Local source
+subviews belong to SSM. The public Product and BitTransform units already
+returned the correct independent expectations. Those consumer repairs do not
+establish a pyCircuit compiler/API defect. Binding a documented staged floor
+provider to a floating instruction whose executable reference uses RTZ was
+also a consumer policy mismatch; the new public exact provider fills that
+numerical capability without changing the floor provider's contract.
+
+At SSM test commit `e8a353cb`, an affected-only136-row measurement used the
+same latest release, official PE,180-second paths and eight workers: OFF136
+rc0/R2=0; PYC4 rc0/R2=0/raw MATCH (the four floating remainder fixtures),
+132 rc2/R2 UNKNOWN/raw NOT_RUN. The four matches were existing release
+completions, not four new passes. Subsequent source-subview work has separate
+consumer tests and measurements in the
+[SSM current-release report](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/current_release_20261021.md)
+(private repository; access required). None of this overwrites the sealed
+799-row479 MATCH/87 DIFFER/233 NOT_RUN result, or the older476 ledger with
+historical439396 matched/43 failed and its separate original37 category.
+
+Raw DIFFER is not itself an ASL verdict. For example, the actual latest
+release cases `timg2col_fp32_64x8.elf` and
+`kernel_matmul_matmul_lowp_FP8_B1_M64_N128_K7168_tM128_tN128_tK1024.elf`
+execute SSRGET0x26 in STD blocks, whereas the
+[accepted SSRGET owner](https://github.com/PTO-ISA/pto-spec/blob/b0165320a4b575b18d2f4d93faf40178f661ab49/asl/scalar/sys/SSRGET.asl)
+requires SYS before effects. Compatibility-mode PE-identity output differences
+on those instructions cannot certify either whole ELF as ASL compliant. The
+remaining DIFFER rows retain their owner-specific or UNKNOWN status; they are
+not all pyCircuit defects, OFF defects or Bench defects.
