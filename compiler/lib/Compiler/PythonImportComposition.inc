@@ -233,6 +233,12 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
     queueAssignments.try_emplace(
         sourceOccurrence(at, decl.symbol, statement.child("value")), statement);
   }
+  llvm::DenseSet<DictionaryAttr> discardedModuleCalls;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto statement = decl.node.item("body", i);
+    if (statement.kind() == "Expr" && moduleCall(statement.child("value")))
+      discardedModuleCalls.insert(sourceOccurrence(at, decl.symbol, statement.child("value")));
+  }
   auto declare = [&](auto &&self, const AstNode &node) -> LogicalResult {
     if (node.kind() == "FunctionDef" || node.kind() == "ClassDef" ||
         node.kind() == "Lambda")
@@ -291,7 +297,8 @@ LogicalResult Importer::predeclareDirectCalls(ModuleDecl &decl, OpBuilder &at) {
       if (failed(
               declareQueue(found->second, decl, at, nextName("__pyc_queue_"))))
         return failure();
-    } else if (moduleCall(node) && !methodOwner(node.child("func")) &&
+    } else if (moduleCall(node) &&
+               (!methodOwner(node.child("func")) || discardedModuleCalls.contains(sourceOccurrence(at, decl.symbol, node))) &&
                !structuralCallSites.contains(
                    sourceOccurrence(at, decl.symbol, node))) {
       auto callee = resolveModuleCall(node, decl.symbol);
@@ -569,40 +576,20 @@ FailureOr<SmallVector<Value>> Importer::directModuleResults(
   if (!found->second.callee)
     return error() << "direct module call lacks its resolved signature";
   const CallableDecl &callee = *found->second.callee;
-  SmallVector<AstNode> actuals(callee.inputs.size());
+  auto authored = moduleActuals(callee.signature, call);
+  auto references = bindModuleReferences(callee.signature, call, instances);
+  if (failed(authored) || failed(references)) return failure();
+  auto refFormals = callee.signature.getAs<ArrayAttr>("ac.reference_parameters");
+  SmallVector<AstNode> actuals;
   SmallVector<size_t> lexicalOrder;
-  if (call.array("args").size() > actuals.size())
-    return error() << "too many direct module arguments";
-  for (size_t i = 0; i < call.array("args").size(); ++i) {
-    actuals[i] = call.item("args", i);
-    lexicalOrder.push_back(i);
+  for (size_t i = 0; i < authored->size(); ++i) {
+    bool reference = refFormals && llvm::any_of(refFormals, [&](Attribute raw) {
+      return cast<DictionaryAttr>(raw).getAs<IntegerAttr>("position").getInt() == static_cast<int64_t>(i);
+    });
+    if (!reference) { lexicalOrder.push_back(actuals.size()); actuals.push_back((*authored)[i]); }
   }
-  for (size_t i = 0; i < call.array("keywords").size(); ++i) {
-    auto kw = call.item("keywords", i);
-    auto name = dyn_cast_or_null<StringAttr>(kw.get("arg"));
-    auto parameters = callee.signature.getAs<ArrayAttr>("parameters");
-    auto types = callee.signature.getAs<ArrayAttr>("type_parameters");
-    if (name &&
-        (llvm::is_contained(types, name) ||
-         llvm::any_of(parameters, [&](Attribute raw) {
-           return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
-         })))
-      continue;
-    size_t ordinal = actuals.size();
-    for (size_t j = 0; name && j < actuals.size(); ++j)
-      if (callee.inputs[j].name == name.getValue())
-        ordinal = j;
-    if (ordinal == actuals.size() || actuals[ordinal])
-      return error() << "unknown or repeated direct module argument";
-    actuals[ordinal] = kw.child("value");
-    lexicalOrder.push_back(ordinal);
-  }
-  for (const AstNode &actual : actuals) {
-    if (!actual)
-      return error() << "missing direct module argument";
-    if (actual.kind() == "Starred")
-      return error() << "direct module calls do not admit *args";
-  }
+  if (!references->empty())
+    found->second.op->setAttr("ac.reference_bindings", *references);
   SmallVector<Value> inputs(callee.inputs.size());
   for (size_t i : lexicalOrder) {
     auto value = expression(actuals[i], at, symbol, values, instances,

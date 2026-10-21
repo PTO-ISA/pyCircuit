@@ -4,6 +4,7 @@
 #include "HardwareGrantProof.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
+#include "HardwareSourceChecks.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseMap.h"
@@ -527,6 +528,19 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       failed(charge(budget, rule, controls.size(), sizeof(SampledControlView))))
     return failure();
   SampledAdmissionView result;
+  // A lifted transaction starts in its original lexical allocation. Those
+  // allocation frames authenticate provenance; they are not nested callable
+  // guards. Verify the prefix before using its depth as the root invocation.
+  uint64_t rootInvocationDepth = 0;
+  if (rule->hasAttr("ac.registration_path")) {
+    if (failed(verifyRoutedRegistration(analysis, rule,
+            [&](uint64_t units, Operation *site) {
+              return budget.debit(units, site);
+            })))
+      return failure();
+    rootInvocationDepth =
+        rule->getAttrOfType<ArrayAttr>("ac.registration_path").size();
+  }
   result.definition = module;
   result.rule = rule;
   result.clockCapture = *clock;
@@ -606,7 +620,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   };
   auto callable = [&](ArrayAttr invocation,
                       bool parent, bool pending = false) -> FailureOr<const SampledControlView *> {
-    if (!invocation || (parent && invocation.empty()))
+    if (!invocation || invocation.size() < rootInvocationDepth ||
+        (parent && invocation.size() == rootInvocationDepth))
       return rule->emitOpError() << "sampled invocation has no callable owner";
     for (const auto &prior : result.controls) {
       if (failed(budget.debit(1, rule)))
@@ -679,7 +694,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       return failure();
     if (*predecessor != static_cast<int64_t>(ordinal) - 1 ||
         *obligation != static_cast<int64_t>(ordinal) || !invocation ||
-        (ordinal == 0 && (!invocation.empty() || path->selectionControl ||
+        (ordinal == 0 && (invocation.size() != rootInvocationDepth || path->selectionControl ||
                           role == SampledControlKind::BranchSelect)) ||
         !identical(id.get("registration"), rule->getAttr("occurrence")))
       return rule->emitOpError() << "sampled control has inconsistent ordinal, "
@@ -713,14 +728,15 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     const SampledControlView *owner = nullptr;
     if ((ordinal || role == SampledControlKind::ValueAvailable ||
                     role == SampledControlKind::ResourceAvailable) &&
-        !(role == SampledControlKind::CallableGuard && invocation.empty())) {
+        !(role == SampledControlKind::CallableGuard &&
+          invocation.size() == rootInvocationDepth)) {
       auto found = callable(invocation,
           role == SampledControlKind::CallableGuard,
           role == SampledControlKind::ValueAvailable);
       if (failed(found))
         return failure();
       owner = *found;
-      if (!owner && !invocation.empty()) {
+      if (!owner && invocation.size() != rootInvocationDepth) {
         auto parent = callable(invocation, true);
         if (failed(parent)) return failure();
         owner = *parent;
@@ -1131,6 +1147,31 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     return failure();
   uint64_t validityInputs = llvm::count_if(ports->inputValidity,
                                           [](int64_t i) { return i >= 0; });
+  ArrayAttr returnInputs;
+  if (Attribute raw = module->getAttr("ac.transaction_returns")) {
+    auto returns = dyn_cast<DictionaryAttr>(raw);
+    returnInputs = returns ? returns.getAs<ArrayAttr>("incoming") : ArrayAttr();
+    if (!returnInputs)
+      return module->emitOpError() << "transaction returns require incoming routes";
+  }
+  uint64_t returnCount = returnInputs ? returnInputs.size() : 0;
+  uint64_t pairEnd = SourceCheckBudget::add(ports->sourceInputCount,
+      SourceCheckBudget::multiply(2, SourceCheckBudget::add(incoming.size(), returnCount)));
+  llvm::DenseSet<uint64_t> returnData;
+  if (failed(charge(budget, module, returnCount, sizeof(uint64_t) + 64)))
+    return failure();
+  if (returnInputs) for (Attribute raw : returnInputs) {
+    auto route = dyn_cast<DictionaryAttr>(raw);
+    if (!route) return module->emitOpError() << "invalid transaction return route";
+    auto data = index(route, "data", module);
+    auto enable = index(route, "enable", module);
+    if (failed(data) || failed(enable)) return failure();
+    uint64_t d = *data, e = *enable;
+    if (d < ports->sourceInputCount || e != SourceCheckBudget::add(d, 1) ||
+        e >= pairEnd || (d - ports->sourceInputCount) % 2 ||
+        !returnData.insert(d).second)
+      return module->emitOpError() << "transaction return D/E overlaps or escapes the shared input suffix";
+  }
   uint64_t queueInputs = 0;
   if (Attribute raw = module->getAttr("ac.queue_wiring")) {
     auto queues = dyn_cast<DictionaryAttr>(raw);
@@ -1146,12 +1187,11 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
   }
   auto memoryInputs = getMemoryIncomingPortCount(module, analysis, bindings, budget);
   if (failed(memoryInputs)) return failure();
-  if (SourceCheckBudget::add(SourceCheckBudget::add(ports->sourceInputCount,
-                             SourceCheckBudget::multiply(2, incoming.size())),
+  if (SourceCheckBudget::add(pairEnd,
                              SourceCheckBudget::add(SourceCheckBudget::add(validityInputs, queueInputs), *memoryInputs)) !=
       module.getFunctionType().getNumInputs())
     return module->emitOpError()
-           << "transaction, Queue, Memory and availability routes must exactly cover appended inputs";
+           << "transaction, return, Queue, Memory and availability routes must exactly cover appended inputs";
   if (failed(charge(budget, module, states.size(),
                     sizeof(TransactionStateInventoryEntry))) ||
       failed(charge(budget, module, incoming.size(),
@@ -1202,7 +1242,8 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     if (!inventoried)
       return logical.emitOpError() << "logical state is missing its transaction inventory";
   }
-  for (auto [ordinal, raw] : llvm::enumerate(incoming)) {
+  uint64_t nextPair = ports->sourceInputCount;
+  for (auto raw : incoming) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
     if (failed(exact(entry, {"state", "data", "enable"}, module,
                      "transaction incoming")))
@@ -1212,8 +1253,12 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     auto enable = index(entry, "enable", module);
     if (failed(data) || failed(enable) || failed(wholeStateID(state, module)))
       return failure();
-    uint64_t expected = SourceCheckBudget::add(
-        ports->sourceInputCount, SourceCheckBudget::multiply(2, ordinal));
+    while (returnData.contains(nextPair)) {
+      if (failed(budget.debit(1, module))) return failure();
+      nextPair = SourceCheckBudget::add(nextPair, 2);
+    }
+    uint64_t expected = nextPair;
+    nextPair = SourceCheckBudget::add(nextPair, 2);
     if (expected == std::numeric_limits<uint64_t>::max() ||
         static_cast<uint64_t>(*data) != expected ||
         static_cast<uint64_t>(*enable) != SourceCheckBudget::add(expected, 1) ||
@@ -1233,6 +1278,12 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
         {state, static_cast<uint64_t>(*data), static_cast<uint64_t>(*enable),
          body.getArgument(*data), body.getArgument(*enable)});
   }
+  while (returnData.contains(nextPair)) {
+    if (failed(budget.debit(1, module))) return failure();
+    nextPair = SourceCheckBudget::add(nextPair, 2);
+  }
+  if (nextPair != pairEnd)
+    return module->emitOpError() << "state and return routes must partition the shared input suffix";
   for (auto raw : writers) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
     if (failed(exact(entry, {"registration", "ordinary_results", "candidates"},
@@ -4953,6 +5004,9 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
   });
   if (!hasWitness)
     return success();
+  if (failed(verifyTransactionReturns(analysis,
+          [&](uint64_t units, Operation *site) { return budget.debit(units, site); })))
+    return failure();
   budget.setPhase("sampled transaction wiring proof");
   llvm::DenseSet<Operation *> relevant, writerRelevant, scanned;
   llvm::DenseMap<Operation *, SmallVector<ModuleOp>> parents;

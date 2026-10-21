@@ -203,8 +203,11 @@ Port Importer::sourceCallPort(DictionaryAttr constraint, StringRef name,
 bool Importer::methodOwner(const AstNode &function) const {
   if (function.kind() == "Name" &&
       methodOwnerNames.contains(function.string("id")) &&
-      !lexicallyShadowed(function, function.string("id")))
-    return true;
+      !lexicallyShadowed(function, function.string("id"))) {
+    auto found = local.find(function.string("id"));
+    if (found != local.end() && modules[found->second].sourceInputCount == 0 &&
+        modules[found->second].outputs.empty()) return true;
+  }
   if (function.kind() == "Name" &&
       !lexicallyShadowed(function, function.string("id"))) {
     auto target = local.find(function.string("id"));
@@ -234,4 +237,84 @@ bool Importer::methodOwner(const AstNode &function) const {
       (view.sourceResultConstraints && !view.sourceResultConstraints.empty()))
     return false;
   return !view.sourceReturnForm || view.sourceReturnForm.getValue() == "none";
+}
+
+// Reconstruct authored positional order without materializing reference values
+// as hardware SSA operands. Static integer/type arguments remain keyword-only.
+FailureOr<SmallVector<AstNode>> Importer::moduleActuals(
+    DictionaryAttr signature, const AstNode &call) {
+  auto data = signature.getAs<ArrayAttr>("ac.parameters");
+  auto refs = signature.getAs<ArrayAttr>("ac.reference_parameters");
+  size_t count = (data ? data.size() : 0) + (refs ? refs.size() : 0);
+  SmallVector<StringRef> names(count);
+  for (Attribute raw : refs ? refs : b.getArrayAttr({})) {
+    auto row = cast<DictionaryAttr>(raw);
+    unsigned position = row.getAs<IntegerAttr>("position").getInt();
+    if (position >= count || !names[position].empty())
+      return error() << "invalid module reference formal position";
+    names[position] = row.getAs<StringAttr>("name").getValue();
+  }
+  unsigned position = 0;
+  for (Attribute raw : data ? data : b.getArrayAttr({})) {
+    while (position < count && !names[position].empty()) ++position;
+    names[position++] = cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue();
+  }
+  SmallVector<AstNode> actuals(count);
+  if (call.array("args").size() > count)
+    return error() << "too many direct module arguments";
+  for (size_t i = 0; i < call.array("args").size(); ++i)
+    actuals[i] = call.item("args", i);
+  for (size_t i = 0; i < call.array("keywords").size(); ++i) {
+    auto kw = call.item("keywords", i);
+    auto name = dyn_cast_or_null<StringAttr>(kw.get("arg"));
+    if (!name) return error() << "module calls do not admit **kwargs";
+    auto found = llvm::find(names, name.getValue());
+    if (found == names.end()) {
+      bool staticFormal = false;
+      for (Attribute raw : signature.getAs<ArrayAttr>("parameters"))
+        staticFormal |= cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
+      for (Attribute raw : signature.getAs<ArrayAttr>("type_parameters"))
+        staticFormal |= raw == name;
+      if (staticFormal) continue;
+      return error() << "unknown direct module argument";
+    }
+    unsigned index = std::distance(names.begin(), found);
+    if (actuals[index]) return error() << "repeated direct module argument";
+    actuals[index] = kw.child("value");
+  }
+  for (auto [index, actual] : llvm::enumerate(actuals))
+    if (!actual || actual.kind() == "Starred")
+      return error() << "missing or unsupported direct module argument for parameter '"
+                     << names[index] << "'";
+  return actuals;
+}
+FailureOr<ArrayAttr> Importer::bindModuleReferences(
+    DictionaryAttr signature, const AstNode &call,
+    llvm::StringMap<Instance *> &instances) {
+  auto actuals = moduleActuals(signature, call);
+  if (failed(actuals)) return failure();
+  SmallVector<Attribute> bindings;
+  auto refs = signature.getAs<ArrayAttr>("ac.reference_parameters");
+  for (Attribute raw : refs ? refs : b.getArrayAttr({})) {
+    auto row = cast<DictionaryAttr>(raw);
+    auto actual = (*actuals)[row.getAs<IntegerAttr>("position").getInt()];
+    auto found = actual.kind() == "Name" ? instances.find(actual.string("id")) : instances.end();
+    if (found == instances.end())
+      return error() << "module reference actual must name an existing static Module instance";
+    const Instance &instance = *found->second;
+    if (instance.callee != row.getAs<FlatSymbolRefAttr>("callee"))
+      return error() << "module reference actual has the wrong Module declaration";
+    SmallVector<NamedAttribute> receiver;
+    SmallVector<Attribute> path;
+    if (!instance.reference.empty())
+      receiver.push_back(b.getNamedAttr("reference", b.getStringAttr(instance.reference)));
+    else if (instance.op)
+      path.push_back(instance.op->getAttr("occurrence"));
+    else return error() << "module reference actual lacks allocation identity";
+    receiver.push_back(b.getNamedAttr("instance_path", b.getArrayAttr(path)));
+    bindings.push_back(b.getDictionaryAttr({
+        b.getNamedAttr("name", row.getAs<StringAttr>("name")),
+        b.getNamedAttr("receiver", b.getDictionaryAttr(receiver))}));
+  }
+  return b.getArrayAttr(bindings);
 }

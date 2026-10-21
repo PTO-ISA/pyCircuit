@@ -506,7 +506,7 @@ FailureOr<json::Object> manifest(const Files &files, ac::detail::EmitError emitE
   if (!keys(object, {"kind", "schema", "routed_contract", "owner", "root", "configuration",
                      "configuration_identity", "content_identity", "files", "definitions", "sources", "producer"}) ||
       object->getString("kind") != "pycircuit-anchor" || object->getInteger("schema") != 1 ||
-      object->getInteger("routed_contract") != 1)
+      object->getInteger("routed_contract") != 2)
     return emitError() << "unsupported anchor schema/contract; regenerate from source units";
   auto owner = object->getObject("owner");
   auto producer = object->getObject("producer");
@@ -738,7 +738,7 @@ LogicalResult writeAnchorArtifacts(
         StringRef(path).ends_with("/spec.ac") ? "spec" : "body";
     inventory.push_back(json::Object{{"path", path}, {"role", role}, {"sha256", anchorSha256(text)}});
   }
-  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", 1}, {"routed_contract", 1},
+  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", 1}, {"routed_contract", 2},
     {"owner", json::Object{{"kind", "anchor"}, {"source", json::Object(*rootSource)}, {"definition", root}}},
     {"root", root}, {"configuration", json::Object(*config)}, {"configuration_identity", identity(*config)},
     {"files", std::move(inventory)}, {"definitions", std::move(definitions)}, {"sources", std::move(provenance)},

@@ -46,7 +46,7 @@ def rule(declaration=None, *, guard=None, after=()):
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 
-def method(declaration=None, *, guard=None):
+def method(declaration=None, *, guard=None, after=()):
     """Declare an instance operation within its caller's Rule transaction."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 

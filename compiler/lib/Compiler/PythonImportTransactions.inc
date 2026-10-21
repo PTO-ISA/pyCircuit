@@ -625,9 +625,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   if (!decl.parameters.empty())
     return error()
            << "typed transaction modules do not accept static parameters";
-  if (decl.methodOwner && (decl.sourceInputCount != 0 || !decl.outputs.empty()))
-    return error() << "Method owner cannot declare authored parameters or an "
-                      "ordinary return";
 
   b.setInsertionPointToEnd(body->getBody());
   Operation *module = createOp(
@@ -644,6 +641,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
        b.getNamedAttr("ac.origin",
                       sourceOccurrence(b, decl.symbol, decl.node))},
       1);
+  if (decl.references && !decl.references.empty())
+    module->setAttr("ac.reference_parameters", decl.references);
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
   if (decl.systemSamples)
@@ -697,6 +696,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     // them out of the source value namespace while captureValue records their
     // actual producer identity for raw-view lookup inside Method/Rule regions.
     for (const auto &entry : instances)
+      if (entry.second->op)
       for (Value output : entry.second->op->getResults())
         if (seen.insert(output).second)
           captures.push_back({"", output});
@@ -2213,6 +2213,20 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                                         callable.declaration))},
         2);
 
+    if (auto after = callable.syntax.after) {
+      SmallVector<Attribute> predecessors;
+      for (size_t i = 0; i < after.array("elts").size(); ++i) {
+        StringRef name = after.item("elts", i).string("id");
+        auto predecessor = methods.find(name);
+        if (predecessor == methods.end() ||
+            sameSourceSite(predecessor->second.declaration, callable.declaration))
+          return error() << "callable after requires distinct other local callable declarations";
+        predecessors.push_back(sourceOccurrence(at, decl.symbol,
+                                                predecessor->second.declaration));
+      }
+      if (!predecessors.empty())
+        method->setAttr("ac.callable_after", at.getArrayAttr(predecessors));
+    }
     emittedMethods[methodName] = method;
     for (auto [index, port] : llvm::enumerate(callable.inputs))
       if (callable.syntax.marker == MarkerKind::Rule &&
@@ -2495,7 +2509,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         statement.child("value").kind() == "Call")
       ++instanceCount;
   }
-  instanceStorage.reserve(instanceCount);
+  instanceStorage.reserve(instanceCount + (decl.references ? decl.references.size() : 0));
+  for (Attribute raw : decl.references ? decl.references : at.getArrayAttr({})) {
+    auto reference = cast<DictionaryAttr>(raw);
+    std::string name = reference.getAs<StringAttr>("name").getValue().str();
+    instanceStorage.push_back({name, decl.node, reference.getAs<FlatSymbolRefAttr>("callee")});
+    instanceStorage.back().reference = name;
+    instances[name] = &instanceStorage.back();
+  }
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
     if (statement.kind() == "FunctionDef") {
@@ -2576,6 +2597,19 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         statement.kind() == "For") {
       if (failed(ordinaryStatement(i)))
         return failure();
+      continue;
+    }
+    if (statement.kind() == "Expr" && moduleCall(statement.child("value"))) {
+      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        ordinaryValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      auto results = directModuleResults(statement.child("value"), at, decl.symbol, ordinaryValues, instances);
+      if (failed(results)) return failure();
+      if (!results->empty()) return error() << "Module value results require an explicit binding";
+      ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
       continue;
     }
     if (docstring(statement) || statement.kind() == "Return" ||
@@ -2808,9 +2842,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (earlierRuleData || moduleValues.contains(name))
           return error() << "instance handle cannot be rebound and requires a "
                             "fresh immutable name";
-        if (!value.array("args").empty() || !value.array("keywords").empty())
-          return error()
-                 << "Method owner construction takes no authored parameters";
+        auto referenceContract = callable(value.child("func"));
+        if (failed(referenceContract)) return failure();
+        auto referenceBindings = bindModuleReferences(referenceContract->signature, value, instances);
+        if (failed(referenceBindings)) return failure();
         AstNode function = value.child("func");
         FlatSymbolRefAttr callee;
         Operation *declaration = nullptr;
@@ -2844,6 +2879,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
              at.getNamedAttr("type_arguments", at.getArrayAttr({})),
              at.getNamedAttr("occurrence",
                              sourceOccurrence(at, decl.symbol, statement))});
+        if (!referenceBindings->empty())
+          instance->setAttr("ac.reference_bindings", *referenceBindings);
         instanceStorage.push_back({name.str(), statement, callee, declaration});
         instanceStorage.back().op = instance;
         instanceStorage.back().clockInput = clockInput;
@@ -2872,15 +2909,16 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     for (size_t i = 0; i < after.array("elts").size(); ++i) {
       StringRef name = after.item("elts", i).string("id");
       auto matches = transactionsForCallable.find(name);
-      if (!rules.contains(name) || matches == transactionsForCallable.end() ||
-          matches->second.size() != 1)
-        return error() << "Rule after predecessor must identify exactly one local outer registration";
+      if (!methods.contains(name))
+        return error() << "Rule after predecessor must identify a local callable declaration";
+      if (matches == transactionsForCallable.end() || matches->second.size() != 1)
+        continue;
       Operation *predecessor = matches->second.front();
       if (predecessor == transaction)
         return error() << "Rule after cannot name its own outer registration";
       predecessors.push_back(predecessor->getAttr("occurrence"));
     }
-    transaction->setAttr("ac.after", at.getArrayAttr(predecessors));
+    if (!predecessors.empty()) transaction->setAttr("ac.after", at.getArrayAttr(predecessors));
   }
 
   SmallVector<ValueHelperDecl *> lexicalHelpers;
@@ -3049,6 +3087,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   StringRef methodName;
   std::string specializedMethodName;
   SmallVector<Attribute> path;
+  StringAttr reference;
   FlatSymbolRefAttr moduleSymbol;
   if (function.kind() == "Name" && activeSourceEffects->methods) {
     methodName = function.string("id");
@@ -3096,7 +3135,9 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       }
       moduleSymbol = receiver->callee;
       // Aliases retain the actual instance identity, not their local spelling.
-      path.push_back(at.getStringAttr(receiver->name));
+      if (!receiver->reference.empty())
+        reference = at.getStringAttr(receiver->reference);
+      else path.push_back(at.getStringAttr(receiver->name));
     }
   }
   if (!target && !imported && !nativeQueue && recognizedReceiver)
@@ -3296,6 +3337,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
        at.getNamedAttr("instance_path", at.getArrayAttr(path)),
        at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node)),
        at.getNamedAttr("ac.location", sourceSpan(at, source.path, node))});
+  if (reference) operation->setAttr("ac.reference", reference);
   operation->insertOperands(1, *arguments);
   if (!formalOwnerBindings.empty())
     operation->setAttr("ac.formal_owner_bindings", at.getArrayAttr(formalOwnerBindings));

@@ -111,14 +111,15 @@
       }
       return success();
     };
-    // Registration and invocation inventories have already been replayed from
-    // original source. Rebuild route demands without prepared route indices.
+    // Registration occurrence and invocation inventories have already been
+    // replayed from original source. Derive demands from those source accesses.
     for (auto &entry : result)
-      for (auto registration : entry.module.getBody().front().getOps<ac::SourceTransactionOp>()) {
-        auto index = originalTransactionIndex(registration);
+      for (uint64_t occurrenceIndex : prepared.definitions[prepared.definitionIndex.lookup(entry.module)].transactionIndices) {
+        auto index = originalTransactionIndex(occurrenceIndex);
         if (failed(index)) return failure();
         const auto &transaction = prepared.transactions[*index];
         const auto &plan = *transaction.plan;
+        if (plan.routingModule != entry.module) return reject("queue transaction routing owner differs");
         for (const auto &access : plan.queueAccesses) {
           if (access.kind == ac::TransactionQueueAccessKind::Peek) continue;
           const auto &owner = plan.queueOwners[access.owner];
@@ -136,7 +137,7 @@
           const auto &owner = plan.queueOwners[capture.owner];
           auto path = anchorPath(plan, owner.anchor);
           if (owner.unboundPop &&
-              failed(demand(plan.lexicalModule, path, owner.allocation, false, false))) return failure();
+              failed(demand(plan.routingModule, path, owner.allocation, false, false))) return failure();
           for (unsigned offset = 0; offset < path.size(); ++offset) {
             auto child = dyn_cast_or_null<ac::ModuleOp>(hardware.resolveCallee(path[offset]));
             if (!child || failed(demand(child, ArrayRef<ac::InstanceOp>(path).drop_front(offset + 1),
@@ -278,15 +279,16 @@
     };
     auto appendLocal = [&](ac::ModuleOp module, ArrayRef<ac::InstanceOp> path,
         ac::InstanceOp queue, SmallVectorImpl<Value> &terms,
-        ac::SourceTransactionOp excluding = {}) -> LogicalResult {
+        std::optional<uint64_t> excluding = std::nullopt) -> LogicalResult {
       // Enumerate actual original registrations, then source proposal order.
       // Equal definitions at two instances remain distinct path identities.
-      for (auto registration : module.getBody().front().getOps<ac::SourceTransactionOp>()) {
-        if (registration == excluding) continue;
-        auto index = originalTransactionIndex(registration);
+      for (uint64_t occurrenceIndex : prepared.definitions[prepared.definitionIndex.lookup(module)].transactionIndices) {
+        if (excluding && occurrenceIndex == *excluding) continue;
+        auto index = originalTransactionIndex(occurrenceIndex);
         if (failed(index)) return failure();
         const auto &transaction = prepared.transactions[*index];
         const auto &plan = *transaction.plan;
+        if (plan.routingModule != module) return reject("queue local occurrence routing owner differs");
         uint64_t proposal = 0;
         for (const auto &access : plan.queueAccesses) {
           if (!charge(budget, access.operation)) return failure();
@@ -344,11 +346,12 @@
                 yield->getOperand(output), terms, routes.module, summary.allocation, summary.predicateType)))
           return reject("original queue upward pop summary differs");
       }
-      for (auto registration : routes.module->getRegion(0).front().getOps<ac::SourceTransactionOp>()) {
-        auto index = originalTransactionIndex(registration);
+      for (uint64_t occurrenceIndex : preparedDefinition->transactionIndices) {
+        auto index = originalTransactionIndex(occurrenceIndex);
         if (failed(index)) return failure();
         const auto &transaction = prepared.transactions[*index];
         const auto &plan = *transaction.plan;
+        if (plan.routingModule != routes.module) return reject("queue external occurrence routing owner differs");
         auto external = originalQueueExternalPops(transaction,
             transaction.liveIns.size() + 2 * transaction.forwarding.size());
         if (failed(external)) return failure();
@@ -358,7 +361,7 @@
           auto path = anchorPath(plan, owner.anchor);
           SmallVector<Value> terms;
           if (failed(appendAncestor(routes.module, path, owner.allocation, terms)) ||
-              failed(appendLocal(routes.module, path, owner.allocation, terms, registration)) ||
+              failed(appendLocal(routes.module, path, owner.allocation, terms, *index)) ||
               failed(appendDescendant(routes.module, path, owner.allocation, terms))) return failure();
           if (capture.capture >= rule->getNumOperands() || failed(originalQueueUnionProof(
                   rule->getOperand(capture.capture), terms, routes.module, owner.allocation,

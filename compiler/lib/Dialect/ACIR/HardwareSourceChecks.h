@@ -19,6 +19,12 @@ struct ObservationLocalKey {
 };
 mlir::LogicalResult verifySourceObservationStructure(SourceObserveOp observe);
 mlir::LogicalResult verifyModuleObservationIdentities(ModuleOp definition);
+mlir::LogicalResult verifyRoutedRegistration(
+    const HardwareAnalysis &analysis, RuleOp rule,
+    const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
+mlir::LogicalResult verifyTransactionReturns(
+    const HardwareAnalysis &analysis,
+    const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)> &debit);
 struct ResolvedSourceEffectOwner {
   ModuleOp terminal;
   HardwareBindings bindings;

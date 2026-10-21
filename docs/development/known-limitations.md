@@ -3,7 +3,7 @@
 This records pyCircuit 6.1 limitations and follow-up work.
 Closed `@system` source compilation, generated C++/Verilator simulation, source
 checks, observation publication and failure-atomic state/clock handling now have
-focused independent verification. On 2026-10-18, all 17 current examples passed
+focused independent verification. On 2026-10-18, all 17 then-current examples passed
 the 34-test examples nightly; 54 superseded wrappers were preserved in
 `tests/fixtures/historical_examples/`. The current catalog, scope and evidence
 are recorded in the [example migration report](issue-307-319-examples.md).
@@ -38,7 +38,7 @@ shorter current System scenarios. Full platform and wheel validation remain open
 
 | Area | Current limitation | Follow-up acceptance |
 | --- | --- | --- |
-| System authoring | All 16 registered Systems in the 17-example catalog pass. Historical host-only actions and broader source forms remain outside that evidence. | Preserve the original independent Module oracles and state explicitly which System trajectory was executed. |
+| System authoring | All 16 registered Systems in the 2026-10-18 set of 17 examples passed that run. Historical host-only actions and broader source forms remain outside that evidence. | Preserve the original independent Module oracles and state explicitly which System trajectory was executed. |
 | Queue protocols | Original route/credit/reorder histories and source faults now execute through managed module verification, with independent protocol checkers. Historical direct batch preloads and exceptional host partial commits are not generally expressible by closed default-clock systems. | Preserve token conservation, timing, capacity and backpressure; distinguish supported system trajectories from historical host-only actions. |
 | Source checks | Closed systems and checked ordinary modules execute assertions through both backends. Checked module RTL requires the documented managed phase/commit/error caller boundary. RTL failures do not yet include the native structured check location/ID. | Retain full original vectors, sticky failure and independent failure/zero-commit tests; improve diagnostics without changing hardware semantics. |
 | Observations | Closed-system C++/RTL observations share a deterministic layout, but scalar slots remain capped at 64 bits. Wide and complete four-state observation transport is incomplete. | Verify equivalent events, identity, reset/discard behavior and value/known/Z transport from the same final IR. |
@@ -52,7 +52,7 @@ shorter current System scenarios. Full platform and wheel validation remain open
 | --- | --- | --- |
 | Historical scenarios | Expectation and credit pipelines, persistent schedulers, reset/trace/XZ module contracts have restored source fixtures and owning tests. Aggregate/array/configuration and remaining slot/rate/full-design contracts are incomplete. | Reconcile the current catalog against supported source, independent oracles and registered tests; removed references and catalog mappings are not execution acceptance. |
 | Complete designs | Circular ROB, oldest-ready issue queue and routed dependency pipeline have mapped source fixtures and independent histories. Historical host-only, clock-control and four-state gaps remain; mapping does not establish full-candidate acceptance. | Complete source admission, original algorithms and timing/recovery verification through the existing API/IR/backend path. |
-| Candidate coverage | The 17 current examples and 14 Module receipts have candidate-bound execution evidence. The 54 archived wrappers and older long benches are not covered by that pass; the complete API lit matrix still has 8 failures. | Preserve separate current, historical and NOT RUN evidence through existing manifests. |
+| Candidate coverage | The 2026-10-18 set of 17 examples and 14 Module receipts has candidate-bound execution evidence, predating the sibling-calls example. The 54 archived wrappers and older long benches are not covered by that pass; that complete API lit matrix had 8 failures. | Preserve separate current, historical and NOT RUN evidence through existing manifests. |
 | Portability and packaging | This cleanup does not establish a new full Linux/macOS/Windows release validation or performance baseline. | Run the existing platform/package acceptance workflows before publication. |
 | Authoring experience | Generated Systems use Python benches and the existing CMake source-unit flow. Short DMA/Memory/Table benches coexist with original independent Module verification. Supported partial writes and Queue transactions have focused evidence; general Table-containing branch reconstruction and broader resource combinations remain incomplete. | Follow the current language reference and retain generated System execution and failure-publication evidence through the existing flow. |
 

@@ -65,7 +65,8 @@ struct SelectionBoundary {
   AdmissionControlId control = 0;
 };
 
-/// A module instance relative to the transaction's lexical root. The root has
+/// A module instance relative to the transaction's physical routing ancestor.
+/// Frame zero remains anchored at the actual lexical allocation. The root has
 /// no parent/allocation and an empty occurrence path. Child paths contain the
 /// canonical declaration occurrences, never source instance-name spellings.
 struct TransactionLexicalInstance {
@@ -465,9 +466,19 @@ struct TransactionStateEvent {
 struct TransactionStatePlan {
   SourceTransactionOp transaction;
   ModuleOp lexicalModule;
+  /// Routing is anchored at an actual allocation ancestor, never a rebinding
+  /// of the lexical definition or a duplicate state allocation.
+  ModuleOp routingModule;
+  mlir::ArrayAttr registrationPath;
+  LexicalInstanceId lexicalAnchor = 0;
+  uint64_t ordinal = 0;
   TransactionDomain domain;
-  /// Ancestor outer registrations in dependency order; no sibling/tie-break visibility.
+  /// Lexical source registrations in dependency order, retained for source API
+  /// clients. predecessorIndices supplies full allocated occurrence identity.
   llvm::SmallVector<SourceTransactionOp, 0> predecessors;
+  /// Occurrence-aware identities; ordinals index getPlans(), including repeated
+  /// instantiations of the same lexical registration.
+  llvm::SmallVector<uint64_t, 0> predecessorIndices;
   InvocationFrameId rootFrame = 0;
   GuardBoundaryId guard = 0;
   llvm::SmallVector<TransactionLexicalInstance, 0> instances;
@@ -512,7 +523,7 @@ mlir::FailureOr<bool> memoryReadCoveredBy(
     llvm::function_ref<mlir::LogicalResult(uint64_t)> pay);
 } // namespace detail
 
-/// Read-only analysis of every definition transaction in a builtin ModuleOp
+/// Read-only analysis of every actual transaction occurrence in a builtin ModuleOp
 /// package owning its closure. Native verification and Method summaries remain
 /// authoritative. Whole-Bits effects retain source paths, ordered admission
 /// controls and candidate joins. False and unknown obligations remain explicit.
@@ -523,7 +534,11 @@ class SourceTransactionStateAnalysis {
 public:
   explicit SourceTransactionStateAnalysis(mlir::Operation *package);
   bool isValid() const { return valid; }
+  uint64_t getAnalysisWork() const { return analysisWork; }
   const TransactionStatePlan *lookup(SourceTransactionOp transaction) const;
+  const TransactionStatePlan *lookup(SourceTransactionOp transaction,
+      ModuleOp routingModule, mlir::ArrayAttr registrationPath) const;
+  llvm::ArrayRef<TransactionStatePlan> getPlans() const { return plans; }
 
   /// Print stable source/frame/value identities without pointer addresses or
   /// renewed semantic proof. Dump admission independently preflights every plan
@@ -533,8 +548,7 @@ public:
   mlir::LogicalResult print(llvm::raw_ostream &output) const;
 
 private:
-  llvm::DenseMap<mlir::Operation *, TransactionStatePlan> plans;
-  llvm::SmallVector<mlir::Operation *> transactionOrder;
+  llvm::SmallVector<TransactionStatePlan, 0> plans;
   uint64_t analysisWork = 0;
   bool valid = false;
 };

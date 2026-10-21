@@ -8,6 +8,138 @@
 
 using namespace mlir;
 namespace acir::ac {
+LogicalResult verifySourceReferenceParameters(Operation *module) {
+  Attribute raw = module->getAttr("ac.reference_parameters");
+  if (!raw) return success();
+  auto refs = dyn_cast<ArrayAttr>(raw);
+  if (!refs || refs.empty())
+    return module->emitOpError() << "ac.reference_parameters requires a nonempty formal array";
+  if (module->hasAttr("ac.root_kind"))
+    return module->emitOpError() << "closed System cannot declare Module reference formals";
+  if (isa<ModuleImportOp>(module)) {
+    auto semantic = module->getAttrOfType<StringAttr>("semantic_kind");
+    if (!semantic || semantic.getValue() != "transactions")
+      return module->emitOpError() << "Module reference imports require transaction schema authority";
+  }
+  auto data = module->getAttrOfType<ArrayAttr>("ac.parameters");
+  if (!data) return module->emitOpError() << "Module reference formals require a complete source call contract";
+  unsigned count = refs.size() + (data ? data.size() : 0);
+  llvm::StringSet<> names;
+  for (StringRef field : {"input_names", "output_names", "type_parameters"})
+    if (auto values = module->getAttrOfType<ArrayAttr>(field))
+      for (Attribute value : values) if (auto name = dyn_cast<StringAttr>(value)) names.insert(name.getValue());
+  if (auto values = module->getAttrOfType<ArrayAttr>("parameters"))
+    for (Attribute value : values) {
+      auto row = dyn_cast<DictionaryAttr>(value);
+      auto name = row ? row.getAs<StringAttr>("name") : StringAttr();
+      if (!name) return module->emitOpError() << "invalid static parameter inventory";
+      names.insert(name.getValue());
+    }
+  llvm::DenseSet<int64_t> positions;
+  int64_t previous = -1;
+  for (Attribute item : refs) {
+    auto row = dyn_cast<DictionaryAttr>(item);
+    auto name = row ? row.getAs<StringAttr>("name") : StringAttr();
+    auto callee = row ? row.getAs<FlatSymbolRefAttr>("callee") : FlatSymbolRefAttr();
+    auto position = row ? row.getAs<IntegerAttr>("position") : IntegerAttr();
+    if (!row || row.size() != 3 || !name || !callee || callee.getValue().empty() ||
+        !position || !position.getType().isSignlessInteger(64) || position.getInt() < 0 ||
+        static_cast<uint64_t>(position.getInt()) >= count || position.getInt() <= previous ||
+        !positions.insert(position.getInt()).second || !names.insert(name.getValue()).second ||
+        failed(detail::verifyPythonAstIdentifier(name.getValue(), true, [&] { return module->emitOpError(); })))
+      return module->emitOpError() << "invalid, duplicate or unordered Module reference formal";
+    previous = position.getInt();
+  }
+  return success();
+}
+namespace {
+FailureOr<Operation *> resolveReferenceReceiver(
+    Operation *module, DictionaryAttr receiver, SourceModuleLookup lookup,
+    Operation *site, uint64_t &work, bool formalsVerified) {
+  auto charge = [&]() { return ++work <= 1024 * 1024; };
+  auto path = receiver ? receiver.getAs<ArrayAttr>("instance_path") : ArrayAttr();
+  auto reference = receiver ? receiver.getAs<StringAttr>("reference") : StringAttr();
+  if (!receiver || !path || receiver.size() != (reference ? 2u : 1u) || path.size() > 128)
+    return site->emitOpError() << "invalid Module reference receiver";
+  Operation *target = module;
+  if (reference) {
+    if (!formalsVerified && failed(verifySourceReferenceParameters(module))) return failure();
+    FlatSymbolRefAttr callee;
+    if (auto refs = module->getAttrOfType<ArrayAttr>("ac.reference_parameters"))
+      for (Attribute raw : refs) {
+        if (!charge()) return site->emitOpError() << "Module reference receiver work budget exceeded";
+        auto row = cast<DictionaryAttr>(raw);
+        if (row.getAs<StringAttr>("name") == reference) callee = row.getAs<FlatSymbolRefAttr>("callee");
+      }
+    if (!callee || !(target = lookup(callee)) || !isa<ModuleOp, ModuleImportOp>(target))
+      return site->emitOpError() << "Module reference must name a declared formal and available Module provider";
+  } else if (path.empty())
+    return site->emitOpError() << "Module reference actual must identify an existing allocation";
+  for (Attribute endpoint : path) {
+    FlatSymbolRefAttr callee;
+    auto consider = [&](DictionaryAttr occurrence, FlatSymbolRefAttr candidate) -> LogicalResult {
+      if (!charge()) return site->emitOpError() << "Module reference receiver work budget exceeded";
+      if (endpoint != occurrence) return success();
+      if (callee) return site->emitOpError() << "ambiguous Module reference allocation";
+      callee = candidate; return success();
+    };
+    if (auto body = dyn_cast<ModuleOp>(target)) {
+      if (!body.getBody().hasOneBlock()) return site->emitOpError() << "Module reference provider requires one body block";
+      for (auto instance : body.getBody().front().getOps<InstanceOp>())
+        if (failed(consider(instance.getOccurrence(), instance.getCalleeAttr()))) return failure();
+    } else if (auto summary = target->getAttrOfType<DictionaryAttr>("transaction_summary")) {
+      auto owners = summary.getAs<ArrayAttr>("owners");
+      if (!owners) return site->emitOpError() << "Module reference provider requires instance owners";
+      for (Attribute raw : owners) {
+        auto row = dyn_cast<DictionaryAttr>(raw);
+        auto kind = row ? row.getAs<StringAttr>("kind") : StringAttr();
+        if (!kind) return site->emitOpError() << "Module reference provider has an invalid owner row";
+        if (kind.getValue() == "instance" &&
+            failed(consider(row.getAs<DictionaryAttr>("occurrence"), row.getAs<FlatSymbolRefAttr>("callee")))) return failure();
+      }
+    }
+    auto occurrence = dyn_cast<DictionaryAttr>(endpoint);
+    if (!occurrence || failed(detail::verifyOccurrence(occurrence, [&] { return site->emitOpError(); })) ||
+        failed(detail::verifyOriginDefinition(occurrence, FlatSymbolRefAttr::get(SymbolTable::getSymbolName(target)),
+                                             "Module reference allocation", [&] { return site->emitOpError(); })) ||
+        !callee || !(target = lookup(callee)) || !isa<ModuleOp, ModuleImportOp>(target))
+      return site->emitOpError() << "Module reference path must identify an existing allocation and provider";
+  }
+  return target;
+}
+} // namespace
+FailureOr<Operation *> resolveSourceReferenceReceiver(
+    Operation *module, DictionaryAttr receiver, SourceModuleLookup lookup, Operation *site) {
+  uint64_t work = 0;
+  return resolveReferenceReceiver(module, receiver, lookup, site, work, false);
+}
+LogicalResult verifySourceReferenceBindings(Operation *module, Operation *callee,
+    Attribute raw, SourceModuleLookup lookup, Operation *site) {
+  if (!callee) return site->emitOpError() << "Module reference binding requires an available callee provider";
+  if (failed(verifySourceReferenceParameters(callee))) return failure();
+  auto refs = callee->getAttrOfType<ArrayAttr>("ac.reference_parameters");
+  auto bindings = dyn_cast_or_null<ArrayAttr>(raw);
+  if (!refs) {
+    if (raw) return site->emitOpError() << "unexpected Module reference bindings";
+    return success();
+  }
+  if (!bindings || bindings.size() != refs.size())
+    return site->emitOpError() << "Module reference bindings must bind every declared formal exactly once";
+  if (failed(verifySourceReferenceParameters(module))) return failure();
+  uint64_t work = 0;
+  for (auto [formal, actual] : llvm::zip(refs, bindings)) {
+    auto ref = cast<DictionaryAttr>(formal);
+    auto row = dyn_cast<DictionaryAttr>(actual);
+    if (!row || row.size() != 2 || row.getAs<StringAttr>("name") != ref.getAs<StringAttr>("name"))
+      return site->emitOpError() << "Module reference bindings must follow unique formal declaration order";
+    auto target = resolveReferenceReceiver(module, row.getAs<DictionaryAttr>("receiver"), lookup, site, work, true);
+    if (failed(target)) return failure();
+    if (SymbolTable::getSymbolName(*target).getValue() != ref.getAs<FlatSymbolRefAttr>("callee").getValue())
+      return site->emitOpError() << "Module reference binding has the wrong nominal Module provider";
+  }
+  return success();
+}
+
 namespace {
 // Symbol-use checks run before child custom verifiers. Validate only the
 // receiver header here; never recurse into body verification or Method calls.
@@ -730,7 +862,8 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
                                         SourceModuleLookup lookup,
                                         Operation *site,
                                         SourceReceiverProofContext *context = nullptr,
-                                        const SourceReceiverProofFees *fees = nullptr) {
+                                        const SourceReceiverProofFees *fees = nullptr,
+                                        StringAttr reference = {}) {
   if (context && !fees) return failure();
   auto header = [&](Operation *module) -> LogicalResult {
     return context ? success(succeeded(context->prepare(module, site, *fees)))
@@ -752,6 +885,15 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
   HardwareBindings bindings = parent;
   if (!bindings.owner)
     bindings.owner = caller;
+  if (reference) {
+    Builder builder(site->getContext());
+    auto symbolic = builder.getDictionaryAttr({builder.getNamedAttr("reference", reference),
+        builder.getNamedAttr("instance_path", builder.getArrayAttr({}))});
+    auto start = resolveSourceReferenceReceiver(caller, symbolic, lookup, site);
+    if (failed(start) || failed(header(*start)) || failed(admitDependency(caller, *start, site))) return failure();
+    owner = *start;
+    bindings = HardwareBindings(); bindings.owner = owner;
+  }
   SmallVector<Attribute> occurrences;
   InstanceOp terminalInstance;
   DictionaryAttr terminalOwnerRow;
@@ -861,7 +1003,7 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
         return site->emitOpError()
                << "Method receiver provider snapshot is invalid";
       for (StringRef field : {"source_owner", "function_type", "parameters",
-                              "type_parameters", "primitive_kind"})
+                              "type_parameters", "primitive_kind", "ac.reference_parameters"})
         if (bindingTarget->getAttr(field) != target->getAttr(field))
           return site->emitOpError()
                  << "Method receiver provider snapshot differs from authority: "
@@ -1025,6 +1167,10 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
       site->getContext(),
       {NamedAttribute(StringAttr::get(site->getContext(), "instance_path"),
                       ArrayAttr::get(site->getContext(), occurrences))});
+  if (reference) {
+    NamedAttrList symbolic(receiver); symbolic.append("reference", reference);
+    receiver = symbolic.getDictionary(site->getContext());
+  }
   return ResolvedSourceMethod{method, bindings, receiver};
 }
 } // namespace
@@ -1051,7 +1197,7 @@ resolveSourceMethodCall(SourceMethodCallOp call,
     return call.emitOpError()
            << "Method call parent bindings must belong to its lexical module";
   return resolve(caller, call.getCalleeAttr(), call.getInstancePath(), true,
-                 parent, lookup, call, context, fees);
+                 parent, lookup, call, context, fees, call->getAttrOfType<StringAttr>("ac.reference"));
 }
 FailureOr<ResolvedSourceMethod>
 resolveSourceMethodCall(Operation *caller, DictionaryAttr row,
@@ -1063,7 +1209,8 @@ resolveSourceMethodCall(Operation *caller, DictionaryAttr row,
   auto resolved = resolve(caller, row.getAs<SymbolRefAttr>("callee"),
                           receiver ? receiver.getAs<ArrayAttr>("instance_path")
                                    : ArrayAttr(),
-                          false, parent, lookup, site);
+                          false, parent, lookup, site, nullptr, nullptr,
+                          receiver ? receiver.getAs<StringAttr>("reference") : StringAttr());
   if (failed(resolved))
     return failure();
   if (auto rows = row.getAs<ArrayAttr>("ac.formal_owner_bindings")) {

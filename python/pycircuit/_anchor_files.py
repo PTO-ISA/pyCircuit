@@ -186,7 +186,7 @@ def _validate_manifest(value: object) -> None:
         or type(manifest["schema"]) is not int
         or manifest["schema"] != 1
         or type(manifest["routed_contract"]) is not int
-        or manifest["routed_contract"] != 1
+        or manifest["routed_contract"] != 2
     ):
         raise _PublicationError(
             "unsupported anchor format/contract; regenerate from source units"

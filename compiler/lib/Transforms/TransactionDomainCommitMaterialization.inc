@@ -6,13 +6,13 @@ FailureOr<bool> unorderedOwnerGroup(const PreparedTransactionLowering &prepared,
   auto target = routingKey(anchorPath(plan, physical.anchor), physical.declaration->getResult(0));
   for (const auto &peer : prepared.transactions) {
     if (!charge(budget, plan.transaction)) return failure();
-    if (peer.plan == &plan || peer.plan->lexicalModule != plan.lexicalModule) continue;
+    if (peer.plan == &plan || peer.plan->routingModule != plan.routingModule) continue;
     for (const auto &output : peer.outputs) {
       if (!charge(budget, plan.transaction)) return failure();
       const auto &other = peer.plan->owners[output.binding.owner];
       if (routingKey(anchorPath(*peer.plan, other.anchor), other.declaration->getResult(0)) != target) continue;
-      if (!llvm::is_contained(plan.predecessors, peer.plan->transaction) &&
-          !llvm::is_contained(peer.plan->predecessors, plan.transaction)) return true;
+      if (!llvm::is_contained(plan.predecessorIndices, peer.plan->ordinal) &&
+          !llvm::is_contained(peer.plan->predecessorIndices, plan.ordinal)) return true;
     }
   }
   return false;

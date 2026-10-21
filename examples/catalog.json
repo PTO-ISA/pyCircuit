@@ -17,6 +17,14 @@
       "system_scope": "Eight literal known-input cases; generated C++ workers 1/2 and RTL; separate typed instance results without aggregate packing."
     },
     {
+      "name": "sibling_calls",
+      "folder": "examples/sibling_calls",
+      "source": "sibling_calls.py",
+      "system": "SiblingCalls",
+      "system_cycles": 4,
+      "system_scope": "Three independent source units, shared sibling Counter reference and callable after propagation; independent 6, 7, 7, 7 observations with C++ workers 1/2 and RTL."
+    },
+    {
       "name": "multiclock_domain_isolation",
       "folder": "examples/multiclock_domain_isolation",
       "source": "multiclock_domain_isolation.py",

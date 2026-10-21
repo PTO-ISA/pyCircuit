@@ -1132,7 +1132,9 @@ private:
       for (StringRef key :
            {"occurrence", "ac.required_checks", "ac.check_id", "location",
             "ac.message", "ac.sampled_admission", "ac.transaction_wiring",
-            "ac.queue_wiring", "ac.system_samples"}) {
+            "ac.queue_wiring", "ac.system_samples", "ac.registration_path",
+            "ac.lexical_registration", "ac.registration_owner",
+            "ac.transaction_returns"}) {
         Attribute attribute = op->getAttr(key);
         auto cost = structureCost(attribute, op);
         if (failed(cost))

@@ -49,9 +49,9 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
         package->hasAttr("ac.unit_kind") || !stage ||
         (stage.getValue() != "routed" && stage.getValue() != "final") ||
         !version || !version.getType().isSignlessInteger(64) ||
-        version.getValue() != 1)
+        version.getValue() != 2)
       return operation->emitOpError()
-             << "ac.routed_contract requires version 1 : i64 on the top-level "
+             << "ac.routed_contract requires version 2 : i64 on the top-level "
                 "routed or final package; regenerate unsupported artifacts";
     return success();
   }

@@ -202,6 +202,33 @@ independent lowering proof constructs its own receiver context and SSA identity
 index from the original IR; it never accepts the producer's cached result as
 proof. Contexts do not survive IR mutation or cross analysis/proof invocations.
 
+Static Module reference formals publish their nominal callee and authored
+argument position separately from physical data inputs. Instance bindings retain
+canonical allocation occurrences or a forwarded reference formal; Method
+receivers can name that formal plus a static path suffix. Callable declaration
+`after` edges publish even without autonomous registrations. Summaries using
+any of these semantics require `schema = 2 : i64`; removing the marker or
+altering the body/interface pair rejects. Earlier consumers reject the new
+summary field rather than silently dropping its semantics. Unused reference
+formals still require this transaction interface contract.
+
+A definition with unbound reference formals remains an authenticated source
+template until an ordinary Module actually allocates it. Link validates all
+supplied source contracts, including callable declaration order, then excludes
+only reference templates with no allocation path from any closed ordinary
+Module definition. The input source units and their published interfaces remain
+unchanged. Unused ordinary definitions retain their existing checks. Selecting
+an unbound reference template itself as the link root is rejected.
+
+Link resolves these bindings against actual allocation occurrences. Connected
+transactions route at their common ordinary ancestor without cloning state or
+storing a top-specific absolute path in a shared definition. The registration
+identity includes its lexical allocation path. Public Rule results and their
+whole-transaction availability return through compiler-owned input pairs to
+their original consumers. Both source authentication and independent routed
+verification check those connections. Source references and callable contracts
+cannot remain as inert annotations in routed or final hardware.
+
 Before transaction planning, link removes exact-type identity extracts and
 pools equal literal constants used exclusively by same-block aggregate
 constructors. Source units are authenticated before this normalization and are
@@ -239,7 +266,10 @@ Collections. Candidate D values come from isolated pure Rules. All
 staged hardware checks succeed before the package becomes final.
 
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
-its input IR. Each outer transaction starts from old Q; nested Method calls
+its input IR. Each unordered outer transaction starts from old Q; ordered entry
+state selects earlier candidates using whole-transaction fire and per-state
+write intent. Transitive callable order is resolved per actual instance and
+merged with explicit registration order before routing. Nested Method calls
 share that transaction's candidate versions while keeping ordinary SSA values
 as snapshots. A bounded branch forks the same incoming data/raw-intent pair into
 both arms and joins both components with the original four-state selector.

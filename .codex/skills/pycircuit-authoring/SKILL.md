@@ -29,8 +29,9 @@ language reference and execution evidence determine supported features.
   independent functions into separate Rules. Nested/cross-Module calls retain
   the outer transaction; they do not create another commit or cycle.
 - Statements inside a Rule see earlier assignments. A saved local is a snapshot.
-  Independent autonomous Rules observe committed values; explicit local `after`
-  supplies ordered visibility. Source definition order alone is not scheduling.
+  Independent autonomous Rules observe committed values; explicit `after` on
+  callable declarations supplies ordered visibility and propagates to callers
+  of the same actual instance. Source definition order alone is not scheduling.
 
 ## Keep interfaces small
 

@@ -27,11 +27,13 @@
     // actual lexical edges and physical pin roles, rather than candidate rows.
     llvm::DenseMap<Operation *, SmallVector<PinKey, 0>> routes;
     for (auto registration : prepared.original->getRegion(0).front().getOps<ac::ModuleOp>()) {
-      for (auto original : registration.getBody().front().getOps<ac::SourceTransactionOp>()) {
-        auto transactionIndex = originalTransactionIndex(original);
+      const auto &routing = prepared.definitions[prepared.definitionIndex.lookup(registration)];
+      for (uint64_t occurrenceIndex : routing.transactionIndices) {
+        auto transactionIndex = originalTransactionIndex(occurrenceIndex);
         if (failed(transactionIndex)) return failure();
         const auto &transaction = prepared.transactions[*transactionIndex];
         const auto &plan = *transaction.plan;
+        if (plan.routingModule != registration) return reject("Memory transaction routing owner differs");
         uint64_t proposalOrdinal = 0;
         for (auto [accessId, access] : llvm::enumerate(plan.memoryAccesses)) {
           if (access.kind == ac::TransactionMemoryAccessKind::Result) continue;
@@ -47,7 +49,7 @@
           unsigned argument = 0;
           auto rule = candidate.transactions[*transactionIndex].rule;
           for (unsigned operand : operands) {
-            auto local = demand(plan.lexicalModule, path, owner.allocation, operand);
+            auto local = demand(plan.routingModule, path, owner.allocation, operand);
             if (failed(local)) return failure();
             bool enable = access.kind == ac::TransactionMemoryAccessKind::Write && operand == owner.layout.writeEnableOperand;
             enable |= access.kind == ac::TransactionMemoryAccessKind::Request && operand == owner.layout.readEnableOperands[access.port];

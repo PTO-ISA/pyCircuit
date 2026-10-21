@@ -1,6 +1,7 @@
 #include "SourceLink.h"
 #include "LiteralPayloadWires.h"
 #include "SourceHeaderHelpers.h"
+#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
@@ -9,8 +10,10 @@
 #include "mlir/Pass/PassInstrumentation.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -52,6 +55,96 @@ public:
         constant.erase();
       }
     }
+  }
+};
+
+// Reference formals describe a source template, not a second physical state
+// allocation. Authenticate every supplied definition first, then remove only
+// reference templates with no actual instance reachable from any closed
+// ordinary definition. Ordinary unused definitions retain existing validation.
+class DiscardUninstantiatedReferenceTemplatesPass final
+    : public PassWrapper<DiscardUninstantiatedReferenceTemplatesPass,
+                         OperationPass<mlir::ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DiscardUninstantiatedReferenceTemplatesPass)
+  void runOnOperation() final {
+    auto package = getOperation();
+    bool hasReferences = llvm::any_of(package.getOps<ac::ModuleOp>(), [](ac::ModuleOp module) {
+      return module->hasAttr("ac.reference_parameters");
+    });
+    if (!hasReferences) return;
+    ac::SourceMethodSummariesAnalysis summaries(package);
+    if (!summaries.isValid()) { signalPassFailure(); return; }
+    for (auto module : package.getOps<ac::ModuleOp>())
+      if (failed(summaries.getPublicationSummary(module))) {
+        signalPassFailure();
+        return;
+      }
+    ac::HardwareSourceCheckLimits limits;
+    limits.maxWorkUnits = 1024 * 1024;
+    ac::detail::SourceCheckBudget budget(limits);
+    budget.setPhase("uninstantiated source reference templates");
+    ac::HardwareAnalysis hardware(package);
+    SmallVector<ac::ModuleOp, 0> pending, unused;
+    llvm::DenseSet<Operation *> reachable, discarded;
+    auto push = [&](ac::ModuleOp module) -> LogicalResult {
+      if (failed(budget.debit(8 + ac::detail::SourceCheckBudget::bytes(
+              sizeof(Operation *) * 16), module))) return failure();
+      if (reachable.insert(module).second) pending.push_back(module);
+      return success();
+    };
+    // Every ordinary definition is a legitimate closed hardware root even if
+    // another (possibly unused) template also allocates it. This preserves the
+    // existing rejection of conflicts in unused ordinary definitions.
+    for (auto module : package.getOps<ac::ModuleOp>())
+      if (!module->hasAttr("ac.reference_parameters") && failed(push(module))) {
+        signalPassFailure();
+        return;
+      }
+    while (!pending.empty()) {
+      auto module = pending.pop_back_val();
+      for (Operation &operation : module.getBody().front()) {
+        if (failed(budget.debit(1, &operation))) { signalPassFailure(); return; }
+        Operation *callee = nullptr;
+        if (auto instance = dyn_cast<ac::InstanceOp>(operation)) callee = hardware.resolveCallee(instance);
+        else if (auto collection = dyn_cast<ac::CollectionOp>(operation)) callee = hardware.resolveCallee(collection);
+        if (auto child = dyn_cast_or_null<ac::ModuleOp>(callee))
+          if (failed(push(child))) { signalPassFailure(); return; }
+      }
+    }
+    for (auto module : package.getOps<ac::ModuleOp>()) {
+      if (failed(budget.debit(8, module))) { signalPassFailure(); return; }
+      if (module->hasAttr("ac.reference_parameters") && !reachable.contains(module)) {
+        unused.push_back(module);
+        discarded.insert(module);
+      }
+    }
+    // Independently check the removal boundary against the original actual
+    // allocation graph. No retained Instance/Collection or selected entry may
+    // lose its provider, and no source artifact is edited by this clone pass.
+    for (auto module : package.getOps<ac::ModuleOp>()) {
+      if (discarded.contains(module)) continue;
+      for (Operation &operation : module.getBody().front()) {
+        if (failed(budget.debit(1, &operation))) { signalPassFailure(); return; }
+        Operation *callee = nullptr;
+        if (auto instance = dyn_cast<ac::InstanceOp>(operation)) callee = hardware.resolveCallee(instance);
+        else if (auto collection = dyn_cast<ac::CollectionOp>(operation)) callee = hardware.resolveCallee(collection);
+        if (discarded.contains(callee)) {
+          operation.emitOpError("source reference template removal would lose an actual allocation");
+          signalPassFailure();
+          return;
+        }
+      }
+    }
+    for (auto system : package.getOps<ac::SystemOp>()) {
+      auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
+      if (discarded.contains(hardware.lookupDefinition(callee.getValue()))) {
+        system.emitOpError("selected root has unbound source Module references");
+        signalPassFailure();
+        return;
+      }
+    }
+    for (auto module : unused) module.erase();
   }
 };
 
@@ -248,6 +341,10 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   if (!root)
     return emitError() << "link top is not a supplied module definition: @"
                        << top;
+  if (root->hasAttr("ac.reference_parameters"))
+    return root.emitOpError()
+           << "link top cannot have unbound Module references; instantiate it "
+              "inside a Module or System with existing instances";
   if (!root.getTypeParameters().empty())
     return root.emitOpError(
         "source link requires concrete root type arguments");
@@ -343,6 +440,7 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   PassManager pipeline(context);
   pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
   pipeline.addPass(std::make_unique<CompactLiteralPayloadWiresPass>());
+  pipeline.addPass(std::make_unique<DiscardUninstantiatedReferenceTemplatesPass>());
   if (ac::detail::findUnloweredTransaction(linked->getOperation()))
     pipeline.addPass(acir::createAnalyzeTransactionStateSSAPass());
   auto route = acir::createRouteTransactionsPass();

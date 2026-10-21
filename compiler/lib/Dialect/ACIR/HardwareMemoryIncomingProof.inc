@@ -2,9 +2,14 @@
     auto ports = getModulePortLayout(module);
     if (failed(ports)) return failure();
     uint64_t start = ports->sourceInputCount;
-    if (auto wiring = module->getAttrOfType<DictionaryAttr>("ac.transaction_wiring")) {
-      auto incoming = wiring.getAs<ArrayAttr>("incoming");
-      if (!incoming) return failure();
+    for (StringRef name : {"ac.transaction_wiring", "ac.transaction_returns"}) {
+      Attribute raw = module->getAttr(name);
+      if (!raw) continue;
+      auto wiring = dyn_cast<DictionaryAttr>(raw);
+      auto incoming = wiring ? wiring.getAs<ArrayAttr>("incoming") : ArrayAttr();
+      if (!incoming)
+        return module->emitOpError() << name << " requires an incoming route array";
+      if (failed(step(module, SourceCheckBudget::add(1, incoming.size())))) return failure();
       start = SourceCheckBudget::add(start, SourceCheckBudget::multiply(2, incoming.size()));
     }
     if (auto wiring = module->getAttrOfType<DictionaryAttr>("ac.queue_wiring")) {

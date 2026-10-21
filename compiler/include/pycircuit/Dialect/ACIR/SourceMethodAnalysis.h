@@ -14,6 +14,16 @@ namespace acir::ac {
 using SourceModuleLookup =
     llvm::function_ref<mlir::Operation *(mlir::FlatSymbolRefAttr)>;
 
+/// Compile-time Module reference contracts. Receivers retain declaration-relative
+/// symbolic references until link resolves their actual allocation identities.
+mlir::LogicalResult verifySourceReferenceParameters(mlir::Operation *module);
+mlir::FailureOr<mlir::Operation *> resolveSourceReferenceReceiver(
+    mlir::Operation *module, mlir::DictionaryAttr receiver,
+    SourceModuleLookup lookup, mlir::Operation *site);
+mlir::LogicalResult verifySourceReferenceBindings(
+    mlir::Operation *module, mlir::Operation *callee, mlir::Attribute bindings,
+    SourceModuleLookup lookup, mlir::Operation *site);
+
 /// Checked allocation authority, borrowed from an actual body or import row.
 /// Imported payload types and configuration never consult a provider body.
 struct SourceQueueView {

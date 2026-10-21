@@ -91,7 +91,7 @@ def _artifact(root: Path):
     manifest = {
         "kind": "pycircuit-anchor",
         "schema": 1,
-        "routed_contract": 1,
+        "routed_contract": 2,
         "owner": {"kind": "anchor", "source": source, "definition": symbol},
         "root": symbol,
         "configuration": configuration,
@@ -147,6 +147,7 @@ def test_portable_snapshot_is_byte_exact_and_creates_no_input_controls(tmp_path)
         "unknown-field",
         "bool-version",
         "future-version",
+        "old-version",
         "duplicate-definition",
         "duplicate-source",
         "duplicate-path",
@@ -169,7 +170,9 @@ def test_closed_manifest_rejections(tmp_path, damage):
     elif damage == "bool-version":
         manifest["schema"] = True
     elif damage == "future-version":
-        manifest["routed_contract"] = 2
+        manifest["routed_contract"] = 3
+    elif damage == "old-version":
+        manifest["routed_contract"] = 1
     elif damage == "duplicate-definition":
         manifest["definitions"] *= 2
     elif damage == "duplicate-source":
@@ -321,7 +324,18 @@ def test_payload_changed_during_read_rejects_snapshot(tmp_path, monkeypatch):
         data = original_read(descriptor, count)
         if data == b"graph transport\n" and not changed:
             changed = True
-            (source / "graph.ac").write_bytes(b"graph corrupt!!\n")
+            before = os.fstat(descriptor)
+            graph = source / "graph.ac"
+            graph.write_bytes(b"graph corrupt!!\n")
+            # Same-size writes can share the filesystem's timestamp tick. Make
+            # this in-place mutation observable without changing its size/inode.
+            os.utime(
+                graph,
+                ns=(before.st_atime_ns, before.st_mtime_ns + 2_000_000_000),
+            )
+            after = os.fstat(descriptor)
+            assert after.st_ino == before.st_ino and after.st_size == before.st_size
+            assert after.st_mtime_ns != before.st_mtime_ns
         return data
 
     monkeypatch.setattr(anchor.os, "read", change_after_read)

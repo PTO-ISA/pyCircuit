@@ -43,7 +43,7 @@ std::string preamble() {
 
 std::string statePackage(llvm::StringRef extra = "") {
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64} {
+module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %candidate: !b7, %intent: !b1, %wide_intent: !b2):
     %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
@@ -59,7 +59,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64} {
 
 std::string externPackage() {
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64} {
+module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
   "ac.module.import"() {sym_name = "external.combine", source_owner = #owner, semantic_kind = "hardware", parameters = [], type_parameters = [], function_type = (!b7, !b7) -> !b7, input_names = ["left", "right"], output_names = ["combined"], dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = [{port = 0 : i64, path = []}, {port = 1 : i64, path = []}]}], ac.external_contract = {state = "none", effects = [], latency = 0 : i64, availability = "all_inputs", value_domain = "four_state", failure = "none"}} : () -> ()
 }
 )ir";
@@ -69,7 +69,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64} {
 // logical allocation, and Q/false is the independently specified hold binding.
 std::string fullStateAnchor() {
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64, ac.source_units = [#owner]} {
+module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1):
     %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
@@ -115,7 +115,7 @@ std::string fullExternAnchor(bool cycle = false, bool zeroInputs = false,
     graph.replace(graph.find(yielded), yielded.size(), "\"ac.yield\"(%value)");
   }
   return preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64, ac.source_units = [#owner]} {
+module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
   "ac.module.import"() {sym_name = "External", source_owner = #owner, semantic_kind = "hardware", parameters = [], type_parameters = [], )ir" +
          declaration +
          R"ir(, ac.external_contract = {state = "none", effects = [], latency = 0 : i64, availability = "all_inputs", value_domain = "four_state", failure = "none"}} : () -> ()
@@ -131,7 +131,7 @@ std::string fullWrittenAnchor() {
   return preamble() + R"ir(
 #id = {registration = #child_occ, check = #child_occ, obligation = 0 : i64}
 #state_id = {owner = {instance_path = []}, declaration = #occ, element = []}
-module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64, ac.source_units = [#owner]} {
+module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1):
     %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
@@ -310,7 +310,7 @@ TEST_F(RoutedAnchorTest, IntentMustResolveToOneBit) {
 
 TEST_F(RoutedAnchorTest, CandidateMustKeepExactNominalIdentity) {
   auto text = preamble() + R"ir(
-module attributes {ac.stage = "routed", ac.routed_contract = 1 : i64} {
+module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64} {
   "ac.enum"() {sym_name = "Left", width = #ac.math_int<7>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}]} : () -> ()
   "ac.enum"() {sym_name = "Right", width = #ac.math_int<7>, encoding = "explicit", members = [{name = "ZERO", code = #ac.math_int<0>}]} : () -> ()
   "ac.module"() ({
@@ -352,14 +352,14 @@ TEST_F(RoutedAnchorTest, UpdateRejectsSourceFinalAndUnstagedPlacement) {
       (*file)->removeAttr("ac.stage");
     else
       (*file)->setAttr("ac.stage", builder.getStringAttr(stage));
-    rejects([&] { return update.verify(); }, "routed contract-1 package");
+    rejects([&] { return update.verify(); }, "routed contract-2 package");
   }
   auto file = parse(statePackage());
   ASSERT_TRUE(file);
   auto update = find<StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   (*file)->setAttr("ac.unit_kind", builder.getStringAttr("body"));
-  rejects([&] { return update.verify(); }, "routed contract-1 package");
+  rejects([&] { return update.verify(); }, "routed contract-2 package");
 }
 
 TEST_F(RoutedAnchorTest, LogicalStateIsForbiddenInFinalEvenWithoutProvenance) {
@@ -376,19 +376,29 @@ TEST_F(RoutedAnchorTest, UpdateRequiresTheRoutedContractMarker) {
   auto update = find<StateUpdateOp>(*file);
   ASSERT_TRUE(update);
   (*file)->removeAttr("ac.routed_contract");
-  rejects([&] { return update.verify(); }, "routed contract-1 package");
+  rejects([&] { return update.verify(); }, "routed contract-2 package");
 }
 
 TEST_F(RoutedAnchorTest, ContractMarkerRejectsMalformedAndUnknownVersions) {
   for (mlir::Attribute invalid :
-       {mlir::Attribute(builder.getStringAttr("1")),
-        mlir::Attribute(builder.getI32IntegerAttr(1)),
+       {mlir::Attribute(builder.getStringAttr("2")),
+        mlir::Attribute(builder.getI32IntegerAttr(2)),
         mlir::Attribute(builder.getI64IntegerAttr(0)),
-        mlir::Attribute(builder.getI64IntegerAttr(2))}) {
+        mlir::Attribute(builder.getI64IntegerAttr(1)),
+        mlir::Attribute(builder.getI64IntegerAttr(3))}) {
     auto file = parse("module attributes {ac.stage = \"routed\"} {}");
     ASSERT_TRUE(file);
     (*file)->setAttr("ac.routed_contract", invalid);
-    rejects(*file, "ac.routed_contract requires version 1 : i64");
+    rejects(*file, "ac.routed_contract requires version 2 : i64");
+  }
+}
+
+TEST_F(RoutedAnchorTest, PreviousContractVersionIsRejectedAtBothGraphStages) {
+  for (llvm::StringRef stage : {"routed", "final"}) {
+    auto file = parse("module attributes {ac.stage = \"" + stage.str() +
+                      "\", ac.routed_contract = 1 : i64} {}");
+    ASSERT_TRUE(file);
+    rejects(*file, "ac.routed_contract requires version 2 : i64");
   }
 }
 
@@ -396,20 +406,20 @@ TEST_F(RoutedAnchorTest, ContractMarkerRequiresTopLevelRoutedOrFinalPackage) {
   for (llvm::StringRef stage : {"source", "unsupported", ""}) {
     auto file = parse("module {}");
     ASSERT_TRUE(file);
-    (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(1));
+    (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
     if (!stage.empty())
       (*file)->setAttr("ac.stage", builder.getStringAttr(stage));
-    rejects(*file, "ac.routed_contract requires version 1 : i64");
+    rejects(*file, "ac.routed_contract requires version 2 : i64");
   }
   auto source = parse("module attributes {ac.stage = \"routed\", ac.unit_kind "
-                      "= \"body\", ac.routed_contract = 1 : i64} {}");
+                      "= \"body\", ac.routed_contract = 2 : i64} {}");
   ASSERT_TRUE(source);
-  rejects(*source, "ac.routed_contract requires version 1 : i64");
+  rejects(*source, "ac.routed_contract requires version 2 : i64");
   for (llvm::StringRef stage : {"routed", "final"}) {
     auto nested =
         parse("module attributes {ac.stage = \"" + stage.str() +
-              "\", ac.routed_contract = 1 : i64} { module attributes "
-              "{ac.stage = \"routed\", ac.routed_contract = 1 : i64} {} }");
+              "\", ac.routed_contract = 2 : i64} { module attributes "
+              "{ac.stage = \"routed\", ac.routed_contract = 2 : i64} {} }");
     ASSERT_TRUE(nested);
     // Root identity is established by consuming the actual package. Generic
     // parsing can temporarily nest that package inside a parser-owned module.
@@ -424,8 +434,8 @@ TEST_F(RoutedAnchorTest, ContractMarkerRequiresTopLevelRoutedOrFinalPackage) {
   ASSERT_TRUE(onDefinition);
   auto definition = find<ModuleOp>(*onDefinition);
   ASSERT_TRUE(definition);
-  definition->setAttr("ac.routed_contract", builder.getI64IntegerAttr(1));
-  rejects(*onDefinition, "ac.routed_contract requires version 1 : i64");
+  definition->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
+  rejects(*onDefinition, "ac.routed_contract requires version 2 : i64");
 }
 
 TEST_F(RoutedAnchorTest,
@@ -433,10 +443,10 @@ TEST_F(RoutedAnchorTest,
   auto file = parse("module attributes {ac.stage = \"final\"} {}");
   ASSERT_TRUE(file);
   EXPECT_TRUE(mlir::succeeded(mlir::verify(*file)));
-  (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(1));
+  (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
   EXPECT_TRUE(mlir::succeeded(mlir::verify(*file)));
   (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(37));
-  rejects(*file, "ac.routed_contract requires version 1 : i64");
+  rejects(*file, "ac.routed_contract requires version 2 : i64");
 }
 
 TEST_F(RoutedAnchorTest, OrdinaryExternAcceptsExactlyTheCompleteDeclaration) {
@@ -545,6 +555,41 @@ TEST_F(RoutedAnchorTest,
   ASSERT_TRUE(imported);
   imported->setAttr("semantic_kind", builder.getStringAttr("transactions"));
   rejects(*file, "ac.external_contract requires an ordinary hardware import");
+}
+
+TEST_F(RoutedAnchorTest, SourceReferencesAndCallableOrderCannotSurviveRouting) {
+  for (llvm::StringRef stage : {"routed", "final"}) {
+    for (llvm::StringRef key : {"ac.reference_parameters", "ac.reference_bindings",
+                                "ac.reference", "ac.callable_after"}) {
+      for (llvm::StringRef placement : {"package", "definition", "yield"}) {
+        SCOPED_TRACE(stage.str() + ":" + key.str() + ":" + placement.str());
+        auto file = parse(preamble() +
+            "module attributes {ac.stage = \"" + stage.str() + R"ir(", ac.routed_contract = 2 : i64, ac.source_units = [#owner]} {
+  "ac.module"() ({
+  ^bb0(%value: !b7):
+    "ac.yield"(%value) : (!b7) -> ()
+  }) {sym_name = "Counter", source_owner = #owner, parameters = [], type_parameters = [], function_type = (!b7) -> !b7, input_names = ["value"], output_names = ["result"]} : () -> ()
+  "ac.system"() {entry = {callee = @Counter, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
+}
+)ir");
+        ASSERT_TRUE(file);
+        auto verify = [&] {
+          return stage == "routed" ? verifyRoutedPackage(*file)
+                                   : verifyHardwarePackage(*file);
+        };
+        ASSERT_TRUE(mlir::succeeded(verify()));
+        mlir::Operation *target = file->getOperation();
+        if (placement == "definition")
+          target = find<ModuleOp>(*file).getOperation();
+        else if (placement == "yield")
+          target = find<YieldOp>(*file).getOperation();
+        // Even empty/malformed annotations cannot silently cross the saved
+        // graph boundary; placement on an unrelated op is not an escape hatch.
+        target->setAttr(key, builder.getArrayAttr({}));
+        rejects(verify, key);
+      }
+    }
+  }
 }
 
 TEST_F(RoutedAnchorTest, StandaloneLogicalAnchorNeedsNoSourceOrPreparation) {
@@ -750,7 +795,7 @@ TEST_F(RoutedAnchorTest, StandaloneRequiresMarkerAndRejectsRemainingSourceOps) {
     if (missing)
       (*file)->removeAttr("ac.routed_contract");
     else
-      (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
+      (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(3));
     rejects([&] { return verifyRoutedPackage(*file); },
             "unsupported or missing ac.routed_contract");
   }

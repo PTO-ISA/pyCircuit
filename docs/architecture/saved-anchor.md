@@ -62,7 +62,7 @@ replace refinement or hardware verification.
 ## Identity and format
 
 Format version 1 uses `kind="pycircuit-anchor"`, `schema=1` and
-`routed_contract=1`. Unknown versions require regeneration from source units.
+`routed_contract=2`. Version 1 and unknown versions require regeneration from source units.
 The manifest has closed fields for owner, root, configuration and its identity,
 complete content identity, file inventory, definition index, retained sources
 and producer provenance. Duplicate fields, definitions, source owners, paths and

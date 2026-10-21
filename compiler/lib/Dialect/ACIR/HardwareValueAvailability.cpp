@@ -1,5 +1,6 @@
 #include "HardwareValueAvailability.h"
 #include "HardwareQueueResources.h"
+#include "HardwareSourceChecks.h"
 #include "llvm/ADT/ScopeExit.h"
 #include <map>
 #include <set>
@@ -221,6 +222,22 @@ class AvailabilityProof {
             ports->inputValidity[ordinal] >= 0)
           return formula(
               arg.getOwner()->getArgument(ports->inputValidity[ordinal]));
+        // These internal lanes are authenticated against the actual producer
+        // Rule and its entire fire by verifyTransactionReturns. Availability
+        // follows the return companion across each hierarchy boundary.
+        if (auto returns = module->getAttrOfType<DictionaryAttr>("ac.transaction_returns"))
+          if (auto incoming = returns.getAs<ArrayAttr>("incoming"))
+            for (Attribute raw : incoming) {
+              if (!charge(1, module)) return 0;
+              auto row = dyn_cast<DictionaryAttr>(raw);
+              auto data = row ? row.getAs<IntegerAttr>("data") : IntegerAttr();
+              auto enable = row ? row.getAs<IntegerAttr>("enable") : IntegerAttr();
+              if (!data || !enable || data.getInt() < 0 || enable.getInt() < 0 ||
+                  uint64_t(enable.getInt()) >= arg.getOwner()->getNumArguments())
+                return reject(module, "invalid transaction return availability lane");
+              if (uint64_t(data.getInt()) == ordinal)
+                return formula(arg.getOwner()->getArgument(enable.getInt()));
+            }
         return 1;
       }
       return reject(owner,
@@ -508,6 +525,15 @@ public:
     return failure(invalid);
   }
 };
+// Called only after verifyTransactionReturns authenticates the complete graph.
+static SmallVector<uint64_t> transactionReturnCompanions(Operation *module) {
+  SmallVector<uint64_t> result;
+  if (auto metadata = module->getAttrOfType<DictionaryAttr>("ac.transaction_returns"))
+    for (Attribute raw : metadata.getAs<ArrayAttr>("incoming"))
+      result.push_back(cast<DictionaryAttr>(raw).getAs<IntegerAttr>("enable").getInt());
+  return result;
+}
+
 // Only companion destinations and required availability operands authorize
 // transport of a private fire. Shared ordinary-data consumers invalidate it.
 class AvailabilityUses {
@@ -587,6 +613,8 @@ public:
           for (int64_t companion : ports->inputValidity)
             if (companion >= 0)
               add(instance->getOpOperand(companion), true);
+          for (uint64_t companion : transactionReturnCompanions(callee))
+            add(instance->getOpOperand(companion), true);
         }
         return WalkResult::advance();
       });
@@ -634,6 +662,10 @@ public:
             !allUsers(module.getBody().front().getArgument(companion)))
           return module.emitOpError()
                  << "availability companion has a data use";
+      for (uint64_t companion : transactionReturnCompanions(module))
+        if (!allUsers(module.getBody().front().getArgument(companion)))
+          return module.emitOpError()
+                 << "transaction return availability has a data use";
       auto walked = module.walk([&](InstanceOp instance) {
         auto *callee = analysis.resolveCallee(instance);
         if (!callee)
@@ -670,6 +702,7 @@ bool hasAvailabilityTransport(const HardwareAnalysis &analysis) {
              operation->hasAttr("ac.input_validity") ||
              operation->hasAttr("ac.output_validity") ||
              operation->hasAttr("ac.routed_output_validity") ||
+             operation->hasAttr("ac.transaction_returns") ||
              (sampled && sampled.get("requirements"));
   });
   return found;
@@ -683,6 +716,8 @@ verifyHardwareValueAvailability(
   // including literal predicates routed through ordinary instances.
   if (!hasAvailabilityTransport(analysis))
     return success();
+  if (failed(verifyTransactionReturns(analysis, debit)))
+    return failure();
   if (failed(AvailabilityProof(analysis, debit).run()))
     return failure();
   return success(succeeded(AvailabilityUses(analysis).collect()));
@@ -691,6 +726,8 @@ FailureOr<DenseSet<OpOperand *>>
 getVerifiedValueAvailabilityUses(const HardwareAnalysis &analysis) {
   if (!hasAvailabilityTransport(analysis))
     return DenseSet<OpOperand *>{};
+  if (failed(verifyTransactionReturns(analysis, {})))
+    return failure();
   if (failed(AvailabilityProof(analysis).run()))
     return failure();
   return AvailabilityUses(analysis).collect();

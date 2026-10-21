@@ -162,10 +162,23 @@ LogicalResult detail::verifyHardwarePackageStage(
                       : "executable hardware verification requires final hardware; routed packages require state refinement");
   if ((routed || package->hasAttr("ac.routed_contract")) &&
       (!marker || !marker.getType().isSignlessInteger(64) ||
-       marker.getValue() != 1))
+       marker.getValue() != 2))
     return package.emitOpError()
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
   auto closed = package.walk([&](Operation *operation) {
+    // A reference denotes a source allocation, never a runtime payload or an
+    // inert annotation on a closed hardware graph. Routing must consume both
+    // bindings and callable contracts before either standalone boundary.
+    for (StringRef name : {"ac.reference_parameters", "ac.reference_bindings",
+                           "ac.reference", "ac.callable_after"}) {
+      if (operation->hasAttr(name)) {
+        operation->emitOpError()
+            << "unresolved source reference or callable order cannot cross "
+               "the routed/final boundary: "
+            << name;
+        return WalkResult::interrupt();
+      }
+    }
     if (operation->hasAttr("ac.anchor_provenance") &&
         (operation != package.getOperation() || routed)) {
       operation->emitOpError()
@@ -200,6 +213,25 @@ LogicalResult detail::verifyHardwarePackageEnvelope(
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   auto package = analysis.getPackage();
   if (!package)
+    return failure();
+  auto registrations = package.walk([&](Operation *operation) {
+    if (!operation->hasAttr("ac.registration_path") &&
+        !operation->hasAttr("ac.lexical_registration") &&
+        !operation->hasAttr("ac.registration_owner"))
+      return WalkResult::advance();
+    auto rule = dyn_cast<RuleOp>(operation);
+    if (!rule) {
+      operation->emitOpError()
+          << "routed registration metadata requires a sampled Rule";
+      return WalkResult::interrupt();
+    }
+    return failed(verifyRoutedRegistration(analysis, rule, debit))
+               ? WalkResult::interrupt()
+               : WalkResult::advance();
+  });
+  if (registrations.wasInterrupted())
+    return failure();
+  if (failed(verifyTransactionReturns(analysis, debit)))
     return failure();
   auto layouts = package.walk([&](Operation *operation) {
     if (!operation->hasAttr("ac.internal_ports") &&

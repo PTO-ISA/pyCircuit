@@ -51,7 +51,7 @@ struct DefinitionRouting {
   llvm::SmallVector<MemoryPinRoute, 0> memoryIncoming;
   llvm::DenseMap<QueueRoutingKey, unsigned> memoryIncomingIndex;
   unsigned sourceInputs = 0, sourceOutputs = 0;
-  mlir::DictionaryAttr expectedWiring, expectedQueueWiring;
+  mlir::DictionaryAttr expectedWiring, expectedQueueWiring, expectedReturns;
 };
 
 struct TransactionCandidatePreparation {

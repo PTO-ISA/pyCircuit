@@ -169,9 +169,9 @@ def verify(source, build, runner, include, verilator, timeout=180):
         rtl_trace = run([str(rtl_build / "Vpycircuit_example")], "rtl-run")
     rtl_trace = [line for line in rtl_trace if line.startswith("WORK ")]
     assert rtl_trace == serial, "C++/RTL Work snapshot mismatch"
-    assert (
-        bound_inputs(source, build, runner, include) == inputs_before
-    ), "example inputs changed during verification"
+    assert bound_inputs(source, build, runner, include) == inputs_before, (
+        "example inputs changed during verification"
+    )
     (build / "verification.json").write_text(
         json.dumps(
             {
@@ -578,6 +578,23 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
                 raise ValueError("generated receipt contains an unsafe path")
             path = bundle / relative
             bind_artifact(path)
+    if source.name == "sibling_calls":
+        # Test-owned arithmetic oracle: the shared Counter starts at five,
+        # increments while below seven, and read observes that cycle's candidate.
+        expected = [
+            (epoch, [{"kind": "integer", "value": str(min(6 + epoch // 2, 7))}])
+            for epoch in range(expected_epochs)
+        ]
+        for trace in traces:
+            observed = [
+                (epoch_number(row["evaluation_epoch"]), row["values"])
+                for row in trace
+                if row["kind"] == "log" and row["spec"].get("event") == "count"
+            ]
+            if observed != expected or len(trace) != expected_epochs:
+                raise ValueError(
+                    "sibling_calls differs from independent 6, 7, 7, 7 count oracle"
+                )
     if traces[0] != traces[1] or traces[0] != traces[2]:
         raise ValueError("system source observations disagree across workers/backends")
     if not final_ir[0] or final_ir[0] != final_ir[1] or final_ir[0] != final_ir[2]:

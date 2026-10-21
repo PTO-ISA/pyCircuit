@@ -801,9 +801,9 @@ LogicalResult StateUpdateOp::verify() {
                       : IntegerAttr();
   if (!owner || !package || !stage || stage.getValue() != "routed" ||
       package->hasAttr("ac.unit_kind") || !contract ||
-      !contract.getType().isSignlessInteger(64) || contract.getValue() != 1)
+      !contract.getType().isSignlessInteger(64) || contract.getValue() != 2)
     return emitOpError()
-           << "requires direct module graph placement in a routed contract-1 "
+           << "requires direct module graph placement in a routed contract-2 "
               "package";
   if (!(*this)->getAttrs().empty())
     return emitOpError() << "state update does not accept attributes";
@@ -968,6 +968,25 @@ LogicalResult SourceMethodOp::verify() {
       return emitOpError()
              << "source Method visibility must be absent or private";
   }
+  if (Attribute raw = (*this)->getAttr("ac.callable_after")) {
+    auto after = dyn_cast<ArrayAttr>(raw);
+    if (!after || after.empty())
+      return emitOpError() << "ac.callable_after requires a nonempty declaration array";
+    llvm::DenseSet<Attribute> seen;
+    auto module = (*this)->getParentOfType<ModuleOp>();
+    for (Attribute predecessor : after) {
+      auto occurrence = dyn_cast<DictionaryAttr>(predecessor);
+      if (!occurrence ||
+          failed(detail::verifyOccurrence(occurrence, [&] { return emitOpError(); })) ||
+          occurrence == getOccurrence() || !seen.insert(occurrence).second)
+        return emitOpError() << "ac.callable_after requires distinct other local callable declarations";
+      bool found = false;
+      for (auto method : module.getBody().front().getOps<SourceMethodOp>())
+        found |= method.getOccurrence() == occurrence;
+      if (!found)
+        return emitOpError() << "ac.callable_after target must identify a local callable declaration";
+    }
+  }
   auto signature = getFunctionType();
   if (getArgumentNames().size() != signature.getNumInputs())
     return emitOpError() << "argument name count must match method signature";
@@ -1046,6 +1065,12 @@ LogicalResult SourceMethodOp::verifyRegions() {
 LogicalResult SourceMethodCallOp::verify() {
   if (failed(transactionPlacement(*this, false, true)))
     return failure();
+  if (Attribute raw = (*this)->getAttr("ac.reference")) {
+    auto reference = dyn_cast<StringAttr>(raw);
+    if (!reference || failed(detail::verifyPythonAstIdentifier(reference.getValue(), true,
+                                      [&] { return emitOpError(); })))
+      return emitOpError() << "ac.reference requires a Module reference formal name";
+  }
   auto callee = getCalleeAttr();
   bool nativeQueue =
       callee.getRootReference().getValue() ==
@@ -1205,7 +1230,10 @@ Operation *detail::findUnloweredTransaction(Operation *root) {
         (isa<InstanceOp>(operation) &&
          (operation->hasAttr("ac.source_unbound_push") ||
           operation->hasAttr("ac.source_unbound_pop") ||
-          operation->hasAttr("ac.payload_constraint"))))
+          operation->hasAttr("ac.payload_constraint") ||
+          operation->hasAttr("ac.reference_bindings"))) ||
+        (isa<ModuleOp, ModuleImportOp>(operation) &&
+         operation->hasAttr("ac.reference_parameters")))
       return operation;
     for (Region &region : llvm::reverse(operation->getRegions()))
       for (Block &block : llvm::reverse(region))

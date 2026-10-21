@@ -129,11 +129,22 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
   if (!unit)
     return emitError() << "source unit is required";
   auto forged = unit.walk([&](Operation *operation) {
+    for (auto [name, allowed] : {
+        std::pair<StringRef, bool>{"ac.reference_parameters", isa<ModuleOp, ModuleImportOp>(operation)},
+        {"ac.reference_bindings", isa<InstanceOp>(operation)},
+        {"ac.reference", isa<SourceMethodCallOp>(operation)},
+        {"ac.callable_after", isa<SourceMethodOp>(operation)}}) {
+      if (operation->hasAttr(name) && !allowed) {
+        operation->emitOpError() << name << " is invalid on this source operation";
+        return WalkResult::interrupt();
+      }
+    }
     for (StringRef name :
          {"ac.internal_ports", "ac.input_validity", "ac.output_validity",
           "ac.routed_output_validity", "ac.sampled_admission",
           "ac.execution_policy", "ac.transaction_wiring", "ac.queue_wiring",
-          "ac.routed_contract"}) {
+          "ac.routed_contract", "ac.registration_path", "ac.lexical_registration",
+          "ac.registration_owner", "ac.transaction_returns"}) {
       if (!operation->hasAttr(name))
         continue;
       operation->emitOpError()

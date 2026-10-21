@@ -196,8 +196,15 @@ class ValueAvailabilityMaterializer {
         if (failed(result) || !*result) return result;
         return capture(rule, *result, argument.getArgNumber(), site);
       }
-      if (isa<ac::ModuleOp>(argument.getOwner()->getParentOp()))
+      if (auto module = dyn_cast<ac::ModuleOp>(argument.getOwner()->getParentOp())) {
+        if (auto returns = module->getAttrOfType<DictionaryAttr>("ac.transaction_returns"))
+          for (auto raw : returns.getAs<ArrayAttr>("incoming")) {
+            auto row = cast<DictionaryAttr>(raw);
+            if (row.getAs<IntegerAttr>("data").getInt() == argument.getArgNumber())
+              return argument.getOwner()->getArgument(row.getAs<IntegerAttr>("enable").getInt());
+          }
         return inputAvailability.lookup(argument);
+      }
       return (void)error(site, "unexpected block argument"), failure();
     }
     Operation *operation = value.getDefiningOp();
