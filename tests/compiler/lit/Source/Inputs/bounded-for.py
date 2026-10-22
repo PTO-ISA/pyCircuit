@@ -654,6 +654,17 @@ design.write_text(
 compile_source(build / "closed-fixed-peer-control")
 design.write_text(original)
 
+# Typed Rule loop-else has an observable scalar/state oracle in
+# test_rule_scf_control.py; keep source-unit admission separate from helpers.
+design.write_text(
+    minimal("    for index in range(3):\n        value = value + 1\n    else:\n        value = value + 11\n    return value")
+)
+loop_else_unit = build / "typed-rule-for-else"
+compile_source(loop_else_unit)
+cli("link", loop_else_unit, "--top", "bounded_for.design.Top", "-o",
+    build / "typed-rule-for-else.ac")
+design.write_text(original)
+
 # Undecorated helpers have a distinct admission path from typed @rule bodies.
 # Compile and link each positive case so Rule-path coverage cannot mask helper
 # preflight or common-IR failures.
@@ -737,7 +748,7 @@ def Top(value: ac.u8) -> Out:
     "while-body": minimal("    for index in range(3):\n        while False:\n            pass\n    return value"),
     "break-body": minimal("    for index in range(3):\n        break\n    return value"),
     "continue-body": minimal("    for index in range(3):\n        continue\n    return value"),
-    "for-else": minimal("    for index in range(3):\n        pass\n    else:\n        value = 1\n    return value"),
+    "plain-helper-for-else": plain_helper("    for index in range(3):\n        pass\n    else:\n        value = 1\n    return value"),
     "return-body": minimal("    for index in range(3):\n        return value\n    return value"),
     "assert-body": minimal("    for index in range(3):\n        assert value == 0\n    return value"),
     "log-body": minimal("    for index in range(3):\n        ac.log('info', 'bad', value)\n    return value"),

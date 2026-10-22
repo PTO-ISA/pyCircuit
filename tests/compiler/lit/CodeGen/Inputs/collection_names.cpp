@@ -5,8 +5,8 @@ int main() {
   dut.Build();
   using Signal = gfsim::wire<gfsim::Bits<8>>;
   dut.PYC_COUNT = Signal::known(gfsim::Bits<8>{1});
-  dut.implementation_ = Signal::known(gfsim::Bits<8>{2});
-  dut.n0 = Signal::known(gfsim::Bits<8>{4});
+  dut.pyc_696d706c656d656e746174696f6e5f = Signal::known(gfsim::Bits<8>{2});
+  dut.pyc_6e5f5f30 = Signal::known(gfsim::Bits<8>{4});
   dut.Work();
   if (!dut.a.isFullyKnown() || dut.a.value() != gfsim::Bits<8>{1} ||
       !dut.b.isFullyKnown() || dut.b.value() != gfsim::Bits<8>{2} ||

@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **8005**. Final artifact SHA-256: `8e16af58067f77035d3e6c5e7a90ba1e5bf15cf55c19f2762fd1e84d100b7e7e`.
+Verified WORK trace rows: **8005**. Final artifact SHA-256: `1bb1293868c23d8e6ecc8faa0b8385bd78599ad25282afeb0ba7ae4f8064f6b2`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example dodgeball_game \
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_dodgeball_game::dodgeball_game::GameResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_1;
@@ -55,11 +55,11 @@ python3 tools/example_catalog.py generated --example dodgeball_game \
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_3;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_4;
     gfsim::wire<gfsim::table<gfsim::Bits<10>, (pyc_count * (1))>> pyc_value_5;
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_5.element(pyc_lane) = gfsim::wire<gfsim::Bits<10>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<10>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<10>>::width>{16ULL}));
+    gfsim::wire<gfsim::table<gfsim::Bits<10>, (pyc_count * (1))>> pyc_value_6;
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_6.element(pyc_lane) = gfsim::wire<gfsim::Bits<10>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<10>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<10>>::width>{16ULL}));
+    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_5.element(pyc_lane) = gfsim::wire<gfsim::Bits<10>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<10>>::width>(pyc_value_6.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), 0));
     for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_4.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::compare<gfsim::ComparePredicate::UGE>(this->pyc_instance_vga_h_count_q.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed(), pyc_value_5.element(((pyc_lane / (1)) * (1) + pyc_lane % (1))).packed()));
-    gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_6;
-    gfsim::wire<gfsim::table<gfsim::Bits<10>, (pyc_count * (1))>> pyc_value_7;
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_7.element(pyc_lane) = gfsim::wire<gfsim::Bits<10>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<10>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<10>>::width>{112ULL}));
+    gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_7;
 ```
 
 ## Source-owned Verilog

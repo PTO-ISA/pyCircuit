@@ -507,7 +507,7 @@ emitPreparedCppSourceParts(HardwareEmitContext &context) {
              "root_(root) {}\n"
              "  private:\n    bool Precheck() noexcept override {\n"
              "      source_failure_ = {};\n"
-             "      return root_.__pyc_validate_checks(source_failure_);\n    "
+             "      return root_.pyc_validate_checks(source_failure_);\n    "
              "}\n"
              "    gfsim::SimFailureInfo DescribeFailure(gfsim::SimFailurePhase "
              "phase) "

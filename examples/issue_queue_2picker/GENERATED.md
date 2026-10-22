@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **177**. Final artifact SHA-256: `dfbae282bf8d2926deda1f70b5dd16ee09d4ae2b80c2d2806de811614b26e7ea`.
+Verified WORK trace rows: **177**. Final artifact SHA-256: `0ff4a4e095f988e3000049d8c324fe98b0094ba01097e61d2007e5acbb726b19`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example issue_queue_2picker \
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_issue_queue_2picker::issue_queue_2picker::PickerResult, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_1;

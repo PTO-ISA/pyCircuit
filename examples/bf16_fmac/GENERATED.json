@@ -9,38 +9,40 @@
     "schema": "pycircuit-example-verification-v1",
     "inputs": {
       "source/CMakeLists.txt": "111cf2c945bb29beaf25821b494ed5a8ff0401d02f335150d1bcf8bba5115adc",
-      "source/bench.py": "f5454aba32d2013e26386991af6395de8c4b5f22550be25c2dbb11081446ff48",
+      "source/bench.py": "4da4884bc7b189627f4779a6c9173dbd2a880ba7eb5a39fcc7c7123994fdf63c",
       "source/bf16_fmac.py": "3f80942f4ba1807af3ffac34bf690671d3660865865c944a220a2d1b9eab4d57",
       "source/config.json": "e3f9c7dd813e920f0f9988bccf6d6a8cbc71226b3f475a09f5338b93176c9aa3",
       "source/driver.cpp": "ce21c9684b680863c055fc0ed5af396531a8db44ae5061a401ad0954ce2c2226",
       "source/rtl_tb.sv": "dcadde69398d2ce8de7b2971bf2c466a5030dbf8606dc218f3a849a387d0325e",
-      "build/cpp/generated.json": "e7a3613421792d57c28cbc40a620301a65bff0d240c03b5e69f12df7e5af8cb7",
+      "build/cpp/generated.json": "dec79c1b58ebb7ba7681b746d537c83ffb544101c78754ea4ad8b25f60c00406",
       "build/cpp/CMakeLists.txt": "0a6fcda3af4a5eafb78b49e944fb04a900259c44a625ad1f20456a94fe582905",
+      "build/cpp/ports.json": "c1801d4ddb2192412a05f0d3ba933f6121fad4216c64dc87656c75c22045e9a1",
       "build/cpp/pycircuit_support.hpp": "e2b844b6bdc2100849fb20fc8e11d9d69c7d87cf84900055aceab6fc8e0ae6ca",
-      "build/cpp/pycircuit_system.hpp": "63b464265337cd45634b3c9627cddf81d2e6bf456bc9ea228b36b302047cb1ff",
+      "build/cpp/pycircuit_system.hpp": "d34a135398f6c36b6c9151c9ed7c9bc2b89a94c720e30950604b4a605e41b670",
       "build/cpp/sources/example_bf16_fmac/bf16_fmac.cpp": "4f855aede9f779e345a013a35930839f7173ab5c33fe2c45713689cbb12cadd3",
-      "build/cpp/sources/example_bf16_fmac/bf16_fmac.hpp": "fda16c29de501899e8ae9b6a69eb19116f4efea884e4c0e947aebb9224a9dec8",
+      "build/cpp/sources/example_bf16_fmac/bf16_fmac.hpp": "2a0c6d31000ec571d97cd1ce9ff2025d70c28f78b81640b2ef65323b355b5ecb",
       "build/cpp/sources/example_bf16_fmac/bf16_fmac.source-map.json": "0f5b41f75f9ea785cfaf3064a1a88edfaeff50a791ded1a2fa29e2ab04ce71e2",
-      "build/verilog/generated.json": "2349bc488fa8cf4eeb22b18f7cc5ea0b0fa6a4d010dcde2d48818b0741c4dece",
+      "build/verilog/generated.json": "e96c29353d4a652c6069dcbb8c1e1f2ed693eca846afe2d0a7bff9eaf54d5bbb",
       "build/verilog/CMakeLists.txt": "1095dcf199d3ed6cbda173ab185aba5d25c0a0bf91fb99443175f5d96d2ed1c7",
-      "build/verilog/design_top.sv": "3f70e09c1cbe597b1f5cd78ce2151f69fe99fd72c1a2afeae18ec399a4cc445c",
-      "build/verilog/sources/example_bf16_fmac/bf16_fmac.source-map.json": "2cbc4f3f6dfd19a562f14ab9590a45411e3750d2ee282c91450fe8e2140afb5e",
-      "build/verilog/sources/example_bf16_fmac/bf16_fmac.v": "4d229007435b2c1b08de49b47b6d94057ba66f1bb14504022dca5f6b5395c3cc",
-      "build/bf16_fmac.ac": "222eb86784b98b9a9e823a95a0fb25f9f8ab22bbca0be91e2ba279cc18054bc0",
+      "build/verilog/design_top.sv": "cb7425ff4199efed2c0043a1f292733f473bf9018fd2ffdd0f327c8517cab2f0",
+      "build/verilog/ports.json": "91ce3e784fb7a7b0cde22478cfad24f6c9bda16b24aff063624800fb6c0af3fa",
+      "build/verilog/sources/example_bf16_fmac/bf16_fmac.source-map.json": "3e37c7d7efcf997637f22644eec1231c74d94ea3e2ee099333a065016a3d2650",
+      "build/verilog/sources/example_bf16_fmac/bf16_fmac.v": "9004c68e78b7b37786f2b6e468d107a9aa6f0e37892b6f3414a21abcf3bece40",
+      "build/bf16_fmac.ac": "71fa1635be686dc27613d6616e630d37962cbd1c522ab3e4e7695250d4f0eb3a",
       "build/units/.bf16_fmac.pycircuit-publication/owner.json": "a5163d5b8be5739b716c7d6591b0157e91b452a07bb57adac4d37f97f04880f7",
-      "build/units/bf16_fmac/bf16_fmac.ac": "e5b464ed1564a2953851153f68c18465de0074fc693f574f7265c6dc0d65569a",
-      "build/units/bf16_fmac/bf16_fmac.d": "aad89ed87c0021997a215f7926015739848d5c6758956700ad41cd42ad0f2740",
-      "build/units/bf16_fmac/bf16_fmac.interface.ac": "a081b5af092d1177e45c43b2536ba2c674e56fd92452f4619b7ad19609a639a2",
+      "build/units/bf16_fmac/bf16_fmac.ac": "3158d7b30e0dcbeb77e79fe47d5cf833dff8fd9908996761805d38635cd3dd2f",
+      "build/units/bf16_fmac/bf16_fmac.d": "4302f8ec229d4e16a1033e6ef47c1c2b9606368d3ba977977b3a89b4baa62eec",
+      "build/units/bf16_fmac/bf16_fmac.interface.ac": "311b3b4dc5a64be2fa248a63d9ef1684aab1395840be92768edaa5f678ebbde4",
       "build/units/bf16_fmac/unit.json": "eac91ff1ffaa1d715fcb3eaf87b03796bb843c345005aa935f679f965ae1d378",
       "runtime-rtl/byte_mem.v": "dfc3f0fa362196fcfaa7bd771d4f85f26acade0e1dfeb0bc00a24d4161987cd2",
-      "runtime-rtl/dff.v": "325fb9039af507df3c94a26515dfcd8bb73f3812c1264df7b72bfe1af918bbb8",
-      "runtime-rtl/dffe.v": "1fc0bdac0c411ea87c00fc93127ebfba8ca12684a8fecee012a23362e0f8b89c",
+      "runtime-rtl/dff.v": "4d43595c3f19905bb585bf0a6c376d885f1b635be92d44375a0ac3489ea81f24",
+      "runtime-rtl/dffe.v": "9db5924f343389be5fc6311f26b6be9070a756d1a4cfae4839b4d0311d773117",
       "runtime-rtl/fifo.v": "c93e50ee7affa5e545ec08118e4dbd110e249fd1c1850d32d1a17e4afacb0480",
-      "runtime-rtl/sync_mem.v": "75731fcc0df8a01891e53589e75debc4cda9ec384262937047f21b11de7d7637",
-      "runtime-rtl/sync_mem_dp.v": "16ad11aa53d5f60291136b82a47bef9e21b312cd46ee8b8dfb338bb01c6bc3cc",
-      "runner": "634f87be6c773f7117c5e4172d85eb519ac9c090c650522fa8103f96c79a4a41"
+      "runtime-rtl/sync_mem.v": "457622820048dc0d83b779a8b00aec25f829b6a4a53f8f76831758a97fcdba4a",
+      "runtime-rtl/sync_mem_dp.v": "afb386d1ca3a51c294c87a3d5c2fed08e48a0c699fe340764a5c591503eacd29",
+      "runner": "18b11433576526f41caf10bbba35356c8b318bc5082da0efe217f835a02f51f9"
     },
-    "execution_sha256": "85629c4f9112885d2276af7915dfefceccca0691b72a53231214024a64b666f1",
+    "execution_sha256": "5f6349ad268b8fc979645fc965ca90a89ea7219efbbac9b1239972232eab6876",
     "work_samples": 169,
     "native_check_records": 501,
     "native_check_sha256": "d6781244bec082cd66e07ad22e4dc46ac67be307a96779fb3955c8fc7e6b61f3",
@@ -55,17 +57,17 @@
     {
       "path": "bf16_fmac.ac",
       "line": 32,
-      "sha256": "222eb86784b98b9a9e823a95a0fb25f9f8ab22bbca0be91e2ba279cc18054bc0"
+      "sha256": "71fa1635be686dc27613d6616e630d37962cbd1c522ab3e4e7695250d4f0eb3a"
     },
     {
       "path": "cpp/sources/example_bf16_fmac/bf16_fmac.hpp",
       "line": 86,
-      "sha256": "fda16c29de501899e8ae9b6a69eb19116f4efea884e4c0e947aebb9224a9dec8"
+      "sha256": "2a0c6d31000ec571d97cd1ce9ff2025d70c28f78b81640b2ef65323b355b5ecb"
     },
     {
       "path": "verilog/sources/example_bf16_fmac/bf16_fmac.v",
       "line": 1,
-      "sha256": "4d229007435b2c1b08de49b47b6d94057ba66f1bb14504022dca5f6b5395c3cc"
+      "sha256": "9004c68e78b7b37786f2b6e468d107a9aa6f0e37892b6f3414a21abcf3bece40"
     }
   ]
 }
