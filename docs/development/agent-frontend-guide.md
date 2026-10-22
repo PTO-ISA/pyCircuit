@@ -887,6 +887,13 @@ the compiler owns clock driving, reset interpretation and atomic publication.
 
 ## Typed DUT and runner
 
+This is advanced host/backend integration. Ordinary authors use the
+[generated closed System flow](../architecture/system-execution.md) and do not
+write Work/Xfer callbacks or clock/reset plumbing. The
+[host I/O and UVM design](../architecture/system-host-integration.md) separates
+these existing C++ mechanisms from proposed Python bindings, memory loading and
+verification adapters.
+
 C++ emission provides source modules and `pycircuit_system.hpp` with `pyc_root`
 and typed `pyc_dut::Inputs/Outputs`, `drive`, `sample`, `system` and `observations`.
 The DUT owns its root and execution pool. CMake's generated `pycircuit_modules`

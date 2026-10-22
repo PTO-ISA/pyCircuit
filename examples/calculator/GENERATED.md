@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **474**. Final artifact SHA-256: `e8f4f7d9846e79e6fdec52d670733aeaf31f8a4e59689234ec680442dbfca97c`.
+Verified WORK trace rows: **474**. Final artifact SHA-256: `f73a1fbaf07e5c501d4cb09b146b79f5676116e8ef29aeec9c822539b558a35a`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example calculator \
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_calculator::calculator::CalcResult, (pyc_count * (1))>> pyc_value_0;
     for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) for (std::size_t pyc_field = 0; pyc_field < (1); ++pyc_field) pyc_value_0.element(pyc_lane).assignSlice(0 + (gfsim::hardware_traits<gfsim::Bits<2>>::width), this->pyc_instance_shown_q.element(pyc_lane * (1) + pyc_field).packed());
@@ -59,7 +59,7 @@ python3 tools/example_catalog.py generated --example calculator \
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_2;
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_3;
     gfsim::wire<gfsim::table<gfsim::Bits<5>, (pyc_count * (1))>> pyc_value_4;
-    for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_4.element(pyc_lane) = gfsim::wire<gfsim::Bits<5>>::fromPacked(gfsim::FourState<gfsim::hardware_traits<gfsim::Bits<5>>::width>::known(gfsim::Bits<gfsim::hardware_traits<gfsim::Bits<5>>::width>{15ULL}));
+    gfsim::wire<gfsim::table<gfsim::Bits<5>, (pyc_count * (1))>> pyc_value_5;
 ```
 
 ## Source-owned Verilog

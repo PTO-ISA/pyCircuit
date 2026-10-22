@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **1567**. Final artifact SHA-256: `1a65ac098f3871bbdb9b453d7c326103b799af10a09f63479fbf869deaf0808d`.
+Verified WORK trace rows: **1567**. Final artifact SHA-256: `eceac24cb1d3c260de8c5f919026694f8b16f00e7e936f8eb6257afd201840c1`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example multiclock_domain_isolation
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<gfsim::Bits<1>, (pyc_count * (1))>> pyc_value_0;
     for (std::size_t pyc_lane = 0; pyc_lane < (pyc_count * (1)); ++pyc_lane) pyc_value_0.element(pyc_lane) = gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::extract<gfsim::hardware_traits<gfsim::Bits<1>>::width>(this->d_a.element((pyc_lane / (1))).packed(), 0 + (gfsim::hardware_traits<gfsim::Bits<1>>::width)));

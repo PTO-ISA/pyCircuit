@@ -10,6 +10,12 @@ in Python. The compiler generates the GFSIM system and system Verilog, including
 the executable simulation drivers. Authors do not write C++ drivers, RTL
 benches, runtime JSON, or clock/reset/enable wiring.
 
+External Python host I/O, memory/program loading and UVM connections are
+separate design work. The [host integration design](system-host-integration.md)
+records current reuse points, gaps and prototype acceptance. Typed DUT callbacks
+are advanced host/backend integration; the ordinary generated flow here owns
+the lifecycle.
+
 ## One compilation boundary
 
 A system uses the same syntax capture, source-unit compilation, MLIR analysis,

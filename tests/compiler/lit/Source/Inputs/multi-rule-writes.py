@@ -328,12 +328,14 @@ for name, (before, after, diagnostic) in return_rejections.items():
     assert re.search(diagnostic, rejected.stderr, re.I), rejected.stderr
     assert not absent.exists()
 
-# Closed systems reject authored ports in either decorator order and through
-# an actual imported marker alias. Ordinary authored ports belong to modules.
+# Stacked markers reject either decorator order before signature checks. A
+# single System marker, including an imported alias, rejects authored ports.
 system_rejections = {
     "module-then-system": "@ac.module\n@ac.system",
     "system-then-module": "@ac.system\n@ac.module",
     "aliased-system": "@sys\n@ac.module",
+    "closed-system": "@ac.system",
+    "closed-system-alias": "@sys",
 }
 for name, decorators in system_rejections.items():
     path = source / (name.replace("-", "_") + ".py")
@@ -345,10 +347,12 @@ for name, decorators in system_rejections.items():
     )
     absent = scratch / ("invalid-" + name)
     rejected = compile_source(path, absent, success=False)
-    assert (
-        "@system is closed and cannot declare authored inputs or static parameters"
-        in rejected.stderr
-    ), rejected.stderr
+    expected = (
+        "@system requires exactly one bound decorator"
+        if "\n" in decorators
+        else "@system is closed and cannot declare authored inputs or static parameters"
+    )
+    assert expected in rejected.stderr, rejected.stderr
     assert not absent.exists()
 
 # A stateless mapping return does not itself select behavioral lowering. The
@@ -501,7 +505,7 @@ for target in ("cpp", "verilog"):
     boundary_text = boundary.read_text()
     if target == "cpp":
         assert "bool Precheck() noexcept override" in boundary_text
-        assert "root_.__pyc_validate_checks(source_failure_)" in boundary_text
+        assert "root_.pyc_validate_checks(source_failure_)" in boundary_text
     else:
         assert "module pyc_root" in boundary_text
         assert "pyc_phase" in boundary_text and "pyc_root_commit_ok" in boundary_text

@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **149**. Final artifact SHA-256: `23b502cefb1dc4edf805e63a22ca980458691e680ff4d1386aed3ca37170de5c`.
+Verified WORK trace rows: **149**. Final artifact SHA-256: `a308f9564041c7244aacff9e52552ef3ad167d15bf2d22d2f006dfe35d73dc94`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example struct_transform \
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<::example_struct_transform::struct_transform::Packet, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<4>, (pyc_count * (1))>> pyc_value_1;

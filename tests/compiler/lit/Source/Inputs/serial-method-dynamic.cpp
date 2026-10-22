@@ -176,7 +176,7 @@ int main(int argc, char **argv) {
           pins.pyc_7079635f727374 = wire<1>("x");
           dut.drive(pins);
           gfsim::SimFailureInfo failure{};
-          if (worked && root->__pyc_validate_checks(failure))
+          if (worked && root->pyc_validate_checks(failure))
             root->Xfer();
           else {
             if (worked)

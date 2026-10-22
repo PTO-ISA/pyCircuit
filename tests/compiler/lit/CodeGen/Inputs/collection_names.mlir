@@ -23,18 +23,18 @@ module {
   "ac.module"() ({
   ^bb0(%p: !b8, %impl: !b8, %number: !b8):
     "ac.yield"(%p, %impl, %number) : (!b8, !b8, !b8) -> ()
-  }) {sym_name = "Foo", source_owner = {package = "", path = "Foo.py"}, parameters = [{name = "K", type = !ac.math_int}], type_parameters = [], function_type = (!b8, !b8, !b8) -> (!b8, !b8, !b8), input_names = ["PYC_COUNT", "implementation_", "n0"], output_names = ["a", "b", "c"]} : () -> ()
+  }) {sym_name = "Foo", source_owner = {package = "", path = "Foo.py"}, parameters = [{name = "K", type = !ac.math_int}], type_parameters = [], function_type = (!b8, !b8, !b8) -> (!b8, !b8, !b8), input_names = ["PYC_COUNT", "implementation_", "n__0"], output_names = ["a", "b", "c"]} : () -> ()
   "ac.module"() ({
   ^bb0(%p: !b8, %impl: !b8, %number: !b8):
     %x = "ac.bits.binary"(%p, %impl) {opcode = "xor"} : (!b8, !b8) -> !b8
     %y = "ac.bits.binary"(%x, %number) {opcode = "xor"} : (!b8, !b8) -> !b8
     "ac.yield"(%y) : (!b8) -> ()
-  }) {sym_name = "Foo_family", source_owner = {package = "", path = "Foo_family.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b8, !b8) -> !b8, input_names = ["PYC_COUNT", "implementation_", "n0"], output_names = ["q"]} : () -> ()
+  }) {sym_name = "Foo_family", source_owner = {package = "", path = "Foo_family.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b8, !b8) -> !b8, input_names = ["PYC_COUNT", "implementation_", "n__0"], output_names = ["q"]} : () -> ()
   "ac.module"() ({
   ^bb0(%p: !b8, %impl: !b8, %number: !b8):
     %a, %b, %c = "ac.instance"(%p, %impl, %number) {instance_name = "first", callee = @Foo, parameters = [#w1], type_arguments = [], occurrence = {site = {definition = @top, ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 0 : i64}]}, expansion = []}} : (!b8, !b8, !b8) -> (!b8, !b8, !b8)
     %q = "ac.instance"(%p, %impl, %number) {instance_name = "second", callee = @Foo_family, parameters = [], type_arguments = [], occurrence = {site = {definition = @top, ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 1 : i64}]}, expansion = []}} : (!b8, !b8, !b8) -> !b8
     "ac.yield"(%a, %b, %c, %q) : (!b8, !b8, !b8, !b8) -> ()
-  }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b8, !b8) -> (!b8, !b8, !b8, !b8), input_names = ["PYC_COUNT", "implementation_", "n0"], output_names = ["a", "b", "c", "q"]} : () -> ()
+  }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b8, !b8, !b8) -> (!b8, !b8, !b8, !b8), input_names = ["PYC_COUNT", "implementation_", "n__0"], output_names = ["a", "b", "c", "q"]} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }

@@ -17,6 +17,37 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
+# Keep this installed-package contract explicit: reading __all__ from the wheel
+# itself would allow a missing declaration or a retired API to pass unnoticed.
+ACTIVE_EXPORTS = {
+    "module",
+    "rule",
+    "method",
+    "struct",
+    "bits",
+    "table",
+    "queue",
+    "encoding",
+    "enum_to_bits",
+    "enum_from_bits",
+    "concat",
+    "four_state",
+    "case_eq",
+    "is_known",
+    "popcount",
+    "count_leading_zeros",
+    "count_trailing_zeros",
+    "priority_encode",
+    "onehot_encode",
+    "system",
+    "dff",
+    "dffe",
+    "sync_mem",
+    "sync_mem_dp",
+    "byte_mem",
+    "log",
+    "report",
+} | {f"u{width}" for width in range(1, 65)}
 # Windows API-set prefixes and operating-system DLL names (plus the MSVC v143
 # C/C++ runtime declared by the platform profile).  Kept in step with
 # create_platform_manifest.py so generator and verifier classify imports alike.
@@ -339,11 +370,25 @@ def validate_tree(
 def write_model_source(source: Path) -> None:
     source.mkdir(parents=True)
     (source / "design_top.py").write_text(
-        "from typing import Annotated\nfrom pycircuit import module, rule, report\n"
-        "Word = Annotated[int, range(8)]\n@module\ndef DesignTop():\n"
-        "    count: Word = 0\n    @rule\n    def advance():\n"
-        "        nonlocal count\n        if count < 3:\n            count = count + 1\n"
-        "        report('count', count)\n    advance()\n",
+        "import pycircuit as ac\n"
+        "\n"
+        "@ac.module\n"
+        "def Counter() -> ac.u8:\n"
+        "    count: ac.u8 = 0\n"
+        "    @ac.rule\n"
+        "    def advance():\n"
+        "        if count < 3:\n"
+        "            count = count + 1\n"
+        "    advance()\n"
+        "    return count\n"
+        "\n"
+        "@ac.system\n"
+        "def DesignTop():\n"
+        "    observed = Counter()\n"
+        "    @ac.rule\n"
+        "    def observe():\n"
+        "        ac.report('count', observed)\n"
+        "    observe()\n",
         encoding="utf-8",
     )
 
@@ -371,55 +416,44 @@ def find_build_artifact(root: Path, names: tuple[str, ...]) -> Path:
     return found[0]
 
 
-def verify_only_export(plugin: Path) -> None:
-    if sys.platform == "win32":
-        dumpbin = shutil.which("dumpbin")
-        if dumpbin is None:
-            raise ValueError(
-                "dumpbin is required to inspect generated Windows model exports"
-            )
-        completed = subprocess.run(
-            [dumpbin, "/nologo", "/exports", plugin],
-            text=True,
-            capture_output=True,
-            check=False,
-        )
-        if completed.returncode:
-            raise ValueError(f"dumpbin failed for {plugin}: {completed.stderr}")
-        exported: list[str] = []
-        in_table = False
-        for raw in completed.stdout.splitlines():
-            line = raw.strip()
-            if not line:
-                continue
-            fields = line.split()
-            if fields[0].lower() == "ordinal" and "name" in line.lower():
-                in_table = True
-                continue
-            if not in_table:
-                continue
-            if fields[0].lower() == "summary":
-                break
-            if fields[0].isdigit():
-                exported.append(fields[-1])
-        if len(exported) != 1 or not exported[0].endswith("pycircuit_model_query_v1"):
-            raise ValueError(
-                "generated model must export only pycircuit_model_query_v1"
-            )
-        return
-    command = (
-        ["nm", "-gU", plugin]
-        if sys.platform == "darwin"
-        else ["nm", "-D", "--defined-only", plugin]
-    )
-    completed = subprocess.run(command, text=True, capture_output=True, check=False)
-    defined = [line for line in completed.stdout.splitlines() if line.strip()]
-    if (
-        completed.returncode
-        or len(defined) != 1
-        or not defined[0].endswith("pycircuit_model_query_v1")
+def verify_system_events(events: Path) -> None:
+    records = [
+        json.loads(line) for line in events.read_text(encoding="utf-8").splitlines()
+    ]
+    # Five low/high cycles observe old committed state before each rising-edge
+    # increment. The last cycle also verifies the counter's saturated hold.
+    expected = (0, 0, 1, 1, 2, 2, 3, 3, 3, 3)
+    if len(records) != len(expected) + 1 or not all(
+        isinstance(record, dict) for record in records
     ):
-        raise ValueError("generated model must export only pycircuit_model_query_v1")
+        raise ValueError("installed System did not publish ten reports and one result")
+    for epoch, (record, value) in enumerate(zip(records[:-1], expected, strict=True)):
+        if (
+            record.get("kind") != "report"
+            or record.get("instance") != "root"
+            or record.get("spec") != {"name": "count"}
+            or int(record["evaluation_epoch"]) != epoch
+            or int(record["commit_epoch"]) != epoch + 1
+            or record["values"] != [{"kind": "integer", "value": str(value)}]
+        ):
+            raise ValueError(f"installed System count report differs at epoch {epoch}")
+    result = records[-1]
+    if (
+        result.get("kind") != "result"
+        or result.get("status") != "TERMINATED"
+        or int(result["epoch_time"]) != len(expected)
+        or result["error"] is not None
+    ):
+        raise ValueError("installed System did not terminate successfully at epoch 10")
+    gauges = [row for row in result["statistics"] if row["name"] == "count"]
+    if (
+        len(gauges) != 1
+        or gauges[0].get("kind") != "gauge"
+        or gauges[0]["object_path"] != "root"
+        or int(gauges[0]["value"]) != expected[-1]
+        or int(gauges[0]["last_update"]["time"]) != len(expected)
+    ):
+        raise ValueError("installed System final count gauge differs")
 
 
 def tree_snapshot(root: Path) -> tuple[tuple[str, bytes], ...]:
@@ -482,7 +516,10 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         [
             python,
             "-c",
-            "import pycircuit; assert set(pycircuit.__all__) == {'module','rule','system','log','report'}",
+            "import pycircuit; "
+            f"expected = {sorted(ACTIVE_EXPORTS)!r}; "
+            "assert sorted(pycircuit.__all__) == expected, pycircuit.__all__; "
+            "assert all(hasattr(pycircuit, name) for name in expected)",
         ],
         cwd=workspace,
     )
@@ -583,23 +620,10 @@ def installed_smoke(sdk_root: Path, wheels: list[Path], workspace: Path) -> None
         cwd=workspace,
     )
     run(["cmake", "--build", build, "--parallel", "4"], cwd=workspace)
-    config = workspace / "config.json"
-    config.write_text(
-        '{"deadlock_window":null,"max_domain_cycles":{},"max_ticks":3,"schema":"pycircuit-model-config","version":"1"}',
-        encoding="utf-8",
-    )
-    runner = find_build_artifact(build, ("pycircuit_system", "pycircuit_system.exe"))
+    runner = find_build_artifact(build, ("pycircuit_sim", "pycircuit_sim.exe"))
     events = workspace / "events.jsonl"
-    run([runner, "--config", config, "--events", events], cwd=workspace)
-    records = [
-        json.loads(line) for line in events.read_text(encoding="utf-8").splitlines()
-    ]
-    if not records or records[-1].get("kind") != "result":
-        raise ValueError("installed design did not produce a final result")
-    plugin = find_build_artifact(
-        build, ("libpycircuit_dut.dylib", "libpycircuit_dut.so", "pycircuit_dut.dll")
-    )
-    verify_only_export(plugin)
+    run([runner, "--cycles", "5", "--events", events], cwd=workspace)
+    verify_system_events(events)
 
 
 def main() -> int:

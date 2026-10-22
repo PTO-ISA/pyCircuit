@@ -4,7 +4,7 @@ These excerpts come from the public compiler's actual output after a successful
 native worker-1/worker-2 and RTL oracle run. They are reading samples, not a
 second implementation or standalone replacement for the complete generated files.
 
-Verified WORK trace rows: **546**. Final artifact SHA-256: `067a376c230770074ea7d9019668e6772d84f63f45c6a83db9d62e1f81c8c910`.
+Verified WORK trace rows: **546**. Final artifact SHA-256: `14bb2915cbed16f6b47a2d2cf4a2264d57fa397bb9d622debc75b62481f5c4c2`.
 
 Trace rows may be sparse checkpoints or summaries; see the example README for the number of checked epochs.
 
@@ -47,7 +47,7 @@ python3 tools/example_catalog.py generated --example digital_clock \
 
 ```cpp
   void Work() {
-    __pyc_clear_check_snapshots();
+    pyc_clear_check_snapshots();
     try {
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_0;
     gfsim::wire<gfsim::table<gfsim::Bits<8>, (pyc_count * (1))>> pyc_value_1;

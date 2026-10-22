@@ -1868,7 +1868,7 @@ cppObservationStaging(HardwareEmitContext &context, ac::ModuleOp definition,
         << "      const auto pyc_observed_path = " << *path
         << ".element(pyc_lane).packed();\n"
         << "      " << object << (object.empty() ? "" : "template ")
-        << "__pyc_stage_observation<"
+        << "pyc_stage_observation<"
         << (site.gauge
                 ? "false"
                 : "(gfsim::hardware_traits<" + *payload + ">::width == 1)")
