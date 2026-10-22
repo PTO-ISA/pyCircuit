@@ -77,8 +77,8 @@ public:
   explicit DirectSystem(Root &root) : root_(root) {}
 private:
   bool Precheck() noexcept override {
-    if constexpr (requires { root_.__pyc_validate_checks(failure_); })
-      return root_.__pyc_validate_checks(failure_);
+    if constexpr (requires { root_.pyc_validate_checks(failure_); })
+      return root_.pyc_validate_checks(failure_);
     return true;
   }
   Root &root_;

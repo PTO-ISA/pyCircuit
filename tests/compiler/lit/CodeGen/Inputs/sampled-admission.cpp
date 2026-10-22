@@ -48,7 +48,7 @@ public:
 private:
   bool Precheck() noexcept override {
     failure_ = {};
-    return root_.__pyc_validate_checks(failure_);
+    return root_.pyc_validate_checks(failure_);
   }
   gfsim::SimFailureInfo
   DescribeFailure(gfsim::SimFailurePhase phase) const noexcept override {
@@ -227,12 +227,12 @@ void directLifecycle(unsigned workers) {
   frozen.drive('1', '1', '1', '1', '0', '0', '0', '0');
   frozen.root->Work();
   gfsim::SimFailureInfo failure;
-  require(frozen.root->__pyc_validate_checks(failure));
+  require(frozen.root->pyc_validate_checks(failure));
   frozen.root->Xfer();
   frozen.drive('1', '1', '1', '1', '1', '0', '1', '0');
   frozen.root->Work();
   frozen.drive('x', 'x', 'x', 'x', 'x', 'x', 'x', 'x');
-  require(frozen.root->__pyc_validate_checks(failure));
+  require(frozen.root->pyc_validate_checks(failure));
   frozen.root->Xfer();
   frozen.drive('1', '1', '1', '1', '1', '0', '1', '0');
   frozen.refresh();
@@ -241,17 +241,17 @@ void directLifecycle(unsigned workers) {
   Harness retry(workers);
   retry.drive('1', '1', '1', '1', '0', '0', '0', '0');
   retry.root->Work();
-  require(retry.root->__pyc_validate_checks(failure));
+  require(retry.root->pyc_validate_checks(failure));
   retry.root->Xfer();
   retry.refresh();
   retry.drive('1', '1', '1', '1', '1', '0', '1', '0');
   retry.root->Work();
-  require(retry.root->__pyc_validate_checks(failure));
+  require(retry.root->pyc_validate_checks(failure));
   retry.root->DiscardNext();
   retry.root->Xfer();
   row("DISCARDED", "ok", *retry.root, 0, 0);
   retry.root->Work();
-  require(retry.root->__pyc_validate_checks(failure));
+  require(retry.root->pyc_validate_checks(failure));
   retry.root->Xfer();
   retry.refresh();
   row("DISCARD_RETRY", "ok", *retry.root, 1, 1);

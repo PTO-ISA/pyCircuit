@@ -233,7 +233,7 @@ carry data. Reference parameters are compile-time bindings, with no hardware
 payload representation: they cannot be stored, dynamically selected, rebound,
 or satisfied by an implicit new instance. The selected link root must have all
 references bound by an enclosing Module or System. See
-[sibling calls](../../examples/sibling_calls/README.md) for three independently
+[sibling calls](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/sibling_calls/README.md) for three independently
 compiled source files.
 
 Ordinary outputs carry compiler-owned availability. A non-firing Rule produces
@@ -866,8 +866,13 @@ across mutually exclusive arms; put one report after the join.
 Keep selectors, guards, pure helpers, collection callbacks and conditional
 expressions free of Rule/Method calls and effects. Early or branch-local returns,
 cross-domain transactions and ambiguous competing writers remain rejected.
-Complex SCF loop-control and general resource admission remain outside the
-execution claim in this section. See the
+Bounded typed Rule/Method loops support Python-style `else`: natural completion
+(including zero trips) runs it once, `break` suppresses it and `continue` does not.
+Their effects remain in the outer transaction; a late failure commits neither
+body nor else proposals. Keep the existing finite-range/progress and branch
+binding/return restrictions. Pure helper loop-else remains unsupported. See the
+[loop profiles](../reference/language.md#bounded-source-loops) for exact boundaries.
+General SCF and resource admission remain outside this bounded claim. See the
 [conditional-effect contract](../rfcs/serial-rule-method/conditional-effects.md)
 and [branch-state contract](../rfcs/serial-rule-method/branch-state-ssa.md).
 
@@ -913,6 +918,13 @@ cycle driver remains available. Keep logs and assertions in cohesive Rules;
 the compiler owns clock driving, reset interpretation and atomic publication.
 
 ## Typed DUT and runner
+
+This is advanced host/backend integration. Ordinary authors use the
+[generated closed System flow](../architecture/system-execution.md) and do not
+write Work/Xfer callbacks or clock/reset plumbing. The
+[host I/O and UVM design](../architecture/system-host-integration.md) separates
+these existing C++ mechanisms from proposed Python bindings, memory loading and
+verification adapters.
 
 C++ emission provides source modules and `pycircuit_system.hpp` with `pyc_root`
 and typed `pyc_dut::Inputs/Outputs`, `drive`, `sample`, `system` and `observations`.
