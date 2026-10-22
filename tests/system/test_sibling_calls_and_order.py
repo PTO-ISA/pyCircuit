@@ -97,9 +97,7 @@ def _units(
     elif scenario == "returned":
         path = source / "clients.py"
         text = path.read_text()
-        signature = (
-            "    counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1\n):"
-        )
+        signature = "    counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1\n):"
         assert text.count(signature) == 1
         text = text.replace(signature, signature.removesuffix(":") + " -> ac.u8:")
         text = text.replace("    def write() -> None:", "    def write() -> ac.u8:")
