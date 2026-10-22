@@ -941,7 +941,7 @@ not clear its contents; use a fresh DUT for an independent cold run.
 
 ## Examples
 
-The 18 current examples live under `examples/<name>/` and are listed in
+The 21 current examples live under `examples/<name>/` and are listed in
 `examples/catalog.json`. Each directory owns its Python sources and explicit
 module closure. Fifty-four superseded wrappers and their original oracles live
 under `tests/fixtures/historical_examples/`; they are comparison assets, not

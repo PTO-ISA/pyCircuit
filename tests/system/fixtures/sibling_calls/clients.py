@@ -3,7 +3,9 @@ from checks.counter import Counter, Ledger
 
 
 @ac.module
-def Writer(counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1):  # noqa: N802
+def Writer(  # noqa: N802
+    counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1
+):
     alias = counter
 
     @ac.rule

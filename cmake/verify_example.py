@@ -169,9 +169,9 @@ def verify(source, build, runner, include, verilator, timeout=180):
         rtl_trace = run([str(rtl_build / "Vpycircuit_example")], "rtl-run")
     rtl_trace = [line for line in rtl_trace if line.startswith("WORK ")]
     assert rtl_trace == serial, "C++/RTL Work snapshot mismatch"
-    assert bound_inputs(source, build, runner, include) == inputs_before, (
-        "example inputs changed during verification"
-    )
+    assert (
+        bound_inputs(source, build, runner, include) == inputs_before
+    ), "example inputs changed during verification"
     (build / "verification.json").write_text(
         json.dumps(
             {

@@ -96,14 +96,13 @@ def _units(
             )
     elif scenario == "returned":
         path = source / "clients.py"
-        text = (
-            path.read_text()
-            .replace(
-                "def Writer(counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1):",
-                "def Writer(counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1) -> ac.u8:",
-            )
-            .replace("    def write() -> None:", "    def write() -> ac.u8:")
+        text = path.read_text()
+        signature = (
+            "    counter: Counter, ledger: Ledger, allow: ac.u1, change_marker: ac.u1\n):"
         )
+        assert text.count(signature) == 1
+        text = text.replace(signature, signature.removesuffix(":") + " -> ac.u8:")
+        text = text.replace("    def write() -> None:", "    def write() -> ac.u8:")
         text = text.replace(
             '        ac.log("info", "sibling written", alias.old())',
             '        ac.log("info", "sibling written", alias.old())\n        return alias.old()',
@@ -472,9 +471,9 @@ def test_illegal_callable_order_rejects_without_replacing_program(tmp_path, case
         "same-method": ("conflict", "writer"),
         "cycle": ("cycl",),
     }
-    assert any(word in rejected.stderr.lower() for word in reasons[case]), (
-        rejected.stderr
-    )
+    assert any(
+        word in rejected.stderr.lower() for word in reasons[case]
+    ), rejected.stderr
 
 
 def test_four_state_sibling_candidates_survive_held_and_falling_samples(tmp_path):
@@ -534,7 +533,8 @@ def test_sibling_system_reset_discard_and_failed_check_leave_no_partial_commit(
     # Access instrumentation is test-owned and never supplies any DUT result.
     for header in generated.rglob("*.hpp"):
         header.write_text(header.read_text().replace("private:", "public:"))
-    (generated / "sibling_probe.cpp").write_text(r"""
+    (generated / "sibling_probe.cpp").write_text(
+        r"""
 #include "pycircuit_system.hpp"
 #include <iostream>
 #include <stdexcept>
@@ -625,7 +625,8 @@ int main() {
   }
   std::cout << "SIBLING_ZERO_COMMIT_OK\n";
 }
-""")
+"""
+    )
     with (generated / "CMakeLists.txt").open("a") as cmake:
         cmake.write(
             "\nadd_executable(sibling_probe sibling_probe.cpp)\n"
@@ -673,7 +674,8 @@ def test_sibling_icarus_reset_discard_and_failure_preserve_all_state_and_clocks(
     generated = tmp_path / "verilog"
     _ok(_cli("emit", str(final), "--target", "verilog", "-o", str(generated)))
     probe = tmp_path / "sibling_probe.sv"
-    probe.write_text(r"""
+    probe.write_text(
+        r"""
 module sibling_probe;
   logic clk=0, rst=0, permit=0;
   logic [2:0] phase=0;
@@ -741,7 +743,8 @@ module sibling_probe;
     $display("SIBLING_RTL_ZERO_COMMIT_OK"); $finish;
   end
 endmodule
-""")
+"""
+    )
     binary = tmp_path / "sibling-rtl"
     _ok(
         _run(
@@ -1125,9 +1128,9 @@ def Bad():
     assert rejected.returncode != 0, rejected.stdout + rejected.stderr
     # The source filename is cycle.py; it must not satisfy the diagnostic oracle.
     diagnostic = rejected.stderr.rsplit("error:", 1)[-1].lower()
-    assert any(word in diagnostic for word in ("cycle", "cyclic", "dependency")), (
-        rejected.stderr
-    )
+    assert any(
+        word in diagnostic for word in ("cycle", "cyclic", "dependency")
+    ), rejected.stderr
     assert final.read_bytes() == before
 
 
@@ -1136,7 +1139,8 @@ def test_unselected_reference_definition_does_not_bind_or_invalidate_closed_top(
 ):
     source = tmp_path / "source"
     shutil.copytree(FIXTURE, source)
-    (source / "bench.py").write_text("""import pycircuit as ac
+    (source / "bench.py").write_text(
+        """import pycircuit as ac
 from checks.counter import Counter
 @ac.system
 def Closed():
@@ -1145,7 +1149,8 @@ def Closed():
     def observe() -> None:
         ac.log("info", "closed old", counter.old())
     observe()
-""")
+"""
+    )
     units = []
     for filename in ("counter.py", "clients.py", "bench.py"):
         unit = tmp_path / (Path(filename).stem + "-unit")
