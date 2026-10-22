@@ -312,7 +312,7 @@ def _validate_manifest(value: object) -> None:
             raise _PublicationError("anchor interface inventory reference disagrees")
         _hash(row["body_sha256"])
         sources[key] = row
-        source_order.append(key)
+        source_order.append(_canonical(source))
         referenced.add(path)
     if source_order != sorted(source_order):
         raise _PublicationError("anchor source owners must be sorted")

@@ -109,6 +109,70 @@ def saved_anchor(tmp_path):
     return _publish(tmp_path)
 
 
+@pytest.mark.skipif(os.name == "nt", reason='Windows filenames cannot contain "')
+def test_saved_anchor_roundtrip_with_escaped_source_owner_paths(tmp_path):
+    _publish(tmp_path, remove_sources=False)
+    source = tmp_path / "source"
+    units = [tmp_path / "provider", tmp_path / "consumer"]
+    for index, filename in enumerate(('a".py', "a-.py")):
+        # These are real independently compiled source units, not fabricated
+        # provenance rows. Empty headers retain an admitted interface owner.
+        (source / filename).write_text("# Empty source interface owner.\n")
+        unit = tmp_path / f"empty-{index}"
+        _ok(_compile(source, filename, unit))
+        units.append(unit)
+    directory = tmp_path / "escaped-anchor"
+    _ok(
+        _cli(
+            "link",
+            *(str(unit) for unit in units),
+            "--top",
+            TOP,
+            "--target",
+            "anchor",
+            "-o",
+            str(directory),
+        )
+    )
+    manifest = json.loads((directory / "anchor.json").read_text())
+    paths = [row["source"]["path"] for row in manifest["sources"]]
+    assert paths == [
+        "a-.py",
+        'a".py',
+        "method_nominal_bench.py",
+        "method_nominal_provider.py",
+    ]
+    before = _tree(directory)
+    for path in (source, *units):
+        shutil.rmtree(path)
+    _ok(
+        _run(
+            [
+                os.environ["PYCIRCUIT_LINKER"],
+                "--from-anchor",
+                str(directory),
+                "--verify-only",
+            ]
+        )
+    )
+    _ok(_cli("link", "--from-anchor", str(directory), "--verify-only"))
+    final = tmp_path / "escaped-final.ac"
+    _ok(
+        _cli(
+            "link",
+            "--from-anchor",
+            str(directory),
+            "--target",
+            "final",
+            "-o",
+            str(final),
+        )
+    )
+    assert 'ac.stage = "final"' in final.read_text()
+    assert "ac.anchor_provenance" in final.read_text()
+    assert _tree(directory) == before
+
+
 def test_portable_anchor_refines_and_executes_with_original_rollback_oracle(
     tmp_path, saved_anchor
 ):

@@ -141,6 +141,48 @@ def test_portable_snapshot_is_byte_exact_and_creates_no_input_controls(tmp_path)
     assert anchor._discover_anchor_owner(source) == (manifest["owner"], False)
 
 
+@pytest.mark.parametrize("ordering", ["canonical", "reversed", "duplicate"])
+def test_source_provenance_uses_canonical_json_order(tmp_path, ordering):
+    source = tmp_path / "anchor"
+    manifest = _artifact(source)
+    additional = []
+    # Native source-owner ordering compares canonical JSON bytes. The quote
+    # sorts before '-' in a raw path, but its JSON escape sorts after '-'.
+    for filename in ("a-.py", 'a".py'):
+        owner = {"package": "demo", "path": filename}
+        identity = _hash(_json(owner))
+        interface = f"sources/{identity}.interface.ac"
+        payload = f"empty interface transport for {filename}\n".encode()
+        (source / interface).write_bytes(payload)
+        manifest["files"].append(
+            {"path": interface, "role": "source-interface", "sha256": _hash(payload)}
+        )
+        additional.append(
+            {
+                "source": owner,
+                "owner_id": identity,
+                "interface": interface,
+                "body_sha256": _hash(b"empty source body"),
+                "interface_sha256": _hash(payload),
+            }
+        )
+    assert _json(additional[0]["source"]) < _json(additional[1]["source"])
+    assert additional[0]["source"]["path"] > additional[1]["source"]["path"]
+    if ordering == "reversed":
+        additional.reverse()
+    elif ordering == "duplicate":
+        additional.insert(0, dict(additional[0]))
+    manifest["sources"] = additional + manifest["sources"]
+    manifest["files"].sort(key=lambda row: row["path"])
+    _save(source, manifest)
+    if ordering == "canonical":
+        assert anchor._capture_anchor(source) == manifest
+    else:
+        diagnostic = "must be sorted" if ordering == "reversed" else "identity collides"
+        with pytest.raises(_PublicationError, match=diagnostic):
+            anchor._capture_anchor(source)
+
+
 @pytest.mark.parametrize(
     "damage",
     [
