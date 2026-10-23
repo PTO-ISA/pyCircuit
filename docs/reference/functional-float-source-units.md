@@ -610,3 +610,30 @@ The fixed-release producer-side observations and corrected GEMV attribution
 are [cross-linked in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6320715013). Only
 proved released-asset violations are attributed there; PYC defects and
 unresolved ownership remain separate.
+
+## Public commit-state composition and compressed SYS consumer repair
+
+`tracked_bit_transform.TrackedBitTransform` consumes the existing BitTransform
+and records a coherent `WordCommitState` (last committed word, count, sticky
+logical rejection) through one Rule. The public
+[example and commands](../../examples/functional_float/README.md#composing-a-response-with-owned-state)
+and [System bench](../../examples/functional_float/tracked_bit_bench.py) cover
+inactive/invalid requests, hold and status effects, and both canonical BFI
+endpoint shapes. Native workers1/2 and RTL pass8 cycles/16 epochs from the
+same final IR. This is a reusable example model and explicit state policy;
+compiler/runtime and the previously sealed numeric algorithms are unchanged.
+
+The separate SSM repair is a missing accepted `C.BSTART.SYS` envelope0x0840,
+not a public numeric API defect. Legal compressed/L32 SYS reads, actual
+nonzero Stores and negative-domain preservation are independently checked
+there. The [bounded consumer report](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/owner_repair_20261023.md)
+requires SSM access and distinguishes the former41 non-SYS inputs, the
+source/API construction behind Store0, one current-release BFI first
+counterexample and the new feedback's wrapping word. Old476/799/802 results
+are not overwritten. No candidate ASL PR398/399 or hosted engineering ABI is
+silently treated as accepted, and no SDK/general numerical oracle is rerun.
+
+
+The actual released-asset envelope/object-binding evidence is
+[cross-linked in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6368765894). The local compressed-SYS
+fix is explicitly excluded from Bench defect attribution.

@@ -401,3 +401,22 @@ into the public arithmetic provider.
 
 CycleAwareSignal/JIT, structural builders, Agentic Circuit/QueueGraph, `acc.py`,
 `acc`, and `pycc` are retired. They are not aliases or fallback implementations.
+
+## Reusable computation with a stateful consumer
+
+The [functional word-state example](../../examples/functional_float/README.md#composing-a-response-with-owned-state)
+shows an imported numeric source unit feeding one Rule over module-owned
+variables. The result is a typed snapshot of committed value/count/status;
+it is not the speculative candidate of the current Work. Keep the response's
+request-domain policy explicit: the example's inactive request holds all state,
+while an active rejected word request only records its sticky rejection. IEEE
+invalid numerical outcomes and unknown/unavailable wires remain different
+contracts. A valid/invalid wrapper must not turn an unavailable computation
+into zero or discard a defined floating NaN/status outcome.
+
+Both target artifacts come from the verified linked closure. The registered
+System example uses the common generated runner, complete checks before Xfer,
+and strict sampled domains; authors do not tie off commit controls or insert
+clock/reset pins in their computational model. The eight-snapshot native1/2
+and RTL check is public and independently reproducible with the installed SDK.
+It does not require the private SSM adapter or certify unrelated runtime gates.

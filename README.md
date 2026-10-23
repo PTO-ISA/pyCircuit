@@ -155,6 +155,9 @@ bounded example algorithms, rather than a complete floating library or ISA.
 The same reference separately records actual latest-selected Bench802/ASL
 validation and the SSM-owned matrix-default consumer fix; it does not replace
 older frozen or newcc799 measurements with new-asset results.
+The registered [word-state System example](examples/functional_float/README.md#composing-a-response-with-owned-state)
+now demonstrates public numeric composition, commit state and sticky logical
+effects with native workers1/2 and RTL, independently of SSM.
 
 `@module` defines reusable hardware, `@rule` defines an atomic stateless
 transition, and `@system` defines a closed simulation composition. The current

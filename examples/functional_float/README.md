@@ -305,3 +305,44 @@ after rounding; E1M2's declared policy uses source tininess below1/4. The
 independent rational codebook checks have2,448 encode and64 decode native/RTL
 result/status matches. These are value codecs, not a packed Tile layout,
 HiF4 conversion, complete FP4 arithmetic library, or ISA decoder.
+
+## Composing a response with owned state
+
+`tracked_bit_transform.py` adds `TrackedBitTransform`, a reusable stateful
+consumer of the existing public `BitTransform` source unit. Its grouped
+`WordCommitState` snapshot contains the last committed word, a wrapping u32
+commit count, and a sticky logical rejection bit. One cohesive Rule updates the
+three fields: an active valid request commits its computed result; an active
+out-of-domain request sets rejection and holds value/count; an inactive request
+holds all state. This is a word-provider policy, not the IEEE floating-invalid
+response policy. Do not apply its `valid` guard blindly to a floating response
+that defines a NaN and NV with `invalid=1`.
+
+The example exposes no author clock/reset or primitive state pins. Work
+observes committed state; the compiler and shared SystemRunner own sampling,
+whole-system checks and Xfer. `tracked_bit_bench.py` has eight independent
+expected snapshots, including ordinary and wrapping insertion, full-word
+replacement, inactive invalid requests and sticky rejection. Expected words
+include `0x200000002` for first32/last63 with inputs2/2 and
+`0x8000000000000000` for first63/last32 with inputs1/1. This is an example
+algorithm/state policy, not a new ISA opcode or a new compiler primitive.
+
+Use the installed CompilerDev tools plus Runtime for source compile/link/emit.
+Runtime-only users can consume generated C++ without LLVM; they do not compile
+Python source units. The ordinary standalone public example flow is:
+
+```bash
+cmake -S examples/functional_float -B "$BUILD_WORD_STATE" -G Ninja \
+  -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PYC_TOOLCHAIN_ROOT"
+cmake --build "$BUILD_WORD_STATE" --parallel 4
+ctest --test-dir "$BUILD_WORD_STATE" --no-tests=error --output-on-failure
+```
+
+It is registered in the existing nightly example catalog. The bounded test
+passes native workers1/2 and Icarus RTL for8 cycles/16 sampling epochs, using
+the same verified final IR (the standard verifier checks final-IR equality).
+No SSM tree, ELF, private bundle or SDK rebuild is required. The source-only
+`build_units.py --only tracked_bit_transform` entry separately publishes its
+explicit provider closure to C++ and RTL. It does not execute Python designs
+to supply DUT results. This test is scoped to the shown word/state behavior,
+not a rerun of the general finite numerical oracles or all API/nightly gates.
