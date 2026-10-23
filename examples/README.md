@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog inventories **17** registered designs and **25** API-owned coverage cases.
+The current catalog inventories **18** registered designs and **25** API-owned coverage cases.
 
 - [Recommended examples and learning path](GUIDE.md)
 - [Writing and verification standard](STANDARD.md)
@@ -9,18 +9,13 @@ The current catalog inventories **17** registered designs and **25** API-owned c
 - [Machine-readable catalog](catalog.json)
 - [Current language](../docs/reference/language.md)
 
-[functional_float](functional_float/README.md) is a source-unit library
-example rather than a registered `@system`; it is compiled and linked directly
-with the public `pycircuit compile/link/emit` commands. Its README gives the
-bounded Product/Sum command flow and does not add it to the system example
-catalog.
-
 ## Full registered inventory
 
 | Design | Source | System run | Native oracle | RTL oracle | Generated output |
 | --- | --- | --- | --- | --- | --- |
 | [hello_counter](hello_counter/README.md) | [Python](hello_counter/hello_counter.py) | [HelloCounter](hello_counter/hello_counter.py) | compiler-generated | compiler-generated | — |
 | [multi_outputs](multi_outputs/README.md) | [Python](multi_outputs/multi_outputs.py) | [MultiOutputsSystem](multi_outputs/bench.py) | compiler-generated | compiler-generated | — |
+| [functional_float](functional_float/README.md) | [Python](functional_float/tracked_bit_transform.py) | [CommitSystem](functional_float/tracked_bit_bench.py) | compiler-generated | compiler-generated | — |
 | [multiclock_domain_isolation](multiclock_domain_isolation/README.md) | [Python](multiclock_domain_isolation/multiclock_domain_isolation.py) | — | [driver](multiclock_domain_isolation/driver.cpp) | [testbench](multiclock_domain_isolation/rtl_tb.sv) | [artifacts](multiclock_domain_isolation/GENERATED.md) |
 | [rob](rob/README.md) | [Python](rob/rob.py) | [ExerciseRob](rob/bench.py) | [driver](rob/driver.cpp) | [testbench](rob/rtl_tb.sv) | [artifacts](rob/GENERATED.md) |
 | [struct_transform](struct_transform/README.md) | [Python](struct_transform/struct_transform.py) | [ExerciseStructTransform](struct_transform/bench.py) | [driver](struct_transform/driver.cpp) | [testbench](struct_transform/rtl_tb.sv) | [artifacts](struct_transform/GENERATED.md) |

@@ -48,6 +48,7 @@ SOURCES = {
     'fp32_trunc_modulo': ('fp32_types', 'fp32_product'),
     'fp32_remainder': ('fp32_types', 'fp32_product', 'fp32_sum', 'fp32_divide'),
     'word_arithmetic': (), 'bit_transform': ('word_arithmetic',),
+    'tracked_bit_transform': ('word_arithmetic', 'bit_transform'),
     'address': (), 'integer_element': (), 'fp32_u32_add': (), 'input_expand': (),
 }
 TOPS = {
@@ -74,6 +75,7 @@ TOPS = {
     'fp32_trunc_modulo': 'FP32TruncModulo',
     'word_division': 'WordDivision', 'fp32_remainder': 'FP32FloorModulo',
     'word_arithmetic': 'WordArithmetic', 'bit_transform': 'BitTransform',
+    'tracked_bit_transform': 'TrackedBitTransform',
     'address': 'RowMajorAddress', 'integer_element': 'IntegerElement',
     'fp32_u32_add': 'U32Add', 'input_expand': 'InputExpand',
 }

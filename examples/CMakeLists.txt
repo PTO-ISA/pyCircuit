@@ -25,6 +25,7 @@ endfunction()
 # Keep this list in the same order as examples/catalog.json.
 add_selected_example(hello_counter)
 add_selected_example(multi_outputs)
+add_selected_example(functional_float)
 add_selected_example(multiclock_domain_isolation)
 add_selected_example(rob)
 add_selected_example(struct_transform)
