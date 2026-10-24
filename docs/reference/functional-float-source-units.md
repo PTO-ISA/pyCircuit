@@ -8,6 +8,16 @@ The [latest consumer report](https://github.com/LinxISA/SuperScalarModel/blob/co
 requires SSM repository access. Earlier compatibility/frozen measurements
 below remain historical.
 
+The subsequent [latest802 remaining18 diagnostic](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/remaining18_bfi_20261024.md)
+uses the actual `ops-20261021` inputs, separate from newcc799. Each of the18
+previously unconfirmed inputs first differs at HL.BFI: the independent accepted
+ASL bit-loop and PYC produce `0x200000002`, while OFF produces `0x2`. Including
+the already sealed current index139 proof gives19 first-position attributions,
+not19 whole-program correctness proofs or release passes. The diagnostic and
+actual raw/source-binding evidence belong to SSM and require repository access.
+No public provider, source-capture, compile/link, C++/RTL or runtime behavior is
+changed; sealed public numerical/state gates are not repeated for this report.
+
 pyCircuit publishes reusable computation as typed, source-captured Python
 functions and `@ac.module` providers. These examples use the public
 `pycircuit compile` → explicit `link` closure → verified final IR → `emit`

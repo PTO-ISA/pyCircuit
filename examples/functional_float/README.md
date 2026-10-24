@@ -346,3 +346,10 @@ No SSM tree, ELF, private bundle or SDK rebuild is required. The source-only
 explicit provider closure to C++ and RTL. It does not execute Python designs
 to supply DUT results. This test is scoped to the shown word/state behavior,
 not a rerun of the general finite numerical oracles or all API/nightly gates.
+
+The consumer's separate [latest802 first-difference audit](https://github.com/LinxISA/SuperScalarModel/blob/codex/functional-pyc-native-integration/functional_pyc/docs/remaining18_bfi_20261024.md)
+checks actual release instruction fields and source availability, using an
+independent ASL bit loop. Its18 newly observed first BFI results agree with PYC
+on the `0x200000002` word above and differ from OFF. That private SSM report is
+consumer evidence, not an additional public-example test or proof about later
+program execution; no example/provider behavior or public gate changes here.
