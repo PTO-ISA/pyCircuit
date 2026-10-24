@@ -301,7 +301,7 @@ TEST_F(SourcePrimitiveValueResultsTest,
         "leafs.WordDFFE", "leafs.PacketDFFE"}) {
     SCOPED_TRACE(root.str());
     diagnostics.clear();
-    auto final = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+    auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                              root, error());
     ASSERT_TRUE(succeeded(final)) << diagnostics;
     dualEmit(**final);

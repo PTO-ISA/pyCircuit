@@ -138,6 +138,33 @@ private:
   bool exhausted = false;
 };
 
+// Old readers require exactly the three legacy top-level fields. Adding this
+// mandatory version field makes new reference/order semantics fail closed there.
+FailureOr<bool> needsReferenceOrderSchema(Operation *module, Attribute value,
+                                          PublicationBudget &budget,
+                                          unsigned depth = 0) {
+  if (!budget.depth(depth)) return failure();
+  if (module->hasAttr("ac.reference_parameters")) return true;
+  bool needed = false;
+  if (auto row = dyn_cast_or_null<DictionaryAttr>(value))
+    for (NamedAttribute field : row) {
+      if (!budget.charge()) return failure();
+      StringRef name = field.getName().getValue();
+      if (name == "callable_after" || name == "reference_bindings" || name == "reference")
+        needed = true;
+      auto child = needsReferenceOrderSchema(module, field.getValue(), budget, depth + 1);
+      if (failed(child)) return failure();
+      needed |= *child;
+    }
+  if (auto values = dyn_cast_or_null<ArrayAttr>(value))
+    for (Attribute childValue : values) {
+      auto child = needsReferenceOrderSchema(module, childValue, budget, depth + 1);
+      if (failed(child)) return failure();
+      needed |= *child;
+    }
+  return needed;
+}
+
 LogicalResult chargeAttributeSpelling(PublicationBudget &budget,
                                       Attribute attribute) {
   if (auto text = dyn_cast_or_null<StringAttr>(attribute))
@@ -225,6 +252,8 @@ public:
           return failure();
         NamedAttrList fields(*row);
         fields.append("arguments", *arguments);
+        if (auto references = instance->getAttr("ac.reference_bindings"))
+          fields.append("reference_bindings", references);
         owners.push_back(fields.getDictionary(builder.getContext()));
       } else if (auto method = dyn_cast<SourceMethodOp>(operation)) {
         auto row = callable(method);
@@ -269,6 +298,14 @@ public:
     auto summary = dict({{"owners", array(owners)},
                          {"methods", array(methods)},
                          {"autonomous", array(autonomous)}});
+    if (!summary || invalid || !budget.ok()) return failure();
+    auto newSemantics = needsReferenceOrderSchema(definition, summary, budget);
+    if (failed(newSemantics)) return failure();
+    if (*newSemantics) {
+      NamedAttrList versioned(summary);
+      versioned.append("schema", builder.getI64IntegerAttr(2));
+      summary = versioned.getDictionary(builder.getContext());
+    }
     if (!summary || invalid || !budget.ok() ||
         failed(verifySourceTransactionSummary(definition, summary)))
       return failure();
@@ -941,6 +978,8 @@ private:
       for (StringRef key :
            {"ac.parameters", "ac.result_constraints", "ac.return_form"})
         row.append(key, method->getAttr(key));
+      if (auto after = method->getAttr("ac.callable_after"))
+        row.append("callable_after", after);
       if (auto proposals = method->getAttr("ac.formal_proposals"))
         row.append("ac.formal_proposals", proposals);
       if (auto visibility = method->getAttr("sym_visibility"))
@@ -1003,10 +1042,21 @@ public:
         declaration->getAttrOfType<TypeAttr>("function_type").getValue());
     moduleScope.arguments.assign(signature.getInputs().begin(),
                                  signature.getInputs().end());
-    if (failed(exact(summary, {"owners", "methods", "autonomous"})))
+    NamedAttrList legacy(summary);
+    legacy.erase("schema");
+    if (failed(exact(legacy.getDictionary(declaration->getContext()),
+                     {"owners", "methods", "autonomous"})))
       return failure();
+    auto newSemantics = needsReferenceOrderSchema(declaration, summary, budget);
+    if (failed(newSemantics)) return failure();
+    auto schema = summary.getAs<IntegerAttr>("schema");
+    if ((*newSemantics && !schema) ||
+        (summary.get("schema") && (!schema || !schema.getType().isSignlessInteger(64) ||
+                                  schema.getInt() != 2)))
+      return error("reference and callable order semantics require schema = 2 : i64");
     auto owners = summary.getAs<ArrayAttr>("owners");
     auto methods = summary.getAs<ArrayAttr>("methods");
+    methodDeclarations = methods;
     auto autonomous = summary.getAs<ArrayAttr>("autonomous");
     if (!owners || !methods || !autonomous)
       return error("top rows must be arrays");
@@ -1049,6 +1099,7 @@ public:
         auto unboundPop = row.getAs<BoolAttr>("unbound_pop");
         Attribute rawMemory = row.get("source_memory");
         auto memory = row.getAs<BoolAttr>("source_memory");
+        core.erase("reference_bindings");
         core.erase("source_memory");
         core.erase("payload_constraint");
         core.erase("unbound_push");
@@ -1180,6 +1231,13 @@ public:
             "owner occurrences must be unique and canonically ordered");
       previousOwner = identity;
     }
+    for (auto entry : instanceRows) {
+      auto row = entry.second;
+      auto target = hardware.lookupDefinition(row.getAs<FlatSymbolRefAttr>("callee").getValue());
+      if (failed(verifySourceReferenceBindings(declaration, target, row.get("reference_bindings"),
+              [&](FlatSymbolRefAttr symbol) { return hardware.lookupDefinition(symbol.getValue()); }, declaration)))
+        return failure();
+    }
     // Make all local signatures available before checking calls. External
     // signatures and suffix receivers belong to later explicit header closure.
     StringAttr previousMethod;
@@ -1193,6 +1251,43 @@ public:
       previousMethod = name;
       methodRows[name] = row;
     }
+    llvm::DenseMap<Attribute, ArrayAttr> callableEdges;
+    for (Attribute raw : methods) {
+      auto row = cast<DictionaryAttr>(raw);
+      if (auto after = row.getAs<ArrayAttr>("callable_after"))
+        callableEdges[row.get("declaration")] = after;
+    }
+    llvm::DenseMap<Attribute, unsigned> callableColors;
+    SmallVector<Attribute, 0> callableStack;
+    if (!budget.storage(methods.size(),
+                        sizeof(Attribute) * 4 + sizeof(unsigned)))
+      return failure();
+    std::function<LogicalResult(Attribute, unsigned)> visitCallable =
+        [&](Attribute declaration, unsigned depth) -> LogicalResult {
+      if (depth > 128 || !budget.charge()) return error("callable_after graph depth exceeded");
+      if (callableColors.lookup(declaration) == 1) {
+        auto diagnostic = this->declaration->emitOpError()
+            << "transaction summary callable_after graph is cyclic";
+        for (Attribute participant : callableStack) {
+          if (!budget.charge()) return failure();
+          diagnostic.attachNote(this->declaration->getLoc())
+              << "participating callable declaration occurrence=" << participant;
+        }
+        return failure();
+      }
+      if (callableColors.lookup(declaration) == 2) return success();
+      callableColors[declaration] = 1;
+      callableStack.push_back(declaration);
+      if (auto edges = callableEdges.lookup(declaration))
+        for (Attribute target : edges)
+          if (failed(visitCallable(target, depth + 1))) return failure();
+      callableStack.pop_back();
+      callableColors[declaration] = 2;
+      return success();
+    };
+    for (Attribute raw : methods)
+      if (failed(visitCallable(cast<DictionaryAttr>(raw).get("declaration"), 0)))
+        return failure();
     for (Attribute raw : methods)
       if (failed(callable(cast<DictionaryAttr>(raw), true)))
         return failure();
@@ -1260,6 +1355,7 @@ public:
   }
 
 private:
+  ArrayAttr methodDeclarations;
   LogicalResult error(StringRef message) {
     return declaration->emitOpError() << "transaction summary " << message;
   }
@@ -1498,6 +1594,23 @@ private:
     NamedAttrList core(row);
     core.erase("ac.formal_proposals");
     core.erase("visibility");
+    core.erase("callable_after");
+    if (Attribute raw = row.get("callable_after")) {
+      auto after = dyn_cast<ArrayAttr>(raw);
+      if (!after || after.empty())
+        return error("callable_after requires a nonempty declaration array");
+      llvm::DenseSet<Attribute> seen;
+      for (Attribute predecessor : after) {
+        auto target = dyn_cast<DictionaryAttr>(predecessor);
+        if (!target || failed(occurrence(target)) ||
+            target == row.get("declaration") || !seen.insert(target).second)
+          return error("callable_after requires distinct other local declarations");
+        bool found = false;
+        for (Attribute rawMethod : methodDeclarations)
+          found |= cast<DictionaryAttr>(rawMethod).get("declaration") == target;
+        if (!found) return error("callable_after target must be a local callable declaration");
+      }
+    }
     if (Attribute raw = row.get("visibility")) {
       auto visibility = dyn_cast<StringAttr>(raw);
       if (!visibility || visibility.getValue() != "private")
@@ -1778,10 +1891,14 @@ private:
       return failure();
     auto receiver = row.getAs<DictionaryAttr>("receiver");
     auto actuals = row.getAs<ArrayAttr>("arguments");
+    NamedAttrList concreteReceiver(receiver);
+    concreteReceiver.erase("reference");
+    auto reference = receiver ? receiver.getAs<StringAttr>("reference") : StringAttr();
     if (!callee || callee.getRootReference().getValue().empty() ||
         callee.getNestedReferences().size() != 1 || !actuals ||
+        (receiver && receiver.get("reference") && !reference) ||
         failed(detail::verifyOwnerRef(
-            receiver, [&] { return declaration->emitOpError(); })))
+            concreteReceiver.getDictionary(declaration->getContext()), [&] { return declaration->emitOpError(); })))
       return error("call requires a qualified Module::Method, OwnerRef and "
                    "argument array");
     if (nativeQueue &&
@@ -1792,7 +1909,14 @@ private:
       return failure();
     auto path = receiver.getAs<ArrayAttr>("instance_path");
     std::optional<ArrayAttr> proposals;
-    if (path.empty()) {
+    if (reference) {
+      auto target = resolveSourceReferenceReceiver(declaration, receiver,
+          [&](FlatSymbolRefAttr symbol) { return hardware.lookupDefinition(symbol.getValue()); }, declaration);
+      if (failed(target) || SymbolTable::getSymbolName(*target) != callee.getRootReference())
+        return error("symbolic receiver must match a declared Module reference provider");
+      for (Attribute actual : actuals)
+        if (failed(value(actual, scope))) return failure();
+    } else if (path.empty()) {
       if (callee.getRootReference() !=
           declaration->getAttrOfType<StringAttr>("sym_name"))
         return error("self call callee must name this module");

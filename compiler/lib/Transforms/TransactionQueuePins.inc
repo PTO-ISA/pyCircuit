@@ -60,7 +60,7 @@ public:
                               queue.getOutputs()[1]},
                              access.kind == ac::TransactionQueueAccessKind::Push};
         if (!charge(budget, access.operation, 16)) return failure();
-        local[plan.lexicalModule][key].push_back({rule->getResult(proposal.pathResult),
+        local[plan.routingModule][key].push_back({rule->getResult(proposal.pathResult),
             proposal.dataResult ? rule->getResult(*proposal.dataResult) : Value(),
             access.operation, plan.frames[access.frame].bindings, rule});
       }
@@ -86,7 +86,7 @@ public:
       SmallVector<Value> captures(rule.getCaptures());
       for (const auto &external : transaction.externalPops) {
         const auto &owner = plan.queueOwners[external.owner];
-        auto value = externalPop(plan.lexicalModule, anchorPath(plan, owner.anchor),
+        auto value = externalPop(plan.routingModule, anchorPath(plan, owner.anchor),
                                  owner.allocation, rule, builder);
         if (failed(value)) return failure();
         captures[external.capture] = *value;

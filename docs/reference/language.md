@@ -421,9 +421,11 @@ unified callable path currently rejects separate-Rule dynamic disjoint-address
 writes to one Table; restoration of the address-grant behavior described below
 remains unfinished. Independent Rules read committed state; ordinary call
 order does not introduce state forwarding or write priority. An explicit
-`@ac.rule(after=(earlier,))` may establish predecessor-candidate visibility;
-each predecessor must identify one unique local outer registration. Missing or
-ambiguous registrations, cycles and conflicting writers reject. Ordinary local
+`@ac.rule(after=(earlier,))` establishes a callable declaration contract and
+predecessor-candidate visibility between its callers on one actual instance.
+Explicit native `ac.after` edges still resolve to unique local registrations;
+the Python declaration contract applies to all of its callers.
+Cycles and unproved conflicting writers reject. Ordinary local
 assignments, if/else, struct defaults/construction/projection and proven table
 indices retain their existing semantics. Overlapping writable parameter aliases
 reject; read-only duplicate bindings are permitted. Unproved index ranges,
@@ -600,7 +602,12 @@ reduction does not implement a nonassociative prefix scan.
 
 ## Bounded source loops
 
-A pure behavioral rule or ordinary typed pure helper can use an ordinary `for`
+Pure helpers and typed Rule/Method bodies have distinct admission boundaries.
+Both compute within one Work evaluation; neither introduces a clock cycle.
+
+### Pure helper loops
+
+The pure expansion path, used by ordinary typed pure helpers, supports `for`
 with a single local name and an unshadowed builtin `range` call whose sole
 argument is an integer literal:
 
@@ -653,11 +660,45 @@ full-width shift counts and positive fitting static divisors. Table methods,
 other intrinsics, allocations, rule
 registration, assertions and observations inside loops remain unsupported.
 
-The restrictions above describe the pure-helper expansion path. Typed Rule
-loops use the existing SCF/transaction producer and additionally admit supported
-state writes, assertions, observations and loop control. Passing a Rule-loop
-test does not establish support in a pure helper. Nested loops and `for`/`else`
-remain rejected in both paths.
+### Typed Rule and Method loops
+
+Typed Rule/Method bodies use the SCF/transaction path and additionally admit
+supported state writes, assertions, observations, `break`, `continue` and loop
+`else`. Passing a Rule-loop test does not establish support in a pure helper.
+The existing literal `range(N)` and finite while comparison/progress proofs
+remain required. General nesting, dynamic range bounds and `while True` with a
+conditional break are not enabled by loop-else support.
+
+A loop's `else` suite executes exactly once on natural completion, including
+zero iterations. A reached `break` targeting that loop suppresses its else;
+`continue`, including in the last iteration, does not. For example, this tested
+scalar Rule adds fourteen with `u8` modular arithmetic:
+
+```python
+@ac.rule
+def finish(value: ac.u8) -> ac.u8:
+    for index in range(3):
+        value = value + 1
+    else:
+        value = value + 11
+    return value
+```
+
+For statically zero-trip typed `for` loops, else uses the incoming environment before any body
+construction. Dead body references are not resolved, an existing induction-name
+binding is preserved, and a name introduced only in the body remains unbound.
+Continue-only completion is unconditional: an else-only local can remain visible
+afterward. When break makes else conditional, ordinary definite-assignment rules
+apply; define a later-used local on every retained path. Returns inside such a
+conditional else remain unsupported branch-local returns.
+
+Loop iterations and else retain sequential candidate visibility and saved local
+snapshots in the surrounding transaction. Neither loop completion nor else
+creates a commit boundary. Reached unknown control, resource rejection and failed
+checks preserve the existing failure/discard behavior; they cannot publish else
+state changes or observations. An otherwise admitted finite while loop uses the
+same natural-completion/break distinction; a continue path that defeats its
+progress proof remains rejected.
 
 Expansion uses the existing source-wide resource limits. The compiler checks
 trip counts, work, operations, storage and constant sizes before expanding paid
@@ -1454,7 +1495,7 @@ disjointness or grant-exclusivity proofs; an ancestor partial lane is composed
 with its captured Q before crossing a hierarchy port.
 Calls share their outer transaction's candidate versions; saved ordinary values
 remain snapshots. Independent Rules read old Q, regardless of registration
-order unless explicitly ordered with `after`. Separate structural instances
+order unless ordered by explicit or propagated callable `after`. Separate structural instances
 retain independent state. Scalar storage leaves use a plain DFF only for a
 single local Rule candidate whose materialized commit enable folds to constant
 one. Composed ordered/unordered or incoming candidates retain DFFE until their
@@ -1521,10 +1562,41 @@ ancestor partial lane is composed with its captured old Q before routing, and
 the receiver composes its own domains over that complete lane. Incoming
 proposals are closed against old Q and combined with local proposals before
 storage; an inactive incoming value cannot replace old Q. Each registration
-retains its own atomic boundary. Independent cross-hierarchy `after=` ordering
-and mixed ordered/unordered groups remain unsupported. Unproved writer
-conflicts reject, including identity writes and conflicts in unused
-definitions.
+retains its own atomic boundary. Mixed ordered/unordered groups remain
+unsupported. Unproved writer
+conflicts reject, including identity writes and conflicts in unused ordinary
+definitions. Uninstantiated reference-bearing templates follow the
+[source-unit link closure](../development/source-unit-workflow.md).
+
+Module-typed parameters are static references to already allocated ordinary
+instances, distinct from typed hardware data inputs. For example,
+`Writer(counter: Counter)` can capture `counter` in a nested callable and invoke
+`counter.increment()`. References can pass through other Modules and aliases
+without allocating storage. Binding requires the declared nominal Module type.
+Runtime selection, state storage, rebinding and implicit allocation of a
+reference reject. A link root cannot expose unbound reference formals. Reference
+contracts and actual bindings survive independent source-interface publication;
+MLIR generates ordinary hierarchy ports and atomic control connections.
+
+Rule and Method declaration `after` contracts also survive publication, even
+when the provider registers no autonomous transaction. MLIR computes their
+transitive closure before mapping calls to actual instances and outer
+transactions. Thus `a → b → c` implies `a → c` when no caller invokes `b`.
+Every possible conditional call participates; unreachable runtime branches do
+not remove static ordering edges. Internal calls must respect this order.
+Cycles reject with their declaration or registration context. The same method
+called by two transactions supplies no edge or implicit arbitration.
+
+Ordered successors evaluate guards and computations from the same entry state.
+For each state, forwarding selects a predecessor's candidate with
+`predecessor_fire AND state_write_intent`; otherwise it retains the previously
+effective candidate or old Q. The predecessor's entire transaction determines
+fire, including late guards on other owners. Forwarding covers all relevant
+states and passes through nonwriting intermediate transactions. A predecessor
+that does not fire leaves successors eligible, while assertion failure retains
+whole-system zero commit. Static ordering, arguments, results, availability,
+guards and fire must together form an acyclic combinational graph. This profile
+adds no cycle, dynamic reference or cross-domain transaction.
 
 A writable owner passed as an actual argument retains that owner through nested
 formal calls. Rebinding the formal proposes a new candidate to that owner;

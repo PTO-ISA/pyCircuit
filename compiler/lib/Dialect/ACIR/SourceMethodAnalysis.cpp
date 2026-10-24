@@ -37,6 +37,20 @@ public:
     for (Operation *module : modules) {
       if (!charge(module))
         return failure();
+      if (failed(verifySourceReferenceParameters(module))) return failure();
+      if (auto references = module->getAttrOfType<ArrayAttr>("ac.reference_parameters"))
+        for (Attribute raw : references) {
+          if (!charge(module)) return failure();
+          auto callee = cast<DictionaryAttr>(raw).getAs<FlatSymbolRefAttr>("callee");
+          Operation *target = lookup(callee);
+          if (!isa_and_nonnull<ModuleOp, ModuleImportOp>(target))
+            return module->emitOpError() << "Module reference formal provider is absent from explicit source closure";
+          auto envelope = module->getParentOfType<mlir::ModuleOp>();
+          auto interfaces = envelope->getAttrOfType<ArrayAttr>("ac.interfaces");
+          auto owner = target->getAttrOfType<DictionaryAttr>("source_owner");
+          if (interfaces && owner && !llvm::is_contained(interfaces, owner))
+            return module->emitOpError() << "Module reference provider is absent from caller source ac.interfaces closure";
+        }
       HardwareBindings bindings;
       bindings.owner = module;
       if (auto body = dyn_cast<ModuleOp>(module)) {
@@ -363,10 +377,12 @@ private:
     parent.owner = module;
     auto edge = [&](FlatSymbolRefAttr callee, ArrayAttr parameters,
                     ArrayAttr types, TypeRange inputs, TypeRange outputs,
-                    Operation *site) -> LogicalResult {
+                    Operation *site, Attribute references) -> LogicalResult {
       if (!charge(site))
         return failure();
       Operation *target = lookup(callee);
+      if (failed(verifySourceReferenceBindings(module, target, references, lookup, site)))
+        return failure();
       // The registry's authority may live in another header ModuleOp. Bind
       // through its authenticated local snapshot so TypeParam ownership agrees
       // with this HardwareAnalysis symbol table; retain registry authority for
@@ -377,7 +393,7 @@ private:
         if (!target || !isa<ModuleImportOp>(bindingTarget))
           return site->emitOpError() << "instance provider snapshot is invalid";
         for (StringRef field : {"source_owner", "function_type", "parameters",
-                                "type_parameters", "primitive_kind"})
+                                "type_parameters", "primitive_kind", "ac.reference_parameters"})
           if (bindingTarget->getAttr(field) != target->getAttr(field))
             return site->emitOpError()
                    << "instance provider snapshot differs from authority: " << field;
@@ -434,7 +450,7 @@ private:
             failed(edge(op.getAttrOfType<FlatSymbolRefAttr>("callee"),
                         op.getAttrOfType<ArrayAttr>("parameters"),
                         op.getAttrOfType<ArrayAttr>("type_arguments"),
-                        op.getOperandTypes(), op.getResultTypes(), &op)))
+                        op.getOperandTypes(), op.getResultTypes(), &op, op.getAttr("ac.reference_bindings"))))
           return failure();
     } else if (auto summary = module->getAttrOfType<DictionaryAttr>(
                    "transaction_summary")) {
@@ -450,7 +466,7 @@ private:
         if (failed(edge(row.getAs<FlatSymbolRefAttr>("callee"),
                         row.getAs<ArrayAttr>("parameters"),
                         row.getAs<ArrayAttr>("type_arguments"), inputs, outputs,
-                        module)))
+                        module, row.get("reference_bindings"))))
           return failure();
       }
     }
@@ -797,7 +813,7 @@ FailureOr<bool> SourceMethodSummariesAnalysis::requiresTransactionPublication(
     if (marks.lookup(module) == 2)
       return required.lookup(module);
     marks[module] = 1;
-    bool result = false;
+    bool result = module->hasAttr("ac.reference_parameters");
     if (auto imported = dyn_cast<ModuleImportOp>(module))
       result = bool(imported.getTransactionSummaryAttr());
     else if (auto body = dyn_cast<ModuleOp>(module)) {
@@ -809,7 +825,8 @@ FailureOr<bool> SourceMethodSummariesAnalysis::requiresTransactionPublication(
             (isa<InstanceOp>(op) &&
              (op.hasAttr("ac.source_unbound_push") ||
               op.hasAttr("ac.source_unbound_pop") ||
-              op.hasAttr("ac.payload_constraint"))))
+              op.hasAttr("ac.payload_constraint") ||
+              op.hasAttr("ac.reference_bindings"))))
           result = true;
         if (isa<InstanceOp, CollectionOp>(op)) {
           auto symbol = op.getAttrOfType<FlatSymbolRefAttr>("callee");

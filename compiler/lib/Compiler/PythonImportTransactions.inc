@@ -432,12 +432,26 @@ LogicalResult Importer::scanSourceCallables() {
           return error() << "Method requires an explicit return annotation";
         callable.inferredSignature = true;
         bool valueReturn = false;
-        for (size_t k = 0; k < declaration.array("body").size(); ++k) {
-          auto statement = declaration.item("body", k);
+        // Seed result inference from the suites that may execute in the outer
+        // statement context. Actual zero-trip and targeting-break admission
+        // remains with emitLoopElse: a dead body's break cannot make else
+        // conditional, and a live conditional return must still be rejected.
+        auto resultPresence = [&](auto &&self, const AstNode &statement) -> LogicalResult {
+          if (failed(chargeLoopDescriptorWork(statement, "Rule result presence")))
+            return failure();
           auto value = statement.child("value");
           if (statement.kind() == "Return" && value &&
-              !(value.kind() == "Constant" && isa<UnitAttr>(value.get("value")))) valueReturn = true;
-        }
+              !(value.kind() == "Constant" && isa<UnitAttr>(value.get("value"))))
+            valueReturn = true;
+          if (statement.kind() == "For" || statement.kind() == "While")
+            for (size_t k = 0; k < statement.array("orelse").size(); ++k)
+              if (failed(self(self, statement.item("orelse", k))))
+                return failure();
+          return success();
+        };
+        for (size_t k = 0; k < declaration.array("body").size(); ++k)
+          if (failed(resultPresence(resultPresence, declaration.item("body", k))))
+            return failure();
         callable.inferResults = valueReturn;
         none = true;
       }
@@ -625,9 +639,6 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   if (!decl.parameters.empty())
     return error()
            << "typed transaction modules do not accept static parameters";
-  if (decl.methodOwner && (decl.sourceInputCount != 0 || !decl.outputs.empty()))
-    return error() << "Method owner cannot declare authored parameters or an "
-                      "ordinary return";
 
   b.setInsertionPointToEnd(body->getBody());
   Operation *module = createOp(
@@ -644,6 +655,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
        b.getNamedAttr("ac.origin",
                       sourceOccurrence(b, decl.symbol, decl.node))},
       1);
+  if (decl.references && !decl.references.empty())
+    module->setAttr("ac.reference_parameters", decl.references);
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
   if (decl.systemSamples)
@@ -697,6 +710,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     // them out of the source value namespace while captureValue records their
     // actual producer identity for raw-view lookup inside Method/Rule regions.
     for (const auto &entry : instances)
+      if (entry.second->op)
       for (Value output : entry.second->op->getResults())
         if (seen.insert(output).second)
           captures.push_back({"", output});
@@ -943,6 +957,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           fixedValues.erase(*zero);
           environment.values[intentName(port.name)] = *zero;
         }
+    auto statementError = [&](const AstNode &site) {
+      diagnosticFailed = true;
+      return mlir::emitError(site.location(b.getContext(), source.path));
+    };
     std::function<LogicalResult(const AstNode &, StringRef, OpBuilder &,
                                 BranchEnvironment &, bool)> emitBody;
     struct LoopControl { std::string live, continuing; };
@@ -971,6 +989,18 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                             Value live) -> LogicalResult {
       if (!live) return emitBody(statement, "orelse", at, environment, inBranch);
       if (statement.array("orelse").empty()) return success();
+      std::string reason;
+      if (!queryBudget.enter(reason))
+        return statementError(statement) << "source loop-else branch: " << reason;
+      auto leave = llvm::scope_exit([&] { queryBudget.leave(); });
+      TableQueryCharge charge;
+      bool fits = TableQueryBudget::add(charge, TableQueryResource::Occurrences, 1) &&
+                  TableQueryBudget::add(charge, TableQueryResource::Operations, 4) &&
+                  TableQueryBudget::add(charge, TableQueryResource::Slots, 12) &&
+                  TableQueryBudget::add(charge, TableQueryResource::Work, 4);
+      if (!fits || !queryBudget.reserve(charge, reason))
+        return statementError(statement) << "source loop-else branch construction: "
+               << (fits ? reason : "operation storage counter exhausted");
       auto predicate = predicateView(live, statement, decl.symbol);
       if (failed(predicate) || failed(reserveSourceEnvironmentCopies(statement, environment))) return failure();
       auto branch = cast<ac::SourceBranchOp>(createOp(at,
@@ -983,7 +1013,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       branch.getElseRegion().push_back(new Block());
       OpBuilder thenAt = OpBuilder::atBlockEnd(&branch.getThenRegion().front());
       BranchEnvironment yes = environment, no = environment;
-      if (failed(emitBody(statement, "orelse", thenAt, yes, inBranch))) return failure();
+      if (failed(emitBody(statement, "orelse", thenAt, yes, true))) return failure();
       auto joined = joinBranches(*predicate, environment, yes, no, statement, at, decl.symbol, branch);
       if (failed(joined)) return failure();
       environment = std::move(*joined);
@@ -1030,7 +1060,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (returned)
           return error() << "declaration after Method/Rule return is unsupported";
         if (statement.kind() == "Break" || statement.kind() == "Continue") {
-          if (loopControls.empty()) return error() << "loop control requires an enclosing loop";
+          if (loopControls.empty()) return statementError(statement) << "loop control requires an enclosing loop";
           auto zero = constant(internalBits(1, statement, decl.symbol), 0, statement, inside, decl.symbol);
           if (failed(zero)) return failure();
           remember(*zero, ac::detail::ValueKind::Boolean);
@@ -1160,7 +1190,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               range.child("func").kind() != "Name" || range.child("func").string("id") != "range" ||
               lexicallyShadowed(range.child("func"), "range") || !range.array("keywords").empty() ||
               range.array("args").empty() || range.array("args").size() > 3)
-            return error() << "typed for requires an ordinary Name and finite range";
+            return statementError(statement) << "typed for requires an ordinary Name and finite range";
           StringRef inductionName = target.string("id");
           bool stateInduction = states.contains(inductionName);
           bool formalInduction = formalProposals && callable.assignedFormals.contains(inductionName) &&
@@ -1168,7 +1198,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (boundHardwareIdentity(inductionName) ||
               helperOwnerBindings.contains(inductionName) ||
               llvm::is_contained(ArrayRef<StringRef>{"pyc_clk", "pyc_rst", "range", "int", "bool", "tuple", "Annotated"}, inductionName))
-            return error() << "typed for induction requires an assignable ordinary Name or state owner";
+            return statementError(target) << "typed for induction requires an assignable ordinary Name or state owner";
           auto exactBound = [&](const AstNode &node) -> FailureOr<int64_t> {
             bool savedPure = std::exchange(context.pureExpression, true);
             auto restorePure = llvm::scope_exit([&] { context.pureExpression = savedPure; });
@@ -1177,11 +1207,11 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             auto info = valueInfo(*value);
             auto integer = dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant);
             if (info.sourceKind != ac::detail::ValueKind::Integer || fixedValues.contains(*value) || !integer)
-              return error() << "typed for range bounds require closed Integer values";
+              return statementError(node) << "typed for range bounds require closed Integer values";
             llvm::APSInt number(integer.getCanonicalValue());
             if ((number.isUnsigned() && number.getActiveBits() > 63) ||
                 (!number.isUnsigned() && !number.isSignedIntN(64)))
-              return error() << "typed for range exceeds signed index representation";
+              return statementError(node) << "typed for range exceeds signed index representation";
             return number.isUnsigned() ? static_cast<int64_t>(number.getZExtValue()) : number.getSExtValue();
           };
           auto hasNestedFor = [&](auto &&self, const AstNode &node) -> bool {
@@ -1197,20 +1227,43 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             }
             return false;
           };
-          for (size_t k = 0; k < statement.array("body").size(); ++k)
-            if (hasNestedFor(hasNestedFor, statement.item("body", k)))
-              return error() << "nested source for loops are unsupported";
-          if (statement.array("orelse").size())
-            return error() << "typed for else is unsupported";
+          for (StringRef field : {"body", "orelse"})
+            for (size_t k = 0; k < statement.array(field).size(); ++k)
+              if (hasNestedFor(hasNestedFor, statement.item(field, k)))
+                return statementError(statement) << "nested source for loops are unsupported";
+          // The newly admitted else suite retains the bounded For profile;
+          // existing finite While in a For body or after the For is unchanged.
+          auto hasElseLoop = [&](auto &&self, const AstNode &node) -> bool {
+            if (node.kind() == "FunctionDef" || node.kind() == "Lambda")
+              return false;
+            if (node.kind() == "For" || node.kind() == "While")
+              return true;
+            for (NamedAttribute field : node.fields()) {
+              if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+                if (child.getAs<StringAttr>("kind") &&
+                    self(self, node.child(field.getName().getValue())))
+                  return true;
+              } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+                for (size_t k = 0; k < children.size(); ++k)
+                  if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+                      child && child.getAs<StringAttr>("kind") &&
+                      self(self, node.item(field.getName().getValue(), k)))
+                    return true;
+            }
+            return false;
+          };
+          for (size_t k = 0; k < statement.array("orelse").size(); ++k)
+            if (hasElseLoop(hasElseLoop, statement.item("orelse", k)))
+              return statementError(statement) << "nested source loop in for else is unsupported";
           size_t arity = range.array("args").size();
           if (arity != 1)
-            return error() << "typed for range requires a single literal bound";
+            return statementError(range) << "typed for range requires a single literal bound";
           const AstNode &boundNode = range.item("args", 0);
           auto encodedBound = boundNode.kind() == "Constant"
                                   ? dyn_cast_or_null<DictionaryAttr>(boundNode.get("value"))
                                   : DictionaryAttr();
           if (!encodedBound || !encodedBound.getAs<StringAttr>("integer"))
-            return error() << "typed for range requires a single literal bound";
+            return statementError(range) << "typed for range requires a single literal bound";
           int64_t lower = 0, upper, step = 1;
           auto first = exactBound(range.item("args", 0));
           if (failed(first)) return failure();
@@ -1226,19 +1279,21 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             if (failed(increment)) return failure();
             step = *increment;
           }
-          if (step <= 0) return error() << "typed for range requires a positive step";
+          if (step <= 0) return statementError(statement) << "typed for range requires a positive step";
           llvm::APInt lo(128, static_cast<uint64_t>(lower), true),
               hi(128, static_cast<uint64_t>(upper), true), increment(128, step);
           llvm::APInt count(128, 0);
           if (lo.slt(hi)) count = (hi - lo + increment - 1).udiv(increment);
           if (count.getActiveBits() > 64)
-            return error() << "typed for range is not finitely representable";
+            return statementError(statement) << "typed for range is not finitely representable";
           uint64_t trips = count.getZExtValue();
-          // A statically zero-trip loop without an else clause executes no body
-          // statements: keep the environment unchanged and do not resolve dead
-          // body references.
-          if (trips == 0 && statement.array("orelse").empty())
+          // Natural zero-trip completion runs else in the incoming environment;
+          // no induction binding or dead body reference is constructed.
+          if (trips == 0) {
+            if (failed(emitLoopElse(statement, inside, environment, inBranch, {})))
+              return failure();
             continue;
+          }
           llvm::APInt last = trips ? lo + increment * (trips - 1) : lo;
           bool signedIndex = lower < 0;
           unsigned indexWidth = std::max(1u, signedIndex
@@ -1331,7 +1386,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                   return port.name == name && port.sourceKind == kind;
                 });
                 if (formal == callable.inputs.end())
-                  return error() << "Integer loop carries require an explicit bounded annotation";
+                  return statementError(statement) << "Integer loop carries require an explicit bounded annotation";
                 iteration.boundaries[name] = BindingBoundary{*formal, true};
               }
             }
@@ -1420,7 +1475,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                             loopAt, decl.symbol);
             }
             if (!value || value.getType() != values.lookup(name).getType())
-              return error() << "typed for carried values must retain their declared hardware type";
+              return statementError(statement) << "typed for carried values must retain their declared hardware type";
             yielded.push_back(value);
           }
           if (trips) {
@@ -1465,7 +1520,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                 IntegerInterval{llvm::APSInt(last, false), llvm::APSInt(last + 1, false)},
                 ac::MathIntAttr::get(b.getContext(), llvm::APSInt(last, false)));
           }
-          Value live = control ? values.lookup(control->live) : Value();
+          Value live = control && controlKinds.first
+                           ? values.lookup(control->live) : Value();
           if (control) {
             values.erase(control->live);
             environment.boundaries.erase(control->live);
@@ -1547,7 +1603,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                   return port.name == name && port.sourceKind == kind;
                 });
                 if (formal == callable.inputs.end())
-                  return error() << "Integer loop carries require an explicit bounded annotation";
+                  return statementError(statement) << "Integer loop carries require an explicit bounded annotation";
                 conditionEnvironment.boundaries[name] = BindingBoundary{*formal, true};
                 iteration.boundaries[name] = BindingBoundary{*formal, true};
               }
@@ -1612,7 +1668,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                            loopAt, decl.symbol);
             }
             if (!next || next.getType() != originalType)
-              return error() << "typed while carried values must retain their declared hardware type";
+              return statementError(statement) << "typed while carried values must retain their declared hardware type";
             nextValues.push_back(next);
           }
           createOp(loopAt, location, scf::YieldOp::getOperationName(), nextValues, {}, {});
@@ -1622,7 +1678,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             if (fixedValues.contains(original)) fixedValues.insert(result);
             values[name] = result;
           }
-          Value live = control ? values.lookup(control->live) : Value();
+          Value live = control && controlKinds.first
+                           ? values.lookup(control->live) : Value();
           if (control) {
             values.erase(control->live);
             environment.boundaries.erase(control->live);
@@ -1636,7 +1693,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           continue;
         if (statement.kind() == "Return") {
           if (inBranch)
-            return error() << "return in a Method/Rule branch is unsupported";
+            return statementError(statement) << "return in a Method/Rule branch is unsupported";
           returned = statement;
           AstNode valueNode = statement.child("value");
           bool none = !valueNode || (valueNode.kind() == "Constant" &&
@@ -2213,6 +2270,20 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
                                                         callable.declaration))},
         2);
 
+    if (auto after = callable.syntax.after) {
+      SmallVector<Attribute> predecessors;
+      for (size_t i = 0; i < after.array("elts").size(); ++i) {
+        StringRef name = after.item("elts", i).string("id");
+        auto predecessor = methods.find(name);
+        if (predecessor == methods.end() ||
+            sameSourceSite(predecessor->second.declaration, callable.declaration))
+          return error() << "callable after requires distinct other local callable declarations";
+        predecessors.push_back(sourceOccurrence(at, decl.symbol,
+                                                predecessor->second.declaration));
+      }
+      if (!predecessors.empty())
+        method->setAttr("ac.callable_after", at.getArrayAttr(predecessors));
+    }
     emittedMethods[methodName] = method;
     for (auto [index, port] : llvm::enumerate(callable.inputs))
       if (callable.syntax.marker == MarkerKind::Rule &&
@@ -2495,7 +2566,14 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         statement.child("value").kind() == "Call")
       ++instanceCount;
   }
-  instanceStorage.reserve(instanceCount);
+  instanceStorage.reserve(instanceCount + (decl.references ? decl.references.size() : 0));
+  for (Attribute raw : decl.references ? decl.references : at.getArrayAttr({})) {
+    auto reference = cast<DictionaryAttr>(raw);
+    std::string name = reference.getAs<StringAttr>("name").getValue().str();
+    instanceStorage.push_back({name, decl.node, reference.getAs<FlatSymbolRefAttr>("callee")});
+    instanceStorage.back().reference = name;
+    instances[name] = &instanceStorage.back();
+  }
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
     if (statement.kind() == "FunctionDef") {
@@ -2576,6 +2654,19 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         statement.kind() == "For") {
       if (failed(ordinaryStatement(i)))
         return failure();
+      continue;
+    }
+    if (statement.kind() == "Expr" && moduleCall(statement.child("value"))) {
+      llvm::StringMap<Value> ordinaryValues(moduleValues);
+      for (const auto &entry : states) {
+        Value oldQ = entry.second.op->getResult(0);
+        ordinaryValues[entry.first()] = oldQ;
+        rememberState(oldQ, entry.second);
+      }
+      auto results = directModuleResults(statement.child("value"), at, decl.symbol, ordinaryValues, instances);
+      if (failed(results)) return failure();
+      if (!results->empty()) return error() << "Module value results require an explicit binding";
+      ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));
       continue;
     }
     if (docstring(statement) || statement.kind() == "Return" ||
@@ -2808,9 +2899,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (earlierRuleData || moduleValues.contains(name))
           return error() << "instance handle cannot be rebound and requires a "
                             "fresh immutable name";
-        if (!value.array("args").empty() || !value.array("keywords").empty())
-          return error()
-                 << "Method owner construction takes no authored parameters";
+        auto referenceContract = callable(value.child("func"));
+        if (failed(referenceContract)) return failure();
+        auto referenceBindings = bindModuleReferences(referenceContract->signature, value, instances);
+        if (failed(referenceBindings)) return failure();
         AstNode function = value.child("func");
         FlatSymbolRefAttr callee;
         Operation *declaration = nullptr;
@@ -2844,6 +2936,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
              at.getNamedAttr("type_arguments", at.getArrayAttr({})),
              at.getNamedAttr("occurrence",
                              sourceOccurrence(at, decl.symbol, statement))});
+        if (!referenceBindings->empty())
+          instance->setAttr("ac.reference_bindings", *referenceBindings);
         instanceStorage.push_back({name.str(), statement, callee, declaration});
         instanceStorage.back().op = instance;
         instanceStorage.back().clockInput = clockInput;
@@ -2872,15 +2966,16 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     for (size_t i = 0; i < after.array("elts").size(); ++i) {
       StringRef name = after.item("elts", i).string("id");
       auto matches = transactionsForCallable.find(name);
-      if (!rules.contains(name) || matches == transactionsForCallable.end() ||
-          matches->second.size() != 1)
-        return error() << "Rule after predecessor must identify exactly one local outer registration";
+      if (!methods.contains(name))
+        return error() << "Rule after predecessor must identify a local callable declaration";
+      if (matches == transactionsForCallable.end() || matches->second.size() != 1)
+        continue;
       Operation *predecessor = matches->second.front();
       if (predecessor == transaction)
         return error() << "Rule after cannot name its own outer registration";
       predecessors.push_back(predecessor->getAttr("occurrence"));
     }
-    transaction->setAttr("ac.after", at.getArrayAttr(predecessors));
+    if (!predecessors.empty()) transaction->setAttr("ac.after", at.getArrayAttr(predecessors));
   }
 
   SmallVector<ValueHelperDecl *> lexicalHelpers;
@@ -3049,6 +3144,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   StringRef methodName;
   std::string specializedMethodName;
   SmallVector<Attribute> path;
+  StringAttr reference;
   FlatSymbolRefAttr moduleSymbol;
   if (function.kind() == "Name" && activeSourceEffects->methods) {
     methodName = function.string("id");
@@ -3096,7 +3192,9 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       }
       moduleSymbol = receiver->callee;
       // Aliases retain the actual instance identity, not their local spelling.
-      path.push_back(at.getStringAttr(receiver->name));
+      if (!receiver->reference.empty())
+        reference = at.getStringAttr(receiver->reference);
+      else path.push_back(at.getStringAttr(receiver->name));
     }
   }
   if (!target && !imported && !nativeQueue && recognizedReceiver)
@@ -3296,6 +3394,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
        at.getNamedAttr("instance_path", at.getArrayAttr(path)),
        at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node)),
        at.getNamedAttr("ac.location", sourceSpan(at, source.path, node))});
+  if (reference) operation->setAttr("ac.reference", reference);
   operation->insertOperands(1, *arguments);
   if (!formalOwnerBindings.empty())
     operation->setAttr("ac.formal_owner_bindings", at.getArrayAttr(formalOwnerBindings));

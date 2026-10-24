@@ -51,7 +51,7 @@ struct DefinitionRouting {
   llvm::SmallVector<MemoryPinRoute, 0> memoryIncoming;
   llvm::DenseMap<QueueRoutingKey, unsigned> memoryIncomingIndex;
   unsigned sourceInputs = 0, sourceOutputs = 0;
-  mlir::DictionaryAttr expectedWiring, expectedQueueWiring;
+  mlir::DictionaryAttr expectedWiring, expectedQueueWiring, expectedReturns;
 };
 
 struct TransactionCandidatePreparation {
@@ -174,10 +174,6 @@ struct PreparedTransactionLowering {
   llvm::SmallVector<uint64_t> transactionSchedule;
   llvm::SmallVector<DefinitionRouting, 0> definitions;
   llvm::DenseMap<mlir::Operation *, unsigned> definitionIndex;
-  ac::ModuleImportOp dffe, dff;
-  /// Scalar states whose verified local update is unconditional and which
-  /// have no hierarchy incoming route. These lower to the plain DFF leaf.
-  llvm::DenseSet<mlir::Operation *> dffStates;
   bool valueAvailability = false;
 };
 
@@ -279,6 +275,11 @@ materializeTransactionLowering(PreparedTransactionLowering &prepared,
 mlir::LogicalResult verifyTransactionMaterialization(
     const PreparedTransactionLowering &prepared,
     const MaterializedTransactionLowering &candidate,
+    ac::detail::SourceCheckBudget &budget);
+mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>> materializeHardwareState(
+    mlir::ModuleOp routed, ac::detail::SourceCheckBudget &budget);
+mlir::LogicalResult verifyHardwareStateMaterialization(
+    mlir::ModuleOp routed, mlir::ModuleOp candidate,
     ac::detail::SourceCheckBudget &budget);
 } // namespace acir::detail
 #endif

@@ -40,11 +40,13 @@
         if (route.push) row.append("data", b.getI64IntegerAttr(input++));
         incoming.push_back(row.getDictionary(module.getContext()));
       }
-      for (auto registration : definition.module->getRegion(0).front().getOps<ac::SourceTransactionOp>()) {
-        auto sourceIndex = originalTransactionIndex(registration);
+      for (uint64_t occurrenceIndex : definition.transactionIndices) {
+        auto sourceIndex = originalTransactionIndex(occurrenceIndex);
         if (failed(sourceIndex)) return failure();
         uint64_t index = *sourceIndex;
         const auto &transaction = prepared.transactions[index];
+        if (transaction.plan->routingModule != definition.module)
+          return reject("queue writer occurrence routing owner differs");
         if (transaction.queueProposals.empty()) continue;
         SmallVector<Attribute> proposals;
         for (const auto &proposal : transaction.queueProposals) {
@@ -62,7 +64,7 @@
           pending.push_back(rule.getBody().front().getTerminator()->getOperand(proposal.pathResult));
         }
         writers.push_back(b.getDictionaryAttr({
-            b.getNamedAttr("registration", transaction.plan->transaction->getAttr("occurrence")),
+            b.getNamedAttr("registration", routedOccurrence(*transaction.plan)),
             b.getNamedAttr("proposals", b.getArrayAttr(proposals))}));
       }
       for (auto [ordinal, route] : llvm::enumerate(definition.queuePopSummaries)) {
@@ -76,11 +78,12 @@
         if (output >= yield->getNumOperands()) return failure();
         pending.push_back(yield->getOperand(output));
       }
-      for (auto registration : definition.module->getRegion(0).front().getOps<ac::SourceTransactionOp>()) {
-        auto index = originalTransactionIndex(registration);
+      for (uint64_t occurrenceIndex : definition.transactionIndices) {
+        auto index = originalTransactionIndex(occurrenceIndex);
         if (failed(index)) return failure();
         const auto &transaction = prepared.transactions[*index];
         const auto &plan = *transaction.plan;
+        if (plan.routingModule != definition.module) return reject("queue external occurrence routing owner differs");
         auto external = originalQueueExternalPops(transaction,
             transaction.liveIns.size() + 2 * transaction.forwarding.size());
         if (failed(external)) return failure();
@@ -90,7 +93,7 @@
               b.getNamedAttr("instance_path", routePath(module.getContext(), anchorPath(plan, owner.anchor)))})),
               b.getNamedAttr("declaration", owner.occurrence)});
           externalPops.push_back(b.getDictionaryAttr({
-              b.getNamedAttr("registration", registration.getOccurrence()),
+              b.getNamedAttr("registration", routedOccurrence(plan)),
               b.getNamedAttr("queue", identity), b.getNamedAttr("capture", b.getI64IntegerAttr(capture.capture))}));
           pending.push_back(candidate.transactions[*index].rule->getOperand(capture.capture));
         }

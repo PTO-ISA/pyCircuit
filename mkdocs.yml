@@ -92,8 +92,12 @@ nav:
   - Architecture:
       - Overview: architecture/overview.md
       - Compiler Pipeline: architecture/compiler-pipeline.md
+      - Routed ACIR Anchor: architecture/routed-anchor.md
+      - Saved Anchors: architecture/saved-anchor.md
       - Simulation: architecture/simulation.md
       - System Execution: architecture/system-execution.md
+      - System Host Integration Design: architecture/system-host-integration.md
+      - Combinational and Progress Analysis: architecture/progress-analysis.md
   - Development:
       - Overview: development/index.md
       - Source Authoring: development/agent-frontend-guide.md

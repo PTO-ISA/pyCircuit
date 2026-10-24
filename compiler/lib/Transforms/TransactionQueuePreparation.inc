@@ -157,7 +157,7 @@
       const auto &owner = plan.queueOwners[external.owner];
       auto path = anchorPath(plan, owner.anchor);
       if (owner.unboundPop &&
-          failed(demandQueue(plan.lexicalModule, path, owner.allocation, false))) return failure();
+          failed(demandQueue(plan.routingModule, path, owner.allocation, false))) return failure();
       for (unsigned offset = 0; offset < path.size(); ++offset) {
         auto child = dyn_cast<ac::ModuleOp>(hardware.resolveCallee(path[offset]));
         auto suffix = ArrayRef<ac::InstanceOp>(path).drop_front(offset + 1);
@@ -205,7 +205,7 @@
         proposals.push_back(row.getDictionary(b.getContext()));
       }
       writers.push_back(b.getDictionaryAttr({
-          b.getNamedAttr("registration", plan.transaction->getAttr("occurrence")),
+          b.getNamedAttr("registration", routedOccurrence(plan)),
           b.getNamedAttr("proposals", b.getArrayAttr(proposals))}));
     }
     for (auto [ordinal, route] : llvm::enumerate(definition.queuePopSummaries)) {
@@ -221,7 +221,7 @@
         const auto &owner = plan.queueOwners[external.owner];
         if (!charge(budget, definition.module, 32 + 8 * owner.instancePath.size())) return failure();
         externalPops.push_back(b.getDictionaryAttr({
-            b.getNamedAttr("registration", plan.transaction->getAttr("occurrence")),
+            b.getNamedAttr("registration", routedOccurrence(plan)),
             b.getNamedAttr("queue", queueID(anchorPath(plan, owner.anchor), owner.allocation)),
             b.getNamedAttr("capture", b.getI64IntegerAttr(external.capture))}));
       }

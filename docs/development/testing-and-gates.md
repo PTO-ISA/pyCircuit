@@ -85,7 +85,7 @@ Runtime/source diagnostic coverage remains in gate.
 
 Long coverage, differential/reference-model and mutation matrices run when
 nightly is requested or scheduled. Ordinary authoring/review does not require
-running them immediately. The current examples selection contains 17 designs. The 54 superseded wrappers
+running them immediately. The current examples selection contains 22 designs. The 54 superseded wrappers
 are retained under `tests/fixtures/historical_examples/`, outside the example
 selection. Their retirement is not a pass or a claim that every old scenario has
 an equivalent API test. Active API/package fixtures still reference their
@@ -110,6 +110,7 @@ fallback dispatch. The language reference records the current source surface.
 | --- | --- |
 | Capture/source semantics | Accepted module/rule fixtures, source provenance, range/type rejection, explicit registration, current/next and child-state identity |
 | Unit compile and link | One producer per source, published interface use, complete closure, duplicate/missing/mismatched unit rejection, verified final artifact |
+| Saved anchors | Exact schema/spec/body/configuration identities, managed and portable snapshots, source removal and relocation, native direct rejection, explicit refinement, unchanged dual-target execution and failure rollback |
 | C++ emit | Source-owned module groups and `pycircuit_modules` CMake target, bound root arguments, Runtime-only consumer build and explicit test drivers |
 | Verilog emit | Same final artifact, source-owned RTL/map inventory, unsupported configuration rejection, target output preservation |
 | Runtime/package | Runtime-only install without LLVM discovery; CompilerDev install with LLVM/MLIR 22.1.8; exported target and external consumer smoke |
@@ -195,3 +196,17 @@ Do not infer implementation or complete coverage from documentation, one
 passing lane or an older candidate. See the [source-unit workflow](source-unit-workflow.md)
 for build ownership and the [language reference](../reference/language.md) for
 unsupported capabilities.
+
+## Routed anchor checks
+
+The native `ACIRRoutedAnchorTests` executable separates local operation checks
+from standalone graph legality, including fresh-context parse/verify, state
+ownership and temporal cuts, metadata mutations and ordinary extern availability.
+Existing transaction-effect tests retain original-source authentication and add
+independent routed-to-physical mutation checks. A graph-only pass does not prove
+either transformation preserved its input.
+
+Run focused native tests before the API and example gates. Hardware-only budget
+regressions, failed-stage/output preservation, shared-definition state isolation
+and generated C++/four-state RTL execution remain required. The native routed
+link target does not establish high-level emission or public anchor packaging.

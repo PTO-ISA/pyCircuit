@@ -99,7 +99,7 @@ void ready(pyc_dut &dut) {
 }
 void incomplete(pyc_root &root) {
   gfsim::SimFailureInfo error;
-  require(!root.__pyc_validate_checks(error));
+  require(!root.pyc_validate_checks(error));
   require(error.phase == gfsim::SimFailurePhase::Check);
   require(error.code == "runtime_failure");
   require(error.instance.empty() && error.sourceJson.empty() &&
@@ -259,12 +259,12 @@ int main(int argc, char **argv) {
   root.pyc_7079635f727374 = known<1>(0);
   root.Work();
   gfsim::SimFailureInfo error;
-  require(root.__pyc_validate_checks(error));
+  require(root.pyc_validate_checks(error));
   root.DiscardNext();
   incomplete(root);
   root.Work();
   require(planes(gfsim::extract<8>(root.result.packed(), 0)) == "00000011");
-  require(root.__pyc_validate_checks(error));
+  require(root.pyc_validate_checks(error));
   root.Xfer();
   incomplete(root);
   root.Work();
@@ -380,7 +380,7 @@ int main(int argc, char **argv) {
   auto attempt = [&] {
     root.Work();
     gfsim::SimFailureInfo info;
-    require(root.__pyc_validate_checks(info));
+    require(root.pyc_validate_checks(info));
     root.Xfer();
     incomplete(root);
   };
@@ -405,7 +405,7 @@ int main(int argc, char **argv) {
   root.allow_b = known<1>(0);
   root.Work();
   gfsim::SimFailureInfo error;
-  require(!root.__pyc_validate_checks(error) &&
+  require(!root.pyc_validate_checks(error) &&
           error.code == "source_check_failed" && error.instance == "root.aaa");
   root.DiscardNext();
   incomplete(root);
@@ -415,7 +415,7 @@ int main(int argc, char **argv) {
   root.Work();
   require(root.left.value() == gfsim::Bits<1>{1} &&
           root.right.value() == gfsim::Bits<1>{1});
-  require(root.__pyc_validate_checks(error));
+  require(root.pyc_validate_checks(error));
   root.Xfer();
   incomplete(root);
   root.Work();
@@ -458,25 +458,25 @@ int main(int argc, char **argv) {
     require(actual.isFullyKnown()&&actual.zMask()==gfsim::Bits<64>{0});
     require(actual.value()==gfsim::Bits<64>{value});};
   gfsim::SimFailureInfo error;
-  root.Work();require(root.__pyc_validate_checks(error));equal(0x1122);root.Xfer();
-  drive(1,17,34,1);root.Work();require(root.__pyc_validate_checks(error));
+  root.Work();require(root.pyc_validate_checks(error));equal(0x1122);root.Xfer();
+  drive(1,17,34,1);root.Work();require(root.pyc_validate_checks(error));
   root.DiscardNext();root.Xfer();incomplete(root);
-  root.Work();equal(0x1122);require(root.__pyc_validate_checks(error));root.Xfer();
+  root.Work();equal(0x1122);require(root.pyc_validate_checks(error));root.Xfer();
   drive(0,51,68,1);root.Work();equal(0x11ee22dd11223344ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(root.pyc_validate_checks(error));root.Xfer();
   drive(1,51,68,0);root.Work();
-  require(!root.__pyc_validate_checks(error)&&error.code=="source_check_failed"&&error.instance=="root");
+  require(!root.pyc_validate_checks(error)&&error.code=="source_check_failed"&&error.instance=="root");
   auto failedId=std::string(error.checkIdJson),failedSource=std::string(error.sourceJson);
   root.DiscardNext();root.Xfer();incomplete(root);
   drive(1,51,68,1);root.Work();equal(0x11ee22dd11223344ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(root.pyc_validate_checks(error));root.Xfer();
   drive(0,51,68,1);root.Work();equal(0x33cc44bb33443344ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(root.pyc_validate_checks(error));root.Xfer();
   root.Reset();root.DiscardNext();root.Xfer();
   drive(1,85,102,1,1,0);root.Work();equal(0x33cc44bb33445566ULL);
-  require(root.__pyc_validate_checks(error));root.Xfer();
+  require(root.pyc_validate_checks(error));root.Xfer();
   drive(0,85,102,1,1,0);root.Work();equal(0x669955aa55665566ULL);
-  require(root.__pyc_validate_checks(error));root.DiscardNext();root.Xfer();
+  require(root.pyc_validate_checks(error));root.DiscardNext();root.Xfer();
   require(!failedId.empty()&&!failedSource.empty());
   std::cout<<"DIRECT address-domains-owner-check-suffix-discard-clock-rollback\n";
 
@@ -506,7 +506,7 @@ int main(int argc, char **argv) {
   auto work = [&](bool accepted, bool commit) {
     root.Work();
     gfsim::SimFailureInfo info;
-    require(root.__pyc_validate_checks(info) == accepted);
+    require(root.pyc_validate_checks(info) == accepted);
     if (commit)
       root.Xfer();
     else

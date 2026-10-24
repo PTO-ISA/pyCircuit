@@ -3229,8 +3229,12 @@ def test_method_branch_system_executes_shared_candidates_from_one_final_artifact
     assert manifests["cpp"]["entry"] == manifests["verilog"]["entry"]
 
 
+@pytest.mark.parametrize(
+    "saved_routed", [False, True], ids=["linked-final", "saved-routed"]
+)
 def test_nominal_method_system_snapshots_hold_and_rollback_from_one_final_artifact(
     tmp_path,
+    saved_routed,
 ):
     source = tmp_path / "nominal method sources"
     source.mkdir()
@@ -3280,6 +3284,76 @@ def test_nominal_method_system_snapshots_hold_and_rollback_from_one_final_artifa
     assert '"ac.branch"' in before.read_text()
     assert '"ac.branch"' not in after.read_text()
     artifacts = (final, before, after)
+    if saved_routed:
+        # The native linker has exited. Remove Python inputs and source units
+        # before exercising the saved merged-source/routed/final boundaries.
+        shutil.rmtree(source)
+        shutil.rmtree(provider)
+        shutil.rmtree(consumer)
+        assert not source.exists()
+        assert not provider.exists() and not consumer.exists()
+        suffix = ".exe" if os.name == "nt" else ""
+        configured_build = os.environ.get("PYC_BUILD_DIR")
+        optimizer = (
+            Path(configured_build) / "bin" / f"pycircuit-opt{suffix}"
+            if configured_build
+            else _install() / "bin" / f"pycircuit-opt{suffix}"
+        )
+        if not optimizer.is_file():
+            optimizer = _install() / "bin" / f"pycircuit-opt{suffix}"
+        assert optimizer.is_file(), optimizer
+
+        native_processes = []
+
+        def native_pass(*arguments):
+            command = [str(optimizer), *arguments]
+            result = _run(command)
+            native_processes.append(
+                {"command": command, "exit_status": result.returncode}
+            )
+            (tmp_path / "nominal-native-processes.json").write_text(
+                json.dumps(native_processes, indent=2) + "\n"
+            )
+            _ok(result)
+
+        anchor = tmp_path / "nominal-anchor.ac"
+        duplicate = tmp_path / "nominal-anchor-independent.ac"
+        for output in (anchor, duplicate):
+            native_pass(
+                str(before),
+                "--ac-route-transactions",
+                "--ac-verify-routed",
+                "--mlir-print-debuginfo",
+                "-o",
+                str(output),
+            )
+        # These artifacts come from distinct native processes reading exactly
+        # the same saved input, including the nominal multi-instance demands.
+        assert anchor.read_bytes() == duplicate.read_bytes()
+        anchor_digest = hashlib.sha256(anchor.read_bytes()).hexdigest()
+        native_pass(str(anchor), "--ac-verify-routed")
+        rerouted = tmp_path / "nominal-anchor-rerouted.ac"
+        native_pass(
+            str(anchor),
+            "--ac-route-transactions",
+            "--ac-verify-routed",
+            "--mlir-print-debuginfo",
+            "-o",
+            str(rerouted),
+        )
+        assert anchor.read_bytes() == rerouted.read_bytes()
+        refined = tmp_path / "nominal-refined.ac"
+        native_pass(
+            str(anchor),
+            "--ac-lower-transactions",
+            "--ac-verify-hardware",
+            "--mlir-print-debuginfo",
+            "-o",
+            str(refined),
+        )
+        assert hashlib.sha256(anchor.read_bytes()).hexdigest() == anchor_digest
+        artifacts += (anchor, duplicate, rerouted, refined)
+        final = refined
     digests = [hashlib.sha256(path.read_bytes()).hexdigest() for path in artifacts]
     transcripts = []
     for target in ("cpp", "verilog"):

@@ -909,7 +909,8 @@ TEST_F(SourceTransactionCaptureTest,
       *result->body, *result->interface, error()))) << diagnostics;
   diagnostics.clear();
   EXPECT_TRUE(failed(ac::verifyHardwarePackage(*result->body)));
-  EXPECT_NE(StringRef(diagnostics).lower().find("unlowered"), std::string::npos) << diagnostics;
+  EXPECT_NE(StringRef(diagnostics).lower().find("requires final hardware"),
+            std::string::npos) << diagnostics;
 }
 
 TEST_F(SourceTransactionCaptureTest, TypedPublicationDoesNotRelabelSourceImportAsHardware) {

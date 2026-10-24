@@ -302,7 +302,7 @@ def Top(seed: ac.u8) -> Packet:
     auto unit = compiler::compilePythonSourceUnit(
         *captured, owner("ordered_counts.py"), *headers, error());
     ASSERT_TRUE(succeeded(unit)) << diagnostics;
-    auto linked = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+    auto linked = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
         "memory_cache.ordered_counts.Top", error());
     EXPECT_EQ(succeeded(linked), calls.empty()) << diagnostics;
     if (!calls.empty())
@@ -505,7 +505,7 @@ TEST_F(SourceMemoryBindingsTest, PendingGrantPlanIsNotProofAndRemainsImmutable) 
     ASSERT_TRUE(succeeded(unit)) << diagnostics;
     OwningOpRef<ModuleOp> originalBody(
         cast<ModuleOp>(unit->body->getOperation()->clone()));
-    auto linked = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+    auto linked = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
         "memory_cache.pending.Top", error());
     EXPECT_EQ(succeeded(linked), complementary) << diagnostics;
     EXPECT_TRUE(OperationEquivalence::isEquivalentTo(
@@ -663,7 +663,7 @@ TEST_F(SourceMemoryBindingsTest,
       OwningOpRef<ModuleOp> originalBody(
           cast<ModuleOp>(unit->body->getOperation()->clone()));
       auto linked =
-          compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
+          compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                       "memory_cache.padded.Top0", error());
       EXPECT_EQ(succeeded(linked), width == 8) << diagnostics;
       if (width != 8)
@@ -718,7 +718,7 @@ def Top(data: ac.u8) -> Out:
   auto unit = compiler::compilePythonSourceUnit(
       *captured, owner("cycle.py"), *headers, error());
   ASSERT_TRUE(succeeded(unit)) << diagnostics;
-  EXPECT_TRUE(failed(compiler::linkHardwareUnits(
+  EXPECT_TRUE(failed(compiler::linkSourceUnits(
       {{*unit->body, *unit->interface}}, "memory_cache.cycle.Top", error())));
   EXPECT_NE(diagnostics.find("combinational cycle"), std::string::npos) << diagnostics;
 }

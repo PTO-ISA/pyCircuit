@@ -162,15 +162,26 @@ public:
         return queue->emitOpError() << "queue allocation missing from wiring inventory";
 
     uint64_t nextInput = ports->sourceInputCount;
-    if (auto states = module->getAttrOfType<DictionaryAttr>("ac.transaction_wiring"))
-      if (auto routes = states.getAs<ArrayAttr>("incoming")) nextInput += 2 * routes.size();
+    for (StringRef name : {"ac.transaction_wiring", "ac.transaction_returns"}) {
+      Attribute raw = module->getAttr(name);
+      if (!raw) continue;
+      auto wiring = dyn_cast<DictionaryAttr>(raw);
+      auto routes = wiring ? wiring.getAs<ArrayAttr>("incoming") : ArrayAttr();
+      if (!routes)
+        return module->emitOpError() << name << " requires an incoming route array";
+      if (failed(step(module, SourceCheckBudget::add(1, routes.size())))) return failure();
+      nextInput = SourceCheckBudget::add(nextInput,
+          SourceCheckBudget::multiply(2, routes.size()));
+    }
     for (Attribute item : incoming) {
       auto row = dyn_cast<DictionaryAttr>(item);
       auto parsed = route(row, true);
       if (failed(parsed)) return failure();
       auto path = ordinal(row, "path", module);
       if (failed(path) || *path != nextInput++)
-        return module->emitOpError() << "queue inputs must follow the state proposal suffix";
+        return module->emitOpError()
+               << "queue inputs must follow the state proposal suffix and "
+                  "public-result suffix";
       if (parsed->push) {
         auto data = ordinal(row, "data", module);
         if (failed(data) || *data != nextInput++) return failure();

@@ -91,26 +91,26 @@ readCallableSyntax(const AstNode &declaration, LexicalBindings bindings,
   if (decorator.kind() != "Call")
     return result;
   if (!decorator.array("args").empty() || decorator.array("keywords").empty())
-    return emitError() << "Rule/Method decorator accepts guard=lambda and Rule after=(...)";
+    return emitError() << "Rule/Method decorator accepts guard=lambda and after=(...)";
   for (size_t i = 0; i < decorator.array("keywords").size(); ++i) {
     auto keyword = decorator.item("keywords", i);
     StringRef name = keyword.string("arg");
     if (name == "guard" && !result.guard)
       result.guard = keyword.child("value");
-    else if (name == "after" && marker == MarkerKind::Rule && !result.after)
+    else if (name == "after" && !result.after)
       result.after = keyword.child("value");
     else
       return emitError() << "duplicate or unsupported Rule/Method guard/after decorator option";
   }
   if (result.after) {
     if (result.after.kind() != "Tuple")
-      return emitError() << "Rule after requires a tuple of local Rule names";
+      return emitError() << "Rule after requires a tuple of local callable names";
     llvm::StringSet<> predecessors;
     for (size_t i = 0; i < result.after.array("elts").size(); ++i) {
       auto predecessor = result.after.item("elts", i);
       if (predecessor.kind() != "Name" ||
           !predecessors.insert(predecessor.string("id")).second)
-        return emitError() << "Rule after requires distinct local Rule names";
+        return emitError() << "Rule after requires distinct local callable names";
     }
   }
   if (!result.guard) return result;

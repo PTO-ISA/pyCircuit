@@ -1,10 +1,12 @@
 #include "Compiler/SourceLink.h"
+#include "Compiler/AnchorArtifact.h"
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "llvm/ADT/SmallString.h"
@@ -17,6 +19,7 @@
 #include "llvm/Support/raw_ostream.h"
 
 #include <optional>
+#include <filesystem>
 #include <set>
 #include <string>
 #include <utility>
@@ -35,6 +38,7 @@ struct Options {
   std::optional<std::string> parameters;
   std::optional<std::string> resetSemantics;
   std::optional<std::string> design;
+  std::optional<std::string> fromAnchor;
   std::optional<std::string> target;
   std::optional<std::string> output;
   std::optional<std::string> glueOutput;
@@ -90,7 +94,7 @@ bool parseOptions(int argc, char **argv, Options &options) {
     llvm::StringRef arg(argv[i]);
     if (arg != "--body" && arg != "--header" && arg != "--top" &&
         arg != "--parameters" && arg != "--reset-semantics" &&
-        arg != "--design" && arg != "--target" && arg != "--output" &&
+        arg != "--design" && arg != "--from-anchor" && arg != "--target" && arg != "--output" &&
         arg != "--glue-output" && arg != "--entry-owner-out" &&
         arg != "--unit-owner-out" && arg != "--transaction-input-out" &&
         arg != "--transaction-output-out" && arg != "--verify-only") {
@@ -126,6 +130,9 @@ bool parseOptions(int argc, char **argv, Options &options) {
     } else if (arg == "--design") {
       if (!setOnce(options.design, value, arg))
         return false;
+    } else if (arg == "--from-anchor") {
+      if (!setOnce(options.fromAnchor, value, arg))
+        return false;
     } else if (arg == "--target") {
       if (!setOnce(options.target, value, arg))
         return false;
@@ -147,6 +154,20 @@ bool parseOptions(int argc, char **argv, Options &options) {
                !setOnce(options.transactionOutputOutput, value, arg)) {
       return false;
     }
+  }
+
+  if (options.fromAnchor) {
+    if (!options.bodies.empty() || !options.headers.empty() || options.top ||
+        options.parameters || options.resetSemantics || options.design ||
+        options.glueOutput || options.unitOwnerOutput ||
+        options.transactionInputOutput || options.transactionOutputOutput ||
+        (options.verifyOnly ? options.target.has_value() || options.output.has_value()
+                            : !options.target || *options.target != "final" || !options.output)) {
+      llvm::errs() << "error: --from-anchor requires either --verify-only or "
+                      "--target final --output, without source/rebinding options\n";
+      return false;
+    }
+    return true;
   }
 
   if (options.transactionInputOutput.has_value() !=
@@ -227,9 +248,9 @@ bool parseOptions(int argc, char **argv, Options &options) {
   if (hasLink) {
     if (options.bodies.empty() ||
         options.bodies.size() != options.headers.size() || !options.top ||
-        options.design || *options.target != "final") {
+        options.design || (*options.target != "final" && *options.target != "anchor")) {
       llvm::errs() << "error: link mode requires matching nonempty --body and "
-                      "--header pairs, --top, and --target final\n";
+                      "--header pairs, --top, and --target final or anchor\n";
       return false;
     }
   } else if (!options.bodies.empty() || !options.headers.empty() ||
@@ -237,6 +258,10 @@ bool parseOptions(int argc, char **argv, Options &options) {
              (*options.target != "cpp" && *options.target != "verilog")) {
     llvm::errs() << "error: emit mode requires --design and --target cpp or "
                     "verilog\n";
+    return false;
+  }
+  if (*options.target == "anchor" && options.transactionInputOutput) {
+    llvm::errs() << "error: --target anchor does not publish final transaction diagnostics\n";
     return false;
   }
   if (options.entryOwnerOutput && !hasLink) {
@@ -519,6 +544,7 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
   llvm::SmallVector<mlir::OwningOpRef<mlir::ModuleOp>> ownedBodies;
   llvm::SmallVector<mlir::OwningOpRef<mlir::ModuleOp>> ownedHeaders;
   llvm::SmallVector<acir::compiler::SourceLinkUnit> units;
+  llvm::SmallVector<acir::compiler::AnchorSourceProvenance> provenance;
   for (size_t i = 0; i < options.bodies.size(); ++i) {
     auto body = readModule(options.bodies[i], context);
     if (!body) {
@@ -535,13 +561,28 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
     ownedBodies.push_back(std::move(body));
     ownedHeaders.push_back(std::move(header));
     units.push_back({*ownedBodies.back(), *ownedHeaders.back()});
+    if (*options.target == "anchor") {
+      llvm::sys::fs::file_status headerStatus;
+      if (llvm::sys::fs::status(options.headers[i], headerStatus) ||
+          headerStatus.getSize() > acir::compiler::AnchorFormatLimits::fileBytes) {
+        llvm::errs() << "error: anchor interface exceeds format file limit\n";
+        return mlir::failure();
+      }
+      auto originalBody = llvm::MemoryBuffer::getFile(options.bodies[i]);
+      auto originalHeader = llvm::MemoryBuffer::getFile(options.headers[i]);
+      if (!originalBody || !originalHeader) return mlir::failure();
+      provenance.push_back({units.back(), acir::compiler::anchorSha256((*originalBody)->getBuffer()),
+                            (*originalHeader)->getBuffer().str()});
+    }
   }
 
   auto emitError = [&] {
     return mlir::emitError(mlir::UnknownLoc::get(&context));
   };
-  auto program = acir::compiler::linkHardwareUnits(
+  auto program = acir::compiler::linkSourceUnits(
       units, *options.top, emitError,
+      *options.target == "anchor" ? acir::compiler::SourceLinkTarget::Routed
+                                  : acir::compiler::SourceLinkTarget::Hardware,
       options.transactionInputOutput ? &stages : nullptr, parameters,
       options.resetSemantics.value_or("strict"));
   if (mlir::failed(program))
@@ -553,9 +594,34 @@ mlir::LogicalResult runLink(const Options &options, mlir::MLIRContext &context,
   if (options.entryOwnerOutput &&
       !formatEntryOwner(root.getSourceOwner(), root.getSymName(), entryOwner))
     return mlir::failure();
+  if (*options.target == "anchor") {
+    std::error_code error;
+    bool created = std::filesystem::create_directory(*options.output, error);
+    if (error || !created) return emitError() << "anchor native output must be a fresh private directory";
+    return acir::compiler::writeAnchorArtifacts(**program, provenance, *options.output, emitError);
+  }
   llvm::raw_string_ostream output(result);
   (*program)->print(output, mlir::OpPrintingFlags().enableDebugInfo());
   output << '\n';
+  return mlir::success();
+}
+
+mlir::LogicalResult runAnchor(const Options &options, mlir::MLIRContext &context,
+                              std::string &result, std::string &entryOwner) {
+  auto emitError = [&] { return mlir::emitError(mlir::UnknownLoc::get(&context)); };
+  auto anchor = acir::compiler::loadVerifiedAnchor(*options.fromAnchor, context, emitError);
+  if (mlir::failed(anchor)) return mlir::failure();
+  auto definition = llvm::dyn_cast_or_null<mlir::FlatSymbolRefAttr>(
+      mlir::parseAttribute(anchor->root, &context));
+  if (!definition || (options.entryOwnerOutput &&
+      !formatEntryOwner(anchor->sourceOwner, definition.getValue(), entryOwner))) return mlir::failure();
+  if (options.verifyOnly)
+    return options.entryOwnerOutput && !writeReport(*options.entryOwnerOutput, entryOwner)
+               ? mlir::failure() : mlir::success();
+  auto final = acir::compiler::refineVerifiedAnchor(*anchor, emitError);
+  if (mlir::failed(final)) return mlir::failure();
+  llvm::raw_string_ostream output(result);
+  (*final)->print(output, mlir::OpPrintingFlags().enableDebugInfo()); output << '\n';
   return mlir::success();
 }
 
@@ -656,7 +722,7 @@ int main(int argc, char **argv) {
   acir::compiler::SourceLinkStages stages;
   bool sourceUnitOwnerMismatch = false;
   mlir::LogicalResult status =
-      options.verifyOnly
+      options.fromAnchor ? runAnchor(options, context, result, entryOwner) : options.verifyOnly
           ? runVerify(options, context, sourceUnitOwnerMismatch)
           : runLink(options, context, result, entryOwner, stages);
   if (mlir::failed(status) && sourceUnitOwnerMismatch)
@@ -666,7 +732,8 @@ int main(int argc, char **argv) {
   if (options.verifyOnly)
     return 0;
   llvm::SmallVector<std::pair<llvm::StringRef, llvm::StringRef>> outputs;
-  outputs.emplace_back(*options.output, result);
+  if (!options.target || *options.target != "anchor")
+    outputs.emplace_back(*options.output, result);
   if (options.glueOutput)
     outputs.emplace_back(*options.glueOutput, glueResult);
   if (options.entryOwnerOutput)

@@ -284,7 +284,7 @@ module {
     auto header = clone(body);
     if (failed(extract(*header)))
       return {};
-    auto linked = compiler::linkHardwareUnits({{body, *header}}, top, [&] {
+    auto linked = compiler::linkSourceUnits({{body, *header}}, top, [&] {
       return emitError(UnknownLoc::get(&context));
     });
     return succeeded(linked) ? std::move(*linked)
@@ -673,7 +673,7 @@ TEST_F(QueueContractsTest,
         EXPECT_TRUE((*published)[2].inputs.empty());
         ASSERT_TRUE(succeeded(
             compiler::admitSourceLinkUnits({{*body, *header}}, error())));
-        ASSERT_TRUE(succeeded(compiler::linkHardwareUnits(
+        ASSERT_TRUE(succeeded(compiler::linkSourceUnits(
             {{*body, *header}}, "Provider", error())));
       }
 }
@@ -821,7 +821,7 @@ TEST_F(QueueContractsTest,
           EXPECT_EQ((*dependencies)[0].inputs[0].port, 2u);
         EXPECT_TRUE((*dependencies)[1].inputs.empty());
         EXPECT_TRUE((*dependencies)[2].inputs.empty());
-        ASSERT_TRUE(succeeded(compiler::linkHardwareUnits(
+        ASSERT_TRUE(succeeded(compiler::linkSourceUnits(
             {{*body, *header}}, "Provider", error())));
       }
 }
@@ -1162,7 +1162,7 @@ TEST_F(QueueContractsTest, NominalAndTablePacketsKeepTokenGeometryAndIdentity) {
         for (auto &row : *published)
           if (row.output.port != 0)
             EXPECT_TRUE(row.inputs.empty());
-        ASSERT_TRUE(succeeded(compiler::linkHardwareUnits(
+        ASSERT_TRUE(succeeded(compiler::linkSourceUnits(
             {{*body, *header}}, "Provider", error())));
       }
 }
@@ -1506,7 +1506,7 @@ TEST_F(QueueContractsTest,
   auto fresh = clone(*local);
   ASSERT_TRUE(succeeded(extract(*fresh)));
   ASSERT_TRUE(succeeded(
-      compiler::linkHardwareUnits({{*local, *fresh}}, "Provider", error())));
+      compiler::linkSourceUnits({{*local, *fresh}}, "Provider", error())));
 }
 
 TEST_F(QueueContractsTest, QueueOwnsStateAcrossCseAndAnalysis) {

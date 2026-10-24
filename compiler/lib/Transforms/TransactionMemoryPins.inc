@@ -52,7 +52,7 @@ public:
           bool enable = operand == owner.layout.writeEnableOperand && access.kind == ac::TransactionMemoryAccessKind::Write;
           enable |= access.kind == ac::TransactionMemoryAccessKind::Request && operand == owner.layout.readEnableOperands[access.port];
           if (!enable) data = rule->getResult(proposal.argumentResults[argument++]);
-          local[plan.lexicalModule][key(anchorPath(plan, owner.anchor), owner.allocation, operand)]
+          local[plan.routingModule][key(anchorPath(plan, owner.anchor), owner.allocation, operand)]
               .push_back({rule->getResult(proposal.pathResult), data, access.operation});
         }
         if (argument != proposal.argumentResults.size()) return failure();

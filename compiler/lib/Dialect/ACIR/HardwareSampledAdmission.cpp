@@ -4,6 +4,7 @@
 #include "HardwareGrantProof.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceCheckPreflight.h"
+#include "HardwareSourceChecks.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseMap.h"
@@ -296,7 +297,7 @@ FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
   Operation *found = nullptr;
   for (Operation &operation : module.getBody().front()) {
     auto *instance = &operation;
-    if (!isa<InstanceOp, CollectionOp>(instance))
+    if (!isa<InstanceOp, CollectionOp, SourceStateOp>(instance))
       continue;
     if (failed(budget.debit(1, instance)))
       return failure();
@@ -311,7 +312,13 @@ FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
       continue;
     if (found)
       return module->emitOpError()
-             << "state declaration resolves to multiple direct instances";
+             << "state declaration resolves to multiple logical or physical allocations";
+    if (isa<SourceStateOp>(instance)) {
+      if (instance->getNumOperands() != 3 || instance->getNumResults() != 1)
+        return instance->emitOpError() << "logical state requires clock, reset, initial and one Q result";
+      found = instance;
+      continue;
+    }
     StringRef kind =
         analysis.getPrimitiveKind(
             isa<InstanceOp>(instance)
@@ -330,8 +337,77 @@ FailureOr<Operation *> directState(ModuleOp module, DictionaryAttr declaration,
   }
   if (!found)
     return module->emitOpError()
-           << "transaction inventory has no matching direct DFF/DFFE";
+           << "transaction inventory has no matching direct state allocation";
   return found;
+}
+LogicalResult bindStateEndpoint(StateEndpoint &result, Operation *storage,
+                               ModuleOp owner, const HardwareBindings &bound,
+                               const HardwareAnalysis &analysis,
+                               SourceCheckBudget &budget) {
+  if (failed(budget.debit(SourceCheckBudget::multiply(
+                             2, SourceCheckBudget::bindings(bound)), owner)))
+    return failure();
+  auto payload = analysis.resolveType(storage->getResult(0).getType(), bound, owner);
+  if (failed(payload)) return failure();
+  auto width = analysis.getPackedWidth(*payload, bound, owner);
+  if (failed(width) || !*width)
+    return owner->emitOpError() << "StateID terminal payload must be finite";
+  result.owner = owner;
+  result.storage = storage;
+  result.ownerBindings = bound;
+  result.payloadType = *payload;
+  result.q = storage->getResult(0);
+  if (auto logical = dyn_cast<SourceStateOp>(storage)) {
+    result.form = StateEndpointForm::Logical;
+    result.storageBindings = bound;
+    result.clock = logical.getClk();
+    result.reset = logical.getRst();
+    result.initial = logical.getInitial();
+    for (auto update : owner.getBody().front().getOps<StateUpdateOp>()) {
+      if (failed(budget.debit(1, update))) return failure();
+      if (update->getNumOperands() != 3 || update->getNumResults() ||
+          update->getNumRegions())
+        return update.emitOpError() << "logical state update requires three operands and no results or regions";
+      if (update.getState() != logical.getQ()) continue;
+      if (result.update)
+        return logical.emitOpError() << "logical state requires exactly one update";
+      result.update = update;
+    }
+    if (!result.update)
+      return logical.emitOpError() << "logical state requires exactly one update";
+    result.data = result.update.getCandidate();
+    result.enable = result.update.getIntent();
+    auto candidate = analysis.resolveType(result.data.getType(), bound, result.update);
+    auto intentWidth = analysis.getPackedWidth(result.enable.getType(), bound, result.update);
+    if (failed(candidate) || failed(intentWidth)) return failure();
+    if (!areEquivalentHardwareTypes(*candidate, result.payloadType) || *intentWidth != 1)
+      return result.update.emitOpError() << "bound candidate and intent must match logical state payload and one bit";
+    return success();
+  }
+  auto leaf = isa<InstanceOp>(storage)
+                  ? analysis.bindInstance(cast<InstanceOp>(storage), bound)
+                  : analysis.bindInstance(cast<CollectionOp>(storage), bound);
+  if (failed(leaf)) return failure();
+  result.storageBindings = std::move(*leaf);
+  auto clock = stateControl(storage, 0), reset = stateControl(storage, 1);
+  if (failed(clock) || failed(reset)) return failure();
+  result.clock = *clock;
+  result.reset = *reset;
+  bool dff = analysis.getPrimitiveKind(result.storageBindings.owner) == "dff";
+  result.form = dff ? StateEndpointForm::DFF
+                   : isa<CollectionOp>(storage) ? StateEndpointForm::DFFECollection
+                                                : StateEndpointForm::DFFE;
+  if (dff) {
+    result.data = storage->getOperand(2);
+    result.initial = storage->getOperand(3);
+  } else {
+    auto enable = stateControl(storage, 2);
+    if (failed(enable)) return failure();
+    result.enable = *enable;
+    result.data = storage->getOperand(3);
+    result.initial = storage->getOperand(4);
+  }
+  return success();
 }
 } // namespace
 
@@ -452,6 +528,19 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       failed(charge(budget, rule, controls.size(), sizeof(SampledControlView))))
     return failure();
   SampledAdmissionView result;
+  // A lifted transaction starts in its original lexical allocation. Those
+  // allocation frames authenticate provenance; they are not nested callable
+  // guards. Verify the prefix before using its depth as the root invocation.
+  uint64_t rootInvocationDepth = 0;
+  if (rule->hasAttr("ac.registration_path")) {
+    if (failed(verifyRoutedRegistration(analysis, rule,
+            [&](uint64_t units, Operation *site) {
+              return budget.debit(units, site);
+            })))
+      return failure();
+    rootInvocationDepth =
+        rule->getAttrOfType<ArrayAttr>("ac.registration_path").size();
+  }
   result.definition = module;
   result.rule = rule;
   result.clockCapture = *clock;
@@ -531,7 +620,8 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   };
   auto callable = [&](ArrayAttr invocation,
                       bool parent, bool pending = false) -> FailureOr<const SampledControlView *> {
-    if (!invocation || (parent && invocation.empty()))
+    if (!invocation || invocation.size() < rootInvocationDepth ||
+        (parent && invocation.size() == rootInvocationDepth))
       return rule->emitOpError() << "sampled invocation has no callable owner";
     for (const auto &prior : result.controls) {
       if (failed(budget.debit(1, rule)))
@@ -604,7 +694,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       return failure();
     if (*predecessor != static_cast<int64_t>(ordinal) - 1 ||
         *obligation != static_cast<int64_t>(ordinal) || !invocation ||
-        (ordinal == 0 && (!invocation.empty() || path->selectionControl ||
+        (ordinal == 0 && (invocation.size() != rootInvocationDepth || path->selectionControl ||
                           role == SampledControlKind::BranchSelect)) ||
         !identical(id.get("registration"), rule->getAttr("occurrence")))
       return rule->emitOpError() << "sampled control has inconsistent ordinal, "
@@ -638,14 +728,15 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     const SampledControlView *owner = nullptr;
     if ((ordinal || role == SampledControlKind::ValueAvailable ||
                     role == SampledControlKind::ResourceAvailable) &&
-        !(role == SampledControlKind::CallableGuard && invocation.empty())) {
+        !(role == SampledControlKind::CallableGuard &&
+          invocation.size() == rootInvocationDepth)) {
       auto found = callable(invocation,
           role == SampledControlKind::CallableGuard,
           role == SampledControlKind::ValueAvailable);
       if (failed(found))
         return failure();
       owner = *found;
-      if (!owner && !invocation.empty()) {
+      if (!owner && invocation.size() != rootInvocationDepth) {
         auto parent = callable(invocation, true);
         if (failed(parent)) return failure();
         owner = *parent;
@@ -1056,6 +1147,31 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     return failure();
   uint64_t validityInputs = llvm::count_if(ports->inputValidity,
                                           [](int64_t i) { return i >= 0; });
+  ArrayAttr returnInputs;
+  if (Attribute raw = module->getAttr("ac.transaction_returns")) {
+    auto returns = dyn_cast<DictionaryAttr>(raw);
+    returnInputs = returns ? returns.getAs<ArrayAttr>("incoming") : ArrayAttr();
+    if (!returnInputs)
+      return module->emitOpError() << "transaction returns require incoming routes";
+  }
+  uint64_t returnCount = returnInputs ? returnInputs.size() : 0;
+  uint64_t pairEnd = SourceCheckBudget::add(ports->sourceInputCount,
+      SourceCheckBudget::multiply(2, SourceCheckBudget::add(incoming.size(), returnCount)));
+  llvm::DenseSet<uint64_t> returnData;
+  if (failed(charge(budget, module, returnCount, sizeof(uint64_t) + 64)))
+    return failure();
+  if (returnInputs) for (Attribute raw : returnInputs) {
+    auto route = dyn_cast<DictionaryAttr>(raw);
+    if (!route) return module->emitOpError() << "invalid transaction return route";
+    auto data = index(route, "data", module);
+    auto enable = index(route, "enable", module);
+    if (failed(data) || failed(enable)) return failure();
+    uint64_t d = *data, e = *enable;
+    if (d < ports->sourceInputCount || e != SourceCheckBudget::add(d, 1) ||
+        e >= pairEnd || (d - ports->sourceInputCount) % 2 ||
+        !returnData.insert(d).second)
+      return module->emitOpError() << "transaction return D/E overlaps or escapes the shared input suffix";
+  }
   uint64_t queueInputs = 0;
   if (Attribute raw = module->getAttr("ac.queue_wiring")) {
     auto queues = dyn_cast<DictionaryAttr>(raw);
@@ -1071,12 +1187,11 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
   }
   auto memoryInputs = getMemoryIncomingPortCount(module, analysis, bindings, budget);
   if (failed(memoryInputs)) return failure();
-  if (SourceCheckBudget::add(SourceCheckBudget::add(ports->sourceInputCount,
-                             SourceCheckBudget::multiply(2, incoming.size())),
+  if (SourceCheckBudget::add(pairEnd,
                              SourceCheckBudget::add(SourceCheckBudget::add(validityInputs, queueInputs), *memoryInputs)) !=
       module.getFunctionType().getNumInputs())
     return module->emitOpError()
-           << "transaction, Queue, Memory and availability routes must exactly cover appended inputs";
+           << "transaction, return, Queue, Memory and availability routes must exactly cover appended inputs";
   if (failed(charge(budget, module, states.size(),
                     sizeof(TransactionStateInventoryEntry))) ||
       failed(charge(budget, module, incoming.size(),
@@ -1118,7 +1233,17 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     result.states.push_back({declaration, *storage});
   }
   auto &body = module.getBody().front();
-  for (auto [ordinal, raw] : llvm::enumerate(incoming)) {
+  for (auto logical : body.getOps<SourceStateOp>()) {
+    bool inventoried = false;
+    for (const auto &entry : result.states) {
+      if (failed(budget.debit(1, logical))) return failure();
+      inventoried |= entry.storage == logical.getOperation();
+    }
+    if (!inventoried)
+      return logical.emitOpError() << "logical state is missing its transaction inventory";
+  }
+  uint64_t nextPair = ports->sourceInputCount;
+  for (auto raw : incoming) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
     if (failed(exact(entry, {"state", "data", "enable"}, module,
                      "transaction incoming")))
@@ -1128,8 +1253,12 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
     auto enable = index(entry, "enable", module);
     if (failed(data) || failed(enable) || failed(wholeStateID(state, module)))
       return failure();
-    uint64_t expected = SourceCheckBudget::add(
-        ports->sourceInputCount, SourceCheckBudget::multiply(2, ordinal));
+    while (returnData.contains(nextPair)) {
+      if (failed(budget.debit(1, module))) return failure();
+      nextPair = SourceCheckBudget::add(nextPair, 2);
+    }
+    uint64_t expected = nextPair;
+    nextPair = SourceCheckBudget::add(nextPair, 2);
     if (expected == std::numeric_limits<uint64_t>::max() ||
         static_cast<uint64_t>(*data) != expected ||
         static_cast<uint64_t>(*enable) != SourceCheckBudget::add(expected, 1) ||
@@ -1149,6 +1278,12 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
         {state, static_cast<uint64_t>(*data), static_cast<uint64_t>(*enable),
          body.getArgument(*data), body.getArgument(*enable)});
   }
+  while (returnData.contains(nextPair)) {
+    if (failed(budget.debit(1, module))) return failure();
+    nextPair = SourceCheckBudget::add(nextPair, 2);
+  }
+  if (nextPair != pairEnd)
+    return module->emitOpError() << "state and return routes must partition the shared input suffix";
   for (auto raw : writers) {
     auto entry = dyn_cast<DictionaryAttr>(raw);
     if (failed(exact(entry, {"registration", "ordinary_results", "candidates"},
@@ -1252,7 +1387,7 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
   return result;
 }
 
-FailureOr<PhysicalStateEndpoint>
+FailureOr<StateEndpoint>
 resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
                         const HardwareAnalysis &analysis,
                         const HardwareBindings &bindings,
@@ -1268,10 +1403,10 @@ resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
            << "StateID bindings have the wrong relative owner";
   if (failed(payAttribute(stateID, budget, relativeTo)) ||
       failed(wholeStateID(stateID, relativeTo)) ||
-      failed(charge(budget, relativeTo, 1, sizeof(PhysicalStateEndpoint))) ||
+      failed(charge(budget, relativeTo, 1, sizeof(StateEndpoint))) ||
       failed(budget.debit(SourceCheckBudget::bindings(bindings), relativeTo)))
     return failure();
-  PhysicalStateEndpoint result;
+  StateEndpoint result;
   result.ownerScope.root = relativeTo;
   result.ownerScope.rootBindings = bindings;
   result.ownerScope.rootBindings.owner = relativeTo;
@@ -1337,42 +1472,8 @@ resolveTransactionState(ModuleOp relativeTo, DictionaryAttr stateID,
   if (failed(storage) ||
       failed(budget.debit(SourceCheckBudget::bindings(bound), owner)))
     return failure();
-  auto leaf = isa<InstanceOp>(*storage)
-                  ? analysis.bindInstance(cast<InstanceOp>(*storage), bound)
-                  : analysis.bindInstance(cast<CollectionOp>(*storage), bound);
-  auto payload =
-      analysis.resolveType((*storage)->getResult(0).getType(), bound, owner);
-  if (failed(leaf) || failed(payload))
+  if (failed(bindStateEndpoint(result, *storage, owner, bound, analysis, budget)))
     return failure();
-  auto width = analysis.getPackedWidth(*payload, bound, owner);
-  if (failed(width) || !*width)
-    return owner->emitOpError() << "StateID terminal payload must be finite";
-  result.owner = owner;
-  result.storage = *storage;
-  result.ownerBindings = std::move(bound);
-  result.storageBindings = std::move(*leaf);
-  result.payloadType = *payload;
-  auto clock = stateControl(*storage, 0);
-  auto reset = stateControl(*storage, 1);
-  if (failed(clock) || failed(reset)) return failure();
-  result.clock = *clock;
-  result.reset = *reset;
-  bool dff =
-      analysis.getPrimitiveKind(
-          isa<InstanceOp>(*storage)
-              ? analysis.resolveCallee(cast<InstanceOp>(*storage))
-              : analysis.resolveCallee(cast<CollectionOp>(*storage))) == "dff";
-  if (dff) {
-    result.data = (*storage)->getOperand(2);
-    result.initial = (*storage)->getOperand(3);
-  } else {
-    auto enable = stateControl(*storage, 2);
-    if (failed(enable)) return failure();
-    result.enable = *enable;
-    result.data = (*storage)->getOperand(3);
-    result.initial = (*storage)->getOperand(4);
-  }
-  result.q = (*storage)->getResult(0);
   return result;
 }
 
@@ -2973,6 +3074,7 @@ struct State {
   SmallVector<StateCandidate, 0> candidates;
   bool commitProven = false;
   std::optional<bool> unordered;
+  StateEndpoint endpoint;
 };
 struct PrivateRoute {
   HardwareIdentityEndpoint endpoint;
@@ -3152,6 +3254,7 @@ private:
     for (auto &operation : module.getBody().front()) {
       if (failed(budget.debit(1, &operation)))
         return failure();
+      witness |= isa<SourceStateOp>(operation);
       if (auto rule = dyn_cast<RuleOp>(operation)) {
         witness |= rule->hasAttr("ac.sampled_admission");
         if (auto required =
@@ -3194,7 +3297,7 @@ private:
   }
   FailureOr<HardwareIdentityScope>
   actualStateScope(const Occurrence &entry,
-                   const PhysicalStateEndpoint &relative) {
+                   const StateEndpoint &relative) {
     auto scope = copyScope(entry.scope, budget, entry.module);
     if (failed(scope) ||
         failed(charge(budget, entry.module, relative.ownerScope.path.size(),
@@ -3279,7 +3382,10 @@ private:
                             {},
                             {},
                             {},
-                            false, {}, false});
+                            false, {}, false, {}, {}});
+          if (failed(bindStateEndpoint(states.back().endpoint, record.storage,
+                                       entry.module, entry.bindings, analysis, budget)))
+            return failure();
           std::pair<size_t, Operation *> key{occurrenceOrdinal, record.storage};
           if (stateIndex.contains(key))
             return record.storage->emitOpError()
@@ -4067,12 +4173,7 @@ private:
             if (failed(checked) || failed(privateRoute(writer.rule->getResult(domain.maskResult),
                   entry.scope, *stateIndex, PrivateRoute::Mask))) return failure();
           }
-          bool dff =
-              analysis.getPrimitiveKind(
-                  isa<InstanceOp>(state.storage)
-                      ? analysis.resolveCallee(cast<InstanceOp>(state.storage))
-                      : analysis.resolveCallee(
-                            cast<CollectionOp>(state.storage))) == "dff";
+          bool dff = state.endpoint.form == StateEndpointForm::DFF;
           if (failed(privateRoute(candidate.data, entry.scope, *stateIndex,
                                   PrivateRoute::Data)))
             return failure();
@@ -4310,6 +4411,8 @@ private:
         if (failed(q))
           return failure();
         if (!sameEndpoint(*data, *q)) {
+          if (state.endpoint.form == StateEndpointForm::Logical)
+            return site->emitOpError() << "unwritten logical state requires candidate Q and false intent";
           auto dataLiteral = literal(*data, analysis, budget);
           if (failed(dataLiteral))
             return failure();
@@ -4381,12 +4484,8 @@ private:
       }
     }
     for (auto [ordinal, state] : llvm::enumerate(states)) {
-      bool dff =
-          analysis.getPrimitiveKind(
-              isa<InstanceOp>(state.storage)
-                  ? analysis.resolveCallee(cast<InstanceOp>(state.storage))
-                  : analysis.resolveCallee(cast<CollectionOp>(state.storage))) ==
-          "dff";
+      const auto &endpoint = state.endpoint;
+      bool dff = endpoint.form == StateEndpointForm::DFF;
       if (dff) {
         // A plain DFF has no enable pin. Its candidate data must still match
         // the verified composition, and at least one actual contributor must
@@ -4407,22 +4506,17 @@ private:
                  << "(enable defining op "
                  << state.enable->value.getDefiningOp()->getName() << ", known "
                  << (failed(unconditional) ? -1 : *unconditional ? 1 : 0) << ")";
-        if (failed(samePair(state.storage->getOperand(2), state.enable->value,
+        if (failed(samePair(endpoint.data, state.enable->value,
                             state.scope, ordinal, true, state.storage)))
           return failure();
       } else {
-        auto enable = stateControl(state.storage, 2);
-        if (failed(enable)) return failure();
-        if (failed(samePair(state.storage->getOperand(3), *enable, state.scope,
+        if (failed(samePair(endpoint.data, endpoint.enable, state.scope,
                             ordinal, true, state.storage)))
           return failure();
       }
       if (state.writer) {
-        auto rawClock = stateControl(state.storage, 0);
-        auto rawReset = stateControl(state.storage, 1);
-        if (failed(rawClock) || failed(rawReset)) return failure();
-        auto clock = normal(*rawClock, state.scope);
-        auto reset = normal(*rawReset, state.scope);
+        auto clock = normal(endpoint.clock, state.scope);
+        auto reset = normal(endpoint.reset, state.scope);
         if (failed(clock) || failed(reset))
           return failure();
         if (!sameEndpoint(*clock, *state.clock) ||
@@ -4695,6 +4789,21 @@ private:
           return failure();
         continue;
       }
+      if (auto update = dyn_cast<StateUpdateOp>(consumer)) {
+        auto logical = update.getState().getDefiningOp<SourceStateOp>();
+        if (route.kind == PrivateRoute::Data && operand == 1 && logical &&
+            stateTerminal(endpoint.scope, logical, route.state))
+          continue;
+        if (route.kind == PrivateRoute::Enable && operand == 2 && logical) {
+          auto found = stateIndex.find({currentOccurrence, logical.getOperation()});
+          if (found != stateIndex.end() && stateTerminal(endpoint.scope, logical, found->second)) {
+            auto allowed = enableTarget(route, found->second);
+            if (failed(allowed)) return failure();
+            if (*allowed) continue;
+          }
+        }
+        return update.emitOpError() << "private candidate reaches unrelated logical state update";
+      }
       if (auto collection = dyn_cast<CollectionOp>(consumer)) {
         if (analysis.getPrimitiveKind(analysis.resolveCallee(collection)) == "dffe") {
           if (route.kind == PrivateRoute::Data && operand == 3 &&
@@ -4861,7 +4970,8 @@ bool localWitness(ModuleOp module) {
       module->hasAttr("ac.internal_ports"))
     return true;
   for (auto &operation : module.getBody().front()) {
-    if (operation.hasAttr("ac.sampled_admission") ||
+    if (isa<SourceStateOp>(operation) ||
+        operation.hasAttr("ac.sampled_admission") ||
         operation.hasAttr("ac.transaction_wiring"))
       return true;
     if (auto expect = dyn_cast<SourceExpectOp>(operation))
@@ -4894,6 +5004,9 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
   });
   if (!hasWitness)
     return success();
+  if (failed(verifyTransactionReturns(analysis,
+          [&](uint64_t units, Operation *site) { return budget.debit(units, site); })))
+    return failure();
   budget.setPhase("sampled transaction wiring proof");
   llvm::DenseSet<Operation *> relevant, writerRelevant, scanned;
   llvm::DenseMap<Operation *, SmallVector<ModuleOp>> parents;

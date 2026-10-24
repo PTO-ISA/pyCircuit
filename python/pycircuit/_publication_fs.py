@@ -631,6 +631,9 @@ class _PublicationFileSystem:
         else:
             flags = os.O_RDWR if writable else os.O_RDONLY
             flags |= getattr(os, "O_NOFOLLOW", 0)
+            # Type validation follows open: a raced-in FIFO must not block
+            # indefinitely before fstat can reject it as a non-regular file.
+            flags |= getattr(os, "O_NONBLOCK", 0)
             if create:
                 flags |= os.O_CREAT
             if truncate:

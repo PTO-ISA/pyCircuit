@@ -254,10 +254,13 @@ private:
   llvm::SmallVector<std::unique_ptr<Entry>, 0> entries;
 };
 
-struct PhysicalStateEndpoint {
+enum class StateEndpointForm { Logical, DFF, DFFE, DFFECollection };
+struct StateEndpoint {
+  StateEndpointForm form = StateEndpointForm::Logical;
   HardwareIdentityScope ownerScope;
   ModuleOp owner;
   mlir::Operation *storage = nullptr;
+  StateUpdateOp update;
   HardwareBindings ownerBindings, storageBindings;
   mlir::Type payloadType;
   mlir::Value clock, reset, enable, data, initial, q;
@@ -271,7 +274,7 @@ mlir::FailureOr<TransactionWiringView>
 parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
                        const HardwareBindings &bindings,
                        SourceCheckBudget &budget);
-mlir::FailureOr<PhysicalStateEndpoint>
+mlir::FailureOr<StateEndpoint>
 resolveTransactionState(ModuleOp relativeTo, mlir::DictionaryAttr stateID,
                         const HardwareAnalysis &analysis,
                         const HardwareBindings &bindings,

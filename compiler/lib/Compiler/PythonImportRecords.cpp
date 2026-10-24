@@ -60,6 +60,7 @@ struct ModuleDecl {
   AstNode node;
   FlatSymbolRefAttr symbol;
   SmallVector<Parameter> parameters;
+  ArrayAttr references;
   SmallVector<Port> inputs, outputs;
   FunctionType type;
   bool persistent = false;
@@ -140,6 +141,7 @@ struct Instance {
   Operation *op = nullptr;
   bool bound = false;
   bool valueHandle = false;
+  std::string reference;
   ReturnShape returnShape = ReturnShape::Mapping;
   std::optional<unsigned> clockInput, resetInput;
 };
@@ -899,6 +901,10 @@ private:
                                    StringRef name);
   LogicalResult emitModule(ModuleDecl &decl);
   FailureOr<DictionaryAttr> moduleSignatureAttrs(const ModuleDecl &target);
+  FailureOr<SmallVector<AstNode>> moduleActuals(DictionaryAttr signature,
+                                                const AstNode &call);
+  FailureOr<ArrayAttr> bindModuleReferences(DictionaryAttr signature,
+      const AstNode &call, llvm::StringMap<Instance *> &instances);
   FailureOr<SmallVector<Attribute>> bindParameters(DictionaryAttr calleeAttrs,
                                                  const AstNode &call,
                                                  FlatSymbolRefAttr parent,
@@ -1741,10 +1747,9 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
       }
       joined.boundaries[item.first()] = item.second;
     }
-  // LLVM 22 rejects default SmallVector inline storage when the element is a
-  // large variant (PreparedScalarJoin is intentionally rich).  Branch joins
-  // are normally tiny and the vector grows dynamically for larger joins.
-  SmallVector<PreparedBranchJoin, 1> prepared;
+  // The rich join variant needs an explicit inline capacity with LLVM 22.
+  // Keep upstream's zero-inline-storage policy; larger joins grow dynamically.
+  SmallVector<PreparedBranchJoin, 0> prepared;
   SmallVector<StringRef> resultNames;
   std::optional<OpBuilder> thenAt, elseAt;
   if (sourceBranch) {
@@ -2584,6 +2589,7 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
       args.child("kwarg") || !args.array("defaults").empty())
     return error() << "module inputs are required ordinary arguments";
   llvm::StringSet<> seen;
+  SmallVector<Attribute> references;
   for (size_t i = 0; i < args.array("args").size(); ++i) {
     AstNode arg = args.item("args", i);
     if (names.contains(arg.string("arg")) ||
@@ -2592,6 +2598,25 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
              << "module input shadows a source declaration or namespace";
     if (!seen.insert(arg.string("arg")).second || !arg.child("annotation"))
       return error() << "module input requires a unique name and annotation";
+    FlatSymbolRefAttr referenceModule;
+    auto annotation = arg.child("annotation");
+    if (auto binding = lookupBinding(annotation);
+        binding && binding->category == BindingCategory::Module)
+      referenceModule = binding->symbol;
+    if (!referenceModule && annotation.kind() == "Name")
+      for (size_t j = 0; j < source.module.array("body").size(); ++j) {
+        auto declaration = source.module.item("body", j);
+        if (declaration.kind() == "FunctionDef" && hasDecorator(declaration, "module") &&
+            declaration.string("name") == annotation.string("id"))
+          referenceModule = FlatSymbolRefAttr::get(b.getContext(), qualify(declaration.string("name")));
+      }
+    if (referenceModule) {
+      references.push_back(b.getDictionaryAttr({
+          b.getNamedAttr("name", b.getStringAttr(arg.string("arg"))),
+          b.getNamedAttr("callee", referenceModule),
+          b.getNamedAttr("position", b.getI64IntegerAttr(i))}));
+      continue;
+    }
     auto type = portType(arg.child("annotation"), result.symbol);
     if (failed(type))
       return failure();
@@ -2616,6 +2641,7 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
         {arg.string("arg").str(), arg,
          value ? std::optional<AstNode>(value) : std::nullopt});
   }
+  if (!references.empty()) result.transactionEffects = true;
   AstNode returns = node.child("returns");
   if (result.system && returns)
     return error() << "@system cannot declare a result";
@@ -2631,6 +2657,7 @@ FailureOr<ModuleDecl> Importer::signature(const AstNode &node) {
          intrinsic(stmt.child("value").child("func").child("value"), "table")))
       result.persistent = true;
   }
+  result.references = b.getArrayAttr(references);
   result.sourceInputCount = result.inputs.size();
   result.behavioral =
       result.persistent || result.returnShape != ReturnShape::Mapping ||
@@ -2726,6 +2753,8 @@ Importer::moduleSignatureAttrs(const ModuleDecl &target) {
       b.getNamedAttr("input_names", portNames(b, target.inputs)),
       b.getNamedAttr("output_names", portNames(b, target.outputs))};
   llvm::append_range(attrs, target.sourceCallAttrs);
+  if (target.references && !target.references.empty())
+    attrs.push_back(b.getNamedAttr("ac.reference_parameters", target.references));
   if (target.system)
     attrs.push_back(b.getNamedAttr("ac.root_kind", b.getStringAttr("system")));
   if (target.systemSamples)
@@ -2747,6 +2776,10 @@ Importer::bindParameters(DictionaryAttr calleeAttrs, const AstNode &call,
     if (name && typeFormals && llvm::is_contained(typeFormals, name))
       continue;
     if (directCall && name) {
+      auto references = calleeAttrs.getAs<ArrayAttr>("ac.reference_parameters");
+      if (references && llvm::any_of(references, [&](Attribute raw) {
+            return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
+          })) continue;
       auto hardware = calleeAttrs.getAs<ArrayAttr>("ac.parameters");
       if (hardware && llvm::any_of(hardware, [&](Attribute raw) {
             return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") == name;
@@ -4705,6 +4738,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
        b.getNamedAttr("ac.origin",
                       sourceOccurrence(b, decl.symbol, decl.node))},
       1);
+  if (decl.references && !decl.references.empty())
+    module->setAttr("ac.reference_parameters", decl.references);
   if (decl.system)
     module->setAttr("ac.root_kind", b.getStringAttr("system"));
   if (decl.systemSamples)

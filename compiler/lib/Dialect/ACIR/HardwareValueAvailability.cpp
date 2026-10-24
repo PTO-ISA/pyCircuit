@@ -1,5 +1,6 @@
 #include "HardwareValueAvailability.h"
 #include "HardwareQueueResources.h"
+#include "HardwareSourceChecks.h"
 #include "llvm/ADT/ScopeExit.h"
 #include <map>
 #include <set>
@@ -11,6 +12,12 @@ namespace {
 // neither a | ~a nor an unknown condition is converted to a known Boolean.
 class AvailabilityProof {
   const HardwareAnalysis &analysis;
+  std::function<LogicalResult(uint64_t, Operation *)> debit;
+  bool charge(uint64_t units, Operation *site) {
+    if (!debit || succeeded(debit(units, site))) return true;
+    invalid = true;
+    return false;
+  }
   using Expr = unsigned;
   struct Node {
     std::string kind;
@@ -25,6 +32,7 @@ class AvailabilityProof {
   bool invalid = false;
 
   Expr node(StringRef kind, ArrayRef<Expr> children = {}) {
+    if (!charge(1 + kind.size() + children.size(), analysis.getPackage())) return 0;
     std::string key = kind.str();
     for (auto child : children)
       key += ":" + std::to_string(child);
@@ -105,6 +113,7 @@ class AvailabilityProof {
     return node("eq", {left, right});
   }
   Expr formula(Value value) {
+    if (!charge(1, value.getParentBlock()->getParentOp())) return 0;
     value = wire(value);
     if (auto found = formulaCache.find(value); found != formulaCache.end())
       return found->second;
@@ -213,13 +222,29 @@ class AvailabilityProof {
             ports->inputValidity[ordinal] >= 0)
           return formula(
               arg.getOwner()->getArgument(ports->inputValidity[ordinal]));
+        // These internal lanes are authenticated against the actual producer
+        // Rule and its entire fire by verifyTransactionReturns. Availability
+        // follows the return companion across each hierarchy boundary.
+        if (auto returns = module->getAttrOfType<DictionaryAttr>("ac.transaction_returns"))
+          if (auto incoming = returns.getAs<ArrayAttr>("incoming"))
+            for (Attribute raw : incoming) {
+              if (!charge(1, module)) return 0;
+              auto row = dyn_cast<DictionaryAttr>(raw);
+              auto data = row ? row.getAs<IntegerAttr>("data") : IntegerAttr();
+              auto enable = row ? row.getAs<IntegerAttr>("enable") : IntegerAttr();
+              if (!data || !enable || data.getInt() < 0 || enable.getInt() < 0 ||
+                  uint64_t(enable.getInt()) >= arg.getOwner()->getNumArguments())
+                return reject(module, "invalid transaction return availability lane");
+              if (uint64_t(data.getInt()) == ordinal)
+                return formula(arg.getOwner()->getArgument(enable.getInt()));
+            }
         return 1;
       }
       return reject(owner,
                     "availability has unsupported region argument provenance");
     }
     Operation *op = value.getDefiningOp();
-    if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp>(op))
+    if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp, SourceStateOp>(op))
       return 1;
     if (auto rule = dyn_cast<RuleOp>(op)) {
       auto yields = cast<YieldOp>(rule.getBody().front().back()).getValues();
@@ -265,6 +290,14 @@ class AvailabilityProof {
         return reject(instance, "availability has an unresolved instance");
       if (!analysis.getPrimitiveKind(target).empty())
         return 1;
+      if (isa<ModuleImportOp>(target) && target->hasAttr("ac.external_contract")) {
+        // Availability includes every declared input, independently of payload
+        // dependency_summary. Empty-input externs are total.
+        SmallVector<Expr> inputs;
+        for (Value input : instance.getInputs())
+          inputs.push_back(availability(input));
+        return all(inputs);
+      }
       auto ports = getModulePortLayout(target);
       if (failed(ports)) {
         invalid = true;
@@ -344,17 +377,20 @@ class AvailabilityProof {
     return all(operands);
   }
   Expr availability(Value value, ArrayRef<StringAttr> path = {}) {
+    if (!charge(1 + path.size(), value.getParentBlock()->getParentOp())) return 0;
     std::string key =
         std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
+    // Field names may contain separators; preserve each path component's length.
     for (auto field : path)
-      key += "." + field.getValue().str();
+      key += ":" + std::to_string(field.getValue().size()) + ":" +
+             field.getValue().str();
     if (auto found = availabilityCache.find(key);
         found != availabilityCache.end())
       return found->second;
-    if (!active.insert(key).second) {
-      invalid = true;
-      return 0;
-    }
+    if (!active.insert(key).second)
+      return reject(value.getDefiningOp() ? value.getDefiningOp()
+                                         : value.getParentBlock()->getParentOp(),
+                    "cycle in hardware value availability");
     llvm::scope_exit cleanup([&] { active.erase(key); });
     Expr result = derive(value, path);
     availabilityCache.emplace(key, result);
@@ -368,8 +404,10 @@ class AvailabilityProof {
   }
 
 public:
-  explicit AvailabilityProof(const HardwareAnalysis &analysis)
-      : analysis(analysis) {}
+  explicit AvailabilityProof(
+      const HardwareAnalysis &analysis,
+      const std::function<LogicalResult(uint64_t, Operation *)> &debit = {})
+      : analysis(analysis), debit(debit) {}
   LogicalResult run() {
     std::optional<DenseSet<OpOperand *>> queueUses;
     for (auto module : analysis.getDefinitions()) {
@@ -439,6 +477,22 @@ public:
                                 require))
                      ? WalkResult::interrupt()
                      : WalkResult::advance();
+        if (auto collection = dyn_cast<CollectionOp>(operation)) {
+          auto *target = analysis.resolveCallee(collection);
+          if (target && isa<ModuleImportOp>(target) &&
+              target->hasAttr("ac.external_contract")) {
+            for (Value output : collection.getOutputs()) availability(output);
+            // Result-free extern Collections still cannot bypass the current
+            // total-input admission limitation.
+            for (Value input : collection.getInputs())
+              if (availability(input) != 1) {
+                collection.emitOpError()
+                    << "availability requires scalar instance routing for ordinary Collections";
+                return WalkResult::interrupt();
+              }
+            if (invalid) return WalkResult::interrupt();
+          }
+        }
         auto instance = dyn_cast<InstanceOp>(operation);
         if (!instance)
           return WalkResult::advance();
@@ -447,6 +501,13 @@ public:
           return WalkResult::interrupt();
         if (!analysis.getPrimitiveKind(target).empty())
           return WalkResult::advance();
+        if (isa<ModuleImportOp>(target) && target->hasAttr("ac.external_contract")) {
+          // An extern accepts partial inputs. Its outputs derive their own
+          // all-input availability, including dead outputs and cycles.
+          for (Value output : instance.getOutputs())
+            availability(output);
+          return invalid ? WalkResult::interrupt() : WalkResult::advance();
+        }
         auto layout = getModulePortLayout(target);
         if (failed(layout))
           return WalkResult::interrupt();
@@ -466,6 +527,15 @@ public:
     return failure(invalid);
   }
 };
+// Called only after verifyTransactionReturns authenticates the complete graph.
+static SmallVector<uint64_t> transactionReturnCompanions(Operation *module) {
+  SmallVector<uint64_t> result;
+  if (auto metadata = module->getAttrOfType<DictionaryAttr>("ac.transaction_returns"))
+    for (Attribute raw : metadata.getAs<ArrayAttr>("incoming"))
+      result.push_back(cast<DictionaryAttr>(raw).getAs<IntegerAttr>("enable").getInt());
+  return result;
+}
+
 // Only companion destinations and required availability operands authorize
 // transport of a private fire. Shared ordinary-data consumers invalidate it.
 class AvailabilityUses {
@@ -545,6 +615,8 @@ public:
           for (int64_t companion : ports->inputValidity)
             if (companion >= 0)
               add(instance->getOpOperand(companion), true);
+          for (uint64_t companion : transactionReturnCompanions(callee))
+            add(instance->getOpOperand(companion), true);
         }
         return WalkResult::advance();
       });
@@ -592,6 +664,10 @@ public:
             !allUsers(module.getBody().front().getArgument(companion)))
           return module.emitOpError()
                  << "availability companion has a data use";
+      for (uint64_t companion : transactionReturnCompanions(module))
+        if (!allUsers(module.getBody().front().getArgument(companion)))
+          return module.emitOpError()
+                 << "transaction return availability has a data use";
       auto walked = module.walk([&](InstanceOp instance) {
         auto *callee = analysis.resolveCallee(instance);
         if (!callee)
@@ -624,21 +700,27 @@ bool hasAvailabilityTransport(const HardwareAnalysis &analysis) {
     auto sampled =
         operation->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
     found |= isa<ValueRequireOp>(operation) ||
+             operation->hasAttr("ac.external_contract") ||
              operation->hasAttr("ac.input_validity") ||
              operation->hasAttr("ac.output_validity") ||
              operation->hasAttr("ac.routed_output_validity") ||
+             operation->hasAttr("ac.transaction_returns") ||
              (sampled && sampled.get("requirements"));
   });
   return found;
 }
 } // namespace
 LogicalResult
-verifyHardwareValueAvailability(const HardwareAnalysis &analysis) {
+verifyHardwareValueAvailability(
+    const HardwareAnalysis &analysis,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   // Transport-free packages retain independently checked legacy totality,
   // including literal predicates routed through ordinary instances.
   if (!hasAvailabilityTransport(analysis))
     return success();
-  if (failed(AvailabilityProof(analysis).run()))
+  if (failed(verifyTransactionReturns(analysis, debit)))
+    return failure();
+  if (failed(AvailabilityProof(analysis, debit).run()))
     return failure();
   return success(succeeded(AvailabilityUses(analysis).collect()));
 }
@@ -646,6 +728,8 @@ FailureOr<DenseSet<OpOperand *>>
 getVerifiedValueAvailabilityUses(const HardwareAnalysis &analysis) {
   if (!hasAvailabilityTransport(analysis))
     return DenseSet<OpOperand *>{};
+  if (failed(verifyTransactionReturns(analysis, {})))
+    return failure();
   if (failed(AvailabilityProof(analysis).run()))
     return failure();
   return AvailabilityUses(analysis).collect();

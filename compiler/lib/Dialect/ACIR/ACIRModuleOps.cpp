@@ -185,6 +185,7 @@ LogicalResult verifyModuleSignature(Operation *op) {
   for (Type t : sig.getResults())
     if (!hardware(t))
       return error() << "output must have hardware payload type";
+  if (failed(verifySourceReferenceParameters(op))) return failure();
   return detail::verifyModuleSourceCallContract(op);
 }
 } // namespace detail

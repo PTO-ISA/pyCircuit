@@ -2,6 +2,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceEffects.h"
 #include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
@@ -724,6 +725,11 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
 }
 
 LogicalResult SourceStateOp::verify() {
+  auto package = (*this)->getParentOfType<mlir::ModuleOp>();
+  auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")
+                       : StringAttr();
+  if (stage && stage.getValue() == "final")
+    return emitOpError() << "logical state is forbidden in a final package";
   if ((*this)->hasAttr("sym_name"))
     return emitOpError() << "state uses instance_name; sym_name is unsupported";
   if (failed(namedDeclaration(*this, getInstanceNameAttr())))
@@ -758,7 +764,59 @@ LogicalResult SourceStateOp::verify() {
             constraint, getQ().getType(), analysis, owner, *this,
             "state payload")))
       return failure();
+  if (stage && stage.getValue() == "routed") {
+    StateUpdateOp pairedUpdate;
+    for (Operation *user : getQ().getUsers()) {
+      auto update = dyn_cast<StateUpdateOp>(user);
+      if (!update || update->getBlock() != (*this)->getBlock() ||
+          update->getNumOperands() != 3 || update.getState() != getQ())
+        continue;
+      if (pairedUpdate && pairedUpdate != update)
+        return emitOpError()
+               << "routed logical state requires exactly one same-block update";
+      // Q may also be this update's candidate, so its users can repeat it.
+      pairedUpdate = update;
+    }
+    if (!pairedUpdate)
+      return emitOpError()
+             << "routed logical state requires exactly one same-block update";
+  }
   return staticInitializer(analysis, getInitial(), bindings, *this);
+}
+
+void StateUpdateOp::getEffects(
+    llvm::SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Write::get(), SourceStateResource::get());
+}
+
+LogicalResult StateUpdateOp::verify() {
+  auto owner = dyn_cast_or_null<ModuleOp>((*this)->getParentOp());
+  auto package = owner
+                     ? dyn_cast_or_null<mlir::ModuleOp>(owner->getParentOp())
+                     : mlir::ModuleOp();
+  auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")
+                       : StringAttr();
+  auto contract = package
+                      ? package->getAttrOfType<IntegerAttr>("ac.routed_contract")
+                      : IntegerAttr();
+  if (!owner || !package || !stage || stage.getValue() != "routed" ||
+      package->hasAttr("ac.unit_kind") || !contract ||
+      !contract.getType().isSignlessInteger(64) || contract.getValue() != 2)
+    return emitOpError()
+           << "requires direct module graph placement in a routed contract-2 "
+              "package";
+  if (!(*this)->getAttrs().empty())
+    return emitOpError() << "state update does not accept attributes";
+  auto state = getState().getDefiningOp<SourceStateOp>();
+  if (!state || state->getBlock() != (*this)->getBlock())
+    return emitOpError()
+           << "state must be the direct result of a same-module ac.state";
+  if (!areEquivalentHardwareTypes(getState().getType(),
+                                  getCandidate().getType()))
+    return emitOpError() << "candidate must exactly match the state payload type";
+  HardwareAnalysis analysis(package);
+  return predicate(analysis, getIntent(), scope(*this), *this,
+                   "state update intent");
 }
 
 LogicalResult SourceStateReadOp::verify() {
@@ -910,6 +968,25 @@ LogicalResult SourceMethodOp::verify() {
       return emitOpError()
              << "source Method visibility must be absent or private";
   }
+  if (Attribute raw = (*this)->getAttr("ac.callable_after")) {
+    auto after = dyn_cast<ArrayAttr>(raw);
+    if (!after || after.empty())
+      return emitOpError() << "ac.callable_after requires a nonempty declaration array";
+    llvm::DenseSet<Attribute> seen;
+    auto module = (*this)->getParentOfType<ModuleOp>();
+    for (Attribute predecessor : after) {
+      auto occurrence = dyn_cast<DictionaryAttr>(predecessor);
+      if (!occurrence ||
+          failed(detail::verifyOccurrence(occurrence, [&] { return emitOpError(); })) ||
+          occurrence == getOccurrence() || !seen.insert(occurrence).second)
+        return emitOpError() << "ac.callable_after requires distinct other local callable declarations";
+      bool found = false;
+      for (auto method : module.getBody().front().getOps<SourceMethodOp>())
+        found |= method.getOccurrence() == occurrence;
+      if (!found)
+        return emitOpError() << "ac.callable_after target must identify a local callable declaration";
+    }
+  }
   auto signature = getFunctionType();
   if (getArgumentNames().size() != signature.getNumInputs())
     return emitOpError() << "argument name count must match method signature";
@@ -988,6 +1065,12 @@ LogicalResult SourceMethodOp::verifyRegions() {
 LogicalResult SourceMethodCallOp::verify() {
   if (failed(transactionPlacement(*this, false, true)))
     return failure();
+  if (Attribute raw = (*this)->getAttr("ac.reference")) {
+    auto reference = dyn_cast<StringAttr>(raw);
+    if (!reference || failed(detail::verifyPythonAstIdentifier(reference.getValue(), true,
+                                      [&] { return emitOpError(); })))
+      return emitOpError() << "ac.reference requires a Module reference formal name";
+  }
   auto callee = getCalleeAttr();
   bool nativeQueue =
       callee.getRootReference().getValue() ==
@@ -1140,14 +1223,17 @@ Operation *detail::findUnloweredTransaction(Operation *root) {
     pending.push_back(root);
   while (!pending.empty()) {
     Operation *operation = pending.pop_back_val();
-    if (isa<SourceStateOp, SourceStateReadOp, SourceStateWriteOp, SourceFormalWriteOp,
-            SourceMethodOp, SourceMethodCallOp, SourceTransactionOp,
+    if (isa<SourceStateOp, StateUpdateOp, SourceStateReadOp, SourceStateWriteOp,
+            SourceFormalWriteOp, SourceMethodOp, SourceMethodCallOp, SourceTransactionOp,
             SourceBranchOp, SourceQueuePopOp, SourceQueuePeekOp,
             SourceQueuePushOp>(operation) ||
         (isa<InstanceOp>(operation) &&
          (operation->hasAttr("ac.source_unbound_push") ||
           operation->hasAttr("ac.source_unbound_pop") ||
-          operation->hasAttr("ac.payload_constraint"))))
+          operation->hasAttr("ac.payload_constraint") ||
+          operation->hasAttr("ac.reference_bindings"))) ||
+        (isa<ModuleOp, ModuleImportOp>(operation) &&
+         operation->hasAttr("ac.reference_parameters")))
       return operation;
     for (Region &region : llvm::reverse(operation->getRegions()))
       for (Block &block : llvm::reverse(region))

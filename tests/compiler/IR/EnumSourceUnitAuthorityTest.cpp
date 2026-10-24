@@ -192,7 +192,7 @@ TEST_F(EnumSourceUnitAuthorityTest, ActualProviderWinsEquivalentSnapshotsInEithe
     compiler::SourceLinkUnit p{*provider->body, *provider->interface},
         c{*consumer->body, *consumer->interface};
     if (providerFirst) units = {p, c}; else units = {c, p};
-    auto linked = compiler::linkHardwareUnits(units, "authority.consumer.Parent", error());
+    auto linked = compiler::linkSourceUnits(units, "authority.consumer.Parent", error());
     ASSERT_TRUE(succeeded(linked));
     auto selected = record(**linked), actual = record(*provider->body);
     EXPECT_EQ(selected->getAttr("ac.declaration_role"), b.getStringAttr("definition"));

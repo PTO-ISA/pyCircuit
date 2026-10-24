@@ -123,8 +123,8 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     EXPECT_TRUE(succeeded(unit)) << diagnostics;
     if (failed(unit)) return {};
     compiler::SourceLinkStages stages;
-    auto final = compiler::linkHardwareUnits({{*unit->body, *unit->interface}},
-                                             "formal.Top", error(), &stages);
+    auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
+                                             "formal.Top", error(), compiler::SourceLinkTarget::Hardware, &stages);
     EXPECT_TRUE(succeeded(final)) << diagnostics;
     if (failed(final)) return {};
     return parseSourceString<ModuleOp>(stages.beforeTransactions, &context);

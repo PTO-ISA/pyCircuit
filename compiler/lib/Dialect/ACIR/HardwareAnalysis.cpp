@@ -1,5 +1,7 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "HardwareSourceCheckPreflight.h"
 #include "SourceValueSemantics.h"
+#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -646,6 +648,11 @@ HardwareAnalysis::verifyInstance(InstanceOp instance,
                                  const HardwareBindings &parent) const {
   if (failed(verifyOccurrence(instance, parent)))
     return failure();
+  auto target = lookupDefinition(instance.getCallee());
+  if (failed(verifySourceReferenceBindings(instance->getParentOp(), target,
+          instance->getAttr("ac.reference_bindings"),
+          [&](FlatSymbolRefAttr symbol) { return lookupDefinition(symbol.getValue()); }, instance)))
+    return failure();
   if (isQueueInstance(instance))
     return verifyQueueOperation(instance, parent);
   if (instance->hasAttr("ac.source_memory")) {
@@ -723,6 +730,14 @@ LogicalResult verifyHardwarePackage(mlir::ModuleOp package) {
   if (!package)
     return failure();
   return HardwareAnalysis(package).verify();
+}
+LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
+                                  HardwareSourceCheckLimits limits) {
+  if (!package)
+    return failure();
+  HardwareAnalysis analysis(package);
+  return success(succeeded(detail::buildSourceCheckPlan(
+      analysis, limits, detail::PackageVerificationProfile::Routed)));
 }
 } // namespace acir::ac
 namespace acir::ac {

@@ -574,36 +574,46 @@ public:
       : package(package), hardware(package), budget(budget),
         inventory(inventory), receiverProof(receiverProof), subelements(budget, package.getContext()) {}
 
-  FailureOr<TransactionStatePlan> run(SourceTransactionOp transaction) {
+  FailureOr<TransactionStatePlan> run(SourceTransactionOp transaction,
+      ModuleOp routingModule = {}, ArrayRef<InstanceOp> registrationPath = {}) {
     plan.transaction = transaction;
     plan.lexicalModule = transaction->getParentOfType<ModuleOp>();
+    plan.routingModule = routingModule ? routingModule : plan.lexicalModule;
+    SmallVector<Attribute> registrationOccurrences;
+    for (auto allocation : registrationPath)
+      registrationOccurrences.push_back(allocation.getOccurrence());
+    plan.registrationPath = ArrayAttr::get(package.getContext(), registrationOccurrences);
     auto registration = getSourceRegistrationEntry(transaction);
     if (failed(registration)) return failure();
     HardwareBindings rootBindings;
-    rootBindings.owner = plan.lexicalModule;
+    rootBindings.owner = plan.routingModule;
     if (!budget.chargeBindings(transaction, rootBindings) ||
         !budget.chargeStorage<TransactionLexicalInstance>(transaction, 1) ||
         !budget.reserve(transaction, plan.instances, 1) ||
         !budget.chargeStorage<InvocationFrame>(transaction, 1) ||
         !budget.reserve(transaction, plan.frames, 1))
       return failure();
-    plan.instances.push_back({plan.lexicalModule,
+    plan.instances.push_back({plan.routingModule,
                               std::nullopt,
                               {},
                               ArrayAttr::get(package.getContext(), {}),
                               rootBindings});
+    auto lexicalAnchor = descend(0, plan.registrationPath, transaction);
+    if (failed(lexicalAnchor) || plan.instances[*lexicalAnchor].definition != plan.lexicalModule)
+      return failure();
+    plan.lexicalAnchor = *lexicalAnchor;
     InvocationFrame root;
     root.transaction = transaction;
-    root.anchor = 0;
-    root.bindings = rootBindings;
+    root.anchor = *lexicalAnchor;
+    root.bindings = plan.instances[*lexicalAnchor].bindings;
     if (*registration) {
       root.method = (**registration).method;
       root.registrationEntry = (**registration).call;
     }
     plan.frames.push_back(std::move(root));
     plan.rootFrame = 0;
-    auto clock = useValue(transaction.getClk(), 0, 0, transaction);
-    auto reset = useValue(transaction.getRst(), 0, 0, transaction);
+    auto clock = useValue(transaction.getClk(), plan.lexicalAnchor, 0, transaction);
+    auto reset = useValue(transaction.getRst(), plan.lexicalAnchor, 0, transaction);
     if (failed(clock) || failed(reset))
       return failure();
     auto domain = getDomain(*clock, *reset, transaction);
@@ -619,7 +629,7 @@ public:
                         transaction.getCaptures().size()))
       return failure();
     for (Value capture : transaction.getCaptures()) {
-      auto bound = useValue(capture, 0, 0, transaction);
+      auto bound = useValue(capture, plan.lexicalAnchor, 0, transaction);
       if (failed(bound))
         return failure();
       captures.push_back(*bound);
@@ -642,11 +652,11 @@ public:
           !budget.reserve(transaction, plan.frames[0].formalOwners, explicitInputs.size())) return failure();
       plan.frames[0].formalOwners.resize(explicitInputs.size());
       for (Value capture : method.getCaptures()) {
-        auto bound = useValue(capture, 0, plan.rootFrame, transaction);
+        auto bound = useValue(capture, plan.lexicalAnchor, plan.rootFrame, transaction);
         if (failed(bound)) return failure();
         captures.push_back(*bound);
       }
-      if (failed(receiverDomain(0, transaction))) return failure();
+      if (failed(receiverDomain(plan.lexicalAnchor, transaction))) return failure();
     }
     if (failed(bindArguments(0, entry, explicitInputs, captures)) ||
         failed(event(TransactionStateEventKind::TransactionEnter, 0)))
@@ -657,7 +667,7 @@ public:
     if ((!*registration && body->yielded.size() != transaction.getNumResults()) ||
         body->yielded.size() < transaction.getNumResults())
       return transaction.emitOpError() << "registration public result prefix differs";
-    if (failed(bindResults(transaction->getResults(), 0, 0,
+    if (failed(bindResults(transaction->getResults(), plan.lexicalAnchor, 0,
                            ArrayRef<BoundValueId>(body->yielded).take_front(transaction.getNumResults()),
                            plan.results)) ||
         failed(event(TransactionStateEventKind::TransactionExit, 0)) ||
@@ -1397,25 +1407,21 @@ private:
     return event(TransactionStateEventKind::Observe, frame, id);
   }
 
-  FailureOr<LexicalInstanceId> receiver(InvocationFrameId frame,
-                                        const ResolvedSourceMethod &resolved,
-                                        SourceMethodCallOp call) {
-    LexicalInstanceId anchor = plan.frames[frame].anchor;
-    auto suffix = resolved.receiver.getAs<ArrayAttr>("instance_path");
-    if (!budget.charge(call, suffix.size()))
-      return failure();
+  FailureOr<LexicalInstanceId> descend(LexicalInstanceId anchor,
+      ArrayAttr suffix, Operation *site) {
+    if (!suffix || !budget.charge(site, suffix.size())) return failure();
     for (Attribute occurrence : suffix) {
       auto definition = plan.instances[anchor].definition;
       InstanceOp allocation;
       for (Operation &op : definition.getBody().front()) {
-        if (!budget.charge(call))
+        if (!budget.charge(site))
           return failure();
         auto instance = dyn_cast<InstanceOp>(op);
         if (instance && instance.getOccurrence() == occurrence)
           allocation = instance;
       }
       if (!allocation)
-        return call.emitOpError() << "transaction receiver requires an actual "
+        return site->emitOpError() << "transaction receiver requires an actual "
                                      "static Instance body";
       auto key = OwnerKey{anchor, allocation};
       auto found = instances.find(key);
@@ -1426,7 +1432,7 @@ private:
       Operation *target = hardware.lookupDefinition(allocation.getCallee());
       auto body = dyn_cast_or_null<ModuleOp>(target);
       if (!body)
-        return call.emitOpError()
+        return site->emitOpError()
                << "transaction receiver requires an executable provider body";
       auto bound =
           hardware.bindInstance(allocation, plan.instances[anchor].bindings);
@@ -1434,14 +1440,14 @@ private:
         return failure();
       auto parentPath = plan.instances[anchor].occurrencePath;
       if (parentPath.size() >= maxDepth)
-        return boundedError(call)
+        return boundedError(site)
                << "transaction lexical instance depth budget exceeded";
-      if (!budget.charge(call, parentPath.size() + 3) ||
-          !budget.chargeBindings(call, *bound) ||
-          !budget.chargeOccurrence(call, allocation.getOccurrence()) ||
-          !budget.chargeStorage<TransactionLexicalInstance>(call, 1) ||
-          !budget.reserve(call, plan.instances, 1) ||
-          !budget.reserveMapInsert(call, instances))
+      if (!budget.charge(site, parentPath.size() + 3) ||
+          !budget.chargeBindings(site, *bound) ||
+          !budget.chargeOccurrence(site, allocation.getOccurrence()) ||
+          !budget.chargeStorage<TransactionLexicalInstance>(site, 1) ||
+          !budget.reserve(site, plan.instances, 1) ||
+          !budget.reserveMapInsert(site, instances))
         return failure();
       SmallVector<Attribute> path(parentPath.begin(), parentPath.end());
       path.push_back(occurrence);
@@ -1452,6 +1458,40 @@ private:
       instances.try_emplace(key, child);
       anchor = child;
     }
+    return anchor;
+  }
+
+  FailureOr<LexicalInstanceId> actualReceiver(LexicalInstanceId anchor,
+      DictionaryAttr receiver, Operation *site, unsigned depth = 0) {
+    if (depth > maxDepth || !budget.charge(site)) return failure();
+    if (auto formal = receiver.getAs<StringAttr>("reference")) {
+      const auto &instance = plan.instances[anchor];
+      if (!instance.parent || !instance.allocation)
+        return site->emitOpError() << "static instance reference has no enclosing allocation binding";
+      auto bindings = instance.allocation->getAttrOfType<ArrayAttr>("ac.reference_bindings");
+      DictionaryAttr actual;
+      if (bindings)
+        for (Attribute raw : bindings) {
+          if (!budget.charge(site)) return failure();
+          auto binding = dyn_cast<DictionaryAttr>(raw);
+          if (binding && binding.getAs<StringAttr>("name") == formal)
+            actual = binding.getAs<DictionaryAttr>("receiver");
+        }
+      if (!actual)
+        return site->emitOpError() << "static instance reference binding is absent";
+      auto target = actualReceiver(*instance.parent, actual, site, depth + 1);
+      if (failed(target)) return failure();
+      anchor = *target;
+    }
+    return descend(anchor, receiver.getAs<ArrayAttr>("instance_path"), site);
+  }
+
+  FailureOr<LexicalInstanceId> receiver(InvocationFrameId frame,
+                                        const ResolvedSourceMethod &resolved,
+                                        SourceMethodCallOp call) {
+    auto target = actualReceiver(plan.frames[frame].anchor, resolved.receiver, call);
+    if (failed(target)) return failure();
+    auto anchor = *target;
     if (plan.instances[anchor].definition != resolved.method.module)
       return call.emitOpError()
              << "transaction receiver body identity mismatch";
@@ -1587,7 +1627,7 @@ private:
         {NamedAttribute(StringAttr::get(package.getContext(), "instance_path"),
                         plan.instances[*anchor].occurrencePath)});
     next.anchor = *anchor;
-    next.bindings = resolved->bindings;
+    next.bindings = plan.instances[*anchor].bindings;
     next.entry = point();
     plan.frames.push_back(std::move(next));
     TransactionCallBinding binding;
@@ -2843,6 +2883,10 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
       << plan.domain.clock.anchor << " reset-anchor=i"
       << plan.domain.reset.anchor << " clock=v" << plan.clockValue << " reset=v"
       << plan.resetValue << '\n';
+  if (!plan.registrationPath.empty())
+    out << "  routing @" << plan.routingModule->getAttrOfType<StringAttr>("sym_name").getValue()
+        << " lexical-instance=i" << plan.lexicalAnchor
+        << " registration-path=" << plan.registrationPath << '\n';
   for (auto [id, instance] : llvm::enumerate(plan.instances)) {
     auto definition = instance.definition;
     out << "  instance i" << id << " @" << definition.getSymName();
@@ -3135,86 +3179,479 @@ SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
   SourceMethodSummariesAnalysis summaries(package);
   if (!summaries.isValid())
     return;
-  llvm::DenseMap<Operation *, TransactionStatePlan> completed;
-  SmallVector<Operation *> order;
+  SmallVector<TransactionStatePlan, 0> completed;
   SourceReceiverProofContext receiverProof;
-  for (SourceTransactionOp transaction : inventory.transactions) {
-    budget.setPhase("transaction plans");
-    if (!budget.charge(transaction, 2))
-      return;
-    TransactionPlanBuilder builder(package, budget, inventory, receiverProof);
-    auto plan = builder.run(transaction);
-    if (failed(plan))
-      return;
-    completed.try_emplace(transaction, std::move(*plan));
-    order.push_back(transaction);
+  HardwareAnalysis hardware(package);
+  llvm::DenseSet<Operation *> allocated, referenceDefinitions, orderingDefinitions;
+  for (auto module : package.getOps<ModuleOp>()) {
+    if (auto refs = module->getAttrOfType<ArrayAttr>("ac.reference_parameters");
+        refs && !refs.empty()) referenceDefinitions.insert(module);
+    for (auto method : module.getBody().front().getOps<SourceMethodOp>())
+      if (auto after = method->getAttrOfType<ArrayAttr>("ac.callable_after");
+          after && !after.empty()) orderingDefinitions.insert(module);
+    for (auto transaction : module.getBody().front().getOps<SourceTransactionOp>())
+      if (auto after = transaction->getAttrOfType<ArrayAttr>("ac.after");
+          after && !after.empty()) orderingDefinitions.insert(module);
+    for (auto allocation : module.getBody().front().getOps<InstanceOp>())
+      if (auto child = dyn_cast_or_null<ModuleOp>(hardware.resolveCallee(allocation)))
+        allocated.insert(child);
   }
-  budget.setPhase("transaction order closure");
-  llvm::DenseMap<Operation *, unsigned> colors;
-  std::function<LogicalResult(SourceTransactionOp, unsigned)> visit =
-      [&](SourceTransactionOp transaction, unsigned depth) -> LogicalResult {
-    if (depth > 128 || !budget.charge(transaction)) return failure();
-    if (colors.lookup(transaction) == 1)
-      return transaction.emitOpError() << "transaction after dependency graph is cyclic";
-    if (colors.lookup(transaction) == 2) return success();
-    colors[transaction] = 1;
-    auto &plan = completed.find(transaction)->second;
-    if (auto after = transaction->getAttrOfType<ArrayAttr>("ac.after")) {
-      llvm::DenseSet<Operation *> seen;
+  // Declaration order alone does not require allocation expansion when every
+  // invocation is lexical. In that case each allocation executes the same
+  // independently ordered local registrations; no call can connect two
+  // allocations. Prove this from the complete preflight operation inventory,
+  // rather than expanding at a root and rebuilding identical plans at their
+  // lexical owner. References and every nonlocal call retain occurrence-aware
+  // expansion, including calls in otherwise uncalled declarations/branches.
+  if (referenceDefinitions.empty() && !orderingDefinitions.empty()) {
+    bool lexicalCallsOnly = true;
+    budget.setPhase("lexical call inventory");
+    for (const auto &entry : inventory.operationCosts) {
+      if (!budget.charge(entry.first)) return;
+      auto call = dyn_cast<SourceMethodCallOp>(entry.first);
+      if (!call) continue;
+      auto owner = call->getParentOfType<ModuleOp>();
+      lexicalCallsOnly &= owner && !call->hasAttr("ac.reference") &&
+          call.getInstancePath().empty() &&
+          call.getCalleeAttr().getRootReference() ==
+              SymbolTable::getSymbolName(owner);
+    }
+    if (lexicalCallsOnly) orderingDefinitions.clear();
+  }
+  SmallVector<ModuleOp, 0> roots;
+  for (auto module : package.getOps<ModuleOp>())
+    if (!allocated.contains(module) && !referenceDefinitions.contains(module))
+      roots.push_back(module);
+  // Close selection over shared definitions: a registration is either kept
+  // local in every occurrence, or routed from every actual enclosing root.
+  // This avoids mixing a lifted transaction with a second local execution in
+  // a shared definition and never clones a state allocation.
+  llvm::DenseSet<Operation *> liftedDefinitions;
+  llvm::DenseMap<Operation *, SmallVector<ModuleOp, 0>> closures;
+  for (auto root : roots) {
+    llvm::DenseSet<Operation *> seen;
+    std::function<LogicalResult(ModuleOp, unsigned)> collect =
+        [&](ModuleOp module, unsigned depth) -> LogicalResult {
+      if (depth > maxDepth || !budget.charge(module)) return failure();
+      if (!seen.insert(module).second) return success();
+      if (!budget.reserve(root, closures[root], 1)) return failure();
+      closures[root].push_back(module);
+      for (auto allocation : module.getBody().front().getOps<InstanceOp>())
+        if (auto child = dyn_cast_or_null<ModuleOp>(hardware.resolveCallee(allocation)))
+          if (failed(collect(child, depth + 1))) return failure();
+      return success();
+    };
+    if (failed(collect(root, 0))) return;
+  }
+  llvm::DenseSet<Operation *> liftedRoots;
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (auto root : roots) {
+      bool affected = false;
+      for (auto module : closures[root]) {
+        if (!budget.charge(root)) return;
+        affected |= referenceDefinitions.contains(module) || orderingDefinitions.contains(module) ||
+                    liftedDefinitions.contains(module);
+      }
+      if (!affected || !liftedRoots.insert(root).second) continue;
+      changed = true;
+      for (auto module : closures[root]) liftedDefinitions.insert(module);
+    }
+  }
+  auto build = [&](SourceTransactionOp transaction, ModuleOp root,
+                   ArrayRef<InstanceOp> path) -> LogicalResult {
+    budget.setPhase("transaction plans");
+    if (!budget.charge(transaction, 2) ||
+        !budget.chargeStorage<TransactionStatePlan>(transaction, 1) ||
+        !budget.reserve(transaction, completed, 1)) return failure();
+    TransactionPlanBuilder builder(package, budget, inventory, receiverProof);
+    auto plan = builder.run(transaction, root, path);
+    if (failed(plan)) return failure();
+    plan->ordinal = completed.size();
+    completed.push_back(std::move(*plan));
+    return success();
+  };
+  for (SourceTransactionOp transaction : inventory.transactions)
+    if (!liftedDefinitions.contains(transaction->getParentOfType<ModuleOp>()))
+      if (failed(build(transaction, {}, {}))) return;
+  for (auto root : roots) {
+    if (!liftedRoots.contains(root)) continue;
+    SmallVector<InstanceOp, 0> path;
+    std::function<LogicalResult(ModuleOp, unsigned)> expand =
+        [&](ModuleOp module, unsigned depth) -> LogicalResult {
+      if (depth > maxDepth || !budget.charge(module)) return failure();
+      for (auto transaction : module.getBody().front().getOps<SourceTransactionOp>())
+        if (failed(build(transaction, root, path))) return failure();
+      for (auto allocation : module.getBody().front().getOps<InstanceOp>()) {
+        auto child = dyn_cast_or_null<ModuleOp>(hardware.resolveCallee(allocation));
+        if (!child) continue;
+        if (!budget.reserve(root, path, 1)) return failure();
+        path.push_back(allocation);
+        if (failed(expand(child, depth + 1))) return failure();
+        path.pop_back();
+      }
+      return success();
+    };
+    if (failed(expand(root, 0))) return;
+  }
+  // Declaration order is closed before looking at calls. An uncalled method
+  // may carry a required intermediate edge (a -> b -> c).
+  budget.setPhase("callable declaration order closure");
+  llvm::DenseMap<Operation *, SmallVector<SourceMethodOp, 0>> callableAncestors;
+  llvm::DenseMap<Operation *, unsigned> callableColors;
+  SmallVector<SourceMethodOp, 0> callableStack;
+  std::function<LogicalResult(SourceMethodOp, unsigned)> visitCallable =
+      [&](SourceMethodOp method, unsigned depth) -> LogicalResult {
+    if (depth > maxDepth || !budget.charge(method)) return failure();
+    if (callableColors.lookup(method) == 1) {
+      auto diagnostic = method.emitOpError() << "callable after dependency graph is cyclic";
+      for (auto participant : callableStack) {
+        if (!budget.charge(method)) return failure();
+        diagnostic.attachNote(participant.getLoc())
+            << "callable declaration @" << participant.getSymName()
+            << " occurrence=" << participant.getOccurrence();
+      }
+      return failure();
+    }
+    if (callableColors.lookup(method) == 2) return success();
+    callableColors[method] = 1;
+    if (!budget.reserve(method, callableStack, 1)) return failure();
+    callableStack.push_back(method);
+    llvm::DenseSet<Operation *> seen;
+    if (auto after = method->getAttrOfType<ArrayAttr>("ac.callable_after"))
       for (Attribute identity : after) {
-        SourceTransactionOp predecessor;
-        for (auto candidate : plan.lexicalModule.getBody().front().getOps<SourceTransactionOp>()) {
-          if (!budget.charge(transaction)) return failure();
-          if (detail::compareClosedSourceStructure(candidate.getOccurrence(), identity) == 0)
-            predecessor = candidate;
+        SourceMethodOp predecessor;
+        unsigned matches = 0;
+        for (auto possible : method->getParentOfType<ModuleOp>().getBody().front().getOps<SourceMethodOp>()) {
+          if (!budget.charge(method)) return failure();
+          if (detail::compareClosedSourceStructure(possible.getOccurrence(), identity) == 0) {
+            predecessor = possible;
+            ++matches;
+          }
         }
-        if (!predecessor || predecessor == transaction)
-          return transaction.emitOpError() << "after target requires another local registration";
-        if (failed(visit(predecessor, depth + 1))) return failure();
-        const auto &prior = completed.find(predecessor)->second;
-        if (!(prior.domain == plan.domain))
-          return transaction.emitOpError() << "after predecessor belongs to another clock/reset domain";
-        auto append = [&](SourceTransactionOp ancestor) {
+        if (matches != 1 || predecessor == method)
+          return method.emitOpError() << "callable after target requires another local declaration";
+        if (failed(visitCallable(predecessor, depth + 1))) return failure();
+        auto append = [&](SourceMethodOp ancestor) {
           if (!seen.insert(ancestor).second) return true;
-          if (!budget.reserve(transaction, plan.predecessors, 1)) return false;
-          plan.predecessors.push_back(ancestor);
+          auto &ancestors = callableAncestors[method];
+          if (!budget.chargeStorage<SourceMethodOp>(method, 1) ||
+              !budget.reserve(method, ancestors, 1)) return false;
+          ancestors.push_back(ancestor);
           return true;
         };
-        for (auto ancestor : prior.predecessors)
+        for (auto ancestor : callableAncestors[predecessor])
           if (!append(ancestor)) return failure();
         if (!append(predecessor)) return failure();
       }
-    }
-    colors[transaction] = 2;
+    callableStack.pop_back();
+    callableColors[method] = 2;
     return success();
   };
-  for (Operation *transaction : order)
-    if (failed(visit(cast<SourceTransactionOp>(transaction), 0))) return;
+  for (auto module : package.getOps<ModuleOp>())
+    for (auto method : module.getBody().front().getOps<SourceMethodOp>())
+      if (failed(visitCallable(method, 0))) return;
+
+  // Compute the connected transaction components before choosing the physical
+  // routing ancestor. Shared state, declaration ordering and registrations in
+  // one lexical allocation keep a component together. Repeated occurrences
+  // of one lexical registration also close together: a shared definition must
+  // never execute a retained local copy as well as a routed occurrence.
+  if (!budget.chargeStorage<uint64_t>(package, completed.size()) ||
+      !budget.chargeStorage<SmallVector<Attribute, 0>>(package, completed.size()) ||
+      !budget.chargeStorage<uint8_t>(package, completed.size())) return;
+  SmallVector<uint64_t, 0> component;
+  component.reserve(completed.size());
+  for (uint64_t i = 0; i < completed.size(); ++i) component.push_back(i);
+  bool componentValid = true;
+  auto leader = [&](uint64_t i) {
+    auto original = i;
+    while (component[i] != i) {
+      if (!budget.charge(package)) { componentValid = false; return i; }
+      i = component[i];
+    }
+    while (component[original] != i) {
+      auto next = component[original];
+      component[original] = i;
+      original = next;
+    }
+    return i;
+  };
+  for (uint64_t i = 0; i < completed.size(); ++i)
+    for (uint64_t j = 0; j < i; ++j) {
+      auto &a = completed[i], &b = completed[j];
+      if (!budget.charge(a.transaction)) return;
+      if (a.routingModule != b.routingModule) continue;
+      bool connected = a.transaction == b.transaction ||
+          (a.lexicalModule == b.lexicalModule && a.registrationPath == b.registrationPath);
+      for (const auto &left : a.owners)
+        for (const auto &right : b.owners) {
+          if (!budget.charge(a.transaction)) return;
+          connected |= left.declaration == right.declaration && left.instancePath == right.instancePath;
+        }
+      for (const auto &left : a.frames)
+        for (const auto &right : b.frames) {
+          if (!budget.charge(a.transaction)) return;
+          if (!left.method || !right.method ||
+              a.instances[left.anchor].occurrencePath != b.instances[right.anchor].occurrencePath) continue;
+          connected |= llvm::is_contained(callableAncestors[left.method], right.method) ||
+                       llvm::is_contained(callableAncestors[right.method], left.method);
+        }
+      if (connected) {
+        auto left = leader(i), right = leader(j);
+        if (!componentValid) return;
+        component[std::max(left, right)] = std::min(left, right);
+      }
+    }
+  SmallVector<SmallVector<Attribute, 0>, 0> common(completed.size());
+  SmallVector<bool, 0> initialized(completed.size(), false);
+  auto intersect = [&](uint64_t group, ArrayAttr path) {
+    if (!initialized[group]) {
+      if (!budget.chargeStorage<Attribute>(package, path.size()) ||
+          !budget.reserve(package, common[group], path.size())) {
+        componentValid = false;
+        return;
+      }
+      common[group].assign(path.begin(), path.end());
+      initialized[group] = true;
+      return;
+    }
+    if (!budget.charge(package, 1 + std::min(common[group].size(), path.size()))) { componentValid = false; return; }
+    unsigned size = 0;
+    while (size < common[group].size() && size < path.size() &&
+           common[group][size] == path[size]) ++size;
+    common[group].resize(size);
+  };
+  for (auto [index, plan] : llvm::enumerate(completed)) {
+    uint64_t group = leader(index);
+    intersect(group, plan.registrationPath);
+    for (const auto &frame : plan.frames) intersect(group, plan.instances[frame.anchor].occurrencePath);
+    for (const auto &owner : plan.owners) intersect(group, owner.instancePath);
+    for (const auto &owner : plan.queueOwners) intersect(group, owner.instancePath);
+    for (const auto &owner : plan.memoryOwners) intersect(group, owner.instancePath);
+  }
+  if (!componentValid) return;
+  // If any context needs a lifted registration, every other context of that
+  // same source declaration must also supply its result/control ports. Close
+  // that selection across roots before rebuilding plans, rather than cloning
+  // definitions or copying an existing instance's state.
+  bool closeSelection = true;
+  while (closeSelection) {
+    closeSelection = false;
+    llvm::DenseSet<Operation *> moved;
+    for (auto [index, plan] : llvm::enumerate(completed))
+      if (common[leader(index)].size() < plan.registrationPath.size()) moved.insert(plan.transaction);
+    for (auto [index, plan] : llvm::enumerate(completed)) {
+      if (!budget.charge(plan.transaction)) return;
+      auto group = leader(index);
+      if (moved.contains(plan.transaction) && !plan.registrationPath.empty() &&
+          common[group].size() == plan.registrationPath.size()) {
+        common[group].clear();
+        closeSelection = true;
+      }
+    }
+  }
+  SmallVector<TransactionStatePlan, 0> rebased;
+  for (auto [index, plan] : llvm::enumerate(completed)) {
+    auto group = leader(index);
+    unsigned prefix = common[group].size();
+    auto root = plan.routingModule;
+    if (!componentValid || !budget.chargeStorage<InstanceOp>(plan.transaction, plan.registrationPath.size())) return;
+    SmallVector<InstanceOp, 0> registration;
+    registration.reserve(plan.registrationPath.size());
+    auto anchor = plan.lexicalAnchor;
+    while (plan.instances[anchor].parent) {
+      registration.push_back(plan.instances[anchor].allocation);
+      anchor = *plan.instances[anchor].parent;
+    }
+    std::reverse(registration.begin(), registration.end());
+    for (unsigned depth = 0; depth < prefix; ++depth)
+      root = cast<ModuleOp>(hardware.resolveCallee(registration[depth]));
+    SmallVector<Attribute, 0> suffix;
+    for (auto allocation : ArrayRef<InstanceOp>(registration).drop_front(prefix)) suffix.push_back(allocation.getOccurrence());
+    auto path = ArrayAttr::get(package.getContext(), suffix);
+    bool duplicate = false;
+    for (const auto &prior : rebased) {
+      if (!budget.charge(plan.transaction)) return;
+      duplicate |= prior.routingModule == root && prior.transaction == plan.transaction && prior.registrationPath == path;
+    }
+    if (duplicate) continue;
+    if (prefix) {
+      TransactionPlanBuilder builder(package, budget, inventory, receiverProof);
+      auto fresh = builder.run(plan.transaction, root, ArrayRef<InstanceOp>(registration).drop_front(prefix));
+      if (failed(fresh)) return;
+      plan = std::move(*fresh);
+    }
+    if (!budget.chargeStorage<TransactionStatePlan>(plan.transaction, 1) ||
+        !budget.reserve(plan.transaction, rebased, 1)) return;
+    plan.ordinal = rebased.size();
+    rebased.push_back(std::move(plan));
+  }
+  completed = std::move(rebased);
+  // Calls in every static branch participate. Match the declaration *and* its
+  // allocated receiver; equal method declarations on distinct children never
+  // establish an order. No tie-break is invented for two calls to one method.
+  SmallVector<SmallVector<uint64_t, 0>, 0> direct(completed.size());
+  for (auto [current, plan] : llvm::enumerate(completed)) {
+    auto transaction = plan.transaction;
+    auto add = [&](uint64_t predecessor) -> LogicalResult {
+      auto &entries = direct[current];
+      if (!budget.charge(transaction, entries.size() + 1)) return failure();
+      if (llvm::is_contained(entries, predecessor)) return success();
+      if (!budget.chargeStorage<uint64_t>(transaction, 1) ||
+          !budget.reserve(transaction, entries, 1)) return failure();
+      entries.push_back(predecessor);
+      return success();
+    };
+    if (auto after = transaction->getAttrOfType<ArrayAttr>("ac.after"))
+      for (Attribute identity : after) {
+        std::optional<uint64_t> predecessor;
+        for (auto [index, prior] : llvm::enumerate(completed)) {
+          if (!budget.charge(transaction)) return;
+          if (prior.routingModule != plan.routingModule ||
+              prior.registrationPath != plan.registrationPath ||
+              prior.lexicalModule != plan.lexicalModule) continue;
+          if (detail::compareClosedSourceStructure(prior.transaction.getOccurrence(), identity) == 0) {
+            if (predecessor) { transaction.emitOpError() << "after registration is ambiguous"; return; }
+            predecessor = index;
+          }
+        }
+        if (!predecessor || *predecessor == current) {
+          transaction.emitOpError() << "after target requires another local registration";
+          return;
+        }
+        if (failed(add(*predecessor))) return;
+      }
+    for (auto [laterIndex, later] : llvm::enumerate(plan.frames)) {
+      if (!later.method) continue;
+      const auto &ancestors = callableAncestors[later.method];
+      if (ancestors.empty()) continue;
+      for (auto [possible, prior] : llvm::enumerate(completed)) {
+        if (prior.routingModule != plan.routingModule) continue;
+        for (auto [earlierIndex, earlier] : llvm::enumerate(prior.frames)) {
+          if (!budget.charge(transaction, ancestors.size() + 1)) return;
+          if (!earlier.method ||
+              !llvm::is_contained(ancestors, earlier.method) ||
+              prior.instances[earlier.anchor].occurrencePath !=
+                  plan.instances[later.anchor].occurrencePath) continue;
+          if (possible == current) {
+            if (earlierIndex >= laterIndex) {
+              auto diagnostic = transaction.emitOpError()
+                  << "internal callable invocation reverses declared after order";
+              diagnostic.attachNote(earlier.method.getLoc())
+                  << "required predecessor declaration @" << earlier.method.getSymName()
+                  << " occurrence=" << earlier.method.getOccurrence();
+              diagnostic.attachNote(later.method.getLoc())
+                  << "dependent declaration @" << later.method.getSymName()
+                  << " occurrence=" << later.method.getOccurrence();
+              diagnostic.attachNote(earlier.call ? earlier.call.getLoc() : transaction.getLoc())
+                  << "predecessor invocation occurs later on actual instance path "
+                  << prior.instances[earlier.anchor].occurrencePath;
+              diagnostic.attachNote(later.call ? later.call.getLoc() : transaction.getLoc())
+                  << "dependent invocation occurs earlier on actual instance path "
+                  << plan.instances[later.anchor].occurrencePath;
+              return;
+            }
+          } else if (failed(add(possible))) return;
+        }
+      }
+    }
+  }
+  budget.setPhase("transaction order closure");
+  SmallVector<unsigned, 0> colors(completed.size(), 0);
+  SmallVector<uint64_t, 0> transactionStack;
+  std::function<LogicalResult(uint64_t, unsigned)> visit =
+      [&](uint64_t index, unsigned depth) -> LogicalResult {
+    auto &plan = completed[index];
+    auto transaction = plan.transaction;
+    if (depth > maxDepth || !budget.charge(transaction)) return failure();
+    if (colors[index] == 1) {
+      auto diagnostic = transaction.emitOpError() << "transaction after dependency graph is cyclic";
+      for (auto participant : transactionStack) {
+        const auto &member = completed[participant];
+        if (!budget.charge(transaction)) return failure();
+        diagnostic.attachNote(member.transaction->getLoc())
+            << "outer registration occurrence=" << member.transaction->getAttr("occurrence")
+            << " at actual lexical instance path " << member.registrationPath;
+        for (const auto &frame : member.frames) {
+          if (!budget.charge(transaction)) return failure();
+          if (!frame.method) continue;
+          auto method = frame.method;
+          diagnostic.attachNote(method.getLoc())
+              << "invoked declaration @" << method.getSymName()
+              << " occurrence=" << method.getOccurrence()
+              << " on actual receiver path " << member.instances[frame.anchor].occurrencePath;
+          if (frame.call)
+            diagnostic.attachNote(frame.call->getLoc()) << "invocation participating in this outer transaction";
+        }
+      }
+      return failure();
+    }
+    if (colors[index] == 2) return success();
+    colors[index] = 1;
+    if (!budget.reserve(transaction, transactionStack, 1)) return failure();
+    transactionStack.push_back(index);
+    llvm::DenseSet<uint64_t> seen;
+    for (auto predecessor : direct[index]) {
+      if (failed(visit(predecessor, depth + 1))) return failure();
+      const auto &prior = completed[predecessor];
+      if (!(prior.domain == plan.domain))
+        return transaction.emitOpError() << "after predecessor belongs to another clock/reset domain";
+      auto append = [&](uint64_t ancestor) {
+        if (!seen.insert(ancestor).second) return true;
+        if (!budget.chargeStorage<SourceTransactionOp>(transaction, 1) ||
+            !budget.reserve(transaction, plan.predecessors, 1) ||
+            !budget.reserve(transaction, plan.predecessorIndices, 1)) return false;
+        plan.predecessors.push_back(completed[ancestor].transaction);
+        plan.predecessorIndices.push_back(ancestor);
+        return true;
+      };
+      for (auto ancestor : prior.predecessorIndices)
+        if (!append(ancestor)) return failure();
+      if (!append(predecessor)) return failure();
+    }
+    transactionStack.pop_back();
+    colors[index] = 2;
+    return success();
+  };
+  for (uint64_t index = 0; index < completed.size(); ++index)
+    if (failed(visit(index, 0))) return;
   plans = std::move(completed);
-  transactionOrder = std::move(order);
   analysisWork = budget.usedWork();
   valid = true;
 }
 
 const TransactionStatePlan *
 SourceTransactionStateAnalysis::lookup(SourceTransactionOp transaction) const {
-  if (!valid || !transaction)
-    return nullptr;
-  auto found = plans.find(transaction);
-  return found == plans.end() ? nullptr : &found->second;
+  if (!valid || !transaction) return nullptr;
+  const TransactionStatePlan *found = nullptr;
+  for (const auto &plan : plans) {
+    if (plan.transaction != transaction) continue;
+    if (plan.registrationPath.empty()) return &plan;
+    if (found) return nullptr;
+    found = &plan;
+  }
+  return found;
 }
 
-LogicalResult
-SourceTransactionStateAnalysis::print(llvm::raw_ostream &out) const {
-  if (!valid)
-    return failure();
+const TransactionStatePlan *SourceTransactionStateAnalysis::lookup(
+    SourceTransactionOp transaction, ModuleOp routingModule,
+    ArrayAttr registrationPath) const {
+  if (!valid) return nullptr;
+  for (const auto &plan : plans)
+    if (plan.transaction == transaction && plan.routingModule == routingModule &&
+        plan.registrationPath == registrationPath) return &plan;
+  return nullptr;
+}
+
+LogicalResult SourceTransactionStateAnalysis::print(llvm::raw_ostream &out) const {
+  if (!valid) return failure();
   StateAnalysisBudget budget(analysisWork);
   budget.setPhase("transaction dump reservation");
-  for (Operation *transaction : transactionOrder)
-    if (failed(chargePlanDump(plans.find(transaction)->second, budget)))
-      return failure();
-  for (Operation *transaction : transactionOrder)
-    printPlan(out, plans.find(transaction)->second);
+  for (const auto &plan : plans)
+    if (failed(chargePlanDump(plan, budget))) return failure();
+  for (const auto &plan : plans) printPlan(out, plan);
   return success();
 }
 

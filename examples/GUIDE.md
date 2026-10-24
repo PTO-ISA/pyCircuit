@@ -1,6 +1,6 @@
 # Recommended examples
 
-Start with these 17 current designs. Each teaches a distinct pattern. Superseded
+Start with these 21 current designs. Each teaches a distinct pattern. Superseded
 wrappers and their original oracles are preserved as 54 source directories in
 [the historical fixture archive](../tests/fixtures/historical_examples/README.md),
 outside the current example catalog.
@@ -11,6 +11,10 @@ outside the current example catalog.
 | --- | --- |
 | [hello_counter](hello_counter/README.md) | A small System, persistent state and a nested Rule. |
 | [multi_outputs](multi_outputs/README.md) | Direct Module calls; Struct connections and independent tuple results. |
+| [sibling_calls](sibling_calls/README.md) | Existing Module references and callable order propagated between sibling transactions. |
+| [sibling_atomic](sibling_atomic/README.md) | A late sibling guard holds the whole transaction while the reader continues. |
+| [sibling_aliases](sibling_aliases/README.md) | Aliases and reference passthrough share state; separate allocations stay independent. |
+| [sibling_transitive](sibling_transitive/README.md) | Transitive callable order through an uncalled middle Rule. |
 | [struct_transform](struct_transform/README.md) | Structured payloads, combinational locals and registered state. |
 | [enum_payload_pipeline](enum_payload_pipeline/README.md) | Nominal Enum fields, structured updates and saved value snapshots. |
 | [queue_rule_pipeline](queue_rule_pipeline/README.md) | Typed cross-Module Rule calls, atomic Queue transfer, ordinary `for`, and local `after` ordering. |
@@ -20,9 +24,10 @@ outside the current example catalog.
 Rule definitions may be source-global like ordinary functions, or nested to
 capture Module locals. Definition location and Module ownership are separate.
 Use separate Rules for independent functions. A Rule's statements and nested
-calls form one transaction. Register Rules in their Module; use local `after`
-when independently registered Rules require ordered visibility. Plain source
-order alone does not establish that relationship.
+calls form one transaction. Register Rules in their Module; use `after` on
+callable declarations when their callers require ordered visibility. The order
+propagates through calls to the same actual instance. Plain source order alone
+does not establish that relationship.
 
 Each static Module call creates a distinct child instance. Bind the result once
 and reuse it to fan out existing outputs. Pass fields that travel together as one
@@ -46,7 +51,8 @@ ordinary Module expressions remain combinational values.
 | [fifo_loopback](fifo_loopback/README.md) | An explicit external FIFO protocol boundary. |
 | [multiclock_domain_isolation](multiclock_domain_isolation/README.md) | Compiler conformance reference for independent physical domains; not a frontend wiring template. |
 
-All 17 current designs passed the 34-test examples nightly on 2026-10-18.
+The previous set of 17 designs passed the 34-test examples nightly on 2026-10-18.
+That historical run predates the sibling-calls example.
 DMA, memory banks and Table use readable 42-, 26- and 16-cycle System scenarios;
 their independent Module oracles remain. Earlier long-form benches are preserved
 in the historical fixture archive and were not revalidated by these shorter

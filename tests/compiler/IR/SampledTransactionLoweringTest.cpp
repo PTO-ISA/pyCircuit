@@ -112,6 +112,22 @@ protected:
     return {};
   }
 
+  SourceStateOp logicalState(ModuleOp definition, llvm::StringRef name) {
+    for (auto state : definition.getBody().front().getOps<SourceStateOp>())
+      if (state.getInstanceName() == name)
+        return state;
+    ADD_FAILURE() << "missing logical state " << name.str();
+    return {};
+  }
+
+  StateUpdateOp update(SourceStateOp state) {
+    for (auto update : state->getBlock()->getOps<StateUpdateOp>())
+      if (update.getState() == state.getQ())
+        return update;
+    ADD_FAILURE() << "missing logical state update";
+    return {};
+  }
+
   template <typename Op> Op first(mlir::Region &region) {
     auto operations = region.front().getOps<Op>();
     EXPECT_NE(operations.begin(), operations.end());
@@ -397,12 +413,12 @@ protected:
     return rule;
   }
 
-  void expectStandaloneFinalValid(StagedLowering &staged) {
+  void expectStandaloneRoutedValid(StagedLowering &staged) {
     EXPECT_TRUE(mlir::succeeded(capture([&] {
       return mlir::verify(*staged.candidate.module);
     }))) << diagnostics;
     EXPECT_TRUE(mlir::succeeded(capture([&] {
-      return verifyHardwarePackage(*staged.candidate.module);
+      return verifyRoutedPackage(*staged.candidate.module);
     }))) << diagnostics;
   }
 
@@ -529,6 +545,116 @@ protected:
     return split;
   }
 
+  void addDffPrimitive(mlir::ModuleOp file) {
+    auto dffe = *file.getOps<ModuleImportOp>().begin();
+    auto bit = dffe.getFunctionType().getInput(0);
+    auto name = builder.getStringAttr("dff_storage");
+    auto payload =
+        TypeParamType::get(&context, mlir::FlatSymbolRefAttr::get(name),
+                           builder.getStringAttr("T"));
+    builder.setInsertionPoint(dffe);
+    mlir::OperationState state(dffe.getLoc(),
+                               ModuleImportOp::getOperationName());
+    state.addAttribute("sym_name", name);
+    state.addAttribute(
+        "source_owner",
+        builder.getDictionaryAttr(
+            {builder.getNamedAttr("package", builder.getStringAttr("gfsim")),
+             builder.getNamedAttr("path", builder.getStringAttr("dff.py"))}));
+    state.addAttribute("semantic_kind", builder.getStringAttr("hardware"));
+    state.addAttribute("primitive_kind", builder.getStringAttr("dff"));
+    state.addAttribute("parameters", builder.getArrayAttr({}));
+    state.addAttribute("type_parameters",
+                       builder.getArrayAttr({builder.getStringAttr("T")}));
+    state.addAttribute("function_type",
+                       mlir::TypeAttr::get(builder.getFunctionType(
+                           {bit, bit, payload, payload}, {payload})));
+    state.addAttribute("input_names",
+                       builder.getArrayAttr({builder.getStringAttr("clk"),
+                                             builder.getStringAttr("rst"),
+                                             builder.getStringAttr("d"),
+                                             builder.getStringAttr("init")}));
+    state.addAttribute("output_names",
+                       builder.getArrayAttr({builder.getStringAttr("q")}));
+    state.addAttribute(
+        "dependency_summary",
+        builder.getArrayAttr({getOutputDependencyAttr(builder, 0, {})}));
+    builder.create(state);
+  }
+
+  void addUnwrittenTableState(mlir::ModuleOp file) {
+    auto source = module(file);
+    auto byte = source.getFunctionType().getInput(0);
+    auto bit = source.getFunctionType().getInput(1);
+    auto one =
+        (*source.getBody().front().getOps<BitsConstantOp>().begin()).getValue();
+    auto shape = builder.getArrayAttr({one});
+    auto table = TableType::get(&context, shape, byte);
+    auto holder = addPlainDefinition(file, "TableHolder");
+    auto &body = holder.getBody().front();
+    auto clock = body.addArgument(bit, holder.getLoc());
+    auto reset = body.addArgument(bit, holder.getLoc());
+    holder->setAttr(
+        "function_type",
+        mlir::TypeAttr::get(builder.getFunctionType({bit, bit}, {table})));
+    holder->setAttr("input_names",
+                    builder.getArrayAttr({builder.getStringAttr("pyc_clk"),
+                                          builder.getStringAttr("pyc_rst")}));
+    holder->setAttr("output_names",
+                    builder.getArrayAttr({builder.getStringAttr("held")}));
+    holder->setAttr(
+        "ac.domain_inputs",
+        builder.getDictionaryAttr(
+            {builder.getNamedAttr("clock", builder.getI64IntegerAttr(0)),
+             builder.getNamedAttr("reset", builder.getI64IntegerAttr(1))}));
+    builder.setInsertionPoint(body.getTerminator());
+    auto initialElement =
+        builder.create<BitsConstantOp>(holder.getLoc(), byte, one);
+    mlir::OperationState splat(holder.getLoc(),
+                               TableSplatOp::getOperationName());
+    splat.addOperands(initialElement.getResult());
+    splat.addTypes(table);
+    splat.addAttribute("shape", shape);
+    auto *initial = builder.create(splat);
+    mlir::OperationState state(holder.getLoc(),
+                               SourceStateOp::getOperationName());
+    state.addOperands({clock, reset, initial->getResult(0)});
+    state.addTypes(table);
+    state.addAttribute("instance_name", builder.getStringAttr("held"));
+    state.addAttribute("occurrence", occurrence("TableHolder", 0));
+    auto *logical = builder.create(state);
+    body.getTerminator()->setOperands(logical->getResults());
+  }
+
+  std::unique_ptr<StagedLowering> refinementStage(bool table = false) {
+    return stage([&](mlir::ModuleOp file) {
+      addDffPrimitive(file);
+      if (table)
+        addUnwrittenTableState(file);
+    });
+  }
+
+  mlir::OwningOpRef<mlir::ModuleOp> refine(mlir::ModuleOp routed) {
+    HardwareSourceCheckLimits limits;
+    limits.maxWorkUnits = workLimit;
+    detail::SourceCheckBudget budget(limits);
+    auto final = capture(
+        [&] { return acir::detail::materializeHardwareState(routed, budget); });
+    EXPECT_TRUE(mlir::succeeded(final)) << diagnostics;
+    return mlir::succeeded(final) ? std::move(*final)
+                                  : mlir::OwningOpRef<mlir::ModuleOp>();
+  }
+
+  mlir::LogicalResult verifyRefinement(mlir::ModuleOp routed,
+                                       mlir::ModuleOp final) {
+    HardwareSourceCheckLimits limits;
+    limits.maxWorkUnits = workLimit;
+    detail::SourceCheckBudget budget(limits);
+    return capture([&] {
+      return acir::detail::verifyHardwareStateMaterialization(routed, final,
+                                                              budget);
+    });
+  }
 };
 
 TEST_F(SampledTransactionLoweringTest,
@@ -782,6 +908,7 @@ TEST_F(SampledTransactionLoweringTest,
     if (comparison->getOperand(operand) == oldRaw)
       comparison->setOperand(operand, replacement);
   yield->setOperand(prepared.fireResult + 1, replacement);
+  expectStandaloneRoutedValid(*staged);
   rejects(*staged, "original control raw/path/suffix differs");
 }
 
@@ -830,6 +957,7 @@ TEST_F(SampledTransactionLoweringTest,
     }
   ASSERT_TRUE(replacement);
   yield->setOperand(candidateIndex, replacement);
+  expectStandaloneRoutedValid(*staged);
   rejects(*staged, "original final candidate RHS differs");
 }
 
@@ -955,7 +1083,8 @@ TEST_F(SampledTransactionLoweringTest,
 
 TEST_F(SampledTransactionLoweringTest,
        ConditionalControlAndEffectPathsUseDedicatedSlotsAndExactFire) {
-  auto staged = stage([&](mlir::ModuleOp file) { addConditionalArmEffects(file); });
+  auto staged =
+      stage([&](mlir::ModuleOp file) { addConditionalArmEffects(file); });
   ASSERT_TRUE(staged);
   EXPECT_TRUE(mlir::succeeded(verify(*staged))) << diagnostics;
   expectOriginalUnchanged(*staged);
@@ -971,13 +1100,14 @@ TEST_F(SampledTransactionLoweringTest,
   EXPECT_TRUE(record.rule.getResult(prepared.fireResult).use_empty());
   auto *yield = record.rule.getBody().front().getTerminator();
   auto fire = yield->getOperand(prepared.fireResult);
-  auto metadata = record.rule->getAttrOfType<mlir::DictionaryAttr>(
-      "ac.sampled_admission");
+  auto metadata =
+      record.rule->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
   EXPECT_FALSE(metadata.get("guards"));
   ASSERT_TRUE(metadata.getAs<mlir::ArrayAttr>("controls"));
   EXPECT_EQ(metadata.size(), 6u);
   for (auto [ordinal, control] : llvm::enumerate(record.controls)) {
-    auto id = control.terminal->getAttrOfType<mlir::DictionaryAttr>("ac.check_id");
+    auto id =
+        control.terminal->getAttrOfType<mlir::DictionaryAttr>("ac.check_id");
     ASSERT_TRUE(id);
     EXPECT_EQ(id.getAs<mlir::IntegerAttr>("obligation").getInt(), ordinal);
   }
@@ -993,7 +1123,8 @@ TEST_F(SampledTransactionLoweringTest,
       continue;
     checkedConditional = true;
     auto slot = prepared.checkBase + 2 * (plan.controls.size() + ordinal) + 1;
-    EXPECT_EQ(record.bodyChecks[ordinal].getPath(), record.rule.getResult(slot));
+    EXPECT_EQ(record.bodyChecks[ordinal].getPath(),
+              record.rule.getResult(slot));
     requirePath(yield->getOperand(slot));
     EXPECT_NE(slot, prepared.fireResult);
   }
@@ -1002,7 +1133,8 @@ TEST_F(SampledTransactionLoweringTest,
       continue;
     observedConditional = true;
     auto slot = prepared.observationPathResults[ordinal];
-    EXPECT_EQ(record.observations[ordinal].getPath(), record.rule.getResult(slot));
+    EXPECT_EQ(record.observations[ordinal].getPath(),
+              record.rule.getResult(slot));
     requirePath(yield->getOperand(slot));
     EXPECT_NE(slot, prepared.fireResult);
   }
@@ -1014,7 +1146,8 @@ TEST_F(SampledTransactionLoweringTest,
        ConditionalPlanLocatorsCannotAuthenticateChangedSourceSemantics) {
   for (unsigned mutation = 0; mutation != 15; ++mutation) {
     SCOPED_TRACE(mutation);
-    auto staged = stage([&](mlir::ModuleOp file) { addConditionalArmEffects(file); });
+    auto staged =
+        stage([&](mlir::ModuleOp file) { addConditionalArmEffects(file); });
     ASSERT_TRUE(staged);
     auto index = transactionIndex(*staged, "run");
     auto &plan = const_cast<TransactionStatePlan &>(
@@ -1051,7 +1184,8 @@ TEST_F(SampledTransactionLoweringTest,
     }
     if (mutation == 10) {
       ASSERT_FALSE(conditional->results.empty());
-      conditional->results.front().result = conditional->results.front().yielded;
+      conditional->results.front().result =
+          conditional->results.front().yielded;
     }
     if (mutation == 11) {
       ASSERT_FALSE(conditional->results.empty());
@@ -1090,7 +1224,8 @@ TEST_F(SampledTransactionLoweringTest,
   ASSERT_TRUE(staged);
   auto index = transactionIndex(*staged, "run");
   auto rule = staged->candidate.transactions[index].rule;
-  auto metadata = rule->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
+  auto metadata =
+      rule->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
   mlir::NamedAttrList fields(metadata);
   fields.set("guards", fields.get("controls"));
   fields.erase("controls");
@@ -1128,14 +1263,14 @@ TEST_F(SampledTransactionLoweringTest,
   auto staged =
       stage([&](mlir::ModuleOp file) { source = addAuthoredBranch(file); });
   ASSERT_TRUE(staged);
-  expectStandaloneFinalValid(*staged);
+  expectStandaloneRoutedValid(*staged);
   source.operation->setAttr("ac.condition_location", span(91));
   auto changed = print(staged->original.get().getOperation());
   EXPECT_TRUE(mlir::failed(verify(*staged)));
   EXPECT_NE(diagnostics.find("original branch"), std::string::npos)
       << diagnostics;
   EXPECT_EQ(print(staged->original.get().getOperation()), changed);
-  expectStandaloneFinalValid(*staged);
+  expectStandaloneRoutedValid(*staged);
 }
 
 TEST_F(SampledTransactionLoweringTest,
@@ -1343,12 +1478,33 @@ TEST_F(SampledTransactionLoweringTest,
     if (mutation == 0) {
       addForgedAssert(owner);
     } else if (mutation == 1) {
-      auto original = instance(owner, "hold");
-      auto *forged = original->clone();
-      forged->setAttr("instance_name", builder.getStringAttr("forged_hold"));
-      forged->setAttr("occurrence", occurrence("Owner", 82));
-      owner.getBody().front().getOperations().insert(
-          owner.getBody().front().getTerminator()->getIterator(), forged);
+      auto original = logicalState(owner, "hold");
+      ASSERT_TRUE(original);
+      auto binding = update(original);
+      ASSERT_TRUE(binding);
+      ModuleImportOp dffe;
+      for (auto imported : staged->candidate.module->getOps<ModuleImportOp>())
+        if (imported.getPrimitiveKindAttr() &&
+            imported.getPrimitiveKindAttr().getValue() == "dffe")
+          dffe = imported;
+      ASSERT_TRUE(dffe);
+      builder.setInsertionPoint(owner.getBody().front().getTerminator());
+      mlir::OperationState forged(original.getLoc(),
+                                  InstanceOp::getOperationName());
+      forged.addOperands({original.getClk(), original.getRst(),
+                          binding.getIntent(), original.getQ(),
+                          original.getInitial()});
+      forged.addTypes(original.getQ().getType());
+      forged.addAttribute("instance_name",
+                          builder.getStringAttr("forged_hold"));
+      forged.addAttribute("occurrence", occurrence("Owner", 82));
+      forged.addAttribute("callee",
+                          mlir::FlatSymbolRefAttr::get(dffe.getSymNameAttr()));
+      forged.addAttribute("parameters", builder.getArrayAttr({}));
+      forged.addAttribute("type_arguments",
+                          builder.getArrayAttr({mlir::TypeAttr::get(
+                              original.getQ().getType())}));
+      builder.create(forged);
     } else {
       auto index = transactionIndex(*staged, "run");
       auto rule = staged->candidate.transactions[index].rule;
@@ -1370,7 +1526,7 @@ TEST_F(SampledTransactionLoweringTest,
       forged.addAttribute("opcode", builder.getStringAttr("add"));
       builder.create(forged);
     }
-    expectStandaloneFinalValid(*staged);
+    expectStandaloneRoutedValid(*staged);
     EXPECT_TRUE(mlir::failed(verify(*staged)));
     EXPECT_NE(diagnostics.find("transaction original-source proof failed"),
               std::string::npos)
@@ -1383,20 +1539,22 @@ TEST_F(SampledTransactionLoweringTest,
 }
 
 TEST_F(SampledTransactionLoweringTest,
-       RealTwoOwnerDataSwapFailsSharedPhysicalWiringProof) {
+       RealTwoOwnerDataSwapFailsSharedRoutedWiringProof) {
   auto staged = stage();
   ASSERT_TRUE(staged);
   auto owner = module(*staged->candidate.module);
-  auto count = instance(owner, "count");
-  auto saved = instance(owner, "saved");
-  auto countData = count->getOperand(3);
-  count->setOperand(3, saved->getOperand(3));
-  saved->setOperand(3, countData);
+  auto count = update(logicalState(owner, "count"));
+  auto saved = update(logicalState(owner, "saved"));
+  ASSERT_TRUE(count);
+  ASSERT_TRUE(saved);
+  auto countData = count.getCandidate();
+  count->setOperand(1, saved.getCandidate());
+  saved->setOperand(1, countData);
   EXPECT_TRUE(mlir::succeeded(capture([&] {
     return mlir::verify(*staged->candidate.module);
   }))) << diagnostics;
-  EXPECT_TRUE(mlir::failed(capture(
-      [&] { return verifyHardwarePackage(*staged->candidate.module); })));
+  EXPECT_TRUE(mlir::failed(
+      capture([&] { return verifyRoutedPackage(*staged->candidate.module); })));
   EXPECT_FALSE(diagnostics.empty());
   EXPECT_TRUE(mlir::failed(verify(*staged)));
   EXPECT_FALSE(diagnostics.empty());
@@ -1508,6 +1666,194 @@ TEST_F(SampledTransactionLoweringTest,
   })));
   EXPECT_NE(diagnostics.find("budget"), std::string::npos) << diagnostics;
   expectOriginalUnchanged(*staged);
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       RoutedToFinalRefinementPreservesOriginalAndRemovesOnlyLogicalState) {
+  for (bool table : {false, true}) {
+    SCOPED_TRACE(table);
+    auto staged = refinementStage(table);
+    ASSERT_TRUE(staged);
+    ASSERT_TRUE(mlir::succeeded(verify(*staged))) << diagnostics;
+    const auto routedText = print(staged->candidate.module->getOperation());
+    const auto routedOperations = operations(*staged->candidate.module);
+    auto final = refine(*staged->candidate.module);
+    ASSERT_TRUE(final) << diagnostics;
+    EXPECT_TRUE(
+        mlir::succeeded(verifyRefinement(*staged->candidate.module, *final)))
+        << diagnostics;
+    EXPECT_TRUE(mlir::succeeded(capture([&] {
+      return verifyHardwarePackage(*final);
+    }))) << diagnostics;
+    EXPECT_EQ((*final)->getAttrOfType<mlir::StringAttr>("ac.stage").getValue(),
+              "final");
+    EXPECT_EQ((*final)->getAttr("ac.routed_contract"),
+              (*staged->candidate.module)->getAttr("ac.routed_contract"));
+    unsigned logicalOperations = 0;
+    final->walk([&](mlir::Operation *op) {
+      logicalOperations += mlir::isa<SourceStateOp, StateUpdateOp>(op);
+    });
+    EXPECT_EQ(logicalOperations, 0u);
+    auto hold = instance(module(*final), "hold");
+    ASSERT_TRUE(hold);
+    ASSERT_EQ(hold.getNumOperands(), 5u);
+    EXPECT_EQ(hold->getOperand(3), hold.getResult(0));
+    EXPECT_EQ(print(staged->candidate.module->getOperation()), routedText);
+    EXPECT_EQ(operations(*staged->candidate.module), routedOperations);
+    expectOriginalUnchanged(*staged);
+  }
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       RefinementRejectsCandidateIntentInitialDomainIdentityAndTypeMutations) {
+  for (unsigned mutation = 0; mutation < 7; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto staged = refinementStage();
+    ASSERT_TRUE(staged);
+    auto final = refine(*staged->candidate.module);
+    ASSERT_TRUE(final) << diagnostics;
+    ASSERT_TRUE(
+        mlir::succeeded(verifyRefinement(*staged->candidate.module, *final)))
+        << diagnostics;
+    const auto routedText = print(staged->candidate.module->getOperation());
+    auto owner = module(*final);
+    auto hold = instance(owner, "hold");
+    ASSERT_TRUE(hold);
+    ASSERT_EQ(hold.getNumOperands(), 5u);
+    if (mutation == 0)
+      hold->setOperand(3, owner.getBody().front().getArgument(0));
+    if (mutation == 1)
+      hold->setOperand(2, owner.getBody().front().getArgument(1));
+    if (mutation == 2)
+      hold->setOperand(4, owner.getBody().front().getArgument(0));
+    if (mutation == 3) {
+      auto clock = hold->getOperand(0);
+      hold->setOperand(0, hold->getOperand(1));
+      hold->setOperand(1, clock);
+    }
+    if (mutation == 4)
+      hold->setAttr("occurrence", occurrence("Owner", 90));
+    if (mutation == 5)
+      hold->setAttr("type_arguments",
+                    builder.getArrayAttr({mlir::TypeAttr::get(
+                        owner.getBody().front().getArgument(1).getType())}));
+    if (mutation == 6)
+      hold.getResult(0).setType(
+          owner.getBody().front().getArgument(1).getType());
+    EXPECT_TRUE(
+        mlir::failed(verifyRefinement(*staged->candidate.module, *final)));
+    EXPECT_NE(diagnostics.find("hardware state refinement proof"),
+              std::string::npos)
+        << diagnostics;
+    EXPECT_NE(diagnostics.find(
+                  mutation < 4   ? "domain/initial/candidate/intent differs"
+                  : mutation < 6 ? "kind/identity/type arguments differ"
+                                 : "payload type/location differs"),
+              std::string::npos)
+        << diagnostics;
+    EXPECT_EQ(print(staged->candidate.module->getOperation()), routedText);
+    expectOriginalUnchanged(*staged);
+  }
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       RefinementRejectsUnconditionalDffForAStateThatMustHold) {
+  auto staged = refinementStage();
+  ASSERT_TRUE(staged);
+  auto final = refine(*staged->candidate.module);
+  ASSERT_TRUE(final) << diagnostics;
+  auto hold = instance(module(*final), "hold");
+  ASSERT_TRUE(hold);
+  ASSERT_EQ(hold.getNumOperands(), 5u);
+  hold->setOperands({hold->getOperand(0), hold->getOperand(1),
+                     hold->getOperand(3), hold->getOperand(4)});
+  hold->setAttr("callee",
+                mlir::FlatSymbolRefAttr::get(&context, "dff_storage"));
+  EXPECT_TRUE(
+      mlir::failed(verifyRefinement(*staged->candidate.module, *final)));
+  EXPECT_NE(diagnostics.find(
+                "physical allocation kind/identity/type arguments differ"),
+            std::string::npos)
+      << diagnostics;
+  expectOriginalUnchanged(*staged);
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       RefinementAuthenticatesTableCollectionShapeAndEachControlSplat) {
+  for (unsigned mutation = 0; mutation < 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto staged = refinementStage(true);
+    ASSERT_TRUE(staged);
+    auto final = refine(*staged->candidate.module);
+    ASSERT_TRUE(final) << diagnostics;
+    auto holder = module(*final, "TableHolder");
+    auto collections = holder.getBody().front().getOps<CollectionOp>();
+    ASSERT_NE(collections.begin(), collections.end());
+    auto storage = *collections.begin();
+    ASSERT_EQ(storage.getNumOperands(), 5u);
+    if (mutation == 0) {
+      auto extent =
+          mlir::cast<BitsType>(module(*final).getFunctionType().getInput(0))
+              .getWidth();
+      storage->setAttr("shape", builder.getArrayAttr({extent}));
+    } else {
+      auto splat =
+          storage->getOperand(mutation - 1).getDefiningOp<TableSplatOp>();
+      ASSERT_TRUE(splat);
+      splat->setOperand(0, mutation == 1
+                               ? holder.getBody().front().getArgument(1)
+                               : holder.getBody().front().getArgument(0));
+    }
+    EXPECT_TRUE(
+        mlir::failed(verifyRefinement(*staged->candidate.module, *final)));
+    EXPECT_NE(
+        diagnostics.find(
+            mutation == 0
+                ? "physical allocation kind/identity/type arguments differ"
+                : "Table control splat differs"),
+        std::string::npos)
+        << diagnostics;
+    expectOriginalUnchanged(*staged);
+  }
+}
+
+TEST_F(SampledTransactionLoweringTest,
+       RefinementRejectsExtraOrChangedUnaffectedComputation) {
+  for (bool extra : {false, true}) {
+    SCOPED_TRACE(extra);
+    auto staged = stage([&](mlir::ModuleOp file) {
+      addDffPrimitive(file);
+      auto owner = module(file);
+      auto seed = owner.getBody().front().getArgument(0);
+      builder.setInsertionPoint(owner.getBody().front().getTerminator());
+      mlir::OperationState unused(owner.getLoc(),
+                                  BitsBinaryOp::getOperationName());
+      unused.addOperands({seed, seed});
+      unused.addTypes(seed.getType());
+      unused.addAttribute("opcode", builder.getStringAttr("xor"));
+      builder.create(unused);
+    });
+    ASSERT_TRUE(staged);
+    auto final = refine(*staged->candidate.module);
+    ASSERT_TRUE(final) << diagnostics;
+    ASSERT_TRUE(
+        mlir::succeeded(verifyRefinement(*staged->candidate.module, *final)))
+        << diagnostics;
+    auto owner = module(*final);
+    auto unused = first<BitsBinaryOp>(owner.getBody());
+    ASSERT_TRUE(unused);
+    if (extra)
+      owner.getBody().front().getOperations().insert(unused->getIterator(),
+                                                     unused->clone());
+    else
+      unused->setAttr("opcode", builder.getStringAttr("add"));
+    EXPECT_TRUE(
+        mlir::failed(verifyRefinement(*staged->candidate.module, *final)));
+    EXPECT_NE(diagnostics.find("hardware state refinement proof"),
+              std::string::npos)
+        << diagnostics;
+    expectOriginalUnchanged(*staged);
+  }
 }
 
 } // namespace

@@ -171,7 +171,7 @@ observation and failure semantics.
 | Start with | For |
 | --- | --- |
 | [Repository map](docs/development/repository-layout.md) | Folder responsibilities, source boundaries and the right place for a change. |
-| [Recommended examples](examples/GUIDE.md) | The 17 current teaching and design examples, ordered by purpose. |
+| [Recommended examples](examples/GUIDE.md) | The 21 current teaching and design examples, ordered by purpose. |
 | [Example catalog](examples/README.md) | Generated navigation and exact verification owners for those examples. |
 | [Python language](docs/reference/language.md) | Types, source constructs, composition and rejection boundaries. |
 | [Compiler architecture](docs/architecture/compiler-pipeline.md) | Capture, MLIR analyses, source publication and code generation. |
@@ -192,7 +192,7 @@ in the testing guide. PR CI checks Python, publication, repository hygiene and
 documentation; native, example and release evidence have their own documented
 entrypoints. A green CI badge does not imply full backend or platform coverage.
 
-The active catalog contains 17 current examples. Fifty-four superseded wrappers
+The active catalog contains 21 current examples. Fifty-four superseded wrappers
 and their original oracles remain in the
 [historical fixture archive](tests/fixtures/historical_examples/README.md); an
 archived fixture is not a passing result. Retired frontends, Signal APIs and

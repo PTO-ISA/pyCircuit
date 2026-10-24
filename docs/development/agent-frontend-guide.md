@@ -225,6 +225,17 @@ state. Calls route typed arguments, results and proposals through the existing
 hierarchy, including independently compiled providers. Authors do not add
 forwarding ports, writeback wires or handshake wrappers.
 
+A Module-typed parameter such as `counter: Counter` binds an existing static
+instance. Passing that handle to `Writer(counter)` or through another Module
+preserves the Counter's allocation and state; a nested Rule or Method can
+capture it and call `counter.increment()`. Ordinary typed parameters still
+carry data. Reference parameters are compile-time bindings, with no hardware
+payload representation: they cannot be stored, dynamically selected, rebound,
+or satisfied by an implicit new instance. The selected link root must have all
+references bound by an enclosing Module or System. See
+[sibling calls](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/sibling_calls/README.md) for three independently
+compiled source files.
+
 Ordinary outputs carry compiler-owned availability. A non-firing Rule produces
 an unavailable value, with no implicit zero, default or holding register.
 Availability follows calls, fields, joins and Module boundaries; a reached use of
@@ -234,10 +245,26 @@ protocol `valid`/`ready` signals retain their own interface meaning.
 
 Within one transaction, reads observe sequential candidates and saved SSA values
 keep their earlier snapshots. Independent outer transactions observe committed
-state. Explicit `@ac.rule(after=(earlier,))` ordering can provide predecessor
-candidate visibility in the same cycle; each named predecessor must identify one
-unique local outer registration. A missing or ambiguous registration, a cycle,
-or a conflicting writer is not resolved by source order or implicit priority.
+state unless ordered. Both `@ac.rule(after=(earlier,))` and
+`@ac.method(after=(earlier,))` retain an interface contract between callable
+declarations, including declarations with no autonomous registration. For each
+actual receiver instance, MLIR closes the declaration order transitively and
+propagates it to outer transactions containing those calls. An uncalled middle
+declaration does not break transitivity. All possible conditional calls take
+part in this static conservative analysis. An internal call sequence that
+reverses the declared order rejects, as do order or combinational dependency
+cycles. Calls on two distinct instances do not acquire a relationship merely
+from using the same definition.
+
+The successor's guards and body use the same ordered entry state. A predecessor
+forwards a state's candidate only when its whole transaction fires and that
+state has write intent. This covers the predecessor's other state owners too,
+and continues through intermediate transactions that do not write that state.
+A blocked predecessor does not block the successor or expose partial updates.
+Two outer transactions calling the same method receive no implicit priority;
+unproved write conflicts still reject. Local explicit registration ordering is
+merged into this graph. An explicit native `ac.after` registration edge must
+resolve uniquely; a Python declaration contract applies to all of its callers.
 The [EHR design reference](https://csg.csail.mit.edu/pubs/memos/Memo-479/memo479.pdf)
 explains why forwarding visibility and the final storage choice must agree.
 
@@ -254,9 +281,9 @@ mutually exclusive write paths. An ancestor partial lane is composed with its
 captured old Q by its own domains before it crosses a hierarchy port; selectors
 and masks are not new ports. The receiving definition composes its local
 domains over that complete lane. Each proof layer re-derives the lane and
-footprint independently. Independent cross-hierarchy `after=` ordering remains
-unsupported; ordering between effects on one object is expressed by one parent
-Rule calling child Methods in sequence inside a single outer transaction.
+footprint independently. Callable `after` can order independent outer
+transactions across ordinary hierarchy in one clock/reset domain. Calls within
+one outer Rule remain one atomic transaction and preserve sequential snapshots.
 Mixed ordered/unordered groups on one owner also remain unsupported. Existing
 local ordered and disjoint field/index behavior keeps its documented bounds.
 
@@ -839,8 +866,13 @@ across mutually exclusive arms; put one report after the join.
 Keep selectors, guards, pure helpers, collection callbacks and conditional
 expressions free of Rule/Method calls and effects. Early or branch-local returns,
 cross-domain transactions and ambiguous competing writers remain rejected.
-Complex SCF loop-control and general resource admission remain outside the
-execution claim in this section. See the
+Bounded typed Rule/Method loops support Python-style `else`: natural completion
+(including zero trips) runs it once, `break` suppresses it and `continue` does not.
+Their effects remain in the outer transaction; a late failure commits neither
+body nor else proposals. Keep the existing finite-range/progress and branch
+binding/return restrictions. Pure helper loop-else remains unsupported. See the
+[loop profiles](../reference/language.md#bounded-source-loops) for exact boundaries.
+General SCF and resource admission remain outside this bounded claim. See the
 [conditional-effect contract](../rfcs/serial-rule-method/conditional-effects.md)
 and [branch-state contract](../rfcs/serial-rule-method/branch-state-ssa.md).
 
@@ -887,6 +919,13 @@ the compiler owns clock driving, reset interpretation and atomic publication.
 
 ## Typed DUT and runner
 
+This is advanced host/backend integration. Ordinary authors use the
+[generated closed System flow](../architecture/system-execution.md) and do not
+write Work/Xfer callbacks or clock/reset plumbing. The
+[host I/O and UVM design](../architecture/system-host-integration.md) separates
+these existing C++ mechanisms from proposed Python bindings, memory loading and
+verification adapters.
+
 C++ emission provides source modules and `pycircuit_system.hpp` with `pyc_root`
 and typed `pyc_dut::Inputs/Outputs`, `drive`, `sample`, `system` and `observations`.
 The DUT owns its root and execution pool. CMake's generated `pycircuit_modules`
@@ -914,7 +953,7 @@ not clear its contents; use a fresh DUT for an independent cold run.
 
 ## Examples
 
-The 17 current examples live under `examples/<name>/` and are listed in
+The 21 current examples live under `examples/<name>/` and are listed in
 `examples/catalog.json`. Each directory owns its Python sources and explicit
 module closure. Fifty-four superseded wrappers and their original oracles live
 under `tests/fixtures/historical_examples/`; they are comparison assets, not

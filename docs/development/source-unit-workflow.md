@@ -24,7 +24,8 @@ Python or infers a different hardware meaning.
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check the complete Method call closure and recursion, then prove conservative total admission for reachable guards and effect-branch selections. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
 | Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of whole-Bits candidate data/write-intent pairs, bounded branch joins, scalar and admitted nominal local joins, invocation snapshots, source-path availability and ordered guard/selection controls. Link uses this before lowering packages containing source transaction operations. |
-| Lower transactions | `LowerTransactions` | Materialize same-domain whole-Bits transactions, including bounded statement branches, with sampled metadata and complete D/E wiring records. Authenticate against the original plan, then run canonical final verification before atomic replacement. Ordinary hardware retains existing verification without transaction-analysis limits. |
+| Route transactions | `ac-route-transactions` | Normalize source calls/candidates into typed hierarchy routes, logical state/update pairs and sampled/effect metadata. Authenticate against original source, then independently verify the routed anchor before atomic replacement. |
+| Refine storage | `ac-lower-transactions` | Convert verified logical state to physical storage; independently check SSA/pin correspondence and strict hardware final legality before atomic replacement. Hardware-only graphs retain their normal verification limits. |
 | Simplify and describe | `SimplifyRecordWires`, `ExtractSourceInterface` | Simplify immutable record wiring and derive the public interface from verified hardware. Preserve nominal identity, dependencies and source ownership. |
 | Verify published authority | `SourceHeaderRegistry`, `SourceBodySnapshots` | Check provider declarations, imports and body/interface agreement. An imported declaration does not acquire a caller's defaults or type authority. |
 | Link | `_driver.py`, `SourceLink.cpp` | Consume the complete explicit unit closure, resolve imports to definitions, construct the selected root and verify the final hardware package. |
@@ -106,15 +107,17 @@ its scope without claiming fresh gate or execution results. Native sampled admis
 verifies closed metadata, ordered path-sensitive admission prefixes, real D/E
 and domain routes, private terminal uses, Collection limits,
 and per-occurrence sampling plans. Source bodies/interfaces cannot supply the
-final-only attributes. The common lowerer now materializes these records for
+routed/final-only attributes. The routing pass materializes these records for
 all transactions, including literal true/false, state-free and read-only cases.
 Original-source authentication checks captures, candidate versions, guard and
 selection identities/locations, original branch paths, invocation bindings and
-exact affected-definition inventories before canonical
-final verification checks the retained SSA, wiring and dependency closure.
-Both proofs succeed before atomic replacement; mappings locate candidate
-objects but do not supply semantic authority. The canonical final verifier
-owns its independent budget and runs once at this lowering seam.
+exact affected-definition inventories before standalone routed verification
+checks the retained SSA, wiring and dependency closure. A separate refinement
+proof checks logical-to-physical storage correspondence before strict final
+verification. Each transition verifies a detached candidate before replacement;
+mappings locate objects but do not supply semantic authority. The
+[routed-anchor contract](../architecture/routed-anchor.md) defines these native
+boundaries, stage markers, graph/executable distinction and retained snapshots.
 
 C++ and managed RTL consume the same sampling plan, freeze physical pins and
 ordered checks during Work/PREPARE, and commit pending history only after
@@ -205,6 +208,33 @@ independent lowering proof constructs its own receiver context and SSA identity
 index from the original IR; it never accepts the producer's cached result as
 proof. Contexts do not survive IR mutation or cross analysis/proof invocations.
 
+Static Module reference formals publish their nominal callee and authored
+argument position separately from physical data inputs. Instance bindings retain
+canonical allocation occurrences or a forwarded reference formal; Method
+receivers can name that formal plus a static path suffix. Callable declaration
+`after` edges publish even without autonomous registrations. Summaries using
+any of these semantics require `schema = 2 : i64`; removing the marker or
+altering the body/interface pair rejects. Earlier consumers reject the new
+summary field rather than silently dropping its semantics. Unused reference
+formals still require this transaction interface contract.
+
+A definition with unbound reference formals remains an authenticated source
+template until an ordinary Module actually allocates it. Link validates all
+supplied source contracts, including callable declaration order, then excludes
+only reference templates with no allocation path from any closed ordinary
+Module definition. The input source units and their published interfaces remain
+unchanged. Unused ordinary definitions retain their existing checks. Selecting
+an unbound reference template itself as the link root is rejected.
+
+Link resolves these bindings against actual allocation occurrences. Connected
+transactions route at their common ordinary ancestor without cloning state or
+storing a top-specific absolute path in a shared definition. The registration
+identity includes its lexical allocation path. Public Rule results and their
+whole-transaction availability return through compiler-owned input pairs to
+their original consumers. Both source authentication and independent routed
+verification check those connections. Source references and callable contracts
+cannot remain as inert annotations in routed or final hardware.
+
 Before transaction planning, link removes exact-type identity extracts and
 pools equal literal constants used exclusively by same-block aggregate
 constructors. Source units are authenticated before this normalization and are
@@ -242,7 +272,10 @@ Collections. Candidate D values come from isolated pure Rules. All
 staged hardware checks succeed before the package becomes final.
 
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
-its input IR. Each outer transaction starts from old Q; nested Method calls
+its input IR. Each unordered outer transaction starts from old Q; ordered entry
+state selects earlier candidates using whole-transaction fire and per-state
+write intent. Transitive callable order is resolved per actual instance and
+merged with explicit registration order before routing. Nested Method calls
 share that transaction's candidate versions while keeping ordinary SSA values
 as snapshots. A bounded branch forks the same incoming data/raw-intent pair into
 both arms and joins both components with the original four-state selector.
@@ -338,6 +371,17 @@ pycircuit emit .pycircuit_out/design_top.ac --target cpp \
 pycircuit emit .pycircuit_out/design_top.ac --target verilog \
   -o .pycircuit_out/verilog
 ```
+
+To preserve the routed boundary before physical refinement, use the same explicit
+unit closure with `--target anchor -o ANCHOR_DIR`. The resulting
+[saved anchor](../architecture/saved-anchor.md) contains a versioned graph,
+separate exact definition specs/bodies and retained source interfaces. After the
+original sources and units are removed, `pycircuit link --from-anchor ANCHOR_DIR
+--verify-only` checks it without routing or refinement. `pycircuit link
+--from-anchor ANCHOR_DIR --target final -o FINAL.ac` explicitly refines that
+verified graph. Reload cannot override its root, parameters or reset policy.
+It reuses the existing publisher for outputs and accepts portable artifact-only
+copies through a bounded stable snapshot.
 
 Generated CMake builds source-owned `pycircuit_modules` against the Runtime
 component. Host drivers use the typed `pyc_dut` and shared SystemRunner, supply

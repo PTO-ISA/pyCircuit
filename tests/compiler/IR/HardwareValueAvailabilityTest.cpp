@@ -4,9 +4,11 @@
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
+#include <utility>
 
 namespace {
 namespace ac = acir::ac;
@@ -144,6 +146,50 @@ protected:
     return succeeded(ac::detail::verifyHardwareValueAvailability(
         ac::HardwareAnalysis(*package)));
   }
+  std::pair<Value, Value> dottedFieldFixture() {
+    build(false);
+    b.setInsertionPoint(module);
+    auto nestedType =
+        ac::StructType::get(&context, b.getStringAttr("CollisionNested"));
+    auto rootType =
+        ac::StructType::get(&context, b.getStringAttr("CollisionRoot"));
+    auto field = [&](StringRef name, Type type) {
+      return b.getDictionaryAttr(
+          {f("name", b.getStringAttr(name)), f("type", TypeAttr::get(type))});
+    };
+    op(ac::StructOp::getOperationName(), {}, {},
+       {f("sym_name", b.getStringAttr("CollisionNested")),
+        f("fields", b.getArrayAttr({field("b", bits(8))}))});
+    // The native Struct contract admits these distinct, nonempty names.
+    // A flat field named "a.b" is different from the path ["a", "b"].
+    op(ac::StructOp::getOperationName(), {}, {},
+       {f("sym_name", b.getStringAttr("CollisionRoot")),
+        f("fields",
+          b.getArrayAttr({field("a.b", bits(8)), field("a", nestedType)}))});
+    b.setInsertionPoint(yield);
+    auto nested =
+        op(ac::StructCreateOp::getOperationName(), {payload}, {nestedType})
+            ->getResult(0);
+    auto record = op(ac::StructCreateOp::getOperationName(),
+                     {constant(13, 8), nested}, {rootType})
+                      ->getResult(0);
+    auto flat = op(ac::StructGetOp::getOperationName(), {record}, {bits(8)},
+                   {f("field", b.getStringAttr("a.b"))})
+                    ->getResult(0);
+    auto child = op(ac::StructGetOp::getOperationName(), {record}, {nestedType},
+                    {f("field", b.getStringAttr("a"))})
+                     ->getResult(0);
+    auto deep = op(ac::StructGetOp::getOperationName(), {child}, {bits(8)},
+                   {f("field", b.getStringAttr("b"))})
+                    ->getResult(0);
+    return {flat, deep};
+  }
+  std::string printPackage() {
+    std::string text;
+    llvm::raw_string_ostream out(text);
+    package->print(out);
+    return text;
+  }
 };
 
 TEST_F(HardwareValueAvailabilityTest,
@@ -236,6 +282,64 @@ TEST_F(HardwareValueAvailabilityTest,
 TEST_F(HardwareValueAvailabilityTest, SelectedArmOnlyRequiresItsPayload) {
   build();
   EXPECT_TRUE(proves()) << diagnostics;
+}
+
+TEST_F(HardwareValueAvailabilityTest,
+       DottedAndNestedFieldsKeepTheirActualAvailabilityInEitherOperandOrder) {
+  for (bool flatFirst : {true, false}) {
+    SCOPED_TRACE(flatFirst);
+    auto [flat, deep] = dottedFieldFixture();
+    auto sum = op(ac::BitsBinaryOp::getOperationName(),
+                  flatFirst ? ValueRange{flat, deep} : ValueRange{deep, flat},
+                  {bits(8)}, {f("opcode", b.getStringAttr("add"))})
+                   ->getResult(0);
+    yield->setOperand(0, sum);
+    auto original = printPackage();
+    for (bool forged : {false, true, false}) {
+      SCOPED_TRACE(forged);
+      yield->setOperand(1, forged ? one : available);
+      ASSERT_TRUE(succeeded(verify(*package)));
+      auto before = printPackage();
+      // Both add operands are live: the literal flat field is total and the
+      // nested field is the original partial input, in either evaluation order.
+      EXPECT_EQ(proves(), !forged) << diagnostics;
+      EXPECT_EQ(proves(), !forged) << diagnostics;
+      EXPECT_EQ(printPackage(), before);
+    }
+    EXPECT_EQ(printPackage(), original);
+  }
+}
+
+TEST_F(HardwareValueAvailabilityTest,
+       PartialNestedProjectionCannotRelabelALaterTotalDottedField) {
+  auto [flat, deep] = dottedFieldFixture();
+  yield->setOperands(ValueRange{deep, flat, available, one});
+  module->setAttr("function_type", TypeAttr::get(b.getFunctionType(
+                                       {bits(8), bits(1), bits(1)},
+                                       {bits(8), bits(8), bits(1), bits(1)})));
+  module->setAttr("output_names",
+                  b.getStrArrayAttr({"nested", "flat", "nested_available",
+                                     "flat_available"}));
+  NamedAttrList layout(
+      module->getAttrOfType<DictionaryAttr>("ac.internal_ports"));
+  layout.set("source_outputs", b.getI64IntegerAttr(2));
+  module->setAttr("ac.internal_ports", layout.getDictionary(&context));
+  module->setAttr(
+      "ac.output_validity",
+      b.getArrayAttr({b.getI64IntegerAttr(2), b.getI64IntegerAttr(3)}));
+  auto original = printPackage();
+  for (bool forged : {false, true, false}) {
+    SCOPED_TRACE(forged);
+    yield->setOperand(3, forged ? available : one);
+    ASSERT_TRUE(succeeded(verify(*package)));
+    auto before = printPackage();
+    // This one full verification visits the nested projection first, then the
+    // total flat projection. A cached partial result must not cross that path.
+    EXPECT_EQ(proves(), !forged) << diagnostics;
+    EXPECT_EQ(proves(), !forged) << diagnostics;
+    EXPECT_EQ(printPackage(), before);
+  }
+  EXPECT_EQ(printPackage(), original);
 }
 
 TEST_F(HardwareValueAvailabilityTest,

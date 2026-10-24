@@ -26,13 +26,35 @@ public:
   }
 };
 
+class VerifyRoutedPass
+    : public PassWrapper<VerifyRoutedPass, OperationPass<mlir::ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(VerifyRoutedPass)
+  StringRef getArgument() const final { return "ac-verify-routed"; }
+  StringRef getDescription() const final {
+    return "Verify the routed logical-state ACIR anchor without source objects";
+  }
+  void runOnOperation() final {
+    if (failed(ac::verifyRoutedPackage(getOperation())))
+      signalPassFailure();
+    else
+      markAllAnalysesPreserved();
+  }
+};
+
 } // namespace
+
+std::unique_ptr<mlir::Pass> createVerifyRoutedPass() {
+  return std::make_unique<VerifyRoutedPass>();
+}
 
 std::unique_ptr<mlir::Pass> createVerifyHardwarePass() {
   return std::make_unique<VerifyHardwarePass>();
 }
 void registerACIRPasses() {
   PassRegistration<VerifyHardwarePass>();
+  PassRegistration<VerifyRoutedPass>();
+  registerPass([] { return createRouteTransactionsPass(); });
   registerPass([] { return createNormalizeSourceControlFlowPass(); });
   registerPass([] { return createExtractSourceInterfacePass(); });
   registerPass([] { return createSimplifyRecordWiresPass(); });

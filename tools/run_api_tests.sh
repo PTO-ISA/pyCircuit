@@ -30,6 +30,7 @@ nightly_python_tests=(
   tests/system/test_physical_rtl_export.py
   tests/system/test_physical_projection_rejections.py
   tests/system/test_source_system_execution.py
+  tests/system/test_sibling_calls_and_order.py
   tests/system/test_four_state_frontend_system.py
   tests/system/test_four_state_runtime_unknown.py
   tests/system/test_module_statement_parity.py
@@ -38,6 +39,8 @@ nightly_python_tests=(
   tests/system/test_rule_formal_proposals.py
   tests/system/test_rule_formal_demands.py
   tests/system/test_rule_scf_control.py
+  tests/system/test_saved_anchor.py
+  tests/system/test_saved_anchor_variants.py
   tests/system/test_selected_module_proposals.py
   tests/system/test_source_rule_queues.py
   tests/system/test_rule_resource_demand.py

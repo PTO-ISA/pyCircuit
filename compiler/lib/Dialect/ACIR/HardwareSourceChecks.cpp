@@ -2,6 +2,7 @@
 #include "ACIRSourceContracts.h"
 #include "HardwareSampledAdmission.h"
 #include "HardwareSourceCheckPreflight.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
@@ -10,6 +11,7 @@
 #include <functional>
 #include <limits>
 #include <map>
+#include <set>
 
 using namespace mlir;
 namespace acir::ac {
@@ -536,6 +538,126 @@ LogicalResult detail::verifyModuleObservationIdentities(ModuleOp definition) {
   return success();
 }
 
+#include "HardwareTransactionReturns.inc"
+
+LogicalResult detail::verifyRoutedRegistration(
+    const HardwareAnalysis &analysis, RuleOp rule,
+    const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
+  auto error = [&] { return rule.emitOpError(); };
+  auto pay = [&](uint64_t units) {
+    return debit ? debit(units, rule) : success();
+  };
+  auto metadata = [&](Attribute value) {
+    return payEffectMetadata(value, rule, debit);
+  };
+  auto path = rule->getAttrOfType<ArrayAttr>("ac.registration_path");
+  auto original = rule->getAttrOfType<DictionaryAttr>("ac.lexical_registration");
+  auto lexical = rule->getAttrOfType<FlatSymbolRefAttr>("ac.registration_owner");
+  auto physical = dyn_cast<ModuleOp>(rule->getParentOp());
+  if (!physical || !rule->hasAttr("ac.sampled_admission") || !path ||
+      path.empty() || path.size() > 128 || !original || !lexical)
+    return error() << "routed registration requires its complete lexical identity";
+  for (Attribute value : {Attribute(path), Attribute(original),
+                         Attribute(lexical), rule->getAttr("occurrence")})
+    if (failed(metadata(value)))
+      return failure();
+  if (failed(verifyOccurrence(original, error)))
+    return failure();
+  Builder builder(rule.getContext());
+  SmallVector<Attribute> expansion, prefix, invocation;
+  ModuleOp current = physical;
+  auto appendExpansion = [&](DictionaryAttr occurrence,
+                             ModuleOp callee) -> LogicalResult {
+    auto frames = occurrence.getAs<ArrayAttr>("expansion");
+    if (failed(pay(SourceCheckBudget::multiply(frames.size() + 1,
+                                               1 + sizeof(Attribute)))))
+      return failure();
+    llvm::append_range(expansion, frames);
+    expansion.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("kind", builder.getStringAttr("call")),
+        builder.getNamedAttr("site", occurrence.get("site")),
+        builder.getNamedAttr("callee",
+                             FlatSymbolRefAttr::get(callee.getSymNameAttr()))}));
+    return success();
+  };
+  for (Attribute raw : path) {
+    auto occurrence = dyn_cast<DictionaryAttr>(raw);
+    if (!occurrence || failed(verifyOccurrence(occurrence, error)) ||
+        failed(verifyOriginDefinition(
+            occurrence, FlatSymbolRefAttr::get(current.getSymNameAttr()),
+            "routed registration allocation", error)))
+      return failure();
+    InstanceOp selected;
+    for (auto instance : current.getBody().front().getOps<InstanceOp>()) {
+      if (failed(pay(1)) || failed(metadata(instance.getOccurrence())))
+        return failure();
+      if (instance.getOccurrence() != occurrence)
+        continue;
+      if (selected)
+        return error() << "routed registration allocation is ambiguous";
+      selected = instance;
+    }
+    auto child = selected
+                     ? dyn_cast_or_null<ModuleOp>(analysis.resolveCallee(selected))
+                     : ModuleOp();
+    if (!child || !child.getBody().hasOneBlock() ||
+        !analysis.getPrimitiveKind(child).empty())
+      return error() << "routed registration path must identify ordinary instances";
+    if (failed(appendExpansion(occurrence, child)) ||
+        failed(pay(SourceCheckBudget::multiply(prefix.size() + 1, 4))))
+      return failure();
+    prefix.push_back(occurrence);
+    invocation.push_back(builder.getDictionaryAttr({
+        builder.getNamedAttr("call", occurrence),
+        builder.getNamedAttr("receiver", builder.getDictionaryAttr({
+            builder.getNamedAttr("instance_path", builder.getArrayAttr(prefix))}))}));
+    current = child;
+  }
+  if (lexical.getValue() != current.getSymName() ||
+      failed(verifyOriginDefinition(original, lexical,
+                                    "routed lexical registration", error)) ||
+      failed(appendExpansion(original, current)))
+    return error() << "routed registration lexical owner differs from its allocation";
+  auto expected = builder.getDictionaryAttr({
+      builder.getNamedAttr("site", cast<DictionaryAttr>(path[0]).get("site")),
+      builder.getNamedAttr("expansion", builder.getArrayAttr(expansion))});
+  if (rule->getAttr("occurrence") != expected)
+    return error() << "routed registration identity differs from its lexical path";
+
+  // Check and observation identities must use the same lexical prefix. The
+  // ordinary effect-owner proof subsequently resolves every remaining frame
+  // and its physical domain independently.
+  SmallVector<Attribute> pending;
+  for (StringRef key : {"ac.sampled_admission", "ac.required_checks"})
+    if (Attribute attr = rule->getAttr(key)) {
+      if (failed(metadata(attr)))
+        return failure();
+      pending.push_back(attr);
+    }
+  while (!pending.empty()) {
+    Attribute attr = pending.pop_back_val();
+    if (failed(pay(1)))
+      return failure();
+    if (auto dict = dyn_cast<DictionaryAttr>(attr)) {
+      if (Attribute raw = dict.get("invocation")) {
+        auto frames = dyn_cast<ArrayAttr>(raw);
+        if (!frames || frames.size() < invocation.size() ||
+            !llvm::equal(frames.getValue().take_front(invocation.size()), invocation))
+          return error() << "routed invocation omits or changes its lexical allocation prefix";
+      }
+      if (failed(pay(SourceCheckBudget::multiply(dict.size(), 2))))
+        return failure();
+      for (NamedAttribute field : dict)
+        pending.push_back(field.getValue());
+    } else if (auto array = dyn_cast<ArrayAttr>(attr)) {
+      if (failed(pay(SourceCheckBudget::multiply(array.size(), 2))))
+        return failure();
+      llvm::append_range(pending, array);
+    }
+  }
+  return success();
+}
+
 FailureOr<detail::ResolvedSourceEffectOwner> detail::resolveSourceEffectOwner(
     const HardwareAnalysis &analysis, ModuleOp physical,
     const HardwareBindings &physicalBindings, DictionaryAttr registration,
@@ -586,20 +708,18 @@ FailureOr<detail::ResolvedSourceEffectOwner> detail::resolveSourceEffectOwner(
   };
   if (failed(origin(registration, physical, "source effect registration")))
     return failure();
-  // Every receiver is root-relative and must extend the preceding receiver.
+  // Each receiver is relative to the physical routing definition. A statically
+  // bound Module reference may cross to a sibling; the preceding frame still
+  // authenticates the call's lexical origin before the new path is resolved.
+  // Restart at the routing root so aliases and distinct allocations keep their
+  // actual identity rather than being interpreted as a suffix of the caller.
   auto descend = [&](ArrayAttr path) -> LogicalResult {
-    if (path.size() < result.path.size())
-      return diagnosticSite->emitOpError()
-             << "source effect receiver cannot ascend";
-    for (size_t index = 0; index < result.path.size(); ++index) {
-      if (failed(pay(1, diagnosticSite)) ||
-          failed(metadata(result.path[index]->getAttr("occurrence"))))
-        return failure();
-      if (result.path[index]->getAttr("occurrence") != path[index])
-        return diagnosticSite->emitOpError()
-               << "source effect receiver must descend";
-    }
-    for (size_t index = result.path.size(); index < path.size(); ++index) {
+    if (failed(pay(Budget::bindings(physicalBindings), diagnosticSite)))
+      return failure();
+    result.terminal = physical;
+    result.bindings = physicalBindings;
+    result.path.clear();
+    for (size_t index = 0; index < path.size(); ++index) {
       InstanceOp found;
       for (auto &op : result.terminal.getBody().front()) {
         if (!isa<InstanceOp, CollectionOp>(op))
@@ -1235,7 +1355,7 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
     if (lhs.ownerOccurrence != rhs.ownerOccurrence ||
         lhs.allocation != rhs.allocation ||
         lhs.coordinates != rhs.coordinates ||
-        lhs.primitiveKind != rhs.primitiveKind)
+        lhs.primitiveKind != rhs.primitiveKind || lhs.form != rhs.form)
       return mismatch();
   for (auto [lhs, rhs] :
        llvm::zip(plan.samplingBindings, fresh->samplingBindings))
