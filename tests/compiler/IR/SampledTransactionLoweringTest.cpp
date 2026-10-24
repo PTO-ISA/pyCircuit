@@ -1431,7 +1431,9 @@ TEST_F(SampledTransactionLoweringTest,
     clone->getResult(0).replaceAllUsesWith(clone->getOperand(0));
     clone->erase();
     EXPECT_EQ(record.frames[mappedFrame].lookupOrNull(original), clone);
-    rejects(*staged, "invocation map contains erased clone");
+    // A result in an earlier frame can expose the erased target before its
+    // operation-map entry. Both checks must reject the same stale mapping.
+    rejects(*staged, "invocation map contains erased");
   }
 }
 

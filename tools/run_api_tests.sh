@@ -22,6 +22,8 @@ cd "${PYC_ROOT_DIR}"
 # Reconfigure the existing native build; never create a second test toolchain.
 [[ -f "${PYC_BUILD_DIR}/CMakeCache.txt" ]] || pyc_die "build the CompilerDev testing profile first"
 nightly_python_tests=(
+  tests/system/test_functional_float_source.py
+  tests/system/test_functional_numeric_source.py
   tests/system/test_runtime_install.py
   tests/system/test_public_emit.py
   tests/system/test_scalar_generic_modules.py

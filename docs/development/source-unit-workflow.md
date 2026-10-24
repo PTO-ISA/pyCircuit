@@ -5,6 +5,12 @@ hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never
 executes design functions.
 
+The [functional numeric provider example](../reference/functional-float-source-units.md)
+shows reusable independent source functions, response Structs and explicit
+provider closures. Its public build driver emits C++ and Verilog from each
+same linked design; the generated boundary carries values and numerical effects
+while an external consumer retains scheduling and architectural state ownership.
+
 ## Ownership through the compiler
 
 The public commands separate source publication, linking and emission. Each
@@ -416,7 +422,45 @@ for evidence, bind its capture, headers, owner, tool and command, and compare
 the reproduced body/interface with the public compilation before associating
 its stages. The public compile/link/emit route is unchanged.
 
+## Stateless numeric provider composition
+
+The [functional numeric examples](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md)
+place typed sequential intermediates in ordinary functions and expose a thin
+`@ac.module` entry that returns the complete result/status response. For
+example, `float_round_integral.py` composes independently published integer
+rounding and integer-to-float function bodies. Compile the provider interfaces
+first and pass the complete body closure to link; emit both targets from that
+same final artifact. The example driver records this route explicitly.
+
+An annotated variable declared directly in a `@ac.module` body is a
+module-owned variable and requires its specified static initializer. Use an
+ordinary function's typed SSA intermediates for stateless numeric calculation;
+a dynamic module-variable initializer is not a temporary-value workaround.
+Result availability and numeric flags remain part of each declared algorithm
+response. An ISA or architectural consumer owns source lifetime, type/layout
+admission, state commit and memory effects rather than encoding those concerns
+into the public arithmetic provider.
+
 ## Retired routes
 
 CycleAwareSignal/JIT, structural builders, Agentic Circuit/QueueGraph, `acc.py`,
 `acc`, and `pycc` are retired. They are not aliases or fallback implementations.
+
+## Reusable computation with a stateful consumer
+
+The [functional word-state example](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md#composing-a-response-with-owned-state)
+shows an imported numeric source unit feeding one Rule over module-owned
+variables. The result is a typed snapshot of committed value/count/status;
+it is not the speculative candidate of the current Work. Keep the response's
+request-domain policy explicit: the example's inactive request holds all state,
+while an active rejected word request only records its sticky rejection. IEEE
+invalid numerical outcomes and unknown/unavailable wires remain different
+contracts. A valid/invalid wrapper must not turn an unavailable computation
+into zero or discard a defined floating NaN/status outcome.
+
+Both target artifacts come from the verified linked closure. The registered
+System example uses the common generated runner, complete checks before Xfer,
+and strict sampled domains; authors do not tie off commit controls or insert
+clock/reset pins in their computational model. The eight-snapshot native1/2
+and RTL check is public and independently reproducible with the installed SDK.
+It does not require the private SSM adapter or certify unrelated runtime gates.

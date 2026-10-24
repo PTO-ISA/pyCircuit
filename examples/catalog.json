@@ -17,6 +17,15 @@
       "system_scope": "Eight literal known-input cases; generated C++ workers 1/2 and RTL; separate typed instance results without aggregate packing."
     },
     {
+      "name": "functional_float",
+      "folder": "examples/functional_float",
+      "source": "tracked_bit_transform.py",
+      "system": "CommitSystem",
+      "system_source": "tracked_bit_bench.py",
+      "system_cycles": 8,
+      "system_scope": "Eight independently expected commit-state samples; public imported BitTransform, hold/reject/sticky effects, wrap insertion; generated C++ workers1/2 and RTL."
+    },
+    {
       "name": "sibling_calls",
       "folder": "examples/sibling_calls",
       "source": "sibling_calls.py",

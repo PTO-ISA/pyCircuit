@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog inventories **21** registered designs and **25** API-owned coverage cases.
+The current catalog inventories **22** registered designs and **25** API-owned coverage cases.
 
 - [Recommended examples and learning path](GUIDE.md)
 - [Writing and verification standard](STANDARD.md)
@@ -15,6 +15,7 @@ The current catalog inventories **21** registered designs and **25** API-owned c
 | --- | --- | --- | --- | --- | --- |
 | [hello_counter](hello_counter/README.md) | [Python](hello_counter/hello_counter.py) | [HelloCounter](hello_counter/hello_counter.py) | compiler-generated | compiler-generated | — |
 | [multi_outputs](multi_outputs/README.md) | [Python](multi_outputs/multi_outputs.py) | [MultiOutputsSystem](multi_outputs/bench.py) | compiler-generated | compiler-generated | — |
+| [functional_float](functional_float/README.md) | [Python](functional_float/tracked_bit_transform.py) | [CommitSystem](functional_float/tracked_bit_bench.py) | compiler-generated | compiler-generated | — |
 | [sibling_calls](sibling_calls/README.md) | [Python](sibling_calls/sibling_calls.py) | [SiblingCalls](sibling_calls/sibling_calls.py) | compiler-generated | compiler-generated | — |
 | [sibling_atomic](sibling_atomic/README.md) | [Python](sibling_atomic/sibling_atomic.py) | [SiblingAtomic](sibling_atomic/bench.py) | compiler-generated | compiler-generated | — |
 | [sibling_aliases](sibling_aliases/README.md) | [Python](sibling_aliases/sibling_aliases.py) | [SiblingAliases](sibling_aliases/bench.py) | compiler-generated | compiler-generated | — |

@@ -1747,6 +1747,8 @@ FailureOr<BranchEnvironment> Importer::joinBranches(
       }
       joined.boundaries[item.first()] = item.second;
     }
+  // The rich join variant needs an explicit inline capacity with LLVM 22.
+  // Keep upstream's zero-inline-storage policy; larger joins grow dynamically.
   SmallVector<PreparedBranchJoin, 0> prepared;
   SmallVector<StringRef> resultNames;
   std::optional<OpBuilder> thenAt, elseAt;

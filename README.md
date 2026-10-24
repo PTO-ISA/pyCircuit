@@ -145,6 +145,20 @@ Independent source units ── explicit link closure ── verified final IR
 | `pycircuit emit` | Emit C++ or Verilog from the verified final artifact. |
 | `pycircuit run` | Build and execute a closed system through those same public stages. |
 
+Reusable [functional numeric source units](docs/reference/functional-float-source-units.md)
+provide binary32/binary64 arithmetic examples, direct and integral rounding,
+configurable FP4/FP8 value codecs, word arithmetic and bit transformations
+through this public flow. Their inspectable providers,
+build driver and independent native/RTL oracles live in
+[`examples/functional_float`](examples/functional_float/README.md); they are
+bounded example algorithms, rather than a complete floating library or ISA.
+The same reference separately records actual latest-selected Bench802/ASL
+validation and the SSM-owned matrix-default consumer fix; it does not replace
+older frozen or newcc799 measurements with new-asset results.
+The registered [word-state System example](examples/functional_float/README.md#composing-a-response-with-owned-state)
+now demonstrates public numeric composition, commit state and sticky logical
+effects with native workers1/2 and RTL, independently of SSM.
+
 `@module` defines reusable hardware, `@rule` defines an atomic stateless
 transition, and `@system` defines a closed simulation composition. The current
 system path owns its generated clock/reset scaffolding; ordinary module drivers
