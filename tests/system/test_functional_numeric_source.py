@@ -95,15 +95,17 @@ def test_numeric_providers_native_and_rtl(tmp_path: Path) -> None:
         pairs = (
             [("lhs", "a"), ("rhs", "b")]
             if index < 3
-            else [
-                ("lhs", "a"),
-                ("rhs", "b"),
-                ("wide64", "arg&1"),
-                ("operation", "op-10"),
-                ("signaling", "(arg&2)!=0"),
-            ]
-            if unit == "float_compare"
-            else [("value", "a"), ("unsigned_input", "b!=0"), ("format", "arg")]
+            else (
+                [
+                    ("lhs", "a"),
+                    ("rhs", "b"),
+                    ("wide64", "arg&1"),
+                    ("operation", "op-10"),
+                    ("signaling", "(arg&2)!=0"),
+                ]
+                if unit == "float_compare"
+                else [("value", "a"), ("unsigned_input", "b!=0"), ("format", "arg")]
+            )
         )
         pairs.append(("request_valid", "1"))
         assignments = "".join(
@@ -118,9 +120,7 @@ def test_numeric_providers_native_and_rtl(tmp_path: Path) -> None:
         condition = (
             f"op=={index}"
             if index < 3
-            else "op>=10"
-            if unit == "float_compare"
-            else "op==3"
+            else "op>=10" if unit == "float_compare" else "op==3"
         )
         cases.append(f"else if({condition})run_{unit}(op,a,b,arg);")
         declarations.append(f"void run_{unit}(unsigned,uint64_t,uint64_t,unsigned);")
@@ -226,7 +226,8 @@ def test_bit_transform_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "bit_runner.cpp"
-    source.write_text(r"""#include "sources/functional_float/bit_transform.hpp"
+    source.write_text(
+        r"""#include "sources/functional_float/bit_transform.hpp"
 #include <iostream>
 int main(){uint64_t a,b,c;unsigned w,o,l,op;
 while(std::cin>>std::hex>>a>>b>>c>>std::dec>>w>>o>>l>>op){
@@ -241,7 +242,8 @@ dut.operation=decltype(dut.operation)::known(gfsim::Bits<4>{op});
 dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});
 dut.Work();if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();
 if(!v.valid.toBool())return 3;std::cout<<std::hex<<v.result.value()<<"\n";}}
-""")
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "bit_runner"
     build = subprocess.run(
@@ -601,7 +603,8 @@ def test_float_convert_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text(r"""#include "sources/functional_float/float_convert.hpp"
+    source.write_text(
+        r"""#include "sources/functional_float/float_convert.hpp"
 #include <iostream>
 int main(){uint64_t value;unsigned source,destination;
 while(std::cin>>std::hex>>value>>std::dec>>source>>destination){
@@ -614,7 +617,8 @@ dut.Work();if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value(
 std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()
 <<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()
 <<' '<<v.divide_by_zero.toBool()<<'\n';}}
-""")
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -672,7 +676,8 @@ def test_float_fused_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text(r"""#include "sources/functional_float/float_fused.hpp"
+    source.write_text(
+        r"""#include "sources/functional_float/float_fused.hpp"
 #include <iostream>
 int main(){uint64_t a,b,c;unsigned w;while(std::cin>>std::hex>>a>>b>>c>>std::dec>>w){
 functional_float::float_fused::FloatFused dut("fused");
@@ -684,7 +689,8 @@ dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work
 if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();
 std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()
 <<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\n';}}
-""")
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -742,7 +748,8 @@ def test_float_fused_format_format_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text(r"""#include "sources/functional_float/float_fused_format.hpp"
+    source.write_text(
+        r"""#include "sources/functional_float/float_fused_format.hpp"
 #include <iostream>
 int main(){uint64_t a,b,c;unsigned w;while(std::cin>>std::hex>>a>>b>>c>>std::dec>>w){
 functional_float::float_fused_format::FloatFusedFormat dut("fused");
@@ -754,7 +761,8 @@ dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work
 if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();
 std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()
 <<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\n';}}
-""")
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -812,7 +820,8 @@ def test_fp32_log_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text(r"""#include "sources/functional_float/fp32_log.hpp"
+    source.write_text(
+        r"""#include "sources/functional_float/fp32_log.hpp"
 #include <iostream>
 int main(){uint32_t value;while(std::cin>>std::hex>>value){
 functional_float::fp32_log::FP32Log dut("logarithm");
@@ -821,7 +830,8 @@ dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work
 if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();
 std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()
 <<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\n';}}
-""")
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -879,13 +889,15 @@ def test_fp19_expansion_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text(r"""#include "sources/functional_float/fp19_expansion.hpp"
+    source.write_text(
+        r"""#include "sources/functional_float/fp19_expansion.hpp"
 #include <iostream>
 int main(){unsigned value;while(std::cin>>std::hex>>value){
 functional_float::fp19_expansion::FP19FiniteExpand dut("finite19");
 dut.value=decltype(dut.value)::known(gfsim::Bits<19>{value});dut.Work();
 if(!dut.result.isFullyKnown())return 2;std::cout<<std::hex<<dut.result.value().value()<<'\n';}}
-""")
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -943,13 +955,15 @@ def test_fp32_negative_power_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text(r"""#include "sources/functional_float/fp32_negative_power.hpp"
+    source.write_text(
+        r"""#include "sources/functional_float/fp32_negative_power.hpp"
 #include <iostream>
 int main(){unsigned code;while(std::cin>>std::hex>>code){
 functional_float::fp32_negative_power::FP32NegativePower dut("negative-power");
 dut.code=decltype(dut.code)::known(gfsim::Bits<8>{code});dut.Work();
 if(!dut.result.isFullyKnown())return 2;std::cout<<std::hex<<dut.result.value().value()<<'\n';}}
-""")
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -1107,7 +1121,9 @@ def test_float_to_integer_bits_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text('#include "sources/functional_float/float_to_integer_bits.hpp"\n#include <iostream>\nint main(){uint64_t value;unsigned wide,uns,width,round,sat;\nwhile(std::cin>>std::hex>>value>>std::dec>>wide>>uns>>width>>round>>sat){\nfunctional_float::float_to_integer_bits::FloatToIntegerBits dut("integer-bits");\ndut.value=decltype(dut.value)::known(gfsim::Bits<64>{value});\ndut.wide64=decltype(dut.wide64)::known(gfsim::Bits<1>{wide});\ndut.unsigned_output=decltype(dut.unsigned_output)::known(gfsim::Bits<1>{uns});\ndut.width=decltype(dut.width)::known(gfsim::Bits<7>{width});\ndut.rounding=decltype(dut.rounding)::known(gfsim::Bits<3>{round});\ndut.saturating=decltype(dut.saturating)::known(gfsim::Bits<1>{sat});\ndut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();\nif(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();\nstd::cout<<std::hex<<v.result.value()<<std::dec<<\' \'<<v.valid.toBool()<<\' \'<<v.invalid.toBool()<<\' \'<<v.overflow.toBool()<<\' \'<<v.underflow.toBool()<<\' \'<<v.inexact.toBool()<<\' \'<<v.zero.toBool()<<\' \'<<v.divide_by_zero.toBool()<<\'\\n\';}}\n')
+    source.write_text(
+        "#include \"sources/functional_float/float_to_integer_bits.hpp\"\n#include <iostream>\nint main(){uint64_t value;unsigned wide,uns,width,round,sat;\nwhile(std::cin>>std::hex>>value>>std::dec>>wide>>uns>>width>>round>>sat){\nfunctional_float::float_to_integer_bits::FloatToIntegerBits dut(\"integer-bits\");\ndut.value=decltype(dut.value)::known(gfsim::Bits<64>{value});\ndut.wide64=decltype(dut.wide64)::known(gfsim::Bits<1>{wide});\ndut.unsigned_output=decltype(dut.unsigned_output)::known(gfsim::Bits<1>{uns});\ndut.width=decltype(dut.width)::known(gfsim::Bits<7>{width});\ndut.rounding=decltype(dut.rounding)::known(gfsim::Bits<3>{round});\ndut.saturating=decltype(dut.saturating)::known(gfsim::Bits<1>{sat});\ndut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();\nif(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();\nstd::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()<<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\\n';}}\n"
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -1139,7 +1155,6 @@ def test_float_to_integer_bits_native_and_rtl(tmp_path: Path) -> None:
     )
 
 
-
 @pytest.mark.system
 def test_finite_lowp_cast_native_and_rtl(tmp_path: Path) -> None:
     helpers = {
@@ -1166,7 +1181,9 @@ def test_finite_lowp_cast_native_and_rtl(tmp_path: Path) -> None:
         check=True,
     )
     source = tmp_path / "runner.cpp"
-    source.write_text('#include "sources/functional_float/finite_lowp_cast.hpp"\n#include <iostream>\nint main(){uint64_t value;unsigned kind,rhb;while(std::cin>>std::hex>>value>>std::dec>>kind>>rhb){\nfunctional_float::finite_lowp_cast::FiniteLowpCast dut("finite-lowp");\ndut.value=decltype(dut.value)::known(gfsim::Bits<64>{value});dut.kind=decltype(dut.kind)::known(gfsim::Bits<2>{kind});\ndut.rhb=decltype(dut.rhb)::known(gfsim::Bits<1>{rhb});dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();\nif(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();std::cout<<std::hex<<v.result.value()<<std::dec<<\' \'<<v.valid.toBool()<<\' \'<<v.invalid.toBool()<<\' \'<<v.overflow.toBool()<<\' \'<<v.underflow.toBool()<<\' \'<<v.inexact.toBool()<<\' \'<<v.zero.toBool()<<\' \'<<v.divide_by_zero.toBool()<<\'\\n\';}}\n')
+    source.write_text(
+        "#include \"sources/functional_float/finite_lowp_cast.hpp\"\n#include <iostream>\nint main(){uint64_t value;unsigned kind,rhb;while(std::cin>>std::hex>>value>>std::dec>>kind>>rhb){\nfunctional_float::finite_lowp_cast::FiniteLowpCast dut(\"finite-lowp\");\ndut.value=decltype(dut.value)::known(gfsim::Bits<64>{value});dut.kind=decltype(dut.kind)::known(gfsim::Bits<2>{kind});\ndut.rhb=decltype(dut.rhb)::known(gfsim::Bits<1>{rhb});dut.request_valid=decltype(dut.request_valid)::known(gfsim::Bits<1>{1});dut.Work();\nif(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()<<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\\n';}}\n"
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
     build = subprocess.run(
@@ -1199,39 +1216,85 @@ def test_finite_lowp_cast_native_and_rtl(tmp_path: Path) -> None:
 
 
 @pytest.mark.system
-@pytest.mark.parametrize("unit,top", [
-    ("float_round_integral", "FloatRoundIntegral"),
-    ("packed4_encode", "Packed4Encode"),
-    ("packed4_decode", "Packed4Decode"),
-])
-def test_integral_and_packed_source_native_and_rtl(tmp_path: Path, unit: str, top: str) -> None:
-    helpers = {key: _helper(key) for key in (
-        "PYCIRCUIT_SOURCE_COMPILER", "PYCIRCUIT_LINKER", "PYCIRCUIT_EMITTER")}
+@pytest.mark.parametrize(
+    "unit,top",
+    [
+        ("float_round_integral", "FloatRoundIntegral"),
+        ("packed4_encode", "Packed4Encode"),
+        ("packed4_decode", "Packed4Decode"),
+    ],
+)
+def test_integral_and_packed_source_native_and_rtl(
+    tmp_path: Path, unit: str, top: str
+) -> None:
+    helpers = {
+        key: _helper(key)
+        for key in (
+            "PYCIRCUIT_SOURCE_COMPILER",
+            "PYCIRCUIT_LINKER",
+            "PYCIRCUIT_EMITTER",
+        )
+    }
     if not all(helpers.values()) or not shutil.which("iverilog"):
         pytest.skip("native compiler helpers and Icarus Verilog are required")
     env = dict(os.environ, PYTHONPATH=str(ROOT / "python"), **helpers)
-    subprocess.run([sys.executable, str(EXAMPLE / "build_units.py"), str(tmp_path),
-        "--only", unit, "--replace"], env=env, check=True)
+    subprocess.run(
+        [
+            sys.executable,
+            str(EXAMPLE / "build_units.py"),
+            str(tmp_path),
+            "--only",
+            unit,
+            "--replace",
+        ],
+        env=env,
+        check=True,
+    )
     ports = json.loads((tmp_path / f"verilog_{unit}" / "ports.json").read_text())
     fields = ports["inputs"]
-    reads = "".join(f'>>values[{i}]' for i in range(len(fields)))
+    reads = "".join(f">>values[{i}]" for i in range(len(fields)))
     assignments = "\n".join(
         f'dut.{p["name"]}=decltype(dut.{p["name"]})::known(gfsim::Bits<{p["width"]}>{{values[{i}]}});'
-        for i, p in enumerate(fields))
+        for i, p in enumerate(fields)
+    )
     source = tmp_path / "runner.cpp"
-    source.write_text(f'''#include "sources/functional_float/{unit}.hpp"
+    source.write_text(
+        f"""#include "sources/functional_float/{unit}.hpp"
 #include <iostream>
 int main(){{uint64_t values[{len(fields)}];while(std::cin>>std::hex{reads}){{
 functional_float::{unit}::{top} dut("numeric");
 {assignments}
 dut.Work();if(!dut.result.isFullyKnown())return 2;const auto v=dut.result.value();
 std::cout<<std::hex<<v.result.value()<<std::dec<<' '<<v.valid.toBool()<<' '<<v.invalid.toBool()<<' '<<v.overflow.toBool()<<' '<<v.underflow.toBool()<<' '<<v.inexact.toBool()<<' '<<v.zero.toBool()<<' '<<v.divide_by_zero.toBool()<<'\\n';}}}}
-''')
+"""
+    )
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     binary = tmp_path / "runner"
-    build = subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1",
-        f"-I{runtime / 'include'}", f"-I{tmp_path / f'cpp_{unit}'}", str(source),
-        str(runtime / "lib/libpyc6_runtime.a"), "-pthread", "-o", str(binary)], capture_output=True, text=True)
+    build = subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{runtime / 'include'}",
+            f"-I{tmp_path / f'cpp_{unit}'}",
+            str(source),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        capture_output=True,
+        text=True,
+    )
     assert build.returncode == 0, build.stdout + build.stderr
-    subprocess.run([sys.executable, str(Path(__file__).with_name("functional_round_packed_oracle.py")),
-        unit, str(binary), str(tmp_path / f"verilog_{unit}"), str(tmp_path / "oracle")], check=True)
+    subprocess.run(
+        [
+            sys.executable,
+            str(Path(__file__).with_name("functional_round_packed_oracle.py")),
+            unit,
+            str(binary),
+            str(tmp_path / f"verilog_{unit}"),
+            str(tmp_path / "oracle"),
+        ],
+        check=True,
+    )

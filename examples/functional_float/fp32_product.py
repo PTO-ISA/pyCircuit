@@ -65,9 +65,7 @@ def unpack_fp32(value: ac.u32) -> Unpacked:
     subnormal_mant: ac.u24 = ac.concat(zero_bit, frac)
     e: ac.u8 = exp if exp != 0 else 1
     mant: ac.u24 = subnormal_mant if exp == 0 else normal_mant
-    return Unpacked(
-        sign=sign, e=e, mant=mant, zero=zero, inf=inf, nan=nan, snan=snan
-    )
+    return Unpacked(sign=sign, e=e, mant=mant, zero=zero, inf=inf, nan=nan, snan=snan)
 
 
 def right_barrel64_sticky(value: ac.u64, amount: ac.u7) -> Shifted64:
@@ -256,7 +254,9 @@ def mul_finite(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32Response:
     inf_sign32: ac.u32 = a.sign ^ b.sign
     inf_result: ac.u32 = (inf_sign32 << 31) | 0x7F800000
     special_nan: ac.u1 = nan_any | invalid
-    result: ac.u32 = qnan if special_nan else (inf_result if inf_any else rounded.result)
+    result: ac.u32 = (
+        qnan if special_nan else (inf_result if inf_any else rounded.result)
+    )
     finite_used: ac.u1 = ~(nan_any | inf_any)
     return FP32Response(
         result=result,

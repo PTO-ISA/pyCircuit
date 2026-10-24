@@ -1,4 +1,5 @@
 """One reusable restoring-integer-square-root digit step."""
+
 import pycircuit as ac
 
 
@@ -17,8 +18,11 @@ def digit_step(state: SqrtState) -> SqrtState:
     accept: ac.u1 = remainder >= trial
     difference: ac.bits[128] = remainder - trial
     root: ac.u64 = ((state.root << 1) | 1) if accept else state.root << 1
-    return SqrtState(root=root, remainder=difference if accept else remainder,
-                     radicand=state.radicand << 2)
+    return SqrtState(
+        root=root,
+        remainder=difference if accept else remainder,
+        radicand=state.radicand << 2,
+    )
 
 
 @ac.module

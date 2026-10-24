@@ -282,7 +282,9 @@ def main():
     for row, got, want in zip(rows, actual, wanted, strict=True):
         assert got == want, (row, got, want)
     rtl_check(args.generated, args.output, rows, wanted)
-    print(f"lowp_{args.mode}_oracle rc=0 native_and_rtl_raw_status_matches={len(rows)}")  # noqa: T201
+    print(  # noqa: T201
+        f"lowp_{args.mode}_oracle rc=0 native_and_rtl_raw_status_matches={len(rows)}"
+    )
 
 
 if __name__ == "__main__":

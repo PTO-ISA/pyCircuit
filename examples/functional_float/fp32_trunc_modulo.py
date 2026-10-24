@@ -6,6 +6,7 @@ floating rounding or FMA is used. Exact cancellation encodes positive zero;
 a zero dividend retains its sign. Invalid inputs return a canonical NaN.
 The separately published FP32FloorModulo remains a distinct staged policy.
 """
+
 import pycircuit as ac
 from functional_float.fp32_product import unpack_fp32
 from functional_float.fp32_types import FP32Response
@@ -47,7 +48,9 @@ def trunc_modulo(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32Response
     encoded_exp: ac.u10 = be + 224 - nshift
     exp32: ac.u32 = encoded_exp - 256
     subshift: ac.u10 = 257 - encoded_exp
-    payload: ac.u32 = ((exp32 << 23) | (norm & 8388607)) if encoded_exp > 256 else norm >> subshift
+    payload: ac.u32 = (
+        ((exp32 << 23) | (norm & 8388607)) if encoded_exp > 256 else norm >> subshift
+    )
     sign: ac.u32 = a.sign
     payload = (sign << 31) | payload
     payload = 0 if remainder == 0 else payload
@@ -55,11 +58,19 @@ def trunc_modulo(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32Response
     payload = lhs if b.inf | a.zero else payload
     invalid: ac.u1 = a.snan | b.snan | a.inf | b.zero
     payload = 2143289344 if a.nan | b.nan | invalid else payload
-    return FP32Response(result=payload, valid=request_valid & ~invalid,
-        invalid=invalid, overflow=0, underflow=0, inexact=0,
-        zero=payload[:31] == 0)
+    return FP32Response(
+        result=payload,
+        valid=request_valid & ~invalid,
+        invalid=invalid,
+        overflow=0,
+        underflow=0,
+        inexact=0,
+        zero=payload[:31] == 0,
+    )
 
 
 @ac.module
-def FP32TruncModulo(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32Response:  # noqa: N802
+def FP32TruncModulo(  # noqa: N802
+    lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1
+) -> FP32Response:
     return trunc_modulo(lhs, rhs, request_valid)

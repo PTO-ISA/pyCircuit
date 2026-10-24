@@ -4,13 +4,19 @@ No host arithmetic supplies the result. Rounding selectors are RNE, RTM,
 RTP, RTZ and nearest-away (0..4). Invalid conversion saturates to the
 corresponding integer endpoint, with NV and no inexact flag.
 """
+
 import pycircuit as ac
 from functional_float.fp64_types import FloatWordResponse
 
 
-def to_integer(value: ac.u64, wide64: ac.u1, unsigned_output: ac.u1,
-               width_code: ac.u2, rounding: ac.u3,
-               request_valid: ac.u1) -> FloatWordResponse:
+def to_integer(
+    value: ac.u64,
+    wide64: ac.u1,
+    unsigned_output: ac.u1,
+    width_code: ac.u2,
+    rounding: ac.u3,
+    request_valid: ac.u1,
+) -> FloatWordResponse:
     fraction_bits: ac.u6 = 52 if wide64 else 23
     exponent_mask: ac.u64 = 2047 if wide64 else 255
     exponent_raw: ac.u64 = (value >> fraction_bits) & exponent_mask
@@ -48,7 +54,9 @@ def to_integer(value: ac.u64, wide64: ac.u1, unsigned_output: ac.u1,
     increment = 0 if rounding == 3 else increment
     increment = guard if rounding == 4 else increment
     increment_wide: ac.bits[128] = increment
-    rounded: ac.bits[128] = magnitude << left_amount_safe if left else truncated + increment_wide
+    rounded: ac.bits[128] = (
+        magnitude << left_amount_safe if left else truncated + increment_wide
+    )
     width: ac.u7 = 64
     width = 32 if width_code == 1 else width
     width = 16 if width_code == 2 else width
@@ -71,14 +79,27 @@ def to_integer(value: ac.u64, wide64: ac.u1, unsigned_output: ac.u1,
     invalid_result: ac.u64 = minimum if sign & ~nan else maximum
     result: ac.u64 = invalid_result if invalid else normal_result
     inexact: ac.u1 = discarded & ~left & ~invalid
-    return FloatWordResponse(result=result, valid=request_valid & (rounding <= 4),
-        invalid=invalid, overflow=0, underflow=0, inexact=inexact,
-        zero=result == 0, divide_by_zero=0)
+    return FloatWordResponse(
+        result=result,
+        valid=request_valid & (rounding <= 4),
+        invalid=invalid,
+        overflow=0,
+        underflow=0,
+        inexact=inexact,
+        zero=result == 0,
+        divide_by_zero=0,
+    )
 
 
 @ac.module
 def FloatToInteger(  # noqa: N802
-    value: ac.u64, wide64: ac.u1, unsigned_output: ac.u1,
-    width_code: ac.u2, rounding: ac.u3, request_valid: ac.u1,
+    value: ac.u64,
+    wide64: ac.u1,
+    unsigned_output: ac.u1,
+    width_code: ac.u2,
+    rounding: ac.u3,
+    request_valid: ac.u1,
 ) -> FloatWordResponse:
-    return to_integer(value, wide64, unsigned_output, width_code, rounding, request_valid)
+    return to_integer(
+        value, wide64, unsigned_output, width_code, rounding, request_valid
+    )

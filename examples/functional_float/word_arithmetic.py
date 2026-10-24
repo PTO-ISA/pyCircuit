@@ -5,6 +5,7 @@ Results wrap to the selected width; word32 results are sign extended. A zero
 quotient denominator returns zero, while zero-denominator remainder returns
 the dividend. Unknown selectors reject the request explicitly.
 """
+
 import pycircuit as ac
 
 
@@ -14,8 +15,9 @@ class WordResult:
     valid: ac.u1
 
 
-def word_arithmetic(lhs: ac.u64, rhs: ac.u64, operation: ac.u4,
-                    word32: ac.u1, request_valid: ac.u1) -> WordResult:
+def word_arithmetic(
+    lhs: ac.u64, rhs: ac.u64, operation: ac.u4, word32: ac.u1, request_valid: ac.u1
+) -> WordResult:
     a: ac.u64 = lhs & 4294967295 if word32 else lhs
     b: ac.u64 = rhs & 4294967295 if word32 else rhs
     a_signed: ac.u64 = a | 18446744069414584320 if word32 & a[31:32] else a
@@ -31,7 +33,9 @@ def word_arithmetic(lhs: ac.u64, rhs: ac.u64, operation: ac.u4,
     unsigned_remainder: ac.u64 = a % denominator
     unsigned_remainder = a if b == 0 else unsigned_remainder
     magnitude_quotient: ac.u64 = a_magnitude // magnitude_denominator
-    signed_quotient: ac.u64 = 0 - magnitude_quotient if a_negative ^ b_negative else magnitude_quotient
+    signed_quotient: ac.u64 = (
+        0 - magnitude_quotient if a_negative ^ b_negative else magnitude_quotient
+    )
     signed_quotient = 0 if b == 0 else signed_quotient
     signed_remainder: ac.u64 = a_signed - signed_quotient * b_signed
     amount: ac.u6 = rhs[:6]
@@ -57,13 +61,17 @@ def word_arithmetic(lhs: ac.u64, rhs: ac.u64, operation: ac.u4,
     value = signed_remainder if operation == 12 else value
     low: ac.u64 = value & 4294967295
     word: ac.u64 = low | 18446744069414584320 if value[31:32] else low
-    return WordResult(result=word if word32 else value,
-                      valid=request_valid & (operation <= 12))
+    return WordResult(
+        result=word if word32 else value, valid=request_valid & (operation <= 12)
+    )
 
 
 @ac.module
 def WordArithmetic(  # noqa: N802
-    lhs: ac.u64, rhs: ac.u64, operation: ac.u4,
-    word32: ac.u1, request_valid: ac.u1,
+    lhs: ac.u64,
+    rhs: ac.u64,
+    operation: ac.u4,
+    word32: ac.u1,
+    request_valid: ac.u1,
 ) -> WordResult:
     return word_arithmetic(lhs, rhs, operation, word32, request_valid)

@@ -15,8 +15,12 @@ class IntegerResponse:
 
 
 def integer_element(
-    lhs: ac.u32, rhs: ac.u32, operation: ac.u4,
-    narrow16: ac.u1, descending: ac.u1, request_valid: ac.u1,
+    lhs: ac.u32,
+    rhs: ac.u32,
+    operation: ac.u4,
+    narrow16: ac.u1,
+    descending: ac.u1,
+    request_valid: ac.u1,
 ) -> IntegerResponse:
     a: ac.u32 = lhs & 65535 if narrow16 else lhs
     b: ac.u32 = rhs & 65535 if narrow16 else rhs
@@ -39,7 +43,11 @@ def integer_element(
 
 @ac.module
 def IntegerElement(  # noqa: N802
-    lhs: ac.u32, rhs: ac.u32, operation: ac.u4,
-    narrow16: ac.u1, descending: ac.u1, request_valid: ac.u1,
+    lhs: ac.u32,
+    rhs: ac.u32,
+    operation: ac.u4,
+    narrow16: ac.u1,
+    descending: ac.u1,
+    request_valid: ac.u1,
 ) -> IntegerResponse:
     return integer_element(lhs, rhs, operation, narrow16, descending, request_valid)

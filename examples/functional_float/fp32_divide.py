@@ -3,6 +3,7 @@
 The quotient retains eight extra significand bits before shared RNE packing.
 Special paths use a nonzero denominator and return explicit IEEE payloads.
 """
+
 import pycircuit as ac
 from functional_float.fp32_product import unpack_fp32, round_pack
 
@@ -49,13 +50,19 @@ def divide_bits(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32QuotientR
     result = (sign32 << 31) | 2139095040 if (a.inf | b.zero) else result
     result = 2143289344 if any_nan else result
     return FP32QuotientResponse(
-        result=result, valid=request_valid & ~invalid, invalid=invalid,
-        overflow=final.overflow & ~special, underflow=final.underflow & ~special,
-        inexact=final.inexact & ~special, zero=result[:31] == 0,
+        result=result,
+        valid=request_valid & ~invalid,
+        invalid=invalid,
+        overflow=final.overflow & ~special,
+        underflow=final.underflow & ~special,
+        inexact=final.inexact & ~special,
+        zero=result[:31] == 0,
         divide_by_zero=(~a.nan) & (~b.nan) & (~a.inf) & (~a.zero) & b.zero,
     )
 
 
 @ac.module
-def FP32Divide(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32QuotientResponse:  # noqa: N802
+def FP32Divide(  # noqa: N802
+    lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1
+) -> FP32QuotientResponse:
     return divide_bits(lhs, rhs, request_valid)

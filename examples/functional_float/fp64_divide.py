@@ -1,4 +1,5 @@
 """Binary64 quotient from normalized 128-bit integer division and remainder."""
+
 import pycircuit as ac
 from functional_float.fp64_types import FloatWordResponse
 from functional_float.fp64_round import unpack_fp64, round_fp64
@@ -32,12 +33,20 @@ def divide_fp64(lhs: ac.u64, rhs: ac.u64, request_valid: ac.u1) -> FloatWordResp
     result = sign64 << 63 if a.zero | b.inf else result
     result = (sign64 << 63) | 9218868437227405312 if a.inf | b.zero else result
     result = 9221120237041090560 if any_nan else result
-    return FloatWordResponse(result=result, valid=request_valid & ~invalid, invalid=invalid,
-        overflow=rounded.overflow & ~special, underflow=rounded.underflow & ~special,
-        inexact=rounded.inexact & ~special, zero=result[:63] == 0,
-        divide_by_zero=(~a.nan) & (~b.nan) & (~a.inf) & (~a.zero) & b.zero)
+    return FloatWordResponse(
+        result=result,
+        valid=request_valid & ~invalid,
+        invalid=invalid,
+        overflow=rounded.overflow & ~special,
+        underflow=rounded.underflow & ~special,
+        inexact=rounded.inexact & ~special,
+        zero=result[:63] == 0,
+        divide_by_zero=(~a.nan) & (~b.nan) & (~a.inf) & (~a.zero) & b.zero,
+    )
 
 
 @ac.module
-def FP64Divide(lhs: ac.u64, rhs: ac.u64, request_valid: ac.u1) -> FloatWordResponse:  # noqa: N802
+def FP64Divide(  # noqa: N802
+    lhs: ac.u64, rhs: ac.u64, request_valid: ac.u1
+) -> FloatWordResponse:
     return divide_fp64(lhs, rhs, request_valid)

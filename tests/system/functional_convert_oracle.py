@@ -98,8 +98,15 @@ def main():
         conn.append(f".{port['wire']}(drive{i})")
     decl.append(f"wire[{out['width'] - 1}:0]observed;")
     conn.append(f".{out['wire']}(observed)")
-    for index, ((value, source, destination), want) in enumerate(zip(rows, wanted, strict=True)):
-        inputs = {"value": value, "source_format": source, "destination_format": destination, "request_valid": 1}
+    for index, ((value, source, destination), want) in enumerate(
+        zip(rows, wanted, strict=True)
+    ):
+        inputs = {
+            "value": value,
+            "source_format": source,
+            "destination_format": destination,
+            "request_valid": 1,
+        }
         for i, port in enumerate(ports["inputs"]):
             samples.append(f"drive{i}={port['width']}'h{inputs[port['name']]:x};")
         fields = dict(zip(FIELDS, want, strict=True))
@@ -128,7 +135,9 @@ def main():
     )
     subprocess.run(["vvp", str(binary)], check=True, capture_output=True)
     (args.output / "vectors.json").write_text(
-        json.dumps([{"input": r, "output": w} for r, w in zip(rows, wanted, strict=True)])
+        json.dumps(
+            [{"input": r, "output": w} for r, w in zip(rows, wanted, strict=True)]
+        )
     )
     print(  # noqa: T201
         f"float_convert_oracle rc=0 native_raw_and_status_matches={len(rows)} "

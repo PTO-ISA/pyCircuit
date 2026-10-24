@@ -4,6 +4,7 @@ The final scale is split into two exact powers of two. The first product stays
 normal and exact; the second performs the single final RNE rounding, including
 subnormals. This reuses generated Product instead of expanding another rounder.
 """
+
 import pycircuit as ac
 from functional_float.fp32_types import FP32Response
 from functional_float.fp32_product import FP32Product, right_barrel64_sticky
@@ -64,8 +65,9 @@ def scale_powers(exponent: ac.u11) -> ScalePowers:
     return ScalePowers(residual=residual_e << 23, primary=primary_e << 23)
 
 
-def finish_exp(value: ac.u32, final: FP32Response,
-               input_inexact: ac.u1, request_valid: ac.u1) -> FP32Response:
+def finish_exp(
+    value: ac.u32, final: FP32Response, input_inexact: ac.u1, request_valid: ac.u1
+) -> FP32Response:
     nan: ac.u1 = (value[23:31] == 255) & (value[:23] != 0)
     inf: ac.u1 = value[:31] == 2139095040
     invalid: ac.u1 = nan & ~value[22:23]
@@ -76,7 +78,9 @@ def finish_exp(value: ac.u32, final: FP32Response,
     result = outside_result if outside else result
     result = 2143289344 if nan else result
     return FP32Response(
-        result=result, valid=request_valid & ~invalid, invalid=invalid,
+        result=result,
+        valid=request_valid & ~invalid,
+        invalid=invalid,
         overflow=finite & (final.overflow | (outside & ~value[31:32])),
         underflow=finite & (final.underflow | (outside & value[31:32])),
         inexact=finite & (input_inexact | final.inexact | outside),
@@ -89,7 +93,9 @@ def FP32Exp(value: ac.u32, request_valid: ac.u1) -> FP32Response:  # noqa: N802
     scaled = FP32Product(bounded_value(value), 1069066811, request_valid)
     integer = range_integer(scaled.result)
     reduced_product = FP32Product(integer.result, 1060205080, request_valid)
-    reduced = FP32Sum(bounded_value(value), reduced_product.result ^ 2147483648, request_valid)
+    reduced = FP32Sum(
+        bounded_value(value), reduced_product.result ^ 2147483648, request_valid
+    )
     # Horner coefficients: 1/720, 1/120, 1/24, 1/6, 1/2, 1, 1.
     p0 = FP32Product(985008993, reduced.result, request_valid)
     s0 = FP32Sum(p0.result, 1007192201, request_valid)

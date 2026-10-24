@@ -1,11 +1,19 @@
 """Wrapping bit fields, counts, selection and comparisons over 64-bit words."""
+
 import pycircuit as ac
 from functional_float.word_arithmetic import WordResult
 
 
-def bit_transform(lhs: ac.u64, rhs: ac.u64, alternate: ac.u64,
-                  width: ac.u7, offset: ac.u6, last: ac.u6,
-                  operation: ac.u4, request_valid: ac.u1) -> WordResult:
+def bit_transform(
+    lhs: ac.u64,
+    rhs: ac.u64,
+    alternate: ac.u64,
+    width: ac.u7,
+    offset: ac.u6,
+    last: ac.u6,
+    operation: ac.u4,
+    request_valid: ac.u1,
+) -> WordResult:
     one: ac.u64 = 1
     offset7: ac.u7 = offset
     inverse: ac.u7 = 64 - offset7
@@ -64,12 +72,23 @@ def bit_transform(lhs: ac.u64, rhs: ac.u64, alternate: ac.u64,
     value = signed_ge_value if operation == 14 else value
     unsigned_ge_value: ac.u64 = 0 if unsigned_less else 1
     value = unsigned_ge_value if operation == 15 else value
-    return WordResult(result=value, valid=request_valid & (width >= 1) & (width <= 64) & (operation != 7))
+    return WordResult(
+        result=value,
+        valid=request_valid & (width >= 1) & (width <= 64) & (operation != 7),
+    )
 
 
 @ac.module
 def BitTransform(  # noqa: N802
-    lhs: ac.u64, rhs: ac.u64, alternate: ac.u64, width: ac.u7,
-    offset: ac.u6, last: ac.u6, operation: ac.u4, request_valid: ac.u1,
+    lhs: ac.u64,
+    rhs: ac.u64,
+    alternate: ac.u64,
+    width: ac.u7,
+    offset: ac.u6,
+    last: ac.u6,
+    operation: ac.u4,
+    request_valid: ac.u1,
 ) -> WordResult:
-    return bit_transform(lhs, rhs, alternate, width, offset, last, operation, request_valid)
+    return bit_transform(
+        lhs, rhs, alternate, width, offset, last, operation, request_valid
+    )

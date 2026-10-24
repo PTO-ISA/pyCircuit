@@ -1,4 +1,5 @@
 """Binary64 separately rounded product; all arithmetic uses captured bits."""
+
 import pycircuit as ac
 from functional_float.fp64_types import FloatWordResponse
 from functional_float.fp64_round import unpack_fp64, round_fp64
@@ -21,11 +22,20 @@ def product_fp64(lhs: ac.u64, rhs: ac.u64, request_valid: ac.u1) -> FloatWordRes
     result: ac.u64 = infinity if any_inf else rounded.result
     result = 9221120237041090560 if any_nan else result
     finite: ac.u1 = ~(any_nan | any_inf)
-    return FloatWordResponse(result=result, valid=request_valid & ~invalid, invalid=invalid,
-        overflow=rounded.overflow & finite, underflow=rounded.underflow & finite,
-        inexact=rounded.inexact & finite, zero=result[:63] == 0, divide_by_zero=0)
+    return FloatWordResponse(
+        result=result,
+        valid=request_valid & ~invalid,
+        invalid=invalid,
+        overflow=rounded.overflow & finite,
+        underflow=rounded.underflow & finite,
+        inexact=rounded.inexact & finite,
+        zero=result[:63] == 0,
+        divide_by_zero=0,
+    )
 
 
 @ac.module
-def FP64Product(lhs: ac.u64, rhs: ac.u64, request_valid: ac.u1) -> FloatWordResponse:  # noqa: N802
+def FP64Product(  # noqa: N802
+    lhs: ac.u64, rhs: ac.u64, request_valid: ac.u1
+) -> FloatWordResponse:
     return product_fp64(lhs, rhs, request_valid)

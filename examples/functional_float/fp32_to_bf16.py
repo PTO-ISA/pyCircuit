@@ -37,15 +37,9 @@ def convert(value: ac.u32, request_valid: ac.u1) -> BF16Response:
     overflow: ac.u1 = overflow_raw & (~(is_inf | is_nan))
     inexact_raw: ac.u1 = value[:16] != 0
     inexact: ac.u1 = (inexact_raw | overflow) & (~(is_zero | is_inf | is_nan))
-    underflow: ac.u1 = (
-        (rounded16[7:15] == 0) & inexact & (~(is_zero | is_inf | is_nan))
-    )
+    underflow: ac.u1 = (rounded16[7:15] == 0) & inexact & (~(is_zero | is_inf | is_nan))
     zero: ac.u1 = (magnitude == 0) & (~(is_nan | is_inf))
-    result: ac.u16 = (
-        qnan
-        if is_nan
-        else (inf if is_inf else rounded16)
-    )
+    result: ac.u16 = qnan if is_nan else (inf if is_inf else rounded16)
     invalid: ac.u1 = request_valid & is_snan
     valid: ac.u1 = request_valid & (~invalid)
     return BF16Response(

@@ -174,7 +174,6 @@ staged rational raw/status matches against both generated targets. See the
 reference's consumer-policy section for the documented ASL differences and
 special-value boundary; no FMA or host-float path supplies these results.
 
-
 `FloatConvert` performs direct RNE conversion among binary32, binary64, FP16 and
 BF16 (all 16 source/destination pairs), preserving signed zero and infinity and
 reporting canonical NaN/IEEE effects. Its shared integer unpack/pack helpers
@@ -183,13 +182,11 @@ raw/status cases on native and RTL, including subnormal ties and direct-rounding
 traps. Build this top with `--only float_convert`; selectors and scope are in the
 [functional numeric reference](../../docs/reference/functional-float-source-units.md).
 
-
 `FloatFused` is a separate binary32/binary64 one-round multiply-add example for
 explicit fused operations. It has 5,508 independent integer/rational native and
 RTL raw/status matches. ProductSum remains separately rounded and does not
 call this top. Use `--only float_fused` and consult the reference above for the
 value/effect contract.
-
 
 `FloatFusedFormat` adds direct one-round FP16/BF16 results while preserving the
 existing two-format FloatFused interface; its independent native/RTL oracle has
@@ -198,19 +195,16 @@ existing two-format FloatFused interface; its independent native/RTL oracle has
 matches. Both are selectable through `build_units.py`. Their algorithms,
 exception behavior and bounded coverage are described in the reference above.
 
-
 `FP19FiniteExpand` is an exact scalar expansion of a finite sign/E8/M10 scale
 format to binary64, including exponent255 as a finite exponent. Native checks
 cover all524,288 payloads;RTL checks cover5,632 directed/random payloads.
 Select `--only fp19_expansion`; the numeric reference explains its distinct
 finite-format contract.
 
-
 `FP32NegativePower` constructs encoded negative binary32 powers with a declared
 quiet-NaN sentinel. Every one of256 codes matches an exact-rational native/RTL
 reference, including normal/subnormal and underflow boundaries. Select
 `--only fp32_negative_power`; arithmetic effects remain with its consumers.
-
 
 The reusable `lowp_decode.LowpDecode` and `lowp_encode.LowpEncode` examples
 provide integer-only E4M3FN (kind0), E5M2 (kind1) and HiF8 (kind2) codecs.
@@ -226,7 +220,6 @@ The independent rational oracle in `tests/system/functional_lowp_oracle.py`
 checks every decode byte and representable values, midpoints with adjacent
 binary32 values, signed boundaries, special values and deterministic random
 encodes. Both generated targets consume the same linked artifact.
-
 
 `e8m0_encode.E8M0Encode` is a separate positive exponent-only scale example.
 Its seven exponent-rounding modes (nearest-even, floor, ceiling, toward-zero,
@@ -254,7 +247,6 @@ Fraction oracle: 1,350 native and 1,350 RTL raw/status matches, including
 subnormals, the full exponent gap and quotient-rounding counterexamples.
 `FP32FloorModulo` keeps its separately documented staged floor policy.
 
-
 `float_to_integer_bits.FloatToIntegerBits` is a separate finite-overflow policy
 from `FloatToInteger`. It accepts raw binary32/binary64, a dynamic width1..64,
 signedness, RNE/RTM/RTP/RTZ/RNA/ROD/RHB (selectors0..6), and saturation selection.
@@ -281,7 +273,6 @@ to the minimum normal: result`0x7e`, NX=1, UF=0. The affected encode-only gate
 has20,348 independent native/RTL raw/status matches. This generic codec's
 post-round tininess policy is separate from an ISA operation that explicitly
 selects a different conversion owner.
-
 
 `float_round_integral.FloatRoundIntegral` composes the public dynamic-width
 integer rounding and integer-to-float providers to round binary32/binary64 to

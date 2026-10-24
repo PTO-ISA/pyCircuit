@@ -1,5 +1,28 @@
 # Reusable functional numeric source units
 
+## Main integration verification
+
+PR322 integrates target main `775d0f68ce40733c8f197b59011373e4e330895b`
+with a history-preserving merge, retaining the existing functional providers
+and the upstream routed-anchor, transaction, availability and sibling-call work.
+The importer uses explicit zero-inline-capacity branch-join storage, retaining
+LLVM22 compatibility. The example catalog, CMake registry and navigation contain
+all22 designs, including this functional System and four sibling examples.
+
+The merged candidate passes the API gate25/25, standard examples gate13/13,
+the functional System plus four sibling Systems5/5, and the focused functional
+source generation/result-effects test1/1. System verification runs native
+workers1/2 and RTL against the same final IR. Python unit checks finish with
+822 passed/4 skipped; required changed-file pre-commit, API hygiene and strict
+documentation checks pass. Formatting required by the existing gate preserves
+all functional-provider/example ASTs. These are focused merge-integration
+results, not a rerun of full nightly numerical or consumer release matrices.
+Compiler tools are incrementally rebuilt using the existing LLVM22.1.8 SDK;
+Verilator5.048 matches the repository's native-tool setup. Remote CI and review
+remain separate observations recorded on the PR.
+
+## Published provider and consumer evidence
+
 Current computational source/test pin: `bc64496534588330e561904ec5c22c9a68e41420`.
 Latest selected-release consumer test: `c389ac0c` (complete 802), with the
 bounded matrix-default repair/follow-up at `3adf2e9f`. The earlier complete
@@ -24,9 +47,9 @@ functions and `@ac.module` providers. These examples use the public
 commands. C++ and Verilog are generated from the same linked artifact. No
 Python design function is executed to calculate DUT results.
 
-The [functional numeric example](../../examples/functional_float/README.md)
+The [functional numeric example](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md)
 contains inspectable algorithm providers and a reproducible
-[`build_units.py`](../../examples/functional_float/build_units.py) driver.
+[`build_units.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/build_units.py) driver.
 They exercise existing compiler and runtime capabilities; they are example
 algorithms, rather than new built-in floating primitives or a complete IEEE
 library. Imports refer to published source-unit interfaces. Link receives the
@@ -35,7 +58,7 @@ complete body closure, including the nominal response types.
 ## Public provider inventory
 
 Each top below is prefixed with `functional_float.`. The source directory is
-[`examples/functional_float`](../../examples/functional_float).
+[`examples/functional_float`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float).
 
 | Source / top suffix | Supported computation |
 | --- | --- |
@@ -47,7 +70,7 @@ Each top below is prefixed with `functional_float.`. The source directory is
 | `float_sqrt.FloatSqrt` | Binary32/binary64 RNE square root from 55 restoring integer-root steps, subnormal and IEEE special-value handling |
 | `float_compare.FloatCompare` | Binary32/binary64 eq/ne/lt/ge, explicit quiet/signaling policy; all comparisons false for NaN |
 | `float_to_integer.FloatToInteger` | Binary32/binary64 to signed/unsigned 8/16/32/64-bit integers; RNE/RTM/RTP/RTZ/nearest-away, saturated invalid endpoints and NV/NX |
-| `float_to_integer_bits.FloatToIntegerBits` | Binary32/binary64 to dynamic signed/unsigned width1..64; seven rounding modes, finite-overflow OF|NX, wrapping or saturation; separate endpoint/NV special policy |
+| `float_to_integer_bits.FloatToIntegerBits` | Binary32/binary64 to dynamic signed/unsigned width1..64; seven rounding modes, finite-overflow OF\|NX, wrapping or saturation; separate endpoint/NV special policy |
 | `float_round_integral.FloatRoundIntegral` | Binary32/binary64 integral-valued rounding, seven explicit policies, signed zero, NaN/Inf and large already-integral values |
 | `packed4_encode.Packed4Encode`, `packed4_decode.Packed4Decode` | Complete16-code E2M1/E1M2 maps, RNE encode, explicit endpoint policy; raw-value codec only |
 | `finite_lowp_cast.FiniteLowpCast` | One-round finite binary64 to E4M3/E5M2/HiF8 within each maximum finite magnitude; RNE plus HiF8 RHB, explicit domain rejection |
@@ -115,8 +138,8 @@ nominal-type declarations.
 ## Verification and limits
 
 The existing nightly API entry includes
-[`test_functional_float_source.py`](../../tests/system/test_functional_float_source.py)
-and [`test_functional_numeric_source.py`](../../tests/system/test_functional_numeric_source.py).
+[`test_functional_float_source.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/tests/system/test_functional_float_source.py)
+and [`test_functional_numeric_source.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/tests/system/test_functional_numeric_source.py).
 They cover compile/link and both emitters; generated native/RTL ProductSum
 exception propagation and separate rounding; 5,852 exact integer/rational
 raw-and-status vectors for binary64 arithmetic, four integer-conversion formats
@@ -224,14 +247,13 @@ The earlier paired experiment used the named floor compatibility sequence.
 The subsequent ASL-led consumer repair selects the separately published RTZ
 provider for floating TREM/TREMS; integer Tile floor remains independent.
 
-
 ## Direct floating format conversion
 
-[`FloatConvert`](../../examples/functional_float/float_convert.py) accepts a raw
+[`FloatConvert`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/float_convert.py) accepts a raw
 64-bit carrier and source/destination selectors: binary32=0, binary64=1,
 binary16=2, bfloat16=3. All 16 pairs perform one RNE step from the original
 significand, including subnormal inputs and post-rounding tininess. The
-[`float_formats.py`](../../examples/functional_float/float_formats.py) helpers
+[`float_formats.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/float_formats.py) helpers
 provide shared unpacking and widened integer packing; an intermediate binary32
 cast is not used for binary64 to either 16-bit destination. NaNs become the
 positive canonical quiet NaN of the destination; signaling NaNs assert NV.
@@ -245,10 +267,9 @@ Generate it with `build_units.py --only float_convert` using the same workflow
 above. This bounded evidence does not establish exhaustive correctly-rounded
 coverage of all floating operations.
 
-
 ## Explicit fused multiply-add
 
-[`FloatFused`](../../examples/functional_float/float_fused.py) computes one-round
+[`FloatFused`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/float_fused.py) computes one-round
 RNE `lhs * rhs + addend` for binary32/binary64, selected by `wide64`. It uses
 an exact widened significand product, normalized alignment with retained sticky
 information, and one final pack. The 5,508 independent integer/rational cases
@@ -261,10 +282,9 @@ operation. `FP32ProductSum` and ordinary matrix consumers continue to execute
 Product-RNE followed by Sum-RNE; neither invokes this provider. No compiler
 fusion of ordinary multiply/add expressions is introduced by this example.
 
-
 ## Four-format fused provider and logarithm approximation
 
-[`FloatFusedFormat`](../../examples/functional_float/float_fused_format.py)
+[`FloatFusedFormat`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/float_fused_format.py)
 extends explicit one-round multiply-add to the same four format selectors as
 FloatConvert. The raw carrier is 64 bits; binary16/bfloat16 results round
 directly to their destination, rather than through binary32. Its exact-integer
@@ -272,10 +292,10 @@ reference checks 11,016 native/RTL raw-and-all-status cases, including all
 earlier binary32/binary64 cases and 16-bit cancellation/subnormal inputs.
 The existing `FloatFused(..., wide64, ...)` interface is preserved.
 
-[`FP32Log`](../../examples/functional_float/fp32_log.py) normalizes the raw
+[`FP32Log`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/fp32_log.py) normalizes the raw
 binary32 significand, applies a 25-term atanh expansion with Q80 fixed-point
 integers, and combines the exponent contribution using a fixed Q80 ln(2).
-[`fp32_log_step.py`](../../examples/functional_float/fp32_log_step.py) holds
+[`fp32_log_step.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/fp32_log_step.py) holds
 the pure repeated step and exact partial-product helper. Both units fit the
 current source evaluator's constant/slot budgets without raising them. The
 independent Decimal100 reference checks 1,043 native/RTL raw/status vectors,
@@ -288,7 +308,6 @@ Generate the selected closures with `build_units.py --only float_fused_format`
 or `--only fp32_log`. These source providers introduce no instruction decoder,
 ELF policy, consumer state or host numerical fallback.
 
-
 ## Binary32 boundary corrections
 
 Equal negative addends retain their common sign (for example -1 + -1 = -2).
@@ -297,10 +316,9 @@ to the minimum normal result asserts NX without UF. Directed native/RTL
 ProductSum cases cover both corrections while retaining two separate rounds
 and the union of stage effects.
 
-
 ## Finite 19-bit parameter format
 
-[`FP19FiniteExpand`](../../examples/functional_float/fp19_expansion.py) expands
+[`FP19FiniteExpand`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/fp19_expansion.py) expands
 a sign/E8/M10 scalar to binary64 exactly. All256 exponent codes are finite,
 including255; code0 includes subnormals and signed zeros. The scalar result
 uses no one-field wrapper or ISA-specific descriptor. This explicit finite
@@ -313,10 +331,9 @@ Use `build_units.py --only fp19_expansion`; the same numeric source test owns
 its compile/link/dual-emit and execution oracle. This exact expansion does not
 certify the surrounding consumer's quantization pipeline.
 
-
 ## Encoded negative binary32 powers
 
-[`FP32NegativePower`](../../examples/functional_float/fp32_negative_power.py)
+[`FP32NegativePower`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/fp32_negative_power.py)
 constructs the raw RNE binary32 value2**(-code) for unsigned codes0..254.
 Code255 selects canonical quiet NaN. Codes127..149 produce subnormals;
 codes150..254 round to zero. The constructor returns a scalar raw word;
@@ -324,7 +341,6 @@ arithmetic status belongs to a subsequent consumer of that encoded scale.
 All256 codes match an independent exact-rational reference on native and RTL.
 Use `build_units.py --only fp32_negative_power`. This numerical convention is
 separate from the finite19 format above and adds no ISA decoding policy.
-
 
 The reusable `lowp_decode.LowpDecode` and `lowp_encode.LowpEncode` examples
 provide integer-only E4M3FN (kind0), E5M2 (kind1) and HiF8 (kind2) codecs.
@@ -340,7 +356,6 @@ The independent rational oracle in `tests/system/functional_lowp_oracle.py`
 checks every decode byte and representable values, midpoints with adjacent
 binary32 values, signed boundaries, special values and deterministic random
 encodes. Both generated targets consume the same linked artifact.
-
 
 `e8m0_encode.E8M0Encode` is a separate positive exponent-only scale example.
 Its seven exponent-rounding modes (nearest-even, floor, ceiling, toward-zero,
@@ -358,7 +373,7 @@ The LowpEncode kind3 selector remains unsupported; use E8M0Encode for scales.
 
 ## Exact RTZ-quotient binary32 remainder
 
-[`FP32TruncModulo`](../../examples/functional_float/fp32_trunc_modulo.py)
+[`FP32TruncModulo`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/fp32_trunc_modulo.py)
 adds a reusable numerical policy separate from `FP32FloorModulo`. Its public
 entry takes `lhs`, `rhs` raw binary32 and `request_valid`, returning
 `FP32Response`. Integer modular exponentiation computes the exact remainder
@@ -383,7 +398,6 @@ reproduction. Compile/link and both emits completed with the existing SDK;
 1,350 independent Fraction vectors matched native and RTL raw/status. No
 compiler, language admission, runtime or public floor algorithm was changed.
 The consumer repository owns which policy is bound to each instruction.
-
 
 ## ASL-led consumer repair evidence
 
@@ -453,23 +467,22 @@ provider at39ff674; no compiler/runtime/API defect was inferred from those
 consumer binding or admission failures. No remote CI success is inferred from
 local oracle or native evidence.
 
-
 ## Concentrated conversion and consumer repair
 
 The additional source examples
-[`float_to_integer_bits.py`](../../examples/functional_float/float_to_integer_bits.py)
-and [`finite_lowp_cast.py`](../../examples/functional_float/finite_lowp_cast.py)
+[`float_to_integer_bits.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/float_to_integer_bits.py)
+and [`finite_lowp_cast.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/finite_lowp_cast.py)
 use the same public source capture, separately compiled provider closure,
 verified final IR, and C++/RTL emission as the inventory above. They add example
 algorithms; the compiler and SDK do not gain hidden floating primitives.
 Their explicit request domains and selector policies are described in the
-[example README](../../examples/functional_float/README.md).
+[example README](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md).
 
 The focused tests live in
-[`test_functional_numeric_source.py`](../../tests/system/test_functional_numeric_source.py),
+[`test_functional_numeric_source.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/tests/system/test_functional_numeric_source.py),
 with independent expectations in
-[`functional_integer_bits_oracle.py`](../../tests/system/functional_integer_bits_oracle.py)
-and [`functional_finite_lowp_oracle.py`](../../tests/system/functional_finite_lowp_oracle.py).
+[`functional_integer_bits_oracle.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/tests/system/functional_integer_bits_oracle.py)
+and [`functional_finite_lowp_oracle.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/tests/system/functional_finite_lowp_oracle.py).
 The new gates initially had2,944 and3,033 native/RTL raw-and-status matches respectively.
 The affected HiF8 encoder regression has20,348 such matches and checks that
 rounding to the minimum normal clears UF while retaining NX. Existing
@@ -486,7 +499,6 @@ public and reusable independently of the private SSM repository. Consumer
 release measurements and their current limits are recorded separately below
 and in the SSM documentation, with access to that repository required.
 
-
 The same public builder now exposes `float_round_integral.FloatRoundIntegral`,
 `packed4_encode.Packed4Encode`, and `packed4_decode.Packed4Decode`; their
 source/helper files are beside the other examples. The first composes numeric
@@ -496,14 +508,13 @@ E2M1/E1M2 value maps with RNE encode and an explicit overflow-endpoint input.
 These are reusable algorithms with declared policies, separate from a
 consumer's Tile packing, opcode, layout, lifetime and rounding admission.
 
-[`functional_round_packed_oracle.py`](../../tests/system/functional_round_packed_oracle.py)
+[`functional_round_packed_oracle.py`](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/tests/system/functional_round_packed_oracle.py)
 provides independent rational expectations. The registered source tests check
 C++ and RTL from the same final artifacts:4,340 integral-rounding,2,448 packed
 encode and64 packed decode result/status cases. The additional RHB selector
 in `FloatToIntegerBits` expands that provider's focused gate to3,392 cases.
 No compiler/runtime SDK rebuild or full IEEE/ISA certification is implied.
-See the [example policy details](../../examples/functional_float/README.md).
-
+See the [example policy details](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md).
 
 ## Concentrated batch result and ownership
 
@@ -550,11 +561,9 @@ Only separately proved release-ELF violations are tracked in
 [SuperNPUBench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235).
 Unmapped output-pointer invocation ownership remains UNKNOWN and is excluded.
 
-
 The concentrated release-ELF-only supplement and exact field/owner evidence
 are [recorded in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6318860003). It covers only
 ops-20261021-newcc; the separate hosted-entry discussion is unchanged.
-
 
 ## Fixed latest Bench release and ASL validation
 
@@ -615,7 +624,6 @@ bounded consumer repair; documented general format/rounding limits remain.
 Old 476/439 (396 matched / 43 failed, original 37 separate) and every 799
 ledger are unchanged. Remote action_required/SKIPPED is not a local-test pass.
 
-
 The fixed-release producer-side observations and corrected GEMV attribution
 are [cross-linked in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6320715013). Only
 proved released-asset violations are attributed there; PYC defects and
@@ -626,8 +634,8 @@ unresolved ownership remain separate.
 `tracked_bit_transform.TrackedBitTransform` consumes the existing BitTransform
 and records a coherent `WordCommitState` (last committed word, count, sticky
 logical rejection) through one Rule. The public
-[example and commands](../../examples/functional_float/README.md#composing-a-response-with-owned-state)
-and [System bench](../../examples/functional_float/tracked_bit_bench.py) cover
+[example and commands](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md#composing-a-response-with-owned-state)
+and [System bench](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/tracked_bit_bench.py) cover
 inactive/invalid requests, hold and status effects, and both canonical BFI
 endpoint shapes. Native workers1/2 and RTL pass8 cycles/16 epochs from the
 same final IR. This is a reusable example model and explicit state policy;
@@ -642,7 +650,6 @@ source/API construction behind Store0, one current-release BFI first
 counterexample and the new feedback's wrapping word. Old476/799/802 results
 are not overwritten. No candidate ASL PR398/399 or hosted engineering ABI is
 silently treated as accepted, and no SDK/general numerical oracle is rerun.
-
 
 The actual released-asset envelope/object-binding evidence is
 [cross-linked in Bench#235](https://github.com/PTO-ISA/SuperNPUBench/issues/235#issuecomment-6368765894). The local compressed-SYS

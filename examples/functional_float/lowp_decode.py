@@ -99,5 +99,7 @@ def decode_lowp(value: ac.u8, kind: ac.u2, request_valid: ac.u1) -> FloatWordRes
 
 
 @ac.module
-def LowpDecode(value: ac.u8, kind: ac.u2, request_valid: ac.u1) -> FloatWordResponse:  # noqa: N802
+def LowpDecode(  # noqa: N802
+    value: ac.u8, kind: ac.u2, request_valid: ac.u1
+) -> FloatWordResponse:
     return decode_lowp(value, kind, request_valid)

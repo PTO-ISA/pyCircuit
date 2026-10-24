@@ -6,9 +6,9 @@ import argparse
 import json
 import random
 import subprocess
+from fractions import Fraction
 from pathlib import Path
 
-from fractions import Fraction
 from functional_numeric_oracle import rounded_ratio
 
 FIELDS = ["result", "valid", "invalid", "overflow", "underflow", "inexact", "zero"]
@@ -16,21 +16,31 @@ FIELDS = ["result", "valid", "invalid", "overflow", "underflow", "inexact", "zer
 
 def finite(raw):
     exponent = (raw >> 23) & 255
-    significand = (raw & 0x7fffff) | ((1 << 23) if exponent else 0)
+    significand = (raw & 0x7FFFFF) | ((1 << 23) if exponent else 0)
     power = (exponent if exponent else 1) - 150
-    value = Fraction(significand << power, 1) if power >= 0 else Fraction(significand, 1 << -power)
+    value = (
+        Fraction(significand << power, 1)
+        if power >= 0
+        else Fraction(significand, 1 << -power)
+    )
     return -value if raw >> 31 else value
 
 
 def reference(a, b):
     def category(raw):
-        exponent, fraction = (raw >> 23) & 255, raw & 0x7fffff
-        return exponent == 255 and bool(fraction), exponent == 255 and not fraction, (raw & 0x7fffffff) == 0, exponent == 255 and bool(fraction) and not (fraction >> 22)
+        exponent, fraction = (raw >> 23) & 255, raw & 0x7FFFFF
+        return (
+            exponent == 255 and bool(fraction),
+            exponent == 255 and not fraction,
+            (raw & 0x7FFFFFFF) == 0,
+            exponent == 255 and bool(fraction) and not (fraction >> 22),
+        )
+
     an, ai, az, sn_a = category(a)
     bn, bi, bz, sn_b = category(b)
     invalid = int(bool(sn_a or sn_b or ai or bz))
     if an or bn or invalid:
-        return [0x7fc00000, 1 - invalid, invalid, 0, 0, 0, 0]
+        return [0x7FC00000, 1 - invalid, invalid, 0, 0, 0, 0]
     if bi or az:
         return [a, 1, 0, 0, 0, 0, int(az)]
     left, right = finite(a), finite(b)
@@ -38,7 +48,9 @@ def reference(a, b):
     remainder = left - int(left / right) * right
     if not remainder:
         return [0, 1, 0, 0, 0, 0, 1]
-    encoded = rounded_ratio(int(remainder < 0), abs(remainder.numerator), remainder.denominator, 0, 8, 23)
+    encoded = rounded_ratio(
+        int(remainder < 0), abs(remainder.numerator), remainder.denominator, 0, 8, 23
+    )
     assert not encoded.inexact
     return [encoded.result, 1, 0, 0, 0, 0, 0]
 
@@ -71,9 +83,11 @@ def main():
         0x7FC00000,
         0x7F800001,
     ]
-    rows = [(a, b) for a in values for b in values] + [(0x3f7fffff, 0x3eaaaaab), (0xbf7fffff, 0x3eaaaaab)] + [
-        (rng.getrandbits(32), rng.getrandbits(32)) for _ in range(1024)
-    ]
+    rows = (
+        [(a, b) for a in values for b in values]
+        + [(0x3F7FFFFF, 0x3EAAAAAB), (0xBF7FFFFF, 0x3EAAAAAB)]
+        + [(rng.getrandbits(32), rng.getrandbits(32)) for _ in range(1024)]
+    )
     wanted = [reference(*row) for row in rows]
     run = subprocess.run(
         [args.runner],

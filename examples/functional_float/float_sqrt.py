@@ -1,4 +1,5 @@
 """Binary32/binary64 RNE square root through a restoring integer square root."""
+
 import pycircuit as ac
 from functional_float.fp32_product import round_pack
 from functional_float.float_sqrt_step import SqrtState, digit_step
@@ -6,7 +7,9 @@ from functional_float.fp64_round import round_fp64
 from functional_float.fp64_types import FloatWordResponse
 
 
-def square_root(value: ac.u64, wide64: ac.u1, request_valid: ac.u1) -> FloatWordResponse:
+def square_root(
+    value: ac.u64, wide64: ac.u1, request_valid: ac.u1
+) -> FloatWordResponse:
     fraction_bits: ac.u6 = 52 if wide64 else 23
     exponent_mask: ac.u64 = 2047 if wide64 else 255
     exponent_raw: ac.u64 = (value >> fraction_bits) & exponent_mask
@@ -54,13 +57,22 @@ def square_root(value: ac.u64, wide64: ac.u1, request_valid: ac.u1) -> FloatWord
     result = sign64 << sign_position if zero else result
     result = qnan if nan | invalid else result
     inexact: ac.u1 = rounded64.inexact if wide64 else rounded32.inexact
-    return FloatWordResponse(result=result, valid=request_valid & ~invalid, invalid=invalid,
-        overflow=0, underflow=0, inexact=inexact & ~special & ~invalid & ~zero,
-        zero=zero, divide_by_zero=0)
+    return FloatWordResponse(
+        result=result,
+        valid=request_valid & ~invalid,
+        invalid=invalid,
+        overflow=0,
+        underflow=0,
+        inexact=inexact & ~special & ~invalid & ~zero,
+        zero=zero,
+        divide_by_zero=0,
+    )
 
 
 @ac.module
 def FloatSqrt(  # noqa: N802
-    value: ac.u64, wide64: ac.u1, request_valid: ac.u1,
+    value: ac.u64,
+    wide64: ac.u1,
+    request_valid: ac.u1,
 ) -> FloatWordResponse:
     return square_root(value, wide64, request_valid)

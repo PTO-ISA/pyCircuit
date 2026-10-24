@@ -5,6 +5,7 @@ product-RNE, then subtract-RNE. It preserves the consumer's zero-divisor result
 of positive zero. It deliberately differs from ASL's truncating remainder and
 from an exact-real modulo evaluated with only one final rounding.
 """
+
 import pycircuit as ac
 from functional_float.fp32_divide import divide_bits
 from functional_float.fp32_product import mul_finite
@@ -39,13 +40,21 @@ def floor_modulo(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1) -> FP32Response
     inexact: ac.u1 = quotient.inexact | product.inexact | result.inexact
     payload: ac.u32 = 0 if zero_divisor else result.result
     invalid = 0 if zero_divisor else invalid
-    return FP32Response(result=payload, valid=request_valid & ~invalid, invalid=invalid,
-        overflow=overflow & ~zero_divisor, underflow=underflow & ~zero_divisor,
-        inexact=inexact & ~zero_divisor, zero=payload[:31] == 0)
+    return FP32Response(
+        result=payload,
+        valid=request_valid & ~invalid,
+        invalid=invalid,
+        overflow=overflow & ~zero_divisor,
+        underflow=underflow & ~zero_divisor,
+        inexact=inexact & ~zero_divisor,
+        zero=payload[:31] == 0,
+    )
 
 
 @ac.module
 def FP32FloorModulo(  # noqa: N802
-    lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1,
+    lhs: ac.u32,
+    rhs: ac.u32,
+    request_valid: ac.u1,
 ) -> FP32Response:
     return floor_modulo(lhs, rhs, request_valid)

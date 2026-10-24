@@ -1,4 +1,5 @@
 """Ordered binary32/binary64 comparisons with explicit IEEE invalid status."""
+
 import pycircuit as ac
 
 
@@ -9,8 +10,14 @@ class FloatCompareResponse:
     valid: ac.u1
 
 
-def compare_float(lhs: ac.u64, rhs: ac.u64, wide64: ac.u1,
-                  operation: ac.u2, signaling: ac.u1, request_valid: ac.u1) -> FloatCompareResponse:
+def compare_float(
+    lhs: ac.u64,
+    rhs: ac.u64,
+    wide64: ac.u1,
+    operation: ac.u2,
+    signaling: ac.u1,
+    request_valid: ac.u1,
+) -> FloatCompareResponse:
     a: ac.u64 = lhs if wide64 else lhs & 4294967295
     b: ac.u64 = rhs if wide64 else rhs & 4294967295
     a_sign: ac.u1 = a[63:64] if wide64 else a[31:32]
@@ -39,12 +46,18 @@ def compare_float(lhs: ac.u64, rhs: ac.u64, wide64: ac.u1,
     any_nan: ac.u1 = a_nan | b_nan
     any_signalling: ac.u1 = (a_nan & ~a_quiet) | (b_nan & ~b_quiet)
     invalid: ac.u1 = (signaling & any_nan) | any_signalling
-    return FloatCompareResponse(result=result & ~any_nan, invalid=invalid,
-                                valid=request_valid)
+    return FloatCompareResponse(
+        result=result & ~any_nan, invalid=invalid, valid=request_valid
+    )
 
 
 @ac.module
 def FloatCompare(  # noqa: N802
-lhs: ac.u64, rhs: ac.u64, wide64: ac.u1,
-                 operation: ac.u2, signaling: ac.u1, request_valid: ac.u1) -> FloatCompareResponse:  # noqa: N802
+    lhs: ac.u64,
+    rhs: ac.u64,
+    wide64: ac.u1,
+    operation: ac.u2,
+    signaling: ac.u1,
+    request_valid: ac.u1,
+) -> FloatCompareResponse:  # noqa: N802
     return compare_float(lhs, rhs, wide64, operation, signaling, request_valid)

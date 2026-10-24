@@ -114,9 +114,7 @@ def convert(value: ac.u32, request_valid: ac.u1) -> FP16Response:
     exp16_16: ac.u16 = exp16
     frac16: ac.u16 = frac10
     sign_field: ac.u16 = sign16 << 15
-    finite_packed: ac.u16 = (
-        sign_field | (exp16_16 << 10) | frac16
-    )
+    finite_packed: ac.u16 = sign_field | (exp16_16 << 10) | frac16
     inf_packed: ac.u16 = sign_field | 0x7C00
     qnan_packed: ac.u16 = sign_field | 0x7E00
     zero_packed: ac.u16 = sign_field
@@ -135,9 +133,7 @@ def convert(value: ac.u32, request_valid: ac.u1) -> FP16Response:
         )
     )
     inexact: ac.u1 = (
-        0
-        if (is_zero | is_nan | is_inf)
-        else (1 if is_subnormal32 else finite_inexact)
+        0 if (is_zero | is_nan | is_inf) else (1 if is_subnormal32 else finite_inexact)
     )
     underflow: ac.u1 = (
         0
@@ -145,8 +141,8 @@ def convert(value: ac.u32, request_valid: ac.u1) -> FP16Response:
         else (1 if is_subnormal32 else finite_underflow)
     )
     overflow: ac.u1 = finite_overflow & (~(is_nan | is_inf))
-    zero: ac.u1 = is_zero | is_subnormal32 | (
-        rounded_zero & (~(is_nan | is_inf | is_zero))
+    zero: ac.u1 = (
+        is_zero | is_subnormal32 | (rounded_zero & (~(is_nan | is_inf | is_zero)))
     )
     invalid: ac.u1 = request_valid & is_snan
     valid: ac.u1 = request_valid & (~invalid)

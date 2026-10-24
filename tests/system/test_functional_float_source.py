@@ -113,31 +113,49 @@ def test_functional_float_source_units_compile_link_and_emit(tmp_path: Path) -> 
         ("divide", "FP32Divide", ("types", "product", "divide")),
     ):
         final = linked / f"{name}.ac"
-        _run("link", *(str(units / unit) for unit in closure),
-             "--top", f"functional_float.{Path(compile_args[closure[-1]][0]).stem}.{top}",
-             "-o", str(final), "--replace", env=env)
+        _run(
+            "link",
+            *(str(units / unit) for unit in closure),
+            "--top",
+            f"functional_float.{Path(compile_args[closure[-1]][0]).stem}.{top}",
+            "-o",
+            str(final),
+            "--replace",
+            env=env,
+        )
         for target in ("cpp", "verilog"):
-            _run("emit", "--target", target, "-o", str(tmp_path / f"{target}_{name}"),
-                 str(final), "--replace", env=env)
+            _run(
+                "emit",
+                "--target",
+                target,
+                "-o",
+                str(tmp_path / f"{target}_{name}"),
+                str(final),
+                "--replace",
+                env=env,
+            )
 
     # Every row independently exposes an exception from the product stage,
     # including a case whose rounded final result is exactly zero (not FMA).
     vectors = [
-        (0x007fffff, 0x3f800001, 0, 0x00800000, 1, 0, 0, 0, 1, 0),
-        (0xbf800000, 0x3f800000, 0xbf800000, 0xc0000000, 1, 0, 0, 0, 0, 0),
-        (0xc0000000, 0x3f800000, 0xc0000000, 0xc0800000, 1, 0, 0, 0, 0, 0),
-        (0x7f800000, 0xc0000000, 0, 0xff800000, 1, 0, 0, 0, 0, 0),
-        (0xff800000, 0xc0000000, 0, 0x7f800000, 1, 0, 0, 0, 0, 0),
-        (0xbf800000, 0x7f800000, 0, 0xff800000, 1, 0, 0, 0, 0, 0),
-        (0x3f800001, 0x3f800001, 0xbf800002, 0, 1, 0, 0, 0, 1, 1),
-        (0x7f800000, 0, 0, 0x7fc00000, 0, 1, 0, 0, 0, 0),
-        (0x7f7fffff, 0x40000000, 0, 0x7f800000, 1, 0, 1, 0, 1, 0),
-        (1, 0x3f000000, 0x3f800000, 0x3f800000, 1, 0, 0, 1, 1, 0),
+        (0x007FFFFF, 0x3F800001, 0, 0x00800000, 1, 0, 0, 0, 1, 0),
+        (0xBF800000, 0x3F800000, 0xBF800000, 0xC0000000, 1, 0, 0, 0, 0, 0),
+        (0xC0000000, 0x3F800000, 0xC0000000, 0xC0800000, 1, 0, 0, 0, 0, 0),
+        (0x7F800000, 0xC0000000, 0, 0xFF800000, 1, 0, 0, 0, 0, 0),
+        (0xFF800000, 0xC0000000, 0, 0x7F800000, 1, 0, 0, 0, 0, 0),
+        (0xBF800000, 0x7F800000, 0, 0xFF800000, 1, 0, 0, 0, 0, 0),
+        (0x3F800001, 0x3F800001, 0xBF800002, 0, 1, 0, 0, 0, 1, 1),
+        (0x7F800000, 0, 0, 0x7FC00000, 0, 1, 0, 0, 0, 0),
+        (0x7F7FFFFF, 0x40000000, 0, 0x7F800000, 1, 0, 1, 0, 1, 0),
+        (1, 0x3F000000, 0x3F800000, 0x3F800000, 1, 0, 0, 1, 1, 0),
     ]
     runtime = Path(os.environ["PYC_TOOLCHAIN_ROOT"])
     driver = tmp_path / "product_sum.cpp"
-    rows = ",\n".join("{" + ",".join(str(x) + "u" for x in row) + "}" for row in vectors)
-    driver.write_text('''
+    rows = ",\n".join(
+        "{" + ",".join(str(x) + "u" for x in row) + "}" for row in vectors
+    )
+    driver.write_text(
+        """
 #include "sources/functional_float/fp32_product_sum.hpp"
 #include <cstdint>
 int main() {
@@ -157,16 +175,33 @@ int main() {
             out.zero.toBool() != row[9]) return 2;
     }
 }
-'''.replace("ROWS", rows), encoding="utf-8")
+""".replace(
+            "ROWS", rows
+        ),
+        encoding="utf-8",
+    )
     binary = tmp_path / "product_sum"
-    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1",
-                    f"-I{tmp_path / 'cpp_product_sum'}", f"-I{runtime / 'include'}",
-                    str(driver), str(runtime / "lib/libpyc6_runtime.a"),
-                    "-pthread", "-o", str(binary)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{tmp_path / 'cpp_product_sum'}",
+            f"-I{runtime / 'include'}",
+            str(driver),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(binary),
+        ],
+        check=True,
+        capture_output=True,
+    )
     subprocess.run([str(binary)], check=True)
 
     quotient_driver = tmp_path / "quotient.cpp"
-    quotient_driver.write_text('''
+    quotient_driver.write_text(
+        """
 #include "sources/functional_float/fp32_divide.hpp"
 int main() {
     functional_float::fp32_divide::FP32Divide dut("quotient");
@@ -179,16 +214,31 @@ int main() {
     return !(out.result.value() == 0xff800000 && out.valid.toBool() &&
              out.divide_by_zero.toBool() && !out.invalid.toBool());
 }
-''', encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     quotient_binary = tmp_path / "quotient"
-    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1",
-                    f"-I{tmp_path / 'cpp_divide'}", f"-I{runtime / 'include'}",
-                    str(quotient_driver), str(runtime / "lib/libpyc6_runtime.a"),
-                    "-pthread", "-o", str(quotient_binary)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{tmp_path / 'cpp_divide'}",
+            f"-I{runtime / 'include'}",
+            str(quotient_driver),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(quotient_binary),
+        ],
+        check=True,
+        capture_output=True,
+    )
     subprocess.run([str(quotient_binary)], check=True)
 
     exp_driver = tmp_path / "exponential.cpp"
-    exp_driver.write_text('''
+    exp_driver.write_text(
+        """
 #include "sources/functional_float/fp32_exp.hpp"
 #include <cstdint>
 int main() {
@@ -204,16 +254,31 @@ int main() {
         if (out.result.value() != row[1] || !out.valid.toBool()) return 2;
     }
 }
-''', encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     exp_binary = tmp_path / "exponential"
-    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1",
-                    f"-I{tmp_path / 'cpp_exp'}", f"-I{runtime / 'include'}",
-                    str(exp_driver), str(runtime / "lib/libpyc6_runtime.a"),
-                    "-pthread", "-o", str(exp_binary)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{tmp_path / 'cpp_exp'}",
+            f"-I{runtime / 'include'}",
+            str(exp_driver),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(exp_binary),
+        ],
+        check=True,
+        capture_output=True,
+    )
     subprocess.run([str(exp_binary)], check=True)
 
     word_driver = tmp_path / "word.cpp"
-    word_driver.write_text('''
+    word_driver.write_text(
+        """
 #include "sources/functional_float/word_arithmetic.hpp"
 #include <cstdint>
 int main() {
@@ -240,12 +305,26 @@ int main() {
         if (!dut.result.isFullyKnown() || dut.result.value().valid.toBool()) return 2;
     }
 }
-''', encoding="utf-8")
+""",
+        encoding="utf-8",
+    )
     word_binary = tmp_path / "word"
-    subprocess.run([os.environ.get("CXX", "c++"), "-std=c++20", "-O1",
-                    f"-I{tmp_path / 'cpp_word_arithmetic'}", f"-I{runtime / 'include'}",
-                    str(word_driver), str(runtime / "lib/libpyc6_runtime.a"),
-                    "-pthread", "-o", str(word_binary)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            os.environ.get("CXX", "c++"),
+            "-std=c++20",
+            "-O1",
+            f"-I{tmp_path / 'cpp_word_arithmetic'}",
+            f"-I{runtime / 'include'}",
+            str(word_driver),
+            str(runtime / "lib/libpyc6_runtime.a"),
+            "-pthread",
+            "-o",
+            str(word_binary),
+        ],
+        check=True,
+        capture_output=True,
+    )
     subprocess.run([str(word_binary)], check=True)
 
     if not (shutil.which("iverilog") and shutil.which("vvp")):
@@ -256,20 +335,48 @@ int main() {
     fields = {field["path"][0]: field for field in output["fields"]}
     samples = []
     for row in vectors:
-        packed = sum(row[index] << fields[name]["low"] for index, name in
-                     enumerate(("result", "valid", "invalid", "overflow",
-                                "underflow", "inexact", "zero"), start=3))
-        samples.append(f"lhs=32'h{row[0]:08x}; rhs=32'h{row[1]:08x}; "
-                       f"acc=32'h{row[2]:08x}; #1; "
-                       f"if (result !== 38'h{packed:x}) $fatal(1, \"flags\");")
+        packed = sum(
+            row[index] << fields[name]["low"]
+            for index, name in enumerate(
+                (
+                    "result",
+                    "valid",
+                    "invalid",
+                    "overflow",
+                    "underflow",
+                    "inexact",
+                    "zero",
+                ),
+                start=3,
+            )
+        )
+        samples.append(
+            f"lhs=32'h{row[0]:08x}; rhs=32'h{row[1]:08x}; "
+            f"acc=32'h{row[2]:08x}; #1; "
+            f'if (result !== 38\'h{packed:x}) $fatal(1, "flags");'
+        )
     tb = tmp_path / "tb.sv"
-    tb.write_text("module tb; reg [31:0] lhs,rhs,acc; wire [37:0] result; "
-                  "pyc_root dut(.lhs(lhs),.rhs(rhs),.acc(acc),.request_valid(1'b1),"
-                  ".result(result)); initial begin " + "\n".join(samples) +
-                  " $finish; end endmodule\n")
+    tb.write_text(
+        "module tb; reg [31:0] lhs,rhs,acc; wire [37:0] result; "
+        "pyc_root dut(.lhs(lhs),.rhs(rhs),.acc(acc),.request_valid(1'b1),"
+        ".result(result)); initial begin "
+        + "\n".join(samples)
+        + " $finish; end endmodule\n"
+    )
     rtl_binary = tmp_path / "rtl"
-    subprocess.run(["iverilog", "-g2012", "-s", "tb", "-o", str(rtl_binary),
-                    str(rtl / "design_top.sv"),
-                    *(str(path) for path in sorted((rtl / "sources").rglob("*.v"))),
-                    str(tb)], check=True, capture_output=True)
+    subprocess.run(
+        [
+            "iverilog",
+            "-g2012",
+            "-s",
+            "tb",
+            "-o",
+            str(rtl_binary),
+            str(rtl / "design_top.sv"),
+            *(str(path) for path in sorted((rtl / "sources").rglob("*.v"))),
+            str(tb),
+        ],
+        check=True,
+        capture_output=True,
+    )
     subprocess.run(["vvp", str(rtl_binary)], check=True, capture_output=True)

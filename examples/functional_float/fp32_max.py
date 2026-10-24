@@ -9,7 +9,9 @@ import pycircuit as ac
 from functional_float.fp32_types import FP32Response
 
 
-def maximum(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1, minimum: ac.u1) -> FP32Response:
+def maximum(
+    lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1, minimum: ac.u1
+) -> FP32Response:
     a_nan: ac.u1 = (lhs[23:31] == 255) & (lhs[:23] != 0)
     b_nan: ac.u1 = (rhs[23:31] == 255) & (rhs[:23] != 0)
     invalid: ac.u1 = (a_nan & ~lhs[22:23]) | (b_nan & ~rhs[22:23])
@@ -29,8 +31,13 @@ def maximum(lhs: ac.u32, rhs: ac.u32, request_valid: ac.u1, minimum: ac.u1) -> F
     result = 2143289344 if a_nan & b_nan else result
     zero: ac.u1 = result[:31] == 0
     return FP32Response(
-        result=result, valid=request_valid, invalid=request_valid & invalid,
-        overflow=0, underflow=0, inexact=0, zero=zero,
+        result=result,
+        valid=request_valid,
+        invalid=request_valid & invalid,
+        overflow=0,
+        underflow=0,
+        inexact=0,
+        zero=zero,
     )
 
 

@@ -424,7 +424,7 @@ its stages. The public compile/link/emit route is unchanged.
 
 ## Stateless numeric provider composition
 
-The [functional numeric examples](../../examples/functional_float/README.md)
+The [functional numeric examples](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md)
 place typed sequential intermediates in ordinary functions and expose a thin
 `@ac.module` entry that returns the complete result/status response. For
 example, `float_round_integral.py` composes independently published integer
@@ -448,7 +448,7 @@ CycleAwareSignal/JIT, structural builders, Agentic Circuit/QueueGraph, `acc.py`,
 
 ## Reusable computation with a stateful consumer
 
-The [functional word-state example](../../examples/functional_float/README.md#composing-a-response-with-owned-state)
+The [functional word-state example](https://github.com/jiale-wangOwO/pyCircuit/blob/codex/functional-source-units/examples/functional_float/README.md#composing-a-response-with-owned-state)
 shows an imported numeric source unit feeding one Rule over module-owned
 variables. The result is a typed snapshot of committed value/count/status;
 it is not the speculative candidate of the current Work. Keep the response's

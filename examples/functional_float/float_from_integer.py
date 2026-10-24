@@ -8,8 +8,9 @@ import pycircuit as ac
 from functional_float.fp64_types import FloatWordResponse
 
 
-def from_integer(value: ac.u64, unsigned_input: ac.u1, format: ac.u2,
-                 request_valid: ac.u1) -> FloatWordResponse:
+def from_integer(
+    value: ac.u64, unsigned_input: ac.u1, format: ac.u2, request_valid: ac.u1
+) -> FloatWordResponse:
     sign: ac.u1 = value[63:64] & ~unsigned_input
     magnitude: ac.u64 = 0 - value if sign else value
     zeros: ac.u7 = ac.count_leading_zeros(magnitude)
@@ -53,13 +54,20 @@ def from_integer(value: ac.u64, unsigned_input: ac.u1, format: ac.u2,
     sign64: ac.u64 = sign
     result: ac.u64 = (sign64 << sign_position) | (exponent64 << precision) | fraction
     result = 0 if magnitude == 0 else result
-    return FloatWordResponse(result=result, valid=request_valid, invalid=0,
-        overflow=overflow, underflow=0, inexact=discarded | overflow,
-        zero=magnitude == 0, divide_by_zero=0)
+    return FloatWordResponse(
+        result=result,
+        valid=request_valid,
+        invalid=0,
+        overflow=overflow,
+        underflow=0,
+        inexact=discarded | overflow,
+        zero=magnitude == 0,
+        divide_by_zero=0,
+    )
 
 
 @ac.module
 def FloatFromInteger(  # noqa: N802
-value: ac.u64, unsigned_input: ac.u1, format: ac.u2,
-                     request_valid: ac.u1) -> FloatWordResponse:  # noqa: N802
+    value: ac.u64, unsigned_input: ac.u1, format: ac.u2, request_valid: ac.u1
+) -> FloatWordResponse:  # noqa: N802
     return from_integer(value, unsigned_input, format, request_valid)

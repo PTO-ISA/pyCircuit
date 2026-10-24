@@ -2,6 +2,7 @@
 
 import pycircuit as ac
 
+
 @ac.struct
 class FP32Response:
     result: ac.u32
