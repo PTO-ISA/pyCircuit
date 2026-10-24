@@ -22,6 +22,7 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Transforms/SourceControlFlow.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceIdentifier.h"
 #include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
@@ -129,6 +130,13 @@ struct Import {
   bool builtin = false;
   BindingCategory category = BindingCategory::Module;
   std::string importedModule;
+};
+// A source selector only. It has no allocation, ports, result or runtime value.
+struct StaticInstanceReference {
+  FlatSymbolRefAttr expectedModule;
+  uint64_t ancestorDepth = 0;
+  SmallVector<StringAttr> childNames;
+  AstNode declaration;
 };
 struct Instance {
   std::string name;
@@ -499,6 +507,9 @@ private:
                llvm::StringMap<SmallVector<Value>> *captures = nullptr);
   LogicalResult scanModules();
   LogicalResult scanSourceCallables();
+  LogicalResult scanStaticInstanceReferences();
+  llvm::StringMap<llvm::StringMap<StaticInstanceReference>> staticInstanceReferences;
+  llvm::DenseSet<DictionaryAttr> staticReferenceAssignments;
   bool intrinsic(const AstNode &node, StringRef name) const;
   FailureOr<StringRef> fourStatePattern(const AstNode &node);
   bool fixedAnnotation(const AstNode &node) const;
@@ -2012,7 +2023,7 @@ LogicalResult Importer::scanImports() {
               MarkerKind::None ||
           fixedBitsAliasWidth(module.getValue(), remote) ||
           (module.getValue() == "pycircuit" &&
-           llvm::is_contained(ArrayRef<StringRef>{"system", "log", "report"},
+           llvm::is_contained(ArrayRef<StringRef>{"system", "log", "report", "instance_ref"},
                               remote))) {
         names[name] = {{},
                        nullptr,
@@ -4785,6 +4796,8 @@ LogicalResult Importer::emitModule(ModuleDecl &decl) {
 
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode stmt = decl.node.item("body", i);
+    if (staticReferenceAssignments.contains(namespaceSite(stmt)))
+      continue;
     if (docstring(stmt))
       continue;
     if (stmt.kind() == "FunctionDef") {
@@ -5954,7 +5967,8 @@ LogicalResult Importer::prepare() {
                  item.second)),
          b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition"))});
   }
-  if (failed(scanModules()) || failed(prepareMemoryBindings()) ||
+  if (failed(scanModules()) || failed(scanStaticInstanceReferences()) ||
+      failed(prepareMemoryBindings()) ||
       failed(inferModuleGraph()))
     return failure();
   (*body)->setAttr(

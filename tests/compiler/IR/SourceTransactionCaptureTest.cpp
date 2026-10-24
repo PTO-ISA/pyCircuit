@@ -14,6 +14,7 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
@@ -4069,6 +4070,209 @@ def Top(index: ac.u1, value: ac.u8) -> ac.u8:
     EXPECT_TRUE(failed(lower(*captured, "bad_nested_global_rule.py")))
         << body.str();
     EXPECT_FALSE(diagnostics.empty()) << body.str();
+  }
+}
+
+constexpr StringLiteral relativeReceiverSource = R"py(import pycircuit as ac
+@ac.module
+def Counter() -> None:
+    count: ac.u8 = 3
+    @ac.method
+    def advance(delta: ac.u8) -> ac.u8:
+        count = count + delta
+        return count
+@ac.module
+def Client(delta: ac.u8) -> ac.u8:
+    peer = ac.instance_ref(Counter, "..", "peer")
+    shared = peer
+    @ac.rule
+    def run() -> ac.u8:
+        saved = peer.advance(delta)
+        return shared.advance(saved)
+    return run()
+@ac.module
+def Top(delta: ac.u8) -> ac.u8:
+    peer = Counter()
+    client = Client(delta)
+    return client
+)py";
+
+TEST_F(SourceTransactionCaptureTest,
+       RelativeReceiverAliasesPublishSchemaThreeWithoutNewAllocations) {
+  auto captured = capture("relative_alias.py", relativeReceiverSource);
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto result = compiler::compilePythonSourceUnit(
+      *captured, owner("relative_alias.py"), *headers, error());
+  ASSERT_TRUE(succeeded(result)) << diagnostics;
+  EXPECT_TRUE(succeeded(compiler::verifyIntrinsicSourceUnitPair(
+      *result->body, *result->interface, error())))
+      << diagnostics;
+  auto allocations = operations<ac::InstanceOp>(*result->body);
+  EXPECT_EQ(allocations.size(), 2u); // Top owns Counter and Client only.
+  EXPECT_EQ(operations<ac::SourceStateOp>(*result->body).size(), 1u);
+  unsigned relativeCalls = 0;
+  ArrayAttr selectedPath;
+  for (auto call : operations<ac::SourceMethodCallOp>(*result->body)) {
+    if (call.getCalleeAttr().getLeafReference().getValue() != "advance")
+      continue;
+    ++relativeCalls;
+    EXPECT_EQ(call->getAttr("receiver_kind"),
+              StringAttr::get(&context, "reference"));
+    EXPECT_EQ(call->getAttr("ancestor_depth"),
+              IntegerAttr::get(IntegerType::get(&context, 64), 1));
+    EXPECT_FALSE(call->hasAttr("ac.reference"));
+    ASSERT_EQ(call.getInstancePath().size(), 1u);
+    EXPECT_EQ(cast<StringAttr>(call.getInstancePath()[0]).getValue(), "peer");
+    if (selectedPath)
+      EXPECT_EQ(selectedPath, call.getInstancePath());
+    selectedPath = call.getInstancePath();
+  }
+  EXPECT_EQ(relativeCalls, 2u);
+  unsigned relativeProviders = 0, legacyProviders = 0;
+  for (auto declaration : result->interface->getOps<ac::ModuleImportOp>()) {
+    auto summary = declaration.getTransactionSummaryAttr();
+    if (!summary)
+      continue;
+    if (declaration.getSymName().ends_with("Client")) {
+      ++relativeProviders;
+      EXPECT_EQ(summary.get("schema"),
+                IntegerAttr::get(IntegerType::get(&context, 64), 3));
+    }
+    if (declaration.getSymName().ends_with("Counter")) {
+      ++legacyProviders;
+      EXPECT_FALSE(summary.get("schema"));
+    }
+  }
+  EXPECT_EQ(relativeProviders, 1u);
+  EXPECT_EQ(legacyProviders, 1u);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       RelativeReceiverBodyAndHeaderMustPublishTheSameSelector) {
+  auto captured = capture("relative_pair.py", relativeReceiverSource);
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(
+      *captured, owner("relative_pair.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  ASSERT_TRUE(succeeded(compiler::verifyIntrinsicSourceUnitPair(
+      *compiled->body, *compiled->interface, error())))
+      << diagnostics;
+  Builder builder(&context);
+  for (bool mutateHeader : {false, true}) {
+    SCOPED_TRACE(mutateHeader);
+    OwningOpRef<ModuleOp> body(cast<ModuleOp>((*compiled->body)->clone()));
+    OwningOpRef<ModuleOp> header(
+        cast<ModuleOp>((*compiled->interface)->clone()));
+    if (mutateHeader) {
+      ac::ModuleImportOp client;
+      for (auto declaration : header->getOps<ac::ModuleImportOp>())
+        if (declaration.getSymName().ends_with("Client"))
+          client = declaration;
+      ASSERT_TRUE(client);
+      auto summary = client.getTransactionSummaryAttr();
+      unsigned index = rowIndex(summary, "methods", "run");
+      auto method =
+          cast<DictionaryAttr>(summary.getAs<ArrayAttr>("methods")[index]);
+      auto effects = method.getAs<ArrayAttr>("body_effects");
+      ASSERT_FALSE(effects.empty());
+      auto call = cast<DictionaryAttr>(effects[0]);
+      ASSERT_EQ(call.getAs<StringAttr>("kind").getValue(), "call");
+      auto receiver = call.getAs<DictionaryAttr>("receiver");
+      call = changed(
+          call, "receiver",
+          changed(receiver, "ancestor_depth", builder.getI64IntegerAttr(0)));
+      method = changedRow(method, "body_effects", 0, call);
+      summary = changedRow(summary, "methods", index, method);
+      client->setAttr("transaction_summary", summary);
+    } else {
+      bool changedCall = false;
+      for (auto call : operations<ac::SourceMethodCallOp>(*body))
+        if (call->hasAttr("receiver_kind") && !changedCall) {
+          call->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+          changedCall = true;
+        }
+      ASSERT_TRUE(changedCall);
+    }
+    diagnostics.clear();
+    ASSERT_TRUE(succeeded(mlir::verify(mutateHeader ? *header : *body)))
+        << diagnostics;
+    EXPECT_TRUE(failed(
+        compiler::verifyIntrinsicSourceUnitPair(*body, *header, error())));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       RelativePublishedContractsCannotReplaceHiddenProviderBodies) {
+  auto captured = capture("relative_hidden.py", relativeReceiverSource);
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(
+      *captured, owner("relative_hidden.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  for (bool removeDefinition : {false, true}) {
+    SCOPED_TRACE(removeDefinition);
+    OwningOpRef<ModuleOp> body(cast<ModuleOp>((*compiled->body)->clone()));
+    ac::ModuleOp counter;
+    for (auto definition : body->getOps<ac::ModuleOp>())
+      if (definition.getSymName().ends_with("Counter"))
+        counter = definition;
+    ASSERT_TRUE(counter);
+    if (removeDefinition) {
+      counter.erase();
+    } else {
+      auto advance = namedMethod(*body, "advance");
+      ASSERT_TRUE(advance);
+      advance.erase();
+    }
+    diagnostics.clear();
+    EXPECT_TRUE(failed(compiler::verifyIntrinsicSourceUnitPair(
+        *body, *compiled->interface, error())));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       RelativeSelectorPlacementUsesAnAdmittedSourceUnitEnvelope) {
+  auto captured = capture("relative_placement.py", relativeReceiverSource);
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(
+      *captured, owner("relative_placement.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  ASSERT_TRUE(
+      succeeded(ac::verifySourceBodyStructure(*compiled->body, error())))
+      << diagnostics;
+  ASSERT_TRUE(succeeded(compiler::verifyIntrinsicSourceUnitPair(
+      *compiled->body, *compiled->interface, error())))
+      << diagnostics;
+  for (StringRef field : {"receiver_kind", "ancestor_depth"}) {
+    SCOPED_TRACE(field.str());
+    OwningOpRef<ModuleOp> body(cast<ModuleOp>((*compiled->body)->clone()));
+    ac::ModuleOp client;
+    for (auto definition : body->getOps<ac::ModuleOp>())
+      if (definition.getSymName().ends_with("Client"))
+        client = definition;
+    ASSERT_TRUE(client);
+    Builder builder(&context);
+    client->setAttr(field, field == "receiver_kind"
+                               ? Attribute(builder.getStringAttr("reference"))
+                               : Attribute(builder.getI64IntegerAttr(0)));
+    // Generic native verification admits discardable attributes. The source
+    // structure owner enforces placement after admitting the valid envelope.
+    diagnostics.clear();
+    ASSERT_TRUE(succeeded(mlir::verify(*body))) << diagnostics;
+    EXPECT_TRUE(failed(ac::verifySourceBodyStructure(*body, error())));
+    EXPECT_NE(
+        diagnostics.find(field.str() + " is invalid on this source operation"),
+        std::string::npos)
+        << diagnostics;
   }
 }
 

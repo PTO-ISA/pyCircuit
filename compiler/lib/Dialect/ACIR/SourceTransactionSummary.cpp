@@ -138,29 +138,35 @@ private:
   bool exhausted = false;
 };
 
-// Old readers require exactly the three legacy top-level fields. Adding this
-// mandatory version field makes new reference/order semantics fail closed there.
-FailureOr<bool> needsReferenceOrderSchema(Operation *module, Attribute value,
+// Old readers require exactly the three legacy top-level fields. Version only
+// summaries that use newer semantics, including relative calls nested in arms.
+FailureOr<unsigned> requiredTransactionSchema(Operation *module, Attribute value,
                                           PublicationBudget &budget,
                                           unsigned depth = 0) {
   if (!budget.depth(depth)) return failure();
-  if (module->hasAttr("ac.reference_parameters")) return true;
-  bool needed = false;
+  unsigned needed = module->hasAttr("ac.reference_parameters") ? 2 : 0;
+  if (auto row = dyn_cast_or_null<DictionaryAttr>(value)) {
+    auto kind = row.getAs<StringAttr>("kind");
+    auto receiver = row.getAs<DictionaryAttr>("receiver");
+    if (kind && kind.getValue() == "call" && receiver &&
+        (receiver.get("receiver_kind") || receiver.get("ancestor_depth")))
+      needed = 3;
+  }
   if (auto row = dyn_cast_or_null<DictionaryAttr>(value))
     for (NamedAttribute field : row) {
       if (!budget.charge()) return failure();
       StringRef name = field.getName().getValue();
       if (name == "callable_after" || name == "reference_bindings" || name == "reference")
-        needed = true;
-      auto child = needsReferenceOrderSchema(module, field.getValue(), budget, depth + 1);
+        needed = std::max(needed, 2u);
+      auto child = requiredTransactionSchema(module, field.getValue(), budget, depth + 1);
       if (failed(child)) return failure();
-      needed |= *child;
+      needed = std::max(needed, *child);
     }
   if (auto values = dyn_cast_or_null<ArrayAttr>(value))
     for (Attribute childValue : values) {
-      auto child = needsReferenceOrderSchema(module, childValue, budget, depth + 1);
+      auto child = requiredTransactionSchema(module, childValue, budget, depth + 1);
       if (failed(child)) return failure();
-      needed |= *child;
+      needed = std::max(needed, *child);
     }
   return needed;
 }
@@ -299,11 +305,11 @@ public:
                          {"methods", array(methods)},
                          {"autonomous", array(autonomous)}});
     if (!summary || invalid || !budget.ok()) return failure();
-    auto newSemantics = needsReferenceOrderSchema(definition, summary, budget);
+    auto newSemantics = requiredTransactionSchema(definition, summary, budget);
     if (failed(newSemantics)) return failure();
     if (*newSemantics) {
       NamedAttrList versioned(summary);
-      versioned.append("schema", builder.getI64IntegerAttr(2));
+      versioned.append("schema", builder.getI64IntegerAttr(*newSemantics));
       summary = versioned.getDictionary(builder.getContext());
     }
     if (!summary || invalid || !budget.ok() ||
@@ -1047,13 +1053,16 @@ public:
     if (failed(exact(legacy.getDictionary(declaration->getContext()),
                      {"owners", "methods", "autonomous"})))
       return failure();
-    auto newSemantics = needsReferenceOrderSchema(declaration, summary, budget);
+    auto newSemantics = requiredTransactionSchema(declaration, summary, budget);
     if (failed(newSemantics)) return failure();
     auto schema = summary.getAs<IntegerAttr>("schema");
     if ((*newSemantics && !schema) ||
-        (summary.get("schema") && (!schema || !schema.getType().isSignlessInteger(64) ||
-                                  schema.getInt() != 2)))
-      return error("reference and callable order semantics require schema = 2 : i64");
+        (summary.get("schema") &&
+         (!schema || !schema.getType().isSignlessInteger(64) ||
+          schema.getInt() != (*newSemantics == 3 ? 3 : 2))))
+      return error(*newSemantics == 3
+          ? "relative receiver calls require schema = 3 : i64"
+          : "reference and callable order semantics require schema = 2 : i64");
     auto owners = summary.getAs<ArrayAttr>("owners");
     auto methods = summary.getAs<ArrayAttr>("methods");
     methodDeclarations = methods;
@@ -1702,6 +1711,7 @@ private:
     if (!kind || kind.getValue() != "call" || call.get("callee") != symbol ||
         call.get("occurrence") != row.get("registration") ||
         call.get("ac.formal_owner_bindings") || !receiver ||
+        receiver.get("receiver_kind") || receiver.get("ancestor_depth") ||
         !receiver.getAs<ArrayAttr>("instance_path").empty() ||
         !pathKind || pathKind.getValue() != "constant" || !pathValue ||
         !pathValue.getValue())
@@ -1894,11 +1904,15 @@ private:
     NamedAttrList concreteReceiver(receiver);
     concreteReceiver.erase("reference");
     auto reference = receiver ? receiver.getAs<StringAttr>("reference") : StringAttr();
+    bool relative = receiver &&
+        (receiver.get("receiver_kind") || receiver.get("ancestor_depth"));
     if (!callee || callee.getRootReference().getValue().empty() ||
         callee.getNestedReferences().size() != 1 || !actuals ||
         (receiver && receiver.get("reference") && !reference) ||
-        failed(detail::verifyOwnerRef(
-            concreteReceiver.getDictionary(declaration->getContext()), [&] { return declaration->emitOpError(); })))
+        (relative ? failed(verifySourceRelativeReceiver(receiver, declaration))
+                  : failed(detail::verifyOwnerRef(
+                        concreteReceiver.getDictionary(declaration->getContext()),
+                        [&] { return declaration->emitOpError(); }))))
       return error("call requires a qualified Module::Method, OwnerRef and "
                    "argument array");
     if (nativeQueue &&
@@ -1909,7 +1923,14 @@ private:
       return failure();
     auto path = receiver.getAs<ArrayAttr>("instance_path");
     std::optional<ArrayAttr> proposals;
-    if (reference) {
+    if (relative) {
+      // A selector is declaration authority only. Actual occurrence selection,
+      // nominal provider and complete signature are checked by link closure.
+      if (nativeQueue)
+        return error("relative Method target requires an ordinary Module provider");
+      for (Attribute actual : actuals)
+        if (failed(value(actual, scope))) return failure();
+    } else if (reference) {
       auto target = resolveSourceReferenceReceiver(declaration, receiver,
           [&](FlatSymbolRefAttr symbol) { return hardware.lookupDefinition(symbol.getValue()); }, declaration);
       if (failed(target) || SymbolTable::getSymbolName(*target) != callee.getRootReference())

@@ -963,7 +963,49 @@ FailureOr<ac::LexicalInstanceId> sourceActualReceiver(
     const ac::TransactionStatePlan &plan, ac::LexicalInstanceId anchor,
     DictionaryAttr receiver, Operation *site, SourceCheckBudget &budget,
     unsigned depth = 0) {
-  if (depth > 128 || !charge(budget, site)) return failure();
+  if (depth > 128 || !receiver || anchor >= plan.instances.size() ||
+      !charge(budget, site)) return failure();
+  if (receiver.get("receiver_kind") || receiver.get("ancestor_depth")) {
+    auto payWorkStorage = [&](Operation *at, uint64_t work, uint64_t bytes) {
+      return success(charge(budget, at, work) &&
+                     charge(budget, at, SourceCheckBudget::bytes(bytes)));
+    };
+    ac::SourceReceiverProofFees fees{{}, {}, payWorkStorage, {}};
+    if (failed(ac::verifySourceRelativeReceiver(receiver, site, &fees)))
+      return failure();
+    auto levels = receiver.getAs<IntegerAttr>("ancestor_depth").getInt();
+    for (int64_t level = 0; level < levels; ++level) {
+      if (!charge(budget, site)) return failure();
+      auto parent = plan.instances[anchor].parent;
+      if (!parent || *parent >= anchor) return failure();
+      anchor = *parent;
+    }
+    for (Attribute name : receiver.getAs<ArrayAttr>("instance_path")) {
+      // Select from the original body first. A producer's chosen target or
+      // occurrence path cannot supply a missing/misnamed source allocation.
+      ac::InstanceOp allocation;
+      auto definition = plan.instances[anchor].definition;
+      for (auto candidate : definition.getBody().front().getOps<ac::InstanceOp>()) {
+        if (!charge(budget, site)) return failure();
+        if (candidate.getInstanceNameAttr() != name) continue;
+        if (allocation) return failure();
+        allocation = candidate;
+      }
+      if (!allocation) return failure();
+      std::optional<ac::LexicalInstanceId> next;
+      for (auto [index, child] : llvm::enumerate(plan.instances)) {
+        if (!charge(budget, site)) return failure();
+        if (child.parent != anchor || child.allocation != allocation) continue;
+        if (next || child.occurrencePath.empty() ||
+            child.occurrencePath[child.occurrencePath.size() - 1] != allocation.getOccurrence())
+          return failure();
+        next = index;
+      }
+      if (!next) return failure();
+      anchor = *next;
+    }
+    return anchor;
+  }
   if (auto formal = receiver.getAs<StringAttr>("reference")) {
     const auto &instance = plan.instances[anchor];
     if (!instance.parent || !instance.allocation) return failure();
@@ -4316,7 +4358,11 @@ public:
     if (prepared.valueAvailability) {
       SmallVector<Value> pending;
       DenseSet<Value> seen;
-      DenseSet<Operation *> reachable;
+      DenseSet<Operation *> reachable, generated;
+      for (Operation *operation : candidate.availabilityOperations) {
+        if (!charge(budget, prepared.original)) return failure();
+        generated.insert(operation);
+      }
       ac::HardwareAnalysis finalHardware(staged);
       for (auto module : finalHardware.getDefinitions()) {
         auto layout = ac::getModulePortLayout(module);
@@ -4361,12 +4407,42 @@ public:
           pending.push_back(require.getPath());
           continue;
         }
-        llvm::append_range(pending, operation->getOperands());
+        if (auto map = dyn_cast<ac::TableMapOp>(operation);
+            map && generated.contains(operation)) {
+          // Every private nested clone is part of the generated inventory,
+          // including predicate-only dependencies and the region terminator.
+          // Payload maps retain their separate exact source-clone proof.
+          SmallVector<Operation *> nested;
+          for (Operation &child : map.getBody().front()) {
+            if (!prepayAppend(budget, prepared.original, nested)) return failure();
+            nested.push_back(&child);
+          }
+          while (!nested.empty()) {
+            Operation *child = nested.pop_back_val();
+            if (!charge(budget, prepared.original)) return failure();
+            reachable.insert(child);
+            for (Value operand : child->getOperands()) {
+              if (!prepayAppend(budget, prepared.original, pending)) return failure();
+              pending.push_back(operand);
+            }
+            if (child->getNumRegions())
+              return reject("generated availability has unsupported nested regions");
+          }
+        }
+        for (Value operand : operation->getOperands()) {
+          if (!prepayAppend(budget, prepared.original, pending)) return failure();
+          pending.push_back(operand);
+        }
       }
       for (auto *operation : candidate.availabilityOperations) {
         if (!operations.contains(operation) || !reachable.contains(operation) ||
-            !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsBinaryOp,
-                 ac::BitsCompareOp, ac::BitsSelectOp>(operation) ||
+            !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
+                 ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
+                 ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
+                 ac::StructGetOp, ac::StructCreateOp, ac::ValueMergeOp,
+                 ac::EnumCreateOp, ac::TableCreateOp, ac::TableSplatOp,
+                 ac::TableViewOp, ac::TableMapOp, ac::TableFoldOp,
+                 ac::YieldOp>(operation) ||
             failed(cover(operation)))
           return reject("original generated availability graph has extra operations");
       }
@@ -6862,6 +6938,29 @@ private:
               resolved->receiver, call, budget);
           if (failed(actualAnchor) || *actualAnchor != calleeFrame.anchor)
             return reject("original bound reference receiver differs");
+          if (call->hasAttr("receiver_kind") || call->hasAttr("ancestor_depth")) {
+            const auto &instance = plan.instances[*actualAnchor];
+            ac::HardwareBindings actualBindings = rootBindings;
+            if (instance.parent) {
+              if (failed(fees.instanceBinding(
+                      plan.instances[*instance.parent].definition,
+                      instance.allocation, instance.definition, call)))
+                return failure();
+              auto bound = hardware.bindInstance(
+                  instance.allocation, plan.instances[*instance.parent].bindings);
+              if (failed(bound)) return failure();
+              actualBindings = std::move(*bound);
+            }
+            auto actualMethod = receiverProof.method(instance.definition,
+                call.getCalleeAttr().getNestedReferences().front().getValue(),
+                call, fees);
+            if (failed(actualMethod) ||
+                failed(ac::verifySourceRelativeMethodBinding(
+                    *resolved, *actualMethod, actualBindings, call, &fees)) ||
+                actualMethod->definition != calleeFrame.method ||
+                !sameBindings(actualBindings, calleeFrame.bindings))
+              return reject("original bound relative Method contract differs");
+          }
           auto receiver = Builder(transaction.getContext()).getDictionaryAttr({
               NamedAttribute(StringAttr::get(transaction.getContext(), "instance_path"),
                              plan.instances[*actualAnchor].occurrencePath)});

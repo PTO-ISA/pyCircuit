@@ -166,14 +166,32 @@ private:
   std::map<mlir::Operation *, Inventory> complete;
 };
 
+/// Closed declaration-relative selector; never an allocation or formal actual.
+mlir::LogicalResult verifySourceRelativeReceiver(
+    mlir::DictionaryAttr receiver, mlir::Operation *diagnosticSite,
+    const SourceReceiverProofFees *fees = nullptr);
+/// Resolve only the nominal public, concrete Method contract. Actual receiver
+/// selection and fresh binding remain the invocation analysis owner's proof.
+mlir::FailureOr<ResolvedSourceMethod> resolveSourceRelativeMethodContract(
+    mlir::Operation *caller, mlir::SymbolRefAttr callee,
+    mlir::DictionaryAttr receiver, SourceModuleLookup lookup,
+    mlir::Operation *diagnosticSite,
+    SourceReceiverProofContext *context = nullptr,
+    const SourceReceiverProofFees *fees = nullptr);
+mlir::LogicalResult verifySourceRelativeMethodBinding(
+    const ResolvedSourceMethod &expected, const SourceMethodView &actual,
+    const HardwareBindings &actualBindings, mlir::Operation *diagnosticSite,
+    const SourceReceiverProofFees *fees = nullptr);
+
 mlir::FailureOr<SourceMethodView>
 lookupSourceMethod(mlir::Operation *module, llvm::StringRef name,
                    mlir::Operation *diagnosticSite);
 mlir::FailureOr<ResolvedSourceMethod>
 resolveSourceMethodCall(SourceMethodCallOp call);
-/// Resolve an actual call under bindings for its lexical caller module.
-/// The lookup is borrowed only for this synchronous resolution. The receiver
-/// occurrence path in the result remains relative to that caller.
+/// Resolve a call under bindings for its lexical caller module. Relative calls
+/// establish only declaration authority, retaining the selector for invocation
+/// analysis. Other receiver paths remain relative to the lexical caller.
+/// The lookup is borrowed only for this synchronous resolution.
 mlir::FailureOr<ResolvedSourceMethod> resolveSourceMethodCall(
     SourceMethodCallOp call, const HardwareBindings &parentBindings,
     SourceModuleLookup lookup, SourceReceiverProofContext *context = nullptr,
@@ -181,7 +199,8 @@ mlir::FailureOr<ResolvedSourceMethod> resolveSourceMethodCall(
 mlir::FailureOr<ResolvedSourceMethod> resolveSourceMethodCall(
     mlir::Operation *callerModule, mlir::DictionaryAttr callRow,
     const HardwareBindings &parentBindings, SourceModuleLookup lookup,
-    mlir::Operation *diagnosticSite);
+    mlir::Operation *diagnosticSite,
+    const SourceReceiverProofFees *fees = nullptr);
 
 /// A source-only transparent registration of a shared Method body. The checked
 /// capture ordinals bind explicit Method inputs; lexical captures remain owned

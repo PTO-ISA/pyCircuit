@@ -9,6 +9,29 @@
           llvm::APSInt::compareValues(llvm::APSInt(lhs->fullyKnown->value.getCanonicalValue()),
                                       llvm::APSInt(rhs->fullyKnown->value.getCanonicalValue())) == 0;
     };
+    auto sameDemandAtom = [&](const HardwareIdentityEndpoint &left,
+                              const HardwareIdentityEndpoint &right) -> FailureOr<bool> {
+      if (same(left, right)) return true;
+      if (failed(step(module, 4))) return failure();
+      auto a = left.value.getDefiningOp<BitsUnaryOp>(),
+           b = right.value.getDefiningOp<BitsUnaryOp>();
+      if (!a || !b || a.getOpcode() != "not" || b.getOpcode() != "not")
+        return false;
+      auto lhs = grantBind(left), rhs = grantBind(right);
+      if (failed(lhs) || failed(rhs)) return failure();
+      // grantInspect verifies the bound unary operation and interns its
+      // normalized operands using exact value, scope, binding and type identity.
+      auto first = grantInspect(*lhs), second = grantInspect(*rhs);
+      if (failed(first) || failed(second)) return failure();
+      if (first->kind != GrantCore::NodeView::Not ||
+          second->kind != GrantCore::NodeView::Not ||
+          first->width != 1 || second->width != 1 ||
+          first->operands.size() != 1 || second->operands.size() != 1)
+        return false;
+      // Retain both NOTs. No recursion or double-NOT/Boolean rewriting can
+      // equate a raw Z selector with its complemented four-state result.
+      return first->operands.front() == second->operands.front();
+    };
     // Four-state absorption: AND-only factors preserve exact X/Z behavior.
     // Boolean implication or NOT expansion is insufficient for pin elision.
     struct DemandFactors {
@@ -75,7 +98,9 @@
             bool present = false;
             for (const auto &candidate : (*current)->atoms) {
               if (failed(step(module))) return failure();
-              present |= same(factor, candidate);
+              auto equal = sameDemandAtom(factor, candidate);
+              if (failed(equal)) return failure();
+              present |= *equal;
             }
             covered &= present;
           }

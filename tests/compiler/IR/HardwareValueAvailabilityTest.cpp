@@ -8,6 +8,7 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "llvm/Support/raw_ostream.h"
 #include "gtest/gtest.h"
+#include <functional>
 #include <utility>
 
 namespace {
@@ -190,7 +191,176 @@ protected:
     package->print(out);
     return text;
   }
+  ac::TableMapOp rowMap(ValueRange tables, ValueRange captures,
+                       TypeRange results,
+                       const std::function<SmallVector<Value>(Block *)> &body) {
+    OpBuilder::InsertionGuard insertion(b);
+    OperationState state(b.getUnknownLoc(), ac::TableMapOp::getOperationName());
+    state.addOperands(tables);
+    state.addOperands(captures);
+    state.addTypes(results);
+    state.addAttribute("shape", b.getArrayAttr({literal(2)}));
+    state.addAttribute("operandSegmentSizes", b.getDenseI32ArrayAttr(
+        {int32_t(tables.size()), int32_t(captures.size())}));
+    state.addRegion();
+    auto map = cast<ac::TableMapOp>(b.create(state));
+    auto *block = new Block;
+    map.getBody().push_back(block);
+    block->addArgument(bits(1), b.getUnknownLoc());
+    for (Value table : tables)
+      block->addArgument(cast<ac::TableType>(table.getType()).getElementType(),
+                        b.getUnknownLoc());
+    for (Value capture : captures)
+      block->addArgument(capture.getType(), b.getUnknownLoc());
+    b.setInsertionPointToEnd(block);
+    auto values = body(block);
+    op(ac::YieldOp::getOperationName(), values, {});
+    return map;
+  }
+  struct RowFixture {
+    ac::TableMapOp data, companion;
+    ac::TableFoldOp folded;
+  };
+  RowFixture rowFixture(bool overwritePartial = false, bool record = false) {
+    build(false);
+    Type element = bits(8);
+    if (record) {
+      b.setInsertionPoint(module);
+      element = ac::StructType::get(&context, b.getStringAttr("Row"));
+      auto field = [&](StringRef name) {
+        return b.getDictionaryAttr({f("name", b.getStringAttr(name)),
+                                    f("type", TypeAttr::get(bits(8)))});
+      };
+      op(ac::StructOp::getOperationName(), {}, {},
+         {f("sym_name", b.getStringAttr("Row")),
+          f("fields", b.getArrayAttr({field("a"), field("b")}))});
+    }
+    b.setInsertionPoint(yield);
+    auto shape = b.getArrayAttr({literal(2)});
+    auto tableType = ac::TableType::get(&context, shape, element);
+    auto validityType = ac::TableType::get(&context, shape, bits(1));
+    auto wrap = [&](Value value) {
+      return record ? op(ac::StructCreateOp::getOperationName(),
+                         {value, constant(13, 8)}, {element})->getResult(0)
+                    : value;
+    };
+    auto base = op(ac::TableCreateOp::getOperationName(),
+                   {wrap(overwritePartial ? payload : constant(7, 8)),
+                    wrap(constant(9, 8))}, {tableType})->getResult(0);
+    auto replacement = overwritePartial ? constant(42, 8) : payload;
+    auto guard = [&](Value ordinal, Value condition) {
+      auto equal = op(ac::BitsCompareOp::getOperationName(),
+                      {ordinal, constant(0)}, {bits(1)},
+                      {f("predicate", b.getStringAttr("eq"))})->getResult(0);
+      return op(ac::BitsBinaryOp::getOperationName(), {equal, condition},
+                {bits(1)}, {f("opcode", b.getStringAttr("and"))})->getResult(0);
+    };
+    auto data = rowMap({base}, {replacement, selected}, {tableType, tableType},
+        [&](Block *block) -> SmallVector<Value> {
+      auto condition = guard(block->getArgument(0), block->getArgument(3));
+      auto path = record ? b.getArrayAttr({b.getStringAttr("a")})
+                         : b.getArrayAttr({});
+      auto merge = op(ac::ValueMergeOp::getOperationName(),
+                      {block->getArgument(1), condition, block->getArgument(2)},
+                      {element, bits(1)},
+                      {f("operandSegmentSizes", b.getDenseI32ArrayAttr({1, 1, 1})),
+                       f("paths", b.getArrayAttr({path}))});
+      return {merge->getResult(0), block->getArgument(1)};
+    });
+    b.setInsertionPoint(yield);
+    auto prior = op(ac::TableCreateOp::getOperationName(),
+                    {overwritePartial ? available : one, one},
+                    {validityType})->getResult(0);
+    auto companion = rowMap({prior},
+        {overwritePartial ? one : available, selected}, {validityType},
+        [&](Block *block) -> SmallVector<Value> {
+      auto condition = guard(block->getArgument(0), block->getArgument(3));
+      return {choose(condition, block->getArgument(2), block->getArgument(1))};
+    });
+    b.setInsertionPoint(yield);
+    auto folded = cast<ac::TableFoldOp>(op(ac::TableFoldOp::getOperationName(),
+        {companion->getResult(0)}, {bits(1)}, {f("kind", b.getStringAttr("and"))}));
+    yield->setOperands(ValueRange{data->getResult(0), data->getResult(1),
+                                  folded.getResult(), overwritePartial ? available : one});
+    module->setAttr("function_type", TypeAttr::get(b.getFunctionType(
+        {bits(8), bits(1), bits(1)}, {tableType, tableType, bits(1), bits(1)})));
+    module->setAttr("output_names", b.getStrArrayAttr(
+        {"changed", "untouched", "changed_available", "untouched_available"}));
+    NamedAttrList layout(module->getAttrOfType<DictionaryAttr>("ac.internal_ports"));
+    layout.set("source_outputs", b.getI64IntegerAttr(2));
+    module->setAttr("ac.internal_ports", layout.getDictionary(&context));
+    module->setAttr("ac.output_validity", b.getArrayAttr(
+        {b.getI64IntegerAttr(2), b.getI64IntegerAttr(3)}));
+    return {data, companion, folded};
+  }
 };
+
+TEST_F(HardwareValueAvailabilityTest,
+       CompactRowsPreserveResultIdentityAndPartialOverwrite) {
+  for (bool partial : {false, true}) {
+    SCOPED_TRACE(partial);
+    rowFixture(partial);
+    ASSERT_TRUE(succeeded(verify(*package)));
+    auto original = printPackage();
+    EXPECT_TRUE(proves()) << diagnostics;
+    EXPECT_TRUE(proves()) << diagnostics;
+    EXPECT_EQ(printPackage(), original);
+  }
+}
+
+TEST_F(HardwareValueAvailabilityTest,
+       CompactRowsRejectWrongFoldResultPredicateAndForcedCompanion) {
+  for (unsigned mutation = 0; mutation < 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto rows = rowFixture();
+    ASSERT_TRUE(proves()) << diagnostics;
+    if (mutation == 0)
+      rows.folded->setAttr("kind", b.getStringAttr("or"));
+    if (mutation == 1)
+      yield->setOperand(0, rows.data->getResult(1));
+    if (mutation == 2) {
+      auto &body = rows.companion.getBody().front();
+      auto compare = *body.getOps<ac::BitsCompareOp>().begin();
+      compare->setAttr("predicate", b.getStringAttr("ne"));
+      // Flip the scalar selection as well: selecting the other row alone does
+      // not change whole-Table availability for this one-partial-row fixture.
+      auto selection = *body.getOps<ac::BitsSelectOp>().begin();
+      selection->setOperands({selection.getCondition(), selection.getFalseValue(),
+                               selection.getTrueValue()});
+    }
+    if (mutation == 3)
+      yield->setOperand(2, one);
+    ASSERT_TRUE(succeeded(verify(*package)));
+    EXPECT_FALSE(proves()) << diagnostics;
+  }
+}
+
+TEST_F(HardwareValueAvailabilityTest,
+       CompactRowsPreserveNominalFieldsAndRejectRetargeting) {
+  auto rows = rowFixture(true, true);
+  ASSERT_TRUE(succeeded(verify(*package)));
+  ASSERT_TRUE(proves()) << diagnostics;
+  auto merge = *rows.data.getBody().front().getOps<ac::ValueMergeOp>().begin();
+  merge->setAttr("paths", b.getArrayAttr({b.getArrayAttr({b.getStringAttr("b")})}));
+  ASSERT_TRUE(succeeded(verify(*package)));
+  EXPECT_FALSE(proves()) << diagnostics;
+}
+
+TEST_F(HardwareValueAvailabilityTest,
+       CompactCompanionCannotAlsoFeedARawRegionPredicate) {
+  auto rows = rowFixture();
+  ASSERT_TRUE(proves()) << diagnostics;
+  auto &body = rows.companion.getBody().front();
+  b.setInsertionPoint(body.getTerminator());
+  // This additional predicate is not an availability transfer. Even an
+  // otherwise correct folded companion cannot authorize the extra use.
+  op(ac::BitsCompareOp::getOperationName(),
+     {body.getArgument(2), constant(0)}, {bits(1)},
+     {f("predicate", b.getStringAttr("eq"))});
+  ASSERT_TRUE(succeeded(verify(*package)));
+  EXPECT_FALSE(proves());
+  EXPECT_NE(diagnostics.find("data use"), std::string::npos) << diagnostics;
+}
 
 TEST_F(HardwareValueAvailabilityTest,
        ValidityOnlyPhysicalSuffixNeedsNoTransactionCompanion) {

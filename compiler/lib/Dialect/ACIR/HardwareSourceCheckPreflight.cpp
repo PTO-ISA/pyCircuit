@@ -7,6 +7,7 @@
 #include "llvm/ADT/ScopeExit.h"
 #include <algorithm>
 #include <memory>
+#include <map>
 
 using namespace mlir;
 namespace acir::ac::detail {
@@ -394,6 +395,20 @@ private:
   // Exact native payAttribute mirror. Raw traversal pays its own work before
   // visiting metadata or allocating its explicit handle stack.
   FailureOr<uint64_t> sampledAttributeCost(Attribute attribute, Operation *site) {
+    // Attributes are immutable for this build. Cache only the completed
+    // measurement; callers still receive its full downstream reservation.
+    bool retain = isa_and_nonnull<ArrayAttr, DictionaryAttr>(attribute);
+    uint64_t lookupCost = 0;
+    const void *key = attribute.getAsOpaquePointer();
+    if (retain) {
+      auto allowance = checkComparisonAllowance(
+          Budget::add(sampledAttributeCosts.size(), 1), site);
+      if (failed(allowance) || failed(budget.debit(*allowance, site)))
+        return failure();
+      lookupCost = *allowance;
+      auto found = sampledAttributeCosts.find(key);
+      if (found != sampledAttributeCosts.end()) return found->second;
+    }
     uint64_t cost = 0;
     auto pay = [&](uint64_t units) -> LogicalResult {
       if (failed(budget.debit(units, site)))
@@ -443,6 +458,13 @@ private:
     while (!pending.empty())
       if (failed(children(pending.pop_back_val())))
         return failure();
+    if (retain) {
+      if (failed(budget.debit(Budget::add(lookupCost,
+              Budget::bytes(sizeof(decltype(sampledAttributeCosts)::value_type) +
+                            4 * sizeof(void *))), site)))
+        return failure();
+      sampledAttributeCosts.emplace(key, cost);
+    }
     return cost;
   }
   FailureOr<uint64_t> sampledSchemaCost(Attribute attribute, Operation *site) {
@@ -1771,6 +1793,7 @@ private:
   llvm::DenseMap<Operation *, SmallVector<uint64_t>> localSamplingIndices;
   NativeSourceCheckScope::Definitions nativeChecks;
   llvm::DenseMap<Operation *, uint64_t> localValidationCost;
+  std::map<const void *, uint64_t> sampledAttributeCosts;
   llvm::DenseSet<Operation *> active;
   SmallVector<std::unique_ptr<BoundDefinition>> nodes;
   SmallVector<std::pair<ModuleOp, HardwareBindings>> catalogScopes;

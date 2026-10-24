@@ -1,6 +1,7 @@
 #include "TransactionValueAvailability.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/IRMapping.h"
 #include "llvm/ADT/ScopeExit.h"
 #include <map>
 #include <set>
@@ -29,6 +30,204 @@ class ValueAvailabilityMaterializer {
   std::set<std::string> active;
   DenseMap<Value, Value> inputAvailability;
   DenseMap<std::pair<Operation *, Value>, Value> ruleCaptures;
+  struct RowFrame {
+    ac::TableMapOp source, companion;
+    IRMapping raw;
+    std::map<std::string, Value> cache, bindings, rows;
+    std::set<std::string> active, activeRows;
+  };
+  RowFrame *rowFrame = nullptr;
+  unsigned rowDepth = 0;
+  std::map<std::string, Value> rowCache;
+  std::set<std::string> rowActive;
+  FailureOr<std::string> keyFor(Value value, ArrayRef<StringAttr> path,
+                                Operation *site) {
+    if (failed(budget.debit(32, site))) return failure();
+    std::string key = std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
+    for (auto field : path) {
+      if (failed(budget.debit(32 + field.getValue().size(), site))) return failure();
+      key += ":" + std::to_string(field.getValue().size()) + ":" + field.getValue().str();
+    }
+    return key;
+  }
+  bool inRow(Value value) {
+    return rowFrame && value.getParentBlock() == &rowFrame->source.getBody().front();
+  }
+  FailureOr<Value> raw(Value value, Operation *site) {
+    if (rowDepth >= 128)
+      return (void)error(site, "row predicate depth exceeds 128"), failure();
+    ++rowDepth;
+    llvm::scope_exit depth([&] { --rowDepth; });
+    if (failed(budget.debit(8, site))) return failure();
+    if (!inRow(value)) return value;
+    if (auto mapped = rowFrame->raw.lookupOrNull(value)) return mapped;
+    auto *op = value.getDefiningOp();
+    if (!op || op->getNumRegions() ||
+        !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
+             ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
+             ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
+             ac::StructGetOp, ac::StructCreateOp, ac::ValueMergeOp,
+             ac::EnumCreateOp>(op))
+      return (void)error(site, "unsupported nested row predicate"), failure();
+    if (failed(budget.debit(8 + op->getNumOperands(), site))) return failure();
+    SmallVector<Value> operands;
+    operands.reserve(op->getNumOperands());
+    for (Value operand : op->getOperands()) {
+      auto mapped = raw(operand, site);
+      if (failed(mapped)) return failure();
+      operands.push_back(*mapped);
+    }
+    auto *copy = create(site, op->getName().getStringRef(), operands,
+                        op->getResultTypes(), op->getAttrs());
+    if (!copy || failed(budget.debit(4 + 2 * op->getNumResults(), site))) return failure();
+    for (auto [before, after] : llvm::zip(op->getResults(), copy->getResults()))
+      rowFrame->raw.map(before, after);
+    return rowFrame->raw.lookup(value);
+  }
+  FailureOr<Value> rowBinding(BlockArgument argument, ArrayRef<StringAttr> path,
+                              Operation *site) {
+    auto paidKey = keyFor(argument, path, site);
+    if (failed(paidKey)) return failure();
+    auto key = std::move(*paidKey);
+    if (failed(budget.debit(8 + key.size(), site))) return failure();
+    if (auto found = rowFrame->bindings.find(key); found != rowFrame->bindings.end())
+      return found->second;
+    unsigned ordinal = argument.getArgNumber();
+    if (!ordinal) return Value();
+    auto source = rowFrame->source;
+    auto companion = rowFrame->companion;
+    bool table = ordinal <= source.getTables().size();
+    auto available = table
+        ? rows(source.getTables()[ordinal - 1], path, companion)
+        : availability(source.getCaptures()[ordinal - 1 - source.getTables().size()], path, companion);
+    if (failed(available)) return failure();
+    if (!*available) {
+      rowFrame->bindings.emplace(std::move(key), Value());
+      return Value();
+    }
+    if (failed(budget.debit(16 + path.size(), site))) return failure();
+    unsigned input = table ? companion.getTables().size() : companion->getNumOperands();
+    companion->insertOperands(input, *available);
+    auto &body = companion.getBody().front();
+    Value bound = body.insertArgument(input + 1,
+        table ? bit : available->getType(), site->getLoc());
+    Builder b(site->getContext());
+    companion->setAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({
+        int32_t(companion.getTables().size() + table),
+        int32_t(companion.getCaptures().size() + !table)}));
+    rowFrame->bindings.emplace(std::move(key), bound);
+    return bound;
+  }
+  FailureOr<Value> rows(Value value, ArrayRef<StringAttr> path, Operation *site) {
+    if (rowDepth >= 128)
+      return (void)error(site, "row availability depth exceeds 128"), failure();
+    ++rowDepth;
+    llvm::scope_exit depth([&] { --rowDepth; });
+    auto paidKey = keyFor(value, path, site);
+    if (failed(paidKey)) return failure();
+    auto key = std::move(*paidKey);
+    if (failed(budget.debit(8 + key.size(), site))) return failure();
+    auto &localRows = inRow(value) ? rowFrame->rows : rowCache;
+    auto &localActive = inRow(value) ? rowFrame->activeRows : rowActive;
+    if (auto found = localRows.find(key); found != localRows.end()) return found->second;
+    if (!localActive.insert(key).second)
+      return (void)error(site, "cyclic row availability"), failure();
+    llvm::scope_exit cleanup([&] { localActive.erase(key); });
+    auto type = cast<ac::TableType>(value.getType());
+    if (failed(budget.debit(16 + 4 * type.getShape().size(), site))) return failure();
+    Type companionType = ac::TableType::get(site->getContext(), type.getShape(), bit);
+    Builder b(site->getContext());
+    Value result;
+    if (auto argument = dyn_cast<BlockArgument>(value);
+        argument && isa<ac::RuleOp>(argument.getOwner()->getParentOp())) {
+      auto rule = cast<ac::RuleOp>(argument.getOwner()->getParentOp());
+      auto module = rule->getParentOfType<ac::ModuleOp>();
+      auto actual = rows(rule.getCaptures()[argument.getArgNumber()], path,
+                         module.getBody().front().getTerminator());
+      if (failed(actual)) return failure();
+      auto bound = capture(rule, *actual, argument.getArgNumber(), site);
+      if (failed(bound)) return failure();
+      result = *bound;
+    } else if (auto splat = value.getDefiningOp<ac::TableSplatOp>()) {
+      auto input = availability(splat.getInput(), path, site);
+      if (failed(input)) return failure();
+      if (!*input) input = one(site);
+      if (failed(input)) return failure();
+      auto *op = create(site, ac::TableSplatOp::getOperationName(), {*input},
+          {companionType}, {b.getNamedAttr("shape", type.getShape())});
+      if (!op) return failure();
+      result = op->getResult(0);
+    } else if (auto values = value.getDefiningOp<ac::TableCreateOp>()) {
+      SmallVector<Value> inputs;
+      for (Value input : values.getInputs()) {
+        auto available = availability(input, path, site);
+        if (failed(available)) return failure();
+        if (!*available) available = one(site);
+        if (failed(available) || failed(budget.debit(2, site))) return failure();
+        inputs.push_back(*available);
+      }
+      auto *op = create(site, ac::TableCreateOp::getOperationName(), inputs, {companionType});
+      if (!op) return failure();
+      result = op->getResult(0);
+    } else if (auto view = value.getDefiningOp<ac::TableViewOp>()) {
+      auto input = rows(view.getInput(), path, site);
+      if (failed(input)) return failure();
+      auto *op = create(site, ac::TableViewOp::getOperationName(), {*input},
+                        {companionType}, view->getAttrs());
+      if (!op) return failure();
+      result = op->getResult(0);
+    } else if (auto map = value.getDefiningOp<ac::TableMapOp>()) {
+      auto *op = create(site, ac::TableMapOp::getOperationName(), map->getOperands(),
+          {companionType}, {b.getNamedAttr("shape", map.getShape()),
+            b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({
+              int32_t(map.getTables().size()), int32_t(map.getCaptures().size())}))}, 1);
+      if (!op || failed(budget.debit(16 + 4 * map.getBody().front().getNumArguments(), site)))
+        return failure();
+      auto *body = new Block;
+      op->getRegion(0).push_back(body);
+      RowFrame frame;
+      frame.source = map;
+      frame.companion = cast<ac::TableMapOp>(op);
+      for (auto argument : map.getBody().front().getArguments())
+        frame.raw.map(argument, body->addArgument(argument.getType(), argument.getLoc()));
+      auto *yield = create(op, ac::YieldOp::getOperationName(), {}, {}, {}, 0, body);
+      if (!yield) return failure();
+      auto *outer = rowFrame;
+      rowFrame = &frame;
+      llvm::scope_exit restore([&] { rowFrame = outer; });
+      auto sourceYield = cast<ac::YieldOp>(map.getBody().front().getTerminator());
+      auto available = availability(sourceYield.getValues()[cast<OpResult>(value).getResultNumber()], path, yield);
+      if (failed(available)) return failure();
+      if (!*available) available = one(yield);
+      if (failed(available)) return failure();
+      yield->setOperands({*available});
+      // Raw rows exist only to clone actual predicates. Do not transport an
+      // unrelated private control through an unused source row/capture.
+      unsigned tables = frame.companion.getTables().size();
+      unsigned captures = frame.companion.getCaptures().size();
+      for (unsigned i = body->getNumArguments(); i-- > 1;) {
+        if (failed(budget.debit(1, site))) return failure();
+        if (!body->getArgument(i).use_empty()) continue;
+        op->eraseOperand(i - 1);
+        body->eraseArgument(i);
+        if (i <= tables) --tables;
+        else --captures;
+      }
+      op->setAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({int32_t(tables), int32_t(captures)}));
+      result = op->getResult(0);
+    } else {
+      auto available = availability(value, path, site);
+      if (failed(available)) return failure();
+      if (!*available) available = one(site);
+      if (failed(available)) return failure();
+      auto *op = create(site, ac::TableSplatOp::getOperationName(), {*available},
+          {companionType}, {b.getNamedAttr("shape", type.getShape())});
+      if (!op) return failure();
+      result = op->getResult(0);
+    }
+    localRows.emplace(std::move(key), result);
+    return result;
+  }
 
   LogicalResult error(Operation *site, StringRef message) {
     return site->emitOpError() << "value availability: " << message;
@@ -49,14 +248,17 @@ class ValueAvailabilityMaterializer {
     return StringAttr::get(module.getContext(), name);
   }
   Operation *create(Operation *site, StringRef name, ValueRange operands,
-                    TypeRange types, ArrayRef<NamedAttribute> attrs = {}) {
+                    TypeRange types, ArrayRef<NamedAttribute> attrs = {},
+                    unsigned regions = 0, Block *block = nullptr) {
     if (failed(budget.debit(16 + operands.size() + attrs.size(), site)))
       return nullptr;
     OpBuilder builder(site);
+    if (block) builder.setInsertionPointToEnd(block);
     OperationState state(site->getLoc(), name);
     state.addOperands(operands);
     state.addTypes(types);
     state.addAttributes(attrs);
+    for (unsigned i = 0; i < regions; ++i) state.addRegion();
     Operation *operation = builder.create(state);
     candidate.availabilityOperations.push_back(operation);
     return operation;
@@ -131,6 +333,15 @@ class ValueAvailabilityMaterializer {
       if (ordinal >= values.getInputs().size()) return Value();
       return availability(values.getInputs()[ordinal], path, site);
     }
+    if (auto map = table.getDefiningOp<ac::TableMapOp>()) {
+      for (Value input : map->getOperands()) {
+        auto available = availability(input, {}, site);
+        if (failed(available)) return failure();
+        if (*available)
+          return (void)error(site, "selected read of a partial TableMap requires exact row availability"), failure();
+      }
+      return Value();
+    }
     return availability(table, path, site);
   }
   FailureOr<Value> tableElement(Value table, Value index,
@@ -174,7 +385,7 @@ class ValueAvailabilityMaterializer {
     if (found != ruleCaptures.end()) return found->second;
     uint64_t ordinal = rule->getNumOperands();
     rule->insertOperands(ordinal, actual);
-    Value argument = rule.getBody().front().addArgument(bit, site->getLoc());
+    Value argument = rule.getBody().front().addArgument(actual.getType(), site->getLoc());
     ruleCaptures.try_emplace(key, argument);
     if (auto record = records.lookup(rule)) record->validityCaptures.push_back({payload, ordinal});
     Builder b(rule.getContext());
@@ -189,6 +400,7 @@ class ValueAvailabilityMaterializer {
   }
   FailureOr<Value> derive(Value value, ArrayRef<StringAttr> path, Operation *site) {
     if (auto argument = dyn_cast<BlockArgument>(value)) {
+      if (inRow(argument)) return rowBinding(argument, path, site);
       if (auto rule = dyn_cast<ac::RuleOp>(argument.getOwner()->getParentOp())) {
         auto module = rule->getParentOfType<ac::ModuleOp>();
         auto result = availability(rule.getCaptures()[argument.getArgNumber()], path,
@@ -209,6 +421,8 @@ class ValueAvailabilityMaterializer {
     }
     Operation *operation = value.getDefiningOp();
     if (!operation) return failure();
+    if (inRow(value) && operation->getNumRegions())
+      return (void)error(site, "availability has unsupported nested row regions"), failure();
     if (isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::EnumCreateOp,
             ac::SourceStateOp>(
             operation))
@@ -265,9 +479,62 @@ class ValueAvailabilityMaterializer {
       auto yes = availability(selected.getTrueValue(), path, site);
       auto no = availability(selected.getFalseValue(), path, site);
       if (failed(condition) || failed(yes) || failed(no)) return failure();
-      auto joined = selection(site, selected.getCondition(), *yes, *no);
+      auto predicate = raw(selected.getCondition(), site);
+      if (failed(predicate)) return failure();
+      auto joined = selection(site, *predicate, *yes, *no);
       if (failed(joined)) return failure();
       return conjunction(site, *condition, *joined);
+    }
+    if (auto merge = dyn_cast<ac::ValueMergeOp>(operation)) {
+      if (cast<OpResult>(value).getResultNumber() == 1)
+        return all(site, merge.getGuards());
+      auto leaves = hardware.getFieldPaths(merge.getBase().getType(), {}, site,
+          [&](uint64_t units, Operation *at) { return budget.debit(units, at); });
+      if (failed(leaves)) return failure();
+      Value result;
+      for (const auto &leaf : *leaves) {
+        if (path.size() > leaf.size() || !std::equal(path.begin(), path.end(), leaf.begin())) continue;
+        auto available = availability(merge.getBase(), leaf, site);
+        if (failed(available)) return failure();
+        for (auto [i, rawPath] : llvm::enumerate(merge.getPaths())) {
+          auto fields = cast<ArrayAttr>(rawPath);
+          if (fields.size() > leaf.size() || !std::equal(fields.begin(), fields.end(), leaf.begin())) continue;
+          auto guard = availability(merge.getGuards()[i], {}, site);
+          auto replacement = availability(merge.getValues()[i], ArrayRef<StringAttr>(leaf).drop_front(fields.size()), site);
+          auto predicate = raw(merge.getGuards()[i], site);
+          if (failed(guard) || failed(replacement) || failed(predicate)) return failure();
+          auto chosen = selection(site, *predicate, *replacement, *available);
+          if (failed(chosen)) return failure();
+          available = conjunction(site, *guard, *chosen);
+          if (failed(available)) return failure();
+        }
+        auto joined = conjunction(site, result, *available);
+        if (failed(joined)) return failure();
+        result = *joined;
+      }
+      return result;
+    }
+    if (auto splat = dyn_cast<ac::TableSplatOp>(operation))
+      return availability(splat.getInput(), path, site);
+    if (auto values = dyn_cast<ac::TableCreateOp>(operation)) {
+      Value result;
+      for (Value input : values.getInputs()) {
+        auto available = availability(input, path, site);
+        if (failed(available)) return failure();
+        auto joined = conjunction(site, result, *available);
+        if (failed(joined)) return failure();
+        result = *joined;
+      }
+      return result;
+    }
+    if (isa<ac::TableMapOp, ac::TableViewOp>(operation)) {
+      auto companion = rows(value, path, site);
+      if (failed(companion)) return failure();
+      Builder b(site->getContext());
+      auto *fold = create(site, ac::TableFoldOp::getOperationName(), {*companion}, {bit},
+          {b.getNamedAttr("kind", b.getStringAttr("and"))});
+      if (!fold) return failure();
+      return fold->getResult(0);
     }
     if (auto get = dyn_cast<ac::TableGetOp>(operation)) {
       auto index = availability(get.getIndex(), {}, site);
@@ -277,8 +544,6 @@ class ValueAvailabilityMaterializer {
       if (failed(selected)) return failure();
       return conjunction(site, *index, *selected);
     }
-    if (auto view = dyn_cast<ac::TableViewOp>(operation))
-      return availability(view.getInput(), path, site);
     if (operation->getNumRegions()) {
       auto inputs = all(site, operation->getOperands());
       if (failed(inputs)) return failure();
@@ -290,14 +555,23 @@ class ValueAvailabilityMaterializer {
   FailureOr<Value> availability(Value value, ArrayRef<StringAttr> path,
                                 Operation *site) {
     if (failed(budget.debit(4 + path.size(), site))) return failure();
-    std::string key = std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
-    for (auto field : path) key += "." + field.getValue().str();
-    if (auto found = cache.find(key); found != cache.end()) return found->second;
-    if (!active.insert(key).second)
+    bool bound = inRow(value);
+    if (bound && rowDepth >= 128)
+      return (void)error(site, "row expression depth exceeds 128"), failure();
+    rowDepth += bound;
+    llvm::scope_exit depth([&] { rowDepth -= bound; });
+    auto paidKey = keyFor(value, path, site);
+    if (failed(paidKey)) return failure();
+    auto key = std::move(*paidKey);
+    if (failed(budget.debit(8 + key.size(), site))) return failure();
+    auto &localCache = inRow(value) ? rowFrame->cache : cache;
+    auto &localActive = inRow(value) ? rowFrame->active : active;
+    if (auto found = localCache.find(key); found != localCache.end()) return found->second;
+    if (!localActive.insert(key).second)
       return (void)error(site, "cyclic required availability"), failure();
-    llvm::scope_exit cleanup([&] { active.erase(key); });
+    llvm::scope_exit cleanup([&] { localActive.erase(key); });
     auto result = derive(value, path, site);
-    if (succeeded(result)) cache.emplace(key, *result);
+    if (succeeded(result)) localCache.emplace(key, *result);
     return result;
   }
 
@@ -361,6 +635,22 @@ class ValueAvailabilityMaterializer {
       if (mapped == old) operationRemaps.push_back(source);
     for (auto [source, value] : remaps) candidate.packageMap.map(source, value);
     for (auto source : operationRemaps) candidate.packageMap.map(source, replacement.operator->());
+    // Pin records are verifier locators outside the SSA use lists. Scan them
+    // once, using the preserved result ordinal to select the replacement.
+    auto remapPinValue = [&](Value &recorded) {
+      auto result = dyn_cast_or_null<OpResult>(recorded);
+      if (result && result.getOwner() == old)
+        recorded = replacement->getResult(result.getResultNumber());
+    };
+    for (auto &pin : candidate.memoryPins) {
+      if (failed(budget.debit(ac::detail::SourceCheckBudget::add(
+              4, pin.selections.size()), old))) return failure();
+      remapPinValue(pin.active);
+      remapPinValue(pin.data);
+      remapPinValue(pin.idle);
+      for (auto &selection : pin.selections)
+        remapPinValue(selection.value);
+    }
     for (auto [ordinal, value] : llvm::enumerate(old.getResults()))
       value.replaceAllUsesWith(replacement->getResult(ordinal));
     old.erase();

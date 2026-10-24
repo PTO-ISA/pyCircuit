@@ -6,6 +6,7 @@ one source with ``pycircuit compile``; execute generated designs via the runtime
 
 __all__ = [
     "module",
+    "instance_ref",
     "rule",
     "method",
     "struct",
@@ -39,6 +40,11 @@ __version__ = "6.1.0"
 def module(declaration):
     """Declare a hardware module in compiler input."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
+
+
+def instance_ref(module, *path):
+    """Refer to a statically selected Module occurrence without allocating it."""
+    raise RuntimeError("pyCircuit references require pycircuit compile")
 
 
 def rule(declaration=None, *, guard=None, after=()):

@@ -3044,5 +3044,279 @@ TEST_F(TransactionStateSSATest,
   EXPECT_NE(plan->queueAccesses[0].frame, plan->queueAccesses[1].frame);
 }
 
+TEST_F(TransactionStateSSATest,
+       RelativeDepthZeroPreservesAllocationAndAliasOwnerIdentity) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root");
+  auto run = transaction(*file);
+  auto calls = run.getBody().front().getOps<SourceMethodCallOp>();
+  auto firstCall = *calls.begin();
+  auto relayCall = *std::next(calls.begin());
+  auto rightCall = *std::next(calls.begin(), 2);
+  // The first call retains direct transport. A relative call to the same
+  // allocation and a relative self-call within it must share its owner.
+  for (auto call :
+       {relayCall, rightCall,
+        first<SourceMethodCallOp>(method(*file, "relay").getBody())}) {
+    call->setAttr("receiver_kind", builder.getStringAttr("reference"));
+    call->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+  }
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->owners.size(), 3u);
+  std::vector<const TransactionCallBinding *> bumps;
+  for (const auto &call : plan->calls)
+    if (plan->frames[call.callee].method == method(*file))
+      bumps.push_back(&call);
+  ASSERT_EQ(bumps.size(), 3u);
+  auto left = plan->frames[bumps[0]->callee].anchor;
+  auto right = plan->frames[bumps[2]->callee].anchor;
+  EXPECT_EQ(left, plan->frames[bumps[1]->callee].anchor);
+  EXPECT_NE(left, right);
+  EXPECT_EQ(plan->instances[left].allocation,
+            *root.getBody().front().getOps<InstanceOp>().begin());
+  EXPECT_EQ(plan->instances[right].allocation,
+            *std::next(root.getBody().front().getOps<InstanceOp>().begin()));
+  EXPECT_EQ(plan->instances[left].bindings.owner, module(*file, "Child"));
+  EXPECT_EQ(plan->instances[right].bindings.owner, module(*file, "Child"));
+  auto leftReads = reads(*plan, bumps[1]->callee);
+  auto rightReads = reads(*plan, bumps[2]->callee);
+  ASSERT_FALSE(leftReads.empty());
+  ASSERT_FALSE(rightReads.empty());
+  EXPECT_EQ(ordinal(*plan, leftReads[0]->version), 1u);
+  EXPECT_EQ(ordinal(*plan, rightReads[0]->version), 0u);
+  EXPECT_NE(leftReads[0]->owner, rightReads[0]->owner);
+  for (const auto &frame : plan->frames) {
+    EXPECT_FALSE(frame.receiver && frame.receiver.get("receiver_kind"));
+    EXPECT_FALSE(frame.receiver && frame.receiver.get("ancestor_depth"));
+  }
+  EXPECT_EQ(firstCall->getAttr("receiver_kind"), mlir::Attribute{});
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeSiblingCallsUseExistingTargetCandidatesAndFreshFrameBindings) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto nested = first<SourceMethodCallOp>(method(*file, "relay").getBody());
+  nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  nested->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+  nested->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("right")}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  std::vector<const TransactionCallBinding *> bumps;
+  for (const auto &call : plan->calls)
+    if (plan->frames[call.callee].method == method(*file))
+      bumps.push_back(&call);
+  ASSERT_EQ(bumps.size(), 3u);
+  const auto &nestedFrame = plan->frames[bumps[1]->callee];
+  ASSERT_TRUE(nestedFrame.parent);
+  auto sourceAnchor = plan->frames[*nestedFrame.parent].anchor;
+  auto targetAnchor = nestedFrame.anchor;
+  EXPECT_NE(sourceAnchor, targetAnchor);
+  EXPECT_EQ(targetAnchor, plan->frames[bumps[2]->callee].anchor);
+  EXPECT_EQ(plan->instances[targetAnchor].occurrencePath,
+            builder.getArrayAttr({occurrence("Root", 2)}));
+  EXPECT_EQ(nestedFrame.bindings.owner, module(*file, "Child"));
+  ASSERT_EQ(nestedFrame.bodyArguments.size(),
+            bumps[1]->arguments.size() + bumps[1]->captures.size());
+  auto firstRightRead = reads(*plan, bumps[1]->callee);
+  auto secondRightRead = reads(*plan, bumps[2]->callee);
+  ASSERT_FALSE(firstRightRead.empty());
+  ASSERT_FALSE(secondRightRead.empty());
+  EXPECT_EQ(firstRightRead[0]->owner, secondRightRead[0]->owner);
+  EXPECT_EQ(ordinal(*plan, firstRightRead[0]->version), 0u);
+  EXPECT_EQ(ordinal(*plan, secondRightRead[0]->version), 1u);
+  EXPECT_EQ(plan->owners[firstRightRead[0]->owner].domain, plan->domain);
+  auto nestedMethod = nestedFrame.method;
+  auto snapshot = nestedMethod.getCaptures()[1]; // committed count capture
+  auto bound = value(*plan, snapshot, targetAnchor, plan->rootFrame);
+  ASSERT_NE(bound, nullptr);
+  EXPECT_EQ(bound->anchor, targetAnchor);
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeAncestorVoidCallRetainsActualAncestorAndReceiverDomain) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root");
+  auto *ancestor = method(*file, "noop")->clone();
+  ancestor->setOperands(first<BitsConstantOp>(root.getBody())->getResults());
+  ancestor->setAttr("sym_name", builder.getStringAttr("ancestor"));
+  ancestor->setAttr("occurrence", occurrence("Root", 20));
+  root.getBody().front().getOperations().insert(
+      transaction(*file)->getIterator(), ancestor);
+  auto relay = method(*file, "relay");
+  auto old = first<SourceMethodCallOp>(relay.getBody());
+  old.getResult(0).replaceAllUsesWith(relay.getBody().front().getArgument(0));
+  builder.setInsertionPoint(old);
+  mlir::OperationState state(old.getLoc(),
+                             SourceMethodCallOp::getOperationName());
+  state.addOperands(old.getPath());
+  state.addAttribute("callee",
+                     mlir::SymbolRefAttr::get(
+                         &context, "Root",
+                         {mlir::FlatSymbolRefAttr::get(&context, "ancestor")}));
+  state.addAttribute("instance_path", builder.getArrayAttr({}));
+  state.addAttribute("receiver_kind", builder.getStringAttr("reference"));
+  state.addAttribute("ancestor_depth", builder.getI64IntegerAttr(1));
+  state.addAttribute("occurrence", old.getOccurrence());
+  auto nested = mlir::cast<SourceMethodCallOp>(builder.create(state));
+  old.erase();
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(transaction(*file));
+  ASSERT_NE(plan, nullptr);
+  auto binding = llvm::find_if(
+      plan->calls, [&](const auto &call) { return call.operation == nested; });
+  ASSERT_NE(binding, plan->calls.end());
+  auto anchor = plan->frames[binding->callee].anchor;
+  EXPECT_EQ(plan->instances[anchor].definition, root);
+  EXPECT_FALSE(plan->instances[anchor].parent);
+  EXPECT_TRUE(plan->instances[anchor].occurrencePath.empty());
+  EXPECT_TRUE(binding->results.empty());
+  // A guard-only receiver still needs the compiler-owned physical domain.
+  root->removeAttr("ac.domain_inputs");
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  reject(*file);
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeAscendThenReturnCannotRebaseAwayTraversedAncestor) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto original = transaction(*file, "watch");
+  auto local = mlir::cast<SourceTransactionOp>(original->clone());
+  local->setAttr("name", builder.getStringAttr("local_watch"));
+  local->setAttr("declaration", occurrence("Child", 20));
+  local->setAttr("occurrence", occurrence("Child", 21));
+  local->setOperands({child.getBody().front().getArgument(2),
+                      child.getBody().front().getArgument(3),
+                      first<BitsConstantOp>(child.getBody()).getResult(),
+                      first<SourceStateOp>(child.getBody()).getQ()});
+  child.getBody().front().getOperations().insert(
+      child.getBody().front().getTerminator()->getIterator(), local);
+  auto read = first<SourceStateReadOp>(local.getBody());
+  read->setAttr("state", builder.getStringAttr("count"));
+  read->setAttr("occurrence", occurrence("Child", 22));
+  auto call = first<SourceMethodCallOp>(local.getBody());
+  call->setAttr("occurrence", occurrence("Child", 23));
+  call->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  call->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+  call->setAttr("instance_path",
+                builder.getArrayAttr({builder.getStringAttr("left")}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  unsigned allocatedPlans = 0;
+  for (const auto &plan : analysis->getPlans()) {
+    if (plan.transaction != local)
+      continue;
+    ++allocatedPlans;
+    EXPECT_EQ(plan.routingModule, module(*file, "Root"));
+    ASSERT_EQ(plan.registrationPath.size(), 1u);
+    ASSERT_EQ(plan.calls.size(), 1u);
+    auto target = plan.frames[plan.calls[0].callee].anchor;
+    EXPECT_EQ(plan.instances[target].occurrencePath,
+              builder.getArrayAttr({occurrence("Root", 1)}));
+    if (plan.registrationPath[0] == occurrence("Root", 1))
+      EXPECT_EQ(target, plan.lexicalAnchor);
+    else
+      EXPECT_NE(target, plan.lexicalAnchor);
+  }
+  EXPECT_EQ(allocatedPlans, 2u);
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeInvalidActualsFailAfterNativeDeclarationVerification) {
+  for (unsigned mutation = 0; mutation != 3; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto nested = first<SourceMethodCallOp>(method(*file, "relay").getBody());
+    nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+    nested->setAttr("ancestor_depth",
+                    builder.getI64IntegerAttr(mutation == 0 ? 2 : 1));
+    nested->setAttr("instance_path",
+                    builder.getArrayAttr({builder.getStringAttr(
+                        mutation == 1 ? "missing" : "right")}));
+    if (mutation == 2) {
+      // A real allocation with the expected physical signature but a distinct
+      // nominal provider cannot satisfy Child::bump's declaration contract.
+      auto child = module(*file, "Child"), root = module(*file, "Root");
+      mlir::OperationState state(child.getLoc(), ModuleOp::getOperationName());
+      state.addAttributes(child->getAttrs());
+      state.attributes.set("sym_name", builder.getStringAttr("Other"));
+      state.addRegion();
+      builder.setInsertionPoint(root);
+      auto other = mlir::cast<ModuleOp>(builder.create(state));
+      auto *block = new mlir::Block;
+      other.getBody().push_back(block);
+      for (auto type : child.getFunctionType().getInputs())
+        block->addArgument(type, other.getLoc());
+      builder.setInsertionPointToEnd(block);
+      mlir::OperationState yield(other.getLoc(), YieldOp::getOperationName());
+      yield.addOperands(block->getArgument(0));
+      builder.create(yield);
+      auto right =
+          *std::next(root.getBody().front().getOps<InstanceOp>().begin());
+      right->setAttr("callee", mlir::FlatSymbolRefAttr::get(&context, "Other"));
+      auto directRight = *std::next(transaction(*file)
+                                        .getBody()
+                                        .front()
+                                        .getOps<SourceMethodCallOp>()
+                                        .begin(),
+                                    2);
+      directRight->setAttr(
+          "instance_path",
+          builder.getArrayAttr({builder.getStringAttr("left")}));
+    }
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    reject(*file);
+  }
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeActualClosureIncludesUncalledMethodDeclarations) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto unused = mlir::cast<SourceMethodOp>(method(*file, "relay")->clone());
+  unused->setAttr("sym_name", builder.getStringAttr("uncalled"));
+  unused->setAttr("occurrence", occurrence("Child", 20));
+  auto parameters = unused->getAttrOfType<mlir::ArrayAttr>("ac.parameters");
+  mlir::NamedAttrList parameter(
+      mlir::cast<mlir::DictionaryAttr>(parameters[0]));
+  parameter.set("origin", occurrence("Child", 20));
+  unused->setAttr("ac.parameters",
+                  builder.getArrayAttr({parameter.getDictionary(&context)}));
+  child.getBody().front().getOperations().insert(
+      child.getBody().front().getTerminator()->getIterator(), unused);
+  auto nested = first<SourceMethodCallOp>(unused.getBody());
+  nested->setAttr("occurrence", occurrence("Child", 21));
+  nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  nested->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+  nested->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("missing")}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  reject(*file);
+}
+
 } // namespace
 } // namespace acir::ac

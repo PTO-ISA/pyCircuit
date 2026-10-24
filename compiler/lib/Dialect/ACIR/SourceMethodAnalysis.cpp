@@ -250,10 +250,17 @@ private:
     auto add = [&](Operation *op, DictionaryAttr row) -> LogicalResult {
       if (!charge(callable.module))
         return failure();
+      auto workStorage = [&](Operation *site, uint64_t units,
+                             uint64_t bytes) -> LogicalResult {
+        return success(charge(site, units) &&
+                       charge(site, bytes / 8 + (bytes % 8 != 0)));
+      };
+      SourceReceiverProofFees fees{{}, {}, workStorage, {}};
       auto resolved =
-          op ? resolveSourceMethodCall(cast<SourceMethodCallOp>(op))
+          op ? resolveSourceMethodCall(cast<SourceMethodCallOp>(op), bindings,
+                                       lookup, nullptr, &fees)
              : resolveSourceMethodCall(callable.module, row, bindings, lookup,
-                                       callable.module);
+                                       callable.module, &fees);
       if (failed(resolved))
         return failure();
       auto symbol = resolved->method.getSymbol();

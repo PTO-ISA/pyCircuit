@@ -56,6 +56,103 @@ def _units(
             '        ac.log("info", "total returned", value)\n'
             "    observe()\n"
         )
+    elif scenario == "mixed-relative":
+        (source / "counter.py").write_text(
+            """import pycircuit as ac
+
+@ac.module
+def Counter():
+    count: ac.u8 = 5
+
+    @ac.method
+    def increment() -> None:
+        count = count + 1
+
+    @ac.method(after=(increment,))
+    def bridge() -> None:
+        pass
+
+    @ac.method(after=(bridge,))
+    def read() -> ac.u8:
+        return count
+
+    @ac.method
+    def old() -> ac.u8:
+        return count
+
+    @ac.method(guard=lambda allow: allow)
+    def require(allow: ac.u1) -> None:
+        pass
+"""
+        )
+        (source / "clients.py").write_text(
+            """import pycircuit as ac
+from checks.counter import Counter
+
+@ac.module
+def Mixed(counter: Counter, allow: ac.u1) -> ac.u8:
+    relative = ac.instance_ref(Counter, "..", "counter")
+    alias = relative
+    progress: ac.u8 = 0
+
+    @ac.rule
+    def act() -> ac.u8:
+        saved = counter.old()
+        alias.increment()
+        forwarded = counter.read()
+        progress = progress + 1
+        alias.require(allow)
+        assert forwarded == saved + 1, "mixed receiver candidate"
+        ac.log("info", "mixed candidate", saved, forwarded, progress)
+        return forwarded
+
+    result = act()
+
+    @ac.rule
+    def observe_progress() -> None:
+        ac.log("info", "mixed progress", progress)
+
+    observe_progress()
+    return result
+"""
+        )
+        (source / "bench.py").write_text(
+            """import pycircuit as ac
+from checks.counter import Counter
+from checks.clients import Mixed
+
+@ac.module
+def Parent(allow: ac.u1):
+    counter = Counter()
+    value = Mixed(counter, allow)
+
+    @ac.rule
+    def observe_returned() -> None:
+        ac.log("info", "mixed returned", value)
+
+    @ac.rule
+    def observe_state() -> None:
+        entry = counter.old()
+        ordered = counter.read()
+        ac.log("info", "mixed state", entry, ordered)
+
+    observe_returned()
+    observe_state()
+
+@ac.system
+def ExerciseSiblings():
+    phase: ac.u4 = 0
+    left = Parent(phase != 1)
+    right = Parent(phase == 1)
+
+    @ac.rule
+    def advance() -> None:
+        assert phase < 4, "mixed system limit"
+        phase = phase + 1
+
+    advance()
+"""
+        )
     elif scenario == "methods":
         path = source / "counter.py"
         text = path.read_text().replace("@ac.rule(", "@ac.method(")
@@ -385,6 +482,86 @@ def test_sibling_calls_forward_atomic_candidates_and_keep_instance_identity(
                 assert "check failed at epoch 8" in failed.stdout + failed.stderr
     assert transcripts[0] == transcripts[1] == transcripts[2]
     assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+
+
+def test_mixed_formal_relative_receivers_keep_order_guards_returns_and_instances(
+    tmp_path,
+):
+    # _final hides provider bodies during consumer compile, removes source and
+    # units, relocates the saved anchor, then reloads the same complete closure.
+    final = _final(tmp_path, saved=True, scenario="mixed-relative")
+    original = final.read_bytes()
+    # Each cycle has low/high evaluations, then one rising-edge commit. The late
+    # require disables the complete act, including progress.
+    # Left accepts phases 0/2/3; right accepts only phase 1. Both Parent instances
+    # share declarations while retaining their own Counter and Mixed state.
+    # The increment -> bridge -> read chain, including the uncalled bridge,
+    # orders the entire state observer after act. Its earlier old() call uses
+    # that ordered entry; the separate progress observer still reads old Q.
+    expected = {
+        "left": {
+            "mixed state": [(6, 6), (6, 6), (7, 7), (8, 8)],
+            "mixed progress": [(0,), (1,), (1,), (2,)],
+            "mixed candidate": [(5, 6, 1), (6, 7, 2), (7, 8, 3)],
+            "mixed returned": [(6,), (7,), (8,)],
+        },
+        "right": {
+            "mixed state": [(5, 5), (6, 6), (6, 6), (6, 6)],
+            "mixed progress": [(0,), (0,), (1,), (1,)],
+            "mixed candidate": [(5, 6, 1)],
+            "mixed returned": [(6,)],
+        },
+    }
+    active_epochs = {"left": [0, 1, 4, 5, 6, 7], "right": [2, 3]}
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        root = tmp_path / target
+        root.mkdir()
+        binary = _bundle(final, root, target)
+        if target == "verilog":
+            cache = (root / "build-verilog/CMakeCache.txt").read_text()
+            assert "iverilog" in cache.lower()
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "4", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=4"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            for side, events in expected.items():
+                branch = [row for row in rows if side in row.get("instance", "")]
+                for event, values in events.items():
+                    assert _values(branch, event) == [
+                        value for value in values for _ in range(2)
+                    ], (target, workers, side, event, rows)
+                    epochs = (
+                        active_epochs[side]
+                        if event in ("mixed candidate", "mixed returned")
+                        else list(range(8))
+                    )
+                    assert [
+                        int(row["evaluation_epoch"]) for row in _events(branch, event)
+                    ] == epochs
+            transcript = [row for row in rows if row["kind"] != "result"]
+            assert len([row for row in rows if row["kind"] == "log"]) == 48
+            transcripts.append(transcript)
+            arguments = (
+                ["--cycles", "5", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=5"]
+            )
+            failed = _run([str(binary), *arguments], timeout=30)
+            assert failed.returncode != 0, failed.stdout + failed.stderr
+            failed_rows = _records(failed.stdout)
+            assert [row for row in failed_rows if row["kind"] != "result"] == transcript
+            terminal = [row for row in failed_rows if row["kind"] == "result"]
+            if terminal:
+                assert len(terminal) == 1 and terminal[0]["status"] == "FAILED"
+                assert int(terminal[0]["epoch_time"]) == 8
+            else:
+                assert "check failed at epoch 8" in failed.stdout + failed.stderr
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert final.read_bytes() == original
 
 
 def test_total_lifted_return_survives_saved_reload_without_dynamic_availability(

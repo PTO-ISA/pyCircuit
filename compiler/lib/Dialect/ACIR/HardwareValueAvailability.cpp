@@ -2,14 +2,17 @@
 #include "HardwareQueueResources.h"
 #include "HardwareSourceChecks.h"
 #include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SmallString.h"
 #include <map>
 #include <set>
 
 using namespace mlir;
 namespace acir::ac::detail {
 namespace {
-// Canonicalize only identities that hold for four-state bits. In particular,
-// neither a | ~a nor an unknown condition is converted to a known Boolean.
+// Availability proof preserves three statuses: known zero, known one, and
+// unknown (X/Z). These identities do not assert raw four-state SSA equality or
+// rewrite hardware predicates. Neither a | ~a nor an unknown condition becomes
+// a known Boolean.
 class AvailabilityProof {
   const HardwareAnalysis &analysis;
   std::function<LogicalResult(uint64_t, Operation *)> debit;
@@ -30,6 +33,247 @@ class AvailabilityProof {
   std::map<std::string, Expr> availabilityCache;
   std::set<std::string> active;
   bool invalid = false;
+  struct RowFrame {
+    TableMapOp map;
+    Expr ordinal;
+    DenseMap<Value, Expr> raw, formulas;
+    std::map<std::string, Expr> available, rows, rawRows, rowFormulas;
+    std::set<std::string> active, activeRows, activeRawRows, activeRowFormulas;
+  };
+  RowFrame *rowFrame = nullptr;
+  unsigned rowDepth = 0;
+  std::map<std::string, Expr> rowCache, rawRowCache, formulaRowCache;
+  std::set<std::string> rowActive, rawRowActive, formulaRowActive;
+  bool inRow(Value value) {
+    return rowFrame && value.getParentBlock() == &rowFrame->map.getBody().front();
+  }
+  std::string valueKey(Value value, ArrayRef<StringAttr> path = {}) {
+    Operation *site = value.getParentBlock()->getParentOp();
+    if (!charge(32, site)) return "invalid";
+    std::string key = std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
+    for (auto field : path) {
+      if (!charge(32 + field.getValue().size(), site)) return "invalid";
+      key += ":" + std::to_string(field.getValue().size()) + ":" + field.getValue().str();
+    }
+    return key;
+  }
+  std::string attributeKey(Attribute attr, unsigned depth = 0) {
+    Operation *site = analysis.getPackage();
+    if (!charge(8, site)) return "invalid";
+    if (depth > 128) {
+      reject(site, "row predicate attribute depth exceeds 128");
+      return "invalid";
+    }
+    if (auto expression = dyn_cast<StaticExprAttr>(attr)) {
+      // Bound and prepay the evaluator's complete input before invoking it.
+      // The temporary key is private and carries no semantic authority.
+      (void)attributeKey(expression.getTree(), depth + 1);
+      if (invalid) return "invalid";
+      auto evaluated = analysis.evaluateStatic(expression, {}, site);
+      if (failed(evaluated)) { invalid = true; return "invalid"; }
+      return attributeKey(*evaluated, depth + 1);
+    }
+    if (auto array = dyn_cast<ArrayAttr>(attr)) {
+      if (!charge(8 + array.size(), site)) return "invalid";
+      std::string key = "array";
+      for (Attribute element : array) {
+        auto nested = attributeKey(element, depth + 1);
+        if (invalid || !charge(32 + nested.size(), site)) return "invalid";
+        key += ":" + std::to_string(nested.size()) + ":" + nested;
+      }
+      return key;
+    }
+    if (auto dictionary = dyn_cast<DictionaryAttr>(attr)) {
+      if (!charge(16 + dictionary.size(), site)) return "invalid";
+      std::string key = "dictionary";
+      for (NamedAttribute element : dictionary) {
+        StringRef name = element.getName().strref();
+        if (!charge(32 + name.size(), site)) return "invalid";
+        auto nested = attributeKey(element.getValue(), depth + 1);
+        if (invalid || !charge(32 + nested.size(), site)) return "invalid";
+        key += ":" + std::to_string(name.size()) + ":" + name.str() +
+               ":" + std::to_string(nested.size()) + ":" + nested;
+      }
+      return key;
+    }
+    if (auto text = dyn_cast<StringAttr>(attr)) {
+      if (!charge(8 + text.getValue().size(), site)) return "invalid";
+      return "string:" + text.getValue().str();
+    }
+    if (auto integer = dyn_cast<MathIntAttr>(attr)) {
+      if (!charge(8 + integer.getCanonicalValue().size(), site)) return "invalid";
+      return "math:" + integer.getCanonicalValue().str();
+    }
+    if (auto integer = dyn_cast<IntegerAttr>(attr)) {
+      if (!charge(64 + integer.getValue().getBitWidth(), site)) return "invalid";
+      llvm::SmallString<32> text;
+      integer.getValue().toString(text, 10, false);
+      std::string type = isa<IndexType>(integer.getType()) ? "index" :
+          std::to_string(unsigned(cast<IntegerType>(integer.getType()).getSignedness()));
+      return "integer:" + type + ":" + std::to_string(integer.getValue().getBitWidth()) + ":" + text.str().str();
+    }
+    if (auto values = dyn_cast<DenseI32ArrayAttr>(attr)) {
+      if (!charge(16 + 32 * uint64_t(values.size()), site)) return "invalid";
+      std::string key = "i32-array";
+      for (int32_t value : values.asArrayRef()) key += ":" + std::to_string(value);
+      return key;
+    }
+    if (isa<UnitAttr>(attr)) return "unit";
+    if (auto symbol = dyn_cast<FlatSymbolRefAttr>(attr)) {
+      if (!charge(8 + symbol.getValue().size(), site)) return "invalid";
+      return "symbol:" + symbol.getValue().str();
+    }
+    reject(site, "unsupported row predicate semantic attribute");
+    return "invalid";
+  }
+  std::string typeKey(Type type, Operation *site) {
+    if (auto table = dyn_cast<TableType>(type)) {
+      return "table" + shapeKey(table, site) + ":" + typeKey(table.getElementType(), site);
+    }
+    if (auto bits = dyn_cast<BitsType>(type)) {
+      (void)attributeKey(bits.getWidth());
+      if (invalid) return "invalid";
+      auto width = analysis.getPackedWidth(type, {}, site);
+      if (failed(width)) { invalid = true; return "invalid"; }
+      return "bits:" + std::to_string(*width);
+    }
+    if (auto structure = dyn_cast<StructType>(type)) return "struct:" + attributeKey(structure.getName());
+    if (auto enumeration = dyn_cast<EnumType>(type)) return "enum:" + attributeKey(enumeration.getName());
+    reject(site, "unsupported row predicate hardware type");
+    return "invalid";
+  }
+  std::string shapeKey(TableType type, Operation *site) {
+    if (!charge(16 + 32 * uint64_t(type.getShape().size()), site)) return "invalid";
+    (void)attributeKey(type.getShape());
+    if (invalid) return "invalid";
+    auto shape = analysis.getTableShape(type, {}, site);
+    if (failed(shape)) { invalid = true; return "invalid"; }
+    std::string key;
+    for (auto extent : *shape) key += ":" + std::to_string(extent);
+    return key;
+  }
+  Expr rowDomain(TableType type, Operation *site) {
+    return node("ordinal" + shapeKey(type, site));
+  }
+  Expr viewDomain(TableViewOp view, Expr ordinal) {
+    return node("view:" + view.getKind().str() + ":" +
+        attributeKey(view.getParameters()) + shapeKey(view.getInput().getType(), view) +
+        ":to" + shapeKey(view.getResult().getType(), view), {ordinal});
+  }
+  Expr rawExpression(Value value) {
+    if (rowDepth >= 128) return reject(value.getParentBlock()->getParentOp(), "row predicate depth exceeds 128");
+    ++rowDepth;
+    llvm::scope_exit depth([&] { --rowDepth; });
+    if (!charge(8, value.getParentBlock()->getParentOp())) return 0;
+    value = wire(value);
+    if (!inRow(value)) return node("raw:" + valueKey(value) + ":" +
+        typeKey(value.getType(), value.getParentBlock()->getParentOp()));
+    if (auto found = rowFrame->raw.find(value); found != rowFrame->raw.end()) return found->second;
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      unsigned ordinal = argument.getArgNumber();
+      Expr result;
+      if (!ordinal) result = node("row-ordinal:" + typeKey(value.getType(), rowFrame->map), {rowFrame->ordinal});
+      else if (ordinal <= rowFrame->map.getTables().size())
+        result = rowValue(rowFrame->map.getTables()[ordinal - 1], rowFrame->ordinal, false);
+      else result = rawExpression(rowFrame->map.getCaptures()[ordinal - 1 - rowFrame->map.getTables().size()]);
+      rowFrame->raw.try_emplace(value, result);
+      return result;
+    }
+    auto *op = value.getDefiningOp();
+    if (!op || op->getNumRegions()) return reject(op ? op : rowFrame->map.getOperation(), "unsupported nested row predicate");
+    if (!charge(32 + op->getNumOperands() + op->getAttrs().size(), op)) return 0;
+    SmallVector<Expr> operands;
+    operands.reserve(op->getNumOperands());
+    for (Value operand : op->getOperands()) operands.push_back(rawExpression(operand));
+    std::string key = "row-op:" + op->getName().getStringRef().str() + ":" +
+        std::to_string(cast<OpResult>(value).getResultNumber()) + ":" + typeKey(value.getType(), op);
+    for (NamedAttribute attr : op->getAttrs()) {
+      StringRef name = attr.getName().strref();
+      if (!charge(32 + name.size(), op)) return 0;
+      auto semantic = attributeKey(attr.getValue());
+      if (invalid || !charge(16 + semantic.size(), op)) return 0;
+      key += ":" + name.str() + ":" + semantic;
+    }
+    Expr result = node(key, operands);
+    rowFrame->raw.try_emplace(value, result);
+    return result;
+  }
+  Expr rowValue(Value table, Expr ordinal, unsigned mode,
+                ArrayRef<StringAttr> path = {}) {
+    if (rowDepth >= 128) return reject(table.getParentBlock()->getParentOp(), "symbolic row depth exceeds 128");
+    ++rowDepth;
+    llvm::scope_exit depth([&] { --rowDepth; });
+    table = wire(table);
+    auto key = valueKey(table, path) + ":" + std::to_string(ordinal);
+    if (!charge(8 + key.size(), table.getParentBlock()->getParentOp())) return 0;
+    bool bound = inRow(table);
+    auto &cache = bound
+        ? (mode == 1 ? rowFrame->rows : mode == 2 ? rowFrame->rowFormulas : rowFrame->rawRows)
+        : (mode == 1 ? rowCache : mode == 2 ? formulaRowCache : rawRowCache);
+    auto &activeRows = bound
+        ? (mode == 1 ? rowFrame->activeRows : mode == 2 ? rowFrame->activeRowFormulas : rowFrame->activeRawRows)
+        : (mode == 1 ? rowActive : mode == 2 ? formulaRowActive : rawRowActive);
+    if (auto found = cache.find(key); found != cache.end()) return found->second;
+    if (!activeRows.insert(key).second)
+      return reject(table.getParentBlock()->getParentOp(), "cycle in symbolic row availability");
+    llvm::scope_exit cleanup([&] { activeRows.erase(key); });
+    Expr result;
+    if (auto splat = table.getDefiningOp<TableSplatOp>())
+      result = mode == 1 ? availability(splat.getInput(), path) : mode == 2 ? formula(splat.getInput()) : rawExpression(splat.getInput());
+    else if (auto create = table.getDefiningOp<TableCreateOp>()) {
+      if (!charge(8 + create.getInputs().size(), create)) return 0;
+      SmallVector<Expr> elements{ordinal};
+      elements.reserve(1 + create.getInputs().size());
+      for (Value input : create.getInputs())
+        elements.push_back(mode == 1 ? availability(input, path) : mode == 2 ? formula(input) : rawExpression(input));
+      if (mode != 0 && llvm::all_of(ArrayRef<Expr>(elements).drop_front(), [](Expr e) { return e == 1; })) result = 1;
+      else result = node("row-create:" + shapeKey(create.getResult().getType(), create), elements);
+    } else if (auto view = table.getDefiningOp<TableViewOp>())
+      result = rowValue(view.getInput(), viewDomain(view, ordinal), mode, path);
+    else if (auto map = table.getDefiningOp<TableMapOp>()) {
+      if (!charge(16 + map.getBody().front().getNumArguments(), map)) return 0;
+      RowFrame frame;
+      frame.map = map;
+      frame.ordinal = ordinal;
+      auto *outer = rowFrame;
+      rowFrame = &frame;
+      llvm::scope_exit restore([&] { rowFrame = outer; });
+      Value yielded = cast<YieldOp>(map.getBody().front().getTerminator())
+          .getValues()[cast<OpResult>(table).getResultNumber()];
+      result = mode == 1 ? availability(yielded, path) : mode == 2 ? formula(yielded) : rawExpression(yielded);
+    } else if (mode == 1) result = availability(table, path);
+    else result = node("row-source:" + valueKey(table) + ":" +
+        typeKey(cast<TableType>(table.getType()).getElementType(), table.getParentBlock()->getParentOp()), {ordinal});
+    cache.emplace(std::move(key), result);
+    return result;
+  }
+  Expr wholeRows(Value table, bool available, ArrayRef<StringAttr> path = {}) {
+    auto type = cast<TableType>(table.getType());
+    Operation *site = table.getParentBlock()->getParentOp();
+    Expr domain = rowDomain(type, site);
+    Expr row = rowValue(table, domain, available ? 1 : 2, path);
+    if (row == 0 || row == 1) return row;
+    // TableCreate already has an explicit operand for each row. Reducing its
+    // complete domain visits those operands, without expanding a table extent.
+    // A view/subset has a different ordinal expression and cannot use this.
+    if (StringRef(nodes[row].kind).starts_with("row-create:") &&
+        nodes[row].children.front() == domain)
+      return all(ArrayRef<Expr>(nodes[row].children).drop_front());
+    // Reuse the existing availability-conjunction normalization for a
+    // broadcast over a nonempty shape. This does not rewrite hardware SSA.
+    SmallVector<Expr> pending{row};
+    DenseSet<Expr> seen;
+    bool dependent = false;
+    while (!pending.empty()) {
+      Expr current = pending.pop_back_val();
+      if (!charge(4 + nodes[current].children.size(), site)) return 0;
+      if (current == domain) { dependent = true; break; }
+      if (!seen.insert(current).second) continue;
+      llvm::append_range(pending, nodes[current].children);
+    }
+    if (!dependent) return row;
+    return node("fold-and" + shapeKey(type, site), {row});
+  }
 
   Expr node(StringRef kind, ArrayRef<Expr> children = {}) {
     if (!charge(1 + kind.size() + children.size(), analysis.getPackage())) return 0;
@@ -115,7 +359,12 @@ class AvailabilityProof {
   Expr formula(Value value) {
     if (!charge(1, value.getParentBlock()->getParentOp())) return 0;
     value = wire(value);
-    if (auto found = formulaCache.find(value); found != formulaCache.end())
+    bool bound = inRow(value);
+    if (bound && rowDepth >= 128) return reject(value.getParentBlock()->getParentOp(), "row formula depth exceeds 128");
+    rowDepth += bound;
+    llvm::scope_exit depth([&] { rowDepth -= bound; });
+    auto &localFormulas = inRow(value) ? rowFrame->formulas : formulaCache;
+    if (auto found = localFormulas.find(value); found != localFormulas.end())
       return found->second;
     if (!formulaActive.insert(value).second) {
       invalid = true;
@@ -126,6 +375,16 @@ class AvailabilityProof {
     if (auto number = constant(value);
         number && (*number == "0" || *number == "1"))
       result = *number == "1" ? 1 : 0;
+    else if (auto fold = value.getDefiningOp<TableFoldOp>(); fold && fold.getKind() == "and")
+      result = wholeRows(fold.getInput(), false);
+    else if (inRow(value) && isa<BlockArgument>(value)) {
+      auto argument = cast<BlockArgument>(value);
+      unsigned ordinal = argument.getArgNumber();
+      if (!ordinal) result = rawExpression(value);
+      else if (ordinal <= rowFrame->map.getTables().size())
+        result = rowValue(rowFrame->map.getTables()[ordinal - 1], rowFrame->ordinal, 2);
+      else result = formula(rowFrame->map.getCaptures()[ordinal - 1 - rowFrame->map.getTables().size()]);
+    }
     else if (auto op = value.getDefiningOp<BitsBinaryOp>();
              op && op.getOpcode() == "and")
       result = all({formula(op->getOperand(0)), formula(op->getOperand(1))});
@@ -134,6 +393,8 @@ class AvailabilityProof {
                       formula(op.getFalseValue()));
     else if (auto op = value.getDefiningOp<ValueRequireOp>())
       result = select(formula(op.getPath()), formula(op.getAvailability()), 1);
+    else if (inRow(value) && value.getDefiningOp<BitsCompareOp>())
+      result = rawExpression(value);
     else if (auto op = value.getDefiningOp<BitsCompareOp>()) {
       auto left = constant(op->getOperand(0));
       auto right = constant(op->getOperand(1));
@@ -146,8 +407,8 @@ class AvailabilityProof {
       else
         result = scalar(value);
     } else
-      result = scalar(value);
-    formulaCache.try_emplace(value, result);
+      result = inRow(value) ? rawExpression(value) : scalar(value);
+    localFormulas.try_emplace(value, result);
     return result;
   }
   Expr reject(Operation *site, StringRef message) {
@@ -173,6 +434,11 @@ class AvailabilityProof {
       return ordinal < create.getInputs().size()
                  ? availability(create.getInputs()[ordinal], path)
                  : 1;
+    if (auto map = table.getDefiningOp<TableMapOp>()) {
+      if (llvm::any_of(map->getOperands(), [&](Value input) { return availability(input) != 1; }))
+        return reject(map, "selected read of a partial TableMap requires exact row availability");
+      return 1;
+    }
     return availability(table, path);
   }
   Expr tableElement(Value table, Value index, ArrayRef<StringAttr> path) {
@@ -209,6 +475,13 @@ class AvailabilityProof {
   Expr derive(Value value, ArrayRef<StringAttr> path) {
     if (auto arg = dyn_cast<BlockArgument>(value)) {
       auto *owner = arg.getOwner()->getParentOp();
+      if (inRow(arg)) {
+        unsigned ordinal = arg.getArgNumber();
+        if (!ordinal) return 1;
+        if (ordinal <= rowFrame->map.getTables().size())
+          return rowValue(rowFrame->map.getTables()[ordinal - 1], rowFrame->ordinal, true, path);
+        return availability(rowFrame->map.getCaptures()[ordinal - 1 - rowFrame->map.getTables().size()], path);
+      }
       if (auto rule = dyn_cast<RuleOp>(owner))
         return availability(rule.getCaptures()[arg.getArgNumber()], path);
       if (auto module = dyn_cast<ModuleOp>(owner)) {
@@ -244,6 +517,8 @@ class AvailabilityProof {
                     "availability has unsupported region argument provenance");
     }
     Operation *op = value.getDefiningOp();
+    if (inRow(value) && op->getNumRegions())
+      return reject(op, "availability has unsupported nested row regions");
     if (isa<BitsConstantOp, BitsConstant4Op, EnumCreateOp, SourceStateOp>(op))
       return 1;
     if (auto rule = dyn_cast<RuleOp>(op)) {
@@ -351,6 +626,39 @@ class AvailabilityProof {
                   select(formula(selectOp.getCondition()),
                          availability(selectOp.getTrueValue(), path),
                          availability(selectOp.getFalseValue(), path))});
+    if (auto merge = dyn_cast<ValueMergeOp>(op)) {
+      if (cast<OpResult>(value).getResultNumber() == 1) {
+        SmallVector<Expr> guards;
+        for (Value guard : merge.getGuards()) guards.push_back(availability(guard));
+        return all(guards);
+      }
+      auto leaves = analysis.getFieldPaths(merge.getBase().getType(), {}, merge, debit);
+      if (failed(leaves)) { invalid = true; return 0; }
+      SmallVector<Expr> fields;
+      for (const auto &leaf : *leaves) {
+        if (path.size() > leaf.size() || !std::equal(path.begin(), path.end(), leaf.begin())) continue;
+        Expr available = availability(merge.getBase(), leaf);
+        for (auto [i, raw] : llvm::enumerate(merge.getPaths())) {
+          auto suffix = cast<ArrayAttr>(raw);
+          if (suffix.size() > leaf.size() || !std::equal(suffix.begin(), suffix.end(), leaf.begin())) continue;
+          available = all({availability(merge.getGuards()[i]),
+              select(formula(merge.getGuards()[i]),
+                availability(merge.getValues()[i], ArrayRef<StringAttr>(leaf).drop_front(suffix.size())), available)});
+        }
+        fields.push_back(available);
+      }
+      return all(fields);
+    }
+    if (auto splat = dyn_cast<TableSplatOp>(op)) return availability(splat.getInput(), path);
+    if (auto create = dyn_cast<TableCreateOp>(op)) {
+      SmallVector<Expr> inputs;
+      for (Value input : create.getInputs()) inputs.push_back(availability(input, path));
+      return all(inputs);
+    }
+    if (isa<TableMapOp, TableViewOp>(op)) {
+      if (llvm::all_of(op->getOperands(), [&](Value input) { return availability(input) == 1; })) return 1;
+      return wholeRows(value, true, path);
+    }
     if (auto get = dyn_cast<TableGetOp>(op)) {
       Expr index = availability(get.getIndex());
       return cast<OpResult>(value).getResultNumber() == 1
@@ -358,8 +666,6 @@ class AvailabilityProof {
                  : all({index,
                         tableElement(get.getInput(), get.getIndex(), path)});
     }
-    if (auto view = dyn_cast<TableViewOp>(op))
-      return availability(view.getInput(), path);
     if (auto require = dyn_cast<ValueRequireOp>(op))
       return all({availability(require.getAvailability()),
                   availability(require.getPath())});
@@ -378,22 +684,21 @@ class AvailabilityProof {
   }
   Expr availability(Value value, ArrayRef<StringAttr> path = {}) {
     if (!charge(1 + path.size(), value.getParentBlock()->getParentOp())) return 0;
-    std::string key =
-        std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
-    // Field names may contain separators; preserve each path component's length.
-    for (auto field : path)
-      key += ":" + std::to_string(field.getValue().size()) + ":" +
-             field.getValue().str();
-    if (auto found = availabilityCache.find(key);
-        found != availabilityCache.end())
-      return found->second;
-    if (!active.insert(key).second)
-      return reject(value.getDefiningOp() ? value.getDefiningOp()
-                                         : value.getParentBlock()->getParentOp(),
+    bool bound = inRow(value);
+    if (bound && rowDepth >= 128) return reject(value.getParentBlock()->getParentOp(), "row availability depth exceeds 128");
+    rowDepth += bound;
+    llvm::scope_exit depth([&] { rowDepth -= bound; });
+    auto key = valueKey(value, path);
+    if (!charge(8 + key.size(), value.getParentBlock()->getParentOp())) return 0;
+    auto &localCache = inRow(value) ? rowFrame->available : availabilityCache;
+    auto &localActive = inRow(value) ? rowFrame->active : active;
+    if (auto found = localCache.find(key); found != localCache.end()) return found->second;
+    if (!localActive.insert(key).second)
+      return reject(value.getDefiningOp() ? value.getDefiningOp() : value.getParentBlock()->getParentOp(),
                     "cycle in hardware value availability");
-    llvm::scope_exit cleanup([&] { active.erase(key); });
+    llvm::scope_exit cleanup([&] { localActive.erase(key); });
     Expr result = derive(value, path);
-    availabilityCache.emplace(key, result);
+    localCache.emplace(std::move(key), result);
     return result;
   }
   LogicalResult matches(Value payload, Value supplied, Operation *site) {
@@ -581,9 +886,16 @@ class AvailabilityUses {
     else if (auto yield = dyn_cast<YieldOp>(owner)) {
       if (auto rule = dyn_cast<RuleOp>(yield->getParentOp()))
         allowed = allUsers(rule->getResult(use.getOperandNumber()));
-    } else if (isa<BitsBinaryOp, BitsSelectOp>(owner))
+      else if (auto map = dyn_cast<TableMapOp>(yield->getParentOp()))
+        allowed = allUsers(map->getResult(use.getOperandNumber()));
+    } else if (auto map = dyn_cast<TableMapOp>(owner)) {
+      allowed = allUsers(map.getBody().front().getArgument(use.getOperandNumber() + 1));
+    } else if (isa<BitsBinaryOp, BitsSelectOp, TableCreateOp, TableSplatOp,
+                   TableViewOp>(owner))
       allowed = llvm::all_of(owner->getResults(),
                              [&](Value value) { return allUsers(value); });
+    else if (auto fold = dyn_cast<TableFoldOp>(owner))
+      allowed = fold.getKind() == "and" && allUsers(fold.getResult());
     closed.try_emplace(&use, allowed);
     return allowed;
   }
@@ -628,6 +940,9 @@ public:
       if (auto argument = dyn_cast<BlockArgument>(value)) {
         if (auto rule = dyn_cast<RuleOp>(argument.getOwner()->getParentOp()))
           add(rule->getOpOperand(argument.getArgNumber()));
+        else if (auto map = dyn_cast<TableMapOp>(argument.getOwner()->getParentOp())) {
+          if (argument.getArgNumber()) add(map->getOpOperand(argument.getArgNumber() - 1));
+        }
         continue;
       }
       Operation *producer = value.getDefiningOp();
@@ -639,6 +954,12 @@ public:
         // The selector is a raw predicate reference, not an availability route.
         add(op->getOpOperand(1));
         add(op->getOpOperand(2));
+      } else if (auto fold = dyn_cast<TableFoldOp>(producer); fold && fold.getKind() == "and") {
+        add(fold->getOpOperand(0));
+      } else if (auto map = dyn_cast<TableMapOp>(producer)) {
+        add(map.getBody().front().getTerminator()->getOpOperand(cast<OpResult>(value).getResultNumber()));
+      } else if (isa<TableSplatOp, TableViewOp, TableCreateOp>(producer)) {
+        for (OpOperand &operand : producer->getOpOperands()) add(operand);
       } else if (auto rule = dyn_cast<RuleOp>(producer)) {
         auto sampled =
             rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");

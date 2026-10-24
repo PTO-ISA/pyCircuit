@@ -3767,6 +3767,106 @@ private:
 
 #include "HardwareWriteDomainProof.inc"
 
+  using IndexedWriteEndpoints =
+      std::pair<HardwareIdentityEndpoint, HardwareIdentityEndpoint>;
+
+  // Both producers retain the same raw ancestry/assignment path. Compare its
+  // complete canonical tree; a false factor never erases a reached index use.
+  FailureOr<bool> sameRequiredWritePath(
+      const HardwareIdentityEndpoint &actual,
+      const HardwareIdentityEndpoint &expected, Operation *site,
+      unsigned depth = 0) {
+    if (depth > 128)
+      return site->emitOpError() << "indexed required-use raw path exceeds the structural depth bound";
+    if (failed(charge(budget, site, 1,
+                      2 * sizeof(HardwareIdentityEndpoint *) + sizeof(unsigned))) ||
+        failed(payScope(actual.scope, budget, site)) ||
+        failed(payScope(expected.scope, budget, site))) return failure();
+    if (sameEndpoint(actual, expected)) return true;
+    if (!sameScope(actual.scope, expected.scope) ||
+        !areEquivalentHardwareTypes(actual.resolvedType, expected.resolvedType))
+      return false;
+    auto a = literal(actual, analysis, budget),
+         e = literal(expected, analysis, budget);
+    if (failed(a) || failed(e)) return failure();
+    if (a->has_value() || e->has_value())
+      return a->has_value() && e->has_value() && **a == **e;
+    auto actualAnd = actual.value.getDefiningOp<BitsBinaryOp>();
+    auto expectedAnd = expected.value.getDefiningOp<BitsBinaryOp>();
+    if (actualAnd && expectedAnd && actualAnd.getOpcode() == "and" &&
+        expectedAnd.getOpcode() == "and") {
+      auto al = normal(actualAnd.getLhs(), actual.scope),
+           el = normal(expectedAnd.getLhs(), expected.scope);
+      if (failed(al) || failed(el)) return failure();
+      auto left = sameRequiredWritePath(*al, *el, site, depth + 1);
+      if (failed(left) || !*left) return left;
+      auto ar = normal(actualAnd.getRhs(), actual.scope),
+           er = normal(expectedAnd.getRhs(), expected.scope);
+      if (failed(ar) || failed(er)) return failure();
+      return sameRequiredWritePath(*ar, *er, site, depth + 1);
+    }
+    auto actualNot = actual.value.getDefiningOp<BitsUnaryOp>();
+    auto expectedNot = expected.value.getDefiningOp<BitsUnaryOp>();
+    if (actualNot && expectedNot && actualNot.getOpcode() == "not" &&
+        expectedNot.getOpcode() == "not") {
+      auto ai = normal(actualNot.getInput(), actual.scope),
+           ei = normal(expectedNot.getInput(), expected.scope);
+      if (failed(ai) || failed(ei)) return failure();
+      return sameRequiredWritePath(*ai, *ei, site, depth + 1);
+    }
+    return false;
+  }
+
+  LogicalResult indexedWriteRequirements(
+      const SampledAdmissionView &sampled, const HardwareIdentityScope &scope,
+      ArrayRef<std::optional<IndexedWriteEndpoints>> domains) {
+    // Total-availability lowering intentionally omits all required-use rows.
+    if (sampled.requirements.empty()) return success();
+    auto isIndex = [&](const SampledValueRequirement &requirement)
+        -> FailureOr<bool> {
+      if (failed(budget.debit(1, sampled.rule))) return failure();
+      auto kind = requirement.kind.getValue();
+      if ((kind == "state_write" && requirement.operand > 2) ||
+          (kind == "formal_write" && requirement.operand > 3))
+        return sampled.rule->emitOpError() << "indexed write requirement exceeds the admitted single address";
+      return (kind == "state_write" && requirement.operand == 2) ||
+             (kind == "formal_write" && requirement.operand == 3);
+    };
+    uint64_t next = 0;
+    // Slots preserve the original whole-writer domain ordinal, including
+    // interleaved owners and writes overwritten by later source statements.
+    for (const auto &domain : domains) {
+      if (failed(budget.debit(1, sampled.rule))) return failure();
+      if (!domain) continue;
+      bool found = false;
+      while (next < sampled.requirements.size()) {
+        auto index = isIndex(sampled.requirements[next]);
+        if (failed(index)) return failure();
+        if (*index) { found = true; break; }
+        ++next;
+      }
+      if (!found)
+        return sampled.rule->emitOpError() << "indexed write domain lacks its ordered required-use witness";
+      const auto &requirement = sampled.requirements[next++];
+      auto payload = normal(requirement.operation->getOperand(0), scope);
+      auto path = normal(requirement.operation->getOperand(2), scope);
+      if (failed(payload) || failed(path) ||
+          failed(payScope(domain->first.scope, budget, sampled.rule)))
+        return failure();
+      auto samePath = sameRequiredWritePath(*path, domain->second, sampled.rule);
+      if (failed(samePath)) return failure();
+      if (!sameEndpoint(*payload, domain->first) || !*samePath)
+        return sampled.rule->emitOpError() << "indexed write required-use address or raw path differs from actual selected write";
+    }
+    for (; next < sampled.requirements.size(); ++next) {
+      auto index = isIndex(sampled.requirements[next]);
+      if (failed(index)) return failure();
+      if (*index)
+        return sampled.rule->emitOpError() << "indexed write requirement lacks its ordered actual domain";
+    }
+    return success();
+  }
+
   FailureOr<HardwareIdentityEndpoint> peelSelection(
       const HardwareIdentityEndpoint &selected,
       const HardwareIdentityEndpoint &condition,
@@ -4115,6 +4215,13 @@ private:
                    << "statefree sampled pins differ from its owning module "
                       "domain";
         }
+        SmallVector<std::optional<IndexedWriteEndpoints>, 0> indexedDomains;
+        if (!sampled->requirements.empty()) {
+          if (failed(charge(budget, writer.rule, sampled->writeDomains.size(),
+                            sizeof(std::optional<IndexedWriteEndpoints>))))
+            return failure();
+          indexedDomains.resize(sampled->writeDomains.size());
+        }
         for (auto [candidateOrdinal, candidate] : llvm::enumerate(writer.candidates)) {
           auto stateIndex = target(entry, candidate.stateID);
           auto data = normal(candidate.data, entry.scope);
@@ -4167,11 +4274,17 @@ private:
           state.enable = state.candidates.back().enable;
           state.clock = *clock;
           state.reset = *reset;
-          for (const auto &domain : sampled->writeDomains) {
+          for (auto [ordinal, domain] : llvm::enumerate(sampled->writeDomains)) {
             if (domain.candidate != candidateOrdinal) continue;
             auto checked = finalWriteDomain(domain, writer.rule, entry.scope, *stateIndex);
             if (failed(checked) || failed(privateRoute(writer.rule->getResult(domain.maskResult),
                   entry.scope, *stateIndex, PrivateRoute::Mask))) return failure();
+            if (!indexedDomains.empty() && checked->index) {
+              if (failed(payScope(checked->index->scope, budget, writer.rule)) ||
+                  failed(payScope(checked->path.scope, budget, writer.rule)))
+                return failure();
+              indexedDomains[ordinal] = IndexedWriteEndpoints{*checked->index, checked->path};
+            }
           }
           bool dff = state.endpoint.form == StateEndpointForm::DFF;
           if (failed(privateRoute(candidate.data, entry.scope, *stateIndex,
@@ -4185,6 +4298,8 @@ private:
                                   PrivateRoute::Enable)))
             return failure();
         }
+        if (failed(indexedWriteRequirements(*sampled, entry.scope, indexedDomains)))
+          return failure();
         for (const auto &guard : sampled->controls) {
           auto found = checkTerminal(**terminals, guard.id, writer.rule);
           if (failed(found))

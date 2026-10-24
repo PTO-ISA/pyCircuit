@@ -1063,6 +1063,15 @@ LogicalResult SourceMethodOp::verifyRegions() {
 }
 
 LogicalResult SourceMethodCallOp::verify() {
+  if ((*this)->hasAttr("receiver_kind") || (*this)->hasAttr("ancestor_depth")) {
+    if ((*this)->hasAttr("ac.reference"))
+      return emitOpError() << "relative Method receiver cannot also name a Module reference formal";
+    NamedAttrList receiver;
+    for (StringRef name : {"receiver_kind", "ancestor_depth", "instance_path"})
+      if (Attribute value = (*this)->getAttr(name)) receiver.append(name, value);
+    if (failed(verifySourceRelativeReceiver(receiver.getDictionary(getContext()), *this)))
+      return failure();
+  }
   if (failed(transactionPlacement(*this, false, true)))
     return failure();
   if (Attribute raw = (*this)->getAttr("ac.reference")) {
@@ -1099,8 +1108,8 @@ LogicalResult SourceMethodCallOp::verify() {
   if (callee.getNestedReferences().size() != 1)
     return emitOpError() << "method callee must be @Module::@method";
   for (Attribute raw : getInstancePath()) {
-    auto name = cast<StringAttr>(raw);
-    if (name.getValue().empty() || name.getValue().contains('\0'))
+    auto name = dyn_cast<StringAttr>(raw);
+    if (!name || name.getValue().empty() || name.getValue().contains('\0'))
       return emitOpError() << "method instance path requires nonempty names";
   }
   return success();

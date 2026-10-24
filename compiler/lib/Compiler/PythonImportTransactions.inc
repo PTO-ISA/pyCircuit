@@ -8,6 +8,152 @@ static std::string sourceRuleSpecializationKey(FlatSymbolRefAttr owner,
   return key;
 }
 
+LogicalResult Importer::scanStaticInstanceReferences() {
+  auto diagnostic = [&](const AstNode &site) {
+    diagnosticFailed = true;
+    return mlir::emitError(site.location(b.getContext(), source.path));
+  };
+  llvm::DenseSet<DictionaryAttr> admittedCalls;
+  for (const auto &module : modules) {
+    auto &references = staticInstanceReferences[module.symbol.getValue()];
+    llvm::StringSet<> preceding;
+    for (const auto &input : module.inputs) preceding.insert(input.name);
+    for (const auto &parameter : module.parameters) preceding.insert(parameter.name);
+    if (module.references)
+      for (Attribute raw : module.references)
+        preceding.insert(cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue());
+    bool returned = false;
+    for (size_t i = 0; i < module.node.array("body").size(); ++i) {
+      auto statement = module.node.item("body", i);
+      auto value = statement.child("value");
+      bool intrinsicCall = value.kind() == "Call" &&
+                           intrinsic(value.child("func"), "instance_ref");
+      auto alias = value.kind() == "Name" ? references.find(value.string("id"))
+                                          : references.end();
+      if (intrinsicCall || alias != references.end()) {
+        if (returned)
+          return diagnostic(statement) << "static instance reference declaration after Module return is unsupported";
+        if (statement.kind() != "Assign" || statement.array("targets").size() != 1 ||
+            statement.item("targets", 0).kind() != "Name")
+          return diagnostic(statement) << "instance_ref requires one unannotated immutable Module-body Name";
+        StringRef name = statement.item("targets", 0).string("id");
+        if (preceding.contains(name) || references.contains(name) || names.contains(name) ||
+            structs.contains(name) || enums.contains(name))
+          return diagnostic(statement) << "static instance reference requires a fresh immutable binding";
+        StaticInstanceReference reference;
+        if (intrinsicCall) {
+          auto args = value.array("args");
+          if (args.empty() || !value.array("keywords").empty() || args.size() > 129)
+            return diagnostic(value) << "instance_ref requires a Module provider and at most 128 literal path components";
+          auto provider = lookupBinding(value.item("args", 0));
+          if (!provider || provider->category != BindingCategory::Module || !provider->symbol)
+            return diagnostic(value.item("args", 0)) << "instance_ref first argument must resolve to a Module provider";
+          bool ordinary = false;
+          for (const auto &candidate : modules)
+            if (candidate.symbol == provider->symbol) ordinary = !candidate.system;
+          if (provider->declaration)
+            ordinary = isa<ac::ModuleImportOp>(provider->declaration) &&
+                       !provider->declaration->hasAttr("primitive_kind") &&
+                       !provider->declaration->hasAttr("ac.root_kind");
+          if (!ordinary)
+            return diagnostic(value.item("args", 0)) << "instance_ref requires an ordinary Module provider; System and primitive providers are unsupported";
+          admittedCalls.insert(namespaceSite(value));
+          reference.expectedModule = provider->symbol;
+          bool descended = false;
+          for (size_t k = 1; k < args.size(); ++k) {
+            auto item = value.item("args", k);
+            auto component = item.kind() == "Constant"
+                                 ? dyn_cast_or_null<StringAttr>(item.get("value")) : StringAttr();
+            if (!component)
+              return diagnostic(item) << "instance_ref path requires literal strings";
+            if (component.getValue() == "..") {
+              if (descended)
+                return diagnostic(item) << "instance_ref parent steps must precede child names";
+              ++reference.ancestorDepth;
+            } else {
+              if (failed(ac::detail::verifyPythonAstIdentifier(component.getValue(), true,
+                         [&] { return diagnostic(item); })))
+                return failure();
+              descended = true;
+              reference.childNames.push_back(component);
+            }
+          }
+          if (!reference.ancestorDepth && reference.childNames.empty() &&
+              reference.expectedModule != module.symbol)
+            return diagnostic(value) << "empty instance_ref path requires the current Module provider";
+        } else {
+          reference = alias->second;
+        }
+        if (failed(chargeLoopDescriptorWork(statement, "static instance reference binding",
+                                            16 + 4 * reference.childNames.size())))
+          return failure();
+        reference.declaration = statement;
+        references.try_emplace(name, std::move(reference));
+        staticReferenceAssignments.insert(namespaceSite(statement));
+      }
+      if (statement.kind() == "Return") returned = true;
+      if (statement.kind() == "FunctionDef") preceding.insert(statement.string("name"));
+      if (statement.kind() == "Assign")
+        for (size_t k = 0; k < statement.array("targets").size(); ++k)
+          preceding.insert(assignmentRoot(statement.item("targets", k)));
+      if (statement.kind() == "AnnAssign" || statement.kind() == "AugAssign")
+        preceding.insert(assignmentRoot(statement.child("target")));
+    }
+    auto uses = [&](auto &&self, const AstNode &node) -> LogicalResult {
+      if (failed(chargeLoopDescriptorWork(node, "static instance reference use")))
+        return failure();
+      if (node.kind() == "Assign" && staticReferenceAssignments.contains(namespaceSite(node)))
+        return success();
+      if (node.kind() == "Name" && references.contains(node.string("id")))
+        return diagnostic(node) << "static instance reference is immutable and receiver-only";
+      if (node.kind() == "arg" && references.contains(node.string("arg")))
+        return diagnostic(node) << "static instance reference cannot be shadowed by a callable argument";
+      if ((node.kind() == "FunctionDef" || node.kind() == "ClassDef") &&
+          references.contains(node.string("name")))
+        return diagnostic(node) << "static instance reference cannot be rebound by a declaration";
+      if (node.kind() == "Call" && intrinsic(node.child("func"), "instance_ref"))
+        return diagnostic(node) << "instance_ref declaration requires direct Module-body assignment";
+      bool receiver = node.kind() == "Call" && node.child("func").kind() == "Attribute" &&
+                      node.child("func").child("value").kind() == "Name" &&
+                      references.contains(node.child("func").child("value").string("id"));
+      for (NamedAttribute field : node.fields()) {
+        if (receiver && field.getName().getValue() == "func") continue;
+        if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+          if (child.getAs<StringAttr>("kind") &&
+              failed(self(self, node.child(field.getName().getValue())))) return failure();
+        } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+          for (size_t k = 0; k < children.size(); ++k)
+            if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+                child && child.getAs<StringAttr>("kind") &&
+                failed(self(self, node.item(field.getName().getValue(), k)))) return failure();
+      }
+      return success();
+    };
+    for (size_t i = 0; i < module.node.array("body").size(); ++i)
+      if (failed(uses(uses, module.node.item("body", i)))) return failure();
+  }
+  // Unused global callables still cannot hide an illegal reference declaration.
+  // This checks trusted syntax only; topology demands remain emitted-call owned.
+  auto scope = [&](auto &&self, const AstNode &node) -> LogicalResult {
+    if (failed(chargeLoopDescriptorWork(node, "static instance reference scope"))) return failure();
+    if (node.kind() == "Call" && intrinsic(node.child("func"), "instance_ref") &&
+        !admittedCalls.contains(namespaceSite(node)))
+      return diagnostic(node) << "instance_ref declaration requires direct Module-body assignment";
+    for (NamedAttribute field : node.fields()) {
+      if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
+        if (child.getAs<StringAttr>("kind") &&
+            failed(self(self, node.child(field.getName().getValue())))) return failure();
+      } else if (auto children = dyn_cast<ArrayAttr>(field.getValue()))
+        for (size_t k = 0; k < children.size(); ++k)
+          if (auto child = dyn_cast<DictionaryAttr>(children[k]);
+              child && child.getAs<StringAttr>("kind") &&
+              failed(self(self, node.item(field.getName().getValue(), k)))) return failure();
+    }
+    return success();
+  };
+  return scope(scope, source.module);
+}
+
 LogicalResult Importer::scanSourceCallables() {
   llvm::StringMap<SmallVector<std::pair<AstNode, CapturedCallableSyntax>, 0>>
       staged;
@@ -504,7 +650,15 @@ LogicalResult Importer::scanSourceCallables() {
       auto value = statement.child("value");
       if (value.kind() == "Call") {
         auto function = value.child("func");
-        if (function.kind() == "Name" && sourceModuleSymbols.contains(function.string("id")) &&
+        if (intrinsic(function, "instance_ref") && !value.array("args").empty()) {
+          auto provider = value.item("args", 0);
+          if (provider.kind() == "Name" && sourceModuleSymbols.contains(provider.string("id")) &&
+              !lexicallyShadowed(provider, provider.string("id")))
+            receivers[name] = sourceModuleSymbols.lookup(provider.string("id"));
+          else if (auto binding = lookupBinding(provider);
+                   binding && binding->category == BindingCategory::Module)
+            receivers[name] = binding->symbol;
+        } else if (function.kind() == "Name" && sourceModuleSymbols.contains(function.string("id")) &&
             !lexicallyShadowed(function, function.string("id")))
           receivers[name] = sourceModuleSymbols.lookup(function.string("id"));
         else if (auto binding = lookupBinding(function);
@@ -2547,6 +2701,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   bool sawStructuralReturn = false;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (staticReferenceAssignments.contains(namespaceSite(statement)))
+      continue;
     if (statement.kind() == "Return") {
       sawStructuralReturn = true;
       continue;
@@ -2560,6 +2716,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   size_t instanceCount = 0;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (staticReferenceAssignments.contains(namespaceSite(statement)))
+      continue;
     if (statement.kind() == "Assign" &&
         statement.array("targets").size() == 1 &&
         statement.item("targets", 0).kind() == "Name" &&
@@ -2576,6 +2734,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   }
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (staticReferenceAssignments.contains(namespaceSite(statement)))
+      continue;
     if (statement.kind() == "FunctionDef") {
       StringRef name = statement.string("name");
       if (statement.array("decorator_list").empty()) {
@@ -2994,6 +3154,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
   bool returned = false;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (staticReferenceAssignments.contains(namespaceSite(statement)))
+      continue;
     AstNode call = statement.kind() == "Expr"     ? statement.child("value")
                    : statement.kind() == "Return" ? statement.child("value")
                    : statement.kind() == "Assign" ? statement.child("value")
@@ -3084,6 +3246,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
 
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     AstNode statement = decl.node.item("body", i);
+    if (staticReferenceAssignments.contains(namespaceSite(statement)))
+      continue;
     if (statement.kind() == "FunctionDef" || statement.kind() == "AnnAssign" ||
         docstring(statement) || statement.kind() == "Pass")
       continue;
@@ -3139,6 +3303,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   SourceCallableDecl *target = nullptr;
   std::optional<ac::SourceMethodView> imported;
   Instance *receiver = nullptr;
+  const StaticInstanceReference *relative = nullptr;
   bool recognizedReceiver = false;
   bool nativeQueue = false;
   StringRef methodName;
@@ -3195,6 +3360,36 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       if (!receiver->reference.empty())
         reference = at.getStringAttr(receiver->reference);
       else path.push_back(at.getStringAttr(receiver->name));
+    } else {
+      auto &references = staticInstanceReferences[activeSourceEffects->module->symbol.getValue()];
+      auto selected = references.find(receiverName);
+      if (selected != references.end()) {
+        relative = &selected->second;
+        recognizedReceiver = true;
+        methodName = function.string("attr");
+        moduleSymbol = relative->expectedModule;
+        llvm::append_range(path, relative->childNames);
+        bool localProvider = false;
+        for (const auto &candidate : modules)
+          if (candidate.symbol == moduleSymbol) {
+            localProvider = true;
+            auto inventory = sourceMethods.find(candidate.node.string("name"));
+            if (inventory != sourceMethods.end()) {
+              auto method = inventory->second.find(methodName);
+              if (method != inventory->second.end()) target = &method->second;
+            }
+            break;
+          }
+        if (!localProvider) {
+          auto provider = headers.lookupModule(moduleSymbol);
+          if (!provider)
+            return error() << "reference Method requires its authenticated provider interface";
+          auto method = ac::lookupSourceMethod(provider.declaration, methodName, body->getOperation());
+          if (failed(method))
+            return failure();
+          imported = *method;
+        }
+      }
     }
   }
   if (!target && !imported && !nativeQueue && recognizedReceiver)
@@ -3211,7 +3406,9 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   if ((target && (target->privateSpecialization || !target->stateFormals.empty())) ||
       (importedVisibility && importedVisibility.getValue() == "private"))
     return error() << "private compiler callable is not an authored source interface";
-  if (target && target->inferredSignature && receiver)
+  if (relative && activeSourceEffects->callable && !activeSourceEffects->callable->lexical)
+    return error() << "source-global Rule cannot capture a Module-local static reference";
+  if (target && target->inferredSignature && (receiver || relative))
     return error() << "callable Rule export requires explicit parameter and result annotations";
   if (activeSourceEffects->guard)
     return error() << "guard cannot call a Method";
@@ -3307,7 +3504,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
   auto arguments = bindCallableArguments(node, inputs, at, owner, values, instances,
                                          deferredReferences);
   if (failed(arguments)) return failure();
-  if (target && target->syntax.marker == MarkerKind::Rule && !receiver) {
+  if (target && target->syntax.marker == MarkerKind::Rule && !receiver && !relative) {
     SourceCallableDecl specialized = *target;
     for (auto [index, port] : llvm::enumerate(specialized.inputs)) {
       auto actual = (*actuals)[index];
@@ -3395,6 +3592,10 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
        at.getNamedAttr("occurrence", sourceOccurrence(at, owner, node)),
        at.getNamedAttr("ac.location", sourceSpan(at, source.path, node))});
   if (reference) operation->setAttr("ac.reference", reference);
+  if (relative) {
+    operation->setAttr("receiver_kind", at.getStringAttr("reference"));
+    operation->setAttr("ancestor_depth", at.getI64IntegerAttr(relative->ancestorDepth));
+  }
   operation->insertOperands(1, *arguments);
   if (!formalOwnerBindings.empty())
     operation->setAttr("ac.formal_owner_bindings", at.getArrayAttr(formalOwnerBindings));
@@ -3487,9 +3688,15 @@ FailureOr<std::optional<Value>> Importer::sourceEffectExpression(
     AstNode function = node.child("func");
     methodCall = function.kind() == "Name" && activeSourceEffects->methods &&
                  activeSourceEffects->methods->contains(function.string("id"));
-    methodCall |= function.kind() == "Attribute" &&
-                  function.child("value").kind() == "Name" &&
-                  instances.contains(function.child("value").string("id"));
+    if (function.kind() == "Attribute" && function.child("value").kind() == "Name") {
+      StringRef receiver = function.child("value").string("id");
+      methodCall |= instances.contains(receiver);
+      if (activeSourceEffects->module) {
+        auto references = staticInstanceReferences.find(activeSourceEffects->module->symbol.getValue());
+        methodCall |= references != staticInstanceReferences.end() &&
+                      references->second.contains(receiver);
+      }
+    }
   }
   if (!methodCall)
     return std::optional<Value>();

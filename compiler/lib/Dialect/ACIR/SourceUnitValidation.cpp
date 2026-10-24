@@ -133,6 +133,8 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
         std::pair<StringRef, bool>{"ac.reference_parameters", isa<ModuleOp, ModuleImportOp>(operation)},
         {"ac.reference_bindings", isa<InstanceOp>(operation)},
         {"ac.reference", isa<SourceMethodCallOp>(operation)},
+        {"receiver_kind", isa<SourceMethodCallOp>(operation)},
+        {"ancestor_depth", isa<SourceMethodCallOp>(operation)},
         {"ac.callable_after", isa<SourceMethodOp>(operation)}}) {
       if (operation->hasAttr(name) && !allowed) {
         operation->emitOpError() << name << " is invalid on this source operation";
