@@ -380,8 +380,10 @@ class AvailabilityProof {
     if (!charge(1 + path.size(), value.getParentBlock()->getParentOp())) return 0;
     std::string key =
         std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
+    // Field names may contain separators; preserve each path component's length.
     for (auto field : path)
-      key += "." + field.getValue().str();
+      key += ":" + std::to_string(field.getValue().size()) + ":" +
+             field.getValue().str();
     if (auto found = availabilityCache.find(key);
         found != availabilityCache.end())
       return found->second;
