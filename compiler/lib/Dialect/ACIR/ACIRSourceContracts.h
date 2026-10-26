@@ -52,6 +52,11 @@ mlir::LogicalResult verifySourceCallHardwareConstraint(
     mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation,
     llvm::StringRef description,
     SourceCallWidthMode widthMode = SourceCallWidthMode::Concrete);
+// Shared nominal field schema. Only Boolean fields extend the legacy physical
+// descriptor with an authoritative source constraint.
+mlir::LogicalResult verifyNominalStructField(
+    mlir::Attribute raw, const HardwareAnalysis &analysis,
+    mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation);
 mlir::LogicalResult verifyRequiredSourceParameter(
     mlir::Attribute raw, mlir::StringAttr expectedName,
     mlir::DictionaryAttr sourceOwner, mlir::FlatSymbolRefAttr definition,

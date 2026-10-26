@@ -794,11 +794,13 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
         auto declaration =
             record ? analysis.lookupStruct(record) : ac::StructOp();
         Type selected;
+        DictionaryAttr selectedField;
         if (declaration)
           for (Attribute raw : declaration.getFields()) {
             auto field = cast<DictionaryAttr>(raw);
             if (field.getAs<StringAttr>("name") == name) {
               selected = field.getAs<TypeAttr>("type").getValue();
+              selectedField = field;
               break;
             }
           }
@@ -809,6 +811,7 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
             createOp(builder, loc, ac::StructGetOp::getOperationName(), {value},
                      TypeRange{selected}, {builder.getNamedAttr("field", name)})
                 ->getResult(0);
+        rememberStructField(value, selectedField, state.node);
       }
       return value;
     };

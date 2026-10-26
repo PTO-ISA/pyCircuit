@@ -2051,13 +2051,20 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           const StateOwner &owner = states[ownerRoot];
           llvm::StringMap<Value> typeValues(values);
           typeValues[ownerRoot] = owner.op->getResult(0);
-          auto selectedType = expressionType(target, typeValues, instances, decl.symbol);
+          DictionaryAttr selectedField;
+          auto selectedType = expressionType(target, typeValues, instances,
+                                             decl.symbol, &selectedField);
           if (failed(selectedType)) return failure();
           auto replacement = expression(rhs, inside, decl.symbol, values,
                                           instances, *selectedType);
           if (failed(replacement)) return failure();
-          auto converted = unsignedBoundary(*replacement, *selectedType, rhs,
-                                             inside, decl.symbol);
+          auto converted = selectedField
+              ? applyBindingBoundary(
+                    *replacement,
+                    BindingBoundary(structFieldPort(selectedField, target), true),
+                    rhs, inside, decl.symbol)
+              : unsignedBoundary(*replacement, *selectedType, rhs, inside,
+                                   decl.symbol);
           if (failed(converted)) return failure();
           auto selectors = writeSelectors(target, inside);
           if (failed(selectors))
@@ -2096,13 +2103,20 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             isa<ac::TableType>(values.lookup(ownerRoot).getType())) {
           if (failed(chargeLoopDescriptorWork(statement, "local Table reconstruction")))
             return failure();
-          auto selectedType = expressionType(target, values, instances, decl.symbol);
+          DictionaryAttr selectedField;
+          auto selectedType = expressionType(target, values, instances,
+                                             decl.symbol, &selectedField);
           if (failed(selectedType)) return failure();
           auto replacement = expression(rhs, inside, decl.symbol, values,
                                           instances, *selectedType);
           if (failed(replacement)) return failure();
-          auto converted = unsignedBoundary(*replacement, *selectedType, rhs,
-                                             inside, decl.symbol);
+          auto converted = selectedField
+              ? applyBindingBoundary(
+                    *replacement,
+                    BindingBoundary(structFieldPort(selectedField, target), true),
+                    rhs, inside, decl.symbol)
+              : unsignedBoundary(*replacement, *selectedType, rhs, inside,
+                                   decl.symbol);
           SmallVector<Value> indices;
           if (failed(converted) ||
               failed(updateAssignment(target, *converted, statement, inside,
@@ -2169,6 +2183,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
           if (failed(admitted)) return failure();
           std::reverse(fieldNames.begin(), fieldNames.end());
           Type selectedType = *admitted;
+          DictionaryAttr selectedField;
           ac::HardwareAnalysis analysis(*body);
           for (StringRef fieldName : fieldNames) {
             auto record = dyn_cast<ac::StructType>(selectedType);
@@ -2185,8 +2200,10 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               if (failed(reserveLocal(1 + (name.size() == fieldName.size()
                                                ? name.size() : 0), 0)))
                 return failure();
-              if (name == fieldName)
+              if (name == fieldName) {
                 next = field.getAs<TypeAttr>("type").getValue();
+                selectedField = field;
+              }
             }
             if (!next) return error() << "unknown local Struct assignment field";
             selectedType = next;
@@ -2210,8 +2227,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
               ? environment.boundaries.lookup(root)
               : inferredBoundary(root, original, statement);
           BindingBoundary fieldBoundary{
-              {fieldNames.back().str(), selectedType, target, std::nullopt,
-               isa<ac::BitsType>(selectedType)}, true};
+              structFieldPort(selectedField, target), true};
           auto value = expression(rhs, inside, decl.symbol, values, instances,
                                   selectedType);
           if (failed(value)) return failure();

@@ -186,8 +186,9 @@ FailureOr<Value> Importer::replaceField(Value value, StringRef name,
     Type fieldType = field.getAs<TypeAttr>("type").getValue();
     auto key = field.getAs<StringAttr>("name");
     if (key.getValue() == name) {
-      auto converted =
-          unsignedBoundary(replacement, fieldType, node, at, symbol);
+      auto converted = applyBindingBoundary(
+          replacement, BindingBoundary(structFieldPort(field, node), true),
+          node, at, symbol);
       if (failed(converted))
         return failure();
       fields.push_back(*converted);
@@ -203,8 +204,7 @@ FailureOr<Value> Importer::replaceField(Value value, StringRef name,
                    ac::StructGetOp::getOperationName(), {value},
                    TypeRange{fieldType}, {at.getNamedAttr("field", key)})
               ->getResult(0);
-      if (isa<ac::BitsType>(fieldType))
-        fixedValues.insert(projected);
+      rememberStructField(projected, field, node);
       fields.push_back(projected);
     }
   }
@@ -265,10 +265,16 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
     StringRef name = element.child("value").string("id");
     if (!values.contains(name) || !isa<ac::TableType>(values[name].getType()))
       return error() << "indexed assignment requires a named table";
-    auto targetType = expressionType(target, values, noInstances, symbol);
+    DictionaryAttr selectedField;
+    auto targetType = expressionType(target, values, noInstances, symbol,
+                                     &selectedField);
     if (failed(targetType))
       return failure();
-    auto converted = unsignedBoundary(replacement, *targetType, node, at, symbol);
+    if (!selectedField)
+      return error() << "indexed field assignment requires a declared Struct field";
+    auto converted = applyBindingBoundary(
+        replacement, BindingBoundary(structFieldPort(selectedField, target), true),
+        node, at, symbol);
     if (failed(converted))
       return failure();
     auto index =

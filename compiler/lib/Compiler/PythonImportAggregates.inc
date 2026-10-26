@@ -750,8 +750,9 @@ LogicalResult Importer::scanStructs() {
       bool tableAnnotation = annotation.kind() == "Subscript" &&
                              intrinsic(annotation.child("value"), "table");
       if (!fixedAnnotation(annotation) && !nominalAnnotation(annotation) &&
+          annotationKind(annotation) != ac::detail::ValueKind::Boolean &&
           !tableAnnotation)
-        return error() << "struct fields require explicitly unsigned bits or "
+        return error() << "struct fields require bool, explicitly unsigned bits or "
                           "nominal structs/enums or finite tables";
       auto type = portType(annotation, symbol);
       if (failed(type))
@@ -769,9 +770,17 @@ LogicalResult Importer::scanStructs() {
                             "one-dimensional shape";
       }
       defaults.push_back(field.child("value"));
-      fields.push_back(
-          b.getDictionaryAttr({b.getNamedAttr("name", b.getStringAttr(name)),
-                               b.getNamedAttr("type", TypeAttr::get(*type))}));
+      SmallVector<NamedAttribute> descriptor{
+          b.getNamedAttr("name", b.getStringAttr(name)),
+          b.getNamedAttr("type", TypeAttr::get(*type))};
+      if (annotationKind(annotation) == ac::detail::ValueKind::Boolean) {
+        auto constraint = sourceConstraint(
+            {name.str(), *type, annotation, ac::detail::ValueKind::Boolean});
+        if (failed(constraint))
+          return failure();
+        descriptor.push_back(b.getNamedAttr("source_constraint", *constraint));
+      }
+      fields.push_back(b.getDictionaryAttr(descriptor));
     }
     structFields[item.first()] = b.getArrayAttr(fields);
     structDefaults[item.first()] = std::move(defaults);
@@ -859,8 +868,7 @@ FailureOr<Value> Importer::constant(Type type, unsigned value,
   SmallVector<Value> fields;
   for (Attribute raw : declaration.getFields()) {
     auto field = cast<DictionaryAttr>(raw);
-    auto zero =
-        constant(field.getAs<TypeAttr>("type").getValue(), 0, node, at, symbol);
+    auto zero = structFieldZero(field, node, at, symbol);
     if (failed(zero))
       return failure();
     fields.push_back(*zero);
@@ -909,9 +917,12 @@ FailureOr<Value> Importer::select(Value guard, Value yes, Value no,
       auto type = field.getAs<TypeAttr>("type").getValue();
       auto name = field.getAs<StringAttr>("name");
       auto project = [&](Value value) {
-        return createOp(at, loc, ac::StructGetOp::getOperationName(), {value},
-                        TypeRange{type}, {at.getNamedAttr("field", name)})
-            ->getResult(0);
+        auto projected =
+            createOp(at, loc, ac::StructGetOp::getOperationName(), {value},
+                     TypeRange{type}, {at.getNamedAttr("field", name)})
+                ->getResult(0);
+        rememberStructField(projected, field, node);
+        return projected;
       };
       auto value = select(guard, project(yes), project(no), node, at, symbol);
       if (failed(value))

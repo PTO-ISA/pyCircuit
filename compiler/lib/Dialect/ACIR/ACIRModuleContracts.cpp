@@ -347,6 +347,32 @@ LogicalResult verifySourceCallHardwareConstraint(
   return success();
 }
 
+LogicalResult verifyNominalStructField(
+    Attribute raw, const HardwareAnalysis &analysis, Operation *lexicalModule,
+    Operation *diagnosticOperation) {
+  auto field = dyn_cast<DictionaryAttr>(raw);
+  auto name = field ? field.getAs<StringAttr>("name") : StringAttr();
+  auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+  Attribute constraint = field ? field.get("source_constraint") : Attribute();
+  if (!field || field.size() != (constraint ? 3 : 2) || !name ||
+      name.getValue().empty() || !type ||
+      !isa<BitsType, StructType, EnumType, TableType>(type.getValue()))
+    return diagnosticOperation->emitOpError()
+           << "fields require unique names and finite bits/struct/enum/table "
+              "types, with optional Boolean source_constraint";
+  if (!constraint)
+    return success();
+  auto descriptor = dyn_cast<DictionaryAttr>(constraint);
+  auto kind = descriptor ? descriptor.getAs<StringAttr>("source_kind")
+                         : StringAttr();
+  if (!kind || kind.getValue() != "boolean")
+    return diagnosticOperation->emitOpError()
+           << "Struct field source_constraint requires Boolean source kind";
+  return verifySourceCallHardwareConstraint(
+      constraint, type.getValue(), analysis, lexicalModule, diagnosticOperation,
+      "Struct field");
+}
+
 LogicalResult verifyRequiredSourceParameter(Attribute raw,
                                             StringAttr expectedName,
                                             DictionaryAttr sourceOwner,

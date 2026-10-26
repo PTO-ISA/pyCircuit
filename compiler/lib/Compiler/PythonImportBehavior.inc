@@ -2504,24 +2504,14 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
         binding = declared;
     }
     if (target.kind() == "Attribute") {
-      Type targetType;
-      if (indexedFieldTarget(target)) {
-        auto type = expressionType(target, values, instances, symbol);
-        if (failed(type))
-          return failure();
-        targetType = *type;
-      } else {
-        auto current = expression(target, at, symbol, values, instances);
-        if (failed(current))
-          return failure();
-        targetType = current->getType();
-      }
-      binding = BindingBoundary{{assignmentRoot(target).str(),
-                                 targetType,
-                                 target,
-                                 {},
-                                 isa<ac::BitsType>(targetType)},
-                                true};
+      DictionaryAttr selectedField;
+      auto targetType = expressionType(target, values, instances, symbol,
+                                       &selectedField);
+      if (failed(targetType))
+        return failure();
+      if (!selectedField)
+        return error() << "field assignment requires a declared Struct field";
+      binding = BindingBoundary{structFieldPort(selectedField, target), true};
     }
     if (target.kind() == "Subscript") {
       if (target.child("value").kind() != "Name" ||

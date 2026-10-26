@@ -213,8 +213,7 @@ if (node.kind() == "Attribute" &&
                    TypeRange{field.getAs<TypeAttr>("type").getValue()},
                    {at.getNamedAttr("field", field.getAs<StringAttr>("name"))})
               ->getResult(0);
-      if (isa<ac::BitsType>(result.getType()))
-        fixedValues.insert(result);
+      rememberStructField(result, field, node);
       return result;
     }
   }

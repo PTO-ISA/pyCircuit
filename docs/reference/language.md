@@ -119,6 +119,16 @@ into Inner's declared defaults. Every declared default must be valid even if
 unused or overridden. Defaults cannot depend on a caller's runtime bindings.
 Unknown/duplicate fields and invalid types or ranges diagnose.
 
+A Struct field annotated `bool` retains logical Boolean kind, independently of
+its one-bit physical representation. Explicit construction, defaults and field
+updates require Boolean values; Integer `0`/`1` and fixed `u1` actuals reject at
+that boundary. Contextual aggregate zero and omitted same-source fields produce
+logical `False`. Projection, nested records, helper calls and reconstruction of
+unchanged fields retain this distinction, including independently published and
+reexported declarations. Existing fixed-bit field conversions are unchanged.
+The [Boolean field contract](../rfcs/boolean-record-fields.md) describes the
+validated declaration constraint; it does not add implicit fixed-bit casts.
+
 Struct fields may contain positive, closed one-dimensional `Table[N, T]`
 values, where `T` is Bits, Enum or a finite, acyclic nominal Struct. A tuple or
 list literal constructs such a field only when its expected Table type is
@@ -1151,8 +1161,8 @@ use the existing unsigned destination conversion, including fitting Integer
 values and Boolean-to-`u1`, while preserving the original producer's kind.
 Same-source and imported calls use this same binding boundary.
 
-An imported Struct may annotate a returned value. Imported construction and
-omitted-default constructors remain unsupported; defaults still require
+An imported Struct may annotate a returned value. Imported construction requires
+every published field explicitly; omitted-default constructors still require
 same-source declarations. Existing cross-source structural modules retain their
 current flow when no ordinary source-call contract is declared.
 

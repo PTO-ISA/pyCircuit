@@ -608,11 +608,11 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
           if (!frame.fields || frame.fields.empty() || declaration->hasAttr("constructor"))
             return error() << "invalid source branch Struct declaration";
           for (auto [i, raw] : llvm::enumerate(frame.fields)) {
-            auto field = dyn_cast<DictionaryAttr>(raw);
-            auto key = field ? field.getAs<StringAttr>("name") : StringAttr();
-            auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
-            if (!field || field.size() != 2 || !key || key.getValue().empty() || !type)
-              return error() << "source branch Struct fields require name and type";
+            if (failed(verifyNominalStructField(
+                    raw, analysis, declaration, diagnosticSite)))
+              return failure();
+            auto field = cast<DictionaryAttr>(raw);
+            auto key = field.getAs<StringAttr>("name");
             if (failed(pay(i + key.getValue().size()))) return failure();
             for (Attribute previous : frame.fields.getValue().take_front(i))
               if (cast<DictionaryAttr>(previous).getAs<StringAttr>("name") == key)

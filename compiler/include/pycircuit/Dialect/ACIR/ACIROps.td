@@ -757,10 +757,14 @@ def ACIR_EnumFromBitsOp : ACIR_Op<"enum.from_bits", [Pure]> {
 def ACIR_StructOp : ACIR_Op<"struct", [Symbol]> {
   let summary = "Declare the ordered fields of a packed hardware struct";
   let description = [{
-    Each fields entry is exactly {name: StringAttr, type: TypeAttr}. Names
-    are nonempty and unique. Field types resolve to finite bits, enums or other
-    declared structs; recursive layouts and unresolved type parameters are
-    invalid. The array preserves declaration order. There are no field
+    Each fields entry contains name: StringAttr and type: TypeAttr. Names
+    are nonempty and unique. An optional source_constraint contains the existing
+    hardware Boolean constraint, with an equivalent exactly one-bit physical
+    type and Boolean domain. No other field properties or source kinds are
+    admitted. Without the constraint, the original field interpretation applies.
+    Field types resolve to finite bits, enums, tables or other declared structs;
+    recursive layouts and unresolved type parameters are invalid. The array
+    preserves declaration order. There are no field
     directions, initialization values, storage handles or source constructors.
 
     The first field occupies the most significant bits. Later fields follow

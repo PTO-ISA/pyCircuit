@@ -588,6 +588,11 @@ private:
   FailureOr<DictionaryAttr> sourceConstraint(const Port &port);
   Port sourceCallPort(DictionaryAttr constraint, StringRef name,
                       const AstNode &callSite) const;
+  Port structFieldPort(DictionaryAttr field, const AstNode &site) const;
+  void rememberStructField(Value value, DictionaryAttr field,
+                           const AstNode &site);
+  FailureOr<Value> structFieldZero(DictionaryAttr field, const AstNode &site,
+                                    OpBuilder &at, FlatSymbolRefAttr symbol);
   LogicalResult serializeSourceCall(ModuleDecl &decl);
   LogicalResult inferModuleGraph();
   StringRef memoryReference(const AstNode &node) const;
@@ -950,7 +955,8 @@ private:
   FailureOr<Type> expressionType(const AstNode &node,
                                  llvm::StringMap<Value> &values,
                                  llvm::StringMap<Instance *> &instances,
-                                 FlatSymbolRefAttr owner);
+                                 FlatSymbolRefAttr owner,
+                                 DictionaryAttr *projectedField = nullptr);
   FailureOr<Value> trueValue(const AstNode &node, OpBuilder &at,
                              FlatSymbolRefAttr owner);
   LogicalResult emitInstrumentation(const ModuleDecl &module,
@@ -3849,7 +3855,10 @@ Importer::compareSourceValues(Value lhs, Value rhs, StringRef predicate,
 FailureOr<Type> Importer::expressionType(const AstNode &node,
                                          llvm::StringMap<Value> &values,
                                          llvm::StringMap<Instance *> &instances,
-                                         FlatSymbolRefAttr ownerSymbol) {
+                                         FlatSymbolRefAttr ownerSymbol,
+                                         DictionaryAttr *projectedField) {
+  if (projectedField)
+    *projectedField = {};
   if ((node.kind() == "Name" || node.kind() == "Attribute" || node.kind() == "Subscript") &&
       failed(requireNestedRuleDataVisible(assignmentRoot(node), node))) return failure();
 
@@ -3998,8 +4007,11 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
       return error() << "field projection requires a struct";
     for (Attribute raw : declaration.getFields()) {
       auto field = cast<DictionaryAttr>(raw);
-      if (field.getAs<StringAttr>("name").getValue() == node.string("attr"))
+      if (field.getAs<StringAttr>("name").getValue() == node.string("attr")) {
+        if (projectedField)
+          *projectedField = field;
         return field.getAs<TypeAttr>("type").getValue();
+      }
     }
     return error() << "unknown struct field";
   }
