@@ -762,7 +762,9 @@ int main(){
   }
   std::cout<<"COUNTER_ROOT_ACTUAL_CPP_OK\n";
 }
-""".replace("WIDTH", str(width))
+""".replace(
+            "WIDTH", str(width)
+        )
     )
     with (cpp / "CMakeLists.txt").open("a") as cmake:
         cmake.write(
@@ -814,7 +816,9 @@ initial begin
  $display("COUNTER_ROOT_ACTUAL_RTL_OK");$finish;
 end
 endmodule
-""".replace("WIDTH", str(width))
+""".replace(
+            "WIDTH", str(width)
+        )
     )
     manifest = json.loads((rtl / "generated.json").read_text())
     sources = [rtl / row["path"] for row in manifest["files"] if row["role"] == "rtl"]
@@ -1088,7 +1092,8 @@ def test_checked_index_shared_select_dag_has_bounded_verification(
 
 def test_unknown_direct_table_read_preserves_full_selector(tmp_path):
     source = _source(tmp_path, RAW_BANK)
-    (source / "bench.py").write_text("""import pycircuit as ac
+    (source / "bench.py").write_text(
+        """import pycircuit as ac
 from checks.provider import RawBank
 @ac.system(samples=((1, 0),))
 def ExerciseUnknown():
@@ -1098,7 +1103,8 @@ def ExerciseUnknown():
     @ac.rule
     def observe():
         ac.log('info', 'unknown state index', known, high_x, high_z)
-""")
+"""
+    )
     provider, bench = tmp_path / "provider", tmp_path / "bench"
     _ok(_compile(source, "provider.py", provider))
     _ok(_compile(source, "bench.py", bench, [provider]))
@@ -1566,7 +1572,11 @@ int main(){for(unsigned workers:{1u,2u}){
  for(unsigned cycle=0;cycle<100;++cycle){bool enable=cycle%3!=1;step(enable,0);step(enable,1);last=(last+enable)&((1u<<WIDTH)-1);}
  step(1,0);step(1,1,1);last=3;step(0,0);
 }std::cout<<"ENTRY_PROBE_CPP_OK\n";}
-""".replace("DEPTH", str(extent)).replace("WIDTH", str(width))
+""".replace(
+        "DEPTH", str(extent)
+    ).replace(
+        "WIDTH", str(width)
+    )
     rtl = r"""module entry_probe;
 localparam N=DEPTH,W=WIDTH;
 logic enable=0,clk=0,rst=0,permit=0;logic[2:0] phase=0;
@@ -1586,7 +1596,11 @@ initial begin
  $display("ENTRY_PROBE_RTL_OK");$finish;
 end
 endmodule
-""".replace("DEPTH", str(extent)).replace("WIDTH", str(width))
+""".replace(
+        "DEPTH", str(extent)
+    ).replace(
+        "WIDTH", str(width)
+    )
     _entry_dual_probe(final, tmp_path, cpp, rtl)
 
 
@@ -1698,7 +1712,8 @@ def Wrap(enable: ac.u1, *, W: int = 131) -> ac.bits[W]:
 """,
         "wide.py",
     )
-    (source / "bench.py").write_text("""import pycircuit as ac
+    (source / "bench.py").write_text(
+        """import pycircuit as ac
 from checks.wide import Wide, Wrap
 @ac.system
 def ExerciseWide():
@@ -1717,7 +1732,8 @@ def ExerciseWide():
                d[:64], d[64:128], d[128:130],
                e[:64], e[64:128], e[128:130])
         phase = phase + 1
-""")
+"""
+    )
     provider, bench = tmp_path / "provider", tmp_path / "bench"
     _ok(_compile(source, "wide.py", provider))
     before = _tree(provider)
