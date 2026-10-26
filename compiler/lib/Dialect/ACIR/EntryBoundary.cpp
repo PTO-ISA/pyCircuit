@@ -28,6 +28,12 @@ LogicalResult verifyEntryBoundaryAttribute(Operation *operation, Attribute attri
       !record || record.size() != 2 || !version || !version.getType().isSignlessInteger(64) ||
       version.getInt() != 1 || !entryShape(record.getAs<DictionaryAttr>("logical_entry")))
     return operation->emitOpError("ac.entry_boundary requires exactly version=1 : i64 and logical_entry on the executable System");
+  if (stage) {
+    auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+    if (!contract || !contract.getType().isSignlessInteger(64) ||
+        contract.getInt() != 3)
+      return operation->emitOpError("ac.entry_boundary requires ac.routed_contract = 3 : i64 in routed and final packages");
+  }
   return success();
 }
 

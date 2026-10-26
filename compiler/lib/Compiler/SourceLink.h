@@ -13,11 +13,11 @@ struct SourceLinkUnit {
 // Diagnostic snapshots of the same link pipeline, never source authority.
 // Updated only after complete link success; failure preserves prior contents.
 struct SourceLinkStages {
-  std::string beforeEntryNormalization;
-  std::string normalizedEntry;
   std::string beforeTransactions;
   std::string routedTransactions;
   std::string afterTransactions;
+  std::string beforeEntryNormalization;
+  std::string normalizedEntry;
 };
 
 struct SourceLinkParameterBinding {

@@ -92,6 +92,7 @@ nav:
       - Overview: architecture/overview.md
       - Compiler Pipeline: architecture/compiler-pipeline.md
       - Routed ACIR Anchor: architecture/routed-anchor.md
+      - Selected Module Entries: architecture/entry-boundary.md
       - Saved Anchors: architecture/saved-anchor.md
       - Simulation: architecture/simulation.md
       - System Execution: architecture/system-execution.md
@@ -116,6 +117,8 @@ nav:
           - Execution Prompt: development/issue-307-319-agent-prompt.md
       - Project Governance: development/project-governance.md
       - Extension Specifications:
+          - Boolean Record Fields: rfcs/boolean-record-fields.md
+          - Literal Provider Constants: rfcs/literal-provider-constants.md
           - Four-state Values and System: rfcs/four-state-system.md
           - Serial Rule and Method: rfcs/serial-rule-method/README.md
           - Source Semantics: rfcs/serial-rule-method/source-semantics.md

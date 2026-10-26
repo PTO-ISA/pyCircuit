@@ -78,11 +78,17 @@ public:
     if (llvm::none_of(package.getOps<ac::ModuleOp>(), isTemplate)) return;
     ac::SourceMethodSummariesAnalysis summaries(package);
     if (!summaries.isValid()) { signalPassFailure(); return; }
-    for (auto module : package.getOps<ac::ModuleOp>())
-      if (failed(summaries.getPublicationSummary(module))) {
+    for (auto module : package.getOps<ac::ModuleOp>()) {
+      // Hardware templates retain their ordinary symbolic admission and are
+      // checked under actual occurrence bindings. Only source-transaction
+      // owners publish a transaction summary, exactly as interface extraction.
+      auto transactions = summaries.requiresTransactionPublication(module);
+      if (failed(transactions) ||
+          (*transactions && failed(summaries.getPublicationSummary(module)))) {
         signalPassFailure();
         return;
       }
+    }
     ac::HardwareSourceCheckLimits limits;
     limits.maxWorkUnits = 1024 * 1024;
     ac::detail::SourceCheckBudget budget(limits);

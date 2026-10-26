@@ -5765,9 +5765,12 @@ def Root(data: ac.bits[W], *, W: int = 8) -> ac.bits[W]:
     EXPECT_FALSE(
         SymbolTable::lookupSymbolIn(*original, "pycircuit.__link_entry__"));
     // Failed source-link requests cannot replace any diagnostic snapshot.
-    compiler::SourceLinkStages preserved{"before-entry", "normalized-entry",
-                                         "before-transactions", "routed",
-                                         "after-transactions"};
+    compiler::SourceLinkStages preserved;
+    preserved.beforeEntryNormalization = "before-entry";
+    preserved.normalizedEntry = "normalized-entry";
+    preserved.beforeTransactions = "before-transactions";
+    preserved.routedTransactions = "routed";
+    preserved.afterTransactions = "after-transactions";
     auto rejected = compiler::linkSourceUnits(
         {{*unit->body, *unit->interface}}, "no_entry.Missing", error(),
         compiler::SourceLinkTarget::Hardware, &preserved);
