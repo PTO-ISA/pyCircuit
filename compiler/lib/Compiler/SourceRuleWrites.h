@@ -25,8 +25,17 @@ struct SourceOwnerWrite {
   std::string formal;
   llvm::SmallVector<SourceWritePath, 0> paths;
 };
+struct SourceRuleBinding {
+  unsigned ordinal;
+  AstNode expression;
+};
 struct SourceRuleCallPlan {
-  AstNode module, call, rule;
+  enum class Kind { LocalDeclaration, GlobalTemplateCall };
+  // occurrence is a real nested FunctionDef or a complete global template Call.
+  AstNode module, occurrence, rule;
+  Kind kind = Kind::GlobalTemplateCall;
+  AstNode statement;
+  llvm::SmallVector<SourceRuleBinding, 0> bindings;
   llvm::SmallVector<SourceOwnerWrite, 0> writes;
 };
 

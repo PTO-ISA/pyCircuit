@@ -425,7 +425,9 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto row = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
   NamedAttrList core;
   if (row) core.assign(row.getValue());
-  core.erase("ehr_entries");
+  if ((row && row.get("ehr_entries")) || rule->hasAttr("ac.after") ||
+      rule->hasAttr("ac.callable_after"))
+    return rule->emitOpError() << "after ordering and EHR entry forwarding are retired";
   core.erase("requirements");
   core.erase("resources");
   core.erase("queue_proposals");
@@ -446,9 +448,6 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
   auto requirements = row ? row.getAs<ArrayAttr>("requirements") : ArrayAttr();
   if (row && row.get("requirements") && (!requirements || requirements.empty()))
     return rule->emitOpError() << "requirements requires a nonempty array";
-  auto ehrEntries = row ? row.getAs<ArrayAttr>("ehr_entries") : ArrayAttr();
-  if (row && row.get("ehr_entries") && (!ehrEntries || ehrEntries.empty()))
-    return rule->emitOpError() << "ehr_entries requires a nonempty array";
   if (!module || rule->getNumRegions() != 1 || !rule.getBody().hasOneBlock() ||
       failed(exact(core.getDictionary(rule.getContext()),
                    {"clock_capture", "reset_capture", "fire_result", "controls",
@@ -489,7 +488,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       SourceCheckBudget::add(controls.size(), bodyChecks.size());
   uint64_t legacyTotal = SourceCheckBudget::add(
       checkBase, SourceCheckBudget::multiply(2, checkCount));
-  uint64_t total = SourceCheckBudget::add(legacyTotal, ehrEntries ? ehrEntries.size() : 0);
+  uint64_t total = legacyTotal;
   if (queueProposals)
     for (Attribute raw : queueProposals) {
       auto proposal = dyn_cast<DictionaryAttr>(raw);
@@ -996,44 +995,7 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
     result.observations.push_back(std::move(observation));
     path += 1 + *count;
   }
-  if (ehrEntries) {
-    for (auto [ordinal, raw] : llvm::enumerate(ehrEntries)) {
-      auto row = dyn_cast<DictionaryAttr>(raw);
-      if (failed(exact(row, {"state", "old_q_capture", "predecessors", "result"},
-                       rule, "EHR entry"))) return failure();
-      auto state = row.getAs<DictionaryAttr>("state");
-      auto oldQ = index(row, "old_q_capture", rule);
-      auto output = index(row, "result", rule);
-      auto predecessors = row.getAs<ArrayAttr>("predecessors");
-      if (failed(oldQ) || failed(output) || !predecessors || predecessors.empty() ||
-          failed(wholeStateID(state, rule)) ||
-          uint64_t(*oldQ) >= rule->getNumOperands() || uint64_t(*output) != legacyTotal + ordinal)
-        return rule->emitOpError() << "EHR entry has invalid owner/capture/result";
-      SampledEhrEntry entry{state, uint64_t(*oldQ), uint64_t(*output),
-          rule->getOperand(*oldQ), yielded->getOperand(*output), {}};
-      for (auto prior : predecessors) {
-        auto item = dyn_cast<DictionaryAttr>(prior);
-        if (failed(exact(item, {"registration", "data_capture", "enable_capture"},
-                         rule, "EHR predecessor"))) return failure();
-        auto registration = item.getAs<DictionaryAttr>("registration");
-        auto data = index(item, "data_capture", rule);
-        auto enable = index(item, "enable_capture", rule);
-        if (failed(data) || failed(enable) ||
-            failed(verifyOccurrence(registration, [&] { return rule->emitOpError(); })) ||
-            uint64_t(*data) >= rule->getNumOperands() || uint64_t(*enable) != uint64_t(*data) + 1 ||
-            uint64_t(*enable) >= rule->getNumOperands() ||
-            failed(bitOne(rule->getOperand(*enable), analysis, bindings, rule, budget)))
-          return rule->emitOpError() << "EHR predecessor has invalid proposal captures";
-        if (failed(charge(budget, rule, 1, sizeof(SampledEhrPredecessor)))) return failure();
-        entry.predecessors.push_back({registration, uint64_t(*data), uint64_t(*enable),
-                                      rule->getOperand(*data), rule->getOperand(*enable)});
-      }
-      if (failed(charge(budget, rule, 1, sizeof(SampledEhrEntry)))) return failure();
-      result.ehrEntries.push_back(std::move(entry));
-    }
-  }
-  uint64_t queueResult = SourceCheckBudget::add(legacyTotal,
-      ehrEntries ? ehrEntries.size() : 0);
+  uint64_t queueResult = legacyTotal;
   if (queueProposals && failed(charge(budget, rule, queueProposals.size(),
                                       sizeof(SampledQueueProposalView)))) return failure();
   if (queueProposals) for (Attribute raw : queueProposals) {
@@ -3075,6 +3037,9 @@ struct State {
   bool commitProven = false;
   std::optional<bool> unordered;
   StateEndpoint endpoint;
+  // The complete candidate set is immutable after writers(). This theorem is
+  // state-wide; incoming-stage and physical D/E proofs remain per connection.
+  bool writeDomainsProven = false;
 };
 struct PrivateRoute {
   HardwareIdentityEndpoint endpoint;
@@ -3143,8 +3108,6 @@ public:
     budget.setPhase("sampled wiring writers");
     if (failed(writers()))
       return failure();
-    budget.setPhase("sampled wiring ordered entries");
-    if (failed(orderedEntries())) return failure();
     budget.setPhase("sampled wiring external inputs");
     if (failed(externalInputs()))
       return failure();
@@ -3677,92 +3640,12 @@ private:
       return failure();
     return effectDomain(entry, **logical, clock, reset, terminal);
   }
-  FailureOr<SmallVector<RuleOp>> finalPredecessors(RuleOp rule) {
-    SmallVector<RuleOp> result;
-    llvm::DenseSet<Operation *> active, seen;
-    std::function<LogicalResult(RuleOp, unsigned)> visit =
-        [&](RuleOp current, unsigned depth) -> LogicalResult {
-      if (depth > 128 || failed(budget.debit(1, current))) return failure();
-      if (!active.insert(current).second)
-        return current->emitOpError() << "final transaction after graph is cyclic";
-      if (Attribute raw = current->getAttr("ac.after")) {
-        auto after = dyn_cast<ArrayAttr>(raw);
-        if (!after) return current->emitOpError() << "final after requires an array";
-        llvm::DenseSet<Attribute> distinct;
-        auto module = cast<ModuleOp>(current->getParentOp());
-        for (Attribute identity : after) {
-          if (!distinct.insert(identity).second ||
-              failed(verifyOccurrence(dyn_cast<DictionaryAttr>(identity),
-                                      [&] { return current->emitOpError(); })))
-            return current->emitOpError() << "final after requires distinct registrations";
-          RuleOp predecessor;
-          unsigned count = 0;
-          for (auto possible : module.getBody().front().getOps<RuleOp>()) {
-            if (failed(budget.debit(1, current))) return failure();
-            if (possible->hasAttr("ac.sampled_admission") &&
-                identical(possible->getAttr("occurrence"), identity)) {
-              predecessor = possible;
-              ++count;
-            }
-          }
-          if (count != 1 || predecessor == current)
-            return current->emitOpError() << "final after requires one other local outer registration";
-          if (!seen.contains(predecessor)) {
-            if (failed(visit(predecessor, depth + 1))) return failure();
-            seen.insert(predecessor);
-            result.push_back(predecessor);
-          }
-        }
-      }
-      active.erase(current);
-      return success();
-    };
-    if (failed(visit(rule, 0))) return failure();
-    return result;
-  }
-
   LogicalResult allowUse(const HardwareIdentityScope &scope, Operation *operation,
                          unsigned operand, size_t state, PrivateRoute::Kind kind) {
     auto occurrence = occurrenceFor(scope);
     if (failed(occurrence) || failed(budget.debit(1, operation))) return failure();
     allowedUses.emplace(*occurrence, operation, operand, state, kind);
     return success();
-  }
-
-  FailureOr<HardwareIdentityEndpoint> projectionRoot(
-      Value value, const HardwareIdentityScope &scope, ArrayRef<Attribute> path,
-      size_t state) {
-    auto current = normal(value, scope);
-    if (failed(current)) return failure();
-    for (Attribute step : llvm::reverse(path)) {
-      if (auto field = dyn_cast<StringAttr>(step)) {
-        auto get = current->value.getDefiningOp<StructGetOp>();
-        if (!get || get.getFieldAttr() != field)
-          return valueSite(current->value)->emitOpError() << "EHR field projection differs";
-        if (failed(allowUse(current->scope, get, 0, state, PrivateRoute::Data))) return failure();
-        current = normal(get.getValue(), current->scope);
-      } else {
-        auto expected = cast<IntegerAttr>(step).getValue().getZExtValue();
-        auto get = current->value.getDefiningOp<TableGetOp>();
-        if (!get) return valueSite(current->value)->emitOpError() << "EHR Table projection differs";
-        auto index = normal(get.getIndex(), current->scope);
-        if (failed(index)) return failure();
-        auto constant = index->value.getDefiningOp<BitsConstantOp>();
-        auto bound = scopeBindings(index->scope, analysis, budget, get);
-        if (!constant || failed(bound)) return get->emitOpError() << "EHR Table index must be static";
-        auto number = analysis.evaluateStatic(constant.getValue(), *bound, get);
-        if (failed(number)) return failure();
-        auto integer = dyn_cast<MathIntAttr>(*number);
-        if (!integer) return get->emitOpError() << "EHR Table index must be an integer";
-        llvm::APSInt actual(integer.getCanonicalValue());
-        if (actual.isNegative() || actual.getActiveBits() > 64 || actual.getZExtValue() != expected)
-          return get->emitOpError() << "EHR Table element ordinal differs";
-        if (failed(allowUse(current->scope, get, 0, state, PrivateRoute::Data))) return failure();
-        current = normal(get.getInput(), current->scope);
-      }
-      if (failed(current)) return failure();
-    }
-    return *current;
   }
 
 #include "HardwareWriteDomainProof.inc"
@@ -3867,134 +3750,6 @@ private:
     return success();
   }
 
-  FailureOr<HardwareIdentityEndpoint> peelSelection(
-      const HardwareIdentityEndpoint &selected,
-      const HardwareIdentityEndpoint &condition,
-      const HardwareIdentityEndpoint &whenTrue, size_t state) {
-    std::optional<HardwareIdentityEndpoint> whenFalse;
-    SmallVector<Attribute> path;
-    std::function<LogicalResult(Value, Type, const HardwareIdentityScope &, unsigned)> visit =
-        [&](Value value, Type type, const HardwareIdentityScope &scope, unsigned depth) -> LogicalResult {
-      if (depth > 128 || failed(budget.debit(1, valueSite(value)))) return failure();
-      auto actual = normal(value, scope);
-      if (failed(actual)) return failure();
-      if (auto structure = dyn_cast<StructType>(type)) {
-        auto create = actual->value.getDefiningOp<StructCreateOp>();
-        auto declaration = analysis.lookupStruct(structure);
-        if (!create || !declaration || create->getNumOperands() != declaration.getFields().size())
-          return valueSite(actual->value)->emitOpError() << "EHR Struct selection reconstruction differs";
-        for (auto [ordinal, raw] : llvm::enumerate(declaration.getFields())) {
-          auto field = cast<DictionaryAttr>(raw);
-          path.push_back(field.getAs<StringAttr>("name"));
-          auto bindings = scopeBindings(actual->scope, analysis, budget, create);
-          if (failed(bindings)) return failure();
-          auto fieldType = analysis.resolveType(field.getAs<TypeAttr>("type").getValue(), *bindings, create);
-          if (failed(fieldType) ||
-              failed(allowUse(actual->scope, create, ordinal, state, PrivateRoute::Data)) ||
-              failed(visit(create->getOperand(ordinal), *fieldType, actual->scope, depth + 1))) return failure();
-          path.pop_back();
-        }
-        return success();
-      }
-      if (auto table = dyn_cast<TableType>(type)) {
-        auto create = actual->value.getDefiningOp<TableCreateOp>();
-        auto bindings = scopeBindings(actual->scope, analysis, budget, valueSite(actual->value));
-        if (!create || failed(bindings))
-          return valueSite(actual->value)->emitOpError() << "EHR Table selection reconstruction differs";
-        auto count = analysis.getTableSize(table, *bindings, create);
-        if (failed(count) || create->getNumOperands() != *count) return failure();
-        Builder b(create.getContext());
-        for (uint64_t ordinal = 0; ordinal < *count; ++ordinal) {
-          path.push_back(b.getI64IntegerAttr(ordinal));
-          if (failed(allowUse(actual->scope, create, ordinal, state, PrivateRoute::Data)) ||
-              failed(visit(create->getOperand(ordinal), table.getElementType(), actual->scope, depth + 1))) return failure();
-          path.pop_back();
-        }
-        return success();
-      }
-      Value carrier = actual->value;
-      if (isa<EnumType>(type)) {
-        auto conversion = carrier.getDefiningOp<EnumFromBitsOp>();
-        if (!conversion || failed(allowUse(actual->scope, conversion, 0, state, PrivateRoute::Data)))
-          return valueSite(carrier)->emitOpError() << "EHR Enum selection reconstruction differs";
-        carrier = conversion.getInput();
-      }
-      auto chosen = normal(carrier, actual->scope);
-      if (failed(chosen)) return failure();
-      auto select = chosen->value.getDefiningOp<BitsSelectOp>();
-      if (!select) return valueSite(chosen->value)->emitOpError() << "EHR selection requires a four-state select";
-      auto predicate = normal(select.getCondition(), chosen->scope);
-      if (failed(predicate) || !sameEndpoint(*predicate, condition))
-        return select->emitOpError() << "EHR selection must use predecessor final enable";
-      if (failed(allowUse(chosen->scope, select, 0, state, PrivateRoute::Enable)) ||
-          failed(allowUse(chosen->scope, select, 1, state, PrivateRoute::Data)) ||
-          failed(allowUse(chosen->scope, select, 2, state, PrivateRoute::Data))) return failure();
-      Value trueValue = select.getTrueValue(), falseValue = select.getFalseValue();
-      if (isa<EnumType>(type)) {
-        auto t = trueValue.getDefiningOp<EnumToBitsOp>();
-        auto f = falseValue.getDefiningOp<EnumToBitsOp>();
-        if (!t || !f || failed(allowUse(chosen->scope, t, 0, state, PrivateRoute::Data)) ||
-            failed(allowUse(chosen->scope, f, 0, state, PrivateRoute::Data)))
-          return select->emitOpError() << "EHR Enum carrier inputs differ";
-        trueValue = t.getInput();
-        falseValue = f.getInput();
-      }
-      auto t = projectionRoot(trueValue, chosen->scope, path, state);
-      auto f = projectionRoot(falseValue, chosen->scope, path, state);
-      if (failed(t) || failed(f) || !sameEndpoint(*t, whenTrue))
-        return select->emitOpError() << "EHR selection data origin differs";
-      if (whenFalse && !sameEndpoint(*whenFalse, *f))
-        return select->emitOpError() << "EHR aggregate selection mixes fallback owners";
-      whenFalse = *f;
-      return success();
-    };
-    if (failed(visit(selected.value, states[state].payload, selected.scope, 0)) || !whenFalse)
-      return failure();
-    return *whenFalse;
-  }
-
-  FailureOr<HardwareIdentityEndpoint> peelEnableOr(
-      const HardwareIdentityEndpoint &combined,
-      const HardwareIdentityEndpoint &latest, size_t state) {
-    auto binary = combined.value.getDefiningOp<BitsBinaryOp>();
-    if (!binary || binary.getOpcode() != "or")
-      return valueSite(combined.value)->emitOpError() << "EHR commit enable requires admitted-write OR";
-    auto lhs = normal(binary.getLhs(), combined.scope);
-    auto rhs = normal(binary.getRhs(), combined.scope);
-    if (failed(lhs) || failed(rhs)) return failure();
-    if (failed(allowUse(combined.scope, binary, 0, state, PrivateRoute::Enable)) ||
-        failed(allowUse(combined.scope, binary, 1, state, PrivateRoute::Enable))) return failure();
-    if (sameEndpoint(*rhs, latest)) return *lhs;
-    if (sameEndpoint(*lhs, latest)) return *rhs;
-    return binary->emitOpError() << "EHR commit enable misses predecessor final enable";
-  }
-
-  LogicalResult proveOrderedCommit(const HardwareIdentityEndpoint &data,
-                                   const HardwareIdentityEndpoint &enable, size_t stateIndex) {
-    auto &state = states[stateIndex];
-    if (state.commitProven)
-      return success(state.data && state.enable && sameEndpoint(*state.data, data) &&
-                     sameEndpoint(*state.enable, enable));
-    HardwareIdentityEndpoint selected = data, combined = enable;
-    for (uint64_t index = state.candidates.size(); index > 1; --index) {
-      const auto &latest = state.candidates[index - 1];
-      auto fallback = peelSelection(selected, latest.enable, latest.data, stateIndex);
-      auto earlier = peelEnableOr(combined, latest.enable, stateIndex);
-      if (failed(fallback) || failed(earlier)) return failure();
-      if (failed(privateRoute(selected.value, selected.scope, stateIndex, PrivateRoute::Data)) ||
-          failed(privateRoute(combined.value, combined.scope, stateIndex, PrivateRoute::Enable))) return failure();
-      selected = *fallback;
-      combined = *earlier;
-    }
-    const auto &first = state.candidates.front();
-    if (!sameEndpoint(selected, first.data) || !sameEndpoint(combined, first.enable))
-      return state.storage->emitOpError() << "EHR physical commit chain has a wrong first writer";
-    state.data = data;
-    state.enable = enable;
-    state.commitProven = true;
-    return success();
-  }
-
   FailureOr<const SampledAdmissionView *>
   writerAdmission(const Occurrence &entry, RuleOp rule) {
     PrefixIndexKey key{rule.getOperation(),
@@ -4030,91 +3785,6 @@ private:
     writerAdmissions.emplace_hint(position, key, sampled);
     return sampled;
   }
-  FailureOr<const SampledAdmissionView *>
-  existingWriterAdmission(const Occurrence &entry, RuleOp rule) {
-    // writers() immediately precedes orderedEntries() in this immutable proof
-    // invocation and authenticates every writer at every exact occurrence.
-    // Reuse that current parsed view instead of recursively replaying sampled
-    // admission and queue wiring for the same key.
-    PrefixIndexKey key{rule.getOperation(),
-                       static_cast<uint64_t>(&entry - occurrences.data())};
-    if (failed(budget.debit(orderedLookupCost(writerAdmissions.size()), rule)))
-      return failure();
-    auto found = writerAdmissions.find(key);
-    if (found == writerAdmissions.end())
-      return rule->emitOpError()
-             << "ordered entry lacks its current authenticated writer view";
-    return found->second;
-  }
-  LogicalResult orderedEntries() {
-    for (const auto &entry : occurrences) {
-      if (!entry.wiring) continue;
-      for (const auto &writer : entry.wiring->writers) {
-        auto ancestors = finalPredecessors(writer.rule);
-        auto parsed = existingWriterAdmission(entry, writer.rule);
-        if (failed(ancestors) || failed(parsed)) return failure();
-        const auto *sampled = *parsed;
-        auto clock = normal(sampled->clock, entry.scope), reset = normal(sampled->reset, entry.scope);
-        if (failed(clock) || failed(reset)) return failure();
-        for (auto predecessor : *ancestors) {
-          auto priorView = existingWriterAdmission(entry, predecessor);
-          if (failed(priorView)) return failure();
-          const auto *prior = *priorView;
-          auto c = normal(prior->clock, entry.scope), r = normal(prior->reset, entry.scope);
-          if (failed(c) || failed(r) || !sameEndpoint(*c, *clock) || !sameEndpoint(*r, *reset))
-            return writer.rule->emitOpError() << "EHR predecessor physical domain differs";
-        }
-        llvm::DenseSet<size_t> seen;
-        for (const auto &visible : sampled->ehrEntries) {
-          if (!writer.rule->getResult(visible.result).use_empty())
-            return writer.rule->emitOpError() << "private EHR entry witness escapes";
-          auto state = target(entry, visible.stateID);
-          if (failed(state) || !seen.insert(*state).second)
-            return writer.rule->emitOpError() << "duplicate EHR entry owner";
-          auto oldQ = normal(visible.oldQ, entry.scope);
-          auto physical = normal(states[*state].storage->getResult(0), states[*state].scope);
-          auto selected = normal(visible.selected, entry.scope);
-          if (failed(oldQ) || failed(physical) || failed(selected) || !sameEndpoint(*oldQ, *physical))
-            return writer.rule->emitOpError() << "EHR entry must start from its owner's old Q";
-          SmallVector<std::pair<RuleOp, const TransactionCandidateView *>> expected;
-          for (auto predecessor : *ancestors)
-            for (const auto &prior : entry.wiring->writers) {
-              if (prior.rule != predecessor) continue;
-              for (const auto &candidate : prior.candidates) {
-                auto destination = target(entry, candidate.stateID);
-                if (failed(destination)) return failure();
-                if (*destination == *state) expected.push_back({predecessor, &candidate});
-              }
-            }
-          if (expected.size() != visible.predecessors.size() || expected.empty())
-            return writer.rule->emitOpError() << "EHR entry misses its declared predecessor writers";
-          for (auto [ordinal, actual] : llvm::enumerate(visible.predecessors)) {
-            auto [predecessor, candidate] = expected[ordinal];
-            auto data = normal(actual.data, entry.scope), enable = normal(actual.enable, entry.scope);
-            auto d = normal(candidate->data, entry.scope), e = normal(candidate->enable, entry.scope);
-            if (failed(data) || failed(enable) || failed(d) || failed(e) ||
-                !identical(actual.registration, predecessor->getAttr("occurrence")) ||
-                !sameEndpoint(*data, *d) || !sameEndpoint(*enable, *e))
-              return writer.rule->emitOpError() << "EHR entry captures the wrong predecessor proposal";
-            if (failed(allowUse(entry.scope, writer.rule, actual.dataCapture, *state, PrivateRoute::Data)) ||
-                failed(allowUse(entry.scope, writer.rule, actual.enableCapture, *state, PrivateRoute::Enable))) return failure();
-          }
-          for (uint64_t ordinal = visible.predecessors.size(); ordinal > 0; --ordinal) {
-            const auto &predecessor = visible.predecessors[ordinal - 1];
-            auto data = normal(predecessor.data, entry.scope), enable = normal(predecessor.enable, entry.scope);
-            if (failed(data) || failed(enable)) return failure();
-            auto fallback = peelSelection(*selected, *enable, *data, *state);
-            if (failed(fallback)) return failure();
-            selected = *fallback;
-          }
-          if (!sameEndpoint(*selected, *oldQ))
-            return writer.rule->emitOpError() << "EHR entry fallback differs from old Q";
-        }
-      }
-    }
-    return success();
-  }
-
   LogicalResult writers() {
     for (const auto &entry : occurrences) {
       if (!entry.wiring)
@@ -4229,35 +3899,17 @@ private:
           if (failed(stateIndex) || failed(data) || failed(enable))
             return failure();
           auto &state = states[*stateIndex];
-          auto ancestors = finalPredecessors(writer.rule);
-          if (failed(ancestors)) return failure();
           uint64_t position = state.candidates.size();
-          for (auto [ordinal, prior] : llvm::enumerate(state.candidates)) {
-            auto previous = finalPredecessors(prior.rule);
-            if (failed(previous)) return failure();
-            bool sameActualScope = prior.occurrence ==
-                                   size_t(&entry - occurrences.data());
-            bool follows = sameActualScope && llvm::is_contained(*ancestors, prior.rule);
-            bool precedes = sameActualScope && llvm::is_contained(*previous, writer.rule);
-            if (!sameActualScope) {
-              if (!ancestors->empty() || !previous->empty())
-                return writer.rule->emitOpError()
-                       << "cross-scope writers cannot participate in after composition";
-              // Unordered cross-scope writers are admitted by the independent
-              // write-domain grant proof below: different fields are disjoint
-              // and same-field/index pairs must prove exclusive enables.
-            } else if (prior.rule == writer.rule && prior.ordinal == candidateOrdinal) {
+          for (const auto &prior : state.candidates) {
+            if (failed(budget.debit(1, writer.rule))) return failure();
+            if (prior.occurrence == size_t(&entry - occurrences.data()) &&
+                prior.rule == writer.rule && prior.ordinal == candidateOrdinal)
               return writer.rule->emitOpError() << "duplicate actual transaction contributor";
-            }
-            bool unordered = !follows && !precedes;
-            if (state.unordered && *state.unordered != unordered)
-              return writer.rule->emitOpError() << "mixed ordered and unordered writers require a declared composition route";
-            state.unordered = unordered;
-            if (precedes) position = std::min(position, uint64_t(ordinal));
+            state.unordered = true;
           }
           if (state.clock && (!sameEndpoint(*state.clock, *clock) ||
                               !sameEndpoint(*state.reset, *reset)))
-            return writer.rule->emitOpError() << "ordered writers have different physical domains";
+            return writer.rule->emitOpError() << "independent writers have different physical domains";
           if (failed(typeMatches(*data, state.payload, writer.rule)))
             return failure();
           if (failed(payScope(data->scope, budget, writer.rule)) ||
@@ -4504,10 +4156,8 @@ private:
     auto staged = hasIncomingStage(*stage, stateIndex);
     if (failed(staged)) return failure();
     if (*staged) {
-      // The contributor inventory authenticates after edges only within one
-      // actual occurrence and rejects mixed composition. Ordered local writers
-      // retain their existing priority semantics, even when their owner is
-      // reached through a child incoming route.
+      // Independent contributors require disjoint write domains even when
+      // their owner is reached through a child incoming route.
       if (state.unordered.value_or(false) &&
           failed(proveWriteDomainsDisjoint(stateIndex))) return failure();
       return proveStagedCommit(*data, *enable, *stage, stateIndex, storage);
@@ -4554,9 +4204,7 @@ private:
       return success();
     }
     if (state.candidates.size() > 1)
-      return state.unordered.value_or(false)
-          ? proveUnorderedCommit(*data, *enable, stateIndex)
-          : proveOrderedCommit(*data, *enable, stateIndex);
+      return proveUnorderedCommit(*data, *enable, stateIndex);
     if (state.candidates.size() == 1 &&
         state.candidates.front().occurrence != *stage)
       return proveSingleCandidate(*data, *enable, stateIndex,

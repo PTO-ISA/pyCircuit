@@ -9,7 +9,7 @@ def ExerciseNestedRules():
     left = RuleRelay()
     right = RuleRelay()
 
-    @ac.rule
+    @ac.method
     def nested(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
         before, after = left.add(delta)
         left.require(phase != 1)
@@ -34,8 +34,3 @@ def ExerciseNestedRules():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    drive()
-    advance_independent()
-    inspect()
-    tick()

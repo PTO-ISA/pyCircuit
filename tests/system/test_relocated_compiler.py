@@ -287,7 +287,7 @@ def _compile_and_link(
 def _assert_events(payload: bytes) -> None:
     _assert_counter_trace(
         payload,
-        children={"root/__pyc_call_0": (7, 99)},
+        children={"root/counter": (7, 99)},
         event="relocation_tick",
         report="relocation_count",
     )

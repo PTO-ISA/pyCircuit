@@ -2,9 +2,11 @@
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
+#include "mlir/Interfaces/SideEffectInterfaces.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/ScopeExit.h"
-#include <map>
-#include <set>
+#include <limits>
 
 using namespace mlir;
 namespace acir::detail {
@@ -12,6 +14,13 @@ namespace {
 // A null bit is statically available. Dynamic bits are ordinary verified
 // hardware SSA; no holding state or substitute payload is introduced.
 class ValueAvailabilityMaterializer {
+  // Canonical handles retain the complete ordered path, including the
+  // distinction between nested fields and one field containing punctuation.
+  using Key = std::pair<Value, ArrayAttr>;
+  using AvailabilityMap = llvm::DenseMap<Key, Value>;
+  // Keep inactive entries rather than erase them: hash-table growth remains
+  // governed only by entry count, with no hidden tombstone-triggered rehash.
+  using ActiveKeys = llvm::DenseMap<Key, bool>;
   struct Ports {
     uint64_t inputs = 0, outputs = 0, routedEnd = 0;
     SmallVector<int64_t> input, output;
@@ -26,29 +35,73 @@ class ValueAvailabilityMaterializer {
   DenseMap<Operation *, Ports> ports;
   DenseMap<Operation *, unsigned> colors;
   DenseMap<Operation *, MaterializedTransaction *> records;
-  std::map<std::string, Value> cache;
-  std::set<std::string> active;
+  AvailabilityMap cache;
+  ActiveKeys active;
   DenseMap<Value, Value> inputAvailability;
   DenseMap<std::pair<Operation *, Value>, Value> ruleCaptures;
   struct RowFrame {
     ac::TableMapOp source, companion;
     IRMapping raw;
-    std::map<std::string, Value> cache, bindings, rows;
-    std::set<std::string> active, activeRows;
+    AvailabilityMap cache, bindings, rows;
+    ActiveKeys active, activeRows;
   };
   RowFrame *rowFrame = nullptr;
   unsigned rowDepth = 0;
-  std::map<std::string, Value> rowCache;
-  std::set<std::string> rowActive;
-  FailureOr<std::string> keyFor(Value value, ArrayRef<StringAttr> path,
-                                Operation *site) {
-    if (failed(budget.debit(32, site))) return failure();
-    std::string key = std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
-    for (auto field : path) {
-      if (failed(budget.debit(32 + field.getValue().size(), site))) return failure();
-      key += ":" + std::to_string(field.getValue().size()) + ":" + field.getValue().str();
+  AvailabilityMap rowCache;
+  ActiveKeys rowActive;
+  FailureOr<Key> keyFor(Value value, ArrayRef<StringAttr> path,
+                        Operation *site) {
+    // Replace pointer/field serialization with typed handle uniquing. Pay path
+    // traversal and temporary storage even for an already interned path.
+    uint64_t work = ac::detail::SourceCheckBudget::add(
+        2, ac::detail::SourceCheckBudget::multiply(path.size(),
+            2 + ac::detail::SourceCheckBudget::bytes(sizeof(Attribute))));
+    if (failed(budget.debit(work, site))) return failure();
+    if (path.empty()) return Key{value, {}};
+    SmallVector<Attribute> fields(path.begin(), path.end());
+    return Key{value, ArrayAttr::get(value.getContext(), fields)};
+  }
+  LogicalResult keyLookup(Operation *site) {
+    return budget.debit(2, site);
+  }
+  template <typename Map>
+  LogicalResult reserveKey(Operation *site, Map &storage) {
+    // Match the pinned DenseMap reserve policy: at least 64 power-of-two
+    // buckets, with load strictly below 3/4. No cache or active map erases keys.
+    using Bucket = typename Map::value_type;
+    uint64_t count = ac::detail::SourceCheckBudget::add(storage.size(), 1);
+    uint64_t oldCapacity = storage.getMemorySize() / sizeof(Bucket);
+    uint64_t capacity = std::max(uint64_t(64), oldCapacity);
+    while (ac::detail::SourceCheckBudget::multiply(count, 4) >=
+           ac::detail::SourceCheckBudget::multiply(capacity, 3)) {
+      if (failed(budget.debit(1, site))) return failure();
+      capacity = ac::detail::SourceCheckBudget::multiply(capacity, 2);
     }
-    return key;
+    if (count > std::numeric_limits<unsigned>::max() ||
+        failed(budget.debit(2, site))) return failure();
+    if (capacity > oldCapacity) {
+      uint64_t growth = ac::detail::SourceCheckBudget::add(oldCapacity,
+          ac::detail::SourceCheckBudget::bytes(
+              ac::detail::SourceCheckBudget::multiply(capacity - oldCapacity,
+                                                       sizeof(Bucket))));
+      if (failed(budget.debit(growth, site))) return failure();
+    }
+    storage.reserve(count);
+    return success();
+  }
+  FailureOr<bool> enterKey(ActiveKeys &storage, const Key &key,
+                           Operation *site) {
+    // Prepay this lookup and the cleanup lookup before making the key active.
+    if (failed(budget.debit(4, site))) return failure();
+    auto found = storage.find(key);
+    if (found != storage.end()) {
+      if (found->second) return false;
+      found->second = true;
+    } else {
+      if (failed(reserveKey(site, storage))) return failure();
+      storage.try_emplace(key, true);
+    }
+    return true;
   }
   bool inRow(Value value) {
     return rowFrame && value.getParentBlock() == &rowFrame->source.getBody().front();
@@ -89,7 +142,7 @@ class ValueAvailabilityMaterializer {
     auto paidKey = keyFor(argument, path, site);
     if (failed(paidKey)) return failure();
     auto key = std::move(*paidKey);
-    if (failed(budget.debit(8 + key.size(), site))) return failure();
+    if (failed(keyLookup(site))) return failure();
     if (auto found = rowFrame->bindings.find(key); found != rowFrame->bindings.end())
       return found->second;
     unsigned ordinal = argument.getArgNumber();
@@ -102,7 +155,8 @@ class ValueAvailabilityMaterializer {
         : availability(source.getCaptures()[ordinal - 1 - source.getTables().size()], path, companion);
     if (failed(available)) return failure();
     if (!*available) {
-      rowFrame->bindings.emplace(std::move(key), Value());
+      if (failed(reserveKey(site, rowFrame->bindings))) return failure();
+      rowFrame->bindings.try_emplace(std::move(key), Value());
       return Value();
     }
     if (failed(budget.debit(16 + path.size(), site))) return failure();
@@ -115,7 +169,8 @@ class ValueAvailabilityMaterializer {
     companion->setAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({
         int32_t(companion.getTables().size() + table),
         int32_t(companion.getCaptures().size() + !table)}));
-    rowFrame->bindings.emplace(std::move(key), bound);
+    if (failed(reserveKey(site, rowFrame->bindings))) return failure();
+    rowFrame->bindings.try_emplace(std::move(key), bound);
     return bound;
   }
   FailureOr<Value> rows(Value value, ArrayRef<StringAttr> path, Operation *site) {
@@ -126,13 +181,14 @@ class ValueAvailabilityMaterializer {
     auto paidKey = keyFor(value, path, site);
     if (failed(paidKey)) return failure();
     auto key = std::move(*paidKey);
-    if (failed(budget.debit(8 + key.size(), site))) return failure();
     auto &localRows = inRow(value) ? rowFrame->rows : rowCache;
     auto &localActive = inRow(value) ? rowFrame->activeRows : rowActive;
+    if (failed(keyLookup(site))) return failure();
     if (auto found = localRows.find(key); found != localRows.end()) return found->second;
-    if (!localActive.insert(key).second)
-      return (void)error(site, "cyclic row availability"), failure();
-    llvm::scope_exit cleanup([&] { localActive.erase(key); });
+    auto entered = enterKey(localActive, key, site);
+    if (failed(entered)) return failure();
+    if (!*entered) return (void)error(site, "cyclic row availability"), failure();
+    llvm::scope_exit cleanup([&] { localActive.find(key)->second = false; });
     auto type = cast<ac::TableType>(value.getType());
     if (failed(budget.debit(16 + 4 * type.getShape().size(), site))) return failure();
     Type companionType = ac::TableType::get(site->getContext(), type.getShape(), bit);
@@ -225,7 +281,8 @@ class ValueAvailabilityMaterializer {
       if (!op) return failure();
       result = op->getResult(0);
     }
-    localRows.emplace(std::move(key), result);
+    if (failed(reserveKey(site, localRows))) return failure();
+    localRows.try_emplace(key, result);
     return result;
   }
 
@@ -528,6 +585,13 @@ class ValueAvailabilityMaterializer {
       return result;
     }
     if (isa<ac::TableMapOp, ac::TableViewOp>(operation)) {
+      bool totalInputs = true;
+      for (Value input : operation->getOperands()) {
+        auto available = availability(input, {}, site);
+        if (failed(available)) return failure();
+        totalInputs &= !*available;
+      }
+      if (totalInputs) return Value();
       auto companion = rows(value, path, site);
       if (failed(companion)) return failure();
       Builder b(site->getContext());
@@ -563,15 +627,19 @@ class ValueAvailabilityMaterializer {
     auto paidKey = keyFor(value, path, site);
     if (failed(paidKey)) return failure();
     auto key = std::move(*paidKey);
-    if (failed(budget.debit(8 + key.size(), site))) return failure();
     auto &localCache = inRow(value) ? rowFrame->cache : cache;
     auto &localActive = inRow(value) ? rowFrame->active : active;
+    if (failed(keyLookup(site))) return failure();
     if (auto found = localCache.find(key); found != localCache.end()) return found->second;
-    if (!localActive.insert(key).second)
-      return (void)error(site, "cyclic required availability"), failure();
-    llvm::scope_exit cleanup([&] { localActive.erase(key); });
+    auto entered = enterKey(localActive, key, site);
+    if (failed(entered)) return failure();
+    if (!*entered) return (void)error(site, "cyclic required availability"), failure();
+    llvm::scope_exit cleanup([&] { localActive.find(key)->second = false; });
     auto result = derive(value, path, site);
-    if (succeeded(result)) localCache.emplace(key, *result);
+    if (succeeded(result)) {
+      if (failed(reserveKey(site, localCache))) return failure();
+      localCache.try_emplace(key, *result);
+    }
     return result;
   }
 
@@ -723,6 +791,54 @@ class ValueAvailabilityMaterializer {
     return success();
   }
 
+  LogicalResult removeDeadAvailability() {
+    // Queries and their caches are finished. Prune only our generated pure
+    // operations; source clones and capture/port metadata remain authoritative.
+    uint64_t count = candidate.availabilityOperations.size();
+    uint64_t storage = ac::detail::SourceCheckBudget::add(
+        ac::detail::SourceCheckBudget::multiply(count, 8 * sizeof(Operation *)),
+        64 * sizeof(Operation *));
+    if (failed(budget.debit(ac::detail::SourceCheckBudget::add(count,
+            ac::detail::SourceCheckBudget::bytes(storage)),
+            prepared.original)))
+      return failure();
+    llvm::DenseSet<Operation *> live;
+    SmallVector<Operation *> pending;
+    for (Operation *operation : candidate.availabilityOperations) {
+      live.insert(operation);
+      pending.push_back(operation);
+    }
+    while (!pending.empty()) {
+      Operation *operation = pending.pop_back_val();
+      if (failed(budget.debit(4, prepared.original))) return failure();
+      // A dead region owner may already have erased this queued descendant.
+      if (!live.contains(operation) || !isOpTriviallyDead(operation)) continue;
+      SmallVector<Operation *> erased;
+      auto walked = operation->walk([&](Operation *nested) {
+        if (failed(budget.debit(8 +
+                ac::detail::SourceCheckBudget::bytes(sizeof(Operation *)),
+                prepared.original)))
+          return WalkResult::interrupt();
+        erased.push_back(nested);
+        for (Value operand : nested->getOperands()) {
+          if (failed(budget.debit(4 +
+                  ac::detail::SourceCheckBudget::bytes(sizeof(Operation *)),
+                  prepared.original)))
+            return WalkResult::interrupt();
+          Operation *producer = operand.getDefiningOp();
+          if (producer && live.contains(producer)) pending.push_back(producer);
+        }
+        return WalkResult::advance();
+      });
+      if (walked.wasInterrupted()) return failure();
+      for (Operation *nested : erased) live.erase(nested);
+      operation->erase();
+    }
+    llvm::erase_if(candidate.availabilityOperations,
+                   [&](Operation *operation) { return !live.contains(operation); });
+    return success();
+  }
+
 public:
   ValueAvailabilityMaterializer(const PreparedTransactionLowering &prepared,
       MaterializedTransactionLowering &candidate, ac::detail::SourceCheckBudget &budget)
@@ -767,7 +883,7 @@ public:
       if (failed(refresh(module))) return failure();
     }
     for (auto module : hardware.getDefinitions()) if (failed(process(module))) return failure();
-    return success();
+    return removeDeadAvailability();
   }
 };
 } // namespace

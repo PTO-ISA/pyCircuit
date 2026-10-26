@@ -22,9 +22,24 @@ module tb;
   wire [64:0] wide_alias;
   wire [0:0] wide_carry;
   wire [63:0] wide_singleton;
+  wire [0:0] pyc_7079635f636c6b = clk;
+  wire [0:0] pyc_7079635f727374 = rst;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;
   pyc_root dut(.*);
+  task automatic work_sample;
+    // Settle this vector while idle before latching the Work candidate.
+    #1; pyc_phase=1; #1;
+    if (pyc_check_complete !== 1'b1 || pyc_sampling_error !== 1'b0 || pyc_local_error !== 1'b0)
+      $fatal(1,"local binding Work/check failed before observation");
+  endtask
+  task automatic commit_sample;
+    pyc_root_commit_ok=1; pyc_phase=2; #1;
+    pyc_phase=0; pyc_root_commit_ok=0; #1;
+  endtask
   initial begin
-    // Establish native Reset parity through real edges on all three DFFs.
+    // Establish native Reset parity before the original Work vector sequence.
     clk=1'b0;
     rst=1'b1;
     a=8'b00000000;
@@ -32,7 +47,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    rst=1;clk=0;#1;clk=1;#1;clk=0;#1;
+    rst=1; clk=0; pyc_root_commit_ok=1; pyc_phase=4; #1;
+    pyc_phase=2; #1; pyc_phase=0; pyc_root_commit_ok=0; #1;
     // Independent fixed Work frame0.
     rst=1'b1;
     a=8'b00000000;
@@ -40,7 +56,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    #1;
+    clk=1'b0;
+    work_sample();
     if(!(
       result===8'b00000001 &&
       q===8'b00000000 &&
@@ -59,7 +76,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b0;#1;
+    commit_sample();
     // Independent fixed Work frame1.
     rst=1'b1;
     a=8'b00000000;
@@ -67,7 +84,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    #1;
+    clk=1'b1;
+    work_sample();
     if(!(
       result===8'b00000001 &&
       q===8'b00000000 &&
@@ -86,7 +104,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b1;#1;
+    commit_sample();
     // Independent fixed Work frame2.
     rst=1'b1;
     a=8'b00000000;
@@ -94,7 +112,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    #1;
+    clk=1'b0;
+    work_sample();
     if(!(
       result===8'b00000001 &&
       q===8'b00000000 &&
@@ -113,7 +132,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b0;#1;
+    commit_sample();
     // Independent fixed Work frame3.
     rst=1'b1;
     a=8'b00000000;
@@ -121,7 +140,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    #1;
+    clk=1'b1;
+    work_sample();
     if(!(
       result===8'b00000001 &&
       q===8'b00000000 &&
@@ -140,7 +160,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b1;#1;
+    commit_sample();
     // Independent fixed Work frame4.
     rst=1'b0;
     a=8'b11111111;
@@ -148,7 +168,8 @@ module tb;
     wide=65'b11111111111111111111111111111111111111111111111111111111111111111;
     flag=1'b1;
     one=1'b1;
-    #1;
+    clk=1'b0;
+    work_sample();
     if(!(
       result===8'b00000000 &&
       q===8'b00000000 &&
@@ -167,7 +188,7 @@ module tb;
       wide_carry===1'b1 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b0;#1;
+    commit_sample();
     // Independent fixed Work frame5.
     rst=1'b0;
     a=8'b11111111;
@@ -175,7 +196,8 @@ module tb;
     wide=65'b11111111111111111111111111111111111111111111111111111111111111111;
     flag=1'b1;
     one=1'b1;
-    #1;
+    clk=1'b1;
+    work_sample();
     if(!(
       result===8'b00000000 &&
       q===8'b00000000 &&
@@ -194,7 +216,7 @@ module tb;
       wide_carry===1'b1 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b1;#1;
+    commit_sample();
     // Independent fixed Work frame6.
     rst=1'b0;
     a=8'b00000011;
@@ -202,7 +224,8 @@ module tb;
     wide=65'b10000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    #1;
+    clk=1'b0;
+    work_sample();
     if(!(
       result===8'b00000100 &&
       q===8'b00000000 &&
@@ -221,7 +244,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b0;#1;
+    commit_sample();
     // Independent fixed Work frame7.
     rst=1'b0;
     a=8'b00000011;
@@ -229,7 +252,8 @@ module tb;
     wide=65'b10000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    #1;
+    clk=1'b1;
+    work_sample();
     if(!(
       result===8'b00000100 &&
       q===8'b00000000 &&
@@ -248,7 +272,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b1;#1;
+    commit_sample();
     // Independent fixed Work frame8.
     rst=1'b0;
     a=8'b00000111;
@@ -256,7 +280,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000001111011;
     flag=1'b1;
     one=1'b1;
-    #1;
+    clk=1'b1;
+    work_sample();
     if(!(
       result===8'b00001000 &&
       q===8'b00000100 &&
@@ -275,7 +300,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b1;#1;
+    commit_sample();
     // Independent fixed Work frame9.
     rst=1'b0;
     a=8'b00001010;
@@ -283,7 +308,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000100001;
     flag=1'b1;
     one=1'b1;
-    #1;
+    clk=1'b0;
+    work_sample();
     if(!(
       result===8'b00001011 &&
       q===8'b00000100 &&
@@ -302,7 +328,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b0;#1;
+    commit_sample();
     // Independent fixed Work frame10.
     rst=1'b0;
     a=8'b00001010;
@@ -310,7 +336,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000100001;
     flag=1'b1;
     one=1'b1;
-    #1;
+    clk=1'b1;
+    work_sample();
     if(!(
       result===8'b00001011 &&
       q===8'b00000100 &&
@@ -329,7 +356,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b1;#1;
+    commit_sample();
     // Independent fixed Work frame11.
     rst=1'b0;
     a=8'b00010100;
@@ -337,7 +364,8 @@ module tb;
     wide=65'b00000000000000000000000000000000000000000000000000000000000000000;
     flag=1'b0;
     one=1'b0;
-    #1;
+    clk=1'b0;
+    work_sample();
     if(!(
       result===8'b00010101 &&
       q===8'b00001011 &&
@@ -356,7 +384,7 @@ module tb;
       wide_carry===1'b0 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b0;#1;
+    commit_sample();
     // Independent fixed Work frame12.
     rst=1'b1;
     a=8'b11111111;
@@ -364,7 +392,8 @@ module tb;
     wide=65'b11111111111111111111111111111111111111111111111111111111111111111;
     flag=1'b1;
     one=1'b1;
-    #1;
+    clk=1'b1;
+    work_sample();
     if(!(
       result===8'b00000000 &&
       q===8'b00001011 &&
@@ -383,7 +412,7 @@ module tb;
       wide_carry===1'b1 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b1;#1;
+    commit_sample();
     // Independent fixed Work frame13.
     rst=1'b1;
     a=8'b11111111;
@@ -391,7 +420,8 @@ module tb;
     wide=65'b11111111111111111111111111111111111111111111111111111111111111111;
     flag=1'b1;
     one=1'b1;
-    #1;
+    clk=1'b0;
+    work_sample();
     if(!(
       result===8'b00000000 &&
       q===8'b00000000 &&
@@ -410,7 +440,7 @@ module tb;
       wide_carry===1'b1 &&
       wide_singleton===64'b0000000000000000000000000000000000000000000000000000000000000000))$fatal(1,"local binding value/old-Q/mask oracle failed");
     $display("WORK %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b %b",result,q,signed_mask,signed_q,zero_q,selected,input_alias,child_alias,bool_alias,integer_plus,original_xor,original_or,original_equal,wide_alias,wide_carry,wide_singleton);
-    clk=1'b0;#1;
+    commit_sample();
     $finish;
   end
 endmodule

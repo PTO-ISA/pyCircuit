@@ -31,5 +31,3 @@ def ConditionalProbe():
         sibling.add(1)
         owner.snapshot()
         ac.log("info", "probe snapshots", first, selected, after)
-
-    drive()

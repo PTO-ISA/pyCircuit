@@ -4,19 +4,20 @@
 `Writer` 的一个 Rule 依次调用两个已有实例，两个更新必须共同提交。
 第二个周期，`Ledger.record` 的业务条件不满足，整个 Writer 保持。
 
-`Counter.read` 声明 `after=(increment,)`，将顺序传递给 Reader。
-Reader 看见成功 Writer 的两个状态更新；Writer 被阻塞时，Reader 仍执行，
-读到两个旧值。没有为 Ledger 额外手写转发或提交控制。
+`increment`、`read` 和 `record` 都是可调用的 Method。
+Writer 与 Reader 的 Rule 声明自动激活，各自从已提交状态开始。
+Reader 读取当前值；Writer 的候选更新在提交后才会被下一周期看见。
+Writer 被阻塞时 Reader 仍执行，无需手写转发或提交控制。
 
 四个周期的 Work 观测如下。每行在低、高两个采样时刻各输出一次；
 `atomic committed` 是独立 Rule 读取的已提交状态。
 
 | 周期 | `atomic committed` | `atomic visible` |
 | --- | --- | --- |
-| 0 | 10, 100 | 13, 110 |
+| 0 | 10, 100 | 10, 100 |
 | 1 | 13, 110 | 13, 110 |
-| 2 | 13, 110 | 16, 120 |
-| 3 | 16, 120 | 19, 130 |
+| 2 | 13, 110 | 13, 110 |
+| 3 | 16, 120 | 16, 120 |
 
 在仓库根目录使用已安装工具链运行：
 

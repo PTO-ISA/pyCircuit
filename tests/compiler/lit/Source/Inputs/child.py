@@ -1,16 +1,13 @@
 from typing import Annotated
-from pycircuit import dffe, module, rule
+from pycircuit import dffe, module
 
 
 @module
 def ZeroLatch(clk: bool, rst: bool, en: bool, data: bool) -> {"q": bool}:
     state = dffe(T=bool)
 
-    @rule
-    def bind():
-        state(clk=clk, rst=rst, en=en, d=data, init=False)
+    state(clk=clk, rst=rst, en=en, d=data, init=False)
 
-    bind()
     return {"q": state.q}
 
 
@@ -18,11 +15,8 @@ def ZeroLatch(clk: bool, rst: bool, en: bool, data: bool) -> {"q": bool}:
 def OneLatch(clk: bool, rst: bool, en: bool, data: bool) -> {"q": bool}:
     state = dffe(T=bool)
 
-    @rule
-    def bind():
-        state(clk=clk, rst=rst, en=en, d=data, init=True)
+    state(clk=clk, rst=rst, en=en, d=data, init=True)
 
-    bind()
     return {"q": state.q}
 
 
@@ -32,9 +26,6 @@ def WordLatch(clk: bool, rst: bool, en: bool,
               ) -> {"q": Annotated[int, range(1 << WIDTH)]}:
     state = dffe(T=Annotated[int, range(1 << WIDTH)])
 
-    @rule
-    def bind():
-        state(clk=clk, rst=rst, en=en, d=data, init=0)
+    state(clk=clk, rst=rst, en=en, d=data, init=0)
 
-    bind()
     return {"q": state.q}

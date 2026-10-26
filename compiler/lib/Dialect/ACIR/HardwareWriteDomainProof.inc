@@ -99,6 +99,8 @@
 
   LogicalResult proveWriteDomainsDisjoint(size_t stateIndex) {
     auto &state = states[stateIndex];
+    if (failed(budget.debit(1, state.storage))) return failure();
+    if (state.writeDomainsProven) return success();
     using Core = HardwareGrantProof; using Node = Core::Node;
     struct NodeEntry { std::optional<HardwareIdentityEndpoint> endpoint; Core::NodeView view; };
     SmallVector<NodeEntry, 0> nodes;
@@ -258,6 +260,7 @@
         if (failed(separated)) return state.storage->emitOpError() << "write-domain grant proof failed: " << proof.failureReason();
         if (!*separated) return state.storage->emitOpError() << "unordered writers have a possible field/address collision";
       }
+    state.writeDomainsProven = true;
     return success();
   }
   FailureOr<SmallVector<DomainUse, 0>> domainFieldUses(
@@ -647,29 +650,6 @@
       if (failed(zero) || !zero->has_value() || **zero)
         return entry.module->emitOpError() << "empty transaction prefix requires old Q or known-zero data";
       return success();
-    }
-    if (!*incoming && !state.unordered.value_or(false)) {
-      // The producer starts an ordered local group with its exact first
-      // candidate, then folds later candidates using selection and enable OR.
-      // A descendant incoming closure must preserve this ancestor prefix; it
-      // does not turn that group into disjoint unordered domain writers.
-      for (size_t i = local.size(); i > 1; --i) {
-        const auto &candidate = *local[i - 1];
-        auto prior = peelSelection(data, candidate.enable, candidate.data,
-                                   stateIndex);
-        auto earlier = peelEnableOr(enable, candidate.enable, stateIndex);
-        if (failed(prior) || failed(earlier) ||
-            failed(privateRoute(data.value, data.scope, stateIndex,
-                                PrivateRoute::Data)) ||
-            failed(privateRoute(enable.value, enable.scope, stateIndex,
-                                PrivateRoute::Enable))) return failure();
-        data = *prior;
-        enable = *earlier;
-      }
-      // The first ancestor partial lane is already composed with physical
-      // old Q before routing. Authenticate its masks/base independently rather
-      // than requiring the raw Rule result used by a same-scope writer.
-      return proveSingleCandidate(data, enable, stateIndex, *local.front());
     }
     for (size_t i = local.size(); i > 0; --i) {
       const auto &candidate = *local[i - 1];

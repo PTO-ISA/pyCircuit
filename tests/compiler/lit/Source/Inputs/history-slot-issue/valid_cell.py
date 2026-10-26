@@ -11,7 +11,7 @@ def update(q, en, d):
 
 
 @module
-def valid_cell(en: u1, d: u1) -> {"q": u1}:
+def valid_cell(en: u1, d: u1) -> u1:
     q: u1 = 0
     update(q, en, d)
-    return {"q": q}
+    return q

@@ -17,7 +17,6 @@ def HelloCounter():  # noqa: N802
         log("info", "count", count)
         count = count + 1
 
-    increment()
 ```
 
 `count` is persistent eight-bit storage. Its rule logs the current value and

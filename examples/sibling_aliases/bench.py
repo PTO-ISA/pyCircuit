@@ -11,5 +11,3 @@ def SiblingAliases():  # noqa: N802
     @ac.rule
     def observe_independent() -> None:
         ac.log("info", "independent count", independent.read())
-
-    observe_independent()

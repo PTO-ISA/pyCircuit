@@ -6,17 +6,17 @@ import pycircuit as ac
 def RuleCell():
     count: ac.u8 = 5
 
-    @ac.rule
+    @ac.method
     def add(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
         before = count
         count = count + delta
         return before, count
 
-    @ac.rule(guard=lambda allow: allow)
+    @ac.method(guard=lambda allow: allow)
     def require(allow: ac.u1) -> None:
         return
 
-    @ac.rule
+    @ac.method
     def read() -> ac.u8:
         return count
 
@@ -25,15 +25,15 @@ def RuleCell():
 def RuleRelay():
     cell = RuleCell()
 
-    @ac.rule
+    @ac.method
     def add(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
         before, after = cell.add(delta)
         return before, after
 
-    @ac.rule
+    @ac.method
     def require(allow: ac.u1) -> None:
         cell.require(allow)
 
-    @ac.rule
+    @ac.method
     def read() -> ac.u8:
         return cell.read()

@@ -285,5 +285,4 @@ def ExerciseCalculator():  # noqa: N802
         log("info", "calculator.display", dut.display)
         log("info", "calculator.op_pending", dut.op_pending)
 
-    check_and_advance()
     advance(phase)

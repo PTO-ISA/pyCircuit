@@ -11,8 +11,7 @@ FailureOr<bool> unorderedOwnerGroup(const PreparedTransactionLowering &prepared,
       if (!charge(budget, plan.transaction)) return failure();
       const auto &other = peer.plan->owners[output.binding.owner];
       if (routingKey(anchorPath(*peer.plan, other.anchor), other.declaration->getResult(0)) != target) continue;
-      if (!llvm::is_contained(plan.predecessorIndices, peer.plan->ordinal) &&
-          !llvm::is_contained(peer.plan->predecessorIndices, plan.ordinal)) return true;
+      return true;
     }
   }
   return false;

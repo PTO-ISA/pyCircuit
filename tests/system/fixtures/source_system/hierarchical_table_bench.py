@@ -23,7 +23,3 @@ def ExerciseHierarchicalTable():
     @ac.rule
     def tick() -> None:
         selector = ~selector
-
-    update()
-    inspect()
-    tick()

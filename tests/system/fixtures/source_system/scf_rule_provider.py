@@ -21,11 +21,11 @@ def ScfRuleOwner():
     total: ac.u8 = 5
     rows = ac.table[3, Cell](init=Cell(data=0, tag=Tag.ZERO))
 
-    @ac.rule
+    @ac.method
     def pair(value: ac.u8) -> tuple[ac.u8, ac.u8]:
         return value + 1, value + 2
 
-    @ac.rule
+    @ac.method
     def advance(limit: ac.u3) -> tuple[ac.u8, Cell, ac.u8, ac.u8]:
         before = total
         local = Cell(data=0, tag=Tag.ZERO)
@@ -45,6 +45,6 @@ def ScfRuleOwner():
         total = total + local.data
         return before, local, left, right
 
-    @ac.rule
+    @ac.method
     def snapshot() -> None:
         ac.log("info", "scf state", total, rows[0].data, rows[1].data, rows[2].data)

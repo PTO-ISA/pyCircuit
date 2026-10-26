@@ -27,8 +27,10 @@ and authoring-contract review. Keep compiler-only implementation routing separat
 
 For source authoring, first read [.codex/skills/pycircuit-authoring/SKILL.md](.codex/skills/pycircuit-authoring/SKILL.md).
 Write function calls, ordinary local computations and sequential Rule assignments.
-Rule definitions can be source-global or nested; definition location is not
-Module ownership. External Rules receive explicit arguments.
+Directly nested Rules register automatically once per Module instance. Their
+names denote results at Module wiring sites; do not call them explicitly.
+Source-global Rule templates receive explicit arguments. Callable component
+operations use Methods, independently of their parameter count.
 Module variables own persistent state; ACIR supplies storage and its controls.
 Ordinary example/benchmark frontend sources must not expose clk/reset, register
 q/d interfaces, DFF/DFFE bindings or proposal/commit plumbing. Original RTL names
@@ -80,7 +82,7 @@ names, delete necessary checks before equivalent lowering exists, or claim
 unsupported Rule syntax works. Record such gaps under issue #319; the authoring
 requirement does not establish implementation support.
 
-Cross-Module Rule calls target an existing Module instance. MLIR owns the
+Cross-Module Method calls target an existing Module instance. MLIR owns the
 additional ports and hierarchy wiring needed for arguments, results and atomic
 control; authors must not hand-build forwarding/handshake wrappers. Preserve the
 callee's state identity and include its proposals in the caller's transaction.

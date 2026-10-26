@@ -77,4 +77,4 @@ def Calculator(key: ac.u5, key_press: ac.u1) -> CalcResult:  # noqa: N802
         shown = 0 if is_ac else shown
         return result
 
-    return step()
+    return step

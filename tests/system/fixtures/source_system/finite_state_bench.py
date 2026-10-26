@@ -24,8 +24,3 @@ def ExerciseFiniteState():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    drive()
-    inspect()
-    inspect_isolated()
-    tick()

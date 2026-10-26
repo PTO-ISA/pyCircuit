@@ -30,7 +30,7 @@ def StructTransformStorage(  # noqa: N802 - hardware module definition
         state = packet
         return result
 
-    return capture_and_transform()
+    return capture_and_transform
 
 
 @ac.module

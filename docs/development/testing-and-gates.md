@@ -7,6 +7,21 @@ A command, test file or historical acceptance entry is not a passing result.
 
 ## API tests and examples are separate
 
+Foundational reliability covers declared types and widths, combinational
+expressions, state/current-next timing, Module/Rule/Method composition,
+Queue/Memory behavior, reset and four-state values, failure atomicity, source-unit
+authority, and matching C++/RTL results. Changes to these contracts must retain
+their existing numerical, timing, rejection and rollback oracles. Migrating an
+obsolete source spelling is separate from repairing a compiler failure.
+
+High-level simulation, incremental evaluation and visualization are separate
+extensions. General parameterization and Module families are authoring-capacity
+gaps; passing a smaller supported design does not establish those capabilities.
+Large retained regressions that exceed an analysis limit remain failures or
+explicitly unverified cases, not evidence that an algorithm, width or scenario
+may be reduced to obtain a pass. Use the existing gates below for both layers;
+do not introduce a second test runner or claim full nightly from a focused set.
+
 Use two entry points over the existing CTest, lit, pytest and example verifier:
 
 ```bash
@@ -108,7 +123,7 @@ fallback dispatch. The language reference records the current source surface.
 
 | Change | Evidence to collect |
 | --- | --- |
-| Capture/source semantics | Accepted module/rule fixtures, source provenance, range/type rejection, explicit registration, current/next and child-state identity |
+| Capture/source semantics | Accepted module/rule fixtures, source provenance, range/type rejection, autonomous declarations and explicit global-template bindings, current/next and child-state identity |
 | Unit compile and link | One producer per source, published interface use, complete closure, duplicate/missing/mismatched unit rejection, verified final artifact |
 | Saved anchors | Exact schema/spec/body/configuration identities, managed and portable snapshots, source removal and relocation, native direct rejection, explicit refinement, unchanged dual-target execution and failure rollback |
 | C++ emit | Source-owned module groups and `pycircuit_modules` CMake target, bound root arguments, Runtime-only consumer build and explicit test drivers |

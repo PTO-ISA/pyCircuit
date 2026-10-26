@@ -154,10 +154,10 @@ def test_parent_and_child_disjoint_state_writers_preserve_old_q_and_identity(tmp
     assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
 
 
-def test_ordered_parent_rules_forward_one_child_candidate_and_preserve_old_q(tmp_path):
+def test_sequential_child_methods_forward_one_candidate_and_preserve_old_q(tmp_path):
     provider, consumer = _program(tmp_path)
     final = tmp_path / "ordered-hierarchical-state-system.ac"
-    _ok(_link(provider, consumer, final, "ExerciseOrderedHierarchicalState"))
+    _ok(_link(provider, consumer, final, "ExerciseSequentialHierarchicalState"))
     digest = hashlib.sha256(final.read_bytes()).hexdigest()
     transcripts = []
     for target in ("cpp", "verilog"):
@@ -176,8 +176,8 @@ def test_ordered_parent_rules_forward_one_child_candidate_and_preserve_old_q(tmp
                 "hierarchical ordered second": [],
                 "hierarchical ordered old q": [],
             }
-            # This oracle follows the declared additions. Only the explicit
-            # predecessor sees a candidate; the independent reader sees old Q.
+            # Same-Rule Method calls follow the declared additions in sequence.
+            # The independent autonomous reader observes committed old Q.
             committed = 7
             for _ in range(6):
                 first = (committed + 3) & 255
@@ -611,3 +611,45 @@ def test_hierarchical_state_conflicts_reject_without_replacing_output(
     assert result.returncode != 0
     assert "multiple outer writers" in result.stdout + result.stderr
     assert final.read_bytes() == sentinel
+
+
+@pytest.mark.parametrize("kind", ["rule", "method"])
+def test_retired_after_does_not_replace_hierarchical_unit(tmp_path, kind):
+    source = tmp_path / "retired-order"
+    source.mkdir()
+    path = source / "owner.py"
+    path.write_text(
+        "import pycircuit as ac\n@ac.module\ndef Owner() -> ac.u8:\n    return 7\n"
+    )
+    unit = tmp_path / "unit"
+    _ok(_compile(source, path.name, unit))
+    before = {
+        item.relative_to(unit): item.read_bytes()
+        for item in unit.rglob("*")
+        if item.is_file()
+    }
+    path.write_text(
+        "import pycircuit as ac\n@ac.module\ndef Owner():\n"
+        "    count: ac.u8 = 7\n"
+        f"    @ac.{kind}\n    def first() -> None:\n        count = count + 3\n"
+        f"    @ac.{kind}(after=(first,))\n    def second() -> None:\n        count = count + 5\n"
+    )
+    rejected = _cli(
+        "compile",
+        "-c",
+        str(path),
+        "--source-root",
+        str(source),
+        "--package-prefix",
+        "checks",
+        "-o",
+        str(unit),
+        "--replace",
+    )
+    assert rejected.returncode != 0, rejected.stdout + rejected.stderr
+    assert "after" in rejected.stderr.lower() and "retired" in rejected.stderr.lower()
+    assert {
+        item.relative_to(unit): item.read_bytes()
+        for item in unit.rglob("*")
+        if item.is_file()
+    } == before

@@ -64,7 +64,6 @@ def Exercise():
         if phase == 15:
             unused = memory.result()
         phase = phase + 1
-    drive()
 """
 
 
@@ -101,7 +100,6 @@ def Exercise():
         memory.request(0)
         value = memory.result()
         ac.log('info', 'unexpected', value)
-    access()
 """,
     )
     traces = _run_both(final, tmp_path)
@@ -154,10 +152,6 @@ def Exercise():
             unused = memory.result()
         ac.log('info', 'heartbeat', phase)
         phase = phase + 1
-    inhibited()
-    producer()
-    consumer()
-    advance()
 """,
     )
     traces = _run_both(final, tmp_path)
@@ -199,8 +193,6 @@ def Exercise():
             memory.write(1, 22)
         unavailable = memory.result()
         ac.log('info', 'must_not_publish', unavailable)
-    heartbeat()
-    access()
 """
 
 
@@ -258,7 +250,6 @@ def Exercise():
             assert memory.result(port=0 + 0) == 11
             assert memory.result(port=2 - 1) == 0
         phase = phase + 1
-    drive()
 """,
     )
     _run_both(final, tmp_path)
@@ -306,7 +297,6 @@ def Exercise():
             assert merged.byte == 0xbc
             ac.log('info', 'struct_merged', merged.tag, merged.byte)
         phase = phase + 1
-    drive()
 """,
     )
     traces = _run_both(final, tmp_path)
@@ -359,7 +349,6 @@ def Exercise():
             assert memory.result() == Mode.DONE
             ac.log('info', 'enum_done', 255)
         phase = phase + 1
-    drive()
 """,
     )
     traces = _run_both(final, tmp_path)
@@ -400,7 +389,6 @@ def Exercise():
             inactive = memory.read(ac.four_state('xxx'))
             ac.log('info', 'inactive', inactive)
         phase = phase + 1
-    drive()
 """,
     )
     traces = _run_both(final, tmp_path)
@@ -419,13 +407,13 @@ def test_byte_read_dependent_write_direct_and_cross_module(
 @ac.module
 def Bank():
     memory = ac.byte_mem[ac.u16](depth=8)
-    @ac.rule
+    @ac.method
     def update(address: ac.u3, value: ac.u16) -> ac.u16:
         current = memory.read(address)
         if current == 0:
             memory.write(address, value)
         return current
-    @ac.rule
+    @ac.method
     def read(address: ac.u3) -> ac.u16:
         return memory.read(address)
 @ac.system(samples=((0,0),(1,0),(0,0),(1,0),(0,0)))
@@ -447,7 +435,6 @@ def Exercise():
             assert child_value == 0x5678
             ac.log('info', 'byte_feedback', direct_value, child_value)
         phase = phase + 1
-    drive()
 """,
     )
     traces = _run_both(final, tmp_path)
@@ -475,8 +462,6 @@ def Exercise():
     @ac.rule
     def fault():
         unused = memory.read(ac.four_state('xxx'))
-    heartbeat()
-    fault()
 """,
     )
     traces = _run_both(final, tmp_path, success=False)
@@ -501,7 +486,6 @@ def Exercise():
         elif phase == 2:
             assert memory.result() == 0
         phase = phase + 1
-    drive()
 """,
     )
     _run_both(final, tmp_path)
@@ -526,7 +510,6 @@ def Exercise():
         elif phase == 2:
             ac.log('info', 'after_edge', memory.result())
         phase = phase + 1
-    drive()
 """,
     )
     traces = _run_both(final, tmp_path)
@@ -549,7 +532,7 @@ def Cell(address: ac.u2) -> ac.u8:
     def access() -> ac.u8:
         memory.request(address)
         return memory.result()
-    return access()
+    return access
 """,
     )
     receipt = json.loads((provider / "unit.json").read_text())
@@ -569,7 +552,6 @@ def Exercise():
     @ac.rule
     def observe():
         if ac.is_known(value): ac.log('info', 'value', value)
-    observe()
 """,
         encoding="utf-8",
     )
@@ -623,7 +605,6 @@ def Exercise():
     @ac.rule
     def conflict():
         {calls}
-    conflict()
 """
     root = tmp_path / "source"
     root.mkdir()
@@ -637,7 +618,6 @@ def Exercise():
     memory = ac.sync_mem[ac.u8](depth=4)
     @ac.rule
     def valid(): memory.request(0)
-    valid()
 """,
         encoding="utf-8",
     )
@@ -677,7 +657,7 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=True)
         return 0
-    return access()
+    return access
 """,
     "dual-out-of-range": """import pycircuit as ac
 @ac.module
@@ -687,7 +667,7 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=2)
         return 0
-    return access()
+    return access
 """,
     "runtime": """from typing import Annotated
 import pycircuit as ac
@@ -698,7 +678,7 @@ def Top(port: Annotated[int, range(2)]) -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=port)
         return 0
-    return access()
+    return access
 """,
     "single-out-of-range": """import pycircuit as ac
 @ac.module
@@ -708,7 +688,7 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=1)
         return 0
-    return access()
+    return access
 """,
 }
 
@@ -729,7 +709,7 @@ def Top() -> ac.u8:
     def access() -> ac.u8:
         memory.request(0, port=0)
         return 0
-    return access()
+    return access
 """,
         encoding="utf-8",
     )
@@ -774,8 +754,6 @@ def Exercise():
         ac.log('info', 'pending_write', 85)
     @ac.rule(guard=lambda: ac.four_state('x'))
     def fail(): marker = 1
-    write()
-    fail()
 """,
     )
     traces = _run_both(final, tmp_path, success=False)

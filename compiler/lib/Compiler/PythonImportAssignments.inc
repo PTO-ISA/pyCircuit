@@ -118,18 +118,70 @@ AstNode Importer::indexedFieldTarget(const AstNode &target) const {
     return base;
   return {};
 }
+// A source Struct remains immutable: only exact operands of its complete,
+// nominally matching constructor can replace otherwise-required projections.
+static Value reusableStructFieldOperand(Value value, ac::StructOp declaration,
+                                        size_t index, Type fieldType) {
+  auto constructor = value.getDefiningOp<ac::StructCreateOp>();
+  auto type = dyn_cast<ac::StructType>(value.getType());
+  auto name = declaration->getAttrOfType<StringAttr>("sym_name");
+  if (!constructor || !type || !name || type.getName() != name ||
+      constructor->getNumOperands() != declaration.getFields().size() ||
+      index >= constructor->getNumOperands())
+    return {};
+  Value operand = constructor->getOperand(index);
+  return operand.getType() == fieldType ? operand : Value();
+}
 FailureOr<Value> Importer::replaceField(Value value, StringRef name,
                                         Value replacement, const AstNode &node,
                                         OpBuilder &at,
-                                        FlatSymbolRefAttr symbol) {
+                                        FlatSymbolRefAttr symbol,
+                                        bool preserveProjectionWitnesses) {
   auto type = dyn_cast<ac::StructType>(value.getType());
   ac::HardwareAnalysis analysis(*body);
   auto declaration = type ? analysis.lookupStruct(type) : ac::StructOp();
   if (!declaration)
     return error() << "field assignment requires a nominal struct";
+  // Pay the actual reconstruction before allocating it. The field vector and
+  // OperationState each own Value handles; the final constructor owns its
+  // OpOperands. Formal proposals retain explicit projections so their proof
+  // authenticates the exact current snapshot; ordinary locals can reuse exact
+  // unchanged constructor operands.
+  uint64_t projections = 0, comparisons = 0;
+  for (auto [index, raw] : llvm::enumerate(declaration.getFields())) {
+    auto field = cast<DictionaryAttr>(raw);
+    auto key = field.getAs<StringAttr>("name").getValue();
+    Type fieldType = field.getAs<TypeAttr>("type").getValue();
+    comparisons += 1 + (key.size() == name.size() ? name.size() : 0);
+    if (key != name &&
+        (preserveProjectionWitnesses ||
+         !reusableStructFieldOperand(value, declaration, index, fieldType)))
+      ++projections;
+  }
+  TableQueryCharge charge;
+  std::string reason;
+  uint64_t count = declaration.getFields().size();
+  bool fits = TableQueryBudget::addProduct(charge, TableQueryResource::Work,
+                                           comparisons, 2) &&
+              TableQueryBudget::addProduct(charge, TableQueryResource::Work,
+                                           count, 4) &&
+              TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
+                                           count, 4) &&
+              TableQueryBudget::addProduct(charge, TableQueryResource::Work,
+                                           projections, 16) &&
+              TableQueryBudget::addProduct(charge, TableQueryResource::Slots,
+                                           projections, 32) &&
+              TableQueryBudget::add(charge, TableQueryResource::Work, 32) &&
+              TableQueryBudget::add(charge, TableQueryResource::Slots, 32) &&
+              TableQueryBudget::add(charge, TableQueryResource::Operations,
+                                     projections + 2);
+  if (!fits || !queryBudget.reserve(charge, reason))
+    return error() << "local Struct reconstruction: "
+                   << (fits ? reason : "cost counter exhausted");
   bool found = false;
   SmallVector<Value> fields;
-  for (Attribute raw : declaration.getFields()) {
+  fields.reserve(count);
+  for (auto [index, raw] : llvm::enumerate(declaration.getFields())) {
     auto field = cast<DictionaryAttr>(raw);
     Type fieldType = field.getAs<TypeAttr>("type").getValue();
     auto key = field.getAs<StringAttr>("name");
@@ -140,6 +192,11 @@ FailureOr<Value> Importer::replaceField(Value value, StringRef name,
         return failure();
       fields.push_back(*converted);
       found = true;
+    } else if (Value operand = preserveProjectionWitnesses
+                                   ? Value()
+                                   : reusableStructFieldOperand(
+                                         value, declaration, index, fieldType)) {
+      fields.push_back(operand);
     } else {
       auto projected =
           createOp(at, node.location(b.getContext(), source.path),
@@ -182,7 +239,8 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
                                          OpBuilder &at,
                                          FlatSymbolRefAttr symbol,
                                          llvm::StringMap<Value> &values,
-                                         SmallVectorImpl<Value> *boundIndices) {
+                                         SmallVectorImpl<Value> *boundIndices,
+                                         bool preserveProjectionWitnesses) {
   StringRef root = assignmentRoot(target);
   if (failed(requireNestedRuleDataTarget(root, node))) return failure();
   if (isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()) &&
@@ -240,11 +298,11 @@ LogicalResult Importer::updateAssignment(const AstNode &target,
     if (failed(base))
       return failure();
     auto updated = replaceField(*base, target.string("attr"), replacement, node,
-                                at, symbol);
+                                at, symbol, preserveProjectionWitnesses);
     if (failed(updated))
       return failure();
     return updateAssignment(target.child("value"), *updated, node, at, symbol,
-                            values, boundIndices);
+                            values, boundIndices, preserveProjectionWitnesses);
   }
   if (target.kind() == "Subscript" && target.child("value").kind() == "Name" &&
       values.contains(target.child("value").string("id"))) {

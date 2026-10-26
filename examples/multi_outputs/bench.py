@@ -62,5 +62,4 @@ def MultiOutputsSystem():  # noqa: N802
         assert grouped_valid == row.expected_valid, "multi_outputs: grouped valid"
         ac.log("info", "multi_outputs", tag, data, valid)
 
-    check()
     advance(phase)

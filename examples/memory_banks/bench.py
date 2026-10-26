@@ -94,5 +94,3 @@ def ExerciseMemoryBanks():  # noqa: N802
         ), "memory banks: response tag"
         ac.log("info", "memory bank scenario", phase, dut.output_valid)
         phase = phase + 1
-
-    check()

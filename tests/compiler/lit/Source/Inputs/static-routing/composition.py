@@ -10,7 +10,7 @@ from static_routes.worker import Worker
 def Parent():
     peer = Counter()
     distinct = Counter()
-    caller = Worker()
+    caller = Worker(peer, distinct)
 
 
 @ac.system(samples=((0, 0), (1, 0), (1, 0), (0, 0), (1, 1), (0, 0), (1, 0)))

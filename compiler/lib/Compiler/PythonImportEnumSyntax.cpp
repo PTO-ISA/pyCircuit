@@ -87,31 +87,30 @@ readCallableSyntax(const AstNode &declaration, LexicalBindings bindings,
                                                    : MarkerKind::None;
   if (marker != MarkerKind::Rule && marker != MarkerKind::Method)
     return emitError() << "callable decorator must resolve to pycircuit rule or method";
+  // Dynamic default bindings belong only to a direct Module-local Rule.
+  // Source-global templates and Methods retain their required-formal ABI.
+  bool localRule = marker == MarkerKind::Rule && declaration.path.size() == 4 &&
+                   declaration.path[0].field == "body" && !declaration.path[0].index &&
+                   declaration.path[1].index &&
+                   declaration.path[2].field == "body" && !declaration.path[2].index &&
+                   declaration.path[3].index;
+  auto formals = declaration.child("args");
+  if (!localRule && !formals.array("defaults").empty())
+    return emitError() << "only autonomous local Rules accept hardware default bindings";
   CapturedCallableSyntax result{marker, {}, {}};
   if (decorator.kind() != "Call")
     return result;
   if (!decorator.array("args").empty() || decorator.array("keywords").empty())
-    return emitError() << "Rule/Method decorator accepts guard=lambda and after=(...)";
+    return emitError() << "Rule/Method decorator accepts guard=lambda";
   for (size_t i = 0; i < decorator.array("keywords").size(); ++i) {
     auto keyword = decorator.item("keywords", i);
     StringRef name = keyword.string("arg");
     if (name == "guard" && !result.guard)
       result.guard = keyword.child("value");
-    else if (name == "after" && !result.after)
-      result.after = keyword.child("value");
+    else if (name == "after")
+      return emitError() << "source after is retired; independent Rules read current state";
     else
-      return emitError() << "duplicate or unsupported Rule/Method guard/after decorator option";
-  }
-  if (result.after) {
-    if (result.after.kind() != "Tuple")
-      return emitError() << "Rule after requires a tuple of local callable names";
-    llvm::StringSet<> predecessors;
-    for (size_t i = 0; i < result.after.array("elts").size(); ++i) {
-      auto predecessor = result.after.item("elts", i);
-      if (predecessor.kind() != "Name" ||
-          !predecessors.insert(predecessor.string("id")).second)
-        return emitError() << "Rule after requires distinct local callable names";
-    }
+      return emitError() << "duplicate or unsupported Rule/Method decorator option";
   }
   if (!result.guard) return result;
   if (result.guard.kind() != "Lambda")
@@ -122,9 +121,12 @@ readCallableSyntax(const AstNode &declaration, LexicalBindings bindings,
            arguments.array("defaults").empty() &&
            !arguments.child("vararg") && !arguments.child("kwarg");
   };
-  auto formals = declaration.child("args");
   auto guardFormals = result.guard.child("args");
-  if (!required(formals) || !required(guardFormals) ||
+  bool boundFormals = localRule &&
+      formals.array("posonlyargs").empty() && formals.array("kwonlyargs").empty() &&
+      !formals.child("vararg") && !formals.child("kwarg") &&
+      formals.array("defaults").size() == formals.array("args").size();
+  if ((!required(formals) && !boundFormals) || !required(guardFormals) ||
       formals.array("args").size() != guardFormals.array("args").size())
     return emitError() << "guard lambda requires the callable's exact required positional parameters";
   for (size_t i = 0; i < formals.array("args").size(); ++i)

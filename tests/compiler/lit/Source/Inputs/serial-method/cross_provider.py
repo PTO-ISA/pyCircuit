@@ -52,5 +52,3 @@ def Counter():
     @rule
     def inspect() -> None:
         old_seen = read()
-
-    inspect()

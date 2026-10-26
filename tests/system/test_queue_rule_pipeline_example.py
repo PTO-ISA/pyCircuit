@@ -151,7 +151,9 @@ def test_queue_rule_pipeline_example_runs_one_verified_artifact(tmp_path):
         (10, 4, 4, 54, 4),
         (11, 4, 4, 54, 4),
     ]
-    progress = [0, 1, 1, 1, 1, 1, 2, 3, 4, 4, 4, 4]
+    # Independent progress observes the same committed count as inspect;
+    # it cannot see transfer's candidate within this Work evaluation.
+    progress = [row[-1] for row in committed]
     received = [
         (6, 0, 12),
         (7, 1, 25),

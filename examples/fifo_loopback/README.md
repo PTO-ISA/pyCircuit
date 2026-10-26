@@ -2,7 +2,7 @@
 
 `FifoLoopback` exposes a depth-two, latency-one FIFO through typed input pins and
 one `FifoResult`. This example specifically demonstrates an external ready/valid
-protocol. Ordinary internal module connections should use the typed Rule calls
+protocol. Ordinary internal module connections should use typed Method calls
 shown in `queue_rule_pipeline`.
 
 The FIFO preserves all eight payload bits. A full pop/push edge removes the old

@@ -15,5 +15,3 @@ def ExerciseBits():  # noqa: N802
     def tick() -> None:
         ac.log("info", "bits old", owner.old())
         phase = phase + 1
-
-    tick()

@@ -6,12 +6,12 @@ def ConditionalQueueExchange():
     left = ac.queue[ac.u8](depth=1, latency=1)
     right = ac.queue[ac.u8](depth=1, latency=1)
 
-    @ac.rule
+    @ac.method
     def seed() -> None:
         left.push(10)
         right.push(40)
 
-    @ac.rule
+    @ac.method
     def step(cycle: ac.u8, selected: ac.u1) -> None:
         if selected:
             first = left.pop()

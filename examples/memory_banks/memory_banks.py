@@ -59,11 +59,11 @@ def Bank() -> BankResult:
     eligible = busy & (remaining == 1)
     response = state.request
 
-    @ac.rule
+    @ac.method
     def enqueue(request: BankRequest) -> None:
         requests.push(request)
 
-    @ac.rule
+    @ac.method
     def dequeue() -> BankRequest:
         return responses.pop()
 
@@ -90,7 +90,6 @@ def Bank() -> BankResult:
             responses.push(response)
             state.busy = 0
 
-    step()
     return BankResult(
         input_ready=requests.ready,
         output_valid=responses.valid,
@@ -140,8 +139,6 @@ def MemoryBanks(valid: ac.u1, request: BankRequest, take: ac.u1) -> BanksResult:
             response = bank3.dequeue()
         merged.push(response)
 
-    route_request()
-    merge_response()
     route0 = input_pending & (input_head.bank == 0) & bank0.input_ready
     route1 = input_pending & (input_head.bank == 1) & bank1.input_ready
     route2 = input_pending & (input_head.bank == 2) & bank2.input_ready

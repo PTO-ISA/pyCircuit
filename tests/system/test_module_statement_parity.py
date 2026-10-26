@@ -74,14 +74,13 @@ def rule_if(value: ac.u8, enabled: ac.u1) -> ac.u8:
 def Exercise():
     module_value = ModuleIf(7, 1)
     helper_value = helper_if(7, 1)
-    rule_value = rule_if(7, 1)
     @ac.rule
     def check():
+        rule_value = rule_if(7, 1)
         assert module_value == 8
         assert helper_value == 8
         assert rule_value == 8
         ac.log('info', 'if_parity', module_value, helper_value, rule_value)
-    check()
 """
 
 
@@ -152,14 +151,13 @@ def rule_compute(value: ac.u8, selector: ac.u1) -> ac.u8:
 def Exercise():
     module_value = ModuleCompute(7, 1)
     helper_value = helper_compute(7, 1)
-    rule_value = rule_compute(7, 1)
     @ac.rule
     def check():
+        rule_value = rule_compute(7, 1)
         assert module_value == 12
         assert helper_value == 12
         assert rule_value == 12
         ac.log('info', 'loop_match_parity', module_value, helper_value, rule_value)
-    check()
 """
 
 
@@ -211,7 +209,6 @@ def Exercise():
         assert child_after == 9
         ac.log('info', 'child_parity', plain_before, plain_after,
                child_before, child_after)
-    check()
 """,
     )
     traces = _system_records(final, tmp_path)
@@ -233,7 +230,6 @@ def Top(incoming: ac.u8) -> ac.u8:
     @ac.rule
     def update():
         saved = candidate
-    update()
     return saved
 """,
         "Top",
@@ -308,7 +304,6 @@ def Exercise():
         assert pair.right == 9
         assert values[0] == 4
         assert values[1] == 8
-    check()
 """,
     )
     traces = _system_records(final, tmp_path)
@@ -377,7 +372,6 @@ def Exercise():
         assert payload == 9
         assert valid == 1
         ac.log('info', 'scalar_rebind', original_tag, tag, payload, valid)
-    check()
 """,
     )
     traces = _system_records(final, tmp_path)
@@ -412,14 +406,14 @@ def Top(value: ac.u8, enabled: ac.u1) -> ac.u8:
     return child
 """,
     "runtime-registration": """import pycircuit as ac
+@ac.rule
+def update(saved: ac.u8, value: ac.u8):
+    saved = value
 @ac.module
 def Top(value: ac.u8, enabled: ac.u1) -> ac.u8:
     saved: ac.u8 = 0
-    @ac.rule
-    def update():
-        saved = value
     if enabled:
-        update()
+        update(saved, value)
     return saved
 """,
     "input-rebind": """import pycircuit as ac
@@ -522,7 +516,6 @@ def Exercise():
     @ac.rule
     def observe():
         ac.log('info', 'selected', selected_x, selected_z)
-    observe()
 """,
     )
     traces = _system_records(final, tmp_path)

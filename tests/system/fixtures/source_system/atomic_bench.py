@@ -11,5 +11,3 @@ def AtomicFailure():
     def drive_left():
         assert False, "atomic rejection"
         log("info", "failed observation", left)
-
-    drive_left()

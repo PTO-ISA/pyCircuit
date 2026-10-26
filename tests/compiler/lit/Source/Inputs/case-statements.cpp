@@ -34,6 +34,10 @@ template<class Wire,unsigned W> void planes(const Wire &output,unsigned offset,c
 }
 #include "case-statements-width.hpp"
 template <class Output> void check(const Output &output, std::string_view expected) {
+  if constexpr (requires { output.pyc_5f5f7079635f76616c69645f6f75745f30; }) {
+    const auto &available = output.pyc_5f5f7079635f76616c69645f6f75745f30;
+    require(available.isFullyKnown() && available.packed().value().bit(0));
+  }
   const auto &p = output.result.packed(); std::string actual;
   for (unsigned bit = result_width; bit; --bit)
     actual += p.zMask().bit(bit - 1) ? 'z' : !p.knownMask().bit(bit - 1) ? 'x' : p.value().bit(bit - 1) ? '1' : '0';

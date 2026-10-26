@@ -60,5 +60,4 @@ def EnumPayloadPipeline(  # noqa: N802
         classified = classify(packet)
         egress.push(classified)
 
-    transfer()
     return Result(ready=ingress.ready, valid=egress.valid, data=egress.data)

@@ -225,5 +225,4 @@ def ExerciseDigitalFilter():  # noqa: N802
         log("info", "digital_filter.y_out", dut.y_out)
         log("info", "digital_filter.y_valid", dut.y_valid)
 
-    check_and_advance()
     advance(phase)

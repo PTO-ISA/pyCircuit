@@ -208,10 +208,9 @@ def execute(args, repo, fixture_dir, case, final, name, cli, run, tree):
                     "remote", "store", "branch", "worker", "memory", "progress", "held", "other_memory"),
                     state_names={"memory", "progress", "held", "other_memory"})
                  if memory_failure else instance_names(cpp, partial))
-        if not partial:
-            names["FAILED_CHECK"], attribution = failure_check_endpoint(
-                cpp, rtl, final, source_failure_message)
-            names["FAILED_MESSAGE"] = attribution["message"]
+        names["FAILED_CHECK"], attribution = failure_check_endpoint(
+            cpp, rtl, final, source_failure_message)
+        names["FAILED_MESSAGE"] = attribution["message"]
         if partial:
             bank = "`R." + names["REMOTE"] + "." + names["BANK"]
             paths = [bank + "." + names["PACKET"]]
@@ -266,8 +265,8 @@ def execute(args, repo, fixture_dir, case, final, name, cli, run, tree):
             else:
                 assert "ROUTED_ZERO_COMMIT_OK" in outcome.stdout
                 assert "ROUTED_ZERO_COMMIT_FAIL" not in outcome.stdout
-                if not partial:
-                    assert "ROUTED_SOURCE_CHECK_OK " + source_failure_message in outcome.stdout
+                assert "ROUTED_SOURCE_CHECK_OK " + source_failure_message in outcome.stdout, (
+                    name, backend, outcome.stdout, outcome.stderr)
                 assert source_failure_message in outcome.stdout + outcome.stderr
         transcripts.append(logs)
     assert transcripts[0] == transcripts[1] == transcripts[2]

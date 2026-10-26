@@ -59,12 +59,6 @@ struct TransactionCandidatePreparation {
   uint64_t dataResult, enableResult;
 };
 
-struct TransactionForwardingPreparation {
-  ac::StateOwnerId owner;
-  uint64_t predecessor, output;
-  uint64_t dataCapture, enableCapture;
-};
-
 struct TransactionValueRequirement {
   mlir::Operation *site = nullptr;
   ac::InvocationFrameId frame = 0;
@@ -146,8 +140,6 @@ struct TransactionPreparation {
   const ac::TransactionStatePlan *plan = nullptr;
   llvm::SmallVector<ac::BoundValueId> liveIns;
   llvm::SmallVector<TransactionCandidatePreparation> outputs;
-  llvm::SmallVector<TransactionForwardingPreparation> forwarding;
-  llvm::SmallVector<ac::StateOwnerId> entryOwners;
   llvm::SmallVector<TransactionValueRequirement, 0> requirements;
   llvm::SmallVector<TransactionPreparedControl, 0> controls;
   llvm::SmallVector<TransactionQueueResource, 0> resources;
@@ -217,7 +209,7 @@ struct MaterializedTransaction {
   llvm::SmallVector<MaterializedSelection, 0> selections;
   llvm::SmallVector<mlir::Value, 0> boundValues;
   llvm::SmallVector<MaterializedVersion, 0> versions;
-  llvm::SmallVector<MaterializedBranchResult, 0> branchResults, stateJoins, forwarding,
+  llvm::SmallVector<MaterializedBranchResult, 0> branchResults, stateJoins,
       conditionalWrites;
   llvm::SmallVector<MaterializedCommit, 0> commits;
   llvm::SmallVector<mlir::IRMapping, 0> frames;

@@ -91,6 +91,39 @@ TEST_F(HardwareGrantProofTest, PossibleAddressCollisionRetainsUnknownEquality) {
       if (eq != 0) EXPECT_FALSE(x == 1 && enabled == 1);
     }
 }
+TEST_F(HardwareGrantProofTest,
+       ConstantAddressCollisionStillUsesComplementaryEnableProof) {
+  Node enabled = raw();
+  Node disabled = op(View::Not, {enabled});
+  Node address = constant(3, 4);
+  Node sameAddress = constant(3, 4);
+  Node otherAddress = constant(7, 4);
+  Node widerSameAddress = constant(3, 8);
+  auto p = proof();
+
+  auto complementary =
+      p->disjointAtAddress(enabled, disabled, address, sameAddress);
+  auto overlapping =
+      p->disjointAtAddress(enabled, enabled, address, sameAddress);
+  auto separate =
+      p->disjointAtAddress(enabled, enabled, address, otherAddress);
+  auto widerComplementary =
+      p->disjointAtAddress(enabled, disabled, address, widerSameAddress);
+  auto widerOverlapping =
+      p->disjointAtAddress(enabled, enabled, address, widerSameAddress);
+  ASSERT_TRUE(mlir::succeeded(complementary));
+  ASSERT_TRUE(mlir::succeeded(overlapping));
+  ASSERT_TRUE(mlir::succeeded(separate));
+  ASSERT_TRUE(mlir::succeeded(widerComplementary));
+  ASSERT_TRUE(mlir::succeeded(widerOverlapping));
+  // A known collision needs the enable proof; unequal known addresses alone
+  // suffice. Numeric address equality is unaffected by its storage width.
+  EXPECT_TRUE(*complementary);
+  EXPECT_FALSE(*overlapping);
+  EXPECT_TRUE(*separate);
+  EXPECT_TRUE(*widerComplementary);
+  EXPECT_FALSE(*widerOverlapping);
+}
 TEST_F(HardwareGrantProofTest, ReservedAdapterNodeIdentitiesFailClosed) {
   auto p = proof();
   Node first = raw();

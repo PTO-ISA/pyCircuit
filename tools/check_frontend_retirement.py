@@ -234,6 +234,7 @@ def scan_public_surface() -> list[str]:
             "count_leading_zeros",
             "count_trailing_zeros",
             "priority_encode",
+            "instance_ref",
             "onehot_encode",
             "system",
             "dff",

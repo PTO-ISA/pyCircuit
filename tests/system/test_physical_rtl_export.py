@@ -31,7 +31,6 @@ def RecordInitial(incoming: ac.u8) -> Record:
     @ac.rule
     def hold() -> None:
         saved = saved
-    hold()
     return saved
 @ac.rule
 def write(saved: ac.u8, incoming: ac.u8, enabled: ac.u1) -> None:
@@ -48,7 +47,6 @@ def GuardedCell(incoming: ac.u8, enabled: ac.u1) -> ac.u8:
     @ac.rule(guard=lambda: enabled)
     def update() -> None:
         saved = incoming
-    update()
     return saved
 @ac.module
 def GuardedPair(first: ac.u8, second: ac.u8, enable_first: ac.u1,
@@ -61,7 +59,6 @@ def TableState(incoming: ac.u8) -> ac.table[2, ac.u8]:
     def update() -> None:
         entries[0] = incoming
         entries[1] = entries[0] + 1
-    update()
     return entries
 @ac.module
 def TableList(incoming: ac.u8) -> ac.table[2, ac.u8]:
@@ -70,7 +67,6 @@ def TableList(incoming: ac.u8) -> ac.table[2, ac.u8]:
     def update() -> None:
         entries[0] = incoming
         entries[1] = entries[0] + 1
-    update()
     return entries
 @ac.module
 def Pair(first: ac.u8, second: ac.u8, enable_first: ac.u1,
@@ -92,7 +88,6 @@ def WideInitial(incoming: ac.u8) -> tuple[ac.bits[65], ac.bits[130], ac.bits[65]
         first = first
         second = second
         low_word = low_word
-    hold()
     return first, second, low_word
 """
 

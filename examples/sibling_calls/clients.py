@@ -8,8 +8,6 @@ def Writer(counter: Counter):  # noqa: N802
     def write() -> None:
         counter.increment()
 
-    write()
-
 
 @ac.module
 def Reader(counter: Counter):  # noqa: N802
@@ -17,5 +15,3 @@ def Reader(counter: Counter):  # noqa: N802
     def observe() -> None:
         value = counter.read()
         ac.log("info", "count", value)
-
-    observe()

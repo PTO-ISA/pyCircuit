@@ -15,7 +15,7 @@ def ResourceDemandProbe():
     right = ac.queue[ac.u8](in_valid=send_right, in_data=11, depth=1, latency=1)
     output = ac.queue[ac.u8](out_ready=take, depth=1, latency=1)
 
-    @ac.rule(guard=lambda enabled: enabled)
+    @ac.method(guard=lambda enabled: enabled)
     def require(enabled: ac.u1) -> None:
         pass
 
@@ -32,6 +32,3 @@ def ResourceDemandProbe():
     @ac.rule
     def tick() -> None:
         count = count + 1
-
-    drive()
-    tick()

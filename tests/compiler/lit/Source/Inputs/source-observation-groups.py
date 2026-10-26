@@ -234,7 +234,11 @@ module observation_precommit_probe;
     report_value = pycircuit_sim.pyc_report_value_{report};
     report_update = pycircuit_sim.pyc_report_update_{report};
     captured = 1'b1;
+    // Independent Rules observe committed child state. Inject the checked
+    // child operand as well as its incoming payload before the Work epoch.
     force pycircuit_sim.dut.dut.pyc_instance_input_left.q_current = 8'b000x0001;
+    force pycircuit_sim.dut.dut.pyc_instance_left.pyc_instance_value.q_current = 8'b000x0001;
+    left_q = 8'b000x0001;
   end
   final begin
     if (captured !== 1'b1 || pycircuit_sim.pyc_epoch !== 1 ||
@@ -313,6 +317,9 @@ int main(int argc, char **argv) {
   require(executor.Step(&result) == PYCIRCUIT_MODEL_STATUS_V1_OK);
   require(executor.cycles() == 1);
   auto family = dut.root_->pyc_implementation;
+  // The check observes committed child Q, independently of the incoming write.
+  inject(*family->pyc_instance_left->pyc_instance_value_state,
+         family->pyc_instance_left->pyc_instance_value_q);
   auto left = family->pyc_instance_left->pyc_instance_value_state->current(0);
   auto right = family->pyc_instance_right->pyc_instance_value_state->current(0);
   auto previousEvents = std::vector<gfsim::CommittedEventSlot>(
@@ -329,8 +336,8 @@ int main(int argc, char **argv) {
   require(executor.Step(&result) == PYCIRCUIT_MODEL_STATUS_V1_RUNTIME_FAILURE);
   require(executor.cycles() == 1 && result.epoch_time == 1);
   require(dut.system().failureInfo().phase == gfsim::SimFailurePhase::Check);
-  require(dut.system().failureInfo().code == "runtime_failure");
-  require(dut.system().failureInfo().message == "model check failed");
+  require(dut.system().failureInfo().code == "source_check_failed");
+  require(dut.system().failureInfo().message == "left old Q");
   const auto leftAfter = family->pyc_instance_left->pyc_instance_value_state->current(0);
   const auto rightAfter = family->pyc_instance_right->pyc_instance_value_state->current(0);
   const auto injectedAfter = family->pyc_instance_input_left_state->current(0);
@@ -750,7 +757,7 @@ def main():
                     failure=True,
                 )
                 output_text = four_state.stdout + four_state.stderr
-                assert "inconsistent observation group at epoch 1" in output_text, (
+                assert "source or primitive check failed at epoch 1" in output_text, (
                     output_text
                 )
                 assert "FOURSTATE-PRECOMMIT-PASS" in output_text, output_text

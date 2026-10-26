@@ -15,8 +15,8 @@ import test_public_emit as public
 pytestmark = pytest.mark.system
 SOURCES = {
     "types.py": "import pycircuit as ac\n@ac.struct\nclass Word:\n    data: ac.u8\n@ac.struct\nclass UnusedWord:\n    data: ac.u4\n@ac.struct\nclass _PrivateWord:\n    data: ac.u3\n",
-    "child.py": 'from pycircuit import module\n@module\ndef Child(value: bool) -> {"out": bool}:\n    return {"out": value}\n',
-    "design_top.py": 'from source_public.child import Child\nfrom pycircuit import module, rule\n@module\ndef DesignTop(value: bool) -> {"left": bool, "right": bool}:\n    left = Child()\n    right = Child()\n    @rule\n    def bind_left():\n        left(value=value)\n    bind_left()\n    @rule\n    def bind_right():\n        right(value=value)\n    bind_right()\n    return {"left": left.out, "right": right.out}\n',
+    "child.py": "from pycircuit import module, rule\n@module\ndef Child(value: bool) -> bool:\n    @rule\n    def forward() -> bool:\n        return value\n    return forward\n",
+    "design_top.py": 'from source_public.child import Child\nfrom pycircuit import module\n@module\ndef DesignTop(value: bool) -> {"left": bool, "right": bool}:\n    left = Child(value)\n    right = Child(value)\n    return {"left": left, "right": right}\n',
     "empty.py": '"""An empty provenance unit."""\n',
     "子.py": '"""An empty unit with a Unicode source path."""\n',
     "facade/__init__.py": "from source_public.types import Word as Word\n",
@@ -62,27 +62,21 @@ def _expected_origins(filename):
                 if isinstance(statement, ast.Assign) and isinstance(
                     statement.value, ast.Call
                 ):
-                    site = statement
+                    site = statement.value
                     expected.append(
                         (
                             "ac.instance",
-                            _origin(symbol, nested),
+                            _origin(symbol, nested + [("field", "value")]),
                             f'loc("{filename}":{site.lineno}:{site.col_offset + 1})',
                         )
                     )
-                elif (
-                    isinstance(statement, ast.Expr)
-                    and isinstance(statement.value, ast.Call)
-                    and isinstance(statement.value.func, ast.Name)
-                    and statement.value.func.id in rules
-                ):
-                    # A rule's occurrence identifies its explicit registration;
-                    # its diagnostic location still names the declaration.
-                    declaration = rules[statement.value.func.id]
+                elif isinstance(statement, ast.FunctionDef) and statement.name in rules:
+                    # The autonomous declaration is the registration site.
+                    declaration = statement
                     expected.append(
                         (
                             "ac.rule",
-                            _origin(symbol, nested + [("field", "value")]),
+                            _origin(symbol, nested),
                             f'loc("{filename}":{declaration.lineno}:{declaration.col_offset + 1})',
                         )
                     )

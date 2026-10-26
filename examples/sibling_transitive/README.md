@@ -1,22 +1,23 @@
-# 未调用声明的传递顺序与结果可用性
+# 兄弟回调的当前状态与结果可用性
 
-`Counter` 初值为 1，`increment` 每次加 2。三个 callable 声明组成
-`increment → bridge → read` 的 `after` 顺序。
-没有任何地方调用 `bridge`，但传递顺序仍让 Reader 看见 Writer 的更新。
-实例的构造顺序本身不提供这种保证。
+`Counter` 初值为 1，`increment` Method 每次加 2。
+`bridge` 是一个未调用的只读 Method；声明本身不会激活它。
+Writer 和 Reader 的独立 Rule 都从当前已提交状态开始，实例的构造顺序
+不提供候选状态转发。
 
-`read` 只在更新后的值不大于 5 时返回。Reader 直接返回一个 `ac.u8`，
-System 用普通 Rule 记录它；编译器传播结果可用性。后两个周期没有对应
-`transitive visible` 日志，Writer 仍递增，无需额外 valid 字段或保持寄存器。
+`read` Method 只在当前值不大于 5 时返回。Reader 的自动 Rule 以裸名称
+连接到 Module 的 `ac.u8` 输出，System 再记录该子模块结果；编译器传播
+结果可用性。第四个周期没有 `transitive visible` 日志，Writer 仍递增，
+无需额外 valid 字段或保持寄存器。
 
 四个周期的 Work 观测如下。每个有值的格子在低、高采样时刻各输出一次；
 `transitive committed` 来自独立读取已提交状态的 Rule。
 
 | 周期 | `transitive committed` | `transitive visible` |
 | --- | --- | --- |
-| 0 | 1 | 3 |
-| 1 | 3 | 5 |
-| 2 | 5 | 无日志 |
+| 0 | 1 | 1 |
+| 1 | 3 | 3 |
+| 2 | 5 | 5 |
 | 3 | 7 | 无日志 |
 
 在仓库根目录使用已安装工具链运行：

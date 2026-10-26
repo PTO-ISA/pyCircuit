@@ -85,7 +85,7 @@
         const auto &plan = *transaction.plan;
         if (plan.routingModule != definition.module) return reject("queue external occurrence routing owner differs");
         auto external = originalQueueExternalPops(transaction,
-            transaction.liveIns.size() + 2 * transaction.forwarding.size());
+            transaction.liveIns.size());
         if (failed(external)) return failure();
         for (const auto &capture : *external) {
           const auto &owner = plan.queueOwners[capture.owner];
@@ -120,10 +120,10 @@
           pending.push_back(instance->getOperand(start + i));
       }
     }
-    // Exact resource/merge/private-use proofs are independent of the source
-    // replay. Cover only the generated graph reachable from those proved pins.
-    auto uses = ac::detail::getVerifiedQueueResourceUses(ac::HardwareAnalysis(*candidate.module), budget);
-    if (failed(uses)) return failure();
+    // Cover the generated graph reachable from the source-authenticated pins.
+    // verifyTransactionMaterialization also requires verifyRoutedPackage on this
+    // unchanged candidate; that owns the full resource/merge/private-use proof
+    // for every definition and actual binding before the candidate is accepted.
     DenseSet<Value> seen;
     while (!pending.empty()) {
       Value value = pending.pop_back_val();

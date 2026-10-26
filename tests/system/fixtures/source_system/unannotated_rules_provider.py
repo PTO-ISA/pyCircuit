@@ -24,11 +24,11 @@ def LocalCounter() -> CounterResult:
     count: ac.u8 = 4
 
     @ac.rule
-    def increment(count):
+    def increment(count=count):
         count = count + 1
         return CounterResult(value=count)
 
-    return increment(count)
+    return increment
 
 
 @ac.module
@@ -40,21 +40,25 @@ def GlobalCounter() -> CounterResult:
 @ac.module
 def Widths(small: ac.u4, large: ac.u8) -> WidthResult:
     @ac.rule
-    def bump(value):
+    def small_bump(value=small):
         return value + 1
 
-    small_result = bump(small)
-    large_result = bump(large)
+    @ac.rule
+    def large_bump(value=large):
+        return value + 1
+
+    small_result = small_bump
+    large_result = large_bump
     return WidthResult(small=small_result, large=large_result)
 
 
 @ac.module
 def Iterations(start: ac.u8) -> CounterResult:
     @ac.rule
-    def fold(value, n):
+    def fold(value=start, n=3):
         result = value
         for _index in range(n):
             result = result + 2
         return CounterResult(value=result)
 
-    return fold(start, 3)
+    return fold

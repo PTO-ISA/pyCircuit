@@ -13,11 +13,11 @@ def BranchJoinedFeedback():
     feedback = ac.queue[LoopItem](depth=1, latency=1)
     completed = ac.queue[LoopItem](depth=1, latency=1)
 
-    @ac.rule
+    @ac.method
     def send(value: ac.u8) -> None:
         ingress.push(LoopItem(value=value, remaining=2))
 
-    @ac.rule
+    @ac.method
     def step(cycle: ac.u8) -> None:
         if feedback.valid:
             item = feedback.pop()
@@ -29,7 +29,7 @@ def BranchJoinedFeedback():
             completed.push(item)
         ac.log("info", "queue feedback visited", cycle, item.value)
 
-    @ac.rule
+    @ac.method
     def take() -> ac.u8:
         item = completed.pop()
         return item.value

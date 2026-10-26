@@ -131,7 +131,7 @@
           }
         }
         auto external = originalQueueExternalPops(transaction,
-            transaction.liveIns.size() + 2 * transaction.forwarding.size());
+            transaction.liveIns.size());
         if (failed(external)) return failure();
         for (const auto &capture : *external) {
           const auto &owner = plan.queueOwners[capture.owner];
@@ -353,7 +353,7 @@
         const auto &plan = *transaction.plan;
         if (plan.routingModule != routes.module) return reject("queue external occurrence routing owner differs");
         auto external = originalQueueExternalPops(transaction,
-            transaction.liveIns.size() + 2 * transaction.forwarding.size());
+            transaction.liveIns.size());
         if (failed(external)) return failure();
         auto rule = candidate.transactions[*index].rule;
         for (const auto &capture : *external) {

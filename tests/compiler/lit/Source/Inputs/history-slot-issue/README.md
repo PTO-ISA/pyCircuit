@@ -8,11 +8,11 @@ latency-one input FIFO, distinct persistent valid and Event payload owners, and
 a real depth-one, latency-one output FIFO. Capture reads the old empty slot;
 release requires an accepted output. Release retains payload and cannot refill
 on the same edge. The left core uses a global rule with explicit owners. The
-right core preserves captured access through two nested binding rules and two
-independently published ordinary storage modules. Each storage module lowers to
-one real standard register; both share the compiler-inferred domain and the
-whole-system commit/reset boundary. The nested bindings freeze the same old-Q
-predicates and borrowed payload before proposing either owner.
+right core uses typed scalar outputs from two independently published ordinary
+storage modules. Each storage module lowers to one real standard register; both
+share the compiler-inferred domain and the whole-system commit/reset boundary.
+Explicit Module input bindings carry the same committed-state predicates and
+borrowed payload before either owner proposes an update.
 
 This is a supported source realization of the compound slot algorithm. It does
 not establish the original Slot object API, arbitrary persistent nested Python

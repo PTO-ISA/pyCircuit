@@ -170,7 +170,7 @@ LogicalResult detail::verifyHardwarePackageStage(
     // inert annotation on a closed hardware graph. Routing must consume both
     // bindings and callable contracts before either standalone boundary.
     for (StringRef name : {"ac.reference_parameters", "ac.reference_bindings",
-                           "ac.reference", "ac.callable_after"}) {
+                           "ac.reference", "ac.callable_after", "ac.after"}) {
       if (operation->hasAttr(name)) {
         operation->emitOpError()
             << "unresolved source reference or callable order cannot cross "

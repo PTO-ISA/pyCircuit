@@ -27,8 +27,7 @@ def Store():
 
 
 @ac.module
-def Worker():
-    store = ac.instance_ref(Store, "..", "..", "remote", "store")
+def Worker(store: Remote):
     phase: ac.u2 = 0
 
     @ac.rule
@@ -47,21 +46,32 @@ def Worker():
             ac.log("info", "resource-read", current)
         phase = phase + 1
 
-    step()
 
 
 @ac.module
 def Remote():
     store = Store()
 
+    @ac.method
+    def fill(value: ac.u8) -> None:
+        store.fill(value)
+    @ac.method
+    def consume() -> tuple[ac.u8, ac.u16]:
+        token, previous = store.consume()
+        return token, previous
+    @ac.method
+    def read() -> ac.u16:
+        return store.read()
+
+
 
 @ac.module
-def Branch():
-    worker = Worker()
+def Branch(store: Remote):
+    worker = Worker(store)
 
 
 @ac.system(samples=((0, 0), (1, 0), (1, 0), (0, 0), (1, 1), (0, 0), (1, 0),
                     (0, 0), (1, 0), (0, 0), (1, 0)))
 def Top():
     remote = Remote()
-    branch = Branch()
+    branch = Branch(remote)

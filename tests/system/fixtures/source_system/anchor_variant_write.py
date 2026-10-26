@@ -12,5 +12,3 @@ def WriteCounter():
         before = owner.read()
         after = owner.add(3)
         ac.log("info", "anchor write", before, after, held.read())
-
-    advance()

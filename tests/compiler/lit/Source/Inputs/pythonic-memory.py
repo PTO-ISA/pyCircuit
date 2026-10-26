@@ -217,11 +217,8 @@ from pycircuit import sync_mem
 def Explicit(clk: bool, rst: bool, ren: bool, addr: ac.u2,
              valid: bool, data: ac.u13, strobe: ac.u2) -> {"rdata": ac.u13}:
     memory = sync_mem(T=ac.u13, ADDR_WIDTH=2, DEPTH=3)
-    @ac.rule
-    def bind():
-        memory(clk=clk, rst=rst, ren=ren, raddr=addr,
-               wvalid=valid, waddr=addr, wdata=data, wstrb=strobe)
-    bind()
+    memory(clk=clk, rst=rst, ren=ren, raddr=addr,
+           wvalid=valid, waddr=addr, wdata=data, wstrb=strobe)
     return {"rdata": memory.rdata}
 """
 )

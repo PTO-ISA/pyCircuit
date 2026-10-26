@@ -16,6 +16,3 @@ def Top():
     @rule
     def advance_right() -> None:
         right.advance()
-
-    advance_left()
-    advance_right()

@@ -1,7 +1,7 @@
 from typing import Annotated
 
-from pycircuit import dff, module, rule
-from locals.local_binding_child import Word
+from pycircuit import module, rule
+from locals.local_binding_child import BitState, Word, WordState
 
 
 @module
@@ -22,19 +22,16 @@ def Bindings(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annotate
     "wide_alias": Annotated[int, range(1 << 65)],
     "wide_carry": Annotated[int, range(1 << 1)],
     "wide_singleton": Annotated[int, range(1 << 64)]}:
-    state = dff(T=Annotated[int, range(1 << 8)])
-    signed_state = dff(T=Annotated[int, range(1 << 8)])
-    zero_state = dff(T=Annotated[int, range(1 << 1)])
-    child = Word()
-    old = state.q
     candidate = (a + 1) & 255
     chain = candidate
     complete = chain
+    late = complete
     input_alias = a
     input_snapshot = input_alias
+    child = Word(input_snapshot)
     bool_alias = flag
     integer_alias = one
-    child_alias = child.q
+    child_alias = child
     signed_value = a - b
     signed_mask = signed_value & 255
     wide_alias = wide
@@ -45,29 +42,23 @@ def Bindings(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annotate
     selected = (a + 1) if bool_alias else 256
 
     @rule
-    def update():
-        state(clk=clk, rst=rst, d=late, init=0)
+    def update() -> Annotated[int, range(1 << 8)]:
+        return late
 
     @rule
-    def update_signed():
-        signed_state(clk=clk, rst=rst, d=signed_mask, init=0)
+    def update_signed() -> Annotated[int, range(1 << 8)]:
+        return signed_mask
 
     @rule
-    def update_zero():
-        zero_state(clk=clk, rst=rst, d=singleton >> 0, init=0)
+    def update_zero() -> Annotated[int, range(1 << 1)]:
+        return singleton >> 0
 
-    @rule
-    def input_alias():
-        child(a=input_snapshot)
-
-    update()
-    update_signed()
-    update_zero()
-    input_alias()
-    late = complete
     result = late
+    old = WordState(clk, rst, update)
+    signed_q = WordState(clk, rst, update_signed)
+    zero_q = BitState(clk, rst, update_zero)
     return {"result": result, "q": old, "signed_mask": signed_mask,
-            "signed_q": signed_state.q, "zero_q": zero_state.q,
+            "signed_q": signed_q, "zero_q": zero_q,
             "selected": selected, "input_alias": input_snapshot,
             "child_alias": child_alias, "bool_alias": bool_alias,
             "integer_plus": integer_alias + 1,

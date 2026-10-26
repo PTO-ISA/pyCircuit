@@ -1814,12 +1814,34 @@ TEST_F(MethodSummaryAuthorityTest,
   auto tablePacket = StructType::get(
       &context, builder.getStringAttr(
                     "Packet")); // Existing declaration contains a Table.
-  structureRejects(
-      child,
-      dict(replace(published,
-                   {std::string("methods"), 0u, std::string("body_effects"),
-                    static_cast<unsigned>(ordinal), std::string("results"), 0u},
-                   changed(result, "type", mlir::TypeAttr::get(tablePacket)))));
+  auto tableSummary = dict(replace(
+      published,
+      {std::string("methods"), 0u, std::string("body_effects"),
+       static_cast<unsigned>(ordinal), std::string("results"), 0u},
+      changed(result, "type", mlir::TypeAttr::get(tablePacket))));
+  // A finite Table field is a legal structural payload, but substituting its
+  // nominal root still cannot alter the provider body's authoritative type.
+  bodyRejects(child, tableSummary, analysis);
+
+  StructOp tableDeclaration;
+  file->walk([&](StructOp declaration) {
+    if (declaration->getAttrOfType<mlir::StringAttr>("sym_name").getValue() ==
+        "Packet")
+      tableDeclaration = declaration;
+  });
+  ASSERT_TRUE(tableDeclaration);
+  auto originalFields = tableDeclaration.getFields();
+  auto field = dict(originalFields[0]);
+  auto lanes = mlir::cast<TableType>(field.getAs<mlir::TypeAttr>("type").getValue());
+  auto missing = StructType::get(&context, builder.getStringAttr("MissingCell"));
+  auto invalidLanes = TableType::get(&context, lanes.getShape(), missing);
+  // Accepting Tables must continue resolving their nominal cell declarations;
+  // an unknown foreign cell cannot hide behind a known Table-containing root.
+  tableDeclaration->setAttr("fields", builder.getArrayAttr({changed(
+      field, "type", mlir::TypeAttr::get(invalidLanes))}));
+  structureRejects(child, tableSummary);
+  tableDeclaration->setAttr("fields", originalFields);
+  structureAccepts(child, tableSummary);
 }
 
 TEST_F(MethodSummaryAuthorityTest,

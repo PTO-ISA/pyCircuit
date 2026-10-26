@@ -291,7 +291,6 @@ def Owner():
     @ac.rule
     def advance() -> None:
         count = increment(count)
-    advance()
 )py", "helpers.py");
   ASSERT_TRUE(file);
   auto methods = operations<ac::SourceMethodOp>(*file);
@@ -335,7 +334,6 @@ def Owner():
     @ac.rule
     def advance() -> None:
         count = shifted(count)
-    advance()
 )py", "helper_loops.py");
   ASSERT_TRUE(file);
   auto methods = operations<ac::SourceMethodOp>(*file);
@@ -562,7 +560,7 @@ std::string counterSource(unsigned width = 8, StringRef ownerName = "Counter",
          "        after = left.relay(delta)\n" +
          (two ? "        other = right.add(delta)\n" : "") +
          "        return View(before=before, after=after)\n    return "
-         "advance()\n";
+         "advance\n";
 }
 
 TEST_F(SourceTransactionCaptureTest, SourceWritesRemainOrderedTypedEffects) {
@@ -732,7 +730,6 @@ def Driver(amount: ac.u8):
     @ac.rule(guard=lambda: amount != 0)
     def step() -> None:
         discarded = reservoir.take(amount)
-    step()
 )py");
   ASSERT_TRUE(file);
   auto methods = operations<ac::SourceMethodOp>(*file);
@@ -759,7 +756,6 @@ def GuardOnly(enabled: ac.u1):
     @ac.rule(guard=lambda: enabled)
     def tick() -> None:
         pass
-    tick()
 )py",
                        "guard_only.py");
   ASSERT_TRUE(guarded);
@@ -784,7 +780,6 @@ def Pure(enabled: ac.u1) -> {"out": ac.u1}:
     @ac.rule
     def tick() -> None:
         pass
-    tick()
     return {"out": enabled}
 )py",
                         "ordinary_rule.py");
@@ -795,7 +790,7 @@ def Pure(enabled: ac.u1) -> {"out": ac.u1}:
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       GuardedNestedRuleRegistrationArgumentsRemainUnsupported) {
+       GuardedAutonomousRuleRejectsExplicitInvocationArguments) {
   reject(R"py(import pycircuit as ac
 @ac.module
 def GuardOnly(enabled: ac.u1):
@@ -804,7 +799,7 @@ def GuardOnly(enabled: ac.u1):
         pass
     tick(enabled)
 )py",
-         "argument");
+         "autonomous local Rule cannot be called");
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -825,8 +820,6 @@ def Owner():
     @ac.rule
     def bare_rule() -> None:
         pass
-    explicit_rule()
-    bare_rule()
 )py",
                     "guard_spans.py");
   ASSERT_TRUE(file);
@@ -1092,12 +1085,14 @@ TEST_F(SourceTransactionCaptureTest, GuardSyntaxAndFormalBindingFailClosed) {
   for (StringRef decorator :
        {"@ac.method(guard=True)", "@ac.method(guard=lambda other: other != 0)",
         "@ac.method(guard=lambda delta, extra: delta != extra)",
-        "@ac.method(guard=lambda delta: delta)",
-        "@ac.method(guard=lambda delta: True, unknown=True)"}) {
+        "@ac.method(guard=lambda delta: delta)"}) {
     reject(replaceOnce(counterSource(), "@ac.method\n    def add",
                        decorator.str() + "\n    def add"),
            "guard");
   }
+  reject(replaceOnce(counterSource(), "@ac.method\n    def add",
+                     "@ac.method(guard=lambda delta: True, unknown=True)\n    def add"),
+         "duplicate or unsupported Rule/Method decorator option");
   reject(
       replaceOnce(counterSource(), "@ac.rule\n    def advance",
                   "@ac.rule(guard=lambda delta: delta != 0)\n    def advance"),
@@ -1173,7 +1168,6 @@ def Meter():
     @ac.rule
     def run() -> None:
         unused = instrument(1)
-    run()
 )py");
   ASSERT_TRUE(file) << diagnostics;
   ac::SourceMethodOp instrument;
@@ -1239,7 +1233,6 @@ def Top(flag: ac.u1, value: ac.u8):
     @ac.rule
     def inspect() -> None:
         BODY
-    inspect()
 )py";
   const std::pair<StringRef, unsigned> cases[] = {
       {"if flag:\n            ac.report(\"selected\", value)", 1},
@@ -1282,7 +1275,6 @@ def Top(flag: ac.u1, value: ac.u8):
     def inspect() -> None:
         if flag:
             CALL
-    inspect()
 )py";
   for (auto [declaration, call] :
        {std::pair<StringRef, StringRef>(
@@ -1327,7 +1319,6 @@ def Top(flag: ac.u1, value: ac.u8):
         if flag:
             ac.report("selected", value)
         BODY
-    inspect()
 )py";
   for (StringRef body : {
            "saved = ac.report(\"value\", value)",
@@ -1381,7 +1372,7 @@ def Top(flag: ac.u1, entries: ac.table[2, ac.u8]) -> View:
                 assert pair.right == entries[1]
         OBSERVATION
         return View(value=pair.left)
-    return inspect()
+    return inspect
 )py";
   for (StringRef observation : {"pass", "ac.report(\"value\", entries[0])",
                                "ac.log(\"info\", \"value\", entries[0])"}) {
@@ -1413,7 +1404,6 @@ def Meter():
     @ac.rule
     def run() -> None:
         unused = sample(1)
-    run()
 )py";
   for (auto [body, category] :
        {std::pair<StringRef, StringRef>("assert count != delta, delta",
@@ -1443,7 +1433,6 @@ def Meter():
     @ac.rule
     def run() -> None:
         unused = sample(1)
-    run()
 )py");
   ASSERT_TRUE(captured);
   diagnostics.clear();
@@ -1476,25 +1465,29 @@ TEST_F(SourceTransactionCaptureTest, MarkerAliasesCannotBeRebound) {
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       RuleDeclarationsHaveDistinctOuterRegistrationsAndNestedInvocations) {
-  auto repeated = typed(replaceOnce(counterSource(), "    return advance()",
-                                    "    first = advance()\n    return advance()"));
+       AutomaticRuleFanoutKeepsOneRegistrationAndRejectsNestedActivation) {
+  auto repeated = typed(replaceOnce(counterSource(), "    return advance",
+                                    "    first = advance\n    return advance"));
   ASSERT_TRUE(repeated) << diagnostics;
   auto registrations = operations<ac::SourceTransactionOp>(*repeated);
-  ASSERT_EQ(registrations.size(), 2u);
-  EXPECT_EQ(registrations[0].getDeclaration(), registrations[1].getDeclaration());
-  EXPECT_NE(registrations[0].getOccurrence(), registrations[1].getOccurrence());
-  // These are distinct outer transactions. Shared-writer scheduling is checked
-  // later by the state/EHR analysis, not by forbidding repeated declarations.
-  reject(replaceOnce(counterSource(), "    return advance()", "    pass"),
+  ASSERT_EQ(registrations.size(), 1u);
+  EXPECT_EQ(registrations[0].getDeclaration(), registrations[0].getOccurrence());
+  for (StringRef replacement : {"    first = advance()\n    return advance",
+                                "    return advance()"})
+    reject(replaceOnce(counterSource(), "    return advance", replacement),
+           "autonomous local Rule cannot be called");
+  reject(replaceOnce(counterSource(), "    return advance", "    pass"),
          "return");
-  auto nested =
-      replaceOnce(counterSource(), "        before = left.read()",
-                  "        inner()\n        before = left.read()");
+  auto nested = replaceOnce(counterSource(), "        before = left.read()",
+                           "        inner()\n        before = left.read()");
   nested = replaceOnce(nested, "    @ac.rule\n    def advance",
-                       "    @ac.rule\n    def inner() -> None:\n        pass\n "
-                       "   @ac.rule\n    def advance");
-  auto called = typed(nested);
+                       "    @ac.rule\n    def inner() -> None:\n        pass\n"
+                       "    @ac.rule\n    def advance");
+  reject(nested, "autonomous local Rule cannot be called");
+  // Ordinary callable operations still share the outer transaction.
+  auto callable = replaceOnce(nested, "    @ac.rule\n    def inner",
+                              "    @ac.method\n    def inner");
+  auto called = typed(callable);
   ASSERT_TRUE(called) << diagnostics;
   auto outer = operations<ac::SourceTransactionOp>(*called);
   ASSERT_EQ(outer.size(), 1u);
@@ -1503,7 +1496,7 @@ TEST_F(SourceTransactionCaptureTest,
     innerCalls += call.getCalleeAttr().getLeafReference() == "inner";
   });
   EXPECT_EQ(innerCalls, 1u);
-  reject(replaceOnce(nested, "        inner()", "        ignored = inner()"),
+  reject(replaceOnce(callable, "        inner()", "        ignored = inner()"),
          "result");
   reject(replaceOnce(counterSource(), "        before = left.read()",
                      "        @ac.rule\n        def nested() -> None:\n"
@@ -1586,7 +1579,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         choose(0, True)
-    step()
 )py",
                     "statement_branches.py");
   ASSERT_TRUE(file);
@@ -1647,7 +1639,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         choose(0, True)
-    step()
 )py",
                     "numeric_branch_joins.py");
   ASSERT_TRUE(file);
@@ -1686,7 +1677,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         choose(0)
-    step()
 )py");
   ASSERT_TRUE(overflow);
   diagnostics.clear();
@@ -1711,7 +1701,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         choose(0)
-    step()
 )py",
          "selected");
 
@@ -1733,7 +1722,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         choose(0)
-    step()
 )py",
                       "nominal_escape.py");
   ASSERT_TRUE(joined);
@@ -1758,7 +1746,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         BODY
-    step()
 )py";
   const std::pair<StringRef, StringRef> cases[] = {
       {"if predicate():\n            pass", "branch"},
@@ -1774,7 +1761,7 @@ TEST_F(SourceTransactionCaptureTest,
 @ac.module
 def Owner():
     count: ac.u8 = 0
-    @ac.rule
+    @ac.method
     def update() -> None:
         count = count + 1
     @ac.rule
@@ -1782,7 +1769,6 @@ def Owner():
         if False:
             for value in range(2):
                 update()
-    step()
 )py", "dead_loop.py");
   ASSERT_TRUE(file) << diagnostics;
   auto branches = operations<ac::SourceBranchOp>(*file);
@@ -1829,7 +1815,6 @@ def Parent(flag: ac.u1):
     @ac.rule
     def step() -> None:
         owner.choose(flag)
-    step()
 )py";
     auto file = typed(replaceOnce(source, "SELECTOR", selector));
     ASSERT_TRUE(file) << diagnostics;
@@ -1875,14 +1860,14 @@ def Parent() RESULT:
   auto valued = replaceOnce(source, "RESULT", "-> View");
   valued = replaceOnce(valued, "RETURN", "-> View");
   valued = replaceOnce(valued, "YIELD", "return View(value=1)");
-  valued = replaceOnce(valued, "REGISTER", "return step()");
+  valued = replaceOnce(valued, "REGISTER", "return step");
   // Existing source fact/rowFact publication does not infer a Method's body
   // result as a selector literal, even when that body returns zero.
   managedResult(valued);
   auto noResult = replaceOnce(source, "RESULT", "");
   noResult = replaceOnce(noResult, "RETURN", "-> None");
   noResult = replaceOnce(noResult, "YIELD", "pass");
-  noResult = replaceOnce(noResult, "REGISTER", "step()");
+  noResult = replaceOnce(noResult, "REGISTER", "");
   auto file = typed(noResult);
   ASSERT_TRUE(file) << diagnostics;
   ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
@@ -1905,7 +1890,6 @@ def Owner():
     def step() -> None:
         if False:
             CALL
-    step()
 )py";
   for (auto [call, category] :
        {std::pair<StringRef, StringRef>("missing(1)", "direct Method call"),
@@ -1934,7 +1918,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         choose(0)
-    step()
 )py",
                     "pure_select.py");
   ASSERT_TRUE(file);
@@ -1964,15 +1947,18 @@ TEST_F(SourceTransactionCaptureTest, MethodCallsRequireDirectTransactionScope) {
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       MethodOwnersRejectAuthoredPortsAndResults) {
-  reject(replaceOnce(counterSource(),
-                     "def Counter():", "def Counter(unused: ac.bits[8]):"),
-         "parameter");
-  auto mixed = replaceOnce(counterSource(),
-                           "def Counter():", "def Counter() -> ac.bits[8]:");
+       MethodOwnersShareOrdinaryInputsAndResults) {
+  auto mixed = replaceOnce(counterSource(), "def Counter():",
+                            "def Counter(unused: ac.bits[8]) -> ac.bits[8]:");
   mixed = replaceOnce(mixed, "@ac.module\ndef Parent",
                       "    return count\n@ac.module\ndef Parent");
-  reject(mixed, "return");
+  mixed = replaceOnce(mixed, "    left = Counter()", "    left = Counter(delta)");
+  auto file = typed(mixed);
+  ASSERT_TRUE(file) << diagnostics;
+  EXPECT_EQ(operations<ac::SourceTransactionOp>(*file).size(), 1u);
+  EXPECT_EQ(operations<ac::SourceMethodOp>(*file).size(), 4u);
+  reject(replaceOnce(mixed, "    left = Counter(delta)", "    left = Counter()"),
+         "missing or unsupported direct module argument for parameter 'unused'");
   reject(replaceOnce(counterSource(), "@ac.module\ndef Parent",
                      "    return count\n@ac.module\ndef Parent"),
          "return");
@@ -2032,7 +2018,6 @@ def Parent():
     @ac.rule
     def step() -> None:
         result = EXPRESSION
-    step()
 )py";
     auto captured =
         capture("integer.py", replaceOnce(text, "EXPRESSION", expression));
@@ -2061,7 +2046,6 @@ def Parent(value: ac.u1):
     def step() -> None:
         flag = owner.ready()
         result = flag + value
-    step()
 )py");
   ASSERT_TRUE(captured);
   diagnostics.clear();
@@ -2084,7 +2068,6 @@ def Closed():
     @ac.rule
     def sample() -> None:
         value = owner.read()
-    sample()
 )py");
   ASSERT_TRUE(captured);
   diagnostics.clear();
@@ -2196,7 +2179,7 @@ def Parent() -> View:
         denied = False
         value = owner.probe(denied)
 )py" + (secondValue ? "        return View(before=value, after=value)\n" : "") +
-         "    second()\n    return first()\n";
+         "    return first\n";
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -2253,7 +2236,6 @@ def Parent():
     @ac.rule
     def step() -> None:
         unused = owner.relay()
-    step()
 )py";
   for (bool directCall : {false, true}) {
     auto fixture =
@@ -2275,9 +2257,7 @@ class View:
     value: ac.u8)py");
     valued = replaceOnce(valued, "def Parent():", "def Parent() -> View:");
     valued = replaceOnce(valued, "def step() -> None:", "def step() -> View:");
-    valued =
-        replaceOnce(valued, "    step()",
-                    "        return View(value=unused)\n    return step()");
+    valued += "        return View(value=unused)\n    return step\n";
     managedResult(valued);
   }
 }
@@ -2301,7 +2281,7 @@ def Parent() -> View:
     def step() -> View:
         value = owner.read()
         return View(value=value)
-    return step()
+    return step
 )py";
   managedResult(sourceText);
   auto voidSource =
@@ -2310,7 +2290,7 @@ def Parent() -> View:
       replaceOnce(voidSource, "def step() -> View:", "def step() -> None:");
   voidSource =
       replaceOnce(voidSource, "        return View(value=value)\n", "");
-  voidSource = replaceOnce(voidSource, "    return step()", "    step()");
+  voidSource = replaceOnce(voidSource, "    return step\n", "");
   auto file = typed(voidSource);
   ASSERT_TRUE(file);
   ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
@@ -2364,7 +2344,7 @@ def Parent() -> Result:
     @ac.rule
     def step() -> Result:
         return owner.attempt()
-    return step()
+    return step
 )py");
   ASSERT_TRUE(file);
   ac::SourceMethodSummariesAnalysis summaries(file->getOperation());
@@ -2392,7 +2372,6 @@ def Parent():
     @ac.rule
     def step() -> None:
         unused = owner.read()
-    step()
 )py";
   auto wrapping =
       replaceOnce(integer, "@ac.method(guard=lambda: ready)", "@ac.method");
@@ -2435,19 +2414,19 @@ class Packet:
     data: ac.u8
 @ac.module
 def Single(value: ac.u8) -> Packet:
-    @ac.rule
+    @ac.method
     def read() -> ac.u8:
         return value + 2
     return Packet(data=value + 1)
 @ac.module
 def Multiple(value: ac.u8) -> tuple[Packet, ac.u8]:
-    @ac.rule
+    @ac.method
     def read() -> ac.u8:
         return value + 3
     return Packet(data=value + 4), value + 5
 @ac.module
 def NoOutputs(value: ac.u8) -> None:
-    @ac.rule
+    @ac.method
     def read() -> ac.u8:
         return value + 6
 @ac.module
@@ -2460,7 +2439,7 @@ def Parent(value: ac.u8) -> tuple[ac.u8, ac.u8, ac.u8, ac.u8, ac.u8, ac.u8]:
     @ac.rule
     def inspect() -> tuple[ac.u8, ac.u8, ac.u8, ac.u8, ac.u8, ac.u8]:
         return single.data, alias.read(), packet.data, extra, multiple.read(), empty.read()
-    a, b, c, d, e, f = inspect()
+    a, b, c, d, e, f = inspect
     return a, b, c, d, e, f
 )py";
   auto file = typed(source, "handles.py");
@@ -2506,7 +2485,7 @@ def Parent() -> View:
          (value ? "True" : "False") + R"py(
         result = owner.echo(actual)
         return View(value=result)
-    return step()
+    return step
 )py";
 }
 
@@ -2892,7 +2871,6 @@ def Owner():
     @ac.rule(guard=lambda: predicate(count))
     def inspect() -> None:
         pass
-    inspect()
 )py";
   auto file = typed(sourceText, "helper_guard.py");
   ASSERT_TRUE(file);
@@ -2928,7 +2906,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         unused = put(bias)
-    step()
 )py", "fixed_boundaries.py");
   ASSERT_TRUE(file);
   auto states = operations<ac::SourceStateOp>(*file);
@@ -2992,7 +2969,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         unused = put(bias)
-    step()
 )py";
   const std::string cases[] = {
       replaceOnce(positive, "count: ac.u8 = bias", "count: ac.u8 = True"),
@@ -3019,7 +2995,6 @@ def Owner():
     def step() -> None:
         value: ac.u1 = 1
         require_bool(value)
-    step()
 )py");
   ASSERT_TRUE(wrongLogicalKind);
   diagnostics.clear();
@@ -3040,7 +3015,6 @@ def Owner():
     def step() -> None:
         actual: ac.u1 = 1
         consume(actual)
-    step()
 )py");
     ASSERT_TRUE(localKind);
     diagnostics.clear();
@@ -3096,7 +3070,6 @@ def Owner():
         snapshot = second
         second.left = first.right
         return snapshot
-    step()
 )py",
                     "nominal_fields.py");
   ASSERT_TRUE(file);
@@ -3110,6 +3083,178 @@ def Owner():
   EXPECT_EQ(operations<ac::SourceMethodCallOp>(*file).size(), 3u);
   EXPECT_TRUE(operations<ac::BitsSelectOp>(*file).empty())
       << "nominal branch hardware must be materialized after source analysis";
+}
+
+// Observe source-import SSA directly: later struct simplification must not
+// conceal whether reconstruction preserved the original field wires.
+TEST_F(SourceTransactionCaptureTest,
+       LocalConstructorUpdatesReuseFieldsAndPreserveOldAliases) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    left: ac.u8
+    payload: ac.u8
+    right: ac.u8
+@ac.module
+def Owner():
+    @ac.method
+    def update() -> tuple[Packet, Packet, Packet]:
+        packet = Packet()
+        original = packet
+        packet.payload = 7
+        first = packet
+        packet.payload = 9
+        return original, first, packet
+    @ac.rule
+    def step() -> tuple[Packet, Packet, Packet]:
+        original, first, final = update()
+        return original, first, final
+)py", "constructor_updates.py");
+  ASSERT_TRUE(file);
+  auto creates = operations<ac::StructCreateOp>(*file);
+  ASSERT_EQ(creates.size(), 3u);
+  auto declarations = operations<ac::StructOp>(*file);
+  ASSERT_EQ(declarations.size(), 1u);
+  for (unsigned index : {0u, 2u}) {
+    auto field = cast<DictionaryAttr>(declarations[0].getFields()[index]);
+    ASSERT_EQ(creates[0].getValues()[index].getType(),
+              field.getAs<TypeAttr>("type").getValue());
+  }
+  for (unsigned index : {1u, 2u}) {
+    EXPECT_NE(creates[index].getResult(), creates[index - 1].getResult());
+    EXPECT_EQ(creates[index].getValues()[0], creates[0].getValues()[0]);
+    EXPECT_EQ(creates[index].getValues()[2], creates[0].getValues()[2]);
+    EXPECT_NE(creates[index].getValues()[1], creates[index - 1].getValues()[1]);
+  }
+  // All three returned aliases must still refer to their own immutable SSA
+  // constructor, rather than a constructor mutated by a subsequent update.
+  auto *returned = creates[0]->getBlock()->getTerminator();
+  ASSERT_EQ(returned->getNumOperands(), 3u);
+  for (auto [index, create] : llvm::enumerate(creates))
+    EXPECT_EQ(returned->getOperand(index), create.getResult());
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       LocalConstructorEquivalentFieldTypesRetainDeclaredProjectionTypes) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    left: ac.u8
+    payload: ac.u8
+    right: ac.u8
+@ac.module
+def Owner():
+    @ac.method
+    def update(left: ac.u8, payload: ac.u8, right: ac.u8) -> Packet:
+        packet = Packet(left=left, payload=payload, right=right)
+        packet.payload = 7
+        return packet
+    @ac.rule
+    def step() -> Packet:
+        return update(1, 2, 3)
+)py", "equivalent_constructor_fields.py");
+  ASSERT_TRUE(file);
+  auto creates = operations<ac::StructCreateOp>(*file);
+  ASSERT_EQ(creates.size(), 2u);
+  auto declarations = operations<ac::StructOp>(*file);
+  ASSERT_EQ(declarations.size(), 1u);
+  for (unsigned index : {0u, 2u}) {
+    auto field = cast<DictionaryAttr>(declarations[0].getFields()[index]);
+    auto declared = field.getAs<TypeAttr>("type").getValue();
+    // Identical u8 spelling at different source sites yields equivalent
+    // packed widths, while the declared field retains its own exact type.
+    ASSERT_NE(creates[0].getValues()[index].getType(), declared);
+    auto projection = creates[1].getValues()[index].getDefiningOp<ac::StructGetOp>();
+    ASSERT_TRUE(projection);
+    EXPECT_EQ(projection.getValue(), creates[0].getResult());
+    EXPECT_EQ(projection.getResult().getType(), declared);
+    EXPECT_EQ(projection.getField(), field.getAs<StringAttr>("name").getValue());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       LocalIncomingAndBranchUpdatesProjectUnchangedFields) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    left: ac.u8
+    payload: ac.u8
+    right: ac.u8
+@ac.module
+def Owner():
+    @ac.method
+    def update(flag: ac.u1, incoming: Packet) -> Packet:
+        packet = incoming
+        packet.payload = 7
+        if flag:
+            packet.payload = 9
+        packet.payload = 11
+        return packet
+    @ac.rule
+    def step() -> Packet:
+        return update(1, Packet(left=1, payload=2, right=3))
+)py", "incoming_updates.py");
+  ASSERT_TRUE(file);
+  bool incomingProjection = false, branchProjection = false;
+  for (auto create : operations<ac::StructCreateOp>(*file)) {
+    auto left = create.getValues()[0].getDefiningOp<ac::StructGetOp>();
+    auto right = create.getValues()[2].getDefiningOp<ac::StructGetOp>();
+    if (!left || !right)
+      continue;
+    EXPECT_EQ(left.getValue(), right.getValue());
+    EXPECT_EQ(left.getField(), "left");
+    EXPECT_EQ(right.getField(), "right");
+    incomingProjection |= isa<BlockArgument>(left.getValue());
+    branchProjection |= static_cast<bool>(
+        left.getValue().getDefiningOp<ac::SourceBranchOp>());
+  }
+  EXPECT_TRUE(incomingProjection);
+  EXPECT_TRUE(branchProjection);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       NominalAdmissionAcrossLexicalOwnersStillRejectsLaterForeignValue) {
+  const std::string text = R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.struct
+class ForeignPacket:
+    value: ac.u8
+@ac.module
+def First():
+    @ac.method
+    def update(packet: Packet) -> Packet:
+        packet.value = 5
+        return packet
+@ac.module
+def Second():
+    @ac.method
+    def update(packet: Packet) -> Packet:
+        packet.value = 7
+        return packet
+@ac.module
+def Top() -> tuple[Packet, Packet]:
+    first = First()
+    second = Second()
+    @ac.rule
+    def step() -> tuple[Packet, Packet]:
+        valid = Packet(value=1)
+        left = first.update(valid)
+        right = second.update(valid)
+        return left, right
+    return step
+)py";
+  ASSERT_TRUE(typed(text, "nominal_owners.py")) << diagnostics;
+  // The valid argument is admitted first in the same importer; neither that
+  // success nor the matching packed width licenses another nominal identity.
+  auto invalid = capture("foreign_after_valid.py", replaceOnce(
+      text, "right = second.update(valid)",
+      "right = second.update(ForeignPacket(value=2))"));
+  ASSERT_TRUE(invalid);
+  diagnostics.clear();
+  EXPECT_TRUE(failed(lower(*invalid, "foreign_after_valid.py")));
+  EXPECT_FALSE(diagnostics.empty());
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -3159,7 +3304,6 @@ def Owner():
     @ac.rule
     def step() -> None:
         choose(0)
-    step()
 )py";
     auto file = capture("invalid_nominal_target.py", text);
     ASSERT_TRUE(file);
@@ -3170,7 +3314,7 @@ def Owner():
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       UnchangedTableContainingCaptureRemainsLegalButReconstructionDoesNot) {
+       FiniteTableContainingCaptureAndReconstructionPreserveFieldIdentity) {
   const std::string text = R"py(import pycircuit as ac
 @ac.struct
 class Packet:
@@ -3190,17 +3334,36 @@ def Top(packet: Packet) -> Packet:
     @ac.rule
     def step() -> Packet:
         return owner.choose(0, packet)
-    return step()
+    return step
 )py";
   ASSERT_TRUE(typed(text, "unchanged_table_capture.py"));
   for (StringRef statement :
        {"local.tag = 2", "local = packet\n            local.tag = 2"}) {
-    auto changed = capture("changed_table_capture.py",
-                           replaceOnce(text, "            pass",
-                                       "            " + statement.str()));
-    ASSERT_TRUE(changed);
+    auto changed = typed(replaceOnce(text, "            pass",
+                                     "            " + statement.str()),
+                         "changed_table_capture.py");
+    ASSERT_TRUE(changed) << diagnostics;
+    auto creates = operations<ac::StructCreateOp>(*changed);
+    ASSERT_EQ(creates.size(), 1u);
+    auto lanes = creates[0].getValues()[0].getDefiningOp<ac::StructGetOp>();
+    ASSERT_TRUE(lanes);
+    EXPECT_EQ(lanes.getField(), "lanes");
+    EXPECT_TRUE(isa<BlockArgument>(lanes.getValue()));
+    EXPECT_TRUE(isa<ac::TableType>(lanes.getResult().getType()));
+    auto branches = operations<ac::SourceBranchOp>(*changed);
+    ASSERT_EQ(branches.size(), 1u);
+    EXPECT_EQ(branches[0].getResult(0).getType(), creates[0].getResult().getType());
+  }
+  // Finite one-dimensional fields do not admit recursively nested Tables or
+  // replacing a Table field with an unrelated scalar hardware value.
+  for (const auto &invalidText : {
+           replaceOnce(text, "ac.table[2, ac.u8]",
+                       "ac.table[2, ac.table[2, ac.u8]]"),
+           replaceOnce(text, "            pass", "            local.lanes = 2")}) {
+    auto invalid = capture("invalid_table_capture.py", invalidText);
+    ASSERT_TRUE(invalid);
     diagnostics.clear();
-    EXPECT_TRUE(failed(lower(*changed, "changed_table_capture.py")));
+    EXPECT_TRUE(failed(lower(*invalid, "invalid_table_capture.py")));
     EXPECT_FALSE(diagnostics.empty());
   }
 }
@@ -3226,11 +3389,11 @@ def Owner():
 def Top(value: ac.u8, flag: bool) -> tuple[ac.u8, bool, Packet]:
     owner = Owner()
     @ac.rule
-    def step(delta: ac.u8, enabled: bool) -> tuple[ac.u8, bool, Packet]:
+    def step(delta: ac.u8=value, enabled: bool=flag) -> tuple[ac.u8, bool, Packet]:
         word, logical, packet = owner.split(delta, enabled)
         saved, = owner.singleton(packet)
         return word, logical, saved
-    word, logical, packet = step(enabled=flag, delta=value)
+    word, logical, packet = step
     return word, logical, packet
 )py";
 
@@ -3261,7 +3424,7 @@ TEST_F(SourceTransactionCaptureTest,
     EXPECT_EQ(method->getAttrOfType<ArrayAttr>("ac.result_constraints").size(),
               method.getFunctionType().getNumResults());
   }
-  // A keyword permutation must still bind the declared positional contracts.
+  // Explicit defaults must bind their declared heterogeneous contracts.
   ASSERT_GE(transaction.getCaptures().size(), 2u);
   EXPECT_TRUE(ac::areEquivalentHardwareTypes(
       transaction.getCaptures()[0].getType(),
@@ -3284,13 +3447,17 @@ def split(value: ac.u8, flag: bool) -> tuple[Packet, bool, ac.u8]:
 def singleton(value: ac.u8) -> tuple[ac.u8]:
     return (value,)
 @ac.module
+def Identity(value: ac.u8) -> ac.u8:
+    return value
+@ac.module
 def Top(value: ac.u8, flag: bool) -> tuple[Packet, bool, ac.u8]:
-    @ac.rule
-    def local(delta: ac.u8) -> tuple[ac.u8]:
-        return (delta + 1,)
     packet, logical, unchanged = split(value, flag)
     saved, = singleton(unchanged)
-    changed, = local(saved)
+    routed = Identity(saved)
+    @ac.rule
+    def local(delta: ac.u8=routed) -> tuple[ac.u8]:
+        return (delta + 1,)
+    changed, = local
     return packet, logical, changed
 )py", "behavioral_tuple.py");
   ASSERT_TRUE(file);
@@ -3298,11 +3465,14 @@ def Top(value: ac.u8, flag: bool) -> tuple[Packet, bool, ac.u8]:
   ASSERT_EQ(transactions.size(), 3u);
   for (auto transaction : transactions) EXPECT_TRUE(entryMethod(transaction));
   ASSERT_EQ(operations<ac::SourceMethodOp>(*file).size(), 3u);
-  for (StringRef name : {"split", "singleton", "local"})
-    EXPECT_TRUE(namedMethod(*file, name));
+  for (auto registration : transactions) {
+    auto method = entryMethod(registration);
+    ASSERT_TRUE(method);
+    EXPECT_EQ(method.getOccurrence(), registration.getDeclaration());
+  }
   auto definitions = operations<ac::ModuleOp>(*file);
-  ASSERT_EQ(definitions.size(), 1u);
-  EXPECT_EQ(definitions[0].getFunctionType().getNumResults(), 3u);
+  ASSERT_EQ(definitions.size(), 2u);
+  EXPECT_EQ(definitions[1].getFunctionType().getNumResults(), 3u);
   EXPECT_TRUE(operations<ac::RuleOp>(*file).empty());
 }
 
@@ -3390,6 +3560,18 @@ TEST_F(SourceTransactionCaptureTest,
     EXPECT_TRUE(failed(lower(*file, "bad_tuple_target.py"))) << replacement;
     EXPECT_FALSE(diagnostics.empty());
   }
+  const std::string templateSource = R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+@ac.rule
+def step(delta: ac.u8, enabled: bool) -> tuple[ac.u8, bool, Packet]:
+    return delta, enabled, Packet(value=delta)
+@ac.module
+def Top(value: ac.u8, flag: bool) -> tuple[ac.u8, bool, Packet]:
+    word, logical, packet = step(enabled=flag, delta=value)
+    return word, logical, packet
+)py";
   for (auto replacement : {
            "word, logical, packet = step(enabled=value, delta=flag)",
            "word, logical, packet = step(value)",
@@ -3398,7 +3580,7 @@ TEST_F(SourceTransactionCaptureTest,
            "word, logical, packet = step(value, absent=flag)",
            "value, logical, packet = step(value, flag)"}) {
     SCOPED_TRACE(replacement);
-    auto text = replaceOnce(callableTupleSource.str(),
+    auto text = replaceOnce(templateSource,
         "word, logical, packet = step(enabled=flag, delta=value)", replacement);
     auto file = capture("bad_rule_argument.py", text);
     ASSERT_TRUE(file);
@@ -3482,10 +3664,10 @@ def Owner():
 def Top() -> tuple[ac.u8]:
     owner = Owner()
     @ac.rule
-    def step(delta: ac.u8) -> tuple[ac.u8]:
+    def step(delta: ac.u8=1) -> tuple[ac.u8]:
         old = owner.read()
         return (old + delta,)
-    value, = step(1)
+    value, = step
     return (value,)
 )py";
   auto file = typed(source, "singleton_rule.py");
@@ -3494,8 +3676,8 @@ def Top() -> tuple[ac.u8]:
   ASSERT_EQ(transactions.size(), 1u);
   EXPECT_EQ(transactions[0].getNumResults(), 1u);
   for (auto text : {
-           replaceOnce(source, "value, = step(1)", "value = step(1)"),
-           replaceOnce(source, "value, = step(1)", "value, extra = step(1)"),
+           replaceOnce(source, "value, = step", "value = step"),
+           replaceOnce(source, "value, = step", "value, extra = step"),
            replaceOnce(source, "return (old + delta,)", "return old + delta")}) {
     auto invalid = capture("bad_rule_singleton.py", text);
     ASSERT_TRUE(invalid);
@@ -3542,11 +3724,11 @@ TEST_F(SourceTransactionCaptureTest,
 def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
     count: ac.u8 = 5
     @ac.rule(guard=lambda amount, target: True)
-    def update(amount: ac.u8, target: ac.u8) -> tuple[ac.u8, ac.u8]:
+    def update(amount: ac.u8=delta, target: ac.u8=count) -> tuple[ac.u8, ac.u8]:
         before = target
         target = target + amount
         return before, target
-    first, second = update(target=count, amount=delta)
+    first, second = update
     return first, second
 )py";
   auto file = typed(source, "typed_tuple_owner.py");
@@ -3572,11 +3754,11 @@ def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
 def Top() -> tuple[ac.u8, ac.u8]:
     count: ac.u8 = 5
     @ac.rule(guard=lambda left, right: True)
-    def update(left: ac.u8, right: ac.u8) -> tuple[ac.u8, ac.u8]:
+    def update(left: ac.u8=count, right: ac.u8=count) -> tuple[ac.u8, ac.u8]:
         left = left + 1
         right = right + 2
         return left, right
-    first, second = update(right=count, left=count)
+    first, second = update
     return first, second
 )py");
   ASSERT_TRUE(alias);
@@ -3656,7 +3838,7 @@ def Top(valid: ac.u1, data: ac.u8, take: ac.u1) -> View:
     source = ac.queue[ac.u8](in_valid=valid, in_data=data, depth=3, latency=2)
     dest = ac.queue[ac.u8](out_ready=take, depth=2)
     alias = source
-    @ac.rule
+    @ac.method
     def relay() -> None:
         raw = source.valid
         observed = alias.peek()
@@ -3665,7 +3847,6 @@ def Top(valid: ac.u1, data: ac.u8, take: ac.u1) -> View:
     @ac.rule
     def tick() -> None:
         relay()
-    tick()
     return View(ready=source.ready, valid=dest.valid, data=dest.data)
 )py", "queue_handles.py");
   ASSERT_TRUE(file);
@@ -3741,7 +3922,6 @@ def Top() -> None:
     @ac.rule(guard=lambda: fifo.peek() == ac.u8(0))
     def bad() -> None:
         fifo.pop()
-    bad()
 )py", "guard cannot call a Method");
   reject(R"py(import pycircuit as ac
 @ac.module
@@ -3750,7 +3930,6 @@ def Top(valid: ac.u1, data: ac.u8) -> None:
     @ac.rule
     def bad() -> None:
         fifo.push(data)
-    bad()
 )py", "conflicts with an externally bound raw input");
   reject(R"py(import pycircuit as ac
 @ac.module
@@ -3759,7 +3938,6 @@ def Top(valid: ac.u1) -> None:
     @ac.rule
     def idle() -> None:
         pass
-    idle()
 )py", "in_valid and in_data together");
 }
 
@@ -3784,7 +3962,6 @@ def Top() -> None:
     @ac.rule
     def idle() -> None:
         pass
-    idle()
 )py", "queue_carriers.py");
   ASSERT_TRUE(file);
   auto queues = queueInstances(*file);
@@ -3825,14 +4002,17 @@ TEST_F(SourceTransactionCaptureTest,
 class Cell:
     data: ac.u8
     tag: ac.u4
+@ac.rule
+def selected(target: ac.table[2, Cell], slot: ac.u1, value: ac.u8) -> None:
+    target[slot].data = value
+    slot = slot ^ 1
 @ac.module
 def Top(index: ac.u1, data: ac.u8, flag: ac.u1) -> Cell:
     packet: Cell = Cell()
     entries = ac.table[2, Cell](init=0)
-    @ac.rule
-    def selected(target: ac.table[2, Cell], slot: ac.u1, value: ac.u8) -> None:
-        target[slot].data = value
-        slot = slot ^ 1
+    @ac.method
+    def exercise(target: ac.table[2, Cell], slot: ac.u1, value: ac.u8) -> None:
+        selected(target, slot, value)
     @ac.rule
     def drive() -> Cell:
         if flag:
@@ -3841,7 +4021,7 @@ def Top(index: ac.u1, data: ac.u8, flag: ac.u1) -> Cell:
         else:
             packet.tag = 1
         return packet
-    return drive()
+    return drive
 )py",
                     "selected_writes.py");
   ASSERT_TRUE(file) << diagnostics;
@@ -3865,6 +4045,8 @@ def Top(index: ac.u1, data: ac.u8, flag: ac.u1) -> Cell:
   });
   EXPECT_EQ(fields, 2u);
   EXPECT_EQ(indexed, 1u);
+  // The global template retains generic writable-formal proposals when
+  // reached through an ordinary Method's by-value formals.
   auto selected = namedMethod(*file, "selected");
   ASSERT_TRUE(selected);
   auto writes = operations<ac::SourceFormalWriteOp>(*file);
@@ -3900,7 +4082,6 @@ def Top(data: ac.u4) -> Result:
     @ac.rule
     def advance() -> None:
         index = index + 1
-    advance()
     snapshot = entries
     saved = snapshot
     snapshot[index].value = data
@@ -3922,7 +4103,7 @@ def Top(value: ac.u8) -> ac.u3:
     @ac.rule
     def run() -> ac.u3:
         return encode(value)
-    return run()
+    return run
 )py", "helper_fixed_results.py");
   ASSERT_TRUE(file) << diagnostics;
   EXPECT_TRUE(succeeded(verify(*file))) << diagnostics;
@@ -4007,7 +4188,6 @@ def Top(data: ac.u8, index: ac.u2) -> ac.u8:
     @ac.rule
     def update() -> None:
         state = raw
-    update()
     return state
 )py", "typed_rule_memory.py");
   ASSERT_TRUE(file) << diagnostics;
@@ -4031,13 +4211,154 @@ def Top(index: ac.u1, value: ac.u8) -> ac.u8:
     @ac.rule
     def transfer() -> ac.u8:
         return install(entries, index, value)
-    return transfer()
+    return transfer
 )py", "nested_global_stateful_rule.py");
   ASSERT_TRUE(file) << diagnostics;
   EXPECT_EQ(operations<ac::SourceTransactionOp>(*file).size(), 1u);
   EXPECT_EQ(operations<ac::SourceStateWriteOp>(*file).size(), 1u);
   EXPECT_GE(operations<ac::SourceMethodCallOp>(*file).size(), 2u);
   EXPECT_TRUE(succeeded(verify(*file))) << diagnostics;
+}
+
+
+TEST_F(SourceTransactionCaptureTest,
+       TransitiveGlobalTemplateClosureNeedsNoDiscoveryMethodAndRejectsRecursion) {
+  const std::array<std::string, 3> templates{
+      R"py(@ac.rule
+def alter(target: ac.u8, delta: ac.u8) -> ac.u8:
+    saved = target
+    target = target + delta
+    return saved
+)py",
+      R"py(@ac.rule
+def forward(target: ac.u8, delta: ac.u8) -> ac.u8:
+    return alter(target, delta)
+)py",
+      R"py(@ac.rule
+def relay(target: ac.u8, delta: ac.u8) -> ac.u8:
+    return forward(target, delta)
+)py"};
+  for (bool reverse : {false, true}) {
+    SCOPED_TRACE(reverse);
+    std::string text = "import pycircuit as ac\n";
+    for (unsigned ordinal = 0; ordinal != templates.size(); ++ordinal)
+      text += templates[reverse ? templates.size() - 1 - ordinal : ordinal];
+    text += R"py(@ac.rule
+def unused(target: ac.u8) -> ac.u8:
+    return target + 13
+@ac.module
+def Top(delta: ac.u8) -> ac.u8:
+    count: ac.u8 = 5
+    @ac.rule
+    def run() -> ac.u8:
+        return relay(count, delta)
+    return run
+)py";
+    auto file = typed(text, "transitive_global_templates.py");
+    ASSERT_TRUE(file) << diagnostics;
+    auto transactions = operations<ac::SourceTransactionOp>(*file);
+    ASSERT_EQ(transactions.size(), 1u);
+    EXPECT_EQ(transactions[0].getDeclaration(), transactions[0].getOccurrence());
+    EXPECT_EQ(operations<ac::SourceStateOp>(*file).size(), 1u);
+    auto writes = operations<ac::SourceStateWriteOp>(*file);
+    ASSERT_EQ(writes.size(), 1u);
+    EXPECT_EQ(writes[0].getState(), "count");
+    // Specializations may share a declaration. Only the autonomous callback
+    // and its three reachable global templates belong to this source closure.
+    llvm::DenseSet<Attribute> declarations;
+    for (auto method : operations<ac::SourceMethodOp>(*file))
+      declarations.insert(method.getOccurrence());
+    EXPECT_EQ(declarations.size(), 4u);
+    auto current = entryMethod(transactions[0]);
+    ASSERT_TRUE(current);
+    for (unsigned hop = 0; hop != 3; ++hop) {
+      auto calls = direct<ac::SourceMethodCallOp>(current.getBody());
+      ASSERT_EQ(calls.size(), 1u) << hop;
+      EXPECT_TRUE(calls[0].getInstancePath().empty());
+      current = namedMethod(*file,
+                           calls[0].getCalleeAttr().getLeafReference().getValue());
+      ASSERT_TRUE(current);
+    }
+    EXPECT_TRUE(direct<ac::SourceMethodCallOp>(current.getBody()).empty());
+    EXPECT_EQ(direct<ac::SourceStateWriteOp>(current.getBody()).size(), 1u);
+    // Closing templates must terminate and reject a real transitive cycle;
+    // it must not admit the missing leaf or require a dummy Method reference.
+    reject(replaceOnce(text, "    target = target + delta\n    return saved",
+                       "    target = target + delta\n    return relay(target, delta)"),
+           "recursive");
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       GlobalStructFormalShadowingKeepsSavedValuesSeparateFromOwnerWrites) {
+  constexpr StringLiteral sourceText = R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    first: ac.u8
+    second: ac.u8
+@ac.rule
+def alter(FORMAL: Packet, value: ac.u8) -> tuple[Packet, Packet]:
+    saved = FORMAL
+    FORMAL.first = value
+    return saved, FORMAL
+@ac.module
+def Top(value: ac.u8) -> tuple[Packet, Packet, Packet, Packet, Packet, Packet]:
+    left: Packet = Packet(first=3, second=7)
+    @ac.rule
+    def run() -> tuple[Packet, Packet, Packet, Packet, Packet, Packet]:
+        snapshot = left
+        before, edited = alter(snapshot, value)
+        owner_before, owner_edited = alter(left, value + 1)
+        return snapshot, before, edited, owner_before, owner_edited, left
+    return run
+)py";
+  for (StringRef formal : {"left", "payload"}) {
+    SCOPED_TRACE(formal.str());
+    std::string text = sourceText.str();
+    size_t position = 0;
+    while ((position = text.find("FORMAL", position)) != std::string::npos) {
+      text.replace(position, 6, formal.str());
+      position += formal.size();
+    }
+    auto file = typed(text, "struct_formal_shadow.py");
+    ASSERT_TRUE(file) << diagnostics;
+    auto states = operations<ac::SourceStateOp>(*file);
+    ASSERT_EQ(states.size(), 1u);
+    EXPECT_EQ(states[0].getInstanceName(), "left");
+    auto writes = operations<ac::SourceStateWriteOp>(*file);
+    ASSERT_EQ(writes.size(), 1u);
+    EXPECT_EQ(writes[0].getState(), states[0].getInstanceName());
+    ASSERT_EQ(writes[0].getSelectors().size(), 1u);
+    EXPECT_EQ(cast<DictionaryAttr>(writes[0].getSelectors()[0])
+                  .getAs<StringAttr>("field").getValue(),
+              "first");
+    auto transactions = operations<ac::SourceTransactionOp>(*file);
+    ASSERT_EQ(transactions.size(), 1u);
+    auto &body = executionBody(transactions[0]);
+    auto calls = direct<ac::SourceMethodCallOp>(body);
+    ASSERT_EQ(calls.size(), 2u);
+    ASSERT_GE(calls[0].getNumResults(), 2u);
+    ASSERT_GE(calls[1].getNumResults(), 2u);
+    EXPECT_NE(calls[0].getCalleeAttr(), calls[1].getCalleeAttr());
+    auto yield = cast<ac::YieldOp>(body.front().getTerminator());
+    ASSERT_EQ(yield.getNumOperands(), 6u);
+    ASSERT_EQ(calls[0].getArguments().size(), 2u);
+    EXPECT_EQ(yield.getOperand(0), calls[0].getArguments()[0]);
+    EXPECT_EQ(yield.getOperand(1), calls[0].getResult(0));
+    EXPECT_EQ(yield.getOperand(2), calls[0].getResult(1));
+    EXPECT_EQ(yield.getOperand(3), calls[1].getResult(0));
+    EXPECT_EQ(yield.getOperand(4), calls[1].getResult(1));
+    // The first call edits only its ordinary saved payload. Exactly the second
+    // call owns a state proposal; neither operation rewrites the saved SSA.
+    auto byValue = namedMethod(
+        *file, calls[0].getCalleeAttr().getLeafReference().getValue());
+    auto owning = namedMethod(
+        *file, calls[1].getCalleeAttr().getLeafReference().getValue());
+    ASSERT_TRUE(byValue);
+    ASSERT_TRUE(owning);
+    EXPECT_TRUE(direct<ac::SourceStateWriteOp>(byValue.getBody()).empty());
+    EXPECT_EQ(direct<ac::SourceStateWriteOp>(owning.getBody()).size(), 1u);
+  }
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -4059,7 +4380,7 @@ def Top(index: ac.u1, value: ac.u8) -> ac.u8:
   for (StringRef body : {
            "def pure(arg: ac.u8) -> ac.u8:\n        return install(entries, index, arg)\n    return pure(value)",
            "samples = Samples(words=(1, 2))\n    mapped = samples.words.map(lambda arg: install(entries, index, arg))\n    return mapped[0]",
-           "@ac.rule\n    def transfer(install: ac.u8) -> ac.u8:\n        return install(entries, index, value)\n    return transfer(value)"}) {
+           "@ac.rule\n    def transfer(install: ac.u8=value) -> ac.u8:\n        return install(entries, index, value)\n    return transfer"}) {
     std::string text = sourceText.str();
     auto offset = text.find("BODY");
     ASSERT_NE(offset, std::string::npos);
@@ -4083,22 +4404,22 @@ def Counter() -> None:
         return count
 @ac.module
 def Client(delta: ac.u8) -> ac.u8:
-    peer = ac.instance_ref(Counter, "..", "peer")
+    child = Counter()
+    peer = ac.instance_ref(Counter, "child")
     shared = peer
     @ac.rule
     def run() -> ac.u8:
         saved = peer.advance(delta)
         return shared.advance(saved)
-    return run()
+    return run
 @ac.module
 def Top(delta: ac.u8) -> ac.u8:
-    peer = Counter()
     client = Client(delta)
     return client
 )py";
 
 TEST_F(SourceTransactionCaptureTest,
-       RelativeReceiverAliasesPublishSchemaThreeWithoutNewAllocations) {
+       DirectChildRelativeAliasesPublishSchemaThreeWithoutNewAllocations) {
   auto captured = capture("relative_alias.py", relativeReceiverSource);
   ASSERT_TRUE(captured);
   auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
@@ -4110,7 +4431,7 @@ TEST_F(SourceTransactionCaptureTest,
       *result->body, *result->interface, error())))
       << diagnostics;
   auto allocations = operations<ac::InstanceOp>(*result->body);
-  EXPECT_EQ(allocations.size(), 2u); // Top owns Counter and Client only.
+  EXPECT_EQ(allocations.size(), 2u); // Top owns Client; Client owns its actual Counter child.
   EXPECT_EQ(operations<ac::SourceStateOp>(*result->body).size(), 1u);
   unsigned relativeCalls = 0;
   ArrayAttr selectedPath;
@@ -4121,10 +4442,10 @@ TEST_F(SourceTransactionCaptureTest,
     EXPECT_EQ(call->getAttr("receiver_kind"),
               StringAttr::get(&context, "reference"));
     EXPECT_EQ(call->getAttr("ancestor_depth"),
-              IntegerAttr::get(IntegerType::get(&context, 64), 1));
+              IntegerAttr::get(IntegerType::get(&context, 64), 0));
     EXPECT_FALSE(call->hasAttr("ac.reference"));
     ASSERT_EQ(call.getInstancePath().size(), 1u);
-    EXPECT_EQ(cast<StringAttr>(call.getInstancePath()[0]).getValue(), "peer");
+    EXPECT_EQ(cast<StringAttr>(call.getInstancePath()[0]).getValue(), "child");
     if (selectedPath)
       EXPECT_EQ(selectedPath, call.getInstancePath());
     selectedPath = call.getInstancePath();
@@ -4150,7 +4471,7 @@ TEST_F(SourceTransactionCaptureTest,
 }
 
 TEST_F(SourceTransactionCaptureTest,
-       RelativeReceiverBodyAndHeaderMustPublishTheSameSelector) {
+       RelativeReceiverBodyAndHeaderRejectForgedAncestorAuthority) {
   auto captured = capture("relative_pair.py", relativeReceiverSource);
   ASSERT_TRUE(captured);
   auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
@@ -4184,7 +4505,7 @@ TEST_F(SourceTransactionCaptureTest,
       auto receiver = call.getAs<DictionaryAttr>("receiver");
       call = changed(
           call, "receiver",
-          changed(receiver, "ancestor_depth", builder.getI64IntegerAttr(0)));
+          changed(receiver, "ancestor_depth", builder.getI64IntegerAttr(1)));
       method = changedRow(method, "body_effects", 0, call);
       summary = changedRow(summary, "methods", index, method);
       client->setAttr("transaction_summary", summary);
@@ -4192,13 +4513,13 @@ TEST_F(SourceTransactionCaptureTest,
       bool changedCall = false;
       for (auto call : operations<ac::SourceMethodCallOp>(*body))
         if (call->hasAttr("receiver_kind") && !changedCall) {
-          call->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+          call->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
           changedCall = true;
         }
       ASSERT_TRUE(changedCall);
     }
     diagnostics.clear();
-    ASSERT_TRUE(succeeded(mlir::verify(mutateHeader ? *header : *body)))
+    EXPECT_TRUE(failed(mlir::verify(mutateHeader ? *header : *body)))
         << diagnostics;
     EXPECT_TRUE(failed(
         compiler::verifyIntrinsicSourceUnitPair(*body, *header, error())));
@@ -4273,6 +4594,347 @@ TEST_F(SourceTransactionCaptureTest,
         diagnostics.find(field.str() + " is invalid on this source operation"),
         std::string::npos)
         << diagnostics;
+  }
+}
+
+// These regressions use declaration-based registration directly. Historical
+// explicit-call fixtures above retain their own separate migration obligations.
+TEST_F(SourceTransactionCaptureTest,
+       AutomaticDeclarationsRegisterOnceIncludingUnusedAndVoidResults) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.struct
+class Packet:
+    value: ac.u8
+    check: ac.u8
+@ac.module
+def Identity(value: ac.u8) -> ac.u8:
+    return value
+@ac.module
+def Top(value: ac.u8) -> tuple[ac.u8, ac.u8, Packet, ac.u8, ac.u8]:
+    @ac.rule
+    def scalar(argument=value) -> ac.u8:
+        return argument + 1
+    @ac.rule
+    def packet(argument=value) -> Packet:
+        return Packet(value=argument, check=argument + 2)
+    @ac.rule
+    def pair(argument: ac.u8=value) -> tuple[ac.u8, ac.u8]:
+        return argument + 3, argument + 4
+    @ac.rule
+    def unused() -> ac.u8:
+        return value
+    @ac.rule
+    def tick() -> None:
+        pass
+    copied = Identity(scalar)
+    left, right = pair
+    return scalar, copied, packet, left, right
+)py", "automatic_results.py");
+  ASSERT_TRUE(file) << diagnostics;
+  auto registrations = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(registrations.size(), 5u);
+  EXPECT_EQ(operations<ac::InstanceOp>(*file).size(), 1u);
+  unsigned voidResults = 0, tupleResults = 0;
+  llvm::DenseSet<Attribute> declarations;
+  for (auto transaction : registrations) {
+    EXPECT_EQ(transaction.getDeclaration(), transaction.getOccurrence());
+    EXPECT_TRUE(declarations.insert(transaction.getDeclaration()).second);
+    auto entry = entryMethod(transaction);
+    ASSERT_TRUE(entry);
+    EXPECT_EQ(entry.getOccurrence(), transaction.getDeclaration());
+    auto visibility = entry->getAttrOfType<StringAttr>("sym_visibility");
+    ASSERT_TRUE(visibility);
+    EXPECT_EQ(visibility.getValue(), "private");
+    voidResults += transaction.getNumResults() == 0;
+    tupleResults += transaction.getNumResults() == 2;
+  }
+  EXPECT_EQ(voidResults, 1u);
+  EXPECT_EQ(tupleResults, 1u);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       AutomaticDefaultBindingsDistinguishOwnersFromSavedValues) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
+    count: ac.u8 = 5
+    saved = count
+    @ac.rule
+    def update(target: ac.u8=count, amount=delta) -> ac.u8:
+        target = target + amount
+        return target
+    @ac.rule
+    def snapshot(value=saved) -> ac.u8:
+        value = value + 2
+        return value
+    return update, snapshot
+)py", "automatic_owners.py");
+  ASSERT_TRUE(file) << diagnostics;
+  auto states = operations<ac::SourceStateOp>(*file);
+  auto writes = operations<ac::SourceStateWriteOp>(*file);
+  ASSERT_EQ(states.size(), 1u);
+  ASSERT_EQ(writes.size(), 1u);
+  EXPECT_EQ(writes[0].getState(), states[0].getInstanceName());
+  auto transactions = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(transactions.size(), 2u);
+  ac::SourceTransactionOp updateRegistration, snapshotRegistration;
+  for (auto transaction : transactions) {
+    EXPECT_EQ(transaction.getDeclaration(), transaction.getOccurrence());
+    if (transaction.getName() == "update") updateRegistration = transaction;
+    if (transaction.getName() == "snapshot") snapshotRegistration = transaction;
+  }
+  ASSERT_TRUE(updateRegistration);
+  ASSERT_TRUE(snapshotRegistration);
+  // Writable/inferred formals may specialize the private Method symbol. The
+  // authentic declaration registration owns the corresponding body identity.
+  auto update = entryMethod(updateRegistration);
+  auto snapshot = entryMethod(snapshotRegistration);
+  ASSERT_TRUE(update);
+  ASSERT_TRUE(snapshot);
+  EXPECT_EQ(update.getOccurrence(), updateRegistration.getDeclaration());
+  EXPECT_EQ(snapshot.getOccurrence(), snapshotRegistration.getDeclaration());
+  EXPECT_EQ(direct<ac::SourceStateWriteOp>(update.getBody()).size(), 1u);
+  EXPECT_TRUE(direct<ac::SourceStateWriteOp>(snapshot.getBody()).empty());
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       GlobalTemplatesKeepExplicitOccurrencesAndNestedAtomicCalls) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.rule
+def template(value: ac.u8) -> ac.u8:
+    return value + 1
+@ac.rule
+def unbound(value: ac.u8) -> ac.u8:
+    return value + 2
+@ac.module
+def Top(value: ac.u8) -> tuple[ac.u8, ac.u8, ac.u8]:
+    first = template(value)
+    second = template(value)
+    @ac.rule
+    def nested(argument=value) -> ac.u8:
+        return template(argument)
+    return first, second, nested
+)py", "automatic_templates.py");
+  ASSERT_TRUE(file) << diagnostics;
+  auto transactions = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(transactions.size(), 3u);
+  unsigned local = 0, templated = 0;
+  llvm::DenseSet<Attribute> occurrences;
+  for (auto transaction : transactions) {
+    EXPECT_TRUE(occurrences.insert(transaction.getOccurrence()).second);
+    if (transaction.getDeclaration() == transaction.getOccurrence()) {
+      ++local;
+      EXPECT_EQ(direct<ac::SourceMethodCallOp>(executionBody(transaction)).size(),
+                1u);
+    } else {
+      ++templated;
+    }
+  }
+  EXPECT_EQ(local, 1u);
+  EXPECT_EQ(templated, 2u);
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       AutomaticBindingsRejectUnboundWrongTypeVoidAndPrivateCalls) {
+  const std::string base = R"py(import pycircuit as ac
+@ac.module
+def Top(value: ac.u8) -> ac.u8:
+    @ac.rule
+    def step(argument: ac.u8=value) -> ac.u8:
+        return argument + 1
+    return step
+)py";
+  for (const auto &invalid : {
+           replaceOnce(base, "argument: ac.u8=value", "argument: ac.u8"),
+           replaceOnce(base, "argument: ac.u8=value", "argument: ac.u7=value"),
+           replaceOnce(base, "return step\n", "return step()\n"),
+           replaceOnce(base, "return step\n", "step = value\n    return step\n"),
+           replaceOnce(base, "-> ac.u8:\n        return argument + 1",
+                       "-> None:\n        pass")}) {
+    auto captured = capture("invalid_automatic.py", invalid);
+    ASSERT_TRUE(captured);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*captured, "invalid_automatic.py"))) << invalid;
+    EXPECT_FALSE(diagnostics.empty());
+  }
+  reject(R"py(import pycircuit as ac
+@ac.module
+def Child():
+    @ac.rule
+    def tick() -> None:
+        pass
+@ac.module
+def Parent():
+    child = Child()
+    @ac.rule
+    def invoke() -> None:
+        child.tick()
+)py", "private compiler callable is not an authored source interface");
+}
+
+
+TEST_F(SourceTransactionCaptureTest,
+       PrivateAutomaticEntryCannotBeReusedByAnOrdinaryNativeMethod) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Owner() -> ac.u8:
+    @ac.rule
+    def computed() -> ac.u8:
+        return 5
+    @ac.method
+    def probe() -> ac.u8:
+        return 0
+    return computed
+)py", "private_automatic_entry.py");
+  ASSERT_TRUE(file) << diagnostics;
+  auto registrations = operations<ac::SourceTransactionOp>(*file);
+  ASSERT_EQ(registrations.size(), 1u);
+  auto entry = ac::getSourceRegistrationEntry(registrations[0]);
+  ASSERT_TRUE(succeeded(entry));
+  ASSERT_TRUE(entry->has_value());
+  auto probe = namedMethod(*file, "probe");
+  ASSERT_TRUE(probe);
+  auto &body = probe.getBody().front();
+  auto authenticCall = (**entry).call;
+  ASSERT_EQ(body.getNumArguments(), authenticCall.getArguments().size());
+  ASSERT_EQ(probe.getFunctionType().getNumInputs(),
+            (**entry).method.getFunctionType().getNumInputs());
+  ASSERT_EQ(probe.getFunctionType().getNumResults(),
+            authenticCall.getNumResults());
+  // The entry path is a direct true constant, not an implicit Method formal.
+  // Clone that valid path and forward exactly the intruder's real arguments so
+  // the only rejected authority is invocation of the autonomous private body.
+  auto path = authenticCall.getPath().getDefiningOp<ac::BitsConstantOp>();
+  ASSERT_TRUE(path);
+  auto *copiedPath = path->clone();
+  body.getOperations().insert(body.getTerminator()->getIterator(), copiedPath);
+  auto *copied = authenticCall->clone();
+  copied->setOperand(0, copiedPath->getResult(0));
+  for (auto [ordinal, argument] : llvm::enumerate(body.getArguments()))
+    copied->setOperand(ordinal + 1, argument);
+  body.getOperations().insert(body.getTerminator()->getIterator(), copied);
+  body.getTerminator()->setOperands(copied->getResults());
+  diagnostics.clear();
+  EXPECT_TRUE(failed(mlir::verify(*file)));
+  EXPECT_NE(diagnostics.find("autonomous"), std::string::npos) << diagnostics;
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       LexicalScopeRejectsAncestorAndPrivateDescendantBypass) {
+  const std::string prefix = R"py(import pycircuit as ac
+@ac.module
+def Counter():
+    count: ac.u8 = 5
+    @ac.method
+    def read() -> ac.u8:
+        return count
+@ac.module
+def Client(counter: Counter) -> ac.u8:
+)py";
+  for (StringRef body : {
+           "    @ac.rule\n    def inspect() -> ac.u8:\n        return counter.count\n    return inspect\n",
+           "    peer = ac.instance_ref(Counter, '..', 'counter')\n    alias = peer\n    @ac.rule\n    def inspect() -> ac.u8:\n        return alias.read()\n    return inspect\n",
+           "    peer = ac.instance_ref(Counter, '..', 'counter')\n    def helper() -> ac.u8:\n        return peer.read()\n    @ac.rule\n    def inspect() -> ac.u8:\n        return helper()\n    return inspect\n"}) {
+    auto captured = capture("illegal_automatic_scope.py", prefix + body.str());
+    ASSERT_TRUE(captured);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(lower(*captured, "illegal_automatic_scope.py")));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       AutomaticRuleResultsCannotBecomeHiddenCallbackInputs) {
+  const std::string prefix = R"py(import pycircuit as ac
+@ac.module
+def Top(value: ac.u8) -> ac.u8:
+    @ac.rule
+    def source(argument=value) -> ac.u8:
+        return argument
+)py";
+  for (StringRef suffix : {
+           "    @ac.rule\n    def sink() -> ac.u8:\n        return source\n    return sink\n",
+           "    alias = source\n    @ac.rule\n    def sink() -> ac.u8:\n        return alias\n    return sink\n",
+           "    @ac.rule\n    def sink(argument=source) -> ac.u8:\n        return argument\n    return sink\n",
+           "    def helper() -> ac.u8:\n        return source\n    @ac.rule\n    def sink() -> ac.u8:\n        return helper()\n    return sink\n"}) {
+    SCOPED_TRACE(suffix.str());
+    reject(prefix + suffix.str(), "Rule");
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       SourceRuleAndMethodAfterAreRejectedBeforePublication) {
+  for (StringRef marker : {"rule", "method"}) {
+    auto text = "import pycircuit as ac\n@ac.module\ndef Top():\n"
+        "    @ac.method\n    def first() -> None:\n        pass\n"
+        "    @ac." + marker.str() + "(after=(first,))\n"
+        "    def second() -> None:\n        pass\n";
+    reject(text, "after");
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       PublishedSummariesRejectRetiredAfterEvenWithAuthenticTargets) {
+  auto captured = capture("automatic_summary.py", R"py(import pycircuit as ac
+@ac.module
+def Owner() -> ac.u8:
+    count: ac.u8 = 5
+    @ac.method
+    def read() -> ac.u8:
+        return count
+    @ac.rule
+    def tick() -> None:
+        count = count + 1
+    @ac.rule
+    def inspect() -> None:
+        ac.log("info", "current", count)
+    return count
+)py");
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto compiled = compiler::compilePythonSourceUnit(
+      *captured, owner("automatic_summary.py"), *headers, error());
+  ASSERT_TRUE(succeeded(compiled)) << diagnostics;
+  for (StringRef section : {"autonomous", "methods"}) {
+    for (StringRef field : {"after", "callable_after"}) {
+      for (bool empty : {false, true}) {
+        SCOPED_TRACE(section.str() + "/" + field.str());
+        OwningOpRef<ModuleOp> header(
+            cast<ModuleOp>((*compiled->interface)->clone()));
+        ac::ModuleImportOp provider;
+        for (auto candidate : header->getOps<ac::ModuleImportOp>())
+          if (candidate.getSymName().ends_with("Owner")) provider = candidate;
+        ASSERT_TRUE(provider);
+        diagnostics.clear();
+        ASSERT_TRUE(succeeded(mlir::verify(*header))) << diagnostics;
+        auto summary = provider.getTransactionSummaryAttr();
+        auto rows = summary.getAs<ArrayAttr>(section);
+        ASSERT_FALSE(rows.empty());
+        auto row = cast<DictionaryAttr>(rows[0]);
+        auto target = cast<DictionaryAttr>(rows[rows.size() - 1]);
+        auto predecessor = target.get(section == "methods" ? "declaration"
+                                                          : "registration");
+        ASSERT_TRUE(predecessor);
+        Builder builder(&context);
+        auto ordering = empty ? builder.getArrayAttr({})
+                              : builder.getArrayAttr({predecessor});
+        ASSERT_FALSE(row.get(field));
+        auto forged = changedRow(summary, section, 0, changed(row, field, ordering));
+        ASSERT_NE(forged, summary);
+        provider->setAttr("transaction_summary", forged);
+        diagnostics.clear();
+        EXPECT_TRUE(failed(mlir::verify(*header)));
+        // callable_after was never an autonomous-row field. Its closed schema
+        // rejects that extra key before the retired-ordering semantic check.
+        StringRef category = section == "autonomous" && field == "callable_after"
+            ? "transaction summary has missing or extra fields"
+            : "after ordering is retired";
+        EXPECT_NE(diagnostics.find(category.str()), std::string::npos)
+            << diagnostics;
+        EXPECT_EQ(provider.getTransactionSummaryAttr(), forged);
+      }
+    }
   }
 }
 

@@ -79,4 +79,4 @@ def IssueQueue2Picker(  # noqa: N802 - hardware module definition
         s3 = Slot(valid=a2_3.valid | en3, data=in_data if en3 else a2_3.data)
         return result
 
-    return transact()
+    return transact

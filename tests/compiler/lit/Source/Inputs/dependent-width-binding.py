@@ -133,10 +133,7 @@ def leaf(leaf_width, payload, returned="d"):
         + payload
         + "}:\n"
         "    state = dff(T=" + leaf_width + ")\n"
-        "    @ac.rule\n"
-        "    def bind():\n"
-        "        state(clk=clk, rst=rst, d=d, init=0)\n"
-        "    bind()\n"
+        "    state(clk=clk, rst=rst, d=d, init=0)\n"
         '    return {"q": ' + returned + "}\n"
     )
 
@@ -151,10 +148,7 @@ NOMINAL_SAME = (
     "@ac.module\n"
     'def Holder(clk: bool, rst: bool, l: Left) -> {"q": Left}:\n'
     "    state = dff(T=Left)\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=l, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, d=l, init=0)\n"
     '    return {"q": state.q}\n'
 )
 
@@ -174,14 +168,8 @@ TYPE_ARGUMENTS = (
     '"r": Annotated[int, range(1 << 12)]}:\n'
     "    narrow = dff(T=Annotated[int, range(1 << (4 + 4))])\n"
     "    wide = dff(T=Annotated[int, range(1 << 12)])\n"
-    "    @ac.rule\n"
-    "    def bindnarrow():\n"
-    "        narrow(clk=clk, rst=rst, d=d, init=0)\n"
-    "    @ac.rule\n"
-    "    def bindwide():\n"
-    "        wide(clk=clk, rst=rst, d=e, init=0)\n"
-    "    bindnarrow()\n"
-    "    bindwide()\n"
+    "    narrow(clk=clk, rst=rst, d=d, init=0)\n"
+    "    wide(clk=clk, rst=rst, d=e, init=0)\n"
     '    return {"q": d, "r": e}\n'
 )
 
@@ -194,10 +182,7 @@ TYPE_ARGUMENT_MISMATCH = (
     "d: Annotated[int, range(1 << 12)]) -> "
     '{"q": Annotated[int, range(1 << 12)]}:\n'
     "    narrow = dff(T=Annotated[int, range(1 << (4 + 4))])\n"
-    "    @ac.rule\n"
-    "    def bindnarrow():\n"
-    "        narrow(clk=clk, rst=rst, d=d, init=0)\n"
-    "    bindnarrow()\n"
+    "    narrow(clk=clk, rst=rst, d=d, init=0)\n"
     '    return {"q": d}\n'
 )
 
@@ -210,10 +195,7 @@ MISSING_ACTUAL = (
     "d: Annotated[int, range(1 << (4 + 4))]) -> "
     '{"q": Annotated[int, range(1 << (4 + 4))]}:\n'
     "    state = dff(T=Annotated[int, range(1 << (4 + 4))])\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, init=0)\n"
     '    return {"q": d}\n'
 )
 
@@ -225,10 +207,7 @@ BOOLEAN_COMPUTED = (
     "def Holder(clk: bool, rst: bool, d: bool) -> "
     '{"q": Annotated[int, range(1 << (2 - 1))]}:\n'
     "    state = dff(T=Annotated[int, range(1 << (2 - 1))])\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=d, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, d=d, init=0)\n"
     '    return {"q": state.q}\n'
 )
 

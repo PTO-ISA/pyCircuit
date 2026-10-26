@@ -5,24 +5,25 @@ generated System checks. `--phase source` is the bounded first checkpoint;
 `--phase link` adds contextual topology admission; the default `all` also runs
 native workers 1/2 and real four-state RTL from the same final artifact.
 
-The first fixtures cover clean same-source ancestors in both declaration orders,
-acyclic interface-only sibling/crossbranch consumers, immutable reference alias
-forwarding, saved snapshots, distinct allocation state, and X/Z payloads. Source
-negatives exercise scope, provider authority, path grammar, reference rebinding,
-and direct versus reference binding categories. Link negatives retain unused
-contextual definitions and invalid actual paths rather than pruning them.
+Positive routing uses declared nominal Module-reference inputs. The former
+ancestor witnesses pass an explicit provider to the child; no self or ancestor
+handle is inferred. Sibling and crossbranch consumers retain alias forwarding,
+saved snapshots, distinct allocation state, and X/Z payloads. Remote interfaces
+forward Methods to direct child providers so resource ownership and rollback
+probe paths remain explicit. Source negatives exercise scope, provider authority,
+path grammar and reference rebinding. Retired ancestor/sibling receiver bypasses
+reject during capture, including calls in unused definitions. Invalid descendant
+paths retain their link-time topology checks.
 
 Execution expectations are derived from the declared initial state and successful
 rising edges. Late failure must preserve storage, clock history, epoch, and prior
 observations across the entire System. A stage failure remains a failed test;
 later stages are reported as not run. No generated transition code is rewritten.
 
-Typed transaction Modules currently reject Python static parameters. Therefore
-parameter-dependent reference signature refusal and direct generic actual/default
-preservation belong to native contract tests; this harness does not expand source
-admission to manufacture those cases. Contextual Collections and nonuniform
-parameterized contexts likewise need native coverage where Python cannot express
-the required graph under its current language contract.
+Static parameters retain their declared finite contracts. Native contract tests
+own contextual Collections and nonuniform parameterized contexts not expressible
+through the current source interface; a source fixture failure is not permission
+to add another admission route.
 
 The S1 slice adds three bounded cases. `partial-writes` routes a Struct field and
 a Table element from each of two simultaneous contributors in separate branches.

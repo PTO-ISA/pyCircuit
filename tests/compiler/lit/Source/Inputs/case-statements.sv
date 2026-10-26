@@ -5,6 +5,9 @@ module tb;
   logic [2:0] pyc_phase=0;
   logic pyc_root_commit_ok=0;
   wire pyc_check_complete,pyc_sampling_error,pyc_local_error;
+`ifdef CASE_STATEMENTS_AVAILABILITY
+  wire pyc_5f5f7079635f76616c69645f6f75745f30;
+`endif
   task automatic host_reset;
     pyc_phase=4;#1;pyc_root_commit_ok=1;pyc_phase=2;#1;
     pyc_phase=0;pyc_root_commit_ok=0;#1;
@@ -24,6 +27,10 @@ module tb;
       if(known_row(row))begin
 `endif
         drive(row);#1;
+`ifdef CASE_STATEMENTS_AVAILABILITY
+        if(pyc_5f5f7079635f76616c69645f6f75745f30 !== 1'b1)
+          $fatal(1,"case result unavailable at row%0d",row);
+`endif
         if(result !== golden(row))$fatal(1,"case statements members/selection/defaults/old-Q row%0d got%b expected%b",row,result,golden(row));
         $display("WORK %0d %b",row,result);
 `ifdef CASE_STATEMENTS_STATE

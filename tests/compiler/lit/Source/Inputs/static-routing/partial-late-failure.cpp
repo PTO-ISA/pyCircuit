@@ -1,4 +1,5 @@
 #include "pycircuit_system.hpp"
+#include <algorithm>
 #include <cstdlib>
 #include <iostream>
 #include <stdexcept>
@@ -55,7 +56,30 @@ int main(int argc, char **argv) {
     require(state[index] == 1, "successful clock history");
   const auto epoch = dut.system().cycle();
   const auto events = std::vector(dut.observations().Events().begin(), dut.observations().Events().end());
-  require(events.size() == 3, "prior complete observation set");
+  // Events() exposes scalar slots. The authored logs remain exactly three
+  // complete groups: eleven left values, eleven right values, seven Bank values.
+  require(events.size() == 29, "prior complete scalar observation set");
+  std::vector<unsigned> groupSizes;
+  for (std::size_t begin = 0; begin < events.size();) {
+    const auto &first = events[begin].descriptor;
+    require(first.groupIndex == 0 && first.groupSize > 0 &&
+            first.groupSize <= events.size() - begin, "complete observation group start");
+    for (unsigned member = 0; member < first.groupSize; ++member) {
+      const auto &event = events[begin + member];
+      const auto &descriptor = event.descriptor;
+      require(event.epoch == epoch && descriptor.kind == gfsim::ObservationKind::Event &&
+              descriptor.payloadWidth == 8 && descriptor.groupIndex == member &&
+              descriptor.groupSize == first.groupSize &&
+              descriptor.ownerKey == first.ownerKey &&
+              descriptor.registrationKey == first.registrationKey &&
+              descriptor.siteKey == first.siteKey,
+              "observation group member identity/epoch");
+    }
+    groupSizes.push_back(first.groupSize);
+    begin += first.groupSize;
+  }
+  std::sort(groupSizes.begin(), groupSizes.end());
+  require(groupSizes == std::vector<unsigned>{7, 11, 11}, "prior three complete observation groups");
   // Match the authored finite samples: the third sample holds clock high.
   drive(true);
   require(dut.system().Step() == gfsim::SimStepResult::Failed, "late check must fail");

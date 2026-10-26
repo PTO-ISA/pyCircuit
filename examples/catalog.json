@@ -22,7 +22,7 @@
       "source": "sibling_calls.py",
       "system": "SiblingCalls",
       "system_cycles": 4,
-      "system_scope": "Three independent source units, shared sibling Counter reference and callable after propagation; independent 6, 7, 7, 7 observations with C++ workers 1/2 and RTL."
+      "system_scope": "Three independent source units, a shared sibling Counter reference and independent current-state reads; expected 5, 6, 7, 7 observations with C++ workers 1/2 and RTL."
     },
     {
       "name": "sibling_atomic",
@@ -31,7 +31,7 @@
       "system": "SiblingAtomic",
       "system_source": "bench.py",
       "system_cycles": 4,
-      "system_scope": "A late sibling guard blocks the whole writer transaction; an ordered reader continues using committed state. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+      "system_scope": "A late sibling guard blocks the whole writer transaction; an independent reader continues using committed state. Generated C++ workers 1/2 and RTL with an independent trace oracle."
     },
     {
       "name": "sibling_aliases",
@@ -49,7 +49,7 @@
       "system": "SiblingTransitive",
       "system_source": "bench.py",
       "system_cycles": 4,
-      "system_scope": "A callable order chain survives an uncalled middle Rule and propagates to sibling transactions. Generated C++ workers 1/2 and RTL with an independent trace oracle."
+      "system_scope": "An uncalled Method stays inactive while a guarded sibling reader observes committed state and propagates result availability. Generated C++ workers 1/2 and RTL with an independent trace oracle."
     },
     {
       "name": "multiclock_domain_isolation",
@@ -114,7 +114,7 @@
       "system": "QueueRulePipelineSystem",
       "system_source": "bench.py",
       "system_cycles": 12,
-      "system_scope": "Four Struct packets; cross-module Rule calls, finite for loop, atomic Queue/state backpressure, local after visibility and compiler-owned output availability. Generated C++ workers 1/2 and RTL with independent cycle expectations."
+      "system_scope": "Four Struct packets; cross-module Method calls, finite for loop, atomic Queue/state backpressure, current-state progress and an atomic consumer check. Generated C++ workers 1/2 and RTL with independent cycle expectations."
     },
     {
       "name": "fifo_loopback",

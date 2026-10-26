@@ -46,12 +46,6 @@ def ExerciseHierarchicalState():
     def tick() -> None:
         selector = ~selector
 
-    update_left()
-    update_right()
-    update_relayed()
-    inspect()
-    tick()
-
 
 @ac.system
 def HierarchicalStateProbe():
@@ -74,29 +68,19 @@ def HierarchicalStateProbe():
     def tick() -> None:
         selector = ~selector
 
-    drive()
-    inspect()
-    tick()
-
 
 @ac.system
-def ExerciseOrderedHierarchicalState():
+def ExerciseSequentialHierarchicalState():
     child = OrderedStateCell()
 
     @ac.rule
-    def first() -> None:
+    def sequential() -> None:
         before, after = child.update(3)
         ac.log("info", "hierarchical ordered first", before, after)
 
-    @ac.rule(after=(first,))
-    def second() -> None:
         before, after = child.update(5)
         ac.log("info", "hierarchical ordered second", before, after)
 
     @ac.rule
     def inspect() -> None:
         ac.log("info", "hierarchical ordered old q", child.value())
-
-    first()
-    second()
-    inspect()

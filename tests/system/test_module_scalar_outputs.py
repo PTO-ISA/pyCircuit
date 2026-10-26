@@ -48,7 +48,6 @@ def ExerciseScalarModules():
     def step() -> None:
         ac.log("info", "scalar module", phase, word, valid, copy)
         phase = phase + 1
-    step()
 """
     )
     provider, consumer = tmp_path / "provider", tmp_path / "consumer"

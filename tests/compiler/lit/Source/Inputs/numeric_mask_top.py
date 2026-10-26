@@ -1,5 +1,5 @@
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module
 from numeric.numeric_mask import Computed, Mask
 
 
@@ -27,26 +27,14 @@ def MaskTop(a: Annotated[int, range(1 << 8)],
     alternate = Mask(MASK=170)
     computed = Computed()
 
-    @rule
-    def bind_default():
-        default(a=a)
+    default(a=a)
 
-    @rule
-    def bind_fifteen():
-        fifteen(a=a)
+    fifteen(a=a)
 
-    @rule
-    def bind_alternate():
-        alternate(a=a)
+    alternate(a=a)
 
-    @rule
-    def bind_computed():
-        computed(a=c, b=d)
+    computed(a=c, b=d)
 
-    bind_default()
-    bind_fifteen()
-    bind_alternate()
-    bind_computed()
     return {"default_left": default.left, "default_right": default.right,
             "fifteen_left": fifteen.left, "fifteen_right": fifteen.right,
             "alternate_left": alternate.left, "alternate_right": alternate.right,

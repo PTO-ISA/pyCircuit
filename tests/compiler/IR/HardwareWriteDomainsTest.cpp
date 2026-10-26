@@ -1,3 +1,4 @@
+#include "NativeFormalOwnerFixture.h"
 // Independent final-IR tests start from the existing production-captured
 // address-grant fixture. No generated candidate supplies a numerical oracle.
 #include "Compiler/SourceLink.h"
@@ -57,7 +58,9 @@ protected:
   auto error() {
     return [&] { return emitError(attrs.getUnknownLoc()); };
   }
-  OwningOpRef<ModuleOp> compileCaptured(StringRef sourceName, StringRef top) {
+  OwningOpRef<ModuleOp> compileCaptured(StringRef sourceName, StringRef top,
+                                      bool accepted = true,
+                                      bool nativeFormalOwners = false) {
     auto captured = parseSourceFile<ModuleOp>(path("capture.mlir"), &context);
     if (!captured)
       return {};
@@ -70,9 +73,31 @@ protected:
          attrs.getNamedAttr("path", attrs.getStringAttr(sourceName))});
     auto unit =
         compiler::compilePythonSourceUnit(*captured, owner, *headers, error());
+    if (!accepted) {
+      EXPECT_TRUE(failed(unit)) << diagnostics;
+      return {};
+    }
     EXPECT_TRUE(succeeded(unit)) << diagnostics;
     if (failed(unit))
       return {};
+    if (nativeFormalOwners) {
+      // Python supplies a genuine generic/by-value template. Native owner
+      // binding exercises the common-IR proposal route, independently of
+      // Python's deliberate same-source state specialization.
+      unsigned bound = 0;
+      bool valid = true;
+      unit->body->walk([&](ac::SourceMethodCallOp call) {
+        if (call.getCalleeAttr().getLeafReference().getValue() != "put")
+          return;
+        valid &= succeeded(acir::test::bindNativeFormalOwners(call, {"first", "", ""}));
+        ++bound;
+      });
+      EXPECT_EQ(bound, 4u);
+      EXPECT_TRUE(valid) << diagnostics;
+      if (!valid || bound != 4 ||
+          failed(acir::test::publishNativeFormalOwnerFixture(*unit, context)))
+        return {};
+    }
     auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                              top, error());
     EXPECT_TRUE(succeeded(final)) << diagnostics;
@@ -125,49 +150,42 @@ sys.path.insert(0, str(repo / "python"))
 from pycircuit._source_capture import _capture_source_file
 from pycircuit._source_transport import _emit_source_transport
 text = (repo / "tests/system/fixtures/source_system/hierarchical_state_provider.py").read_text()
-text += '''
-
+if sys.argv[3] == "ordered":
+    text += '''
+@ac.module
+def Top(selector: ac.u1):
+    ordered = OrderedStateCell()
+    @ac.rule
+    def first() -> None:
+        before, after = ordered.update(3)
+        assert after == before + 3
+    @ac.rule(after=(first,))
+    def second() -> None:
+        before, after = ordered.update(5)
+        assert after == before + 5
+'''
+else:
+    text += '''
 @ac.module
 def Top(selector: ac.u1):
     direct = StateCell(selector)
     relayed = PayloadRelay(selector)
     standalone = PayloadRelay(not selector)
-
     @ac.rule
     def drive() -> None:
         if selector:
             before, after = direct.update(9)
             relayed.update(11)
             assert after == before + 9
-
-    drive()
 '''
-if sys.argv[3] == "ordered":
-    text = text.replace(
-        "    direct = StateCell(selector)",
-        "    ordered = OrderedStateCell()\n    direct = StateCell(selector)",
-    ).replace("    drive()\n", '''
-    @ac.rule
-    def first() -> None:
-        before, after = ordered.update(3)
-        assert after == before + 3
-
-    @ac.rule(after=(first,))
-    def second() -> None:
-        before, after = ordered.update(5)
-        assert after == before + 5
-
-    first()
-    second()
-    drive()
-''')
 source = output.with_name("hierarchy.py")
 source.write_text(text)
 output.write_text(_emit_source_transport(_capture_source_file(source, source_root=source.parent)), encoding="utf-8")
 )py";
     if (!capture(script, orderedParent ? "ordered" : "unordered"))
       return {};
-    return compileCaptured("hierarchy.py", "execution.hierarchy.Top");
+    return compileCaptured("hierarchy.py", "execution.hierarchy.Top",
+                           !orderedParent);
   }
   OwningOpRef<ModuleOp> indexedRequirementsFixture(bool formal = false,
                                                    bool total = false) {
@@ -188,7 +206,7 @@ def Producer(valid: ac.u1, data: ac.u8) -> ac.u8:
     @ac.rule(guard=lambda: valid)
     def guarded() -> ac.u8:
         return data
-    return guarded()
+    return guarded
 @ac.module
 def Top(outer: ac.u1, inner: ac.u1, index: ac.u2, other: ac.u2, data: ac.u8):
     first = ac.table[4, ac.u8](init=0)
@@ -206,23 +224,16 @@ def Top(outer: ac.u1, inner: ac.u1, index: ac.u2, other: ac.u2, data: ac.u8):
                 second[other] = value + 4
         else:
             first[index] = value + 5
-    run()
 '''
 if formal == "formal":
-    # A Module-owned Rule retains its writable formal. A same-source global Rule
-    # called on a known owner may specialize to direct state writes instead.
-    helper = '''@ac.module
-def Writer():
-    @ac.rule
-    def put_value(target: ac.table[4, ac.u8], slot: ac.u2, value: ac.u8) -> None:
-        target[slot] = value
-'''
-    text = text.replace("@ac.module\ndef Producer", helper + "@ac.module\ndef Producer")
-    text = text.replace("    first = ac.table", "    writer = Writer()\n    first = ac.table")
-    text = text.replace("first[index] = value\n", "writer.put_value(first, index, value)\n")
-    text = text.replace("first[index] = value + 2\n", "writer.put_value(first, index, value + 2)\n")
-    text = text.replace("first[other] = value + 3\n", "writer.put_value(first, other, value + 3)\n")
-    text = text.replace("first[index] = value + 5\n", "writer.put_value(first, index, value + 5)\n")
+    # Keep all calls by value in captured Python, so the generic template's
+    # formal proposal signature survives. C++ constructs native owner edges
+    # and republishes the interface before linking.
+    text = text.replace("other: ac.u2, data: ac.u8):", "other: ac.u2, data: ac.u8, input_table: ac.table[4, ac.u8]):")
+    text = text.replace("first[index] = value\n", "put(input_table, index, value)\n")
+    text = text.replace("first[index] = value + 2\n", "put(input_table, index, value + 2)\n")
+    text = text.replace("first[other] = value + 3\n", "put(input_table, other, value + 3)\n")
+    text = text.replace("first[index] = value + 5\n", "put(input_table, index, value + 5)\n")
 if total == "total":
     text = text.replace("value = Producer(outer, data)", "value = data")
     begin = text.index("@ac.module\ndef Producer")
@@ -237,7 +248,7 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     if (!capture(script, option))
       return {};
     return compileCaptured("indexed_requirements.py",
-                           "execution.indexed_requirements.Top");
+                           "execution.indexed_requirements.Top", true, formal);
   }
   struct IndexWitness {
     ac::RuleOp rule;
@@ -548,10 +559,11 @@ TEST_F(HardwareWriteDomainsTest,
 }
 
 TEST_F(HardwareWriteDomainsTest,
-       HierarchicalIncomingFromOrderedParentHasVerifiedNonemptyPlan) {
+       HierarchicalOrderedParentRejectsRetiredAfterBeforeRouting) {
   auto file = hierarchyFixture(true);
-  ASSERT_TRUE(file) << diagnostics;
-  EXPECT_TRUE(succeeded(verifyFinal(*file))) << diagnostics;
+  EXPECT_FALSE(file);
+  EXPECT_NE(diagnostics.find("source after is retired"), std::string::npos)
+      << diagnostics;
 }
 
 TEST_F(HardwareWriteDomainsTest,

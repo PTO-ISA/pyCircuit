@@ -17,21 +17,23 @@ kind       Boolean and mathematical Integer must not leak into a destination
 nominal    equal packed width must not merge struct, enum or table identity;
 unclosed   a width that cannot be evaluated must never compare equal to a
            concrete width;
-suffix     a rule that binds an instance *and* carries source checks must keep
-           the condition/path suffix positions, counts and types, and the
-           published ac.expect obligations must still name them.
+suffix     Module binding pins retain their types and arity. At verified final
+           IR, the autonomous checking Rule retains its fire result, sampled
+           guard pair and authored condition/path pairs with exact identities.
 
 Unbound parameter controls
 --------------------------
 A module's default W is not proof that W matches a concrete port width for all
-instantiations. These cases must reject, even when the defaults happen to match.
-They are ordinary negative tests, not known gaps or xfails.
+instantiations. Exact forwarding and explicit matching actuals are positive
+controls. Symbolic/fixed mismatches must reject even when a default happens to
+match; these remain strict negatives, not known gaps or xfails.
 
 The harness compiles every case in a private scratch directory so lit's
 persistent %t.dir cannot collide with a previous publication.
 """
 
 import argparse
+import ast
 import json
 import os
 import re
@@ -76,11 +78,8 @@ def memory(
         f"             valid: bool, data: {data}, strobe: {strobe}) -> "
         f'{{"rdata": {result}}}:\n'
         f"    memory = sync_mem(T={t}, ADDR_WIDTH={addr_width}, DEPTH={depth})\n"
-        "    @ac.rule\n"
-        "    def bind():\n"
-        "        memory(clk=clk, rst=rst, ren=ren, raddr=addr,\n"
+        "    memory(clk=clk, rst=rst, ren=ren, raddr=addr,\n"
         "               wvalid=valid, waddr=addr, wdata=data, wstrb=strobe)\n"
-        "    bind()\n"
         '    return {"rdata": memory.rdata}\n'
     )
 
@@ -95,10 +94,7 @@ def latch(dtype="ac.u8", ttype="ac.u8", result=None, init="0"):
         "@ac.module\n"
         f'def Holder(clk: bool, rst: bool, d: {dtype}) -> {{"q": {result}}}:\n'
         f"    state = dff(T={ttype})\n"
-        "    @ac.rule\n"
-        "    def bind():\n"
-        f"        state(clk=clk, rst=rst, d=d, init={init})\n"
-        "    bind()\n"
+        f"    state(clk=clk, rst=rst, d=d, init={init})\n"
         '    return {"q": state.q}\n'
     )
 
@@ -115,10 +111,7 @@ DEPENDENT_INPUT = (
     "def Top(clk: bool, rst: bool, x: ac.u8,\n"
     '        *, W: int = 12) -> {"y": ac.u8}:\n'
     "    state = dff(T=Annotated[int, range(1 << (W - 4))])\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=x, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, d=x, init=0)\n"
     '    return {"y": state.q}\n'
 )
 
@@ -130,10 +123,7 @@ DEPENDENT_OUTPUT = (
     "def Top(clk: bool, rst: bool, x: Annotated[int, range(1 << (W - 4))],\n"
     '        *, W: int = 12) -> {"y": ac.u8}:\n'
     "    state = dff(T=Annotated[int, range(1 << (W - 4))])\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=x, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, d=x, init=0)\n"
     '    return {"y": state.q}\n'
 )
 
@@ -146,10 +136,7 @@ CONCRETE_CHILD = (
     "@ac.module\n"
     "def Child(clk: bool, rst: bool, x: ac.u8) -> ChildOut:\n"
     "    state = dff(T=ac.u8)\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=x, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, d=x, init=0)\n"
     "    return ChildOut(y=state.q)\n"
     "@ac.module\n"
     'def Top(clk: bool, rst: bool, v: ac.u8) -> {"y": ac.u8}:\n'
@@ -164,18 +151,12 @@ DEPENDENT_CHILD = (
     "          *, W: int = 12) -> "
     '{"y": Annotated[int, range(1 << (W - 4))]}:\n'
     "    state = dff(T=Annotated[int, range(1 << (W - 4))])\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, d=x, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, d=x, init=0)\n"
     '    return {"y": state.q}\n'
     "@ac.module\n"
     'def Top(clk: bool, rst: bool, v: ac.u8) -> {"y": ac.u8}:\n'
     "    child = Child(W=12)\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        child(clk=clk, rst=rst, x=v)\n"
-    "    bind()\n"
+    "    child(clk=clk, rst=rst, x=v)\n"
     '    return {"y": child.y}\n'
 )
 
@@ -188,20 +169,14 @@ FORWARDED = (
     "              d: Annotated[int, range(1 << W)], *, W: int = 9\n"
     '              ) -> {"q": Annotated[int, range(1 << W)]}:\n'
     "    state = dffe(T=Annotated[int, range(1 << W)])\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        state(clk=clk, rst=rst, en=en, d=d, init=0)\n"
-    "    bind()\n"
+    "    state(clk=clk, rst=rst, en=en, d=d, init=0)\n"
     '    return {"q": state.q}\n'
     "@ac.module\n"
     "def Parent(clk: bool, rst: bool, en: bool,\n"
     "           data: Annotated[int, range(1 << W)], *, W: int = 9\n"
     '           ) -> {"q": Annotated[int, range(1 << W)]}:\n'
     "    word = WordLatch(W=W)\n"
-    "    @ac.rule\n"
-    "    def bind_word():\n"
-    "        word(clk=clk, rst=rst, en=en, d=data)\n"
-    "    bind_word()\n"
+    "    word(clk=clk, rst=rst, en=en, d=data)\n"
     '    return {"q": word.q}\n'
 )
 
@@ -275,10 +250,7 @@ UNCLOSED = (
     "@ac.module\n"
     'def Top(p: ac.u8) -> {"a": ac.u8}:\n'
     "    first = Take()\n"
-    "    @ac.rule\n"
-    "    def bind():\n"
-    "        first(x=p)\n"
-    "    bind()\n"
+    "    first(x=p)\n"
     '    return {"a": first.y}\n'
 )
 
@@ -291,9 +263,8 @@ CHECKED_BINDING = (
     "    @ac.rule\n"
     "    def bind():\n"
     '        assert ok, "__GATE__"\n'
-    "        memory(clk=clk, rst=rst, ren=ok, raddr=addr,\n"
+    "    memory(clk=clk, rst=rst, ren=ok, raddr=addr,\n"
     "               wvalid=ok, waddr=addr, wdata=data, wstrb=strobe)\n"
-    "    bind()\n"
     '    return {"rdata": memory.rdata}\n'
 )
 
@@ -411,27 +382,27 @@ CASES = {
     ),
 }
 
-# name -> (source, required acceptance, diagnostic the current compiler emits)
-PARAMETER_MISMATCHES = {
-    "forwarded-dependent-parameter": (
-        FORWARDED,
-        False,
-        "behavioral module static parameters are unsupported",
-    ),
-    "child-explicit-parameter-output": (
-        DEPENDENT_CHILD,
-        False,
-        "direct module value calls require a typed struct or tuple return and no static parameters",
-    ),
+# Exact forwarding and explicit matching specializations are valid. Defaults
+# still cannot prove equality between a symbolic owner and a fixed child.
+PARAMETER_CONTROLS = {
+    "forwarded-dependent-parameter": (FORWARDED, "Parent"),
+    "child-explicit-parameter-output": (DEPENDENT_CHILD, "Top"),
     "child-explicit-parameter-nine-bit-output": (
         DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)").replace("ac.u8", "ac.u9"),
+        "Top",
+    ),
+}
+# name -> (source, required acceptance, exact rejection diagnostic)
+PARAMETER_MISMATCHES = {
+    "symbolic-parent-fixed-child": (
+        FORWARDED.replace("WordLatch(W=W)", "WordLatch(W=8)"),
         False,
-        "direct module value calls require a typed struct or tuple return and no static parameters",
+        "mathematical arithmetic requires known Integer kind and finite interval",
     ),
     "width-mismatch-dependent-output": (
         DEPENDENT_CHILD.replace("Child(W=12)", "Child(W=13)"),
         False,
-        "direct module value calls require a typed struct or tuple return and no static parameters",
+        BOUNDARY,
     ),
     "dependent-input-width-not-resolved": (DEPENDENT_INPUT, False, BOUNDARY),
     "dependent-output-width-not-resolved": (DEPENDENT_OUTPUT, False, BOUNDARY),
@@ -442,8 +413,10 @@ if args.dump:
     target.mkdir(parents=True, exist_ok=True)
     for name, (text, _, _) in list(CASES.items()) + list(PARAMETER_MISMATCHES.items()):
         (target / (name.replace("-", "_") + ".py")).write_text(text)
+    for name, (text, _) in PARAMETER_CONTROLS.items():
+        (target / (name.replace("-", "_") + ".py")).write_text(text)
     sys.stdout.write(
-        f"{len(CASES) + len(PARAMETER_MISMATCHES)} cases written to {target}\n"
+        f"{len(CASES) + len(PARAMETER_MISMATCHES) + len(PARAMETER_CONTROLS)} cases written to {target}\n"
     )
     sys.exit(0)
 
@@ -536,49 +509,73 @@ def result_type_list(text, rule_index):
 
 
 def verify_rule_suffix(text, rule_name, inputs, checks):
-    """The rule must publish exactly inputs + 2*checks results, its yield must
-    cover every result in order, every published ac.expect obligation must
-    consume the condition/path pair at the suffix position the rule declares,
-    and the check suffix must keep its own shared one-bit carrier type."""
+    """Check physical pin arity and the final Rule's fire/check result contract.
+
+    Module binding owns the input prefix. Verify its complete actual list
+    separately from exact Rule yields, sampled controls and condition/path pairs.
+    """
     lines = text.splitlines()
+    instance_line = next(line for line in lines if '"ac.instance"(' in line)
+    bound = operands(instance_line)
+    assert len(bound) == inputs, (rule_name, bound)
+    if not checks:
+        assert '"ac.rule"(' not in text, "structural binding invented a Rule"
+        assert "ac.required_checks" not in text, "unexpected check obligation"
+        assert '"ac.expect"(' not in text, "unexpected published check"
+        return bound
     rule_line = next(
         line
         for line in lines
         if '"ac.rule"(' in line and f'name = "{rule_name}"' in line
     )
     published = results(rule_line)
-    assert len(published) == inputs + 2 * checks, (rule_name, published)
-    if checks:
-        assert "ac.required_checks" in text, "no published source-check obligation"
-    else:
-        assert "ac.required_checks" not in text, "unexpected check obligation"
+    # A directly nested checking Rule has one fire result, one sampled
+    # callable-guard pair, then one condition/path pair per source assertion.
+    assert len(published) == 1 + 2 * (1 + checks), (rule_name, published)
+    assert "ac.required_checks" in text, "no published source-check obligation"
     start = lines.index(rule_line)
     yield_line = next(line for line in lines[start:] if '"ac.yield"(' in line)
-    yielded = operands(yield_line)
-    # The yield is printed with the rule's block arguments, so only its arity is
-    # comparable to the published result list; the positions are what matter.
-    assert len(yielded) == len(published), (yielded, published)
+    assert len(operands(yield_line)) == len(published), (yield_line, published)
     types = result_type_list(text, start)
     assert len(types) == len(published), (types, published)
-    if checks:
-        # Both suffix carriers share one one-bit type, distinct from every
-        # binding-prefix type: the republish must not reach into the suffix.
-        assert types[-1] == types[-2], types
-        assert "#ac.math_int<1>" in types[-1], types[-1]
-        assert types[-1] not in types[:inputs], types
+    # Conditions retain source provenance; all final check carriers are
+    # physically one bit even when their source-location attributes differ.
+    assert all(
+        re.findall(r"#ac.math_int<([0-9]+)>", kind) == ["1"] for kind in types
+    ), types
+    closing = next(line for line in lines[start:] if line.lstrip().startswith("})"))
+    required = closing.split("ac.required_checks = [", 1)[1].split(
+        "], ac.sampled_admission", 1
+    )[0]
+    assert re.findall(r'kind = "(guard_known|assert)"', required) == [
+        "guard_known",
+        *(["assert"] * checks),
+    ], required
+    assert [
+        int(value) for value in re.findall(r"obligation = ([0-9]+) : i64", required)
+    ] == list(range(checks + 1))
+    sampled = closing.split("ac.sampled_admission = ", 1)[1].split(
+        ", declaration = ", 1
+    )[0]
+    assert "clock_capture = 0 : i64" in sampled
+    assert "reset_capture = 1 : i64" in sampled
+    assert "fire_result = 0 : i64" in sampled
+    assert sampled.count('kind = "callable_guard"') == 1, sampled
     expectations = [line for line in lines[start:] if '"ac.expect"(' in line]
-    assert len(expectations) == checks, expectations
+    assert len(expectations) == checks + 1, expectations
+    captures = operands(rule_line)
     for index, expectation in enumerate(expectations):
-        pair = published[
-            len(published)
-            - 2 * checks
-            + 2 * index : len(published)
-            - 2 * checks
-            + 2 * index
-            + 2
-        ]
-        assert operands(expectation) == pair, (operands(expectation), pair)
-    return published
+        pair = published[1 + 2 * index : 3 + 2 * index]
+        expected_operands = pair + (captures[:2] if index == 0 else [])
+        assert operands(expectation) == expected_operands, (
+            expectation,
+            expected_operands,
+        )
+        assert re.findall(r"obligation = ([0-9]+) : i64", expectation) == [str(index)]
+        assert (
+            'kind = "guard_known"' if index == 0 else 'kind = "assert"'
+        ) in expectation
+    return bound + published
 
 
 def compile_case(name, text, accepted, build, *, output=None, replace=False):
@@ -606,7 +603,7 @@ def compile_case(name, text, accepted, build, *, output=None, replace=False):
 
 build = Path(tempfile.mkdtemp(prefix="literal-normalization-", dir=scratch))
 (build / "source").mkdir()
-log = {"cases": [], "parameter_mismatches": []}
+log = {"cases": [], "parameter_controls": [], "parameter_mismatches": []}
 mismatches = []
 for name, (text, accepted, structure) in CASES.items():
     unit, result = compile_case(name, text, accepted, build)
@@ -623,14 +620,100 @@ for name, (text, accepted, structure) in CASES.items():
     if observed != accepted:
         mismatches.append((name, accepted, result.stderr))
     if observed and structure:
-        receipt = json.loads((unit / "unit.json").read_text())
-        body = (unit / receipt["files"]["body"]).read_text()
-        log["cases"][-1]["rule_results"] = len(verify_rule_suffix(body, *structure))
+        # Source units deliberately retain transactions and private Methods.
+        # Check the common Rule/expect representation only after verified link.
+        modules = [
+            node
+            for node in ast.parse(text).body
+            if isinstance(node, ast.FunctionDef)
+            and any(
+                isinstance(decorator, ast.Attribute) and decorator.attr == "module"
+                for decorator in node.decorator_list
+            )
+        ]
+        assert len(modules) == 1, name
+        final = build / (name + ".ac")
+        command = [
+            sys.executable,
+            "-m",
+            "pycircuit.cli",
+            "link",
+            unit,
+            "--top",
+            "adversarial." + name.replace("-", "_") + "." + modules[0].name,
+            "-o",
+            final,
+        ]
+        run(command, True)
+        log["cases"][-1]["verified_final"] = str(final)
+        log["cases"][-1]["bound_and_rule_results"] = len(
+            verify_rule_suffix(final.read_text(), *structure)
+        )
     sys.stdout.write(
         f"{'ACCEPT' if observed else 'REJECT'} "
         f"{'as-required' if observed == accepted else 'UNEXPECTED'} "
         f"{name}\n"
     )
+for name, (text, top) in PARAMETER_CONTROLS.items():
+    unit, _ = compile_case(name, text, True, build)
+    controls = []
+    # Distinct explicit actuals prove that forwarding is not tied to default W.
+    for width in (9, 17) if top == "Parent" else (None,):
+        label = name + ("-" + str(width) if width is not None else "")
+        final = build / (label + ".ac")
+        command = [
+            sys.executable,
+            "-m",
+            "pycircuit.cli",
+            "link",
+            unit,
+            "--top",
+            "adversarial." + name.replace("-", "_") + "." + top,
+            "-o",
+            final,
+        ]
+        if width is not None:
+            parameters = build / (label + "-parameters.json")
+            parameters.write_text(
+                json.dumps([{"name": "W", "value": str(width)}]) + "\n"
+            )
+            command += ["--parameters", parameters]
+        run(command, True)
+        emitted = build / (label + "-cpp")
+        run(
+            [
+                sys.executable,
+                "-m",
+                "pycircuit.cli",
+                "emit",
+                final,
+                "--target",
+                "cpp",
+                "-o",
+                emitted,
+            ],
+            True,
+        )
+        entry = json.loads((emitted / "generated.json").read_text())["entry"]
+        if width is not None:
+            assert len(entry["arguments"]) == 1, entry
+            assert entry["arguments"][0]["kind"] == "parameters", entry
+            assert re.findall(
+                r"#ac.math_int<([0-9]+)>", entry["arguments"][0]["value"]
+            ) == [str(width)], entry
+            owner = next(
+                node
+                for node in ast.parse(text).body
+                if isinstance(node, ast.FunctionDef) and node.name == top
+            )
+            assert [argument.arg for argument in owner.args.kwonlyargs] == ["W"]
+        else:
+            assert entry["arguments"] == [], entry
+        controls.append({"width": width, "final": str(final), "entry": entry})
+    log["parameter_controls"].append(
+        {"name": name, "source": text, "controls": controls}
+    )
+
 for name, (text, _required, diagnostic) in PARAMETER_MISMATCHES.items():
     unit, result = compile_case(name, text, False, build)
     observed = result.returncode == 0
@@ -638,7 +721,7 @@ for name, (text, _required, diagnostic) in PARAMETER_MISMATCHES.items():
         mismatches.append((name, False, result.stderr))
     assert not unit.exists(), name + " published a rejected unit"
     replacement_protected = False
-    if name == "forwarded-dependent-parameter":
+    if name == "symbolic-parent-fixed-child":
         replacement, _ = compile_case(
             name + "-replacement-control", CONCRETE_CHILD, True, build
         )
@@ -669,6 +752,7 @@ for name, (text, _required, diagnostic) in PARAMETER_MISMATCHES.items():
 assert not mismatches, mismatches
 sys.stdout.write(
     f"literal normalization adversarial gate: {len(CASES)} required "
-    f"cases hold, {len(PARAMETER_MISMATCHES)} strict parameter negatives; "
+    f"cases hold, {len(PARAMETER_CONTROLS)} parameter controls, "
+    f"{len(PARAMETER_MISMATCHES)} strict parameter negatives; "
     f"scratch {build}\n"
 )

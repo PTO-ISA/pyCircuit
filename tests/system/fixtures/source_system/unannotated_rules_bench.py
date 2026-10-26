@@ -28,5 +28,3 @@ def ExerciseUnannotatedRules():
             widths.large,
             iteration.value,
         )
-
-    check()

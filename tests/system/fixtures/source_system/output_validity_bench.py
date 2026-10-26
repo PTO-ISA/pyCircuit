@@ -39,10 +39,3 @@ def ExerciseOutputValidity():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    consume()
-    observe()
-    publish()
-    check()
-    selected()
-    tick()

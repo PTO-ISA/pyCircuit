@@ -62,6 +62,8 @@ FailureOr<Operation *> resolveReferenceReceiver(
   auto reference = receiver ? receiver.getAs<StringAttr>("reference") : StringAttr();
   if (!receiver || !path || receiver.size() != (reference ? 2u : 1u) || path.size() > 128)
     return site->emitOpError() << "invalid Module reference receiver";
+  if ((!reference && path.size() != 1) || (reference && !path.empty()))
+    return site->emitOpError() << "Module reference binding requires a direct child or a declared reference interface; descendant access is private";
   Operation *target = module;
   if (reference) {
     if (!formalsVerified && failed(verifySourceReferenceParameters(module))) return failure();
@@ -941,8 +943,8 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
   if (!caller || !symbol || symbol.getNestedReferences().size() != 1 || !path)
     return site->emitOpError()
            << "Method call requires a qualified callee and receiver path";
-  if (path.size() > 128)
-    return site->emitOpError() << "Method receiver depth budget exceeded";
+  if (path.size() > 1 || (reference && !path.empty()))
+    return site->emitOpError() << "Method receiver requires lexical self, a direct child or a declared reference interface";
   if (failed(header(caller)))
     return failure();
   auto package = caller->getParentOfType<mlir::ModuleOp>();
@@ -1229,9 +1231,30 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
   }
   if (auto visibility = method.getVisibility();
       visibility && visibility.getValue() == "private" &&
-      (owner != caller || !path.empty()))
+      (owner != caller || reference || !path.empty()))
     return site->emitOpError()
            << "private Method requires a local lexical self call";
+  // Declaration-based registration owns its transparent body exclusively.
+  // A source-global template registration has a distinct Call occurrence and
+  // remains callable from an enclosing transaction.
+  if (auto body = dyn_cast<ModuleOp>(owner)) {
+    for (auto transaction : body.getBody().front().getOps<SourceTransactionOp>()) {
+      if (++work > 1024 * 1024)
+        return site->emitOpError() << "autonomous Rule registration work budget exceeded";
+      if (context && failed(fees->workStorage(site, 1, 0))) return failure();
+      if (transaction.getOccurrence() != transaction.getDeclaration() ||
+          transaction.getDeclaration() != method.getDeclaration()) continue;
+      if (context && failed(fees->workStorage(site,
+            8 + transaction.getCaptures().size() +
+                method.getFunctionType().getNumInputs() +
+                method.getFunctionType().getNumResults(), 0))) return failure();
+      auto entry = getSourceRegistrationEntry(transaction);
+      if (failed(entry)) return failure();
+      if (!*entry || (**entry).method != method.definition ||
+          (**entry).call.getOperation() != site)
+        return site->emitOpError() << "autonomous Rule body is private to its declaration registration";
+    }
+  }
   auto receiver = DictionaryAttr::get(
       site->getContext(),
       {NamedAttribute(StringAttr::get(site->getContext(), "instance_path"),
@@ -1255,6 +1278,8 @@ LogicalResult verifySourceRelativeReceiver(DictionaryAttr receiver,
       depth.getInt() > 128 || !path || path.size() > 128 ||
       path.size() + static_cast<uint64_t>(depth.getInt()) > 128)
     return site->emitOpError() << "relative receiver requires exactly receiver_kind = reference, nonnegative i64 ancestor_depth and a bounded child-name instance_path";
+  if (depth.getInt() != 0 || path.size() > 1)
+    return site->emitOpError() << "static instance reference cannot bypass lexical scope through ancestors, siblings or descendants";
   if (fees && failed(fees->workStorage(site, 3 + path.size(), 0))) return failure();
   for (Attribute raw : path) {
     auto name = dyn_cast<StringAttr>(raw);

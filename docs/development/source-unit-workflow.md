@@ -204,17 +204,20 @@ proof. Contexts do not survive IR mutation or cross analysis/proof invocations.
 
 Static Module reference formals publish their nominal callee and authored
 argument position separately from physical data inputs. Instance bindings retain
-canonical allocation occurrences or a forwarded reference formal; Method
-receivers can name that formal plus a static path suffix. Callable declaration
-`after` edges publish even without autonomous registrations. Summaries using
-any of these semantics require `schema = 2 : i64`; removing the marker or
-altering the body/interface pair rejects. Earlier consumers reject the new
-summary field rather than silently dropping its semantics. Unused reference
-formals still require this transaction interface contract.
+canonical allocation occurrences or a forwarded reference formal. Calls through
+that declared interface do not grant access to private descendants. Reference
+semantics retain their existing schema marker and exact body/interface checks.
+Unused reference formals still require this transaction interface contract.
+
+Local autonomous registrations use their real FunctionDef occurrence; explicit
+global-template bindings use their real Call occurrence. The private transparent
+entry retains exact capture forwarding and public-result authentication. Source
+ordering metadata is rejected rather than republished: neither native attributes
+nor a loaded anchor can restore cross-Rule candidate forwarding.
 
 A definition with unbound reference formals remains an authenticated source
 template until an ordinary Module actually allocates it. Link validates all
-supplied source contracts, including callable declaration order, then excludes
+supplied source contracts, including lexical reference authority, then excludes
 only reference templates with no allocation path from any closed ordinary
 Module definition. The input source units and their published interfaces remain
 unchanged. Unused ordinary definitions retain their existing checks. Selecting
@@ -266,10 +269,9 @@ Collections. Candidate D values come from isolated pure Rules. All
 staged hardware checks succeed before the package becomes final.
 
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
-its input IR. Each unordered outer transaction starts from old Q; ordered entry
-state selects earlier candidates using whole-transaction fire and per-state
-write intent. Transitive callable order is resolved per actual instance and
-merged with explicit registration order before routing. Nested Method calls
+its input IR. Every independent outer transaction starts from old Q. Registration
+order does not expose another transaction's candidates, and `after` metadata is
+rejected. Nested Method and source-global template calls
 share that transaction's candidate versions while keeping ordinary SSA values
 as snapshots. A bounded branch forks the same incoming data/raw-intent pair into
 both arms and joins both components with the original four-state selector.

@@ -888,7 +888,7 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       return error()
              << "source check suffix requires two results per obligation";
     uint64_t first = rule.getNumResults() - 2 * required.size();
-    // Sampled Rules may append private state-entry witnesses after checks.
+    // Sampled Rules may append resource proposal witnesses after checks.
     // The authenticated inventory, rather than the total result count, owns
     // the check base in that case.
     if (auto sampled = sampledRules.find(rule); sampled != sampledRules.end())

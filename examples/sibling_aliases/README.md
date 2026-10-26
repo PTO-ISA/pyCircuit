@@ -4,7 +4,8 @@ System 创建两个同类型的 `Counter`，初值都是 2。
 `Relay(shared)` 将已有实例继续传给 `Stepper`；两层引用传递和别名赋值
 都不创建 Counter，也不复制状态。
 
-`step_twice` 在一个 Rule 中通过原名和别名各递增一次。
+`step_twice` 的 Rule 声明自动激活，在同一个事务中通过原名和别名
+各调用一次 `increment` Method。
 第二次调用看见第一次更新，但普通局部变量 `first` 保留第一次调用的快照。
 两个递增属于同一个原子操作。另一个独立分配的 Counter 始终保持 2。
 

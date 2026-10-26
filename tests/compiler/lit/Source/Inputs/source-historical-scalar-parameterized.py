@@ -54,9 +54,9 @@ def identity_inlining(owned):
     assert module.args.kwonlyargs[0].arg == "width"
     assert ast.literal_eval(module.args.kw_defaults[0]) == 17
     assert module.args.args[0].annotation.slice.id == "width"
-    assert module.returns.values[0].slice.id == "width"
+    assert module.returns.slice.id == "width"
     assert len(module.body) == 1 and isinstance(module.body[0], ast.Return)
-    assert module.body[0].value.values[0].id == "value"
+    assert module.body[0].value.id == "value"
 
 
 def system_events(stdout, entry, values):
@@ -81,7 +81,7 @@ def system_events(stdout, entry, values):
         assert identity["invocation"] == [], identity
         # `inspect` retains its authored statement positions: the assertion is
         # ordinal zero and this following log is ordinal one.
-        assert identity["ordinal"] == 1, identity
+        assert identity["ordinal"] == 0, identity
         assert identity["site"]["site"]["definition"] == entry
     terminal = records[-1]
     assert terminal["kind"] == "result" and terminal["status"] == "TERMINATED"
@@ -243,7 +243,10 @@ def main():
                 ) == {
                     "entry": {"definition": f'@"{entry}"', "arguments": []},
                     "entry_source": {"package": PACKAGE, "path": source_name + ".py"},
-                    "source_checks": 1,
+                    "source_checks": 3,
+                    "system_samples": [],
+                    "needs_four_state": True,
+                    "reset_semantics": "strict",
                 }
             else:
                 assert len(manifest["entry"]["arguments"]) == 1
@@ -401,15 +404,15 @@ def main():
         (
             "wrong-input-width",
             original_bench.replace("incoming: bits[17]", "incoming: bits[18]"),
-            "mathematical boundary requires known Integer source and destination kinds",
+            "unsigned boundary implicit narrowing is unsupported",
         ),
         (
-            "nonempty-system-constructor",
+            "missing-system-child-input",
             original_bench.replace(
-                "dut = scalar_parameterized_types()",
+                "dut = scalar_parameterized_types(value=incoming)",
                 "dut = scalar_parameterized_types(width=17)",
             ),
-            "structural module declaration requires an empty constructor; bind authored inputs in a rule",
+            "missing or unsupported direct module argument for parameter 'value'",
         ),
     ):
         assert replacement != original_bench
@@ -485,9 +488,9 @@ def main():
     nested_keep = original_provider.replace(
         "from pycircuit import bits, module", "from pycircuit import bits, module, rule"
     ).replace(
-        '    return {"result": value}',
-        "    @rule\n    def keep(value: bits[width]) -> bits[width]:\n"
-        '        return value\n\n    result = keep(value)\n    return {"result": result}',
+        "    return value",
+        "    @rule\n    def keep(value=value) -> bits[width]:\n"
+        "        return value\n\n    result = keep()\n    return result",
     )
     provider_path.write_text(nested_keep)
     try:
@@ -505,10 +508,9 @@ def main():
             "--replace",
             failure=True,
         )
-        # Adding the nested behavioral rule changes the provider's admission
-        # class. Its retained static width parameter must reject at that earlier
-        # boundary, before expression lowering considers the nested call.
-        assert "behavioral module static parameters are unsupported" in stderr, stderr
+        # The local Rule declares an autonomous value. Calling it is rejected
+        # independently of the provider's supported static width parameter.
+        assert "autonomous local Rule cannot be called" in stderr, stderr
         assert published == {path: digest(Path(path)) for path in published}
         negative_cases.append(
             {
@@ -522,7 +524,7 @@ def main():
     bindings = work / "bindings.json"
     bindings.write_text('[{"name":"width","value":17}]\n')
     _, stderr = cli(
-        "reject-nonempty-parameters",
+        "reject-noncanonical-parameter-value",
         "link",
         *units,
         "--top",
@@ -534,8 +536,17 @@ def main():
         "--replace",
         failure=True,
     )
-    assert "static parameter bindings are not implemented yet" in stderr
-    assert "--parameters must be an empty array or omitted" in stderr
+    assert "parameter values must be canonical signed decimal strings" in stderr
+    bindings.write_text('[{"name":"width","value":"17"}]\n')
+    explicit_final = work / "explicit-parameters.ac"
+    cli("canonical-parameter-value", "link", units[0], "--top", MODULE,
+        "--parameters", bindings, "-o", explicit_final)
+    explicit_cpp = work / "explicit-parameters-cpp"
+    cli("canonical-parameter-emit", "emit", explicit_final, "--target", "cpp", "-o", explicit_cpp)
+    explicit_entry = json.loads((explicit_cpp / "generated.json").read_text())["entry"]
+    assert explicit_entry["definition"] == f'@"{MODULE}"'
+    assert len(explicit_entry["arguments"]) == 1
+    assert "#ac.math_int<17>" in explicit_entry["arguments"][0]["value"]
     assert published == {path: digest(Path(path)) for path in published}
     assert input_hashes == {str(path): digest(path) for path in inputs}
     (work / "evidence.json").write_text(

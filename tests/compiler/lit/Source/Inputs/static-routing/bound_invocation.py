@@ -27,5 +27,3 @@ def Top():
         ac.log("info", "bound known", known)
         ac.log("info", "bound x", unknown)
         ac.log("info", "bound z", floating)
-
-    run()

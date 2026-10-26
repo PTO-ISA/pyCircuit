@@ -1,5 +1,5 @@
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module
 from selects.select_child import Word
 
 
@@ -9,9 +9,6 @@ def UnknownPure(a: Annotated[int, range(1 << 8)], flag: bool
                       "left": Annotated[int, range(1 << 8)]}:
     child = Word()
 
-    @rule
-    def bind():
-        child(a=a)
+    child(a=a)
 
-    bind()
     return {"right": child.q if flag else 3, "left": 3 if flag else child.q}

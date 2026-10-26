@@ -13,7 +13,7 @@ def GuardedOutputs(word: ac.u8, enabled: ac.u1) -> tuple[Packet, ac.u8]:
     def produce() -> tuple[Packet, ac.u8]:
         return Packet(data=word + 1), word + 3
 
-    packet, extra = produce()
+    packet, extra = produce
     return packet, extra
 
 
@@ -21,17 +21,17 @@ def GuardedOutputs(word: ac.u8, enabled: ac.u1) -> tuple[Packet, ac.u8]:
 def ValiditySink():
     saved: ac.u8 = 0
 
-    @ac.rule
+    @ac.method
     def put(packet: Packet, extra: ac.u8) -> None:
         saved = packet.data + extra
 
-    @ac.rule
+    @ac.method
     def read() -> ac.u8:
         return saved
 
 
 @ac.module
 def CapturedPayload(word: ac.u8, spare: ac.u8):
-    @ac.rule
+    @ac.method
     def publish() -> None:
         ac.log("info", "captured payload", word)

@@ -11,12 +11,12 @@ def split(value: ac.u8) -> tuple[ac.u8, ac.u8]:
 @ac.module
 def BehavioralTuple(value: ac.u8) -> tuple[ac.u8, ac.u8]:
     @ac.rule
-    def singleton(argument: ac.u8) -> tuple[ac.u8]:
-        return (argument,)
+    def singleton(argument: ac.u8 = value) -> tuple[ac.u8]:
+        left, right = split(argument)
+        return (right,)
 
-    left, right = split(value)
-    (saved,) = singleton(right)
-    return left, saved
+    (saved,) = singleton
+    return value, saved
 
 
 @ac.module
@@ -34,16 +34,14 @@ def LocalOwner():
         return (value,)
 
 
-@ac.system
-def ExerciseCallableOutputs():
-    phase: ac.u8 = 4
+@ac.module
+def CallableResults() -> tuple[ac.u8, Packet, bool, ac.u8, ac.u8, ac.u8]:
     imported = TupleOwner()
     local = LocalOwner()
-    behavioral_left, behavioral_right = BehavioralTuple(17)
 
     @ac.rule
     def produce(
-        delta: ac.u8, enabled: bool
+        delta: ac.u8 = 2, enabled: bool = True
     ) -> tuple[ac.u8, Packet, bool, ac.u8, ac.u8, ac.u8]:
         before, packet, logical = imported.advance(delta, enabled)
         (saved_packet,) = imported.singleton(packet)
@@ -54,17 +52,31 @@ def ExerciseCallableOutputs():
         assert second_flag == logical
         return before, saved_packet, logical, second_before, local_before, saved_local
 
-    before, packet, logical, second_before, local_before, local_after = produce(
-        enabled=True, delta=2
-    )
+    return produce
+
+
+@ac.module
+def PhaseResults() -> tuple[ac.u8, ac.u8]:
+    phase: ac.u8 = 4
 
     @ac.rule(guard=lambda owned, increment: True)
-    def advance_phase(owned: ac.u8, increment: ac.u8) -> tuple[ac.u8, ac.u8]:
+    def advance_phase(
+        owned: ac.u8 = phase, increment: ac.u8 = 2
+    ) -> tuple[ac.u8, ac.u8]:
         before = owned
         owned = owned + increment
         return before, owned
 
-    phase_before, phase_after = advance_phase(increment=2, owned=phase)
+    return advance_phase
+
+
+@ac.system
+def ExerciseCallableOutputs():
+    before, packet, logical, second_before, local_before, local_after = (
+        CallableResults()
+    )
+    phase_before, phase_after = PhaseResults()
+    behavioral_left, behavioral_right = BehavioralTuple(17)
 
     @ac.rule
     def observe() -> None:
@@ -89,5 +101,3 @@ def ExerciseCallableOutputs():
             phase_before,
             phase_after,
         )
-
-    observe()

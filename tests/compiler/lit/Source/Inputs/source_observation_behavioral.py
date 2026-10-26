@@ -76,8 +76,7 @@ def LeafUnit(in_x: ac.u8) -> LeafResult:
 """
 )
 
-# Pure module: no persistent declaration and a named mapping return. Only a
-# nested `@rule` registered by a bare call reaches the structural importer.
+# A data-only module still has an autonomous observation callback.
 PURE = (
     PRELUDE
     + """\
@@ -93,8 +92,7 @@ def LeafUnit(value: ac.u5) -> {"out": ac.u5}:
 PURE_BODY = """\
     @rule
     def observe():
-        {statement}
-    observe()"""
+        {statement}"""
 
 # A direct structural instance followed by one autonomous observation rule.
 # Observing the child result preserves the instance and its input value.
@@ -102,8 +100,7 @@ PURE_BINDING_BODY = """\
     child = Leaf(value)
     @rule
     def observe():
-        {statement}
-    observe()"""
+        {statement}"""
 
 PY_CALL = """\
 import pycircuit as ac

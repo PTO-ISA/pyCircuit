@@ -17,8 +17,7 @@ def Store():
         return memory.read(1)
 
 @ac.module
-def Worker(a: ac.u1, b: ac.u1):
-    store = ac.instance_ref(Store, "..", "store")
+def Worker(a: ac.u1, b: ac.u1, store: Store):
     @ac.rule
     def step() -> None:
         ac.log("info", "atom-inputs", a, b)
@@ -28,14 +27,13 @@ def Worker(a: ac.u1, b: ac.u1):
             first = store.read()
             second = store.read()
             ac.log("info", "atom-reads", first, second)
-    step()
 
 @ac.system(samples=((0, 0), (1, 0)))
 def Top():
     left_flag = Flags(0)
     right_flag = Flags(0)
     store = Store()
-    worker = Worker(left_flag, right_flag)
+    worker = Worker(left_flag, right_flag, store)
 '''
     if profile == "raw":
         text = text.replace(

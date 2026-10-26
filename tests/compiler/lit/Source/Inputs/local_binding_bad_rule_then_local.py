@@ -9,5 +9,4 @@ def Bad(a: Annotated[int, range(1 << 8)], flag: bool, *, COUNT: int = 1) -> {"re
     def update():
         assert flag
     update = a
-    update()
     return {"result": a}

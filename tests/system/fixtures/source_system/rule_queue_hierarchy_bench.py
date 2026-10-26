@@ -33,11 +33,6 @@ def ExerciseQueueHierarchy():
     def tick() -> None:
         cycle = cycle + 1  # noqa: F841 - captured hardware state or child instance.
 
-    send()
-    receive_left()
-    receive_right()
-    tick()
-
 
 @ac.system
 def UnselectedQueueHierarchy():
@@ -46,5 +41,3 @@ def UnselectedQueueHierarchy():
     @ac.rule
     def send() -> None:
         spare.send(99)
-
-    send()

@@ -65,6 +65,8 @@ getSourceRegistrationEntry(SourceTransactionOp transaction) {
       call.getPath() != pathConstant.getResult())
     return error() << "direct true guard/path constants and exact call forwarding";
   if (!call.getInstancePath().empty() ||
+      call->hasAttr("ac.reference") || call->hasAttr("receiver_kind") ||
+      call->hasAttr("ancestor_depth") ||
       call->hasAttr("ac.formal_owner_bindings") ||
       call.getOccurrence() != transaction.getOccurrence())
     return error() << "one local call with registration identity and no owner map";
@@ -81,6 +83,11 @@ getSourceRegistrationEntry(SourceTransactionOp transaction) {
       method->getAttr("ac.guard_location") !=
           transaction->getAttr("ac.guard_location"))
     return error() << "the declared Method and identical guard location";
+  if (transaction.getOccurrence() == transaction.getDeclaration()) {
+    auto visibility = resolved->getVisibility();
+    if (!visibility || visibility.getValue() != "private")
+      return error() << "a private body for an autonomous Rule declaration";
+  }
   auto signature = resolved->getFunctionType();
   if (call.getArguments().size() != signature.getNumInputs() ||
       call.getNumResults() != signature.getNumResults() ||

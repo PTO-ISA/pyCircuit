@@ -74,7 +74,6 @@ def ObservationGroups():
         assert left.value == (0 if phase == 0 else 16 + phase), "left old Q"
         assert right.value == (0 if phase == 0 else 50 + phase), "right old Q"
 
-    inspect()
     root_observations(phase, input_left, input_right, tag, stamp)
     advance(input_left)
     advanceSecond(input_right)
@@ -96,7 +95,6 @@ def ObservationGroupsFailure():
         assert left.value == (0 if phase == 0 else 16 + phase), "left old Q"
         assert right.value == (0 if phase == 0 else 50 + phase), "right old Q"
 
-    inspect()
     root_observations(phase, input_left, input_right, tag, stamp)
     advance(input_left)
     advanceSecond(input_right)
@@ -134,7 +132,6 @@ def ArithmeticLeaf(x: u8, wide: u16) -> ArithmeticOut:
         log("info", "arithmetic_scalar", x + 17)
         report("arithmetic_progress", x + 17)
 
-    inspect()
     return ArithmeticOut(seen=x)
 
 
@@ -209,7 +206,6 @@ def CapturedArithmeticObservationGroups():
         log("info", "arithmetic_scalar", x + 17)
         report("arithmetic_progress", x + 17)
 
-    inspect()
     next_sample(x, phase)
     advance(phase)
 
@@ -235,8 +231,6 @@ def OnlyObservationGroups():
         report("observation_sample", sample)
 
     advance_observation_sample(phase, sample)
-    inspect_log()
-    inspect_report()
 
 
 @system
@@ -254,6 +248,4 @@ def OnlyObservationGroupsFailure():
         report("observation_sample", sample)
 
     advance_observation_sample(phase, sample)
-    inspect_log()
-    inspect_report()
     check_window(phase)

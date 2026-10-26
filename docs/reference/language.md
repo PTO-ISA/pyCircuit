@@ -30,8 +30,12 @@ effects that require atomic commit stay together. These requirements are tracked
 in [issue #319](https://github.com/PTO-ISA/pyCircuit/issues/319).
 
 Modules, Rules and Methods share admitted finite typed scalar, nominal payload
-and fixed nonempty tuple signatures. A Module-scope Rule call registers an autonomous transaction; calls
-inside a Rule or Method execute within that outer transaction. Unannotated
+and fixed nonempty tuple signatures. A local Rule declaration automatically binds
+one autonomous computation per Module/System instance. Its name denotes its
+results in Module wiring; repeated references are fanout, not repeated activation.
+Local formals bind through explicit default expressions, while captures remain
+ordinary inputs. Source-global Rule templates use explicit actuals; template and
+Method calls within a Rule stay in that outer transaction. Unannotated
 executable Rules specialize from actual SSA types, ownership and closed facts.
 The compiler carries output availability for guarded valued Rules; authors do
 not add a valid field or a holding register to make their results usable.
@@ -203,7 +207,7 @@ word boundaries. For example, `addr: ac.u40` permits `addr[12:40]` and
 `packet.data[:8]` explicitly selects a low byte.
 
 There is no clamping or negative-index normalization. Empty, reversed, dynamic,
-Boolean and out-of-range bounds, nonunit steps, scalar bit indexing and slice
+Boolean and out-of-range bounds, nonunit steps and slice
 assignment diagnose. Boolean and mathematical Integer values must not acquire
 fixed-bit semantics through slicing. Table indexing accepts a proven nonnegative
 half-open value interval within the declared depth, or the existing complete-width
@@ -420,11 +424,9 @@ of a one-dimensional Table element even when its indices are dynamic. The
 unified callable path currently rejects separate-Rule dynamic disjoint-address
 writes to one Table; restoration of the address-grant behavior described below
 remains unfinished. Independent Rules read committed state; ordinary call
-order does not introduce state forwarding or write priority. An explicit
-`@ac.rule(after=(earlier,))` establishes a callable declaration contract and
-predecessor-candidate visibility between its callers on one actual instance.
-Explicit native `ac.after` edges still resolve to unique local registrations;
-the Python declaration contract applies to all of its callers.
+order does not introduce state forwarding or write priority. Independent Rules
+always read committed current state. Rule/Method `after` and native ordering
+metadata are rejected through source, interface and saved-artifact validation.
 Cycles and unproved conflicting writers reject. Ordinary local
 assignments, if/else, struct defaults/construction/projection and proven table
 indices retain their existing semantics. Overlapping writable parameter aliases
@@ -665,8 +667,13 @@ registration, assertions and observations inside loops remain unsupported.
 Typed Rule/Method bodies use the SCF/transaction path and additionally admit
 supported state writes, assertions, observations, `break`, `continue` and loop
 `else`. Passing a Rule-loop test does not establish support in a pure helper.
-The existing literal `range(N)` and finite while comparison/progress proofs
-remain required. General nesting, dynamic range bounds and `while True` with a
+`range(N)` takes one pure bound expression whose existing SSA facts prove a
+nonnegative, closed mathematical Integer representable as signed 64-bit. Literal
+defaults, explicitly bound constant arguments, aliases and closed arithmetic
+retain those facts. A runtime value or interval alone, fixed Bits, Boolean and
+negative bounds do not qualify. Pure-helper loops retain their literal-only
+profile. Existing finite while comparison/progress proofs remain required.
+General nesting, dynamic range bounds and `while True` with a
 conditional break are not enabled by loop-else support.
 
 A loop's `else` suite executes exactly once on natural completion, including
@@ -880,8 +887,8 @@ address widths still match the depth-derived signature. Memory addresses do
 not acquire Table indexing's source in-range requirement.
 
 Multiple potentially simultaneous requests or writes to one physical port
-require an exclusivity proof or reject at link. Statement order and `after`
-do not create ports. Repeated byte reads may share a proven-equal full-width
+require an exclusivity proof or reject at link. Statement order does not create
+ports; retired `after` metadata cannot grant priority or another port. Repeated byte reads may share a proven-equal full-width
 address; a dominating read supplies a later equivalent access without adding
 a feedback dependency. Multiple snapshot readers do not claim a request port.
 The compiler checks these properties through actual owners and aliases.
@@ -1162,9 +1169,10 @@ Module-owned variables.
 - `@module` declares a reusable definition, typed positional inputs and a named
   output-type mapping. The selected root may have explicit ports.
 - A structural call such as `child = Child()` creates an instance. A call to
-  that instance inside a registered `@rule` binds its complete input signature.
-- Nested `@rule` functions are stateless Work computations. Defining a rule is
-  inert until its explicit registration in the module body.
+  that instance at Module scope binds its complete input signature.
+- Directly nested `@rule` functions declare autonomous Work computations.
+  Each declaration registers once per Module instance; its name denotes its
+  computed results at Module wiring sites. Explicit activation calls reject.
 - Storage is explicit: `dff(T=...)`, `dffe(T=...)` and the standard memory leaves
   own state. Ordinary modules and wires add no register delay.
 - Reads observe current Q throughout Work; Xfer commits prepared data and clock
@@ -1255,29 +1263,19 @@ from current inputs and old Q; existing output/input boundaries perform their
 usual type and range checks. Alias chains retain source kind, interval and
 mathematical provenance, including when captured by a rule.
 
-Local names are immutable in this structural slice. They cannot shadow inputs, static
-formals, instances, definitions, imports (including local import aliases)
-or active intrinsic grammar names. Rule names follow the qualified exception below. Direct right-hand references must already
-exist. Output mapping string keys do not declare variables, so a local and its
-output key may share a name. Locals after registration but before Return are
-available to deferred rule lowering; new pure locals after Return diagnose.
+Local names are immutable in this structural slice. They cannot shadow inputs,
+static formals, instances, definitions, imports or active intrinsic grammar names.
+A local Rule name is reserved for its autonomous declaration and computed results;
+ordinary data cannot reuse that name before or after the declaration. Use distinct
+names for saved values and callbacks. Output mapping keys do not declare variables,
+so an ordinary local and its output key may share a name.
 
-In ordinary structural and behavioral Module/System bodies, an ordinary data
-local may use the name of a directly nested Rule declared later. Before that
-declaration, references use the existing local value. At and after the declaration,
-the name denotes the Rule: reading, copying or updating it as data rejects.
-Previously saved aliases, bound child inputs and helper declaration snapshots
-retain their original SSA values. An earlier Return also retains its original
-binding when its expressions are lowered later. A helper declared after the Rule
-cannot capture the retired data spelling; capture an earlier alias instead.
-
-This exception does not permit data assignment after an earlier registration,
-calling a name while it denotes data, Rule-to-data rebinding, or collisions with
-storage and instance names. It preserves the structural profile's binding and
-forward-registration rules, local immutability, and whole-scope
-import/type/intrinsic shadow checks. Fixed-result bindings retain their existing
-shape and freshness restrictions. Typed transaction and Method-owner binding
-rules are not extended by this exception.
+Ordinary wires captured by a Rule must be available in its lexical binding
+snapshot. Rule results are connected at Module wiring sites, not captured by a
+second local Rule. Previously saved ordinary aliases retain their SSA values.
+General forward reads of ordinary locals and bindings after the Module's return
+remain rejected; explicit child connections retain their documented forward-wiring
+support. Fixed-result bindings retain their shape and freshness restrictions.
 
 Only a Call resolved to an existing module or trusted leaf declares an instance;
 a lexical shadow cannot redirect constructor lookup to an outer definition.
@@ -1290,7 +1288,8 @@ Naming does not add static-alias evaluation for counts, widths or parameters.
 A captured singleton interval is not proof of a literal mask. Compute a complete
 masked candidate before capture when its boundary needs that proof. Ordinary
 same-width wire/bitwise uses retain their existing behavior. Both capture paths
-preserve numeric facts, but source instrumentation emission remains unsupported.
+preserve numeric facts. Assertions and observations follow the supported System
+and managed-RTL lifecycle described in the execution sections below.
 
 ## Exact integer expressions
 
@@ -1406,8 +1405,8 @@ for the broader obligations.
 Native sampled-admission lowering and both backend lifecycles support same-domain
 transactions over admitted finite Bits, Enum, Struct, Table, Boolean and bounded
 Integer state, with unordered writers admitted only when their actual write
-footprints are disjoint or their grants are proven mutually exclusive. Local
-ordered groups retain their documented precedence. Transaction bodies may be
+footprints are disjoint or their grants are proven mutually exclusive. Calls
+within one outer transaction retain statement-order candidate visibility. Transaction bodies may be
 straight-line or use bounded
 statement `if`/`elif`/`else`/`pass` branches with finite nesting. The lowerer
 emits sampled-check metadata and
@@ -1435,8 +1434,9 @@ value-call behavior.
 
 This source-compilation subset retains finite state, sequential local
 assignments/calls, typed scalar/Struct/fixed-tuple results, lambda guards and
-static zero-authored-argument Method-owner construction with no ordinary result.
-Rule-only value Modules retain their ordinary typed inputs and results. A branch
+ordinary typed Module inputs and results alongside Method interfaces.
+Same-source global Rule templates retain explicit actual bindings; importing a
+global writable Rule template as a published callable is not admitted. A branch
 may update admitted owners and join changed scalar locals, nominal Enums,
 finite acyclic nominal Structs and admitted fixed Table payloads.
 Changed nominal values on both arms must have the same nominal type; equal
@@ -1494,8 +1494,7 @@ of one actual owner are admitted only through independent write-footprint
 disjointness or grant-exclusivity proofs; an ancestor partial lane is composed
 with its captured Q before crossing a hierarchy port.
 Calls share their outer transaction's candidate versions; saved ordinary values
-remain snapshots. Independent Rules read old Q, regardless of registration
-order unless ordered by explicit or propagated callable `after`. Separate structural instances
+remain snapshots. Independent Rules read old Q regardless of declaration order. Separate structural instances
 retain independent state. Scalar storage leaves use a plain DFF only for a
 single local Rule candidate whose materialized commit enable folds to constant
 one. Composed ordered/unordered or incoming candidates retain DFFE until their
@@ -1578,25 +1577,12 @@ reference reject. A link root cannot expose unbound reference formals. Reference
 contracts and actual bindings survive independent source-interface publication;
 MLIR generates ordinary hierarchy ports and atomic control connections.
 
-Rule and Method declaration `after` contracts also survive publication, even
-when the provider registers no autonomous transaction. MLIR computes their
-transitive closure before mapping calls to actual instances and outer
-transactions. Thus `a → b → c` implies `a → c` when no caller invokes `b`.
-Every possible conditional call participates; unreachable runtime branches do
-not remove static ordering edges. Internal calls must respect this order.
-Cycles reject with their declaration or registration context. The same method
-called by two transactions supplies no edge or implicit arbitration.
-
-Ordered successors evaluate guards and computations from the same entry state.
-For each state, forwarding selects a predecessor's candidate with
-`predecessor_fire AND state_write_intent`; otherwise it retains the previously
-effective candidate or old Q. The predecessor's entire transaction determines
-fire, including late guards on other owners. Forwarding covers all relevant
-states and passes through nonwriting intermediate transactions. A predecessor
-that does not fire leaves successors eligible, while assertion failure retains
-whole-system zero commit. Static ordering, arguments, results, availability,
-guards and fire must together form an acyclic combinational graph. This profile
-adds no cycle, dynamic reference or cross-domain transaction.
+Independent callbacks have no cross-transaction candidate forwarding. The retired
+`after`/`ac.callable_after`/`ac.after` contracts and EHR entry metadata reject in
+source IR, interfaces and loaded artifacts. Same-callback calls preserve their
+sequential candidates and snapshots. Multiple writers require disjointness or
+exclusivity; source order is not arbitration. Explicit combinational connections
+use existing dependency analysis and must remain acyclic after state cuts.
 
 A writable owner passed as an actual argument retains that owner through nested
 formal calls. Rebinding the formal proposes a new candidate to that owner;

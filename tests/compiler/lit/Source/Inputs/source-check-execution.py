@@ -203,18 +203,32 @@ def main():
         }
         owner = functions[module_name]
         expected = []
-        for call, registration in nodes:
-            if not isinstance(call, ast.Call) or not isinstance(call.func, ast.Name):
-                continue
-            if call not in list(ast.walk(owner)) or call.func.id not in functions:
-                continue
-            rule = functions[call.func.id]
-            if not any(
-                (isinstance(d, ast.Name) and d.id == "rule")
-                or (isinstance(d, ast.Attribute) and d.attr == "rule")
-                for d in rule.decorator_list
+
+        def is_rule(function):
+            return any(
+                (isinstance(decorator, ast.Name) and decorator.id == "rule")
+                or (isinstance(decorator, ast.Attribute) and decorator.attr == "rule")
+                for decorator in function.decorator_list
+            )
+
+        registrations = []
+        for node, registration in nodes:
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node in owner.body
+                and is_rule(node)
             ):
-                continue
+                registrations.append((node, registration))
+            elif (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node in set(ast.walk(owner))
+                and node.func.id in functions
+            ):
+                rule = functions[node.func.id]
+                if rule in syntax.body and is_rule(rule):
+                    registrations.append((rule, registration))
+        for rule, registration in registrations:
             symbol = "execution." + name + "." + module_name
             rule_nodes = set(ast.walk(rule))
             compiler_sites = [

@@ -45,12 +45,10 @@ def source(shape=2, profile="byte", repeated=False):
     def read() -> PAYLOAD:
         return memory.read(1)
 '''.replace("PAYLOAD", method_type)
-    if shape == 0:
-        text += "\n    worker = Worker(0x1234)\n"
     worker_type = "ac.u24" if generic else "ac.u16"
-    text += "\n\n@ac.module\ndef Worker(seed: " + worker_type + "):\n"
-    path = '".."' if shape == 0 else '"..", "store"' if shape == 1 else '"..", "..", "remote", "store"'
-    text += "    store = ac.instance_ref(Store, " + path + ")\n    phase: ac.u3 = 0\n"
+    reference_type = "Remote" if shape == 2 else "Store"
+    text += "\n\n@ac.module\ndef Worker(seed: " + worker_type + ", store: " + reference_type + "):\n"
+    text += "    phase: ac.u3 = 0\n"
     text += '''
     @ac.rule
     def step() -> None:
@@ -70,7 +68,6 @@ def source(shape=2, profile="byte", repeated=False):
             ac.log("info", "memory-after", CURRENT)
         phase = phase + 1
 
-    step()
 '''.replace("LOW", "Packet(tag=26, byte=188)" if nominal else "seed").replace(
         "HIGH", "Packet(tag=21, byte=68)" if nominal else "0xAB00").replace(
         "LATER_REQUEST", "if phase == 2:\n                store.request()" if synchronous else "pass").replace(
@@ -87,20 +84,33 @@ def Remote():
 
 
 @ac.module
-def Branch(seed: ac.u16):
-    worker = Worker(seed)
+def Branch(seed: ac.u16, store: Remote):
+    worker = Worker(seed, store)
 '''
+        # The Remote owns storage; its declared methods forward only to that
+        # direct child. Workers receive this authenticated interface explicitly.
+        forwarded = ""
+        for method in ("write_low", "write_high"):
+            forwarded += "    @ac.method\n    def " + method + "(value: " + method_type + ") -> None:\n        store." + method + "(value)\n"
+        if synchronous:
+            forwarded += "    @ac.method\n    def request() -> None:\n        store.request()\n"
+        method = "result" if synchronous else "read"
+        forwarded += "    @ac.method\n    def " + method + "() -> " + method_type + ":\n        return store." + method + "()\n"
+        text = text.replace("    store = Store()\n\n\n@ac.module\ndef Branch", "    store = Store()\n" + forwarded + "\n\n@ac.module\ndef Branch")
     if shape == 0:
-        body = "    store = Store()\n"
+        # The former ancestor route is now a declared interface carried through
+        # a parent client; no implicit self/ancestor handle is constructed.
+        text += "\n@ac.module\ndef Client(seed: ac.u16, store: Store):\n    worker = Worker(seed, store)\n"
+        body = "    store = Store()\n    client = Client(seed, store)\n"
     elif shape == 1:
-        body = "    store = Store()\n    worker = Worker(seed)\n"
+        body = "    store = Store()\n    worker = Worker(seed, store)\n"
     else:
-        body = "    remote = Remote()\n    branch = Branch(seed)\n"
+        body = "    remote = Remote()\n    branch = Branch(seed, remote)\n"
     if repeated:
         text += "\n\n@ac.module\ndef Pair(seed: ac.u16):\n" + body
         top_body = "    left = Pair(0x1234)\n    right = Pair(0x5678)\n"
     else:
-        top_body = body.replace("seed)", "0x1234)")
+        top_body = body.replace("seed,", "0x1234,")
     text += "\n\n@ac.system(samples=" + repr(SAMPLES) + ")\ndef Top():\n" + top_body
     if generic:
         text = text.replace("Store()", "Store(WIDTH=24)")

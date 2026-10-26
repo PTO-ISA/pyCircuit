@@ -8,15 +8,15 @@ def HierarchyQueue():
     cycle: ac.u8 = 0
     tokens = ac.queue[ac.u8](depth=1, latency=1)
 
-    @ac.rule
+    @ac.method
     def send(value: ac.u8) -> None:
         tokens.push(value)
 
-    @ac.rule
+    @ac.method
     def selected() -> ac.u1:
         return phase
 
-    @ac.rule
+    @ac.method
     def take() -> ac.u8:
         return tokens.pop()
 
@@ -31,22 +31,19 @@ def HierarchyQueue():
         phase = ~phase  # noqa: F841 - captured hardware state or child instance.
         cycle = cycle + 1  # noqa: F841 - captured hardware state or child instance.
 
-    local_take()
-    tick()
-
 
 @ac.module
 def HierarchyRelay():
     child = HierarchyQueue()
 
-    @ac.rule
+    @ac.method
     def send(value: ac.u8) -> None:
         child.send(value)
 
-    @ac.rule
+    @ac.method
     def selected() -> ac.u1:
         return child.selected()
 
-    @ac.rule
+    @ac.method
     def take() -> ac.u8:
         return child.take()

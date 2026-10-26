@@ -10,7 +10,7 @@ def BitsOwner():  # noqa: N802
     def write(payload: ac.u4, enabled: ac.u1) -> None:
         stored = payload
 
-    @ac.method(after=(write,))
+    @ac.method
     def read() -> ac.u4:
         return stored
 

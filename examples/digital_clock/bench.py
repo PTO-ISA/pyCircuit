@@ -174,7 +174,6 @@ def ExerciseDigitalClockSettings():  # noqa: N802
         log("info", "digital_clock.setting_mode", dut.setting_mode)
         log("info", "digital_clock.colon_blink", dut.colon_blink)
 
-    check_and_advance()
     advance(phase)
 
 
@@ -227,5 +226,4 @@ def ExerciseDigitalClock():  # noqa: N802
             assert dut.setting_mode == expected_mode, "digital_clock: setting mode"
             assert dut.colon_blink == expected_blink, "digital_clock: second divider"
 
-    check_calendar()
     advance(phase)

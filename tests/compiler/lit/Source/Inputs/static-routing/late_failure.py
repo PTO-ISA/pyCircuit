@@ -18,8 +18,7 @@ def Counter():
 
 
 @ac.module
-def Worker():
-    peer = ac.instance_ref(Counter, "..", "peer")
+def Worker(peer: Counter):
     progress: ac.u8 = 0
 
     @ac.rule
@@ -30,17 +29,14 @@ def Worker():
         assert previous == 13, "routed_late_failure"
         ac.log("info", "accepted", previous, progress)
 
-    step()
 
 
 @ac.system
 def Top():
     peer = Counter()
-    worker = Worker()
+    worker = Worker(peer)
     sibling: ac.u8 = 29
 
     @ac.rule
     def advance() -> None:
         sibling = sibling + 5
-
-    advance()

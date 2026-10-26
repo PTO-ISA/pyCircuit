@@ -359,6 +359,48 @@ protected:
     state.addAttribute("occurrence", occurrence(lexical.getSymName(), index));
     return mlir::cast<SourceMethodCallOp>(builder.create(state));
   }
+  // Every hierarchy hop crosses its immediate child's public Method boundary.
+  // The wrapper keeps the provider's scalar contract and adds one real frame.
+  SourceMethodOp forwardingMethod(ModuleOp lexical, SourceMethodOp contract,
+                                  ModuleOp child, llvm::StringRef receiver,
+                                  llvm::StringRef name, unsigned index) {
+    auto *copy = contract->clone();
+    auto wrapper = mlir::cast<SourceMethodOp>(copy);
+    wrapper->setAttr("sym_name", builder.getStringAttr(name));
+    wrapper->setAttr("occurrence", occurrence(lexical.getSymName(), index));
+    llvm::SmallVector<mlir::Attribute> parameters;
+    for (auto raw : wrapper->getAttrOfType<mlir::ArrayAttr>("ac.parameters")) {
+      mlir::NamedAttrList fields(mlir::cast<mlir::DictionaryAttr>(raw));
+      fields.set("origin", occurrence(lexical.getSymName(), index));
+      parameters.push_back(fields.getDictionary(&context));
+    }
+    wrapper->setAttr("ac.parameters", builder.getArrayAttr(parameters));
+    auto *yes = contract.getCaptures()[0].getDefiningOp()->clone();
+    auto &body = lexical.getBody().front();
+    auto where = body.empty() || !body.back().hasTrait<mlir::OpTrait::IsTerminator>()
+                     ? body.end() : std::prev(body.end());
+    body.getOperations().insert(where, yes);
+    wrapper->setOperands(yes->getResults());
+    for (auto &region : wrapper->getRegions()) {
+      region.getBlocks().clear();
+      auto *local = new mlir::Block;
+      region.push_back(local);
+      for (auto type : wrapper.getFunctionType().getInputs())
+        local->addArgument(type, wrapper.getLoc());
+      auto path = local->addArgument(yes->getResult(0).getType(), wrapper.getLoc());
+      builder.setInsertionPointToEnd(local);
+      if (&region == &wrapper.getGuard())
+        yield(path, wrapper.getLoc());
+      else {
+        auto nested = call(path, local->getArguments().drop_back(), lexical,
+                           child.getSymName(), contract.getSymName(), receiver,
+                           wrapper.getFunctionType().getResults(), index + 1);
+        yield(nested->getResults(), wrapper.getLoc());
+      }
+    }
+    body.getOperations().insert(where, copy);
+    return wrapper;
+  }
   // A provider seed is a lexical ordinary value, deliberately different from
   // the caller's delta. The same definition receives different seeds at its
   // two occurrences. No test oracle depends on generated port names/order.
@@ -438,6 +480,7 @@ protected:
       }
     }
     relayBody.push_back(methodCopy);
+    forwardingMethod(relay, peek, provider, "counter", "peek", 20);
     builder.setInsertionPointToEnd(&relayBody);
     yield(counter->getResults(), relay.getLoc());
 
@@ -488,11 +531,7 @@ protected:
         } else {
           auto secondCall = call(path, firstCall->getResults(), root, "Relay",
                                  "forward", "left", {byte}, 5);
-          auto old = call(path, {}, root, "Owner", "peek", "left", {byte}, 6);
-          old->setAttr(
-              "instance_path",
-              builder.getArrayAttr({builder.getStringAttr("left"),
-                                    builder.getStringAttr("counter")}));
+          auto old = call(path, {}, root, "Relay", "peek", "left", {byte}, 6);
           yield({firstCall->getResult(0), secondCall->getResult(0),
                  old->getResult(0)},
                 root.getLoc());
@@ -1753,109 +1792,111 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
-       OriginalSourceProofAuthenticatesDiamondAfterClosureInPostorder) {
+       RetiredDiamondAfterRejectsWithoutPublishingHardware) {
   auto file = parse();
   ASSERT_TRUE(file);
   auto a = addEmptyTransaction(*file, "after_a", 100);
   auto b = addEmptyTransaction(*file, "after_b", 102);
   auto c = addEmptyTransaction(*file, "after_c", 104);
   auto d = addEmptyTransaction(*file, "after_d", 106);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
   b->setAttr("ac.after", builder.getArrayAttr({a.getOccurrence()}));
   c->setAttr("ac.after", builder.getArrayAttr({a.getOccurrence()}));
   d->setAttr("ac.after",
              builder.getArrayAttr({b.getOccurrence(), c.getOccurrence()}));
-  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
-      << diagnostics;
-
-  SourceTransactionStateAnalysis analysis(file->getOperation());
-  ASSERT_TRUE(analysis.isValid()) << diagnostics;
-  auto *bPlan = analysis.lookup(b);
-  auto *cPlan = analysis.lookup(c);
-  auto *dPlan = analysis.lookup(d);
-  ASSERT_NE(bPlan, nullptr);
-  ASSERT_NE(cPlan, nullptr);
-  ASSERT_NE(dPlan, nullptr);
-  ASSERT_EQ(bPlan->predecessors.size(), 1u);
-  EXPECT_EQ(bPlan->predecessors[0], a);
-  ASSERT_EQ(cPlan->predecessors.size(), 1u);
-  EXPECT_EQ(cPlan->predecessors[0], a);
-  ASSERT_EQ(dPlan->predecessors.size(), 3u);
-  EXPECT_EQ(dPlan->predecessors[0], a);
-  EXPECT_EQ(dPlan->predecessors[1], b);
-  EXPECT_EQ(dPlan->predecessors[2], c);
-
   auto before = identities(*file);
+  auto text = print(file->getOperation());
+  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+  EXPECT_NE(diagnostics.find("after ordering is retired"), std::string::npos)
+      << diagnostics;
+  unchanged(*file, before);
+  EXPECT_EQ(text, print(file->getOperation()));
+
+  auto analysis = capture([&] {
+    return std::make_unique<SourceTransactionStateAnalysis>(file->getOperation());
+  });
+  ASSERT_FALSE(analysis->isValid());
+  EXPECT_NE(diagnostics.find("after ordering is retired"), std::string::npos)
+      << diagnostics;
   HardwareSourceCheckLimits limits;
   detail::SourceCheckBudget preparationBudget(limits);
   auto prepared = capture([&] {
-    return acir::detail::prepareTransactionLowering(*file, analysis,
+    return acir::detail::prepareTransactionLowering(*file, *analysis,
                                                     preparationBudget);
   });
-  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
-  detail::SourceCheckBudget materializationBudget(limits);
-  auto materialized = capture([&] {
-    return acir::detail::materializeTransactionLowering(*prepared,
-                                                        materializationBudget);
-  });
-  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
-  detail::SourceCheckBudget proofBudget(limits);
-  EXPECT_TRUE(mlir::succeeded(capture([&] {
-    return acir::detail::verifyTransactionMaterialization(
-        *prepared, *materialized, proofBudget);
-  }))) << diagnostics;
+  EXPECT_TRUE(mlir::failed(prepared));
   unchanged(*file, before);
+  EXPECT_EQ(text, print(file->getOperation()));
+  // The registered route/lower pipeline must reject the same diamond rather
+  // than silently dropping predecessor metadata and publishing new hardware.
+  rejects(*file, "after ordering is retired");
 }
 
 TEST_F(TransactionLoweringTest,
-       OriginalSourceProofDoesNotReuseAfterClosureAcrossInvocations) {
-  auto file = parse();
-  ASSERT_TRUE(file);
-  auto predecessor = addEmptyTransaction(*file, "cache_predecessor", 120);
-  auto dependent = addEmptyTransaction(*file, "cache_dependent", 122);
-  dependent->setAttr("ac.after",
-                     builder.getArrayAttr({predecessor.getOccurrence()}));
-  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
-      << diagnostics;
+       OriginalSourceProofRejectsAfterAddedSinceAnEarlierSuccessfulProof) {
+  for (bool callable : {false, true}) {
+    for (bool empty : {false, true}) {
+      SCOPED_TRACE(callable);
+      SCOPED_TRACE(empty);
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto predecessor = addEmptyTransaction(*file, "cache_predecessor", 120);
+      auto dependent = addEmptyTransaction(*file, "cache_dependent", 122);
+      ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+          << diagnostics;
+      SourceTransactionStateAnalysis analysis(file->getOperation());
+      ASSERT_TRUE(analysis.isValid()) << diagnostics;
+      HardwareSourceCheckLimits limits;
+      detail::SourceCheckBudget preparationBudget(limits);
+      auto prepared = capture([&] {
+        return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                        preparationBudget);
+      });
+      ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+      detail::SourceCheckBudget materializationBudget(limits);
+      auto materialized = capture([&] {
+        return acir::detail::materializeTransactionLowering(
+            *prepared, materializationBudget);
+      });
+      ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+      detail::SourceCheckBudget firstProofBudget(limits);
+      ASSERT_TRUE(mlir::succeeded(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *materialized, firstProofBudget);
+      }))) << diagnostics;
 
-  SourceTransactionStateAnalysis analysis(file->getOperation());
-  ASSERT_TRUE(analysis.isValid()) << diagnostics;
-  auto *plan = analysis.lookup(dependent);
-  ASSERT_NE(plan, nullptr);
-  ASSERT_EQ(plan->predecessors.size(), 1u);
-  EXPECT_EQ(plan->predecessors[0], predecessor);
-  HardwareSourceCheckLimits limits;
-  detail::SourceCheckBudget preparationBudget(limits);
-  auto prepared = capture([&] {
-    return acir::detail::prepareTransactionLowering(*file, analysis,
-                                                    preparationBudget);
-  });
-  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
-  detail::SourceCheckBudget materializationBudget(limits);
-  auto materialized = capture([&] {
-    return acir::detail::materializeTransactionLowering(*prepared,
-                                                        materializationBudget);
-  });
-  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
-  detail::SourceCheckBudget firstProofBudget(limits);
-  ASSERT_TRUE(mlir::succeeded(capture([&] {
-    return acir::detail::verifyTransactionMaterialization(
-        *prepared, *materialized, firstProofBudget);
-  }))) << diagnostics;
-
-  auto candidateBefore = print(materialized->module->getOperation());
-  dependent->setAttr("ac.after", builder.getArrayAttr({}));
-  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
-      << diagnostics;
-  detail::SourceCheckBudget secondProofBudget(limits);
-  EXPECT_TRUE(mlir::failed(capture([&] {
-    return acir::detail::verifyTransactionMaterialization(
-        *prepared, *materialized, secondProofBudget);
-  })));
-  EXPECT_NE(diagnostics.find("original predecessor closure differs"),
-            std::string::npos)
-      << diagnostics;
-  EXPECT_EQ(print(materialized->module->getOperation()), candidateBefore);
-  EXPECT_TRUE(dependent->getAttrOfType<mlir::ArrayAttr>("ac.after").empty());
+      mlir::Operation *changed = dependent;
+      mlir::Attribute target = predecessor.getOccurrence();
+      if (callable) {
+        changed = named<SourceMethodOp>(*file, "relay");
+        target = named<SourceMethodOp>(*file, "bump").getOccurrence();
+      }
+      changed->setAttr(callable ? "ac.callable_after" : "ac.after",
+                       empty ? builder.getArrayAttr({})
+                             : builder.getArrayAttr({target}));
+      auto sourceBefore = identities(*file);
+      auto sourceText = print(file->getOperation());
+      auto candidateBefore = identities(*materialized->module);
+      auto candidateText = print(materialized->module->getOperation());
+      detail::SourceCheckBudget secondProofBudget(limits);
+      EXPECT_TRUE(mlir::failed(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *materialized, secondProofBudget);
+      })));
+      EXPECT_NE(diagnostics.find("after ordering is retired"), std::string::npos)
+          << diagnostics;
+      unchanged(*file, sourceBefore);
+      EXPECT_EQ(sourceText, print(file->getOperation()));
+      unchanged(*materialized->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(materialized->module->getOperation()));
+      // A prepared-plan cache and an already authenticated candidate do not
+      // grant authority to newly attached ordering metadata, even when empty.
+      rejects(*file, "after ordering is retired");
+      unchanged(*materialized->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(materialized->module->getOperation()));
+    }
+  }
 }
 
 TEST_F(TransactionLoweringTest,
@@ -2325,12 +2366,9 @@ TEST_F(TransactionLoweringTest,
   call(forward.getBody().front().getArgument(1),
        forward.getBody().front().getArgument(0), relay, "Owner", "bump",
        "alpha", {provider.getFunctionType().getResult(0)}, 3);
-  root.walk([&](SourceMethodCallOp op) {
-    if (op.getInstancePath().size() == 2)
-      op->setAttr("instance_path",
-                  builder.getArrayAttr({builder.getStringAttr("left"),
-                                        builder.getStringAttr("zeta")}));
-  });
+  first<SourceMethodCallOp>(named<SourceMethodOp>(relay, "peek").getBody())
+      ->setAttr("instance_path",
+                builder.getArrayAttr({builder.getStringAttr("zeta")}));
   ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
       << diagnostics;
   auto analysis = capture([&] {
@@ -2920,6 +2958,10 @@ TEST_F(TransactionLoweringTest,
                              provider.getFunctionType().getResults());
     auto allocation = addInstance(layer, child, "node",
                                   layer.getBody().front().getArguments(), 0);
+    auto forward = named<SourceMethodOp>(child, i ? "forward" : "bump");
+    forwardingMethod(layer, forward, child, "node", "forward", 10);
+    forwardingMethod(layer, named<SourceMethodOp>(child, "peek"), child,
+                     "node", "peek", 20);
     builder.setInsertionPointToEnd(&layer.getBody().front());
     yield(allocation->getResults(), layer.getLoc());
     child = layer;
@@ -2928,8 +2970,6 @@ TEST_F(TransactionLoweringTest,
   instance(root, "left")
       ->setAttr("callee",
                 mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
-  llvm::SmallVector<mlir::Attribute> path{builder.getStringAttr("left")};
-  path.append(depth, builder.getStringAttr("node"));
   for (auto call : named<SourceTransactionOp>(root, "run")
                        .getBody()
                        .front()
@@ -2937,10 +2977,11 @@ TEST_F(TransactionLoweringTest,
     auto method = call.getCallee().getNestedReferences().back().getValue();
     call->setAttr("callee",
                   mlir::SymbolRefAttr::get(
-                      &context, "Owner",
+                      &context, child.getSymName(),
                       {mlir::FlatSymbolRefAttr::get(
-                          &context, method == "peek" ? "peek" : "bump")}));
-    call->setAttr("instance_path", builder.getArrayAttr(path));
+                          &context, method == "peek" ? "peek" : "forward")}));
+    call->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("left")}));
   }
   rejects(*file);
   EXPECT_TRUE(diagnostics.find("budget") != std::string::npos ||
@@ -2980,6 +3021,10 @@ TEST_F(TransactionLoweringTest,
                              child.getFunctionType().getResults());
     auto allocation = addInstance(layer, child, "node",
                                   layer.getBody().front().getArguments(), 0);
+    auto forward = named<SourceMethodOp>(child, "forward");
+    forwardingMethod(layer, forward, child, "node", "forward", 10);
+    forwardingMethod(layer, named<SourceMethodOp>(child, "peek"), child,
+                     "node", "peek", 20);
     builder.setInsertionPointToEnd(&layer.getBody().front());
     yield(allocation->getResults(), layer.getLoc());
     child = layer;
@@ -2989,9 +3034,6 @@ TEST_F(TransactionLoweringTest,
   instance(root, "left")
       ->setAttr("callee",
                 mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
-  llvm::SmallVector<mlir::Attribute> path{builder.getStringAttr("left")};
-  path.append(depth, builder.getStringAttr("node"));
-  path.push_back(builder.getStringAttr("counter"));
   auto run = named<SourceTransactionOp>(root, "run");
   llvm::SmallVector<SourceMethodCallOp> calls;
   llvm::append_range(calls, run.getBody().front().getOps<SourceMethodCallOp>());
@@ -3000,8 +3042,10 @@ TEST_F(TransactionLoweringTest,
   active->setAttr(
       "callee",
       mlir::SymbolRefAttr::get(
-          &context, "Owner", {mlir::FlatSymbolRefAttr::get(&context, "bump")}));
-  active->setAttr("instance_path", builder.getArrayAttr(path));
+          &context, child.getSymName(),
+          {mlir::FlatSymbolRefAttr::get(&context, "forward")}));
+  active->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("left")}));
   run.getBody().front().getTerminator()->setOperands(
       {active.getResult(0), active.getResult(0), active.getResult(0)});
   for (unsigned i = 1; i < calls.size(); ++i)

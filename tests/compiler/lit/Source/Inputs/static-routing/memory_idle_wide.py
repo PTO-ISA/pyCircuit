@@ -19,17 +19,15 @@ def Store():
         memory.write(0, value)
 
 @ac.module
-def Worker():
-    store = ac.instance_ref(Store, "..", "store")
+def Worker(store: Store):
 
     @ac.rule
     def step() -> None:
         store.write(Packet(wide=0, tag=0))
 
-    step()
 
 @ac.system(samples=((0, 0), (1, 0), (0, 0), (1, 0)))
 def Top():
     store = Store()
-    worker = Worker()
+    worker = Worker(store)
 '''

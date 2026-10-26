@@ -6,11 +6,11 @@ import pycircuit as ac
 def SharedLeaf():
     tokens = ac.queue[ac.u8](depth=1, latency=1)
 
-    @ac.rule
+    @ac.method
     def push(value: ac.u8) -> None:
         tokens.push(value)
 
-    @ac.rule
+    @ac.method
     def take() -> ac.u8:
         return tokens.pop()
 
@@ -23,7 +23,6 @@ def CallerA():
     def call() -> None:
         child.push(7)
 
-    call()
 
 
 @ac.module
@@ -40,5 +39,3 @@ def Top():
     @ac.rule
     def tick() -> None:
         cycle = cycle + 1  # noqa: F841 - captured hardware state or child instance.
-
-    tick()

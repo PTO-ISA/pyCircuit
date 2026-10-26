@@ -120,5 +120,3 @@ def ExerciseElseReturns():
         )
         seed = seed + 3
         phase = phase + 1
-
-    advance()

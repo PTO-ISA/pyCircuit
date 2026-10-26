@@ -44,11 +44,9 @@ def source_cases():
         worker = (FIXTURES / "worker.py").read_text()
         composition = (FIXTURES / "composition.py").read_text()
         if crossbranch:
-            worker = worker.replace('"..", "peer"', '"..", "..", "remote", "peer"')
-            worker = worker.replace('"..", "distinct"', '"..", "..", "remote", "distinct"')
             composition = composition.replace(
-                "    caller = Worker()\n", "\n\n@ac.module\ndef Branch():\n    caller = Worker()\n")
-            composition = composition.replace("    parent = Parent()", "    remote = Parent()\n    branch = Branch()")
+                "    caller = Worker(peer, distinct)\n",
+                "    branch = Branch(peer, distinct)\n\n\n@ac.module\ndef Branch(peer: Counter, distinct: Counter):\n    caller = Worker(peer, distinct)\n")
         cases.append(("crossbranch" if crossbranch else "sibling", [
             ("counter.py", (FIXTURES / "counter.py").read_text()),
             ("worker.py", worker), ("composition.py", composition)], "composition.Top"))
@@ -70,7 +68,6 @@ def source_cases():
     @ac.rule
     def check() -> None:
         assert ref.read() == 7, "descendant"
-    check()
 ''',
     }
     for name, declaration in declarations.items():
@@ -90,13 +87,12 @@ def Unused():
     unused_self = '''
 @ac.module
 def Unused():
-    ref = ac.instance_ref(Unused)
     @ac.method
     def read() -> ac.u8:
         return 11
     @ac.method
     def via_ref() -> ac.u8:
-        return ref.read()
+        return read()
 '''
     cases.append(("unused-self-definition", [("design.py", IMPORT + PEER + unused_self + TOP)], "design.Top"))
     return cases
@@ -119,12 +115,29 @@ def rejection_cases():
         "reference-payload": ('    ref = ac.instance_ref(Peer, "peer")\n    value: ac.u8 = ref\n', "unannotated"),
         "reference-return": ('    ref = ac.instance_ref(Peer, "peer")\n    @ac.method\n    def read() -> ac.u8:\n        return ref\n', "receiver"),
         "conditional-reference": ('    if True:\n        ref = ac.instance_ref(Peer, "peer")\n', "Module-body"),
-        "rule-local-reference": ('    @ac.rule\n    def step() -> None:\n        ref = ac.instance_ref(Peer, "peer")\n    step()\n', "Module-body"),
+        "rule-local-reference": ('    @ac.rule\n    def step() -> None:\n        ref = ac.instance_ref(Peer, "peer")\n', "Module-body"),
         "shadow-reference-formal": ('    ref = ac.instance_ref(Peer, "peer")\n    @ac.method\n    def read(ref: ac.u8) -> ac.u8:\n        return ref\n', "shadow"),
         "empty-wrong-provider": ('    ref = ac.instance_ref(Peer)\n', "current Module"),
     }
     cases = [(name, IMPORT + PEER + TOP + text, diagnostic)
              for name, (text, diagnostic) in declarations.items()]
+    cases.append(("retired-ancestor-method", IMPORT + """
+@ac.module
+def Parent():
+    @ac.method
+    def read() -> ac.u8:
+        return 7
+    child = Child()
+@ac.module
+def Child():
+    parent = ac.instance_ref(Parent, "..")
+    @ac.rule
+    def observe():
+        assert parent.read() == 7
+@ac.system
+def Top():
+    parent = Parent()
+""", "Rule receiver must be a direct child or declared Module-reference interface"))
     shadow = '''
 def instance_ref(value: ac.u8) -> ac.u8:
     return value
@@ -144,7 +157,6 @@ def link_rejection_cases():
     @ac.rule
     def check() -> None:
         assert ref.read() == 7, "topology required"
-    check()
 '''
     base = IMPORT + PEER + TOP + used
     wrong = '''
@@ -164,7 +176,6 @@ def Caller():
     @ac.rule
     def step() -> None:
         assert ref.read() == 7, "contextual caller"
-    step()
 '''
     return [
         ("missing-target", base.replace('Peer, "peer"', 'Peer, "missing"')),

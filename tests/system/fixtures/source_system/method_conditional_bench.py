@@ -20,7 +20,3 @@ def ExerciseConditionalMethods():
     @ac.rule
     def observe_after() -> None:
         ac.log("info", "conditional old after", left.read(), right.read())
-
-    observe_before()
-    drive()
-    observe_after()

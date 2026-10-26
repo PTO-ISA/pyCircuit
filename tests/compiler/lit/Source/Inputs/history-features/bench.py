@@ -19,7 +19,6 @@ def ResetInvalidateOrderSystem():
         assert dut.y == (phase if phase < 2 else 2), "counter old Q"
         log("info", "counter", dut.y)
 
-    drive()
     advance(phase)
 
 
@@ -38,7 +37,6 @@ def TraceDslSystem():
         ), "second leaf old Q"
         log("info", "trace", dut.y0, dut.y1)
 
-    drive()
     advance(phase)
 
 
@@ -54,5 +52,4 @@ def XzValueModelSystem():
         ), "capture old Q"
         log("info", "capture", dut.y)
 
-    drive()
     advance(phase)

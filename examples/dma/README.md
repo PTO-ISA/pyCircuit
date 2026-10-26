@@ -11,7 +11,11 @@ readback confirms the new value.
 owns its memory, controller state, and response Queues. The parent Rule performs
 the cross-Module operation
 `sram.enqueue_copy(dram.finish_read())`; the DRAM release and SRAM Queue push
-therefore form one atomic transaction.
+therefore form one atomic transaction. `finish_read` and `enqueue_copy` are
+callable Methods; controller service and parent forwarding Rules activate from
+their declarations. A shared response Method computes the current DRAM response
+for both the output callback and completion operations, so no callback captures
+another local Rule's result.
 
 The design retains seven Queues and two independent 16×u16 synchronous memories:
 

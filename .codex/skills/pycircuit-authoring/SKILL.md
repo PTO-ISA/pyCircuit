@@ -21,17 +21,18 @@ language reference and execution evidence determine supported features.
 - Do not expose `clk`, reset, register `q`/`d`, DFF/DFFE binding, proposal wires or
   commit controls in ordinary author-facing sources, including benchmark ports.
   ACIR analysis/lowering chooses storage and generates its control connections.
-- Rule definitions may be source-global like ordinary functions or nested to
-  capture Module locals. Calling/registering a Rule establishes its owner and
-  actual state bindings; its definition location does not. External Rules use
-  explicit parameters rather than capturing a caller's locals.
+- Directly nested Rules automatically register once per Module instance and
+  may capture Module inputs, local state and child outputs. Their names denote
+  results at Module wiring sites; do not add activation calls. Local formal
+  parameters require explicit default binding expressions. Source-global Rule
+  templates use explicit actual arguments and cannot capture caller locals.
 - Use one cohesive Rule for operations that must commit together. Separate
-  independent functions into separate Rules. Nested/cross-Module calls retain
-  the outer transaction; they do not create another commit or cycle.
+  independent functions into separate Rules. Method and source-global template
+  calls retain the outer transaction; they do not create another commit or cycle.
+  Callable component operations use Methods, independently of parameter count.
 - Statements inside a Rule see earlier assignments. A saved local is a snapshot.
-  Independent autonomous Rules observe committed values; explicit `after` on
-  callable declarations supplies ordered visibility and propagates to callers
-  of the same actual instance. Source definition order alone is not scheduling.
+  Independent autonomous Rules always observe committed current values. `after`
+  is retired; declaration order cannot expose another Rule's candidate updates.
 
 ## Keep interfaces small
 

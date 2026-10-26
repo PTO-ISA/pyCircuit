@@ -372,4 +372,4 @@ def BF16Fmac(  # noqa: N802
         valid_r = output_enable
         return result
 
-    return advance_fmac()
+    return advance_fmac

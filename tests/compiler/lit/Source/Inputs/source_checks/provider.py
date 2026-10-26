@@ -15,6 +15,4 @@ def Checked(ok: bool) -> Result:
     def inspect_second():
         assert ok, "provider"
         assert True
-    inspect_first()
-    inspect_second()
     return Result(value=ok)

@@ -3241,7 +3241,14 @@ void printPlan(llvm::raw_ostream &out, const TransactionStatePlan &plan) {
 
 #include "SourceTransactionMemoryProof.inc"
 
-SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
+namespace {
+// The constructor always takes the complete-plan path. Occurrence verification
+// shares its fresh native admission and hierarchy selection but never publishes
+// a partially populated TransactionStatePlan.
+void runTransactionStateAnalysis(
+    Operation *op, SmallVector<TransactionStatePlan, 0> &plans,
+    uint64_t &analysisWork, bool &valid,
+    std::optional<ArrayRef<const TransactionStatePlan *>> expected = std::nullopt) {
   auto package = dyn_cast_or_null<mlir::ModuleOp>(op);
   if (!package) {
     if (op)
@@ -3263,7 +3270,7 @@ SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
   SmallVector<TransactionStatePlan, 0> completed;
   SourceReceiverProofContext receiverProof;
   HardwareAnalysis hardware(package);
-  llvm::DenseSet<Operation *> allocated, referenceDefinitions, orderingDefinitions,
+  llvm::DenseSet<Operation *> allocated, referenceDefinitions,
       relativeDefinitions, contextualDefinitions;
   for (const auto &entry : inventory.operationCosts) {
     if (!budget.charge(entry.first)) return;
@@ -3284,38 +3291,9 @@ SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
   for (auto module : package.getOps<ModuleOp>()) {
     if (auto refs = module->getAttrOfType<ArrayAttr>("ac.reference_parameters");
         refs && !refs.empty()) referenceDefinitions.insert(module);
-    for (auto method : module.getBody().front().getOps<SourceMethodOp>())
-      if (auto after = method->getAttrOfType<ArrayAttr>("ac.callable_after");
-          after && !after.empty()) orderingDefinitions.insert(module);
-    for (auto transaction : module.getBody().front().getOps<SourceTransactionOp>())
-      if (auto after = transaction->getAttrOfType<ArrayAttr>("ac.after");
-          after && !after.empty()) orderingDefinitions.insert(module);
     for (auto allocation : module.getBody().front().getOps<InstanceOp>())
       if (auto child = dyn_cast_or_null<ModuleOp>(hardware.resolveCallee(allocation)))
         allocated.insert(child);
-  }
-  // Declaration order alone does not require allocation expansion when every
-  // invocation is lexical. In that case each allocation executes the same
-  // independently ordered local registrations; no call can connect two
-  // allocations. Prove this from the complete preflight operation inventory,
-  // rather than expanding at a root and rebuilding identical plans at their
-  // lexical owner. References and every nonlocal call retain occurrence-aware
-  // expansion, including calls in otherwise uncalled declarations/branches.
-  if (referenceDefinitions.empty() && !orderingDefinitions.empty()) {
-    bool lexicalCallsOnly = true;
-    budget.setPhase("lexical call inventory");
-    for (const auto &entry : inventory.operationCosts) {
-      if (!budget.charge(entry.first)) return;
-      auto call = dyn_cast<SourceMethodCallOp>(entry.first);
-      if (!call) continue;
-      auto owner = call->getParentOfType<ModuleOp>();
-      lexicalCallsOnly &= owner && !call->hasAttr("ac.reference") &&
-          !call->hasAttr("receiver_kind") && !call->hasAttr("ancestor_depth") &&
-          call.getInstancePath().empty() &&
-          call.getCalleeAttr().getRootReference() ==
-              SymbolTable::getSymbolName(owner);
-    }
-    if (lexicalCallsOnly) orderingDefinitions.clear();
   }
   // The executable System is the occurrence authority for relative receivers.
   // Retained ordinary definitions are still checked, but cannot supply an
@@ -3432,13 +3410,39 @@ SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
       bool affected = false;
       for (auto module : closures[root]) {
         if (!budget.charge(root)) return;
-        affected |= referenceDefinitions.contains(module) || orderingDefinitions.contains(module) ||
+        affected |= referenceDefinitions.contains(module) ||
                     relativeDefinitions.contains(module) || liftedDefinitions.contains(module);
       }
       if (!affected || !liftedRoots.insert(root).second) continue;
       changed = true;
       for (auto module : closures[root]) liftedDefinitions.insert(module);
     }
+  }
+  if (expected && liftedRoots.empty()) {
+    // Without an affected root, the existing builder creates exactly one plan
+    // per lexical registration, in the preflight inventory order. Revalidate
+    // the entire inventory here; caller-supplied routing hints never select
+    // this path and an omitted, duplicated or reordered callback fails closed.
+    budget.setPhase("lexical transaction occurrence verification");
+    if (expected->size() != inventory.transactions.size()) {
+      boundedError(package) << "transaction occurrence inventory differs";
+      return;
+    }
+    for (auto [index, transaction] : llvm::enumerate(inventory.transactions)) {
+      if (!budget.charge(transaction, 7)) return;
+      auto lexical = transaction->getParentOfType<ModuleOp>();
+      const auto *candidate = (*expected)[index];
+      if (!candidate || candidate->transaction != transaction ||
+          candidate->lexicalModule != lexical || candidate->routingModule != lexical ||
+          !candidate->registrationPath || !candidate->registrationPath.empty() ||
+          candidate->lexicalAnchor != 0 || candidate->ordinal != index) {
+        boundedError(transaction) << "transaction occurrence routing differs";
+        return;
+      }
+    }
+    analysisWork = budget.usedWork();
+    valid = true;
+    return;
   }
   auto build = [&](SourceTransactionOp transaction, ModuleOp root,
                    ArrayRef<InstanceOp> path) -> LogicalResult {
@@ -3476,66 +3480,8 @@ SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
     };
     if (failed(expand(root, 0))) return;
   }
-  // Declaration order is closed before looking at calls. An uncalled method
-  // may carry a required intermediate edge (a -> b -> c).
-  budget.setPhase("callable declaration order closure");
-  llvm::DenseMap<Operation *, SmallVector<SourceMethodOp, 0>> callableAncestors;
-  llvm::DenseMap<Operation *, unsigned> callableColors;
-  SmallVector<SourceMethodOp, 0> callableStack;
-  std::function<LogicalResult(SourceMethodOp, unsigned)> visitCallable =
-      [&](SourceMethodOp method, unsigned depth) -> LogicalResult {
-    if (depth > maxDepth || !budget.charge(method)) return failure();
-    if (callableColors.lookup(method) == 1) {
-      auto diagnostic = method.emitOpError() << "callable after dependency graph is cyclic";
-      for (auto participant : callableStack) {
-        if (!budget.charge(method)) return failure();
-        diagnostic.attachNote(participant.getLoc())
-            << "callable declaration @" << participant.getSymName()
-            << " occurrence=" << participant.getOccurrence();
-      }
-      return failure();
-    }
-    if (callableColors.lookup(method) == 2) return success();
-    callableColors[method] = 1;
-    if (!budget.reserve(method, callableStack, 1)) return failure();
-    callableStack.push_back(method);
-    llvm::DenseSet<Operation *> seen;
-    if (auto after = method->getAttrOfType<ArrayAttr>("ac.callable_after"))
-      for (Attribute identity : after) {
-        SourceMethodOp predecessor;
-        unsigned matches = 0;
-        for (auto possible : method->getParentOfType<ModuleOp>().getBody().front().getOps<SourceMethodOp>()) {
-          if (!budget.charge(method)) return failure();
-          if (detail::compareClosedSourceStructure(possible.getOccurrence(), identity) == 0) {
-            predecessor = possible;
-            ++matches;
-          }
-        }
-        if (matches != 1 || predecessor == method)
-          return method.emitOpError() << "callable after target requires another local declaration";
-        if (failed(visitCallable(predecessor, depth + 1))) return failure();
-        auto append = [&](SourceMethodOp ancestor) {
-          if (!seen.insert(ancestor).second) return true;
-          auto &ancestors = callableAncestors[method];
-          if (!budget.chargeStorage<SourceMethodOp>(method, 1) ||
-              !budget.reserve(method, ancestors, 1)) return false;
-          ancestors.push_back(ancestor);
-          return true;
-        };
-        for (auto ancestor : callableAncestors[predecessor])
-          if (!append(ancestor)) return failure();
-        if (!append(predecessor)) return failure();
-      }
-    callableStack.pop_back();
-    callableColors[method] = 2;
-    return success();
-  };
-  for (auto module : package.getOps<ModuleOp>())
-    for (auto method : module.getBody().front().getOps<SourceMethodOp>())
-      if (failed(visitCallable(method, 0))) return;
-
   // Compute the connected transaction components before choosing the physical
-  // routing ancestor. Shared state, declaration ordering and registrations in
+  // routing ancestor. Shared state and registrations in
   // one lexical allocation keep a component together. Repeated occurrences
   // of one lexical registration also close together: a shared definition must
   // never execute a retained local copy as well as a routed occurrence.
@@ -3570,14 +3516,6 @@ SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
         for (const auto &right : b.owners) {
           if (!budget.charge(a.transaction)) return;
           connected |= left.declaration == right.declaration && left.instancePath == right.instancePath;
-        }
-      for (const auto &left : a.frames)
-        for (const auto &right : b.frames) {
-          if (!budget.charge(a.transaction)) return;
-          if (!left.method || !right.method ||
-              a.instances[left.anchor].occurrencePath != b.instances[right.anchor].occurrencePath) continue;
-          connected |= llvm::is_contained(callableAncestors[left.method], right.method) ||
-                       llvm::is_contained(callableAncestors[right.method], left.method);
         }
       if (connected) {
         auto left = leader(i), right = leader(j);
@@ -3686,137 +3624,45 @@ SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
     rebased.push_back(std::move(plan));
   }
   completed = std::move(rebased);
-  // Calls in every static branch participate. Match the declaration *and* its
-  // allocated receiver; equal method declarations on distinct children never
-  // establish an order. No tie-break is invented for two calls to one method.
-  SmallVector<SmallVector<uint64_t, 0>, 0> direct(completed.size());
-  for (auto [current, plan] : llvm::enumerate(completed)) {
-    auto transaction = plan.transaction;
-    auto add = [&](uint64_t predecessor) -> LogicalResult {
-      auto &entries = direct[current];
-      if (!budget.charge(transaction, entries.size() + 1)) return failure();
-      if (llvm::is_contained(entries, predecessor)) return success();
-      if (!budget.chargeStorage<uint64_t>(transaction, 1) ||
-          !budget.reserve(transaction, entries, 1)) return failure();
-      entries.push_back(predecessor);
-      return success();
-    };
-    if (auto after = transaction->getAttrOfType<ArrayAttr>("ac.after"))
-      for (Attribute identity : after) {
-        std::optional<uint64_t> predecessor;
-        for (auto [index, prior] : llvm::enumerate(completed)) {
-          if (!budget.charge(transaction)) return;
-          if (prior.routingModule != plan.routingModule ||
-              prior.registrationPath != plan.registrationPath ||
-              prior.lexicalModule != plan.lexicalModule) continue;
-          if (detail::compareClosedSourceStructure(prior.transaction.getOccurrence(), identity) == 0) {
-            if (predecessor) { transaction.emitOpError() << "after registration is ambiguous"; return; }
-            predecessor = index;
-          }
-        }
-        if (!predecessor || *predecessor == current) {
-          transaction.emitOpError() << "after target requires another local registration";
-          return;
-        }
-        if (failed(add(*predecessor))) return;
-      }
-    for (auto [laterIndex, later] : llvm::enumerate(plan.frames)) {
-      if (!later.method) continue;
-      const auto &ancestors = callableAncestors[later.method];
-      if (ancestors.empty()) continue;
-      for (auto [possible, prior] : llvm::enumerate(completed)) {
-        if (prior.routingModule != plan.routingModule) continue;
-        for (auto [earlierIndex, earlier] : llvm::enumerate(prior.frames)) {
-          if (!budget.charge(transaction, ancestors.size() + 1)) return;
-          if (!earlier.method ||
-              !llvm::is_contained(ancestors, earlier.method) ||
-              prior.instances[earlier.anchor].occurrencePath !=
-                  plan.instances[later.anchor].occurrencePath) continue;
-          if (possible == current) {
-            if (earlierIndex >= laterIndex) {
-              auto diagnostic = transaction.emitOpError()
-                  << "internal callable invocation reverses declared after order";
-              diagnostic.attachNote(earlier.method.getLoc())
-                  << "required predecessor declaration @" << earlier.method.getSymName()
-                  << " occurrence=" << earlier.method.getOccurrence();
-              diagnostic.attachNote(later.method.getLoc())
-                  << "dependent declaration @" << later.method.getSymName()
-                  << " occurrence=" << later.method.getOccurrence();
-              diagnostic.attachNote(earlier.call ? earlier.call.getLoc() : transaction.getLoc())
-                  << "predecessor invocation occurs later on actual instance path "
-                  << prior.instances[earlier.anchor].occurrencePath;
-              diagnostic.attachNote(later.call ? later.call.getLoc() : transaction.getLoc())
-                  << "dependent invocation occurs earlier on actual instance path "
-                  << plan.instances[later.anchor].occurrencePath;
-              return;
-            }
-          } else if (failed(add(possible))) return;
-        }
+  if (expected) {
+    budget.setPhase("lifted transaction occurrence verification");
+    if (expected->size() != completed.size()) {
+      boundedError(package) << "transaction occurrence inventory differs";
+      return;
+    }
+    for (auto [index, source] : llvm::enumerate(completed)) {
+      if (!budget.charge(source.transaction, 7)) return;
+      const auto *candidate = (*expected)[index];
+      if (!candidate || candidate->transaction != source.transaction ||
+          candidate->routingModule != source.routingModule ||
+          candidate->registrationPath != source.registrationPath ||
+          candidate->ordinal != source.ordinal ||
+          candidate->lexicalModule != source.lexicalModule ||
+          candidate->lexicalAnchor != source.lexicalAnchor) {
+        boundedError(source.transaction) << "transaction occurrence routing differs";
+        return;
       }
     }
+  } else {
+    plans = std::move(completed);
   }
-  budget.setPhase("transaction order closure");
-  SmallVector<unsigned, 0> colors(completed.size(), 0);
-  SmallVector<uint64_t, 0> transactionStack;
-  std::function<LogicalResult(uint64_t, unsigned)> visit =
-      [&](uint64_t index, unsigned depth) -> LogicalResult {
-    auto &plan = completed[index];
-    auto transaction = plan.transaction;
-    if (depth > maxDepth || !budget.charge(transaction)) return failure();
-    if (colors[index] == 1) {
-      auto diagnostic = transaction.emitOpError() << "transaction after dependency graph is cyclic";
-      for (auto participant : transactionStack) {
-        const auto &member = completed[participant];
-        if (!budget.charge(transaction)) return failure();
-        diagnostic.attachNote(member.transaction->getLoc())
-            << "outer registration occurrence=" << member.transaction->getAttr("occurrence")
-            << " at actual lexical instance path " << member.registrationPath;
-        for (const auto &frame : member.frames) {
-          if (!budget.charge(transaction)) return failure();
-          if (!frame.method) continue;
-          auto method = frame.method;
-          diagnostic.attachNote(method.getLoc())
-              << "invoked declaration @" << method.getSymName()
-              << " occurrence=" << method.getOccurrence()
-              << " on actual receiver path " << member.instances[frame.anchor].occurrencePath;
-          if (frame.call)
-            diagnostic.attachNote(frame.call->getLoc()) << "invocation participating in this outer transaction";
-        }
-      }
-      return failure();
-    }
-    if (colors[index] == 2) return success();
-    colors[index] = 1;
-    if (!budget.reserve(transaction, transactionStack, 1)) return failure();
-    transactionStack.push_back(index);
-    llvm::DenseSet<uint64_t> seen;
-    for (auto predecessor : direct[index]) {
-      if (failed(visit(predecessor, depth + 1))) return failure();
-      const auto &prior = completed[predecessor];
-      if (!(prior.domain == plan.domain))
-        return transaction.emitOpError() << "after predecessor belongs to another clock/reset domain";
-      auto append = [&](uint64_t ancestor) {
-        if (!seen.insert(ancestor).second) return true;
-        if (!budget.chargeStorage<SourceTransactionOp>(transaction, 1) ||
-            !budget.reserve(transaction, plan.predecessors, 1) ||
-            !budget.reserve(transaction, plan.predecessorIndices, 1)) return false;
-        plan.predecessors.push_back(completed[ancestor].transaction);
-        plan.predecessorIndices.push_back(ancestor);
-        return true;
-      };
-      for (auto ancestor : prior.predecessorIndices)
-        if (!append(ancestor)) return failure();
-      if (!append(predecessor)) return failure();
-    }
-    transactionStack.pop_back();
-    colors[index] = 2;
-    return success();
-  };
-  for (uint64_t index = 0; index < completed.size(); ++index)
-    if (failed(visit(index, 0))) return;
-  plans = std::move(completed);
   analysisWork = budget.usedWork();
   valid = true;
+}
+} // namespace
+
+SourceTransactionStateAnalysis::SourceTransactionStateAnalysis(Operation *op) {
+  runTransactionStateAnalysis(op, plans, analysisWork, valid);
+}
+
+FailureOr<uint64_t> SourceTransactionStateAnalysis::verifyOccurrences(
+    Operation *op, ArrayRef<const TransactionStatePlan *> expected) {
+  SmallVector<TransactionStatePlan, 0> unused;
+  uint64_t work = 0;
+  bool valid = false;
+  runTransactionStateAnalysis(op, unused, work, valid, expected);
+  if (!valid) return failure();
+  return work;
 }
 
 const TransactionStatePlan *

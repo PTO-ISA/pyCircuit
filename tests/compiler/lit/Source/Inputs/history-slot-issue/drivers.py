@@ -137,30 +137,21 @@ def cpp_config(system_header, provider_header, kind):
             inp, out = incoming.removesuffix("_state"), outgoing.removesuffix("_state")
             for port, base in (("in", inp), ("out", out)):
                 for label, actual in (
-                    ("ready", "in_ready"),
-                    ("available", "out_valid"),
-                    ("head", "out_data"),
+                    ("ready", "ready"),
+                    ("available", "valid"),
+                    ("head", "data"),
                 ):
                     control_wires[f"{side}_{port}_{label}"] = (
                         f"{root}->{base}_{actual}.element(0)"
                     )
-            if side == "left":
-                result = f"{path}->result.element(0).packed()"
-                control_wires.update(
-                    {
-                        f"{side}_capture": f"gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::extract<1>({result}, 9))",
-                        f"{side}_publish": f"gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::extract<1>({result}, 8))",
-                        f"{side}_publish_data": f"gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::extract<8>({result}, 0))",
-                    }
-                )
-            else:
-                control_wires.update(
-                    {
-                        f"{side}_capture": f"{path}->incoming_take.element(0)",
-                        f"{side}_publish": f"{path}->outgoing_valid.element(0)",
-                        f"{side}_publish_data": f"{path}->outgoing_data.element(0)",
-                    }
-                )
+            result = f"{path}->result.element(0).packed()"
+            control_wires.update(
+                {
+                    f"{side}_capture": f"gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::extract<1>({result}, 9))",
+                    f"{side}_publish": f"gfsim::wire<gfsim::Bits<1>>::fromPacked(gfsim::extract<1>({result}, 8))",
+                    f"{side}_publish_data": f"gfsim::wire<gfsim::Bits<8>>::fromPacked(gfsim::extract<8>({result}, 0))",
+                }
+            )
 
     else:
         root += "->" + child(section, "issue")
@@ -198,7 +189,19 @@ def cpp_config(system_header, provider_header, kind):
             "publish",
             "publish_data",
         )
-        control_wires = {name: f"{root}->{name}.element(0)" for name in names}
+        # IssuePorts preserves declaration order; inspect actual packed output
+        # bits through that interface, independently of expected vector values.
+        widths = {name: 27 if name in {"allocation_head", "issued_head", "publish_data"}
+                  else 9 if name == "wakeup_head" else 1 for name in names}
+        offset = 0
+        control_wires = {}
+        for name in reversed(names):
+            width = widths[name]
+            control_wires[name] = (
+                f"gfsim::wire<gfsim::Bits<{width}>>::fromPacked("
+                f"gfsim::extract<{width}>({root}->result.element(0).packed(), {offset}))")
+            offset += width
+        control_wires = {name: control_wires[name] for name in names}
     controls = "\n".join(
         f'out += "{name}=" + std::to_string(unsigned_value({wire})) + ";";'
         for name, wire in control_wires.items()
@@ -286,7 +289,7 @@ def verilog_config(system_header, provider_header, kind):
                     ("head", "out_data"),
                 ):
                     control_wires[f"{side}_{port}_{label}"] = f"{root}.{queue}.{actual}"
-            value = path + (".result" if side == "left" else "")
+            value = path + ".result"
             control_wires.update(
                 {
                     f"{side}_capture": value + ".incoming_take",
@@ -336,7 +339,7 @@ def verilog_config(system_header, provider_header, kind):
             "publish",
             "publish_data",
         )
-        control_wires = {name: root + "." + name for name in names}
+        control_wires = {name: root + ".result." + name for name in names}
         width = 250
     values = ", ".join(control_wires.values())
     labels = "".join(name + "=%0d;" for name in control_wires)

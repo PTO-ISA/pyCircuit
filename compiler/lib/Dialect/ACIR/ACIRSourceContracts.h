@@ -23,6 +23,10 @@ namespace acir::ac::detail {
 
 using EmitError = llvm::function_ref<mlir::InFlightDiagnostic()>;
 
+// Implementation storage for common small static-expression grammars, not an
+// admission limit. The source closure preflight accounts for this same storage.
+inline constexpr unsigned staticGrammarInlineBuckets = 16;
+
 // Typed effects are verified intermediate IR, not published or final hardware.
 // Inspect operation kinds without recursively traversing raw attribute/type
 // graphs or imposing transaction-analysis limits on ordinary hardware.

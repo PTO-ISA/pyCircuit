@@ -177,11 +177,11 @@ def Lexical(first: ac.u13, second: ac.u13) -> LexicalResult:
     after = Single(x)
     before = Single(first)
     saved_call = before
-    before = Single(second)
+    latest = Single(second)
     return LexicalResult(early=a.early, late=a.forwarded, future=b.value,
                          alias=old_alias, saved=saved.left, mutated=local.left,
                          after=after.value, call_saved=saved_call.value,
-                         call_latest=before.value)
+                         call_latest=latest.value)
 
 @ac.module
 def Calls(wide: ac.bits[73]) -> CallsResult:
@@ -459,6 +459,9 @@ def tuple_top(body):
 
 
 cases = {
+    "instance-rebinding": ordinary(
+        "    before = Single(first)\n    before = Single(second)\n    return before\n"
+    ),
     "arbitrary-local-forward": ordinary(
         "    a = Single(local)\n    local = first\n    return a\n"
     ),
@@ -486,8 +489,8 @@ cases = {
     + "@ac.rule\ndef calculate(value) -> Scalar:\n    a = Single(value)\n    return a\n@ac.module\ndef Top(value: ac.u13) -> Scalar:\n    return calculate(value)\n",
     "recursive-definition": PREFIX
     + "@ac.module\ndef Recurse(value: ac.u13) -> Scalar:\n    return Recurse(value)\n",
-    "static-parameter-call": PREFIX
-    + "@ac.module\ndef Static(value: ac.u13, *, extra: int = 1) -> Scalar:\n    return Scalar(value=value)\n@ac.module\ndef Top(value: ac.u13) -> Scalar:\n    return Static(value)\n",
+    "dynamic-static-parameter-call": PREFIX
+    + "@ac.module\ndef Static(value: ac.u13, *, extra: int = 1) -> Scalar:\n    return Scalar(value=value)\n@ac.module\ndef Top(value: ac.u13) -> Scalar:\n    return Static(value, extra=value)\n",
     "missing-actual": ordinary("    a = Single()\n    return a\n"),
     "duplicate-actual": ordinary("    a = Single(first, value=second)\n    return a\n"),
     "wrong-kind-actual": ordinary("    a = Single(first == second)\n    return a\n"),
@@ -548,6 +551,7 @@ cases = {
 }
 
 diagnostics = {
+    "instance-rebinding": "Module call result cannot replace a protected binding or instance",
     "arbitrary-local-forward": "unknown hardware value 'local'",
     "unknown-forward": "unknown hardware value 'missing'",
     "rebound-future": "ambiguous forward module result 'b'",
@@ -559,9 +563,9 @@ diagnostics = {
     "runtime-controlled": "direct module calls under runtime control are unsupported",
     "rule-local-call": "direct module calls are only admitted at module scope",
     "recursive-definition": "recursive module instantiation is unsupported",
-    "static-parameter-call": "behavioral module static parameters are unsupported",
-    "missing-actual": "missing direct module argument",
-    "duplicate-actual": "unknown or repeated direct module argument",
+    "dynamic-static-parameter-call": "hardware static reference must name an integer formal of its owning module",
+    "missing-actual": "missing or unsupported direct module argument for parameter 'value'",
+    "duplicate-actual": "repeated direct module argument",
     "wrong-kind-actual": "unsigned boundary hardware type mismatch",
     "wrong-nominal-actual": "struct constructor nominal type disagrees with destination",
     "observed-cycle": "'ac.module' op combinational cycle in hardware field dependencies",

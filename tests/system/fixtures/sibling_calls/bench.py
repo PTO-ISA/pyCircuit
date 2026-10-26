@@ -20,5 +20,3 @@ def ExerciseSiblings():  # noqa: N802
         ac.log("info", "sibling old", count, balance, marker, held.old())
         assert phase < 4, "deliberate sibling system limit"
         phase = phase + 1
-
-    advance()

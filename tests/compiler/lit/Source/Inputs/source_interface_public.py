@@ -327,7 +327,6 @@ def Counter():
     @ac.rule
     def inspect() -> None:
         saved = count
-    inspect()
 """
     relay_text = """import pycircuit as ac
 from typing import Annotated
@@ -384,7 +383,7 @@ def Consumer(delta: ac.u8, permitted: bool, logical: Annotated[int, range(1 << 1
         bit = owner.fixed(fixed)
         packet = owner.packet(payload)
         return Result(before=before, after=after, fixed=bit, packet=packet)
-    return work()
+    return work
 """
     state_plan_text = """import pycircuit as ac
 @ac.module
@@ -401,7 +400,6 @@ def StatePlan():
     @ac.rule
     def run() -> None:
         unused = instrument(1)
-    run()
 """
     execution_text = """import pycircuit as ac
 from interfaces.method_provider import Counter
@@ -411,7 +409,6 @@ def MethodEffectsSystem():
     @ac.rule
     def drive() -> None:
         unused = owner.add(1)
-    drive()
 """
     archive = root / "method-publication"
     archive.mkdir()
@@ -597,7 +594,7 @@ def GuardedValue(delta: ac.u8, permitted: bool) -> ac.u8:
     def work() -> ac.u8:
         owner.guarded(permitted)
         return owner.read() + delta
-    return work()
+    return work
 """
         )
         guarded_execution = archive / "guarded-value-execution"

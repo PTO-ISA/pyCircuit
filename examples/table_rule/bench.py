@@ -46,5 +46,3 @@ def ExerciseTableRule():  # noqa: N802
             assert completed == 6, "all six replacements must complete"
         ac.log("info", "table replacement", phase, result.valid, result.data.value)
         phase = phase + 1
-
-    check_and_advance()

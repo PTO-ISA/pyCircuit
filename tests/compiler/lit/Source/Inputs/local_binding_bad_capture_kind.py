@@ -10,5 +10,4 @@ def Bad(a: Annotated[int, range(1 << 8)], flag: bool, *, COUNT: int = 1) -> {"re
     @rule
     def update():
         state(clk=flag, rst=False, d=integer, init=False)
-    update()
     return {"result": a}

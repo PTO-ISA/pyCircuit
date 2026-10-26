@@ -193,13 +193,19 @@ def check_source_ir(text, path):
                 registration[0] == re.search(r'sym_name = "([^"]+)"', module["text"])[1]
             )
             assert registration[0].startswith("checks." + path.stem + ".")
-            assert any(
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == name
-                and site == registration[1]
-                for node, site in nodes
-            ), registration
+            if source_rule in syntax.body:
+                assert any(
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == name
+                    and site == registration[1]
+                    for node, site in nodes
+                ), registration
+            else:
+                assert any(
+                    node is source_rule and site == registration[1]
+                    for node, site in nodes
+                ), registration
             required = attribute(rule["text"], "ac.required_checks", "[", "]")
             entries, offset = [], 1
             while offset < len(required) - 1:
@@ -1019,9 +1025,7 @@ def main():
     _, registration_path = next(
         (node, path)
         for node, path in nodes
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "inspect"
+        if isinstance(node, ast.FunctionDef) and node.name == "inspect"
     )
 
     def source_occurrence(path):

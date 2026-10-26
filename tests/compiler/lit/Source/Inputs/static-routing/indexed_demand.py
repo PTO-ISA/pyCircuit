@@ -9,7 +9,7 @@ def IndexProvider(valid: bool) -> ac.u2:
     def produce() -> ac.u2:
         return 3
 
-    return produce()
+    return produce
 
 
 @ac.module
@@ -22,7 +22,6 @@ def Bank(index: ac.u2, choose: bool) -> tuple[ac.u8, ac.u8]:
         if choose:
             entries[index] = 9
 
-    write()
     return entries[0], entries[3]
 
 
@@ -45,5 +44,3 @@ def Exercise():
         ac.log("info", "indexed-demand", masked_first, masked_last,
                denied_first, denied_last, first_only, untouched_last,
                both_first, both_last)
-
-    observe()

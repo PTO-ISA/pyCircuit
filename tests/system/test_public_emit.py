@@ -219,18 +219,28 @@ def _assert_counter_trace(
         (i for i, line in enumerate(lines) if not line.startswith("{")), len(lines)
     )
     if trailer != len(lines):
-        # Verilator writes its simulator report after the complete JSON result.
-        assert lines[trailer].startswith("- ")
-        assert lines[trailer].endswith(": Verilog $finish")
-        assert all(
-            line.startswith(("- Verilator: ", "- S i m u l a t i o n   R e p o r t: "))
-            for line in lines[trailer + 1 :]
-        )
+        # Both supported simulators append a finish notice after the JSON result.
+        if lines[trailer].startswith("- "):
+            assert lines[trailer].endswith(": Verilog $finish")
+            assert all(
+                line.startswith(
+                    ("- Verilator: ", "- S i m u l a t i o n   R e p o r t: ")
+                )
+                for line in lines[trailer + 1 :]
+            )
+        else:
+            import re
+
+            assert re.fullmatch(
+                r".+:\d+: \$finish called at \d+ \([^)]+\)", lines[trailer]
+            )
+            assert trailer == len(lines) - 1
     records, result = preview._oracle().parse_jsonl(
         ("\n".join(lines[:trailer]) + "\n").encode("utf-8")
     )
     assert result["kind"] == "result"
     assert result["status"] == "TERMINATED" and result["error"] is None
+    assert result["reset_semantics"] == "strict"
     assert result["epoch_time"] == "6"
     views: dict[int, dict[tuple[str, str], int]] = {}
     last_epoch = -1

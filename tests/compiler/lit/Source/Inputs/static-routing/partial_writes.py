@@ -40,12 +40,10 @@ def Bank():
         ac.log("info", "partial-state", packet.left, packet.right, packet.held,
                entries[0], entries[1], entries[2], entries[3])
 
-    inspect()
 
 
 @ac.module
-def LeftWorker(choose_disabled: ac.u1):
-    bank = ac.instance_ref(Bank, "..", "..", "remote", "bank")
+def LeftWorker(choose_disabled: ac.u1, bank: Remote):
     progress: ac.u8 = 0
 
     @ac.rule(guard=lambda: not choose_disabled)
@@ -59,12 +57,10 @@ def LeftWorker(choose_disabled: ac.u1):
                saved_entries[0], saved_entries[1], candidate_entries[0], candidate_entries[1],
                candidate_packet.held, candidate_entries[2], candidate_entries[3])
 
-    step()
 
 
 @ac.module
-def RightWorker():
-    bank = ac.instance_ref(Bank, "..", "..", "remote", "bank")
+def RightWorker(bank: Remote):
     progress: ac.u8 = 0
 
     @ac.rule
@@ -78,12 +74,10 @@ def RightWorker():
                saved_entries[0], saved_entries[1], candidate_entries[0], candidate_entries[1],
                candidate_packet.held, candidate_entries[2], candidate_entries[3])
 
-    step()
 
 
 @ac.module
-def DisabledWorker(enabled: ac.u1, index: ac.u2):
-    bank = ac.instance_ref(Bank, "..", "..", "remote", "bank")
+def DisabledWorker(enabled: ac.u1, index: ac.u2, bank: Remote):
     progress: ac.u8 = 0
 
     @ac.rule(guard=lambda: enabled)
@@ -92,31 +86,43 @@ def DisabledWorker(enabled: ac.u1, index: ac.u2):
         progress = progress + 1
         ac.log("info", "disabled-writer-ran", progress)
 
-    step()
 
 
 @ac.module
 def Remote():
     bank = Bank()
+    @ac.method
+    def read() -> tuple[Packet, ac.table[4, ac.u8]]:
+        packet, entries = bank.read()
+        return packet, entries
+    @ac.method
+    def put_left(field: ac.u8, element: ac.u8) -> None:
+        bank.put_left(field, element)
+    @ac.method
+    def put_right(field: ac.u8, element: ac.u8) -> None:
+        bank.put_right(field, element)
+    @ac.method
+    def put_disabled(index: ac.u2, incoming: ac.u8) -> None:
+        bank.put_disabled(index, incoming)
 
 
 @ac.module
-def LeftBranch(choose_disabled: ac.u1):
-    worker = LeftWorker(choose_disabled)
+def LeftBranch(choose_disabled: ac.u1, bank: Remote):
+    worker = LeftWorker(choose_disabled, bank)
 
 
 @ac.module
-def RightBranch(enabled: ac.u1):
-    worker = RightWorker()
-    disabled = DisabledWorker(enabled, 0)
+def RightBranch(enabled: ac.u1, bank: Remote):
+    worker = RightWorker(bank)
+    disabled = DisabledWorker(enabled, 0, bank)
 
 
 @ac.system(samples=((0, 0), (1, 0), (1, 0), (0, 0), (1, 1), (0, 0), (1, 0)))
 def Top():
     disabled_gate: ac.u1 = 0
     remote = Remote()
-    left = LeftBranch(disabled_gate)
-    right = RightBranch(disabled_gate)
+    left = LeftBranch(disabled_gate, remote)
+    right = RightBranch(disabled_gate, remote)
     phase: ac.u8 = 0
 
     @ac.rule
@@ -126,6 +132,3 @@ def Top():
     @ac.rule
     def check() -> None:
         assert phase < 255, "partial_late_failure"
-
-    advance()
-    check()

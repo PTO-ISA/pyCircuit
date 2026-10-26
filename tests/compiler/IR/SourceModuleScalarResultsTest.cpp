@@ -394,7 +394,7 @@ def NestedRule() -> ac.u8:
     @ac.rule
     def literal() -> ac.u8:
         return 0
-    return literal()
+    return literal
 )py";
   }
   static StringRef source() {
@@ -623,7 +623,6 @@ def Read(index: ac.u2, data: ac.u8) -> ac.u8:
     @ac.rule
     def update() -> None:
         state = raw
-    update()
     return state
 )py", "memory.py");
   ASSERT_TRUE(succeeded(provider)) << diagnostics;

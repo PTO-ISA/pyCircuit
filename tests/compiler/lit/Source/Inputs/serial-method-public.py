@@ -1,6 +1,7 @@
 """Public serial Method unit closure, real lowering stages and execution oracle."""
 
 import argparse
+import ast
 import hashlib
 import importlib.util
 import json
@@ -11,6 +12,27 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+
+def swap_declarations(text, first, second):
+    """Permute real callback declarations, retaining the independent oracle."""
+    tree = ast.parse(text)
+    for module in tree.body:
+        if not isinstance(module, ast.FunctionDef):
+            continue
+        declarations = {item.name: item for item in module.body
+                        if isinstance(item, ast.FunctionDef)}
+        if first not in declarations or second not in declarations:
+            continue
+        a, b = declarations[first], declarations[second]
+        start_a = min([a.lineno, *(d.lineno for d in a.decorator_list)]) - 1
+        start_b = min([b.lineno, *(d.lineno for d in b.decorator_list)]) - 1
+        assert a.end_lineno <= start_b
+        lines = text.splitlines(keepends=True)
+        return "".join(lines[:start_a] + lines[start_b:b.end_lineno]
+                       + lines[a.end_lineno:start_b] + lines[start_a:a.end_lineno]
+                       + lines[b.end_lineno:])
+    raise AssertionError(("missing callback permutation", first, second))
 
 
 parser = argparse.ArgumentParser()
@@ -211,8 +233,8 @@ for mode, width, initial, first, second, bias, last in cases:
     text = text.replace("bias = 3\n", f"bias = {bias}\n")
     text = text.replace("add(1)", f"add({first})").replace("chain(2)", f"chain({second})")
     text = text.replace("add(4)", f"add({last})")
-    if width == 13:
-        text = text.replace("    step()\n    inspect()", "    inspect()\n    step()")
+    if width == 13 and mode == "local":
+        text = swap_declarations(text, "step", "inspect")
     provider_path.write_text(text)
     (case / provider_name).write_text(text)
     provider = case / "provider"
@@ -244,8 +266,7 @@ for mode, width, initial, first, second, bias, last in cases:
         parent_path = source / "cross_consumer.py"
         parent_text = (fixtures / "serial-method/cross_consumer.py").read_text()
         if width == 13:
-            parent_text = parent_text.replace("    advance_left()\n    advance_right()",
-                                              "    advance_right()\n    advance_left()")
+            parent_text = swap_declarations(parent_text, "advance_left", "advance_right")
         parent_path.write_text(parent_text)
     else:
         parent_path = source / "composition.py"
@@ -577,7 +598,7 @@ def NominalTop(flag: ac.u1, a: ac.u8, b: ac.u8, ta: ac.u8, tb: ac.u8) -> Views:
                      direct=ac.enum_to_bits(first.direct),
                      repeated=ac.concat(second.packet.left.data, ac.enum_to_bits(second.packet.left.tag), second.packet.right.data, ac.enum_to_bits(second.packet.right.tag)),
                      original=ac.concat(original.left.data, ac.enum_to_bits(original.left.tag), original.right.data, ac.enum_to_bits(original.right.tag)))
-    return run()
+    return run
 """)
 consumer = case / "consumer"
 compile_unit(source, consumer_path, consumer, [provider])

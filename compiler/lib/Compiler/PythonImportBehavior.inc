@@ -2574,81 +2574,10 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
   return success();
 }
 
-LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
-  auto savedRules = behavioralRules;
-  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
-    auto statement = decl.node.item("body", i);
-    if (statement.kind() == "FunctionDef" && hasDecorator(statement, "rule"))
-      behavioralRules[statement.string("name")] = statement;
-  }
-  auto restoreRules = llvm::scope_exit([&] { behavioralRules = std::move(savedRules); });
-  auto signature = moduleSignatureAttrs(decl);
-  if (failed(signature))
-    return failure();
-  llvm::StringSet<> parameterNames;
-  for (const Parameter &parameter : decl.parameters)
-    parameterNames.insert(parameter.name);
-  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
-    auto statement = decl.node.item("body", i);
-    if (statement.kind() == "FunctionDef" &&
-        parameterNames.contains(statement.string("name")))
-      return error() << "module declaration cannot replace a static parameter";
-    auto check = [&](const AstNode &target) {
-      return forEachAssignmentLeaf(target, [&](const AstNode &leaf) -> LogicalResult {
-        if (parameterNames.contains(assignmentRoot(leaf)))
-          return error() << "module assignment cannot replace a static parameter";
-        return success();
-      });
-    };
-    if (statement.kind() == "Assign") {
-      for (size_t j = 0; j < statement.array("targets").size(); ++j)
-        if (failed(check(statement.item("targets", j))))
-          return failure();
-    } else if (statement.kind() == "AnnAssign" &&
-               failed(check(statement.child("target"))))
-      return failure();
-  }
-  b.setInsertionPointToEnd(body->getBody());
-  auto module = createOp(
-      b, decl.node.location(b.getContext(), source.path),
-      ac::ModuleOp::getOperationName(), {}, {},
-      {b.getNamedAttr("sym_name", b.getStringAttr(decl.symbol.getValue())),
-       b.getNamedAttr("source_owner", owner),
-       b.getNamedAttr("parameters", signature->getAs<ArrayAttr>("parameters")),
-       b.getNamedAttr("type_parameters",
-                      signature->getAs<ArrayAttr>("type_parameters")),
-       b.getNamedAttr("function_type", TypeAttr::get(decl.type)),
-       b.getNamedAttr("input_names", portNames(b, decl.inputs)),
-       b.getNamedAttr("output_names", portNames(b, decl.outputs)),
-       b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition")),
-       b.getNamedAttr("ac.origin",
-                      sourceOccurrence(b, decl.symbol, decl.node))},
-      1);
-  if (decl.system)
-    module->setAttr("ac.root_kind", b.getStringAttr("system"));
-  if (decl.systemSamples)
-    module->setAttr("ac.system_samples", decl.systemSamples);
-  for (NamedAttribute attr : decl.sourceCallAttrs)
-    module->setAttr(attr.getName(), attr.getValue());
-  if (failed(ac::detail::verifyModuleSourceCallContract(module)))
-    return failure();
-  auto graph = new Block();
-  module->getRegion(0).push_back(graph);
-  llvm::StringMap<Value> values;
-  for (auto &port : decl.inputs) {
-    auto value = graph->addArgument(port.type, module->getLoc());
-    values[port.name] = value;
-    remember(value, port.sourceKind);
-    if (port.fixedBits)
-      fixedValues.insert(value);
-  }
-  auto at = OpBuilder::atBlockEnd(graph);
-  structuralCallSites.clear();
-  SmallVector<Instance, 0> structuralStorage;
-  llvm::StringMap<Instance *> structuralInstances;
-  llvm::StringMap<AstNode> structuralRules;
-  SmallVector<AstNode> structuralRegistrations;
-  size_t capacity = 0;
+LogicalResult Importer::predeclareStructuralInstances(
+    ModuleDecl &decl, OpBuilder &at, SmallVectorImpl<Instance> &structuralStorage,
+    llvm::StringMap<Instance *> &structuralInstances) {
+  size_t capacity = decl.references ? decl.references.size() : 0;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto stmt = decl.node.item("body", i);
     if (stmt.kind() == "Assign" && stmt.array("targets").size() == 1 &&
@@ -2658,10 +2587,6 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
   structuralStorage.reserve(capacity);
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto stmt = decl.node.item("body", i);
-    if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule")) {
-      structuralRules[stmt.string("name")] = stmt;
-      continue;
-    }
     if (stmt.kind() != "Assign" || stmt.array("targets").size() != 1 ||
         stmt.item("targets", 0).kind() != "Name")
       continue;
@@ -2674,14 +2599,16 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     auto primitive = dyn_cast_or_null<ac::ModuleImportOp>(binding->declaration);
     auto primitiveKind =
         primitive ? primitive.getPrimitiveKindAttr() : StringAttr();
-    // A typed return selects this behavioral emitter, but it does not turn a
-    // canonical storage leaf into a direct value call. Keep this exception
-    // closed to the registry-authenticated DFF/DFFE declarations.
+    // Canonical storage leaves keep their raw structural constructor and
+    // explicit pin binding, including inside ordinary typed Modules.
     bool trustedStorageLeaf = binding->builtin &&
                               headers.isTrustedBuiltin(primitive) &&
                               primitiveKind &&
                               (primitiveKind.getValue() == "dff" ||
-                               primitiveKind.getValue() == "dffe");
+                               primitiveKind.getValue() == "dffe" ||
+                               primitiveKind.getValue() == "sync_mem" ||
+                               primitiveKind.getValue() == "sync_mem_dp" ||
+                               primitiveKind.getValue() == "byte_mem");
     if (!decl.system && !trustedStorageLeaf)
       continue;
     bool callable = false;
@@ -2756,9 +2683,16 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
             }
           }
         } else if (!decl.system) {
-          // Canonical DFF/DFFE controls are Boolean; this follows the trusted
-          // leaf declaration rather than inferring from a fixture width.
-          kind = ac::detail::ValueKind::Boolean;
+          // The authenticated primitive contract distinguishes controls from
+          // address/strobe bit vectors, independently of their actual widths.
+          StringRef port = cast<StringAttr>(name).getValue();
+          bool control = primitiveKind.getValue() == "dff" ||
+                         primitiveKind.getValue() == "dffe" ||
+                         llvm::is_contained(ArrayRef<StringRef>{
+                             "clk", "rst", "ren", "ren0", "ren1", "wvalid",
+                             "rlive", "rlive0", "rlive1"}, port);
+          if (control) kind = ac::detail::ValueKind::Boolean;
+          else fixed = true;
         }
         ports.push_back(
             {cast<StringAttr>(name).getValue().str(), *type, stmt, kind, fixed});
@@ -2800,6 +2734,91 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     structuralInstances[structuralStorage.back().name] =
         &structuralStorage.back();
   }
+  return success();
+}
+
+LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
+  auto savedRules = behavioralRules;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto statement = decl.node.item("body", i);
+    if (statement.kind() == "FunctionDef" && hasDecorator(statement, "rule"))
+      behavioralRules[statement.string("name")] = statement;
+  }
+  auto restoreRules = llvm::scope_exit([&] { behavioralRules = std::move(savedRules); });
+  auto signature = moduleSignatureAttrs(decl);
+  if (failed(signature))
+    return failure();
+  llvm::StringSet<> parameterNames;
+  for (const Parameter &parameter : decl.parameters)
+    parameterNames.insert(parameter.name);
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto statement = decl.node.item("body", i);
+    if (statement.kind() == "FunctionDef" &&
+        parameterNames.contains(statement.string("name")))
+      return error() << "module declaration cannot replace a static parameter";
+    auto check = [&](const AstNode &target) {
+      return forEachAssignmentLeaf(target, [&](const AstNode &leaf) -> LogicalResult {
+        if (parameterNames.contains(assignmentRoot(leaf)))
+          return error() << "module assignment cannot replace a static parameter";
+        return success();
+      });
+    };
+    if (statement.kind() == "Assign") {
+      for (size_t j = 0; j < statement.array("targets").size(); ++j)
+        if (failed(check(statement.item("targets", j))))
+          return failure();
+    } else if (statement.kind() == "AnnAssign" &&
+               failed(check(statement.child("target"))))
+      return failure();
+  }
+  b.setInsertionPointToEnd(body->getBody());
+  auto module = createOp(
+      b, decl.node.location(b.getContext(), source.path),
+      ac::ModuleOp::getOperationName(), {}, {},
+      {b.getNamedAttr("sym_name", b.getStringAttr(decl.symbol.getValue())),
+       b.getNamedAttr("source_owner", owner),
+       b.getNamedAttr("parameters", signature->getAs<ArrayAttr>("parameters")),
+       b.getNamedAttr("type_parameters",
+                      signature->getAs<ArrayAttr>("type_parameters")),
+       b.getNamedAttr("function_type", TypeAttr::get(decl.type)),
+       b.getNamedAttr("input_names", portNames(b, decl.inputs)),
+       b.getNamedAttr("output_names", portNames(b, decl.outputs)),
+       b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition")),
+       b.getNamedAttr("ac.origin",
+                      sourceOccurrence(b, decl.symbol, decl.node))},
+      1);
+  if (decl.system)
+    module->setAttr("ac.root_kind", b.getStringAttr("system"));
+  if (decl.systemSamples)
+    module->setAttr("ac.system_samples", decl.systemSamples);
+  for (NamedAttribute attr : decl.sourceCallAttrs)
+    module->setAttr(attr.getName(), attr.getValue());
+  if (failed(ac::detail::verifyModuleSourceCallContract(module)))
+    return failure();
+  auto graph = new Block();
+  module->getRegion(0).push_back(graph);
+  llvm::StringMap<Value> values;
+  for (auto &port : decl.inputs) {
+    auto value = graph->addArgument(port.type, module->getLoc());
+    values[port.name] = value;
+    remember(value, port.sourceKind);
+    if (port.fixedBits)
+      fixedValues.insert(value);
+  }
+  auto at = OpBuilder::atBlockEnd(graph);
+  structuralCallSites.clear();
+  SmallVector<Instance, 0> structuralStorage;
+  llvm::StringMap<Instance *> structuralInstances;
+  llvm::StringMap<AstNode> structuralRules;
+  SmallVector<AstNode> structuralRegistrations;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto stmt = decl.node.item("body", i);
+    if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule"))
+      structuralRules[stmt.string("name")] = stmt;
+  }
+  if (failed(predeclareStructuralInstances(decl, at, structuralStorage,
+                                          structuralInstances)))
+    return failure();
   SmallVector<std::string> computationalRules;
   for (const auto &entry : structuralRules) {
     bool structural = true;
@@ -2873,6 +2892,10 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       continue;
     if (stmt.kind() == "Expr") {
       auto call = stmt.child("value");
+      auto bound = moduleInstanceBinding(call, at, decl.symbol, values,
+                                         structuralInstances);
+      if (failed(bound)) return failure();
+      if (*bound) continue;
       if (call.kind() == "Call") {
         auto helper = resolveValueHelper(call.child("func"), decl.symbol);
         if (failed(helper)) return failure();

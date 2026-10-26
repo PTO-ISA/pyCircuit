@@ -549,9 +549,9 @@ class AvailabilityProof {
               ordinary = count.getInt();
             }
           }
-        // Candidate D/E, check witnesses and EHR entries have private routing
+        // Candidate D/E and check witnesses have private routing
         // proofs. They are not authored payload outputs and must not acquire a
-        // predecessor-fire prerequisite merely by being transported internally.
+        // producer-fire prerequisite merely by being transported internally.
         if (cast<OpResult>(value).getResultNumber() >= ordinary)
           return 1;
         return formula(yields[fire.getInt()]);

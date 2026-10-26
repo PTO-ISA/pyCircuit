@@ -281,8 +281,12 @@ producer_lines = [
 ]
 assert len(producer_lines) == 1, producer_lines
 producer = re.match(r"\s*(%\w+) =", producer_lines[0]).group(1)
-rule_line = next(line for line in ir.splitlines() if '"ac.rule"(' in line)
-assert producer in re.search(r'"ac.rule"\(([^)]*)\)', rule_line).group(1).split(", ")
+rule_line = next(
+    line
+    for line in ir.splitlines()
+    if '"ac.method"(' in line and 'sym_name = "update"' in line
+)
+assert producer in re.search(r'"ac.method"\(([^)]*)\)', rule_line).group(1).split(", ")
 outer_yield = next(
     line for line in ir.splitlines() if line.startswith('    "ac.yield"(')
 )
@@ -291,6 +295,12 @@ resizes = {
     match.group(1): match.group(2)
     for match in re.finditer(r'^\s*(%\w+) = "ac.bits.resize"\((%\w+)\)', ir, re.M)
 }
+# Tuple/mapping result lowering may project a full low-zero lane after the
+# ordinary boundary resize. That projection still shares the original producer.
+for line in ir.splitlines():
+    match = re.match(r'^\s*(%\w+) = "ac.bits.extract"\((%\w+)\)', line)
+    if match and "value = #ac.math_int<0>}}>}> :" in line:
+        resizes[match.group(1)] = match.group(2)
 seen = set()
 while result in resizes and result not in seen:
     seen.add(result)
@@ -332,27 +342,6 @@ for name, text in ordered["positive_cases"]().items():
             "source_sha256": hashlib.sha256(text.encode()).hexdigest(),
         }
     )
-# This old rejection is precisely the newly admitted scalar-before-Rule case.
-old_scalar = root / "ordered-old-scalar"
-compile_unit("local_binding_bad_local_then_rule.py", old_scalar)
-old_stages = retain_ordered_stages("local_binding_bad_local_then_rule.py", old_scalar)
-old_final = root / "ordered-old-scalar.ac"
-cli(
-    "link",
-    old_scalar,
-    "--top",
-    "locals.local_binding_bad_local_then_rule.Bad",
-    "-o",
-    old_final,
-)
-ordered_receipts.append(
-    {
-        "name": "former_scalar_rejection",
-        "unit": str(old_scalar),
-        "source_stages": old_stages,
-        "final": str(old_final),
-    }
-)
 (scratch / "ordered-bindings.json").write_text(
     json.dumps(ordered_receipts, indent=2) + "\n"
 )
@@ -368,8 +357,7 @@ if not args.four_state:
     cases = sorted(
         fixture.stem.removeprefix("local_binding_bad_")
         for fixture in source.glob("local_binding_bad_*.py")
-        if fixture.stem
-        not in {"local_binding_bad_cycle", "local_binding_bad_local_then_rule"}
+        if fixture.stem not in {"local_binding_bad_cycle"}
     )
     scope = (
         "shadow",
@@ -381,18 +369,9 @@ if not args.four_state:
         "rebind",
         "duplicate",
     )
-    legal_ordered = {
-        "ordered_duplicate_registration",
-        "ordered_missing_registration",
-    }
     for name in cases:
         fixture = "local_binding_bad_" + name + ".py"
         absent = root / ("bad-" + name)
-        if name in legal_ordered:
-            # API-owned tests establish that distinct invocations of one Rule
-            # and a registered-but-not-exercised local Rule are legal.
-            compile_unit(fixture, absent, [child], accepted=True)
-            continue
         rejected = compile_unit(fixture, absent, [child], accepted=False)
         if name.startswith("ordered_"):
             words = (
@@ -432,6 +411,8 @@ if not args.four_state:
                 "call",
                 "type",
             )
+        elif name == "annotation":
+            words = ("ports", "Annotated", "type", "annotation")
         elif name in ("self", "forward", "post_return_reference"):
             words = ("unknown", "forward", "wire", "return", "declar", "bind")
         elif name == "post_return":
@@ -522,10 +503,14 @@ if not args.four_state:
     instrument_stages = []
     for entrance in ("only", "mixed"):
         instrument = root / ("instrument-" + entrance)
-        compile_unit("local_binding_instrument_" + entrance + ".py", instrument)
+        imports = [child] if entrance == "mixed" else []
+        compile_unit(
+            "local_binding_instrument_" + entrance + ".py", instrument, imports
+        )
         instrument_final = root / ("instrument-" + entrance + ".ac")
         cli(
             "link",
+            *imports,
             instrument,
             "--top",
             "locals.local_binding_instrument_" + entrance + ".Instrument",

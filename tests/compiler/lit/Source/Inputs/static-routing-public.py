@@ -398,7 +398,15 @@ for name, source, diagnostic in cases.rejection_cases():
           rejected_source(name, source, diagnostic))
 if args.phase != "source":
     for name, source in cases.link_rejection_cases():
-        check(name, lambda name=name, source=source: rejected_link(name, source))
+        # Retired relative receivers reject during capture, even in unused
+        # definitions. Preserve publication protection at the current stage.
+        if name in {"ancestor-escape", "unused-contextual-definition",
+                    "unused-parent-instantiation", "unused-zero-depth-transitive-context"}:
+            check(name, lambda name=name, source=source: rejected_source(
+                name, source,
+                "Rule receiver must be a direct child or declared Module-reference interface"))
+        else:
+            check(name, lambda name=name, source=source: rejected_link(name, source))
     check("indexed-demand-path-mutation", rejected_indexed_requirement_path)
 failed = [row["case"] for row in outcomes if row["status"] != "PASS"]
 assert outcomes, "case selection ran no checks"

@@ -30,8 +30,6 @@ def AutonomousOwner():
     def step() -> None:
         advance()
 
-    observe()
-    step()
 
 
 @module
@@ -58,7 +56,6 @@ def ManualOwner():
     def observe() -> None:
         old_seen = count
 
-    observe()
 
 
 @module
@@ -86,6 +83,3 @@ def CandidateEntryOwner():
         first_gate = second_gate
         advance()
         first_gate = 0
-
-    observe()
-    step()

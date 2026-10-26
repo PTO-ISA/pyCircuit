@@ -57,7 +57,7 @@ def RobStorage(request: RobRequest) -> RobResult:  # noqa: N802
     tail: ac.u2 = 0
     count: ac.u3 = 0
 
-    @ac.rule
+    @ac.method
     def flush() -> None:
         if request.flush:
             entries = 0
@@ -65,7 +65,7 @@ def RobStorage(request: RobRequest) -> RobResult:  # noqa: N802
             tail = 0
             count = 0
 
-    @ac.rule(after=(flush,))
+    @ac.method
     def complete() -> ac.u1:
         accepted: ac.u1 = 0
         completed = entries[request.complete_index]
@@ -81,7 +81,7 @@ def RobStorage(request: RobRequest) -> RobResult:  # noqa: N802
             accepted = 1
         return accepted
 
-    @ac.rule(after=(complete,))
+    @ac.method
     def retire() -> Retirement:
         result = Retirement()
         oldest = entries[head]
@@ -94,7 +94,7 @@ def RobStorage(request: RobRequest) -> RobResult:  # noqa: N802
             count = count - 1
         return result
 
-    @ac.rule(after=(retire,))
+    @ac.method
     def allocate() -> Allocation:
         result = Allocation()
         if not request.flush and request.allocate and count < 4:
@@ -106,19 +106,23 @@ def RobStorage(request: RobRequest) -> RobResult:  # noqa: N802
         result.count = count
         return result
 
-    flush()
-    completed = complete()
-    retired = retire()
-    allocated = allocate()
-    return RobResult(
-        allocate_accepted=allocated.accepted,
-        allocated_index=allocated.index,
-        complete_accepted=completed,
-        retire_accepted=retired.accepted,
-        retired_tag=retired.tag,
-        retired_value=retired.value,
-        count=allocated.count,
-    )
+    @ac.rule
+    def transact() -> RobResult:
+        flush()
+        completed = complete()
+        retired = retire()
+        allocated = allocate()
+        return RobResult(
+            allocate_accepted=allocated.accepted,
+            allocated_index=allocated.index,
+            complete_accepted=completed,
+            retire_accepted=retired.accepted,
+            retired_tag=retired.tag,
+            retired_value=retired.value,
+            count=allocated.count,
+        )
+
+    return transact
 
 
 @ac.module

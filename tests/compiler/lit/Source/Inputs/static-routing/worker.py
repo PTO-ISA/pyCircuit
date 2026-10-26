@@ -5,10 +5,8 @@ from static_routes.counter import Counter
 
 
 @ac.module
-def Worker():
-    peer = ac.instance_ref(Counter, "..", "peer")
+def Worker(peer: Counter, distinct: Counter):
     same = peer
-    distinct = ac.instance_ref(Counter, "..", "distinct")
 
     @ac.rule
     def step() -> None:
@@ -25,5 +23,3 @@ def Worker():
         assert ac.case_eq(payload, ac.four_state("10xz0011")), "routed four-state payload"
         ac.log("info", "routing", saved, forwarded, untouched,
                still_distinct, other_forwarded, payload)
-
-    step()

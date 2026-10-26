@@ -47,12 +47,12 @@ def instance_ref(module, *path):
     raise RuntimeError("pyCircuit references require pycircuit compile")
 
 
-def rule(declaration=None, *, guard=None, after=()):
-    """Declare a rule whose computations and state updates are compiler owned."""
+def rule(declaration=None, *, guard=None):
+    """Declare automatic Module work, or a source-global Rule template."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 
 
-def method(declaration=None, *, guard=None, after=()):
+def method(declaration=None, *, guard=None):
     """Declare an instance operation within its caller's Rule transaction."""
     raise RuntimeError("pyCircuit declarations require pycircuit compile")
 

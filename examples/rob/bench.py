@@ -365,5 +365,4 @@ def ExerciseRob():  # noqa: N802
         log("info", "rob.retired_value", dut.retired_value)
         log("info", "rob.count", dut.count)
 
-    check_and_advance()
     advance(phase)

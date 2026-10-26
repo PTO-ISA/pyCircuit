@@ -235,7 +235,6 @@ def Exercise():
     def observe():
         ac.log('info', 'bits_index', lsb, selected_z,
                index_x_low, index_x_high, index_z_high)
-    observe()
 """,
         "Exercise",
     )
@@ -283,7 +282,6 @@ def Exercise():
     @ac.rule
     def observe():
         ac.log('info', 'wide_selector', selected_x, selected_z)
-    observe()
 """,
         "Exercise",
     )

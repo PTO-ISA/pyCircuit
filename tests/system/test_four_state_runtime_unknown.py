@@ -22,7 +22,6 @@ def Scenario():
     def observe():
         ac.log('info', 'quotient', result)
         assert not ac.is_known(result)
-    observe()
 """
 
 

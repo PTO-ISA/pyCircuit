@@ -12,40 +12,41 @@ def Store():
     def pop() -> ac.u8:
         return tokens.pop()
 @ac.module
-def Producer(value: ac.u8):
-    store = ac.instance_ref(Store, "..", "..", "remote", "store")
+def Producer(value: ac.u8, store: Remote):
     @ac.rule
     def produce() -> None:
         store.push(value)
         ac.log("info", "external pop pushed", value)
-    produce()
 @ac.module
-def Consumer(allow: ac.u1, take: ac.u1):
-    store = ac.instance_ref(Store, "..", "..", "remote", "store")
+def Consumer(allow: ac.u1, take: ac.u1, store: Remote):
     @ac.rule(guard=lambda: allow)
     def consume() -> None:
         if take:
             value = store.pop()
             ac.log("info", "external pop retired", value)
-    consume()
 @ac.module
 def Remote():
     store = Store()
+    @ac.method
+    def push(value: ac.u8) -> None:
+        store.push(value)
+    @ac.method
+    def pop() -> ac.u8:
+        return store.pop()
 @ac.module
-def Branch(allow: ac.u1, take: ac.u1, value: ac.u8):
-    producer = Producer(value)
-    consumer = Consumer(allow, take)
+def Branch(allow: ac.u1, take: ac.u1, value: ac.u8, store: Remote):
+    producer = Producer(value, store)
+    consumer = Consumer(allow, take, store)
 @ac.module
 def CreditPair(value: ac.u8):
     allow: ac.u1 = 1
     take: ac.u1 = 0
     count: ac.u8 = 0
     remote = Remote()
-    branch = Branch(allow, take, value)
+    branch = Branch(allow, take, value, remote)
     @ac.rule
     def tick() -> None:
         count = count + 1
-    tick()
 @ac.system
 def Top():
     left = CreditPair(23)

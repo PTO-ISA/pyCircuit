@@ -170,7 +170,6 @@ def Top() -> tuple[Payload, ac.table[2, ac.bits[5]]]:
     def hold():
         saved = saved
         entries = entries
-    hold()
     return saved, entries
 """,
     )
@@ -222,7 +221,6 @@ def Top(value: ac.bits[4]) -> ac.bits[4]:
             assert same
             ac.log('info', 'exact', same)
         assert known or not known
-    check()
     return value
 """
 
@@ -257,7 +255,6 @@ def Top(value: ac.bits[4]) -> ac.bits[4]:
         assert result.observed
         ac.log('info', 'known', result.observed)
         saved = result.payload
-    update()
     return result.payload
 """,
     )
@@ -292,7 +289,7 @@ FUNCTIONAL_ESCAPES = {
     "output": "return ac.case_eq(value, ac.four_state('10xz'))",
     "state": "saved = ac.is_known(value)\n    return value",
     "index": "return entries[ac.is_known(value)]",
-    "guard": "guarded()\n    return value",
+    "guard": "return value",
     "call-argument": "return Sink(ac.case_eq(value, ac.four_state('10xz')))",
 }
 
@@ -309,7 +306,6 @@ def test_verification_predicate_functional_escape_rejected(
     @ac.rule
     def write():
         saved = ac.is_known(value)
-    write()
 """
         body = "return value"
     elif case == "index":
@@ -361,7 +357,6 @@ def Register(incoming: ac.u8) -> ac.u8:
     saved: ac.u8 = 0
     @ac.rule
     def update(): saved = incoming
-    update()
     return saved
 @ac.system(samples=((0, 0), (1, ac.four_state('x'))))
 def Scenario():
@@ -369,7 +364,6 @@ def Scenario():
     @ac.rule
     def check():
         assert ac.case_eq(observed, ac.four_state('00000000'))
-    check()
 """
 
 GUARD_SYSTEM_SOURCE = """import pycircuit as ac
@@ -379,7 +373,6 @@ def Scenario():
     @ac.rule(guard=lambda: ac.four_state('x'))
     def effect():
         marker = 1
-    effect()
 """
 
 
@@ -572,7 +565,6 @@ def Observe():
         ac.log('info', 'payloads', ac.four_state('10xz'),
                ac.four_state({wide65!r}), ac.four_state({wide130!r}),
                ac.four_state('101'), 7, True)
-    publish()
 """,
     )
     final = tmp_path / "observations.ac"
@@ -617,7 +609,6 @@ def Observe():
     @ac.rule
     def publish():
         ac.report('numeric', {expression})
-    publish()
 """
     root, path = _source(tmp_path, "bad_report", source)
     unit = tmp_path / "unit"
@@ -657,8 +648,6 @@ def Observe():
     @ac.rule(guard=lambda: ac.four_state('x'))
     def fail():
         marker = 1
-    publish()
-    fail()
 """,
     )
     final = tmp_path / "failed-log.ac"
@@ -711,7 +700,6 @@ def Scenario():
     @ac.rule
     def publish():
         ac.log('info', 'payload', ac.four_state('10xz'))
-    publish()
 """,
         encoding="utf-8",
     )

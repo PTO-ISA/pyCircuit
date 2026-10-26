@@ -6,7 +6,7 @@ import pycircuit as ac
 def Counter():  # noqa: N802
     count: ac.u8 = 2
 
-    @ac.rule
+    @ac.method
     def increment() -> ac.u8:
         count = count + 1
         return count
@@ -25,8 +25,6 @@ def Stepper(counter: Counter):  # noqa: N802
         first = counter.increment()
         second = alias.increment()
         ac.log("info", "alias snapshots", first, second, counter.read())
-
-    step_twice()
 
 
 @ac.module

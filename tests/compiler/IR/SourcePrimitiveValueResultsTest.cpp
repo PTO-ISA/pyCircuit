@@ -1,5 +1,5 @@
 // Typed Module results remain ordinary values when canonical storage leaves
-// are allocated and bound through the structural Rule path.
+// are allocated and bound through Module-scope structural wiring.
 #include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/FinalVerilogSourceParts.h"
 #include "Compiler/SourceLink.h"
@@ -167,24 +167,9 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     EXPECT_EQ(callee.getValue(), StringRef(expectedCallee));
     ASSERT_EQ(selected.getInputs().size(), moduleArguments.size());
 
-    Operation *binding = nullptr;
     for (auto [index, moduleArgument] : llvm::enumerate(moduleArguments)) {
-      auto result = dyn_cast<OpResult>(selected.getInputs()[index]);
-      ASSERT_TRUE(result) << "leaf port " << index;
-      EXPECT_EQ(result.getResultNumber(), index);
-      if (!binding)
-        binding = result.getOwner();
-      EXPECT_EQ(result.getOwner(), binding);
-      ASSERT_TRUE(isa<ac::RuleOp>(binding));
-      auto rule = cast<ac::RuleOp>(binding);
-      auto yielded = cast<ac::YieldOp>(rule.getBody().front().getTerminator())
-                         .getValues()[index];
-      auto argument = dyn_cast<BlockArgument>(yielded);
-      ASSERT_TRUE(argument) << "leaf port " << index;
-      ASSERT_EQ(argument.getOwner(), &rule.getBody().front());
-      ASSERT_LT(argument.getArgNumber(), rule->getNumOperands());
       ASSERT_LT(moduleArgument, module.getBody().front().getNumArguments());
-      EXPECT_EQ(rule->getOperand(argument.getArgNumber()),
+      EXPECT_EQ(selected.getInputs()[index],
                 module.getBody().front().getArgument(moduleArgument));
     }
   }
@@ -208,10 +193,7 @@ class Packet:
 @ac.module
 def BoolDFFE(clk: bool, rst: bool, en: bool, data: bool, init: bool) -> bool:
     state = dffe(T=bool)
-    @ac.rule
-    def bind():
-        state(clk=clk, rst=rst, en=en, d=data, init=init)
-    bind()
+    state(clk=clk, rst=rst, en=en, d=data, init=init)
     return state.q
 
 @ac.module
@@ -222,41 +204,26 @@ def IntegerPairDFF(clk: bool, rst: bool,
                    init1: Annotated[int, range(1 << 4)]) -> tuple[Annotated[int, range(1 << 4)], Annotated[int, range(1 << 4)]]:
     first = dff(T=Annotated[int, range(1 << 4)])
     second = dff(T=Annotated[int, range(1 << 4)])
-    @ac.rule
-    def bind_first():
-        first(clk=clk, rst=rst, d=data0, init=init0)
-    @ac.rule
-    def bind_second():
-        second(clk=clk, rst=rst, d=data1, init=init1)
-    bind_first()
-    bind_second()
+    first(clk=clk, rst=rst, d=data0, init=init0)
+    second(clk=clk, rst=rst, d=data1, init=init1)
     return first.q, second.q
 
 @ac.module
 def EnumDFF(clk: bool, rst: bool, data: Mode, init: Mode) -> Mode:
     state = dff(T=Mode)
-    @ac.rule
-    def bind():
-        state(clk=clk, rst=rst, d=data, init=init)
-    bind()
+    state(clk=clk, rst=rst, d=data, init=init)
     return state.q
 
 @ac.module
 def WordDFFE(clk: bool, rst: bool, en: bool, data: ac.u8, init: ac.u8) -> ac.u8:
     state = dffe(T=ac.u8)
-    @ac.rule
-    def bind():
-        state(clk=clk, rst=rst, en=en, d=data, init=init)
-    bind()
+    state(clk=clk, rst=rst, en=en, d=data, init=init)
     return state.q
 
 @ac.module
 def PacketDFFE(clk: bool, rst: bool, en: bool, data: Packet, init: Packet) -> Packet:
     state = dffe(T=Packet)
-    @ac.rule
-    def bind():
-        state(clk=clk, rst=rst, en=en, d=data, init=init)
-    bind()
+    state(clk=clk, rst=rst, en=en, d=data, init=init)
     return state.q
 )py";
 
@@ -322,14 +289,8 @@ from pycircuit import dff
 @ac.module
 def Top(clk: bool, rst: bool, data: ac.u8, init: ac.u8) -> ac.u8:
     state = dff(T=ac.u8)
-    @ac.rule
-    def first():
-        state(clk=clk, rst=rst, d=data, init=init)
-    @ac.rule
-    def second():
-        state(clk=clk, rst=rst, d=data, init=init)
-    first()
-    second()
+    state(clk=clk, rst=rst, d=data, init=init)
+    state(clk=clk, rst=rst, d=data, init=init)
     return state.q
 )py"}}) {
     SCOPED_TRACE(name);
@@ -352,10 +313,7 @@ def UserLeaf(clk: bool, rst: bool, data: ac.u8, init: ac.u8) -> ac.u8:
 @ac.module
 def Top(clk: bool, rst: bool, data: ac.u8, init: ac.u8) -> ac.u8:
     state = UserLeaf()
-    @ac.rule
-    def bind():
-        state(clk=clk, rst=rst, data=data, init=init)
-    bind()
+    state(clk=clk, rst=rst, data=data, init=init)
     return state
 )py",
                       "user_leaf.py");
@@ -378,8 +336,8 @@ TEST_F(SourcePrimitiveValueResultsTest,
         "def Top(clk: bool, rst: bool, data: " +
         std::string(actual) + ", init: " + std::string(actual) + ") -> " +
         std::string(type) + ":\n    state = dff(T=" + std::string(type) +
-        ")\n    @ac.rule\n    def bind():\n        state(clk=clk, rst=rst, "
-        "d=data, init=init)\n    bind()\n    return state.q\n";
+        ")\n    state(clk=clk, rst=rst, "
+        "d=data, init=init)\n    return state.q\n";
     auto unit = compile(source, name);
     EXPECT_TRUE(failed(unit));
     EXPECT_NE(diagnostics.find("kind"), std::string::npos) << diagnostics;

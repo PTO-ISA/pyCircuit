@@ -39,8 +39,8 @@ authoring syntax; capture parses the source without executing the design.
 - **Executable systems.** A closed `@system` describes the DUT, stimulus and
   checks. The compiler generates native and Verilator simulation harnesses.
 - **Atomic simulation steps.** Independent autonomous Rules start from committed state;
-  nested calls share that Rule's sequential candidates. Explicit local `after`
-  ordering also exposes predecessor candidates. Whole-system checks
+  nested calls share that Rule's sequential candidates. Local Rule declarations
+  are scheduled automatically; independent Rules never forward candidates. Whole-system checks
   precede commit, so a failed epoch changes no state or clock history and
   publishes no source observations.
 - **A separate Runtime package.** Generated C++ consumers use the Runtime CMake
@@ -68,7 +68,6 @@ def HelloCounter():
         ac.log("info", "count", count)
         count = count + 1
 
-    increment()
 ```
 
 `count` is eight-bit persistent storage. The rule observes its current value and
