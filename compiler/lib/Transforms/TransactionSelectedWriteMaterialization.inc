@@ -54,7 +54,7 @@
         auto item = cast<DictionaryAttr>(rawField);
         if (item.getAs<StringAttr>("name") == field) {
           auto resolved = hardware.resolveType(item.getAs<TypeAttr>("type").getValue(),
-                                                plan.frames[write.frame].bindings, site);
+                                                plan.instances[0].bindings, site);
           if (failed(resolved)) return failure();
           fieldType = *resolved;
           break;
@@ -80,7 +80,7 @@
         {domain.table, domain.maskType},
         {builder.getNamedAttr("shape", domain.table.getShape()),
          builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({4, 0}))}, 1);
-    auto count = hardware.getTableSize(domain.table, plan.frames[write.frame].bindings, site);
+    auto count = hardware.getTableSize(domain.table, plan.instances[0].bindings, site);
     if (failed(mapped) || failed(count) || !*count ||
         !charge(budget, site, 16 + SourceCheckBudget::bytes(sizeof(Block)))) return failure();
     auto *body = new Block;
@@ -93,7 +93,7 @@
     Value replacement = body->addArgument(rhs.getType(), loc);
     Value path = body->addArgument(result.rawPath.getType(), loc);
     auto nested = OpBuilder::atBlockEnd(body);
-    auto width = hardware.getPackedWidth(actualIndex.getType(), plan.frames[write.frame].bindings, site);
+    auto width = hardware.getPackedWidth(actualIndex.getType(), plan.instances[0].bindings, site);
     if (failed(width)) return failure();
     if (*width == ordinalWidth && !ac::areEquivalentHardwareTypes(actualIndex.getType(), ordinalType)) {
       auto adapter = make(nested, ac::BitsExtractOp::getOperationName(), {actualIndex}, {ordinalType},

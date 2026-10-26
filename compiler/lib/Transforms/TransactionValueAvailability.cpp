@@ -1,5 +1,6 @@
 #include "TransactionValueAvailability.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/HardwareValueAvailability.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/Interfaces/SideEffectInterfaces.h"
@@ -599,6 +600,15 @@ class ValueAvailabilityMaterializer {
           {b.getNamedAttr("kind", b.getStringAttr("and"))});
       if (!fold) return failure();
       return fold->getResult(0);
+    }
+    if (auto read = dyn_cast<ac::TableReadOp>(operation)) {
+      auto index = availability(read.getIndex(), {}, site);
+      if (failed(index)) return failure();
+      auto selected = ac::detail::hasUniformTableAvailability(read.getInput(), hardware)
+                          ? tableAt(read.getInput(), 0, path, site)
+                          : tableElement(read.getInput(), read.getIndex(), path, site);
+      if (failed(selected)) return failure();
+      return conjunction(site, *index, *selected);
     }
     if (auto get = dyn_cast<ac::TableGetOp>(operation)) {
       auto index = availability(get.getIndex(), {}, site);

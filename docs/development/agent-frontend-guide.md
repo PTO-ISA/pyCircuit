@@ -251,6 +251,33 @@ state. Calls route typed arguments, results and proposals through the existing
 hierarchy, including independently compiled providers. Authors do not add
 forwarding ports, writeback wires or handshake wrappers.
 
+Static Integer parameters can size owned Bits state and rank-one Tables within
+the admitted transaction profile. Preserve the parameters on the provider and
+pass actuals at ordinary Module calls; do not freeze state at the default width
+or generate separate source definitions. For example:
+
+```python
+@ac.module
+def Bank(enable: ac.u1, *, N: int = 4, W: int = 8) -> ac.table[N, ac.bits[W]]:
+    entries: ac.table[N, ac.bits[W]] = 3
+
+    @ac.rule
+    def increment():
+        last: ac.u64 = N - 1
+        if enable:
+            entries[last] = entries[last] + 1
+
+    return entries
+```
+
+The initializer must fit the selected W, and N must be positive. Each instance
+owns all N rows. A root may use the existing `--parameters` link option; imports,
+forwarded parameters and saved anchors retain the actual bindings. The compiler
+checks each occurrence, including nondefault sizes, and owns entry wiring when
+the selected definition is also instantiated elsewhere. See the
+[language reference](../reference/language.md#rule-authoring-requirements-and-current-admission)
+for the remaining parameterization limits.
+
 A Module-typed parameter such as `counter: Counter` binds an existing static
 instance. Passing that handle to `Writer(counter)` or through another Module
 preserves the Counter's allocation and state; a nested Rule or Method can

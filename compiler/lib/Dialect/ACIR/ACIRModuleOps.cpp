@@ -26,7 +26,7 @@ bool isCombinationalHardwareOperation(Operation *operation) {
              BitsCompareOp, BitsSelectOp, BitsConcatOp, BitsExtractOp,
              BitsResizeOp, StructCreateOp, StructGetOp, EnumCreateOp,
              EnumToBitsOp, EnumFromBitsOp, TableCreateOp, TableSplatOp,
-             TableMapOp, TableViewOp, TableIndexOp, TableGetOp, TableMatchOp,
+             TableMapOp, TableViewOp, TableIndexOp, TableReadOp, TableGetOp, TableMatchOp,
              TableChooseOp, TableFoldOp, ValueMergeOp, ValueRequireOp>(
       operation);
 }

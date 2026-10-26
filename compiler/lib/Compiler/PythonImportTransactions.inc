@@ -769,9 +769,8 @@ LogicalResult Importer::scanSourceCallables() {
 }
 
 LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
-  if (!decl.parameters.empty())
-    return error()
-           << "typed transaction modules do not accept static parameters";
+  auto signature = moduleSignatureAttrs(decl);
+  if (failed(signature)) return failure();
 
   b.setInsertionPointToEnd(body->getBody());
   Operation *module = createOp(
@@ -779,7 +778,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       ac::ModuleOp::getOperationName(), {}, {},
       {b.getNamedAttr("sym_name", b.getStringAttr(decl.symbol.getValue())),
        b.getNamedAttr("source_owner", owner),
-       b.getNamedAttr("parameters", b.getArrayAttr({})),
+       b.getNamedAttr("parameters", signature->getAs<ArrayAttr>("parameters")),
        b.getNamedAttr("type_parameters", b.getArrayAttr({})),
        b.getNamedAttr("function_type", TypeAttr::get(decl.type)),
        b.getNamedAttr("input_names", portNames(b, decl.inputs)),

@@ -33,6 +33,14 @@ inline constexpr unsigned staticGrammarInlineBuckets = 16;
 mlir::Operation *findUnloweredTransaction(mlir::Operation *root);
 mlir::LogicalResult verifyNoUnloweredTransactions(mlir::Operation *root);
 bool isCombinationalHardwareOperation(mlir::Operation *operation);
+// Validate every closed layout constraint while retaining only well-scoped
+// Integer-formal dependencies until occurrence binding. Reports concreteness
+// separately so a template declaration cannot establish executable validity.
+mlir::LogicalResult verifySourceTemplateType(
+    const HardwareAnalysis &analysis, mlir::Type type,
+    const HardwareBindings &bindings, mlir::Operation *site,
+    bool *concrete = nullptr);
+
 // Existing source-state initializer grammar, also used to prove physical
 // elaboration initialization under each actual storage binding.
 mlir::LogicalResult verifyClosedStateInitializer(

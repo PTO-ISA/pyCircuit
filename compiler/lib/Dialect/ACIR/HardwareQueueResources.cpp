@@ -657,9 +657,9 @@ private:
           return module->emitOpError() << "queue payload field projection differs";
         current = normal(get.getValue(), current->scope);
       } else {
-        auto get = current->value.getDefiningOp<TableGetOp>();
-        if (!get) return module->emitOpError() << "queue payload Table projection differs";
-        auto index = normal(get.getIndex(), current->scope);
+        auto *get = current->value.getDefiningOp();
+        if (!isa_and_nonnull<TableReadOp, TableGetOp>(get)) return module->emitOpError() << "queue payload Table projection differs";
+        auto index = normal(get->getOperand(1), current->scope);
         if (failed(index)) return failure();
         auto constant = index->value.getDefiningOp<BitsConstantOp>();
         auto bound = scopeBindings(index->scope);
@@ -671,7 +671,7 @@ private:
         if (!integer || llvm::APSInt(integer.getCanonicalValue()) != ordinal ||
             failed(allow(get, 0)))
           return module->emitOpError() << "queue payload Table ordinal differs";
-        current = normal(get.getInput(), current->scope);
+        current = normal(get->getOperand(0), current->scope);
       }
       if (failed(current)) return failure();
     }

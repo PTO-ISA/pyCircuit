@@ -618,14 +618,10 @@ FailureOr<Value> Importer::stateInitializer(
     OpBuilder &at, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
     llvm::StringMap<Instance *> &instances, bool allowCapturedConstants) {
   ac::HardwareAnalysis analysis(*body);
-  if (auto table = dyn_cast<ac::TableType>(contract.type)) {
-    if (failed(analysis.getTableSize(table, {},
-                                     at.getInsertionBlock()->getParentOp())) ||
-        failed(analysis.getPackedWidth(table.getElementType(), {},
-                                       at.getInsertionBlock()->getParentOp())))
-      return failure();
-  } else if (failed(analysis.getPackedWidth(
-                 contract.type, {}, at.getInsertionBlock()->getParentOp())))
+  ac::HardwareBindings bindings;
+  bindings.owner = at.getInsertionBlock()->getParentOp();
+  if (failed(ac::detail::verifySourceTemplateType(
+          analysis, contract.type, bindings, bindings.owner)))
     return failure();
   // Typed states additionally admit closed captured constants; SourceStateOp
   // verifies the complete actual initializer SSA before publication.

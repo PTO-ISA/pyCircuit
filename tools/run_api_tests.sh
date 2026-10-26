@@ -25,6 +25,7 @@ nightly_python_tests=(
   tests/system/test_runtime_install.py
   tests/system/test_public_emit.py
   tests/system/test_scalar_generic_modules.py
+  tests/system/test_stateful_static_parameters.py
   tests/system/test_physical_rtl_export.py
   tests/system/test_physical_projection_rejections.py
   tests/system/test_source_system_execution.py

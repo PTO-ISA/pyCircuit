@@ -1,5 +1,6 @@
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceChecks.h"
+#include "EntryBoundary.h"
 #include "HardwareValueAvailability.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
@@ -153,6 +154,9 @@ LogicalResult detail::verifyHardwarePackageStage(
   auto rawStage = package->getAttr("ac.stage");
   auto stage = dyn_cast_or_null<StringAttr>(rawStage);
   auto marker = dyn_cast_or_null<IntegerAttr>(package->getAttr("ac.routed_contract"));
+  bool boundary = llvm::any_of(package.getOps<SystemOp>(), [](SystemOp system) {
+    return system->hasAttr("ac.entry_boundary");
+  });
   bool routed = profile == PackageVerificationProfile::Routed;
   if (package->hasAttr("ac.unit_kind") ||
       (routed ? !stage || stage.getValue() != "routed"
@@ -160,9 +164,9 @@ LogicalResult detail::verifyHardwarePackageStage(
     return package.emitOpError()
            << (routed ? "routed verification requires ac.stage = routed"
                       : "executable hardware verification requires final hardware; routed packages require state refinement");
-  if ((routed || package->hasAttr("ac.routed_contract")) &&
+  if ((routed || boundary || package->hasAttr("ac.routed_contract")) &&
       (!marker || !marker.getType().isSignlessInteger(64) ||
-       marker.getValue() != 2))
+       marker.getValue() != (boundary ? 3 : 2)))
     return package.emitOpError()
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
   auto closed = package.walk([&](Operation *operation) {
@@ -213,6 +217,8 @@ LogicalResult detail::verifyHardwarePackageEnvelope(
     const std::function<LogicalResult(uint64_t, Operation *)> &debit) {
   auto package = analysis.getPackage();
   if (!package)
+    return failure();
+  if (failed(verifyEntryBoundary(analysis, false, debit)))
     return failure();
   auto registrations = package.walk([&](Operation *operation) {
     if (!operation->hasAttr("ac.registration_path") &&

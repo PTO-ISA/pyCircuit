@@ -1,4 +1,5 @@
 #include "SourceLink.h"
+#include "SourceEntryBoundary.h"
 #include "LiteralPayloadWires.h"
 #include "SourceHeaderHelpers.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
@@ -60,21 +61,21 @@ public:
   }
 };
 
-// Reference formals describe a source template, not a second physical state
-// allocation. Authenticate every supplied definition first, then remove only
-// reference templates with no actual instance reachable from any closed
-// ordinary definition. Ordinary unused definitions retain existing validation.
-class DiscardUninstantiatedReferenceTemplatesPass final
-    : public PassWrapper<DiscardUninstantiatedReferenceTemplatesPass,
+// Reference and Integer formals describe source templates, not additional
+// physical state allocations. Authenticate every supplied definition first,
+// then retain templates reached from actual closed roots or the selected entry.
+// Closed ordinary unused definitions retain their existing validation.
+class DiscardUninstantiatedSourceTemplatesPass final
+    : public PassWrapper<DiscardUninstantiatedSourceTemplatesPass,
                          OperationPass<mlir::ModuleOp>> {
 public:
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DiscardUninstantiatedReferenceTemplatesPass)
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(DiscardUninstantiatedSourceTemplatesPass)
   void runOnOperation() final {
     auto package = getOperation();
-    bool hasReferences = llvm::any_of(package.getOps<ac::ModuleOp>(), [](ac::ModuleOp module) {
-      return module->hasAttr("ac.reference_parameters");
-    });
-    if (!hasReferences) return;
+    auto isTemplate = [](ac::ModuleOp module) {
+      return module->hasAttr("ac.reference_parameters") || !module.getParameters().empty();
+    };
+    if (llvm::none_of(package.getOps<ac::ModuleOp>(), isTemplate)) return;
     ac::SourceMethodSummariesAnalysis summaries(package);
     if (!summaries.isValid()) { signalPassFailure(); return; }
     for (auto module : package.getOps<ac::ModuleOp>())
@@ -85,7 +86,7 @@ public:
     ac::HardwareSourceCheckLimits limits;
     limits.maxWorkUnits = 1024 * 1024;
     ac::detail::SourceCheckBudget budget(limits);
-    budget.setPhase("uninstantiated source reference templates");
+    budget.setPhase("uninstantiated source templates");
     ac::HardwareAnalysis hardware(package);
     SmallVector<ac::ModuleOp, 0> pending, unused;
     llvm::DenseSet<Operation *> reachable, discarded;
@@ -99,10 +100,18 @@ public:
     // another (possibly unused) template also allocates it. This preserves the
     // existing rejection of conflicts in unused ordinary definitions.
     for (auto module : package.getOps<ac::ModuleOp>())
-      if (!module->hasAttr("ac.reference_parameters") && failed(push(module))) {
+      if (!isTemplate(module) && failed(push(module))) {
         signalPassFailure();
         return;
       }
+    // A parameterized selected root is one real bound occurrence; its root
+    // actuals are resolved independently by transaction/hardware analysis.
+    for (auto system : package.getOps<ac::SystemOp>()) {
+      auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
+      auto root = callee ? dyn_cast_or_null<ac::ModuleOp>(hardware.lookupDefinition(callee.getValue()))
+                         : ac::ModuleOp();
+      if (!root || failed(push(root))) { signalPassFailure(); return; }
+    }
     while (!pending.empty()) {
       auto module = pending.pop_back_val();
       for (Operation &operation : module.getBody().front()) {
@@ -116,7 +125,7 @@ public:
     }
     for (auto module : package.getOps<ac::ModuleOp>()) {
       if (failed(budget.debit(8, module))) { signalPassFailure(); return; }
-      if (module->hasAttr("ac.reference_parameters") && !reachable.contains(module)) {
+      if (isTemplate(module) && !reachable.contains(module)) {
         unused.push_back(module);
         discarded.insert(module);
       }
@@ -132,7 +141,7 @@ public:
         if (auto instance = dyn_cast<ac::InstanceOp>(operation)) callee = hardware.resolveCallee(instance);
         else if (auto collection = dyn_cast<ac::CollectionOp>(operation)) callee = hardware.resolveCallee(collection);
         if (discarded.contains(callee)) {
-          operation.emitOpError("source reference template removal would lose an actual allocation");
+          operation.emitOpError("source template removal would lose an actual allocation");
           signalPassFailure();
           return;
         }
@@ -141,7 +150,7 @@ public:
     for (auto system : package.getOps<ac::SystemOp>()) {
       auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
       if (discarded.contains(hardware.lookupDefinition(callee.getValue()))) {
-        system.emitOpError("selected root has unbound source Module references");
+        system.emitOpError("source template removal would lose the selected root");
         signalPassFailure();
         return;
       }
@@ -155,6 +164,39 @@ struct TransactionStageCapture {
   unsigned routedCount = 0;
   unsigned afterCount = 0;
   SourceLinkStages stages;
+};
+
+class NormalizeEntryBoundaryPass final
+    : public PassWrapper<NormalizeEntryBoundaryPass, OperationPass<mlir::ModuleOp>> {
+public:
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(NormalizeEntryBoundaryPass)
+  explicit NormalizeEntryBoundaryPass(TransactionStageCapture *capture = nullptr)
+      : capture(capture) {}
+  NormalizeEntryBoundaryPass(const NormalizeEntryBoundaryPass &other)
+      : PassWrapper(other), capture(other.capture) {}
+  void runOnOperation() final {
+    auto package = getOperation();
+    auto normalized = normalizeEntryBoundary(package);
+    if (failed(normalized)) { signalPassFailure(); return; }
+    auto staged = normalized->get();
+    if (capture) {
+      auto print = [](Operation *op, std::string &text) {
+        llvm::raw_string_ostream stream(text);
+        op->print(stream, OpPrintingFlags().enableDebugInfo());
+        stream << '\n';
+      };
+      print(package, capture->stages.beforeEntryNormalization);
+      if (staged)
+        print(staged, capture->stages.normalizedEntry);
+      else
+        capture->stages.normalizedEntry = capture->stages.beforeEntryNormalization;
+    }
+    if (!staged) return;
+    package->setAttrs(staged->getAttrs());
+    package.getBodyRegion().takeBody(staged.getBodyRegion());
+  }
+private:
+  TransactionStageCapture *capture;
 };
 
 class TransactionStageInstrumentation final : public PassInstrumentation {
@@ -495,7 +537,9 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   PassManager pipeline(context);
   pipeline.addPass(acir::createNormalizeSourceControlFlowPass());
   pipeline.addPass(std::make_unique<CompactLiteralPayloadWiresPass>());
-  pipeline.addPass(std::make_unique<DiscardUninstantiatedReferenceTemplatesPass>());
+  pipeline.addPass(std::make_unique<DiscardUninstantiatedSourceTemplatesPass>());
+  pipeline.addPass(std::make_unique<NormalizeEntryBoundaryPass>(
+      retainedStages ? &capture : nullptr));
   if (ac::detail::findUnloweredTransaction(linked->getOperation()))
     pipeline.addPass(acir::createAnalyzeTransactionStateSSAPass());
   auto route = acir::createRouteTransactionsPass();

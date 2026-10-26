@@ -8,6 +8,35 @@
 
 using namespace mlir;
 namespace acir::ac::detail {
+bool hasUniformTableAvailability(Value value, const HardwareAnalysis &analysis) {
+  for (unsigned depth = 0; depth < 128; ++depth) {
+    if (auto argument = dyn_cast<BlockArgument>(value)) {
+      auto *owner = argument.getOwner()->getParentOp();
+      if (isa<ModuleOp>(owner)) return true;
+      if (auto rule = dyn_cast<RuleOp>(owner)) {
+        if (argument.getArgNumber() >= rule.getCaptures().size()) return false;
+        value = rule.getCaptures()[argument.getArgNumber()];
+        continue;
+      }
+      return false;
+    }
+    auto *operation = value.getDefiningOp();
+    if (isa_and_nonnull<SourceStateOp, TableSplatOp, InstanceOp>(operation)) return true;
+    if (auto collection = dyn_cast_or_null<CollectionOp>(operation))
+      return !analysis.getPrimitiveKind(analysis.resolveCallee(collection)).empty();
+    if (auto rule = dyn_cast_or_null<RuleOp>(operation)) {
+      if (rule->hasAttr("ac.sampled_admission")) return true;
+      if (!rule.getBody().hasOneBlock() || rule.getBody().front().empty()) return false;
+      auto yield = dyn_cast<YieldOp>(rule.getBody().front().back());
+      auto ordinal = cast<OpResult>(value).getResultNumber();
+      if (!yield || ordinal >= yield.getNumOperands()) return false;
+      value = yield.getOperand(ordinal);
+      continue;
+    }
+    return false;
+  }
+  return false;
+}
 namespace {
 // Availability proof preserves three statuses: known zero, known one, and
 // unknown (X/Z). These identities do not assert raw four-state SSA equality or
@@ -72,6 +101,8 @@ class AvailabilityProof {
       // The temporary key is private and carries no semantic authority.
       (void)attributeKey(expression.getTree(), depth + 1);
       if (invalid) return "invalid";
+      if (!analysis.isStaticEvaluable(expression, {}))
+        return "static:" + attributeKey(expression.getTree(), depth + 1);
       auto evaluated = analysis.evaluateStatic(expression, {}, site);
       if (failed(evaluated)) { invalid = true; return "invalid"; }
       return attributeKey(*evaluated, depth + 1);
@@ -91,6 +122,7 @@ class AvailabilityProof {
       std::string key = "dictionary";
       for (NamedAttribute element : dictionary) {
         StringRef name = element.getName().strref();
+        if (name == "origin" || name == "location") continue;
         if (!charge(32 + name.size(), site)) return "invalid";
         auto nested = attributeKey(element.getValue(), depth + 1);
         if (invalid || !charge(32 + nested.size(), site)) return "invalid";
@@ -137,8 +169,9 @@ class AvailabilityProof {
       return key;
     }
     if (auto bits = dyn_cast<BitsType>(type)) {
-      (void)attributeKey(bits.getWidth());
+      auto logical = attributeKey(bits.getWidth());
       if (invalid) return "invalid";
+      if (!analysis.isStaticEvaluable(bits.getWidth(), {})) return "bits-template:" + logical;
       auto width = analysis.getPackedWidth(type, {}, site);
       if (failed(width)) { invalid = true; return "invalid"; }
       return "bits:" + std::to_string(*width);
@@ -150,8 +183,9 @@ class AvailabilityProof {
   }
   std::string shapeKey(TableType type, Operation *site) {
     if (!charge(16 + 32 * uint64_t(type.getShape().size()), site)) return "invalid";
-    (void)attributeKey(type.getShape());
+    auto logical = attributeKey(type.getShape());
     if (invalid) return "invalid";
+    if (!analysis.isStaticEvaluable(type.getShape(), {})) return "template:" + logical;
     auto shape = analysis.getTableShape(type, {}, site);
     if (failed(shape)) { invalid = true; return "invalid"; }
     std::string key;
@@ -675,6 +709,12 @@ class AvailabilityProof {
     if (isa<TableMapOp, TableViewOp>(op)) {
       if (llvm::all_of(op->getOperands(), [&](Value input) { return availability(input) == 1; })) return 1;
       return wholeRows(value, true, path);
+    }
+    if (auto read = dyn_cast<TableReadOp>(op)) {
+      Expr selected = hasUniformTableAvailability(read.getInput(), analysis)
+                          ? tableAt(read.getInput(), 0, path)
+                          : tableElement(read.getInput(), read.getIndex(), path);
+      return all({availability(read.getIndex()), selected});
     }
     if (auto get = dyn_cast<TableGetOp>(op)) {
       Expr index = availability(get.getIndex());

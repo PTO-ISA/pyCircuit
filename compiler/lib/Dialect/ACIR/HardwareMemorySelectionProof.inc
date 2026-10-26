@@ -54,9 +54,9 @@
               if (!get || get.getFieldAttr() != field) return std::optional<HardwareIdentityEndpoint>();
               value = normal(get.getValue(), value->scope);
             } else {
-              auto get = value->value.getDefiningOp<TableGetOp>();
-              if (!get) return std::optional<HardwareIdentityEndpoint>();
-              value = normal(get.getInput(), value->scope);
+              auto *get = value->value.getDefiningOp();
+              if (!isa_and_nonnull<TableReadOp, TableGetOp>(get)) return std::optional<HardwareIdentityEndpoint>();
+              value = normal(get->getOperand(0), value->scope);
             }
             if (failed(value)) return failure();
           }

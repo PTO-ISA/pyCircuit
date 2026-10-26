@@ -10,6 +10,8 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/PointerUnion.h"
 #include <limits>
+#include <functional>
+#include "llvm/ADT/APSInt.h"
 #include <type_traits>
 
 using namespace mlir;
@@ -245,8 +247,7 @@ FailureOr<Type> selectedPayloadType(Operation *operation, Type root,
     if (!isa<BitsType>(indices[nextIndex].getType()) || failed(indexWidth))
       return operation->emitOpError() << "state index must have resolved Bits "
                                          "type";
-    auto shape = analysis.getTableShape(table, bindings, operation);
-    if (failed(shape))
+    if (failed(detail::verifySourceTemplateType(analysis, table, bindings, operation)))
       return failure();
     ++nextIndex;
     if (table.getShape().size() == 1)
@@ -313,8 +314,52 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
     if (!active.insert(operation).second)
       return state->emitOpError()
              << "state initializer constructor DAG is cyclic";
-    if (failed(mlir::verify(operation)) ||
-        failed(analysis.verifyResolvedOperation(operation, bindings)))
+    if (failed(mlir::verify(operation))) return failure();
+    bool concrete = true;
+    for (TypeRange types : {TypeRange(operation->getOperandTypes()), TypeRange(operation->getResultTypes())})
+      for (Type type : types) {
+        bool closed = false;
+        if (failed(detail::verifySourceTemplateType(analysis, type, bindings, operation, &closed)))
+          return failure();
+        concrete &= closed;
+      }
+    for (NamedAttribute attr : operation->getAttrs())
+      if (failed(detail::verifyHardwareAttributeScope(attr.getValue(), bindings.owner)))
+        return failure();
+    // Independently closed attributes remain checked even when some operand
+    // or result width depends on a formal. Only width-relative fit may defer.
+    std::function<LogicalResult(Attribute, unsigned)> checkAttribute =
+        [&](Attribute attribute, unsigned depth) -> LogicalResult {
+      if (depth > 128) return state->emitOpError() << "initializer expression depth exceeded";
+      if (auto expression = dyn_cast<StaticExprAttr>(attribute)) {
+        if (analysis.isStaticEvaluable(expression, bindings))
+          return success(succeeded(analysis.evaluateStatic(expression, bindings, operation)));
+        return checkAttribute(expression.getTree(), depth + 1);
+      }
+      if (auto array = dyn_cast<ArrayAttr>(attribute))
+        for (Attribute child : array)
+          if (failed(checkAttribute(child, depth + 1))) return failure();
+      if (auto dictionary = dyn_cast<DictionaryAttr>(attribute))
+        for (NamedAttribute field : dictionary)
+          if (field.getName() != "origin" && field.getName() != "location" &&
+              failed(checkAttribute(field.getValue(), depth + 1))) return failure();
+      return success();
+    };
+    for (NamedAttribute attr : operation->getAttrs())
+      if (failed(checkAttribute(attr.getValue(), 0))) return failure();
+    auto nonnegative = [&](StaticExprAttr expression, StringRef description) -> LogicalResult {
+      if (!analysis.isStaticEvaluable(expression, bindings)) return success();
+      auto value = analysis.evaluateStatic(expression, bindings, operation);
+      auto integer = succeeded(value) ? dyn_cast<MathIntAttr>(*value) : MathIntAttr();
+      if (!integer || llvm::APSInt(integer.getCanonicalValue()).isNegative())
+        return operation->emitOpError() << description << " requires a nonnegative Integer";
+      return success();
+    };
+    if (auto constant = dyn_cast<BitsConstantOp>(operation))
+      if (failed(nonnegative(constant.getValue(), "state initializer constant"))) return failure();
+    if (auto extract = dyn_cast<BitsExtractOp>(operation))
+      if (failed(nonnegative(extract.getLow(), "state initializer extract low"))) return failure();
+    if (concrete && failed(analysis.verifyResolvedOperation(operation, bindings)))
       return failure();
     stack.push_back({operation});
     return success();
@@ -751,10 +796,8 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
     }
     if (failed(detail::verifyHardwareTypeScope(type, owner))) return failure();
   }
-  if (!isa<BitsType>(actualType)) {
-    auto width = analysis.getPackedWidth(actualType, lexicalBindings, diagnosticSite);
-    if (failed(width) || !*width) return failure();
-  }
+  if (failed(detail::verifySourceTemplateType(
+          analysis, actualType, lexicalBindings, diagnosticSite))) return failure();
   return analysis.resolveType(actualType, lexicalBindings, diagnosticSite);
 }
 
@@ -796,7 +839,7 @@ LogicalResult SourceStateOp::verify() {
   if (Attribute constraint = (*this)->getAttr("ac.payload_constraint"))
     if (failed(detail::verifySourceCallHardwareConstraint(
             constraint, getQ().getType(), analysis, owner, *this,
-            "state payload")))
+            "state payload", detail::SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   if (stage && stage.getValue() == "routed") {
     StateUpdateOp pairedUpdate;
@@ -835,9 +878,9 @@ LogicalResult StateUpdateOp::verify() {
                       : IntegerAttr();
   if (!owner || !package || !stage || stage.getValue() != "routed" ||
       package->hasAttr("ac.unit_kind") || !contract ||
-      !contract.getType().isSignlessInteger(64) || contract.getValue() != 2)
+      !contract.getType().isSignlessInteger(64) || (contract.getValue() != 2 && contract.getValue() != 3))
     return emitOpError()
-           << "requires direct module graph placement in a routed contract-2 "
+           << "requires direct module graph placement in a versioned routed "
               "package";
   if (!(*this)->getAttrs().empty())
     return emitOpError() << "state update does not accept attributes";
@@ -882,6 +925,18 @@ LogicalResult SourceStateWriteOp::verify() {
   if (!areEquivalentHardwareTypes(*selected, getValue().getType()))
     return emitOpError()
            << "state write value must match selected payload type";
+  if (!getIndices().empty()) {
+    auto owner = (*this)->getParentOfType<ModuleOp>();
+    auto bindings = scope(*this);
+    for (auto state : owner.getBody().front().getOps<SourceStateOp>()) {
+      if (state.getInstanceNameAttr() != getStateAttr()) continue;
+      auto table = dyn_cast<TableType>(state.getQ().getType());
+      if (table && analysis.isStaticEvaluable(table.getShape(), bindings) &&
+          (getIndices().size() != 1 ||
+           failed(analysis.verifySourceIndex(getIndices().front(), table, bindings, *this))))
+        return failure();
+    }
+  }
   return success();
 }
 
@@ -1051,13 +1106,13 @@ LogicalResult SourceMethodOp::verify() {
     auto parameter = cast<DictionaryAttr>(raw);
     if (failed(detail::verifySourceCallHardwareConstraint(
             parameter.get("constraint"), signature.getInput(index), analysis,
-            lexicalModule, *this, "source method")))
+            lexicalModule, *this, "source method", detail::SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   }
   for (auto [index, raw] : llvm::enumerate(results))
     if (failed(detail::verifySourceCallHardwareConstraint(
             raw, signature.getResult(index), analysis, lexicalModule, *this,
-            "source method")))
+            "source method", detail::SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   SourceMethodView contract{lexicalModule, *this, {}};
   if (failed(verifySourceMethodFormalProposals(contract, *this)))

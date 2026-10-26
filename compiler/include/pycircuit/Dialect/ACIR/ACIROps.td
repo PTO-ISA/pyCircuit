@@ -680,6 +680,18 @@ def ACIR_TableIndexOp : ACIR_Op<"table.index", [Pure]> {
   let results = (outs ACIR_BitsType:$result);
   let hasVerifier = 1;
 }
+def ACIR_TableReadOp : ACIR_Op<"table.read", [Pure]> {
+  let summary = "Read one statically checked source Table element";
+  let description = [{
+    The index's complete admitted unsigned range must fit the bound rank-one
+    Table extent. This obligation is intrinsic and survives routing and reload.
+    Static admission does not grant knownness: payload selection retains the
+    same full-width four-state behavior as table.get's payload result.
+  }];
+  let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
+  let results = (outs ACIR_ScalarHardwareType:$value);
+  let hasVerifier = 1;
+}
 def ACIR_TableGetOp : ACIR_Op<"table.get", [Pure]> {
   let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
   let results = (outs ACIR_ScalarHardwareType:$value, ACIR_BitsType:$in_range);
@@ -707,10 +719,10 @@ def ACIR_TableFoldOp : ACIR_Op<"table.fold", [Pure]> {
 }
 def ACIR_ValueMergeOp : ACIR_Op<"value.merge", [Pure,
     AttrSizedOperandSegments]> {
-  let arguments = (ins ACIR_ScalarHardwareType:$base,
+  let arguments = (ins ACIR_HardwareType:$base,
       Variadic<ACIR_BitsType>:$guards,
       Variadic<ACIR_HardwareType>:$values, ArrayAttr:$paths);
-  let results = (outs ACIR_ScalarHardwareType:$next, ACIR_BitsType:$en);
+  let results = (outs ACIR_HardwareType:$next, ACIR_BitsType:$en);
   let hasVerifier = 1;
 }
 

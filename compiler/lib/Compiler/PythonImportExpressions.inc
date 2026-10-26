@@ -364,12 +364,15 @@ if (node.kind() == "Subscript") {
   auto type = dyn_cast<ac::TableType>(base->getType());
   if (!type)
     return error() << "subscript requires fixed bits or a table";
-  if (failed(proveIndex(*base, *index, node)))
-    return failure();
+  auto admission = proveIndex(*base, *index, node);
+  if (failed(admission)) return failure();
+  SmallVector<Type> results{type.getElementType()};
+  bool deferred = *admission == SourceIndexAdmission::Deferred;
+  if (!deferred) results.push_back(internalBits(1, node, ownerSymbol));
   auto result =
       createOp(at, node.location(b.getContext(), source.path),
-               ac::TableGetOp::getOperationName(), {*base, *index},
-               TypeRange{type.getElementType(), internalBits(1, node, ownerSymbol)}, {})
+               deferred ? ac::TableReadOp::getOperationName() : ac::TableGetOp::getOperationName(),
+               {*base, *index}, results, {})
           ->getResult(0);
   if (isa<ac::BitsType>(result.getType()))
     fixedValues.insert(result);

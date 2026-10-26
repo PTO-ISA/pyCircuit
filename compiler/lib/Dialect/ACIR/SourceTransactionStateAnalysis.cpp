@@ -579,15 +579,21 @@ public:
   // may use this only with an empty path for their depth-zero local proof.
   LogicalResult verifyReceivers(ModuleOp lexical, ModuleOp routing,
                                 ArrayRef<InstanceOp> registrationPath) {
-    HardwareBindings bindings;
-    bindings.owner = routing;
+    HardwareBindings bindings, logicalRoot;
+    bindings.owner = logicalRoot.owner = routing;
+    if (llvm::hasSingleElement(package.getOps<SystemOp>())) {
+      auto selected = detail::resolveHardwareRootBindings(hardware);
+      if (failed(selected)) return failure();
+      if (selected->owner == routing) bindings = *selected;
+    }
     if (!budget.chargeBindings(lexical, bindings) ||
+        !budget.chargeBindings(lexical, logicalRoot) ||
         !budget.chargeStorage<TransactionLexicalInstance>(lexical, 1) ||
         !budget.reserve(lexical, plan.instances, 1) ||
         !budget.chargeStorage<Attribute>(lexical, registrationPath.size()))
       return failure();
     plan.instances.push_back({routing, std::nullopt, {},
-                              ArrayAttr::get(package.getContext(), {}), bindings});
+                              ArrayAttr::get(package.getContext(), {}), bindings, logicalRoot});
     SmallVector<Attribute> occurrences;
     if (!budget.reserve(lexical, occurrences, registrationPath.size()))
       return failure();
@@ -617,7 +623,15 @@ public:
     if (failed(registration)) return failure();
     HardwareBindings rootBindings;
     rootBindings.owner = plan.routingModule;
+    if (llvm::hasSingleElement(package.getOps<SystemOp>())) {
+      auto selected = detail::resolveHardwareRootBindings(hardware);
+      if (failed(selected)) return failure();
+      if (selected->owner == plan.routingModule) rootBindings = *selected;
+    }
+    HardwareBindings logicalRoot;
+    logicalRoot.owner = plan.routingModule;
     if (!budget.chargeBindings(transaction, rootBindings) ||
+        !budget.chargeBindings(transaction, logicalRoot) ||
         !budget.chargeStorage<TransactionLexicalInstance>(transaction, 1) ||
         !budget.reserve(transaction, plan.instances, 1) ||
         !budget.chargeStorage<InvocationFrame>(transaction, 1) ||
@@ -627,7 +641,7 @@ public:
                               std::nullopt,
                               {},
                               ArrayAttr::get(package.getContext(), {}),
-                              rootBindings});
+                              rootBindings, logicalRoot});
     auto lexicalAnchor = descend(0, plan.registrationPath, transaction);
     if (failed(lexicalAnchor) || plan.instances[*lexicalAnchor].definition != plan.lexicalModule)
       return failure();
@@ -915,7 +929,7 @@ private:
       return failure();
     const auto &ref = plan.values[id];
     return hardware.resolveType(ref.value.getType(),
-                                plan.instances[ref.anchor].bindings, site);
+                                plan.instances[ref.anchor].logicalBindings, site);
   }
 
   FailureOr<Type> branchType(Type original, LexicalInstanceId anchor,
@@ -932,8 +946,10 @@ private:
         });
     if (failed(type) || !budget.reserveMapInsert(site, admittedBranchTypes))
       return failure();
-    admittedBranchTypes.try_emplace(key, *type);
-    return *type;
+    auto logical = hardware.resolveType(original, plan.instances[anchor].logicalBindings, site);
+    if (failed(logical)) return failure();
+    admittedBranchTypes.try_emplace(key, *logical);
+    return *logical;
   }
 
   LogicalResult equivalent(BoundValueId left, BoundValueId right,
@@ -1331,6 +1347,18 @@ private:
     auto rhs = useValue(operation.getValue(), anchor, frame, operation);
     if (failed(state) || failed(rhs))
       return failure();
+    // Actual-dependent indexed writes are source effects with intrinsic range
+    // obligations. Discharge them before constructing a candidate or domain.
+    if (!operation.getIndices().empty()) {
+      auto table = dyn_cast<TableType>(plan.owners[*state].declaration.getQ().getType());
+      if (table) {
+        if (!budget.charge(operation, 32 + operation.getIndices().size()) ||
+            operation.getIndices().size() != 1 ||
+            failed(hardware.verifySourceIndex(operation.getIndices().front(), table,
+                                              plan.instances[anchor].bindings, operation)))
+          return failure();
+      }
+    }
     auto indices = writeIndices(operation, operation.getIndices(), frame);
     auto type = payloadType(*rhs, operation);
     auto selected = failed(indices) ? FailureOr<Type>(failure())
@@ -1466,7 +1494,8 @@ private:
                << "transaction receiver requires an executable provider body";
       auto bound =
           hardware.bindInstance(allocation, plan.instances[anchor].bindings);
-      if (failed(bound))
+      auto logical = hardware.bindInstance(allocation, plan.instances[anchor].logicalBindings);
+      if (failed(bound) || failed(logical))
         return failure();
       auto parentPath = plan.instances[anchor].occurrencePath;
       if (parentPath.size() >= maxDepth)
@@ -1474,6 +1503,7 @@ private:
                << "transaction lexical instance depth budget exceeded";
       if (!budget.charge(site, parentPath.size() + 3) ||
           !budget.chargeBindings(site, *bound) ||
+          !budget.chargeBindings(site, *logical) ||
           !budget.chargeOccurrence(site, allocation.getOccurrence()) ||
           !budget.chargeStorage<TransactionLexicalInstance>(site, 1) ||
           !budget.reserve(site, plan.instances, 1) ||
@@ -1484,7 +1514,7 @@ private:
       LexicalInstanceId child = plan.instances.size();
       plan.instances.push_back({body, anchor, allocation,
                                 ArrayAttr::get(package.getContext(), path),
-                                *bound});
+                                *bound, *logical});
       instances.try_emplace(key, child);
       anchor = child;
     }
@@ -1878,7 +1908,7 @@ private:
       return operation.emitOpError()
              << "branch condition requires width-one Bits";
     auto width = hardware.getPackedWidth(
-        *conditionType, plan.frames[frame].bindings, operation);
+        *conditionType, plan.instances[0].bindings, operation);
     if (failed(width) || *width != 1)
       return operation.emitOpError()
              << "branch condition requires width-one Bits";
@@ -3313,6 +3343,18 @@ void runTransactionStateAnalysis(
     for (auto module : package.getOps<ModuleOp>())
       if (!allocated.contains(module) && !referenceDefinitions.contains(module))
         roots.push_back(module);
+  // Selection is an occurrence authority even when another retained closed
+  // root also allocates the same generic definition with different actuals.
+  for (auto system : package.getOps<SystemOp>()) {
+    auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
+    auto root = callee ? dyn_cast_or_null<ModuleOp>(hardware.lookupDefinition(callee.getValue()))
+                       : ModuleOp();
+    if (!root || !budget.charge(system)) return;
+    if (!llvm::is_contained(roots, root)) {
+      if (!budget.reserve(system, roots, 1)) return;
+      roots.push_back(root);
+    }
+  }
   if (selectedRelativeRoot) {
     bool changed = true;
     while (changed) {
@@ -3411,7 +3453,8 @@ void runTransactionStateAnalysis(
       for (auto module : closures[root]) {
         if (!budget.charge(root)) return;
         affected |= referenceDefinitions.contains(module) ||
-                    relativeDefinitions.contains(module) || liftedDefinitions.contains(module);
+                    relativeDefinitions.contains(module) || !module.getParameters().empty() ||
+                    liftedDefinitions.contains(module);
       }
       if (!affected || !liftedRoots.insert(root).second) continue;
       changed = true;
@@ -3591,6 +3634,10 @@ void runTransactionStateAnalysis(
   for (auto [index, plan] : llvm::enumerate(completed)) {
     auto group = leader(index);
     unsigned prefix = common[group].size();
+    if (llvm::any_of(plan.instances, [](const TransactionLexicalInstance &instance) {
+          auto definition = instance.definition;
+          return !definition.getParameters().empty();
+        })) prefix = 0;
     auto root = plan.routingModule;
     if (!componentValid || !budget.chargeStorage<InstanceOp>(plan.transaction, plan.registrationPath.size())) return;
     SmallVector<InstanceOp, 0> registration;

@@ -1091,7 +1091,8 @@ public:
         if (Attribute constraint = row.get("payload_constraint"))
           if (failed(detail::verifySourceCallHardwareConstraint(
                   constraint, row.getAs<TypeAttr>("type").getValue(), hardware,
-                  declaration, declaration, "transaction summary state payload")))
+                  declaration, declaration, "transaction summary state payload",
+                  detail::SourceCallWidthMode::SymbolicFixedBits)))
             return failure();
         identity = state.getAs<DictionaryAttr>("declaration");
         stateRows[state] = row.getAs<TypeAttr>("type").getValue();
@@ -1401,13 +1402,7 @@ private:
       return failure();
     HardwareBindings bindings;
     bindings.owner = declaration;
-    auto width =
-        hardware.getPackedWidth(attr.getValue(), bindings, declaration);
-    if (failed(width))
-      return failure();
-    if (!*width)
-      return error("hardware type requires a positive resolved packed width");
-    return success();
+    return detail::verifySourceTemplateType(hardware, attr.getValue(), bindings, declaration);
   }
   bool oneBit(Type type) {
     auto bits = dyn_cast_or_null<BitsType>(type);
@@ -1581,14 +1576,14 @@ private:
       auto parameter = cast<DictionaryAttr>(parameters[index]);
       if (failed(detail::verifySourceCallHardwareConstraint(
               parameter.get("constraint"), function.getInput(index), hardware,
-              declaration, declaration, "transaction summary method")))
+              declaration, declaration, "transaction summary method", detail::SourceCallWidthMode::SymbolicFixedBits)))
         return failure();
     }
     for (auto [index, raw] : llvm::enumerate(constraints)) {
       if (failed(type(TypeAttr::get(function.getResult(index)))) ||
           failed(detail::verifySourceCallHardwareConstraint(
               raw, function.getResult(index), hardware, declaration,
-              declaration, "transaction summary method")))
+              declaration, "transaction summary method", detail::SourceCallWidthMode::SymbolicFixedBits)))
         return failure();
     }
     SourceMethodView contract{declaration, {}, row};
@@ -1779,7 +1774,7 @@ private:
           return failure();
         }
         if (failed(hardware.getPackedWidth(index, bindings, declaration)) ||
-            failed(hardware.getTableShape(table, bindings, declaration)) ||
+            failed(detail::verifySourceTemplateType(hardware, table, bindings, declaration)) ||
             failed(value(selector.get("index"), scope, index)))
           return failure();
         current =

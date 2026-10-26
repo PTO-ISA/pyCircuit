@@ -1,6 +1,7 @@
 #include "FinalSourceMap.h"
 
 #include "Dialect/ACIR/ACIRSourceContracts.h"
+#include "Dialect/ACIR/EntryBoundary.h"
 #include "FinalCppNames.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/BuiltinOps.h"
@@ -15,6 +16,7 @@
 #include <algorithm>
 #include <array>
 #include <optional>
+#include <functional>
 #include <set>
 #include <tuple>
 
@@ -119,6 +121,41 @@ collectOrigins(ArrayRef<Operation *> definitions,
         rawOccurrence = operation->getAttr("occurrence");
       if (!rawOccurrence)
         return;
+      // The boundary's occurrence is derived from the selected declaration,
+      // never a second authored Python call. Attribute generated route sites
+      // through the retained logical selection when publishing source maps.
+      auto occurrence = dyn_cast<DictionaryAttr>(rawOccurrence);
+      auto package = definition->getParentOfType<mlir::ModuleOp>();
+      if (occurrence && package) {
+        auto site = occurrence.getAs<DictionaryAttr>("site");
+        auto symbol = site ? site.getAs<FlatSymbolRefAttr>("definition") : FlatSymbolRefAttr();
+        if (symbol && symbol.getValue() == ac::detail::entryBoundarySymbol) {
+          auto systems = package.getOps<ac::SystemOp>();
+          if (!llvm::hasSingleElement(systems)) { result = failure(); return; }
+          auto boundary = (*systems.begin())->getAttrOfType<DictionaryAttr>("ac.entry_boundary");
+          auto logical = boundary ? boundary.getAs<DictionaryAttr>("logical_entry") : DictionaryAttr();
+          if (!logical) { result = failure(); return; }
+          std::function<Attribute(Attribute)> attributeSource = [&](Attribute value) -> Attribute {
+            if (auto dictionary = dyn_cast<DictionaryAttr>(value)) {
+              NamedAttrList fields;
+              for (NamedAttribute field : dictionary) {
+                auto reference = dyn_cast<FlatSymbolRefAttr>(field.getValue());
+                fields.append(field.getName(), field.getName() == "definition" && reference &&
+                    reference.getValue() == ac::detail::entryBoundarySymbol
+                    ? logical.getAs<FlatSymbolRefAttr>("callee") : attributeSource(field.getValue()));
+              }
+              return DictionaryAttr::get(operation->getContext(), fields.getAttrs());
+            }
+            if (auto array = dyn_cast<ArrayAttr>(value)) {
+              SmallVector<Attribute> elements;
+              for (Attribute element : array) elements.push_back(attributeSource(element));
+              return ArrayAttr::get(operation->getContext(), elements);
+            }
+            return value;
+          };
+          rawOccurrence = attributeSource(occurrence);
+        }
+      }
       auto origin =
           printAndVerifyOccurrence(dyn_cast<DictionaryAttr>(rawOccurrence),
                                    operation->getContext(), emitError);

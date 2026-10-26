@@ -75,6 +75,9 @@ struct TransactionLexicalInstance {
   InstanceOp allocation;
   mlir::ArrayAttr occurrencePath;
   HardwareBindings bindings;
+  /// Declaration-relative substitution into the routing ancestor. Unlike the
+  /// occurrence bindings above, this never substitutes that ancestor's actuals.
+  HardwareBindings logicalBindings;
 };
 
 /// An original SSA value in a particular instance and invocation. Pure payload

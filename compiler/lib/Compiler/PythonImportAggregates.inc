@@ -228,6 +228,7 @@ FailureOr<Type> Importer::resolveConcatType(const AstNode &node,
                                             FlatSymbolRefAttr symbol) {
   ac::HardwareAnalysis analysis(*body);
   ac::StaticExprAttr total;
+  SmallVector<ac::StaticExprAttr> symbolic;
   uint64_t knownTotal = 0;
   bool allKnown = true;
   for (auto [i, type] : llvm::enumerate(operands)) {
@@ -248,8 +249,16 @@ FailureOr<Type> Importer::resolveConcatType(const AstNode &node,
         return mlir::emitError(node.location(b.getContext(), source.path))
                << "concat width sum overflows uint64";
       knownTotal += *resolved;
-    } else
+    } else {
       allKnown = false;
+      symbolic.push_back(width);
+    }
+  }
+  // Width addition is independent of concat's payload ordering. Consolidate
+  // closed addends so a declaration such as W + 6 agrees with three operands
+  // of widths 3, W and 3 without substituting W's default or actual value.
+  if (!allKnown && knownTotal) symbolic.push_back(literal(knownTotal, node, symbol));
+  for (auto width : symbolic) {
     if (!total)
       total = width;
     else {
@@ -1001,17 +1010,37 @@ LogicalResult Importer::proveIndexExtent(Value index, uint64_t extent,
            << indexedKind << " index complete width is not proven in range";
   return success();
 }
-LogicalResult Importer::proveIndex(Value table, Value index,
+FailureOr<SourceIndexAdmission> Importer::proveIndex(Value table, Value index,
                                    const AstNode &node) {
   ac::HardwareAnalysis analysis(*body);
+  auto type = cast<ac::TableType>(table.getType());
+  if (!analysis.isStaticEvaluable(type.getShape(), {})) {
+    Operation *site = table.getDefiningOp() ? table.getDefiningOp()
+        : cast<BlockArgument>(table).getOwner()->getParentOp();
+    ac::HardwareBindings lexical;
+    lexical.owner = isa<ac::ModuleOp>(site) ? site : site->getParentOfType<ac::ModuleOp>().getOperation();
+    if (failed(ac::detail::verifySourceTemplateType(analysis, type, lexical, site)))
+      return failure();
+    auto info = valueInfo(index);
+    bool nonnegative = fixedValues.contains(index) ||
+        info.sourceKind == ac::detail::ValueKind::Boolean ||
+        (info.sourceKind == ac::detail::ValueKind::Integer && info.interval &&
+         !info.interval->lower.isNegative());
+    if (!nonnegative || !isa<ac::BitsType>(index.getType()))
+      return mlir::emitError(node.location(b.getContext(), source.path))
+          << "table index requires proven nonnegative unsigned provenance";
+    if (!queryArguments.empty())
+      return mlir::emitError(node.location(b.getContext(), source.path))
+          << "deferred checked Table reads are unsupported in query callbacks";
+    return SourceIndexAdmission::Deferred;
+  }
   auto size = analysis.getTableSize(
-      cast<ac::TableType>(table.getType()), {},
-      table.getDefiningOp()
-          ? table.getDefiningOp()
+      type, {}, table.getDefiningOp() ? table.getDefiningOp()
           : cast<BlockArgument>(table).getOwner()->getParentOp());
   if (failed(size))
     return failure();
-  return proveIndexExtent(index, *size, node, "table");
+  if (failed(proveIndexExtent(index, *size, node, "table"))) return failure();
+  return SourceIndexAdmission::Proved;
 }
 FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                                        Value replacement,
@@ -1019,8 +1048,11 @@ FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                                        const AstNode &node, OpBuilder &at,
                                        FlatSymbolRefAttr symbol,
                                        std::optional<size_t> domainSlot) {
-  if (failed(proveIndex(table, index, node)))
-    return failure();
+  auto admission = proveIndex(table, index, node);
+  if (failed(admission)) return failure();
+  if (*admission == SourceIndexAdmission::Deferred)
+    return mlir::emitError(node.location(b.getContext(), source.path))
+        << "deferred local Table reconstruction is unsupported; use an indexed state write";
   auto type = cast<ac::TableType>(table.getType());
   SmallVector<Type> resultTypes{type};
   if (domainSlot) {
@@ -1154,11 +1186,21 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
       !fixedValues.contains(value)) {
     auto closed = dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant);
     ac::HardwareAnalysis analysis(*body);
-    bool contextualSymbolicConstant =
-        *equivalent && value.getDefiningOp<ac::BitsConstantOp>() && closed &&
-        !llvm::APSInt(closed.getCanonicalValue()).isNegative() &&
-        !analysis.isStaticEvaluable(targetBits.getWidth(), {});
-    if (!contextualSymbolicConstant) {
+    auto constant = value.getDefiningOp<ac::BitsConstantOp>();
+    ac::HardwareBindings lexical;
+    auto *parent = at.getBlock()->getParentOp();
+    lexical.owner = isa<ac::ModuleOp>(parent) ? parent
+        : parent->getParentOfType<ac::ModuleOp>().getOperation();
+    bool contextualStaticConstant = *equivalent && constant &&
+        (!closed || !llvm::APSInt(closed.getCanonicalValue()).isNegative()) &&
+        (!analysis.isStaticEvaluable(targetBits.getWidth(), lexical) ||
+         !analysis.isStaticEvaluable(constant.getValue(), lexical));
+    if (contextualStaticConstant &&
+        (failed(ac::StaticExprAttr::verify([&] { return constant.emitOpError(); },
+                                           constant.getValue().getTree())) ||
+         failed(ac::detail::verifyHardwareAttributeScope(constant.getValue(), lexical.owner))))
+      return failure();
+    if (!contextualStaticConstant) {
       if (*equivalent &&
           !ac::areEquivalentHardwareTypes(value.getType(), target)) {
         value = boundaryBitsIdentity(value, target, node, at, symbol);
@@ -1170,8 +1212,8 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
         return failure();
       value = *converted;
     }
-    // A contextual constant already has the symbolic destination type. Its
-    // existing bound constant verifier checks fit for every actual width; do
+    // A contextual static constant already has its declared destination type.
+    // The bound constant verifier checks its value and fit for every actual; do
     // not treat a parameter default as that proof. The fresh boundary below
     // still leaves the original Integer producer and its aliases unchanged.
   } else if (*equivalent && targetBits && isa<ac::BitsType>(value.getType()) &&

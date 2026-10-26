@@ -67,5 +67,9 @@ verifySourceExpectOperation(const HardwareAnalysis &analysis,
                             const HardwareBindings &bindings);
 mlir::FailureOr<HardwareBindings>
 resolveHardwareRootBindings(const HardwareAnalysis &analysis);
+mlir::FailureOr<HardwareBindings> resolveHardwareEntryBindings(
+    const HardwareAnalysis &analysis, mlir::DictionaryAttr entry);
+mlir::FailureOr<HardwareBindings>
+resolveHardwareLogicalRootBindings(const HardwareAnalysis &analysis);
 } // namespace acir::ac::detail
 #endif

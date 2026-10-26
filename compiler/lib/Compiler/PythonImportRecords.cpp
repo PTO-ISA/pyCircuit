@@ -57,6 +57,7 @@ struct Port {
   bool fixedBits = false;
 };
 enum class ReturnShape { Mapping, Struct, Tuple, None };
+enum class SourceIndexAdmission { Proved, Deferred };
 struct ModuleDecl {
   AstNode node;
   FlatSymbolRefAttr symbol;
@@ -787,7 +788,7 @@ private:
   FailureOr<std::optional<size_t>> addressDomainSlot(StringRef formal,
                                                      const AstNode &assignment,
                                                      const AstNode &index);
-  LogicalResult proveIndex(Value table, Value index, const AstNode &node);
+  FailureOr<SourceIndexAdmission> proveIndex(Value table, Value index, const AstNode &node);
   LogicalResult proveIndexExtent(Value index, uint64_t extent,
                                  const AstNode &node, StringRef indexedKind);
   FailureOr<Value> unsignedBoundary(Value value, Type target,
@@ -3065,6 +3066,13 @@ FailureOr<Type> Importer::substitute(Type type, DictionaryAttr calleeAttrs,
       if (formal == parameter.getName() && index < typeActuals.size())
         return cast<TypeAttr>(typeActuals[index]).getValue();
     return error() << "unbound instance type parameter";
+  }
+  if (auto table = dyn_cast<ac::TableType>(type)) {
+    auto element = substitute(table.getElementType(), calleeAttrs, actuals, typeActuals);
+    if (failed(element)) return failure();
+    auto shape = cast<ArrayAttr>(substituteParameterAttribute(
+        table.getShape(), calleeAttrs, actuals, typeActuals));
+    return Type(ac::TableType::get(b.getContext(), shape, *element));
   }
   auto bits = dyn_cast<ac::BitsType>(type);
   if (!bits)

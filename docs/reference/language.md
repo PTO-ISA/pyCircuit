@@ -45,16 +45,30 @@ no separate Signal resource or set/get interface in the language design. The
 compiler owns value availability and dependency checks; persistent state and
 Queue provide cross-cycle storage.
 
-Scalar fixed-Bits Modules and their tuple results may declare keyword-only
-static Integer parameters, for example
+Modules may declare keyword-only static Integer parameters, for example
 `def Identity(value: ac.bits[W], *, W: int = 8) -> ac.bits[W]`.
 Direct same-source and imported calls separate static keywords from hardware
 arguments and substitute each instance's actual widths. A caller may forward
 its own declared parameter. Root overrides use the existing link command's
 `--parameters` JSON file. Actual width, constant-fit and hardware-argument checks
 still run at the bound instance; defaults are not proof for every instance.
-This support does not add generic state initialization, typed-transaction static
-parameters, type parameters, symbolic Integer domains or `range(W)` expansion.
+The admitted transaction profile also preserves these parameters on state-owning
+Modules. State may use `ac.bits[W]` or rank-one `ac.table[N, ac.bits[W]]`, with
+zero or closed element-splat initialization. Initial values must fit every
+actual element width; widths and extents must be positive. Independent instances
+retain separate state even when they share the same parameter values. Typed
+static expressions such as `last: ac.u64 = N - 1` can select the final row;
+the actual index bound is checked at every occurrence and after anchor reload.
+Closed invalid initializer expressions are rejected even when their carrier
+width remains symbolic. Other existing element, state-update and control-flow
+restrictions still apply.
+
+Selecting a parameterized Module as the public root also preserves ordinary
+retained callers of that definition with different actuals. The compiler owns
+the additional entry routing boundary; authors keep the original top and ports.
+This does not add parameterized nominal types, arbitrary initializer programs,
+type parameters, symbolic Integer domains, `range(W)` expansion or a static
+divisor proof for `% N` when N is unresolved.
 
 The profiles below retain their shape, indexing, purity and control restrictions.
 General queue/resource admission and complex SCF loop-control combinations remain
@@ -836,8 +850,8 @@ introduce writes to unrelated source variable owners.
 
 Clock/reset and transaction proposals remain compiler-owned. Queue presence
 propagates a hidden physical domain through ordinary module calls, including
-imported stateless parents. This does not add behavioral static parameters or
-general source collection allocation.
+imported stateless parents. Queue domain propagation does not establish general
+source collection allocation or parameter-dependent Queue configuration.
 
 Both source forms produce ordinary `ac.instance` nodes referring to canonical
 native FIFO Modules. Typed accesses use `ac.method.call`; the existing transaction

@@ -16,8 +16,11 @@ general extern implementation bindings remain separate work.
 | Hardware final | `ac-lower-transactions`, `verifyHardwarePackage` | Physical storage and verified pins; no logical state/update or unresolved source effects. |
 
 A routed top-level package has `ac.stage = "routed"` and
-`ac.routed_contract = 2 : i64`. Version 1 and unknown or malformed markers require rebuilding
-from source. The marker cannot appear in a source unit or on a nested operation.
+`ac.routed_contract = 2 : i64`, or contract 3 when it has a verified
+[selected Module entry boundary](entry-boundary.md). Contract 3 requires that
+boundary; contract 2 forbids it. Version 1 and unknown or malformed markers
+require rebuilding from source. The marker cannot appear in a source unit or on
+a nested operation.
 Hardware refinement preserves the marker while changing the stage to `final`.
 Independently authored final hardware may omit routed provenance; a present
 marker must still be valid. The local attribute hook validates its shape, while

@@ -80,11 +80,22 @@
         auto maskTable = succeeded(resolved) ? dyn_cast<TableType>(*resolved) : TableType();
         if (!maskTable || !isa<BitsType>(maskTable.getElementType()))
           return rule->emitOpError() << "indexed write domain mask requires a Table of Bits1";
-        auto shape = analysis.getTableShape(table, target->ownerBindings, rule);
-        auto maskShape = analysis.getTableShape(maskTable, bindings, rule);
         auto width = analysis.getPackedWidth(maskTable.getElementType(), bindings, rule);
-        if (failed(shape) || failed(maskShape) || failed(width) || *width != 1 || *shape != *maskShape)
-          return rule->emitOpError() << "write domain mask shape differs from selected state Table";
+        if (failed(width) || *width != 1)
+          return rule->emitOpError() << "write domain mask requires exact Bits1 elements";
+        if (analysis.isStaticEvaluable(table.getShape(), target->ownerBindings) &&
+            analysis.isStaticEvaluable(maskTable.getShape(), bindings)) {
+          auto shape = analysis.getTableShape(table, target->ownerBindings, rule);
+          auto maskShape = analysis.getTableShape(maskTable, bindings, rule);
+          if (failed(shape) || failed(maskShape) || *shape != *maskShape)
+            return rule->emitOpError() << "write domain mask shape differs from selected state Table";
+        } else {
+          // Catalog schemas retain the already substituted logical shapes;
+          // every actual scope re-enters the concrete branch above.
+          auto shaped = TableType::get(rule.getContext(), table.getShape(), maskTable.getElementType());
+          if (!areEquivalentHardwareTypes(shaped, maskTable))
+            return rule->emitOpError() << "write domain mask shape differs from selected state Table";
+        }
       }
       result.writeDomains.push_back({uint64_t(*candidateIndex), uint64_t(*maskIndex),
           selectors, mask, state, target->payloadType, table,

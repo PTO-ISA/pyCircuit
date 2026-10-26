@@ -755,6 +755,8 @@ private:
         return failure();
       if (merge.getValues().empty())
         return operand(merge.getBase(), path);
+      // Whole-Table merges use the same leaf planes as Tables elsewhere.
+      // scalarPlane broadcasts the scalar guard across the Table's lanes.
       if (!path.empty() ||
           isa<ac::BitsType, ac::EnumType, ac::TypeParamType,
               ac::TableType>(*baseType)) {
@@ -1305,7 +1307,7 @@ private:
       return emit(s, get.getValue(), p);
     }
     if (isa<ac::TableCreateOp, ac::TableSplatOp, ac::TableViewOp,
-            ac::TableMapOp, ac::TableIndexOp, ac::TableGetOp, ac::TableMatchOp,
+            ac::TableMapOp, ac::TableIndexOp, ac::TableReadOp, ac::TableGetOp, ac::TableMatchOp,
             ac::TableChooseOp, ac::TableFoldOp>(op))
       return tableOperation(s, v, path);
     return scalarPlane(s, v, path);
@@ -1476,10 +1478,11 @@ private:
           << ");\n      }\n    }\n";
       return *result;
     }
-    if (auto get = dyn_cast<ac::TableGetOp>(op)) {
-      auto index = emit(s, get.getIndex());
-      auto n = cardinality(get.getInput().getType(), s, op);
-      auto iw = width(get.getIndex().getType(), s, op);
+    if (isa<ac::TableReadOp, ac::TableGetOp>(op)) {
+      Value tableInput = op->getOperand(0), indexValue = op->getOperand(1);
+      auto index = emit(s, indexValue);
+      auto n = cardinality(cast<ac::TableType>(tableInput.getType()), s, op);
+      auto iw = width(indexValue.getType(), s, op);
       if (failed(index) || failed(n) || failed(iw))
         return failure();
       std::string compareWidth =
@@ -1490,14 +1493,14 @@ private:
           compareWidth + ">(" + *index +
           ".element(pyc_lane).packed()), gfsim::FourState<" + compareWidth +
           ">::known(gfsim::Bits<" + compareWidth + ">{" + *n + "}))";
-      if (cast<OpResult>(v).getResultNumber()) {
+      if (isa<ac::TableGetOp>(op) && cast<OpResult>(v).getResultNumber()) {
         out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count
             << "; ++pyc_lane) " << *result
             << ".element(pyc_lane) = gfsim::wire<" << *p << ">::fromPacked("
             << range << ");\n";
         return *result;
       }
-      auto input = emit(s, get.getInput(), path);
+      auto input = emit(s, tableInput, path);
       if (failed(input))
         return failure();
       out << "    for (std::size_t pyc_lane = 0; pyc_lane < " << s.count

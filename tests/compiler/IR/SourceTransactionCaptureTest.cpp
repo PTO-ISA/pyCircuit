@@ -1,7 +1,12 @@
 #include "Compiler/PythonImportRecords.h"
+#include "Compiler/SourceLink.h"
+#include "Compiler/SourceEntryBoundary.h"
 #include "Compiler/SourceMemoryBindings.h"
 #include "Compiler/SourceRuleWrites.h"
 #include "Compiler/SourceUnit.h"
+#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/HardwareSourceChecks.h"
+#include "Transforms/LowerTransactions.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Verifier.h"
@@ -14,6 +19,7 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseSet.h"
@@ -272,9 +278,58 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     ADD_FAILURE() << "missing summary row " << name.str();
     return 0;
   }
+  OwningOpRef<ModuleOp> entryFixture(compiler::SourceLinkStages &stages,
+                                     bool guarded = false) {
+    std::string sourceText = R"py(import pycircuit as ac
+@ac.module
+def Counter(enable: ac.u1, *, W: int = 8) -> ac.bits[W]:
+    count: ac.bits[W] = 0
+    @ac.rule
+    def increment():
+        if enable:
+            count = count + 1
+    return count
+@ac.module
+def Closed(enable: ac.u1) -> ac.u3:
+    return Counter(enable, W=3)
+)py";
+    if (guarded) {
+      const std::string body =
+          "    @ac.rule\n    def increment():\n        if enable:\n            "
+          "count = count + 1\n    return count\n";
+      auto position = sourceText.find(body);
+      EXPECT_NE(position, std::string::npos);
+      if (position == std::string::npos)
+        return {};
+      sourceText.replace(position, body.size(),
+                         "    @ac.rule(guard=lambda: enable)\n    def "
+                         "increment() -> ac.bits[W]:\n"
+                         "        previous = count\n        count = count + "
+                         "1\n        return previous\n"
+                         "    return increment\n");
+    }
+    auto captured = capture("retained_root.py", sourceText);
+    if (!captured)
+      return {};
+    auto headers =
+        compiler::SourceHeaderRegistry::create(&context, {}, error());
+    if (failed(headers))
+      return {};
+    auto unit = compiler::compilePythonSourceUnit(
+        *captured, owner("retained_root.py"), *headers, error());
+    EXPECT_TRUE(succeeded(unit)) << diagnostics;
+    if (failed(unit))
+      return {};
+    auto linked = compiler::linkSourceUnits(
+        {{*unit->body, *unit->interface}}, "retained_root.Counter", error(),
+        compiler::SourceLinkTarget::Hardware, &stages, {{"W", "5"}});
+    EXPECT_TRUE(succeeded(linked)) << diagnostics;
+    return succeeded(linked) ? std::move(*linked) : OwningOpRef<ModuleOp>{};
+  }
 };
 
-TEST_F(SourceTransactionCaptureTest, OrdinaryHelpersInlineIntoRuleAndMethodBodies) {
+TEST_F(SourceTransactionCaptureTest,
+       OrdinaryHelpersInlineIntoRuleAndMethodBodies) {
   auto file = typed(R"py(import pycircuit as ac
 @ac.module
 def Owner():
@@ -291,7 +346,8 @@ def Owner():
     @ac.rule
     def advance() -> None:
         count = increment(count)
-)py", "helpers.py");
+)py",
+                    "helpers.py");
   ASSERT_TRUE(file);
   auto methods = operations<ac::SourceMethodOp>(*file);
   auto transactions = operations<ac::SourceTransactionOp>(*file);
@@ -4935,6 +4991,792 @@ def Owner() -> ac.u8:
         EXPECT_EQ(provider.getTransactionSummaryAttr(), forged);
       }
     }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       CheckedTableReadRechecksActualExtentAndMalformedOperands) {
+  constexpr const char *sourceText = R"py(import pycircuit as ac
+@ac.module
+def Read(values: ac.table[N, ac.u8], index: ac.u2, *, N: int = 4) -> ac.u8:
+    return values[index]
+)py";
+  for (unsigned mutation = 0; mutation != 4; ++mutation) {
+    auto file = typed(sourceText, "checked_read.py");
+    ASSERT_TRUE(file);
+    auto reads = operations<ac::TableReadOp>(*file);
+    ASSERT_EQ(reads.size(), 1u);
+    EXPECT_TRUE(operations<ac::TableGetOp>(*file).empty());
+    auto read = reads.front();
+    ac::HardwareAnalysis hardware(*file);
+    ac::HardwareBindings bindings;
+    bindings.owner = read->getParentOfType<ac::ModuleOp>();
+    bindings.integers["N"] = ac::MathIntAttr::get(&context, llvm::APSInt("4"));
+    ASSERT_TRUE(succeeded(hardware.verifyResolvedOperation(read, bindings)))
+        << diagnostics;
+    if (mutation == 0) {
+      // The same operation/analysis cannot cache a proof from another actual.
+      bindings.integers["N"] =
+          ac::MathIntAttr::get(&context, llvm::APSInt("3"));
+      diagnostics.clear();
+      EXPECT_TRUE(failed(hardware.verifyResolvedOperation(read, bindings)));
+      EXPECT_FALSE(diagnostics.empty());
+    } else {
+      if (mutation == 1)
+        read->setOperand(0, read.getIndex());
+      if (mutation == 2)
+        read->setOperand(1, read.getInput());
+      if (mutation == 3)
+        read.getValue().setType(read.getIndex().getType());
+      diagnostics.clear();
+      EXPECT_TRUE(failed(mlir::verify(*file)));
+      EXPECT_FALSE(diagnostics.empty());
+    }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       CheckedTableReadReloadRetainsRangeWhileRawGetRemainsMembership) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Read(values: ac.table[N, ac.u8], index: ac.u2, *, N: int = 4) -> ac.u8:
+    return values[index]
+)py",
+                    "checked_reload.py");
+  ASSERT_TRUE(file);
+  std::string text;
+  llvm::raw_string_ostream stream(text);
+  file->print(stream);
+  MLIRContext fresh;
+  fresh.loadDialect<ac::ACIRDialect>();
+  auto reloaded = parseSourceString<ModuleOp>(text, &fresh);
+  ASSERT_TRUE(reloaded);
+  auto reads = operations<ac::TableReadOp>(*reloaded);
+  ASSERT_EQ(reads.size(), 1u);
+  auto read = reads.front();
+  ac::HardwareAnalysis hardware(*reloaded);
+  ac::HardwareBindings bindings;
+  bindings.owner = read->getParentOfType<ac::ModuleOp>();
+  bindings.integers["N"] = ac::MathIntAttr::get(&fresh, llvm::APSInt("4"));
+  ASSERT_TRUE(succeeded(hardware.verifyResolvedOperation(read, bindings)));
+  bindings.integers["N"] = ac::MathIntAttr::get(&fresh, llvm::APSInt("3"));
+  EXPECT_TRUE(failed(hardware.verifyResolvedOperation(read, bindings)));
+
+  // An explicitly different raw program retains its existing membership ABI.
+  // This is not an equivalence claim against the original checked source.
+  auto indexType = cast<ac::BitsType>(read.getIndex().getType());
+  auto widthTree = indexType.getWidth().getTree();
+  NamedAttrList widthFields(widthTree);
+  Builder b(&fresh);
+  widthFields.set(
+      "value", b.getDictionaryAttr(
+                   {b.getNamedAttr("kind", b.getStringAttr("integer")),
+                    b.getNamedAttr("value", ac::MathIntAttr::get(
+                                                &fresh, llvm::APSInt("1")))}));
+  auto bit = ac::BitsType::get(
+      &fresh,
+      ac::StaticExprAttr::get(&fresh, widthFields.getDictionary(&fresh)));
+  OpBuilder builder(read);
+  OperationState raw(read.getLoc(), ac::TableGetOp::getOperationName());
+  raw.addOperands({read.getInput(), read.getIndex()});
+  raw.addTypes({read.getValue().getType(), bit});
+  auto *membership = builder.create(raw);
+  read.getValue().replaceAllUsesWith(membership->getResult(0));
+  read.erase();
+  EXPECT_TRUE(succeeded(mlir::verify(*reloaded)));
+  ac::HardwareAnalysis rawHardware(*reloaded);
+  EXPECT_TRUE(
+      succeeded(rawHardware.verifyResolvedOperation(membership, bindings)));
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       CheckedTailReadsUseLocalAndExplicitRuleBindingAtEveryActual) {
+  for (bool captured : {false, true}) {
+    std::string text = R"py(import pycircuit as ac
+@ac.module
+def Bank(enable: ac.u1, *, N: int = 4) -> ac.table[N, ac.u8]:
+    entries: ac.table[N, ac.u8] = 3
+    @ac.rule
+)py";
+    text += captured ? "    def increment(last: ac.u64 = N - 1):\n"
+                     : "    def increment():\n        last: ac.u64 = N - 1\n";
+    text += "        if enable:\n            entries[last] = entries[last] + "
+            "1\n    return entries\n";
+    auto file = typed(text, "checked_tail.py");
+    ASSERT_TRUE(file) << captured;
+    auto reads = operations<ac::TableReadOp>(*file);
+    auto writes = operations<ac::SourceStateWriteOp>(*file);
+    ASSERT_FALSE(reads.empty());
+    ASSERT_EQ(writes.size(), 1u);
+    ASSERT_EQ(operations<ac::SourceStateOp>(*file).size(), 1u)
+        << "the bound tail must not accidentally be persistent Module state";
+    ac::HardwareAnalysis hardware(*file);
+    for (StringRef depth : {"1", "3", "5"}) {
+      ac::HardwareBindings bindings;
+      bindings.owner = reads.front()->getParentOfType<ac::ModuleOp>();
+      bindings.integers["N"] =
+          ac::MathIntAttr::get(&context, llvm::APSInt(depth));
+      for (auto read : reads)
+        EXPECT_TRUE(succeeded(hardware.verifyResolvedOperation(read, bindings)))
+            << depth.str() << ": " << diagnostics;
+      EXPECT_TRUE(
+          succeeded(hardware.verifyResolvedOperation(writes.front(), bindings)))
+          << depth.str() << ": " << diagnostics;
+    }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       WriteOnlyTableSelectorCannotBorrowAReadRangeCheck) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Bank(enable: ac.u1, index: ac.u2, *, N: int = 4) -> ac.table[N, ac.u8]:
+    entries: ac.table[N, ac.u8] = 0
+    @ac.rule
+    def write():
+        if enable:
+            entries[index] = 7
+    return entries
+)py",
+                    "write_only.py");
+  ASSERT_TRUE(file);
+  ASSERT_TRUE(operations<ac::TableReadOp>(*file).empty());
+  ASSERT_TRUE(operations<ac::TableGetOp>(*file).empty());
+  auto writes = operations<ac::SourceStateWriteOp>(*file);
+  ASSERT_EQ(writes.size(), 1u);
+  ac::HardwareAnalysis hardware(*file);
+  ac::HardwareBindings bindings;
+  bindings.owner = writes.front()->getParentOfType<ac::ModuleOp>();
+  bindings.integers["N"] = ac::MathIntAttr::get(&context, llvm::APSInt("4"));
+  ASSERT_TRUE(
+      succeeded(hardware.verifyResolvedOperation(writes.front(), bindings)))
+      << diagnostics;
+  bindings.integers["N"] = ac::MathIntAttr::get(&context, llvm::APSInt("3"));
+  diagnostics.clear();
+  EXPECT_TRUE(
+      failed(hardware.verifyResolvedOperation(writes.front(), bindings)));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       CheckedReadOpcodeDowngradeFailsOriginalSourceAuthentication) {
+  auto captured = capture("checked_auth.py", R"py(import pycircuit as ac
+@ac.module
+def Bank(enable: ac.u1, *, N: int = 3) -> ac.table[N, ac.u8]:
+    entries: ac.table[N, ac.u8] = 3
+    @ac.rule
+    def increment():
+        last: ac.u64 = N - 1
+        if enable:
+            entries[last] = entries[last] + 1
+    return entries
+)py");
+  ASSERT_TRUE(captured);
+  auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+  ASSERT_TRUE(succeeded(headers));
+  auto unit = compiler::compilePythonSourceUnit(
+      *captured, owner("checked_auth.py"), *headers, error());
+  ASSERT_TRUE(succeeded(unit)) << diagnostics;
+  compiler::SourceLinkStages stages;
+  auto linked = compiler::linkSourceUnits(
+      {{*unit->body, *unit->interface}}, "checked_auth.Bank", error(),
+      compiler::SourceLinkTarget::Hardware, &stages);
+  ASSERT_TRUE(succeeded(linked)) << diagnostics;
+  std::string finalText;
+  llvm::raw_string_ostream finalStream(finalText);
+  (*linked)->print(finalStream);
+  for (bool routed : {true, false}) {
+    auto reloaded = parseSourceString<ModuleOp>(
+        routed ? stages.routedTransactions : finalText, &context);
+    ASSERT_TRUE(reloaded) << diagnostics;
+    auto check = [&] {
+      return routed ? ac::verifyRoutedPackage(*reloaded)
+                    : ac::verifyHardwarePackage(*reloaded);
+    };
+    ASSERT_TRUE(succeeded(check())) << diagnostics;
+    auto retained = operations<ac::TableReadOp>(*reloaded);
+    ASSERT_FALSE(retained.empty()) << "checked opcode must survive both stages";
+    auto read = retained.front();
+    auto indexType = cast<ac::BitsType>(read.getIndex().getType());
+    Builder b(&context);
+    auto integer = b.getDictionaryAttr(
+        {b.getNamedAttr("kind", b.getStringAttr("integer")),
+         b.getNamedAttr("value",
+                        ac::MathIntAttr::get(&context, llvm::APSInt("3")))});
+    auto value = ac::StaticExprAttr::get(
+        &context, changed(indexType.getWidth().getTree(), "value", integer));
+    OpBuilder builder(read);
+    OperationState constant(read.getLoc(),
+                            ac::BitsConstantOp::getOperationName());
+    constant.addTypes(indexType);
+    constant.addAttribute("value", value);
+    auto *onePast = builder.create(constant);
+    read->setOperand(1, onePast->getResult(0));
+    diagnostics.clear();
+    EXPECT_TRUE(failed(check()))
+        << "standalone reload lost the range obligation";
+    EXPECT_FALSE(diagnostics.empty());
+  }
+  auto original =
+      parseSourceString<ModuleOp>(stages.beforeTransactions, &context);
+  ASSERT_TRUE(original);
+  ac::SourceTransactionStateAnalysis analysis(original->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  ac::HardwareSourceCheckLimits limits;
+  ac::detail::SourceCheckBudget preparationBudget(limits);
+  auto prepared = acir::detail::prepareTransactionLowering(*original, analysis,
+                                                           preparationBudget);
+  ASSERT_TRUE(succeeded(prepared)) << diagnostics;
+  ac::detail::SourceCheckBudget materializationBudget(limits);
+  auto candidate = acir::detail::materializeTransactionLowering(
+      *prepared, materializationBudget);
+  ASSERT_TRUE(succeeded(candidate)) << diagnostics;
+  ac::detail::SourceCheckBudget proofBudget(limits);
+  ASSERT_TRUE(succeeded(acir::detail::verifyTransactionMaterialization(
+      *prepared, *candidate, proofBudget)))
+      << diagnostics;
+  auto reads = operations<ac::TableReadOp>(*candidate->module);
+  ASSERT_FALSE(reads.empty());
+  for (auto read : reads) {
+    Builder b(&context);
+    auto element = cast<ac::BitsType>(read.getValue().getType());
+    auto width = element.getWidth();
+    auto integer = b.getDictionaryAttr(
+        {b.getNamedAttr("kind", b.getStringAttr("integer")),
+         b.getNamedAttr("value",
+                        ac::MathIntAttr::get(&context, llvm::APSInt("1")))});
+    auto bit = ac::BitsType::get(
+        &context, ac::StaticExprAttr::get(
+                      &context, changed(width.getTree(), "value", integer)));
+    OpBuilder builder(read);
+    OperationState raw(read.getLoc(), ac::TableGetOp::getOperationName());
+    raw.addOperands({read.getInput(), read.getIndex()});
+    raw.addTypes({read.getValue().getType(), bit});
+    auto *membership = builder.create(raw);
+    read.getValue().replaceAllUsesWith(membership->getResult(0));
+    read.erase();
+  }
+  // Both opcodes are legal standalone programs; the independently retained
+  // source must nevertheless reject this loss of its intrinsic obligation.
+  ASSERT_TRUE(succeeded(mlir::verify(*candidate->module))) << diagnostics;
+  diagnostics.clear();
+  ac::detail::SourceCheckBudget repeatProofBudget(limits);
+  EXPECT_TRUE(failed(acir::detail::verifyTransactionMaterialization(
+      *prepared, *candidate, repeatProofBudget)));
+  EXPECT_FALSE(diagnostics.empty());
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       ClosedInvalidInitializerExpressionsCannotHideBehindSymbolicWidth) {
+  for (bool extractLow : {false, true}) {
+    for (bool divideByZero : {false, true}) {
+      auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Unused(enable: ac.u1, *, W: int = 8) -> ac.bits[W]:
+    saved: ac.bits[W] = 0
+    @ac.rule
+    def update():
+        if enable:
+            saved = saved + 1
+    return saved
+@ac.module
+def Selected() -> ac.u8:
+    return 0
+)py",
+                        "closed_initializer.py");
+      ASSERT_TRUE(file);
+      auto states = operations<ac::SourceStateOp>(*file);
+      ASSERT_EQ(states.size(), 1u);
+      Value initial = states.front().getInitial();
+      auto extraction = initial.getDefiningOp<ac::BitsExtractOp>();
+      ASSERT_TRUE(extraction);
+      while (auto extract = initial.getDefiningOp<ac::BitsExtractOp>())
+        initial = extract.getInput();
+      auto constant = initial.getDefiningOp<ac::BitsConstantOp>();
+      ASSERT_TRUE(constant);
+      auto zero = extractLow ? extraction.getLow() : constant.getValue();
+      auto value = zero.getTree().getAs<DictionaryAttr>("value");
+      ASSERT_TRUE(value);
+      auto one = ac::StaticExprAttr::get(
+          &context,
+          changed(zero.getTree(), "value",
+                  changed(value, "value",
+                          ac::MathIntAttr::get(&context, llvm::APSInt("1")))));
+      Builder b(&context);
+      NamedAttrList fields(zero.getTree());
+      fields.erase("value");
+      fields.set("kind", b.getStringAttr(divideByZero ? "binary" : "unary"));
+      fields.set("operator",
+                 b.getStringAttr(divideByZero ? "floordiv" : "neg"));
+      fields.set(divideByZero ? "lhs" : "operand", one);
+      if (divideByZero)
+        fields.set("rhs", zero);
+      Operation *mutated =
+          extractLow ? extraction.getOperation() : constant.getOperation();
+      mutated->setAttr(
+          extractLow ? "low" : "value",
+          ac::StaticExprAttr::get(&context, fields.getDictionary(&context)));
+      diagnostics.clear();
+      EXPECT_TRUE(failed(mlir::verify(*file)))
+          << "closed invalid initializer was deferred";
+      PassManager publication(&context);
+      publication.addPass(acir::createExtractSourceInterfacePass());
+      EXPECT_TRUE(failed(publication.run(*file)))
+          << "invalid unused state was published";
+    }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       ClosedTableWriteOnlyIndexMutationStillRequiresIntrinsicRange) {
+  auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Fixed(enable: ac.u1) -> ac.table[3, ac.u8]:
+    entries: ac.table[3, ac.u8] = 0
+    @ac.rule
+    def write():
+        index: ac.u64 = 2
+        if enable:
+            entries[index] = 7
+    return entries
+)py",
+                    "closed_write.py");
+  ASSERT_TRUE(file);
+  auto writes = operations<ac::SourceStateWriteOp>(*file);
+  ASSERT_EQ(writes.size(), 1u);
+  ASSERT_TRUE(operations<ac::TableReadOp>(*file).empty());
+  ASSERT_TRUE(operations<ac::TableGetOp>(*file).empty());
+  auto write = writes.front();
+  ASSERT_EQ(write.getIndices().size(), 1u);
+  auto type = cast<ac::BitsType>(write.getIndices().front().getType());
+  Builder b(&context);
+  auto value = b.getDictionaryAttr(
+      {b.getNamedAttr("kind", b.getStringAttr("integer")),
+       b.getNamedAttr("value",
+                      ac::MathIntAttr::get(&context, llvm::APSInt("3")))});
+  OpBuilder builder(write);
+  OperationState constant(write.getLoc(),
+                          ac::BitsConstantOp::getOperationName());
+  constant.addTypes(type);
+  constant.addAttribute(
+      "value",
+      ac::StaticExprAttr::get(
+          &context, changed(type.getWidth().getTree(), "value", value)));
+  auto *onePast = builder.create(constant);
+  write->setOperand(2, onePast->getResult(0));
+  ac::HardwareAnalysis hardware(*file);
+  ac::HardwareBindings bindings;
+  bindings.owner = write->getParentOfType<ac::ModuleOp>();
+  diagnostics.clear();
+  EXPECT_TRUE(failed(hardware.verifyResolvedOperation(write, bindings)));
+  EXPECT_TRUE(failed(mlir::verify(*file)));
+  PassManager publication(&context);
+  publication.addPass(acir::createExtractSourceInterfacePass());
+  EXPECT_TRUE(failed(publication.run(*file)));
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       RetainedClosedWrapperCannotSuppressSelectedGenericRootOccurrence) {
+  compiler::SourceLinkStages stages;
+  auto final = entryFixture(stages);
+  ASSERT_TRUE(final) << diagnostics;
+  auto original =
+      parseSourceString<ModuleOp>(stages.beforeEntryNormalization, &context);
+  auto normalized =
+      parseSourceString<ModuleOp>(stages.normalizedEntry, &context);
+  ASSERT_TRUE(original && normalized);
+  ASSERT_TRUE(SymbolTable::lookupSymbolIn(*original, "retained_root.Closed"));
+  ASSERT_TRUE(SymbolTable::lookupSymbolIn(*normalized, "retained_root.Closed"));
+  ASSERT_TRUE(succeeded(
+      compiler::verifyEntryBoundaryNormalization(*original, *normalized)))
+      << diagnostics;
+  ac::HardwareAnalysis hardware(*normalized);
+  auto physical = ac::detail::resolveHardwareRootBindings(hardware);
+  auto logical = ac::detail::resolveHardwareLogicalRootBindings(hardware);
+  ASSERT_TRUE(succeeded(physical) && succeeded(logical)) << diagnostics;
+  EXPECT_EQ(cast<ac::ModuleOp>(logical->owner).getSymName(),
+            "retained_root.Counter");
+  EXPECT_EQ(
+      cast<ac::MathIntAttr>(logical->integers.lookup("W")).getCanonicalValue(),
+      "5");
+  EXPECT_EQ(cast<ac::ModuleOp>(physical->owner).getSymName(),
+            "pycircuit.__link_entry__");
+  ac::SourceTransactionStateAnalysis analysis(normalized->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  unsigned selectedOccurrences = 0;
+  for (const auto &plan : analysis.getPlans()) {
+    auto routingModule = plan.routingModule;
+    if (routingModule.getOperation() != physical->owner)
+      continue;
+    ++selectedOccurrences;
+    unsigned counterInstances = 0;
+    for (const auto &instance : plan.instances) {
+      auto definition = instance.definition;
+      if (definition.getSymName() != "retained_root.Counter")
+        continue;
+      ++counterInstances;
+      auto actual = instance.bindings.integers.lookup("W");
+      ASSERT_TRUE(isa_and_nonnull<ac::MathIntAttr>(actual));
+      EXPECT_EQ(cast<ac::MathIntAttr>(actual).getCanonicalValue(), "5");
+    }
+    EXPECT_EQ(counterInstances, 1u);
+  }
+  EXPECT_EQ(selectedOccurrences, 1u);
+  auto routed =
+      parseSourceString<ModuleOp>(stages.routedTransactions, &context);
+  ASSERT_TRUE(routed);
+  EXPECT_TRUE(succeeded(ac::verifyRoutedPackage(*routed))) << diagnostics;
+  EXPECT_TRUE(succeeded(ac::verifyHardwarePackage(*final))) << diagnostics;
+  auto shared = cast<ac::ModuleOp>(
+      SymbolTable::lookupSymbolIn(*routed, "retained_root.Counter"));
+  EXPECT_TRUE(direct<ac::RuleOp>(shared.getBody()).empty())
+      << "shared state definition must not retain an extra local callback";
+  auto adapter = cast<ac::ModuleOp>(
+      SymbolTable::lookupSymbolIn(*routed, "pycircuit.__link_entry__"));
+  EXPECT_EQ(direct<ac::InstanceOp>(adapter.getBody()).size(), 1u);
+  EXPECT_TRUE(operations<ac::SourceStateOp>(*normalized).size() > 0u);
+  EXPECT_TRUE(direct<ac::SourceStateOp>(adapter.getBody()).empty());
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       EntryBoundaryNormalizationAuthenticatesCanonicalScaffoldAndOriginal) {
+  compiler::SourceLinkStages stages;
+  auto final = entryFixture(stages);
+  ASSERT_TRUE(final);
+  auto original =
+      parseSourceString<ModuleOp>(stages.beforeEntryNormalization, &context);
+  auto normalized =
+      parseSourceString<ModuleOp>(stages.normalizedEntry, &context);
+  ASSERT_TRUE(original && normalized);
+  for (StringRef mutation :
+       {"missing", "extra-key", "version", "logical-actual", "child-actual",
+        "child-origin", "child-span", "adapter-location", "child-location",
+        "yield-location", "child-name", "ports", "arguments", "two-instances",
+        "extra-state", "original-body"}) {
+    SCOPED_TRACE(mutation.str());
+    OwningOpRef<ModuleOp> candidate(cast<ModuleOp>(normalized->clone()));
+    auto system = *candidate->getOps<ac::SystemOp>().begin();
+    auto boundary = system->getAttrOfType<DictionaryAttr>("ac.entry_boundary");
+    ASSERT_TRUE(boundary);
+    auto adapter = cast<ac::ModuleOp>(
+        SymbolTable::lookupSymbolIn(*candidate, "pycircuit.__link_entry__"));
+    auto children = direct<ac::InstanceOp>(adapter.getBody());
+    ASSERT_EQ(children.size(), 1u);
+    auto child = children.front();
+    auto yield = adapter.getBody().front().getTerminator();
+    Builder b(&context);
+    if (mutation == "missing")
+      system->removeAttr("ac.entry_boundary");
+    else if (mutation == "extra-key")
+      system->setAttr("ac.entry_boundary",
+                      changed(boundary, "trusted", b.getUnitAttr()));
+    else if (mutation == "version")
+      system->setAttr("ac.entry_boundary",
+                      changed(boundary, "version", b.getI64IntegerAttr(2)));
+    else if (mutation == "logical-actual") {
+      auto logical = boundary.getAs<DictionaryAttr>("logical_entry");
+      logical = changed(logical, "parameters", b.getArrayAttr({}));
+      system->setAttr("ac.entry_boundary",
+                      changed(boundary, "logical_entry", logical));
+    } else if (mutation == "child-actual" || mutation == "child-origin" ||
+               mutation == "child-span") {
+      auto parameters = child.getParameters();
+      ASSERT_EQ(parameters.size(), 1u);
+      auto expression = cast<ac::StaticExprAttr>(parameters[0]);
+      auto tree = expression.getTree();
+      if (mutation == "child-actual") {
+        tree =
+            changed(tree, "value",
+                    changed(tree.getAs<DictionaryAttr>("value"), "value",
+                            ac::MathIntAttr::get(&context, llvm::APSInt("3"))));
+      } else if (mutation == "child-origin") {
+        auto origin = tree.getAs<DictionaryAttr>("origin");
+        auto site =
+            changed(origin.getAs<DictionaryAttr>("site"), "definition",
+                    FlatSymbolRefAttr::get(&context, "retained_root.Closed"));
+        tree = changed(tree, "origin", changed(origin, "site", site));
+      } else {
+        auto location = tree.getAs<DictionaryAttr>("location");
+        tree =
+            changed(tree, "location",
+                    changed(location, "end_column", b.getI64IntegerAttr(99)));
+      }
+      child->setAttr("parameters",
+                     b.getArrayAttr({ac::StaticExprAttr::get(&context, tree)}));
+    } else if (mutation == "adapter-location")
+      adapter->setLoc(FileLineColLoc::get(&context, "forged.py", 1, 1));
+    else if (mutation == "child-location")
+      child->setLoc(FileLineColLoc::get(&context, "forged.py", 1, 1));
+    else if (mutation == "yield-location")
+      yield->setLoc(FileLineColLoc::get(&context, "forged.py", 1, 1));
+    else if (mutation == "child-name")
+      child->setAttr("instance_name", b.getStringAttr("other"));
+    else if (mutation == "ports") {
+      SmallVector<Attribute> names(adapter.getInputNames().begin(),
+                                   adapter.getInputNames().end());
+      ASSERT_GE(names.size(), 2u);
+      std::swap(names[0], names[1]);
+      adapter->setAttr("input_names", b.getArrayAttr(names));
+    } else if (mutation == "arguments") {
+      ASSERT_GE(child.getNumOperands(), 2u);
+      auto first = child->getOperand(0);
+      child->setOperand(0, child->getOperand(1));
+      child->setOperand(1, first);
+    } else if (mutation == "two-instances") {
+      auto duplicate = child->clone();
+      duplicate->setAttr("instance_name", b.getStringAttr("extra"));
+      adapter.getBody().front().getOperations().insert(yield->getIterator(),
+                                                       duplicate);
+    } else if (mutation == "extra-state") {
+      auto state = operations<ac::SourceStateOp>(*candidate).front();
+      adapter.getBody().front().getOperations().insert(yield->getIterator(),
+                                                       state->clone());
+    } else {
+      auto definition = cast<ac::ModuleOp>(
+          SymbolTable::lookupSymbolIn(*candidate, "retained_root.Counter"));
+      definition->setAttr("ac.changed_original", b.getUnitAttr());
+    }
+    std::string before;
+    llvm::raw_string_ostream stream(before);
+    original->print(stream);
+    diagnostics.clear();
+    EXPECT_TRUE(failed(
+        compiler::verifyEntryBoundaryNormalization(*original, *candidate)))
+        << mutation.str();
+    std::string after;
+    llvm::raw_string_ostream afterStream(after);
+    original->print(afterStream);
+    EXPECT_EQ(before, after);
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       EntryBoundaryLoadedStagesRejectDeletionDowngradeAndChildChanges) {
+  compiler::SourceLinkStages stages;
+  auto final = entryFixture(stages);
+  ASSERT_TRUE(final);
+  std::string finalText;
+  llvm::raw_string_ostream stream(finalText);
+  final->print(stream, OpPrintingFlags().enableDebugInfo());
+  for (bool routed : {false, true}) {
+    SCOPED_TRACE(routed ? "routed" : "final");
+    for (StringRef mutation :
+         {"metadata", "contract", "extra-key", "child-actual", "child-origin",
+          "two-instances"}) {
+      SCOPED_TRACE(mutation.str());
+      auto package = parseSourceString<ModuleOp>(
+          routed ? stages.routedTransactions : finalText, &context);
+      ASSERT_TRUE(package);
+      diagnostics.clear();
+      ASSERT_TRUE(succeeded(routed ? ac::verifyRoutedPackage(*package)
+                                   : ac::verifyHardwarePackage(*package)))
+          << diagnostics;
+      auto system = *package->getOps<ac::SystemOp>().begin();
+      Builder b(&context);
+      if (mutation == "metadata")
+        system->removeAttr("ac.entry_boundary");
+      else if (mutation == "contract")
+        (*package)->setAttr("ac.routed_contract", b.getI64IntegerAttr(2));
+      else if (mutation == "extra-key") {
+        auto boundary =
+            system->getAttrOfType<DictionaryAttr>("ac.entry_boundary");
+        system->setAttr("ac.entry_boundary",
+                        changed(boundary, "proof", b.getUnitAttr()));
+      } else {
+        auto adapter = cast<ac::ModuleOp>(
+            SymbolTable::lookupSymbolIn(*package, "pycircuit.__link_entry__"));
+        auto children = direct<ac::InstanceOp>(adapter.getBody());
+        ASSERT_EQ(children.size(), 1u);
+        auto child = children.front();
+        if (mutation == "two-instances") {
+          auto duplicate = child->clone();
+          duplicate->setAttr("instance_name", b.getStringAttr("extra"));
+          adapter.getBody().front().getOperations().insert(
+              adapter.getBody().front().getTerminator()->getIterator(),
+              duplicate);
+        } else if (mutation == "child-actual")
+          child->setAttr("parameters", b.getArrayAttr({}));
+        else {
+          auto occurrence = child.getOccurrence();
+          auto site = changed(
+              occurrence.getAs<DictionaryAttr>("site"), "definition",
+              FlatSymbolRefAttr::get(&context, "retained_root.Counter"));
+          child->setAttr("occurrence", changed(occurrence, "site", site));
+        }
+      }
+      diagnostics.clear();
+      EXPECT_TRUE(failed(routed ? ac::verifyRoutedPackage(*package)
+                                : ac::verifyHardwarePackage(*package)))
+          << mutation.str();
+    }
+  }
+}
+
+TEST_F(SourceTransactionCaptureTest,
+       EntryBoundaryMetadataAndReservedSymbolCannotBeSourcePublished) {
+  for (bool reserved : {false, true}) {
+    auto file = typed(R"py(import pycircuit as ac
+@ac.module
+def Owner(value: ac.u8) -> ac.u8:
+    return value
+)py",
+                      "entry_forgery.py");
+    ASSERT_TRUE(file);
+    auto module = operations<ac::ModuleOp>(*file).front();
+    if (reserved)
+      module->setAttr("sym_name",
+                      StringAttr::get(&context, "pycircuit.__link_entry__"));
+    else
+      module->setAttr("ac.entry_boundary",
+                      Builder(&context).getDictionaryAttr({}));
+    PassManager publication(&context);
+    publication.addPass(acir::createExtractSourceInterfacePass());
+    diagnostics.clear();
+    EXPECT_TRUE(failed(publication.run(*file)));
+    EXPECT_FALSE(diagnostics.empty());
+  }
+}
+
+
+TEST_F(SourceTransactionCaptureTest,
+       GuardedEntryBoundaryRevalidatesLexicalPolicyRouteAndAvailability) {
+  compiler::SourceLinkStages stages;
+  auto final = entryFixture(stages, true);
+  ASSERT_TRUE(final) << diagnostics;
+  std::string finalText;
+  llvm::raw_string_ostream stream(finalText);
+  final->print(stream, OpPrintingFlags().enableDebugInfo());
+  for (bool routed : {true, false}) {
+    SCOPED_TRACE(routed ? "routed" : "final");
+    for (StringRef mutation : {"logical-policy", "registration-owner", "registration-path",
+                              "missing-availability", "rebound-availability"}) {
+      SCOPED_TRACE(mutation.str());
+      auto package = parseSourceString<ModuleOp>(
+          routed ? stages.routedTransactions : finalText, &context);
+      ASSERT_TRUE(package);
+      auto check = [&] {
+        return routed ? ac::verifyRoutedPackage(*package)
+                      : ac::verifyHardwarePackage(*package);
+      };
+      diagnostics.clear();
+      ASSERT_TRUE(succeeded(check())) << diagnostics;
+      auto adapter = cast<ac::ModuleOp>(
+          SymbolTable::lookupSymbolIn(*package, "pycircuit.__link_entry__"));
+      auto logical = cast<ac::ModuleOp>(
+          SymbolTable::lookupSymbolIn(*package, "retained_root.Counter"));
+      Builder b(&context);
+      if (mutation == "logical-policy") {
+        ASSERT_TRUE(logical->hasAttr("ac.result_availability"));
+        logical->removeAttr("ac.result_availability");
+      } else if (mutation == "registration-owner" || mutation == "registration-path") {
+        ac::RuleOp callback;
+        for (auto rule : direct<ac::RuleOp>(adapter.getBody()))
+          if (rule->hasAttr("ac.registration_path"))
+            callback = rule;
+        ASSERT_TRUE(callback);
+        if (mutation == "registration-owner")
+          callback->setAttr(
+              "ac.registration_owner",
+              FlatSymbolRefAttr::get(&context, "retained_root.Closed"));
+        else
+          callback->setAttr("ac.registration_path", b.getArrayAttr({}));
+      } else {
+        auto layout = ac::getModulePortLayout(adapter);
+        ASSERT_TRUE(succeeded(layout));
+        ASSERT_FALSE(layout->outputValidity.empty());
+        ASSERT_GE(layout->outputValidity.front(), 0);
+        if (mutation == "missing-availability") {
+          ASSERT_TRUE(adapter->hasAttr("ac.output_validity"));
+          adapter->removeAttr("ac.output_validity");
+        } else {
+          auto yield = adapter.getBody().front().getTerminator();
+          auto domain =
+              adapter->getAttrOfType<DictionaryAttr>("ac.domain_inputs");
+          ASSERT_TRUE(domain);
+          unsigned reset = domain.getAs<IntegerAttr>("reset").getInt();
+          yield->setOperand(layout->outputValidity.front(),
+                            adapter.getBody().front().getArgument(reset));
+        }
+      }
+      diagnostics.clear();
+      EXPECT_TRUE(failed(check())) << mutation.str();
+      EXPECT_FALSE(diagnostics.empty());
+    }
+  }
+}
+
+
+TEST_F(SourceTransactionCaptureTest,
+       InapplicableEntryNormalizationPreservesOperationIdentityAndSnapshots) {
+  for (unsigned profile = 0; profile != 3; ++profile) {
+    SCOPED_TRACE(profile);
+    std::string sourceText;
+    if (profile == 1) {
+      sourceText = R"py(import pycircuit as ac
+@ac.module
+def Root(data: ac.bits[W], *, W: int = 8) -> ac.bits[W]:
+    return data | 1
+)py";
+    } else {
+      sourceText = "import pycircuit as ac\n@ac.module\ndef Root(enable: ac.u1";
+      sourceText +=
+          profile == 2
+              ? ", *, W: int = 8) -> ac.bits[W]:\n    count: ac.bits[W] = 0\n"
+              : ") -> ac.u8:\n    count: ac.u8 = 0\n";
+      sourceText += "    @ac.rule\n    def increment():\n        if enable:\n  "
+                    "          count = count + 1\n    return count\n";
+    }
+    auto captured = capture("no_entry.py", sourceText);
+    ASSERT_TRUE(captured);
+    auto headers =
+        compiler::SourceHeaderRegistry::create(&context, {}, error());
+    ASSERT_TRUE(succeeded(headers));
+    auto unit = compiler::compilePythonSourceUnit(
+        *captured, owner("no_entry.py"), *headers, error());
+    ASSERT_TRUE(succeeded(unit)) << diagnostics;
+    compiler::SourceLinkStages stages;
+    auto linked = compiler::linkSourceUnits(
+        {{*unit->body, *unit->interface}}, "no_entry.Root", error(),
+        compiler::SourceLinkTarget::Hardware, &stages);
+    ASSERT_TRUE(succeeded(linked)) << diagnostics;
+    ASSERT_FALSE(stages.beforeEntryNormalization.empty());
+    EXPECT_EQ(stages.beforeEntryNormalization, stages.normalizedEntry);
+    auto original =
+        parseSourceString<ModuleOp>(stages.beforeEntryNormalization, &context);
+    ASSERT_TRUE(original);
+    SmallVector<Operation *> identities;
+    original->walk(
+        [&](Operation *operation) { identities.push_back(operation); });
+    std::string before;
+    llvm::raw_string_ostream stream(before);
+    original->print(stream, OpPrintingFlags().enableDebugInfo());
+    auto result = compiler::normalizeEntryBoundary(*original);
+    ASSERT_TRUE(succeeded(result)) << diagnostics;
+    EXPECT_FALSE(static_cast<bool>(*result))
+        << "inapplicable input must not be cloned";
+    SmallVector<Operation *> afterIdentities;
+    original->walk(
+        [&](Operation *operation) { afterIdentities.push_back(operation); });
+    EXPECT_EQ(identities, afterIdentities);
+    std::string after;
+    llvm::raw_string_ostream afterStream(after);
+    original->print(afterStream, OpPrintingFlags().enableDebugInfo());
+    EXPECT_EQ(before, after);
+    EXPECT_FALSE(
+        SymbolTable::lookupSymbolIn(*original, "pycircuit.__link_entry__"));
+    // Failed source-link requests cannot replace any diagnostic snapshot.
+    compiler::SourceLinkStages preserved{"before-entry", "normalized-entry",
+                                         "before-transactions", "routed",
+                                         "after-transactions"};
+    auto rejected = compiler::linkSourceUnits(
+        {{*unit->body, *unit->interface}}, "no_entry.Missing", error(),
+        compiler::SourceLinkTarget::Hardware, &preserved);
+    EXPECT_TRUE(failed(rejected));
+    EXPECT_EQ(preserved.beforeEntryNormalization, "before-entry");
+    EXPECT_EQ(preserved.normalizedEntry, "normalized-entry");
+    EXPECT_EQ(preserved.beforeTransactions, "before-transactions");
+    EXPECT_EQ(preserved.routedTransactions, "routed");
+    EXPECT_EQ(preserved.afterTransactions, "after-transactions");
   }
 }
 

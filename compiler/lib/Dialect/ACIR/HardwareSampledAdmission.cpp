@@ -349,9 +349,10 @@ LogicalResult bindStateEndpoint(StateEndpoint &result, Operation *storage,
     return failure();
   auto payload = analysis.resolveType(storage->getResult(0).getType(), bound, owner);
   if (failed(payload)) return failure();
-  auto width = analysis.getPackedWidth(*payload, bound, owner);
-  if (failed(width) || !*width)
-    return owner->emitOpError() << "StateID terminal payload must be finite";
+  // Catalog identities retain template payloads. The bound-definition walk
+  // revisits each reachable occurrence with its actual Integer bindings.
+  if (failed(verifySourceTemplateType(analysis, storage->getResult(0).getType(),
+                                    bound, owner))) return failure();
   result.owner = owner;
   result.storage = storage;
   result.ownerBindings = bound;
@@ -983,13 +984,15 @@ parseSampledAdmission(RuleOp rule, const HardwareAnalysis &analysis,
       if (!isa<BitsType, EnumType>(*type))
         return rule->emitOpError()
                << "sampled observation requires existing scalar payloads";
-      auto width = analysis.getPackedWidth(*type, bindings, rule);
-      if (failed(width))
-        return failure();
-      if (failed(budget.debit(
-              SourceCheckBudget::multiply(6, *width / 64 + (*width % 64 != 0)),
-              rule)))
-        return failure();
+      bool concrete = false;
+      if (failed(verifySourceTemplateType(analysis, value.getType(), bindings, rule,
+                                        &concrete))) return failure();
+      if (concrete) {
+        auto width = analysis.getPackedWidth(*type, bindings, rule);
+        if (failed(width) || failed(budget.debit(
+                SourceCheckBudget::multiply(6, *width / 64 + (*width % 64 != 0)), rule)))
+          return failure();
+      }
       observation.values.push_back(value);
     }
     result.observations.push_back(std::move(observation));
@@ -1189,9 +1192,8 @@ parseTransactionWiring(ModuleOp module, const HardwareAnalysis &analysis,
         analysis.resolveType((*storage)->getResult(0).getType(), bindings, module);
     if (failed(type))
       return failure();
-    auto width = analysis.getPackedWidth(*type, bindings, module);
-    if (failed(width) || !*width)
-      return module->emitOpError() << "transaction inventory requires finite payloads";
+    if (failed(verifySourceTemplateType(analysis, (*storage)->getResult(0).getType(),
+                                      bindings, module))) return failure();
     result.states.push_back({declaration, *storage});
   }
   auto &body = module.getBody().front();
@@ -3801,7 +3803,26 @@ private:
         auto reset = normal(sampled->reset, entry.scope);
         if (failed(clock) || failed(reset))
           return failure();
-        bool managed = entry.module->getAttrOfType<ArrayAttr>("ac.result_availability") &&
+        // A lifted callback's public values still belong to its lexical
+        // definition. Its physical host may be a stateless entry boundary
+        // without a source-call signature. Authenticate the complete actual
+        // allocation route before consulting that lexical policy; the stored
+        // owner symbol alone is never availability authority.
+        ModuleOp resultOwner = entry.module;
+        if (writer.ordinaryResults &&
+            writer.rule->hasAttr("ac.registration_path")) {
+          if (failed(verifyRoutedRegistration(analysis, writer.rule,
+                  [&](uint64_t units, Operation *site) {
+                    return budget.debit(units, site);
+                  }))) return failure();
+          auto lexical = writer.rule->getAttrOfType<FlatSymbolRefAttr>(
+              "ac.registration_owner");
+          resultOwner = dyn_cast_or_null<ModuleOp>(
+              analysis.lookupDefinition(lexical.getValue()));
+          if (!resultOwner)
+            return writer.rule->emitOpError("routed result policy owner is unresolved");
+        }
+        bool managed = resultOwner->getAttrOfType<ArrayAttr>("ac.result_availability") &&
                        !sampled->requirements.empty();
         if (writer.ordinaryResults && managed && !provedAvailability) {
           if (failed(verifyHardwareValueAvailability(analysis))) return failure();
@@ -4907,6 +4928,19 @@ verifyTransactionWiring(const HardwareAnalysis &analysis,
       return failure();
     if (!relevant.contains(module.operator->()))
       continue;
+    // Catalog entries describe shared templates. Schema preparation above is
+    // not an executable occurrence verdict; the mandatory bound-definition
+    // inventory supplies separate complete actuals for every reachable owner.
+    bool concrete = true;
+    auto definition = module;
+    for (Attribute raw : definition.getParameters()) {
+      auto name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name");
+      auto found = bindings.integers.find(name.getValue());
+      if (found == bindings.integers.end() ||
+          (isa<StaticExprAttr>(found->second) &&
+           !analysis.isStaticEvaluable(found->second, bindings))) concrete = false;
+    }
+    if (!concrete) continue;
     bool verified = false;
     for (const auto *prior : verifiedRoots) {
       if (failed(budget.debit(1, module)))
