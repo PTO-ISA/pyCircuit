@@ -101,7 +101,7 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
   if (role.getValue() == "definition") {
     if (declarationOwner != owner)
       return emitError() << "source definition has a foreign SourceOwner";
-    if (body ? !isa<ModuleOp, StructOp, EnumOp, func::FuncOp>(operation)
+    if (body ? !isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp>(operation)
              : !retainedDeclaration(operation))
       return emitError() << "unsupported source definition category";
   } else if (role.getValue() == "import_snapshot") {

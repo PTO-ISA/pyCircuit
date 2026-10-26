@@ -147,7 +147,7 @@ if (auto producer = fixedResultCall(node); !producer.empty())
          << producer
          << " produces fixed results; unpack first into ordinary "
             "local Names";
-if (node.kind() == "Constant" && expected && isa<ac::EnumType>(*expected))
+if ((node.kind() == "Constant" || sourceLiteral) && expected && isa<ac::EnumType>(*expected))
   return error() << "source Integer/Boolean literals cannot be implicitly "
                     "converted to Enum";
 // Aggregate and unsigned expressions use the same expression recursion.
@@ -183,14 +183,14 @@ if (node.kind() == "Tuple" || node.kind() == "List") {
                   TypeRange{table}, {})
       ->getResult(0);
 }
-if (node.kind() == "Constant" && expected && !isa<ac::BitsType>(*expected)) {
-  auto encoded = dyn_cast_or_null<DictionaryAttr>(node.get("value"));
-  auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
-  if (!spelling || spelling.getValue() != "0")
+if ((node.kind() == "Constant" || sourceLiteral) && expected && !isa<ac::BitsType>(*expected)) {
+  auto literalValue = sourceLiteral ? sourceLiteral : staticValue(b, node.get("value"), error);
+  auto integer = literalValue ? literalValue.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr();
+  if (!integer || integer.getCanonicalValue() != "0")
     return error() << "aggregate literal requires contextual zero";
   return constant(*expected, 0, node, at, ownerSymbol);
 }
-if (node.kind() == "Attribute" &&
+if (node.kind() == "Attribute" && !sourceLiteral &&
     !(node.child("value").kind() == "Name" &&
       !queryBound(node.child("value").string("id")) &&
       instances.contains(node.child("value").string("id")) &&

@@ -17,6 +17,8 @@
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/raw_ostream.h"
 
+#include <functional>
+
 using namespace mlir;
 
 namespace acir::compiler {
@@ -316,7 +318,7 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
           // Every pair already passed owning-body authority. Prefer that real
           // nominal definition over an equivalent consumer snapshot, preserving
           // provider metadata and location independently of link input order.
-          if (isa<ac::StructOp, ac::EnumOp>(operation) &&
+          if (isa<ac::StructOp, ac::EnumOp, ac::ConstantOp>(operation) &&
               role.getValue() == "definition" &&
               priorRole.getValue() == "import_snapshot") {
             prior->second->erase();
@@ -428,6 +430,59 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
     if (kind && kind.getValue() == "value")
       helper.erase();
   }
+  // Constants carry source authority only. Admission authenticated the exact
+  // owning bodies and every imported snapshot before we made this clone. Uses
+  // must already be ordinary literal payloads; provenance may retain the source
+  // declaration identity, but executable attributes and types may not refer to it.
+  llvm::DenseSet<Attribute> constantSymbols;
+  for (auto constant : linked->getOps<ac::ConstantOp>())
+    constantSymbols.insert(FlatSymbolRefAttr::get(context, constant.getSymName()));
+  if (!constantSymbols.empty()) {
+    llvm::DenseSet<Attribute> checkedAttributes;
+    llvm::DenseSet<Type> checkedTypes;
+    bool unresolvedConstant = false;
+    std::function<void(Attribute)> checkAttribute;
+    std::function<void(Type)> checkType;
+    checkAttribute = [&](Attribute attribute) {
+      if (!attribute || !checkedAttributes.insert(attribute).second) return;
+      if (auto symbol = dyn_cast<SymbolRefAttr>(attribute)) {
+        if (constantSymbols.contains(FlatSymbolRefAttr::get(
+                context, symbol.getRootReference().getValue())))
+          unresolvedConstant = true;
+        return;
+      }
+      if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
+        for (NamedAttribute field : dictionary)
+          if (field.getName() != "origin" && field.getName() != "location" &&
+              field.getName() != "ac.origin")
+            checkAttribute(field.getValue());
+        return;
+      }
+      attribute.walkImmediateSubElements(checkAttribute, checkType);
+    };
+    checkType = [&](Type type) {
+      if (type && checkedTypes.insert(type).second)
+        type.walkImmediateSubElements(checkAttribute, checkType);
+    };
+    linked->walk([&](Operation *operation) {
+      if (isa<ac::ConstantOp>(operation)) return;
+      for (NamedAttribute attribute : operation->getAttrs())
+        if (attribute.getName() != "ac.origin")
+          checkAttribute(attribute.getValue());
+      for (Type type : operation->getOperandTypes()) checkType(type);
+      for (Type type : operation->getResultTypes()) checkType(type);
+      for (Region &region : operation->getRegions())
+        for (Block &block : region)
+          for (BlockArgument argument : block.getArguments())
+            checkType(argument.getType());
+    });
+    if (unresolvedConstant)
+      return emitError() << "source constant has a remaining semantic reference "
+                           "after literal materialization";
+  }
+  for (auto constant :
+       llvm::make_early_inc_range(linked->getOps<ac::ConstantOp>()))
+    constant.erase();
   // Native transformation checks IR semantics; canonical provider authority
   // stays with the admitted source registry, including after definition merge.
   for (auto imported : linked->getOps<ac::ModuleImportOp>())

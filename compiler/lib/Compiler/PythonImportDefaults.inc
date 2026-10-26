@@ -7,7 +7,7 @@ bool Importer::staticInitializer(const AstNode &node) const {
     return true;
   if (node.kind() == "Call" && intrinsic(node.child("func"), "four_state"))
     return true;
-  if (node.kind() == "Constant")
+  if (node.kind() == "Constant" || sourceConstant(node))
     return true;
   if (node.kind() == "Tuple" || node.kind() == "List") {
     for (size_t i = 0; i < node.array("elts").size(); ++i)

@@ -9,6 +9,8 @@ std::optional<Import> Importer::lookupBinding(const AstNode &node) const {
     if (found != names.end() && queryBound(name))
       return std::nullopt;
     if (found != names.end() && lexicallyShadowed(node, name)) {
+      if (found->second.category == BindingCategory::Constant)
+        return std::nullopt;
       error() << "source binding is shadowed in its lexical scope: '" << name
               << "'";
       return std::nullopt;
@@ -25,10 +27,13 @@ std::optional<Import> Importer::lookupBinding(const AstNode &node) const {
     auto symbol = headers.lookupExport(parent->importedModule, node.string("attr"));
     Operation *declaration = symbol ? headers.lookupDeclaration(symbol) : nullptr;
     if (!declaration) return std::nullopt;
+    if (auto constant = dyn_cast<ac::ConstantOp>(declaration))
+      if (!literalConstantValue(constant)) return std::nullopt;
     parent->symbol = symbol;
     parent->declaration = declaration;
     parent->remote = node.string("attr").str();
-    parent->category = isa<func::FuncOp>(declaration) ? BindingCategory::Helper
+    parent->category = isa<ac::ConstantOp>(declaration) ? BindingCategory::Constant
+                       : isa<func::FuncOp>(declaration) ? BindingCategory::Helper
                        : isa<ac::StructOp>(declaration) ? BindingCategory::Struct
                        : isa<ac::EnumOp>(declaration) ? BindingCategory::Enum
                        : BindingCategory::Module;

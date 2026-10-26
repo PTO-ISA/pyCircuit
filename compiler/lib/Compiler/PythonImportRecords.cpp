@@ -123,7 +123,7 @@ struct StateOwner {
   Operation *op;
   AstNode node;
 };
-enum class BindingCategory { Module, Struct, Enum, Helper, Marker, Namespace, Other };
+enum class BindingCategory { Module, Struct, Enum, Constant, Helper, Marker, Namespace, Other };
 struct Import {
   FlatSymbolRefAttr symbol;
   Operation *declaration = nullptr;
@@ -491,6 +491,9 @@ private:
   LogicalResult pushHelperFrame(const AstNode &call, const AstNode &declaration,
                                 FlatSymbolRefAttr symbol, FlatSymbolRefAttr callee);
   LogicalResult scanImports();
+  LogicalResult scanConstants();
+  DictionaryAttr literalConstantValue(ac::ConstantOp declaration) const;
+  DictionaryAttr sourceConstant(const AstNode &node) const;
   LogicalResult scanNominals();
   LogicalResult stageImports();
   LogicalResult stageEnums();
@@ -2100,11 +2103,14 @@ LogicalResult Importer::scanImports() {
       Operation *declaration =
           symbol ? headers.lookupDeclaration(symbol) : nullptr;
       if (!symbol || !provider ||
-          !isa_and_nonnull<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, func::FuncOp>(
+          !isa_and_nonnull<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp>(
               declaration))
         return error() << "imported declaration '" << module.getValue() << "."
                        << remote << "' is absent from explicit headers";
-      auto category = isa<func::FuncOp>(declaration) ? BindingCategory::Helper
+      if (auto constant = dyn_cast<ac::ConstantOp>(declaration))
+        if (!literalConstantValue(constant)) return failure();
+      auto category = isa<ac::ConstantOp>(declaration) ? BindingCategory::Constant
+                      : isa<func::FuncOp>(declaration) ? BindingCategory::Helper
                       : isa<ac::EnumOp>(declaration) ? BindingCategory::Enum
                       : isa<ac::StructOp>(declaration)
                           ? BindingCategory::Struct
@@ -2153,6 +2159,92 @@ LogicalResult Importer::scanImports() {
     }
   }
   return success();
+}
+
+// Source declarations are closed immutable literals, independent of source order.
+LogicalResult Importer::scanConstants() {
+  for (size_t i = 0; i < source.module.array("body").size(); ++i) {
+    auto statement = source.module.item("body", i);
+    if (statement.kind() == "AnnAssign" || statement.kind() == "AugAssign")
+      return error() << "source constants require a plain literal assignment";
+    if (statement.kind() != "Assign") continue;
+    auto target = statement.item("targets", 0);
+    if (statement.array("targets").size() != 1 || target.kind() != "Name")
+      return error() << "source constant requires exactly one Name target";
+    StringRef name = target.string("id");
+    if (names.contains(name) ||
+        llvm::is_contained(ArrayRef<StringRef>{"int", "bool", "tuple", "list",
+          "dict", "set", "str", "float", "range", "len", "min", "max",
+          "abs", "sum", "all", "any", "enumerate", "zip", "object",
+          "type", "bytes", "print", "pyc_clk", "pyc_rst"}, name))
+      return error() << "source constant duplicates or shadows a protected binding '"
+                     << name << "'";
+    auto rhs = statement.child("value");
+    bool negate = false;
+    bool signedLiteral = rhs.kind() == "UnaryOp";
+    if (signedLiteral) {
+      StringRef sign = rhs.child("op").kind();
+      if (sign != "UAdd" && sign != "USub")
+        return error() << "source constant accepts only one Integer literal sign";
+      negate = sign == "USub";
+      rhs = rhs.child("operand");
+    }
+    auto value = rhs.kind() == "Constant" ? staticValue(b, rhs.get("value"), error)
+                                           : DictionaryAttr();
+    if (!value || (signedLiteral && !isa<ac::MathIntAttr>(value.get("value"))))
+      return error() << "source constant requires an Integer or Boolean literal";
+    if (negate) {
+      auto integer = cast<ac::MathIntAttr>(value.get("value"));
+      auto negative = ac::detail::evaluateValue(
+          ac::detail::ValueOpcode::Neg, {integer}, error);
+      if (failed(negative)) return failure();
+      value = b.getDictionaryAttr({
+          b.getNamedAttr("kind", b.getStringAttr("integer")),
+          b.getNamedAttr("value", *negative)});
+    }
+    auto symbol = FlatSymbolRefAttr::get(b.getContext(), qualify(name));
+    b.setInsertionPointToEnd(body->getBody());
+    auto declaration = createOp(
+        b, statement.location(b.getContext(), source.path),
+        ac::ConstantOp::getOperationName(), {}, {},
+        {b.getNamedAttr("sym_name", b.getStringAttr(symbol.getValue())),
+         b.getNamedAttr("type", b.getDictionaryAttr({
+             b.getNamedAttr("kind", value.getAs<StringAttr>("kind"))})),
+         b.getNamedAttr("value", value),
+         b.getNamedAttr("ac.source_owner", owner),
+         b.getNamedAttr("ac.origin", sourceOccurrence(b, symbol, statement)),
+         b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition"))});
+    if (failed(verify(declaration))) return failure();
+    names[name] = {symbol, declaration, statement, {}, name.str(), false,
+                   BindingCategory::Constant};
+  }
+  return success();
+}
+
+// Native ConstantOp deliberately supports more StaticType/StaticValue kinds.
+// The Python literal binding capability admits only these two closed scalars.
+DictionaryAttr Importer::literalConstantValue(ac::ConstantOp declaration) const {
+  auto type = declaration->getAttrOfType<DictionaryAttr>("type");
+  auto value = declaration->getAttrOfType<DictionaryAttr>("value");
+  auto typeKind = type ? type.getAs<StringAttr>("kind") : StringAttr();
+  auto valueKind = value ? value.getAs<StringAttr>("kind") : StringAttr();
+  if (typeKind && valueKind && typeKind == valueKind &&
+      ((typeKind.getValue() == "integer" &&
+        isa_and_nonnull<ac::MathIntAttr>(value.get("value"))) ||
+       (typeKind.getValue() == "bool" &&
+        isa_and_nonnull<BoolAttr>(value.get("value")))))
+    return value;
+  error() << "source constant binding requires an Integer or Boolean literal: @"
+          << declaration.getSymName();
+  return {};
+}
+
+DictionaryAttr Importer::sourceConstant(const AstNode &node) const {
+  if (node.kind() != "Name" && node.kind() != "Attribute") return {};
+  auto binding = lookupBinding(node);
+  if (!binding || binding->category != BindingCategory::Constant) return {};
+  auto declaration = dyn_cast_or_null<ac::ConstantOp>(binding->declaration);
+  return declaration ? literalConstantValue(declaration) : DictionaryAttr();
 }
 
 LogicalResult Importer::scanNominals() {
@@ -2217,7 +2309,7 @@ LogicalResult Importer::stageImports() {
     if (!llvm::is_contained(dependencies, provider))
       continue;
     for (Operation &declaration : header.getBody()->getOperations())
-      if (isa<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, func::FuncOp>(declaration))
+      if (isa<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp>(declaration))
         retain(&declaration);
   }
   return success();
@@ -2306,8 +2398,10 @@ Importer::staticExpr(const AstNode &node, FlatSymbolRefAttr ownerSymbol) {
         b.getNamedAttr("location", sourceSpan(b, source.path, node)));
     return ac::StaticExprAttr::get(b.getContext(), b.getDictionaryAttr(fields));
   };
-  if (node.kind() == "Constant") {
-    DictionaryAttr value = staticValue(b, node.get("value"), error);
+  if (node.kind() == "Constant" || sourceConstant(node)) {
+    DictionaryAttr value = node.kind() == "Constant"
+                               ? staticValue(b, node.get("value"), error)
+                               : sourceConstant(node);
     if (!value)
       return error() << "static literal must be bool or integer";
     NamedAttribute field = b.getNamedAttr("value", value);
@@ -2754,7 +2848,7 @@ LogicalResult Importer::scanModules() {
   for (size_t i = 0; i < source.module.array("body").size(); ++i) {
     AstNode stmt = source.module.item("body", i);
     if (docstring(stmt) || stmt.kind() == "ImportFrom" ||
-        stmt.kind() == "Import" ||
+        stmt.kind() == "Import" || stmt.kind() == "Assign" ||
         (stmt.kind() == "ClassDef" && (structs.contains(stmt.string("name")) ||
                                        enums.contains(stmt.string("name")))))
       continue;
@@ -3149,7 +3243,13 @@ FailureOr<Value> Importer::expression(
   auto error = [&] {
     return mlir::emitError(node.location(b.getContext(), source.path));
   };
+  auto sourceLiteral = sourceConstant(node);
+  auto literalNode = [&](const AstNode &candidate) {
+    return candidate.kind() == "Constant" || bool(sourceConstant(candidate));
+  };
   auto staticOnly = [&](auto &&self, const AstNode &candidate) -> bool {
+    if (auto value = sourceConstant(candidate))
+      return isa<ac::MathIntAttr>(value.get("value"));
     if (candidate.kind() == "Constant")
       return static_cast<bool>(
           dyn_cast_or_null<DictionaryAttr>(candidate.get("value")));
@@ -3350,7 +3450,7 @@ FailureOr<Value> Importer::expression(
              ac::MathIntAttr::get(at.getContext(), *known));
     return value;
   }
-  if (node.kind() == "Name") {
+  if (node.kind() == "Name" && !sourceLiteral) {
     if (node.string("id") == "pyc_clk" || node.string("id") == "pyc_rst")
       for (auto &decl : modules)
         if (decl.symbol == ownerSymbol && decl.needsDomain)
@@ -3366,7 +3466,7 @@ FailureOr<Value> Importer::expression(
       return error() << "unknown hardware value '" << node.string("id") << "'";
     return found->second;
   }
-  if (node.kind() == "Attribute" && node.child("value").kind() == "Name") {
+  if (node.kind() == "Attribute" && !sourceLiteral && node.child("value").kind() == "Name") {
     StringRef name = node.child("value").string("id");
     auto found = instances.find(name);
     if (found == instances.end())
@@ -3377,15 +3477,16 @@ FailureOr<Value> Importer::expression(
                         : found->second->op->getResult(i);
     return error() << "unknown instance output '" << node.string("attr") << "'";
   }
-  if (node.kind() == "Constant") {
-    if (isa<BoolAttr>(node.get("value")))
+  if (node.kind() == "Constant" || sourceLiteral) {
+    Attribute literalValue = sourceLiteral ? sourceLiteral.get("value") : node.get("value");
+    if (isa<BoolAttr>(literalValue))
       expected = makeWidth(1);
     if (!expected || !isa<ac::BitsType>(*expected))
       return error() << "hardware literal width is ambiguous";
     auto expression = staticExpr(node, ownerSymbol);
     if (failed(expression))
       return failure();
-    if (auto boolean = dyn_cast_or_null<BoolAttr>(node.get("value"))) {
+    if (auto boolean = dyn_cast_or_null<BoolAttr>(literalValue)) {
       auto integer =
           parseStaticInteger(b, boolean.getValue() ? "1" : "0", error);
       if (failed(integer))
@@ -3402,7 +3503,7 @@ FailureOr<Value> Importer::expression(
                  ac::BitsConstantOp::getOperationName(), {},
                  TypeRange{*expected}, {at.getNamedAttr("value", *expression)})
             ->getResult(0);
-    remember(value, ValueKind::Boolean, {}, node.get("value"));
+    remember(value, ValueKind::Boolean, {}, literalValue);
     return value;
   }
   if (node.kind() == "BinOp") {
@@ -3549,12 +3650,13 @@ FailureOr<Value> Importer::expression(
       arithmetic = ValueOpcode::Mul;
     if (arithmetic) {
       for (const AstNode &operand : {node.child("left"), node.child("right")})
-        if (operand.kind() == "Constant" && isa<BoolAttr>(operand.get("value")))
+        if ((operand.kind() == "Constant" && isa<BoolAttr>(operand.get("value"))) ||
+            (sourceConstant(operand) && isa<BoolAttr>(sourceConstant(operand).get("value"))))
           return error()
                  << "mathematical arithmetic requires Integer operands; "
                     "Boolean literal cannot be implicitly converted";
-      if (node.child("left").kind() == "Constant" &&
-          node.child("right").kind() != "Constant") {
+      if (literalNode(node.child("left")) &&
+          !literalNode(node.child("right"))) {
         auto right = expression(node.child("right"), at, ownerSymbol, values,
                                 instances, {}, captures);
         if (failed(right))
@@ -3584,7 +3686,7 @@ FailureOr<Value> Importer::expression(
         if (!ac::areEquivalentHardwareTypes(lhs->getType(), rhs->getType()))
           return error() << "unsigned arithmetic operands require equal widths";
         if (!fixedValues.contains(*rhs) &&
-            node.child("right").kind() != "Constant")
+            !literalNode(node.child("right")))
           return error() << "unsigned arithmetic requires explicitly typed "
                             "bits operands";
         auto result = binary(form == "Add"   ? "add"
@@ -3624,7 +3726,7 @@ FailureOr<Value> Importer::expression(
     auto leftMask = form == "BitAnd" ? provenStatic(node.child("left"))
                                      : std::optional<llvm::APSInt>();
     if ((leftMask && !leftMask->isNegative()) ||
-        (node.child("left").kind() == "Constant" && !expected)) {
+        (literalNode(node.child("left")) && !expected)) {
       rhs = expression(node.child("right"), at, ownerSymbol, values, instances,
                        leftMask ? expected : std::optional<Type>(), captures);
       if (failed(rhs))
@@ -3733,7 +3835,7 @@ FailureOr<Value> Importer::expression(
       return error() << "unsupported hardware comparison predicate";
     AstNode left = node.child("left"), right = node.item("comparators", 0);
     FailureOr<Value> lhs = failure(), rhs = failure();
-    if (left.kind() == "Constant") {
+    if (literalNode(left)) {
       rhs = expression(right, at, ownerSymbol, values, instances, {}, captures);
       if (failed(rhs))
         return failure();
@@ -3969,6 +4071,15 @@ FailureOr<Type> Importer::expressionType(const AstNode &node,
   }
   if (node.kind() == "Assert" || node.kind() == "Expr")
     return literalWidth(1);
+  if (auto literal = sourceConstant(node)) {
+    if (isa<BoolAttr>(literal.get("value"))) return literalWidth(1);
+    auto value = literal.getAs<ac::MathIntAttr>("value");
+    if (!value)
+      return error() << "source constant width requires an Integer or Boolean literal";
+    llvm::APSInt integer(value.getCanonicalValue());
+    return literalWidth(integer.isNegative() ? integer.getSignificantBits()
+                                             : std::max(1u, integer.getActiveBits()));
+  }
   if (node.kind() == "Name") {
     auto found = values.find(node.string("id"));
     if (found == values.end() && activeBehavioralDecl &&
@@ -6014,7 +6125,7 @@ FailureOr<SmallVector<Value>> Importer::tableQueryResults(
 }
 
 LogicalResult Importer::prepare() {
-  if (failed(scanImports()) || failed(scanNominals()))
+  if (failed(scanImports()))
     return failure();
   SmallVector<Attribute> interfaces{owner};
   for (auto dependency : dependencies)
@@ -6023,7 +6134,8 @@ LogicalResult Importer::prepare() {
   Location loc = source.module.location(b.getContext(), source.path);
   body = unit(b.getContext(), loc, owner, "declarations",
               b.getArrayAttr(interfaces));
-  if (failed(stageImports()) || failed(stageEnums()) || failed(scanStructs()))
+  if (failed(scanConstants()) || failed(scanNominals()) ||
+      failed(stageImports()) || failed(stageEnums()) || failed(scanStructs()))
     return failure();
   for (auto &item : structs) {
     b.setInsertionPointToEnd(body->getBody());
@@ -6143,7 +6255,8 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::lower() {
     if (item.category != BindingCategory::Module &&
         item.category != BindingCategory::Struct &&
         item.category != BindingCategory::Enum &&
-        item.category != BindingCategory::Helper)
+        item.category != BindingCategory::Helper &&
+        item.category != BindingCategory::Constant)
       continue;
     exports.push_back(b.getDictionaryAttr(
         {b.getNamedAttr("name", b.getStringAttr(name)),

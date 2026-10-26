@@ -109,6 +109,19 @@ branches. Protected ports, imports and instance bindings cannot be reassigned.
 An existing child or Rule does not select a different ordinary statement language.
 The current terminal-return and loop-admission restrictions still apply.
 
+Top-level `NAME = literal` declares a source-owned immutable Integer or Boolean
+constant. One unary `+` or `-` is permitted on an Integer literal. Definitions
+are captured before dependent types/signatures; no design or host function is
+executed. Direct, aliased, namespace and reexported imports consume the canonical
+published declaration through explicit `-I` units. Constants retain Integer or
+Boolean kind in ordinary expressions, widths and parameter defaults; Boolean
+widths reject. Existing helper-local/formal shadowing and protected Module/Rule
+binding rules apply. Reassignment, duplicate/protected bindings, annotated
+globals, chained/destructuring targets, aliases, expression/call initializers and
+other literal kinds reject. This is not general host Python evaluation. See the
+[constant publication contract](../rfcs/literal-provider-constants.md) for source
+authority and retirement before final hardware.
+
 The behavioral slice uses `import pycircuit as ac`, unsigned `ac.bits[W]`
 and `ac.u1` through `ac.u64`, and same-source `@ac.struct` declarations.
 Struct fields are ordered, nominal and immutable values. Same-source constructors
