@@ -228,7 +228,6 @@ FailureOr<Type> Importer::resolveConcatType(const AstNode &node,
                                             FlatSymbolRefAttr symbol) {
   ac::HardwareAnalysis analysis(*body);
   ac::StaticExprAttr total;
-  SmallVector<ac::StaticExprAttr> symbolic;
   uint64_t knownTotal = 0;
   bool allKnown = true;
   for (auto [i, type] : llvm::enumerate(operands)) {
@@ -249,16 +248,8 @@ FailureOr<Type> Importer::resolveConcatType(const AstNode &node,
         return mlir::emitError(node.location(b.getContext(), source.path))
                << "concat width sum overflows uint64";
       knownTotal += *resolved;
-    } else {
+    } else
       allKnown = false;
-      symbolic.push_back(width);
-    }
-  }
-  // Width addition is independent of concat's payload ordering. Consolidate
-  // closed addends so a declaration such as W + 6 agrees with three operands
-  // of widths 3, W and 3 without substituting W's default or actual value.
-  if (!allKnown && knownTotal) symbolic.push_back(literal(knownTotal, node, symbol));
-  for (auto width : symbolic) {
     if (!total)
       total = width;
     else {

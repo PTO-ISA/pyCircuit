@@ -63,8 +63,8 @@ Closed invalid initializer expressions are rejected even when their carrier
 width remains symbolic. Other existing element, state-update and control-flow
 restrictions still apply.
 
-Selecting a parameterized Module as the public root also preserves ordinary
-retained callers of that definition with different actuals. The compiler owns
+Selecting a Module with parameterized state in its hierarchy as the public root
+also preserves ordinary retained callers of that definition. The compiler owns
 the additional entry routing boundary; authors keep the original top and ports.
 This does not add parameterized nominal types, arbitrary initializer programs,
 type parameters, symbolic Integer domains, `range(W)` expansion or a static
@@ -293,6 +293,10 @@ Boolean, non-power-of-two, zero, negative and singleton bounds remain rejected.
 `ac.concat(first, second, ...)` joins one or more unsigned fixed-bit values,
 with the first operand in the most significant positions. A singleton preserves
 its operand. Each operand retains its own width; the result width is their sum.
+Symbolic sums preserve operand order. Before actual binding, width compatibility
+uses the existing structural comparison: for widths `3`, `W`, `3`, an ordered
+result annotation is `ac.bits[(3 + W) + 3]`. Algebraic reassociation to `W + 6`
+is not established by this source profile.
 Existing destination conversion happens afterward, so a wider destination
 zero-extends the completed result and a narrower destination requires a slice.
 Concatenation preserves every value, known and Z bit, including payload bits

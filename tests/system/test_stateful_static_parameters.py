@@ -659,7 +659,7 @@ def test_counter_only_generic_lifecycle_checkpoint(tmp_path, root_override):
     if root_override:
         consumer = consumer.replace(
             "fail: ac.u1) -> ac.bits[11]",
-            "fail: ac.u1, *, W: int = 8) -> ac.bits[W + 6]",
+            "fail: ac.u1, *, W: int = 8) -> ac.bits[(3 + W) + 3]",
         ).replace("Counter(enable, W=5)", "Counter(enable, W=W)")
     provider, bench = _counter_program(tmp_path, consumer)
     final = tmp_path / "probe.ac"
@@ -1556,6 +1556,10 @@ def test_entry_boundary_table_actuals_preserve_every_slot(tmp_path, selected):
     final = tmp_path / "final.ac"
     _ok(_link([unit], "checks.provider." + top, final, actuals))
     _entry_export_contract(final, top, width * extent, boundary=selected == "logical")
+    _execute_entry_table_root(final, tmp_path, extent, width)
+
+
+def _execute_entry_table_root(final, tmp_path, extent, width):
     cpp = r"""#include "pycircuit_system.hpp"
 #include <iostream>
 #include <stdexcept>
@@ -1793,6 +1797,230 @@ def ExerciseWide():
             assert [
                 tuple(int(value["value"]) for value in row["values"]) for row in rows
             ] == expected
+            assert [int(row["evaluation_epoch"]) for row in rows] == list(range(16))
+            transcripts.append(rows)
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+    assert _tree(provider) == before
+
+
+def _fixed_wrapper_source(*, deeper=False, retained=True):
+    text = COUNTER
+    if deeper:
+        text += """
+@ac.module
+def Middle(enable: ac.u1) -> ac.u8:
+    return Counter(enable, W=8)
+"""
+    callee = "Middle(enable)" if deeper else "Counter(enable, W=8)"
+    text += f"""
+@ac.module
+def Wrapper(enable: ac.u1) -> ac.u8:
+    return {callee}
+"""
+    if retained:
+        text += """
+@ac.module
+def Closed(enable: ac.u1) -> ac.u8:
+    return Wrapper(enable)
+"""
+    return text
+
+
+@pytest.mark.parametrize(
+    "deeper,retained,top",
+    [
+        (False, True, "Wrapper"),
+        (False, True, "Closed"),
+        (True, True, "Wrapper"),
+        (False, False, "Wrapper"),
+    ],
+    ids=["selected-fixed", "selected-closed", "deeper-fixed", "no-external-caller"],
+)
+def test_fixed_wrapper_parameterized_state_closure_executes_once(
+    tmp_path, deeper, retained, top
+):
+    source = _source(tmp_path, _fixed_wrapper_source(deeper=deeper, retained=retained))
+    unit, final = tmp_path / "unit", tmp_path / "final.ac"
+    _ok(_compile(source, "provider.py", unit))
+    _ok(_link([unit], "checks.provider." + top, final))
+    _entry_export_contract(final, top, 8, boundary=retained and top == "Wrapper")
+    _execute_counter_root(final, tmp_path, 8)
+
+
+def test_fixed_wrapper_schema2_empty_actuals_reload_without_closed_caller(tmp_path):
+    source = _source(tmp_path, _fixed_wrapper_source())
+    unit, anchor = tmp_path / "unit", tmp_path / "anchor"
+    _ok(_compile(source, "provider.py", unit))
+    _ok(
+        _cli(
+            "link",
+            str(unit),
+            "--top",
+            "checks.provider.Wrapper",
+            "--target",
+            "anchor",
+            "-o",
+            str(anchor),
+        )
+    )
+    manifest = json.loads((anchor / "anchor.json").read_text())
+    assert (manifest["schema"], manifest["routed_contract"]) == (2, 3)
+    assert manifest["root"] == '@"checks.provider.Wrapper"'
+    assert manifest["configuration"]["integer_arguments"] == []
+    assert manifest["configuration"]["type_arguments"] == []
+    assert (
+        manifest["configuration"]["implementation_root"]["definition"]
+        == '@"pycircuit.__link_entry__"'
+    )
+    assert '@"checks.provider.Closed"' not in {
+        row["definition"] for row in manifest["definitions"]
+    }
+    shutil.rmtree(source)
+    shutil.rmtree(unit)
+    portable = tmp_path / "relocated" / "anchor"
+    shutil.copytree(anchor, portable)
+    shutil.rmtree(anchor)
+    before = _tree(portable)
+    _ok(_cli("link", "--from-anchor", str(portable), "--verify-only"))
+    final = tmp_path / "final.ac"
+    _ok(
+        _cli(
+            "link",
+            "--from-anchor",
+            str(portable),
+            "--target",
+            "final",
+            "-o",
+            str(final),
+        )
+    )
+    _entry_export_contract(final, "Wrapper", 8)
+    _execute_counter_root(final, tmp_path, 8)
+    assert _tree(portable) == before
+
+
+@pytest.mark.parametrize("top", ["Wrapper", "Closed"])
+def test_fixed_wrapper_table_closure_keeps_all_slots(tmp_path, top):
+    provider = (
+        ENTRY_BANK.split("@ac.module\ndef Closed", 1)[0]
+        + """
+@ac.module
+def Wrapper(enable: ac.u1) -> ac.table[5, ac.u5]:
+    return Bank(enable, N=5, W=5)
+@ac.module
+def Small(enable: ac.u1) -> ac.table[3, ac.u3]:
+    return Bank(enable, N=3, W=3)
+@ac.module
+def Closed(enable: ac.u1) -> ac.table[5, ac.u5]:
+    return Wrapper(enable)
+"""
+    )
+    source = _source(tmp_path, provider)
+    unit, final = tmp_path / "unit", tmp_path / "final.ac"
+    _ok(_compile(source, "provider.py", unit))
+    _ok(_link([unit], "checks.provider." + top, final))
+    _entry_export_contract(final, top, 25, boundary=top == "Wrapper")
+    _execute_entry_table_root(final, tmp_path, 5, 5)
+
+
+def _ordered_concat_source(position):
+    if position == "prefix":
+        arguments, width, expression = (
+            "tag: ac.u3, value: ac.bits[W]",
+            "3 + W",
+            "tag, value",
+        )
+    elif position == "suffix":
+        arguments, width, expression = (
+            "value: ac.bits[W], tag: ac.u3",
+            "W + 3",
+            "value, tag",
+        )
+    else:
+        arguments, width, expression = (
+            "tag: ac.u3, value: ac.bits[W], tail: ac.u2",
+            "(3 + W) + 2",
+            "tag, value, tail",
+        )
+    return f"""import pycircuit as ac
+@ac.module
+def Join({arguments}, *, W: int = 5) -> ac.bits[{width}]:
+    return ac.concat({expression})
+"""
+
+
+def _ordered_concat_expected(position):
+    expected = []
+    phase, wide = 17, 401
+    for _ in range(8):
+        tag, tail = phase & 7, phase >> 3
+        row = []
+        for value, width in ((phase, 5), (wide, 9)):
+            if position == "prefix":
+                row.append((tag << width) | value)
+            elif position == "suffix":
+                row.append((value << 3) | tag)
+            else:
+                row.append((tag << (width + 2)) | (value << 2) | tail)
+        expected.extend([tuple(row)] * 2)
+        phase, wide = (phase + 7) % 32, (wide + 37) % 512
+    return expected
+
+
+@pytest.mark.parametrize("position", ["prefix", "suffix", "mixed"])
+def test_ordered_symbolic_concat_widths_keep_prefix_suffix_and_mixed_segments(
+    tmp_path, position
+):
+    source = _source(tmp_path, _ordered_concat_source(position))
+    tail = ", tail=phase[3:5]" if position == "mixed" else ""
+    (source / "bench.py").write_text(
+        f"""import pycircuit as ac
+from checks.provider import Join
+@ac.system
+def ExerciseJoin():
+    phase: ac.u5 = 17
+    wide: ac.u9 = 401
+    a = Join(tag=phase[:3], value=phase{tail})
+    b = Join(tag=phase[:3], value=wide{tail}, W=9)
+    @ac.rule
+    def step():
+        ac.log('info', 'ordered concat', a, b)
+        phase = phase + 7
+        wide = wide + 37
+"""
+    )
+    provider, bench = tmp_path / "provider", tmp_path / "bench"
+    _ok(_compile(source, "provider.py", provider))
+    before = _tree(provider)
+    receipt = json.loads((provider / "unit.json").read_text())
+    body = provider / receipt["files"]["body"]
+    hidden = tmp_path / "hidden-provider.ac"
+    (source / "provider.py").unlink()
+    body.rename(hidden)
+    try:
+        _ok(_compile(source, "bench.py", bench, [provider]))
+    finally:
+        hidden.rename(body)
+    final = tmp_path / "final.ac"
+    _ok(_link([provider, bench], "checks.bench.ExerciseJoin", final))
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        directory = tmp_path / target
+        directory.mkdir()
+        binary = _bundle(final, directory, target)
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "8", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=8"]
+            )
+            records = _records(_ok(_run([str(binary), *arguments], timeout=60)))
+            rows = [row for row in records if row["kind"] == "log"]
+            assert [
+                tuple(int(value["value"]) for value in row["values"]) for row in rows
+            ] == _ordered_concat_expected(position)
             assert [int(row["evaluation_epoch"]) for row in rows] == list(range(16))
             transcripts.append(rows)
     assert transcripts[0] == transcripts[1] == transcripts[2]

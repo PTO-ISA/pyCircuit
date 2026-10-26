@@ -1,15 +1,18 @@
 # Selected Module entry boundaries
 
-A parameterized Module definition can serve both as the selected public top and
-as a child of another retained closed Module. Those occurrences may use different
-actual parameters. A declaration-local callback and a second ancestor-routed
-copy must not execute together in the shared child definition.
+A Module whose hierarchy contains parameterized state can serve both as the
+selected public top and as a child of another retained closed Module. Those
+occurrences may use different actual parameters. A declaration-local callback
+and a second ancestor-routed copy must not execute together in the shared child
+definition.
 
-For a selected ordinary parameterized Module whose transaction closure needs
-occurrence lifting and whose definition is also allocated by a retained closed
-Module, source link creates one stateless common-IR entry boundary. Other roots
-retain their existing representation. Source `@system` declarations remain
-non-instantiable and are outside this normalization.
+When the selected ordinary root's validated allocation closure contains both
+transaction registrations and Integer-parameterized definitions, and another
+retained closed Module reaches that root through a nonempty allocation path,
+source link creates one stateless common-IR entry boundary. The root's own
+zero-edge visit does not count as a caller. Other roots retain their existing
+representation. Source `@system` declarations remain non-instantiable and are
+outside this normalization.
 
 The boundary contains one typed instance of the original definition, with the
 selected actual arguments and directly connected public inputs/results. It adds
@@ -40,6 +43,11 @@ physical entry selects the canonical adapter with empty parameters and type
 arguments. Domain and execution policy remain unchanged. Absence of the metadata
 forbids the reserved symbol; presence requires the exact scaffold and forbids
 extra users, state, instances, metadata fields or unverified aliases.
+
+A fixed-interface wrapper may therefore need a boundary for its parameterized
+descendant. Its logical entry, canonical child and anchor root configuration keep
+empty root parameter arrays; nested instance actuals remain in the original
+definitions and do not become new public root parameters.
 
 The adapter has the logical root's source owner and resolved public signature,
 input/output names and domain ordinals. Before routing its body contains only

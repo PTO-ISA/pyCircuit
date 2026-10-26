@@ -45,7 +45,7 @@ FailureOr<bool> needsEntryBoundary(const HardwareAnalysis &analysis,
   auto selected = resolveHardwareRootBindings(analysis);
   if (failed(selected)) return failure();
   auto root = cast<ModuleOp>(selected->owner);
-  if (root.getParameters().empty() || root->hasAttr("ac.root_kind")) return false;
+  if (root->hasAttr("ac.root_kind")) return false;
   if (!root.getTypeParameters().empty() || root->hasAttr("ac.reference_parameters"))
     return root.emitOpError("entry normalization requires ordinary Integer formals");
   auto closure = [&](ModuleOp start, auto &&visit) -> LogicalResult {
@@ -71,18 +71,25 @@ FailureOr<bool> needsEntryBoundary(const HardwareAnalysis &analysis,
     }
     return success();
   };
-  bool transactions = false, allocated = false;
+  // Occurrence lifting depends on the complete allocation closure, just as
+  // transaction state analysis does. A fixed wrapper can therefore share a
+  // parameterized state owner without having integer formals of its own.
+  bool transactions = false, integerParameters = false, allocated = false;
   if (failed(closure(root, [&](ModuleOp module) {
+        integerParameters |= !module.getParameters().empty();
         for (Operation &op : module.getBody().front()) {
           if (failed(debit(1, &op))) return failure();
           transactions |= isa<SourceTransactionOp>(op);
         }
         return success();
       }))) return failure();
-  if (!transactions) return false;
+  if (!transactions || !integerParameters) return false;
   for (auto module : package.getOps<ModuleOp>()) {
     if (failed(debit(1, module))) return failure();
-    if (!module.getParameters().empty() || !module.getTypeParameters().empty() || module->hasAttr("ac.reference_parameters") ||
+    // A distinct closed root must actually allocate the selection. Counting
+    // the selected fixed wrapper's zero-edge closure would admit an adapter
+    // even when it has no external allocating occurrence.
+    if (module == root || !module.getParameters().empty() || !module.getTypeParameters().empty() || module->hasAttr("ac.reference_parameters") ||
         module->hasAttr("ac.root_kind")) continue;
     if (failed(closure(module, [&](ModuleOp child) {
           allocated |= child == root;
@@ -178,7 +185,7 @@ LogicalResult verifyEntryBoundary(const HardwareAnalysis &analysis, bool normali
   auto location = dyn_cast<FileLineColLoc>(logical.getLoc());
   auto owners = package->getAttrOfType<ArrayAttr>("ac.source_units");
   auto error = [&] { return adapter.emitOpError(); };
-  if (logical.getParameters().empty() || logical->hasAttr("ac.root_kind") ||
+  if (logical->hasAttr("ac.root_kind") ||
       !logical.getTypeParameters().empty() || logical->hasAttr("ac.reference_parameters") ||
       !origin || !location || location.getFilename().getValue().empty() ||
       !location.getLine() || !location.getColumn() || !source || !owners || !llvm::is_contained(owners, source) ||
