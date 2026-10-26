@@ -4441,10 +4441,12 @@ private:
       return failure();
     counting.push_back({resolvedRoot, 0});
     uint64_t expectedCount = 0;
+    unsigned maxDepth = 0;
     while (!counting.empty()) {
       auto next = counting.pop_back_val();
       if (next.depth > 128 || !charge(budget, branch))
         return failure();
+      maxDepth = std::max(maxDepth, next.depth);
       if (isa<ac::BitsType>(next.type)) {
         expectedCount = SourceCheckBudget::add(expectedCount, 1);
       } else if (isa<ac::EnumType>(next.type)) {
@@ -4498,11 +4500,15 @@ private:
       SmallVector<Value, 0> joinedFields;
     };
     SmallVector<Frame, 0> stack;
-    if (!charge(budget, branch, SourceCheckBudget::bytes(129 * sizeof(Frame))))
+    const unsigned requiredFrames = maxDepth + 1;
+    if (!charge(budget, branch,
+                SourceCheckBudget::bytes(SourceCheckBudget::multiply(
+                    requiredFrames, sizeof(Frame)))))
       return failure();
-    stack.reserve(129);
+    stack.reserve(requiredFrames);
     auto push = [&](Type type, Value t, Value f) -> LogicalResult {
-      if (stack.size() >= 129 || !charge(budget, branch, 4))
+      if (stack.size() >= 129 || stack.size() >= requiredFrames ||
+          !charge(budget, branch, 4))
         return failure();
       Frame frame{type, t, f, {}, 0, 0, {}};
       if (auto structure = dyn_cast<ac::StructType>(type)) {

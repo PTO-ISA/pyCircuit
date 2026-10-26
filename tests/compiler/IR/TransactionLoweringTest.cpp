@@ -899,6 +899,75 @@ protected:
     }
     return split;
   }
+  // Shape-only variants share the nominal fixture's source provenance. Widen
+  // repeated siblings independently of wrapping depth, then optionally put the
+  // complete record in a Table. These are IR conformance fixtures, not source
+  // authoring examples.
+  SourceBranchOp addBranchShape(mlir::ModuleOp file, unsigned siblings,
+                               unsigned wrappers, bool table) {
+    auto split = addNominalBranch(file);
+    auto *packet = mlir::SymbolTable::lookupSymbolIn(file, "Packet");
+    auto fields = packet->getAttrOfType<mlir::ArrayAttr>("fields");
+    auto inner = mlir::cast<mlir::DictionaryAttr>(fields[0])
+                     .getAs<mlir::TypeAttr>("type");
+    llvm::SmallVector<mlir::Attribute> wideFields;
+    for (unsigned i = 0; i < siblings; ++i)
+      wideFields.push_back(builder.getDictionaryAttr(
+          {builder.getNamedAttr("name", builder.getStringAttr(
+                                            "lane" + std::to_string(i))),
+           builder.getNamedAttr("type", inner)}));
+    packet->setAttr("fields", builder.getArrayAttr(wideFields));
+    std::array<mlir::Value, 2> values;
+    for (unsigned arm = 0; arm < 2; ++arm) {
+      values[arm] = split->getRegion(arm).front().getTerminator()->getOperand(0);
+      auto *create = values[arm].getDefiningOp();
+      auto first = create->getOperand(0), second = create->getOperand(1);
+      llvm::SmallVector<mlir::Value> operands;
+      for (unsigned i = 0; i < siblings; ++i)
+        operands.push_back(i % 2 ? second : first);
+      create->setOperands(operands);
+    }
+    auto make = [&](llvm::StringRef name, mlir::Value input, mlir::Type type) {
+      builder.setInsertionPoint(split);
+      mlir::OperationState state(split.getLoc(), name);
+      state.addOperands(input);
+      state.addTypes(type);
+      return builder.create(state)->getResult(0);
+    };
+    for (unsigned depth = 0; depth < wrappers; ++depth) {
+      auto name = "BranchLevel" + std::to_string(depth);
+      builder.setInsertionPointToStart(file.getBody());
+      mlir::OperationState declaration(split.getLoc(),
+                                       StructOp::getOperationName());
+      declaration.addAttribute("sym_name", builder.getStringAttr(name));
+      declaration.addAttribute(
+          "fields",
+          builder.getArrayAttr({builder.getDictionaryAttr(
+              {builder.getNamedAttr("name", builder.getStringAttr("child")),
+               builder.getNamedAttr(
+                   "type", mlir::TypeAttr::get(values[0].getType()))})}));
+      builder.create(declaration);
+      auto type = StructType::get(&context, builder.getStringAttr(name));
+      for (auto &value : values)
+        value = make(StructCreateOp::getOperationName(), value, type);
+    }
+    if (table) {
+      auto width = mlir::cast<BitsType>(
+                       named<SourceTransactionOp>(file, "run")
+                           .getBody().front().getArgument(1).getType())
+                       .getWidth();
+      auto type = TableType::get(&context, builder.getArrayAttr({width}),
+                                 values[0].getType());
+      for (auto &value : values) {
+        value = make(TableSplatOp::getOperationName(), value, type);
+        value.getDefiningOp()->setAttr("shape", type.getShape());
+      }
+    }
+    split.getResult(0).setType(values[0].getType());
+    for (unsigned arm = 0; arm < 2; ++arm)
+      split->getRegion(arm).front().getTerminator()->setOperand(0, values[arm]);
+    return split;
+  }
   SourceBranchOp addBranchScenario(mlir::ModuleOp file) {
     auto definition = owner(file);
     auto run = named<SourceTransactionOp>(file, "run");
@@ -1220,6 +1289,104 @@ TEST_F(TransactionLoweringTest,
       unchanged(*file, before);
     }
   }
+}
+
+TEST_F(TransactionLoweringTest,
+       SourceReplayBranchShapesRetainIndependentProofAndFailureAtomicity) {
+  // Scalar and Enum roots, broad repeated nominal siblings, Table-of-Struct,
+  // and a deeper legal chain exercise different reconstruction stack shapes.
+  for (unsigned shape = 0; shape < 5; ++shape) {
+    SCOPED_TRACE(shape);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto split = shape == 0 ? addBranchScenario(*file)
+                 : shape == 1 ? addNominalBranch(*file, true)
+                 : addBranchShape(*file, shape == 2 ? 16 : 2,
+                                  shape == 4 ? 12 : 0, shape == 3);
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    SourceTransactionStateAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid());
+    HardwareSourceCheckLimits limits;
+    detail::SourceCheckBudget preparationBudget(limits);
+    auto prepared = capture([&] {
+      return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                     preparationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+    detail::SourceCheckBudget materializationBudget(limits);
+    auto candidate = capture([&] {
+      return acir::detail::materializeTransactionLowering(
+          *prepared, materializationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(candidate)) << diagnostics;
+    auto selected = llvm::find_if(prepared->transactions, [&](const auto &entry) {
+      return entry.plan->transaction ==
+             split->getParentOfType<SourceTransactionOp>();
+    });
+    ASSERT_NE(selected, prepared->transactions.end());
+    auto &transaction = candidate->transactions[
+        std::distance(prepared->transactions.begin(), selected)];
+    ASSERT_EQ(transaction.branchResults.size(), 1u);
+    auto &record = transaction.branchResults[0];
+    ASSERT_EQ(record.value.getType(), split.getResult(0).getType());
+    auto originalBefore = identities(*file);
+    auto originalText = print(file->getOperation());
+    detail::SourceCheckBudget initialProof(limits);
+    ASSERT_TRUE(mlir::succeeded(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *candidate, initialProof);
+    }))) << diagnostics;
+    auto selectedLeaf = llvm::find_if(record.generated, [](auto *op) {
+      return mlir::isa<BitsSelectOp>(op);
+    });
+    ASSERT_NE(selectedLeaf, record.generated.end());
+    auto *leaf = *selectedLeaf;
+    auto trueOperand = leaf->getOperand(1);
+    ASSERT_NE(trueOperand, leaf->getOperand(2));
+    // Each mutation starts from the same successfully authenticated candidate.
+    for (unsigned mutation = 0; mutation < 3; ++mutation) {
+      SCOPED_TRACE(mutation);
+      auto inventory = record.generated;
+      if (mutation == 0)
+        leaf->setAttr("forged", builder.getUnitAttr());
+      else if (mutation == 1)
+        leaf->setOperand(1, leaf->getOperand(2));
+      else
+        record.generated.pop_back();
+      auto candidateBefore = identities(*candidate->module);
+      auto candidateText = print(candidate->module->getOperation());
+      detail::SourceCheckBudget proofBudget(limits);
+      EXPECT_TRUE(mlir::failed(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *candidate, proofBudget);
+      })));
+      EXPECT_FALSE(diagnostics.empty());
+      unchanged(*file, originalBefore);
+      EXPECT_EQ(originalText, print(file->getOperation()));
+      unchanged(*candidate->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(candidate->module->getOperation()));
+      leaf->removeAttr("forged");
+      leaf->setOperand(1, trueOperand);
+      record.generated = inventory;
+    }
+    detail::SourceCheckBudget restoredProof(limits);
+    EXPECT_TRUE(mlir::succeeded(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *candidate, restoredProof);
+    }))) << diagnostics;
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       SourceReplayOverDeepNominalBranchRejectsBeforeReplacement) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  addBranchShape(*file, 2, 129, false);
+  // Metadata admission rejects before localBranchProof's private stack guard.
+  // This asserts that earlier boundary and preserves the original package.
+  rejects(*file, "source branch result metadata depth exceeded");
+  RecordProperty("rejection_diagnostic", diagnostics);
 }
 
 TEST_F(TransactionLoweringTest,
