@@ -2607,6 +2607,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
       auto value = expression(actual, at, decl.symbol, actualValues, instances,
                               port.type ? std::optional<Type>(port.type) : std::nullopt);
       if (failed(value)) return failure();
+      if (localDeclaration && localRuleResult(*value))
+        return mlir::emitError(actual.location(b.getContext(), source.path))
+               << "local Rule result alias is not a Rule input; wire through a child Module interface";
       // Complete the declared argument boundary before deriving the formal's
       // binding facts, as bindCallableArguments does for explicit calls.
       // In particular a contextual integer literal acquires its checked Bits

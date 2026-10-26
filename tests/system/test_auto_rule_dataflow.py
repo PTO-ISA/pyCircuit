@@ -22,6 +22,182 @@ from test_source_system_execution import (
 pytestmark = pytest.mark.system
 
 
+CHILD_BOUNDARY_PROVIDER = """import pycircuit as ac
+
+@ac.module
+def Child(value: ac.u8) -> ac.u8:
+    return value
+
+def identity(value: ac.u8) -> ac.u8:
+    return value
+"""
+
+
+@pytest.mark.parametrize("capture_mode", ["body", "default"])
+@pytest.mark.parametrize(
+    ("imports", "child"),
+    [
+        ("from checks.provider import Child", "Child"),
+        ("from checks.provider import Child as ImportedChild", "ImportedChild"),
+        ("import checks.provider as provider", "provider.Child"),
+    ],
+    ids=["direct-import", "alias-import", "namespace-import"],
+)
+def test_imported_child_is_an_explicit_boundary_between_local_rule_results(
+    tmp_path, imports, child, capture_mode
+):
+    source = tmp_path / "source"
+    source.mkdir()
+    provider_source = source / "provider.py"
+    provider_source.write_text(CHILD_BOUNDARY_PROVIDER)
+    parameters = "incoming=forwarded" if capture_mode == "default" else ""
+    captured = "incoming" if capture_mode == "default" else "forwarded"
+    (source / "consumer.py").write_text(
+        f"""import pycircuit as ac
+{imports}
+
+@ac.module
+def Pipeline(value: ac.u8) -> ac.u8:
+    @ac.rule
+    def produce() -> ac.u8:
+        return value + 1
+    forwarded = {child}(produce)
+    @ac.rule
+    def consume({parameters}) -> ac.u8:
+        return {captured} + 1
+    return consume
+
+@ac.system
+def ExerciseChildBoundary():
+    phase: ac.u8 = 0
+    incoming = 0 if phase == 0 else 1 if phase == 1 else 17 if phase == 2 else 253
+    result = Pipeline(incoming)
+    @ac.rule
+    def advance() -> None:
+        phase = phase + 1
+    @ac.rule
+    def observe() -> None:
+        ac.log("info", "child boundary", incoming, result)
+"""
+    )
+    provider, consumer = tmp_path / "provider", tmp_path / "consumer"
+    _ok(_compile(source, "provider.py", provider))
+    receipt = json.loads((provider / "unit.json").read_text())
+    body = provider / receipt["files"]["body"]
+    hidden = tmp_path / "hidden-provider.ac"
+    provider_source.unlink()
+    body.rename(hidden)
+    try:
+        _ok(_compile(source, "consumer.py", consumer, [provider]))
+    finally:
+        hidden.rename(body)
+    final = tmp_path / "child-boundary.ac"
+    _ok(
+        _cli(
+            "link",
+            str(provider),
+            str(consumer),
+            "--top",
+            "checks.consumer.ExerciseChildBoundary",
+            "-o",
+            str(final),
+        )
+    )
+    original = final.read_bytes()
+    # Child is a combinational identity. Each autonomous callback adds one,
+    # so this explicit child interface carries x + 2 without a clock delay.
+    expected = [(0, 2), (1, 3), (17, 19), (253, 255)]
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        destination = tmp_path / target
+        destination.mkdir()
+        binary = _bundle(final, destination, target)
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "4", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=4"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            logs = [row for row in rows if row["kind"] == "log"]
+            assert [row["spec"]["event"] for row in logs] == ["child boundary"] * 8
+            assert [
+                tuple(int(value["value"]) for value in row["values"]) for row in logs
+            ] == [pair for pair in expected for _ in range(2)]
+            assert [int(row["evaluation_epoch"]) for row in logs] == list(range(8))
+            _assert_closed_observation_identities(rows)
+            transcripts.append([row for row in rows if row["kind"] != "result"])
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert final.read_bytes() == original
+
+
+@pytest.mark.parametrize("capture_mode", ["body", "default"])
+@pytest.mark.parametrize(
+    ("declarations", "expression"),
+    [
+        ("", "produce"),
+        (
+            "def identity(value: ac.u8) -> ac.u8:\n    return value\n",
+            "identity(produce)",
+        ),
+        ("from checks.provider import identity\n", "identity(produce)"),
+    ],
+    ids=["direct-alias", "same-source-helper", "imported-helper"],
+)
+def test_aliases_and_pure_helpers_do_not_create_child_rule_boundaries(
+    tmp_path, declarations, expression, capture_mode
+):
+    source = tmp_path / "source"
+    source.mkdir()
+    provider_source = source / "provider.py"
+    provider_source.write_text(CHILD_BOUNDARY_PROVIDER)
+    provider = tmp_path / "provider"
+    _ok(_compile(source, "provider.py", provider))
+    receipt = json.loads((provider / "unit.json").read_text())
+    body = provider / receipt["files"]["body"]
+    hidden = tmp_path / "hidden-provider.ac"
+    provider_source.unlink()
+    body.rename(hidden)
+    parameters = "incoming=forwarded" if capture_mode == "default" else ""
+    captured = "incoming" if capture_mode == "default" else "forwarded"
+    try:
+
+        def design(forwarded):
+            return f"""import pycircuit as ac
+{declarations}
+@ac.module
+def Pipeline(value: ac.u8) -> ac.u8:
+    @ac.rule
+    def produce() -> ac.u8:
+        return value + 1
+    forwarded = {forwarded}
+    @ac.rule
+    def consume({parameters}) -> ac.u8:
+        return {captured} + 1
+    return consume
+"""
+
+        # The helper/import itself is valid; only feeding it a local Rule result
+        # and capturing that derived value in another Rule must be rejected.
+        (source / "control.py").write_text(
+            design(expression.replace("produce", "value"))
+        )
+        _ok(_compile(source, "control.py", tmp_path / "control", [provider]))
+        (source / "invalid.py").write_text(design(expression))
+        output = tmp_path / "rejected"
+        result = _compile(source, "invalid.py", output, [provider])
+        assert result.returncode != 0, result.stdout + result.stderr
+        assert (
+            "Traceback" not in result.stderr and "Assertion failed" not in result.stderr
+        )
+        assert any(
+            term in result.stderr.lower() for term in ("local rule", "forwarded")
+        ), result.stderr
+        assert not (output / "unit.json").exists()
+    finally:
+        hidden.rename(body)
+
+
 def _provider(reverse: bool) -> str:
     writer = """
     @ac.rule

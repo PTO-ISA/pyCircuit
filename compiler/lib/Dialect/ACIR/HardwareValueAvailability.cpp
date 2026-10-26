@@ -44,6 +44,9 @@ class AvailabilityProof {
   unsigned rowDepth = 0;
   std::map<std::string, Expr> rowCache, rawRowCache, formulaRowCache;
   std::set<std::string> rowActive, rawRowActive, formulaRowActive;
+  static void appendKeyPart(std::string &key, StringRef part) {
+    key += ":" + std::to_string(part.size()) + ":" + part.str();
+  }
   bool inRow(Value value) {
     return rowFrame && value.getParentBlock() == &rowFrame->map.getBody().front();
   }
@@ -53,7 +56,7 @@ class AvailabilityProof {
     std::string key = std::to_string(reinterpret_cast<uintptr_t>(value.getAsOpaquePointer()));
     for (auto field : path) {
       if (!charge(32 + field.getValue().size(), site)) return "invalid";
-      key += ":" + std::to_string(field.getValue().size()) + ":" + field.getValue().str();
+      appendKeyPart(key, field.getValue());
     }
     return key;
   }
@@ -79,7 +82,7 @@ class AvailabilityProof {
       for (Attribute element : array) {
         auto nested = attributeKey(element, depth + 1);
         if (invalid || !charge(32 + nested.size(), site)) return "invalid";
-        key += ":" + std::to_string(nested.size()) + ":" + nested;
+        appendKeyPart(key, nested);
       }
       return key;
     }
@@ -91,8 +94,8 @@ class AvailabilityProof {
         if (!charge(32 + name.size(), site)) return "invalid";
         auto nested = attributeKey(element.getValue(), depth + 1);
         if (invalid || !charge(32 + nested.size(), site)) return "invalid";
-        key += ":" + std::to_string(name.size()) + ":" + name.str() +
-               ":" + std::to_string(nested.size()) + ":" + nested;
+        appendKeyPart(key, name);
+        appendKeyPart(key, nested);
       }
       return key;
     }
@@ -128,7 +131,10 @@ class AvailabilityProof {
   }
   std::string typeKey(Type type, Operation *site) {
     if (auto table = dyn_cast<TableType>(type)) {
-      return "table" + shapeKey(table, site) + ":" + typeKey(table.getElementType(), site);
+      std::string key = "table";
+      appendKeyPart(key, shapeKey(table, site));
+      appendKeyPart(key, typeKey(table.getElementType(), site));
+      return key;
     }
     if (auto bits = dyn_cast<BitsType>(type)) {
       (void)attributeKey(bits.getWidth());
@@ -156,9 +162,12 @@ class AvailabilityProof {
     return node("ordinal" + shapeKey(type, site));
   }
   Expr viewDomain(TableViewOp view, Expr ordinal) {
-    return node("view:" + view.getKind().str() + ":" +
-        attributeKey(view.getParameters()) + shapeKey(view.getInput().getType(), view) +
-        ":to" + shapeKey(view.getResult().getType(), view), {ordinal});
+    std::string key = "view";
+    appendKeyPart(key, view.getKind());
+    appendKeyPart(key, attributeKey(view.getParameters()));
+    appendKeyPart(key, shapeKey(view.getInput().getType(), view));
+    appendKeyPart(key, shapeKey(view.getResult().getType(), view));
+    return node(key, {ordinal});
   }
   Expr rawExpression(Value value) {
     if (rowDepth >= 128) return reject(value.getParentBlock()->getParentOp(), "row predicate depth exceeds 128");
@@ -185,14 +194,19 @@ class AvailabilityProof {
     SmallVector<Expr> operands;
     operands.reserve(op->getNumOperands());
     for (Value operand : op->getOperands()) operands.push_back(rawExpression(operand));
-    std::string key = "row-op:" + op->getName().getStringRef().str() + ":" +
-        std::to_string(cast<OpResult>(value).getResultNumber()) + ":" + typeKey(value.getType(), op);
+    std::string key = "row-op";
+    appendKeyPart(key, op->getName().getStringRef());
+    appendKeyPart(key, std::to_string(cast<OpResult>(value).getResultNumber()));
+    appendKeyPart(key, typeKey(value.getType(), op));
     for (NamedAttribute attr : op->getAttrs()) {
       StringRef name = attr.getName().strref();
       if (!charge(32 + name.size(), op)) return 0;
       auto semantic = attributeKey(attr.getValue());
       if (invalid || !charge(16 + semantic.size(), op)) return 0;
-      key += ":" + name.str() + ":" + semantic;
+      // Attribute payloads may contain arbitrary punctuation, including text
+      // that resembles another attribute. Preserve both component boundaries.
+      appendKeyPart(key, name);
+      appendKeyPart(key, semantic);
     }
     Expr result = node(key, operands);
     rowFrame->raw.try_emplace(value, result);
@@ -204,7 +218,8 @@ class AvailabilityProof {
     ++rowDepth;
     llvm::scope_exit depth([&] { --rowDepth; });
     table = wire(table);
-    auto key = valueKey(table, path) + ":" + std::to_string(ordinal);
+    auto key = valueKey(table, path);
+    appendKeyPart(key, std::to_string(ordinal));
     if (!charge(8 + key.size(), table.getParentBlock()->getParentOp())) return 0;
     bool bound = inRow(table);
     auto &cache = bound
@@ -277,7 +292,9 @@ class AvailabilityProof {
 
   Expr node(StringRef kind, ArrayRef<Expr> children = {}) {
     if (!charge(1 + kind.size() + children.size(), analysis.getPackage())) return 0;
-    std::string key = kind.str();
+    // Kind text contains semantic strings; it must not absorb child IDs.
+    std::string key;
+    appendKeyPart(key, kind);
     for (auto child : children)
       key += ":" + std::to_string(child);
     auto [entry, inserted] = interned.emplace(key, nodes.size());

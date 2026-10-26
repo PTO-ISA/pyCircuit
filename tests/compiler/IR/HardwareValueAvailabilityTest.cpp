@@ -347,6 +347,53 @@ TEST_F(HardwareValueAvailabilityTest,
 }
 
 TEST_F(HardwareValueAvailabilityTest,
+       CompactRowsRejectAttributeBoundaryPredicateCollision) {
+  for (unsigned mutation = 0; mutation < 3; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto rows = rowFixture(true);
+    ASSERT_TRUE(proves()) << diagnostics;
+    auto data = *rows.data.getBody().front().getOps<ac::BitsCompareOp>().begin();
+    auto companion =
+        *rows.companion.getBody().front().getOps<ac::BitsCompareOp>().begin();
+    // Same-predicate metadata is a valid control. These inert strings must not
+    // let a different real predicate impersonate the companion's comparison.
+    auto prefix = b.getStringAttr("x:predicate:string:ne:z:string:y");
+    data->setAttr("a", prefix);
+    companion->setAttr("a", prefix);
+    if (mutation) {
+      data->setAttr("predicate", b.getStringAttr("ne"));
+      data->removeAttr("a");
+      if (mutation == 2) {
+        // Without boundaries both attribute sequences serialize identically:
+        // :a:string:x:predicate:string:ne:z:string:y:predicate:string:eq
+        data->setAttr("a", b.getStringAttr("x"));
+        data->setAttr("z", b.getStringAttr("y:predicate:string:eq"));
+      }
+      // At selected=1, available=0 the NE payload map retains unavailable row
+      // zero; the EQ companion overwrites its availability with known one.
+    }
+    ASSERT_TRUE(succeeded(verify(*package)));
+    auto text = printPackage();
+    auto objects = [&] {
+      SmallVector<Operation *> result;
+      package->walk([&](Operation *operation) { result.push_back(operation); });
+      return result;
+    };
+    auto originalObjects = objects();
+    if (!mutation)
+      EXPECT_TRUE(proves()) << diagnostics;
+    else {
+      EXPECT_FALSE(proves()) << diagnostics;
+      EXPECT_NE(diagnostics.find("availability differs from actual payload SSA"),
+                std::string::npos)
+          << diagnostics;
+    }
+    EXPECT_EQ(printPackage(), text);
+    EXPECT_EQ(objects(), originalObjects);
+  }
+}
+
+TEST_F(HardwareValueAvailabilityTest,
        CompactCompanionCannotAlsoFeedARawRegionPredicate) {
   auto rows = rowFixture();
   ASSERT_TRUE(proves()) << diagnostics;

@@ -563,15 +563,11 @@ LogicalResult SourceRuleWritesAnalysis::analyze() {
           if (!node || !charge()) return false;
           if (node.kind() == "Name")
             return nestedRuleNames.contains(node.string("id")) || ruleResultAliases.contains(node.string("id"));
-          if (node.kind() == "Call") {
-            auto function = node.child("func");
-            if (function.kind() == "Name")
-              for (size_t k = 0; k < source.module.array("body").size(); ++k) {
-                auto provider = source.module.item("body", k);
-                if (provider.kind() == "FunctionDef" && provider.string("name") == function.string("id") &&
-                    hasDecorator(provider, "module")) return false;
-              }
-          }
+          // A call may establish a child-output boundary, including through an
+          // imported or aliased Module. The typed importer authenticates that
+          // boundary from actual Instance SSA; helper calls remain ordinary
+          // value dependencies there. Source spelling cannot distinguish them.
+          if (node.kind() == "Call") return false;
           for (NamedAttribute field : node.fields()) {
             if (auto child = dyn_cast<DictionaryAttr>(field.getValue())) {
               if (child.getAs<StringAttr>("kind") && self(self, node.child(field.getName().getValue()))) return true;
