@@ -63,6 +63,8 @@ def _source(tmp_path, text=PURE):
         ("Bare", []),
         ("Sink", ["value"]),
         ("Pair", ["value"]),
+        ("Discarded", []),
+        ("DiscardedSink", ["value"]),
     ],
 )
 def test_pure_void_roots_export_no_payload_or_domain(tmp_path, top, inputs):
@@ -74,15 +76,28 @@ def test_pure_void_roots_export_no_payload_or_domain(tmp_path, top, inputs):
         "Bare": "def Bare() -> None:\n    return\n",
         "Sink": "def Sink(value: ac.u8) -> None:\n    pass\n",
         "Pair": "def Pair(value: ac.u8) -> None:\n    first = Sink(value)\n    second = Sink(value)\n",
+        "Discarded": "def Discarded() -> None:\n    Empty()\n    Empty()\n",
+        "DiscardedSink": "def DiscardedSink(value: ac.u8) -> None:\n    Sink(value)\n    Sink(value)\n",
     }
     text = "import pycircuit as ac\n@ac.module\n" + definitions[top]
-    if top == "Pair":
+    if top in {"Pair", "DiscardedSink"}:
         text += "@ac.module\n" + definitions["Sink"]
+    elif top == "Discarded":
+        text += "@ac.module\n" + definitions["Empty"]
     source = _source(tmp_path, text)
     provider = tmp_path / "provider"
     _ok(_compile(source, "provider.py", provider))
     final = tmp_path / "final.ac"
     _ok(_link([provider], "checks.provider." + top, final))
+    if top in {"Discarded", "DiscardedSink"}:
+        child = "Empty" if top == "Discarded" else "Sink"
+        instances = [
+            line
+            for line in final.read_text().splitlines()
+            if '"ac.instance"' in line and f"callee = @checks.provider.{child}," in line
+        ]
+        assert len(instances) == 2
+        assert all("-> ()" in line for line in instances)
     for target in ("cpp", "verilog"):
         output = tmp_path / target
         _ok(_cli("emit", str(final), "--target", target, "-o", str(output)))
@@ -131,6 +146,7 @@ def _execute(final, tmp_path, event, expected):
         root = tmp_path / (target + "-execution")
         root.mkdir()
         binary = _bundle(final, root, target)
+        assert json.loads((root / target / "ports.json").read_text())["outputs"] == []
         for workers in (1, 2) if target == "cpp" else (1,):
             arguments = (
                 ["--cycles", "4", "--workers", str(workers)]
@@ -162,8 +178,34 @@ def _execute(final, tmp_path, event, expected):
     assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
 
 
+def test_pure_discarded_children_compile_from_facade_without_provider_bodies(tmp_path):
+    consumer = """import pycircuit as ac
+from checks.facade import Empty
+@ac.module
+def Exercise() -> None:
+    Empty()
+    Empty()
+"""
+    final = _published_with_hidden_providers(tmp_path, PURE, consumer, "Empty")
+    instances = [
+        line
+        for line in final.read_text().splitlines()
+        if '"ac.instance"' in line and "callee = @checks.provider.Empty," in line
+    ]
+    assert len(instances) == 2
+    assert all("-> ()" in line for line in instances)
+    for target in ("cpp", "verilog"):
+        output = tmp_path / target
+        _ok(_cli("emit", str(final), "--target", target, "-o", str(output)))
+        ports = json.loads((output / "ports.json").read_text())
+        assert ports["inputs"] == ports["outputs"] == []
+        assert ports["domains"] == {"clock": None, "reset": None}
+
+
+@pytest.mark.parametrize("binding", ["named", "discarded"])
 def test_void_reexports_and_legacy_results_execute_from_interface_only_compile(
     tmp_path,
+    binding,
 ):
     bench = """import pycircuit as ac
 from checks.facade import Empty, Explicit, Pair, Scalar
@@ -179,6 +221,10 @@ def Exercise():
         ac.log("info", "void baseline", phase, scalar)
         phase = phase + 1
 """
+    if binding == "discarded":
+        bench = bench.replace("empty = Empty()", "Empty()")
+        bench = bench.replace("explicit = Explicit()", "Explicit()")
+        bench = bench.replace("pair = Pair(phase)", "Pair(phase)")
     final = _published_with_hidden_providers(
         tmp_path, PURE, bench, "Empty, Explicit, Pair, Mapping, Scalar"
     )
@@ -197,7 +243,10 @@ def Exercise():
     _execute(final, tmp_path, "void baseline", expected)
 
 
-def test_void_parent_preserves_two_effectful_child_instances(tmp_path):
+@pytest.mark.parametrize(
+    "binding", ["named", "discarded-provider", "discarded-consumer"]
+)
+def test_void_parent_preserves_two_effectful_child_instances(tmp_path, binding):
     provider = """import pycircuit as ac
 @ac.module
 def Counter(delta: ac.u8) -> None:
@@ -217,6 +266,11 @@ from checks.facade import Parent
 def Exercise():
     parent = Parent()
 """
+    if binding == "discarded-provider":
+        provider = provider.replace("first = Counter(1)", "Counter(1)")
+        provider = provider.replace("second = Counter(3)", "Counter(3)")
+    elif binding == "discarded-consumer":
+        bench = bench.replace("parent = Parent()", "Parent()")
     final = _published_with_hidden_providers(tmp_path, provider, bench, "Parent")
     expected = [
         (epoch, (delta, delta * (epoch // 2))) for epoch in range(8) for delta in (1, 3)
@@ -286,6 +340,18 @@ def test_unannotated_module_results_still_require_an_annotation(tmp_path, payloa
             "    alias = ac.table[2, ac.u8](init=0)\n    return alias\n",
             "ac.table[2, ac.u8]",
         ),
+        (
+            "    first = Empty()\n    alias = first\n"
+            "    def alias() -> ac.u8:\n        return 7\n    return alias()\n",
+            "ac.u8",
+        ),
+        (
+            "    first = Empty()\n    alias = first\n    count: ac.u8 = 0\n"
+            "    def alias() -> ac.u8:\n        return 7\n"
+            "    @ac.rule\n    def step() -> None:\n        count = count + 1\n"
+            "    return alias()\n",
+            "ac.u8",
+        ),
     ],
     ids=[
         "occupied-local",
@@ -297,6 +363,8 @@ def test_unannotated_module_results_still_require_an_annotation(tmp_path, payloa
         "alias-scalar-state",
         "alias-annotated-table-state",
         "alias-constructor-table-state",
+        "alias-helper-redefinition",
+        "transaction-alias-helper-redefinition",
     ],
 )
 def test_void_handles_are_immutable_and_not_payloads(tmp_path, body, result):

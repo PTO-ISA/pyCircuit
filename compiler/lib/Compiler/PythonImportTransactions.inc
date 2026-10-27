@@ -2810,6 +2810,8 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
     if (statement.kind() == "FunctionDef") {
       StringRef name = statement.string("name");
       if (statement.array("decorator_list").empty()) {
+        if (instances.contains(name))
+          return error() << "pure helper cannot replace an instance binding";
         if (failed(declareValueHelper(statement, decl.symbol, moduleValues))) return failure();
       } else if (!methods.contains(name) && !rules.contains(name))
         return error() << "nested callable requires Rule, Method or ordinary typed helper";

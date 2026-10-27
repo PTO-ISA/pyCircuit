@@ -2870,6 +2870,8 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       return error() << "declaration after module return is unsupported";
     if (stmt.kind() == "FunctionDef") {
       if (stmt.array("decorator_list").empty()) {
+        if (structuralInstances.contains(stmt.string("name")))
+          return error() << "pure helper cannot replace an instance binding";
         if (failed(declareValueHelper(stmt, decl.symbol, values))) return failure();
       } else if (!hasDecorator(stmt, "rule"))
         return error() << "nested callable requires Rule or ordinary typed helper";
@@ -2886,6 +2888,14 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
                                          structuralInstances);
       if (failed(bound)) return failure();
       if (*bound) continue;
+      if (moduleCall(call)) {
+        auto results = directModuleResults(call, at, decl.symbol, values,
+                                           structuralInstances);
+        if (failed(results)) return failure();
+        if (!results->empty())
+          return error() << "Module value results require an explicit binding";
+        continue;
+      }
       if (call.kind() == "Call") {
         auto helper = resolveValueHelper(call.child("func"), decl.symbol);
         if (failed(helper)) return failure();
