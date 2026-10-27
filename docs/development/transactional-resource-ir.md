@@ -128,8 +128,56 @@ nonrecursive instance hierarchy and resolved callable signatures. Calls remain
 Method calls rather than physical signals. Generic Method requirements and
 transaction execution remain outside this subset.
 
-Existing source-unit/link, Routed/final, saved-anchor and backend paths reject
-this contract. Structural verification does not establish backend execution.
+Existing Python source-unit/link and saved-anchor publication reject this
+contract. Structural verification alone does not establish backend execution.
+
+## Bounded State execution
+
+PR-03 adds an explicit native route for a selected closed Module:
+
+```bash
+pycircuit-opt linked.mlir --ac-route-transactions='top=Counter' -o routed.mlir
+pycircuit-opt routed.mlir --ac-lower-transactions -o final.mlir
+```
+
+The selected Module owns finite-width Bits State with explicit initial values.
+Local Rules and global Rule templates execute only through explicit
+registrations. Pure Bits computations and State `read`/`write` are supported;
+Queue operations, user Method expansion, hierarchy and conditional registration
+remain later implementation work. Unsupported input fails without falling back
+to the legacy transaction analysis. Python authoring is unchanged.
+
+Every State read observes old Q, including a read after a write in the same
+Rule. Writes propose updates. Independent State updates can commit together;
+potentially overlapping writes to one State are rejected unless the analysis
+proves complementary guards. Each State receives exactly one logical update;
+an unwritten State holds Q with its enable disabled.
+
+The compiler supplies clock/reset ports and one rising-edge commit per complete
+cycle. Synchronous reset restores initial values and suppresses normal effects
+and checks for that cycle. Only the selected Module's declared State exports
+become outputs, preserving order, names, types and aliases. Four-state payloads
+remain data. This bounded adapter requires guards whose knownness can be proved
+from initialization and all writes; unresolved X/Z control combinations are
+diagnosed rather than assigned a new check-order meaning.
+
+A direct Rule body may contain `ac.expect` with `kind = "assert"`, Bits1
+condition, constant-true path and source location. It has no sampling operands
+or legacy check identity. Assertions are checks, not guards: failure prevents
+all proposed updates and committed sampling history from advancing. The
+adapter generates the backend check identity and binding.
+
+Routed and final artifacts carry `ac.routed_contract = 4 : i64`, separately from
+legacy contracts 2/3. Versioned provenance preserves the selected top and the
+serialized normalized linked source. Verification reparses that source,
+reconstructs common analysis and compares actual resource, update, check and
+export endpoints. Generated mappings locate objects but do not certify them.
+Final verification also checks physical State endpoints; existing DFF/DFFE
+refinement correspondence remains required. Native printing, rereading and
+verification are supported; public saved-anchor manifest publication is deferred.
+
+This route does not establish Python transactional execution, physical-edge
+export or direct transactional gfsim support.
 
 The implementation reuses prototype allocation, path-resolution and verifier
 patterns, replacing its resource/depth encoding, output binding and version.

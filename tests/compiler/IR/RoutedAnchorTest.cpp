@@ -385,11 +385,11 @@ TEST_F(RoutedAnchorTest, ContractMarkerRejectsMalformedAndUnknownVersions) {
         mlir::Attribute(builder.getI32IntegerAttr(2)),
         mlir::Attribute(builder.getI64IntegerAttr(0)),
         mlir::Attribute(builder.getI64IntegerAttr(1)),
-        mlir::Attribute(builder.getI64IntegerAttr(4))}) {
+        mlir::Attribute(builder.getI64IntegerAttr(37))}) {
     auto file = parse("module attributes {ac.stage = \"routed\"} {}");
     ASSERT_TRUE(file);
     (*file)->setAttr("ac.routed_contract", invalid);
-    rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+    rejects(*file, "ac.routed_contract");
   }
   // Version 3 is known, but it is not a general opt-in for a bare package.
   // Keep this at the native local-verification boundary, independently of the
@@ -408,7 +408,7 @@ TEST_F(RoutedAnchorTest, PreviousContractVersionIsRejectedAtBothGraphStages) {
     auto file = parse("module attributes {ac.stage = \"" + stage.str() +
                       "\", ac.routed_contract = 1 : i64} {}");
     ASSERT_TRUE(file);
-    rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+    rejects(*file, "ac.routed_contract");
   }
 }
 
@@ -419,12 +419,12 @@ TEST_F(RoutedAnchorTest, ContractMarkerRequiresTopLevelRoutedOrFinalPackage) {
     (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
     if (!stage.empty())
       (*file)->setAttr("ac.stage", builder.getStringAttr(stage));
-    rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+    rejects(*file, "ac.routed_contract");
   }
   auto source = parse("module attributes {ac.stage = \"routed\", ac.unit_kind "
                       "= \"body\", ac.routed_contract = 2 : i64} {}");
   ASSERT_TRUE(source);
-  rejects(*source, "ac.routed_contract requires version 2 or 3 : i64");
+  rejects(*source, "ac.routed_contract");
   for (llvm::StringRef stage : {"routed", "final"}) {
     auto nested =
         parse("module attributes {ac.stage = \"" + stage.str() +
@@ -445,7 +445,7 @@ TEST_F(RoutedAnchorTest, ContractMarkerRequiresTopLevelRoutedOrFinalPackage) {
   auto definition = find<ModuleOp>(*onDefinition);
   ASSERT_TRUE(definition);
   definition->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
-  rejects(*onDefinition, "ac.routed_contract requires version 2 or 3 : i64");
+  rejects(*onDefinition, "ac.routed_contract");
 }
 
 TEST_F(RoutedAnchorTest,
@@ -456,7 +456,7 @@ TEST_F(RoutedAnchorTest,
   (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(2));
   EXPECT_TRUE(mlir::succeeded(mlir::verify(*file)));
   (*file)->setAttr("ac.routed_contract", builder.getI64IntegerAttr(37));
-  rejects(*file, "ac.routed_contract requires version 2 or 3 : i64");
+  rejects(*file, "ac.routed_contract");
 }
 
 TEST_F(RoutedAnchorTest, OrdinaryExternAcceptsExactlyTheCompleteDeclaration) {

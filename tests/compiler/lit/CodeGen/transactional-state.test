@@ -1,0 +1,22 @@
+# REQUIRES: iverilog, vvp
+# RUN: %pycircuit_opt %inputs/transactional-state.mlir --ac-route-transactions="top=StateCycles" -o %t.routed.mlir
+# Native save/reload must reauthenticate before storage refinement.
+# RUN: %pycircuit_opt %t.routed.mlir --ac-route-transactions --ac-lower-transactions --ac-verify-hardware -o %t.final.mlir
+# RUN: %pycircuit_opt %t.final.mlir --ac-verify-hardware -o %t.reload.mlir
+# RUN: %pycircuit_emit %t.reload.mlir --target cpp > %t.json
+# RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
+# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; %cxx -std=c++20 -pthread  -I%include -I%t.dir %inputs/transactional-state.cpp @%t.dir/sources.rsp "$RTLIB" -o %t.exe
+# RUN: %t.exe > %t.cpp
+# RUN: %pycircuit_emit %t.reload.mlir --target verilog --format source > %t.sv
+# RUN: %iverilog -g2012  -s tb -o %t.vvp %t.sv %include/verilog/dff.v %include/verilog/dffe.v %inputs/transactional-state.sv
+# RUN: %vvp %t.vvp > %t.rtl
+# RUN: diff -u %t.cpp %t.rtl
+# RUN: %FileCheck %s < %t.cpp
+# CHECK: 6 3 5 3 0
+# CHECK-NEXT: 7 6 6 1 1
+# CHECK-NEXT: 7 6 7 2 1
+# CHECK-NEXT: 0 7 0 1 1
+# CHECK-NEXT: 0 7 1 2 1
+# CHECK-NEXT: 6 3 5 3 0
+# CHECK-NEXT: 7 6 6 1 1
+# RUN: %python %inputs/transactional-correspondence.py %pycircuit_opt %inputs/transactional-state.mlir %t.routed.mlir %t.final.mlir %t.corrupt

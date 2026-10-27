@@ -12,9 +12,12 @@ stage checks its input before publishing outputs; neither backend recaptures
 Python or infers a different hardware meaning.
 
 The separately versioned [transactional resource IR](transactional-resource-ir.md)
-currently supports structural verification through `pycircuit-opt` only. Its
-`unlinked`/`linked` stages are not source units or executable hardware; the
-existing publication, link, saved-anchor and emit boundaries reject them.
+supports structural verification and a bounded native State/registered-Rule
+route through `pycircuit-opt --ac-route-transactions='top=Name'`, followed by
+`--ac-lower-transactions`. Its `unlinked`/`linked` stages are not source units or
+executable hardware. Contract 4 Routed/final artifacts retain independently
+verified source correspondence and use the existing backends. Python publication,
+link integration and public saved-anchor manifests remain unchanged.
 
 | Stage | Existing owner | Responsibility |
 | --- | --- | --- |
