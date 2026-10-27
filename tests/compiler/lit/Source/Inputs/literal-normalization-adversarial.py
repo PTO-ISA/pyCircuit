@@ -515,7 +515,7 @@ def verify_rule_suffix(text, rule_name, inputs, checks):
     separately from exact Rule yields, sampled controls and condition/path pairs.
     """
     lines = text.splitlines()
-    instance_line = next(line for line in lines if 'ac.instance(' in line)
+    instance_line = next(line for line in lines if "ac.instance(" in line)
     bound = operands(instance_line)
     assert len(bound) == inputs, (rule_name, bound)
     if not checks:

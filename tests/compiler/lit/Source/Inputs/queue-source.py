@@ -199,7 +199,7 @@ def queue_owners(unit):
     assert '"ac.queue.' not in text
     owners = []
     for line in text.splitlines():
-        if 'ac.instance(' not in line or "@pycircuit.__builtins__.fifo_" not in line:
+        if "ac.instance(" not in line or "@pycircuit.__builtins__.fifo_" not in line:
             continue
         match = re.search(r"definition = @([^,}]+)", line)
         assert match, line
@@ -215,7 +215,7 @@ def assert_native_queue_final(path):
     instances = [
         line
         for line in text.splitlines()
-        if 'ac.instance(' in line and "@pycircuit.__builtins__.fifo_" in line
+        if "ac.instance(" in line and "@pycircuit.__builtins__.fifo_" in line
     ]
     assert instances, "final contains no canonical FIFO instances"
     assert all(

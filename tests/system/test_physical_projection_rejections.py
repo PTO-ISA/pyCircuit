@@ -55,7 +55,7 @@ def _block_arguments(line: str) -> list[tuple[str, str]]:
 
 
 def _instance_operands(line: str) -> list[str]:
-    marker = 'ac.instance('
+    marker = "ac.instance("
     begin = line.index(marker) + len(marker)
     depth = 0
     for end in range(begin, len(line)):
@@ -133,7 +133,7 @@ def _mixed_table_mutation(path: Path, *, derived_clock: bool) -> None:
     first = next(
         i
         for i in range(block + 1, end)
-        if 'ac.instance(' in lines[i] and "@checks.design.Cell" in lines[i]
+        if "ac.instance(" in lines[i] and "@checks.design.Cell" in lines[i]
     )
     shape = '#ac.static_expr<{kind = "literal", location = {path = "design.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @checks.design.Pair, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<2>}}>'
     aliases = [
@@ -156,9 +156,7 @@ def _mixed_table_mutation(path: Path, *, derived_clock: bool) -> None:
     ]
     operands = _instance_operands(lines[first])
     operands[-2] = selected_clock
-    prefix = lines[first][
-        : lines[first].index('ac.instance(') + len('ac.instance(')
-    ]
+    prefix = lines[first][: lines[first].index("ac.instance(") + len("ac.instance(")]
     suffix = lines[first][lines[first].index(")", prefix.__len__()) :]
     lines[first] = prefix + ", ".join(operands) + suffix
     lines[first:first] = operations
@@ -175,7 +173,7 @@ def _dynamic_initializer_mutation(path: Path, symbol: str) -> None:
     occurrence = next(
         i
         for i in range(start + 1, end)
-        if 'ac.instance(' in lines[i]
+        if "ac.instance(" in lines[i]
         and (
             "@pycircuit.__builtins__.dff" in lines[i]
             or "@pycircuit.__builtins__.dffe" in lines[i]
@@ -189,7 +187,7 @@ def _dynamic_initializer_mutation(path: Path, symbol: str) -> None:
     low = f'#ac.static_expr<{{kind = "literal", location = {{path = "design.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}, origin = {{site = {{definition = @{symbol}, ast_path = []}}, expansion = []}}, value = {{kind = "integer", value = #ac.math_int<0>}}}}>'
     conversion = f'    %test_dynamic_init = "ac.bits.extract"({dynamic}) {{low = {low}}} : ({dynamic_type}) -> {initial_type}'
     operands[-1] = "%test_dynamic_init"
-    begin = lines[occurrence].index('ac.instance(') + len('ac.instance(')
+    begin = lines[occurrence].index("ac.instance(") + len("ac.instance(")
     finish = lines[occurrence].index(")", begin)
     lines[occurrence] = (
         lines[occurrence][:begin] + ", ".join(operands) + lines[occurrence][finish:]

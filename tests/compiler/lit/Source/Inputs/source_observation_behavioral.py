@@ -763,7 +763,7 @@ def main():
         final = link(target, "purebind-" + name, "purebind", "LeafUnit")
         body = body_of(final)
         assert body.count('"ac.observe"') == 1, (name, body)
-        assert body.count('ac.instance(') == 1, (name, body)
+        assert body.count("ac.instance(") == 1, (name, body)
         pure_receipts.append(
             {
                 "case": name,

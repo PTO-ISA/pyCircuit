@@ -3,11 +3,7 @@
 // RUN: diff %t.once %t.twice
 // RUN: %FileCheck %s < %t.twice
 #w8 = #ac.static_expr<{kind = "literal", location = {path = "resources.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Leaf, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<8>}}>
-#w1 = #ac.static_expr<{kind = "literal", location = {path = "resources.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}, origin = {site = {definition = @Leaf, ast_path = []}, expansion = []}, value = {kind = "integer", value = #ac.math_int<1>}}>
 !b8 = !ac.bits<#w8>
-!b1 = !ac.bits<#w1>
-!s = !ac.state<!b8>
-!q = !ac.queue<!b8>
 module attributes {ac.transactional = 2 : i64, ac.stage = "unlinked"} {
   "ac.module.import"() {sym_name = "Provider", source_owner = {package = "", path = "provider.py"}, parameters = [], type_parameters = [], function_type = (!ac.primitive<!b8>) -> (!ac.primitive<!b8>), input_names = ["input"], output_names = ["output"], output_kinds = ["export"], semantic_kind = "resources"} : () -> ()
   "ac.module"() ({

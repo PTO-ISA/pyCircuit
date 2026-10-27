@@ -99,7 +99,8 @@ def ast_paths(node, path=()):
 
 def operands(line):
     return re.findall(
-        r"%[\w]+(?:#\d+)?", re.search(r'(?:"ac\.[\w.]+"|ac\.instance)\(([^)]*)\)', line)[1]
+        r"%[\w]+(?:#\d+)?",
+        re.search(r'(?:"ac\.[\w.]+"|ac\.instance)\(([^)]*)\)', line)[1],
     )
 
 
@@ -141,9 +142,9 @@ def parse_ir(text):
         elif stack and line.lstrip().startswith("})"):
             stack[-1]["text"] += "\n" + line
             stack.pop()
-        elif stack and (operation := re.search(
-            r'(?:"(ac\.[\w.]+)"|(ac\.instance))\(', line
-        )):
+        elif stack and (
+            operation := re.search(r'(?:"(ac\.[\w.]+)"|(ac\.instance))\(', line)
+        ):
             name = operation[1] or operation[2]
             if name == "ac.yield":
                 stack[-1]["yield"] = operands(line)
