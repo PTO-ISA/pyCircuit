@@ -62,6 +62,19 @@ public:
     if (!module)
       return p.package_.emitError(
           "transactional top must name a defined Module");
+    auto systems = p.package_.getOps<SystemOp>();
+    if (!systems.empty()) {
+      if (!llvm::hasSingleElement(systems))
+        return p.package_.emitError(
+            "transactional analysis requires one System entry");
+      auto system = *systems.begin();
+      auto entry = system.getEntry();
+      if (entry.getAs<FlatSymbolRefAttr>("callee").getValue() != top ||
+          !entry.getAs<ArrayAttr>("parameters").empty() ||
+          !entry.getAs<ArrayAttr>("type_arguments").empty())
+        return p.package_.emitError(
+            "transactional System entry must match the selected closed root");
+    }
     if (!module.getBody().front().getArguments().empty() ||
         !module.getParameters().empty() || !module.getTypeParameters().empty())
       return module.emitError(
@@ -251,6 +264,7 @@ private:
     auto owned = std::make_unique<TransactionalStep>();
     auto &step = *owned;
     step.operation = op;
+    step.rule = rule;
     step.id = nextStep++;
     if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
       auto receiver = lookup(call.getReceiver(), env, op);
@@ -267,6 +281,20 @@ private:
         return op->emitError("transactional execution currently admits State "
                              "read and body write only");
       for (Value value : call.getArguments()) {
+        auto id = payload(value, env, op);
+        if (failed(id))
+          return failure();
+        step.operands.push_back(*id);
+      }
+    } else if (auto observe = dyn_cast<SourceObserveOp>(op)) {
+      if (pure)
+        return op->emitError("observations require a Rule body");
+      step.kind = TransactionalStepKind::Observe;
+      auto path = payload(observe.getPath(), env, op);
+      if (failed(path))
+        return failure();
+      step.activation = *path;
+      for (Value value : observe.getValues()) {
         auto id = payload(value, env, op);
         if (failed(id))
           return failure();

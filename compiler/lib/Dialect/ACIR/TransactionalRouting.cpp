@@ -60,12 +60,46 @@ BitsType predicateType(Builder &b, StringRef top) {
                b.getNamedAttr("origin", occurrence(b, top, 0)),
                b.getNamedAttr("location", syntheticSpan(b))})));
 }
-DictionaryAttr checkID(Builder &b, StringRef top, unsigned ordinal) {
+DictionaryAttr sourceOccurrence(Operation *op, Builder &b, StringRef top,
+                                unsigned ordinal) {
+  for (StringRef key : {"occurrence", "ac.origin"})
+    if (auto value = op->getAttrOfType<DictionaryAttr>(key))
+      return value;
+  return occurrence(b, top, ordinal);
+}
+DictionaryAttr checkID(const TransactionalAnalysis &p, Builder &b,
+                       const TransactionalStep &step, unsigned ordinal) {
+  auto top = p.getTop().getSymName();
   return b.getDictionaryAttr(
       {b.getNamedAttr("registration", occurrence(b, top, 0)),
-       b.getNamedAttr("check", occurrence(b, top, ordinal + 1)),
+       b.getNamedAttr("check",
+                      sourceOccurrence(step.operation, b, top, ordinal + 1)),
        b.getNamedAttr("obligation", b.getI64IntegerAttr(ordinal))});
 }
+ArrayAttr sourceOwners(const TransactionalAnalysis &p, Builder &b) {
+  if (auto owners = p.getPackage()->getAttrOfType<ArrayAttr>("ac.source_units"))
+    return owners;
+  return b.getArrayAttr({p.getTop()->getAttr("source_owner")});
+}
+DictionaryAttr observationID(const TransactionalAnalysis &p, Builder &b,
+                             const TransactionalStep &step, unsigned ordinal) {
+  auto site = step.operation->getAttrOfType<DictionaryAttr>("occurrence");
+  auto registration = p.getRules()[step.rule].registration;
+  auto call = registration->getAttrOfType<DictionaryAttr>("occurrence");
+  if (!call)
+    call = occurrence(b, p.getTop().getSymName(), ordinal);
+  return b.getDictionaryAttr(
+      {b.getNamedAttr("registration", call), b.getNamedAttr("site", site),
+       b.getNamedAttr("owner", b.getDictionaryAttr({b.getNamedAttr(
+                                   "instance_path", b.getArrayAttr({}))})),
+       b.getNamedAttr("ordinal", b.getI64IntegerAttr(ordinal)),
+       b.getNamedAttr("invocation", b.getArrayAttr({}))});
+}
+struct Observation {
+  const TransactionalStep *step;
+  Value path;
+  SmallVector<Value> payloads;
+};
 struct Check {
   const TransactionalStep *step;
   Value condition, path;
@@ -88,6 +122,7 @@ private:
   BitsType bit;
   SmallVector<Value> values, q, data, enables;
   SmallVector<Check> checks;
+  SmallVector<Observation> observations;
   Value zero, one;
   Value literal(bool value) {
     return make(b, loc, BitsConstant4Op::getOperationName(), {}, TypeRange{bit},
@@ -121,6 +156,12 @@ private:
                         TypeRange{data[id].getType()})
                        ->getResult(0);
         enables[id] = binary("or", enables[id], guard);
+      } else if (step.kind == Kind::Observe) {
+        Observation observation{
+            &step, binary("and", guard, values[step.activation]), {}};
+        for (auto id : step.operands)
+          observation.payloads.push_back(values[id]);
+        observations.push_back(std::move(observation));
       } else {
         checks.push_back({&step, values[step.operands.front()],
                           binary("and", guard, values[step.activation])});
@@ -144,7 +185,7 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   (*package)->setAttr("ac.stage", b.getStringAttr("routed"));
   (*package)->setAttr("ac.routed_contract", b.getI64IntegerAttr(4));
   auto owner = p.getTop()->getAttrOfType<DictionaryAttr>("source_owner");
-  (*package)->setAttr("ac.source_units", b.getArrayAttr({owner}));
+  (*package)->setAttr("ac.source_units", sourceOwners(p, b));
   b.setInsertionPointToEnd(package->getBody());
   auto param = TypeParamType::get(
       b.getContext(), FlatSymbolRefAttr::get(b.getContext(), storageName),
@@ -189,6 +230,9 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
                            b.getNamedAttr("reset", b.getI64IntegerAttr(1))}))});
   moduleState.addRegion()->push_back(new Block());
   auto module = cast<ModuleOp>(b.create(moduleState));
+  for (StringRef key : {"ac.root_kind", "ac.origin"})
+    if (auto attr = p.getTop()->getAttr(key))
+      module->setAttr(key, attr);
   auto &body = module.getBody().front();
   body.addArgument(bit, loc);
   body.addArgument(bit, loc);
@@ -201,7 +245,8 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
              TypeRange{resource.type.getPayload()},
              {b.getNamedAttr("instance_name",
                              resource.allocation->getAttr("instance_name")),
-              b.getNamedAttr("occurrence", occurrence(b, top, id + 1))})
+              b.getNamedAttr("occurrence", sourceOccurrence(resource.allocation,
+                                                            b, top, id + 1))})
             ->getResult(0));
   }
   sequence(p.getInstances().front().comb, {});
@@ -246,12 +291,17 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
     yields.push_back(data[i]);
     yields.push_back(enables[i]);
   }
+  for (const auto &observation : observations) {
+    yields.push_back(observation.path);
+    llvm::append_range(yields, observation.payloads);
+  }
+  unsigned observationCount = yields.size() - 2 * q.size();
   SmallVector<Attribute> required;
   for (auto [id, check] : llvm::enumerate(checks)) {
     yields.push_back(check.condition);
     yields.push_back(check.path);
     required.push_back(b.getDictionaryAttr(
-        {b.getNamedAttr("id", checkID(b, top, id)),
+        {b.getNamedAttr("id", checkID(p, b, *check.step, id)),
          b.getNamedAttr("kind", b.getStringAttr("assert")),
          b.getNamedAttr("location",
                         check.step->operation->getAttr("location"))}));
@@ -276,30 +326,47 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
         {outerQ[i], finished->getResult(2 * i), finished->getResult(2 * i + 1)},
         {});
   for (auto [id, check] : llvm::enumerate(checks)) {
-    unsigned offset = 2 * q.size() + 2 * id;
+    unsigned offset = 2 * q.size() + observationCount + 2 * id;
     auto *expect = make(
         b, check.step->operation->getLoc(), SourceExpectOp::getOperationName(),
         {finished->getResult(offset), finished->getResult(offset + 1)}, {},
         {b.getNamedAttr("kind", b.getStringAttr("assert")),
          b.getNamedAttr("location", check.step->operation->getAttr("location")),
-         b.getNamedAttr("ac.check_id", checkID(b, top, id))});
+         b.getNamedAttr("ac.check_id", checkID(p, b, *check.step, id))});
     if (auto message = check.step->operation->getAttr("ac.message"))
       expect->setAttr("ac.message", message);
+  }
+  unsigned observationOffset = 2 * q.size();
+  for (auto [id, observation] : llvm::enumerate(observations)) {
+    SmallVector<Value> operands{finished->getResult(observationOffset++)};
+    for (unsigned i = 0; i < observation.payloads.size(); ++i)
+      operands.push_back(finished->getResult(observationOffset++));
+    auto source = cast<SourceObserveOp>(observation.step->operation);
+    make(b, source.getLoc(), SourceObserveOp::getOperationName(), operands, {},
+         {b.getNamedAttr("kind", source.getKindAttr()),
+          b.getNamedAttr("spec", source.getSpec()),
+          b.getNamedAttr("ac.location", source->getAttr("ac.location")),
+          b.getNamedAttr("ac.observation_id",
+                         observationID(p, b, *observation.step, id))});
   }
   SmallVector<Value> exports;
   for (unsigned id : p.getExports())
     exports.push_back(outerQ[id]);
   make(b, loc, YieldOp::getOperationName(), exports, {});
   b.setInsertionPointToEnd(package->getBody());
-  make(b, loc, SystemOp::getOperationName(), {}, {},
-       {b.getNamedAttr(
-            "entry",
-            b.getDictionaryAttr(
-                {b.getNamedAttr("callee",
-                                FlatSymbolRefAttr::get(b.getContext(), top)),
-                 b.getNamedAttr("parameters", b.getArrayAttr({})),
-                 b.getNamedAttr("type_arguments", b.getArrayAttr({}))})),
-        b.getNamedAttr("domain", b.getStringAttr("default"))});
+  auto *system =
+      make(b, loc, SystemOp::getOperationName(), {}, {},
+           {b.getNamedAttr(
+                "entry",
+                b.getDictionaryAttr(
+                    {b.getNamedAttr(
+                         "callee", FlatSymbolRefAttr::get(b.getContext(), top)),
+                     b.getNamedAttr("parameters", b.getArrayAttr({})),
+                     b.getNamedAttr("type_arguments", b.getArrayAttr({}))})),
+            b.getNamedAttr("domain", b.getStringAttr("default"))});
+  for (auto sourceSystem : p.getPackage().getOps<SystemOp>())
+    if (auto policy = sourceSystem->getAttr("ac.execution_policy"))
+      system->setAttr("ac.execution_policy", policy);
   return std::move(package);
 }
 
@@ -329,7 +396,8 @@ private:
   RuleOp comb;
   SmallVector<Value> values, q, initials;
   SmallVector<SmallVector<Write>> writes;
-  SmallVector<std::pair<const TransactionalStep *, Value>> assertions;
+  SmallVector<std::pair<const TransactionalStep *, Value>> assertions,
+      observations;
   llvm::DenseMap<unsigned, Operation *> pure;
   llvm::DenseSet<Operation *> claimed;
   Value zero, one;
@@ -346,8 +414,16 @@ private:
     return success();
   }
   bool attrs(Operation *op, ArrayRef<NamedAttribute> expected) {
-    return DictionaryAttr::get(b.getContext(), op->getAttrs()) ==
-           DictionaryAttr::get(b.getContext(), expected);
+    NamedAttrList fields(expected);
+    if (isa<ModuleOp>(op))
+      for (StringRef key : {"ac.root_kind", "ac.origin"})
+        if (auto attr = p.getTop()->getAttr(key))
+          fields.set(key, attr);
+    if (isa<SystemOp>(op))
+      for (auto sourceSystem : p.getPackage().getOps<SystemOp>())
+        if (auto policy = sourceSystem->getAttr("ac.execution_policy"))
+          fields.set("ac.execution_policy", policy);
+    return op->getAttrDictionary() == fields.getDictionary(b.getContext());
   }
   bool literal(Value value, StringRef pattern) {
     auto op = value.getDefiningOp<BitsConstant4Op>();
@@ -394,6 +470,8 @@ private:
         values[step.results.front()] = q[step.resource];
       else if (step.kind == Kind::StateWrite)
         writes[step.resource].push_back({guard, values[step.operands.front()]});
+      else if (step.kind == Kind::Observe)
+        observations.push_back({&step, guard});
       else
         assertions.push_back({&step, guard});
     }
@@ -511,7 +589,9 @@ LogicalResult Replay::run() {
           !attrs(op,
                  {b.getNamedAttr("instance_name",
                                  resource.allocation->getAttr("instance_name")),
-                  b.getNamedAttr("occurrence", occurrence(b, top, id + 1)),
+                  b.getNamedAttr(
+                      "occurrence",
+                      sourceOccurrence(resource.allocation, b, top, id + 1)),
                   b.getNamedAttr("callee", FlatSymbolRefAttr::get(
                                                b.getContext(), storageName)),
                   b.getNamedAttr("parameters", b.getArrayAttr({})),
@@ -525,7 +605,9 @@ LogicalResult Replay::run() {
           !attrs(op,
                  {b.getNamedAttr("instance_name",
                                  resource.allocation->getAttr("instance_name")),
-                  b.getNamedAttr("occurrence", occurrence(b, top, id + 1))}))
+                  b.getNamedAttr(
+                      "occurrence",
+                      sourceOccurrence(resource.allocation, b, top, id + 1))}))
         return reject("logical State identity differs");
       initials[id] = op->getOperand(2);
     }
@@ -593,7 +675,12 @@ LogicalResult Replay::run() {
   }
   auto yield = dyn_cast<YieldOp>(work.getTerminator());
   unsigned prefix = 2 * q.size();
-  if (!yield || yield.getValues().size() != prefix + 2 * assertions.size() ||
+  unsigned observationCount = 0;
+  for (auto observation : observations)
+    observationCount += 1 + observation.first->operands.size();
+  if (!yield ||
+      yield.getValues().size() !=
+          prefix + 2 * assertions.size() + observationCount ||
       comb->getResultTypes() != yield->getOperandTypes())
     return reject("proposal/check result inventory differs");
   for (unsigned id = 0; id < q.size(); ++id) {
@@ -635,13 +722,13 @@ LogicalResult Replay::run() {
     return reject("assertion inventory differs");
   for (auto [id, assertion] : llvm::enumerate(assertions)) {
     const auto &step = *assertion.first;
-    unsigned offset = prefix + 2 * id;
+    unsigned offset = prefix + observationCount + 2 * id;
     if (yield.getValues()[offset] != values[step.operands.front()] ||
         !binary(yield.getValues()[offset + 1], "and", assertion.second,
                 values[step.activation]))
       return reject("assertion condition/reachability differs");
     auto location = step.operation->getAttr("location");
-    auto identity = checkID(b, top, id);
+    auto identity = checkID(p, b, step, id);
     required.push_back(
         b.getDictionaryAttr({b.getNamedAttr("id", identity),
                              b.getNamedAttr("kind", b.getStringAttr("assert")),
@@ -658,6 +745,34 @@ LogicalResult Replay::run() {
         expect.getPath() != comb->getResult(offset + 1))
       return reject("physical assertion differs");
     if (failed(claim(expect)))
+      return failure();
+  }
+  SmallVector<SourceObserveOp> observed(body.getOps<SourceObserveOp>());
+  if (observed.size() != observations.size())
+    return reject("observation inventory differs");
+  unsigned offset = prefix;
+  for (auto [id, observation] : llvm::enumerate(observations)) {
+    const auto &step = *observation.first;
+    auto source = cast<SourceObserveOp>(step.operation);
+    auto actual = observed[id];
+    if (!binary(yield.getValues()[offset], "and", observation.second,
+                values[step.activation]) ||
+        actual.getPath() != comb->getResult(offset++))
+      return reject("observation activation differs");
+    if (actual.getValues().size() != step.operands.size() ||
+        !attrs(actual,
+               {b.getNamedAttr("kind", source.getKindAttr()),
+                b.getNamedAttr("spec", source.getSpec()),
+                b.getNamedAttr("ac.location", source->getAttr("ac.location")),
+                b.getNamedAttr("ac.observation_id",
+                               observationID(p, b, step, id))}))
+      return reject("observation source identity/spec differs");
+    for (auto [operand, value] : llvm::zip(step.operands, actual.getValues())) {
+      if (yield.getValues()[offset] != values[operand] ||
+          value != comb->getResult(offset++))
+        return reject("observation payload differs");
+    }
+    if (failed(claim(actual)))
       return failure();
   }
   if (!attrs(comb,
@@ -682,7 +797,7 @@ LogicalResult Replay::run() {
   for (Operation &op : package.getBody()->getOperations())
     if (&op != module && &op != imported && &op != system)
       return reject("unaccounted package operation");
-  if (package->getAttr("ac.source_units") != b.getArrayAttr({owner}))
+  if (package->getAttr("ac.source_units") != sourceOwners(p, b))
     return reject("source owner inventory differs");
   return success();
 }

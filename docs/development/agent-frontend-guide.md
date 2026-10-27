@@ -1,5 +1,29 @@
 # Agent frontend guide
 
+## Transactional frontend replacement
+
+The production `compile` and `link` entries now use transactional ACIR v2.
+Compilation publishes an **unlinked** body/interface pair; linking authenticates
+an explicit unit closure and produces linked transactional ACIR before common
+analysis, Routed verification and storage lowering. Regenerate older units from
+source; there is no legacy selector or failure fallback.
+
+The first replacement slice admits closed Modules and default-clock Systems,
+explicitly initialized Bits state, pure Bits computation, explicitly registered
+nested Rules, guards, assertions, logs and imported literal constants. A Module
+may export an existing State. Declaring a Rule does not register it: call it at
+the Module wiring site. Every state read observes committed old Q, including
+reads following a write in the same Rule. Use ordinary local SSA values to carry
+newly computed values. Logs are published only after successful global checks;
+generated Systems retain low/high sampling epochs.
+
+The broader capabilities described below record the previous frontend and the
+retained migration requirements. Queue, hierarchy, user Methods, autorule and
+advanced payload/control features are implementation gaps in this replacement,
+not compatibility paths or cancelled requirements. Their existing tests and
+independent oracles remain; they are not passing evidence for the new entry.
+See the [replacement status](transactional-frontend-status.md) for current validation and remaining work.
+
 Use one active route: Python capture → independently compiled source units →
 explicit link closure → verified common hardware IR → C++ or Verilog.
 Python design functions are never executed by capture or used as a simulator.

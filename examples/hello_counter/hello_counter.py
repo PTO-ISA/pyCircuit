@@ -10,3 +10,5 @@ def HelloCounter():  # noqa: N802
     def increment() -> None:
         log("info", "count", count)
         count = count + 1
+
+    increment()

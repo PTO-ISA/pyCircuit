@@ -128,7 +128,9 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
     auto stage =
         package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
     if (!isa<SystemOp>(operation) || !package ||
-        (stage && stage.getValue() != "final" && stage.getValue() != "routed") ||
+        (stage && stage.getValue() != "final" && stage.getValue() != "routed" &&
+         !(stage.getValue() == "linked" &&
+           package->hasAttr("ac.transactional"))) ||
         package->hasAttr("ac.unit_kind"))
       return operation->emitOpError()
              << "ac.execution_policy is permitted only on the root ac.system "

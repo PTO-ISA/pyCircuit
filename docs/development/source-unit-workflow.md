@@ -1,5 +1,29 @@
 # Source-unit workflow
 
+## Transactional frontend replacement
+
+The production `compile` and `link` entries now use transactional ACIR v2.
+Compilation publishes an **unlinked** body/interface pair; linking authenticates
+an explicit unit closure and produces linked transactional ACIR before common
+analysis, Routed verification and storage lowering. Regenerate older units from
+source; there is no legacy selector or failure fallback.
+
+The first replacement slice admits closed Modules and default-clock Systems,
+explicitly initialized Bits state, pure Bits computation, explicitly registered
+nested Rules, guards, assertions, logs and imported literal constants. A Module
+may export an existing State. Declaring a Rule does not register it: call it at
+the Module wiring site. Every state read observes committed old Q, including
+reads following a write in the same Rule. Use ordinary local SSA values to carry
+newly computed values. Logs are published only after successful global checks;
+generated Systems retain low/high sampling epochs.
+
+The broader capabilities described below record the previous frontend and the
+retained migration requirements. Queue, hierarchy, user Methods, autorule and
+advanced payload/control features are implementation gaps in this replacement,
+not compatibility paths or cancelled requirements. Their existing tests and
+independent oracles remain; they are not passing evidence for the new entry.
+See the [replacement status](transactional-frontend-status.md) for current validation and remaining work.
+
 pyCircuit captures ordinary Python hardware descriptions, resolves and lowers
 hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never

@@ -28,13 +28,20 @@ struct TransactionalResourcePlan {
   unsigned initial =
       TransactionalNoID; // This execution slice requires an explicit initial.
 };
-enum class TransactionalStepKind { Pure, StateRead, StateWrite, Assert };
+enum class TransactionalStepKind {
+  Pure,
+  StateRead,
+  StateWrite,
+  Assert,
+  Observe
+};
 struct TransactionalStep {
   TransactionalStepKind kind = TransactionalStepKind::Pure;
   mlir::Operation *operation = nullptr;
   unsigned id = 0;
   unsigned instance = 0;
   unsigned resource = TransactionalNoID;
+  unsigned rule = TransactionalNoID;
   unsigned activation = TransactionalNoID;
   llvm::SmallVector<TransactionalValueID> operands, results;
 };
