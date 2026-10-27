@@ -476,7 +476,10 @@ def MethodEffectsSystem():
         assert actual == expected, unit
         assert 'semantic_kind = "transactions"' in expected, expected
         assert "transaction_summary =" in expected, expected
-        assert '"ac.method"(' not in expected and '"ac.transaction"(' not in expected
+        assert (
+            '"ac.legacy.method"(' not in expected
+            and '"ac.transaction"(' not in expected
+        )
     provider_header = payload(provider_unit, "interface").read_text()
     for kind in ("boolean", "integer", "fixed_bits", "nominal"):
         assert f'source_kind = "{kind}"' in provider_header, provider_header
@@ -496,7 +499,10 @@ def MethodEffectsSystem():
     relay_body = payload(relay_unit, "body").read_text()
     assert consumer_body.count("ac.instance(") == 2, consumer_body
     assert relay_body.count("ac.instance(") == 2, relay_body
-    assert '"ac.method.call"(' in consumer_body and '"ac.transaction"(' in consumer_body
+    assert (
+        '"ac.legacy.method.call"(' in consumer_body
+        and '"ac.transaction"(' in consumer_body
+    )
 
     # Retain a separately linked ordinary program as the publication control.
     control_final = archive / "control.ac"
@@ -538,9 +544,9 @@ def MethodEffectsSystem():
     assert control_final.read_bytes() == control_before
     assert transaction_input.is_file() and transaction_output.is_file()
     before_final = final.read_bytes()
-    assert b'"ac.method.call"' in transaction_input.read_bytes()
+    assert b'"ac.legacy.method.call"' in transaction_input.read_bytes()
     assert b"ac.sampled_admission" in transaction_output.read_bytes()
-    assert b'"ac.method.call"' not in transaction_output.read_bytes()
+    assert b'"ac.legacy.method.call"' not in transaction_output.read_bytes()
     assert b"ac.observation_id" in before_final and b"ac.check_id" in before_final
     emitted = {}
     for target in ("cpp", "verilog"):
@@ -612,7 +618,7 @@ def GuardedValue(delta: ac.u8, permitted: bool) -> ac.u8:
         guarded_body = guarded_final.read_text()
         assert "ac.output_validity" in guarded_body
         assert "ac.sampled_admission" in guarded_body
-        assert '"ac.method.call"' not in guarded_body
+        assert '"ac.legacy.method.call"' not in guarded_body
         for target in ("cpp", "verilog"):
             cli(
                 "emit",

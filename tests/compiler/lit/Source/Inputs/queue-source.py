@@ -211,7 +211,7 @@ def assert_native_queue_final(path):
     text = path.read_text()
     assert '"ac.queue"' not in text
     assert '"ac.queue.' not in text
-    assert '"ac.method.call"' not in text
+    assert '"ac.legacy.method.call"' not in text
     instances = [
         line
         for line in text.splitlines()

@@ -302,14 +302,14 @@ for mode, width, initial, first, second, bias, last in cases:
          "--transaction-output-out", after])
     assert replay.read_bytes() == final.read_bytes() == after.read_bytes()
     before_text, final_text = before.read_text(), final.read_text()
-    assert '"ac.transaction"' in before_text and '"ac.method.call"' in before_text
-    assert '"ac.state"' in before_text and '"ac.rule"' in final_text
+    assert '"ac.transaction"' in before_text and '"ac.legacy.method.call"' in before_text
+    assert '"ac.state"' in before_text and '"ac.comb"' in final_text
     assert before_text.count('"ac.module"') == final_text.count('"ac.module"')
     assert final_text.count('ac.instance(') == (before_text.count('ac.instance(')
                                                 + before_text.count('"ac.state"'))
     assert all(f'"{operation}"' not in final_text for operation in
-               ("ac.state", "ac.state.read", "ac.state.write", "ac.method",
-                "ac.method.call", "ac.transaction"))
+               ("ac.state", "ac.state.read", "ac.state.write", "ac.legacy.method",
+                "ac.legacy.method.call", "ac.transaction"))
     run([args.optimizer, final, "--ac-verify-hardware", "-o", case / "verified-final.ac"])
     protected_cases = protection_checks(base, case / "protection", units)
     # Diagnostic retention belongs only to native final linking. Ordinary emit
@@ -705,10 +705,10 @@ for mode, top_name in (("dynamic-independent", "IndependentTop"),
     run([*base, "--output", replay, "--transaction-input-out", before,
          "--transaction-output-out", after])
     assert final.read_bytes() == replay.read_bytes() == after.read_bytes()
-    assert '"ac.method.call"' in before.read_text()
+    assert '"ac.legacy.method.call"' in before.read_text()
     assert all(f'"{operation}"' not in final.read_text() for operation in
-               ("ac.state", "ac.state.read", "ac.state.write", "ac.method",
-                "ac.method.call", "ac.transaction"))
+               ("ac.state", "ac.state.read", "ac.state.write", "ac.legacy.method",
+                "ac.legacy.method.call", "ac.transaction"))
     run([args.optimizer, final, "--ac-verify-hardware", "-o", case / "verified-final.ac"])
     protected_cases = protection_checks(base, case / "protection", units)
     for target in ("cpp", "verilog"):

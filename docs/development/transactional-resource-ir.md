@@ -1,7 +1,7 @@
 # Transactional resource IR, contract 2
 
-PR-01 for issue #361 adds resource structure to the existing ACIR dialect and
-`pycircuit-opt`. The Python compile/link/emit route is unchanged. `linked`
+PR-01 and PR-02 for issue #361 add resources and normalized transactional
+callables to the existing ACIR dialect and `pycircuit-opt`. The Python compile/link/emit route is unchanged. `linked`
 certifies structural closure, not executable transactions.
 
 ## Resources
@@ -33,8 +33,9 @@ contents. Primitive constraints cannot be allocated. With `!T` a payload type:
 ```
 
 An instance reference resolves an existing child path; it creates no instance.
-Its nominal type does not equate distinct instances or define future generic
-Module language semantics.
+An empty path, `ac.instance.ref []`, explicitly references the enclosing Module
+instance (self). Its nominal type does not equate distinct instances or define
+future generic Module language semantics.
 
 ## Interfaces
 
@@ -52,6 +53,70 @@ resource aliases must ultimately refer to an allocation or a formal resource.
 Normal instance printing exposes `inputs(...)` and `bound(...)`; generic
 assembly remains supported, and Module `output_kinds` stays visible.
 
+## Transactional callables
+
+`ac.rule` defines a private transaction; `ac.rule.call` registers it explicitly
+in a Module. Definitions alone do not register work. Global Rules are templates
+without captures. A local Rule can only be registered in its owning Module;
+each registration belongs to the registering instance.
+
+Rule signatures contain resource inputs and already-bound resource outputs.
+Registration produces no payload results. The body writes through Method calls
+and ends with an empty `ac.yield`. The input/output split remains visible:
+
+```mlir
+ac.rule @copy ins(!P8) outs(!P8) captures() body {
+^bb0(%src: !P8, %dst: !P8):
+  %value = ac.method.call %src::@read() : (!P8) -> !B8
+  ac.method.call %dst::@write(%value) : (!P8, !B8) -> ()
+  "ac.yield"() : () -> ()
+}
+ac.rule.call @copy ins(%input) outs(%output) : (!P8, !P8)
+```
+
+Here `!P8` abbreviates `!ac.primitive<!B8>` and `!B8` is an eight-bit payload.
+The complete parseable examples are the `transactional-v2-callables*.mlir`
+fixtures in `tests/compiler/lit/IR/`.
+
+`ac.method` defines a public same-cycle payload interface. Its parameters and
+results cannot be resources or instance references; internal captures can be.
+The body yields its declared payload results. Calls carry one SSA receiver,
+a method name, and payload arguments/results, without a duplicate instance path:
+
+```mlir
+ac.method @observe : () -> !B8 captures(%state : !S8) body {
+^bb0(%state: !S8):
+  %old = ac.method.call %state::@read() : (!S8) -> !B8
+  "ac.yield"(%old) : (!B8) -> ()
+}
+%result = ac.method.call %child::@observe() : (!ac.module_ref<@Child>) -> !B8
+```
+
+`!S8` abbreviates `!ac.state<!B8>`. A module receiver must reference an existing
+instance; calling a Method never allocates one. A private Rule cannot be called
+as a public Method.
+
+Both definitions have independent guard and body regions. Their block arguments
+are interface arguments followed by captures; for Rules the interface includes
+inputs then bound outputs. Regions are isolated from implicit outer SSA captures.
+Omitting `guard` normalizes to the empty guard region, which denotes constant
+true. An explicit guard yields one four-state bit. Its runtime unknown-condition
+check ordering is outside this representation contract.
+
+Guards admit pure payload computation, old-State reads and read-only Queue
+observations. Method calls in guards are checked through their full guard/body
+call closure; no declared read-only label substitutes for that proof. Consuming,
+writing, allocating and registering are forbidden in guards. Primitive `read`
+may become Queue consumption, so it is effectful and cannot satisfy a read-only
+guard. Registration and Method calls retain conservative effects under CSE/DCE;
+definition regions do not imply immediate execution at their definition sites.
+
+The former pure `ac.rule` operation is now `ac.comb`. Former Method operations
+are `ac.legacy.method` and `ac.legacy.method.call`; their C++ classes and legacy
+behavior are retained. These are IR spelling changes, not Python decorator
+changes. Saved callable bodies using the conflicting old spellings must be
+regenerated; there is no alias or automatic conversion.
+
 ## Stages and follow-up
 
 The builtin Module carries `ac.transactional = 2 : i64` and `ac.stage` set to
@@ -59,15 +124,17 @@ The builtin Module carries `ac.transactional = 2 : i64` and `ac.stage` set to
 Unlinked packages can contain primitive constraints and explicit imports with
 `semantic_kind = "resources"`, the same signature and `output_kinds` as definitions.
 Linked packages require concrete resources, matching interfaces and a resolved,
-nonrecursive instance hierarchy. Method requirements and transaction execution
-are outside this resource-only subset.
+nonrecursive instance hierarchy and resolved callable signatures. Calls remain
+Method calls rather than physical signals. Generic Method requirements and
+transaction execution remain outside this subset.
 
 Existing source-unit/link, Routed/final, saved-anchor and backend paths reject
 this contract. Structural verification does not establish backend execution.
 
 The implementation reuses prototype allocation, path-resolution and verifier
 patterns, replacing its resource/depth encoding, output binding and version.
-PR-02 adds Rule/Method; PR-04 begins Python integration; PR-07 supplies resource
+PR-02 adds Rule/Method representation and verification only; PR-04 begins Python
+integration; PR-07 supplies resource
 specialization/binding and default Queue depth 2; PR-09 generalizes Module
 reference requirements. Until binding is implemented, explicit instances require
 matching resource kind and payload. No DUT example is migrated by this PR.

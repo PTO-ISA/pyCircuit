@@ -140,7 +140,7 @@ def indexed_requirement_mutation(text):
     candidates = []
     operation = re.compile(r'^(\s*)(%[\w.$-]+)(?::\d+)? = "([\w.]+)"\(([^)]*)\)')
     for start, opening in enumerate(lines):
-        if not (match := operation.match(opening)) or match[3] != "ac.rule":
+        if not (match := operation.match(opening)) or match[3] != "ac.comb":
             continue
         indent = match[1]
         ends = [i for i in range(start + 1, len(lines)) if lines[i].startswith(indent + "})")]

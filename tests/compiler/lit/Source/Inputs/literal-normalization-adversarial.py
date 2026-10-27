@@ -519,14 +519,14 @@ def verify_rule_suffix(text, rule_name, inputs, checks):
     bound = operands(instance_line)
     assert len(bound) == inputs, (rule_name, bound)
     if not checks:
-        assert '"ac.rule"(' not in text, "structural binding invented a Rule"
+        assert '"ac.comb"(' not in text, "structural binding invented a Rule"
         assert "ac.required_checks" not in text, "unexpected check obligation"
         assert '"ac.expect"(' not in text, "unexpected published check"
         return bound
     rule_line = next(
         line
         for line in lines
-        if '"ac.rule"(' in line and f'name = "{rule_name}"' in line
+        if '"ac.comb"(' in line and f'name = "{rule_name}"' in line
     )
     published = results(rule_line)
     # A directly nested checking Rule has one fire result, one sampled
