@@ -548,6 +548,35 @@ FailureOr<bool> Importer::bindModuleResults(
   }
   return true;
 }
+LogicalResult Importer::registerDirectModuleHandle(
+    StringRef name, const AstNode &assignment, const CallableDecl &contract,
+    OpBuilder &at, FlatSymbolRefAttr symbol,
+    SmallVectorImpl<Instance> &storage,
+    llvm::StringMap<Instance *> &instances) {
+  auto call = assignment.child("value");
+  auto site = directCallSites.find(sourceOccurrence(at, symbol, call));
+  if (site == directCallSites.end() || !site->second.bound)
+    return error() << "named Module instance lacks its actual allocation";
+  auto binding = lookupBinding(call.child("func"));
+  Operation *op = site->second.op;
+  // Both callers reserve their complete module-body allocation inventory
+  // before publishing pointers into this existing instance store.
+  if (storage.size() == storage.capacity())
+    return error() << "named Module instance exceeds its reserved inventory";
+  op->setAttr("instance_name", at.getStringAttr(name));
+  storage.push_back({name.str(), assignment, contract.symbol,
+                     binding ? binding->declaration : nullptr});
+  Instance &instance = storage.back();
+  instance.op = op;
+  instance.bound = true;
+  instance.valueHandle = true;
+  instance.returnShape = contract.returnShape;
+  instance.inputs = contract.inputs;
+  instance.outputs = contract.results;
+  instances[name] = &instance;
+  return success();
+}
+
 FailureOr<Value> Importer::directModuleCall(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {

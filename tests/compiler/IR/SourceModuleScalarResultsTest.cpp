@@ -447,6 +447,70 @@ def Top(value: ac.u3, flag: bool, number: Annotated[int, range(1 << 3)], tag: Ta
 };
 
 TEST_F(SourceModuleScalarResultsTest,
+       ExplicitVoidModulesKeepZeroPortsAndDistinctChildOccurrences) {
+  auto unit = compile(R"py(import pycircuit as ac
+@ac.module
+def Empty() -> None:
+    pass
+@ac.module
+def Explicit() -> None:
+    return None
+@ac.module
+def Bare() -> None:
+    return
+@ac.module
+def Sink(value: ac.u8) -> None:
+    pass
+@ac.module
+def Parent(value: ac.u8) -> None:
+    first = Sink(value)
+    alias = first
+    alias_again = alias
+    second = Sink(value)
+)py", "voids.py");
+  ASSERT_TRUE(succeeded(unit)) << diagnostics;
+  for (StringRef name : {"Empty", "Explicit", "Bare", "Sink", "Parent"}) {
+    auto symbol = ("voids." + name).str();
+    auto header = declaration(*unit->interface, symbol);
+    auto body = definition(*unit->body, symbol);
+    ASSERT_TRUE(header && body) << symbol;
+    EXPECT_EQ(header.getFunctionType().getNumResults(), 0u);
+    EXPECT_EQ(body.getFunctionType().getNumResults(), 0u);
+    EXPECT_TRUE(header.getOutputNames().empty());
+    EXPECT_TRUE(body.getOutputNames().empty());
+    auto yield = cast<ac::YieldOp>(body.getBody().front().getTerminator());
+    EXPECT_EQ(yield.getNumOperands(), 0u);
+    unsigned inputs = name == "Sink" || name == "Parent" ? 1 : 0;
+    EXPECT_EQ(header.getFunctionType().getNumInputs(), inputs);
+    EXPECT_EQ(body.getFunctionType().getNumInputs(), inputs);
+  }
+  auto parent = definition(*unit->body, "voids.Parent");
+  SmallVector<ac::InstanceOp> children;
+  parent.walk([&](ac::InstanceOp child) { children.push_back(child); });
+  ASSERT_EQ(children.size(), 2u);
+  EXPECT_EQ(children[0].getCallee(), "voids.Sink");
+  EXPECT_EQ(children[1].getCallee(), "voids.Sink");
+  EXPECT_EQ(children[0].getInstanceName(), "first");
+  EXPECT_EQ(children[1].getInstanceName(), "second");
+  EXPECT_NE(children[0].getOccurrence(), children[1].getOccurrence());
+  for (auto child : children) {
+    EXPECT_EQ(child.getNumResults(), 0u);
+    EXPECT_EQ(child.getNumOperands(), 1u);
+  }
+  auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
+                                        "voids.Parent", error());
+  ASSERT_TRUE(succeeded(final)) << diagnostics;
+  auto finalParent = definition(**final, "voids.Parent");
+  ASSERT_TRUE(finalParent);
+  EXPECT_EQ(finalParent.getFunctionType().getNumResults(), 0u);
+  SmallVector<ac::InstanceOp> finalChildren;
+  finalParent.walk([&](ac::InstanceOp child) { finalChildren.push_back(child); });
+  ASSERT_EQ(finalChildren.size(), 2u);
+  EXPECT_NE(finalChildren[0].getOccurrence(), finalChildren[1].getOccurrence());
+  dualEmit(**final);
+}
+
+TEST_F(SourceModuleScalarResultsTest,
        ExistingKindsPublishExactSingleConstraintsAndDualEmit) {
   auto unit = compile(source());
   ASSERT_TRUE(succeeded(unit)) << diagnostics;

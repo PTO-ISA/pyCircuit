@@ -3007,22 +3007,9 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (failed(contract)) return failure();
         auto results = directModuleResults(call, at, decl.symbol, ordinaryValues, instances);
         if (failed(results)) return failure();
-        auto site = directCallSites.find(sourceOccurrence(at, decl.symbol, call));
-        if (site == directCallSites.end())
-          return error() << "named Module instance lacks its actual allocation";
-        auto binding = lookupBinding(call.child("func"));
-        Operation *op = site->second.op;
-        op->setAttr("instance_name", at.getStringAttr(name));
-        instanceStorage.push_back({name.str(),
-            statement, contract->symbol, binding ? binding->declaration : nullptr});
-        Instance &instance = instanceStorage.back();
-        instance.op = op;
-        instance.bound = true;
-        instance.valueHandle = true;
-        instance.returnShape = contract->returnShape;
-        instance.inputs = contract->inputs;
-        instance.outputs = contract->results;
-        instances[name] = &instance;
+        if (failed(registerDirectModuleHandle(name, statement, *contract, at,
+                       decl.symbol, instanceStorage, instances)))
+          return failure();
         if (results->size() == 1 && contract->returnShape != ReturnShape::Tuple)
           moduleValues[name] = results->front();
         ordinaryModuleAssignments.insert(sourceOccurrence(at, decl.symbol, statement));

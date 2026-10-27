@@ -45,6 +45,14 @@ no separate Signal resource or set/get interface in the language design. The
 compiler owns value availability and dependency checks; persistent state and
 Queue provide cross-cycle storage.
 
+An explicit Module `-> None` declares zero results, including for ordinary
+Modules without transaction effects. Its body may fall through, use a bare
+`return`, or return `None`; an ordinary returned payload is rejected. Named
+zero-result calls bind immutable instance handles, with no dummy data value or
+port. Aliases retain that allocation, and stateful children keep their own
+autonomous behavior. Unannotated ordinary Modules retain their existing
+return-annotation requirements.
+
 Modules may declare keyword-only static Integer parameters, for example
 `def Identity(value: ac.bits[W], *, W: int = 8) -> ac.bits[W]`.
 Direct same-source and imported calls separate static keywords from hardware

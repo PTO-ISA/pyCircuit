@@ -645,6 +645,11 @@ private:
   FailureOr<SmallVector<Value>> directModuleResults(
       const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
       llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances);
+  LogicalResult registerDirectModuleHandle(
+      StringRef name, const AstNode &assignment, const CallableDecl &contract,
+      OpBuilder &at, FlatSymbolRefAttr symbol,
+      SmallVectorImpl<Instance> &storage,
+      llvm::StringMap<Instance *> &instances);
   FailureOr<Value> directModuleCall(const AstNode &call, OpBuilder &at,
                                     FlatSymbolRefAttr symbol,
                                     llvm::StringMap<Value> &values,
@@ -2558,9 +2563,11 @@ LogicalResult Importer::readReturnContract(ModuleDecl &result,
   std::optional<Import> returnBinding;
   if (returns)
     returnBinding = lookupBinding(returns);
-  if (!returns || (result.transactionEffects && returns.kind() == "Constant" &&
-                   isa<UnitAttr>(returns.get("value")))) {
+  if (!returns) {
     result.returnShape = result.transactionEffects ? ReturnShape::None : ReturnShape::Mapping;
+  } else if (returns.kind() == "Constant" &&
+             isa<UnitAttr>(returns.get("value"))) {
+    result.returnShape = ReturnShape::None;
   } else if (returns.kind() == "Subscript" &&
              returns.child("value").kind() == "Name" &&
              returns.child("value").string("id") == "tuple") {
