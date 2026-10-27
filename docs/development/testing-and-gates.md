@@ -77,6 +77,15 @@ checks native execution and four-state RTL, and requires Icarus Verilog
 (`iverilog` and `vvp`) in addition to the native test tools. CI provides the
 existing pinned Icarus toolchain through `setup-native-test-tools`.
 
+Aggregate branch selection additionally checks field/row availability before
+conjunction, sampled Rule fire, known and unknown selectors, and independent
+source-proof mutations. The existing external-pop nightly owner retains the
+complete one/two-instance allocation-pool reproducer: 16 state rows, two argmin
+queries and five queues. It independently publishes the source units and checks
+C++ workers 1/2 and RTL observations without reducing the pool or raising analysis
+limits. Generic Integer-state and nested-Table compatibility remain separate
+regressions; a compact join does not imply new source type admission.
+
 Each executed entry point records its selected CTest names and count under
 `docs/gates/logs/<run-id>/`, with distinct category/tier summary filenames.
 A failed or empty run cannot publish a pass; `--list` publishes no pass summary.

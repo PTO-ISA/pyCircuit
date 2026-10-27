@@ -257,6 +257,96 @@ FailureOr<Type> admittedBranchField(Type declared,
                : branchResultType(declared, hardware, bindings, site, budget);
 }
 
+// Admission above has bounded the complete original metadata closure. Pay this
+// probe's traversal separately before the existing static evaluator recurses;
+// no occurrence binding may make a logical Table eligible for compact data.
+LogicalResult prepayBranchShapeProbe(Attribute attribute, Operation *site,
+                                    SourceCheckBudget &budget,
+                                    unsigned depth = 0) {
+  if (depth > 128 || !charge(budget, site, 8))
+    return failure();
+  if (auto expression = dyn_cast<ac::StaticExprAttr>(attribute))
+    return prepayBranchShapeProbe(expression.getTree(), site, budget, depth + 1);
+  if (auto dictionary = dyn_cast<DictionaryAttr>(attribute)) {
+    for (NamedAttribute field : dictionary) {
+      if (!charge(budget, site, field.getName().strref().size()) ||
+          failed(prepayBranchShapeProbe(field.getValue(), site, budget,
+                                       depth + 1)))
+        return failure();
+    }
+  } else if (auto array = dyn_cast<ArrayAttr>(attribute)) {
+    for (Attribute child : array)
+      if (failed(prepayBranchShapeProbe(child, site, budget, depth + 1)))
+        return failure();
+  } else if (auto type = dyn_cast<TypeAttr>(attribute)) {
+    if (auto bits = dyn_cast<ac::BitsType>(type.getValue()))
+      return prepayBranchShapeProbe(bits.getWidth(), site, budget, depth + 1);
+    if (auto table = dyn_cast<ac::TableType>(type.getValue())) {
+      if (failed(prepayBranchShapeProbe(table.getShape(), site, budget,
+                                       depth + 1)))
+        return failure();
+      return prepayBranchShapeProbe(TypeAttr::get(table.getElementType()), site,
+                                   budget, depth + 1);
+    }
+  } else if (auto text = dyn_cast<StringAttr>(attribute)) {
+    if (!charge(budget, site, SourceCheckBudget::bytes(text.getValue().size())))
+      return failure();
+  } else if (auto integer = dyn_cast<ac::MathIntAttr>(attribute)) {
+    if (!charge(budget, site,
+                SourceCheckBudget::bytes(integer.getCanonicalValue().size())))
+      return failure();
+  }
+  return success();
+}
+
+// This is a property of admitted original logical types, never candidate SSA
+// or one occurrence's actual layout. The source proof invokes the predicate
+// afresh against its own original hardware analysis and type admission.
+FailureOr<bool> compactBranchSelection(Type root,
+                                      const ac::HardwareAnalysis &hardware,
+                                      Operation *site,
+                                      SourceCheckBudget &budget) {
+  if (!charge(budget, site, 4))
+    return failure();
+  if (isa<ac::BitsType>(root))
+    return false;
+  if (auto table = dyn_cast<ac::TableType>(root)) {
+    if (failed(prepayBranchShapeProbe(table.getShape(), site, budget)))
+      return failure();
+    if (!hardware.isStaticEvaluable(table.getShape(), {}))
+      return false;
+    root = table.getElementType();
+  }
+  struct Pending {
+    Type type;
+    unsigned depth;
+  };
+  SmallVector<Pending, 0> pending;
+  if (!prepayAppend(budget, site, pending))
+    return failure();
+  pending.push_back({root, 0});
+  while (!pending.empty()) {
+    auto next = pending.pop_back_val();
+    if (next.depth > 128 || !charge(budget, site, 4))
+      return failure();
+    if (isa<ac::BitsType, ac::EnumType>(next.type))
+      continue;
+    auto structure = dyn_cast<ac::StructType>(next.type);
+    if (!structure)
+      return false;
+    auto declaration = hardware.lookupStruct(structure);
+    if (!declaration)
+      return failure();
+    for (Attribute raw : declaration.getFields()) {
+      if (!charge(budget, site, 2) || !prepayAppend(budget, site, pending))
+        return failure();
+      pending.push_back({cast<DictionaryAttr>(raw).getAs<TypeAttr>("type").getValue(),
+                         next.depth + 1});
+    }
+  }
+  return true;
+}
+
 FailureOr<BranchJoinLayout>
 branchJoinLayout(Type root, const ac::HardwareAnalysis &hardware,
                  const ac::HardwareBindings &bindings, Operation *site,
@@ -421,6 +511,34 @@ bool prepayBranchJoin(SourceCheckBudget &budget, Operation *site,
       budget, site,
       SourceCheckBudget::add(SourceCheckBudget::multiply(layout.operations, 64),
                              SourceCheckBudget::bytes(bytes)));
+}
+
+// Both preparation and materialization independently reserve the actual one-op
+// graph before allocation, including properties, paths/segments and inventory.
+bool prepayCompactBranchJoin(SourceCheckBudget &budget, Operation *site) {
+  uint64_t bytes = sizeof(Operation *) + sizeof(Operation) +
+                   sizeof(OperationState) + 3 * sizeof(Value) +
+                   2 * sizeof(OpResult) + 2 * sizeof(Type) +
+                   2 * sizeof(NamedAttribute) +
+                   sizeof(ac::ValueMergeOp::Properties) +
+                   2 * sizeof(ArrayAttr) + sizeof(Attribute) +
+                   sizeof(DenseI32ArrayAttr) + 3 * sizeof(int32_t);
+  return charge(budget, site, 64 + SourceCheckBudget::bytes(bytes));
+}
+
+LogicalResult prepayBranchSelection(Type type,
+    const ac::HardwareAnalysis &hardware, const ac::HardwareBindings &bindings,
+    Operation *site, SourceCheckBudget &budget, BranchTypeAdmissionCache &cache) {
+  auto admitted = cache.admit(type, hardware, bindings, site, budget);
+  if (failed(admitted))
+    return failure();
+  auto compact = compactBranchSelection(type, hardware, site, budget);
+  if (failed(compact))
+    return failure();
+  if (*compact)
+    return success(prepayCompactBranchJoin(budget, site));
+  auto layout = branchJoinLayout(type, hardware, bindings, site, budget, &cache);
+  return success(succeeded(layout) && prepayBranchJoin(budget, site, *layout));
 }
 
 struct SavedMaterializedObservation {
@@ -2104,26 +2222,23 @@ private:
       return failure();
     for (const auto &result : plan.branchResults) {
       auto branch = plan.branches[result.branch].operation;
-      auto layout =
-          branchJoinLayout(result.payloadType, hardware,
-                           plan.instances[0].bindings, branch, budget, &branchTypes);
-      if (failed(layout) || !prepayBranchJoin(budget, branch, *layout))
+      if (failed(prepayBranchSelection(result.payloadType, hardware,
+              plan.instances[0].bindings, branch, budget, branchTypes)))
         return failure();
     }
     for (const auto &join : plan.joins) {
       const auto &branch = plan.branches[join.branch];
-      auto layout = branchJoinLayout(plan.owners[join.owner].payloadType,
-                                     hardware, plan.instances[0].bindings,
-                                     branch.operation, budget, &branchTypes);
-      if (failed(layout) || !prepayBranchJoin(budget, branch.operation, *layout))
+      if (failed(prepayBranchSelection(plan.owners[join.owner].payloadType,
+              hardware, plan.instances[0].bindings, branch.operation, budget,
+              branchTypes)))
         return failure();
     }
     for (const auto &write : plan.writes) {
       if (write.pathFact && write.pathFact.getValue())
         continue;
-      auto layout = branchJoinLayout(plan.owners[write.owner].payloadType,
-          hardware, plan.instances[0].bindings, write.operation, budget, &branchTypes);
-      if (failed(layout) || !prepayBranchJoin(budget, write.operation, *layout))
+      if (failed(prepayBranchSelection(plan.owners[write.owner].payloadType,
+              hardware, plan.instances[0].bindings, write.operation, budget,
+              branchTypes)))
         return failure();
     }
     for (const auto &frame : plan.frames) {
@@ -2232,6 +2347,31 @@ FailureOr<MaterializedBranchResult> materializeSelection(
   OpBuilder &builder, SourceCheckBudget &budget,
   BranchTypeAdmissionCache *cache = nullptr) {
   ac::HardwareAnalysis hardware(branch->getParentOfType<mlir::ModuleOp>());
+  auto admitted = cache ? cache->admit(type, hardware, bindings, branch, budget)
+                        : branchResultType(type, hardware, bindings, branch, budget);
+  if (failed(admitted) || !condition || !whenTrue || !whenFalse ||
+      !ac::areEquivalentHardwareTypes(whenTrue.getType(), type) ||
+      !ac::areEquivalentHardwareTypes(whenFalse.getType(), type))
+    return failure();
+  auto compact = compactBranchSelection(type, hardware, branch, budget);
+  if (failed(compact))
+    return failure();
+  if (*compact) {
+    if (!prepayCompactBranchJoin(budget, branch))
+      return failure();
+    MaterializedBranchResult result;
+    result.generated.reserve(1);
+    OperationState state(branch->getLoc(), ac::ValueMergeOp::getOperationName());
+    state.addOperands({whenFalse, condition, whenTrue});
+    state.addTypes({type, condition.getType()});
+    state.addAttributes({
+        builder.getNamedAttr("paths", builder.getArrayAttr({builder.getArrayAttr({})})),
+        builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 1, 1}))});
+    Operation *merge = builder.create(state);
+    result.generated.push_back(merge);
+    result.value = merge->getResult(0);
+    return result;
+  }
   auto layout = branchJoinLayout(type, hardware, bindings,
                                  branch, budget, cache);
   if (failed(layout) || !condition || !whenTrue || !whenFalse ||
@@ -4387,14 +4527,21 @@ public:
         }
       }
       for (auto *operation : candidate.availabilityOperations) {
-        if (!operations.contains(operation) || !reachable.contains(operation) ||
-            !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
+        if (!operations.contains(operation) || !reachable.contains(operation))
+          return reject("original generated availability graph has extra operations");
+        // The independent availability verifier authenticates this exact
+        // constant, in-range Boolean row transport and all of its users.
+        // Merely being a pure TableGet does not authorize a private-data route.
+        bool companionRead = isa<ac::TableGetOp>(operation) &&
+            availabilityUses.contains(&operation->getOpOperand(0));
+        if ((!companionRead &&
+             !isa<ac::BitsConstantOp, ac::BitsConstant4Op, ac::BitsUnaryOp,
                  ac::BitsBinaryOp, ac::BitsCompareOp, ac::BitsSelectOp,
                  ac::BitsConcatOp, ac::BitsExtractOp, ac::BitsResizeOp,
                  ac::StructGetOp, ac::StructCreateOp, ac::ValueMergeOp,
                  ac::EnumCreateOp, ac::TableCreateOp, ac::TableSplatOp,
                  ac::TableViewOp, ac::TableMapOp, ac::TableFoldOp,
-                 ac::YieldOp>(operation) ||
+                 ac::YieldOp>(operation)) ||
             failed(cover(operation)))
           return reject("original generated availability graph has extra operations");
       }
@@ -4507,10 +4654,40 @@ private:
         !ac::areEquivalentHardwareTypes(whenFalse.getType(), resolvedRoot))
       return reject("original local branch input type differs");
 
-    if (isa<ac::StructType, ac::TableType>(resolvedRoot)) {
+    if (isa<ac::EnumType, ac::StructType, ac::TableType>(resolvedRoot)) {
       auto admitted = admissionCache.admit(resolvedRoot, hardware, bindings, branch, budget);
       if (failed(admitted) || *admitted != resolvedRoot)
         return reject("original aggregate branch root admission differs");
+    }
+
+    // Derive the representation from the original admitted logical type before
+    // consulting any generated opcode or inventory. Candidate merges cannot
+    // elect this proof path, including for symbolic or nested-Table payloads.
+    auto compact = compactBranchSelection(resolvedRoot, hardware, branch, budget);
+    if (failed(compact))
+      return failure();
+    if (*compact) {
+      if (record.generated.size() != 1 || !charge(budget, branch, 16))
+        return reject("original compact branch operation inventory differs");
+      Operation *op = record.generated.front();
+      auto result = dyn_cast<OpResult>(record.value);
+      if (!op || !operations.contains(op) || !result ||
+          result.getOwner() != op || result.getResultNumber() != 0)
+        return reject("original compact branch result ordinal differs");
+      Builder b(branch->getContext());
+      auto attributes = b.getDictionaryAttr({
+          b.getNamedAttr("paths", b.getArrayAttr({b.getArrayAttr({})})),
+          b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({1, 1, 1}))});
+      if (failed(generatedProof(op, ac::ValueMergeOp::getOperationName(),
+              {whenFalse, condition, whenTrue},
+              {resolvedRoot, condition.getType()}, attributes, branch->getLoc(),
+              parent)) || (last && !last->isBeforeInBlock(op)))
+        return reject("original compact branch operation order differs");
+      Value enable = op->getResult(1);
+      if (!values.contains(enable) || !enable.use_empty())
+        return reject("original compact branch enable result is used");
+      last = op;
+      return success();
     }
 
     // Count from the original type tree, independently of materializer
