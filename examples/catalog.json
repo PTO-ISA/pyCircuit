@@ -24,6 +24,14 @@
       "system_scope": "Nested Value, Action and ActionValue Methods with old-Q reads, by-value parameters and whole-Rule admission; independent C++ workers 1/2 and RTL traces."
     },
     {
+      "name": "sibling_method_calls",
+      "folder": "examples/sibling_method_calls",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 4,
+      "system_scope": "Separately compiled sibling Method calls, two distinct Receiver instances, transitive guard rollback and C++ workers 1/2 versus RTL."
+    },
+    {
       "name": "multi_outputs",
       "folder": "examples/multi_outputs",
       "source": "multi_outputs.py",

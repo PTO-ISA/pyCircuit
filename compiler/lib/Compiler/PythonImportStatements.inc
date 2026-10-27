@@ -27,9 +27,39 @@ FailureOr<SmallVector<Value>>
 Importer::instantiate(Declaration *decl, Operation *imported,
                       StringRef instanceName, const AstNode &call, Scope &scope,
                       ArrayRef<Value> destinations) {
-  (void)fail(call ? call : scope.owner->node,
-             "Module hierarchy awaits transactional resource binding");
-  return failure();
+  if (!scope.module || !destinations.empty())
+    return (void)fail(call ? call : scope.owner->node,
+                     "Module instances require direct Module wiring"), failure();
+  if (decl && failed(lower(*decl)))
+    return failure();
+  auto *definition = decl ? decl->operation : imported;
+  auto type = cast<FunctionType>(definition->getAttrOfType<TypeAttr>("function_type").getValue());
+  SmallVector<StringRef> formals;
+  for (auto attr : definition->getAttrOfType<ArrayAttr>("input_names"))
+    formals.push_back(cast<StringAttr>(attr).getValue());
+  SmallVector<AstNode> actuals;
+  if (call && call.kind() == "Call") {
+    auto normalized = detail::normalizeCallArguments(call, formals, error);
+    if (failed(normalized)) return failure();
+    actuals = *normalized;
+  } else if (!formals.empty())
+    return (void)fail(scope.owner->node, "instance requires explicit input bindings"), failure();
+  SmallVector<Value> operands;
+  for (auto actual : actuals) {
+    auto values = expression(actual, scope);
+    if (failed(values) || values->size() != 1 ||
+        !isa<ac::ModuleRefType>(values->front().getType()))
+      return (void)fail(actual, "Module reference requires an existing instance"), failure();
+    operands.push_back(values->front());
+  }
+  auto at = call ? call : scope.owner->node;
+  auto *instance = op(at, "ac.instance", operands, type.getResults(),
+     {b.getNamedAttr("instance_name", b.getStringAttr(instanceName)),
+      b.getNamedAttr("callee", symbol(definition->getAttrOfType<StringAttr>("sym_name").getValue())),
+      b.getNamedAttr("parameters", b.getArrayAttr({})),
+      b.getNamedAttr("type_arguments", b.getArrayAttr({})),
+      b.getNamedAttr("occurrence", origin(at, scope.owner->symbol))});
+  return SmallVector<Value>(instance->getResults());
 }
 
 LogicalResult Importer::emitGuard(Callable &call, Scope &scope) {
@@ -282,8 +312,25 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
         if (nominal->symbol &&
             (declarations.count(nominal->remote) ||
              isa_and_nonnull<ac::ModuleImportOp>(nominal->declaration)))
-          return fail(node,
-                      "Module hierarchy awaits transactional resource binding");
+          {
+            if (node.child("value"))
+              return fail(node, "declare an instance then connect it at its wiring site");
+            Binding binding;
+            binding.instanceName = name;
+            binding.declaration = node;
+            binding.instanceTarget = nominal->symbol.getValue().str();
+            if (declarations.count(nominal->remote))
+              binding.pending = declarations.at(nominal->remote).get();
+            else
+              binding.pendingImport = nominal->declaration;
+            scope.bindings[name] = binding;
+            bool closed = binding.pending ? binding.pending->inputs.empty()
+                : cast<FunctionType>(binding.pendingImport->getAttrOfType<TypeAttr>(
+                      "function_type").getValue()).getNumInputs() == 0;
+            if (closed && failed(expression(target, scope)))
+              return failure();
+            return success();
+          }
       if (typeNode.kind() == "Subscript" &&
           marker(typeNode.child("value"), "queue"))
         return fail(node,
@@ -602,16 +649,20 @@ LogicalResult Importer::lower(Declaration &decl) {
   // Explicit zero-input Module declarations allocate even when their reference
   // is never called, preserving static hierarchy and autonomous Rules.
   for (auto &[name, binding] : scope.bindings) {
-    if (binding.pendingImport)
-      return fail(decl.node,
-                  "explicit imported Module instance has unbound inputs");
+    if (binding.pendingImport) {
+      if (scope.terminated)
+        return fail(decl.node, "connect instances before returning from Module");
+      auto values = instantiate(nullptr, binding.pendingImport, name, binding.declaration, scope);
+      if (failed(values)) return failure();
+      binding.pendingImport = nullptr;
+    }
     if (binding.pending) {
       if (scope.terminated)
         return fail(decl.node, "unconnected explicit instance must be "
                                "connected before Module return");
       if (!binding.pending->inputs.empty())
         return fail(decl.node, "explicit Module instance has unbound inputs");
-      auto values = instantiate(binding.pending, nullptr, name, {}, scope);
+      auto values = instantiate(binding.pending, nullptr, name, binding.declaration, scope);
       if (failed(values))
         return failure();
       binding.pending = nullptr;

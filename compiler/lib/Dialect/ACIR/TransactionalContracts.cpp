@@ -3,6 +3,7 @@
 #include "HardwareSourceChecks.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/IR/OpImplementation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
@@ -208,7 +209,20 @@ bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
   if (isa<QueueType>(type))
     return name == "head" || name == "peek";
   auto *target = methodTarget(call);
-  if (!target || !active.insert(target).second)
+  if (!target) {
+    auto ref = dyn_cast<ModuleRefType>(type);
+    auto *provider = ref ? lookup(call, ref.getModule().getValue()) : nullptr;
+    if (isa_and_nonnull<ModuleImportOp>(provider))
+      for (Attribute raw : getTransactionalMethodInterfaces(provider)) {
+        auto method = dyn_cast<DictionaryAttr>(raw);
+        auto methodName = method ? method.getAs<StringAttr>("name") : StringAttr();
+        auto readonly = method ? method.getAs<BoolAttr>("read_only") : BoolAttr();
+        if (methodName && methodName.getValue() == name)
+          return readonly && readonly.getValue();
+      }
+    return false;
+  }
+  if (!active.insert(target).second)
     return false;
   bool okay = true;
   for (Region &region : target->getRegions())
@@ -326,18 +340,31 @@ LogicalResult verifyCallable(Operation *op) {
       sig = FunctionType::get(op->getContext(), ins, outs);
     } else {
       auto *target = methodTarget(call);
-      if (!isa_and_nonnull<TransactionMethodOp>(target))
+      if (isa_and_nonnull<TransactionMethodOp>(target)) {
+        sig = signature(target);
+      } else if (auto ref = dyn_cast<ModuleRefType>(receiver)) {
+        auto *provider = lookup(call, ref.getModule().getValue());
+        if (isa_and_nonnull<ModuleImportOp>(provider))
+          for (Attribute raw : getTransactionalMethodInterfaces(provider)) {
+            auto method = dyn_cast<DictionaryAttr>(raw);
+            auto name = method ? method.getAs<StringAttr>("name") : StringAttr();
+            auto type = method ? method.getAs<TypeAttr>("function_type") : TypeAttr();
+            if (name && type && name.getValue() ==
+                                    call.getCalleeAttr().getRootReference().getValue())
+              sig = dyn_cast<FunctionType>(type.getValue());
+          }
+      }
+      if (!sig)
         return op->emitOpError(
-            "Method receiver/name must resolve to an existing public Method");
-      sig = signature(target);
-      if (isa_and_nonnull<ModuleOp>(op->getParentOp()))
+            "Method receiver/name must resolve to a public Method interface");
+      if (controlOwner(op))
         return op->emitOpError(
             "Module combination cannot call another Module Method");
     }
     if (!sameTypes(call.getArguments().getTypes(), sig.getInputs()) ||
         !sameTypes(call.getResultTypes(), sig.getResults()))
       return op->emitOpError("Method payload signature mismatch");
-    if (isa_and_nonnull<ModuleOp>(op->getParentOp())) {
+    if (controlOwner(op)) {
       llvm::DenseSet<Operation *> active;
       if (!readOnly(op, active))
         return op->emitOpError(
@@ -355,6 +382,124 @@ bool isLinkedTransactionalPackage(Operation *op) {
   auto stage =
       package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
   return stage && stage.getValue() == "linked";
+}
+bool isTransactionalReferenceRequirement(Operation *op) {
+  auto marker = op ? op->getAttrOfType<BoolAttr>("ac.reference_requirement")
+                   : BoolAttr();
+  return isa_and_nonnull<ModuleImportOp>(op) && marker && marker.getValue();
+}
+ArrayAttr getTransactionalMethodInterfaces(Operation *op) {
+  Builder builder(op->getContext());
+  if (isa<ModuleImportOp>(op)) {
+    auto methods = op->getAttrOfType<ArrayAttr>("ac.methods");
+    return methods ? methods : builder.getArrayAttr({});
+  }
+  SmallVector<Attribute> methods;
+  if (auto module = dyn_cast<ModuleOp>(op))
+    for (auto method : module.getBody().front().getOps<TransactionMethodOp>()) {
+      llvm::DenseSet<Operation *> active;
+      active.insert(method);
+      bool readonly = true;
+      for (Region &region : method->getRegions())
+        region.walk([&](Operation *child) {
+          readonly &= readOnly(child, active);
+        });
+      methods.push_back(builder.getDictionaryAttr({
+          builder.getNamedAttr("name", builder.getStringAttr(method.getSymName())),
+          builder.getNamedAttr("function_type", method.getFunctionTypeAttr()),
+          builder.getNamedAttr("read_only", builder.getBoolAttr(readonly))}));
+    }
+  llvm::sort(methods, [](Attribute a, Attribute b) {
+    return cast<DictionaryAttr>(a).getAs<StringAttr>("name").getValue() <
+           cast<DictionaryAttr>(b).getAs<StringAttr>("name").getValue();
+  });
+  return builder.getArrayAttr(methods);
+}
+LogicalResult inferTransactionalReferenceRequirements(mlir::ModuleOp package) {
+  Builder builder(package.getContext());
+  auto owner = package->getAttrOfType<DictionaryAttr>("ac.source_owner");
+  llvm::DenseSet<Operation *> visited;
+  std::function<LogicalResult(Region &)> inspect = [&](Region &region) {
+    auto result = region.walk([&](TransactionMethodCallOp call) {
+      if (auto *target = methodTarget(call)) {
+        if (visited.insert(target).second)
+          for (Region &nested : target->getRegions())
+            if (failed(inspect(nested)))
+              return WalkResult::interrupt();
+        return WalkResult::advance();
+      }
+      auto ref = dyn_cast<ModuleRefType>(call.getReceiver().getType());
+      auto *requirement = ref ? lookup(call, ref.getModule().getValue()) : nullptr;
+      if (!isTransactionalReferenceRequirement(requirement) ||
+          requirement->getAttr("source_owner") != owner)
+        return WalkResult::advance();
+      SmallVector<Attribute> methods;
+      bool found = false;
+      for (Attribute raw : getTransactionalMethodInterfaces(requirement)) {
+        auto method = dyn_cast<DictionaryAttr>(raw);
+        auto name = method ? method.getAs<StringAttr>("name") : StringAttr();
+        if (!name) {
+          call.emitOpError("generic Method interface is malformed");
+          return WalkResult::interrupt();
+        }
+        if (name.getValue() == call.getCalleeAttr().getRootReference().getValue()) {
+          NamedAttrList fields(method);
+          fields.set("read_only", builder.getBoolAttr(true));
+          raw = fields.getDictionary(package.getContext());
+          found = true;
+        }
+        methods.push_back(raw);
+      }
+      if (!found) {
+        call.emitOpError("generic Method call lacks an inferred interface");
+        return WalkResult::interrupt();
+      }
+      requirement->setAttr("ac.methods", builder.getArrayAttr(methods));
+      return WalkResult::advance();
+    });
+    return success(!result.wasInterrupted());
+  };
+  auto result = package.walk([&](Operation *op) {
+    if (isa<TransactionRuleOp, TransactionMethodOp>(op) &&
+        failed(inspect(op->getRegion(0))))
+      return WalkResult::interrupt();
+    return WalkResult::advance();
+  });
+  return success(!result.wasInterrupted());
+}
+LogicalResult verifyTransactionalReferenceBinding(Operation *requirement,
+                                                   Operation *provider,
+                                                   Operation *site) {
+  if (!isTransactionalReferenceRequirement(requirement) ||
+      !isa_and_nonnull<ModuleOp, ModuleImportOp>(provider) ||
+      isTransactionalReferenceRequirement(provider))
+    return site->emitOpError("module reference must bind an existing provider instance");
+  auto methods = getTransactionalMethodInterfaces(provider);
+  for (Attribute raw : getTransactionalMethodInterfaces(requirement)) {
+    auto expected = dyn_cast<DictionaryAttr>(raw);
+    auto name = expected ? expected.getAs<StringAttr>("name") : StringAttr();
+    auto expectedAttr = expected ? expected.getAs<TypeAttr>("function_type") : TypeAttr();
+    auto readonly = expected ? expected.getAs<BoolAttr>("read_only") : BoolAttr();
+    auto expectedType = expectedAttr ? dyn_cast<FunctionType>(expectedAttr.getValue()) : FunctionType();
+    if (!name || !expectedType || !readonly)
+      return site->emitOpError("malformed Module Method requirement");
+    DictionaryAttr actual;
+    for (Attribute candidate : methods) {
+      auto method = dyn_cast<DictionaryAttr>(candidate);
+      if (method && method.getAs<StringAttr>("name") == name)
+        actual = method;
+    }
+    auto actualAttr = actual ? actual.getAs<TypeAttr>("function_type") : TypeAttr();
+    auto actualReadonly = actual ? actual.getAs<BoolAttr>("read_only") : BoolAttr();
+    auto actualType = actualAttr ? dyn_cast<FunctionType>(actualAttr.getValue()) : FunctionType();
+    if (!actualType || !actualReadonly)
+      return site->emitOpError("bound Module lacks a required Method interface");
+    if (!sameTypes(expectedType.getInputs(), actualType.getInputs()) ||
+        !sameTypes(expectedType.getResults(), actualType.getResults()) ||
+        (readonly.getValue() && !actualReadonly.getValue()))
+      return site->emitOpError("bound Method violates its payload signature or read-only requirement");
+  }
+  return success();
 }
 bool transactionalTypesEqual(Type a, Type b) {
   if (resource(a) || resource(b))
@@ -671,6 +816,38 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
   if (isa<ModuleOp, ModuleImportOp>(op)) {
     if (failed(moduleSignature(op))) return failure();
     if (auto imported = dyn_cast<ModuleImportOp>(op)) {
+      if (auto marker = op->getAttr("ac.reference_requirement")) {
+        auto flag = dyn_cast<BoolAttr>(marker);
+        if (!flag || !flag.getValue() || signature(op).getNumInputs() ||
+            signature(op).getNumResults() || !op->hasAttr("ac.methods"))
+          return op->emitOpError("module-reference requirement needs true marker, empty resource signature and Method interfaces");
+      }
+      if (auto raw = op->getAttr("ac.methods")) {
+        auto methods = dyn_cast<ArrayAttr>(raw);
+        if (!methods)
+          return op->emitOpError("Method interfaces require an array");
+        llvm::StringSet<> names;
+        for (Attribute entry : methods) {
+          auto method = dyn_cast<DictionaryAttr>(entry);
+          auto name = method ? method.getAs<StringAttr>("name") : StringAttr();
+          auto type = method ? method.getAs<TypeAttr>("function_type") : TypeAttr();
+          auto sig = type ? dyn_cast<FunctionType>(type.getValue()) : FunctionType();
+          if (!method || method.size() != 3 || !name || name.getValue().empty() ||
+              !names.insert(name.getValue()).second || !sig ||
+              !method.getAs<BoolAttr>("read_only"))
+            return op->emitOpError("Method interface requires unique name, function_type and read_only");
+          SmallVector<Type> payloads(sig.getInputs());
+          llvm::append_range(payloads, sig.getResults());
+          HardwareAnalysis analysis(packageOf(op));
+          HardwareBindings bindings;
+          bindings.owner = op;
+          for (Type payload : payloads)
+            if (!isa<BitsType, EnumType, StructType, TableType>(payload) ||
+                failed(detail::verifyHardwareTypeScope(payload, op)) ||
+                failed(analysis.getPackedWidth(payload, bindings, op)))
+              return op->emitOpError("Method interfaces require concrete payload values");
+        }
+      }
       if (isLinkedTransactionalPackage(op))
         return op->emitOpError("linked transactional package cannot retain imports");
       if (imported.getSemanticKind() != "resources" ||
@@ -739,7 +916,27 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
       if (!count.getType().isSignlessInteger(64) || count.getValue().isNegative() ||
           count.getValue().getZExtValue() != inputs->size() - signature(target).getNumInputs())
         return op->emitOpError("printed bound operand group must match the callee bound output signature");
-    if (!sameTypes(instance.getOperandTypes(), *inputs) ||
+    if (isTransactionalReferenceRequirement(target))
+      return op->emitOpError("module-reference requirement cannot allocate an instance");
+    bool inputTypesMatch = instance.getNumOperands() == inputs->size();
+    if (inputTypesMatch)
+      for (auto [actual, expected] : llvm::zip(instance.getOperandTypes(), *inputs)) {
+        if (transactionalTypesEqual(actual, expected))
+          continue;
+        auto formal = dyn_cast<ModuleRefType>(expected);
+        auto bound = dyn_cast<ModuleRefType>(actual);
+        auto *requirement = formal ? lookup(op, formal.getModule().getValue()) : nullptr;
+        auto *provider = bound ? lookup(op, bound.getModule().getValue()) : nullptr;
+        // An unlinked generic formal records a requirement, not a concrete
+        // implementation. Link validates the bound provider's complete Method
+        // contract after authenticating the explicit unit closure.
+        if (!isTransactionalReferenceRequirement(requirement) ||
+            !isa_and_nonnull<ModuleOp, ModuleImportOp>(provider)) {
+          inputTypesMatch = false;
+          break;
+        }
+      }
+    if (!inputTypesMatch ||
         !sameTypes(instance.getResultTypes(), signature(target).getResults()))
       return op->emitOpError("instance inputs, bound outputs or result types do not match the interface");
     if (!instance.getOccurrence().empty() &&
@@ -920,6 +1117,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
            (name == "ac.source_owner" || name == "ac.origin" ||
             name == "ac.declaration_role")) ||
           (isa<ModuleOp, ModuleImportOp>(op) && name == "ac.root_kind") ||
+          (isa<ModuleImportOp>(op) &&
+           (name == "ac.methods" || name == "ac.reference_requirement")) ||
           (isa<SystemOp>(op) && name == "ac.execution_policy") ||
           (isa<SourceObserveOp>(op) &&
            (name == "occurrence" || name == "ac.location")) ||

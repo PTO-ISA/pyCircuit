@@ -54,6 +54,7 @@ struct Binding {
   std::string instanceTarget, instanceName;
   Declaration *pending = nullptr;
   Operation *pendingImport = nullptr;
+  AstNode declaration;
   Type type() const { return value ? value.getType() : Type(); }
 };
 struct Scope {
@@ -370,6 +371,7 @@ private:
   LogicalResult emitMethod(Callable &call, Scope &scope);
   FailureOr<SmallVector<Value>> methodCall(Callable &call, const AstNode &node, Scope &scope);
   LogicalResult emitGuard(Callable &call, Scope &scope);
+  FailureOr<SmallVector<Value>> referenceCall(const AstNode &node, Scope &scope, Type expected);
   LogicalResult inferHints(const AstNode &node, Scope &scope);
   Type infer(const AstNode &node, Scope &scope, Type expected = {});
   LogicalResult bind(const AstNode &target, ArrayRef<Value> values,
@@ -647,10 +649,33 @@ LogicalResult Importer::scan() {
         args.child("vararg") || args.child("kwarg"))
       return fail(decl.node, "Module parameters must be explicit required "
                              "resource/reference arguments");
-    if (!args.array("args").empty())
-      return fail(
-          decl.node,
-          "Module inputs are not yet supported by transactional compilation");
+    for (size_t i = 0; i < args.array("args").size(); ++i) {
+      auto arg = args.item("args", i);
+      if (!marker(arg.child("annotation"), "module"))
+        return fail(arg, "Module data/resource inputs await transactional migration");
+      std::string name = arg.string("arg").str();
+      if (names.count(name))
+        return fail(arg, "Module parameter shadows a source declaration");
+      std::string target = decl.symbol + ".__ref_" + name;
+      auto type = ac::ModuleRefType::get(b.getContext(), symbol(target));
+      OpBuilder::InsertionGuard save(b);
+      b.setInsertionPointToEnd(result->getBody());
+      op(arg, "ac.module.import", {}, {},
+         {b.getNamedAttr("sym_name", b.getStringAttr(target)),
+          b.getNamedAttr("source_owner", owner),
+          b.getNamedAttr("parameters", b.getArrayAttr({})),
+          b.getNamedAttr("type_parameters", b.getArrayAttr({})),
+          b.getNamedAttr("function_type", TypeAttr::get(b.getFunctionType({}, {}))),
+          b.getNamedAttr("input_names", b.getArrayAttr({})),
+          b.getNamedAttr("output_names", b.getArrayAttr({})),
+          b.getNamedAttr("output_kinds", b.getArrayAttr({})),
+          b.getNamedAttr("semantic_kind", b.getStringAttr("resources")),
+          b.getNamedAttr("ac.reference_requirement", b.getBoolAttr(true)),
+          b.getNamedAttr("ac.methods", b.getArrayAttr({})),
+          b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition")),
+          b.getNamedAttr("ac.origin", origin(arg, target))});
+      decl.inputs.push_back({name, type, arg});
+    }
     if (failed(
             resultTypes(decl.node.child("returns"), decl.symbol, decl.results)))
       return failure();
@@ -811,7 +836,8 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::run() {
   result->getOperation()->setAttr("ac.exports", b.getArrayAttr(exports));
   result->getOperation()->setAttr("ac.import_bindings",
                                   b.getArrayAttr(imports));
-  if (invalid || failed(verify(*result)))
+  if (invalid || failed(ac::inferTransactionalReferenceRequirements(*result)) ||
+      failed(verify(*result)))
     return failure();
   return std::move(result);
 }

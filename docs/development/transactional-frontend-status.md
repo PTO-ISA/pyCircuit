@@ -1,7 +1,7 @@
 # Transactional frontend replacement status
 
-PR-06a extends the production transactional Python compile/link path from
-`173ba0ae` with local Methods and complete call-chain admission. This is a bounded replacement,
+PR-06b extends PR-06a (`e1e91017`) with independently compiled Module reference
+bindings and atomic sibling Method calls. This is a bounded replacement,
 not completion of issue #361.
 
 ## Production path
@@ -30,7 +30,8 @@ Routed artifacts remain available through the existing Routed link target.
 | Guard, assert, log and old-Q reads | Implemented; focused source execution PASS |
 | Literal constant providers through published interfaces | Implemented; focused source execution PASS |
 | Local Value/Action/ActionValue Methods and nested calls | Implemented; see PR-06a validation below |
-| Queue and hierarchy | Implementation gaps; retained tests/oracles |
+| Existing-instance references and sibling Method calls | Implemented; see PR-06b validation below |
+| Queue and broader resource interfaces | Implementation gaps; retained tests/oracles |
 | Module if/elif/else and parameterless autorule | Implemented; retained SCF and focused C++/RTL execution PASS |
 | Advanced payloads, Rule-body control flow and branch-local merging | Implementation gaps; retained tests/oracles |
 | Memory/Table timing and advanced capability migration | Retained requirements; consult replacement plan for semantic decisions |
@@ -77,7 +78,7 @@ storage lowering, generated System runners and both backends are reused.
 
 The earlier automatic ordinary registration, write/binding-plan passes and
 candidate-SSA orchestration remain removed. Shared AST, provenance, arithmetic,
-source registry, publication and backend owners remain. Queue and hierarchy are still gaps; no legacy fallback is restored.
+source registry, publication and backend owners remain. Queue and broader resource interfaces remain gaps; no legacy fallback is restored.
 
 Old examples and API cases remain migration requirements. Their current FAIL is
 not a PASS. The retained `SourceMemoryBindingsTest.cpp` plan-class tests and
@@ -137,4 +138,53 @@ still reports the three broken links in the pre-existing untracked design drafts
 | API gate | FAIL at unported `module_loop` Module inputs; remaining execution NOT RUN |
 | Examples gate with rebuilt installation and fresh output | FAIL at unported `multi_outputs` inputs and `queue_rule_pipeline` body syntax; complete execution NOT RUN |
 | Strict MkDocs | FAIL: three pre-existing broken links in untracked design drafts |
+| Nightly, release matrix and direct transactional gfsim | NOT RUN |
+
+## Existing sibling references (PR-06b)
+
+`Sender(peer: ac.module)` compiles independently with inferred Method requirements.
+Published provider interfaces carry actual Method signatures and verified read-only
+properties. Link validates each actual binding against its complete body and
+specializes by instance occurrence. It does not create an instance for a reference.
+Method arguments remain SSA values; callee captures use the actual callee's
+prepared combination and old State, independent of Work ordering.
+
+Common analysis records instance/resource owners and Method invocation paths.
+The same final Rule admission controls all owners' proposals, checks and logs.
+Routing preserves actual source children and their State storage. Compiler ports
+carry old Q upward and proposal data/enables downward; each owner retains a
+closed initializer expression. Common
+transaction computations are statically specialized at the root. This is not a
+stable public Method ABI. Independent Routed/Final replay checks those actual
+hierarchy edges as well as the transaction computation and effect enables.
+
+The split-source sibling example creates two Receivers initialized to five and
+binds Sender to only one. Independent expected old values are `5,6,7,7`, the unused
+Receiver stays at five, and Sender successes are `0,1,2,2`. Its prior log and update
+are cancelled when the callee guard closes. Acceptance checks interface-only
+consumer compilation, explicit link mismatch rejection, physical state ownership,
+source observation identity and generated C++ workers 1/2 versus RTL.
+
+The minimal reference-binding and cross-owner State pieces previously assigned to
+PR-09/10 are delivered here. Those later packages retain cross-layer exports,
+resource aliases, Queue and batch operations; they reuse this analysis and link
+binding instead of implementing another path.
+Generic calls presently require positional typed arguments and a typed context
+for the first returned value; a context-free first call records an Action
+requirement. Queue, advanced payloads and same-cycle dependencies retain their
+existing tests and independent oracles as unported requirements.
+
+PR-06b candidate evidence is kept in `docs/gates/logs/pr06b-sibling-methods/`.
+
+| PR-06b check | Actual result |
+| --- | --- |
+| Compiler tools build and installation | PASS |
+| Split-source sibling acceptance | PASS: C++ workers 1/2 and RTL, strict link mismatch rejection, callee combination capture, physical state owners and distinct observation identities |
+| Prior transactional IR/state/source/local Method regressions | PASS: 12 lit tests; an earlier concurrent scratch collision was discarded and rerun |
+| New installed-toolchain examples | PASS: both CTest entries, generated C++ workers 1/2 and RTL |
+| Transitive generic read-only requirement | PASS: independent compile smoke through a local guard helper |
+| Independent implementation and oracle reviews | Clear, exact content hashes retained in evidence |
+| Changed-file pre-commit | PASS with CI hook selection and individual Python file invocations |
+| Full API and Examples gates | FAIL at retained unported Module data/resource inputs and Queue body syntax; complete gate execution NOT RUN |
+| Strict MkDocs | FAIL: same three pre-existing draft links |
 | Nightly, release matrix and direct transactional gfsim | NOT RUN |

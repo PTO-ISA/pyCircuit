@@ -2,16 +2,20 @@
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "SourceHeaderHelpers.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/StringMap.h"
 #include "llvm/Support/raw_ostream.h"
+#include "llvm/ADT/ScopeExit.h"
 
 #include <functional>
 
@@ -19,6 +23,171 @@ using namespace mlir;
 
 namespace acir::compiler {
 namespace {
+
+// Bind references to actual allocation occurrences before common analysis.
+// Each clone remains a Module with its own allocations, Methods and child
+// instances. Specialization changes static signatures, never storage identity.
+class ReferenceLinker {
+  struct Occurrence {
+    ac::ModuleOp original;
+    ac::InstanceOp allocation;
+    unsigned parent;
+    std::string name;
+    llvm::StringMap<unsigned> children;
+    ac::ModuleOp linked;
+  };
+  static constexpr unsigned NoParent = ~0u;
+  ModuleOp package;
+  SmallVector<Occurrence> instances;
+  llvm::DenseSet<Operation *> expanding;
+  llvm::DenseSet<std::pair<unsigned, Value>> resolving;
+
+  Operation *lookup(StringRef name) {
+    return SymbolTable::lookupSymbolIn(package, name);
+  }
+  LogicalResult expand(ac::ModuleOp module, ac::InstanceOp allocation,
+                       unsigned parent) {
+    if (instances.size() >= 4096 || expanding.size() >= 64 ||
+        !expanding.insert(module).second)
+      return module.emitOpError("recursive or over-capacity Module instance closure");
+    unsigned id = instances.size();
+    std::string name = module.getSymName().str();
+    if (parent != NoParent) {
+      name += ".__instance_" + std::to_string(id);
+      if (lookup(name))
+        return module.emitOpError("instance specialization name collides with a source declaration");
+    }
+    instances.push_back({module, allocation, parent, std::move(name), {}, {}});
+    for (auto child : module.getBody().front().getOps<ac::InstanceOp>()) {
+      auto target = dyn_cast_or_null<ac::ModuleOp>(lookup(child.getCallee()));
+      if (!target)
+        return child.emitOpError("linked instance requires its explicit provider body");
+      unsigned childID = instances.size();
+      instances[id].children[child.getInstanceName()] = childID;
+      if (failed(expand(target, child, id)))
+        return failure();
+    }
+    expanding.erase(module);
+    return success();
+  }
+  FailureOr<unsigned> reference(unsigned owner, Value value) {
+    auto key = std::make_pair(owner, value);
+    if (resolving.size() >= 128 || !resolving.insert(key).second) {
+      emitError(value.getLoc(), "cyclic or over-depth Module reference binding");
+      return failure();
+    }
+    auto cleanup = llvm::scope_exit([&] { resolving.erase(key); });
+    if (auto arg = dyn_cast<BlockArgument>(value)) {
+      auto *scope = arg.getOwner()->getParentOp();
+      if (scope == instances[owner].original) {
+        auto &instance = instances[owner];
+        if (instance.parent == NoParent ||
+            arg.getArgNumber() >= instance.allocation.getNumOperands()) {
+          instance.original.emitOpError("Module reference is not bound by an existing parent instance");
+          return failure();
+        }
+        return reference(instance.parent,
+                         instance.allocation.getOperand(arg.getArgNumber()));
+      }
+      if (isa<ac::TransactionRuleOp, ac::TransactionMethodOp>(scope)) {
+        auto sig = cast<FunctionType>(scope->getAttrOfType<TypeAttr>("function_type").getValue());
+        unsigned explicitCount = sig.getNumInputs();
+        if (isa<ac::TransactionRuleOp>(scope))
+          explicitCount += sig.getNumResults();
+        if (arg.getArgNumber() >= explicitCount &&
+            arg.getArgNumber() - explicitCount < scope->getNumOperands())
+          return reference(owner, scope->getOperand(arg.getArgNumber() - explicitCount));
+      }
+    }
+    if (auto ref = value.getDefiningOp<ac::InstanceRefOp>()) {
+      unsigned target = owner;
+      for (Attribute raw : ref.getInstancePath()) {
+        auto at = instances[target].children.find(cast<StringAttr>(raw).getValue());
+        if (at == instances[target].children.end()) {
+          ref.emitOpError("Module reference path does not identify an allocated instance");
+          return failure();
+        }
+        target = at->second;
+      }
+      return target;
+    }
+    emitError(value.getLoc(), "Module reference requires an existing instance or bound formal");
+    return failure();
+  }
+
+public:
+  explicit ReferenceLinker(ModuleOp package) : package(package) {}
+  LogicalResult run(ac::ModuleOp root) {
+    if (failed(expand(root, {}, NoParent)))
+      return failure();
+    for (unsigned index = 0; index < instances.size(); ++index) {
+      auto module = instances[index].original;
+      for (BlockArgument argument : module.getBody().front().getArguments()) {
+        auto ref = dyn_cast<ac::ModuleRefType>(argument.getType());
+        if (!ref)
+          continue;
+        auto target = reference(index, argument);
+        if (failed(target))
+          return failure();
+        auto *requirement = lookup(ref.getModule().getValue());
+        if (ac::isTransactionalReferenceRequirement(requirement) &&
+            failed(ac::verifyTransactionalReferenceBinding(
+                requirement, instances[*target].original, module)))
+          return failure();
+      }
+    }
+    // Clone all bodies before rewriting any provider or signature. The mapping
+    // keeps captures and region arguments tied to the original occurrence.
+    SmallVector<IRMapping> mappings(instances.size());
+    for (unsigned index = 0; index < instances.size(); ++index) {
+      auto &instance = instances[index];
+      instance.linked = cast<ac::ModuleOp>(instance.original->clone(mappings[index]));
+      instance.linked->setAttr("sym_name", StringAttr::get(package.getContext(), instance.name));
+      package.getBody()->push_back(instance.linked);
+    }
+    for (unsigned index = 0; index < instances.size(); ++index) {
+      auto &instance = instances[index];
+      auto &mapping = mappings[index];
+      bool failedReference = false;
+      auto rewrite = [&](Value original) {
+        if (failedReference || !isa<ac::ModuleRefType>(original.getType()))
+          return;
+        auto target = reference(index, original);
+        if (failed(target)) {
+          failedReference = true;
+          return;
+        }
+        mapping.lookup(original).setType(ac::ModuleRefType::get(
+            package.getContext(), FlatSymbolRefAttr::get(
+                                      package.getContext(), instances[*target].name)));
+      };
+      instance.original.walk([&](Operation *op) {
+        for (Value result : op->getResults()) rewrite(result);
+        for (Region &region : op->getRegions())
+          for (Block &block : region)
+            for (BlockArgument argument : block.getArguments()) rewrite(argument);
+        if (auto allocation = dyn_cast<ac::InstanceOp>(op)) {
+          auto child = instance.children.lookup(allocation.getInstanceName());
+          mapping.lookup(op)->setAttr("callee", FlatSymbolRefAttr::get(
+              package.getContext(), instances[child].name));
+        }
+      });
+      if (failedReference)
+        return failure();
+      SmallVector<Type> bodyInputs(instance.linked.getBody().front().getArgumentTypes());
+      auto originalSignature = instance.original.getFunctionType();
+      instance.linked->setAttr("function_type", TypeAttr::get(FunctionType::get(
+          package.getContext(), ArrayRef<Type>(bodyInputs).take_front(originalSignature.getNumInputs()),
+          originalSignature.getResults())));
+    }
+    llvm::DenseSet<Operation *> retained;
+    for (auto &instance : instances) retained.insert(instance.linked);
+    for (Operation &op : llvm::make_early_inc_range(*package.getBody()))
+      if (isa<ac::ModuleOp, ac::ModuleImportOp>(op) && !retained.contains(&op))
+        op.erase();
+    return success();
+  }
+};
 
 LogicalResult preflightSourceLinkPair(SourceLinkUnit unit, unsigned index,
                                       ac::detail::EmitError emitError) {
@@ -263,6 +432,12 @@ FailureOr<OwningOpRef<ModuleOp>> linkSourceUnits(
   for (auto imported : linked->getOps<ac::ModuleImportOp>())
     if (failed(admitted->verifyModuleImport(imported, emitError)))
       return failure();
+
+  // Requirements describe interfaces only. Close them against the actual
+  // instance graph while preserving every Module and owner boundary.
+  if (failed(ReferenceLinker(*linked).run(root)) || failed(verify(*linked)) ||
+      failed(ac::verifyTransactionalPackage(*linked)))
+    return failure();
 
   SourceLinkStages stages;
   auto capture = [](ModuleOp module, std::string &text) {

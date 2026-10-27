@@ -1,6 +1,7 @@
 #include "SourceHeaderHelpers.h"
 #include "SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/OperationSupport.h"
@@ -34,6 +35,10 @@ LogicalResult verifyPublishedModule(ac::ModuleOp module,
              << "source module call contract differs from its published "
                 "interface: @"
              << module.getSymName();
+  if (ac::getTransactionalMethodInterfaces(module) !=
+      ac::getTransactionalMethodInterfaces(declaration))
+    return emitError() << "source Method interfaces differ from actual definitions: @"
+                       << module.getSymName();
   return verifyPublishedDependencies(module, declaration, emitError);
 }
 
@@ -100,7 +105,8 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
         operation.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     auto snapshotOwner = ac::detail::declarationSourceOwner(&operation);
     bool localDefinition =
-        isa<ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp>(operation) &&
+        (isa<ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp>(operation) ||
+         ac::isTransactionalReferenceRequirement(&operation)) &&
         role && role.getValue() == "definition" && snapshotOwner == owner;
     if (!role || (role.getValue() != "import_snapshot" && !localDefinition) ||
         !symbol || !snapshotOwner)
@@ -137,7 +143,8 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
             : StringAttr();
     if (!definition || !bodyRole || bodyRole.getValue() != "definition" ||
         ac::detail::declarationSourceOwner(definition) != owner ||
-        (isa<ac::ModuleImportOp>(declaration)
+        (isa<ac::ModuleImportOp>(declaration) &&
+                 !ac::isTransactionalReferenceRequirement(&declaration)
              ? !isa<ac::ModuleOp>(definition)
              : !detail::sameDeclaration(&declaration, definition)))
       return emitError()

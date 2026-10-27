@@ -249,7 +249,7 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
         return failure();
       }
       auto values =
-          instantiate(pending, nullptr, found->second.instanceName, {}, scope);
+          instantiate(pending, nullptr, found->second.instanceName, found->second.declaration, scope);
       if (failed(values))
         return failure();
       auto refType =
@@ -262,9 +262,13 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
       found->second.pending = nullptr;
     }
     if (found->second.pendingImport) {
-      (void)fail(node,
-                 "instance must be connected before it is used as a reference");
-      return failure();
+      auto *definition = found->second.pendingImport;
+      auto values = instantiate(nullptr, definition, found->second.instanceName, found->second.declaration, scope);
+      if (failed(values)) return failure();
+      auto type = ac::ModuleRefType::get(b.getContext(), symbol(found->second.instanceTarget));
+      found->second.value = op(node, "ac.instance.ref", {}, type,
+          {b.getNamedAttr("instance_path", b.getArrayAttr({b.getStringAttr(found->second.instanceName)}))})->getResult(0);
+      found->second.pendingImport = nullptr;
     }
     if (!found->second.value)
       return failure();
@@ -603,7 +607,7 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
         }
       }
     }
-    return (void)fail(node, "Methods await transactional migration"), failure();
+    return referenceCall(node, scope, expected);
   }
   if (func.kind() == "Name") {
     auto name = func.string("id").str();
@@ -693,4 +697,65 @@ Importer::methodCall(Callable &call, const AstNode &node, Scope &scope) {
                     {b.getNamedAttr("callee", symbol(call.name)),
                      b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))});
   return SmallVector<Value>(invoke->getResults());
+}
+
+FailureOr<SmallVector<Value>>
+Importer::referenceCall(const AstNode &node, Scope &scope, Type expected) {
+  if (scope.module || !node.array("keywords").empty())
+    return (void)fail(node, "reference Methods require transactional positional calls"), failure();
+  auto func = node.child("func");
+  auto values = expression(func.child("value"), scope);
+  if (failed(values) || values->size() != 1) return failure();
+  auto receiver = values->front();
+  auto ref = dyn_cast<ac::ModuleRefType>(receiver.getType());
+  if (!ref) return (void)fail(node, "Method receiver requires a Module reference"), failure();
+  Operation *target = nullptr;
+  for (Operation &decl : *result->getBody())
+    if (decl.getAttrOfType<StringAttr>("sym_name") &&
+        decl.getAttrOfType<StringAttr>("sym_name").getValue() == ref.getModule().getValue())
+      target = &decl;
+  if (!target) return (void)fail(node, "missing Module reference declaration"), failure();
+  auto name = func.string("attr");
+  auto methods = ac::getTransactionalMethodInterfaces(target);
+  DictionaryAttr prior;
+  for (auto attr : methods) {
+    auto item = cast<DictionaryAttr>(attr);
+    if (item.getAs<StringAttr>("name").getValue() == name) prior = item;
+  }
+  bool requirement = ac::isTransactionalReferenceRequirement(target);
+  if (!prior && !requirement)
+    return (void)fail(node, "receiver does not publish requested Method"), failure();
+  FunctionType signature;
+  if (prior) signature = cast<FunctionType>(prior.getAs<TypeAttr>("function_type").getValue());
+  if (signature && signature.getNumInputs() != node.array("args").size())
+    return (void)fail(node, "Method argument arity differs"), failure();
+  SmallVector<Value> operands{receiver};
+  SmallVector<Type> inputs, outputs;
+  for (size_t i = 0; i < node.array("args").size(); ++i) {
+    auto at = node.item("args", i);
+    Type type = signature ? signature.getInput(i) : infer(at, scope);
+    if (!type) return (void)fail(at, "reference Method argument needs a declared payload type"), failure();
+    auto value = scalar(at, scope, type);
+    if (failed(value)) return failure();
+    operands.push_back(*value);
+    inputs.push_back(value->getType());
+  }
+  if (signature) llvm::append_range(outputs, signature.getResults());
+  else if (expected) outputs.push_back(expected);
+  if (requirement) {
+    SmallVector<Attribute> updated;
+    for (auto attr : methods)
+      if (cast<DictionaryAttr>(attr).getAs<StringAttr>("name").getValue() != name)
+        updated.push_back(attr);
+    bool pure = scope.pure || (prior && prior.getAs<BoolAttr>("read_only").getValue());
+    updated.push_back(b.getDictionaryAttr({
+        b.getNamedAttr("name", b.getStringAttr(name)),
+        b.getNamedAttr("function_type", TypeAttr::get(b.getFunctionType(inputs, outputs))),
+        b.getNamedAttr("read_only", b.getBoolAttr(pure))}));
+    target->setAttr("ac.methods", b.getArrayAttr(updated));
+  }
+  auto *call = op(node, "ac.method.call", operands, outputs,
+      {b.getNamedAttr("callee", symbol(name)),
+       b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))});
+  return SmallVector<Value>(call->getResults());
 }

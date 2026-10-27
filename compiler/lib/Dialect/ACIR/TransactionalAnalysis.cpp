@@ -81,9 +81,57 @@ public:
     if (!module.getBody().front().getArguments().empty() ||
         !module.getParameters().empty() || !module.getTypeParameters().empty())
       return module.emitError(
-          "transactional State execution requires one closed concrete Module");
-    p.instances_.push_back({module, {}, {}, {}});
+          "transactional State execution requires a closed concrete root Module");
     bindings.owner = module;
+    if (failed(declareInstance(module, {}, TransactionalNoID)) ||
+        failed(prepareInstance(0, {})))
+      return failure();
+    for (unsigned id = 0; id < p.instances_.size(); ++id)
+      if (failed(registerRules(id)))
+        return failure();
+    auto yield = cast<YieldOp>(module.getBody().front().getTerminator());
+    for (Value value : yield.getValues()) {
+      auto item = lookup(value, environments.front(), yield);
+      if (failed(item) || item->kind != Binding::Resource)
+        return yield.emitError(
+            "transactional outputs must export allocated State identities");
+      p.exports_.push_back(item->id);
+    }
+    if (failed(conflicts()))
+      return failure();
+    return knownControls();
+  }
+
+private:
+  TransactionalAnalysis &p;
+  TransactionalDebit debit;
+  HardwareAnalysis hardware;
+  HardwareBindings bindings;
+  std::vector<Environment> environments;
+  unsigned instance = 0;
+  SmallVector<TransactionalInvocationPlan> invocation;
+  unsigned nextStep = 0;
+  llvm::DenseMap<unsigned, TransactionalStep *> producers;
+  llvm::DenseMap<unsigned, bool> closedCache;
+  unsigned nextClosedValue = 0;
+  llvm::DenseMap<unsigned, Predicate> predicates;
+  unsigned predicateDepth = 0;
+  llvm::SmallPtrSet<Operation *, 16> methodStack;
+
+  LogicalResult charge(uint64_t units, Operation *site) {
+    return debit(units, site);
+  }
+  LogicalResult declareInstance(ModuleOp module, InstanceOp declaration,
+                                unsigned parent) {
+    if (!module.getParameters().empty() || !module.getTypeParameters().empty())
+      return module.emitError("transactional hierarchy requires concrete Modules");
+    if (failed(charge(64, module)))
+      return failure();
+    unsigned id = p.instances_.size();
+    p.instances_.push_back({module, declaration, parent, {}, {}, {}, {}});
+    environments.emplace_back();
+    if (parent != TransactionalNoID)
+      p.instances_[parent].children.push_back(id);
     for (auto allocation : module.getBody().front().getOps<ResourceAllocOp>()) {
       auto type = dyn_cast<StateType>(allocation.getResource().getType());
       if (!type || failed(p.getPayloadWidth(type.getPayload())))
@@ -91,11 +139,31 @@ public:
             "transactional execution currently requires finite Bits State");
       if (failed(charge(32, allocation)))
         return failure();
-      unsigned id = p.resources_.size();
-      p.resources_.push_back({allocation, 0, type});
-      p.instances_[0].resources.push_back(id);
-      environment[allocation.getResource()] = {Binding::Resource, id};
+      unsigned resource = p.resources_.size();
+      p.resources_.push_back({allocation, id, type});
+      p.instances_[id].resources.push_back(resource);
+      environments[id][allocation.getResource()] = {Binding::Resource, resource};
     }
+    for (auto child : module.getBody().front().getOps<InstanceOp>()) {
+      auto target = dyn_cast_or_null<ModuleOp>(named(p.package_, child.getCallee()));
+      if (!target)
+        return child.emitError("instance needs a linked Module definition");
+      if (failed(declareInstance(target, child, id)))
+        return failure();
+    }
+    return success();
+  }
+  LogicalResult prepareInstance(unsigned id, ArrayRef<Binding> args) {
+    unsigned caller = instance;
+    instance = id;
+    auto restore = llvm::scope_exit([&] { instance = caller; });
+    auto module = p.instances_[id].definition;
+    auto &environment = environments[id];
+    auto &body = module.getBody().front();
+    if (body.getNumArguments() != args.size())
+      return module.emitError("Module instance binding arity differs");
+    for (auto [argument, item] : llvm::zip(body.getArguments(), args))
+      environment[argument] = item;
     SmallVector<Operation *> pending;
     module.getBody().walk<WalkOrder::PreOrder>([&](Operation *op) {
       if (isa<TransactionRuleOp, TransactionMethodOp>(op))
@@ -105,8 +173,6 @@ public:
         pending.push_back(op);
       return WalkResult::advance();
     });
-    // Module regions are hardware graphs. Order pure evaluation by SSA
-    // dependencies, without imposing source statement order on definitions.
     while (!pending.empty()) {
       bool progress = false;
       for (auto &op : pending) {
@@ -118,7 +184,7 @@ public:
               return environment.contains(value);
             }))
           continue;
-        if (failed(operation(op, environment, p.instances_[0].comb,
+        if (failed(operation(op, environment, p.instances_[id].comb,
                              TransactionalNoID, true)))
           return failure();
         op = nullptr;
@@ -129,18 +195,25 @@ public:
                                 "unresolved or cyclic dependencies");
       llvm::erase(pending, nullptr);
     }
-    for (auto &resource : p.resources_) {
+    for (unsigned resourceID : p.instances_[id].resources) {
+      auto &resource = p.resources_[resourceID];
       if (resource.allocation.getInitial().empty())
         return resource.allocation.emitError(
             "transactional execution currently requires an explicit State "
             "initial value");
-      auto id = payload(resource.allocation.getInitial()[0], environment,
-                        resource.allocation);
-      if (failed(id) || !closed(*id))
+      auto initial = payload(resource.allocation.getInitial()[0], environment,
+                             resource.allocation);
+      if (failed(initial) || !closed(*initial))
         return resource.allocation.emitError(
             "State initial value must be a closed pure expression");
-      resource.initial = *id;
+      resource.initial = *initial;
     }
+    return success();
+  }
+  LogicalResult registerRules(unsigned id) {
+    instance = id;
+    auto module = p.instances_[id].definition;
+    auto &environment = environments[id];
     SmallVector<TransactionRuleCallOp> registrations;
     module.walk([&](TransactionRuleCallOp call) { registrations.push_back(call); });
     for (auto call : registrations) {
@@ -166,7 +239,7 @@ public:
         args.push_back(*item);
       }
       unsigned rule = p.rules_.size();
-      p.rules_.push_back({call, definition, 0, {}, {}, {}});
+      p.rules_.push_back({call, definition, id, {}, {}, {}, {}});
       SmallVector<TransactionalPathTerm> path;
       for (Operation *at = call; at->getParentOp() != module;
            at = at->getParentOp()) {
@@ -182,42 +255,17 @@ public:
         path.push_back({*condition, at->getParentRegion() == &branch.getThenRegion()});
       }
       p.rules_[rule].path.assign(path.rbegin(), path.rend());
-      p.instances_[0].rules.push_back(rule);
+      p.instances_[id].rules.push_back(rule);
+      invocation.clear();
+      if (id != 0)
+        invocation.push_back({call, id});
       if (failed(region(definition.getGuard(), args, p.rules_[rule].guard, rule,
                         true)) ||
           failed(region(definition.getBody(), args, p.rules_[rule].body, rule,
                         false)))
         return failure();
     }
-    auto yield = cast<YieldOp>(module.getBody().front().getTerminator());
-    for (Value value : yield.getValues()) {
-      auto item = lookup(value, environment, yield);
-      if (failed(item) || item->kind != Binding::Resource)
-        return yield.emitError(
-            "transactional outputs must export allocated State identities");
-      p.exports_.push_back(item->id);
-    }
-    if (failed(conflicts()))
-      return failure();
-    return knownControls();
-  }
-
-private:
-  TransactionalAnalysis &p;
-  TransactionalDebit debit;
-  HardwareAnalysis hardware;
-  HardwareBindings bindings;
-  Environment environment;
-  unsigned nextStep = 0;
-  llvm::DenseMap<unsigned, TransactionalStep *> producers;
-  llvm::DenseMap<unsigned, bool> closedCache;
-  unsigned nextClosedValue = 0;
-  llvm::DenseMap<unsigned, Predicate> predicates;
-  unsigned predicateDepth = 0;
-  llvm::SmallPtrSet<Operation *, 16> methodStack;
-
-  LogicalResult charge(uint64_t units, Operation *site) {
-    return debit(units, site);
+    return success();
   }
   FailureOr<Binding> lookup(Value value, Environment &env, Operation *site) {
     auto found = env.find(value);
@@ -261,7 +309,7 @@ private:
     if (!region.hasOneBlock() ||
         region.front().getNumArguments() != args.size())
       return region.getParentOp()->emitError(
-          "Rule region binding arity differs");
+          "callable region binding arity differs");
     Environment env;
     for (auto [arg, item] : llvm::zip(region.front().getArguments(), args))
       env[arg] = item;
@@ -285,10 +333,46 @@ private:
                       op)))
       return failure();
     if (auto reference = dyn_cast<InstanceRefOp>(op)) {
-      if (!reference.getInstancePath().empty())
-        return reference.emitError(
-            "cross-Module references await transactional hierarchy binding");
-      env[reference.getReference()] = {Binding::Instance, 0};
+      unsigned target = instance;
+      for (Attribute segment : reference.getInstancePath()) {
+        bool found = false;
+        for (unsigned child : p.instances_[target].children)
+          if (p.instances_[child].declaration.getInstanceName() ==
+              cast<StringAttr>(segment).getValue()) {
+            target = child;
+            found = true;
+            break;
+          }
+        if (!found)
+          return reference.emitError("instance reference has no actual binding");
+      }
+      env[reference.getReference()] = {Binding::Instance, target};
+      return success();
+    }
+    if (auto child = dyn_cast<InstanceOp>(op)) {
+      unsigned target = TransactionalNoID;
+      for (unsigned id : p.instances_[instance].children)
+        if (p.instances_[id].declaration == child)
+          target = id;
+      if (target == TransactionalNoID)
+        return child.emitError("instance has no declared occurrence");
+      SmallVector<Binding> args;
+      for (Value value : child.getOperands()) {
+        auto item = lookup(value, env, child);
+        if (failed(item))
+          return failure();
+        args.push_back(*item);
+      }
+      if (failed(prepareInstance(target, args)))
+        return failure();
+      auto module = p.instances_[target].definition;
+      auto yield = cast<YieldOp>(module.getBody().front().getTerminator());
+      for (auto [result, value] : llvm::zip(child.getResults(), yield.getValues())) {
+        auto item = lookup(value, environments[target], child);
+        if (failed(item))
+          return failure();
+        env[result] = *item;
+      }
       return success();
     }
     if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
@@ -302,6 +386,8 @@ private:
     auto &step = *owned;
     step.operation = op;
     step.rule = rule;
+    step.instance = instance;
+    step.invocation = invocation;
     step.id = nextStep++;
     if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
       auto receiver = lookup(call.getReceiver(), env, op);
@@ -351,7 +437,8 @@ private:
     } else if (detail::isCombinationalHardwareOperation(op) &&
                !isa<ValueMergeOp, ValueRequireOp>(op)) {
       if (op->getNumRegions() ||
-          failed(hardware.verifyResolvedOperation(op, bindings)))
+          failed(hardware.verifyResolvedOperation(
+              op, HardwareBindings{p.instances_[instance].definition})))
         return failure();
       for (Value value : op->getOperands()) {
         auto id = payload(value, env, op);
@@ -371,7 +458,7 @@ private:
         return op->emitError(
             "transactional execution requires finite Bits payloads");
       unsigned id = p.values_.size();
-      p.values_.push_back({result.getType(), 0, rule});
+      p.values_.push_back({result.getType(), instance, rule});
       step.results.push_back(id);
       producers[id] = &step;
       env[result] = {Binding::Payload, id};
@@ -402,11 +489,18 @@ private:
     }
     // Captures belong to the callee Module, never a prior invocation's locals.
     for (Value value : definition.getCaptures()) {
-      auto item = lookup(value, environment, call);
+      auto item = lookup(value, environments[receiver.id], call);
       if (failed(item))
         return failure();
       args.push_back(*item);
     }
+    unsigned caller = instance;
+    instance = receiver.id;
+    invocation.push_back({call, receiver.id});
+    auto restore = llvm::scope_exit([&] {
+      instance = caller;
+      invocation.pop_back();
+    });
     TransactionalSequence guard, body;
     if (failed(region(definition.getGuard(), args, guard, rule, true)) ||
         failed(region(definition.getBody(), args, body, rule, pure)))
@@ -458,8 +552,9 @@ private:
     bool changed;
     do {
       changed = false;
-      if (failed(evaluate(p.instances_[0].comb)))
-        return failure();
+      for (auto &owner : p.instances_)
+        if (failed(evaluate(owner.comb)))
+          return failure();
       for (auto &rule : p.rules_)
         if (failed(evaluate(rule.guard)) || failed(evaluate(rule.body)))
           return failure();

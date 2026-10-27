@@ -35,6 +35,10 @@ enum class TransactionalStepKind {
   Assert,
   Observe
 };
+struct TransactionalInvocationPlan {
+  mlir::Operation *call = nullptr;
+  unsigned instance = 0;
+};
 struct TransactionalStep {
   TransactionalStepKind kind = TransactionalStepKind::Pure;
   mlir::Operation *operation = nullptr;
@@ -44,6 +48,7 @@ struct TransactionalStep {
   unsigned rule = TransactionalNoID;
   unsigned activation = TransactionalNoID;
   llvm::SmallVector<TransactionalValueID> operands, results;
+  llvm::SmallVector<TransactionalInvocationPlan> invocation;
 };
 struct TransactionalSequence {
   TransactionalSequence() = default;
@@ -56,6 +61,9 @@ struct TransactionalSequence {
 };
 struct TransactionalInstancePlan {
   ModuleOp definition;
+  InstanceOp declaration; // Empty for the selected root.
+  unsigned parent = TransactionalNoID;
+  llvm::SmallVector<unsigned> children;
   TransactionalSequence comb;
   llvm::SmallVector<unsigned> resources, rules;
 };

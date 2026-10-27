@@ -107,7 +107,8 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
   if (role.getValue() == "definition") {
     if (declarationOwner != owner)
       return emitError() << "source definition has a foreign SourceOwner";
-    if (body ? !isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp>(operation)
+    if (body ? (!isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp>(operation) &&
+                !isTransactionalReferenceRequirement(operation))
              : !retainedDeclaration(operation))
       return emitError() << "unsupported source definition category";
   } else if (role.getValue() == "import_snapshot") {
@@ -245,6 +246,10 @@ bool hasQualifiedDeclarationIdentityForOwner(Operation *operation,
     return false;
   StringRef local =
       module.empty() ? symbol : symbol.drop_front(module.size() + 1);
+  if (isTransactionalReferenceRequirement(operation)) {
+    auto [parent, leaf] = local.split('.');
+    return !parent.empty() && !leaf.empty() && !leaf.contains('.');
+  }
   if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp>(
           operation))
     return !local.empty() && !local.contains('.');

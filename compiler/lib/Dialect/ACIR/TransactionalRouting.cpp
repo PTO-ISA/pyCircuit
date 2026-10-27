@@ -79,21 +79,139 @@ DictionaryAttr checkID(const TransactionalAnalysis &p, Builder &b,
 ArrayAttr sourceOwners(const TransactionalAnalysis &p, Builder &b) {
   if (auto owners = p.getPackage()->getAttrOfType<ArrayAttr>("ac.source_units"))
     return owners;
-  return b.getArrayAttr({p.getTop()->getAttr("source_owner")});
+  SmallVector<Attribute> owners;
+  for (const auto &instance : p.getInstances()) {
+    auto owner = instance.definition->getAttr("source_owner");
+    if (!llvm::is_contained(owners, owner))
+      owners.push_back(owner);
+  }
+  return b.getArrayAttr(owners);
+}
+std::string instanceSymbol(const TransactionalAnalysis &p, unsigned id);
+std::string physicalSymbol(const TransactionalAnalysis &p, unsigned id) {
+  return id == 0 ? p.getTop().getSymName().str() : instanceSymbol(p, id);
+}
+DictionaryAttr physicalOccurrence(DictionaryAttr source, Builder &b,
+                                  StringRef symbol) {
+  NamedAttrList occurrence(source);
+  NamedAttrList site(source.getAs<DictionaryAttr>("site"));
+  site.set("definition", FlatSymbolRefAttr::get(b.getContext(), symbol));
+  occurrence.set("site", site.getDictionary(b.getContext()));
+  return occurrence.getDictionary(b.getContext());
+}
+DictionaryAttr storageOccurrence(const TransactionalAnalysis &p, Builder &b,
+                                unsigned resource) {
+  auto &owner = p.getResources()[resource];
+  return physicalOccurrence(
+      sourceOccurrence(owner.allocation, b, p.getTop().getSymName(), resource + 1),
+      b, physicalSymbol(p, owner.instance));
+}
+DictionaryAttr ownerRef(const TransactionalAnalysis &p, Builder &b,
+                        unsigned instance) {
+  SmallVector<Attribute> path;
+  for (unsigned id = instance; id != 0; id = p.getInstances()[id].parent)
+    path.push_back(physicalOccurrence(
+        sourceOccurrence(p.getInstances()[id].declaration, b,
+                         p.getTop().getSymName(), id),
+        b, physicalSymbol(p, p.getInstances()[id].parent)));
+  std::reverse(path.begin(), path.end());
+  return b.getDictionaryAttr(
+      {b.getNamedAttr("instance_path", b.getArrayAttr(path))});
 }
 DictionaryAttr observationID(const TransactionalAnalysis &p, Builder &b,
                              const TransactionalStep &step, unsigned ordinal) {
-  auto site = step.operation->getAttrOfType<DictionaryAttr>("occurrence");
+  auto site = physicalOccurrence(
+      sourceOccurrence(step.operation, b, p.getTop().getSymName(), ordinal), b,
+      physicalSymbol(p, step.instance));
   auto registration = p.getRules()[step.rule].registration;
-  auto call = registration->getAttrOfType<DictionaryAttr>("occurrence");
-  if (!call)
-    call = occurrence(b, p.getTop().getSymName(), ordinal);
+  SmallVector<Attribute> invocation;
+  unsigned caller = 0;
+  for (auto frame : step.invocation) {
+    invocation.push_back(b.getDictionaryAttr(
+        {b.getNamedAttr("call", physicalOccurrence(
+                                    sourceOccurrence(frame.call, b,
+                                                     p.getTop().getSymName(),
+                                                     ordinal),
+                                    b, physicalSymbol(p, caller))),
+         b.getNamedAttr("receiver", ownerRef(p, b, frame.instance))}));
+    caller = frame.instance;
+  }
   return b.getDictionaryAttr(
-      {b.getNamedAttr("registration", call), b.getNamedAttr("site", site),
-       b.getNamedAttr("owner", b.getDictionaryAttr({b.getNamedAttr(
-                                   "instance_path", b.getArrayAttr({}))})),
+      {b.getNamedAttr("registration", physicalOccurrence(
+                                            sourceOccurrence(registration, b,
+                                                             p.getTop().getSymName(),
+                                                             ordinal),
+                                            b, p.getTop().getSymName())),
+       b.getNamedAttr("site", site),
+       b.getNamedAttr("owner", ownerRef(p, b, step.instance)),
        b.getNamedAttr("ordinal", b.getI64IntegerAttr(ordinal)),
-       b.getNamedAttr("invocation", b.getArrayAttr({}))});
+       b.getNamedAttr("invocation", b.getArrayAttr(invocation))});
+}
+SmallVector<unsigned> subtreeResources(const TransactionalAnalysis &p,
+                                       unsigned instance) {
+  SmallVector<unsigned> resources(p.getInstances()[instance].resources);
+  for (unsigned child : p.getInstances()[instance].children)
+    llvm::append_range(resources, subtreeResources(p, child));
+  return resources;
+}
+std::string instanceSymbol(const TransactionalAnalysis &p, unsigned id) {
+  return p.getTop().getSymName().str() + "__pyc_instance_" + std::to_string(id);
+}
+SmallVector<NamedAttribute> envelopeAttributes(const TransactionalAnalysis &p,
+                                             Builder &b, unsigned id,
+                                             BitsType bit) {
+  SmallVector<Type> inputs{bit, bit}, outputs;
+  SmallVector<std::string> inputNames{"pyc_clk", "pyc_rst"}, outputNames;
+  for (unsigned resource : subtreeResources(p, id)) {
+    auto type = p.getResources()[resource].type.getPayload();
+    inputs.append({type, bit});
+    inputNames.push_back("d_" + std::to_string(resource));
+    inputNames.push_back("en_" + std::to_string(resource));
+    outputs.push_back(type);
+    outputNames.push_back("q_" + std::to_string(resource));
+  }
+  SmallVector<Attribute> inputStrings, outputStrings;
+  for (auto &name : inputNames)
+    inputStrings.push_back(b.getStringAttr(name));
+  for (auto &name : outputNames)
+    outputStrings.push_back(b.getStringAttr(name));
+  SmallVector<NamedAttribute> attrs{
+      b.getNamedAttr("sym_name", b.getStringAttr(instanceSymbol(p, id))),
+      b.getNamedAttr("source_owner",
+                     p.getInstances()[id].definition->getAttr("source_owner")),
+      b.getNamedAttr("parameters", b.getArrayAttr({})),
+      b.getNamedAttr("type_parameters", b.getArrayAttr({})),
+      b.getNamedAttr("function_type",
+                     TypeAttr::get(b.getFunctionType(inputs, outputs))),
+      b.getNamedAttr("input_names", b.getArrayAttr(inputStrings)),
+      b.getNamedAttr("output_names", b.getArrayAttr(outputStrings)),
+      b.getNamedAttr("ac.domain_inputs",
+                     b.getDictionaryAttr(
+                         {b.getNamedAttr("clock", b.getI64IntegerAttr(0)),
+                          b.getNamedAttr("reset", b.getI64IntegerAttr(1))}))};
+  if (inputs.size() > 2) {
+    SmallVector<Attribute> defaults(inputs.size() - 2, b.getI64IntegerAttr(0));
+    attrs.push_back(b.getNamedAttr(
+        "ac.internal_ports",
+        b.getDictionaryAttr(
+            {b.getNamedAttr("source_inputs", b.getI64IntegerAttr(2)),
+             b.getNamedAttr("source_outputs", b.getI64IntegerAttr(0)),
+             b.getNamedAttr("root_inputs", b.getArrayAttr(defaults))})));
+  }
+  return attrs;
+}
+SmallVector<NamedAttribute> childAttributes(const TransactionalAnalysis &p,
+                                          Builder &b, unsigned id) {
+  auto source = p.getInstances()[id].declaration;
+  return {
+      b.getNamedAttr("instance_name", source.getInstanceNameAttr()),
+      b.getNamedAttr("occurrence", physicalOccurrence(
+                                       source.getOccurrence(), b,
+                                       physicalSymbol(p, p.getInstances()[id].parent))),
+      b.getNamedAttr("callee", FlatSymbolRefAttr::get(
+                                   b.getContext(), instanceSymbol(p, id))),
+      b.getNamedAttr("parameters", b.getArrayAttr({})),
+      b.getNamedAttr("type_arguments", b.getArrayAttr({}))};
 }
 struct Observation {
   const TransactionalStep *step;
@@ -124,6 +242,7 @@ private:
   SmallVector<Check> checks;
   SmallVector<Observation> observations;
   Value zero, one;
+  LogicalResult preserveHierarchy(mlir::ModuleOp package, ModuleOp root);
   Value literal(bool value) {
     return make(b, loc, BitsConstant4Op::getOperationName(), {}, TypeRange{bit},
                 {b.getNamedAttr("pattern", b.getStringAttr(value ? "1" : "0"))})
@@ -253,7 +372,8 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
                                                             b, top, id + 1))})
             ->getResult(0));
   }
-  sequence(p.getInstances().front().comb, {});
+  for (const auto &owner : p.getInstances())
+    sequence(owner.comb, {});
   for (auto [id, resource] : llvm::enumerate(p.getResources()))
     q[id].getDefiningOp()->insertOperands(2, values[resource.initial]);
   SmallVector<Value> captures(q);
@@ -380,7 +500,109 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   for (auto sourceSystem : p.getPackage().getOps<SystemOp>())
     if (auto policy = sourceSystem->getAttr("ac.execution_policy"))
       system->setAttr("ac.execution_policy", policy);
+  if (failed(preserveHierarchy(*package, module)))
+    return failure();
   return std::move(package);
+}
+
+// Transaction queries are statically specialized in the root computation.
+// Storage remains in real source-owner instances; generated proposal wires
+// cross the hierarchy and share the outer transaction's final admission.
+LogicalResult Router::preserveHierarchy(mlir::ModuleOp package, ModuleOp root) {
+  if (p.getInstances().size() == 1)
+    return success();
+  SmallVector<SourceStateOp> storage(root.getBody().front().getOps<SourceStateOp>());
+  SmallVector<StateUpdateOp> updates(root.getBody().front().getOps<StateUpdateOp>());
+  SmallVector<ModuleOp> envelopes(p.getInstances().size());
+  for (unsigned id = 1; id < p.getInstances().size(); ++id) {
+    if (failed(debit(64 + subtreeResources(p, id).size() * 32,
+                     p.getInstances()[id].definition)))
+      return failure();
+    b.setInsertionPointToEnd(package.getBody());
+    OperationState state(loc, ModuleOp::getOperationName());
+    state.addAttributes(envelopeAttributes(p, b, id, bit));
+    state.addRegion()->push_back(new Block());
+    envelopes[id] = cast<ModuleOp>(b.create(state));
+    auto &body = envelopes[id].getBody().front();
+    for (Type type : envelopes[id].getFunctionType().getInputs())
+      body.addArgument(type, loc);
+  }
+  for (unsigned id = 0; id < p.getInstances().size(); ++id) {
+    auto module = id == 0 ? root : envelopes[id];
+    auto &body = module.getBody().front();
+    b.setInsertionPointToEnd(&body);
+    if (id == 0)
+      b.setInsertionPoint(body.getTerminator());
+    auto resources = subtreeResources(p, id);
+    llvm::DenseMap<unsigned, unsigned> slots;
+    for (auto [slot, resource] : llvm::enumerate(resources))
+      slots[resource] = slot;
+    llvm::DenseMap<unsigned, Value> endpoints;
+    IRMapping initialValues;
+    std::function<Value(Value)> cloneInitial = [&](Value value) -> Value {
+      if (auto mapped = initialValues.lookupOrNull(value))
+        return mapped;
+      auto *source = value.getDefiningOp();
+      for (Value operand : source->getOperands())
+        cloneInitial(operand);
+      auto *clone = b.clone(*source, initialValues);
+      clone->removeAttr(stepKey);
+      for (auto [original, copied] : llvm::zip(source->getResults(), clone->getResults()))
+        initialValues.map(original, copied);
+      return initialValues.lookup(value);
+    };
+    for (unsigned resource : p.getInstances()[id].resources) {
+      if (id == 0)
+        continue;
+      unsigned port = 2 + 2 * slots[resource];
+      auto original = storage[resource];
+      auto *local = make(
+          b, original.getLoc(), SourceStateOp::getOperationName(),
+          {body.getArgument(0), body.getArgument(1),
+           cloneInitial(original->getOperand(2))},
+          original->getResultTypes(), original->getAttrs());
+      local->setAttr("occurrence", storageOccurrence(p, b, resource));
+      endpoints[resource] = local->getResult(0);
+      make(b, loc, StateUpdateOp::getOperationName(),
+           {local->getResult(0), body.getArgument(port),
+            body.getArgument(port + 1)}, {});
+    }
+    for (unsigned child : p.getInstances()[id].children) {
+      SmallVector<Value> operands{body.getArgument(0), body.getArgument(1)};
+      SmallVector<Type> results;
+      auto childResources = subtreeResources(p, child);
+      for (unsigned resource : childResources) {
+        if (id == 0) {
+          operands.append({updates[resource].getCandidate(),
+                           updates[resource].getIntent()});
+        } else {
+          unsigned port = 2 + 2 * slots[resource];
+          operands.append({body.getArgument(port), body.getArgument(port + 1)});
+        }
+        results.push_back(p.getResources()[resource].type.getPayload());
+      }
+      auto *instance = make(b, loc, InstanceOp::getOperationName(), operands,
+                            results, childAttributes(p, b, child));
+      for (auto [resource, result] : llvm::zip(childResources, instance->getResults())) {
+        if (id == 0)
+          storage[resource]->getResult(0).replaceAllUsesWith(result);
+        else
+          endpoints[resource] = result;
+      }
+    }
+    if (id != 0) {
+      SmallVector<Value> outputs;
+      for (unsigned resource : resources)
+        outputs.push_back(endpoints[resource]);
+      make(b, loc, YieldOp::getOperationName(), outputs, {});
+    }
+  }
+  for (auto [resource, source] : llvm::enumerate(storage))
+    if (p.getResources()[resource].instance != 0) {
+      updates[resource].erase();
+      source.erase();
+    }
+  return success();
 }
 
 // Replay does not call Router or construct an expected hardware graph. It binds
@@ -407,11 +629,17 @@ private:
   BitsType bit;
   ModuleOp module;
   RuleOp comb;
-  SmallVector<Value> values, q, initials;
+  SmallVector<Value> values, q, initials, proposalData, proposalEnable;
+  SmallVector<ModuleOp> ownerModules;
+  LogicalResult inspectOwner(unsigned id, ModuleOp owner,
+                             ArrayRef<Value> arguments,
+                             ArrayRef<Value> exposed);
+  LogicalResult initializer(Value actual, Value expected, Block *owner);
   SmallVector<SmallVector<Write>> writes;
   SmallVector<std::pair<const TransactionalStep *, Value>> assertions,
       observations;
   llvm::DenseMap<unsigned, Operation *> pure;
+  llvm::DenseSet<std::pair<Value, Value>> initializers;
   llvm::DenseSet<Operation *> claimed;
   Value zero, one;
   bool final = false;
@@ -495,6 +723,170 @@ private:
   }
 };
 
+LogicalResult Replay::initializer(Value actual, Value expected, Block *owner) {
+  if (initializers.contains({actual, expected}))
+    return success();
+  auto *op = actual.getDefiningOp();
+  auto *source = expected.getDefiningOp();
+  if (!op || !source || op->getBlock() != owner || op->getNumRegions() ||
+      op->getName() != source->getName() ||
+      op->getResultTypes() != source->getResultTypes() ||
+      op->getNumOperands() != source->getNumOperands() ||
+      cast<OpResult>(actual).getResultNumber() != cast<OpResult>(expected).getResultNumber())
+    return reject("owner-local State initializer DAG differs");
+  NamedAttrList attributes(source->getAttrs());
+  attributes.erase(stepKey);
+  if (op->getAttrDictionary() != attributes.getDictionary(b.getContext()))
+    return reject("owner-local State initializer attributes differ");
+  for (auto [operand, original] : llvm::zip(op->getOperands(), source->getOperands()))
+    if (failed(initializer(operand, original, owner)))
+      return failure();
+  initializers.insert({actual, expected});
+  return claim(op);
+}
+
+LogicalResult Replay::inspectOwner(unsigned id, ModuleOp owner,
+                                    ArrayRef<Value> arguments,
+                                    ArrayRef<Value> exposed) {
+  ownerModules[id] = owner;
+  if (id != 0 && owner->getAttrDictionary() !=
+                     NamedAttrList(envelopeAttributes(p, b, id, bit))
+                         .getDictionary(b.getContext()))
+    return reject("storage-owner Module signature/identity differs");
+  if (!owner.getBody().hasOneBlock())
+    return reject("storage-owner body differs");
+  auto &body = owner.getBody().front();
+  if (body.getNumArguments() != arguments.size())
+    return reject("storage-owner input binding differs");
+  auto resources = subtreeResources(p, id);
+  llvm::DenseMap<unsigned, unsigned> slots;
+  for (auto [slot, resource] : llvm::enumerate(resources))
+    slots[resource] = slot;
+  SmallVector<Operation *> storage;
+  SmallVector<StateUpdateOp> updates;
+  SmallVector<InstanceOp> children;
+  for (Operation &op : body) {
+    if (isa<SourceStateOp>(op))
+      storage.push_back(&op);
+    if (auto instance = dyn_cast<InstanceOp>(op)) {
+      if (instance.getCallee() == storageName)
+        storage.push_back(&op);
+      else
+        children.push_back(instance);
+    }
+    if (auto update = dyn_cast<StateUpdateOp>(op))
+      updates.push_back(update);
+  }
+  const auto &source = p.getInstances()[id];
+  if (storage.size() != source.resources.size() ||
+      updates.size() != (final ? 0 : storage.size()) ||
+      children.size() != source.children.size())
+    return reject("storage-owner executable inventory differs");
+  llvm::DenseMap<unsigned, Value> localQ;
+  for (auto [index, resourceID] : llvm::enumerate(source.resources)) {
+    auto *op = storage[index];
+    const auto &resource = p.getResources()[resourceID];
+    if (op->getNumResults() != 1 ||
+        op->getResult(0).getType() != resource.type.getPayload())
+      return reject("State payload differs");
+    NamedAttrList expected(
+        {b.getNamedAttr("instance_name",
+                        resource.allocation->getAttr("instance_name")),
+         b.getNamedAttr("occurrence", storageOccurrence(p, b, resourceID))});
+    if (final) {
+      expected.append("callee", FlatSymbolRefAttr::get(b.getContext(), storageName));
+      expected.append("parameters", b.getArrayAttr({}));
+      expected.append("type_arguments",
+                      b.getArrayAttr({TypeAttr::get(resource.type.getPayload())}));
+    }
+    if ((final ? !isa<InstanceOp>(op) : !isa<SourceStateOp>(op)) ||
+        op->getNumOperands() != (final ? 5 : 3) ||
+        op->getAttrDictionary() != expected.getDictionary(b.getContext()) ||
+        op->getOperand(0) != body.getArgument(0) ||
+        op->getOperand(1) != body.getArgument(1))
+      return reject("owner-local State identity/clock/reset differs");
+    Value data, enable, initial = op->getOperand(final ? 4 : 2);
+    if (final) {
+      enable = op->getOperand(2);
+      data = op->getOperand(3);
+    } else {
+      auto update = updates[index];
+      if (update->getNumOperands() != 3 || !update->getAttrs().empty() ||
+          update.getState() != op->getResult(0))
+        return reject("owner-local State update differs");
+      data = update.getCandidate();
+      enable = update.getIntent();
+      if (failed(claim(update)))
+        return failure();
+    }
+    localQ[resourceID] = op->getResult(0);
+    if (id == 0) {
+      q[resourceID] = op->getResult(0);
+      proposalData[resourceID] = data;
+      proposalEnable[resourceID] = enable;
+      initials[resourceID] = initial;
+    } else {
+      unsigned slot = slots[resourceID], port = 2 + 2 * slot;
+      if (data != body.getArgument(port) || enable != body.getArgument(port + 1))
+        return reject("owner-local proposal port differs");
+      q[resourceID] = exposed[slot];
+      proposalData[resourceID] = arguments[port];
+      proposalEnable[resourceID] = arguments[port + 1];
+      initials[resourceID] = initial;
+    }
+    if (failed(claim(op)))
+      return failure();
+  }
+  for (auto [index, childID] : llvm::enumerate(source.children)) {
+    auto child = children[index];
+    if (!attrs(child, childAttributes(p, b, childID)))
+      return reject("source child instance identity differs");
+    ModuleOp definition;
+    for (auto candidate : package.getOps<ModuleOp>())
+      if (candidate.getSymName() == instanceSymbol(p, childID))
+        definition = candidate;
+    auto childResources = subtreeResources(p, childID);
+    if (!definition || child.getNumOperands() != 2 + 2 * childResources.size() ||
+        child.getNumResults() != childResources.size() ||
+        child->getOperand(0) != body.getArgument(0) ||
+        child->getOperand(1) != body.getArgument(1))
+      return reject("source child instance interface differs");
+    SmallVector<Value> childArguments{arguments[0], arguments[1]}, childExposed;
+    for (auto [slot, resource] : llvm::enumerate(childResources)) {
+      unsigned port = 2 + 2 * slot;
+      if (child->getResult(slot).getType() != p.getResources()[resource].type.getPayload())
+        return reject("child committed-Q result type differs");
+      localQ[resource] = child->getResult(slot);
+      if (id == 0) {
+        childArguments.append({child->getOperand(port), child->getOperand(port + 1)});
+        childExposed.push_back(child->getResult(slot));
+      } else {
+        unsigned parentSlot = slots[resource], parentPort = 2 + 2 * parentSlot;
+        for (unsigned field = 0; field < 2; ++field) {
+          if (child->getOperand(port + field) != body.getArgument(parentPort + field))
+            return reject("proposal forwarding edge differs");
+          childArguments.push_back(arguments[parentPort + field]);
+        }
+        childExposed.push_back(exposed[parentSlot]);
+      }
+    }
+    if (failed(claim(child)) ||
+        failed(inspectOwner(childID, definition, childArguments, childExposed)))
+      return failure();
+  }
+  if (id != 0) {
+    auto yield = dyn_cast<YieldOp>(body.getTerminator());
+    if (!yield || yield.getValues().size() != resources.size())
+      return reject("storage-owner committed-Q export inventory differs");
+    for (auto [slot, resource] : llvm::enumerate(resources))
+      if (yield.getValues()[slot] != localQ[resource])
+        return reject("storage-owner committed-Q forwarding edge differs");
+    if (failed(claim(yield)))
+      return failure();
+  }
+  return success();
+}
+
 LogicalResult Replay::run() {
   auto stage = package->getAttrOfType<StringAttr>("ac.stage");
   final = stage && stage.getValue() == "final";
@@ -503,11 +895,15 @@ LogicalResult Replay::run() {
   auto modules = package.getOps<ModuleOp>();
   auto imports = package.getOps<ModuleImportOp>();
   auto systems = package.getOps<SystemOp>();
-  if (!llvm::hasSingleElement(modules) || !llvm::hasSingleElement(imports) ||
+  if (std::distance(modules.begin(), modules.end()) != p.getInstances().size() ||
+      !llvm::hasSingleElement(imports) ||
       !llvm::hasSingleElement(systems))
-    return reject("closed State graph requires one Module, storage declaration "
-                  "and System");
-  module = *modules.begin();
+    return reject("source instance/storage/System inventory differs");
+  for (auto candidate : modules)
+    if (candidate.getSymName() == top)
+      module = candidate;
+  if (!module)
+    return reject("missing selected root Module");
   auto imported = *imports.begin();
   auto system = *systems.begin();
   auto owner = p.getTop()->getAttrOfType<DictionaryAttr>("source_owner");
@@ -580,60 +976,17 @@ LogicalResult Replay::run() {
   if (!comb.getBody().hasOneBlock())
     return reject("transaction body differs");
   auto &work = comb.getBody().front();
-  SmallVector<Operation *> storage;
-  SmallVector<StateUpdateOp> updates;
-  for (Operation &op : body) {
-    if (isa<SourceStateOp, InstanceOp>(op))
-      storage.push_back(&op);
-    if (auto update = dyn_cast<StateUpdateOp>(op))
-      updates.push_back(update);
-  }
-  if (storage.size() != p.getResources().size() ||
-      updates.size() != (final ? 0 : storage.size()))
-    return reject("storage/update inventory differs");
-  q.resize(storage.size());
-  initials.resize(storage.size());
-  writes.resize(storage.size());
+  unsigned resourceCount = p.getResources().size();
+  q.resize(resourceCount);
+  initials.resize(resourceCount);
+  proposalData.resize(resourceCount);
+  proposalEnable.resize(resourceCount);
+  writes.resize(resourceCount);
   values.resize(p.getValues().size());
-  for (auto [id, op] : llvm::enumerate(storage)) {
-    const auto &resource = p.getResources()[id];
-    if (op->getNumResults() != 1 ||
-        op->getResult(0).getType() != resource.type.getPayload())
-      return reject("State payload differs");
-    if (final) {
-      if (!isa<InstanceOp>(op) || op->getNumOperands() != 5 ||
-          !attrs(op,
-                 {b.getNamedAttr("instance_name",
-                                 resource.allocation->getAttr("instance_name")),
-                  b.getNamedAttr(
-                      "occurrence",
-                      sourceOccurrence(resource.allocation, b, top, id + 1)),
-                  b.getNamedAttr("callee", FlatSymbolRefAttr::get(
-                                               b.getContext(), storageName)),
-                  b.getNamedAttr("parameters", b.getArrayAttr({})),
-                  b.getNamedAttr("type_arguments",
-                                 b.getArrayAttr({TypeAttr::get(
-                                     resource.type.getPayload())}))}))
-        return reject("physical State identity differs");
-      initials[id] = op->getOperand(4);
-    } else {
-      if (!isa<SourceStateOp>(op) || op->getNumOperands() != 3 ||
-          !attrs(op,
-                 {b.getNamedAttr("instance_name",
-                                 resource.allocation->getAttr("instance_name")),
-                  b.getNamedAttr(
-                      "occurrence",
-                      sourceOccurrence(resource.allocation, b, top, id + 1))}))
-        return reject("logical State identity differs");
-      initials[id] = op->getOperand(2);
-    }
-    if (op->getOperand(0) != body.getArgument(0) ||
-        op->getOperand(1) != body.getArgument(1))
-      return reject("State clock/reset differs");
-    q[id] = op->getResult(0);
-    if (failed(claim(op)))
-      return failure();
-  }
+  ownerModules.resize(p.getInstances().size());
+  SmallVector<Value> rootArguments(body.getArguments());
+  if (failed(inspectOwner(0, module, rootArguments, {})))
+    return failure();
   auto collect = [&](Block &block) -> LogicalResult {
     for (Operation &op : block)
       if (op.hasAttr(stepKey)) {
@@ -645,12 +998,19 @@ LogicalResult Replay::run() {
       }
     return success();
   };
-  if (failed(collect(body)) || failed(collect(work)) ||
-      failed(sequence(p.getInstances().front().comb, {}, &body)))
+  if (failed(collect(body)) || failed(collect(work)))
     return failure();
-  for (auto [id, resource] : llvm::enumerate(p.getResources()))
-    if (initials[id] != values[resource.initial])
-      return reject("State initialization differs from source");
+  for (const auto &owner : p.getInstances())
+    if (failed(sequence(owner.comb, {}, &body)))
+      return failure();
+  for (auto [id, resource] : llvm::enumerate(p.getResources())) {
+    if (resource.instance == 0) {
+      if (initials[id] != values[resource.initial])
+        return reject("State initialization differs from source");
+    } else if (failed(initializer(initials[id], values[resource.initial],
+                                  &ownerModules[resource.instance].getBody().front())))
+      return failure();
+  }
   SmallVector<Value> captures(q);
   SmallVector<unsigned> captured;
   for (auto [id, value] : llvm::enumerate(values))
@@ -743,20 +1103,9 @@ LogicalResult Replay::run() {
     }
     if (data != q[id] || enable != zero)
       return reject("hold base is not old Q/false");
-    if (final) {
-      if (storage[id]->getOperand(2) != comb->getResult(2 * id + 1) ||
-          storage[id]->getOperand(3) != comb->getResult(2 * id))
-        return reject("final data/enable endpoints differ");
-    } else {
-      auto update = updates[id];
-      if (update->getNumOperands() != 3 || !update->getAttrs().empty() ||
-          update.getState() != outerQ[id] ||
-          update.getCandidate() != comb->getResult(2 * id) ||
-          update.getIntent() != comb->getResult(2 * id + 1))
-        return reject("routed data/enable endpoints differ");
-      if (failed(claim(update)))
-        return failure();
-    }
+    if (proposalEnable[id] != comb->getResult(2 * id + 1) ||
+        proposalData[id] != comb->getResult(2 * id))
+      return reject("owner data/enable endpoints differ");
   }
   SmallVector<Attribute> required;
   SmallVector<SourceExpectOp> expects(body.getOps<SourceExpectOp>());
@@ -832,12 +1181,15 @@ LogicalResult Replay::run() {
        {comb.getOperation(), yield.getOperation(), exported.getOperation()})
     if (failed(claim(op)))
       return failure();
-  for (Block *block : {&body, &work})
-    for (Operation &op : *block)
+  for (auto owner : ownerModules)
+    for (Operation &op : owner.getBody().front())
       if (!claimed.contains(&op))
         return reject("unaccounted executable operation");
+  for (Operation &op : work)
+    if (!claimed.contains(&op))
+      return reject("unaccounted transaction computation");
   for (Operation &op : package.getBody()->getOperations())
-    if (&op != module && &op != imported && &op != system)
+    if (!llvm::is_contained(ownerModules, &op) && &op != imported && &op != system)
       return reject("unaccounted package operation");
   if (package->getAttr("ac.source_units") != sourceOwners(p, b))
     return reject("source owner inventory differs");

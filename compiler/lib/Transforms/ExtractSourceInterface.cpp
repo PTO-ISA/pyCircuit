@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Transforms/Passes.h"
 
 #include "mlir/IR/Builders.h"
@@ -43,6 +44,9 @@ public:
       attributes.erase("dependency_summary");
       attributes.erase("transaction_summary");
       attributes.set("semantic_kind", builder.getStringAttr("resources"));
+      auto methods = ac::getTransactionalMethodInterfaces(definition);
+      if (!methods.empty())
+        attributes.set("ac.methods", methods);
       state.addAttributes(attributes);
       Operation *declaration = Operation::create(state);
       definition->getBlock()->getOperations().insert(definition->getIterator(),

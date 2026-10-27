@@ -43,7 +43,23 @@ cancels earlier proposals and logs; independent Rules can still execute.
 Potentially overlapping writes reject without call-order arbitration.
 Module combination cannot call Methods in this slice.
 
-Queue, hierarchy, Rule-body control flow, cross-branch
+An existing Module instance may be passed through an `ac.module` parameter.
+For example, a parent declares `receiver: Receiver` and `sender: Sender`, then
+connects `sender(receiver)`. A Rule inside Sender calls `peer.accept(amount)`.
+The reference allocates no new Receiver. Independent compilation publishes the
+required Method payload signature and read-only constraints; explicit link checks
+the supplied implementation and binds the actual instance. All caller/callee
+updates share the outer Rule fire. Each instance keeps its own State and physical
+child hierarchy; compiler-generated ports carry Q and update controls.
+
+Generic reference calls currently require positional arguments with declared
+payload types, and a typed result context for a value-producing first use.
+A first use with no result context records an Action requirement. Queue/reference
+resource ports, broader payloads and discarded value-return inference remain
+migration work. See `examples/sibling_method_calls` for the supported split-source
+pattern.
+
+Queue, Rule-body control flow, cross-branch
 local merging and advanced payloads remain implementation gaps. Retained tests
 and independent oracles for these capabilities are not passing evidence for the
 replacement. See the [replacement status](../development/transactional-frontend-status.md)
