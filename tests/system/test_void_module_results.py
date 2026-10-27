@@ -94,7 +94,7 @@ def test_pure_void_roots_export_no_payload_or_domain(tmp_path, top, inputs):
         instances = [
             line
             for line in final.read_text().splitlines()
-            if '"ac.instance"' in line and f"callee = @checks.provider.{child}," in line
+            if "ac.instance" in line and f"callee = @checks.provider.{child}," in line
         ]
         assert len(instances) == 2
         assert all("-> ()" in line for line in instances)
@@ -190,7 +190,7 @@ def Exercise() -> None:
     instances = [
         line
         for line in final.read_text().splitlines()
-        if '"ac.instance"' in line and "callee = @checks.provider.Empty," in line
+        if "ac.instance" in line and "callee = @checks.provider.Empty," in line
     ]
     assert len(instances) == 2
     assert all("-> ()" in line for line in instances)
