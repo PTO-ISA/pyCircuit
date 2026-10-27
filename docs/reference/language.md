@@ -32,7 +32,18 @@ unknown Bits condition, but the current backend admission rejects controls it
 cannot prove known. The predicate bridge's `i1` is not a knownness proof or an
 X/Z-to-false conversion. Four-state payloads remain supported.
 
-Queue, hierarchy, user Method execution, Rule-body control flow, cross-branch
+Local `@ac.method` definitions retain separate guards and bodies in ACIR.
+Rules may call Methods, Methods may call Methods, and guards may call read-only
+Methods. Arguments and results are same-cycle payload values; rebinding an
+argument never changes the caller. Method state reads observe old Q, so return
+an explicitly computed value when the caller needs the proposed new result.
+Common analysis combines the complete call chain's guards with the outer Rule's
+admission before enabling any update, assertion or log. A later false guard
+cancels earlier proposals and logs; independent Rules can still execute.
+Potentially overlapping writes reject without call-order arbitration.
+Module combination cannot call Methods in this slice.
+
+Queue, hierarchy, Rule-body control flow, cross-branch
 local merging and advanced payloads remain implementation gaps. Retained tests
 and independent oracles for these capabilities are not passing evidence for the
 replacement. See the [replacement status](../development/transactional-frontend-status.md)

@@ -6,6 +6,8 @@
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/SmallString.h"
+#include "llvm/ADT/ScopeExit.h"
+#include "llvm/ADT/SmallPtrSet.h"
 #include <limits>
 #include <map>
 
@@ -13,7 +15,7 @@ using namespace mlir;
 namespace acir::ac {
 namespace {
 struct Binding {
-  bool resource;
+  enum Kind { Payload, Resource, Instance } kind;
   unsigned id;
 };
 using Environment = llvm::DenseMap<Value, Binding>;
@@ -92,7 +94,7 @@ public:
       unsigned id = p.resources_.size();
       p.resources_.push_back({allocation, 0, type});
       p.instances_[0].resources.push_back(id);
-      environment[allocation.getResource()] = {true, id};
+      environment[allocation.getResource()] = {Binding::Resource, id};
     }
     SmallVector<Operation *> pending;
     module.getBody().walk<WalkOrder::PreOrder>([&](Operation *op) {
@@ -153,7 +155,7 @@ public:
       SmallVector<Binding> args;
       for (Value value : call.getInterfaces()) {
         auto item = lookup(value, environment, call);
-        if (failed(item) || !item->resource)
+        if (failed(item) || item->kind != Binding::Resource)
           return call.emitError("Rule interfaces must bind allocated State");
         args.push_back(*item);
       }
@@ -190,7 +192,7 @@ public:
     auto yield = cast<YieldOp>(module.getBody().front().getTerminator());
     for (Value value : yield.getValues()) {
       auto item = lookup(value, environment, yield);
-      if (failed(item) || !item->resource)
+      if (failed(item) || item->kind != Binding::Resource)
         return yield.emitError(
             "transactional outputs must export allocated State identities");
       p.exports_.push_back(item->id);
@@ -212,6 +214,7 @@ private:
   unsigned nextClosedValue = 0;
   llvm::DenseMap<unsigned, Predicate> predicates;
   unsigned predicateDepth = 0;
+  llvm::SmallPtrSet<Operation *, 16> methodStack;
 
   LogicalResult charge(uint64_t units, Operation *site) {
     return debit(units, site);
@@ -228,7 +231,7 @@ private:
     auto item = lookup(value, env, site);
     if (failed(item))
       return failure();
-    if (item->resource) {
+    if (item->kind != Binding::Payload) {
       site->emitError("expected payload SSA value");
       return failure();
     }
@@ -281,6 +284,20 @@ private:
     if (failed(charge(32 + op->getNumOperands() * 4 + op->getNumResults() * 8,
                       op)))
       return failure();
+    if (auto reference = dyn_cast<InstanceRefOp>(op)) {
+      if (!reference.getInstancePath().empty())
+        return reference.emitError(
+            "cross-Module references await transactional hierarchy binding");
+      env[reference.getReference()] = {Binding::Instance, 0};
+      return success();
+    }
+    if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
+      auto receiver = lookup(call.getReceiver(), env, op);
+      if (failed(receiver))
+        return failure();
+      if (receiver->kind == Binding::Instance)
+        return method(call, *receiver, env, sequence, rule, pure);
+    }
     auto owned = std::make_unique<TransactionalStep>();
     auto &step = *owned;
     step.operation = op;
@@ -288,7 +305,7 @@ private:
     step.id = nextStep++;
     if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
       auto receiver = lookup(call.getReceiver(), env, op);
-      if (failed(receiver) || !receiver->resource)
+      if (failed(receiver) || receiver->kind != Binding::Resource)
         return op->emitError(
             "transactional execution currently admits State read/write only");
       step.resource = receiver->id;
@@ -357,9 +374,50 @@ private:
       p.values_.push_back({result.getType(), 0, rule});
       step.results.push_back(id);
       producers[id] = &step;
-      env[result] = {false, id};
+      env[result] = {Binding::Payload, id};
     }
     sequence.steps.push_back(std::move(owned));
+    return success();
+  }
+
+  LogicalResult method(TransactionMethodCallOp call, Binding receiver,
+                       Environment &env, TransactionalSequence &sequence,
+                       unsigned rule, bool pure) {
+    if (rule == TransactionalNoID)
+      return call.emitError("Module Method calls require a Rule transaction");
+    auto module = p.instances_[receiver.id].definition;
+    auto definition = dyn_cast_or_null<TransactionMethodOp>(
+        named(module, call.getCalleeAttr().getRootReference().getValue()));
+    if (!definition)
+      return call.emitError("Method has no definition on its actual instance");
+    if (methodStack.size() >= 64 || !methodStack.insert(definition).second)
+      return call.emitError("recursive or over-depth Method closure");
+    auto cleanup = llvm::scope_exit([&] { methodStack.erase(definition); });
+    SmallVector<Binding> args;
+    for (Value value : call.getArguments()) {
+      auto id = payload(value, env, call);
+      if (failed(id))
+        return failure();
+      args.push_back({Binding::Payload, *id});
+    }
+    // Captures belong to the callee Module, never a prior invocation's locals.
+    for (Value value : definition.getCaptures()) {
+      auto item = lookup(value, environment, call);
+      if (failed(item))
+        return failure();
+      args.push_back(*item);
+    }
+    TransactionalSequence guard, body;
+    if (failed(region(definition.getGuard(), args, guard, rule, true)) ||
+        failed(region(definition.getBody(), args, body, rule, pure)))
+      return failure();
+    llvm::append_range(p.rules_[rule].requirements, guard.yields);
+    for (auto &step : guard.steps)
+      sequence.steps.push_back(std::move(step));
+    for (auto &step : body.steps)
+      sequence.steps.push_back(std::move(step));
+    for (auto [result, id] : llvm::zip(call.getResults(), body.yields))
+      env[result] = {Binding::Payload, id};
     return success();
   }
 
@@ -428,6 +486,11 @@ private:
         return rule.registration.emitError(
             "transactional backend admission cannot resolve X/Z Rule control; "
             "four-state payloads remain supported");
+      for (unsigned requirement : rule.requirements)
+        if (!values[requirement])
+          return rule.registration.emitError(
+              "transactional backend admission cannot resolve X/Z Method "
+              "control; four-state payloads remain supported");
     }
     return success();
   }
@@ -601,6 +664,9 @@ private:
       if (!rule.guard.yields.empty() &&
           failed(facts(rule.guard.yields.front(), true, conditions)))
         return failure();
+      for (unsigned requirement : rule.requirements)
+        if (failed(facts(requirement, true, conditions)))
+          return failure();
       bool impossible = false;
       for (const auto &a : conditions) {
         impossible |= (a.predicate.first == "constant_0" && a.predicate.second) ||

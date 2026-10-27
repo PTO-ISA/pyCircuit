@@ -135,9 +135,13 @@ private:
                 {b.getNamedAttr("opcode", b.getStringAttr(code))})
         ->getResult(0);
   }
-  void sequence(const TransactionalSequence &seq, Value guard) {
+  void sequence(const TransactionalSequence &seq, Value guard,
+                bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
+      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead;
+      if (payload == effects)
+        continue;
       if (step.kind == Kind::Pure) {
         IRMapping map;
         for (auto [operand, id] :
@@ -282,6 +286,7 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   enables.assign(q.size(), zero);
   for (const auto &rule : p.getRules()) {
     sequence(rule.guard, one);
+    sequence(rule.body, one);
     Value guard =
         rule.guard.yields.empty() ? one : values[rule.guard.yields.front()];
     for (auto term : rule.path) {
@@ -290,7 +295,9 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
         condition = binary("xor", condition, one);
       guard = binary("and", guard, condition);
     }
-    sequence(rule.body, guard);
+    for (unsigned requirement : rule.requirements)
+      guard = binary("and", guard, values[requirement]);
+    sequence(rule.body, guard, true);
   }
   SmallVector<Value> yields;
   for (unsigned i = 0; i < q.size(); ++i) {
@@ -446,9 +453,12 @@ private:
            succeeded(claim(op));
   }
   LogicalResult sequence(const TransactionalSequence &seq, Value guard,
-                         Block *block) {
+                         Block *block, bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
+      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead;
+      if (payload == effects)
+        continue;
       if (failed(debit(8 + step.operands.size(), step.operation)))
         return failure();
       if (step.kind == Kind::Pure) {
@@ -672,22 +682,23 @@ LogicalResult Replay::run() {
   if (!literal(zero, "0") || !literal(one, "1"))
     return reject("control constants differ");
   for (const auto &rule : p.getRules()) {
-    if (failed(sequence(rule.guard, one, &work)))
+    if (failed(sequence(rule.guard, one, &work)) ||
+        failed(sequence(rule.body, one, &work)))
       return failure();
     Value guard =
         rule.guard.yields.empty() ? one : values[rule.guard.yields.front()];
+    auto findBinary = [&](StringRef opcode, Value lhs, Value rhs) -> Value {
+      for (Operation &op : work) {
+        if (failed(debit(4, &op)))
+          return {};
+        if (op.getNumResults() == 1 && !claimed.contains(&op) &&
+            binary(op.getResult(0), opcode, lhs, rhs))
+          return op.getResult(0);
+      }
+      return {};
+    };
     for (auto term : rule.path) {
       Value condition = values[term.value];
-      auto findBinary = [&](StringRef opcode, Value lhs, Value rhs) -> Value {
-        for (Operation &op : work) {
-          if (failed(debit(4, &op)))
-            return {};
-          if (op.getNumResults() == 1 && !claimed.contains(&op) &&
-              binary(op.getResult(0), opcode, lhs, rhs))
-            return op.getResult(0);
-        }
-        return {};
-      };
       if (!term.positive)
         condition = findBinary("xor", condition, one);
       if (!condition)
@@ -696,7 +707,12 @@ LogicalResult Replay::run() {
       if (!guard)
         return reject("Module registration path differs");
     }
-    if (failed(sequence(rule.body, guard, &work)))
+    for (unsigned requirement : rule.requirements) {
+      guard = findBinary("and", guard, values[requirement]);
+      if (!guard)
+        return reject("Method admission guard differs");
+    }
+    if (failed(sequence(rule.body, guard, &work, true)))
       return failure();
   }
   auto yield = dyn_cast<YieldOp>(work.getTerminator());

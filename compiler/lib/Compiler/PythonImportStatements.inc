@@ -119,7 +119,62 @@ Importer::registerRule(Callable &call, const AstNode &registration,
 }
 
 LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
-  return fail(call.node, "Methods await transactional migration");
+  SmallVector<Value> captures;
+  Scope captured = scope;
+  captured.module = false;
+  captured.callable = &call;
+  captured.resultTypes = call.results;
+  captured.outputs.clear();
+  captured.returned.clear();
+  captured.terminated = false;
+  for (auto &[name, value] : captured.bindings)
+    if (value.value)
+      captures.push_back(value.value);
+  SmallVector<Type> types;
+  for (auto &input : call.inputs) {
+    types.push_back(input.type);
+  }
+  auto *method =
+      op(call.node, "ac.method", captures, {},
+         {b.getNamedAttr("sym_name", b.getStringAttr(call.name)),
+          b.getNamedAttr("function_type",
+                         TypeAttr::get(b.getFunctionType(types, call.results)))},
+         2);
+  for (unsigned region = 0; region < 2; ++region) {
+    auto *block = new Block;
+    method->getRegion(region).push_back(block);
+    Scope inner = captured;
+    inner.pure = region == 0;
+    for (auto &input : call.inputs)
+      inner.bindings[input.name] = Binding{
+          block->addArgument(input.type, method->getLoc()), {}, {}, nullptr};
+    for (auto &[name, value] : captured.bindings)
+      if (value.value) {
+        auto argument =
+            block->addArgument(value.value.getType(), method->getLoc());
+        if (!llvm::any_of(call.inputs, [&](const NamedType &input) {
+              return input.name == name;
+            }))
+          inner.bindings[name].value = argument;
+      }
+    OpBuilder::InsertionGuard save(b);
+    b.setInsertionPointToEnd(block);
+    if (region == 0) {
+      if (failed(emitGuard(call, inner)))
+        return failure();
+    } else {
+      if (failed(inferHints(call.node, inner)) ||
+          failed(statements(call.node, "body", inner)))
+        return failure();
+      if (!inner.terminated) {
+        if (!call.results.empty())
+          return fail(call.node,
+                      "Method must return every declared SSA result");
+        yield(call.node);
+      }
+    }
+  }
+  return success();
 }
 
 LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
@@ -198,6 +253,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     auto found = scope.owner->callables.find(node.string("name").str());
     if (found == scope.owner->callables.end())
       return fail(node, "unknown nested callable declaration");
+    if (found->second.kind == "method")
+      return emitMethod(found->second, scope);
     if (failed(defineRule(found->second, scope)))
       return failure();
     if (found->second.autonomous &&
@@ -525,6 +582,14 @@ LogicalResult Importer::lower(Declaration &decl) {
   scope.module = true;
   scope.pure = true;
   scope.resultTypes = decl.results;
+  if (llvm::any_of(decl.callables, [](const auto &entry) {
+        return entry.second.kind == "method";
+      })) {
+    auto type = ac::ModuleRefType::get(b.getContext(), symbol(decl.symbol));
+    auto *self = op(decl.node, "ac.instance.ref", {}, type,
+                    {b.getNamedAttr("instance_path", b.getArrayAttr({}))});
+    scope.bindings["$self"].value = self->getResult(0);
+  }
   for (auto &input : decl.inputs)
     scope.bindings[input.name] =
         Binding{block->addArgument(input.type, decl.operation->getLoc()),

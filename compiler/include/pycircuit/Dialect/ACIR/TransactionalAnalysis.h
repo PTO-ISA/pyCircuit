@@ -69,6 +69,10 @@ struct TransactionalRulePlan {
   unsigned instance = 0;
   llvm::SmallVector<TransactionalPathTerm> path;
   TransactionalSequence guard, body; // Empty guard yields means unconditional.
+  // Every actually invoked Method contributes its guard to the outer Rule.
+  // These values may depend on earlier body computations, so effects execute
+  // only after both sequences have supplied the complete admission predicate.
+  llvm::SmallVector<TransactionalValueID> requirements;
 };
 class TransactionalAnalysis final {
 public:

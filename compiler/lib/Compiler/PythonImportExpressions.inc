@@ -648,8 +648,7 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
     auto nested = scope.owner->callables.find(name);
     if (!scope.globalRule && nested != scope.owner->callables.end()) {
       if (nested->second.kind == "method")
-        return (void)fail(node, "Methods await transactional migration"),
-               failure();
+        return methodCall(nested->second, node, scope);
       if (nested->second.autonomous) {
         (void)fail(node, "autorule cannot be explicitly registered again");
         return failure();
@@ -671,4 +670,27 @@ FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
                        destinations);
   (void)fail(node, "unsupported callable in transactional source");
   return failure();
+}
+
+FailureOr<SmallVector<Value>>
+Importer::methodCall(Callable &call, const AstNode &node, Scope &scope) {
+  if (scope.module)
+    return (void)fail(node, "Module combination cannot call a Method"), failure();
+  SmallVector<StringRef> names;
+  for (const auto &input : call.inputs)
+    names.push_back(input.name);
+  auto actuals = detail::normalizeCallArguments(node, names, error);
+  if (failed(actuals))
+    return failure();
+  SmallVector<Value> operands{scope.bindings.at("$self").value};
+  for (auto [actual, formal] : llvm::zip(*actuals, call.inputs)) {
+    auto value = scalar(actual, scope, formal.type);
+    if (failed(value))
+      return failure();
+    operands.push_back(*value);
+  }
+  auto *invoke = op(node, "ac.method.call", operands, call.results,
+                    {b.getNamedAttr("callee", symbol(call.name)),
+                     b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))});
+  return SmallVector<Value>(invoke->getResults());
 }

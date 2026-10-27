@@ -612,10 +612,11 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
   if (isa<scf::IfOp, scf::YieldOp, SourcePredicateOp>(op))
     return verifyModuleControl(op);
   if (auto observe = dyn_cast<SourceObserveOp>(op)) {
-    auto rule = dyn_cast_or_null<TransactionRuleOp>(op->getParentOp());
-    if (!rule || op->getParentRegion() != &rule->getRegion(1) ||
+    auto *owner = op->getParentOp();
+    if (!isa_and_nonnull<TransactionRuleOp, TransactionMethodOp>(owner) ||
+        op->getParentRegion() != &owner->getRegion(1) ||
         observe.getKind() != "log" || op->hasAttr("ac.observation_id"))
-      return op->emitOpError("transactional log requires direct Rule body "
+      return op->emitOpError("transactional log requires direct Rule/Method body "
                              "placement and no final identity");
     HardwareAnalysis analysis(packageOf(op));
     auto width = analysis.getPackedWidth(observe.getPath().getType(), {}, op);
@@ -642,11 +643,12 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         [&] { return op->emitOpError(); });
   }
   if (auto expect = dyn_cast<SourceExpectOp>(op)) {
-    auto rule = dyn_cast_or_null<TransactionRuleOp>(op->getParentOp());
-    if (!rule || op->getParentRegion() != &rule->getRegion(1) ||
+    auto *owner = op->getParentOp();
+    if (!isa_and_nonnull<TransactionRuleOp, TransactionMethodOp>(owner) ||
+        op->getParentRegion() != &owner->getRegion(1) ||
         expect.getKind() != "assert" || !expect.getSampling().empty() ||
         op->hasAttr("ac.check_id") || op->hasAttr("ac.observation_id"))
-      return op->emitOpError("transactional assertion requires direct Rule body placement, assert kind, no sampling and no check identity");
+      return op->emitOpError("transactional assertion requires direct Rule/Method body placement, assert kind, no sampling and no check identity");
     HardwareAnalysis analysis(packageOf(op));
     for (Value value : {expect.getCondition(), expect.getPath()}) {
       auto width = analysis.getPackedWidth(value.getType(), {}, op);

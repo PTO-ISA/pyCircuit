@@ -1,7 +1,7 @@
 # Transactional frontend replacement status
 
-PR-05 extends the production transactional Python compile/link path from
-`5bfe4035` with Module control flow and autorules. This is a bounded replacement,
+PR-06a extends the production transactional Python compile/link path from
+`173ba0ae` with local Methods and complete call-chain admission. This is a bounded replacement,
 not completion of issue #361.
 
 ## Production path
@@ -29,7 +29,8 @@ Routed artifacts remain available through the existing Routed link target.
 | Pure expressions, nested Rule definition and explicit call | Implemented; focused source execution PASS |
 | Guard, assert, log and old-Q reads | Implemented; focused source execution PASS |
 | Literal constant providers through published interfaces | Implemented; focused source execution PASS |
-| Queue, hierarchy and user Method execution | Implementation gaps; retained tests/oracles |
+| Local Value/Action/ActionValue Methods and nested calls | Implemented; see PR-06a validation below |
+| Queue and hierarchy | Implementation gaps; retained tests/oracles |
 | Module if/elif/else and parameterless autorule | Implemented; retained SCF and focused C++/RTL execution PASS |
 | Advanced payloads, Rule-body control flow and branch-local merging | Implementation gaps; retained tests/oracles |
 | Memory/Table timing and advanced capability migration | Retained requirements; consult replacement plan for semantic decisions |
@@ -76,8 +77,7 @@ storage lowering, generated System runners and both backends are reused.
 
 The earlier automatic ordinary registration, write/binding-plan passes and
 candidate-SSA orchestration remain removed. Shared AST, provenance, arithmetic,
-source registry, publication and backend owners remain. Queue, hierarchy and
-user Method execution are still gaps; no legacy fallback is restored.
+source registry, publication and backend owners remain. Queue and hierarchy are still gaps; no legacy fallback is restored.
 
 Old examples and API cases remain migration requirements. Their current FAIL is
 not a PASS. The retained `SourceMemoryBindingsTest.cpp` plan-class tests and
@@ -105,3 +105,36 @@ receipts remain in the existing lit scratch directory.
 These results do not certify unexecuted legacy cases. No test oracle was derived
 from DUT output, and no old capability was silently cancelled. No publication or
 merge is included in this local delivery.
+
+## Local Method admission (PR-06a)
+
+The native importer now retains local `ac.method` definitions with independent
+guard/body regions and `ac.method.call` operations. Common analysis binds each
+invocation's original arguments and owner captures, expands its old-Q computation,
+and collects all transitive guard requirements. Routing and independent replay
+prepare payloads before applying the final outer Rule fire to every effect.
+No call-order arbitration, parameter writeback or state forwarding is added.
+
+The `local_method_accumulator` example covers Value, Action and ActionValue calls,
+read-only Methods in guards, nested calls, distinct arguments and returned new
+SSA values alongside old state reads. Its late guard cancels earlier writes and
+logs while an independent autorule toggles. Focused acceptance also checks one
+multiwrite rejection and global assertion rollback. Source ACIR is roundtripped
+with definitions and calls intact. Queue, advanced types and same-cycle dependency
+migration remain outstanding; their retained tests/oracles are not removed.
+
+PR-06a evidence is recorded in `docs/gates/logs/pr06a-methods/`; the preceding
+PR-05 table is historical evidence only. Final command outcomes are recorded in
+that candidate's receipt, including unsuccessful first attempts. Strict MkDocs
+still reports the three broken links in the pre-existing untracked design drafts.
+
+| PR-06a check | Actual result |
+| --- | --- |
+| Compiler build and installation | PASS |
+| Public Method acceptance | PASS: C++ workers 1/2, RTL System execution, direct C++/Icarus assertion rollback, nested guard refusal, multiwrite rejection |
+| Prior transactional IR/state/source checks | PASS: 11 lit tests |
+| Changed-file pre-commit | PASS: CI hook selection; Python files run individually due local multi-file Black hang |
+| API gate | FAIL at unported `module_loop` Module inputs; remaining execution NOT RUN |
+| Examples gate with rebuilt installation and fresh output | FAIL at unported `multi_outputs` inputs and `queue_rule_pipeline` body syntax; complete execution NOT RUN |
+| Strict MkDocs | FAIL: three pre-existing broken links in untracked design drafts |
+| Nightly, release matrix and direct transactional gfsim | NOT RUN |

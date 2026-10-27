@@ -16,6 +16,14 @@
       "system_scope": "Module if/elif/else and autorules read old state; a false Rule guard holds the selected branch. Independent C++ workers 1/2 and RTL traces."
     },
     {
+      "name": "local_method_accumulator",
+      "folder": "examples/local_method_accumulator",
+      "source": "local_method_accumulator.py",
+      "system": "LocalMethodAccumulator",
+      "system_cycles": 8,
+      "system_scope": "Nested Value, Action and ActionValue Methods with old-Q reads, by-value parameters and whole-Rule admission; independent C++ workers 1/2 and RTL traces."
+    },
+    {
       "name": "multi_outputs",
       "folder": "examples/multi_outputs",
       "source": "multi_outputs.py",

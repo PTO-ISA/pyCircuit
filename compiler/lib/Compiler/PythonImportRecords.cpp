@@ -368,6 +368,7 @@ private:
                                              Scope &scope,
                                              ArrayRef<Value> destinations = {});
   LogicalResult emitMethod(Callable &call, Scope &scope);
+  FailureOr<SmallVector<Value>> methodCall(Callable &call, const AstNode &node, Scope &scope);
   LogicalResult emitGuard(Callable &call, Scope &scope);
   LogicalResult inferHints(const AstNode &node, Scope &scope);
   Type infer(const AstNode &node, Scope &scope, Type expected = {});
@@ -664,8 +665,6 @@ LogicalResult Importer::scan() {
       call.name = child.string("name").str();
       call.kind = decorator(child, &call.guard);
       call.autonomous = call.kind == "autorule";
-      if (call.kind == "method")
-        return fail(child, "Methods await their transactional migration");
       if (call.kind != "rule" && call.kind != "method" && !call.autonomous)
         return fail(child, "nested functions require Rule/Method decoration");
       if (failed(signature(call, decl.symbol)))

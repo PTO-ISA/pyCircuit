@@ -9,7 +9,7 @@ if(NOT PYC_EXAMPLE_TIER MATCHES "^(gate|nightly)$")
 endif()
 # Bounded full-flow smoke: scalar, hierarchy, rules/Struct and table storage.
 # Everything else remains in nightly, including full-frequency digital_clock.
-set(_gate_examples hello_counter module_control_state_machine multi_outputs struct_transform enum_payload_pipeline rob table_rule queue_rule_pipeline)
+set(_gate_examples hello_counter module_control_state_machine local_method_accumulator multi_outputs struct_transform enum_payload_pipeline rob table_rule queue_rule_pipeline)
 function(add_selected_example name)
   if(name IN_LIST _gate_examples)
     set(PYC_EXAMPLE_LABELS "examples;gate;nightly")
@@ -25,6 +25,7 @@ endfunction()
 # Keep this list in the same order as examples/catalog.json.
 add_selected_example(hello_counter)
 add_selected_example(module_control_state_machine)
+add_selected_example(local_method_accumulator)
 add_selected_example(multi_outputs)
 add_selected_example(sibling_calls)
 add_selected_example(sibling_atomic)

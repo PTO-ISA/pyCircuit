@@ -17,7 +17,11 @@ while four-state payloads remain supported.
 
 See the [current language profile](../reference/language.md#transactional-frontend-replacement)
 for exact admission and the [replacement status](transactional-frontend-status.md)
-for actual validation. Queue, hierarchy, user Methods, Rule-body control flow
+for actual validation. Local Methods support nested calls, payload arguments
+and results, and read-only calls in guards. All guards in the call chain gate
+the entire outer Rule, including earlier updates and logs. Return computed SSA
+values explicitly; state reads still observe old Q and parameters are by value.
+Module combination cannot call Methods. Queue, hierarchy, Rule-body control flow
 and cross-branch local merging remain implementation gaps. Retained legacy
 examples and oracles do not establish support in the replacement.
 
@@ -186,7 +190,7 @@ Leave resource admission and proposal/commit controls to the compiler. Keep
 algorithmic predicates explicit. Do not expose clock/reset, DFF interfaces,
 handshake wrappers or a payload validity field solely to represent noncommit.
 The current slice exports State identities rather than valued Rule results.
-Queue, Methods, hierarchy, Rule-body control flow and richer interfaces retain
+Queue, hierarchy, Rule-body control flow and richer interfaces retain
 their migration requirements, but are not admitted by this slice.
 
 Rules and allocations must be defined directly in the Module, outside runtime
