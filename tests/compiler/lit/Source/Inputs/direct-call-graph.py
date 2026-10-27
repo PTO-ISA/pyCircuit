@@ -807,7 +807,7 @@ with tempfile.TemporaryDirectory(prefix="direct-call-graph-", dir=scratch) as te
             calls = [
                 line
                 for line in text.splitlines()
-                if '"ac.instance"' in line
+                if 'ac.instance(' in line
                 and "definition = @graph_binding." + variant + "." + top
                 in line.split("parameters =")[0]
             ]

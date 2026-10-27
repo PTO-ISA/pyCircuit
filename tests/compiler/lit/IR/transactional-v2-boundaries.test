@@ -1,0 +1,23 @@
+# The same valid linked structure must fail every legacy consumer explicitly.
+# RUN: %pycircuit_opt %S/transactional-v2-resources.mlir -o %t.input.mlir
+# RUN: not %pycircuit_emit %t.input.mlir --target cpp > %t.cpp 2> %t.cpp.err
+# RUN: %FileCheck %s < %t.cpp.err
+# RUN: test ! -s %t.cpp
+# RUN: not %pycircuit_emit %t.input.mlir --target verilog > %t.sv 2> %t.sv.err
+# RUN: %FileCheck %s < %t.sv.err
+# RUN: test ! -s %t.sv
+# RUN: echo preserved-owner > %t.owner.expected
+# RUN: cp %t.owner.expected %t.owner
+# RUN: not %pycircuit_link --design %t.input.mlir --verify-only --entry-owner-out %t.owner > %t.link 2> %t.link.err
+# RUN: %FileCheck %s < %t.link.err
+# RUN: test ! -s %t.link
+# RUN: diff %t.owner.expected %t.owner
+# RUN: not %pycircuit_opt %t.input.mlir --ac-verify-hardware > %t.hardware 2> %t.hardware.err
+# RUN: %FileCheck %s < %t.hardware.err
+# RUN: not %pycircuit_opt %t.input.mlir --ac-extract-source-interface > %t.interface 2> %t.interface.err
+# RUN: %FileCheck %s < %t.interface.err
+# RUN: not %pycircuit_opt %t.input.mlir --ac-route-transactions > %t.route 2> %t.route.err
+# RUN: %FileCheck %s < %t.route.err
+# RUN: not %pycircuit_opt %t.input.mlir --ac-lower-transactions > %t.lower 2> %t.lower.err
+# RUN: %FileCheck %s < %t.lower.err
+# CHECK: transactional

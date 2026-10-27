@@ -72,11 +72,11 @@ assert '"ac.queue"(' not in final_text
 queues = [
     line
     for line in final_text.splitlines()
-    if '"ac.instance"(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
+    if 'ac.instance(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
 ]
 assert len(queues) == 3
 assert final_text.count('"ac.module"()') == 1, "one cohesive pipeline module"
-assert final_text.count('"ac.instance"(') == len(queues), (
+assert final_text.count('ac.instance(') == len(queues), (
     "nested step adds no child owner"
 )
 for line in queues:

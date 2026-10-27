@@ -367,6 +367,31 @@ protected:
 };
 
 TEST_F(AnchorArtifactTest,
+       TransactionalResourceStageCannotPublishAnAnchor) {
+  auto package = mlir::parseSourceString<mlir::ModuleOp>(
+      "module attributes {ac.transactional = 2 : i64, "
+      "ac.stage = \"linked\"} {}", &context);
+  ASSERT_TRUE(package);
+  ASSERT_TRUE(mlir::succeeded(mlir::verify(*package)));
+  const std::string reason =
+      "transactional resource packages cannot enter legacy routed or final "
+      "hardware analysis";
+  EXPECT_TRUE(mlir::failed(capture(
+      [&] { return ac::verifyHardwarePackage(*package); })));
+  EXPECT_NE(diagnostics.find(reason), std::string::npos) << diagnostics;
+  EXPECT_TRUE(mlir::failed(capture(
+      [&] { return ac::verifyRoutedPackage(*package); })));
+  EXPECT_NE(diagnostics.find(reason), std::string::npos) << diagnostics;
+  auto directory = temporary / "transactional-resource-anchor";
+  fs::create_directory(directory);
+  EXPECT_TRUE(mlir::failed(capture([&] {
+    return writeAnchorArtifacts(*package, {}, directory.string(), error());
+  })));
+  EXPECT_NE(diagnostics.find(reason), std::string::npos) << diagnostics;
+  EXPECT_TRUE(fs::is_empty(directory));
+}
+
+TEST_F(AnchorArtifactTest,
        WriteLoadAndExplicitRefineRetainOneSharedDefinition) {
   auto input = inputs();
   ASSERT_TRUE(input);

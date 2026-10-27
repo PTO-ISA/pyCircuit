@@ -1,3 +1,4 @@
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceChecks.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -107,6 +108,8 @@ LogicalResult verifyHardwareTypeScope(Type type, Operation *owner) {
 } // namespace detail
 namespace detail {
 LogicalResult verifyModuleSignature(Operation *op) {
+  if (op->hasAttr("output_kinds"))
+    return op->emitOpError("output_kinds requires the transactional version 2 contract");
   if (!isa<mlir::ModuleOp>(op->getParentOp()))
     return op->emitOpError() << "module declaration requires package placement";
   auto error = [&] { return op->emitOpError(); };
@@ -212,12 +215,14 @@ LogicalResult body(Operation *op, TypeRange inputs, TypeRange outputs) {
 }
 } // namespace
 LogicalResult ModuleOp::verify() {
+  if (isTransactionalPackage(*this)) return verifyTransactionalOperation(*this);
   if ((*this)->hasAttr("primitive_kind"))
     return emitOpError()
            << "primitive_kind belongs only to trusted leaf imports";
   return detail::verifyModuleSignature(*this);
 }
 LogicalResult ModuleOp::verifyRegions() {
+  if (isTransactionalPackage(*this)) return verifyTransactionalRegions(*this);
   if (failed(body(*this, getFunctionType().getInputs(),
                   getFunctionType().getResults())))
     return failure();
@@ -260,6 +265,12 @@ LogicalResult RuleOp::verifyRegions() {
   return body(*this, getOperandTypes(), getResultTypes());
 }
 LogicalResult InstanceOp::verify() {
+  if (isTransactionalPackage(*this)) return verifyTransactionalOperation(*this);
+  if ((*this)->hasAttr("bound_count")) return emitOpError("bound_count requires transactional version 2");
+  for (Type type : getOperandTypes())
+    if (!hardware(type)) return emitOpError("legacy instances require hardware payloads");
+  for (Type type : getResultTypes())
+    if (!hardware(type)) return emitOpError("legacy instances require hardware payloads");
   auto parent = dyn_cast_or_null<ModuleOp>((*this)->getParentOp());
   if (!parent || getInstanceName().empty())
     return emitOpError() << "instance requires named direct module placement";
@@ -273,12 +284,16 @@ LogicalResult InstanceOp::verify() {
                                   [&] { return emitOpError(); });
 }
 LogicalResult InstanceOp::verifySymbolUses(SymbolTableCollection &) {
+  if (isTransactionalPackage(*this)) return verifyTransactionalOperation(*this);
   HardwareAnalysis a((*this)->getParentOfType<mlir::ModuleOp>());
   HardwareBindings b;
   b.owner = (*this)->getParentOp();
   return a.verifyInstance(*this, b);
 }
 LogicalResult YieldOp::verify() {
+  if (isTransactionalPackage(*this)) return verifyTransactionalOperation(*this);
+  for (Type type : getOperandTypes())
+    if (!hardware(type)) return emitOpError("legacy yield requires hardware payloads");
   if (!isa_and_nonnull<ModuleOp, RuleOp, TableMapOp, TableMatchOp,
                        SourceMethodOp, SourceTransactionOp, SourceBranchOp>(
           (*this)->getParentOp()))
@@ -287,6 +302,7 @@ LogicalResult YieldOp::verify() {
   return success();
 }
 LogicalResult ModuleImportOp::verify() {
+  if (isTransactionalPackage(*this)) return verifyTransactionalOperation(*this);
   if (failed(detail::verifyModuleSignature(*this)) ||
       failed(detail::verifyModuleImportSummarySelection(*this)))
     return failure();

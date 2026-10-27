@@ -356,7 +356,7 @@ final = work / "identity.ac"
 cli("link", unit, "--top", "width_suite.instance_identity.Top", "-o", final)
 common = final.read_text()
 # One leaf register instance inside the child definition plus two call sites.
-assert common.count('"ac.instance"') == 3, common.count('"ac.instance"')
+assert common.count('ac.instance(') == 3, common.count('ac.instance(')
 for target in ("cpp", "verilog"):
     cli("emit", final, "--target", target, "-o", work / target)
 

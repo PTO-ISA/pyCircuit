@@ -11,6 +11,11 @@ The public commands separate source publication, linking and emission. Each
 stage checks its input before publishing outputs; neither backend recaptures
 Python or infers a different hardware meaning.
 
+The separately versioned [transactional resource IR](transactional-resource-ir.md)
+currently supports structural verification through `pycircuit-opt` only. Its
+`unlinked`/`linked` stages are not source units or executable hardware; the
+existing publication, link, saved-anchor and emit boundaries reject them.
+
 | Stage | Existing owner | Responsibility |
 | --- | --- | --- |
 | Capture | `_source_capture.py`, `_source_transport.py` | Read a stable source snapshot, parse Python syntax and serialize the existing private AST transport. Design functions are never executed. |

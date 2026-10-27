@@ -7,7 +7,7 @@
 // CHECK-NOT: "ac.state"
 // CHECK-NOT: "ac.method"
 // CHECK-NOT: "ac.transaction"
-// CHECK: "ac.instance"
+// CHECK: ac.instance
 // CHECK: instance_name = "count"
 // CHECK: "ac.rule"
 // CHECK-NOT: ac.guard_location

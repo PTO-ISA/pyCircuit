@@ -236,6 +236,10 @@ private:
 
 LogicalResult preflightSourceLinkPair(SourceLinkUnit unit, unsigned index,
                                       ac::detail::EmitError emitError) {
+  if (unit.header->hasAttr("ac.transactional") ||
+      unit.body->hasAttr("ac.transactional"))
+    return emitError()
+           << "transactional resource packages cannot enter legacy source linking";
   auto headerOwner =
       unit.header->getAttrOfType<DictionaryAttr>("ac.source_owner");
   auto bodyOwner = unit.body->getAttrOfType<DictionaryAttr>("ac.source_owner");

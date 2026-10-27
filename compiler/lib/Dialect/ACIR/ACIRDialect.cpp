@@ -1,3 +1,4 @@
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "EntryBoundary.h"
@@ -12,6 +13,17 @@ namespace acir::ac {
 LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                                                     NamedAttribute attribute) {
   StringRef name = attribute.getName().getValue();
+  if (name == "ac.transactional") {
+    auto package = dyn_cast<mlir::ModuleOp>(operation);
+    if (!package) return operation->emitOpError("ac.transactional belongs only to a package");
+    return verifyTransactionalPackage(package);
+  }
+  if (name == "ac.stage") {
+    auto stage = dyn_cast<StringAttr>(attribute.getValue());
+    if (stage && (stage.getValue() == "unlinked" || stage.getValue() == "linked") &&
+        !operation->hasAttr("ac.transactional"))
+      return operation->emitOpError("unlinked/linked stage requires transactional version 2");
+  }
   if (name == "ac.entry_boundary")
     return detail::verifyEntryBoundaryAttribute(operation, attribute.getValue());
   if (name == "ac.anchor_provenance") {

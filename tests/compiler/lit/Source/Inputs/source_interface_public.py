@@ -494,8 +494,8 @@ def MethodEffectsSystem():
     assert "ac.observation_id" not in provider_body, provider_body
     consumer_body = payload(consumer_unit, "body").read_text()
     relay_body = payload(relay_unit, "body").read_text()
-    assert consumer_body.count('"ac.instance"(') == 2, consumer_body
-    assert relay_body.count('"ac.instance"(') == 2, relay_body
+    assert consumer_body.count('ac.instance(') == 2, consumer_body
+    assert relay_body.count('ac.instance(') == 2, relay_body
     assert '"ac.method.call"(' in consumer_body and '"ac.transaction"(' in consumer_body
 
     # Retain a separately linked ordinary program as the publication control.

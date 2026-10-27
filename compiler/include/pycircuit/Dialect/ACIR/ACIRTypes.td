@@ -77,6 +77,24 @@ def ACIR_TypeParamType : ACIR_Type<"TypeParam", "type_param"> {
   let genVerifyDecl = 1;
 }
 
+// References carry resource identity, never payload bits or queue capacity.
+class ACIR_ResourceType<string name, string mnemonic>
+    : ACIR_Type<name, mnemonic> {
+  let parameters = (ins "::mlir::Type":$payload);
+  let assemblyFormat = "`<` $payload `>`";
+  let genVerifyDecl = 1;
+}
+def ACIR_PrimitiveType : ACIR_ResourceType<"Primitive", "primitive">;
+def ACIR_StateType : ACIR_ResourceType<"State", "state">;
+def ACIR_QueueType : ACIR_ResourceType<"Queue", "queue">;
+def ACIR_ModuleRefType : ACIR_Type<"ModuleRef", "module_ref"> {
+  let parameters = (ins "::mlir::FlatSymbolRefAttr":$module);
+  let assemblyFormat = "`<` $module `>`";
+  let genVerifyDecl = 1;
+}
+def ACIR_ResourceReferenceType : AnyTypeOf<[
+    ACIR_PrimitiveType, ACIR_StateType, ACIR_QueueType], "resource reference">;
+
 // This is an ODS constraint, not another IR type or wire wrapper. A hardware
 // SSA value already denotes the wire carrying its declared payload.
 def ACIR_ScalarHardwareType : AnyTypeOf<[
@@ -103,5 +121,11 @@ def ACIR_TableType : ACIR_Type<"Table", "table"> {
 def ACIR_HardwareType : AnyTypeOf<[
     ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TypeParamType, ACIR_TableType],
     "scalar hardware payload or static table">;
+
+// Only structural boundary operations accept references. Payload operations do not.
+def ACIR_StructuralValueType : AnyTypeOf<[
+    ACIR_BitsType, ACIR_EnumType, ACIR_StructType, ACIR_TypeParamType,
+    ACIR_TableType, ACIR_PrimitiveType, ACIR_StateType, ACIR_QueueType,
+    ACIR_ModuleRefType], "hardware payload, resource or module reference">;
 
 #endif // ACIR_DIALECT_ACIR_ACIRTYPES_TD

@@ -16,4 +16,27 @@ TypeParamType::verify(llvm::function_ref<InFlightDiagnostic()> error,
     return error() << "type parameter requires owner and nonempty name";
   return success();
 }
+namespace {
+LogicalResult resourcePayload(llvm::function_ref<InFlightDiagnostic()> error,
+                              Type payload) {
+  if (!isa<BitsType, StructType, EnumType, TableType, TypeParamType>(payload))
+    return error() << "resource payload must be hardware data, not a resource or module reference";
+  return success();
+}
+}
+LogicalResult PrimitiveType::verify(llvm::function_ref<InFlightDiagnostic()> error, Type payload) {
+  return resourcePayload(error, payload);
+}
+LogicalResult StateType::verify(llvm::function_ref<InFlightDiagnostic()> error, Type payload) {
+  return resourcePayload(error, payload);
+}
+LogicalResult QueueType::verify(llvm::function_ref<InFlightDiagnostic()> error, Type payload) {
+  return resourcePayload(error, payload);
+}
+LogicalResult ModuleRefType::verify(llvm::function_ref<InFlightDiagnostic()> error,
+                                   FlatSymbolRefAttr module) {
+  if (!module || module.getValue().empty() || module.getValue().contains('\0'))
+    return error() << "module reference requires a nonempty module symbol";
+  return success();
+}
 } // namespace acir::ac

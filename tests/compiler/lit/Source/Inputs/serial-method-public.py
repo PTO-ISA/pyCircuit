@@ -305,7 +305,7 @@ for mode, width, initial, first, second, bias, last in cases:
     assert '"ac.transaction"' in before_text and '"ac.method.call"' in before_text
     assert '"ac.state"' in before_text and '"ac.rule"' in final_text
     assert before_text.count('"ac.module"') == final_text.count('"ac.module"')
-    assert final_text.count('"ac.instance"') == (before_text.count('"ac.instance"')
+    assert final_text.count('ac.instance(') == (before_text.count('ac.instance(')
                                                 + before_text.count('"ac.state"'))
     assert all(f'"{operation}"' not in final_text for operation in
                ("ac.state", "ac.state.read", "ac.state.write", "ac.method",

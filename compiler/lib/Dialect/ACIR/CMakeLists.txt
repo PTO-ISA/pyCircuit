@@ -8,6 +8,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRNumericProofOps.cpp
   ACIRModuleContracts.cpp
   ACIRModuleOps.cpp
+  TransactionalContracts.cpp
   ACIRBitsOps.cpp
   ACIRCollectionOps.cpp
   ACIRQueueOps.cpp

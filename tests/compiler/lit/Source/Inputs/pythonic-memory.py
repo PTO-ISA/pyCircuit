@@ -118,7 +118,7 @@ def infer(path, interfaces=(), success=True):
         text = output.read_text()
         assert "ac.python_capture =" in text
         assert (
-            '"ac.instance"' not in text and '"ac.rule"' not in text
+            'ac.instance(' not in text and '"ac.rule"' not in text
         ), "inference lowered hardware bodies"
     return result
 

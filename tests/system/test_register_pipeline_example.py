@@ -240,7 +240,7 @@ def test_register_pipeline_public_build_and_both_backends(tmp_path: Path) -> Non
     final_hash = final.read_bytes()
     mlir = final_hash.decode("utf-8")
     assert mlir.count('"ac.reg"') == 4
-    assert mlir.count('"ac.instance"') == 2
+    assert mlir.count('ac.instance(') == 2
 
     # Each target is emitted by its own public CLI process from this saved final.
     bundles = {target: tmp_path / f"public-{target}" for target in ("cpp", "verilog")}

@@ -461,12 +461,12 @@ def snapshot(path):
 # source-checks fixture: read the printed operation line instead of trusting a
 # claim about the suffix.
 def operands(line):
-    match = re.search(r'"ac\.[\w.]+"\(([^)]*)\)', line)
+    match = re.search(r'(?:"ac\.[\w.]+"|ac\.instance)\(([^)]*)\)', line)
     return re.findall(r"%[\w]+(?:#\d+)?", match[1]) if match else []
 
 
 def results(line):
-    left = line.split('"ac.', 1)[0].strip().rstrip("= ")
+    left = re.split(r'"ac\.|ac\.instance\(', line, maxsplit=1)[0].strip().rstrip("= ")
     grouped = re.fullmatch(r"(%\w+):(\d+)", left)
     if grouped:
         return [grouped[1] + "#" + str(i) for i in range(int(grouped[2]))]
@@ -515,7 +515,7 @@ def verify_rule_suffix(text, rule_name, inputs, checks):
     separately from exact Rule yields, sampled controls and condition/path pairs.
     """
     lines = text.splitlines()
-    instance_line = next(line for line in lines if '"ac.instance"(' in line)
+    instance_line = next(line for line in lines if 'ac.instance(' in line)
     bound = operands(instance_line)
     assert len(bound) == inputs, (rule_name, bound)
     if not checks:

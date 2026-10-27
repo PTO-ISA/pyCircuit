@@ -40,6 +40,9 @@ FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
                                          detail::EmitError emitError) {
   if (!unit)
     return emitError() << "source unit is required";
+  if (unit->hasAttr("ac.transactional"))
+    return emitError()
+           << "transactional resource packages cannot enter legacy source units";
   auto owner = unit->getAttrOfType<DictionaryAttr>("ac.source_owner");
   auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
   auto stage = unit->getAttrOfType<StringAttr>("ac.stage");
@@ -148,7 +151,7 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
       }
     }
     for (StringRef name :
-         {"ac.internal_ports", "ac.input_validity", "ac.output_validity",
+         {"ac.transactional", "ac.internal_ports", "ac.input_validity", "ac.output_validity",
           "ac.routed_output_validity", "ac.sampled_admission",
           "ac.execution_policy", "ac.transaction_wiring", "ac.queue_wiring",
           "ac.routed_contract", "ac.registration_path", "ac.lexical_registration",

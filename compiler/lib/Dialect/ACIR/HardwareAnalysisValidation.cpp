@@ -151,6 +151,9 @@ LogicalResult HardwareAnalysis::verifyImport(ModuleImportOp imported) const {
 LogicalResult detail::verifyHardwarePackageStage(
     const HardwareAnalysis &analysis, PackageVerificationProfile profile) {
   auto package = analysis.getPackage();
+  if (package->hasAttr("ac.transactional"))
+    return package.emitOpError()
+           << "transactional resource packages cannot enter legacy routed or final hardware analysis";
   auto rawStage = package->getAttr("ac.stage");
   auto stage = dyn_cast_or_null<StringAttr>(rawStage);
   auto marker = dyn_cast_or_null<IntegerAttr>(package->getAttr("ac.routed_contract"));

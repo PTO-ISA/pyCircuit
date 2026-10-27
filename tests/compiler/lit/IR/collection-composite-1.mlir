@@ -39,5 +39,5 @@ module {
   }) {sym_name = "top", source_owner = {package = "", path = "top.py"}, parameters = [], type_parameters = [], function_type = (!b1, !b1, !controls, !lanes, !lanes) -> (!lanes, !lanes), input_names = ["clk", "rst", "en", "d", "init"], output_names = ["first_q", "second_q"]} : () -> ()
   "ac.system"() {entry = {callee = @top, parameters = [], type_arguments = []}, domain = "default"} : () -> ()
 }
-// CHECK-COUNT-2: "ac.instance"
+// CHECK-COUNT-2: ac.instance
 // CHECK-COUNT-1: "ac.collection"

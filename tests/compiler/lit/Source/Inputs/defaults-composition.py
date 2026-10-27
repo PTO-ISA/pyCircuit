@@ -149,7 +149,7 @@ with tempfile.TemporaryDirectory(
     def source_calls(text, owner):
         calls = []
         for line in text.splitlines():
-            if '"ac.instance"' not in line:
+            if 'ac.instance(' not in line:
                 continue
             match = re.search(r"callee = @defaults_probe\.design\.(\w+)", line)
             occurrence = line.split("parameters =")[0]
