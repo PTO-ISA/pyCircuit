@@ -1,9 +1,9 @@
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "ACIRSourceContracts.h"
-#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
-#include "pycircuit/Dialect/ACIR/SourceEffects.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
+#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceEffects.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
@@ -17,7 +17,8 @@ namespace {
 mlir::ModuleOp packageOf(Operation *op) {
   for (auto *at = op; at; at = at->getParentOp())
     if (auto package = dyn_cast<mlir::ModuleOp>(at))
-      if (package->hasAttr("ac.transactional")) return package;
+      if (package->hasAttr("ac.transactional"))
+        return package;
   return {};
 }
 FunctionType signature(Operation *op) {
@@ -51,17 +52,20 @@ Operation *lookup(Operation *site, StringRef name) {
 }
 Operation *resolvePath(Operation *site, ArrayAttr path) {
   Operation *current = site->getParentOfType<ModuleOp>();
-  if (!path || path.empty() || !current) return nullptr;
+  if (!path || !current)
+    return nullptr;
   for (auto raw : path) {
     auto name = dyn_cast<StringAttr>(raw);
     auto module = dyn_cast<ModuleOp>(current);
     if (!name || name.getValue().empty() || !module ||
-        !module.getBody().hasOneBlock()) return nullptr;
+        !module.getBody().hasOneBlock())
+      return nullptr;
     Operation *next = nullptr;
     for (auto instance : module.getBody().front().getOps<InstanceOp>())
       if (instance.getInstanceNameAttr() == name)
         next = lookup(site, instance.getCallee());
-    if (!next) return nullptr;
+    if (!next)
+      return nullptr;
     current = next;
   }
   return current;
@@ -84,18 +88,25 @@ LogicalResult preflight(Operation *op) {
       failed(shapeTrait<OpTrait::OneResult>(op)) ||
       failed(shapeTrait<OpTrait::NResults<2>::Impl>(op)) ||
       failed(shapeTrait<OpTrait::ZeroRegions>(op)) ||
-      failed(shapeTrait<OpTrait::OneRegion>(op))) return failure();
+      failed(shapeTrait<OpTrait::OneRegion>(op)))
+    return failure();
+  if (isa<TransactionRuleOp, TransactionMethodOp>(op) &&
+      (op->getNumRegions() != 2 || !signature(op)))
+    return op->emitOpError("transactional callable requires guard and body "
+                           "regions; regenerate this artifact");
   if (isa<ModuleOp>(op) &&
       (!op->getRegion(0).hasOneBlock() || op->getRegion(0).front().empty()))
     return op->emitOpError("transactional module requires one nonempty block");
   return llvm::TypeSwitch<Operation *, LogicalResult>(op)
-      .Case<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
-            InstanceOp, InstanceRefOp, YieldOp, BitsConstantOp, BitsConstant4Op,
-            BitsUnaryOp, BitsBinaryOp, BitsCompareOp, BitsSelectOp,
-            BitsConcatOp, BitsExtractOp, BitsResizeOp, StructCreateOp,
-            StructGetOp, EnumCreateOp, EnumToBitsOp, EnumFromBitsOp,
-            TableCreateOp, TableSplatOp, TableViewOp, TableIndexOp,
-            TableReadOp, TableGetOp, TableMapOp, TableMatchOp, TableChooseOp, TableFoldOp>(
+      .Case<TransactionRuleOp, TransactionMethodOp, TransactionRuleCallOp,
+            TransactionMethodCallOp, ModuleOp, ModuleImportOp, StructOp, EnumOp,
+            ResourceAllocOp, InstanceOp, InstanceRefOp, YieldOp, BitsConstantOp,
+            BitsConstant4Op, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
+            BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
+            StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
+            EnumFromBitsOp, TableCreateOp, TableSplatOp, TableViewOp,
+            TableIndexOp, TableReadOp, TableGetOp, TableMapOp, TableMatchOp,
+            TableChooseOp, TableFoldOp>(
           [](auto typed) { return typed.verifyInvariantsImpl(); })
       .Default([](Operation *) { return success(); });
 }
@@ -156,12 +167,157 @@ LogicalResult moduleSignature(Operation *op) {
   return detail::verifySourceOwner(op->getAttrOfType<DictionaryAttr>("source_owner"),
                                    [&] { return op->emitOpError(); });
 }
+bool callable(Operation *op) {
+  return isa<TransactionRuleOp, TransactionMethodOp>(op);
+}
+Operation *findLocal(Operation *owner, StringRef name) {
+  if (!owner || owner->getNumRegions() == 0 || owner->getRegion(0).empty())
+    return nullptr;
+  for (Operation &child : owner->getRegion(0).front())
+    if (auto attr = child.getAttrOfType<StringAttr>("sym_name"))
+      if (attr.getValue() == name)
+        return &child;
+  return nullptr;
+}
+Operation *ruleTarget(Operation *site) {
+  auto name = site->getAttrOfType<FlatSymbolRefAttr>("callee");
+  if (!name)
+    return nullptr;
+  auto *local = findLocal(site->getParentOfType<ModuleOp>(), name.getValue());
+  return local ? local : lookup(site, name.getValue());
+}
+Operation *methodTarget(TransactionMethodCallOp call) {
+  auto type = dyn_cast<ModuleRefType>(call.getReceiver().getType());
+  return type ? findLocal(lookup(call, type.getModule().getValue()),
+                          call.getCalleeAttr().getRootReference().getValue())
+              : nullptr;
+}
+bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
+  if (purePayload(op) || isa<YieldOp>(op))
+    return true;
+  auto call = dyn_cast<TransactionMethodCallOp>(op);
+  if (!call)
+    return false;
+  auto type = call.getReceiver().getType();
+  auto name = call.getCalleeAttr().getRootReference().getValue();
+  if (isa<StateType>(type))
+    return name == "read";
+  if (isa<QueueType>(type))
+    return name == "head" || name == "peek";
+  auto *target = methodTarget(call);
+  if (!target || !active.insert(target).second)
+    return false;
+  bool okay = true;
+  for (Region &region : target->getRegions())
+    region.walk([&](Operation *child) {
+      if (!readOnly(child, active))
+        okay = false;
+    });
+  active.erase(target);
+  return okay;
+}
+LogicalResult verifyCallable(Operation *op) {
+  if (callable(op)) {
+    auto sig = signature(op);
+    bool rule = isa<TransactionRuleOp>(op);
+    if (!sig || !(isa_and_nonnull<ModuleOp>(op->getParentOp()) ||
+                  (rule && isa_and_nonnull<mlir::ModuleOp>(op->getParentOp()))))
+      return op->emitOpError("callable requires direct Module ownership "
+                             "(global Rules are templates)");
+    if (isa_and_nonnull<mlir::ModuleOp>(op->getParentOp()) &&
+        op->getNumOperands())
+      return op->emitOpError("global Rule templates cannot capture");
+    for (Type type : sig.getInputs())
+      if (rule ? !resource(type) : resource(type) || isa<ModuleRefType>(type))
+        return op->emitOpError("Rule interfaces require resources; Method "
+                               "interfaces require payloads");
+    for (Type type : sig.getResults())
+      if (rule ? !resource(type) : resource(type) || isa<ModuleRefType>(type))
+        return op->emitOpError("Rule interfaces require resources; Method "
+                               "interfaces require payloads");
+    auto visibility = op->getAttrOfType<StringAttr>("sym_visibility");
+    if (visibility && visibility.getValue() != (rule ? "private" : "public"))
+      return op->emitOpError("Rules are private and Methods are public");
+    auto *owner = op->getParentOp();
+    for (Operation &other : owner->getRegion(0).front())
+      if (&other != op && other.getAttr("sym_name") == op->getAttr("sym_name"))
+        return op->emitOpError("callable name must be unique in its owner");
+    for (Value capture : op->getOperands()) {
+      auto arg = dyn_cast<BlockArgument>(capture);
+      if (arg ? arg.getOwner()->getParentOp() != owner
+              : !capture.getDefiningOp() ||
+                    capture.getDefiningOp()->getParentOp() != owner)
+        return op->emitOpError(
+            "capture must belong directly to the owning Module");
+    }
+    return success();
+  }
+  if (auto call = dyn_cast<TransactionRuleCallOp>(op)) {
+    auto *target = ruleTarget(op);
+    if (!isa_and_nonnull<ModuleOp>(op->getParentOp()) ||
+        !isa_and_nonnull<TransactionRuleOp>(target))
+      return op->emitOpError("Rule registration requires a direct owning "
+                             "Module and local or global Rule");
+    auto sig = signature(target);
+    SmallVector<Type> expected(sig.getInputs());
+    expected.append(sig.getResults().begin(), sig.getResults().end());
+    if (call.getInputCount() != sig.getNumInputs() ||
+        !sameTypes(call.getOperandTypes(), expected))
+      return op->emitOpError(
+          "Rule registration interfaces must match inputs then outputs");
+    return success();
+  }
+  if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
+    if (!call.getCalleeAttr().getNestedReferences().empty())
+      return op->emitOpError("Method names must be flat with an explicit receiver; regenerate this artifact");
+    Type receiver = call.getReceiver().getType();
+    FunctionType sig;
+    if (resource(receiver)) {
+      auto name = call.getCalleeAttr().getRootReference().getValue();
+      Type value = payload(receiver);
+      bool read = name == "read";
+      bool peek = (name == "head" || name == "peek" || name == "pop") &&
+                  isa<QueueType, PrimitiveType>(receiver);
+      bool write = name == "write";
+      bool push = name == "push" && isa<QueueType, PrimitiveType>(receiver);
+      if (!read && !peek && !write && !push)
+        return op->emitOpError("unknown resource Method");
+      SmallVector<Type> ins, outs;
+      if (write || push)
+        ins.push_back(value);
+      else
+        outs.push_back(value);
+      sig = FunctionType::get(op->getContext(), ins, outs);
+    } else {
+      auto *target = methodTarget(call);
+      if (!isa_and_nonnull<TransactionMethodOp>(target))
+        return op->emitOpError(
+            "Method receiver/name must resolve to an existing public Method");
+      sig = signature(target);
+      if (isa_and_nonnull<ModuleOp>(op->getParentOp()))
+        return op->emitOpError(
+            "Module combination cannot call another Module Method");
+    }
+    if (!sameTypes(call.getArguments().getTypes(), sig.getInputs()) ||
+        !sameTypes(call.getResultTypes(), sig.getResults()))
+      return op->emitOpError("Method payload signature mismatch");
+    if (isa_and_nonnull<ModuleOp>(op->getParentOp())) {
+      llvm::DenseSet<Operation *> active;
+      if (!readOnly(op, active))
+        return op->emitOpError(
+            "Module combination requires read-only observations");
+    }
+    return success();
+  }
+  return success();
+}
 } // namespace
 
 bool isTransactionalPackage(Operation *op) { return bool(packageOf(op)); }
 bool isLinkedTransactionalPackage(Operation *op) {
   auto package = packageOf(op);
-  auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+  auto stage =
+      package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
   return stage && stage.getValue() == "linked";
 }
 bool transactionalTypesEqual(Type a, Type b) {
@@ -224,6 +380,180 @@ void InstanceOp::print(OpAsmPrinter &printer) {
   printer.printFunctionalType(getOperandTypes(), getResultTypes());
 }
 
+namespace {
+ParseResult parseCallable(OpAsmParser &p, OperationState &s, bool rule) {
+  StringAttr name;
+  if (p.parseSymbolName(name, "sym_name", s.attributes))
+    return failure();
+  SmallVector<Type> ins, outs;
+  Type raw;
+  if (rule) {
+    auto types = [&](SmallVectorImpl<Type> &list) -> ParseResult {
+      if (p.parseLParen())
+        return failure();
+      if (succeeded(p.parseOptionalRParen()))
+        return success();
+      return failure(p.parseTypeList(list) || p.parseRParen());
+    };
+    if (p.parseKeyword("ins") || types(ins) || p.parseKeyword("outs") ||
+        types(outs))
+      return failure();
+    raw = p.getBuilder().getFunctionType(ins, outs);
+  } else if (p.parseColonType(raw))
+    return failure();
+  if (!isa<FunctionType>(raw))
+    return p.emitError(p.getCurrentLocation(), "expected function type");
+  s.addAttribute("function_type", TypeAttr::get(raw));
+  SmallVector<OpAsmParser::UnresolvedOperand> captures;
+  SmallVector<Type> types;
+  if (p.parseKeyword("captures") || p.parseLParen())
+    return failure();
+  if (failed(p.parseOptionalRParen())) {
+    do {
+      OpAsmParser::UnresolvedOperand operand;
+      Type type;
+      if (p.parseOperand(operand) || p.parseColonType(type))
+        return failure();
+      captures.push_back(operand);
+      types.push_back(type);
+    } while (succeeded(p.parseOptionalComma()));
+    if (p.parseRParen())
+      return failure();
+  }
+  if (p.resolveOperands(captures, types, p.getCurrentLocation(), s.operands) ||
+      p.parseOptionalAttrDict(s.attributes))
+    return failure();
+  Region *guard = s.addRegion(), *body = s.addRegion();
+  if (succeeded(p.parseOptionalKeyword("guard")) && p.parseRegion(*guard, {}, true))
+    return failure();
+  return failure(p.parseKeyword("body") || p.parseRegion(*body, {}, true));
+}
+void printCallable(OpAsmPrinter &p, Operation *op, bool rule) {
+  p << " ";
+  p.printSymbolName(op->getAttrOfType<StringAttr>("sym_name").getValue());
+  auto sig = signature(op);
+  if (rule) {
+    p << " ins(";
+    llvm::interleaveComma(sig.getInputs(), p);
+    p << ") outs(";
+    llvm::interleaveComma(sig.getResults(), p);
+    p << ")";
+  } else {
+    p << " : ";
+    p.printType(sig);
+  }
+  p << " captures(";
+  llvm::interleaveComma(op->getOperands(), p,
+                        [&](Value v) { p << v << " : " << v.getType(); });
+  p << ")";
+  p.printOptionalAttrDict(op->getAttrs(), {"sym_name", "function_type"});
+  if (!op->getRegion(0).empty()) {
+    p << " guard ";
+    p.printRegion(op->getRegion(0));
+  }
+  p << " body ";
+  p.printRegion(op->getRegion(1));
+}
+} // namespace
+ParseResult TransactionRuleOp::parse(OpAsmParser &p, OperationState &s) {
+  return parseCallable(p, s, true);
+}
+ParseResult TransactionMethodOp::parse(OpAsmParser &p, OperationState &s) {
+  return parseCallable(p, s, false);
+}
+void TransactionRuleOp::print(OpAsmPrinter &p) {
+  printCallable(p, *this, true);
+}
+void TransactionMethodOp::print(OpAsmPrinter &p) {
+  printCallable(p, *this, false);
+}
+ParseResult TransactionRuleCallOp::parse(OpAsmParser &p, OperationState &s) {
+  FlatSymbolRefAttr callee;
+  SmallVector<OpAsmParser::UnresolvedOperand> ins, outs;
+  SmallVector<Type> types;
+  if (p.parseAttribute(callee, "callee", s.attributes) ||
+      p.parseKeyword("ins") ||
+      p.parseOperandList(ins, OpAsmParser::Delimiter::Paren) ||
+      p.parseKeyword("outs") ||
+      p.parseOperandList(outs, OpAsmParser::Delimiter::Paren) ||
+      p.parseOptionalAttrDict(s.attributes) || p.parseColon() ||
+      p.parseLParen())
+    return failure();
+  if (failed(p.parseOptionalRParen()) &&
+      (p.parseTypeList(types) || p.parseRParen()))
+    return failure();
+  s.addAttribute("input_count", p.getBuilder().getI64IntegerAttr(ins.size()));
+  ins.append(outs);
+  return p.resolveOperands(ins, types, p.getCurrentLocation(), s.operands);
+}
+void TransactionRuleCallOp::print(OpAsmPrinter &p) {
+  p << " " << getCalleeAttr() << " ins(";
+  p.printOperands(getInterfaces().take_front(getInputCount()));
+  p << ") outs(";
+  p.printOperands(getInterfaces().drop_front(getInputCount()));
+  p << ")";
+  p.printOptionalAttrDict((*this)->getAttrs(), {"callee", "input_count"});
+  p << " : (";
+  llvm::interleaveComma(getOperandTypes(), p);
+  p << ")";
+}
+ParseResult TransactionMethodCallOp::parse(OpAsmParser &p, OperationState &s) {
+  OpAsmParser::UnresolvedOperand receiver;
+  FlatSymbolRefAttr callee;
+  SmallVector<OpAsmParser::UnresolvedOperand> operands;
+  Type raw;
+  if (p.parseOperand(receiver) || p.parseColon() || p.parseColon() ||
+      p.parseAttribute(callee, "callee", s.attributes) ||
+      p.parseOperandList(operands, OpAsmParser::Delimiter::Paren) ||
+      p.parseOptionalAttrDict(s.attributes) || p.parseColonType(raw))
+    return failure();
+  auto sig = dyn_cast<FunctionType>(raw);
+  if (!sig)
+    return p.emitError(p.getCurrentLocation(),
+                       "expected function type including receiver");
+  operands.insert(operands.begin(), receiver);
+  if (p.resolveOperands(operands, sig.getInputs(), p.getCurrentLocation(),
+                        s.operands))
+    return failure();
+  s.addTypes(sig.getResults());
+  return success();
+}
+void TransactionMethodCallOp::print(OpAsmPrinter &p) {
+  p << " " << getReceiver() << "::" << getCalleeAttr() << "(";
+  p.printOperands(getArguments());
+  p << ")";
+  p.printOptionalAttrDict((*this)->getAttrs(), {"callee"});
+  p << " : ";
+  p.printFunctionalType(getOperandTypes(), getResultTypes());
+}
+#define CALLABLE_VERIFY(OP)                                                    \
+  LogicalResult OP::verify() {                                                 \
+    if (!isTransactionalPackage(*this))                                        \
+      return emitOpError(                                                      \
+          "requires transactional contract 2; regenerate this artifact");      \
+    return verifyTransactionalOperation(*this);                                \
+  }
+CALLABLE_VERIFY(TransactionRuleOp)
+CALLABLE_VERIFY(TransactionMethodOp)
+CALLABLE_VERIFY(TransactionRuleCallOp)
+CALLABLE_VERIFY(TransactionMethodCallOp)
+#undef CALLABLE_VERIFY
+LogicalResult TransactionRuleOp::verifyRegions() {
+  return verifyTransactionalRegions(*this);
+}
+LogicalResult TransactionMethodOp::verifyRegions() {
+  return verifyTransactionalRegions(*this);
+}
+void TransactionRuleCallOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &e) {
+  e.emplace_back(MemoryEffects::Write::get(), SourceStateResource::get());
+}
+void TransactionMethodCallOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &e) {
+  e.emplace_back(MemoryEffects::Read::get(), SourceStateResource::get());
+  e.emplace_back(MemoryEffects::Write::get(), SourceStateResource::get());
+}
+
 LogicalResult ResourceAllocOp::verify() {
   if (!isTransactionalPackage(*this))
     return emitOpError("requires the transactional version 2 contract");
@@ -238,6 +568,8 @@ LogicalResult InstanceRefOp::verify() {
   return verifyTransactionalOperation(*this);
 }
 LogicalResult verifyTransactionalOperation(Operation *op) {
+  if (callable(op) || isa<TransactionRuleCallOp, TransactionMethodCallOp>(op))
+    return verifyCallable(op);
   if (isa<ModuleOp, ModuleImportOp>(op)) {
     if (failed(moduleSignature(op))) return failure();
     if (auto imported = dyn_cast<ModuleImportOp>(op)) {
@@ -327,13 +659,59 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     return success();
   }
   if (isa<YieldOp>(op)) {
-    if (!isa_and_nonnull<ModuleOp, TableMapOp, TableMatchOp>(op->getParentOp()))
+    if (!isa_and_nonnull<ModuleOp, TransactionRuleOp, TransactionMethodOp, TableMapOp, TableMatchOp>(op->getParentOp()))
       return op->emitOpError("resource contract yield must terminate a module or pure table region");
     return success();
   }
   return success();
 }
 LogicalResult verifyTransactionalRegions(Operation *op) {
+  if (callable(op)) {
+    auto sig = signature(op);
+    SmallVector<Type> arguments(sig.getInputs());
+    if (isa<TransactionRuleOp>(op))
+      arguments.append(sig.getResults().begin(), sig.getResults().end());
+    arguments.append(op->getOperandTypes().begin(),
+                     op->getOperandTypes().end());
+    for (unsigned index = 0; index != 2; ++index) {
+      Region &region = op->getRegion(index);
+      if (index == 0 && region.empty())
+        continue; // Canonical unconditional guard.
+      if (!region.hasOneBlock() || region.front().empty() ||
+          !sameTypes(region.front().getArgumentTypes(), arguments) ||
+          !isa<YieldOp>(region.front().back()))
+        return op->emitOpError("callable regions require interface arguments "
+                               "then captures and final ac.yield");
+      auto &end = region.front().back();
+      if (index == 0) {
+        if (end.getNumOperands() != 1 ||
+            !isa<BitsType>(end.getOperand(0).getType()) ||
+            failed([&]() -> LogicalResult {
+              HardwareAnalysis analysis(packageOf(op));
+              auto value = analysis.evaluateStatic(
+                  cast<BitsType>(end.getOperand(0).getType()).getWidth(), {},
+                  op);
+              return success(succeeded(value) && isa<MathIntAttr>(*value) &&
+                             cast<MathIntAttr>(*value).getCanonicalValue() ==
+                                 "1");
+            }()))
+          return end.emitOpError("guard must yield one Bits<1> predicate");
+        llvm::DenseSet<Operation *> active;
+        bool okay = true;
+        region.walk([&](Operation *child) {
+          if (!readOnly(child, active))
+            okay = false;
+        });
+        if (!okay)
+          return op->emitOpError("guard Method closure must be read-only");
+      } else if (isa<TransactionRuleOp>(op)
+                     ? end.getNumOperands() != 0
+                     : !sameTypes(end.getOperandTypes(), sig.getResults()))
+        return end.emitOpError("Rule body yields no values; Method body yields "
+                               "its payload results");
+    }
+    return success();
+  }
   auto expected = bodyInputs(op);
   if (failed(expected)) return failure();
   auto &body = op->getRegion(0);
@@ -368,93 +746,163 @@ LogicalResult verifyTransactionalRegions(Operation *op) {
 LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
   auto version = package->getAttrOfType<IntegerAttr>("ac.transactional");
   auto stage = package->getAttrOfType<StringAttr>("ac.stage");
-  if (!version || !version.getType().isSignlessInteger(64) || version.getInt() != 2)
-    return package.emitOpError("ac.transactional requires version 2 : i64; unsupported contracts never fall back");
-  if (!stage || (stage.getValue() != "unlinked" && stage.getValue() != "linked"))
-    return package.emitOpError("transactional version 2 requires unlinked or linked stage");
+  if (!version || !version.getType().isSignlessInteger(64) ||
+      version.getInt() != 2)
+    return package.emitOpError("ac.transactional requires version 2 : i64; "
+                               "unsupported contracts never fall back");
+  if (!stage ||
+      (stage.getValue() != "unlinked" && stage.getValue() != "linked"))
+    return package.emitOpError(
+        "transactional version 2 requires unlinked or linked stage");
   bool linked = stage.getValue() == "linked";
   auto fail = package.walk([&](Operation *op) {
-    if (failed(preflight(op))) return WalkResult::interrupt();
+    if (failed(preflight(op)))
+      return WalkResult::interrupt();
     return WalkResult::advance();
   });
-  if (fail.wasInterrupted()) return failure();
+  if (fail.wasInterrupted())
+    return failure();
   llvm::StringSet<> symbols;
   for (Operation &op : *package.getBody()) {
-    if (!isa<ModuleOp, ModuleImportOp, StructOp, EnumOp>(op))
-      return op.emitOpError("unsupported declaration in transactional resource contract");
+    if (!isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, TransactionRuleOp>(op))
+      return op.emitOpError(
+          "unsupported declaration in transactional resource contract");
     auto name = op.getAttrOfType<StringAttr>("sym_name");
-    if (!name || name.getValue().empty() || !symbols.insert(name.getValue()).second)
+    if (!name || name.getValue().empty() ||
+        !symbols.insert(name.getValue()).second)
       return op.emitOpError("package symbols must be nonempty and unique");
   }
   HardwareAnalysis analysis(package);
-  std::function<LogicalResult(Type, Operation *)> checkType = [&](Type type, Operation *site) -> LogicalResult {
+  std::function<LogicalResult(Type, Operation *)> checkType =
+      [&](Type type, Operation *site) -> LogicalResult {
     if (linked && isa<PrimitiveType>(type))
-      return site->emitOpError("linked package cannot retain primitive resources");
+      return site->emitOpError(
+          "linked package cannot retain primitive resources");
     if (auto ref = dyn_cast<ModuleRefType>(type)) {
-      if (!isa_and_nonnull<ModuleOp, ModuleImportOp>(lookup(site, ref.getModule().getValue())))
-        return site->emitOpError("module reference type requires a declared module");
+      if (!isa_and_nonnull<ModuleOp, ModuleImportOp>(
+              lookup(site, ref.getModule().getValue())))
+        return site->emitOpError(
+            "module reference type requires a declared module");
       return success();
     }
     type = payload(type);
     if (!isa<BitsType, EnumType, StructType, TableType>(type))
-      return site->emitOpError("transactional resource contract requires concrete hardware payloads");
+      return site->emitOpError("transactional resource contract requires "
+                               "concrete hardware payloads");
     HardwareBindings bindings;
-    bindings.owner = isa<ModuleOp, ModuleImportOp>(site) ? site : site->getParentOfType<ModuleOp>().getOperation();
-    if (bindings.owner && failed(detail::verifyHardwareTypeScope(type, bindings.owner))) return failure();
+    bindings.owner = isa<ModuleOp, ModuleImportOp>(site)
+                         ? site
+                         : site->getParentOfType<ModuleOp>().getOperation();
+    if (bindings.owner &&
+        failed(detail::verifyHardwareTypeScope(type, bindings.owner)))
+      return failure();
     return success(succeeded(analysis.getPackedWidth(type, bindings, site)));
   };
   fail = package.walk([&](Operation *op) {
     bool root = op == package.getOperation();
     for (auto attr : op->getAttrs()) {
       auto name = attr.getName().getValue();
-      bool schema = root
-          ? (name == "ac.transactional" || name == "ac.stage" ||
+      bool schema = root ? (name == "ac.transactional" || name == "ac.stage" ||
              name == "sym_name" || name == "sym_visibility")
-          : llvm::is_contained(op->getName().getAttributeNames(), attr.getName());
+                         : llvm::is_contained(op->getName().getAttributeNames(),
+                                              attr.getName());
       bool provenance = isa<StructOp, EnumOp>(op) &&
                         (name == "ac.source_owner" || name == "ac.origin");
-      bool visibility = isa<ModuleOp, ModuleImportOp, StructOp, EnumOp>(op) &&
+      bool visibility = isa<ModuleOp, ModuleImportOp, StructOp, EnumOp,
+                            TransactionRuleOp, TransactionMethodOp>(op) &&
                         name == "sym_visibility";
       if (!schema && !provenance && !visibility) {
-        op->emitOpError() << "unsupported transactional contract field " << name;
+        op->emitOpError() << "unsupported transactional contract field "
+                          << name;
         return WalkResult::interrupt();
       }
     }
-    if (root) return WalkResult::advance();
-    if ((!purePayload(op) && !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp,
-         ResourceAllocOp, InstanceOp, InstanceRefOp, YieldOp>(op)) ||
-        (purePayload(op) && !op->getParentOfType<ModuleOp>())) {
-      op->emitOpError("operation is outside the transactional resource-only contract; Methods and transactions are not supported");
+    if (root)
+      return WalkResult::advance();
+    if ((!purePayload(op) &&
+         !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
+              InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
+              TransactionMethodOp, TransactionRuleCallOp,
+              TransactionMethodCallOp>(op)) ||
+        (purePayload(op) && !op->getParentOfType<ModuleOp>() &&
+         !op->getParentOfType<TransactionRuleOp>())) {
+      op->emitOpError("operation is outside the transactional resource-only "
+                      "contract; Methods and transactions are not supported");
       return WalkResult::interrupt();
     }
-    if (op->hasAttr("primitive_kind") || op->hasAttr("transaction_summary") || op->hasAttr("dependency_summary")) {
-      op->emitOpError("legacy or Method contract fields are not supported by transactional resources");
+    if (op->hasAttr("primitive_kind") || op->hasAttr("transaction_summary") ||
+        op->hasAttr("dependency_summary")) {
+      op->emitOpError("legacy or Method contract fields are not supported by "
+                      "transactional resources");
       return WalkResult::interrupt();
     }
-    for (Type type : op->getOperandTypes()) if (failed(checkType(type, op))) return WalkResult::interrupt();
-    for (Type type : op->getResultTypes()) if (failed(checkType(type, op))) return WalkResult::interrupt();
+    for (Type type : op->getOperandTypes())
+      if (failed(checkType(type, op)))
+        return WalkResult::interrupt();
+    for (Type type : op->getResultTypes())
+      if (failed(checkType(type, op)))
+        return WalkResult::interrupt();
     if (auto sig = signature(op)) {
-      for (Type type : sig.getInputs()) if (failed(checkType(type, op))) return WalkResult::interrupt();
-      for (Type type : sig.getResults()) if (failed(checkType(type, op))) return WalkResult::interrupt();
+      for (Type type : sig.getInputs())
+        if (failed(checkType(type, op)))
+          return WalkResult::interrupt();
+      for (Type type : sig.getResults())
+        if (failed(checkType(type, op)))
+          return WalkResult::interrupt();
     }
-    if (failed(verifyTransactionalOperation(op))) return WalkResult::interrupt();
-    if (isa<ModuleOp>(op) && failed(verifyTransactionalRegions(op))) return WalkResult::interrupt();
+    if (failed(verifyTransactionalOperation(op)))
+      return WalkResult::interrupt();
+    if ((isa<ModuleOp>(op) || callable(op)) &&
+        failed(verifyTransactionalRegions(op)))
+      return WalkResult::interrupt();
     return WalkResult::advance();
   });
-  if (fail.wasInterrupted()) return failure();
+  if (fail.wasInterrupted())
+    return failure();
   llvm::DenseMap<Operation *, unsigned> colors;
-  std::function<LogicalResult(ModuleOp)> visit = [&](ModuleOp module) -> LogicalResult {
+  std::function<LogicalResult(ModuleOp)> visit =
+      [&](ModuleOp module) -> LogicalResult {
     auto color = colors.lookup(module);
-    if (color == 1) return module.emitOpError("recursive module allocation is forbidden");
-    if (color == 2) return success();
+    if (color == 1)
+      return module.emitOpError("recursive module allocation is forbidden");
+    if (color == 2)
+      return success();
     colors[module] = 1;
     for (auto instance : module.getBody().front().getOps<InstanceOp>())
-      if (auto target = dyn_cast_or_null<ModuleOp>(lookup(instance, instance.getCallee())))
-        if (failed(visit(target))) return failure();
+      if (auto target = dyn_cast_or_null<ModuleOp>(
+              lookup(instance, instance.getCallee())))
+        if (failed(visit(target)))
+          return failure();
     colors[module] = 2;
     return success();
   };
-  for (auto module : package.getOps<ModuleOp>()) if (failed(visit(module))) return failure();
+  for (auto module : package.getOps<ModuleOp>())
+    if (failed(visit(module)))
+      return failure();
+  llvm::DenseMap<Operation *, unsigned> methodColors;
+  std::function<LogicalResult(Operation *)> visitMethod =
+      [&](Operation *method) -> LogicalResult {
+    if (methodColors.lookup(method) == 1)
+      return method->emitOpError("recursive Method calls are not supported");
+    if (methodColors.lookup(method) == 2)
+      return success();
+    methodColors[method] = 1;
+    bool okay = true;
+    method->walk([&](TransactionMethodCallOp call) {
+      if (auto *target = methodTarget(call))
+        if (failed(visitMethod(target)))
+          okay = false;
+    });
+    methodColors[method] = 2;
+    return success(okay);
+  };
+  bool methodsOkay = true;
+  package.walk([&](TransactionMethodOp method) {
+    if (failed(visitMethod(method)))
+      methodsOkay = false;
+  });
+  if (!methodsOkay)
+    return failure();
   // Summaries distinguish a forwarded formal from a locally owned descendant.
   // They do not collapse identities: a descendant root is instantiated afresh
   // at each ac.instance. Following only formal aliases in the caller also

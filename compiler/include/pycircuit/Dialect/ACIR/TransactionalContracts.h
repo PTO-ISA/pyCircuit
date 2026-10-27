@@ -7,7 +7,8 @@ namespace acir::ac {
 bool isTransactionalPackage(mlir::Operation *operation);
 bool isLinkedTransactionalPackage(mlir::Operation *operation);
 bool transactionalTypesEqual(mlir::Type lhs, mlir::Type rhs);
-// V2 verifies resource/instance structure only. It is not execution admission.
+// V2 verifies normalized resources, instances and callables. It is not execution
+// admission or backend support.
 mlir::LogicalResult verifyTransactionalPackage(mlir::ModuleOp package);
 mlir::LogicalResult verifyTransactionalOperation(mlir::Operation *operation);
 mlir::LogicalResult verifyTransactionalRegions(mlir::Operation *operation);

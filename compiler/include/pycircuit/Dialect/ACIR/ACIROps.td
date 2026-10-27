@@ -460,6 +460,39 @@ def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
   }];
 }
 
+// Transactional callable definitions own isolated, explicit capture regions.
+def ACIR_TransactionRuleOp : ACIR_Op<"rule", [Symbol, IsolatedFromAbove]> {
+  let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type);
+  let regions = (region AnyRegion:$guard, AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+def ACIR_TransactionMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove]> {
+  let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type);
+  let regions = (region AnyRegion:$guard, AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+def ACIR_TransactionRuleCallOp : ACIR_Op<"rule.call", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let arguments = (ins Variadic<AnyType>:$interfaces, FlatSymbolRefAttr:$callee,
+      I64Attr:$input_count);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+def ACIR_TransactionMethodCallOp : ACIR_Op<"method.call", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let arguments = (ins AnyType:$receiver, Variadic<AnyType>:$arguments,
+      SymbolRefAttr:$callee);
+  let results = (outs Variadic<AnyType>:$results);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+
 def ACIR_SourceMethodOp : ACIR_Op<"legacy.method", [Symbol, IsolatedFromAbove,
     SingleBlock, RecursiveMemoryEffects]> {
   let summary = "Define an instance operation with entry guard and ordered body";

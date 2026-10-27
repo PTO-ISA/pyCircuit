@@ -19,6 +19,17 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
     return verifyTransactionalPackage(package);
   }
   if (name == "ac.stage") {
+    if (!operation->hasAttr("ac.transactional")) {
+      auto stale = operation->walk([](Operation *nested) {
+        if (isa<TransactionRuleOp, TransactionMethodOp,
+                TransactionRuleCallOp, TransactionMethodCallOp>(nested)) {
+          nested->emitOpError("transactional callable requires contract 2; regenerate this artifact");
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (stale.wasInterrupted()) return failure();
+    }
     auto stage = dyn_cast<StringAttr>(attribute.getValue());
     if (stage && (stage.getValue() == "unlinked" || stage.getValue() == "linked") &&
         !operation->hasAttr("ac.transactional"))
