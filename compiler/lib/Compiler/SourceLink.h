@@ -16,8 +16,6 @@ struct SourceLinkStages {
   std::string beforeTransactions;
   std::string routedTransactions;
   std::string afterTransactions;
-  std::string beforeEntryNormalization;
-  std::string normalizedEntry;
 };
 
 struct SourceLinkParameterBinding {

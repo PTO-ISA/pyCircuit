@@ -678,7 +678,7 @@ mlir::LogicalResult runVerify(const Options &options,
   if (!kind ||
       (kind.getValue() != "implementation" &&
        kind.getValue() != "declarations") ||
-      !stage || stage.getValue() != "source")
+      !stage || stage.getValue() != "unlinked")
     return emitError() << "unit body stage/unit_kind is invalid";
   if (mlir::failed(acir::compiler::verifyIntrinsicSourceUnitOwnerPair(
           *body, *header, sourceUnitOwnerMismatch, emitError)))
