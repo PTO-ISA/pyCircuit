@@ -52,9 +52,9 @@ package tests and receipts. No new native executable is needed for this split.
 | Entry point | Gate | Additional nightly coverage |
 | --- | --- | --- |
 | API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
-| Examples | `hello_counter`, `multi_outputs`, `struct_transform`, `enum_payload_pipeline`, `rob`, `table_rule`, `queue_rule_pipeline`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
+| Examples | `hello_counter`, `module_control_state_machine`, `multi_outputs`, `struct_transform`, `enum_payload_pipeline`, `rob`, `table_rule`, `queue_rule_pipeline`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
 
-The example registry is explicit. Gate configures only its seven smoke designs,
+The example registry is explicit. Gate configures only its eight smoke designs,
 so it does not compile the full nightly set first. Direct aggregate CMake builds
 default to the full `nightly` registry. Standalone example builds remain supported.
 Examples demonstrate complete designs; API fixtures test compiler/runtime
@@ -100,7 +100,7 @@ Runtime/source diagnostic coverage remains in gate.
 
 Long coverage, differential/reference-model and mutation matrices run when
 nightly is requested or scheduled. Ordinary authoring/review does not require
-running them immediately. The current examples selection contains 21 designs. The 54 superseded wrappers
+running them immediately. The current examples selection contains 22 designs. The 54 superseded wrappers
 are retained under `tests/fixtures/historical_examples/`, outside the example
 selection. Their retirement is not a pass or a claim that every old scenario has
 an equivalent API test. Active API/package fixtures still reference their

@@ -3,8 +3,8 @@
 #include <iostream>
 
 // Physical ports belong to this test adapter, never to the authored Module.
-int main() {
-  gfsim::WorkExecutor executor(1);
+int main(int argc, char **argv) {
+  gfsim::WorkExecutor executor(argc > 1 ? std::atoi(argv[1]) : 1);
   pyc_root dut("counter", &executor);
   auto bit = [](unsigned value) {
     return gfsim::wire<gfsim::Bits<1>>::known(gfsim::Bits<1>{value});

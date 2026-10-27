@@ -8,6 +8,14 @@
       "system": "HelloCounter"
     },
     {
+      "name": "module_control_state_machine",
+      "folder": "examples/module_control_state_machine",
+      "source": "module_control_state_machine.py",
+      "system": "ModuleControlStateMachine",
+      "system_cycles": 5,
+      "system_scope": "Module if/elif/else and autorules read old state; a false Rule guard holds the selected branch. Independent C++ workers 1/2 and RTL traces."
+    },
+    {
       "name": "multi_outputs",
       "folder": "examples/multi_outputs",
       "source": "multi_outputs.py",

@@ -1,7 +1,8 @@
 # Transactional frontend replacement status
 
-PR-04 replaces the production Python compile/link path after PR-01–03
-(base `7d0c79b9`). This is a bounded replacement, not completion of issue #361.
+PR-05 extends the production transactional Python compile/link path from
+`5bfe4035` with Module control flow and autorules. This is a bounded replacement,
+not completion of issue #361.
 
 ## Production path
 
@@ -29,7 +30,8 @@ Routed artifacts remain available through the existing Routed link target.
 | Guard, assert, log and old-Q reads | Implemented; focused source execution PASS |
 | Literal constant providers through published interfaces | Implemented; focused source execution PASS |
 | Queue, hierarchy and user Method execution | Implementation gaps; retained tests/oracles |
-| autorule, advanced payloads and control flow | Implementation gaps; retained tests/oracles |
+| Module if/elif/else and parameterless autorule | Implemented; retained SCF and focused C++/RTL execution PASS |
+| Advanced payloads, Rule-body control flow and branch-local merging | Implementation gaps; retained tests/oracles |
 | Memory/Table timing and advanced capability migration | Retained requirements; consult replacement plan for semantic decisions |
 | Direct transactional gfsim | Later work; no alternate production frontend |
 
@@ -39,46 +41,67 @@ reads still read old Q. Local expressions carry newly computed SSA values.
 Unregistered Rules do not execute. Disabled Rules publish no logs, and failed
 global checks publish neither state nor pending observations.
 
+## Module control and autorules
+
+Module `if/elif/else` retains no-result `scf.if` and `scf.yield` in normalized
+ACIR. `ac.source.predicate` associates each control with its original Bits value;
+its i1 result does not prove the value known. Current execution admission rejects
+controls that cannot be proved known; unknown payloads remain supported.
+
+`@ac.autorule` normalizes to one ordinary Rule definition and registration.
+It accepts no parameters/results and cannot be explicitly called again. Ordinary
+Rules retain explicit registration. Definitions and allocations stay directly
+in the Module; branch computations and read-only observations remain lexical.
+
+Common analysis combines each registration path with its Rule guard. Else uses
+the original condition, independent ifs have no priority, and all reads observe
+old Q. The same activation controls state proposals, assertions and logs.
+Mutual exclusion uses opposite path terms, conjunctions and equality of the same
+actual State to distinct known constants. Overlapping writers still reject.
+Routed/Final replay reconstructs paths from the retained source and checks their
+actual data, enable, assertion and observation endpoints.
+
+The new `module_control_state_machine` example starts with waiting state,
+permit false and zero completions. The first cycle holds despite the independent
+permit toggle. Its five old-state observations are `(0,0,0)`, `(0,1,0)`,
+`(1,0,0)`, `(2,1,0)`, `(0,0,1)`, each sampled at low and high epochs.
+A separate test writes one State from three equality-guarded autorules.
+
 ## Removal and verification accounting
 
-The former native importer, automatic registration, write/binding-plan passes,
-and production link candidate-SSA orchestration are removed. Shared AST,
-provenance, arithmetic, source registry, publication and storage/backend owners
-remain. The prototype contributed lowering logic, not its profile, CLI or
-physical bypass.
+The unused importer guard-to-`ac.branch` helper is removed; production Module
+control stays SCF until common transactional analysis. The existing routing,
+storage lowering, generated System runners and both backends are reused.
+`return None` now denotes an empty return in both Rules and Systems.
 
-Old examples and API cases are retained as migration requirements. Their current
-FAIL is not a PASS, and their unsupported syntax is distinct from an installation
-or compiler defect. The direct `SourceMemoryBindingsTest.cpp` plan-class tests
-remain as deferred migration input outside the compiled target because their
-implementation classes were deleted; their coverage is **NOT RUN**, not passed.
-Three entry-wrapper snapshot tests remain as NOT RUN migration inputs because
-their old stage fields were removed. The single TableQuery test of retired
-write-plan internals is removed. Remaining
-source transaction tests invoke the replacement compile entry and retain their
-original oracles. Existing gate cases remain selected; the new transactional source test is added
-to the API gate.
+The earlier automatic ordinary registration, write/binding-plan passes and
+candidate-SSA orchestration remain removed. Shared AST, provenance, arithmetic,
+source registry, publication and backend owners remain. Queue, hierarchy and
+user Method execution are still gaps; no legacy fallback is restored.
 
-Candidate command logs and source/generated artifacts are retained under ignored
-`docs/gates/logs/pr04-production-frontend/` and the existing lit scratch directory.
-Current candidate outcomes:
+Old examples and API cases remain migration requirements. Their current FAIL is
+not a PASS. The retained `SourceMemoryBindingsTest.cpp` plan-class tests and
+three entry-wrapper snapshot tests remain NOT RUN migration inputs. The old
+TableQuery write-plan-internals case remains retired, not passing coverage.
+No existing gate entry was removed; the state-machine example joins the gate.
+
+Candidate commands, statuses, reviews and content hashes are recorded under
+ignored `docs/gates/logs/pr05-scf-autorule/`. Public source artifacts and per-command
+receipts remain in the existing lit scratch directory.
 
 | Check | Actual result |
 | --- | --- |
 | Compiler tools build and installation | PASS |
-| PR-01–03 transactional lit selection | PASS, 10 tests |
-| Independent public source pipeline | PASS, C++ and RTL Systems; C++ State-export Module |
-| hello_counter generated System | PASS, workers 1/2 and RTL, 5 cycles / 10 epochs / original logs |
-| API gate | FAIL during build: module_loop requires Module inputs/hierarchy outside this slice; remaining gate execution NOT RUN |
-| Examples gate in a fresh output directory | FAIL: multi_outputs inputs, queue_rule_pipeline Methods, rob Struct defaults remain migration gaps |
-| Changed-file pre-commit | PASS, exact CI hook selection (separate file batches to avoid local Black worker hang) |
-| mkdocs build --strict | FAIL: three broken links in pre-existing untracked replacement-plan/design drafts |
-| Nightly, full platform release, direct gfsim | NOT RUN |
+| PR-01–04 transactional IR/state/failure regressions | PASS, 10 lit tests |
+| Public source pipeline | PASS, C++ workers 1/2 and RTL; both state-machine forms, path suppression, failure hold, retained SCF roundtrip and polarity-tamper rejection |
+| Capture/transport and example catalog/CMake Python tests | PASS, 81 tests |
+| Standard hello_counter and state-machine examples | PASS, 2 CTest entries, generated C++ workers 1/2 and RTL |
+| API gate | FAIL during build: module_loop requires Module inputs/hierarchy; remaining gate execution NOT RUN |
+| Examples gate in fresh output directory | FAIL during build: multi_outputs inputs and queue_rule_pipeline Methods remain migration gaps; full gate execution NOT RUN |
+| Changed-file pre-commit | PASS, CI hook selection, per-file invocation to avoid the local Black worker hang |
+| mkdocs build --strict | FAIL, the same three pre-existing broken links in user-owned untracked replacement/design drafts |
+| Nightly, full platform release, direct transactional gfsim | NOT RUN |
 
-An initial examples attempt rejected pre-existing old source artifacts before
-replacement. A fresh output directory removed that cache-version ambiguity;
-the failures above are current-source capability gaps. Regeneration requires a
-fresh unit destination when an old artifact cannot pass current authentication.
-The failed docs links are in `transactional-frontend-replacement-plan.md` and
-`transactional-acir-design.md`, not the new status links. User draft files remain
-untouched. No gate inventory was reduced to obtain these results.
+These results do not certify unexecuted legacy cases. No test oracle was derived
+from DUT output, and no old capability was silently cancelled. No publication or
+merge is included in this local delivery.

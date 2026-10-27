@@ -7,7 +7,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-repo, source_compiler, linker, emitter, cxx, scratch, target = sys.argv[1:]
+repo, source_compiler, linker, emitter, cxx, opt, scratch, target = sys.argv[1:]
 repo, scratch = Path(repo), Path(scratch)
 if scratch.exists():
     shutil.rmtree(scratch)
@@ -140,9 +140,19 @@ def Failure():
     def advance() -> None:
         log("info", "before_check", count)
         count = count + 1
-        assert count < 2
+        return None
 
-    advance()
+    @rule
+    def fail() -> None:
+        log("info", "failed_branch", count)
+        count = count + 1
+        assert False
+
+    if count < 2:
+        advance()
+    else:
+        fail()
+    return None
 """,
 )
 compile_source("constants", "INITIAL = 7\nSTEP = 1\n", output="changed-constants")
@@ -157,12 +167,96 @@ def Counter() -> bits[8]:
     @rule
     def advance() -> None:
         count = count + 1
-        assert count < 2
 
-    advance()
+    @rule
+    def fail() -> None:
+        count = count + 1
+        assert False
+
+    if count < 2:
+        advance()
+    else:
+        fail()
     return count
 """,
 )
+control_source = (
+    repo / "examples/module_control_state_machine/module_control_state_machine.py"
+).read_text()
+compile_source("control", control_source)
+control_receipt = json.loads((scratch / "control/unit.json").read_text())
+control_body = scratch / "control" / control_receipt["files"]["body"]
+assert "scf.if" in control_body.read_text()
+# Retained structured control must remain readable across save/reload.
+roundtrip = scratch / "control-roundtrip.ac"
+run([opt, control_body, "-o", roundtrip])
+run([opt, roundtrip, "-o", scratch / "control-roundtrip-again.ac"])
+assert roundtrip.read_bytes() == (scratch / "control-roundtrip-again.ac").read_bytes()
+
+autorule_source = """import pycircuit as ac
+
+@ac.system
+def AutoStates():
+    state: ac.bits[2] = 0
+
+    @ac.autorule(guard=lambda: state == 0)
+    def waiting() -> None:
+        state = 1
+        ac.log("info", "waiting", state)
+
+    @ac.autorule(guard=lambda: state == 1)
+    def working() -> None:
+        state = 2
+        ac.log("info", "working", state)
+
+    @ac.autorule(guard=lambda: state == 2)
+    def done() -> None:
+        state = 0
+        ac.log("info", "done", state)
+"""
+compile_source("auto_states", autorule_source)
+compile_source("duplicate_auto", autorule_source + "\n    waiting()\n", fails=True)
+compile_source(
+    "overlap",
+    """import pycircuit as ac
+
+@ac.system
+def Overlap():
+    state: ac.bits[2] = 0
+
+    @ac.rule
+    def first() -> None:
+        state = 1
+
+    @ac.rule
+    def second() -> None:
+        state = 2
+
+    if state == 0:
+        first()
+    if state == 0:
+        second()
+""",
+)
+compile_source(
+    "unknown_control",
+    """import pycircuit as ac
+
+@ac.system
+def UnknownControl():
+    state: ac.bits[2] = 0
+
+    @ac.rule
+    def advance() -> None:
+        state = 1
+
+    if ac.four_state("x"):
+        advance()
+""",
+)
+unknown_receipt = json.loads((scratch / "unknown_control/unit.json").read_text())
+unknown_body = scratch / "unknown_control" / unknown_receipt["files"]["body"]
+run([opt, unknown_body, "-o", scratch / "unknown-control-roundtrip.ac"])
 # Link and emission must use published units, without reading provider sources.
 for path in sources.iterdir():
     path.unlink()
@@ -228,6 +322,37 @@ cli(
     "-o",
     scratch / "counter.ac",
 )
+for name, top in (
+    ("control", "ModuleControlStateMachine"),
+    ("auto_states", "AutoStates"),
+    ("overlap", "Overlap"),
+    ("unknown_control", "UnknownControl"),
+):
+    cli(
+        "link",
+        scratch / name,
+        "--top",
+        f"source_test.{name}.{top}",
+        "-o",
+        scratch / f"{name}.ac",
+        fails=name in {"overlap", "unknown_control"},
+    )
+# Replaying source semantics must reject an executable branch-polarity change.
+control_final = (scratch / "control.ac").read_text()
+polarity = next(
+    line
+    for line in control_final.splitlines()
+    if line.lstrip().startswith("%")
+    and '"ac.bits.binary"' in line
+    and 'opcode = "xor"' in line
+    and "ac.transactional_step" not in line
+)
+tampered = scratch / "control-tampered.ac"
+tampered.write_text(
+    control_final.replace(polarity, polarity.replace('"xor"', '"or"'), 1)
+)
+run([opt, tampered, "-o", scratch / "control-tampered-parsed.ac"])
+run([opt, tampered, "--ac-verify-hardware"], fails=True)
 
 
 def compile_cpp(bundle, executable, extra=()):
@@ -255,13 +380,15 @@ def compile_cpp(bundle, executable, extra=()):
     )
 
 
-def execute(name, fails=False):
+def execute(name, fails=False, workers=1):
     bundle = scratch / f"{name}-{target}"
-    cli("emit", scratch / f"{name}.ac", "--target", target, "-o", bundle)
+    if not bundle.exists():
+        cli("emit", scratch / f"{name}.ac", "--target", target, "-o", bundle)
     executable = scratch / f"{name}-{target}.exe"
     if target == "cpp":
-        compile_cpp(bundle, executable)
-        result = run([executable, "--cycles", "5"], fails=fails)
+        if not executable.exists():
+            compile_cpp(bundle, executable)
+        result = run([executable, "--cycles", "5", "--workers", workers], fails=fails)
     else:
         run(
             [
@@ -327,6 +454,28 @@ assert execute("failure", fails=True) == [
     (3, [1]),
     (4, [2]),
 ]
+control_expected = []
+for cycle, state, permit, completed, operation in (
+    (0, 0, 0, 0, None),
+    (1, 0, 1, 0, 0),
+    (2, 1, 0, 0, 1),
+    (3, 2, 1, 0, 2),
+    (4, 0, 0, 1, None),
+):
+    for epoch in (cycle * 2, cycle * 2 + 1):
+        if operation is not None:
+            control_expected.append((epoch, [operation]))
+        control_expected.append((epoch, [state, permit, completed]))
+auto_expected = [
+    (epoch, [state])
+    for cycle, state in enumerate((0, 1, 2, 0, 1))
+    for epoch in (cycle * 2, cycle * 2 + 1)
+]
+for workers in (1, 2) if target == "cpp" else (1,):
+    control = execute("control", workers=workers)
+    assert control == control_expected, (control, control_expected)
+    auto_states = execute("auto_states", workers=workers)
+    assert auto_states == auto_expected, (auto_states, auto_expected)
 bundle = scratch / f"counter-{target}"
 cli("emit", scratch / "counter.ac", "--target", target, "-o", bundle)
 if target == "cpp":
@@ -336,5 +485,36 @@ if target == "cpp":
         executable,
         [Path(__file__).with_name("transactional-source-counter.cpp")],
     )
-    assert run([executable]).stdout.splitlines() == ["0", "1", "2"]
+    for workers in (1, 2):
+        assert run([executable, workers]).stdout.splitlines() == ["0", "1", "2"]
+else:
+    rtl = scratch / "counter.sv"
+    rtl.write_text(
+        run(
+            [
+                emitter,
+                scratch / "counter.ac",
+                "--target",
+                "verilog",
+                "--format",
+                "source",
+            ]
+        ).stdout
+    )
+    executable = scratch / "counter.vvp"
+    run(
+        [
+            "iverilog",
+            "-g2012",
+            "-s",
+            "tb",
+            "-o",
+            executable,
+            rtl,
+            repo / "include/verilog/dff.v",
+            repo / "include/verilog/dffe.v",
+            Path(__file__).with_name("transactional-source-counter.sv"),
+        ]
+    )
+    assert run(["vvp", executable]).stdout.splitlines()[:3] == ["0", "1", "2"]
 print(f"transactional source {target}: PASS")

@@ -1,6 +1,8 @@
 # Recommended examples
 
-Start with these 21 current designs. Each teaches a distinct pattern. Superseded
+The catalog contains 22 designs. `hello_counter` and
+`module_control_state_machine` exercise the transactional replacement; broader
+designs remain migration requirements, not current execution claims. Superseded
 wrappers and their original oracles are preserved as 54 source directories in
 [the historical fixture archive](../tests/fixtures/historical_examples/README.md),
 outside the current example catalog.
@@ -9,7 +11,8 @@ outside the current example catalog.
 
 | Example | What to learn |
 | --- | --- |
-| [hello_counter](hello_counter/README.md) | A small System, persistent state and a nested Rule. |
+| [hello_counter](hello_counter/README.md) | A small System, persistent state and an explicitly registered Rule. |
+| [module_control_state_machine](module_control_state_machine/README.md) | Module branches, guarded transitions, autorules and committed-state observations. |
 | [multi_outputs](multi_outputs/README.md) | Direct Module calls; Struct connections and independent tuple results. |
 | [sibling_calls](sibling_calls/README.md) | Existing Module references and independent callbacks reading committed state. |
 | [sibling_atomic](sibling_atomic/README.md) | A late sibling guard holds the whole transaction while the reader continues. |
@@ -21,18 +24,13 @@ outside the current example catalog.
 | [table_rule](table_rule/README.md) | Persistent Table entries and nested calls in one transaction. |
 | [calculator](calculator/README.md) | A complete control function with sequential local calculations and state updates. |
 
-A directly nested Rule is one autonomous computation per Module or System
-instance. Its declaration activates it; do not add a trailing call. At Module
-wiring, its bare name supplies its scalar, Struct or tuple results. Captures
-supply inputs; any Rule formal requires an explicit default binding. Source-global
-Rule templates retain explicit actual calls, such as `advance(phase)` in the
-benches.
-
-Use separate Rules for independent functions: each reads committed state.
-Sequential assignments and Method calls within one Rule share its candidate
-state and atomic commit. Put dependent operations in that one callback, as in
-ROB. Callable component operations use Methods, including zero-argument reads;
-local autonomous Rules are not callable. `after` ordering is retired.
+Ordinary Rules require an explicit call at Module wiring sites. A directly
+nested, parameterless `@ac.autorule` registers once; do not call it again.
+Module `if/elif/else` selects registrations from committed state, independently
+of a selected Rule's guard. Keep independent functions in separate Rules.
+Every state read observes old Q, including reads after an assignment; use local
+values for newly computed results. State proposals and logs commit only when
+whole-system checks succeed. Method and hierarchy examples below await migration.
 
 Each static Module call creates a distinct child instance. Bind the result once
 and reuse it to fan out existing outputs. Pass fields that travel together as one
