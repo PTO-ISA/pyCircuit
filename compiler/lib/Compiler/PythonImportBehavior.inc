@@ -3078,6 +3078,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     if (target.kind() != "Name" || !initializer ||
         values.contains(target.string("id")) ||
         names.contains(target.string("id")) ||
+        structuralInstances.contains(target.string("id")) ||
         structs.contains(target.string("id")) ||
         behavioralRules.contains(target.string("id")))
       return error()

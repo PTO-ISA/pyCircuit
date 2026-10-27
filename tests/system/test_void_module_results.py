@@ -271,6 +271,21 @@ def test_unannotated_module_results_still_require_an_annotation(tmp_path, payloa
         ("    first = Sink(value)\n    second = Sink(first)\n", "None"),
         ("    first = Sink(value)\n    return first\n", "ac.u8"),
         ("    first = Sink(value)\n    return first + value\n", "ac.u8"),
+        (
+            "    first = Empty()\n    alias = first\n"
+            "    alias: ac.u8 = 0\n    return alias\n",
+            "ac.u8",
+        ),
+        (
+            "    first = Empty()\n    alias = first\n"
+            "    alias: ac.table[2, ac.u8] = 0\n    return alias\n",
+            "ac.table[2, ac.u8]",
+        ),
+        (
+            "    first = Empty()\n    alias = first\n"
+            "    alias = ac.table[2, ac.u8](init=0)\n    return alias\n",
+            "ac.table[2, ac.u8]",
+        ),
     ],
     ids=[
         "occupied-local",
@@ -279,10 +294,16 @@ def test_unannotated_module_results_still_require_an_annotation(tmp_path, payloa
         "argument",
         "return",
         "arithmetic",
+        "alias-scalar-state",
+        "alias-annotated-table-state",
+        "alias-constructor-table-state",
     ],
 )
 def test_void_handles_are_immutable_and_not_payloads(tmp_path, body, result):
     provider = """import pycircuit as ac
+@ac.module
+def Empty() -> None:
+    pass
 @ac.module
 def Sink(value: ac.u8) -> None:
     pass
