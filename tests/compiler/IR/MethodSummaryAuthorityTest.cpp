@@ -61,7 +61,7 @@ module {
     %initial_packet = "ac.struct.create"(%initial_lanes) : (!lanes) -> !ac.struct<"Packet">
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #c0} : (!b1, !b1, !b8) -> !b8
     %packet_q = "ac.state"(%clk, %rst, %initial_packet) {instance_name = "packet", occurrence = #c1} : (!b1, !b1, !ac.struct<"Packet">) -> !ac.struct<"Packet">
-    "ac.method"(%rst, %yes, %flag, %seed, %initial) ({
+    "ac.legacy.method"(%rst, %yes, %flag, %seed, %initial) ({
     ^bb0(%allow: !b1, %value: !b8, %slot: !b8, %reset: !b1, %always: !b1, %captured_flag: !b1, %captured_seed: !b8, %captured_initial: !b8):
       %guard_read = "ac.state.read"(%allow) {state = "count", selectors = [], occurrence = #c3} : (!b1) -> !b8
       "ac.yield"(%always) : (!b1) -> ()
@@ -69,15 +69,15 @@ module {
     ^bb0(%allow: !b1, %value: !b8, %slot: !b8, %reset: !b1, %always: !b1, %captured_flag: !b1, %captured_seed: !b8, %captured_initial: !b8):
       %old = "ac.state.read"(%allow) {state = "count", selectors = [], occurrence = #c4} : (!b1) -> !b8
       "ac.state.write"(%allow, %value) {state = "count", selectors = [], occurrence = #c5} : (!b1, !b8) -> ()
-      %called = "ac.method.call"(%allow, %value) {callee = @Child::@relay, instance_path = [], occurrence = #c6} : (!b1, !b8) -> !b8
+      %called = "ac.legacy.method.call"(%allow, %value) {callee = @Child::@relay, instance_path = [], occurrence = #c6} : (!b1, !b8) -> !b8
       %lane = "ac.state.read"(%allow, %slot) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #c7} : (!b1, !b8) -> !b8
       "ac.state.write"(%allow, %lane, %slot) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #c8} : (!b1, !b8, !b8) -> ()
       %false = "ac.bits.constant"() {value = #w0} : () -> !b1
-      %unused = "ac.method.call"(%false, %old) {callee = @Child::@relay, instance_path = [], occurrence = #c9} : (!b1, !b8) -> !b8
+      %unused = "ac.legacy.method.call"(%false, %old) {callee = @Child::@relay, instance_path = [], occurrence = #c9} : (!b1, !b8) -> !b8
       %sum = "ac.bits.binary"(%value, %captured_seed) {opcode = "add"} : (!b8, !b8) -> !b8
       "ac.yield"(%sum) : (!b8) -> ()
     }) {sym_name = "act", function_type = (!b1, !b8, !b8) -> !b8, argument_names = ["allow", "value", "index"], ac.parameters = [{name = "allow", binding = "positional_or_keyword", constraint = #bit_constraint, default = {present = false}, origin = #c2, location = #span}, {name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c2, location = #span}, {name = "index", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #c2, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #c2} : (!b1, !b1, !b1, !b8, !b8) -> ()
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%value: !b8, %always: !b1):
       "ac.yield"(%always) : (!b1) -> ()
     }, {
@@ -106,9 +106,9 @@ module {
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1, %value: !b8, %slot: !b8):
-      %a = "ac.method.call"(%path, %path, %value, %slot) {callee = @Child::@act, instance_path = ["left"], occurrence = #r5} : (!b1, !b1, !b8, !b8) -> !b8
-      %again = "ac.method.call"(%path, %a) {callee = @Child::@relay, instance_path = ["left"], occurrence = #r6} : (!b1, !b8) -> !b8
-      %b = "ac.method.call"(%path, %path, %again, %slot) {callee = @Child::@act, instance_path = ["right"], occurrence = #r7} : (!b1, !b1, !b8, !b8) -> !b8
+      %a = "ac.legacy.method.call"(%path, %path, %value, %slot) {callee = @Child::@act, instance_path = ["left"], occurrence = #r5} : (!b1, !b1, !b8, !b8) -> !b8
+      %again = "ac.legacy.method.call"(%path, %a) {callee = @Child::@relay, instance_path = ["left"], occurrence = #r6} : (!b1, !b8) -> !b8
+      %b = "ac.legacy.method.call"(%path, %path, %again, %slot) {callee = @Child::@act, instance_path = ["right"], occurrence = #r7} : (!b1, !b1, !b8, !b8) -> !b8
       "ac.yield"(%b) : (!b8) -> ()
     }) {name = "run", declaration = #r3, occurrence = #r4, ac.guard_location = #span} : (!b1, !b1, !b1, !b8, !b8) -> !b8
     "ac.transaction"(%clk, %rst, %yes, %left) ({

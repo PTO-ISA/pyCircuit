@@ -62,7 +62,7 @@ module {
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #c0} : (!b1, !b1, !b8) -> !b8
     %packet_initial = "ac.struct.create"(%initial) : (!b8) -> !ac.struct<"Packet">
     %packet_q = "ac.state"(%clk, %rst, %packet_initial) {instance_name = "packet", occurrence = #c1} : (!b1, !b1, !ac.struct<"Packet">) -> !ac.struct<"Packet">
-    "ac.method"(%yes, %q, %clk, %rst, %flag) ({
+    "ac.legacy.method"(%yes, %q, %clk, %rst, %flag) ({
     ^bb0(%delta: !b8, %path: !b1, %snapshot: !b8, %clock: !b1, %reset: !b1, %admit: !b1):
       %guard_read = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #c3} : (!b1) -> !b8
       "ac.yield"(%path) : (!b1) -> ()
@@ -73,15 +73,15 @@ module {
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #c5} : (!b1, !b8) -> ()
       "ac.yield"(%next) : (!b8) -> ()
     }) {sym_name = "bump", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #c2, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #c2} : (!b1, !b8, !b1, !b1, !b1) -> ()
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%delta: !b8, %path: !b1):
-      %nested = "ac.method.call"(%path, %delta) {callee = @Child::@bump, instance_path = [], occurrence = #c7} : (!b1, !b8) -> !b8
+      %nested = "ac.legacy.method.call"(%path, %delta) {callee = @Child::@bump, instance_path = [], occurrence = #c7} : (!b1, !b8) -> !b8
       "ac.yield"(%nested) : (!b8) -> ()
     }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #c6, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #c6} : (!b1) -> ()
-    "ac.method"(%yes, %q) ({
+    "ac.legacy.method"(%yes, %q) ({
     ^bb0(%path: !b1, %snapshot: !b8):
       %guard_read = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #c9} : (!b1) -> !b8
       "ac.yield"(%path) : (!b1) -> ()
@@ -90,7 +90,7 @@ module {
       %unused = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #c10} : (!b1) -> !b8
       "ac.yield"(%snapshot) : (!b8) -> ()
     }) {sym_name = "peek", function_type = () -> !b8, argument_names = [], ac.parameters = [], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #c8} : (!b1, !b8) -> ()
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -114,13 +114,13 @@ module {
     }, {
     ^bb0(%path: !b1, %delta: !b8, %snapshot: !b8, %clock: !b1, %reset: !b1):
       %before = "ac.state.read"(%path) {state = "status", selectors = [], occurrence = #r6} : (!b1) -> !b8
-      %first = "ac.method.call"(%path, %delta) {callee = @Child::@bump, instance_path = ["left"], occurrence = #r7} : (!b1, !b8) -> !b8
-      %second = "ac.method.call"(%path, %first) {callee = @Child::@relay, instance_path = ["left"], occurrence = #r8} : (!b1, !b8) -> !b8
-      %third = "ac.method.call"(%path, %first) {callee = @Child::@bump, instance_path = ["right"], occurrence = #r9} : (!b1, !b8) -> !b8
+      %first = "ac.legacy.method.call"(%path, %delta) {callee = @Child::@bump, instance_path = ["left"], occurrence = #r7} : (!b1, !b8) -> !b8
+      %second = "ac.legacy.method.call"(%path, %first) {callee = @Child::@relay, instance_path = ["left"], occurrence = #r8} : (!b1, !b8) -> !b8
+      %third = "ac.legacy.method.call"(%path, %first) {callee = @Child::@bump, instance_path = ["right"], occurrence = #r9} : (!b1, !b8) -> !b8
       "ac.state.write"(%path, %before) {state = "status", selectors = [], occurrence = #r10} : (!b1, !b8) -> ()
       %after = "ac.state.read"(%path) {state = "status", selectors = [], occurrence = #r11} : (!b1) -> !b8
-      %unused = "ac.method.call"(%path) {callee = @Child::@peek, instance_path = ["left"], occurrence = #r12} : (!b1) -> !b8
-      "ac.method.call"(%path) {callee = @Child::@noop, instance_path = ["left"], occurrence = #r13} : (!b1) -> ()
+      %unused = "ac.legacy.method.call"(%path) {callee = @Child::@peek, instance_path = ["left"], occurrence = #r12} : (!b1) -> !b8
+      "ac.legacy.method.call"(%path) {callee = @Child::@noop, instance_path = ["left"], occurrence = #r13} : (!b1) -> ()
       "ac.yield"(%first) : (!b8) -> ()
     }) {name = "run", declaration = #r3, occurrence = #r4, ac.guard_location = #span} : (!b1, !b1, !b1, !b8, !b8, !b1, !b1) -> !b8
     "ac.transaction"(%clk, %rst, %yes, %q) ({
@@ -129,7 +129,7 @@ module {
     }, {
     ^bb0(%path: !b1, %snapshot: !b8):
       %old = "ac.state.read"(%path) {state = "status", selectors = [], occurrence = #r16} : (!b1) -> !b8
-      %unused = "ac.method.call"(%path) {callee = @Child::@peek, instance_path = ["left"], occurrence = #r17} : (!b1) -> !b8
+      %unused = "ac.legacy.method.call"(%path) {callee = @Child::@peek, instance_path = ["left"], occurrence = #r17} : (!b1) -> !b8
       "ac.yield"() : () -> ()
     }) {name = "watch", declaration = #r14, occurrence = #r15, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> ()
     "ac.yield"(%answer) : (!b8) -> ()
@@ -2790,20 +2790,20 @@ std::string queueStateFixture(llvm::StringRef effects,
       ac.payload_constraint = #byte
     } : (!b1, !b1, !b1, !b8, !b1) -> (!b1, !b1, !b8, !b1)
 )ir";
-  std::string noop = R"ir(    "ac.method"(%yes) ({
+  std::string noop = R"ir(    "ac.legacy.method"(%yes) ({
     ^bb0(%path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1):
       "ac.yield"() : () -> ()
     }) {sym_name = "noop")ir";
-  std::string definition = conditional ? R"ir(    "ac.method"(%yes, %flag) ({
+  std::string definition = conditional ? R"ir(    "ac.legacy.method"(%yes, %flag) ({
     ^bb0(%path: !b1, %select: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1, %select: !b1):
 )ir"
-                                       : R"ir(    "ac.method"(%yes) ({
+                                       : R"ir(    "ac.legacy.method"(%yes) ({
     ^bb0(%path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -2848,10 +2848,10 @@ parseQueueStateFixture(llvm::StringRef text, mlir::MLIRContext &context) {
 TEST_F(TransactionStateSSATest,
        QueuePlanRetainsCommittedHeadAndOrderedDemands) {
   auto text = queueStateFixture(R"ir(
-      %peek0 = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@peek, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
-      %peek1 = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@peek, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
-      %popped = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c28, ac.location = #span} : (!b1) -> !b8
-      "ac.method.call"(%path, %popped) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@push, instance_path = ["fifo"], occurrence = #c29, ac.location = #span} : (!b1, !b8) -> ()
+      %peek0 = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@peek, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+      %peek1 = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@peek, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
+      %popped = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c28, ac.location = #span} : (!b1) -> !b8
+      "ac.legacy.method.call"(%path, %popped) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@push, instance_path = ["fifo"], occurrence = #c29, ac.location = #span} : (!b1, !b8) -> ()
 )ir");
   auto file = parseQueueStateFixture(text, context);
   ASSERT_TRUE(file);
@@ -2899,7 +2899,7 @@ TEST_F(TransactionStateSSATest,
 TEST_F(TransactionStateSSATest,
        ReceiverInventoryReuseKeepsMultiQueueFanoutAcrossPlansWithinBudget) {
   auto text = queueStateFixture(R"ir(
-      %popped = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+      %popped = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
 )ir");
   auto file = parseQueueStateFixture(text, context);
   ASSERT_TRUE(file);
@@ -2979,8 +2979,8 @@ TEST_F(TransactionStateSSATest,
 
 TEST_F(TransactionStateSSATest, QueuePlanRejectsTwoClaimsOnOnePhysicalPort) {
   auto text = queueStateFixture(R"ir(
-      %first = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
-      %second = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
+      %first = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+      %second = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
 )ir");
   auto file = parseQueueStateFixture(text, context);
   ASSERT_TRUE(file);
@@ -2994,10 +2994,10 @@ TEST_F(TransactionStateSSATest, QueuePlanRejectsTwoClaimsOnOnePhysicalPort) {
 TEST_F(TransactionStateSSATest, QueuePlanKeepsExcludedBranchClaimsSeparate) {
   auto text = queueStateFixture(R"ir(
       "ac.branch"(%select) ({
-        %first = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+        %first = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
         "ac.yield"() : () -> ()
       }, {
-        %second = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
+        %second = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c27, ac.location = #span} : (!b1) -> !b8
         "ac.yield"() : () -> ()
       }) {occurrence = #c28, ac.condition_location = #span} : (!b1) -> ()
 )ir",
@@ -3018,14 +3018,14 @@ TEST_F(TransactionStateSSATest, QueuePlanKeepsExcludedBranchClaimsSeparate) {
 TEST_F(TransactionStateSSATest,
        QueuePlanSeparatesSameTypedReceiverAllocations) {
   auto text = queueStateFixture(R"ir(
-      %popped = "ac.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
+      %popped = "ac.legacy.method.call"(%path) {callee = @pycircuit.__builtins__.fifo_downstream_pop::@pop, instance_path = ["fifo"], occurrence = #c26, ac.location = #span} : (!b1) -> !b8
 )ir");
   std::string call =
-      R"ir("ac.method.call"(%path) {callee = @Child::@noop, instance_path = ["left"], occurrence = #r13} : (!b1) -> ())ir";
+      R"ir("ac.legacy.method.call"(%path) {callee = @Child::@noop, instance_path = ["left"], occurrence = #r13} : (!b1) -> ())ir";
   auto at = text.find(call);
   ASSERT_NE(at, std::string::npos);
   text.insert(at + call.size(), R"ir(
-      "ac.method.call"(%path) {callee = @Child::@noop, instance_path = ["right"], occurrence = #r18} : (!b1) -> ()
+      "ac.legacy.method.call"(%path) {callee = @Child::@noop, instance_path = ["right"], occurrence = #r18} : (!b1) -> ()
 )ir");
   auto file = parseQueueStateFixture(text, context);
   ASSERT_TRUE(file);

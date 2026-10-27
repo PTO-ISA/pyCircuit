@@ -250,7 +250,7 @@ TEST_F(SourceHelperAuthorityTest,
 TEST_F(SourceHelperAuthorityTest,
        UnsupportedEffectsAndAllocationsNeverBecomePureByDCE) {
   for (auto name : {"ac.instance", "ac.state", "ac.state.read",
-                    "ac.method.call", "ac.transaction", "ac.rule", "ac.observe",
+                    "ac.legacy.method.call", "ac.transaction", "ac.comb", "ac.observe",
                     "ac.expect", "test.unknown"}) {
     auto file = parse();
     ASSERT_TRUE(file);

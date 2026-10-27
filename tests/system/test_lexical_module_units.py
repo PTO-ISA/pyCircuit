@@ -124,7 +124,7 @@ def _operation_results(line: str, count: int) -> list[str]:
 
 
 def _rule_text(body: str) -> str:
-    return body.split('"ac.rule"', 1)[1].split('"ac.yield"() : () -> ()', 1)[0]
+    return body.split('"ac.comb"', 1)[1].split('"ac.yield"() : () -> ()', 1)[0]
 
 
 def _rule_arguments(rule: str) -> list[tuple[str, str]]:
@@ -216,7 +216,7 @@ def test_v02_function_module_nested_rule_and_bare_return_are_accepted(
     body = unit.body.read_text(encoding="utf-8")
     assert '"ac.module"()' in body
     assert "ac.reg" in body
-    assert "ac.rule" in body
+    assert "ac.comb" in body
     assert "ac.dff" not in body
     assert "ac.dffe" not in body
 
@@ -359,7 +359,7 @@ def test_v03_owned_reg_alias_reuses_one_state_for_read_and_write(
     assert body.count('"ac.reg"') == 1
     assert "ac.ports = []" in body
     assert "ac.queue" not in body
-    rule = body.split('"ac.rule"', 1)[1].split('"ac.yield"() : () -> ()', 1)[0]
+    rule = body.split('"ac.comb"', 1)[1].split('"ac.yield"() : () -> ()', 1)[0]
     operands = re.search(r"^\((%[^,]+), (%[^)]+)\)", rule)
     assert operands is not None
     assert operands.group(1) == operands.group(2)
@@ -570,7 +570,7 @@ def test_w04_conditional_next_use_preserves_path_and_inactive_rule_has_no_facts(
 
     assert unit.process.returncode == 0, unit.process.stderr
     body = unit.body.read_text(encoding="utf-8")
-    assert body.count('"ac.rule"') == 1
+    assert body.count('"ac.comb"') == 1
     assert 'name = "active"' in body
     assert 'name = "inactive"' not in body
     rule = _rule_text(body)
@@ -616,7 +616,7 @@ def test_w04_two_registrations_preserve_rules_and_union_public_origins(
 
     assert unit.process.returncode == 0, unit.process.stderr
     body = unit.body.read_text(encoding="utf-8")
-    rules = _operation_lines(body, "ac.rule")
+    rules = _operation_lines(body, "ac.comb")
     reads = _operation_lines(body, "ac.source.read")
     uses = _operation_lines(body, "ac.source.use")
     assert len(rules) == 2

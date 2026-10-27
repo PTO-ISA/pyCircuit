@@ -280,9 +280,9 @@ def _method_program(tmp_path):
     input_text = transaction_input.read_text()
     output_text = transaction_output.read_text()
     final_text = final.read_text()
-    assert '"ac.method.call"' in input_text
+    assert '"ac.legacy.method.call"' in input_text
     assert "ac.sampled_admission" in output_text
-    assert '"ac.method.call"' not in output_text
+    assert '"ac.legacy.method.call"' not in output_text
     assert output_text != input_text
     assert final_text.count('"ac.observe"(') == 6
     assert final_text.count("ac.observation_id") == 6
@@ -369,9 +369,9 @@ def _conditional_method_program(tmp_path, *, probe=False):
         str(after),
     ]
     _ok(_run(arguments))
-    assert '"ac.method.call"' in before.read_text()
+    assert '"ac.legacy.method.call"' in before.read_text()
     assert "ac.branch" in before.read_text()
-    assert '"ac.method.call"' not in after.read_text()
+    assert '"ac.legacy.method.call"' not in after.read_text()
     assert "ac.branch" not in after.read_text()
     assert "ac.sampled_admission" in after.read_text()
     return final, before, after
@@ -1049,10 +1049,10 @@ def _branch_method_program(tmp_path):
     before = transaction_input.read_text()
     after = transaction_output.read_text()
     final_text = final.read_text()
-    assert '"ac.method.call"' in before
+    assert '"ac.legacy.method.call"' in before
     assert "ac.branch" in before
     assert "ac.sampled_admission" in after
-    assert '"ac.method.call"' not in after
+    assert '"ac.legacy.method.call"' not in after
     assert "ac.branch" not in after
     assert final_text.count('"ac.observe"(') == 6
     assert final_text.count("ac.observation_id") == 6
@@ -3633,7 +3633,7 @@ def OrderedBindings():
             unit / receipt["files"][kind]
         ).read_bytes()
     typed = stages / "body.ac"
-    assert '"ac.method"' in typed.read_text()
+    assert '"ac.legacy.method"' in typed.read_text()
     _ok(
         _run(
             [
@@ -3670,8 +3670,8 @@ def OrderedBindings():
             ]
         )
     )
-    assert '"ac.method.call"' in before_lowering.read_text()
-    assert '"ac.method.call"' not in after_lowering.read_text()
+    assert '"ac.legacy.method.call"' in before_lowering.read_text()
+    assert '"ac.legacy.method.call"' not in after_lowering.read_text()
     assert "ac.sampled_admission" in after_lowering.read_text()
     artifacts = (
         capture,

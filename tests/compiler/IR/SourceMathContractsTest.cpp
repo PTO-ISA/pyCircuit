@@ -409,7 +409,7 @@ TEST_F(SourceMathContractsTest,
     state.addAttribute("ac.origin", occurrence(builder));
     state.addTypes(MathIntType::get(&context));
     auto topLevel = mlir::cast<MathConstantOp>(builder.create(state));
-    expectRejected(verify(context, topLevel), "requires an ac.rule");
+    expectRejected(verify(context, topLevel), "requires an ac.comb");
   }
   MathGraph graph = buildMathGraph(context);
   EXPECT_EQ(graph.rule->getNumRegions(), 1u);

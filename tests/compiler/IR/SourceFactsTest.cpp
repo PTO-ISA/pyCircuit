@@ -391,7 +391,7 @@ TEST_F(SourceFactsTest, TwoTargetUsesRejectCrossPairFanoutAndSwap) {
   auto fanout = clone(*graph.container);
   auto uses = findAll(*fanout, "ac.source.use");
   ASSERT_EQ(uses.size(), 2u);
-  auto *rule = findOnly(*fanout, "ac.rule");
+  auto *rule = findOnly(*fanout, "ac.comb");
   mlir::Operation &yield = rule->getRegion(0).front().back();
   yield.getOpOperand(2).set(uses[0]->getResult(0));
   yield.getOpOperand(3).set(uses[0]->getResult(1));
@@ -400,7 +400,7 @@ TEST_F(SourceFactsTest, TwoTargetUsesRejectCrossPairFanoutAndSwap) {
   auto swapped = clone(*graph.container);
   uses = findAll(*swapped, "ac.source.use");
   ASSERT_EQ(uses.size(), 2u);
-  rule = findOnly(*swapped, "ac.rule");
+  rule = findOnly(*swapped, "ac.comb");
   mlir::Operation &swappedYield = rule->getRegion(0).front().back();
   swappedYield.getOpOperand(0).set(uses[1]->getResult(0));
   swappedYield.getOpOperand(1).set(uses[1]->getResult(1));
@@ -416,7 +416,7 @@ TEST_F(SourceFactsTest, TwoTargetUseRejectsCombinerCrossTargetLeakage) {
   auto leaked = clone(*graph.container);
   auto uses = findAll(*leaked, "ac.source.use");
   ASSERT_EQ(uses.size(), 2u);
-  auto *rule = findOnly(*leaked, "ac.rule");
+  auto *rule = findOnly(*leaked, "ac.comb");
   mlir::Operation &yield = rule->getRegion(0).front().back();
   mlir::Value secondPath = uses[1]->getOperand(2);
   mlir::OpBuilder builder(&context);
@@ -468,7 +468,7 @@ TEST_F(SourceFactsTest,
                    "type", narrower);
   module->setAttr("ac.ports", builder.getArrayAttr(changedPorts));
 
-  auto *rule = findOnly(*mismatched, "ac.rule");
+  auto *rule = findOnly(*mismatched, "ac.comb");
   auto outputTypes = rule->getAttrOfType<mlir::ArrayAttr>("ac.output_types");
   llvm::SmallVector<mlir::Attribute> changedTypes(outputTypes.begin(),
                                                   outputTypes.end());
@@ -506,7 +506,7 @@ TEST_F(SourceFactsTest, ReadRejectsWrongArityTypeOriginAndRuleContext) {
   expectRejected(verify(context, *wrongSource));
 
   auto wrongOwner = clone(*graph.container);
-  auto *rule = findOnly(*wrongOwner, "ac.rule");
+  auto *rule = findOnly(*wrongOwner, "ac.comb");
   mlir::Builder builder(&context);
   rule->setAttr(
       "ac.source_owner",

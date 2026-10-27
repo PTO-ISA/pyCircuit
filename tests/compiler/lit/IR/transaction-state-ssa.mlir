@@ -27,7 +27,7 @@ module {
     %effect = "ac.bits.constant"() {value = #w1} : () -> !b1 // EFFECT
     %initial = "ac.bits.constant"() {value = #w0} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #state} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%amount: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -42,8 +42,8 @@ module {
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1, %amount: !b8, %effect_path: !b1):
-      %first = "ac.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call1} : (!b1, !b8) -> !b8
-      %second = "ac.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call2} : (!b1, !b8) -> !b8
+      %first = "ac.legacy.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call1} : (!b1, !b8) -> !b8
+      %second = "ac.legacy.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call2} : (!b1, !b8) -> !b8
       "ac.yield"() : () -> ()
     }) {name = "step", declaration = #rule, occurrence = #rule, ac.guard_location = #span} : (!b1, !b1, !b1, !b8, !b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()

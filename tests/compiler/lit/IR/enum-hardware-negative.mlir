@@ -78,7 +78,7 @@ module {
   ac.struct "types.Outer" fields [{name = "tag", type = !a}, {name = "inner", type = !inner}, {name = "tail", type = !b3}]
   "ac.module"() ({
   ^bb0(%value: !ac.type_param<@forward, "T">):
-    %copy = "ac.rule"(%value) ({
+    %copy = "ac.comb"(%value) ({
     ^bb0(%capture: !ac.type_param<@forward, "T">):
       "ac.yield"(%capture) : (!ac.type_param<@forward, "T">) -> ()
     }) {name = "forward", occurrence = {site = {definition = @forward, ast_path = []}, expansion = []}} : (!ac.type_param<@forward, "T">) -> !ac.type_param<@forward, "T">

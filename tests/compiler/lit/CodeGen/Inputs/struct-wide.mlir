@@ -12,7 +12,7 @@ module {
   "ac.module"() ({
   ^bb0(%clk: !b1, %rst: !b1, %d: !ac.struct<"Packet">, %init: !ac.struct<"Packet">):
     %q = "ac.instance"(%clk, %rst, %d, %init) {instance_name = "state", callee = @storage, parameters = [], type_arguments = [!ac.struct<"Packet">], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !ac.struct<"Packet">, !ac.struct<"Packet">) -> !ac.struct<"Packet">
-    %tag = "ac.rule"(%q) ({
+    %tag = "ac.comb"(%q) ({
     ^bb0(%packet: !ac.struct<"Packet">):
       %field = ac.struct.get %packet["tag"] : (!ac.struct<"Packet">) -> !b5
       "ac.yield"(%field) : (!b5) -> ()

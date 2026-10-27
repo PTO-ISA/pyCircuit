@@ -1849,7 +1849,7 @@ TEST_F(QueueContractsTest, RuleAndMapPlacementRejectAtQueueOwner) {
     auto original = onlyQueue(module);
     OpBuilder b(original);
     OperationState region(original.getLoc(),
-                          mapped ? "ac.table.map" : "ac.rule");
+                          mapped ? "ac.table.map" : "ac.comb");
     auto inputTypes = module.getFunctionType().getInputs();
     SmallVector<Type> blockTypes;
     if (mapped) {

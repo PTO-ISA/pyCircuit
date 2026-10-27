@@ -336,7 +336,7 @@ def _compile_increment(source: Path, output: Path, types: CompiledUnit) -> Compi
 def _assert_increment_inventory(text: str) -> None:
     assert text.count('"ac.module"') == 1
     assert text.count('"ac.reg"') == 0
-    assert text.count('"ac.rule"') == 1
+    assert text.count('"ac.comb"') == 1
     assert len(_operation_lines(text, "ac.source.use")) == 1
     assert 'parameter = "enabled"' in text
     assert 'parameter = "incoming"' in text
@@ -353,7 +353,7 @@ def _assert_fixture_inventory(text: str, *, pipeline: bool) -> None:
     assert 'ac.root_kind = "system"' in text
     assert text.count('"ac.reg"') == 4
     assert text.count("ac.instance(") == 1
-    assert text.count('"ac.rule"') == 1
+    assert text.count('"ac.comb"') == 1
     checks = _operation_lines(text, "ac.expect")
     assert sum('kind = "assert"' in check for check in checks) == 5
     assert any('kind = "range"' in check for check in checks)

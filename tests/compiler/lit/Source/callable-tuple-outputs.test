@@ -8,10 +8,10 @@
 # RUN: env PYTHONPATH=%src/python PYCIRCUIT_SOURCE_COMPILER=%pycircuit_source_unit PYCIRCUIT_LINKER=%pycircuit_link PYCIRCUIT_EMITTER=%pycircuit_emit %python -m pycircuit.cli link %t.dir/provider %t.dir/consumer --top checks.callable_outputs_bench.ExerciseCallableOutputs -o %t.dir/final.ac
 # RUN: %pycircuit_opt %t.dir/final.ac -o %t.dir/verified-final.ac
 # RUN: %FileCheck %s < %t.dir/verified-final.ac
-# CHECK-NOT: "ac.method"
-# CHECK-NOT: "ac.method.call"
+# CHECK-NOT: "ac.legacy.method"
+# CHECK-NOT: "ac.legacy.method.call"
 # CHECK-NOT: "ac.transaction"
 # CHECK: checks.callable_outputs_bench.ExerciseCallableOutputs
-# CHECK-NOT: "ac.method"
-# CHECK-NOT: "ac.method.call"
+# CHECK-NOT: "ac.legacy.method"
+# CHECK-NOT: "ac.legacy.method.call"
 # CHECK-NOT: "ac.transaction"

@@ -13,7 +13,7 @@ module {
   ^bb0(%clk: !b1, %rst: !b1, %en: !b1, %d: !b8, %init: !b8):
     // expected-error @+1 {{instance signature arity mismatch}}
     %left = "ac.instance"(%clk, %rst, %en, %d) {instance_name = "left", callee = @storage, parameters = [], type_arguments = [!b8], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!b1, !b1, !b1, !b8) -> !b8
-    %invert = "ac.rule"(%d) ({
+    %invert = "ac.comb"(%d) ({
     ^bb0(%input: !b8):
       %not = "ac.bits.unary"(%input) {opcode = "not"} : (!b8) -> !b8
       "ac.yield"(%not) : (!b8) -> ()

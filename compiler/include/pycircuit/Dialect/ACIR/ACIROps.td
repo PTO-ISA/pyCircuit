@@ -332,7 +332,7 @@ def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
   let hasRegionVerifier = 1;
 }
 
-def ACIR_RuleOp : ACIR_Op<"rule", [IsolatedFromAbove, SingleBlock, Pure]> {
+def ACIR_RuleOp : ACIR_Op<"comb", [IsolatedFromAbove, SingleBlock, Pure]> {
   let summary = "Define a combinational calculation within module Work";
   let description = [{
     Captures and results are hardware wires, including whole structs. The
@@ -412,7 +412,7 @@ def ACIR_SourceStateWriteOp : ACIR_Op<"state.write", [
 }
 
 // Retired spellings parse for diagnostics but fail verification. Native FIFO
-// methods use ordinary instance receivers and ac.method.call.
+// methods use ordinary instance receivers and ac.legacy.method.call.
 def ACIR_SourceQueuePopOp : ACIR_Op<"queue.pop", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Retired Queue pop spelling";
@@ -460,7 +460,7 @@ def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
   }];
 }
 
-def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
+def ACIR_SourceMethodOp : ACIR_Op<"legacy.method", [Symbol, IsolatedFromAbove,
     SingleBlock, RecursiveMemoryEffects]> {
   let summary = "Define an instance operation with entry guard and ordered body";
   let description = [{
@@ -483,7 +483,7 @@ def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
   let hasRegionVerifier = 1;
 }
 
-def ACIR_SourceMethodCallOp : ACIR_Op<"method.call", [
+def ACIR_SourceMethodCallOp : ACIR_Op<"legacy.method.call", [
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Invoke a Method on a statically identified instance path";
@@ -539,8 +539,8 @@ def ACIR_SourceTransactionOp : ACIR_Op<"transaction", [
     Both regions take captures. The guard yields one four-state predicate and
     the body yields ordinary results. declaration identifies the source Rule;
     occurrence identifies its unique registration in the owning module.
-    Admission and state SSA must be resolved before lowering to pure ac.rule.
-    Mandatory ac.guard_location has the same SourceSpan contract as ac.method;
+    Admission and state SSA must be resolved before lowering to pure ac.comb.
+    Mandatory ac.guard_location has the same SourceSpan contract as ac.legacy.method;
     it refers to the declaration's guard, never the registration call site.
   }];
   let arguments = (ins ACIR_BitsType:$clk, ACIR_BitsType:$rst,
@@ -670,7 +670,7 @@ def ACIR_QueueOp : ACIR_Op<"queue"> {
   let summary = "Retired FIFO operation, retained only for migration diagnostics";
   let description = [{
     Verification rejects this operation. FIFO ownership uses ac.instance with
-    a canonical native FIFO callee; callable operations use ac.method.call.
+    a canonical native FIFO callee; callable operations use ac.legacy.method.call.
   }];
   let arguments = (ins
       ACIR_BitsType:$clk, ACIR_BitsType:$rst,

@@ -136,7 +136,7 @@ module attributes {ac.stage = "routed", ac.routed_contract = 2 : i64, ac.source_
   ^bb0(%clk: !b1, %rst: !b1):
     %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #occ} : (!b1, !b1, !b7) -> !b7
-    %next, %enabled, %fire, %raw, %reached = "ac.rule"(%clk, %rst, %q) ({
+    %next, %enabled, %fire, %raw, %reached = "ac.comb"(%clk, %rst, %q) ({
     ^bb0(%clock: !b1, %reset: !b1, %old: !b7):
       %one = "ac.bits.constant"() {value = #w1} : () -> !b1
       %step = "ac.bits.constant"() {value = #w1} : () -> !b7
@@ -289,7 +289,7 @@ TEST_F(RoutedAnchorTest, ChildResultCannotBecomeParentOwnedState) {
 
 TEST_F(RoutedAnchorTest, RuleCannotContainAnUpdate) {
   auto file = parse(statePackage(R"ir(
-    "ac.rule"(%q, %candidate, %intent) ({
+    "ac.comb"(%q, %candidate, %intent) ({
     ^bb0(%captured_q: !b7, %next: !b7, %write: !b1):
       "ac.state.update"(%captured_q, %next, %write) : (!b7, !b7, !b1) -> ()
       "ac.yield"() : () -> ()
