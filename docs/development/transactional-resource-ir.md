@@ -1,7 +1,8 @@
 # Transactional resource IR, contract 2
 
-PR-01 and PR-02 for issue #361 add resources and normalized transactional
-callables to the existing ACIR dialect and `pycircuit-opt`. The Python compile/link/emit route is unchanged. `linked`
+The replacement for issue #361 uses resources and normalized transactional
+callables in the existing ACIR dialect. The production Python compile/link/emit
+route publishes this contract and routes it through common analysis. `linked`
 certifies structural closure, not executable transactions.
 
 ## Resources
@@ -128,12 +129,13 @@ nonrecursive instance hierarchy and resolved callable signatures. Calls remain
 Method calls rather than physical signals. Generic Method requirements and
 transaction execution remain outside this subset.
 
-Existing Python source-unit/link and saved-anchor publication reject this
-contract. Structural verification alone does not establish backend execution.
+Production Python compile/link publishes and authenticates this contract.
+Public saved-anchor manifest publication remains deferred. Structural
+verification alone does not establish backend execution.
 
 ## Bounded State execution
 
-PR-03 adds an explicit native route for a selected closed Module:
+The native route for a selected closed Module is also used by production link:
 
 ```bash
 pycircuit-opt linked.mlir --ac-route-transactions='top=Counter' -o routed.mlir
@@ -142,22 +144,31 @@ pycircuit-opt routed.mlir --ac-lower-transactions -o final.mlir
 
 The selected Module owns finite-width Bits State with explicit initial values.
 Local Rules and global Rule templates execute only through explicit
-registrations. Pure Bits computations and State `read`/`write` are supported;
-Queue operations, user Method expansion, hierarchy and conditional registration
-remain later implementation work. Unsupported input fails without falling back
-to the legacy transaction analysis. Python authoring is unchanged.
+registrations. Python autorule declarations normalize to one ordinary Rule and
+one registration. Pure Bits computations and State `read`/`write` are supported.
+Module conditional registration preserves result-free `scf.if` with `scf.yield`;
+`ac.source.predicate` associates its i1 control with the original Bits value.
+Definitions and allocations remain directly Module-owned. Branches admit pure
+computation, read-only observations and registrations, with lexical scope and no
+cross-branch local merging. Rule-body SCF is outside this slice.
+
+Queue operations, user Method expansion and hierarchy remain implementation
+work. Unsupported input fails without falling back to legacy analysis.
 
 Every State read observes old Q, including a read after a write in the same
 Rule. Writes propose updates. Independent State updates can commit together;
 potentially overlapping writes to one State are rejected unless the analysis
-proves complementary guards. Each State receives exactly one logical update;
+proves mutually exclusive activation paths and guards. The proof includes
+opposite branch polarities, nested conjunctions and one actual State compared
+equal to distinct known constants. Each State receives exactly one logical update;
 an unwritten State holds Q with its enable disabled.
 
 The compiler supplies clock/reset ports and one rising-edge commit per complete
 cycle. Synchronous reset restores initial values and suppresses normal effects
 and checks for that cycle. Only the selected Module's declared State exports
 become outputs, preserving order, names, types and aliases. Four-state payloads
-remain data. This bounded adapter requires guards whose knownness can be proved
+remain data. The predicate bridge is not a knownness proof and cannot silently
+convert X/Z to false. This adapter requires controls whose knownness can be proved
 from initialization and all writes; unresolved X/Z control combinations are
 diagnosed rather than assigned a new check-order meaning.
 
@@ -176,13 +187,10 @@ Final verification also checks physical State endpoints; existing DFF/DFFE
 refinement correspondence remains required. Native printing, rereading and
 verification are supported; public saved-anchor manifest publication is deferred.
 
-This route does not establish Python transactional execution, physical-edge
-export or direct transactional gfsim support.
+The Python route uses this same analysis and adapter. Direct transactional
+gfsim and broader physical-edge export remain separate implementation work.
 
-The implementation reuses prototype allocation, path-resolution and verifier
-patterns, replacing its resource/depth encoding, output binding and version.
-PR-02 adds Rule/Method representation and verification only; PR-04 begins Python
-integration; PR-07 supplies resource
-specialization/binding and default Queue depth 2; PR-09 generalizes Module
-reference requirements. Until binding is implemented, explicit instances require
-matching resource kind and payload. No DUT example is migrated by this PR.
+The implementation reuses prototype allocation, path and verifier concepts.
+Structural Method/resource representation does not establish execution support
+for Queue, hierarchy or user Methods. Remaining migration work and actual
+validation are tracked in the [replacement status](transactional-frontend-status.md).

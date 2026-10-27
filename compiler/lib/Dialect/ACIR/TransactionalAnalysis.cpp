@@ -1,6 +1,7 @@
 #include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/IR/Verifier.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "llvm/ADT/DenseMap.h"
@@ -94,12 +95,14 @@ public:
       environment[allocation.getResource()] = {true, id};
     }
     SmallVector<Operation *> pending;
-    for (Operation &op : module.getBody().front()) {
-      if (isa<ResourceAllocOp, TransactionRuleOp, TransactionRuleCallOp,
-              TransactionMethodOp, YieldOp>(op))
-        continue;
-      pending.push_back(&op);
-    }
+    module.getBody().walk<WalkOrder::PreOrder>([&](Operation *op) {
+      if (isa<TransactionRuleOp, TransactionMethodOp>(op))
+        return WalkResult::skip();
+      if (!isa<ResourceAllocOp, TransactionRuleCallOp, YieldOp,
+               SourcePredicateOp, scf::IfOp, scf::YieldOp>(op))
+        pending.push_back(op);
+      return WalkResult::advance();
+    });
     // Module regions are hardware graphs. Order pure evaluation by SSA
     // dependencies, without imposing source statement order on definitions.
     while (!pending.empty()) {
@@ -136,7 +139,9 @@ public:
             "State initial value must be a closed pure expression");
       resource.initial = *id;
     }
-    for (auto call : module.getBody().front().getOps<TransactionRuleCallOp>()) {
+    SmallVector<TransactionRuleCallOp> registrations;
+    module.walk([&](TransactionRuleCallOp call) { registrations.push_back(call); });
+    for (auto call : registrations) {
       auto *target = named(module, call.getCallee());
       if (!target)
         target = named(p.package_, call.getCallee());
@@ -159,7 +164,22 @@ public:
         args.push_back(*item);
       }
       unsigned rule = p.rules_.size();
-      p.rules_.push_back({call, definition, 0, {}, {}});
+      p.rules_.push_back({call, definition, 0, {}, {}, {}});
+      SmallVector<TransactionalPathTerm> path;
+      for (Operation *at = call; at->getParentOp() != module;
+           at = at->getParentOp()) {
+        auto branch = dyn_cast<scf::IfOp>(at->getParentOp());
+        if (!branch)
+          return call.emitError("registration requires Module SCF scope");
+        auto bridge = branch.getCondition().getDefiningOp<SourcePredicateOp>();
+        if (!bridge)
+          return branch.emitError("Module condition requires source predicate");
+        auto condition = payload(bridge->getOperand(0), environment, branch);
+        if (failed(condition))
+          return failure();
+        path.push_back({*condition, at->getParentRegion() == &branch.getThenRegion()});
+      }
+      p.rules_[rule].path.assign(path.rbegin(), path.rend());
       p.instances_[0].rules.push_back(rule);
       if (failed(region(definition.getGuard(), args, p.rules_[rule].guard, rule,
                         true)) ||
@@ -398,11 +418,17 @@ private:
           if (step->kind == TransactionalStepKind::StateWrite)
             constrain(step->resource, values[step->operands.front()]);
     } while (changed);
-    for (auto &rule : p.rules_)
+    for (auto &rule : p.rules_) {
+      for (auto term : rule.path)
+        if (!values[term.value])
+          return rule.registration.emitError(
+              "transactional backend admission cannot resolve X/Z Module control; "
+              "four-state payloads remain supported");
       if (!rule.guard.yields.empty() && !values[rule.guard.yields.front()])
         return rule.registration.emitError(
             "transactional backend admission cannot resolve X/Z Rule control; "
             "four-state payloads remain supported");
+    }
     return success();
   }
 
@@ -434,8 +460,19 @@ private:
     if (auto constant = dyn_cast<BitsConstantOp>(op)) {
       auto value = hardware.evaluateStatic(constant.getValue(), bindings, op);
       if (succeeded(value))
-        if (auto integer = dyn_cast<MathIntAttr>(*value))
-          return save({"constant_" + integer.getCanonicalValue().str(), true});
+        if (auto integer = dyn_cast<MathIntAttr>(*value)) {
+          auto width = p.getPayloadWidth(p.values_[id].type);
+          if (succeeded(width)) {
+            StringRef spelling = integer.getCanonicalValue();
+            bool negative = spelling.consume_front("-");
+            llvm::APInt number(*width, spelling, 10);
+            if (negative)
+              number = -number;
+            llvm::SmallString<32> text;
+            number.toStringUnsigned(text, 10);
+            return save({"constant_" + text.str().str(), true});
+          }
+        }
     }
     if (auto constant = dyn_cast<BitsConstant4Op>(op)) {
       StringRef pattern = constant.getPattern();
@@ -497,37 +534,101 @@ private:
     }
     return save(result);
   }
+  struct Fact {
+    Predicate predicate;
+    unsigned resource = TransactionalNoID;
+    std::string constant;
+  };
+  LogicalResult facts(unsigned id, bool positive, SmallVectorImpl<Fact> &out,
+                      unsigned depth = 0) {
+    auto *step = producers.lookup(id);
+    if (failed(charge(8, step ? step->operation : p.package_)))
+      return failure();
+    // Bounded necessary facts only; unsupported expressions stay opaque.
+    if (step && depth < 128) {
+      if (auto unary = dyn_cast<BitsUnaryOp>(step->operation))
+        if (unary.getOpcode() == "not")
+          return facts(step->operands[0], !positive, out, depth + 1);
+      if (auto binary = dyn_cast<BitsBinaryOp>(step->operation))
+        if ((positive && binary.getOpcode() == "and") ||
+            (!positive && binary.getOpcode() == "or")) {
+          if (failed(facts(step->operands[0], positive, out, depth + 1)))
+            return failure();
+          return facts(step->operands[1], positive, out, depth + 1);
+        }
+    }
+    auto key = predicate(id);
+    if (failed(key))
+      return failure();
+    Fact fact{*key, TransactionalNoID, {}};
+    fact.predicate.second = (fact.predicate.second == positive);
+    if (step)
+      if (auto compare = dyn_cast<BitsCompareOp>(step->operation))
+        if ((positive && compare.getPredicate() == "eq") ||
+            (!positive && compare.getPredicate() == "ne"))
+          for (unsigned side = 0; side < 2; ++side) {
+            auto *read = producers.lookup(step->operands[side]);
+            auto constant = predicate(step->operands[1 - side]);
+            if (failed(constant))
+              return failure();
+            if (read && read->kind == TransactionalStepKind::StateRead &&
+                constant->second &&
+                StringRef(constant->first).starts_with("constant_")) {
+              fact.resource = read->resource;
+              fact.constant = constant->first;
+            }
+          }
+    out.push_back(std::move(fact));
+    return success();
+  }
+  static bool disjoint(const Fact &a, const Fact &b) {
+    return (a.predicate.first == b.predicate.first &&
+            a.predicate.second != b.predicate.second) ||
+           (a.resource != TransactionalNoID && a.resource == b.resource &&
+            a.constant != b.constant);
+  }
   LogicalResult conflicts() {
     struct Write {
       TransactionalStep *step;
-      Predicate guard;
+      SmallVector<Fact> conditions;
     };
     SmallVector<Write> writes;
     for (auto &rule : p.rules_) {
-      Predicate guard{"constant_1", true};
-      if (!rule.guard.yields.empty()) {
-        auto value = predicate(rule.guard.yields.front());
-        if (failed(value))
+      SmallVector<Fact> conditions;
+      for (auto term : rule.path)
+        if (failed(facts(term.value, term.positive, conditions)))
           return failure();
-        guard = *value;
+      if (!rule.guard.yields.empty() &&
+          failed(facts(rule.guard.yields.front(), true, conditions)))
+        return failure();
+      bool impossible = false;
+      for (const auto &a : conditions) {
+        impossible |= (a.predicate.first == "constant_0" && a.predicate.second) ||
+                      (a.predicate.first == "constant_1" && !a.predicate.second);
+        for (const auto &b : conditions) {
+          if (failed(charge(4, rule.registration)))
+            return failure();
+          impossible |= disjoint(a, b);
+        }
       }
-      if ((guard.first == "constant_0" && guard.second) ||
-          (guard.first == "constant_1" && !guard.second))
+      if (impossible)
         continue;
       for (auto &step : rule.body.steps)
         if (step->kind == TransactionalStepKind::StateWrite)
-          writes.push_back({step.get(), guard});
+          writes.push_back({step.get(), conditions});
     }
     for (unsigned i = 0; i < writes.size(); ++i)
       for (unsigned j = i + 1; j < writes.size(); ++j) {
         auto &a = writes[i];
         auto &b = writes[j];
-        if (failed(charge(8 + a.guard.first.size() + b.guard.first.size(),
+        if (failed(charge(8 + a.conditions.size() * b.conditions.size(),
                           b.step->operation)))
           return failure();
-        if (a.step->resource != b.step->resource ||
-            (a.guard.first == b.guard.first &&
-             a.guard.second != b.guard.second))
+        bool exclusive = a.step->resource != b.step->resource;
+        for (const auto &x : a.conditions)
+          for (const auto &y : b.conditions)
+            exclusive |= disjoint(x, y);
+        if (exclusive)
           continue;
         auto diagnostic = b.step->operation->emitError(
             "transactional State writes may overlap; no implicit arbitration "

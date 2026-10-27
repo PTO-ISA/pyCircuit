@@ -32,34 +32,14 @@ Importer::instantiate(Declaration *decl, Operation *imported,
   return failure();
 }
 
-LogicalResult Importer::emitGuard(Callable &call, Scope &scope, unsigned path) {
-  if (path == scope.paths.size()) {
-    if (call.guard) {
-      auto value = scalar(call.guard, scope, bits(1, call.guard));
-      if (failed(value))
-        return failure();
-      yield(call.guard, *value);
-    } else
-      yield(call.node, truth(call.node, true));
-    return success();
-  }
-  auto [condition, selected] = scope.paths[path];
-  auto *branch =
-      op(call.node, "ac.branch", condition, bits(1, call.node),
-         {b.getNamedAttr("occurrence", origin(call.node, scope.owner->symbol))},
-         2);
-  for (unsigned arm = 0; arm < 2; ++arm) {
-    auto *block = new Block;
-    branch->getRegion(arm).push_back(block);
-    OpBuilder::InsertionGuard save(b);
-    b.setInsertionPointToEnd(block);
-    if ((arm == 0) == selected) {
-      if (failed(emitGuard(call, scope, path + 1)))
-        return failure();
-    } else
-      yield(call.node, truth(call.node, false));
-  }
-  yield(call.node, branch->getResult(0));
+LogicalResult Importer::emitGuard(Callable &call, Scope &scope) {
+  if (call.guard) {
+    auto value = scalar(call.guard, scope, bits(1, call.guard));
+    if (failed(value))
+      return failure();
+    yield(call.guard, *value);
+  } else
+    yield(call.node, truth(call.node, true));
   return success();
 }
 
@@ -212,13 +192,18 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
   if (node.kind() == "Pass")
     return success();
   if (node.kind() == "FunctionDef") {
-    if (!scope.module)
+    if (!scope.module || scope.conditionalDepth)
       return fail(node,
                   "nested callables must be declared directly in their Module");
     auto found = scope.owner->callables.find(node.string("name").str());
     if (found == scope.owner->callables.end())
       return fail(node, "unknown nested callable declaration");
-    return defineRule(found->second, scope);
+    if (failed(defineRule(found->second, scope)))
+      return failure();
+    if (found->second.autonomous &&
+        failed(registerRule(found->second, node, scope)))
+      return failure();
+    return success();
   }
   if (node.kind() == "AnnAssign") {
     auto target = node.child("target");
@@ -234,6 +219,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
           "local declaration cannot shadow imported or callable source names");
     auto typeNode = node.child("annotation");
     if (scope.module) {
+      if (scope.conditionalDepth)
+        return fail(node, "resources must be declared directly in their Module");
       if (auto nominal = resolve(typeNode))
         if (nominal->symbol &&
             (declarations.count(nominal->remote) ||
@@ -340,6 +327,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     return bind(target, ArrayRef<Value>(value), scope);
   }
   if (node.kind() == "Return") {
+    if (scope.conditionalDepth)
+      return fail(node, "Module branch returns await result merging");
     auto expressionNode = node.child("value");
     SmallVector<Value> values;
     if (expressionNode &&
@@ -460,9 +449,33 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
       return failure();
     return success();
   }
-  if (node.kind() == "If")
-    return fail(node,
-                "statement control flow awaits transactional path analysis");
+  if (node.kind() == "If") {
+    if (!scope.module)
+      return fail(node, "Rule body control flow awaits transactional migration");
+    auto condition = scalar(node.child("test"), scope, bits(1, node));
+    if (failed(condition))
+      return failure();
+    auto selected = op(node, "ac.source.predicate", *condition, b.getI1Type())
+                        ->getResult(0);
+    auto *branch = op(node, "scf.if", selected, {}, {}, 2);
+    for (unsigned arm = 0; arm < 2; ++arm) {
+      auto *block = new Block;
+      branch->getRegion(arm).push_back(block);
+      OpBuilder::InsertionGuard save(b);
+      b.setInsertionPointToEnd(block);
+      Scope inner = scope;
+      ++inner.conditionalDepth;
+      if (failed(statements(node, arm == 0 ? "body" : "orelse", inner)))
+        return failure();
+      // Results are deliberately absent in this stage. Do not silently retain
+      // the old value of a Python local assigned only along one branch.
+      for (const auto &[name, binding] : scope.bindings)
+        if (inner.bindings.at(name).value != binding.value)
+          return fail(node, "cross-branch local assignments await result merging");
+      op(node, "scf.yield", {}, {});
+    }
+    return success();
+  }
   return fail(node, "unsupported statement in transactional native frontend");
 }
 

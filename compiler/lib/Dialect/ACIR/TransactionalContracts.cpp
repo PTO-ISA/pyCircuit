@@ -1,6 +1,7 @@
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceChecks.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -108,7 +109,7 @@ LogicalResult preflight(Operation *op) {
             EnumFromBitsOp, TableCreateOp, TableSplatOp, TableViewOp,
             TableIndexOp, TableReadOp, TableGetOp, TableMapOp, TableMatchOp,
             TableChooseOp, TableFoldOp, SourceExpectOp, SourceObserveOp,
-            ConstantOp, SystemOp>(
+            ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(
           [](auto typed) { return typed.verifyInvariantsImpl(); })
       .Default([](Operation *) { return success(); });
 }
@@ -218,6 +219,39 @@ bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
   active.erase(target);
   return okay;
 }
+// Module control is structural nesting, never a new callable/resource owner.
+ModuleOp controlOwner(Operation *op) {
+  auto *parent = op->getParentOp();
+  while (isa_and_nonnull<scf::IfOp>(parent))
+    parent = parent->getParentOp();
+  return dyn_cast_or_null<ModuleOp>(parent);
+}
+LogicalResult verifyModuleControl(Operation *op) {
+  if (!controlOwner(op))
+    return op->emitOpError("transactional SCF control requires Module placement");
+  if (auto branch = dyn_cast<scf::IfOp>(op)) {
+    if (branch.getNumResults() ||
+        !branch.getCondition().getDefiningOp<SourcePredicateOp>())
+      return op->emitOpError("transactional scf.if requires no results and an "
+                             "original Bits predicate bridge");
+    for (Region &region : branch->getRegions()) {
+      if (region.empty())
+        continue;
+      if (!region.hasOneBlock() || region.front().getNumArguments() ||
+          region.front().empty() ||
+          !isa<scf::YieldOp>(region.front().back()))
+        return op->emitOpError("transactional branches require one argument-free "
+                               "block ending in scf.yield");
+    }
+    if (branch.getThenRegion().empty())
+      return op->emitOpError("transactional scf.if requires a then region");
+  } else if (isa<scf::YieldOp>(op)) {
+    if (!isa<scf::IfOp>(op->getParentOp()) || op->getNumOperands())
+      return op->emitOpError(
+          "transactional scf.yield must end a result-free Module branch");
+  }
+  return success();
+}
 LogicalResult verifyCallable(Operation *op) {
   if (callable(op)) {
     auto sig = signature(op);
@@ -256,9 +290,9 @@ LogicalResult verifyCallable(Operation *op) {
   }
   if (auto call = dyn_cast<TransactionRuleCallOp>(op)) {
     auto *target = ruleTarget(op);
-    if (!isa_and_nonnull<ModuleOp>(op->getParentOp()) ||
+    if (!controlOwner(op) ||
         !isa_and_nonnull<TransactionRuleOp>(target))
-      return op->emitOpError("Rule registration requires a direct owning "
+      return op->emitOpError("Rule registration requires an owning "
                              "Module and local or global Rule");
     auto sig = signature(target);
     SmallVector<Type> expected(sig.getInputs());
@@ -575,6 +609,8 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         failed(detail::verifyOccurrence(op->getAttrOfType<DictionaryAttr>(key),
                                         [&] { return op->emitOpError(); })))
       return failure();
+  if (isa<scf::IfOp, scf::YieldOp, SourcePredicateOp>(op))
+    return verifyModuleControl(op);
   if (auto observe = dyn_cast<SourceObserveOp>(op)) {
     auto rule = dyn_cast_or_null<TransactionRuleOp>(op->getParentOp());
     if (!rule || op->getParentRegion() != &rule->getRegion(1) ||
@@ -906,7 +942,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
               InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
               TransactionMethodCallOp, SourceExpectOp, SourceObserveOp,
-              ConstantOp, SystemOp>(op)) ||
+              ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp,
+              scf::YieldOp>(op)) ||
         (purePayload(op) && !op->getParentOfType<ModuleOp>() &&
          !op->getParentOfType<TransactionRuleOp>())) {
       op->emitOpError("operation is outside the transactional resource-only "
@@ -920,11 +957,40 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
       return WalkResult::interrupt();
     }
     for (Type type : op->getOperandTypes())
-      if (failed(checkType(type, op)))
+      if (!(isa<scf::IfOp>(op) && type.isSignlessInteger(1)) &&
+          failed(checkType(type, op)))
         return WalkResult::interrupt();
     for (Type type : op->getResultTypes())
-      if (failed(checkType(type, op)))
+      if (!(isa<SourcePredicateOp>(op) && type.isSignlessInteger(1)) &&
+          failed(checkType(type, op)))
         return WalkResult::interrupt();
+    if (isa_and_nonnull<scf::IfOp>(op->getParentOp())) {
+      llvm::DenseSet<Operation *> active;
+      if (!isa<scf::IfOp, scf::YieldOp, SourcePredicateOp,
+               TransactionRuleCallOp>(op) && !readOnly(op, active)) {
+        op->emitOpError("Module branches admit only registration, pure "
+                        "computation and read-only observation");
+        return WalkResult::interrupt();
+      }
+      if (isa<YieldOp>(op)) {
+        op->emitOpError("Module branches terminate with scf.yield");
+        return WalkResult::interrupt();
+      }
+      for (Value value : op->getOperands()) {
+        Block *source = value.getParentBlock();
+        Operation *at = op;
+        while (at && at->getBlock() != source && !isa<ModuleOp>(at))
+          at = at->getParentOp();
+        if (!at || isa<ModuleOp>(at) ||
+            (isa_and_nonnull<scf::IfOp>(source->getParentOp()) &&
+             value.getDefiningOp() &&
+             !value.getDefiningOp()->isBeforeInBlock(at))) {
+          op->emitOpError(
+              "branch operand must belong to its enclosing lexical scope");
+          return WalkResult::interrupt();
+        }
+      }
+    }
     if (auto sig = signature(op)) {
       for (Type type : sig.getInputs())
         if (failed(checkType(type, op)))

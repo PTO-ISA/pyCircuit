@@ -43,11 +43,13 @@ def ACIR_SourceIndexOp : ACIR_Op<"source.index", [Pure]> {
 }
 
 def ACIR_SourcePredicateOp : ACIR_Op<"source.predicate", [Pure]> {
-  let summary = "Transport original four-state control into transient source SCF";
+  let summary = "Associate original four-state control with SCF";
   let description = [{
     This is not a two-state conversion. Its only consumers are source scf.if
-    and scf.condition controls. Normalization recovers the original Bits input
-    and preserves it in ac.branch; no backend may execute the i1 result.
+    and scf.condition controls. Transactional v2 ACIR retains this bridge and
+    scf.if; common analysis recovers the original Bits input and branch polarity.
+    The i1 result does not establish knownness, and no backend may execute it as
+    a two-state conversion. Legacy source normalization may use ac.branch.
   }];
   let arguments = (ins ACIR_BitsType:$input);
   let results = (outs I1:$result);

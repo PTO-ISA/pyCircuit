@@ -2,6 +2,7 @@
 #include "PythonImportAST.h"
 #include "PythonImportContext.h"
 #include "PythonImportEnumSyntax.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -63,7 +64,7 @@ struct Scope {
   SmallVector<Value> outputs;
   SmallVector<Type> resultTypes;
   SmallVector<Value> returned;
-  SmallVector<std::pair<Value, bool>> paths;
+  unsigned conditionalDepth = 0;
   bool pure = false, module = false, terminated = false, globalRule = false;
 };
 struct ImportedName {
@@ -80,6 +81,7 @@ public:
       : source(std::move(source)), owner(owner), headers(headers), error(error),
         b(owner.getContext()),
         result(ModuleOp::create(UnknownLoc::get(owner.getContext()))) {
+    owner.getContext()->getOrLoadDialect<scf::SCFDialect>();
     prefix = owner.getAs<StringAttr>("package").getValue().str();
     StringRef path = owner.getAs<StringAttr>("path").getValue();
     SmallVector<StringRef> parts;
@@ -366,7 +368,7 @@ private:
                                              Scope &scope,
                                              ArrayRef<Value> destinations = {});
   LogicalResult emitMethod(Callable &call, Scope &scope);
-  LogicalResult emitGuard(Callable &call, Scope &scope, unsigned path = 0);
+  LogicalResult emitGuard(Callable &call, Scope &scope);
   LogicalResult inferHints(const AstNode &node, Scope &scope);
   Type infer(const AstNode &node, Scope &scope, Type expected = {});
   LogicalResult bind(const AstNode &target, ArrayRef<Value> values,
@@ -662,9 +664,8 @@ LogicalResult Importer::scan() {
       call.name = child.string("name").str();
       call.kind = decorator(child, &call.guard);
       call.autonomous = call.kind == "autorule";
-      if (call.kind == "method" || call.autonomous)
-        return fail(child,
-                    "Methods and autorule await their transactional migration");
+      if (call.kind == "method")
+        return fail(child, "Methods await their transactional migration");
       if (call.kind != "rule" && call.kind != "method" && !call.autonomous)
         return fail(child, "nested functions require Rule/Method decoration");
       if (failed(signature(call, decl.symbol)))

@@ -16,6 +16,9 @@ LogicalResult SourceIndexOp::verify() {
 
 LogicalResult SourcePredicateOp::verify() {
   auto package = (*this)->getParentOfType<mlir::ModuleOp>();
+  // The bridge preserves an original four-state control value in both source
+  // SCF and transactional v2 ACIR. Its i1 result is structural, not evidence
+  // that the input is known and not an executable two-state conversion.
   HardwareAnalysis analysis(package);
   HardwareBindings bindings;
   bindings.owner = (*this)->getParentOfType<ModuleOp>();

@@ -6,6 +6,7 @@
 #include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/FinalSourceMap.h"
 #include "Compiler/FinalVerilogSourceParts.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -37,7 +38,7 @@ std::string attributeText(Attribute attr) {
 
 int main(int argc, char **argv) {
   DialectRegistry dialects;
-  dialects.insert<acir::ac::ACIRDialect>();
+  dialects.insert<acir::ac::ACIRDialect, mlir::scf::SCFDialect>();
   MLIRContext context(dialects);
   context.loadAllAvailableDialects();
   auto emitError = [&] { return mlir::emitError(UnknownLoc::get(&context)); };

@@ -8,21 +8,46 @@ an explicit unit closure and produces linked transactional ACIR before common
 analysis, Routed verification and storage lowering. Regenerate older units from
 source; there is no legacy selector or failure fallback.
 
-The first replacement slice admits closed Modules and default-clock Systems,
-explicitly initialized Bits state, pure Bits computation, explicitly registered
-nested Rules, guards, assertions, logs and imported literal constants. A Module
-may export an existing State. Declaring a Rule does not register it: call it at
-the Module wiring site. Every state read observes committed old Q, including
-reads following a write in the same Rule. Use ordinary local SSA values to carry
-newly computed values. Logs are published only after successful global checks;
-generated Systems retain low/high sampling epochs.
+The current replacement slice admits closed Modules and default-clock Systems,
+explicitly initialized Bits state, pure Bits computation, nested Rules, guards,
+assertions, logs and imported literal constants. Modules export existing State
+identities. Ordinary `@ac.rule` declarations require explicit registration calls.
+A directly nested, parameterless `@ac.autorule` with no results registers once at
+its definition; calling it again is rejected. It normalizes to the same ordinary
+Rule plus registration, with no separate backend mechanism.
 
-The broader capabilities described below record the previous frontend and the
-retained migration requirements. Queue, hierarchy, user Methods, autorule and
-advanced payload/control features are implementation gaps in this replacement,
-not compatibility paths or cancelled requirements. Their existing tests and
-independent oracles remain; they are not passing evidence for the new entry.
-See the [replacement status](../development/transactional-frontend-status.md) for current validation and remaining work.
+Module `if/elif/else` selects registrations through result-free `scf.if` in
+transactional ACIR. Branches may compute pure values and observe State, while
+Rule definitions and resource allocations remain directly Module-owned. `elif`
+is nested in the else region. A selected Rule whose guard is false does not
+select the else arm, and independent `if` statements have no implied priority.
+Every state read observes committed old Q, including reads after writes in the
+same Rule. Use ordinary local SSA values to carry newly computed values.
+Registration paths and Rule guards jointly enable updates, assertions and logs.
+Logs publish only after successful global checks; generated Systems retain
+low/high sampling epochs.
+
+Control knownness is a separate execution requirement: ACIR can represent an
+unknown Bits condition, but the current backend admission rejects controls it
+cannot prove known. The predicate bridge's `i1` is not a knownness proof or an
+X/Z-to-false conversion. Four-state payloads remain supported.
+
+Queue, hierarchy, user Method execution, Rule-body control flow, cross-branch
+local merging and advanced payloads remain implementation gaps. Retained tests
+and independent oracles for these capabilities are not passing evidence for the
+replacement. See the [replacement status](../development/transactional-frontend-status.md)
+for actual validation and remaining work.
+
+## Retained legacy language reference
+
+The sections below preserve the previous frontend's capability inventory and
+migration references. They are **not current transactional admission or authoring
+instructions**. In particular, automatic ordinary Rule registration, candidate
+state forwarding, implicit writable Method parameters and value-only Module
+interfaces are superseded. Use the transactional profile above and the current
+[Rule authoring contract](../development/agent-frontend-guide.md#rule-authoring-contract).
+Retaining these descriptions does not restore a retired production route or
+cancel capabilities awaiting migration.
 
 The [complete language and execution specification](language-specification.md)
 connects these source details to MLIR, codegen, Runtime and independent acceptance.

@@ -8,28 +8,50 @@ an explicit unit closure and produces linked transactional ACIR before common
 analysis, Routed verification and storage lowering. Regenerate older units from
 source; there is no legacy selector or failure fallback.
 
-The first replacement slice admits closed Modules and default-clock Systems,
-explicitly initialized Bits state, pure Bits computation, explicitly registered
-nested Rules, guards, assertions, logs and imported literal constants. A Module
-may export an existing State. Declaring a Rule does not register it: call it at
-the Module wiring site. Every state read observes committed old Q, including
-reads following a write in the same Rule. Use ordinary local SSA values to carry
-newly computed values. Logs are published only after successful global checks;
-generated Systems retain low/high sampling epochs.
+The current slice supports closed Bits-state Modules and default-clock Systems,
+explicit ordinary Rule registration, once-only autorule normalization and
+Module `if/elif/else` preserved as SCF. Reads always observe old Q. Registration
+paths and Rule guards jointly enable updates, assertions and logs; failed global
+checks commit none of them. Backend admission requires provably known controls,
+while four-state payloads remain supported.
 
-The broader capabilities described below record the previous frontend and the
-retained migration requirements. Queue, hierarchy, user Methods, autorule and
-advanced payload/control features are implementation gaps in this replacement,
-not compatibility paths or cancelled requirements. Their existing tests and
-independent oracles remain; they are not passing evidence for the new entry.
-See the [replacement status](transactional-frontend-status.md) for current validation and remaining work.
+See the [current language profile](../reference/language.md#transactional-frontend-replacement)
+for exact admission and the [replacement status](transactional-frontend-status.md)
+for actual validation. Queue, hierarchy, user Methods, Rule-body control flow
+and cross-branch local merging remain implementation gaps. Retained legacy
+examples and oracles do not establish support in the replacement.
 
 pyCircuit captures ordinary Python hardware descriptions, resolves and lowers
 hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never
 executes design functions.
 
-## Ownership through the compiler
+## Current compiler ownership
+
+| Stage | Owner | Responsibility |
+| --- | --- | --- |
+| Capture | `_source_capture.py`, `_source_transport.py` | Parse and transport syntax without executing design functions. |
+| Compile | `PythonImportRecords.cpp`, `SourceUnit.cpp` | Import transactional v2 ACIR and publish authenticated unlinked body/interface units. |
+| Link | `SourceLink` | Authenticate the explicit unit closure, resolve linked resources and preserve source authority. |
+| Common analysis | `TransactionalAnalysis` | Recover SCF paths and old-Q resource identity; prove write exclusivity and known control admission. |
+| Route and authenticate | `TransactionalRouting` | Build Routed updates/checks/observations and replay correspondence against actual normalized source. |
+| Refine and emit | `ac-lower-transactions`, C++/Verilog emitters | Verify storage refinement and consume the same final artifact. |
+
+The bridge and SCF remain in normalized unlinked/linked ACIR. Routing combines
+path polarity with Rule guards; saved Routed/final provenance is reparsed and
+reanalyzed to check actual endpoints. Metadata alone is never proof.
+
+## Retained legacy lowering reference
+
+The following detailed lowering descriptions through the next `Compile and
+link` section document the superseded frontend and retained migration goals.
+`AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` and candidate-state
+SSA are not the production Python import route. Automatic local registration
+and intra-transaction candidate forwarding described here are superseded.
+Native Routed/final printing and rereading work for the transactional slice;
+public saved-anchor manifest publication remains a separate implementation gap.
+
+### Previous compiler ownership
 
 The public commands separate source publication, linking and emission. Each
 stage checks its input before publishing outputs; neither backend recaptures
@@ -401,7 +423,9 @@ pycircuit emit .pycircuit_out/design_top.ac --target verilog \
   -o .pycircuit_out/verilog
 ```
 
-To preserve the routed boundary before physical refinement, use the same explicit
+The following saved-anchor CLI describes the retained legacy publication
+contract, not current transactional publication support. To preserve the routed
+boundary before physical refinement in that contract, use the same explicit
 unit closure with `--target anchor -o ANCHOR_DIR`. The resulting
 [saved anchor](../architecture/saved-anchor.md) contains a versioned graph,
 separate exact definition specs/bodies and retained source interfaces. After the

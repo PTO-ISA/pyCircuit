@@ -59,10 +59,15 @@ struct TransactionalInstancePlan {
   TransactionalSequence comb;
   llvm::SmallVector<unsigned> resources, rules;
 };
+struct TransactionalPathTerm {
+  TransactionalValueID value;
+  bool positive;
+};
 struct TransactionalRulePlan {
   TransactionRuleCallOp registration;
   TransactionRuleOp definition;
   unsigned instance = 0;
+  llvm::SmallVector<TransactionalPathTerm> path;
   TransactionalSequence guard, body; // Empty guard yields means unconditional.
 };
 class TransactionalAnalysis final {

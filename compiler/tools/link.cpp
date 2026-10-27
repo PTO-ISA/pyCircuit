@@ -7,6 +7,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/AsmParser/AsmParser.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
@@ -712,7 +713,7 @@ int main(int argc, char **argv) {
 
   mlir::DialectRegistry dialects;
   dialects.insert<acir::ac::ACIRDialect, mlir::arith::ArithDialect,
-                  mlir::func::FuncDialect>();
+                  mlir::func::FuncDialect, mlir::scf::SCFDialect>();
   mlir::MLIRContext context(dialects);
   context.loadAllAvailableDialects();
 

@@ -284,6 +284,12 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
     sequence(rule.guard, one);
     Value guard =
         rule.guard.yields.empty() ? one : values[rule.guard.yields.front()];
+    for (auto term : rule.path) {
+      Value condition = values[term.value];
+      if (!term.positive)
+        condition = binary("xor", condition, one);
+      guard = binary("and", guard, condition);
+    }
     sequence(rule.body, guard);
   }
   SmallVector<Value> yields;
@@ -670,6 +676,26 @@ LogicalResult Replay::run() {
       return failure();
     Value guard =
         rule.guard.yields.empty() ? one : values[rule.guard.yields.front()];
+    for (auto term : rule.path) {
+      Value condition = values[term.value];
+      auto findBinary = [&](StringRef opcode, Value lhs, Value rhs) -> Value {
+        for (Operation &op : work) {
+          if (failed(debit(4, &op)))
+            return {};
+          if (op.getNumResults() == 1 && !claimed.contains(&op) &&
+              binary(op.getResult(0), opcode, lhs, rhs))
+            return op.getResult(0);
+        }
+        return {};
+      };
+      if (!term.positive)
+        condition = findBinary("xor", condition, one);
+      if (!condition)
+        return reject("Module branch polarity differs");
+      guard = findBinary("and", guard, condition);
+      if (!guard)
+        return reject("Module registration path differs");
+    }
     if (failed(sequence(rule.body, guard, &work)))
       return failure();
   }

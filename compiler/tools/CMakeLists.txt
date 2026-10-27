@@ -28,6 +28,7 @@ target_link_libraries(pycircuit-emit PRIVATE
   ACIRCodegen
   MLIRArithDialect
   MLIRFuncDialect
+  MLIRSCFDialect
   MLIRParser
   MLIRSupport
 )
