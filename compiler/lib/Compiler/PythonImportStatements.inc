@@ -342,7 +342,9 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
   if (node.kind() == "Return") {
     auto expressionNode = node.child("value");
     SmallVector<Value> values;
-    if (expressionNode) {
+    if (expressionNode &&
+        !(expressionNode.kind() == "Constant" &&
+          isa_and_nonnull<UnitAttr>(expressionNode.get("value")))) {
       SmallVector<AstNode> actuals;
       if (expressionNode.kind() == "Tuple")
         for (size_t i = 0; i < expressionNode.array("elts").size(); ++i)

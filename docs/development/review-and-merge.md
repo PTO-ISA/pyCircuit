@@ -9,7 +9,8 @@ active product route is `pycircuit compile` → `pycircuit link` →
 - Does the change stay within the approved Python, IR, CLI, runtime, and
   packaging contracts?
 - Are typed module definitions, separate instances, stateless rules, explicit
-  global-template bindings, automatic local Rule registration and standard
+  global-template bindings, explicit ordinary Rule registration, once-only
+  autorule normalization and standard
   storage leaves described consistently? Do Work
   outputs observe old Q and whole-system checks precede Xfer commits?
 - Are unsupported capabilities rejected without a fallback route?
