@@ -1,5 +1,6 @@
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "ACIRSourceContracts.h"
+#include "HardwareSourceChecks.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -106,7 +107,8 @@ LogicalResult preflight(Operation *op) {
             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
             EnumFromBitsOp, TableCreateOp, TableSplatOp, TableViewOp,
             TableIndexOp, TableReadOp, TableGetOp, TableMapOp, TableMatchOp,
-            TableChooseOp, TableFoldOp, SourceExpectOp>(
+            TableChooseOp, TableFoldOp, SourceExpectOp, SourceObserveOp,
+            ConstantOp, SystemOp>(
           [](auto typed) { return typed.verifyInvariantsImpl(); })
       .Default([](Operation *) { return success(); });
 }
@@ -568,6 +570,41 @@ LogicalResult InstanceRefOp::verify() {
   return verifyTransactionalOperation(*this);
 }
 LogicalResult verifyTransactionalOperation(Operation *op) {
+  for (StringRef key : {"ac.origin", "occurrence"})
+    if ((key == "ac.origin" || !isa<InstanceOp>(op)) && op->hasAttr(key) &&
+        failed(detail::verifyOccurrence(op->getAttrOfType<DictionaryAttr>(key),
+                                        [&] { return op->emitOpError(); })))
+      return failure();
+  if (auto observe = dyn_cast<SourceObserveOp>(op)) {
+    auto rule = dyn_cast_or_null<TransactionRuleOp>(op->getParentOp());
+    if (!rule || op->getParentRegion() != &rule->getRegion(1) ||
+        observe.getKind() != "log" || op->hasAttr("ac.observation_id"))
+      return op->emitOpError("transactional log requires direct Rule body "
+                             "placement and no final identity");
+    HardwareAnalysis analysis(packageOf(op));
+    auto width = analysis.getPackedWidth(observe.getPath().getType(), {}, op);
+    if (failed(width) || *width != 1)
+      return op->emitOpError(
+          "transactional observation requires a one-bit path");
+    auto constant = observe.getPath().getDefiningOp<BitsConstantOp>();
+    auto path = constant ? analysis.evaluateStatic(constant.getValue(), {}, op)
+                         : FailureOr<Attribute>(failure());
+    auto four = observe.getPath().getDefiningOp<BitsConstant4Op>();
+    if (!(four && four.getPattern() == "1") &&
+        (failed(path) || !isa<MathIntAttr>(*path) ||
+         cast<MathIntAttr>(*path).getCanonicalValue() != "1"))
+      return op->emitOpError("transactional log requires a constant true path");
+    if (failed(detail::verifyOccurrence(
+            op->getAttrOfType<DictionaryAttr>("occurrence"),
+            [&] { return op->emitOpError(); })) ||
+        failed(detail::verifySourceSpan(
+            op->getAttrOfType<DictionaryAttr>("ac.location"),
+            [&] { return op->emitOpError(); })))
+      return failure();
+    return detail::verifySourceObservationSpec(
+        observe.getKindAttr(), observe.getSpec(), observe.getValues().size(),
+        [&] { return op->emitOpError(); });
+  }
   if (auto expect = dyn_cast<SourceExpectOp>(op)) {
     auto rule = dyn_cast_or_null<TransactionRuleOp>(op->getParentOp());
     if (!rule || op->getParentRegion() != &rule->getRegion(1) ||
@@ -583,8 +620,10 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     auto constant = expect.getPath().getDefiningOp<BitsConstantOp>();
     auto value = constant ? analysis.evaluateStatic(constant.getValue(), {}, op)
                           : FailureOr<Attribute>(failure());
-    if (failed(value) || !isa<MathIntAttr>(*value) ||
-        cast<MathIntAttr>(*value).getCanonicalValue() != "1")
+    auto four = expect.getPath().getDefiningOp<BitsConstant4Op>();
+    if (!(four && four.getPattern() == "1") &&
+        (failed(value) || !isa<MathIntAttr>(*value) ||
+         cast<MathIntAttr>(*value).getCanonicalValue() != "1"))
       return op->emitOpError("transactional assertion requires a constant true path");
     return detail::verifySourceSpan(expect.getLocationAttr(),
                                     [&] { return op->emitOpError(); });
@@ -785,7 +824,13 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     return failure();
   llvm::StringSet<> symbols;
   for (Operation &op : *package.getBody()) {
-    if (!isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, TransactionRuleOp>(op))
+    if (isa<SystemOp>(op)) {
+      if (!linked)
+        return op.emitOpError("System entry requires linked ACIR");
+      continue;
+    }
+    if (!isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ConstantOp,
+             TransactionRuleOp>(op))
       return op.emitOpError(
           "unsupported declaration in transactional resource contract");
     auto name = op.getAttrOfType<StringAttr>("sym_name");
@@ -823,12 +868,28 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     bool root = op == package.getOperation();
     for (auto attr : op->getAttrs()) {
       auto name = attr.getName().getValue();
-      bool schema = root ? (name == "ac.transactional" || name == "ac.stage" ||
-             name == "sym_name" || name == "sym_visibility")
-                         : llvm::is_contained(op->getName().getAttributeNames(),
-                                              attr.getName());
-      bool provenance = isa<StructOp, EnumOp>(op) &&
-                        (name == "ac.source_owner" || name == "ac.origin");
+      bool schema =
+          root ? (name == "ac.transactional" || name == "ac.stage" ||
+                  name == "sym_name" || name == "sym_visibility" ||
+                  name == "ac.source_owner" || name == "ac.unit_kind" ||
+                  name == "ac.interfaces" || name == "ac.exports" ||
+                  name == "ac.import_bindings" || name == "ac.source_units")
+               : llvm::is_contained(op->getName().getAttributeNames(),
+                                    attr.getName());
+      bool provenance =
+          (!root && name == "ac.origin") ||
+          (isa<StructOp, EnumOp, ConstantOp, ModuleOp, ModuleImportOp>(op) &&
+           (name == "ac.source_owner" || name == "ac.origin" ||
+            name == "ac.declaration_role")) ||
+          (isa<ModuleOp, ModuleImportOp>(op) && name == "ac.root_kind") ||
+          (isa<SystemOp>(op) && name == "ac.execution_policy") ||
+          (isa<SourceObserveOp>(op) &&
+           (name == "occurrence" || name == "ac.location")) ||
+          (isa<SourceExpectOp>(op) &&
+           (name == "occurrence" || name == "ac.message")) ||
+          (isa<TransactionRuleOp, TransactionRuleCallOp,
+               TransactionMethodCallOp, ResourceAllocOp>(op) &&
+           name == "occurrence");
       bool visibility = isa<ModuleOp, ModuleImportOp, StructOp, EnumOp,
                             TransactionRuleOp, TransactionMethodOp>(op) &&
                         name == "sym_visibility";
@@ -844,7 +905,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
          !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
               InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
-              TransactionMethodCallOp, SourceExpectOp>(op)) ||
+              TransactionMethodCallOp, SourceExpectOp, SourceObserveOp,
+              ConstantOp, SystemOp>(op)) ||
         (purePayload(op) && !op->getParentOfType<ModuleOp>() &&
          !op->getParentOfType<TransactionRuleOp>())) {
       op->emitOpError("operation is outside the transactional resource-only "

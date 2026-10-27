@@ -1,8 +1,6 @@
 #include "Compiler/PythonImportRecords.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceEntryBoundary.h"
-#include "Compiler/SourceMemoryBindings.h"
-#include "Compiler/SourceRuleWrites.h"
 #include "Compiler/SourceUnit.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "Dialect/ACIR/HardwareSourceChecks.h"
@@ -15,6 +13,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/Pass.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -41,7 +40,6 @@
 namespace {
 using namespace mlir;
 namespace compiler = acir::compiler;
-namespace source = acir::compiler::detail;
 namespace ac = acir::ac;
 
 // These tests cover capture, typed effects, and source publication authority.
@@ -131,16 +129,10 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
         compiler::SourceHeaderRegistry::create(&context, {}, error());
     if (failed(headers))
       return failure();
-    PassManager pipeline(&context);
-    pipeline.addPass(source::createAnalyzeRuleWritesPass());
-    pipeline.addPass(
-        source::createInferSourceBindingsPass(owner(filename), *headers));
-    pipeline.addPass(
-        source::createLowerPythonSourcePass(owner(filename), *headers));
-    if (runSummaries)
-      pipeline.addPass(acir::createAnalyzeSourceMethodSummariesPass());
-    if (failed(pipeline.run(captured)))
-      return failure();
+    auto unit = compiler::compilePythonSourceUnit(captured, owner(filename), *headers, error());
+    if (failed(unit)) return failure();
+    captured->setAttrs(unit->body->getOperation()->getAttrs());
+    captured.getBodyRegion().takeBody(unit->body->getBodyRegion());
     return mlir::verify(captured);
   }
   OwningOpRef<ModuleOp> typed(StringRef text,
@@ -5375,6 +5367,10 @@ def Fixed(enable: ac.u1) -> ac.table[3, ac.u8]:
   EXPECT_TRUE(failed(publication.run(*file)));
 }
 
+// NOT RUN: legacy entry-wrapper normalization mechanism was removed from
+// production link. Preserve this oracle as migration input for generic roots;
+// the PR04 closed root path has no entry-wrapper normalization stage.
+#if 0
 TEST_F(SourceTransactionCaptureTest,
        RetainedClosedWrapperCannotSuppressSelectedGenericRootOccurrence) {
   compiler::SourceLinkStages stages;
@@ -5438,6 +5434,12 @@ TEST_F(SourceTransactionCaptureTest,
   EXPECT_TRUE(direct<ac::SourceStateOp>(adapter.getBody()).empty());
 }
 
+#endif
+
+// NOT RUN: legacy entry-wrapper normalization mechanism was removed from
+// production link. Preserve this oracle as migration input for generic roots;
+// the PR04 closed root path has no entry-wrapper normalization stage.
+#if 0
 TEST_F(SourceTransactionCaptureTest,
        EntryBoundaryNormalizationAuthenticatesCanonicalScaffoldAndOriginal) {
   compiler::SourceLinkStages stages;
@@ -5549,6 +5551,8 @@ TEST_F(SourceTransactionCaptureTest,
     EXPECT_EQ(before, after);
   }
 }
+
+#endif
 
 TEST_F(SourceTransactionCaptureTest,
        EntryBoundaryLoadedStagesRejectDeletionDowngradeAndChildChanges) {
@@ -5706,6 +5710,10 @@ TEST_F(SourceTransactionCaptureTest,
 }
 
 
+// NOT RUN: legacy entry-wrapper normalization mechanism was removed from
+// production link. Preserve this oracle as migration input for generic roots;
+// the PR04 closed root path has no entry-wrapper normalization stage.
+#if 0
 TEST_F(SourceTransactionCaptureTest,
        InapplicableEntryNormalizationPreservesOperationIdentityAndSnapshots) {
   for (unsigned profile = 0; profile != 3; ++profile) {
@@ -5782,5 +5790,7 @@ def Root(data: ac.bits[W], *, W: int = 8) -> ac.bits[W]:
     EXPECT_EQ(preserved.afterTransactions, "after-transactions");
   }
 }
+
+#endif
 
 } // namespace

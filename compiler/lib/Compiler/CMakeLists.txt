@@ -11,12 +11,9 @@ add_acir_library(ACIRSourceCompiler SOURCES
   SourceHeaderHelpers.cpp
   SourceBodySnapshots.cpp
   SourceDependencies.cpp
-  SourceDeclarationContext.cpp
   SourceEntryBoundary.cpp
   SourceLink.cpp
   SourceNamespace.cpp
-  SourceMemoryBindings.cpp
-  SourceRuleWrites.cpp
   SourceUnit.cpp
   TableQueryLowering.cpp
   TableQueryStages.cpp

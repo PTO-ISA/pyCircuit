@@ -1,7 +1,5 @@
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Transforms/Passes.h"
-#include "Compiler/SourceRuleWrites.h"
-#include "Compiler/SourceMemoryBindings.h"
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
@@ -14,8 +12,6 @@ int main(int argc, char **argv) {
   dialects.insert<acir::ac::ACIRDialect, mlir::arith::ArithDialect,
                   mlir::func::FuncDialect, mlir::scf::SCFDialect>();
   acir::registerACIRPasses();
-  acir::compiler::detail::registerSourceCompilerPasses();
-  acir::compiler::detail::registerSourceBindingsPass();
   mlir::registerCanonicalizerPass();
   mlir::registerCSEPass();
   return mlir::asMainReturnCode(

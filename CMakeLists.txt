@@ -58,13 +58,10 @@ if(PYC_BUILD_COMPILER_DEV)
     PythonImportEnumSyntax.h
     PythonImportRecords.h
     SourceHeaderHelpers.h
-    SourceDeclarationContext.h
-    SourceMemoryBindings.h
     SourceIdentifierUnicodeData.h
     SourceLink.h
     AnchorArtifact.h
     SourceNamespace.h
-    SourceRuleWrites.h
     SourceUnit.h
     SourceIdentifierUnicodeData.LICENSE.txt)
   list(TRANSFORM _pyc_compiler_headers PREPEND "compiler/lib/Compiler/")

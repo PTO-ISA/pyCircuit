@@ -38,7 +38,10 @@ target_link_libraries(ACIRFixedUnsignedDivRemLoweringTests PRIVATE ACIRSourceCom
 add_acir_api_test(ACIRSourceInterfacePassTests SourceInterfacePassTest.cpp
   SourceModuleScalarResultsTest.cpp
   SourcePrimitiveValueResultsTest.cpp
-  SourceMemoryBindingsTest.cpp TableQuerySourceTest.cpp
+  # SourceMemoryBindingsTest.cpp is retained as migration input (NOT RUN):
+  # removed pre-inference plan API; its Table/Memory/hierarchy capabilities
+  # await PR05–15 and are not claimed as passing by the PR04 State boundary.
+  TableQuerySourceTest.cpp
   SourceTransactionCaptureTest.cpp SourceHelperAuthorityTest.cpp
   SourceControlFlowTest.cpp)
 target_compile_definitions(ACIRSourceInterfacePassTests PRIVATE
@@ -169,7 +172,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../lit/lit.site.cfg.py.in"
   "${_lit_binary}/lit.site.cfg.py" @ONLY)
 # Complementary filters preserve the complete lit inventory without duplicates.
 # Fast verifier/pass tests plus source diagnostics and publication protection.
-set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission|transactional-state|transactional-failure)\\.test)")
+set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission|transactional-state|transactional-failure|transactional-source)\\.test)")
 add_test(NAME ACIRLitGateTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
   --filter "${_lit_gate_filter}" "${_lit_binary}")
 add_test(NAME ACIRLitNightlyTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
