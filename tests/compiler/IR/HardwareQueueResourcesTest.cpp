@@ -27,6 +27,7 @@ protected:
   SmallVector<ac::SourceExpectOp> expects;
   SmallVector<Value> raw, reached, acceptance, enables, rawPaths;
   Value fire, one, zero, data, readiness;
+  ac::ValueMergeOp payloadMerge;
   std::string diagnostics;
   void SetUp() override { context.loadDialect<ac::ACIRDialect>(); }
   Location loc() {
@@ -201,7 +202,11 @@ protected:
   // X/Z. The test constructs its expected prefix independently from serialized
   // rows.
   void build(bool branches = false, bool replacement = false,
-             unsigned payloadWidth = 8) {
+             unsigned payloadWidth = 8, unsigned pushPayloadKind = 0) {
+    bool pushBranches = pushPayloadKind != 0;
+    unsigned clockInput = pushBranches ? 4 : 3;
+    unsigned resetInput = clockInput + 1;
+    assert(!pushBranches || branches);
     raw.clear();
     reached.clear();
     acceptance.clear();
@@ -219,8 +224,34 @@ protected:
       ASSERT_TRUE(builtin);
       b.insert(builtin.declaration->clone());
     }
-    SmallVector<Type> inputs{bits(), bits(payloadWidth), bits(), bits(),
-                             bits()};
+    Type payloadType = bits(payloadWidth);
+    if (pushBranches) {
+      if (pushPayloadKind == 2) {
+        payloadType = ac::EnumType::get(&context, b.getStringAttr("Tag"));
+        op(ac::EnumOp::getOperationName(), {}, {},
+           {f("sym_name", b.getStringAttr("Tag")),
+            f("width", parseAttribute("#ac.math_int<8>", &context)),
+            f("encoding", b.getStringAttr("explicit")),
+            f("members", b.getArrayAttr({d(
+                {f("name", b.getStringAttr("First")),
+                 f("code", parseAttribute("#ac.math_int<7>", &context))})}))});
+      } else {
+        payloadType = ac::StructType::get(&context, b.getStringAttr("Packet"));
+        op(ac::StructOp::getOperationName(), {}, {},
+           {f("sym_name", b.getStringAttr("Packet")),
+            f("fields", b.getArrayAttr({
+                d({f("name", b.getStringAttr("a")),
+                   f("type", TypeAttr::get(bits(8)))}),
+                d({f("name", b.getStringAttr("b")),
+                   f("type", TypeAttr::get(bits(8)))})}))});
+        if (pushPayloadKind == 3)
+          payloadType = ac::TableType::get(
+              &context, b.getArrayAttr({literal(2)}), payloadType);
+      }
+    }
+    SmallVector<Type> inputs{bits(), payloadType, bits(), bits(), bits()};
+    if (pushBranches)
+      inputs.insert(inputs.begin() + 3, payloadType);
     if (replacement)
       inputs.push_back(bits());
     OperationState state(loc(), ac::ModuleOp::getOperationName());
@@ -237,10 +268,13 @@ protected:
                            b.getStringAttr("pyc_rst")})),
          f("output_names", b.getArrayAttr({})),
          f("function_type", TypeAttr::get(b.getFunctionType(inputs, {}))),
-         f("ac.domain_inputs", d({f("clock", b.getI64IntegerAttr(3)),
-                                  f("reset", b.getI64IntegerAttr(4))}))});
+         f("ac.domain_inputs", d({f("clock", b.getI64IntegerAttr(clockInput)),
+                                  f("reset", b.getI64IntegerAttr(resetInput))}))});
     state.addRegion();
     module = cast<ac::ModuleOp>(b.create(state));
+    if (pushBranches)
+      module->setAttr("input_names", b.getStrArrayAttr(
+          {"guard", "data", "selector", "other_data", "pyc_clk", "pyc_rst"}));
     if (replacement) {
       module->setAttr("input_names", b.getArrayAttr(
           {b.getStringAttr("guard"), b.getStringAttr("data"),
@@ -258,13 +292,15 @@ protected:
     b.setInsertionPointToEnd(body);
     zero = constant(0);
     data = body->getArgument(1);
-    queue = allocation(1, body->getArgument(3), body->getArgument(4), data);
+    queue = allocation(1, body->getArgument(clockInput),
+                       body->getArgument(resetInput), data);
     if (!replacement)
       queue->setAttr(
           "callee", FlatSymbolRefAttr::get(
                         &context, "pycircuit.__builtins__.fifo_local"));
     otherQueue =
-        allocation(3, body->getArgument(3), body->getArgument(4), data);
+        allocation(3, body->getArgument(clockInput),
+                   body->getArgument(resetInput), data);
     unsigned count = branches ? 4 : 3;
     unsigned start = 1 + 2 * count;
     SmallVector<Attribute> controls{control(0, "callable_guard")}, resources,
@@ -273,10 +309,11 @@ protected:
       controls.push_back(control(1, "branch_select"));
       controls.push_back(control(2, "resource_available", arm(true)));
       controls.push_back(control(3, "resource_available", arm(false)));
-      resources = {resource(2, false), resource(3, false)};
-      proposals = {proposal(2, start, false, 3),
-                   proposal(3, start + 2, false, 2)};
-      routes = {route(start, false), route(start + 2, false)};
+      resources = {resource(2, pushBranches), resource(3, pushBranches)};
+      unsigned next = start + (pushBranches ? 3 : 2);
+      proposals = {proposal(2, start, pushBranches, 3),
+                   proposal(3, next, pushBranches, 2)};
+      routes = {route(start, pushBranches), route(next, pushBranches)};
     } else {
       controls.push_back(control(1, "resource_available"));
       resources.push_back(resource(1, false));
@@ -299,15 +336,22 @@ protected:
                        f("observations", b.getArrayAttr({})),
                        f("resources", b.getArrayAttr(resources)),
                        f("queue_proposals", b.getArrayAttr(proposals))});
-    SmallVector<Type> resultTypes(start + (branches ? 4 : 5), bits());
-    if (!branches)
-      resultTypes.back() = bits(payloadWidth);
+    SmallVector<Type> resultTypes(
+        start + (pushBranches ? 6 : branches ? 4 : 5), bits());
+    if (pushBranches) {
+      resultTypes[start + 2] = payloadType;
+      resultTypes[start + 5] = payloadType;
+    } else if (!branches) {
+      resultTypes.back() = payloadType;
+    }
     OperationState ruleState(loc(), ac::RuleOp::getOperationName());
-    ruleState.addOperands({body->getArgument(3), body->getArgument(4),
-                           body->getArgument(0), queue.getOutputs()[1],
+    ruleState.addOperands({body->getArgument(clockInput),
+                           body->getArgument(resetInput),
+                           body->getArgument(0),
+                           queue.getOutputs()[pushBranches ? 3 : 1],
                            queue.getOutputs()[3], data, body->getArgument(2)});
-    if (replacement)
-      ruleState.addOperands(body->getArgument(5));
+    if (replacement || pushBranches)
+      ruleState.addOperands(body->getArgument(pushBranches ? 3 : 5));
     ruleState.addTypes(resultTypes);
     ruleState.addAttributes({f("name", b.getStringAttr("tick")),
                              f("occurrence", occurrence(2)),
@@ -394,18 +438,35 @@ protected:
     SmallVector<Value> yielded{fire};
     for (unsigned i = 0; i != count; ++i)
       yielded.append({raw[i], reached[i]});
-    yielded.append({rawPaths[0], enables[0], rawPaths[1], enables[1]});
+    if (pushBranches)
+      yielded.append({rawPaths[0], enables[0], rb->getArgument(5),
+                      rawPaths[1], enables[1], rb->getArgument(7)});
+    else
+      yielded.append({rawPaths[0], enables[0], rawPaths[1], enables[1]});
     if (!branches)
       yielded.push_back(rb->getArgument(5));
     op(ac::YieldOp::getOperationName(), yielded);
     b.setInsertionPointToEnd(body);
-    Value popDrive = branches ? binary("or", rule.getResult(start + 1),
-                                           rule.getResult(start + 3))
-                              : rule.getResult(start + 1);
+    Value popDrive = zero;
+    if (!pushBranches)
+      popDrive = branches ? binary("or", rule.getResult(start + 1),
+                                   rule.getResult(start + 3))
+                          : rule.getResult(start + 1);
     if (replacement)
       popDrive = binary("or", body->getArgument(5), popDrive);
     queue->setOperand(4, popDrive);
-    if (!branches) {
+    if (pushBranches) {
+      auto firstEnable = rule.getResult(start + 1);
+      auto secondEnable = rule.getResult(start + 4);
+      queue->setOperand(2, binary("or", firstEnable, secondEnable));
+      payloadMerge = cast<ac::ValueMergeOp>(op(
+          ac::ValueMergeOp::getOperationName(),
+          {rule.getResult(start + 2), secondEnable, rule.getResult(start + 5)},
+          {payloadType, bits()},
+          {f("paths", b.getArrayAttr({b.getArrayAttr({})})),
+           f("operandSegmentSizes", b.getDenseI32ArrayAttr({1, 1, 1}))}));
+      queue->setOperand(3, payloadMerge->getResult(0));
+    } else if (!branches) {
       queue->setOperand(2, rule.getResult(start + 3));
       queue->setOperand(3, rule.getResult(start + 4));
     }
@@ -413,7 +474,7 @@ protected:
       expects.push_back(cast<ac::SourceExpectOp>(
           op(ac::SourceExpectOp::getOperationName(),
              {rule.getResult(1 + 2 * i), rule.getResult(2 + 2 * i),
-              body->getArgument(3), body->getArgument(4)},
+              body->getArgument(clockInput), body->getArgument(resetInput)},
              {},
              {f("kind", b.getStringAttr("guard_known")), f("location", span()),
               f("ac.check_id", checkID(i))})));
@@ -450,6 +511,52 @@ protected:
           d({f("callee", FlatSymbolRefAttr::get(&context, "QueueProof")),
              f("parameters", b.getArrayAttr({})),
              f("type_arguments", b.getArrayAttr({}))}))});
+  }
+  // Independent reconstruction of the pre-compact queue payload transport.
+  // Do not call the lowerer's selection builder: this is its proof oracle.
+  Value expandedSelection(Value guard, Value yes, Value no) {
+    Type type = yes.getType();
+    if (isa<ac::StructType>(type)) {
+      SmallVector<Value> fields;
+      for (StringRef name : {"a", "b"}) {
+        auto field = [&](Value value) {
+          return op(ac::StructGetOp::getOperationName(), {value}, {bits(8)},
+                    {f("field", b.getStringAttr(name))})->getResult(0);
+        };
+        fields.push_back(select(guard, field(yes), field(no)));
+      }
+      return op(ac::StructCreateOp::getOperationName(), fields, {type})
+          ->getResult(0);
+    }
+    if (auto table = dyn_cast<ac::TableType>(type)) {
+      SmallVector<Value> rows;
+      for (unsigned row = 0; row != 2; ++row) {
+        Value index = constant(row);
+        auto get = [&](Value value) {
+          return op(ac::TableGetOp::getOperationName(), {value, index},
+                    {table.getElementType(), bits()})->getResult(0);
+        };
+        rows.push_back(expandedSelection(guard, get(yes), get(no)));
+      }
+      return op(ac::TableCreateOp::getOperationName(), rows, {type})
+          ->getResult(0);
+    }
+    auto carrier = [&](Value value) {
+      return op(ac::EnumToBitsOp::getOperationName(), {value}, {bits(8)})
+          ->getResult(0);
+    };
+    auto chosen = select(guard, carrier(yes), carrier(no));
+    return op(ac::EnumFromBitsOp::getOperationName(), {chosen}, {type, bits()})
+        ->getResult(0);
+  }
+  void expandPayloadSelection() {
+    b.setInsertionPoint(payloadMerge);
+    auto selected = expandedSelection(payloadMerge->getOperand(1),
+                                     payloadMerge->getOperand(2),
+                                     payloadMerge->getOperand(0));
+    payloadMerge->getResult(0).replaceAllUsesWith(selected);
+    payloadMerge.erase();
+    payloadMerge = {};
   }
   template <typename Function> auto capture(Function fn) {
     diagnostics.clear();
@@ -514,6 +621,80 @@ protected:
     return value;
   }
 };
+
+TEST_F(HardwareQueueResourcesTest,
+       SameQueueAggregatePushesAcceptCompactAndExpandedSelections) {
+  for (unsigned kind : {1u, 2u, 3u}) {
+    for (bool expanded : {false, true}) {
+      SCOPED_TRACE(kind);
+      SCOPED_TRACE(expanded);
+      build(true, false, 8, kind);
+      if (expanded)
+        expandPayloadSelection();
+      auto before = print();
+      EXPECT_TRUE(succeeded(capture([&] { return parsed(); }))) << diagnostics;
+      EXPECT_TRUE(succeeded(capture([&] { return wiring(); }))) << diagnostics;
+      EXPECT_TRUE(succeeded(capture([&] { return admission(); }))) << diagnostics;
+      EXPECT_TRUE(succeeded(capture([&] { return source(); }))) << diagnostics;
+      EXPECT_EQ(before, print());
+    }
+  }
+}
+
+TEST_F(HardwareQueueResourcesTest,
+       CompactQueueSelectionRejectsChangedWitnessAndPrivateUsesWithoutMutation) {
+  for (unsigned kind : {1u, 2u, 3u}) {
+    for (unsigned mutation = 0; mutation != 10; ++mutation) {
+      SCOPED_TRACE(kind);
+      SCOPED_TRACE(mutation);
+      build(true, false, 8, kind);
+      ASSERT_TRUE(succeeded(capture([&] { return wiring(); }))) << diagnostics;
+      b.setInsertionPoint(module.getBody().front().getTerminator());
+      switch (mutation) {
+      case 0: // An ordinary guard cannot replace the exact proposal enable.
+        payloadMerge->setOperand(1, module.getBody().front().getArgument(0));
+        break;
+      case 1: // The later proposal supplies the selected arm.
+        payloadMerge->setOperand(2, payloadMerge->getOperand(0));
+        break;
+      case 2: // The first proposal is the base, preserving priority order.
+        payloadMerge->setOperand(0, payloadMerge->getOperand(2));
+        break;
+      case 3: // A partial update is not a whole-payload selection.
+        payloadMerge->setAttr("paths", b.getArrayAttr(
+            {b.getArrayAttr({b.getStringAttr("a")})}));
+        break;
+      case 4: // Segment sizes are proof-relevant, not decorative metadata.
+        payloadMerge->setAttr("operandSegmentSizes",
+                              b.getDenseI32ArrayAttr({1, 0, 2}));
+        break;
+      case 5:
+        payloadMerge->getResult(0).setType(bits(8));
+        break;
+      case 6: // Membership/result ordinal one is never payload transport.
+        queue->setOperand(3, payloadMerge->getResult(1));
+        break;
+      case 7: // Even a dead use of the private membership flag is an escape.
+        binary("and", payloadMerge->getResult(1), zero);
+        break;
+      case 8: { // A public output cannot expose a private merged route.
+        Value payload = payloadMerge->getResult(0);
+        module.getBody().front().getTerminator()->setOperands(payload);
+        module->setAttr("function_type", TypeAttr::get(b.getFunctionType(
+            module.getFunctionType().getInputs(), {payload.getType()})));
+        module->setAttr("output_names", b.getStrArrayAttr({"leaked_payload"}));
+        break;
+      }
+      case 9:
+        binary("or", payloadMerge->getOperand(1), zero);
+        break;
+      }
+      auto before = print();
+      EXPECT_TRUE(failed(capture([&] { return wiring(); }))) << diagnostics;
+      EXPECT_EQ(before, print());
+    }
+  }
+}
 
 TEST_F(HardwareQueueResourcesTest,
        ActualQueueResourcesAndPrivatePushPopSuffixPass) {
