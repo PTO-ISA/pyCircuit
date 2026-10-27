@@ -106,7 +106,7 @@ LogicalResult preflight(Operation *op) {
             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
             EnumFromBitsOp, TableCreateOp, TableSplatOp, TableViewOp,
             TableIndexOp, TableReadOp, TableGetOp, TableMapOp, TableMatchOp,
-            TableChooseOp, TableFoldOp>(
+            TableChooseOp, TableFoldOp, SourceExpectOp>(
           [](auto typed) { return typed.verifyInvariantsImpl(); })
       .Default([](Operation *) { return success(); });
 }
@@ -568,6 +568,27 @@ LogicalResult InstanceRefOp::verify() {
   return verifyTransactionalOperation(*this);
 }
 LogicalResult verifyTransactionalOperation(Operation *op) {
+  if (auto expect = dyn_cast<SourceExpectOp>(op)) {
+    auto rule = dyn_cast_or_null<TransactionRuleOp>(op->getParentOp());
+    if (!rule || op->getParentRegion() != &rule->getRegion(1) ||
+        expect.getKind() != "assert" || !expect.getSampling().empty() ||
+        op->hasAttr("ac.check_id") || op->hasAttr("ac.observation_id"))
+      return op->emitOpError("transactional assertion requires direct Rule body placement, assert kind, no sampling and no check identity");
+    HardwareAnalysis analysis(packageOf(op));
+    for (Value value : {expect.getCondition(), expect.getPath()}) {
+      auto width = analysis.getPackedWidth(value.getType(), {}, op);
+      if (!isa<BitsType>(value.getType()) || failed(width) || *width != 1)
+        return op->emitOpError("transactional assertion requires Bits<1> condition and path");
+    }
+    auto constant = expect.getPath().getDefiningOp<BitsConstantOp>();
+    auto value = constant ? analysis.evaluateStatic(constant.getValue(), {}, op)
+                          : FailureOr<Attribute>(failure());
+    if (failed(value) || !isa<MathIntAttr>(*value) ||
+        cast<MathIntAttr>(*value).getCanonicalValue() != "1")
+      return op->emitOpError("transactional assertion requires a constant true path");
+    return detail::verifySourceSpan(expect.getLocationAttr(),
+                                    [&] { return op->emitOpError(); });
+  }
   if (callable(op) || isa<TransactionRuleCallOp, TransactionMethodCallOp>(op))
     return verifyCallable(op);
   if (isa<ModuleOp, ModuleImportOp>(op)) {
@@ -823,7 +844,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
          !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
               InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
-              TransactionMethodCallOp>(op)) ||
+              TransactionMethodCallOp, SourceExpectOp>(op)) ||
         (purePayload(op) && !op->getParentOfType<ModuleOp>() &&
          !op->getParentOfType<TransactionRuleOp>())) {
       op->emitOpError("operation is outside the transactional resource-only "

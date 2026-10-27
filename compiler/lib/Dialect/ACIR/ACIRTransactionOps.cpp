@@ -878,7 +878,7 @@ LogicalResult StateUpdateOp::verify() {
                       : IntegerAttr();
   if (!owner || !package || !stage || stage.getValue() != "routed" ||
       package->hasAttr("ac.unit_kind") || !contract ||
-      !contract.getType().isSignlessInteger(64) || (contract.getValue() != 2 && contract.getValue() != 3))
+      !contract.getType().isSignlessInteger(64) || (contract.getValue() != 2 && contract.getValue() != 3 && contract.getValue() != 4))
     return emitOpError()
            << "requires direct module graph placement in a versioned routed "
               "package";

@@ -9,6 +9,7 @@
 #include "Dialect/ACIR/SourceTransactionSummary.h"
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
 #include "pycircuit/Transforms/Passes.h"
 
 #include "Dialect/ACIR/ACIRSourceContracts.h"
@@ -8223,12 +8224,31 @@ class RouteTransactionsPass
     : public PassWrapper<RouteTransactionsPass, OperationPass<mlir::ModuleOp>> {
 public:
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(RouteTransactionsPass)
+  RouteTransactionsPass() = default;
+  RouteTransactionsPass(const RouteTransactionsPass &other) : PassWrapper(other) {}
+  Option<std::string> top{*this, "top", llvm::cl::desc("Closed transactional root Module"),
+                          llvm::cl::init("")};
   StringRef getArgument() const final { return "ac-route-transactions"; }
   StringRef getDescription() const final {
     return "Route sampled transactions to independently verified logical-state ACIR";
   }
   void runOnOperation() final {
     auto input = getOperation();
+    if (input->hasAttr("ac.transactional")) {
+      ac::HardwareSourceCheckLimits limits;
+      limits.maxWorkUnits = 1024 * 1024;
+      SourceCheckBudget budget(limits);
+      auto candidate = ac::routeTransactionalPackage(
+          input, top, [&](uint64_t units, Operation *site) {
+            return budget.debit(units, site);
+          });
+      if (failed(candidate) || failed(ac::verifyRoutedPackage(**candidate, limits))) {
+        signalPassFailure();
+        return;
+      }
+      acceptTransactionCandidate(input, **candidate);
+      return;
+    }
     if (auto stage = input->getAttrOfType<StringAttr>("ac.stage");
         stage && stage.getValue() == "routed") {
       if (failed(ac::verifyRoutedPackage(input))) signalPassFailure();

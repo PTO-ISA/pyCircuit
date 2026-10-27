@@ -325,6 +325,8 @@ LogicalResult SourceObserveOp::verify() {
   return detail::verifySourceObservationStructure(*this);
 }
 LogicalResult SourceExpectOp::verify() {
+  if (isTransactionalPackage(*this))
+    return verifyTransactionalOperation(*this);
   HardwareBindings bindings;
   auto *parent = (*this)->getParentOp();
   bindings.owner = isa_and_nonnull<SourceMethodOp, SourceTransactionOp>(parent)

@@ -10,6 +10,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRModuleOps.cpp
   TransactionalContracts.cpp
   TransactionalAnalysis.cpp
+  TransactionalRouting.cpp
   ACIRBitsOps.cpp
   ACIRCollectionOps.cpp
   ACIRQueueOps.cpp
@@ -61,6 +62,7 @@ target_link_libraries(ACIRDialect PUBLIC
   LLVMCore
   MLIRArithDialect
   MLIRFuncDialect
+  MLIRParser
   MLIRSCFDialect
   MLIRSideEffectInterfaces
 )

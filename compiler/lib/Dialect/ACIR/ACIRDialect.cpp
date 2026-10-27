@@ -75,9 +75,9 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
         package->hasAttr("ac.unit_kind") || !stage ||
         (stage.getValue() != "routed" && stage.getValue() != "final") ||
         !version || !version.getType().isSignlessInteger(64) ||
-        (version.getValue() != 2 && version.getValue() != 3))
+        (version.getValue() != 2 && version.getValue() != 3 && version.getValue() != 4))
       return operation->emitOpError()
-             << "ac.routed_contract requires version 2 or 3 : i64 on the top-level "
+             << "ac.routed_contract requires version 2, 3 or 4 : i64 on the top-level "
                 "routed or final package; regenerate unsupported artifacts";
     // Pair presence is a structural schema rule, including during ordinary
     // native verification. Do not bind entries or recurse into package
@@ -92,7 +92,7 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
             boundaries += child.hasAttr("ac.entry_boundary");
           }
     if ((version.getInt() == 3 && (selections != 1 || boundaries != 1)) ||
-        (version.getInt() == 2 && boundaries))
+        ((version.getInt() == 2 || version.getInt() == 4) && boundaries))
       return operation->emitOpError()
              << "ac.routed_contract 3 requires ac.entry_boundary on the sole "
                 "System; contract 2 forbids ac.entry_boundary";

@@ -2,6 +2,7 @@
 #include "HardwareSourceCheckPreflight.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSampledAdmission.h"
+#include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -111,13 +112,20 @@ public:
     if (failed(verifyQueueResourceWiring(analysis, scopes, budget)))
       return failure();
     budget.setPhase("transaction wiring");
-    if (failed(verifyTransactionWiring(analysis, scopes, validation, budget)))
+    auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+    if (failed(contract && contract.getInt() == 4
+                   ? verifyTransactionalRouting(
+                         package, [&](uint64_t units, Operation *site) {
+                           return budget.debit(units, site);
+                         })
+                   : verifyTransactionWiring(analysis, scopes, validation, budget)))
       return failure();
     // A closed system needs the complete managed commit tree even without
     // source assertions: generated reset/prepare/commit must reach every leaf.
     // Reusable modules without checks still avoid hypothetical expansion.
     auto role = root->owner->getAttrOfType<StringAttr>("ac.root_kind");
-    if (!nodes[*rootIndex]->hasChecks && (!role || role.getValue() != "system"))
+    if (!nodes[*rootIndex]->hasChecks && (!role || role.getValue() != "system") &&
+        (!contract || contract.getInt() != 4))
       return std::move(plan);
     budget.setPhase("occurrence summary");
     auto expansion = summarize(*rootIndex);
@@ -1302,6 +1310,23 @@ private:
   LogicalResult catalogSampling(ModuleOp definition,
                                 const HardwareBindings &bindings,
                                 SmallVector<HardwareCheckBinding> &checks) {
+    auto contract = analysis.getPackage()->getAttrOfType<IntegerAttr>("ac.routed_contract");
+    if (contract && contract.getInt() == 4 && !checks.empty()) {
+      // Contract 4's independent source replay authenticates this closed root,
+      // its domain pins and the complete assertion inventory before admission.
+      auto &body = definition.getBody().front();
+      if (body.getNumArguments() != 2)
+        return definition.emitOpError("transactional checks require compiler clock/reset pins");
+      if (failed(budget.debit(Budget::add(
+              Budget::bytes(sizeof(HardwareCheckSamplingBinding)), checks.size()), definition)))
+        return failure();
+      uint64_t index = plan.samplingBindings.size();
+      plan.samplingBindings.push_back({definition, body.getArgument(0),
+                                       body.getArgument(1), 0});
+      localSamplingIndices[definition].push_back(index);
+      for (auto &check : checks) check.samplingBindingIndex = index;
+      return success();
+    }
     if (!llvm::any_of(checks, [](const auto &check) {
           return check.kind.getValue() == "guard_known";
         }))

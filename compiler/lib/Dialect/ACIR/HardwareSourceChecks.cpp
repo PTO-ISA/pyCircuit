@@ -1396,6 +1396,9 @@ LogicalResult HardwareAnalysis::verifySourceCheckPlan(
 FailureOr<HardwarePhysicalProjection> HardwareAnalysis::getPhysicalProjection(
     const HardwareSourceCheckPlan &plan,
     HardwareSourceCheckLimits limits) const {
+  if (auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+      contract && contract.getInt() == 4)
+    return package.emitOpError("transactional contract 4 currently requires managed RTL execution");
   if (failed(verifySourceCheckPlan(plan, limits)))
     return failure();
   if (plan.owners.empty())

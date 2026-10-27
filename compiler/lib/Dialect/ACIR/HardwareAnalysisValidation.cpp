@@ -169,10 +169,20 @@ LogicalResult detail::verifyHardwarePackageStage(
                       : "executable hardware verification requires final hardware; routed packages require state refinement");
   if ((routed || boundary || package->hasAttr("ac.routed_contract")) &&
       (!marker || !marker.getType().isSignlessInteger(64) ||
-       marker.getValue() != (boundary ? 3 : 2)))
+       (marker.getValue() != (boundary ? 3 : 2) &&
+        (boundary || marker.getValue() != 4))))
     return package.emitOpError()
            << "unsupported or missing ac.routed_contract; regenerate the routed artifact";
+  bool transactional = marker && marker.getInt() == 4;
   auto closed = package.walk([&](Operation *operation) {
+    for (StringRef name : {"ac.transactional_source", "ac.transactional_top",
+                           "ac.transactional_provenance_version"}) {
+      if (operation->hasAttr(name) &&
+          (!transactional || operation != package.getOperation())) {
+        operation->emitOpError("transactional provenance requires a contract 4 package root");
+        return WalkResult::interrupt();
+      }
+    }
     // A reference denotes a source allocation, never a runtime payload or an
     // inert annotation on a closed hardware graph. Routing must consume both
     // bindings and callable contracts before either standalone boundary.

@@ -249,11 +249,15 @@ public:
             << "      default: begin end\n"
             << "    endcase\n"
             << "  end\n"
-            << "  wire " << name << " = $isunknown(" << name << "_path) || ("
-            << sampling << "_rising && !" << sampling << "_reset_active && ("
-            << name << "_path === 1'b1) && "
-            << "$isunknown(" << name << "_condition));\n"
-            << "`else\n"
+            << "  wire " << name << " = ";
+        if (binding.kind.getValue() == "guard_known")
+          out << "$isunknown(" << name << "_path) || ("
+              << sampling << "_rising && !" << sampling << "_reset_active && ("
+              << name << "_path === 1'b1) && $isunknown(" << name << "_condition));\n";
+        else
+          out << sampling << "_rising && !" << sampling << "_reset_active && (("
+              << name << "_path & ~" << name << "_condition) !== 1'b0);\n";
+        out << "`else\n"
             << "  wire " << name << "_complete = 1'b1;\n"
             << "  wire " << name << " = 1'b0;\n"
             << "`endif\n";
