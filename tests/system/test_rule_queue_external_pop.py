@@ -97,6 +97,11 @@ def test_published_allocation_pool_preserves_replay_and_instance_isolation(tmp_p
                 )
                 rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
                 logs = [row for row in rows if row["kind"] == "log"]
+                assert all(
+                    value["kind"] in {"bool", "integer"}
+                    for row in logs
+                    for value in row["values"]
+                ), "known pool responses must not contain X/Z bit planes"
                 assert sorted(
                     (
                         row["spec"]["event"],
@@ -112,6 +117,7 @@ def test_published_allocation_pool_preserves_replay_and_instance_isolation(tmp_p
                 ]
                 terminal = [row for row in rows if row["kind"] == "result"]
                 assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED"
+                assert terminal[0]["error"] is None
                 assert int(terminal[0]["epoch_time"]) == 16
         assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
 
