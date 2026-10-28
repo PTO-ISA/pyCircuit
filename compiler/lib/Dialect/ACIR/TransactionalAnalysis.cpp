@@ -31,7 +31,7 @@ Operation *named(Operation *owner, StringRef name) {
 } // namespace
 
 FailureOr<unsigned> TransactionalAnalysis::getPayloadWidth(Type type) const {
-  if (!isa<BitsType>(type))
+  if (!isa<BitsType, EnumType>(type))
     return failure();
   HardwareBindings bindings;
   bindings.owner = getTop();
@@ -146,7 +146,7 @@ private:
         payload = queue.getPayload();
       if (!payload || failed(p.getPayloadWidth(payload)))
         return allocation.emitError(
-            "transactional execution requires finite Bits State or Queue");
+            "transactional execution requires finite Bits or Enum State or Queue");
       if (failed(charge(32, allocation)))
         return failure();
       unsigned resource = p.resources_.size();
@@ -480,7 +480,7 @@ private:
     for (Value result : op->getResults()) {
       if (failed(p.getPayloadWidth(result.getType())))
         return op->emitError(
-            "transactional execution requires finite Bits payloads");
+            "transactional execution requires finite Bits or Enum payloads");
       unsigned id = p.values_.size();
       p.values_.push_back({result.getType(), instance, rule});
       step.results.push_back(id);

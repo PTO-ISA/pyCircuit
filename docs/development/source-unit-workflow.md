@@ -36,10 +36,23 @@ executes design functions.
 | --- | --- | --- |
 | Capture | `_source_capture.py`, `_source_transport.py` | Parse and transport syntax without executing design functions. |
 | Compile | `PythonImportRecords.cpp`, `SourceUnit.cpp` | Import transactional v2 ACIR and publish authenticated unlinked body/interface units. |
-| Link | `SourceLink` | Authenticate the explicit unit closure, resolve linked resources and preserve source authority. |
+| Link | `SourceLink` | Authenticate provider closure, specialize instances and Rule registrations, and invoke ACIR constraint closure. |
+| Constraint closure | `TransactionalResourceConstraints`, `TransactionalMethodConstraints`, `TransactionalPayloadConstraints` | Unify resource identities, allocate default storage, rewrite interfaces and close Method/payload requirements. |
 | Common analysis | `TransactionalAnalysis` | Recover SCF paths and old-Q resource identity; prove write exclusivity and known control admission. |
 | Route and authenticate | `TransactionalRouting` | Build Routed updates/checks/observations and replay correspondence against actual normalized source. |
 | Refine and emit | `ac-lower-transactions`, C++/Verilog emitters | Verify storage refinement and consume the same final artifact. |
+
+`SourceUnit.cpp` imports declarations, solves local payload and Method constraints,
+publishes unresolved provider requirements, and verifies the unlinked unit.
+`SourceLink.cpp` binds the provider/instance closure, invokes resource, Method
+and payload closure in that order, then enters common transaction analysis.
+Unlinked requirements may remain unknown; linked analysis requires closure.
+Routing and storage lowering produce the same final IR for both emitters.
+
+Linked-only output is verified at the link boundary. For routing, the public
+transaction analysis entry performs that verification on the unchanged linked
+IR; link does not repeat it before calling analysis. Verification after IR
+transformations and validation at independently callable entries remain intact.
 
 The bridge and SCF remain in normalized unlinked/linked ACIR. Routing combines
 path polarity with Rule guards; saved Routed/final provenance is reparsed and

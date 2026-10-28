@@ -139,9 +139,15 @@ for name, module, calls in (
 
 (sources / "top.py").write_text(
     """import pycircuit as ac
+from enum import Enum
 from constraints.provider import Provider
 from constraints.ignored_first import IgnoredFirst
 from constraints.typed_first import TypedFirst
+
+@ac.encoding(width=3)
+class Mode(Enum):
+    IDLE = 0
+    ACTIVE = 5
 
 @ac.system
 def Top():
@@ -159,6 +165,10 @@ def Top():
     @ac.method
     def wrap(a: ac.u8, b: ac.u8) -> ac.u16:
         return a + b
+
+    @ac.method
+    def shift(a: ac.u8, amount: ac.u16) -> ac.u16:
+        return a << amount
 
     @ac.method
     def binding_wrap() -> ac.u16:
@@ -197,6 +207,13 @@ def Top():
         sibling = sibling_wrap()
         captured = capture_wrap()
         ac.log("info", "wide", wide, bound, sibling, captured)
+        shifted = shift(ac.u8(129), ac.u16(1))
+        exhausted = shift(ac.u8(129), ac.u16(256))
+        rightward: ac.u16 = ac.u8(129) >> ac.u16(1)
+        mode = Mode.ACTIVE
+        matched = mode == Mode.ACTIVE
+        different = mode == Mode.IDLE
+        ac.log("info", "types", shifted, exhausted, rightward, matched, different)
 """
 )
 compile_source("provider")
@@ -322,6 +339,9 @@ for cycle in range(3):
         expected[(epoch, "count", (250 + cycle,))] = 2
         expected[(epoch, "sample", (250 + cycle, 7, 250 + cycle, 250 + cycle))] = 2
         expected[(epoch, "wide", (4, 0, 0, 0))] = 1
+        # Shifts execute at the left operand's width before result widening;
+        # the full wide shift amount is retained (256 is not truncated to 0).
+        expected[(epoch, "types", (2, 0, 64, 1, 0))] = 1
 for workers in (1, 2) if target == "cpp" else (1,):
     args = ["--cycles", "3", "--workers", workers] if target == "cpp" else ["+cycles=3"]
     actual = observations(run([executable, *args]))

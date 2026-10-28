@@ -401,6 +401,9 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   auto owner = p.getTop()->getAttrOfType<DictionaryAttr>("source_owner");
   (*package)->setAttr("ac.source_units", sourceOwners(p, b));
   b.setInsertionPointToEnd(package->getBody());
+  // Nominal payload operations retain their declaration authority across routing.
+  for (auto declaration : p.getPackage().getOps<EnumOp>())
+    b.clone(*declaration);
   auto param = TypeParamType::get(
       b.getContext(), FlatSymbolRefAttr::get(b.getContext(), storageName),
       b.getStringAttr("T"));
@@ -1471,9 +1474,17 @@ LogicalResult Replay::run() {
   for (Operation &op : work)
     if (!claimed.contains(&op))
       return reject("unaccounted transaction computation");
+  auto expectedEnums = p.getPackage().getOps<EnumOp>();
+  auto actualEnums = package.getOps<EnumOp>();
+  if (std::distance(expectedEnums.begin(), expectedEnums.end()) !=
+      std::distance(actualEnums.begin(), actualEnums.end()))
+    return reject("nominal declaration inventory differs");
+  for (auto [expected, actual] : llvm::zip(expectedEnums, actualEnums))
+    if (expected->getAttrDictionary() != actual->getAttrDictionary())
+      return reject("nominal declaration differs from source");
   for (Operation &op : package.getBody()->getOperations())
-    if (!llvm::is_contained(ownerModules, &op) && &op != imported &&
-        &op != fifo && &op != system)
+    if (!isa<EnumOp>(op) && !llvm::is_contained(ownerModules, &op) &&
+        &op != imported && &op != fifo && &op != system)
       return reject("unaccounted package operation");
   if (package->getAttr("ac.source_units") != sourceOwners(p, b))
     return reject("source owner inventory differs");

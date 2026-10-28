@@ -529,12 +529,13 @@ linkSourceUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   if (failed(ac::resolveTransactionalMethodConstraints(*linked, true)) ||
       failed(ac::solveTransactionalPayloadConstraints(*linked, true)))
     return failure();
-  if (failed(verify(*linked)) ||
-      failed(ac::verifyTransactionalPackage(*linked)))
-    return failure();
-
-  if (target == SourceLinkTarget::Linked)
+  if (target == SourceLinkTarget::Linked) {
+    if (failed(verify(*linked)) ||
+        failed(ac::verifyTransactionalPackage(*linked)))
+      return failure();
     return std::move(linked);
+  }
+  // Routing's public analysis entry verifies this same, unmodified linked IR.
 
   SourceLinkStages stages;
   auto capture = [](ModuleOp module, std::string &text) {

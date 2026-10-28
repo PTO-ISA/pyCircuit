@@ -317,6 +317,7 @@ class PayloadConstraints {
       if (solved == operationTypes.end())
         return expr.emitOpError("operation payload constraints are not solved");
       Type type = solved->second.execution;
+      output = solved->second.result;
       if (isa<EnumType>(type) && compare) {
         auto carrier = hardware.getPackedWidth(type, {}, expr);
         if (failed(carrier))
