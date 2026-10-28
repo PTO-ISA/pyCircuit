@@ -46,6 +46,9 @@ FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
       version.getInt() != 2)
     return emitError() << "source units require transactional version 2; "
                           "regenerate this artifact";
+  auto contract = unit->getAttrOfType<IntegerAttr>("ac.source_contract");
+  if (!contract || !contract.getType().isSignlessInteger(64) || contract.getInt() != 3)
+    return emitError() << "source constraint contract 3 is required; regenerate this artifact";
   auto owner = unit->getAttrOfType<DictionaryAttr>("ac.source_owner");
   auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
   auto stage = unit->getAttrOfType<StringAttr>("ac.stage");
@@ -84,7 +87,7 @@ FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
 
 bool retainedDeclaration(Operation *operation) {
   return isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleImportOp,
-             func::FuncOp>(operation);
+             func::FuncOp, TransactionRuleOp>(operation);
 }
 
 LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
@@ -107,7 +110,7 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
   if (role.getValue() == "definition") {
     if (declarationOwner != owner)
       return emitError() << "source definition has a foreign SourceOwner";
-    if (body ? (!isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp>(operation) &&
+    if (body ? (!isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp, TransactionRuleOp>(operation) &&
                 !isTransactionalReferenceRequirement(operation))
              : !retainedDeclaration(operation))
       return emitError() << "unsupported source definition category";
@@ -250,8 +253,8 @@ bool hasQualifiedDeclarationIdentityForOwner(Operation *operation,
     auto [parent, leaf] = local.split('.');
     return !parent.empty() && !leaf.empty() && !leaf.contains('.');
   }
-  if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp>(
-          operation))
+  if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp,
+          TransactionRuleOp>(operation))
     return !local.empty() && !local.contains('.');
   if (auto helper = dyn_cast<func::FuncOp>(operation)) {
     auto lexical = helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner");

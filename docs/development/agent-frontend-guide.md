@@ -27,7 +27,8 @@ connect it at the parent; keep the call and its transaction in the caller Module
 Compilation records required Method signatures; link checks the actual provider.
 The compiler preserves state ownership and supplies cross-instance controls.
 Generic call arguments need declared types; a first value-return use needs a typed
-result context. Queue, Rule-body control flow
+result context. Bits Queue connections use old occupancy and share final fire
+with State and Method effects. See `examples/scalar_queue_pipeline`. Rule-body control flow
 and cross-branch local merging remain implementation gaps. Retained legacy
 examples and oracles do not establish support in the replacement.
 
@@ -59,8 +60,11 @@ instead of adding hand-written hardware plumbing to the frontend.
 
 ## Module hierarchy and independent outputs
 
-This section records interface grouping requirements for migration. The current
-closed-Module slice does not yet execute hierarchy or nominal/value interfaces.
+The current transactional slice executes Bits resource interfaces, including
+independent tuple outputs and multilevel references. See
+`examples/resource_composition`.
+The broader combination and nominal interface examples below remain migration
+requirements; their syntax does not establish current transactional admission.
 
 Use ordinary typed `@module` functions to describe hardware hierarchy. Each
 static module-call occurrence creates one child instance. Reusing its output
@@ -195,8 +199,10 @@ updates and logs for that execution step.
 Leave resource admission and proposal/commit controls to the compiler. Keep
 algorithmic predicates explicit. Do not expose clock/reset, DFF interfaces,
 handshake wrappers or a payload validity field solely to represent noncommit.
-The current slice exports State identities rather than valued Rule results.
-Queue, Rule-body control flow and richer interfaces retain
+Rule results write their connected State or Queue resource. Queue inputs consume
+once and Queue outputs enqueue only on the final transaction fire. `peek()` and
+`head()` observe without consuming and require a nonempty Queue when used.
+Rule-body control flow and richer interfaces retain
 their migration requirements, but are not admitted by this slice.
 
 Rules and allocations must be defined directly in the Module, outside runtime

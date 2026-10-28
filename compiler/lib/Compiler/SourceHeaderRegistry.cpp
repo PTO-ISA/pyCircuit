@@ -409,7 +409,7 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
       registry.authorities_.try_emplace(flat, &operation);
       if (auto alias = dyn_cast<ac::TypeAliasOp>(operation))
         registry.aliases_.try_emplace(flat, alias);
-      else if (isa<ac::ConstantOp, ac::EnumOp>(operation))
+      else if (isa<ac::ConstantOp, ac::EnumOp, ac::TransactionRuleOp>(operation))
         continue;
       else if (auto record = dyn_cast<ac::StructOp>(operation))
         registry.records_.try_emplace(flat, record);

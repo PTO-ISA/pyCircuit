@@ -462,6 +462,14 @@ def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
   }];
 }
 
+// Expressions awaiting common SSA payload constraint analysis.
+def ACIR_PendingExprOp : ACIR_Op<"payload.pending", [Pure]> {
+  let arguments = (ins Variadic<AnyType>:$inputs, StrAttr:$kind,
+      OptionalAttr<StrAttr>:$opcode, OptionalAttr<AnyAttr>:$number);
+  let results = (outs AnyType:$result);
+  let hasVerifier = 1;
+}
+
 // Transactional callable definitions own isolated, explicit capture regions.
 def ACIR_TransactionRuleOp : ACIR_Op<"rule", [Symbol, IsolatedFromAbove]> {
   let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
@@ -492,6 +500,14 @@ def ACIR_TransactionMethodCallOp : ACIR_Op<"method.call", [
       SymbolRefAttr:$callee);
   let results = (outs Variadic<AnyType>:$results);
   let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+
+// Open Method use; provider binding supplies the complete result signature.
+def ACIR_TransactionMethodPendingOp : ACIR_Op<"method.pending"> {
+  let arguments = (ins AnyType:$receiver, Variadic<AnyType>:$arguments,
+      SymbolRefAttr:$callee, StrAttr:$result_requirement, BoolAttr:$read_only);
+  let results = (outs Variadic<AnyType>:$results);
   let hasVerifier = 1;
 }
 
@@ -890,6 +906,16 @@ def ACIR_StructGetOp : ACIR_Op<"struct.get", [Pure]> {
   let hasVerifier = 1;
   let assemblyFormat =
       "$value `[` $field `]` attr-dict `:` functional-type(operands, results)";
+}
+
+// Unlinked identity constraints; SourceLink resolves storage after full binding.
+def ACIR_ResourceConnectionOp : ACIR_Op<"resource.connection"> {
+  let summary = "Defer a resource endpoint and its identity connections";
+  let arguments = (ins Variadic<ACIR_ResourceReferenceType>:$connections,
+      StrAttr:$instance_name);
+  let results = (outs ACIR_ResourceReferenceType:$resource);
+  let assemblyFormat = "$instance_name `(` $connections `)` attr-dict `:` functional-type($connections, $resource)";
+  let hasVerifier = 1;
 }
 
 #endif // ACIR_DIALECT_ACIR_ACIROPS_TD

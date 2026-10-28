@@ -5,6 +5,38 @@ callables in the existing ACIR dialect. The production Python compile/link/emit
 route publishes this contract and routes it through common analysis. `linked`
 certifies structural closure, not executable transactions.
 
+## Unlinked constraints
+
+Source body/interface pairs carry `ac.source_contract = 3 : i64`; older source
+artifacts require regeneration. This source publication version is separate from
+the transactional resource contract and Routed contract versions.
+
+`!ac.infer` denotes an unlinked payload variable whose identity is its SSA value.
+`ac.payload.pending` preserves exact literals and operation/conversion relations.
+Common dependency-driven analysis collects contexts separately from exact type
+facts, then rewrites resolved expressions to ordinary payload operations. A
+conversion target cannot change the natural width of an anchored Bits operation.
+Unresolved provider-dependent expressions survive printing and rereading.
+
+`ac.method.pending` preserves one invocation, receiver, arguments, transaction
+placement and result demand (`ignored`, `scalar` or `tuple`). Ignored demand does
+not specify zero returns. Published Method requirements aggregate all uses,
+including conversion contexts, without inventing a return FunctionType. Link
+binds actual providers and replaces each pending invocation with one normal call
+with its complete signature. Unused actual results remain unused; call effects
+remain conservative.
+
+`ac.resource.connection` records resource identity edges and their connecting
+Module. Link propagates instance bindings, exports and aliases, checks payload
+compatibility and distinct allocation identities, then allocates one parent-owned
+depth-2 Queue only for a connection without existing storage. Equal payloads do
+not imply equal resources. Exports and aliases do not allocate storage.
+
+Linked verification rejects pending expressions, pending calls, deferred
+connections and unresolved payload/resource types. Transaction analysis and
+backends receive only this closed representation. Bits Queue execution uses the
+same resource identity and transaction plan as State.
+
 ## Resources
 
 | Type | Meaning |
@@ -108,8 +140,10 @@ Guards admit pure payload computation, old-State reads and read-only Queue
 observations. Method calls in guards are checked through their full guard/body
 call closure; no declared read-only label substitutes for that proof. Consuming,
 writing, allocating and registering are forbidden in guards. Primitive `read`
-may become Queue consumption, so it is effectful and cannot satisfy a read-only
-guard. Registration and Method calls retain conservative effects under CSE/DCE;
+may become Queue consumption, so it retains conservative effects. In unlinked
+guards its read-only obligation is deferred until concrete binding: State read
+can satisfy the obligation; a Queue pop cannot. Linked verification checks the
+complete resolved guard before execution admission. Registration and Method calls retain conservative effects under CSE/DCE;
 definition regions do not imply immediate execution at their definition sites.
 
 The former pure `ac.rule` operation is now `ac.comb`. Former Method operations
@@ -126,8 +160,8 @@ Unlinked packages can contain primitive constraints and explicit imports with
 `semantic_kind = "resources"`, the same signature and `output_kinds` as definitions.
 Linked packages require concrete resources, matching interfaces and a resolved,
 nonrecursive instance hierarchy and resolved callable signatures. Calls remain
-Method calls rather than physical signals. Generic Method requirements and
-transaction execution remain outside this subset.
+Method calls rather than physical signals. Generic Method requirements are published as constraints and closed against the
+actual provider. Structural closure alone does not establish execution support.
 
 Production Python compile/link publishes and authenticates this contract.
 Public saved-anchor manifest publication remains deferred. Structural
@@ -142,7 +176,8 @@ pycircuit-opt linked.mlir --ac-route-transactions='top=Counter' -o routed.mlir
 pycircuit-opt routed.mlir --ac-lower-transactions -o final.mlir
 ```
 
-The selected Module owns finite-width Bits State with explicit initial values.
+The selected Module owns finite-width Bits State with explicit initial values
+and Bits Queues that start empty.
 Local Rules and global Rule templates execute only through explicit
 registrations. Python autorule declarations normalize to one ordinary Rule and
 one registration. Pure Bits computations and State `read`/`write` are supported.
@@ -152,8 +187,15 @@ Definitions and allocations remain directly Module-owned. Branches admit pure
 computation, read-only observations and registrations, with lexical scope and no
 cross-branch local merging. Rule-body SCF is outside this slice.
 
-Queue operations, user Method expansion and hierarchy remain implementation
-work. Unsupported input fails without falling back to legacy analysis.
+User Method expansion and existing-instance hierarchy use common transactional
+analysis, preserving callee ownership and the caller transaction’s final fire.
+Queue pop reads old head during preparation and proposes consumption only on
+final fire. Push requires old free capacity; head/peek requires old nonempty
+occupancy without consumption. Unproven same-direction access conflicts are
+rejected. The adapter uses owner-local `fifo_local` with actual depth and latency
+one; Routed/Final replay verifies configuration, payload, status and proposal
+ports against common analysis. Unsupported execution fails without
+falling back to legacy analysis.
 
 Every State read observes old Q, including a read after a write in the same
 Rule. Writes propose updates. Independent State updates can commit together;
@@ -191,6 +233,7 @@ The Python route uses this same analysis and adapter. Direct transactional
 gfsim and broader physical-edge export remain separate implementation work.
 
 The implementation reuses prototype allocation, path and verifier concepts.
-Structural Method/resource representation does not establish execution support
-for Queue, hierarchy or user Methods. Remaining migration work and actual
+Structural Method/resource representation alone does not establish execution
+support. State, Queue, Method and hierarchy execution
+require their separate generated-backend evidence. Remaining migration work and actual
 validation are tracked in the [replacement status](transactional-frontend-status.md).

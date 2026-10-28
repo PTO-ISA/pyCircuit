@@ -16,9 +16,11 @@ FailureOr<Value> Importer::allocate(Type data, StringRef name,
     operands.push_back(*value);
   }
   auto type = resource(data, depth ? "queue" : "state", depth);
-  auto *allocation =
-      op(node, "ac.resource.alloc", operands, type,
-         {b.getNamedAttr("instance_name", b.getStringAttr(name))});
+  SmallVector<NamedAttribute> attrs{
+      b.getNamedAttr("instance_name", b.getStringAttr(name))};
+  if (depth)
+    attrs.push_back(b.getNamedAttr("depth", b.getI64IntegerAttr(depth)));
+  auto *allocation = op(node, "ac.resource.alloc", operands, type, attrs);
   return allocation ? FailureOr<Value>(allocation->getResult(0))
                     : FailureOr<Value>(failure());
 }
@@ -27,39 +29,78 @@ FailureOr<SmallVector<Value>>
 Importer::instantiate(Declaration *decl, Operation *imported,
                       StringRef instanceName, const AstNode &call, Scope &scope,
                       ArrayRef<Value> destinations) {
-  if (!scope.module || !destinations.empty())
+  if (!scope.module)
     return (void)fail(call ? call : scope.owner->node,
-                     "Module instances require direct Module wiring"), failure();
+                      "Module instances require direct Module wiring"),
+           failure();
   if (decl && failed(lower(*decl)))
     return failure();
   auto *definition = decl ? decl->operation : imported;
-  auto type = cast<FunctionType>(definition->getAttrOfType<TypeAttr>("function_type").getValue());
+  auto type = cast<FunctionType>(
+      definition->getAttrOfType<TypeAttr>("function_type").getValue());
   SmallVector<StringRef> formals;
   for (auto attr : definition->getAttrOfType<ArrayAttr>("input_names"))
     formals.push_back(cast<StringAttr>(attr).getValue());
   SmallVector<AstNode> actuals;
   if (call && call.kind() == "Call") {
     auto normalized = detail::normalizeCallArguments(call, formals, error);
-    if (failed(normalized)) return failure();
+    if (failed(normalized))
+      return failure();
     actuals = *normalized;
   } else if (!formals.empty())
-    return (void)fail(scope.owner->node, "instance requires explicit input bindings"), failure();
+    return (void)fail(scope.owner->node,
+                      "instance requires explicit input bindings"),
+           failure();
   SmallVector<Value> operands;
   for (auto actual : actuals) {
     auto values = expression(actual, scope);
     if (failed(values) || values->size() != 1 ||
-        !isa<ac::ModuleRefType>(values->front().getType()))
-      return (void)fail(actual, "Module reference requires an existing instance"), failure();
+        !(isa<ac::ModuleRefType>(values->front().getType()) ||
+          isResource(values->front().getType())))
+      return (void)fail(actual,
+                        "Module reference requires an existing instance"),
+             failure();
     operands.push_back(values->front());
   }
   auto at = call ? call : scope.owner->node;
-  auto *instance = op(at, "ac.instance", operands, type.getResults(),
-     {b.getNamedAttr("instance_name", b.getStringAttr(instanceName)),
-      b.getNamedAttr("callee", symbol(definition->getAttrOfType<StringAttr>("sym_name").getValue())),
-      b.getNamedAttr("parameters", b.getArrayAttr({})),
-      b.getNamedAttr("type_arguments", b.getArrayAttr({})),
-      b.getNamedAttr("occurrence", origin(at, scope.owner->symbol))});
-  return SmallVector<Value>(instance->getResults());
+  auto kinds = definition->getAttrOfType<ArrayAttr>("output_kinds");
+  SmallVector<Value> boundOutputs(type.getNumResults());
+  for (unsigned i = 0; i < type.getNumResults(); ++i) {
+    if (cast<StringAttr>(kinds[i]).getValue() != "bound")
+      continue;
+    Value destination = i < destinations.size() ? destinations[i] : Value();
+    if (!destination) {
+      auto *connection =
+          op(at, "ac.resource.connection", {},
+             resource(payload(type.getResult(i))),
+             {b.getNamedAttr("instance_name",
+                             b.getStringAttr(instanceName.str() + ".out" +
+                                             std::to_string(i)))});
+      if (!connection)
+        return failure();
+      destination = connection->getResult(0);
+    }
+    if (!isResource(destination.getType()) ||
+        !equal(payload(destination.getType()), payload(type.getResult(i))))
+      return (void)fail(at, "output binding requires a matching resource"),
+             failure();
+    operands.push_back(destination);
+    boundOutputs[i] = destination;
+  }
+  auto *instance =
+      op(at, "ac.instance", operands, type.getResults(),
+         {b.getNamedAttr("instance_name", b.getStringAttr(instanceName)),
+          b.getNamedAttr(
+              "callee", symbol(definition->getAttrOfType<StringAttr>("sym_name")
+                                   .getValue())),
+          b.getNamedAttr("parameters", b.getArrayAttr({})),
+          b.getNamedAttr("type_arguments", b.getArrayAttr({})),
+          b.getNamedAttr("occurrence", origin(at, scope.owner->symbol))});
+  SmallVector<Value> results(instance->getResults());
+  for (unsigned i = 0; i < results.size(); ++i)
+    if (boundOutputs[i])
+      results[i] = boundOutputs[i];
+  return results;
 }
 
 LogicalResult Importer::emitGuard(Callable &call, Scope &scope) {
@@ -76,16 +117,31 @@ LogicalResult Importer::emitGuard(Callable &call, Scope &scope) {
 LogicalResult Importer::defineRule(Callable &call, Scope &scope) {
   if (call.defined)
     return success();
-  if (!scope.module || !call.inputs.empty() || !call.results.empty())
-    return fail(call.node, "transactional compilation currently requires local "
-                           "Rules without parameters or results");
+  auto previousDefinition = currentDefinition;
+  if (call.global)
+    currentDefinition = call.name;
+  auto restoreDefinition =
+      llvm::scope_exit([&] { currentDefinition = previousDefinition; });
+  if (!scope.module)
+    return fail(call.node, "Rule definitions require a Module or source owner");
   Scope captured = scope;
   captured.module = false;
   captured.callable = &call;
-  captured.resultTypes.clear();
+  captured.resultTypes = call.results;
   captured.outputs.clear();
   captured.returned.clear();
   captured.terminated = false;
+  captured.globalRule = call.global;
+  if (call.global)
+    captured.bindings.clear();
+  SmallVector<Type> inputTypes, outputTypes;
+  SmallVector<Attribute> inputNames;
+  for (auto &input : call.inputs) {
+    inputTypes.push_back(resource(input.type));
+    inputNames.push_back(b.getStringAttr(input.name));
+  }
+  for (auto result : call.results)
+    outputTypes.push_back(resource(result));
   SmallVector<Value> captures;
   for (auto &[name, binding] : captured.bindings)
     if (binding.value && !llvm::is_contained(captures, binding.value))
@@ -93,28 +149,43 @@ LogicalResult Importer::defineRule(Callable &call, Scope &scope) {
   auto *definition =
       op(call.node, "ac.rule", captures, {},
          {b.getNamedAttr("sym_name", b.getStringAttr(call.name)),
-          b.getNamedAttr("function_type",
-                         TypeAttr::get(b.getFunctionType({}, {})))},
+          b.getNamedAttr("function_type", TypeAttr::get(b.getFunctionType(
+                                              inputTypes, outputTypes))),
+          b.getNamedAttr("input_names", b.getArrayAttr(inputNames))},
          2);
+  if (call.global) {
+    definition->setAttr("ac.source_owner", owner);
+    definition->setAttr("ac.declaration_role", b.getStringAttr("definition"));
+  }
   for (unsigned region = 0; region < 2; ++region) {
     auto *block = new Block;
     definition->getRegion(region).push_back(block);
     Scope inner = captured;
     inner.pure = region == 0;
+    for (unsigned i = 0; i < inputTypes.size(); ++i)
+      inner.bindings[call.inputs[i].name] =
+          Binding{block->addArgument(inputTypes[i], definition->getLoc()),
+                  {},
+                  {},
+                  nullptr};
+    for (auto &input : call.inputs)
+      inner.bindings[input.name].parameter = true;
+    for (auto type : outputTypes)
+      inner.outputs.push_back(block->addArgument(type, definition->getLoc()));
     DenseMap<Value, Value> mapped;
     for (auto value : captures)
       mapped[value] = block->addArgument(value.getType(), definition->getLoc());
     for (auto &[name, binding] : inner.bindings)
       if (binding.value)
-        binding.value = mapped.lookup(binding.value);
+        if (mapped.count(binding.value))
+          binding.value = mapped.lookup(binding.value);
     OpBuilder::InsertionGuard save(b);
     b.setInsertionPointToEnd(block);
     if (region == 0) {
       if (failed(emitGuard(call, inner)))
         return failure();
     } else {
-      if (failed(inferHints(call.node, inner)) ||
-          failed(statements(call.node, "body", inner)))
+      if (failed(statements(call.node, "body", inner)))
         return failure();
       if (!inner.terminated)
         yield(call.node);
@@ -127,25 +198,63 @@ LogicalResult Importer::defineRule(Callable &call, Scope &scope) {
 FailureOr<SmallVector<Value>>
 Importer::registerRule(Callable &call, const AstNode &registration,
                        Scope &scope, ArrayRef<Value> destinations) {
-  if (!scope.module || !destinations.empty() || !call.inputs.empty() ||
-      !call.results.empty()) {
-    (void)fail(registration, "transactional compilation currently requires "
-                             "local Rules without parameters or results");
+  if (!scope.module || !call.defined)
+    return (void)fail(registration,
+                      "Rule must be defined and registered in a Module"),
+           failure();
+  if (!call.global && call.registrations++)
+    return (void)fail(registration,
+                      "Rule is already registered in this Module"),
+           failure();
+  SmallVector<StringRef> names;
+  for (auto &input : call.inputs)
+    names.push_back(input.name);
+  SmallVector<AstNode> actuals;
+  if (registration.kind() == "Call") {
+    auto normalized =
+        detail::normalizeCallArguments(registration, names, error);
+    if (failed(normalized))
+      return failure();
+    actuals = *normalized;
+  } else if (!names.empty())
     return failure();
+  SmallVector<Value> operands, outputs;
+  for (unsigned i = 0; i < actuals.size(); ++i) {
+    auto values = expression(actuals[i], scope);
+    if (failed(values) || values->size() != 1 ||
+        !isResource(values->front().getType()) ||
+        !equal(payload(values->front().getType()),
+               payload(call.inputs[i].type)))
+      return (void)fail(actuals[i], "Rule input requires a matching resource"),
+             failure();
+    operands.push_back(values->front());
   }
-  if (!call.defined) {
-    (void)fail(registration, "Rule must be declared before registration");
-    return failure();
+  for (unsigned i = 0; i < call.results.size(); ++i) {
+    Value target = i < destinations.size() ? destinations[i] : Value();
+    if (!target) {
+      auto *connection = op(
+          registration, "ac.resource.connection", {},
+          resource(payload(call.results[i])),
+          {b.getNamedAttr("instance_name",
+                          b.getStringAttr("$rule" + std::to_string(unique++) +
+                                          ".out" + std::to_string(i)))});
+      if (!connection)
+        return failure();
+      target = connection->getResult(0);
+    }
+    if (!isResource(target.getType()) ||
+        !equal(payload(target.getType()), payload(call.results[i])))
+      return (void)fail(registration,
+                        "Rule output requires a matching resource"),
+             failure();
+    operands.push_back(target);
+    outputs.push_back(target);
   }
-  if (call.registrations++) {
-    (void)fail(registration, "Rule is already registered in this Module");
-    return failure();
-  }
-  op(registration, "ac.rule.call", {}, {},
+  op(registration, "ac.rule.call", operands, {},
      {b.getNamedAttr("callee", symbol(call.name)),
-      b.getNamedAttr("input_count", b.getI64IntegerAttr(0)),
+      b.getNamedAttr("input_count", b.getI64IntegerAttr(call.inputs.size())),
       b.getNamedAttr("occurrence", origin(registration, scope.owner->symbol))});
-  return SmallVector<Value>{};
+  return outputs;
 }
 
 LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
@@ -164,12 +273,12 @@ LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
   for (auto &input : call.inputs) {
     types.push_back(input.type);
   }
-  auto *method =
-      op(call.node, "ac.method", captures, {},
-         {b.getNamedAttr("sym_name", b.getStringAttr(call.name)),
-          b.getNamedAttr("function_type",
-                         TypeAttr::get(b.getFunctionType(types, call.results)))},
-         2);
+  auto *method = op(
+      call.node, "ac.method", captures, {},
+      {b.getNamedAttr("sym_name", b.getStringAttr(call.name)),
+       b.getNamedAttr("function_type",
+                      TypeAttr::get(b.getFunctionType(types, call.results)))},
+      2);
   for (unsigned region = 0; region < 2; ++region) {
     auto *block = new Block;
     method->getRegion(region).push_back(block);
@@ -193,8 +302,7 @@ LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
       if (failed(emitGuard(call, inner)))
         return failure();
     } else {
-      if (failed(inferHints(call.node, inner)) ||
-          failed(statements(call.node, "body", inner)))
+      if (failed(statements(call.node, "body", inner)))
         return failure();
       if (!inner.terminated) {
         if (!call.results.empty())
@@ -227,16 +335,24 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
       scope.owner->callables.count(name))
     return fail(target,
                 "assignment cannot shadow imported or callable source names");
-  if (found != scope.bindings.end() &&
-      isa_and_nonnull<ac::StateType>(found->second.type())) {
+  if (found != scope.bindings.end() && isResource(found->second.type()) &&
+      !found->second.parameter) {
     if (scope.module) {
       if (values.front() == found->second.value)
         return success();
-      return fail(target, "ordinary Module assignment cannot replace an "
-                          "existing resource identity");
+      if (!isResource(values.front().getType()) ||
+          !equal(payload(values.front().getType()),
+                 payload(found->second.type())))
+        return fail(target,
+                    "Module resource connection requires matching payloads");
+      op(target, "ac.resource.connection",
+         ValueRange{found->second.value, values.front()}, found->second.type(),
+         {b.getNamedAttr("instance_name",
+                         b.getStringAttr(name + ".connection"))});
+      return success();
     }
     auto value = values.front();
-    if (isa<ac::StateType>(value.getType())) {
+    if (isResource(value.getType())) {
       auto loaded = read(value, target, scope);
       if (failed(loaded))
         return failure();
@@ -249,7 +365,7 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
        isa_and_nonnull<ac::ModuleRefType>(found->second.type())))
     return fail(target, "instance identity cannot be reassigned");
   Value value = values.front();
-  if (!scope.module && isa<ac::StateType>(value.getType())) {
+  if (!scope.module && isResource(value.getType())) {
     auto loaded = read(value, target, scope);
     if (failed(loaded))
       return failure();
@@ -307,34 +423,50 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     auto typeNode = node.child("annotation");
     if (scope.module) {
       if (scope.conditionalDepth)
-        return fail(node, "resources must be declared directly in their Module");
+        return fail(node,
+                    "resources must be declared directly in their Module");
       if (auto nominal = resolve(typeNode))
         if (nominal->symbol &&
             (declarations.count(nominal->remote) ||
-             isa_and_nonnull<ac::ModuleImportOp>(nominal->declaration)))
-          {
-            if (node.child("value"))
-              return fail(node, "declare an instance then connect it at its wiring site");
-            Binding binding;
-            binding.instanceName = name;
-            binding.declaration = node;
-            binding.instanceTarget = nominal->symbol.getValue().str();
-            if (declarations.count(nominal->remote))
-              binding.pending = declarations.at(nominal->remote).get();
-            else
-              binding.pendingImport = nominal->declaration;
-            scope.bindings[name] = binding;
-            bool closed = binding.pending ? binding.pending->inputs.empty()
-                : cast<FunctionType>(binding.pendingImport->getAttrOfType<TypeAttr>(
-                      "function_type").getValue()).getNumInputs() == 0;
-            if (closed && failed(expression(target, scope)))
-              return failure();
-            return success();
-          }
+             isa_and_nonnull<ac::ModuleImportOp>(nominal->declaration))) {
+          if (node.child("value"))
+            return fail(
+                node, "declare an instance then connect it at its wiring site");
+          Binding binding;
+          binding.instanceName = name;
+          binding.declaration = node;
+          binding.instanceTarget = nominal->symbol.getValue().str();
+          if (declarations.count(nominal->remote))
+            binding.pending = declarations.at(nominal->remote).get();
+          else
+            binding.pendingImport = nominal->declaration;
+          scope.bindings[name] = binding;
+          bool closed = binding.pending
+                            ? binding.pending->inputs.empty()
+                            : cast<FunctionType>(
+                                  binding.pendingImport
+                                      ->getAttrOfType<TypeAttr>("function_type")
+                                      .getValue())
+                                      .getNumInputs() == 0;
+          if (closed && failed(expression(target, scope)))
+            return failure();
+          return success();
+        }
       if (typeNode.kind() == "Subscript" &&
-          marker(typeNode.child("value"), "queue"))
-        return fail(node,
-                    "Queue allocation awaits transactional resource binding");
+          marker(typeNode.child("value"), "queue")) {
+        Type type = annotation(typeNode, scope.owner->symbol);
+        if (!type)
+          return failure();
+        auto values = expression(node.child("value"), scope);
+        if (failed(values) || values->size() != 1 ||
+            !isa<ac::QueueType>(values->front().getType()))
+          return failure();
+        auto value = convert(values->front(), type, node);
+        if (failed(value))
+          return failure();
+        scope.bindings[name] = Binding{*value, {}, {}, nullptr};
+        return success();
+      }
       Type type = annotation(typeNode, scope.owner->symbol);
       AstNode initial = node.child("value");
       if (!type)
@@ -358,7 +490,6 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     if (failed(value))
       return failure();
     scope.bindings[name] = Binding{*value, {}, {}, nullptr};
-    scope.hints[name] = type;
     return success();
   }
   if (node.kind() == "Assign") {
@@ -369,13 +500,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     if (target.kind() == "Name") {
       auto name = target.string("id").str();
       auto binding = scope.bindings.find(name);
-      if (binding != scope.bindings.end())
+      if (binding != scope.bindings.end() && isResource(binding->second.type()))
         expected = payload(binding->second.type());
-      if (!expected) {
-        auto hint = scope.hints.find(name);
-        if (hint != scope.hints.end())
-          expected = hint->second;
-      }
     }
     SmallVector<Value> destinations;
     if (scope.module && node.child("value").kind() == "Call") {
@@ -384,11 +510,10 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
           return fail(
               leaf, "output bindings require names or a direct tuple of names");
         auto found = scope.bindings.find(leaf.string("id").str());
-        destinations.push_back(
-            found != scope.bindings.end() &&
-                    isa_and_nonnull<ac::StateType>(found->second.type())
-                ? found->second.value
-                : Value());
+        destinations.push_back(found != scope.bindings.end() &&
+                                       isResource(found->second.type())
+                                   ? found->second.value
+                                   : Value());
         return success();
       };
       if (target.kind() == "Tuple") {
@@ -398,8 +523,16 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
       } else if (failed(addDestination(target)))
         return failure();
     }
+    auto savedRequirement = scope.pendingResultRequirement;
+    auto savedArity = scope.pendingResultArity;
+    scope.pendingResultRequirement =
+        target.kind() == "Tuple" ? "tuple" : "scalar";
+    scope.pendingResultArity =
+        target.kind() == "Tuple" ? target.array("elts").size() : 1;
     auto values =
         expression(node.child("value"), scope, expected, destinations);
+    scope.pendingResultRequirement = savedRequirement;
+    scope.pendingResultArity = savedArity;
     if (failed(values))
       return failure();
     return bind(target, *values, scope);
@@ -412,7 +545,7 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     auto lhs = scalar(target, scope);
     if (failed(lhs))
       return failure();
-    auto rhs = scalar(node.child("value"), scope, lhs->getType());
+    auto rhs = scalar(node.child("value"), scope);
     if (failed(rhs))
       return failure();
     StringRef kind = node.child("op").kind();
@@ -424,10 +557,11 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
                                           : "";
     if (opcode.empty())
       return fail(node, "unsupported compound assignment");
-    Value value =
-        op(node, "ac.bits.binary", ValueRange{*lhs, *rhs}, lhs->getType(),
-           {b.getNamedAttr("opcode", b.getStringAttr(opcode))})
-            ->getResult(0);
+    Value value = op(node, "ac.payload.pending", ValueRange{*lhs, *rhs},
+                     ac::InferType::get(b.getContext()),
+                     {b.getNamedAttr("kind", b.getStringAttr("binary")),
+                      b.getNamedAttr("opcode", b.getStringAttr(opcode))})
+                      ->getResult(0);
     return bind(target, ArrayRef<Value>(value), scope);
   }
   if (node.kind() == "Return") {
@@ -448,14 +582,31 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
         return fail(node, "return arity differs from declared result types");
       for (size_t i = 0; i < actuals.size(); ++i) {
         if (scope.module) {
-          auto value = expression(actuals[i], scope);
-          if (failed(value) || value->size() != 1 ||
-              !isa<ac::StateType>(value->front().getType()) ||
-              !equal(payload(value->front().getType()), scope.resultTypes[i]))
+          auto value =
+              expression(actuals[i], scope, payload(scope.resultTypes[i]),
+                         ArrayRef<Value>(scope.outputs[i]));
+          if (failed(value) || value->size() != 1)
+            return failure();
+          Value result = value->front();
+          if (isResource(result.getType())) {
+            if (!equal(payload(result.getType()),
+                       payload(scope.resultTypes[i])))
+              return fail(
+                  actuals[i],
+                  "Module output payload does not match its annotation");
+            if (result.getDefiningOp<ac::ResourceConnectionOp>()) {
+              op(actuals[i], "ac.resource.connection",
+                 ValueRange{scope.outputs[i], result}, result.getType(),
+                 {b.getNamedAttr(
+                     "instance_name",
+                     b.getStringAttr("$return" + std::to_string(i)))});
+              result = scope.outputs[i];
+            }
+            values.push_back(result);
+          } else {
             return fail(actuals[i],
-                        "Module returns must export existing resource "
-                        "identities with declared payloads");
-          values.push_back(value->front());
+                        "Module payload outputs require a Rule result");
+          }
         } else {
           auto value = scalar(actuals[i], scope, scope.resultTypes[i]);
           if (failed(value))
@@ -465,6 +616,33 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
       }
     } else if (!scope.resultTypes.empty())
       return fail(node, "missing declared return payload");
+    if (scope.module) {
+      SmallVector<Attribute> kinds;
+      SmallVector<Type> outputs;
+      SmallVector<unsigned> erased;
+      for (unsigned i = 0; i < values.size(); ++i) {
+        bool bound = values[i] == scope.outputs[i];
+        kinds.push_back(b.getStringAttr(bound ? "bound" : "export"));
+        outputs.push_back(values[i].getType());
+        if (!bound)
+          erased.push_back(
+              cast<BlockArgument>(scope.outputs[i]).getArgNumber());
+      }
+      auto *definition = scope.owner->operation;
+      auto signature = cast<FunctionType>(
+          definition->getAttrOfType<TypeAttr>("function_type").getValue());
+      definition->setAttr(
+          "function_type",
+          TypeAttr::get(b.getFunctionType(signature.getInputs(), outputs)));
+      definition->setAttr("output_kinds", b.getArrayAttr(kinds));
+      for (auto index : llvm::reverse(erased)) {
+        auto &body = definition->getRegion(0).front();
+        if (!body.getArgument(index).use_empty())
+          return fail(node,
+                      "exported resource cannot replace a used bound output");
+        body.eraseArgument(index);
+      }
+    }
     if (scope.callable && scope.callable->kind != "method") {
       for (size_t i = 0; i < values.size(); ++i)
         if (failed(write(scope.outputs[i], values[i], node, scope)))
@@ -496,6 +674,14 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     return success();
   }
   if (node.kind() == "Expr") {
+    auto savedRequirement = scope.pendingResultRequirement;
+    auto savedArity = scope.pendingResultArity;
+    scope.pendingResultRequirement = "ignored";
+    scope.pendingResultArity = 0;
+    auto restoreDemand = llvm::scope_exit([&] {
+      scope.pendingResultRequirement = savedRequirement;
+      scope.pendingResultArity = savedArity;
+    });
     auto expr = node.child("value");
     if (expr.kind() == "Constant" &&
         isa_and_nonnull<StringAttr>(expr.get("value")))
@@ -555,7 +741,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
   }
   if (node.kind() == "If") {
     if (!scope.module)
-      return fail(node, "Rule body control flow awaits transactional migration");
+      return fail(node,
+                  "Rule body control flow awaits transactional migration");
     auto condition = scalar(node.child("test"), scope, bits(1, node));
     if (failed(condition))
       return failure();
@@ -575,7 +762,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
       // the old value of a Python local assigned only along one branch.
       for (const auto &[name, binding] : scope.bindings)
         if (inner.bindings.at(name).value != binding.value)
-          return fail(node, "cross-branch local assignments await result merging");
+          return fail(node,
+                      "cross-branch local assignments await result merging");
       op(node, "scf.yield", {}, {});
     }
     return success();
@@ -602,7 +790,7 @@ LogicalResult Importer::lower(Declaration &decl) {
     inputNames.push_back(b.getStringAttr(input.name));
   }
   for (size_t i = 0; i < decl.results.size(); ++i) {
-    outputs.push_back(resource(decl.results[i], "state"));
+    outputs.push_back(resource(decl.results[i]));
     outputNames.push_back(b.getStringAttr("out" + std::to_string(i)));
   }
   decl.operation =
@@ -617,7 +805,7 @@ LogicalResult Importer::lower(Declaration &decl) {
           b.getNamedAttr("output_names", b.getArrayAttr(outputNames)),
           b.getNamedAttr("output_kinds",
                          b.getArrayAttr(SmallVector<Attribute>(
-                             outputs.size(), b.getStringAttr("export")))),
+                             outputs.size(), b.getStringAttr("bound")))),
           b.getNamedAttr("ac.declaration_role", b.getStringAttr("definition"))},
          1);
   names.at(decl.name).declaration = decl.operation;
@@ -643,17 +831,21 @@ LogicalResult Importer::lower(Declaration &decl) {
                 {},
                 {},
                 nullptr};
-  if (failed(inferHints(decl.node, scope)) ||
-      failed(statements(decl.node, "body", scope)))
+  for (auto type : outputs)
+    scope.outputs.push_back(block->addArgument(type, decl.operation->getLoc()));
+  if (failed(statements(decl.node, "body", scope)))
     return failure();
   // Explicit zero-input Module declarations allocate even when their reference
   // is never called, preserving static hierarchy and autonomous Rules.
   for (auto &[name, binding] : scope.bindings) {
     if (binding.pendingImport) {
       if (scope.terminated)
-        return fail(decl.node, "connect instances before returning from Module");
-      auto values = instantiate(nullptr, binding.pendingImport, name, binding.declaration, scope);
-      if (failed(values)) return failure();
+        return fail(decl.node,
+                    "connect instances before returning from Module");
+      auto values = instantiate(nullptr, binding.pendingImport, name,
+                                binding.declaration, scope);
+      if (failed(values))
+        return failure();
       binding.pendingImport = nullptr;
     }
     if (binding.pending) {
@@ -662,7 +854,8 @@ LogicalResult Importer::lower(Declaration &decl) {
                                "connected before Module return");
       if (!binding.pending->inputs.empty())
         return fail(decl.node, "explicit Module instance has unbound inputs");
-      auto values = instantiate(binding.pending, nullptr, name, binding.declaration, scope);
+      auto values = instantiate(binding.pending, nullptr, name,
+                                binding.declaration, scope);
       if (failed(values))
         return failure();
       binding.pending = nullptr;

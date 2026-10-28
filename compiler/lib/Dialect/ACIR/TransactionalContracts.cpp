@@ -2,8 +2,8 @@
 #include "ACIRSourceContracts.h"
 #include "HardwareSourceChecks.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
-#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Builders.h"
+#include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/OpImplementation.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceEffects.h"
@@ -28,29 +28,59 @@ FunctionType signature(Operation *op) {
   auto attr = op ? op->getAttrOfType<TypeAttr>("function_type") : TypeAttr();
   return attr ? dyn_cast<FunctionType>(attr.getValue()) : FunctionType();
 }
-bool resource(Type type) { return isa<PrimitiveType, StateType, QueueType>(type); }
+bool resource(Type type) {
+  return isa<PrimitiveType, StateType, QueueType>(type);
+}
 Type payload(Type type) {
-  if (auto t = dyn_cast<PrimitiveType>(type)) return t.getPayload();
-  if (auto t = dyn_cast<StateType>(type)) return t.getPayload();
-  if (auto t = dyn_cast<QueueType>(type)) return t.getPayload();
+  if (auto t = dyn_cast<PrimitiveType>(type))
+    return t.getPayload();
+  if (auto t = dyn_cast<StateType>(type))
+    return t.getPayload();
+  if (auto t = dyn_cast<QueueType>(type))
+    return t.getPayload();
   return type;
 }
 bool sameTypes(TypeRange a, TypeRange b) {
-  if (a.size() != b.size()) return false;
+  if (a.size() != b.size())
+    return false;
   for (auto [x, y] : llvm::zip(a, b))
-    if (!transactionalTypesEqual(x, y)) return false;
+    if (!transactionalTypesEqual(x, y))
+      return false;
+  return true;
+}
+// Unlinked resource formals are constraints; concrete bindings are resolved
+// per occurrence by SourceLink before linked verification.
+bool interfaceTypesMatch(TypeRange actual, TypeRange expected,
+                         Operation *site) {
+  if (actual.size() != expected.size())
+    return false;
+  auto package = packageOf(site);
+  auto stage =
+      package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+  bool unlinked = stage && stage.getValue() == "unlinked";
+  for (auto [bound, formal] : llvm::zip(actual, expected)) {
+    if (transactionalTypesEqual(bound, formal))
+      continue;
+    if (!unlinked || !resource(bound) || !resource(formal) ||
+        !isa<PrimitiveType>(formal) ||
+        !transactionalTypesEqual(payload(bound), payload(formal)))
+      return false;
+  }
   return true;
 }
 bool purePayload(Operation *op) {
-  return detail::isCombinationalHardwareOperation(op) &&
-         !isa<ValueMergeOp, ValueRequireOp>(op);
+  return isa<PendingExprOp>(op) ||
+         (detail::isCombinationalHardwareOperation(op) &&
+          !isa<ValueMergeOp, ValueRequireOp>(op));
 }
 Operation *lookup(Operation *site, StringRef name) {
   auto package = packageOf(site);
-  if (!package) return nullptr;
+  if (!package)
+    return nullptr;
   for (Operation &op : *package.getBody())
     if (auto symbol = op.getAttrOfType<StringAttr>("sym_name"))
-      if (symbol.getValue() == name) return &op;
+      if (symbol.getValue() == name)
+        return &op;
   return nullptr;
 }
 Operation *resolvePath(Operation *site, ArrayAttr path) {
@@ -103,7 +133,8 @@ LogicalResult preflight(Operation *op) {
   return llvm::TypeSwitch<Operation *, LogicalResult>(op)
       .Case<TransactionRuleOp, TransactionMethodOp, TransactionRuleCallOp,
             TransactionMethodCallOp, ModuleOp, ModuleImportOp, StructOp, EnumOp,
-            ResourceAllocOp, InstanceOp, InstanceRefOp, YieldOp, BitsConstantOp,
+            ResourceAllocOp, ResourceConnectionOp, TransactionMethodPendingOp,
+            PendingExprOp, InstanceOp, InstanceRefOp, YieldOp, BitsConstantOp,
             BitsConstant4Op, BitsUnaryOp, BitsBinaryOp, BitsCompareOp,
             BitsSelectOp, BitsConcatOp, BitsExtractOp, BitsResizeOp,
             StructCreateOp, StructGetOp, EnumCreateOp, EnumToBitsOp,
@@ -117,11 +148,15 @@ LogicalResult preflight(Operation *op) {
 LogicalResult ownedName(Operation *op) {
   auto parent = dyn_cast_or_null<ModuleOp>(op->getParentOp());
   auto name = op->getAttrOfType<StringAttr>("instance_name");
-  if (!parent || !name || name.getValue().empty() || name.getValue().contains('\0'))
-    return op->emitOpError("requires a nonempty name and direct module ownership");
+  if (!parent || !name || name.getValue().empty() ||
+      name.getValue().contains('\0'))
+    return op->emitOpError(
+        "requires a nonempty name and direct module ownership");
   for (Operation &other : parent.getBody().front())
-    if (&other != op && other.getAttrOfType<StringAttr>("instance_name") == name)
-      return op->emitOpError("resource/instance name must be unique in its owner");
+    if (&other != op &&
+        other.getAttrOfType<StringAttr>("instance_name") == name)
+      return op->emitOpError(
+          "resource/instance name must be unique in its owner");
   return success();
 }
 FailureOr<SmallVector<Type>> bodyInputs(Operation *op) {
@@ -142,18 +177,22 @@ FailureOr<SmallVector<Type>> bodyInputs(Operation *op) {
       op->emitOpError("transactional outputs require resource references");
       return failure();
     }
-    if (kind.getValue() == "bound") result.push_back(sig.getResult(i));
+    if (kind.getValue() == "bound")
+      result.push_back(sig.getResult(i));
   }
   return result;
 }
 LogicalResult moduleSignature(Operation *op) {
   auto sig = signature(op);
   if (!isa_and_nonnull<mlir::ModuleOp>(op->getParentOp()) || !sig)
-    return op->emitOpError("transactional module requires package placement and a signature");
-  if (failed(bodyInputs(op))) return failure();
+    return op->emitOpError(
+        "transactional module requires package placement and a signature");
+  if (failed(bodyInputs(op)))
+    return failure();
   llvm::StringSet<> names;
-  for (auto [key, count] : {std::pair<StringRef, unsigned>{"input_names", sig.getNumInputs()},
-                            {"output_names", sig.getNumResults()}}) {
+  for (auto [key, count] :
+       {std::pair<StringRef, unsigned>{"input_names", sig.getNumInputs()},
+        {"output_names", sig.getNumResults()}}) {
     auto list = op->getAttrOfType<ArrayAttr>(key);
     if (!list || list.size() != count)
       return op->emitOpError() << key << " must match signature arity";
@@ -167,9 +206,11 @@ LogicalResult moduleSignature(Operation *op) {
   auto parameters = op->getAttrOfType<ArrayAttr>("parameters");
   auto types = op->getAttrOfType<ArrayAttr>("type_parameters");
   if (!parameters || !types || !parameters.empty() || !types.empty())
-    return op->emitOpError("transactional resource contract requires concrete module signatures");
-  return detail::verifySourceOwner(op->getAttrOfType<DictionaryAttr>("source_owner"),
-                                   [&] { return op->emitOpError(); });
+    return op->emitOpError(
+        "transactional resource contract requires concrete module signatures");
+  return detail::verifySourceOwner(
+      op->getAttrOfType<DictionaryAttr>("source_owner"),
+      [&] { return op->emitOpError(); });
 }
 bool callable(Operation *op) {
   return isa<TransactionRuleOp, TransactionMethodOp>(op);
@@ -199,11 +240,20 @@ Operation *methodTarget(TransactionMethodCallOp call) {
 bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
   if (purePayload(op) || isa<YieldOp>(op))
     return true;
+  if (auto pending = dyn_cast<TransactionMethodPendingOp>(op))
+    return pending.getReadOnly() && !isLinkedTransactionalPackage(op);
   auto call = dyn_cast<TransactionMethodCallOp>(op);
   if (!call)
     return false;
   auto type = call.getReceiver().getType();
   auto name = call.getCalleeAttr().getRootReference().getValue();
+  if (isa<PrimitiveType>(type) && name == "read") {
+    auto package = packageOf(op);
+    auto stage =
+        package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
+    // This is a deferred constraint, rechecked after concrete specialization.
+    return stage && stage.getValue() == "unlinked";
+  }
   if (isa<StateType>(type))
     return name == "read";
   if (isa<QueueType>(type))
@@ -215,8 +265,10 @@ bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
     if (isa_and_nonnull<ModuleImportOp>(provider))
       for (Attribute raw : getTransactionalMethodInterfaces(provider)) {
         auto method = dyn_cast<DictionaryAttr>(raw);
-        auto methodName = method ? method.getAs<StringAttr>("name") : StringAttr();
-        auto readonly = method ? method.getAs<BoolAttr>("read_only") : BoolAttr();
+        auto methodName =
+            method ? method.getAs<StringAttr>("name") : StringAttr();
+        auto readonly =
+            method ? method.getAs<BoolAttr>("read_only") : BoolAttr();
         if (methodName && methodName.getValue() == name)
           return readonly && readonly.getValue();
       }
@@ -242,7 +294,8 @@ ModuleOp controlOwner(Operation *op) {
 }
 LogicalResult verifyModuleControl(Operation *op) {
   if (!controlOwner(op))
-    return op->emitOpError("transactional SCF control requires Module placement");
+    return op->emitOpError(
+        "transactional SCF control requires Module placement");
   if (auto branch = dyn_cast<scf::IfOp>(op)) {
     if (branch.getNumResults() ||
         !branch.getCondition().getDefiningOp<SourcePredicateOp>())
@@ -252,10 +305,10 @@ LogicalResult verifyModuleControl(Operation *op) {
       if (region.empty())
         continue;
       if (!region.hasOneBlock() || region.front().getNumArguments() ||
-          region.front().empty() ||
-          !isa<scf::YieldOp>(region.front().back()))
-        return op->emitOpError("transactional branches require one argument-free "
-                               "block ending in scf.yield");
+          region.front().empty() || !isa<scf::YieldOp>(region.front().back()))
+        return op->emitOpError(
+            "transactional branches require one argument-free "
+            "block ending in scf.yield");
     }
     if (branch.getThenRegion().empty())
       return op->emitOpError("transactional scf.if requires a then region");
@@ -269,6 +322,20 @@ LogicalResult verifyModuleControl(Operation *op) {
 LogicalResult verifyCallable(Operation *op) {
   if (callable(op)) {
     auto sig = signature(op);
+    if (op->hasAttr("input_names")) {
+      auto names = op->getAttrOfType<ArrayAttr>("input_names");
+      if (!names || names.size() != sig.getNumInputs())
+        return op->emitOpError("Rule input names must match signature arity");
+      llvm::StringSet<> unique;
+      for (Attribute raw : names) {
+        auto name = dyn_cast<StringAttr>(raw);
+        if (!name || name.getValue().empty() ||
+            name.getValue().contains('\0') ||
+            !unique.insert(name.getValue()).second)
+          return op->emitOpError(
+              "Rule input names must be nonempty and unique");
+      }
+    }
     bool rule = isa<TransactionRuleOp>(op);
     if (!sig || !(isa_and_nonnull<ModuleOp>(op->getParentOp()) ||
                   (rule && isa_and_nonnull<mlir::ModuleOp>(op->getParentOp()))))
@@ -304,22 +371,22 @@ LogicalResult verifyCallable(Operation *op) {
   }
   if (auto call = dyn_cast<TransactionRuleCallOp>(op)) {
     auto *target = ruleTarget(op);
-    if (!controlOwner(op) ||
-        !isa_and_nonnull<TransactionRuleOp>(target))
+    if (!controlOwner(op) || !isa_and_nonnull<TransactionRuleOp>(target))
       return op->emitOpError("Rule registration requires an owning "
                              "Module and local or global Rule");
     auto sig = signature(target);
     SmallVector<Type> expected(sig.getInputs());
     expected.append(sig.getResults().begin(), sig.getResults().end());
     if (call.getInputCount() != sig.getNumInputs() ||
-        !sameTypes(call.getOperandTypes(), expected))
+        !interfaceTypesMatch(call.getOperandTypes(), expected, op))
       return op->emitOpError(
           "Rule registration interfaces must match inputs then outputs");
     return success();
   }
   if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
     if (!call.getCalleeAttr().getNestedReferences().empty())
-      return op->emitOpError("Method names must be flat with an explicit receiver; regenerate this artifact");
+      return op->emitOpError("Method names must be flat with an explicit "
+                             "receiver; regenerate this artifact");
     Type receiver = call.getReceiver().getType();
     FunctionType sig;
     if (resource(receiver)) {
@@ -347,10 +414,13 @@ LogicalResult verifyCallable(Operation *op) {
         if (isa_and_nonnull<ModuleImportOp>(provider))
           for (Attribute raw : getTransactionalMethodInterfaces(provider)) {
             auto method = dyn_cast<DictionaryAttr>(raw);
-            auto name = method ? method.getAs<StringAttr>("name") : StringAttr();
-            auto type = method ? method.getAs<TypeAttr>("function_type") : TypeAttr();
-            if (name && type && name.getValue() ==
-                                    call.getCalleeAttr().getRootReference().getValue())
+            auto name =
+                method ? method.getAs<StringAttr>("name") : StringAttr();
+            auto type =
+                method ? method.getAs<TypeAttr>("function_type") : TypeAttr();
+            if (name && type &&
+                name.getValue() ==
+                    call.getCalleeAttr().getRootReference().getValue())
               sig = dyn_cast<FunctionType>(type.getValue());
           }
       }
@@ -384,8 +454,8 @@ bool isLinkedTransactionalPackage(Operation *op) {
   return stage && stage.getValue() == "linked";
 }
 bool isTransactionalReferenceRequirement(Operation *op) {
-  auto marker = op ? op->getAttrOfType<BoolAttr>("ac.reference_requirement")
-                   : BoolAttr();
+  auto marker =
+      op ? op->getAttrOfType<BoolAttr>("ac.reference_requirement") : BoolAttr();
   return isa_and_nonnull<ModuleImportOp>(op) && marker && marker.getValue();
 }
 ArrayAttr getTransactionalMethodInterfaces(Operation *op) {
@@ -401,13 +471,13 @@ ArrayAttr getTransactionalMethodInterfaces(Operation *op) {
       active.insert(method);
       bool readonly = true;
       for (Region &region : method->getRegions())
-        region.walk([&](Operation *child) {
-          readonly &= readOnly(child, active);
-        });
-      methods.push_back(builder.getDictionaryAttr({
-          builder.getNamedAttr("name", builder.getStringAttr(method.getSymName())),
-          builder.getNamedAttr("function_type", method.getFunctionTypeAttr()),
-          builder.getNamedAttr("read_only", builder.getBoolAttr(readonly))}));
+        region.walk(
+            [&](Operation *child) { readonly &= readOnly(child, active); });
+      methods.push_back(builder.getDictionaryAttr(
+          {builder.getNamedAttr("name",
+                                builder.getStringAttr(method.getSymName())),
+           builder.getNamedAttr("function_type", method.getFunctionTypeAttr()),
+           builder.getNamedAttr("read_only", builder.getBoolAttr(readonly))}));
     }
   llvm::sort(methods, [](Attribute a, Attribute b) {
     return cast<DictionaryAttr>(a).getAs<StringAttr>("name").getValue() <
@@ -420,16 +490,22 @@ LogicalResult inferTransactionalReferenceRequirements(mlir::ModuleOp package) {
   auto owner = package->getAttrOfType<DictionaryAttr>("ac.source_owner");
   llvm::DenseSet<Operation *> visited;
   std::function<LogicalResult(Region &)> inspect = [&](Region &region) {
-    auto result = region.walk([&](TransactionMethodCallOp call) {
-      if (auto *target = methodTarget(call)) {
+    auto result = region.walk([&](Operation *operation) {
+      if (!isa<TransactionMethodCallOp, TransactionMethodPendingOp>(operation))
+        return WalkResult::advance();
+      auto call = dyn_cast<TransactionMethodCallOp>(operation);
+      if (auto pending = dyn_cast<TransactionMethodPendingOp>(operation))
+        pending.setReadOnly(true);
+      if (auto *target = call ? methodTarget(call) : nullptr) {
         if (visited.insert(target).second)
           for (Region &nested : target->getRegions())
             if (failed(inspect(nested)))
               return WalkResult::interrupt();
         return WalkResult::advance();
       }
-      auto ref = dyn_cast<ModuleRefType>(call.getReceiver().getType());
-      auto *requirement = ref ? lookup(call, ref.getModule().getValue()) : nullptr;
+      auto ref = dyn_cast<ModuleRefType>(operation->getOperand(0).getType());
+      auto *requirement =
+          ref ? lookup(operation, ref.getModule().getValue()) : nullptr;
       if (!isTransactionalReferenceRequirement(requirement) ||
           requirement->getAttr("source_owner") != owner)
         return WalkResult::advance();
@@ -439,10 +515,12 @@ LogicalResult inferTransactionalReferenceRequirements(mlir::ModuleOp package) {
         auto method = dyn_cast<DictionaryAttr>(raw);
         auto name = method ? method.getAs<StringAttr>("name") : StringAttr();
         if (!name) {
-          call.emitOpError("generic Method interface is malformed");
+          operation->emitOpError("generic Method interface is malformed");
           return WalkResult::interrupt();
         }
-        if (name.getValue() == call.getCalleeAttr().getRootReference().getValue()) {
+        if (name.getValue() == operation->getAttrOfType<SymbolRefAttr>("callee")
+                                   .getRootReference()
+                                   .getValue()) {
           NamedAttrList fields(method);
           fields.set("read_only", builder.getBoolAttr(true));
           raw = fields.getDictionary(package.getContext());
@@ -451,7 +529,8 @@ LogicalResult inferTransactionalReferenceRequirements(mlir::ModuleOp package) {
         methods.push_back(raw);
       }
       if (!found) {
-        call.emitOpError("generic Method call lacks an inferred interface");
+        operation->emitOpError(
+            "generic Method call lacks an inferred interface");
         return WalkResult::interrupt();
       }
       requirement->setAttr("ac.methods", builder.getArrayAttr(methods));
@@ -468,20 +547,26 @@ LogicalResult inferTransactionalReferenceRequirements(mlir::ModuleOp package) {
   return success(!result.wasInterrupted());
 }
 LogicalResult verifyTransactionalReferenceBinding(Operation *requirement,
-                                                   Operation *provider,
-                                                   Operation *site) {
+                                                  Operation *provider,
+                                                  Operation *site) {
   if (!isTransactionalReferenceRequirement(requirement) ||
       !isa_and_nonnull<ModuleOp, ModuleImportOp>(provider) ||
       isTransactionalReferenceRequirement(provider))
-    return site->emitOpError("module reference must bind an existing provider instance");
+    return site->emitOpError(
+        "module reference must bind an existing provider instance");
   auto methods = getTransactionalMethodInterfaces(provider);
   for (Attribute raw : getTransactionalMethodInterfaces(requirement)) {
     auto expected = dyn_cast<DictionaryAttr>(raw);
     auto name = expected ? expected.getAs<StringAttr>("name") : StringAttr();
-    auto expectedAttr = expected ? expected.getAs<TypeAttr>("function_type") : TypeAttr();
-    auto readonly = expected ? expected.getAs<BoolAttr>("read_only") : BoolAttr();
-    auto expectedType = expectedAttr ? dyn_cast<FunctionType>(expectedAttr.getValue()) : FunctionType();
-    if (!name || !expectedType || !readonly)
+    auto expectedAttr =
+        expected ? expected.getAs<TypeAttr>("function_type") : TypeAttr();
+    auto readonly =
+        expected ? expected.getAs<BoolAttr>("read_only") : BoolAttr();
+    auto expectedType = expectedAttr
+                            ? dyn_cast<FunctionType>(expectedAttr.getValue())
+                            : FunctionType();
+    if (!name || (!expectedType && !expected.getAs<ArrayAttr>("calls")) ||
+        !readonly)
       return site->emitOpError("malformed Module Method requirement");
     DictionaryAttr actual;
     for (Attribute candidate : methods) {
@@ -489,15 +574,96 @@ LogicalResult verifyTransactionalReferenceBinding(Operation *requirement,
       if (method && method.getAs<StringAttr>("name") == name)
         actual = method;
     }
-    auto actualAttr = actual ? actual.getAs<TypeAttr>("function_type") : TypeAttr();
-    auto actualReadonly = actual ? actual.getAs<BoolAttr>("read_only") : BoolAttr();
-    auto actualType = actualAttr ? dyn_cast<FunctionType>(actualAttr.getValue()) : FunctionType();
+    auto actualAttr =
+        actual ? actual.getAs<TypeAttr>("function_type") : TypeAttr();
+    auto actualReadonly =
+        actual ? actual.getAs<BoolAttr>("read_only") : BoolAttr();
+    auto actualType = actualAttr ? dyn_cast<FunctionType>(actualAttr.getValue())
+                                 : FunctionType();
     if (!actualType || !actualReadonly)
-      return site->emitOpError("bound Module lacks a required Method interface");
-    if (!sameTypes(expectedType.getInputs(), actualType.getInputs()) ||
-        !sameTypes(expectedType.getResults(), actualType.getResults()) ||
-        (readonly.getValue() && !actualReadonly.getValue()))
-      return site->emitOpError("bound Method violates its payload signature or read-only requirement");
+      return site->emitOpError(
+          "bound Module lacks a required Method interface");
+    bool matches = true;
+    if (expectedType)
+      matches = sameTypes(expectedType.getInputs(), actualType.getInputs()) &&
+                sameTypes(expectedType.getResults(), actualType.getResults());
+    else
+      for (Attribute rawCall : expected.getAs<ArrayAttr>("calls")) {
+        auto call = dyn_cast<DictionaryAttr>(rawCall);
+        auto inputs = call ? call.getAs<ArrayAttr>("inputs") : ArrayAttr();
+        auto results = call ? call.getAs<ArrayAttr>("results") : ArrayAttr();
+        auto demand =
+            call ? call.getAs<StringAttr>("result_requirement") : StringAttr();
+        if (!inputs || !results || !demand ||
+            inputs.size() != actualType.getNumInputs() ||
+            (demand.getValue() != "ignored" &&
+             results.size() != actualType.getNumResults())) {
+          matches = false;
+          continue;
+        }
+        auto match = [&](ArrayAttr constraints, TypeRange actual) {
+          for (auto [raw, type] : llvm::zip(constraints, actual)) {
+            auto constraint = dyn_cast<TypeAttr>(raw);
+            if (!constraint ||
+                (!isa<InferType>(constraint.getValue()) &&
+                 !transactionalTypesEqual(constraint.getValue(), type)))
+              return false;
+          }
+          return true;
+        };
+        HardwareAnalysis analysis(packageOf(site));
+        for (auto [rawInput, actual] :
+             llvm::zip(inputs, actualType.getInputs())) {
+          auto input = dyn_cast<TypeAttr>(rawInput);
+          if (!input) {
+            matches = false;
+            continue;
+          }
+          Type constraint = input.getValue();
+          if (isa<InferType>(constraint) ||
+              transactionalTypesEqual(constraint, actual))
+            continue;
+          if (!isa<BitsType>(constraint) || !isa<BitsType>(actual)) {
+            matches = false;
+            continue;
+          }
+          auto from = analysis.getPackedWidth(constraint, {}, site);
+          auto to = analysis.getPackedWidth(actual, {}, site);
+          matches &= succeeded(from) && succeeded(to) && *from <= *to;
+        }
+        matches &= match(results, actualType.getResults());
+        if (auto contexts = call.getAs<ArrayAttr>("result_contexts")) {
+          if (contexts.size() != results.size())
+            matches = false;
+          for (auto [rawContexts, actual] :
+               llvm::zip(contexts, actualType.getResults())) {
+            auto targets = dyn_cast<ArrayAttr>(rawContexts);
+            if (!targets) {
+              matches = false;
+              continue;
+            }
+            for (Attribute rawTarget : targets) {
+              auto target = dyn_cast<TypeAttr>(rawTarget);
+              if (!target) {
+                matches = false;
+                continue;
+              }
+              if (transactionalTypesEqual(actual, target.getValue()))
+                continue;
+              if (!isa<BitsType>(actual) || !isa<BitsType>(target.getValue())) {
+                matches = false;
+                continue;
+              }
+              auto from = analysis.getPackedWidth(actual, {}, site);
+              auto to = analysis.getPackedWidth(target.getValue(), {}, site);
+              matches &= succeeded(from) && succeeded(to) && *from <= *to;
+            }
+          }
+        }
+      }
+    if (!matches || (readonly.getValue() && !actualReadonly.getValue()))
+      return site->emitOpError("bound Method violates its payload signature or "
+                               "read-only requirement");
   }
   return success();
 }
@@ -505,14 +671,16 @@ bool transactionalTypesEqual(Type a, Type b) {
   if (resource(a) || resource(b))
     return a.getTypeID() == b.getTypeID() &&
            areEquivalentHardwareTypes(payload(a), payload(b));
-  if (isa<ModuleRefType>(a) || isa<ModuleRefType>(b)) return a == b;
+  if (isa<ModuleRefType>(a) || isa<ModuleRefType>(b))
+    return a == b;
   return areEquivalentHardwareTypes(a, b);
 }
 ParseResult InstanceOp::parse(OpAsmParser &parser, OperationState &result) {
   // Legacy normal printing retains the generic body after the bare op name.
   if (succeeded(parser.parseOptionalLParen())) {
     SmallVector<OpAsmParser::UnresolvedOperand> operands;
-    if (parser.parseOperandList(operands) || parser.parseRParen()) return failure();
+    if (parser.parseOperandList(operands) || parser.parseRParen())
+      return failure();
     return parser.parseGenericOperationAfterOpName(result, ArrayRef(operands));
   }
   StringAttr name;
@@ -525,16 +693,23 @@ ParseResult InstanceOp::parse(OpAsmParser &parser, OperationState &result) {
       parser.parseOperandList(inputs, OpAsmParser::Delimiter::Paren) ||
       parser.parseKeyword("bound") ||
       parser.parseOperandList(bound, OpAsmParser::Delimiter::Paren) ||
-      parser.parseOptionalAttrDict(result.attributes) || parser.parseColonType(rawType))
+      parser.parseOptionalAttrDict(result.attributes) ||
+      parser.parseColonType(rawType))
     return failure();
   auto type = dyn_cast<FunctionType>(rawType);
   if (!type || type.getNumInputs() != inputs.size() + bound.size())
-    return parser.emitError(parser.getCurrentLocation(), "instance type must cover inputs and bound operand groups");
+    return parser.emitError(
+        parser.getCurrentLocation(),
+        "instance type must cover inputs and bound operand groups");
   if (result.attributes.get("bound_count"))
-    return parser.emitError(parser.getCurrentLocation(), "bound_count is represented by the bound operand group");
-  result.addAttribute("bound_count", parser.getBuilder().getI64IntegerAttr(bound.size()));
+    return parser.emitError(
+        parser.getCurrentLocation(),
+        "bound_count is represented by the bound operand group");
+  result.addAttribute("bound_count",
+                      parser.getBuilder().getI64IntegerAttr(bound.size()));
   inputs.append(bound);
-  if (parser.resolveOperands(inputs, type.getInputs(), parser.getCurrentLocation(), result.operands))
+  if (parser.resolveOperands(inputs, type.getInputs(),
+                             parser.getCurrentLocation(), result.operands))
     return failure();
   result.addTypes(type.getResults());
   return success();
@@ -546,7 +721,9 @@ void InstanceOp::print(OpAsmPrinter &printer) {
   }
   auto *target = lookup(*this, getCallee());
   auto sig = signature(target);
-  unsigned count = sig ? std::min<unsigned>(sig.getNumInputs(), getNumOperands()) : getNumOperands();
+  unsigned count =
+      sig ? std::min<unsigned>(sig.getNumInputs(), getNumOperands())
+          : getNumOperands();
   printer << " ";
   printer.printAttributeWithoutType(getInstanceNameAttr());
   printer << " ";
@@ -556,7 +733,8 @@ void InstanceOp::print(OpAsmPrinter &printer) {
   printer << ") bound(";
   printer.printOperands(getOperands().drop_front(count));
   printer << ")";
-  printer.printOptionalAttrDict((*this)->getAttrs(), {"instance_name", "callee", "bound_count"});
+  printer.printOptionalAttrDict((*this)->getAttrs(),
+                                {"instance_name", "callee", "bound_count"});
   printer << " : ";
   printer.printFunctionalType(getOperandTypes(), getResultTypes());
 }
@@ -605,7 +783,8 @@ ParseResult parseCallable(OpAsmParser &p, OperationState &s, bool rule) {
       p.parseOptionalAttrDict(s.attributes))
     return failure();
   Region *guard = s.addRegion(), *body = s.addRegion();
-  if (succeeded(p.parseOptionalKeyword("guard")) && p.parseRegion(*guard, {}, true))
+  if (succeeded(p.parseOptionalKeyword("guard")) &&
+      p.parseRegion(*guard, {}, true))
     return failure();
   return failure(p.parseKeyword("body") || p.parseRegion(*body, {}, true));
 }
@@ -735,13 +914,27 @@ void TransactionMethodCallOp::getEffects(
   e.emplace_back(MemoryEffects::Write::get(), SourceStateResource::get());
 }
 
+LogicalResult ResourceConnectionOp::verify() {
+  if (!isTransactionalPackage(*this) || isLinkedTransactionalPackage(*this))
+    return emitOpError(
+        "resource connections require an unlinked transactional package");
+  if (!isa_and_nonnull<ModuleOp>((*this)->getParentOp()))
+    return emitOpError("resource connections require direct Module ownership");
+  Type data = payload(getResource().getType());
+  for (Value value : getConnections())
+    if (!transactionalTypesEqual(payload(value.getType()), data))
+      return emitOpError("connected resources must have the same payload type");
+  return success();
+}
 LogicalResult ResourceAllocOp::verify() {
   if (!isTransactionalPackage(*this))
     return emitOpError("requires the transactional version 2 contract");
   return verifyTransactionalOperation(*this);
 }
-void ResourceAllocOp::getEffects(SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
-  effects.emplace_back(MemoryEffects::Allocate::get(), SourceStateResource::get());
+void ResourceAllocOp::getEffects(
+    SmallVectorImpl<MemoryEffects::EffectInstance> &effects) {
+  effects.emplace_back(MemoryEffects::Allocate::get(),
+                       SourceStateResource::get());
 }
 LogicalResult InstanceRefOp::verify() {
   if (!isTransactionalPackage(*this))
@@ -761,8 +954,9 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     if (!isa_and_nonnull<TransactionRuleOp, TransactionMethodOp>(owner) ||
         op->getParentRegion() != &owner->getRegion(1) ||
         observe.getKind() != "log" || op->hasAttr("ac.observation_id"))
-      return op->emitOpError("transactional log requires direct Rule/Method body "
-                             "placement and no final identity");
+      return op->emitOpError(
+          "transactional log requires direct Rule/Method body "
+          "placement and no final identity");
     HardwareAnalysis analysis(packageOf(op));
     auto width = analysis.getPackedWidth(observe.getPath().getType(), {}, op);
     if (failed(width) || *width != 1)
@@ -793,12 +987,15 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         op->getParentRegion() != &owner->getRegion(1) ||
         expect.getKind() != "assert" || !expect.getSampling().empty() ||
         op->hasAttr("ac.check_id") || op->hasAttr("ac.observation_id"))
-      return op->emitOpError("transactional assertion requires direct Rule/Method body placement, assert kind, no sampling and no check identity");
+      return op->emitOpError(
+          "transactional assertion requires direct Rule/Method body placement, "
+          "assert kind, no sampling and no check identity");
     HardwareAnalysis analysis(packageOf(op));
     for (Value value : {expect.getCondition(), expect.getPath()}) {
       auto width = analysis.getPackedWidth(value.getType(), {}, op);
       if (!isa<BitsType>(value.getType()) || failed(width) || *width != 1)
-        return op->emitOpError("transactional assertion requires Bits<1> condition and path");
+        return op->emitOpError(
+            "transactional assertion requires Bits<1> condition and path");
     }
     auto constant = expect.getPath().getDefiningOp<BitsConstantOp>();
     auto value = constant ? analysis.evaluateStatic(constant.getValue(), {}, op)
@@ -807,20 +1004,24 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     if (!(four && four.getPattern() == "1") &&
         (failed(value) || !isa<MathIntAttr>(*value) ||
          cast<MathIntAttr>(*value).getCanonicalValue() != "1"))
-      return op->emitOpError("transactional assertion requires a constant true path");
+      return op->emitOpError(
+          "transactional assertion requires a constant true path");
     return detail::verifySourceSpan(expect.getLocationAttr(),
                                     [&] { return op->emitOpError(); });
   }
   if (callable(op) || isa<TransactionRuleCallOp, TransactionMethodCallOp>(op))
     return verifyCallable(op);
   if (isa<ModuleOp, ModuleImportOp>(op)) {
-    if (failed(moduleSignature(op))) return failure();
+    if (failed(moduleSignature(op)))
+      return failure();
     if (auto imported = dyn_cast<ModuleImportOp>(op)) {
       if (auto marker = op->getAttr("ac.reference_requirement")) {
         auto flag = dyn_cast<BoolAttr>(marker);
         if (!flag || !flag.getValue() || signature(op).getNumInputs() ||
             signature(op).getNumResults() || !op->hasAttr("ac.methods"))
-          return op->emitOpError("module-reference requirement needs true marker, empty resource signature and Method interfaces");
+          return op->emitOpError(
+              "module-reference requirement needs true marker, empty resource "
+              "signature and Method interfaces");
       }
       if (auto raw = op->getAttr("ac.methods")) {
         auto methods = dyn_cast<ArrayAttr>(raw);
@@ -830,12 +1031,61 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         for (Attribute entry : methods) {
           auto method = dyn_cast<DictionaryAttr>(entry);
           auto name = method ? method.getAs<StringAttr>("name") : StringAttr();
-          auto type = method ? method.getAs<TypeAttr>("function_type") : TypeAttr();
-          auto sig = type ? dyn_cast<FunctionType>(type.getValue()) : FunctionType();
-          if (!method || method.size() != 3 || !name || name.getValue().empty() ||
-              !names.insert(name.getValue()).second || !sig ||
-              !method.getAs<BoolAttr>("read_only"))
-            return op->emitOpError("Method interface requires unique name, function_type and read_only");
+          auto type =
+              method ? method.getAs<TypeAttr>("function_type") : TypeAttr();
+          auto sig =
+              type ? dyn_cast<FunctionType>(type.getValue()) : FunctionType();
+          auto calls = method ? method.getAs<ArrayAttr>("calls") : ArrayAttr();
+          if (!method || method.size() != 3 || !name ||
+              name.getValue().empty() ||
+              !names.insert(name.getValue()).second || (!sig && !calls) ||
+              !method.getAs<BoolAttr>("read_only") ||
+              (calls && !isTransactionalReferenceRequirement(op)))
+            return op->emitOpError(
+                "Method interface requires a unique name, signature or call "
+                "requirements, and read_only");
+          if (calls) {
+            for (Attribute rawCall : calls) {
+              auto call = dyn_cast<DictionaryAttr>(rawCall);
+              auto inputs =
+                  call ? call.getAs<ArrayAttr>("inputs") : ArrayAttr();
+              auto results =
+                  call ? call.getAs<ArrayAttr>("results") : ArrayAttr();
+              auto demand = call ? call.getAs<StringAttr>("result_requirement")
+                                 : StringAttr();
+              if (!inputs || !results || !demand ||
+                  (demand.getValue() != "ignored" &&
+                   demand.getValue() != "scalar" &&
+                   demand.getValue() != "tuple") ||
+                  (demand.getValue() == "ignored" && !results.empty()) ||
+                  (demand.getValue() == "scalar" && results.size() != 1))
+                return op->emitOpError("malformed Method call requirement");
+              for (Attribute value : inputs)
+                if (!isa<TypeAttr>(value))
+                  return op->emitOpError(
+                      "Method input constraint requires a type");
+              for (Attribute value : results)
+                if (!isa<TypeAttr>(value))
+                  return op->emitOpError(
+                      "Method result constraint requires a type");
+              if (auto contexts = call.getAs<ArrayAttr>("result_contexts")) {
+                if (contexts.size() != results.size())
+                  return op->emitOpError(
+                      "Method result contexts must follow result slots");
+                for (Attribute rawTargets : contexts) {
+                  auto targets = dyn_cast<ArrayAttr>(rawTargets);
+                  if (!targets)
+                    return op->emitOpError(
+                        "Method result context requires target types");
+                  for (Attribute target : targets)
+                    if (!isa<TypeAttr>(target))
+                      return op->emitOpError(
+                          "Method result context requires target types");
+                }
+              }
+            }
+            continue;
+          }
           SmallVector<Type> payloads(sig.getInputs());
           llvm::append_range(payloads, sig.getResults());
           HardwareAnalysis analysis(packageOf(op));
@@ -845,20 +1095,25 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
             if (!isa<BitsType, EnumType, StructType, TableType>(payload) ||
                 failed(detail::verifyHardwareTypeScope(payload, op)) ||
                 failed(analysis.getPackedWidth(payload, bindings, op)))
-              return op->emitOpError("Method interfaces require concrete payload values");
+              return op->emitOpError(
+                  "Method interfaces require concrete payload values");
         }
       }
       if (isLinkedTransactionalPackage(op))
-        return op->emitOpError("linked transactional package cannot retain imports");
+        return op->emitOpError(
+            "linked transactional package cannot retain imports");
       if (imported.getSemanticKind() != "resources" ||
-          imported.getDependencySummaryAttr() || imported.getTransactionSummaryAttr() ||
+          imported.getDependencySummaryAttr() ||
+          imported.getTransactionSummaryAttr() ||
           imported.getPrimitiveKindAttr())
-        return op->emitOpError("resource import requires semantic_kind resources without legacy summaries");
+        return op->emitOpError("resource import requires semantic_kind "
+                               "resources without legacy summaries");
     }
     return success();
   }
   if (auto allocation = dyn_cast<ResourceAllocOp>(op)) {
-    if (failed(ownedName(op))) return failure();
+    if (failed(ownedName(op)))
+      return failure();
     Type type = allocation.getResource().getType();
     if (isa<PrimitiveType>(type))
       return op->emitOpError("primitive resources cannot be allocated");
@@ -866,67 +1121,94 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
     if (isa<QueueType>(type)) {
       if (!depth || !depth.getType().isSignlessInteger(64) ||
           depth.getValue().isNegative() || depth.getValue().isZero())
-        return op->emitOpError("Queue allocation requires an explicit positive i64 depth");
+        return op->emitOpError(
+            "Queue allocation requires an explicit positive i64 depth");
       if (!allocation.getInitial().empty())
         return op->emitOpError("Queue allocation cannot have initial contents");
     } else {
-      if (depth) return op->emitOpError("State allocation cannot have Queue depth");
+      if (depth)
+        return op->emitOpError("State allocation cannot have Queue depth");
       if (allocation.getInitial().size() > 1)
-        return op->emitOpError("State allocation accepts at most one initializer");
+        return op->emitOpError(
+            "State allocation accepts at most one initializer");
       if (!allocation.getInitial().empty()) {
         Value initial = allocation.getInitial().front();
         if (!transactionalTypesEqual(initial.getType(), payload(type)))
-          return op->emitOpError("State initializer must match its logical payload type");
+          return op->emitOpError(
+              "State initializer must match its logical payload type");
         llvm::DenseSet<Value> active, proven;
         llvm::DenseSet<Block *> localBlocks;
         std::function<bool(Value)> closed = [&](Value value) {
           if (auto arg = dyn_cast<BlockArgument>(value))
             return localBlocks.contains(arg.getOwner());
-          if (proven.contains(value)) return true;
-          if (!active.insert(value).second) return false;
+          if (proven.contains(value))
+            return true;
+          if (!active.insert(value).second)
+            return false;
           auto *def = value.getDefiningOp();
           if (!def || !purePayload(def) ||
-              def->getParentOfType<ModuleOp>() != op->getParentOfType<ModuleOp>() ||
-              !llvm::all_of(def->getOperands(), closed)) return false;
+              def->getParentOfType<ModuleOp>() !=
+                  op->getParentOfType<ModuleOp>() ||
+              !llvm::all_of(def->getOperands(), closed))
+            return false;
           for (Region &region : def->getRegions()) {
-            for (Block &block : region) localBlocks.insert(&block);
+            for (Block &block : region)
+              localBlocks.insert(&block);
             for (Block &block : region)
               for (Operation &child : block)
                 if ((!purePayload(&child) && !isa<YieldOp>(child)) ||
-                    !llvm::all_of(child.getOperands(), closed)) return false;
-            for (Block &block : region) localBlocks.erase(&block);
+                    !llvm::all_of(child.getOperands(), closed))
+                  return false;
+            for (Block &block : region)
+              localBlocks.erase(&block);
           }
-          active.erase(value); proven.insert(value); return true;
+          active.erase(value);
+          proven.insert(value);
+          return true;
         };
-        if (!closed(initial)) return op->emitOpError("State initializer must be a closed pure expression");
+        if (!closed(initial))
+          return op->emitOpError(
+              "State initializer must be a closed pure expression");
       }
     }
     return success();
   }
   if (auto instance = dyn_cast<InstanceOp>(op)) {
-    if (failed(ownedName(op))) return failure();
-    if (!instance.getParameters().empty() || !instance.getTypeArguments().empty())
-      return op->emitOpError("transactional instances require concrete specialization");
+    if (failed(ownedName(op)))
+      return failure();
+    if (!instance.getParameters().empty() ||
+        !instance.getTypeArguments().empty())
+      return op->emitOpError(
+          "transactional instances require concrete specialization");
     auto *target = lookup(op, instance.getCallee());
     if (!isa_and_nonnull<ModuleOp, ModuleImportOp>(target))
-      return op->emitOpError("instance requires an explicit module definition or import");
+      return op->emitOpError(
+          "instance requires an explicit module definition or import");
     auto inputs = bodyInputs(target);
-    if (failed(inputs)) return failure();
+    if (failed(inputs))
+      return failure();
     if (auto count = instance.getBoundCountAttr())
-      if (!count.getType().isSignlessInteger(64) || count.getValue().isNegative() ||
-          count.getValue().getZExtValue() != inputs->size() - signature(target).getNumInputs())
-        return op->emitOpError("printed bound operand group must match the callee bound output signature");
+      if (!count.getType().isSignlessInteger(64) ||
+          count.getValue().isNegative() ||
+          count.getValue().getZExtValue() !=
+              inputs->size() - signature(target).getNumInputs())
+        return op->emitOpError("printed bound operand group must match the "
+                               "callee bound output signature");
     if (isTransactionalReferenceRequirement(target))
-      return op->emitOpError("module-reference requirement cannot allocate an instance");
+      return op->emitOpError(
+          "module-reference requirement cannot allocate an instance");
     bool inputTypesMatch = instance.getNumOperands() == inputs->size();
     if (inputTypesMatch)
-      for (auto [actual, expected] : llvm::zip(instance.getOperandTypes(), *inputs)) {
-        if (transactionalTypesEqual(actual, expected))
+      for (auto [actual, expected] :
+           llvm::zip(instance.getOperandTypes(), *inputs)) {
+        if (interfaceTypesMatch(TypeRange{actual}, TypeRange{expected}, op))
           continue;
         auto formal = dyn_cast<ModuleRefType>(expected);
         auto bound = dyn_cast<ModuleRefType>(actual);
-        auto *requirement = formal ? lookup(op, formal.getModule().getValue()) : nullptr;
-        auto *provider = bound ? lookup(op, bound.getModule().getValue()) : nullptr;
+        auto *requirement =
+            formal ? lookup(op, formal.getModule().getValue()) : nullptr;
+        auto *provider =
+            bound ? lookup(op, bound.getModule().getValue()) : nullptr;
         // An unlinked generic formal records a requirement, not a concrete
         // implementation. Link validates the bound provider's complete Method
         // contract after authenticating the explicit unit closure.
@@ -937,25 +1219,34 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         }
       }
     if (!inputTypesMatch ||
-        !sameTypes(instance.getResultTypes(), signature(target).getResults()))
-      return op->emitOpError("instance inputs, bound outputs or result types do not match the interface");
+        !interfaceTypesMatch(instance.getResultTypes(),
+                             signature(target).getResults(), op))
+      return op->emitOpError("instance inputs, bound outputs or result types "
+                             "do not match the interface");
     if (!instance.getOccurrence().empty() &&
-        failed(detail::verifyOccurrence(instance.getOccurrence(), [&] { return op->emitOpError(); })))
+        failed(detail::verifyOccurrence(instance.getOccurrence(),
+                                        [&] { return op->emitOpError(); })))
       return failure();
     return success();
   }
   if (auto ref = dyn_cast<InstanceRefOp>(op)) {
     if (!isa_and_nonnull<ModuleOp>(op->getParentOp()))
-      return op->emitOpError("instance reference requires direct module placement");
+      return op->emitOpError(
+          "instance reference requires direct module placement");
     auto *target = resolvePath(op, ref.getInstancePath());
-    auto symbol = target ? target->getAttrOfType<StringAttr>("sym_name") : StringAttr();
-    if (!symbol || symbol.getValue() != ref.getReference().getType().getModule().getValue())
-      return op->emitOpError("instance reference path must resolve to an existing instance of the declared module");
+    auto symbol =
+        target ? target->getAttrOfType<StringAttr>("sym_name") : StringAttr();
+    if (!symbol || symbol.getValue() !=
+                       ref.getReference().getType().getModule().getValue())
+      return op->emitOpError("instance reference path must resolve to an "
+                             "existing instance of the declared module");
     return success();
   }
   if (isa<YieldOp>(op)) {
-    if (!isa_and_nonnull<ModuleOp, TransactionRuleOp, TransactionMethodOp, TableMapOp, TableMatchOp>(op->getParentOp()))
-      return op->emitOpError("resource contract yield must terminate a module or pure table region");
+    if (!isa_and_nonnull<ModuleOp, TransactionRuleOp, TransactionMethodOp,
+                         TableMapOp, TableMatchOp>(op->getParentOp()))
+      return op->emitOpError("resource contract yield must terminate a module "
+                             "or pure table region");
     return success();
   }
   return success();
@@ -1008,22 +1299,26 @@ LogicalResult verifyTransactionalRegions(Operation *op) {
     return success();
   }
   auto expected = bodyInputs(op);
-  if (failed(expected)) return failure();
+  if (failed(expected))
+    return failure();
   auto &body = op->getRegion(0);
   if (!body.hasOneBlock() || body.front().empty() ||
       !sameTypes(body.front().getArgumentTypes(), *expected) ||
       !isa<YieldOp>(body.front().back()))
-    return op->emitOpError("module body requires inputs then bound output arguments and final ac.yield");
+    return op->emitOpError("module body requires inputs then bound output "
+                           "arguments and final ac.yield");
   auto &end = body.front().back();
   auto sig = signature(op);
   if (!sameTypes(end.getOperandTypes(), sig.getResults()))
-    return end.emitOpError("yield types must match the complete output signature");
+    return end.emitOpError(
+        "yield types must match the complete output signature");
   unsigned argument = sig.getNumInputs();
   auto kinds = op->getAttrOfType<ArrayAttr>("output_kinds");
   for (auto [i, raw] : llvm::enumerate(kinds))
     if (cast<StringAttr>(raw).getValue() == "bound")
       if (end.getOperand(i) != body.front().getArgument(argument++))
-        return end.emitOpError("bound output must yield its original block argument");
+        return end.emitOpError(
+            "bound output must yield its original block argument");
   for (Operation &nested : body.front()) {
     if (&nested != &end && isa<YieldOp>(nested))
       return nested.emitOpError("early yield is invalid");
@@ -1031,7 +1326,8 @@ LogicalResult verifyTransactionalRegions(Operation *op) {
       if (auto arg = dyn_cast<BlockArgument>(value)) {
         if (arg.getOwner() != &body.front())
           return nested.emitOpError("operand must belong to this module scope");
-      } else if (!value.getDefiningOp() || value.getDefiningOp()->getParentOp() != op)
+      } else if (!value.getDefiningOp() ||
+                 value.getDefiningOp()->getParentOp() != op)
         return nested.emitOpError("operand must belong to this module scope");
     }
   }
@@ -1087,6 +1383,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
       return success();
     }
     type = payload(type);
+    if (!linked && isa<InferType>(type))
+      return success();
     if (!isa<BitsType, EnumType, StructType, TableType>(type))
       return site->emitOpError("transactional resource contract requires "
                                "concrete hardware payloads");
@@ -1104,19 +1402,22 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     for (auto attr : op->getAttrs()) {
       auto name = attr.getName().getValue();
       bool schema =
-          root ? (name == "ac.transactional" || name == "ac.stage" ||
-                  name == "sym_name" || name == "sym_visibility" ||
-                  name == "ac.source_owner" || name == "ac.unit_kind" ||
-                  name == "ac.interfaces" || name == "ac.exports" ||
-                  name == "ac.import_bindings" || name == "ac.source_units")
+          root ? (name == "ac.transactional" || name == "ac.source_contract" ||
+                  name == "ac.stage" || name == "sym_name" ||
+                  name == "sym_visibility" || name == "ac.source_owner" ||
+                  name == "ac.unit_kind" || name == "ac.interfaces" ||
+                  name == "ac.exports" || name == "ac.import_bindings" ||
+                  name == "ac.source_units")
                : llvm::is_contained(op->getName().getAttributeNames(),
                                     attr.getName());
       bool provenance =
           (!root && name == "ac.origin") ||
-          (isa<StructOp, EnumOp, ConstantOp, ModuleOp, ModuleImportOp>(op) &&
+          (isa<StructOp, EnumOp, ConstantOp, ModuleOp, ModuleImportOp,
+               TransactionRuleOp>(op) &&
            (name == "ac.source_owner" || name == "ac.origin" ||
             name == "ac.declaration_role")) ||
           (isa<ModuleOp, ModuleImportOp>(op) && name == "ac.root_kind") ||
+          (isa<TransactionRuleOp>(op) && name == "input_names") ||
           (isa<ModuleImportOp>(op) &&
            (name == "ac.methods" || name == "ac.reference_requirement")) ||
           (isa<SystemOp>(op) && name == "ac.execution_policy") ||
@@ -1125,7 +1426,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
           (isa<SourceExpectOp>(op) &&
            (name == "occurrence" || name == "ac.message")) ||
           (isa<TransactionRuleOp, TransactionRuleCallOp,
-               TransactionMethodCallOp, ResourceAllocOp>(op) &&
+               TransactionMethodCallOp, TransactionMethodPendingOp,
+               ResourceAllocOp>(op) &&
            name == "occurrence");
       bool visibility = isa<ModuleOp, ModuleImportOp, StructOp, EnumOp,
                             TransactionRuleOp, TransactionMethodOp>(op) &&
@@ -1140,11 +1442,12 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
       return WalkResult::advance();
     if ((!purePayload(op) &&
          !isa<ModuleOp, ModuleImportOp, StructOp, EnumOp, ResourceAllocOp,
+              ResourceConnectionOp, TransactionMethodPendingOp, PendingExprOp,
               InstanceOp, InstanceRefOp, YieldOp, TransactionRuleOp,
               TransactionMethodOp, TransactionRuleCallOp,
               TransactionMethodCallOp, SourceExpectOp, SourceObserveOp,
-              ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp,
-              scf::YieldOp>(op)) ||
+              ConstantOp, SystemOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(
+             op)) ||
         (purePayload(op) && !op->getParentOfType<ModuleOp>() &&
          !op->getParentOfType<TransactionRuleOp>())) {
       op->emitOpError("operation is outside the transactional resource-only "
@@ -1168,7 +1471,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     if (isa_and_nonnull<scf::IfOp>(op->getParentOp())) {
       llvm::DenseSet<Operation *> active;
       if (!isa<scf::IfOp, scf::YieldOp, SourcePredicateOp,
-               TransactionRuleCallOp>(op) && !readOnly(op, active)) {
+               TransactionRuleCallOp>(op) &&
+          !readOnly(op, active)) {
         op->emitOpError("Module branches admit only registration, pure "
                         "computation and read-only observation");
         return WalkResult::interrupt();
@@ -1259,39 +1563,64 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
   // avoids confusing two occurrences of the same shared module definition.
   using Origin = std::optional<unsigned>;
   llvm::DenseMap<Operation *, SmallVector<Origin>> origins;
-  std::function<LogicalResult(Operation *)> summarize = [&](Operation *declaration) -> LogicalResult {
-    if (origins.count(declaration)) return success();
+  std::function<LogicalResult(Operation *)> summarize =
+      [&](Operation *declaration) -> LogicalResult {
+    if (origins.count(declaration))
+      return success();
     auto sig = signature(declaration);
     SmallVector<Origin> outputs;
     if (isa<ModuleImportOp>(declaration)) {
       unsigned bound = sig.getNumInputs();
       for (auto kind : declaration->getAttrOfType<ArrayAttr>("output_kinds"))
-        outputs.push_back(cast<StringAttr>(kind).getValue() == "bound" ? Origin(bound++) : std::nullopt);
+        outputs.push_back(cast<StringAttr>(kind).getValue() == "bound"
+                              ? Origin(bound++)
+                              : std::nullopt);
     } else {
       auto module = cast<ModuleOp>(declaration);
       llvm::DenseMap<Value, Origin> known;
       llvm::DenseSet<Value> active;
-      std::function<FailureOr<Origin>(Value)> resolve = [&](Value value) -> FailureOr<Origin> {
-        if (auto found = known.find(value); found != known.end()) return found->second;
+      std::function<FailureOr<Origin>(Value)> resolve =
+          [&](Value value) -> FailureOr<Origin> {
+        if (auto found = known.find(value); found != known.end())
+          return found->second;
         if (!active.insert(value).second) {
-          declaration->emitOpError("resource alias cycle has no existing allocation or formal owner");
+          declaration->emitOpError("resource alias cycle has no existing "
+                                   "allocation or formal owner");
           return failure();
         }
         Origin origin;
         if (auto arg = dyn_cast<BlockArgument>(value)) {
-          if (arg.getOwner() != &module.getBody().front()) return failure();
+          if (arg.getOwner() != &module.getBody().front())
+            return failure();
           origin = arg.getArgNumber();
         } else if (auto instance = value.getDefiningOp<InstanceOp>()) {
           auto *target = lookup(instance, instance.getCallee());
-          if (failed(summarize(target))) return failure();
-          Origin targetOrigin = origins[target][cast<OpResult>(value).getResultNumber()];
+          if (failed(summarize(target)))
+            return failure();
+          Origin targetOrigin =
+              origins[target][cast<OpResult>(value).getResultNumber()];
           if (targetOrigin) {
             auto result = resolve(instance.getOperand(*targetOrigin));
-            if (failed(result)) return failure();
+            if (failed(result))
+              return failure();
             origin = *result;
           }
+        } else if (auto connection =
+                       value.getDefiningOp<ResourceConnectionOp>()) {
+          // Unlinked connections carry deferred ownership; closure establishes
+          // their unique allocation after all instance occurrences are bound.
+          if (linked)
+            return failure();
+          for (Value operand : connection.getConnections()) {
+            auto result = resolve(operand);
+            if (failed(result))
+              return failure();
+            if (*result)
+              origin = *result;
+          }
         } else if (!value.getDefiningOp<ResourceAllocOp>()) {
-          declaration->emitOpError("resource reference requires an existing allocation, instance export or formal");
+          declaration->emitOpError("resource reference requires an existing "
+                                   "allocation, instance export or formal");
           return failure();
         }
         active.erase(value);
@@ -1302,13 +1631,16 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
       // merely because the module does not export or consume it yet.
       for (Operation &nested : module.getBody().front()) {
         for (Value value : nested.getResults())
-          if (resource(value.getType()) && failed(resolve(value))) return failure();
+          if (resource(value.getType()) && failed(resolve(value)))
+            return failure();
         for (Value value : nested.getOperands())
-          if (resource(value.getType()) && failed(resolve(value))) return failure();
+          if (resource(value.getType()) && failed(resolve(value)))
+            return failure();
       }
       for (Value value : module.getBody().front().back().getOperands()) {
         auto result = resolve(value);
-        if (failed(result)) return failure();
+        if (failed(result))
+          return failure();
         outputs.push_back(*result);
       }
     }
@@ -1316,7 +1648,9 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     return success();
   };
   for (Operation &declaration : *package.getBody())
-    if (isa<ModuleOp, ModuleImportOp>(declaration) && failed(summarize(&declaration))) return failure();
+    if (isa<ModuleOp, ModuleImportOp>(declaration) &&
+        failed(summarize(&declaration)))
+      return failure();
   return success();
 }
 } // namespace acir::ac

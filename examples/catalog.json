@@ -32,6 +32,30 @@
       "system_scope": "Separately compiled sibling Method calls, two distinct Receiver instances, transitive guard rollback and C++ workers 1/2 versus RTL."
     },
     {
+      "name": "parent_state_interfaces",
+      "folder": "examples/parent_state_interfaces",
+      "source": "top.py",
+      "system": "Top",
+      "system_cycles": 4,
+      "system_scope": "Parent-owned State binding, external and nested Rule interfaces, two independent template instances and identity-preserving export; C++ workers 1/2 and RTL."
+    },
+    {
+      "name": "scalar_queue_pipeline",
+      "folder": "examples/scalar_queue_pipeline",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 18,
+      "system_scope": "Bits Queue pipeline with old-occupancy admission, delayed consumption, cross-owner atomic accumulation and independent C++ workers 1/2 and RTL traces."
+    },
+    {
+      "name": "resource_composition",
+      "folder": "examples/resource_composition",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 20,
+      "system_scope": "Multilevel existing-instance references and independent resource outputs, delayed consumption and joint Queue/Counter admission; independent C++ workers 1/2 and RTL traces."
+    },
+    {
       "name": "multi_outputs",
       "folder": "examples/multi_outputs",
       "source": "multi_outputs.py",

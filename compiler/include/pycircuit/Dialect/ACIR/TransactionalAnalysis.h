@@ -24,14 +24,24 @@ struct TransactionalValuePlan {
 struct TransactionalResourcePlan {
   ResourceAllocOp allocation;
   unsigned instance = 0;
-  StateType type;
+  mlir::Type type;
   unsigned initial =
-      TransactionalNoID; // This execution slice requires an explicit initial.
+      TransactionalNoID; // State initial value; Queue starts empty.
+  uint64_t depth = 0;
+  bool isQueue() const { return mlir::isa<QueueType>(type); }
+  mlir::Type getPayload() const {
+    if (auto queue = mlir::dyn_cast<QueueType>(type))
+      return queue.getPayload();
+    return mlir::cast<StateType>(type).getPayload();
+  }
 };
 enum class TransactionalStepKind {
   Pure,
   StateRead,
   StateWrite,
+  QueueHead,
+  QueuePop,
+  QueuePush,
   Assert,
   Observe
 };
@@ -81,6 +91,9 @@ struct TransactionalRulePlan {
   // These values may depend on earlier body computations, so effects execute
   // only after both sequences have supplied the complete admission predicate.
   llvm::SmallVector<TransactionalValueID> requirements;
+  // Old occupancy requirements, including nonconsuming observations used by
+  // this transaction. Consumption remains a distinct QueuePop effect.
+  llvm::SmallVector<unsigned> queueReads, queueWrites;
 };
 class TransactionalAnalysis final {
 public:

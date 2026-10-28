@@ -65,7 +65,7 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
     return emitError()
            << "source body envelope does not match its owning header";
 
-  for (StringRef name : {"ac.transactional", "ac.interfaces", "ac.exports",
+  for (StringRef name : {"ac.transactional", "ac.source_contract", "ac.interfaces", "ac.exports",
                          "ac.import_bindings"})
     if (!body->getAttr(name) ||
         body->getAttr(name) != owningHeader->getAttr(name))
@@ -105,7 +105,7 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
         operation.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     auto snapshotOwner = ac::detail::declarationSourceOwner(&operation);
     bool localDefinition =
-        (isa<ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp>(operation) ||
+        (isa<ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp, ac::TransactionRuleOp>(operation) ||
          ac::isTransactionalReferenceRequirement(&operation)) &&
         role && role.getValue() == "definition" && snapshotOwner == owner;
     if (!role || (role.getValue() != "import_snapshot" && !localDefinition) ||
@@ -130,7 +130,7 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
   for (Operation &declaration : owningHeader.getBody()->getOperations()) {
     auto role = declaration.getAttrOfType<StringAttr>("ac.declaration_role");
     if (!isa<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, ac::ConstantOp,
-             func::FuncOp>(declaration) ||
+             func::FuncOp, ac::TransactionRuleOp>(declaration) ||
         !role ||
         role.getValue() != "definition" ||
         ac::detail::declarationSourceOwner(&declaration) != owner)
@@ -180,7 +180,7 @@ LogicalResult verifyIntrinsicSourceUnitPair(ModuleOp body, ModuleOp interface,
        bodyKind.getValue() != "declarations") ||
       !bodyStage || bodyStage.getValue() != "unlinked")
     return emitError() << "source body stage/unit_kind is invalid";
-  for (StringRef name : {"ac.transactional", "ac.interfaces", "ac.exports",
+  for (StringRef name : {"ac.transactional", "ac.source_contract", "ac.interfaces", "ac.exports",
                          "ac.import_bindings"})
     if (!interface->getAttr(name) ||
         interface->getAttr(name) != body->getAttr(name))

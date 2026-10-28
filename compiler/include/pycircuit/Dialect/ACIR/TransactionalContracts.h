@@ -1,7 +1,7 @@
 #ifndef PYCIRCUIT_DIALECT_ACIR_TRANSACTIONALCONTRACTS_H
 #define PYCIRCUIT_DIALECT_ACIR_TRANSACTIONALCONTRACTS_H
-#include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "pycircuit/Dialect/ACIR/ACIROps.h"
 namespace acir::ac {
 // Presence selects this contract; malformed markers never select old semantics.
 bool isTransactionalPackage(mlir::Operation *operation);
@@ -13,12 +13,27 @@ bool isTransactionalReferenceRequirement(mlir::Operation *operation);
 mlir::ArrayAttr getTransactionalMethodInterfaces(mlir::Operation *operation);
 // Complete capture-time generic Method constraints from actual pure call
 // closures. Only locally owned requirements may be strengthened.
-mlir::LogicalResult inferTransactionalReferenceRequirements(mlir::ModuleOp package);
-mlir::LogicalResult verifyTransactionalReferenceBinding(
-    mlir::Operation *requirement, mlir::Operation *provider,
-    mlir::Operation *site);
-// V2 verifies normalized resources, instances and callables. It is not execution
-// admission or backend support.
+mlir::LogicalResult
+inferTransactionalReferenceRequirements(mlir::ModuleOp package);
+mlir::LogicalResult
+verifyTransactionalReferenceBinding(mlir::Operation *requirement,
+                                    mlir::Operation *provider,
+                                    mlir::Operation *site);
+mlir::LogicalResult
+resolveTransactionalMethodConstraints(mlir::ModuleOp package,
+                                      bool requireClosed = false);
+// Solve only from SSA constraints. Unbound provider facts may remain in an
+// unlinked generic; executable closure requires every payload to be solved.
+mlir::LogicalResult
+solveTransactionalPayloadConstraints(mlir::ModuleOp package,
+                                     bool requireClosed = false);
+// Close resource identities after instance and Rule occurrences are bound.
+// Modules are in root-first occurrence order; input structure is verified by
+// the linking boundary. Allocates default queues and rewrites bound interfaces.
+mlir::LogicalResult resolveTransactionalResourceConnections(
+    mlir::ModuleOp package, llvm::ArrayRef<ModuleOp> modules);
+// V2 verifies normalized resources, instances and callables. It is not
+// execution admission or backend support.
 mlir::LogicalResult verifyTransactionalPackage(mlir::ModuleOp package);
 mlir::LogicalResult verifyTransactionalOperation(mlir::Operation *operation);
 mlir::LogicalResult verifyTransactionalRegions(mlir::Operation *operation);

@@ -1,0 +1,8 @@
+# REQUIRES: verilator
+# RUN: %python %inputs/transactional-resource-composition.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.main.cpp cpp composition
+# RUN: %python %inputs/transactional-resource-composition.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.main.verilog verilog composition
+# RUN: %python %inputs/transactional-resource-composition.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.mixed.cpp cpp mixed
+# RUN: %python %inputs/transactional-resource-composition.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.mixed.verilog verilog mixed
+# RUN: %python %inputs/transactional-resource-composition.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.separate.cpp cpp separate
+# RUN: %python %inputs/transactional-resource-composition.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.separate.verilog verilog separate
+# RUN: %python %inputs/transactional-resource-composition.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.conflict cpp conflict

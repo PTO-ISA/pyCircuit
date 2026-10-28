@@ -1,5 +1,7 @@
 #include "SourceUnit.h"
 #include "PythonImportRecords.h"
+#include "mlir/IR/Verifier.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Transforms/Passes.h"
@@ -16,6 +18,13 @@ compilePythonSourceUnit(ModuleOp transport, DictionaryAttr sourceOwner,
   if (failed(imported))
     return failure();
   OwningOpRef<ModuleOp> body = std::move(*imported);
+  // Local constraints publish requirements without demanding provider closure.
+  // Linking closes these requirements before common transaction analysis.
+  if (failed(ac::solveTransactionalPayloadConstraints(*body)) ||
+      failed(ac::resolveTransactionalMethodConstraints(*body)) ||
+      failed(ac::inferTransactionalReferenceRequirements(*body)) ||
+      failed(verify(*body)))
+    return failure();
   std::optional<std::string> capture;
   if (retainSourceImport) {
     capture.emplace();

@@ -1,0 +1,9 @@
+# REQUIRES: iverilog, vvp
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.timing.cpp cpp timing
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.timing.verilog verilog timing
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure.cpp cpp failure
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure.verilog verilog failure
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.overlap cpp overlap
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure_system.cpp cpp failure_system
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.failure_system.verilog verilog failure_system
+# RUN: %python %inputs/transactional-queue-timing.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.xz.verilog verilog xz

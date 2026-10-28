@@ -52,15 +52,63 @@ the supplied implementation and binds the actual instance. All caller/callee
 updates share the outer Rule fire. Each instance keeps its own State and physical
 child hierarchy; compiler-generated ports carry Q and update controls.
 
-Generic reference calls currently require positional arguments with declared
-payload types, and a typed result context for a value-producing first use.
-A first use with no result context records an Action requirement. Queue/reference
-resource ports, broader payloads and discarded value-return inference remain
-migration work. See `examples/sibling_method_calls` for the supported split-source
-pattern.
+Generic reference calls use positional payload arguments. All calls on one
+reference publish their argument constraints, result-use arity and conversion
+contexts. Ignoring a result leaves the return signature unspecified; it does not
+require an Action. Scalar and tuple uses retain SSA result slots until link binds
+the actual provider. Link emits one complete Method call, including unused
+results, and checks payload conversions without changing intermediate arithmetic.
+See `examples/sibling_method_calls` for the split-source pattern.
 
-Queue, Rule-body control flow, cross-branch
-local merging and advanced payloads remain implementation gaps. Retained tests
+Local assignments bind SSA values. Aliases retain their original values and
+types across later reassignment. Literal values remain exact until declared
+contexts or actual bindings determine their representation. Common IR analysis
+solves these constraints; return widening does not widen an already typed Bits
+operation. Published source units use `ac.source_contract = 3 : i64` and older
+source artifacts require regeneration.
+
+Module and Rule payload annotations constrain resource payloads; actual bindings
+select State or Queue. Rule parameters read their bound resources and Rule
+results write the outputs bound at registration. Methods continue to exchange
+same-cycle payload values. Source-global Rules require explicit arguments.
+
+An existing State or Queue used as an output target retains its identity. A new
+unspecified connection defaults to a depth-2 Queue in the connecting parent;
+`ac.queue[T](depth=N)` specifies a positive depth. Binding propagation precedes
+default allocation. Module returns export or forward resources without copying
+storage. Link specializes each instance and Rule registration independently.
+State output writes share the Rule's final fire with its other updates.
+
+Bits Queues execute through the same common transaction analysis and verified
+C++/Verilog route as State. Admission uses old occupancy: empty cannot bypass a
+concurrent push; full cannot borrow capacity from a concurrent pop. Intermediate
+occupancy permits one push and one pop together. Input reads consume once per
+Rule parameter binding; reusing the resulting local value does not consume
+again. Explicit `pop()` calls are separate accesses. `peek()` and `head()` do not
+consume, but transactions using their values still require a nonempty Queue.
+
+Queue admission, registration paths and the complete Method guard chain form one
+final fire for consumption, enqueue, State updates, assertions and logs. Same
+resource double-push or double-pop requires proven mutual exclusion; there is no
+implicit arbitration. FIFO storage stays in its actual owner and reset empties it.
+Four-state payloads are preserved; empty head data cannot activate blocked checks.
+See `examples/scalar_queue_pipeline` for parent-owned connections and backpressure.
+Root Queue exports to an external payload-only interface remain unsupported;
+consume these resources inside a System instead. Nested resource exports retain
+their identity.
+
+Independent Module/Rule outputs use `-> tuple[T0, T1, ...]`, ordered returns
+and direct unpacking. Each position binds separately to an existing State,
+explicit Queue or parent-owned default Queue. Forwarding through Modules and
+local aliases preserves the actual resource; an `ac.module` parameter can likewise
+pass through an intermediate Module without allocating another instance. One
+Rule's outputs and Method effects share admission, while separately registered
+Rules remain independent. Aliasing two output positions to one Queue still
+requests two pushes and is rejected when they overlap. See
+`examples/resource_composition` for the bounded Bits/System case.
+
+Rule-body control flow, cross-branch local merging and advanced
+payloads remain implementation gaps. Retained tests
 and independent oracles for these capabilities are not passing evidence for the
 replacement. See the [replacement status](../development/transactional-frontend-status.md)
 for actual validation and remaining work.

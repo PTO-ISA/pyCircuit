@@ -1,8 +1,10 @@
 # Recommended examples
 
-The catalog contains 22 designs. `hello_counter` and
-`module_control_state_machine` exercise the transactional replacement; broader
-designs remain migration requirements, not current execution claims. Superseded
+The transactional replacement has focused execution evidence for `hello_counter`,
+`module_control_state_machine`, `local_method_accumulator`, `sibling_method_calls`,
+`sibling_calls`, `parent_state_interfaces`, `scalar_queue_pipeline` and
+`resource_composition`. Broader designs remain migration
+requirements, not current execution claims. Superseded
 wrappers and their original oracles are preserved as 54 source directories in
 [the historical fixture archive](../tests/fixtures/historical_examples/README.md),
 outside the current example catalog.
@@ -13,6 +15,7 @@ outside the current example catalog.
 | --- | --- |
 | [hello_counter](hello_counter/README.md) | A small System, persistent state and an explicitly registered Rule. |
 | [module_control_state_machine](module_control_state_machine/README.md) | Module branches, guarded transitions, autorules and committed-state observations. |
+| [resource_composition](resource_composition/README.md) | Multilevel references, independent scalar outputs and atomic backpressure. |
 | [multi_outputs](multi_outputs/README.md) | Direct Module calls; Struct connections and independent tuple results. |
 | [sibling_calls](sibling_calls/README.md) | Existing Module references and independent callbacks reading committed state. |
 | [sibling_atomic](sibling_atomic/README.md) | A late sibling guard holds the whole transaction while the reader continues. |
@@ -30,7 +33,8 @@ Module `if/elif/else` selects registrations from committed state, independently
 of a selected Rule's guard. Keep independent functions in separate Rules.
 Every state read observes old Q, including reads after an assignment; use local
 values for newly computed results. State proposals and logs commit only when
-whole-system checks succeed. Method and hierarchy examples below await migration.
+whole-system checks succeed. Broader historical examples below retain their
+individual migration requirements.
 
 Each static Module call creates a distinct child instance. Bind the result once
 and reuse it to fan out existing outputs. Pass fields that travel together as one
@@ -77,3 +81,14 @@ Prefer a short System scenario and generated C++/RTL execution. Add handwritten
 host or RTL tests only for a specific boundary the System cannot exercise.
 See the [authoring standard](STANDARD.md) and
 [frontend guide](../docs/development/agent-frontend-guide.md).
+
+The transactional `scalar_queue_pipeline` example connects separately compiled
+BiasStage, SumStage and Accumulator components with parent-owned Bits Queues.
+Its delayed consumer exercises output backpressure and atomic remote updates.
+The historical `queue_rule_pipeline` and its independent oracle remain pending
+Struct, loop and old write/read semantic migration.
+
+`resource_composition` composes multilayer references and independent Bits outputs.
+Its focused regression also checks mixed State/Queue bindings and resource aliases.
+It does not restore the old `multi_outputs` combination/Struct interfaces or
+`sibling_aliases` candidate-state forwarding behavior; those migrations remain open.

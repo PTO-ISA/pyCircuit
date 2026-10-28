@@ -1,4 +1,5 @@
 #include "PythonImportRecords.h"
+#include "Dialect/ACIR/ACIRSourceContracts.h"
 #include "PythonImportAST.h"
 #include "PythonImportContext.h"
 #include "PythonImportEnumSyntax.h"
@@ -35,7 +36,7 @@ struct Callable {
   std::string kind, name;
   SmallVector<NamedType> inputs;
   SmallVector<Type> results;
-  bool autonomous = false;
+  bool autonomous = false, global = false;
   unsigned registrations = 0;
   bool defined = false;
 };
@@ -55,13 +56,16 @@ struct Binding {
   Declaration *pending = nullptr;
   Operation *pendingImport = nullptr;
   AstNode declaration;
+  bool parameter = false;
+  Value cachedRead;
   Type type() const { return value ? value.getType() : Type(); }
 };
 struct Scope {
   Declaration *owner = nullptr;
   Callable *callable = nullptr;
   std::map<std::string, Binding> bindings;
-  std::map<std::string, Type> hints;
+  StringRef pendingResultRequirement = "scalar";
+  unsigned pendingResultArity = 1;
   SmallVector<Value> outputs;
   SmallVector<Type> resultTypes;
   SmallVector<Value> returned;
@@ -179,27 +183,26 @@ private:
     return ac::BitsType::get(b.getContext(),
                              ac::StaticExprAttr::get(b.getContext(), tree));
   }
-  unsigned width(Type type) {
-    if (auto value = dyn_cast<ac::BitsType>(type)) {
-      auto n = value.getWidth()
-                   .getTree()
-                   .getAs<DictionaryAttr>("value")
-                   .getAs<ac::MathIntAttr>("value");
-      llvm::APSInt decoded(n.getCanonicalValue());
-      return decoded.getActiveBits() <= 32 ? decoded.getZExtValue() : 0;
-    }
-    ac::HardwareAnalysis analysis(*result);
-    ac::HardwareBindings bindings;
-    auto w = analysis.getPackedWidth(type, bindings, result->getOperation());
-    return succeeded(w) ? *w : 0;
+  bool isResource(Type type) {
+    return type && isa<ac::StateType, ac::QueueType, ac::PrimitiveType>(type);
   }
   Type payload(Type type) {
     if (auto r = dyn_cast_or_null<ac::StateType>(type))
       return r.getPayload();
+    if (auto r = dyn_cast_or_null<ac::QueueType>(type))
+      return r.getPayload();
+    if (auto r = dyn_cast_or_null<ac::PrimitiveType>(type))
+      return r.getPayload();
     return type;
   }
   Type resource(Type data, StringRef kind = "abstract", unsigned depth = 0) {
-    return ac::StateType::get(b.getContext(), data);
+    if (isResource(data))
+      return data;
+    if (kind == "state")
+      return ac::StateType::get(b.getContext(), data);
+    if (kind == "queue")
+      return ac::QueueType::get(b.getContext(), data);
+    return ac::PrimitiveType::get(b.getContext(), data);
   }
   bool equal(Type a, Type c) {
     return a && c && ac::transactionalTypesEqual(a, c);
@@ -343,8 +346,7 @@ private:
                                            ArrayRef<Value> destinations = {});
   FailureOr<Value> scalar(const AstNode &node, Scope &scope,
                           Type expected = {});
-  FailureOr<Value> convert(Value value, Type target, const AstNode &node,
-                           bool allowNarrow = false);
+  FailureOr<Value> convert(Value value, Type target, const AstNode &node);
   FailureOr<Value> constant(const AstNode &node, Type type,
                             const llvm::APSInt &number);
   Value truth(const AstNode &node, bool value) {
@@ -369,11 +371,12 @@ private:
                                              Scope &scope,
                                              ArrayRef<Value> destinations = {});
   LogicalResult emitMethod(Callable &call, Scope &scope);
-  FailureOr<SmallVector<Value>> methodCall(Callable &call, const AstNode &node, Scope &scope);
+  FailureOr<SmallVector<Value>> methodCall(Callable &call, const AstNode &node,
+                                           Scope &scope);
   LogicalResult emitGuard(Callable &call, Scope &scope);
-  FailureOr<SmallVector<Value>> referenceCall(const AstNode &node, Scope &scope, Type expected);
-  LogicalResult inferHints(const AstNode &node, Scope &scope);
-  Type infer(const AstNode &node, Scope &scope, Type expected = {});
+  FailureOr<SmallVector<Value>> referenceCall(const AstNode &node, Scope &scope,
+                                              Type expected);
+
   LogicalResult bind(const AstNode &target, ArrayRef<Value> values,
                      Scope &scope);
   FailureOr<SmallVector<Value>> instantiate(Declaration *decl,
@@ -405,6 +408,10 @@ Type Importer::annotation(const AstNode &node, StringRef definition) {
         return ac::StructType::get(b.getContext(),
                                    b.getStringAttr(binding->symbol.getValue()));
     }
+  }
+  if (node.kind() == "Subscript" && marker(node.child("value"), "queue")) {
+    auto data = annotation(node.child("slice"), definition);
+    return data ? resource(data, "queue") : Type();
   }
   if (node.kind() == "Subscript" && marker(node.child("value"), "bits")) {
     auto n = integer(node.child("slice"));
@@ -628,10 +635,22 @@ LogicalResult Importer::scan() {
     if (names.count(name))
       return fail(node,
                   "source declaration shadows an imported or nominal binding");
-    if (kind == "rule")
-      return fail(
-          node,
-          "source-global Rules await explicit resource parameter binding");
+    if (kind == "rule") {
+      Callable call;
+      call.node = node;
+      call.kind = "rule";
+      call.name = qualify(name);
+      call.global = true;
+      call.guard = {};
+      decorator(node, &call.guard);
+      if (failed(signature(call, call.name)))
+        return failure();
+      globalRules.emplace(name, std::move(call));
+      names.emplace(
+          name,
+          ImportedName{"", name, symbol(qualify(name)), nullptr, {}, node});
+      continue;
+    }
     auto decl = std::make_unique<Declaration>();
     decl->node = node;
     decl->name = name;
@@ -651,8 +670,13 @@ LogicalResult Importer::scan() {
                              "resource/reference arguments");
     for (size_t i = 0; i < args.array("args").size(); ++i) {
       auto arg = args.item("args", i);
-      if (!marker(arg.child("annotation"), "module"))
-        return fail(arg, "Module data/resource inputs await transactional migration");
+      if (!marker(arg.child("annotation"), "module")) {
+        auto data = annotation(arg.child("annotation"), decl.symbol);
+        if (!data)
+          return failure();
+        decl.inputs.push_back({arg.string("arg").str(), resource(data), arg});
+        continue;
+      }
       std::string name = arg.string("arg").str();
       if (names.count(name))
         return fail(arg, "Module parameter shadows a source declaration");
@@ -665,7 +689,8 @@ LogicalResult Importer::scan() {
           b.getNamedAttr("source_owner", owner),
           b.getNamedAttr("parameters", b.getArrayAttr({})),
           b.getNamedAttr("type_parameters", b.getArrayAttr({})),
-          b.getNamedAttr("function_type", TypeAttr::get(b.getFunctionType({}, {}))),
+          b.getNamedAttr("function_type",
+                         TypeAttr::get(b.getFunctionType({}, {}))),
           b.getNamedAttr("input_names", b.getArrayAttr({})),
           b.getNamedAttr("output_names", b.getArrayAttr({})),
           b.getNamedAttr("output_kinds", b.getArrayAttr({})),
@@ -812,12 +837,24 @@ LogicalResult Importer::nominals() {
 
 FailureOr<OwningOpRef<ModuleOp>> Importer::run() {
   result->getOperation()->setAttr("ac.transactional", b.getI64IntegerAttr(2));
+  result->getOperation()->setAttr("ac.source_contract", b.getI64IntegerAttr(3));
   result->getOperation()->setAttr("ac.stage", b.getStringAttr("unlinked"));
   result->getOperation()->setAttr("ac.unit_kind",
                                   b.getStringAttr("implementation"));
   result->getOperation()->setAttr("ac.source_owner", owner);
   if (failed(scan()))
     return failure();
+  Declaration globalOwner;
+  globalOwner.symbol = prefix;
+  Scope globalScope;
+  globalScope.owner = &globalOwner;
+  globalScope.module = true;
+  b.setInsertionPointToEnd(result->getBody());
+  for (auto &[name, call] : globalRules) {
+    if (failed(defineRule(call, globalScope)))
+      return failure();
+    names[name].declaration = SymbolTable::lookupSymbolIn(*result, call.name);
+  }
   for (auto &[name, decl] : declarations)
     if (failed(lower(*decl)))
       return failure();
@@ -834,10 +871,13 @@ FailureOr<OwningOpRef<ModuleOp>> Importer::run() {
   result->getOperation()->setAttr("ac.interfaces",
                                   b.getArrayAttr(dependencies));
   result->getOperation()->setAttr("ac.exports", b.getArrayAttr(exports));
+  llvm::sort(imports, [](Attribute left, Attribute right) {
+    return ac::detail::compareSourceImportBindings(
+               cast<DictionaryAttr>(left), cast<DictionaryAttr>(right)) < 0;
+  });
   result->getOperation()->setAttr("ac.import_bindings",
                                   b.getArrayAttr(imports));
-  if (invalid || failed(ac::inferTransactionalReferenceRequirements(*result)) ||
-      failed(verify(*result)))
+  if (invalid)
     return failure();
   return std::move(result);
 }

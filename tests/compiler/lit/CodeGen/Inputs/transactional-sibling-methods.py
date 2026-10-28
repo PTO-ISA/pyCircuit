@@ -98,12 +98,12 @@ for unit in ("Sender", "Receiver"):
 with interfaces_only("Sender", "Receiver"):
     compile_source("Top", "Sender", "Receiver")
 
-# A different actual Method width cannot satisfy Sender's published requirement.
+# A narrower actual Method input cannot accept Sender's eight-bit argument.
 # Source compilation publishes the requirement; explicit link checks its actual
 # binding against the provider's Method definition.
 receiver_source = (sources / "Receiver.py").read_text()
 (sources / "Receiver.py").write_text(
-    receiver_source.replace("amount: ac.bits[8]", "amount: ac.bits[16]").replace(
+    receiver_source.replace("amount: ac.bits[8]", "amount: ac.bits[4]").replace(
         "count = count + amount", "count = count + 1"
     )
 )

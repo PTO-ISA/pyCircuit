@@ -5,6 +5,23 @@ Record raw outcomes and candidate identity under the ignored local directory
 `docs/gates/logs/<run-id>/`; CI uploads these files as workflow artifacts.
 A command, test file or historical acceptance entry is not a passing result.
 
+## Short native CI
+
+`G1: Native Transactional Gates` builds and installs the native compiler, runs
+`ACIRTransactionalMethodConstraintsTests` and `ACIRSourceResourceBindingTests`,
+and executes the transactional constraint, State/interface, failure, source,
+Method and sibling-Method lit regressions. The constraint case checks independent
+compile/link, saved IR, SSA snapshots, natural Bits overflow and ignored returned
+values through C++ workers 1/2 and RTL. Queue gates additionally execute old-occupancy timing, backpressure, resource
+conflicts, reset, failure atomicity and four-state payloads. Saved Routed/Final
+FIFO configuration and proposal mutations must be rejected. The resource
+composition gate adds multilayer instance references, independent tuple outputs,
+mixed State/Queue binding, alias identity and separate Rule admission under
+backpressure, with independent per-epoch C++ workers 1/2 and RTL oracles.
+Long oracle matrices stay in the existing nightly entrypoints. The desired
+required-check list includes G1; applying branch protection on GitHub is a
+separate repository-management action.
+
 ## API tests and examples are separate
 
 Foundational reliability covers declared types and widths, combinational
@@ -52,9 +69,9 @@ package tests and receipts. No new native executable is needed for this split.
 | Entry point | Gate | Additional nightly coverage |
 | --- | --- | --- |
 | API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
-| Examples | `hello_counter`, `module_control_state_machine`, `multi_outputs`, `struct_transform`, `enum_payload_pipeline`, `rob`, `table_rule`, `queue_rule_pipeline`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
+| Examples | The explicit `_gate_examples` list in `examples/CMakeLists.txt`, including `resource_composition`; each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
 
-The example registry is explicit. Gate configures only its eight smoke designs,
+The example registry is explicit. Gate configures only its selected smoke designs,
 so it does not compile the full nightly set first. Direct aggregate CMake builds
 default to the full `nightly` registry. Standalone example builds remain supported.
 Examples demonstrate complete designs; API fixtures test compiler/runtime

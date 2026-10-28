@@ -27,7 +27,9 @@ mlir::FailureOr<SourceHeaderRegistry>
 admitSourceLinkUnits(llvm::ArrayRef<SourceLinkUnit> units,
                      ac::detail::EmitError emitError);
 
-enum class SourceLinkTarget { Routed, Hardware };
+// Linked exposes the authenticated, concretely bound structural stage only.
+// It does not establish execution support or publish transaction snapshots.
+enum class SourceLinkTarget { Linked, Routed, Hardware };
 
 mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>>
 linkSourceUnits(llvm::ArrayRef<SourceLinkUnit> units, llvm::StringRef top,

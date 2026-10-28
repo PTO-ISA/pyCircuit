@@ -6,7 +6,9 @@ The production `compile` and `link` entries now use transactional ACIR v2.
 Compilation publishes an **unlinked** body/interface pair; linking authenticates
 an explicit unit closure and produces linked transactional ACIR before common
 analysis, Routed verification and storage lowering. Regenerate older units from
-source; there is no legacy selector or failure fallback.
+source; there is no legacy selector or failure fallback. Source body/interface
+pairs carry `ac.source_contract = 3 : i64`, preserving SSA payload constraints,
+pending Method uses and deferred resource connections across publication.
 
 The current slice supports closed Bits-state Modules and default-clock Systems,
 explicit ordinary Rule registration, once-only autorule normalization and
@@ -17,8 +19,10 @@ while four-state payloads remain supported.
 
 See the [current language profile](../reference/language.md#transactional-frontend-replacement)
 for exact admission and the [replacement status](transactional-frontend-status.md)
-for actual validation. Queue, hierarchy, user Methods, Rule-body control flow
-and cross-branch local merging remain implementation gaps. Retained legacy
+for actual validation. Existing-instance hierarchy and user Methods are supported.
+Bits Queue execution shares the common plan with State, including old-occupancy
+admission and owner-local FIFO storage. Rule-body control flow and cross-branch local merging remain
+implementation gaps. Retained legacy
 examples and oracles do not establish support in the replacement.
 
 pyCircuit captures ordinary Python hardware descriptions, resolves and lowers

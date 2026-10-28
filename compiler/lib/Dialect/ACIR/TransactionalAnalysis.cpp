@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -81,7 +82,7 @@ public:
     if (!module.getBody().front().getArguments().empty() ||
         !module.getParameters().empty() || !module.getTypeParameters().empty())
       return module.emitError(
-          "transactional State execution requires a closed concrete root Module");
+          "transactional execution requires a closed concrete root Module");
     bindings.owner = module;
     if (failed(declareInstance(module, {}, TransactionalNoID)) ||
         failed(prepareInstance(0, {})))
@@ -94,10 +95,14 @@ public:
       auto item = lookup(value, environments.front(), yield);
       if (failed(item) || item->kind != Binding::Resource)
         return yield.emitError(
-            "transactional outputs must export allocated State identities");
+            "transactional outputs must export allocated resource identities");
+      if (p.resources_[item->id].isQueue())
+        return yield.emitError(
+            "root Queue exports require an availability-bearing external "
+            "interface; consume the Queue inside a System");
       p.exports_.push_back(item->id);
     }
-    if (failed(conflicts()))
+    if (failed(availability()) || failed(conflicts()))
       return failure();
     return knownControls();
   }
@@ -133,14 +138,21 @@ private:
     if (parent != TransactionalNoID)
       p.instances_[parent].children.push_back(id);
     for (auto allocation : module.getBody().front().getOps<ResourceAllocOp>()) {
-      auto type = dyn_cast<StateType>(allocation.getResource().getType());
-      if (!type || failed(p.getPayloadWidth(type.getPayload())))
+      Type type = allocation.getResource().getType();
+      Type payload;
+      if (auto state = dyn_cast<StateType>(type))
+        payload = state.getPayload();
+      else if (auto queue = dyn_cast<QueueType>(type))
+        payload = queue.getPayload();
+      if (!payload || failed(p.getPayloadWidth(payload)))
         return allocation.emitError(
-            "transactional execution currently requires finite Bits State");
+            "transactional execution requires finite Bits State or Queue");
       if (failed(charge(32, allocation)))
         return failure();
       unsigned resource = p.resources_.size();
       p.resources_.push_back({allocation, id, type});
+      if (isa<QueueType>(type))
+        p.resources_.back().depth = allocation.getDepthAttr().getInt();
       p.instances_[id].resources.push_back(resource);
       environments[id][allocation.getResource()] = {Binding::Resource, resource};
     }
@@ -197,6 +209,8 @@ private:
     }
     for (unsigned resourceID : p.instances_[id].resources) {
       auto &resource = p.resources_[resourceID];
+      if (resource.isQueue())
+        continue;
       if (resource.allocation.getInitial().empty())
         return resource.allocation.emitError(
             "transactional execution currently requires an explicit State "
@@ -229,7 +243,7 @@ private:
       for (Value value : call.getInterfaces()) {
         auto item = lookup(value, environment, call);
         if (failed(item) || item->kind != Binding::Resource)
-          return call.emitError("Rule interfaces must bind allocated State");
+          return call.emitError("Rule interfaces must bind allocated resources");
         args.push_back(*item);
       }
       for (Value value : definition.getCaptures()) {
@@ -393,10 +407,20 @@ private:
       auto receiver = lookup(call.getReceiver(), env, op);
       if (failed(receiver) || receiver->kind != Binding::Resource)
         return op->emitError(
-            "transactional execution currently admits State read/write only");
+            "transactional resource call requires an allocated resource");
       step.resource = receiver->id;
       auto method = call.getCalleeAttr().getRootReference().getValue();
-      if (method == "read")
+      if (p.resources_[step.resource].isQueue()) {
+        if (method == "head" || method == "peek")
+          step.kind = TransactionalStepKind::QueueHead;
+        else if (method == "pop" && !pure)
+          step.kind = TransactionalStepKind::QueuePop;
+        else if (method == "push" && !pure)
+          step.kind = TransactionalStepKind::QueuePush;
+        else
+          return op->emitError("Queue requires head/peek observation or "
+                               "Rule-body pop/push");
+      } else if (method == "read")
         step.kind = TransactionalStepKind::StateRead;
       else if (method == "write" && !pure)
         step.kind = TransactionalStepKind::StateWrite;
@@ -515,9 +539,62 @@ private:
     return success();
   }
 
+  LogicalResult availability() {
+    // Follow actual SSA, including Module computations captured by a Rule.
+    // A cached head is a nonconsuming observation, but every transaction that
+    // uses it must still wait for the old Queue to be readable.
+    std::vector<SmallVector<unsigned>> dependencies(p.values_.size());
+    auto append = [](SmallVector<unsigned> &to, ArrayRef<unsigned> from) {
+      llvm::DenseSet<unsigned> seen(to.begin(), to.end());
+      for (unsigned resource : from)
+        if (seen.insert(resource).second)
+          to.push_back(resource);
+    };
+    auto sequence = [&](const TransactionalSequence &seq,
+                        TransactionalRulePlan *rule) -> LogicalResult {
+      for (const auto &step : seq.steps) {
+        if (failed(charge(8 + p.resources_.size() *
+                                  (step->operands.size() + step->results.size() + 1),
+                          step->operation)))
+          return failure();
+        SmallVector<unsigned> reads;
+        for (unsigned operand : step->operands)
+          append(reads, dependencies[operand]);
+        if (step->activation != TransactionalNoID)
+          append(reads, dependencies[step->activation]);
+        if (step->kind == TransactionalStepKind::QueueHead ||
+            step->kind == TransactionalStepKind::QueuePop)
+          append(reads, {step->resource});
+        for (unsigned result : step->results)
+          dependencies[result] = reads;
+        if (rule) {
+          append(rule->queueReads, reads);
+          if (step->kind == TransactionalStepKind::QueuePush)
+            append(rule->queueWrites, {step->resource});
+        }
+      }
+      return success();
+    };
+    for (const auto &owner : p.instances_)
+      if (failed(sequence(owner.comb, nullptr)))
+        return failure();
+    for (auto &rule : p.rules_) {
+      for (auto term : rule.path)
+        append(rule.queueReads, dependencies[term.value]);
+      if (failed(sequence(rule.guard, &rule)) ||
+          failed(sequence(rule.body, &rule)))
+        return failure();
+      for (unsigned requirement : rule.requirements)
+        append(rule.queueReads, dependencies[requirement]);
+    }
+    return success();
+  }
+
   LogicalResult knownControls() {
     // Greatest fixed point: an initially known State remains known only if
-    // every possible proposal is known. Reads always refer to that old Q.
+    // every possible proposal is known. Queue payloads are known only under
+    // the nonempty admission requirement and only if all pushes are known;
+    // an empty head itself is never assumed known. Reads refer to old storage.
     std::vector<bool> resources(p.resources_.size(), true);
     std::vector<bool> values(p.values_.size(), false);
     auto evaluate =
@@ -528,7 +605,9 @@ private:
                           step.operation)))
           return failure();
         bool known = false;
-        if (step.kind == TransactionalStepKind::StateRead)
+        if (step.kind == TransactionalStepKind::StateRead ||
+            step.kind == TransactionalStepKind::QueueHead ||
+            step.kind == TransactionalStepKind::QueuePop)
           known = resources[step.resource];
         if (step.kind == TransactionalStepKind::Pure) {
           known = true;
@@ -565,10 +644,12 @@ private:
         }
       };
       for (auto [id, resource] : llvm::enumerate(p.resources_))
-        constrain(id, values[resource.initial]);
+        if (!resource.isQueue())
+          constrain(id, values[resource.initial]);
       for (auto &rule : p.rules_)
         for (auto &step : rule.body.steps)
-          if (step->kind == TransactionalStepKind::StateWrite)
+          if (step->kind == TransactionalStepKind::StateWrite ||
+              step->kind == TransactionalStepKind::QueuePush)
             constrain(step->resource, values[step->operands.front()]);
     } while (changed);
     for (auto &rule : p.rules_) {
@@ -707,13 +788,6 @@ private:
       if (auto unary = dyn_cast<BitsUnaryOp>(step->operation))
         if (unary.getOpcode() == "not")
           return facts(step->operands[0], !positive, out, depth + 1);
-      if (auto binary = dyn_cast<BitsBinaryOp>(step->operation))
-        if ((positive && binary.getOpcode() == "and") ||
-            (!positive && binary.getOpcode() == "or")) {
-          if (failed(facts(step->operands[0], positive, out, depth + 1)))
-            return failure();
-          return facts(step->operands[1], positive, out, depth + 1);
-        }
     }
     auto key = predicate(id);
     if (failed(key))
@@ -737,6 +811,17 @@ private:
             }
           }
     out.push_back(std::move(fact));
+    // Retain the whole condition as well as its necessary constituent facts.
+    // Otherwise an OR path and its else path lose their shared identity when
+    // only the negative OR is decomposed (likewise a positive AND).
+    if (step && depth < 128)
+      if (auto binary = dyn_cast<BitsBinaryOp>(step->operation))
+        if ((positive && binary.getOpcode() == "and") ||
+            (!positive && binary.getOpcode() == "or")) {
+          if (failed(facts(step->operands[0], positive, out, depth + 1)))
+            return failure();
+          return facts(step->operands[1], positive, out, depth + 1);
+        }
     return success();
   }
   static bool disjoint(const Fact &a, const Fact &b) {
@@ -775,7 +860,9 @@ private:
       if (impossible)
         continue;
       for (auto &step : rule.body.steps)
-        if (step->kind == TransactionalStepKind::StateWrite)
+        if (step->kind == TransactionalStepKind::StateWrite ||
+            step->kind == TransactionalStepKind::QueuePush ||
+            step->kind == TransactionalStepKind::QueuePop)
           writes.push_back({step.get(), conditions});
     }
     for (unsigned i = 0; i < writes.size(); ++i)
@@ -785,17 +872,18 @@ private:
         if (failed(charge(8 + a.conditions.size() * b.conditions.size(),
                           b.step->operation)))
           return failure();
-        bool exclusive = a.step->resource != b.step->resource;
+        bool exclusive = a.step->resource != b.step->resource ||
+                         a.step->kind != b.step->kind;
         for (const auto &x : a.conditions)
           for (const auto &y : b.conditions)
             exclusive |= disjoint(x, y);
         if (exclusive)
           continue;
         auto diagnostic = b.step->operation->emitError(
-            "transactional State writes may overlap; no implicit arbitration "
-            "or overwrite");
+            "transactional resource accesses may overlap; no implicit "
+            "arbitration or overwrite");
         diagnostic.attachNote(a.step->operation->getLoc())
-            << "other potentially simultaneous write";
+            << "other potentially simultaneous access";
         return failure();
       }
     return success();

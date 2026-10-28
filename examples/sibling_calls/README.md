@@ -3,8 +3,8 @@
 `Counter` owns one persistent count, initially 5. Its `increment` Method adds
 one while the count is below 7; `read` returns the current count.
 
-`Writer(counter: Counter)` and `Reader(counter: Counter)` receive the same existing
-Module instance. Each declares one autonomous Rule and calls that instance's
+`Writer(counter: ac.module)` and `Reader(counter: ac.module)` receive the same existing
+Module instance. Each explicitly registers one Rule and calls that instance's
 Methods. Passing a Module reference creates no copy of its state. The compiler
 routes the declared reference interface and keeps both outer transactions atomic.
 
@@ -16,5 +16,5 @@ priority.
 
 The three files compile independently; imported consumers use published
 interfaces. The closed System uses compiler-generated C++ and Verilog runners.
-API tests in `tests/system/test_sibling_calls_and_order.py` own the additional
-alias, nested reference, rollback, saved-anchor and four-state checks.
+The older API fixtures in `tests/system/test_sibling_calls_and_order.py` retain
+additional migration oracles; their legacy syntax is not current passing evidence.

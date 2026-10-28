@@ -16,6 +16,70 @@ constexpr StringLiteral topKey = "ac.transactional_top";
 constexpr StringLiteral versionKey = "ac.transactional_provenance_version";
 constexpr StringLiteral stepKey = "ac.transactional_step";
 constexpr StringLiteral storageName = "__pyc_transactional_dffe";
+constexpr StringLiteral fifoName = "pycircuit.__builtins__.fifo_local";
+
+bool hasQueues(const TransactionalAnalysis &p) {
+  return llvm::any_of(p.getResources(),
+                      [](const auto &r) { return r.isQueue(); });
+}
+unsigned proposalCount(const TransactionalResourcePlan &r) {
+  return r.isQueue() ? 3 : 2;
+}
+unsigned observationCount(const TransactionalResourcePlan &r) {
+  return r.isQueue() ? 3 : 1;
+}
+struct ResourcePorts {
+  llvm::DenseMap<unsigned, unsigned> input, output;
+  unsigned inputs = 2, outputs = 0;
+  ResourcePorts(const TransactionalAnalysis &p, ArrayRef<unsigned> resources) {
+    for (unsigned id : resources) {
+      input[id] = inputs;
+      output[id] = outputs;
+      inputs += proposalCount(p.getResources()[id]);
+      outputs += observationCount(p.getResources()[id]);
+    }
+  }
+};
+SmallVector<NamedAttribute> fifoImportAttributes(Builder &b, BitsType bit) {
+  auto payload = TypeParamType::get(
+      b.getContext(), FlatSymbolRefAttr::get(b.getContext(), fifoName),
+      b.getStringAttr("T"));
+  SmallVector<Attribute> parameters, dependencies;
+  for (StringRef name : {"DEPTH", "AVAILABILITY_LATENCY"})
+    parameters.push_back(b.getDictionaryAttr(
+        {b.getNamedAttr("name", b.getStringAttr(name)),
+         b.getNamedAttr("type",
+                        TypeAttr::get(MathIntType::get(b.getContext())))}));
+  for (unsigned port = 0; port < 4; ++port) {
+    auto endpoint =
+        b.getDictionaryAttr({b.getNamedAttr("port", b.getI64IntegerAttr(port)),
+                             b.getNamedAttr("path", b.getArrayAttr({}))});
+    dependencies.push_back(
+        b.getDictionaryAttr({b.getNamedAttr("output", endpoint),
+                             b.getNamedAttr("inputs", b.getArrayAttr({}))}));
+  }
+  return {
+      b.getNamedAttr("sym_name", b.getStringAttr(fifoName)),
+      b.getNamedAttr(
+          "source_owner",
+          b.getDictionaryAttr(
+              {b.getNamedAttr("package", b.getStringAttr("pycircuit")),
+               b.getNamedAttr("path", b.getStringAttr("__builtins__.py"))})),
+      b.getNamedAttr("semantic_kind", b.getStringAttr("hardware")),
+      b.getNamedAttr("primitive_kind", b.getStringAttr("fifo_local")),
+      b.getNamedAttr("parameters", b.getArrayAttr(parameters)),
+      b.getNamedAttr("type_parameters", b.getStrArrayAttr({"T"})),
+      b.getNamedAttr("function_type", TypeAttr::get(b.getFunctionType(
+                                          {bit, bit, bit, payload, bit},
+                                          {bit, bit, payload, bit}))),
+      b.getNamedAttr("input_names",
+                     b.getStrArrayAttr(
+                         {"clk", "rst", "in_valid", "in_data", "out_ready"})),
+      b.getNamedAttr(
+          "output_names",
+          b.getStrArrayAttr({"ready", "valid", "data", "local_capacity"})),
+      b.getNamedAttr("dependency_summary", b.getArrayAttr(dependencies))};
+}
 
 Operation *make(OpBuilder &b, Location loc, StringRef name, ValueRange operands,
                 TypeRange results, ArrayRef<NamedAttribute> attrs = {}) {
@@ -59,6 +123,20 @@ BitsType predicateType(Builder &b, StringRef top) {
                b.getNamedAttr("value", literal),
                b.getNamedAttr("origin", occurrence(b, top, 0)),
                b.getNamedAttr("location", syntheticSpan(b))})));
+}
+StaticExprAttr integer(Builder &b, uint64_t value) {
+  auto literal = b.getDictionaryAttr(
+      {b.getNamedAttr("kind", b.getStringAttr("integer")),
+       b.getNamedAttr(
+           "value",
+           MathIntAttr::get(b.getContext(),
+                            llvm::APSInt(llvm::APInt(64, value), true)))});
+  return StaticExprAttr::get(
+      b.getContext(),
+      b.getDictionaryAttr({b.getNamedAttr("kind", b.getStringAttr("literal")),
+                           b.getNamedAttr("value", literal),
+                           b.getNamedAttr("origin", occurrence(b, fifoName, 0)),
+                           b.getNamedAttr("location", syntheticSpan(b))}));
 }
 DictionaryAttr sourceOccurrence(Operation *op, Builder &b, StringRef top,
                                 unsigned ordinal) {
@@ -163,12 +241,19 @@ SmallVector<NamedAttribute> envelopeAttributes(const TransactionalAnalysis &p,
   SmallVector<Type> inputs{bit, bit}, outputs;
   SmallVector<std::string> inputNames{"pyc_clk", "pyc_rst"}, outputNames;
   for (unsigned resource : subtreeResources(p, id)) {
-    auto type = p.getResources()[resource].type.getPayload();
+    auto type = p.getResources()[resource].getPayload();
     inputs.append({type, bit});
     inputNames.push_back("d_" + std::to_string(resource));
     inputNames.push_back("en_" + std::to_string(resource));
     outputs.push_back(type);
     outputNames.push_back("q_" + std::to_string(resource));
+    if (p.getResources()[resource].isQueue()) {
+      inputs.push_back(bit);
+      inputNames.push_back("pop_" + std::to_string(resource));
+      outputs.append({bit, bit});
+      outputNames.push_back("ready_" + std::to_string(resource));
+      outputNames.push_back("valid_" + std::to_string(resource));
+    }
   }
   SmallVector<Attribute> inputStrings, outputStrings;
   for (auto &name : inputNames)
@@ -238,7 +323,7 @@ private:
   Location loc;
   StringRef top;
   BitsType bit;
-  SmallVector<Value> values, q, data, enables;
+  SmallVector<Value> values, q, ready, valid, data, enables, pops;
   SmallVector<Check> checks;
   SmallVector<Observation> observations;
   Value zero, one;
@@ -258,8 +343,10 @@ private:
                 bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
-      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead;
-      if (payload == effects)
+      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead ||
+                     step.kind == Kind::QueueHead ||
+                     step.kind == Kind::QueuePop;
+      if (payload == effects && step.kind != Kind::QueuePop)
         continue;
       if (step.kind == Kind::Pure) {
         IRMapping map;
@@ -270,9 +357,13 @@ private:
         clone->setAttr(stepKey, b.getI64IntegerAttr(step.id));
         for (auto [id, result] : llvm::zip(step.results, clone->getResults()))
           values[id] = result;
-      } else if (step.kind == Kind::StateRead) {
+      } else if (step.kind == Kind::StateRead || step.kind == Kind::QueueHead ||
+                 (step.kind == Kind::QueuePop && !effects)) {
         values[step.results.front()] = q[step.resource];
-      } else if (step.kind == Kind::StateWrite) {
+      } else if (step.kind == Kind::QueuePop) {
+        pops[step.resource] = binary("or", pops[step.resource], guard);
+      } else if (step.kind == Kind::StateWrite ||
+                 step.kind == Kind::QueuePush) {
         auto id = step.resource;
         data[id] = make(b, loc, BitsSelectOp::getOperationName(),
                         {guard, values[step.operands.front()], data[id]},
@@ -334,9 +425,12 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
                        b.getStrArrayAttr({"clk", "rst", "en", "d", "init"})),
         b.getNamedAttr("output_names", b.getStrArrayAttr({"q"})),
         b.getNamedAttr("dependency_summary", b.getArrayAttr({dependency}))});
+  if (hasQueues(p))
+    make(b, loc, ModuleImportOp::getOperationName(), {}, {},
+         fifoImportAttributes(b, bit));
   SmallVector<Type> outputs;
   for (unsigned id : p.getExports())
-    outputs.push_back(p.getResources()[id].type.getPayload());
+    outputs.push_back(p.getResources()[id].getPayload());
   OperationState moduleState(loc, ModuleOp::getOperationName());
   moduleState.addAttributes(
       {b.getNamedAttr("sym_name", b.getStringAttr(top)),
@@ -361,22 +455,47 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   body.addArgument(bit, loc);
   b.setInsertionPointToEnd(&body);
   values.resize(p.getValues().size());
+  ready.resize(p.getResources().size());
+  valid.resize(p.getResources().size());
   for (auto [id, resource] : llvm::enumerate(p.getResources())) {
-    q.push_back(
-        make(b, loc, SourceStateOp::getOperationName(),
-             {body.getArgument(0), body.getArgument(1)},
-             TypeRange{resource.type.getPayload()},
-             {b.getNamedAttr("instance_name",
-                             resource.allocation->getAttr("instance_name")),
-              b.getNamedAttr("occurrence", sourceOccurrence(resource.allocation,
-                                                            b, top, id + 1))})
-            ->getResult(0));
+    SmallVector<NamedAttribute> attrs{
+        b.getNamedAttr("instance_name",
+                       resource.allocation->getAttr("instance_name")),
+        b.getNamedAttr("occurrence",
+                       sourceOccurrence(resource.allocation, b, top, id + 1))};
+    SmallVector<Type> types{resource.getPayload()};
+    if (resource.isQueue()) {
+      attrs.append(
+          {b.getNamedAttr("callee",
+                          FlatSymbolRefAttr::get(b.getContext(), fifoName)),
+           b.getNamedAttr(
+               "parameters",
+               b.getArrayAttr({integer(b, resource.depth), integer(b, 1)})),
+           b.getNamedAttr("type_arguments", b.getArrayAttr({TypeAttr::get(
+                                                resource.getPayload())}))});
+      types = {bit, bit, resource.getPayload(), bit};
+    }
+    auto *storage =
+        make(b, loc,
+             resource.isQueue() ? InstanceOp::getOperationName()
+                                : SourceStateOp::getOperationName(),
+             {body.getArgument(0), body.getArgument(1)}, types, attrs);
+    q.push_back(storage->getResult(resource.isQueue() ? 2 : 0));
+    if (resource.isQueue()) {
+      ready[id] = storage->getResult(0);
+      valid[id] = storage->getResult(1);
+    }
   }
   for (const auto &owner : p.getInstances())
     sequence(owner.comb, {});
   for (auto [id, resource] : llvm::enumerate(p.getResources()))
-    q[id].getDefiningOp()->insertOperands(2, values[resource.initial]);
+    if (!resource.isQueue())
+      q[id].getDefiningOp()->insertOperands(2, values[resource.initial]);
   SmallVector<Value> captures(q);
+  for (unsigned id = 0; id < q.size(); ++id)
+    if (p.getResources()[id].isQueue())
+      captures.append({ready[id], valid[id]});
+  unsigned resourceCaptures = captures.size();
   SmallVector<unsigned> captured;
   for (auto [id, value] : llvm::enumerate(values))
     if (value) {
@@ -397,13 +516,20 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   auto outerQ = q;
   for (unsigned i = 0; i < q.size(); ++i)
     q[i] = work.getArgument(i);
+  unsigned nextCapture = q.size();
+  for (unsigned id = 0; id < q.size(); ++id)
+    if (p.getResources()[id].isQueue()) {
+      ready[id] = work.getArgument(nextCapture++);
+      valid[id] = work.getArgument(nextCapture++);
+    }
   for (auto [i, id] : llvm::enumerate(captured))
-    values[id] = work.getArgument(q.size() + i);
+    values[id] = work.getArgument(resourceCaptures + i);
   b.setInsertionPointToEnd(&work);
   zero = literal(false);
   one = literal(true);
   data = q;
   enables.assign(q.size(), zero);
+  pops.assign(q.size(), zero);
   for (const auto &rule : p.getRules()) {
     sequence(rule.guard, one);
     sequence(rule.body, one);
@@ -417,18 +543,25 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
     }
     for (unsigned requirement : rule.requirements)
       guard = binary("and", guard, values[requirement]);
+    for (unsigned id : rule.queueReads)
+      guard = binary("and", guard, valid[id]);
+    for (unsigned id : rule.queueWrites)
+      guard = binary("and", guard, ready[id]);
     sequence(rule.body, guard, true);
   }
   SmallVector<Value> yields;
   for (unsigned i = 0; i < q.size(); ++i) {
     yields.push_back(data[i]);
     yields.push_back(enables[i]);
+    if (p.getResources()[i].isQueue())
+      yields.push_back(pops[i]);
   }
+  unsigned proposalPrefix = yields.size();
   for (const auto &observation : observations) {
     yields.push_back(observation.path);
     llvm::append_range(yields, observation.payloads);
   }
-  unsigned observationCount = yields.size() - 2 * q.size();
+  unsigned observationCount = yields.size() - proposalPrefix;
   SmallVector<Attribute> required;
   for (auto [id, check] : llvm::enumerate(checks)) {
     yields.push_back(check.condition);
@@ -453,13 +586,23 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   finished->getRegion(0).takeBody(comb->getRegion(0));
   comb->erase();
   b.setInsertionPointToEnd(&body);
-  for (unsigned i = 0; i < q.size(); ++i)
-    make(
-        b, loc, StateUpdateOp::getOperationName(),
-        {outerQ[i], finished->getResult(2 * i), finished->getResult(2 * i + 1)},
-        {});
+  unsigned proposalOffset = 0;
+  for (unsigned i = 0; i < q.size(); ++i) {
+    if (p.getResources()[i].isQueue()) {
+      outerQ[i].getDefiningOp()->insertOperands(
+          2, {finished->getResult(proposalOffset + 1),
+              finished->getResult(proposalOffset),
+              finished->getResult(proposalOffset + 2)});
+    } else {
+      make(b, loc, StateUpdateOp::getOperationName(),
+           {outerQ[i], finished->getResult(proposalOffset),
+            finished->getResult(proposalOffset + 1)},
+           {});
+    }
+    proposalOffset += proposalCount(p.getResources()[i]);
+  }
   for (auto [id, check] : llvm::enumerate(checks)) {
-    unsigned offset = 2 * q.size() + observationCount + 2 * id;
+    unsigned offset = proposalPrefix + observationCount + 2 * id;
     auto *expect = make(
         b, check.step->operation->getLoc(), SourceExpectOp::getOperationName(),
         {finished->getResult(offset), finished->getResult(offset + 1)}, {},
@@ -469,7 +612,7 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
     if (auto message = check.step->operation->getAttr("ac.message"))
       expect->setAttr("ac.message", message);
   }
-  unsigned observationOffset = 2 * q.size();
+  unsigned observationOffset = proposalPrefix;
   for (auto [id, observation] : llvm::enumerate(observations)) {
     SmallVector<Value> operands{finished->getResult(observationOffset++)};
     for (unsigned i = 0; i < observation.payloads.size(); ++i)
@@ -511,8 +654,15 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
 LogicalResult Router::preserveHierarchy(mlir::ModuleOp package, ModuleOp root) {
   if (p.getInstances().size() == 1)
     return success();
-  SmallVector<SourceStateOp> storage(root.getBody().front().getOps<SourceStateOp>());
-  SmallVector<StateUpdateOp> updates(root.getBody().front().getOps<StateUpdateOp>());
+  SmallVector<Operation *> storage;
+  llvm::DenseMap<Value, StateUpdateOp> updates;
+  for (Operation &op : root.getBody().front()) {
+    if (isa<SourceStateOp>(op) ||
+        (isa<InstanceOp>(op) && cast<InstanceOp>(op).getCallee() == fifoName))
+      storage.push_back(&op);
+    if (auto update = dyn_cast<StateUpdateOp>(op))
+      updates[update.getState()] = update;
+  }
   SmallVector<ModuleOp> envelopes(p.getInstances().size());
   for (unsigned id = 1; id < p.getInstances().size(); ++id) {
     if (failed(debit(64 + subtreeResources(p, id).size() * 32,
@@ -534,10 +684,8 @@ LogicalResult Router::preserveHierarchy(mlir::ModuleOp package, ModuleOp root) {
     if (id == 0)
       b.setInsertionPoint(body.getTerminator());
     auto resources = subtreeResources(p, id);
-    llvm::DenseMap<unsigned, unsigned> slots;
-    for (auto [slot, resource] : llvm::enumerate(resources))
-      slots[resource] = slot;
-    llvm::DenseMap<unsigned, Value> endpoints;
+    ResourcePorts ports(p, resources);
+    llvm::DenseMap<unsigned, SmallVector<Value>> endpoints;
     IRMapping initialValues;
     std::function<Value(Value)> cloneInitial = [&](Value value) -> Value {
       if (auto mapped = initialValues.lookupOrNull(value))
@@ -554,53 +702,87 @@ LogicalResult Router::preserveHierarchy(mlir::ModuleOp package, ModuleOp root) {
     for (unsigned resource : p.getInstances()[id].resources) {
       if (id == 0)
         continue;
-      unsigned port = 2 + 2 * slots[resource];
-      auto original = storage[resource];
-      auto *local = make(
-          b, original.getLoc(), SourceStateOp::getOperationName(),
-          {body.getArgument(0), body.getArgument(1),
-           cloneInitial(original->getOperand(2))},
-          original->getResultTypes(), original->getAttrs());
+      unsigned port = ports.input[resource];
+      auto *original = storage[resource];
+      bool queue = p.getResources()[resource].isQueue();
+      SmallVector<Value> operands{body.getArgument(0), body.getArgument(1)};
+      if (queue)
+        operands.append({body.getArgument(port + 1), body.getArgument(port),
+                         body.getArgument(port + 2)});
+      else
+        operands.push_back(cloneInitial(original->getOperand(2)));
+      auto *local =
+          make(b, original->getLoc(), original->getName().getStringRef(),
+               operands, original->getResultTypes(), original->getAttrs());
       local->setAttr("occurrence", storageOccurrence(p, b, resource));
-      endpoints[resource] = local->getResult(0);
-      make(b, loc, StateUpdateOp::getOperationName(),
-           {local->getResult(0), body.getArgument(port),
-            body.getArgument(port + 1)}, {});
+      if (queue) {
+        endpoints[resource] = {local->getResult(2), local->getResult(0),
+                               local->getResult(1)};
+      } else {
+        endpoints[resource] = {local->getResult(0)};
+        make(b, loc, StateUpdateOp::getOperationName(),
+             {local->getResult(0), body.getArgument(port),
+              body.getArgument(port + 1)},
+             {});
+      }
     }
     for (unsigned child : p.getInstances()[id].children) {
       SmallVector<Value> operands{body.getArgument(0), body.getArgument(1)};
       SmallVector<Type> results;
       auto childResources = subtreeResources(p, child);
       for (unsigned resource : childResources) {
+        bool queue = p.getResources()[resource].isQueue();
         if (id == 0) {
-          operands.append({updates[resource].getCandidate(),
-                           updates[resource].getIntent()});
+          auto *original = storage[resource];
+          if (queue)
+            operands.append({original->getOperand(3), original->getOperand(2),
+                             original->getOperand(4)});
+          else {
+            auto update = updates.lookup(original->getResult(0));
+            operands.append({update.getCandidate(), update.getIntent()});
+          }
         } else {
-          unsigned port = 2 + 2 * slots[resource];
-          operands.append({body.getArgument(port), body.getArgument(port + 1)});
+          unsigned port = ports.input[resource];
+          for (unsigned i = 0; i < proposalCount(p.getResources()[resource]);
+               ++i)
+            operands.push_back(body.getArgument(port + i));
         }
-        results.push_back(p.getResources()[resource].type.getPayload());
+        results.push_back(p.getResources()[resource].getPayload());
+        if (queue)
+          results.append({bit, bit});
       }
       auto *instance = make(b, loc, InstanceOp::getOperationName(), operands,
                             results, childAttributes(p, b, child));
-      for (auto [resource, result] : llvm::zip(childResources, instance->getResults())) {
-        if (id == 0)
-          storage[resource]->getResult(0).replaceAllUsesWith(result);
-        else
-          endpoints[resource] = result;
+      unsigned output = 0;
+      for (unsigned resource : childResources) {
+        bool queue = p.getResources()[resource].isQueue();
+        SmallVector<Value> observed;
+        for (unsigned i = 0; i < observationCount(p.getResources()[resource]);
+             ++i)
+          observed.push_back(instance->getResult(output++));
+        if (id == 0) {
+          auto *original = storage[resource];
+          original->getResult(queue ? 2 : 0).replaceAllUsesWith(observed[0]);
+          if (queue) {
+            original->getResult(0).replaceAllUsesWith(observed[1]);
+            original->getResult(1).replaceAllUsesWith(observed[2]);
+          }
+        } else
+          endpoints[resource] = observed;
       }
     }
     if (id != 0) {
       SmallVector<Value> outputs;
       for (unsigned resource : resources)
-        outputs.push_back(endpoints[resource]);
+        llvm::append_range(outputs, endpoints[resource]);
       make(b, loc, YieldOp::getOperationName(), outputs, {});
     }
   }
   for (auto [resource, source] : llvm::enumerate(storage))
     if (p.getResources()[resource].instance != 0) {
-      updates[resource].erase();
-      source.erase();
+      if (!p.getResources()[resource].isQueue())
+        updates.lookup(source->getResult(0)).erase();
+      source->erase();
     }
   return success();
 }
@@ -629,13 +811,15 @@ private:
   BitsType bit;
   ModuleOp module;
   RuleOp comb;
-  SmallVector<Value> values, q, initials, proposalData, proposalEnable;
+  SmallVector<Value> values, q, ready, valid, initials, proposalData,
+      proposalEnable, proposalPop;
   SmallVector<ModuleOp> ownerModules;
   LogicalResult inspectOwner(unsigned id, ModuleOp owner,
                              ArrayRef<Value> arguments,
                              ArrayRef<Value> exposed);
   LogicalResult initializer(Value actual, Value expected, Block *owner);
   SmallVector<SmallVector<Write>> writes;
+  SmallVector<SmallVector<Value>> pops;
   SmallVector<std::pair<const TransactionalStep *, Value>> assertions,
       observations;
   llvm::DenseMap<unsigned, Operation *> pure;
@@ -684,8 +868,10 @@ private:
                          Block *block, bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
-      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead;
-      if (payload == effects)
+      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead ||
+                     step.kind == Kind::QueueHead ||
+                     step.kind == Kind::QueuePop;
+      if (payload == effects && step.kind != Kind::QueuePop)
         continue;
       if (failed(debit(8 + step.operands.size(), step.operation)))
         return failure();
@@ -710,9 +896,12 @@ private:
           values[id] = actual;
         if (failed(claim(op)))
           return failure();
-      } else if (step.kind == Kind::StateRead)
+      } else if (step.kind == Kind::StateRead || step.kind == Kind::QueueHead ||
+                 (step.kind == Kind::QueuePop && !effects))
         values[step.results.front()] = q[step.resource];
-      else if (step.kind == Kind::StateWrite)
+      else if (step.kind == Kind::QueuePop)
+        pops[step.resource].push_back(guard);
+      else if (step.kind == Kind::StateWrite || step.kind == Kind::QueuePush)
         writes[step.resource].push_back({guard, values[step.operands.front()]});
       else if (step.kind == Kind::Observe)
         observations.push_back({&step, guard});
@@ -759,80 +948,111 @@ LogicalResult Replay::inspectOwner(unsigned id, ModuleOp owner,
   if (body.getNumArguments() != arguments.size())
     return reject("storage-owner input binding differs");
   auto resources = subtreeResources(p, id);
-  llvm::DenseMap<unsigned, unsigned> slots;
-  for (auto [slot, resource] : llvm::enumerate(resources))
-    slots[resource] = slot;
+  ResourcePorts ports(p, resources);
   SmallVector<Operation *> storage;
-  SmallVector<StateUpdateOp> updates;
+  llvm::DenseMap<Value, StateUpdateOp> updates;
   SmallVector<InstanceOp> children;
   for (Operation &op : body) {
     if (isa<SourceStateOp>(op))
       storage.push_back(&op);
     if (auto instance = dyn_cast<InstanceOp>(op)) {
-      if (instance.getCallee() == storageName)
+      if (instance.getCallee() == storageName ||
+          instance.getCallee() == fifoName)
         storage.push_back(&op);
       else
         children.push_back(instance);
     }
     if (auto update = dyn_cast<StateUpdateOp>(op))
-      updates.push_back(update);
+      if (!updates.try_emplace(update.getState(), update).second)
+        return reject("duplicated State update");
   }
   const auto &source = p.getInstances()[id];
+  unsigned stateCount = llvm::count_if(source.resources, [&](unsigned r) {
+    return !p.getResources()[r].isQueue();
+  });
   if (storage.size() != source.resources.size() ||
-      updates.size() != (final ? 0 : storage.size()) ||
+      updates.size() != (final ? 0 : stateCount) ||
       children.size() != source.children.size())
     return reject("storage-owner executable inventory differs");
-  llvm::DenseMap<unsigned, Value> localQ;
+  llvm::DenseMap<unsigned, SmallVector<Value>> local;
   for (auto [index, resourceID] : llvm::enumerate(source.resources)) {
     auto *op = storage[index];
     const auto &resource = p.getResources()[resourceID];
-    if (op->getNumResults() != 1 ||
-        op->getResult(0).getType() != resource.type.getPayload())
-      return reject("State payload differs");
+    bool queue = resource.isQueue();
+    SmallVector<Type> types{resource.getPayload()};
+    if (queue)
+      types = {bit, bit, resource.getPayload(), bit};
+    if (op->getResultTypes() != TypeRange(types))
+      return reject("resource payload/status differs");
     NamedAttrList expected(
         {b.getNamedAttr("instance_name",
                         resource.allocation->getAttr("instance_name")),
          b.getNamedAttr("occurrence", storageOccurrence(p, b, resourceID))});
-    if (final) {
-      expected.append("callee", FlatSymbolRefAttr::get(b.getContext(), storageName));
-      expected.append("parameters", b.getArrayAttr({}));
+    if (final || queue) {
+      expected.append("callee",
+                      FlatSymbolRefAttr::get(b.getContext(),
+                                             queue ? fifoName : storageName));
+      expected.append(
+          "parameters",
+          queue ? b.getArrayAttr({integer(b, resource.depth), integer(b, 1)})
+                : b.getArrayAttr({}));
       expected.append("type_arguments",
-                      b.getArrayAttr({TypeAttr::get(resource.type.getPayload())}));
+                      b.getArrayAttr({TypeAttr::get(resource.getPayload())}));
     }
-    if ((final ? !isa<InstanceOp>(op) : !isa<SourceStateOp>(op)) ||
-        op->getNumOperands() != (final ? 5 : 3) ||
+    if (((final || queue) ? !isa<InstanceOp>(op) : !isa<SourceStateOp>(op)) ||
+        op->getNumOperands() != ((final || queue) ? 5 : 3) ||
         op->getAttrDictionary() != expected.getDictionary(b.getContext()) ||
         op->getOperand(0) != body.getArgument(0) ||
         op->getOperand(1) != body.getArgument(1))
-      return reject("owner-local State identity/clock/reset differs");
-    Value data, enable, initial = op->getOperand(final ? 4 : 2);
-    if (final) {
+      return reject(
+          "owner-local resource identity/configuration/clock/reset differs");
+    Value data, enable, pop;
+    if (queue || final) {
       enable = op->getOperand(2);
       data = op->getOperand(3);
+      if (queue)
+        pop = op->getOperand(4);
+      else
+        initials[resourceID] = op->getOperand(4);
     } else {
-      auto update = updates[index];
-      if (update->getNumOperands() != 3 || !update->getAttrs().empty() ||
-          update.getState() != op->getResult(0))
+      auto update = updates.lookup(op->getResult(0));
+      if (!update || update->getNumOperands() != 3 ||
+          !update->getAttrs().empty())
         return reject("owner-local State update differs");
       data = update.getCandidate();
       enable = update.getIntent();
+      initials[resourceID] = op->getOperand(2);
       if (failed(claim(update)))
         return failure();
     }
-    localQ[resourceID] = op->getResult(0);
+    local[resourceID] =
+        queue ? SmallVector<Value>{op->getResult(2), op->getResult(0),
+                                   op->getResult(1)}
+              : SmallVector<Value>{op->getResult(0)};
     if (id == 0) {
-      q[resourceID] = op->getResult(0);
+      q[resourceID] = local[resourceID][0];
       proposalData[resourceID] = data;
       proposalEnable[resourceID] = enable;
-      initials[resourceID] = initial;
+      if (queue) {
+        ready[resourceID] = local[resourceID][1];
+        valid[resourceID] = local[resourceID][2];
+        proposalPop[resourceID] = pop;
+      }
     } else {
-      unsigned slot = slots[resourceID], port = 2 + 2 * slot;
-      if (data != body.getArgument(port) || enable != body.getArgument(port + 1))
+      unsigned port = ports.input[resourceID],
+               output = ports.output[resourceID];
+      if (data != body.getArgument(port) ||
+          enable != body.getArgument(port + 1) ||
+          (queue && pop != body.getArgument(port + 2)))
         return reject("owner-local proposal port differs");
-      q[resourceID] = exposed[slot];
+      q[resourceID] = exposed[output];
       proposalData[resourceID] = arguments[port];
       proposalEnable[resourceID] = arguments[port + 1];
-      initials[resourceID] = initial;
+      if (queue) {
+        ready[resourceID] = exposed[output + 1];
+        valid[resourceID] = exposed[output + 2];
+        proposalPop[resourceID] = arguments[port + 2];
+      }
     }
     if (failed(claim(op)))
       return failure();
@@ -846,28 +1066,40 @@ LogicalResult Replay::inspectOwner(unsigned id, ModuleOp owner,
       if (candidate.getSymName() == instanceSymbol(p, childID))
         definition = candidate;
     auto childResources = subtreeResources(p, childID);
-    if (!definition || child.getNumOperands() != 2 + 2 * childResources.size() ||
-        child.getNumResults() != childResources.size() ||
+    ResourcePorts childPorts(p, childResources);
+    if (!definition || child.getNumOperands() != childPorts.inputs ||
+        child.getNumResults() != childPorts.outputs ||
         child->getOperand(0) != body.getArgument(0) ||
         child->getOperand(1) != body.getArgument(1))
       return reject("source child instance interface differs");
     SmallVector<Value> childArguments{arguments[0], arguments[1]}, childExposed;
-    for (auto [slot, resource] : llvm::enumerate(childResources)) {
-      unsigned port = 2 + 2 * slot;
-      if (child->getResult(slot).getType() != p.getResources()[resource].type.getPayload())
-        return reject("child committed-Q result type differs");
-      localQ[resource] = child->getResult(slot);
+    for (unsigned resource : childResources) {
+      const auto &plan = p.getResources()[resource];
+      unsigned port = childPorts.input[resource],
+               output = childPorts.output[resource];
+      SmallVector<Type> expectedTypes{plan.getPayload()};
+      if (plan.isQueue())
+        expectedTypes.append({bit, bit});
+      for (auto [field, type] : llvm::enumerate(expectedTypes)) {
+        Value value = child->getResult(output + field);
+        if (value.getType() != type)
+          return reject("child resource observation type differs");
+        local[resource].push_back(value);
+      }
       if (id == 0) {
-        childArguments.append({child->getOperand(port), child->getOperand(port + 1)});
-        childExposed.push_back(child->getResult(slot));
+        for (unsigned i = 0; i < proposalCount(plan); ++i)
+          childArguments.push_back(child->getOperand(port + i));
+        llvm::append_range(childExposed, local[resource]);
       } else {
-        unsigned parentSlot = slots[resource], parentPort = 2 + 2 * parentSlot;
-        for (unsigned field = 0; field < 2; ++field) {
+        unsigned parentPort = ports.input[resource],
+                 parentOutput = ports.output[resource];
+        for (unsigned field = 0; field < proposalCount(plan); ++field) {
           if (child->getOperand(port + field) != body.getArgument(parentPort + field))
             return reject("proposal forwarding edge differs");
           childArguments.push_back(arguments[parentPort + field]);
         }
-        childExposed.push_back(exposed[parentSlot]);
+        for (unsigned field = 0; field < observationCount(plan); ++field)
+          childExposed.push_back(exposed[parentOutput + field]);
       }
     }
     if (failed(claim(child)) ||
@@ -876,11 +1108,11 @@ LogicalResult Replay::inspectOwner(unsigned id, ModuleOp owner,
   }
   if (id != 0) {
     auto yield = dyn_cast<YieldOp>(body.getTerminator());
-    if (!yield || yield.getValues().size() != resources.size())
-      return reject("storage-owner committed-Q export inventory differs");
-    for (auto [slot, resource] : llvm::enumerate(resources))
-      if (yield.getValues()[slot] != localQ[resource])
-        return reject("storage-owner committed-Q forwarding edge differs");
+    SmallVector<Value> expected;
+    for (unsigned resource : resources)
+      llvm::append_range(expected, local[resource]);
+    if (!yield || yield.getValues() != ValueRange(expected))
+      return reject("storage-owner observation forwarding edges differ");
     if (failed(claim(yield)))
       return failure();
   }
@@ -895,8 +1127,9 @@ LogicalResult Replay::run() {
   auto modules = package.getOps<ModuleOp>();
   auto imports = package.getOps<ModuleImportOp>();
   auto systems = package.getOps<SystemOp>();
-  if (std::distance(modules.begin(), modules.end()) != p.getInstances().size() ||
-      !llvm::hasSingleElement(imports) ||
+  if (std::distance(modules.begin(), modules.end()) !=
+          p.getInstances().size() ||
+      std::distance(imports.begin(), imports.end()) != (hasQueues(p) ? 2 : 1) ||
       !llvm::hasSingleElement(systems))
     return reject("source instance/storage/System inventory differs");
   for (auto candidate : modules)
@@ -904,12 +1137,21 @@ LogicalResult Replay::run() {
       module = candidate;
   if (!module)
     return reject("missing selected root Module");
-  auto imported = *imports.begin();
+  ModuleImportOp imported, fifo;
+  for (auto candidate : imports) {
+    if (candidate.getSymName() == storageName)
+      imported = candidate;
+    if (candidate.getSymName() == fifoName)
+      fifo = candidate;
+  }
+  if (!imported ||
+      (hasQueues(p) && (!fifo || !attrs(fifo, fifoImportAttributes(b, bit)))))
+    return reject("resource primitive import differs");
   auto system = *systems.begin();
   auto owner = p.getTop()->getAttrOfType<DictionaryAttr>("source_owner");
   SmallVector<Type> outputTypes;
   for (unsigned id : p.getExports())
-    outputTypes.push_back(p.getResources()[id].type.getPayload());
+    outputTypes.push_back(p.getResources()[id].getPayload());
   auto signature = b.getFunctionType({bit, bit}, outputTypes);
   if (!attrs(module,
              {b.getNamedAttr("sym_name", b.getStringAttr(top)),
@@ -978,6 +1220,10 @@ LogicalResult Replay::run() {
   auto &work = comb.getBody().front();
   unsigned resourceCount = p.getResources().size();
   q.resize(resourceCount);
+  ready.resize(resourceCount);
+  valid.resize(resourceCount);
+  proposalPop.resize(resourceCount);
+  pops.resize(resourceCount);
   initials.resize(resourceCount);
   proposalData.resize(resourceCount);
   proposalEnable.resize(resourceCount);
@@ -1004,6 +1250,8 @@ LogicalResult Replay::run() {
     if (failed(sequence(owner.comb, {}, &body)))
       return failure();
   for (auto [id, resource] : llvm::enumerate(p.getResources())) {
+    if (resource.isQueue())
+      continue;
     if (resource.instance == 0) {
       if (initials[id] != values[resource.initial])
         return reject("State initialization differs from source");
@@ -1012,6 +1260,10 @@ LogicalResult Replay::run() {
       return failure();
   }
   SmallVector<Value> captures(q);
+  for (unsigned id = 0; id < q.size(); ++id)
+    if (p.getResources()[id].isQueue())
+      captures.append({ready[id], valid[id]});
+  unsigned resourceCaptures = captures.size();
   SmallVector<unsigned> captured;
   for (auto [id, value] : llvm::enumerate(values))
     if (value) {
@@ -1027,8 +1279,14 @@ LogicalResult Replay::run() {
   auto outerQ = q;
   for (unsigned id = 0; id < q.size(); ++id)
     q[id] = work.getArgument(id);
+  unsigned nextCapture = q.size();
+  for (unsigned id = 0; id < q.size(); ++id)
+    if (p.getResources()[id].isQueue()) {
+      ready[id] = work.getArgument(nextCapture++);
+      valid[id] = work.getArgument(nextCapture++);
+    }
   for (auto [index, id] : llvm::enumerate(captured))
-    values[id] = work.getArgument(q.size() + index);
+    values[id] = work.getArgument(resourceCaptures + index);
   if (work.getOperations().size() < 3)
     return reject("missing control constants");
   auto it = work.begin();
@@ -1072,11 +1330,23 @@ LogicalResult Replay::run() {
       if (!guard)
         return reject("Method admission guard differs");
     }
+    for (unsigned id : rule.queueReads) {
+      guard = findBinary("and", guard, valid[id]);
+      if (!guard)
+        return reject("Queue read admission differs");
+    }
+    for (unsigned id : rule.queueWrites) {
+      guard = findBinary("and", guard, ready[id]);
+      if (!guard)
+        return reject("Queue write admission differs");
+    }
     if (failed(sequence(rule.body, guard, &work, true)))
       return failure();
   }
   auto yield = dyn_cast<YieldOp>(work.getTerminator());
-  unsigned prefix = 2 * q.size();
+  unsigned prefix = 0;
+  for (const auto &resource : p.getResources())
+    prefix += proposalCount(resource);
   unsigned observationCount = 0;
   for (auto observation : observations)
     observationCount += 1 + observation.first->operands.size();
@@ -1085,9 +1355,10 @@ LogicalResult Replay::run() {
           prefix + 2 * assertions.size() + observationCount ||
       comb->getResultTypes() != yield->getOperandTypes())
     return reject("proposal/check result inventory differs");
+  unsigned proposalOffset = 0;
   for (unsigned id = 0; id < q.size(); ++id) {
-    Value data = yield.getValues()[2 * id],
-          enable = yield.getValues()[2 * id + 1];
+    Value data = yield.getValues()[proposalOffset],
+          enable = yield.getValues()[proposalOffset + 1];
     for (const auto &write : llvm::reverse(writes[id])) {
       auto select = data.getDefiningOp<BitsSelectOp>();
       auto join = enable.getDefiningOp<BitsBinaryOp>();
@@ -1103,9 +1374,21 @@ LogicalResult Replay::run() {
     }
     if (data != q[id] || enable != zero)
       return reject("hold base is not old Q/false");
-    if (proposalEnable[id] != comb->getResult(2 * id + 1) ||
-        proposalData[id] != comb->getResult(2 * id))
+    if (proposalEnable[id] != comb->getResult(proposalOffset + 1) ||
+        proposalData[id] != comb->getResult(proposalOffset))
       return reject("owner data/enable endpoints differ");
+    if (p.getResources()[id].isQueue()) {
+      Value pop = yield.getValues()[proposalOffset + 2];
+      for (Value guard : llvm::reverse(pops[id])) {
+        auto join = pop.getDefiningOp<BitsBinaryOp>();
+        if (!join || !binary(pop, "or", join->getOperand(0), guard))
+          return reject("Queue pop proposal/guard differs");
+        pop = join->getOperand(0);
+      }
+      if (pop != zero || proposalPop[id] != comb->getResult(proposalOffset + 2))
+        return reject("Queue pop base/endpoint differs");
+    }
+    proposalOffset += proposalCount(p.getResources()[id]);
   }
   SmallVector<Attribute> required;
   SmallVector<SourceExpectOp> expects(body.getOps<SourceExpectOp>());
@@ -1189,7 +1472,8 @@ LogicalResult Replay::run() {
     if (!claimed.contains(&op))
       return reject("unaccounted transaction computation");
   for (Operation &op : package.getBody()->getOperations())
-    if (!llvm::is_contained(ownerModules, &op) && &op != imported && &op != system)
+    if (!llvm::is_contained(ownerModules, &op) && &op != imported &&
+        &op != fifo && &op != system)
       return reject("unaccounted package operation");
   if (package->getAttr("ac.source_units") != sourceOwners(p, b))
     return reject("source owner inventory differs");
