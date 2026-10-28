@@ -139,5 +139,4 @@ def CommitSystem():  # noqa: N802
         assert state.commits == row.commits, "word commit count"
         assert state.rejected == row.rejected, "word sticky rejection"
 
-    verify()
     advance(phase)

@@ -63,16 +63,20 @@ def main():
     rows = []
     for kind, book in enumerate(BOOKS):
         samples = [Fraction(0), book[-1][0], pow2((-6, -14, -15)[kind]) - pow2(-40)]
+        raw_samples = [
+            rounded_ratio(0, value.numerator, value.denominator, 0, 11, 52).result
+            for value in samples
+        ]
         for (a, _), (b, _) in zip(book[:-1], book[1:], strict=True):
             middle = (a + b) / 2
-            samples.extend((middle, middle - pow2(-60), middle + pow2(-60)))
-        for value in samples:
-            if value < 0 or value > book[-1][0]:
-                continue
+            raw = rounded_ratio(
+                0, middle.numerator, middle.denominator, 0, 11, 52
+            ).result
+            # Positive finite binary64 encodings are ordered by magnitude.
+            raw_samples.extend((raw - 1, raw, raw + 1))
+        for magnitude in raw_samples:
             for sign in (0, 1):
-                raw = rounded_ratio(
-                    sign, value.numerator, value.denominator, 0, 11, 52
-                ).result
+                raw = magnitude | (sign << 63)
                 for rhb in (0, 1) if kind == 2 else (0,):
                     rows.append((raw, kind, rhb))
     rows.extend(
