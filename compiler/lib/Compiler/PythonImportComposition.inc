@@ -555,7 +555,7 @@ LogicalResult Importer::registerDirectModuleHandle(
     llvm::StringMap<Instance *> &instances) {
   auto call = assignment.child("value");
   auto site = directCallSites.find(sourceOccurrence(at, symbol, call));
-  if (site == directCallSites.end() || !site->second.bound)
+  if (site == directCallSites.end() || !site->second.bound || !site->second.callee)
     return error() << "named Module instance lacks its actual allocation";
   auto binding = lookupBinding(call.child("func"));
   Operation *op = site->second.op;
@@ -571,8 +571,11 @@ LogicalResult Importer::registerDirectModuleHandle(
   instance.bound = true;
   instance.valueHandle = true;
   instance.returnShape = contract.returnShape;
-  instance.inputs = contract.inputs;
-  instance.outputs = contract.results;
+  const CallableDecl &actual = *site->second.callee;
+  instance.parameters = actual.parameters;
+  instance.typeArguments = actual.typeArguments;
+  instance.inputs = actual.inputs;
+  instance.outputs = actual.results;
   instances[name] = &instance;
   return success();
 }

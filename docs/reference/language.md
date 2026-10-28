@@ -60,6 +60,15 @@ arguments and substitute each instance's actual widths. A caller may forward
 its own declared parameter. Root overrides use the existing link command's
 `--parameters` JSON file. Actual width, constant-fit and hardware-argument checks
 still run at the bound instance; defaults are not proof for every instance.
+Methods use their owning Module instance's static parameters for argument and
+result types, including zero-data handles and Modules with ordinary inputs or
+outputs. For example, an instance `exchange = Exchange(W=7)` can expose
+`exchange.replace(value)` with `ac.bits[W]` arguments and results. Same-source
+and imported instances retain their own bindings; aliases share the original
+instance. Static parameters belong to the Module, not to each Method call.
+Link also checks unused Method bodies against actual bindings before removing
+them: a constant that fits a default width must still fit every selected width.
+
 The admitted transaction profile also preserves these parameters on state-owning
 Modules. State may use `ac.bits[W]` or rank-one `ac.table[N, ac.bits[W]]`, with
 zero or closed element-splat initialization. Initial values must fit every

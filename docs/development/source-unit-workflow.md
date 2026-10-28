@@ -68,6 +68,13 @@ extra fields, unknown names and noncanonical decimals fail before publication.
 The driver snapshots the input once and forwards only that snapshot to the
 native linker; final IR records the selected actual bindings.
 
+Method argument/result contracts are instantiated using the receiver's Module
+bindings, including independently compiled providers and forwarded parameters.
+The existing Method-closure analysis checks each distinct actual binding before
+transaction routing can erase unused Methods. Provider defaults do not justify
+constant-fit or width legality for a different instance. This includes retained
+non-generic definitions emitted alongside the selected root.
+
 `pycircuit link --reset-semantics strict|if_one` selects one root policy in the
 final artifact. Default `strict` rejects X/Z reset on a rising sample. `if_one`
 activates reset only for known 1; 0/X/Z enter normal operation. Both targets,

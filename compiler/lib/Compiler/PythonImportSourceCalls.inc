@@ -246,7 +246,7 @@ bool Importer::methodOwner(const AstNode &function) const {
         !rules->second.empty()) {
       const ModuleDecl &decl = modules[target->second];
       if (decl.transactionEffects && decl.sourceInputCount == 0 &&
-          decl.outputs.empty() && decl.parameters.empty() && !decl.system)
+          decl.outputs.empty() && !decl.system)
         return true;
     }
   }
@@ -259,8 +259,7 @@ bool Importer::methodOwner(const AstNode &function) const {
                      : ArrayAttr();
   // A transaction parent with ordinary inputs/results is a value module,
   // even when its transitive closure requires transaction publication.
-  if (!methods || methods.empty() || !view.parameters.empty() ||
-      !view.typeParameters.empty() || !view.domainInputs ||
+  if (!methods || methods.empty() || !view.typeParameters.empty() || !view.domainInputs ||
       view.functionType.getNumResults() != 0 ||
       view.functionType.getNumInputs() != view.domainInputs.size() ||
       (view.sourceParameters && !view.sourceParameters.empty()) ||

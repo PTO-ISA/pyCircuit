@@ -3151,7 +3151,7 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
         if (earlierRuleData || moduleValues.contains(name))
           return error() << "instance handle cannot be rebound and requires a "
                             "fresh immutable name";
-        auto referenceContract = callable(value.child("func"));
+        auto referenceContract = resolveModuleCall(value, decl.symbol);
         if (failed(referenceContract)) return failure();
         auto referenceBindings = bindModuleReferences(referenceContract->signature, value, instances);
         if (failed(referenceBindings)) return failure();
@@ -3184,13 +3184,15 @@ LogicalResult Importer::emitSourceTransactions(ModuleDecl &decl) {
             ac::InstanceOp::getOperationName(), inputs, TypeRange{},
             {at.getNamedAttr("instance_name", at.getStringAttr(name)),
              at.getNamedAttr("callee", callee),
-             at.getNamedAttr("parameters", at.getArrayAttr({})),
-             at.getNamedAttr("type_arguments", at.getArrayAttr({})),
+             at.getNamedAttr("parameters", at.getArrayAttr(referenceContract->parameters)),
+             at.getNamedAttr("type_arguments", at.getArrayAttr(referenceContract->typeArguments)),
              at.getNamedAttr("occurrence",
                              sourceOccurrence(at, decl.symbol, statement))});
         if (!referenceBindings->empty())
           instance->setAttr("ac.reference_bindings", *referenceBindings);
         instanceStorage.push_back({name.str(), statement, callee, declaration});
+        instanceStorage.back().parameters = referenceContract->parameters;
+        instanceStorage.back().typeArguments = referenceContract->typeArguments;
         instanceStorage.back().op = instance;
         instanceStorage.back().clockInput = clockInput;
         instanceStorage.back().resetInput = resetInput;
@@ -3531,6 +3533,31 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       if (target->assignedFormals.contains(port.name) &&
           !target->stateFormals.contains(port.name)) proposalInputs.push_back(index);
   SmallVector<Port> inputContracts = target ? target->inputs : importedInputs;
+  SmallVector<Port> resultContracts = target ? target->resultContracts : importedResults;
+  DictionaryAttr receiverSignature;
+  if (receiver && !nativeQueue &&
+      (!receiver->parameters.empty() || !receiver->typeArguments.empty())) {
+    if (receiver->declaration) {
+      receiverSignature = receiver->declaration->getAttrDictionary();
+    } else {
+      auto provider = llvm::find_if(modules, [&](const ModuleDecl &candidate) {
+        return candidate.symbol == receiver->callee;
+      });
+      if (provider == modules.end())
+        return error() << "Method receiver lacks its parameter signature";
+      auto signature = moduleSignatureAttrs(*provider);
+      if (failed(signature)) return failure();
+      receiverSignature = *signature;
+    }
+    // Bind copies: separate instances must not rewrite the provider contract.
+    for (auto *ports : {&inputContracts, &resultContracts})
+      for (Port &port : *ports) {
+        auto type = substitute(port.type, receiverSignature, receiver->parameters,
+                               receiver->typeArguments);
+        if (failed(type)) return failure();
+        port.type = *type;
+      }
+  }
   ArrayRef<Port> inputs = inputContracts;
   SmallVector<StringRef> formalNames;
   for (const Port &port : inputs) formalNames.push_back(port.name);
@@ -3631,6 +3658,7 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       methodName = specializedMethodName;
       target = &activeSourceEffects->methods->find(methodName)->second;
       inputContracts = target->inputs;
+      resultContracts = target->resultContracts;
       inputs = inputContracts;
       llvm::erase_if(proposalInputs, [&](unsigned index) {
         return target->stateFormals.contains(inputs[index].name);
@@ -3641,9 +3669,14 @@ FailureOr<SmallVector<Value>> Importer::sourceMethodCall(
       });
     }
   }
-  ArrayRef<Port> resultContracts = target ? ArrayRef<Port>(target->resultContracts)
-                                         : ArrayRef<Port>(importedResults);
   SmallVector<Type> physicalResults = target ? target->results : importedResultTypes;
+  if (receiverSignature)
+    for (Type &type : physicalResults) {
+      auto resolved = substitute(type, receiverSignature, receiver->parameters,
+                                 receiver->typeArguments);
+      if (failed(resolved)) return failure();
+      type = *resolved;
+    }
   if (target)
     for (unsigned index : proposalInputs) {
       physicalResults.push_back(inputs[index].type);
