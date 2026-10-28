@@ -89,17 +89,19 @@ def test_open_regular_rejects_path_identity_change(
     metadata.write_text("{}", encoding="utf-8")
     actual = os.stat(metadata, follow_symlinks=False)
 
-    monkeypatch.setattr(
-        "pycircuit._publication_fs.os.fstat",
-        lambda _descriptor: SimpleNamespace(
-            st_mode=actual.st_mode,
-            st_dev=actual.st_dev,
-            st_ino=actual.st_ino + 1,
-        ),
-    )
+    # os is shared with pytest's FD capture; restore fstat before capture resumes.
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            "pycircuit._publication_fs.os.fstat",
+            lambda _descriptor: SimpleNamespace(
+                st_mode=actual.st_mode,
+                st_dev=actual.st_dev,
+                st_ino=actual.st_ino + 1,
+            ),
+        )
 
-    with pytest.raises(_PublicationFileSystemError, match="changed while opening"):
-        _PublicationFileSystem().read_json(metadata)
+        with pytest.raises(_PublicationFileSystemError, match="changed while opening"):
+            _PublicationFileSystem().read_json(metadata)
 
 
 @pytest.mark.parametrize("operation", ["rename", "replace"])
