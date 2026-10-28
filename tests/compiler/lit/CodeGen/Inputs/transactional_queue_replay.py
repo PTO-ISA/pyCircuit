@@ -3,7 +3,7 @@
 import re
 
 
-def verify_stages(final, opt, run):
+def verify_stages(final, opt, run, *, mutations=True):
     text = final.read_text()
     encoded = re.search(r'ac.transactional_source = "([^"\n]*)"', text)
     assert encoded, "Final artifact must preserve normalized linked source"
@@ -17,6 +17,9 @@ def verify_stages(final, opt, run):
     run([opt, linked, f"--ac-route-transactions=top={top}", "-o", routed])
     run([opt, routed, "--ac-lower-transactions", "-o", refined])
     run([opt, refined, "--ac-verify-hardware"])
+
+    if not mutations:
+        return
 
     # Mutate actual executable edges, leaving source provenance untouched.
     # A well-typed FIFO with different capacity, or a pop driven by push fire,

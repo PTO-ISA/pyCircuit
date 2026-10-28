@@ -56,6 +56,14 @@
       "system_scope": "Multilevel existing-instance references and independent resource outputs, delayed consumption and joint Queue/Counter admission; independent C++ workers 1/2 and RTL traces."
     },
     {
+      "name": "structured_packet",
+      "folder": "examples/structured_packet",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 18,
+      "system_scope": "Nested Struct and Enum packets through Queue, Method and State with old-Q observations and atomic backpressure; independent C++ workers 1/2 and RTL traces."
+    },
+    {
       "name": "multi_outputs",
       "folder": "examples/multi_outputs",
       "source": "multi_outputs.py",

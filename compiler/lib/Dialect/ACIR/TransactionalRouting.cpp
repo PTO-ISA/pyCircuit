@@ -108,12 +108,12 @@ DictionaryAttr syntheticSpan(Builder &b) {
        b.getNamedAttr("end_line", b.getI64IntegerAttr(1)),
        b.getNamedAttr("end_column", b.getI64IntegerAttr(2))});
 }
-BitsType predicateType(Builder &b, StringRef top) {
+BitsType predicateType(Builder &b, StringRef top, unsigned width = 1) {
   auto literal = b.getDictionaryAttr(
       {b.getNamedAttr("kind", b.getStringAttr("integer")),
        b.getNamedAttr(
            "value", MathIntAttr::get(b.getContext(),
-                                     llvm::APSInt(llvm::APInt(64, 1), true)))});
+                                     llvm::APSInt(llvm::APInt(64, width), true)))});
   return BitsType::get(
       b.getContext(),
       StaticExprAttr::get(
@@ -339,7 +339,51 @@ private:
                 {b.getNamedAttr("opcode", b.getStringAttr(code))})
         ->getResult(0);
   }
-  void sequence(const TransactionalSequence &seq, Value guard,
+  FailureOr<Value> selection(Value guard, Value yes, Value no) {
+    // Keep the storage carrier provenance; equivalent Bits payloads may have
+    // been declared at a different source site.
+    Type type = no.getType();
+    if (failed(debit(16, p.getTop())))
+      return failure();
+    if (isa<BitsType>(type))
+      return make(b, loc, BitsSelectOp::getOperationName(), {guard, yes, no},
+                  TypeRange{type})->getResult(0);
+    HardwareAnalysis hardware(p.getPackage());
+    if (isa<EnumType>(type)) {
+      auto width = p.getPayloadWidth(type);
+      if (failed(width))
+        return failure();
+      Type carrier = predicateType(b, top, *width);
+      auto toBits = [&](Value value) {
+        return make(b, loc, EnumToBitsOp::getOperationName(), value,
+                    TypeRange{carrier})->getResult(0);
+      };
+      Value selected = make(b, loc, BitsSelectOp::getOperationName(),
+                            {guard, toBits(yes), toBits(no)}, TypeRange{carrier})
+                           ->getResult(0);
+      return make(b, loc, EnumFromBitsOp::getOperationName(), selected,
+                  TypeRange{type, bit})->getResult(0);
+    }
+    auto declaration = hardware.lookupStruct(cast<StructType>(type));
+    SmallVector<Value> fields;
+    for (Attribute raw : declaration.getFields()) {
+      auto field = cast<DictionaryAttr>(raw);
+      auto name = field.getAs<StringAttr>("name");
+      Type fieldType = field.getAs<TypeAttr>("type").getValue();
+      auto get = [&](Value value) {
+        return make(b, loc, StructGetOp::getOperationName(), value,
+                    TypeRange{fieldType}, {b.getNamedAttr("field", name)})
+            ->getResult(0);
+      };
+      auto selected = selection(guard, get(yes), get(no));
+      if (failed(selected))
+        return failure();
+      fields.push_back(*selected);
+    }
+    return make(b, loc, StructCreateOp::getOperationName(), fields,
+                TypeRange{type})->getResult(0);
+  }
+  LogicalResult sequence(const TransactionalSequence &seq, Value guard,
                 bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
@@ -365,10 +409,10 @@ private:
       } else if (step.kind == Kind::StateWrite ||
                  step.kind == Kind::QueuePush) {
         auto id = step.resource;
-        data[id] = make(b, loc, BitsSelectOp::getOperationName(),
-                        {guard, values[step.operands.front()], data[id]},
-                        TypeRange{data[id].getType()})
-                       ->getResult(0);
+        auto selected = selection(guard, values[step.operands.front()], data[id]);
+        if (failed(selected))
+          return failure();
+        data[id] = *selected;
         enables[id] = binary("or", enables[id], guard);
       } else if (step.kind == Kind::Observe) {
         Observation observation{
@@ -381,6 +425,7 @@ private:
                           binary("and", guard, values[step.activation])});
       }
     }
+    return success();
   }
 };
 
@@ -402,8 +447,9 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   (*package)->setAttr("ac.source_units", sourceOwners(p, b));
   b.setInsertionPointToEnd(package->getBody());
   // Nominal payload operations retain their declaration authority across routing.
-  for (auto declaration : p.getPackage().getOps<EnumOp>())
-    b.clone(*declaration);
+  for (Operation &declaration : p.getPackage().getBody()->getOperations())
+    if (isa<EnumOp, StructOp>(declaration))
+      b.clone(declaration);
   auto param = TypeParamType::get(
       b.getContext(), FlatSymbolRefAttr::get(b.getContext(), storageName),
       b.getStringAttr("T"));
@@ -490,7 +536,8 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
     }
   }
   for (const auto &owner : p.getInstances())
-    sequence(owner.comb, {});
+    if (failed(sequence(owner.comb, {})))
+      return failure();
   for (auto [id, resource] : llvm::enumerate(p.getResources()))
     if (!resource.isQueue())
       q[id].getDefiningOp()->insertOperands(2, values[resource.initial]);
@@ -534,8 +581,8 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
   enables.assign(q.size(), zero);
   pops.assign(q.size(), zero);
   for (const auto &rule : p.getRules()) {
-    sequence(rule.guard, one);
-    sequence(rule.body, one);
+    if (failed(sequence(rule.guard, one)) || failed(sequence(rule.body, one)))
+      return failure();
     Value guard =
         rule.guard.yields.empty() ? one : values[rule.guard.yields.front()];
     for (auto term : rule.path) {
@@ -550,7 +597,8 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
       guard = binary("and", guard, valid[id]);
     for (unsigned id : rule.queueWrites)
       guard = binary("and", guard, ready[id]);
-    sequence(rule.body, guard, true);
+    if (failed(sequence(rule.body, guard, true)))
+      return failure();
   }
   SmallVector<Value> yields;
   for (unsigned i = 0; i < q.size(); ++i) {
@@ -866,6 +914,76 @@ private:
            op->getOperand(1) == rhs && value.getType() == bit &&
            attrs(op, {b.getNamedAttr("opcode", b.getStringAttr(opcode))}) &&
            succeeded(claim(op));
+  }
+  // Authenticate every leaf selection and recover its common previous payload.
+  // Projection chains must refer to the actual proposed payload and one old root.
+  FailureOr<Value> selection(Value actual, Value guard, Value payload,
+                             Type type, FieldPath path = {}) {
+    if (actual.getType() != type || failed(debit(16, p.getTop())))
+      return failure();
+    if (auto record = dyn_cast<StructType>(type)) {
+      auto create = actual.getDefiningOp<StructCreateOp>();
+      auto declaration = HardwareAnalysis(p.getPackage()).lookupStruct(record);
+      if (!create || !attrs(create, {}) ||
+          create.getValues().size() != declaration.getFields().size() ||
+          failed(claim(create)))
+        return failure();
+      Value previous;
+      for (auto [index, raw] : llvm::enumerate(declaration.getFields())) {
+        auto field = cast<DictionaryAttr>(raw);
+        auto next = path;
+        next.push_back(field.getAs<StringAttr>("name"));
+        auto root = selection(create.getValues()[index], guard, payload,
+                              field.getAs<TypeAttr>("type").getValue(), next);
+        if (failed(root) || (previous && previous != *root))
+          return failure();
+        previous = *root;
+      }
+      if (!previous)
+        return failure();
+      return previous;
+    }
+    bool enumeration = isa<EnumType>(type);
+    Type carrier = type;
+    if (enumeration) {
+      auto width = p.getPayloadWidth(type);
+      if (failed(width))
+        return failure();
+      carrier = predicateType(b, top, *width);
+      auto from = actual.getDefiningOp<EnumFromBitsOp>();
+      if (!from || !attrs(from, {}) || from->getNumResults() != 2 ||
+          from->getResult(1).getType() != bit ||
+          !from->getResult(1).use_empty() || failed(claim(from)))
+        return failure();
+      actual = from->getOperand(0);
+    }
+    auto select = actual.getDefiningOp<BitsSelectOp>();
+    if (!select || !attrs(select, {}) || actual.getType() != carrier ||
+        select->getOperand(0) != guard || failed(claim(select)))
+      return failure();
+    auto root = [&](Value value) -> FailureOr<Value> {
+      if (enumeration) {
+        auto to = value.getDefiningOp<EnumToBitsOp>();
+        if (!to || !attrs(to, {}) || value.getType() != carrier ||
+            to->getOperand(0).getType() != type || failed(claim(to)))
+          return failure();
+        value = to->getOperand(0);
+      }
+      for (StringAttr field : llvm::reverse(path)) {
+        auto get = value.getDefiningOp<StructGetOp>();
+        if (!get || get.getFieldAttr() != field ||
+            !attrs(get, {b.getNamedAttr("field", field)}) || failed(claim(get)))
+          return failure();
+        value = get.getValue();
+      }
+      return value;
+    };
+    auto yes = root(select->getOperand(1));
+    auto no = root(select->getOperand(2));
+    if (failed(yes) || *yes != payload || failed(no) ||
+        !areEquivalentHardwareTypes(no->getType(), payload.getType()))
+      return failure();
+    return *no;
   }
   LogicalResult sequence(const TransactionalSequence &seq, Value guard,
                          Block *block, bool effects = false) {
@@ -1363,16 +1481,12 @@ LogicalResult Replay::run() {
     Value data = yield.getValues()[proposalOffset],
           enable = yield.getValues()[proposalOffset + 1];
     for (const auto &write : llvm::reverse(writes[id])) {
-      auto select = data.getDefiningOp<BitsSelectOp>();
+      auto previous = selection(data, write.guard, write.payload, q[id].getType());
       auto join = enable.getDefiningOp<BitsBinaryOp>();
-      if (!select || select->getNumOperands() != 3 ||
-          !select->getAttrs().empty() || select->getOperand(0) != write.guard ||
-          select->getOperand(1) != write.payload ||
-          select->getResult(0).getType() != q[id].getType() || !join ||
-          !binary(enable, "or", join->getOperand(0), write.guard) ||
-          failed(claim(select)))
+      if (failed(previous) || !join ||
+          !binary(enable, "or", join->getOperand(0), write.guard))
         return reject("write proposal/guard differs");
-      data = select->getOperand(2);
+      data = *previous;
       enable = join->getOperand(0);
     }
     if (data != q[id] || enable != zero)
@@ -1474,16 +1588,24 @@ LogicalResult Replay::run() {
   for (Operation &op : work)
     if (!claimed.contains(&op))
       return reject("unaccounted transaction computation");
-  auto expectedEnums = p.getPackage().getOps<EnumOp>();
-  auto actualEnums = package.getOps<EnumOp>();
-  if (std::distance(expectedEnums.begin(), expectedEnums.end()) !=
-      std::distance(actualEnums.begin(), actualEnums.end()))
+  auto declarations = [](mlir::ModuleOp module) {
+    SmallVector<Operation *> result;
+    for (Operation &op : module.getBody()->getOperations())
+      if (isa<EnumOp, StructOp>(op))
+        result.push_back(&op);
+    return result;
+  };
+  auto expectedDeclarations = declarations(p.getPackage());
+  auto actualDeclarations = declarations(package);
+  if (expectedDeclarations.size() != actualDeclarations.size())
     return reject("nominal declaration inventory differs");
-  for (auto [expected, actual] : llvm::zip(expectedEnums, actualEnums))
-    if (expected->getAttrDictionary() != actual->getAttrDictionary())
+  for (auto [expected, actual] :
+       llvm::zip(expectedDeclarations, actualDeclarations))
+    if (expected->getName() != actual->getName() ||
+        expected->getAttrDictionary() != actual->getAttrDictionary())
       return reject("nominal declaration differs from source");
   for (Operation &op : package.getBody()->getOperations())
-    if (!isa<EnumOp>(op) && !llvm::is_contained(ownerModules, &op) &&
+    if (!isa<EnumOp, StructOp>(op) && !llvm::is_contained(ownerModules, &op) &&
         &op != imported && &op != fifo && &op != system)
       return reject("unaccounted package operation");
   if (package->getAttr("ac.source_units") != sourceOwners(p, b))

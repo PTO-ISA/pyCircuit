@@ -16,6 +16,7 @@ outside the current example catalog.
 | [hello_counter](hello_counter/README.md) | A small System, persistent state and an explicitly registered Rule. |
 | [module_control_state_machine](module_control_state_machine/README.md) | Module branches, guarded transitions, autorules and committed-state observations. |
 | [resource_composition](resource_composition/README.md) | Multilevel references, independent scalar outputs and atomic backpressure. |
+| [structured_packet](structured_packet/README.md) | Nested Struct/Enum packets, whole-record State updates and Queue backpressure across Methods. |
 | [multi_outputs](multi_outputs/README.md) | Direct Module calls; Struct connections and independent tuple results. |
 | [sibling_calls](sibling_calls/README.md) | Existing Module references and independent callbacks reading committed state. |
 | [sibling_atomic](sibling_atomic/README.md) | A late sibling guard holds the whole transaction while the reader continues. |

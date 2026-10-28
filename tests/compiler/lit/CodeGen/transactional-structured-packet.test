@@ -1,0 +1,7 @@
+# REQUIRES: verilator, iverilog
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.known.cpp cpp known
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.known.rtl verilog known
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.reset.cpp cpp reset
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.reset.rtl verilog reset
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.xz.rtl verilog four-state
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.xz.cpp cpp four-state

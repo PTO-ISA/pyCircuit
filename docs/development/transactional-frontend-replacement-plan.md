@@ -2,7 +2,7 @@
 
 日期：2026-10-27。状态：实施计划，尚不表示迁移完成或本候选测试通过。
 
-语义依据为 [issue #361 的本地设计文档](../../issue/transactional-frontend-acir.md)及用户后续确认。本文规定如何替换、复用、迁移和验收，不重新定义未决语言语义，也不修改冻结的历史批准记录。
+语义依据为 [issue #361 的本地设计文档](https://github.com/PTO-ISA/pyCircuit/blob/main/issue/transactional-frontend-acir.md)及用户后续确认。本文规定如何替换、复用、迁移和验收，不重新定义未决语言语义，也不修改冻结的历史批准记录。
 
 ## 1. 目标与工程原则
 

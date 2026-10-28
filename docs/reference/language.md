@@ -9,7 +9,7 @@ analysis, Routed verification and storage lowering. Regenerate older units from
 source; there is no legacy selector or failure fallback.
 
 The current replacement slice admits closed Modules and default-clock Systems,
-explicitly initialized Bits state, pure Bits computation, nested Rules, guards,
+explicitly initialized Bits/Enum/Struct state, pure payload computation, nested Rules, guards,
 assertions, logs and imported literal constants. Modules export existing State
 identities. Ordinary `@ac.rule` declarations require explicit registration calls.
 A directly nested, parameterless `@ac.autorule` with no results registers once at
@@ -79,7 +79,7 @@ default allocation. Module returns export or forward resources without copying
 storage. Link specializes each instance and Rule registration independently.
 State output writes share the Rule's final fire with its other updates.
 
-Bits Queues execute through the same common transaction analysis and verified
+Bits, Enum and Struct Queues execute through the same common transaction analysis and verified
 C++/Verilog route as State. Admission uses old occupancy: empty cannot bypass a
 concurrent push; full cannot borrow capacity from a concurrent pop. Intermediate
 occupancy permits one push and one pop together. Input reads consume once per
@@ -107,8 +107,19 @@ Rules remain independent. Aliasing two output positions to one Queue still
 requests two pushes and is rejected when they overlap. See
 `examples/resource_composition` for the bounded Bits/System case.
 
-Rule-body control flow, cross-branch local merging and advanced
-payloads remain implementation gaps. Retained tests
+Finite nominal Structs containing Bits, Enum and nested Struct fields retain
+logical types through resource interfaces and by-value Method arguments/results.
+Construct every field explicitly; read fields or reuse whole local snapshots,
+and update State with a complete record. Reset restores its explicit initial
+record and empties Queues. Common analysis tracks knownness per packed leaf, so
+X/Z data does not taint a separate known control field; unknown controls remain
+rejected. Routing retains and authenticates the complete nominal declarations,
+including field order and types. Equal packed widths do not make different
+record declarations interchangeable. See `examples/structured_packet`.
+
+Field assignment, constructor defaults, ordinary helpers, loops, Rule-body
+control flow, cross-branch local merging and remaining advanced payloads are
+implementation gaps. Retained tests
 and independent oracles for these capabilities are not passing evidence for the
 replacement. See the [replacement status](../development/transactional-frontend-status.md)
 for actual validation and remaining work.

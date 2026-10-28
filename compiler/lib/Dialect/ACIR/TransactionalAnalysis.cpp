@@ -31,12 +31,17 @@ Operation *named(Operation *owner, StringRef name) {
 } // namespace
 
 FailureOr<unsigned> TransactionalAnalysis::getPayloadWidth(Type type) const {
-  if (!isa<BitsType, EnumType>(type))
+  if (!isa<BitsType, EnumType, StructType>(type))
     return failure();
   HardwareBindings bindings;
   bindings.owner = getTop();
-  auto width =
-      HardwareAnalysis(package_).getPackedWidth(type, bindings, getTop());
+  HardwareAnalysis hardware(package_);
+  auto leaves = hardware.getLeaves(type, bindings, getTop());
+  if (failed(leaves) || llvm::any_of(*leaves, [](const PackedLeaf &leaf) {
+        return !isa<BitsType, EnumType>(leaf.type);
+      }))
+    return failure();
+  auto width = hardware.getPackedWidth(type, bindings, getTop());
   if (failed(width) || !*width || *width > std::numeric_limits<unsigned>::max())
     return failure();
   return unsigned(*width);
@@ -146,7 +151,8 @@ private:
         payload = queue.getPayload();
       if (!payload || failed(p.getPayloadWidth(payload)))
         return allocation.emitError(
-            "transactional execution requires finite Bits or Enum State or Queue");
+            "transactional execution requires finite Bits, Enum or Struct "
+            "State or Queue");
       if (failed(charge(32, allocation)))
         return failure();
       unsigned resource = p.resources_.size();
@@ -480,7 +486,8 @@ private:
     for (Value result : op->getResults()) {
       if (failed(p.getPayloadWidth(result.getType())))
         return op->emitError(
-            "transactional execution requires finite Bits or Enum payloads");
+            "transactional execution requires finite Bits, Enum or Struct "
+            "payloads");
       unsigned id = p.values_.size();
       p.values_.push_back({result.getType(), instance, rule});
       step.results.push_back(id);
@@ -595,8 +602,39 @@ private:
     // every possible proposal is known. Queue payloads are known only under
     // the nonempty admission requirement and only if all pushes are known;
     // an empty head itself is never assumed known. Reads refer to old storage.
-    std::vector<bool> resources(p.resources_.size(), true);
-    std::vector<bool> values(p.values_.size(), false);
+    // Track each packed leaf separately: an unknown data field must not poison
+    // its known sibling control. Bits (including wide Bits) and Enum are leaves.
+    using KnownLeaves = std::vector<bool>;
+    llvm::DenseMap<Type, SmallVector<PackedLeaf>> layouts;
+    auto layout = [&](Type type) -> LogicalResult {
+      if (layouts.contains(type))
+        return success();
+      auto leaves = hardware.getLeaves(type, bindings, p.getTop());
+      if (failed(leaves) || failed(charge(leaves->size(), p.getTop())))
+        return failure();
+      layouts[type] = std::move(*leaves);
+      return success();
+    };
+    std::vector<KnownLeaves> resources, values;
+    for (auto &resource : p.resources_) {
+      if (failed(layout(resource.getPayload())))
+        return failure();
+      auto count = layouts[resource.getPayload()].size();
+      if (failed(charge(count, resource.allocation)))
+        return failure();
+      resources.emplace_back(count, true);
+    }
+    for (auto &value : p.values_) {
+      if (failed(layout(value.type)))
+        return failure();
+      auto count = layouts[value.type].size();
+      if (failed(charge(count, p.getTop())))
+        return failure();
+      values.emplace_back(count, false);
+    }
+    auto allKnown = [](const KnownLeaves &leaves) {
+      return llvm::all_of(leaves, [](bool known) { return known; });
+    };
     auto evaluate =
         [&](const TransactionalSequence &sequence) -> LogicalResult {
       for (const auto &owned : sequence.steps) {
@@ -604,15 +642,28 @@ private:
         if (failed(charge(8 + step.operands.size() + step.results.size(),
                           step.operation)))
           return failure();
+        KnownLeaves fields;
         bool known = false;
         if (step.kind == TransactionalStepKind::StateRead ||
             step.kind == TransactionalStepKind::QueueHead ||
             step.kind == TransactionalStepKind::QueuePop)
-          known = resources[step.resource];
+          fields = resources[step.resource];
         if (step.kind == TransactionalStepKind::Pure) {
           known = true;
           for (unsigned operand : step.operands)
-            known = known && values[operand];
+            known = known && allKnown(values[operand]);
+          if (isa<StructCreateOp>(step.operation)) {
+            // The common layout visits leaves in constructor field order.
+            for (unsigned operand : step.operands)
+              fields.insert(fields.end(), values[operand].begin(),
+                            values[operand].end());
+          } else if (auto get = dyn_cast<StructGetOp>(step.operation)) {
+            unsigned operand = step.operands.front();
+            for (auto [index, leaf] :
+                 llvm::enumerate(layouts[p.values_[operand].type]))
+              if (leaf.path.front() == get.getFieldAttr())
+                fields.push_back(values[operand][index]);
+          }
           if (auto literal = dyn_cast<BitsConstant4Op>(step.operation))
             known =
                 literal.getPattern().find_first_of("xzXZ") == StringRef::npos;
@@ -623,8 +674,14 @@ private:
             if (compare.getPredicate() == "case_eq")
               known = true;
         }
-        for (unsigned result : step.results)
-          values[result] = known;
+        for (unsigned result : step.results) {
+          if (failed(charge(values[result].size(), step.operation)))
+            return failure();
+          if (!fields.empty())
+            values[result] = fields;
+          else
+            std::fill(values[result].begin(), values[result].end(), known);
+        }
       }
       return success();
     };
@@ -637,11 +694,12 @@ private:
       for (auto &rule : p.rules_)
         if (failed(evaluate(rule.guard)) || failed(evaluate(rule.body)))
           return failure();
-      auto constrain = [&](unsigned id, bool known) {
-        if (resources[id] && !known) {
-          resources[id] = false;
-          changed = true;
-        }
+      auto constrain = [&](unsigned id, const KnownLeaves &known) {
+        for (unsigned i = 0; i < known.size(); ++i)
+          if (resources[id][i] && !known[i]) {
+            resources[id][i] = false;
+            changed = true;
+          }
       };
       for (auto [id, resource] : llvm::enumerate(p.resources_))
         if (!resource.isQueue())
@@ -654,16 +712,17 @@ private:
     } while (changed);
     for (auto &rule : p.rules_) {
       for (auto term : rule.path)
-        if (!values[term.value])
+        if (!allKnown(values[term.value]))
           return rule.registration.emitError(
               "transactional backend admission cannot resolve X/Z Module control; "
               "four-state payloads remain supported");
-      if (!rule.guard.yields.empty() && !values[rule.guard.yields.front()])
+      if (!rule.guard.yields.empty() &&
+          !allKnown(values[rule.guard.yields.front()]))
         return rule.registration.emitError(
             "transactional backend admission cannot resolve X/Z Rule control; "
             "four-state payloads remain supported");
       for (unsigned requirement : rule.requirements)
-        if (!values[requirement])
+        if (!allKnown(values[requirement]))
           return rule.registration.emitError(
               "transactional backend admission cannot resolve X/Z Method "
               "control; four-state payloads remain supported");

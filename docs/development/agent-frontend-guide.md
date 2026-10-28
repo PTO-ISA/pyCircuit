@@ -60,7 +60,7 @@ instead of adding hand-written hardware plumbing to the frontend.
 
 ## Module hierarchy and independent outputs
 
-The current transactional slice executes Bits resource interfaces, including
+The current transactional slice executes Bits, Enum and nested Struct resource interfaces, including
 independent tuple outputs and multilevel references. See
 `examples/resource_composition`.
 The broader combination and nominal interface examples below remain migration

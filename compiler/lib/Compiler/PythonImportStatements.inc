@@ -471,9 +471,9 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
       AstNode initial = node.child("value");
       if (!type)
         return failure();
-      if (!isa<ac::BitsType>(type) || !initial)
+      if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(type) || !initial)
         return fail(node,
-                    "State currently requires an initialized Bits variable");
+                    "State requires an initialized Bits, Enum or Struct variable");
       auto value = allocate(type, name, node, scope, initial);
       if (failed(value))
         return failure();

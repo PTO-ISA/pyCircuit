@@ -247,7 +247,8 @@ bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
     return false;
   auto type = call.getReceiver().getType();
   auto name = call.getCalleeAttr().getRootReference().getValue();
-  if (isa<PrimitiveType>(type) && name == "read") {
+  if (isa<PrimitiveType>(type) &&
+      (name == "read" || name == "head" || name == "peek")) {
     auto package = packageOf(op);
     auto stage =
         package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();

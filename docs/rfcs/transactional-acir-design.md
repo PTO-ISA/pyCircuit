@@ -4,7 +4,7 @@
 
 本文记录此前讨论确定的 ACIR 设计，补充[前端简化语义](frontend-simplification.md)，不替换该文档。AC 是 **Architecture Concept** 的缩写；ACIR 的主要表达层级是事务，而不是已经展开的寄存器引脚和使能网络。
 
-下面的 Python 是目标写法，MLIR 是便于讨论的示意语法，不是当前编译器生成物或可以直接执行的测试。操作的具体拼写、常量和类型标注有所简化；实际支持与执行证据另见[迁移状态](../development/transactional-migration-status.md)，实施安排见[实现计划](transactional-acir-gfsim-plan.md)。
+下面的 Python 是目标写法，MLIR 是便于讨论的示意语法，不是当前编译器生成物或可以直接执行的测试。操作的具体拼写、常量和类型标注有所简化；实际支持与执行证据另见[迁移状态](../development/transactional-frontend-status.md)，实施安排见[实现计划](../development/transactional-frontend-replacement-plan.md)。
 
 ## 1. 编译过程
 

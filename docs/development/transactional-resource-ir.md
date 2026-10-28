@@ -206,8 +206,10 @@ equal to distinct known constants. Each State receives exactly one logical updat
 an unwritten State holds Q with its enable disabled.
 
 The compiler supplies clock/reset ports and one rising-edge commit per complete
-cycle. Synchronous reset restores initial values and suppresses normal effects
-and checks for that cycle. Only the selected Module's declared State exports
+cycle. Synchronous reset restores initial values and suppresses normal storage
+updates and checks for that cycle. Successful Work observations still sample old
+state before the reset commit, as specified by the
+[System lifecycle](../architecture/system-execution.md#execution-and-failure). Only the selected Module's declared State exports
 become outputs, preserving order, names, types and aliases. Four-state payloads
 remain data. The predicate bridge is not a knownness proof and cannot silently
 convert X/Z to false. This adapter requires controls whose knownness can be proved

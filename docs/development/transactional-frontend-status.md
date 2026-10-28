@@ -34,7 +34,8 @@ Routed artifacts remain available through the existing Routed link target.
 | Module/Rule resource interfaces | PR-07 candidate; State execution and Queue structural validation recorded below |
 | Bits Queue execution | PR-08 candidate; validation and remaining scope recorded below |
 | Module if/elif/else and parameterless autorule | Implemented; retained SCF and focused C++/RTL execution PASS |
-| Advanced payloads, Rule-body control flow and branch-local merging | Implementation gaps; retained tests/oracles |
+| Nested Struct/Enum State, Queue and by-value Methods | PR-12a candidate; focused validation below |
+| Field assignment, defaults, helpers, loops and branch-local merging | Implementation gaps; retained tests/oracles |
 | Memory/Table timing and advanced capability migration | Retained requirements; consult replacement plan for semantic decisions |
 | Direct transactional gfsim | Later work; no alternate production frontend |
 
@@ -380,3 +381,62 @@ Queue protocols remain separate work; no old test was retired in this slice.
 | Selected aggregate CMake build | FAIL: parent_state_interfaces predicts rules.cpp although its global-Rule unit emits a header; independent CTest System flow above passes |
 | Strict documentation build | FAIL, three existing replacement-plan/RFC links; no new broken link retained |
 | Nightly, release, remote CI and direct transactional gfsim | NOT RUN |
+
+## PR-12a: structured payload execution
+
+The candidate extends the simplified `f630cc5b` baseline (`cc765a73` plus
+constraint-closure cleanup and Enum execution). Structs containing Bits, Enum
+and nested Struct fields use the existing packed layout, DFF/DFFE storage and
+FIFO kernels. Explicit complete construction, field projection, local value reuse,
+whole-record State initialization/update/reset, Queue transport and nonconsuming
+observation retain their nominal types. Methods accept and return records by value;
+a write still does not change a subsequent State read in the same transaction.
+
+Knownness follows individual packed leaves through construction, projection and
+State/Queue fixed points. Wide X/Z data cannot poison a known sibling control or
+make an unknown control known. Routed replay checks complete Struct/Enum
+declarations and typed proposal selection against normalized source authority.
+The source compiler also admits initialized Enum/Struct State, and deferred
+read-only `peek`/`head` on a default connection is rechecked after resource binding.
+
+`structured_packet` separates declarations, Processor and closed System into
+independently compiled units. Its independent trace model covers Queue occupancy,
+whole-record old-Q, Method results, output backpressure, reset and an 80-bit
+four-state field beside a known Enum control. A different record declaration with
+the same layout must be rejected. Shared test support supplies existing compiler,
+runner and bundle plumbing; expectations remain test-owned.
+
+Field assignment, constructor defaults, ordinary helpers and loops remain later
+migration work. The complete historical `struct_transform`,
+`enum_payload_pipeline`, `queue_rule_pipeline` and `multi_outputs` sources and
+oracles are retained; this example does not establish their migration or passing
+execution. No historical coverage was removed.
+
+| PR-12a check | Actual result |
+| --- | --- |
+| Simplified baseline transactional regressions | PASS, 18 lit tests before this implementation |
+| Compiler targets and native Method/resource tests | PASS, 2 CTest entries |
+| Existing transactional regressions | PASS, 18 lit tests, including the shared Queue driver |
+| Structured packet acceptance | PASS, six RUNs: known/reset/XZ on C++ workers 1/2 and RTL; four-state RTL uses Icarus |
+| Saved linked/Routed/Final artifacts and nominal rejection | PASS, roundtrip and source/saved declaration rejection |
+| Eight preceding runnable examples and structured_packet | PASS, generated C++ workers 1/2 and RTL; final Stage example rechecked separately |
+| Example catalog/CMake/verifier unit tests | PASS, 118 tests |
+| Changed-file CI hooks, API hygiene and strict documentation build | PASS; Python hooks run per file to avoid sandbox process-pool hangs |
+| Independent implementation and Astra authoring reviews | Clear; candidate binding in local evidence |
+| Full API / examples gates | FAIL at retained module_loop / multi_outputs migration gaps; remaining execution NOT RUN |
+| Nightly, release, remote CI and direct transactional gfsim | NOT RUN |
+
+Reset coverage changes only physical reset stimuli in the generated test harness,
+retaining sampling, checks, commit and publication. The transactional frontend's
+`system(samples=...)` admission remains a migration gap; this test does not claim
+that syntax is supported. Old-state observations at reset epochs are checked
+against the documented System lifecycle before State/Queue reset commits.
+
+Candidate-bound commands, outputs, reviews and change counts are recorded under
+`docs/gates/logs/20261028-pr12a/`. Existing baseline failures and intermediate
+failures are retained separately from the final focused PASS results.
+
+Relative to `f630cc5b`, compiler implementation changes add 232 and remove 50
+lines (net +182). Tests and test registration add 364 and remove 129 lines
+(net +235), including shared runner extraction; examples add 156 and remove one
+line (net +155). These are change-size measurements, not coverage counts.
