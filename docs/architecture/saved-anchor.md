@@ -3,7 +3,8 @@
 A saved anchor is a self-contained, configuration-bound routed graph. It can be
 verified or refined after the Python sources and original source units have been
 removed. Reload reads the saved definitions; it does not capture Python, resolve
-implicit providers or repeat transaction routing.
+implicit providers or replace the saved routing. Transactional routed verification
+replays the retained Linked snapshot to authenticate the stored graph.
 
 ```bash
 pycircuit link units/child units/top --top demo.top.Top --target anchor -o anchor
@@ -29,7 +30,7 @@ payload files listed there:
 | `graph.ac` | Package and root policy, nominal declarations, primitive and ordinary extern declarations; no executable Module bodies. |
 | `definitions/<variant-id>/spec.ac` | Exact inherent properties and discardable declaration attributes. |
 | `definitions/<variant-id>/body.ac` | One normalized routed Module definition, including typed SSA and source locations. |
-| `sources/<owner-id>.interface.ac` | Original admitted source interface retained for provenance. |
+| `sources/<owner-id>.interface.ac` | Original admitted source interface retained for provenance in schemas 1/2; absent in schema 3. |
 
 Only the selected root's semantic definition closure is indexed. Multiple
 occurrences share an immutable definition but retain independent storage and
@@ -64,7 +65,8 @@ replace refinement or hardware verification.
 Ordinary anchors use `kind="pycircuit-anchor"`, `schema=1` and
 `routed_contract=2`. Anchors with a compiler-owned
 [selected entry boundary](entry-boundary.md) use `schema=2` and
-`routed_contract=3`. Only these two schema/contract pairs are admitted;
+`routed_contract=3`. Transactional anchors use `schema=3` and
+`routed_contract=4`. These three schema/contract pairs are admitted;
 unsupported or mismatched versions require regeneration from source units.
 The manifest has closed fields for owner, root, configuration and its identity,
 complete content identity, file inventory, definition index, retained sources
@@ -81,6 +83,14 @@ in the existing configuration fields. Reload rederives both identities and
 bindings after native admission; it cannot swap roots or substitute actuals.
 An unrelated closed caller may be pruned from the saved closure without making
 this entry boundary invalid.
+
+Schema 3 uses the existing graph and definition inventory. Its `sources` list
+is empty: `ac.source_units` and the embedded `ac.transactional_source` Linked
+snapshot retain the source ownership and transaction provenance. The loader
+verifies that provenance and routed correspondence before physical lowering.
+It can be created directly from source units or with `link --from-linked
+linked.ac --target anchor -o anchor`; neither reload requires original source
+files or interfaces.
 
 Canonical JSON uses literal UTF-8, sorted object keys, compact separators and
 only required escapes. It has no floats or nonfinite numbers. Hardware integer

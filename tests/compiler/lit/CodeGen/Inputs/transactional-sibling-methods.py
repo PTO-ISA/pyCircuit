@@ -1,92 +1,25 @@
 """Independent sibling-instance, source-unit and cross-Module atomicity oracles."""
 
 import json
-import os
 import re
 import shutil
-import subprocess
 import sys
 from collections import Counter
-from contextlib import contextmanager
-from pathlib import Path
 
-repo, source_compiler, linker, emitter, cxx, opt, scratch, target = sys.argv[1:]
-repo, scratch = Path(repo), Path(scratch)
-if scratch.exists():
-    shutil.rmtree(scratch)
-scratch.mkdir(parents=True)
-sources = scratch / "sources"
-shutil.copytree(repo / "examples/sibling_method_calls", sources)
-env = dict(
-    os.environ,
-    PYTHONPATH=str(repo / "python"),
-    PYCIRCUIT_SOURCE_COMPILER=source_compiler,
-    PYCIRCUIT_LINKER=linker,
-    PYCIRCUIT_EMITTER=emitter,
+from transactional_test_support import SourceTest
+
+saved_linked = sys.argv[-1] == "linked"
+if saved_linked:
+    sys.argv.pop()
+
+fixture = SourceTest(
+    sys.argv[1:], "sibling_method_calls", "example_sibling_method_calls"
 )
-sequence = 0
-
-
-def run(command, *, fails=False):
-    global sequence
-    sequence += 1
-    command = [str(arg) for arg in command]
-    result = subprocess.run(
-        command, env=env, capture_output=True, text=True, timeout=240
-    )
-    prefix = scratch / f"{sequence:02d}"
-    prefix.with_suffix(".command.json").write_text(json.dumps(command))
-    prefix.with_suffix(".stdout").write_text(result.stdout)
-    prefix.with_suffix(".stderr").write_text(result.stderr)
-    prefix.with_suffix(".status").write_text(str(result.returncode) + "\n")
-    assert (result.returncode != 0) == fails, (
-        command,
-        result.returncode,
-        result.stdout,
-        result.stderr,
-    )
-    return result
-
-
-def cli(*arguments, fails=False):
-    return run([sys.executable, "-m", "pycircuit.cli", *arguments], fails=fails)
-
-
-def compile_source(name, *interfaces, output=None, fails=False):
-    arguments = [
-        "compile",
-        "-c",
-        sources / f"{name}.py",
-        "--source-root",
-        sources,
-        "--package-prefix",
-        "example_sibling_method_calls",
-        "-o",
-        scratch / (output or name),
-    ]
-    for interface in interfaces:
-        arguments.extend(("-I", scratch / interface))
-    return cli(*arguments, fails=fails)
-
-
-def artifact(unit, kind):
-    receipt = json.loads((scratch / unit / "unit.json").read_text())
-    return scratch / unit / receipt["files"][kind]
-
-
-@contextmanager
-def interfaces_only(*units):
-    hidden = []
-    try:
-        for unit in units:
-            body = artifact(unit, "body")
-            saved = scratch / f"{unit}-hidden.ac"
-            body.rename(saved)
-            hidden.append((body, saved))
-        yield
-    finally:
-        for body, saved in hidden:
-            saved.rename(body)
+repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
+opt = fixture.opt
+target = sys.argv[-1]
+run, cli, compile_source = fixture.run, fixture.cli, fixture.compile_source
+artifact, interfaces_only = fixture.artifact, fixture.interfaces_only
 
 
 # Sender infers its generic peer requirement without any Receiver source unit.
@@ -126,16 +59,24 @@ assert not (scratch / "wrong.ac").exists()
 # No original Python or provider body reads are available to substitute for link.
 shutil.rmtree(sources)
 final = scratch / "siblings.ac"
-cli(
-    "link",
-    scratch / "Sender",
-    scratch / "Receiver",
-    scratch / "Top",
-    "--top",
-    "example_sibling_method_calls.Top.Top",
-    "-o",
-    final,
-)
+if saved_linked:
+    fixture.link_saved(
+        ("Sender", "Receiver", "Top"),
+        "example_sibling_method_calls.Top.Top",
+        final,
+        retained=("ac.method @", "ac.method.call"),
+    )
+else:
+    cli(
+        "link",
+        scratch / "Sender",
+        scratch / "Receiver",
+        scratch / "Top",
+        "--top",
+        "example_sibling_method_calls.Top.Top",
+        "-o",
+        final,
+    )
 run([opt, final, "--ac-verify-hardware"])
 
 
@@ -174,9 +115,7 @@ def check_storage_owners():
 
 
 check_storage_owners()
-bundle = scratch / target
-cli("emit", final, "--target", target, "-o", bundle)
-generated = json.loads((bundle / "generated.json").read_text())
+executable, generated = fixture.build_system(final, target)
 # All three source owners must survive in the generated hierarchy. Passing a
 # reference must not turn the provider state into anonymous caller-owned state.
 assert {row["source"]["path"] for row in generated["source_groups"]} >= {
@@ -184,43 +123,6 @@ assert {row["source"]["path"] for row in generated["source_groups"]} >= {
     "Sender.py",
     "Top.py",
 }
-executable = scratch / f"siblings-{target}.exe"
-if target == "cpp":
-    implementations = [
-        bundle / row["path"]
-        for row in generated["files"]
-        if row["path"].endswith(".cpp")
-    ]
-    runtime = Path(emitter).parent.parent / "runtime/libpyc6_runtime.a"
-    if not runtime.is_file():
-        runtime = Path(emitter).parent.parent / "lib/libpyc6_runtime.a"
-    assert runtime.is_file(), runtime
-    run(
-        [
-            cxx,
-            "-std=c++20",
-            "-pthread",
-            f"-I{repo / 'include'}",
-            f"-I{bundle}",
-            *implementations,
-            runtime,
-            "-o",
-            executable,
-        ]
-    )
-else:
-    run(
-        [
-            sys.executable,
-            repo / "cmake/verify_example.py",
-            "--compile-system",
-            bundle,
-            "--output",
-            executable,
-            "--include",
-            repo / "include",
-        ]
-    )
 
 
 def observations(result):

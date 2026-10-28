@@ -30,3 +30,6 @@ With an installed toolchain:
 pycircuit run examples/sibling_method_calls --cycles 4
 pycircuit run examples/sibling_method_calls --target verilog --cycles 4
 ```
+
+The shared example verifier checks the per-cycle trace in [expected.json](expected.json),
+including both low and high sampling epochs, against these independent expectations.

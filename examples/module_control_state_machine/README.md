@@ -22,3 +22,6 @@ With an installed toolchain:
 pycircuit run examples/module_control_state_machine --cycles 5
 pycircuit run examples/module_control_state_machine --target verilog --cycles 5
 ```
+
+The shared example verifier checks the per-cycle trace in [expected.json](expected.json),
+including both low and high sampling epochs, against these independent expectations.

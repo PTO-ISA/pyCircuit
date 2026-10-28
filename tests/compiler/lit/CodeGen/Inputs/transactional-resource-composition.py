@@ -1,99 +1,28 @@
 """Independent resource identity, multiple-output and transaction oracle."""
 
 import json
-import os
 import re
 import shutil
-import subprocess
 import sys
 from collections import Counter
-from contextlib import contextmanager
 from pathlib import Path
 
-repo, source_compiler, linker, emitter, cxx, opt, scratch, target, mode = sys.argv[1:]
-repo, scratch = Path(repo), Path(scratch)
-if scratch.exists():
-    shutil.rmtree(scratch)
-scratch.mkdir(parents=True)
-sources = scratch / "sources"
+from transactional_test_support import SourceTest
+
+fixture = SourceTest(sys.argv[1:], None, "example_resource_composition")
+repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
+opt = fixture.opt
+target, mode = sys.argv[-2:]
+run, cli, compile_source = fixture.run, fixture.cli, fixture.compile_source
+artifact, interfaces_only = fixture.artifact, fixture.interfaces_only
+
 if mode == "composition":
-    shutil.copytree(repo / "examples/resource_composition", sources)
+    shutil.copytree(repo / "examples/resource_composition", sources, dirs_exist_ok=True)
 else:
-    sources.mkdir()
     shutil.copyfile(
         Path(__file__).with_name("transactional-resource-composition-cases.py"),
         sources / "cases.py",
     )
-env = dict(
-    os.environ,
-    PYTHONPATH=str(repo / "python"),
-    PYCIRCUIT_SOURCE_COMPILER=source_compiler,
-    PYCIRCUIT_LINKER=linker,
-    PYCIRCUIT_EMITTER=emitter,
-)
-sequence = 0
-
-
-def run(command, *, fails=False):
-    global sequence
-    sequence += 1
-    command = [str(arg) for arg in command]
-    result = subprocess.run(
-        command, env=env, capture_output=True, text=True, timeout=240
-    )
-    prefix = scratch / f"{sequence:02d}"
-    prefix.with_suffix(".command.json").write_text(json.dumps(command))
-    prefix.with_suffix(".stdout").write_text(result.stdout)
-    prefix.with_suffix(".stderr").write_text(result.stderr)
-    prefix.with_suffix(".status").write_text(str(result.returncode) + "\n")
-    assert (result.returncode != 0) == fails, (
-        command,
-        result.returncode,
-        result.stdout,
-        result.stderr,
-    )
-    return result
-
-
-def cli(*arguments, fails=False):
-    return run([sys.executable, "-m", "pycircuit.cli", *arguments], fails=fails)
-
-
-def compile_source(name, *interfaces, output=None, fails=False):
-    arguments = [
-        "compile",
-        "-c",
-        sources / f"{name}.py",
-        "--source-root",
-        sources,
-        "--package-prefix",
-        "example_resource_composition",
-        "-o",
-        scratch / (output or name),
-    ]
-    for interface in interfaces:
-        arguments.extend(("-I", scratch / interface))
-    return cli(*arguments, fails=fails)
-
-
-def artifact(unit, kind):
-    receipt = json.loads((scratch / unit / "unit.json").read_text())
-    return scratch / unit / receipt["files"][kind]
-
-
-@contextmanager
-def interfaces_only(*units):
-    hidden = []
-    try:
-        for unit in units:
-            body = artifact(unit, "body")
-            saved = scratch / f"{unit}-hidden.ac"
-            body.rename(saved)
-            hidden.append((body, saved))
-        yield
-    finally:
-        for body, saved in hidden:
-            saved.rename(body)
 
 
 if mode == "composition":
@@ -186,9 +115,7 @@ for stage in (routed, refined):
         and "callee = @pycircuit.__builtins__.fifo_local," in line
     ]
     assert len(fifo_instances) == queue_count
-bundle = scratch / target
-cli("emit", final, "--target", target, "-o", bundle)
-generated = json.loads((bundle / "generated.json").read_text())
+executable, generated = fixture.build_system(final, target)
 if mode == "composition":
     assert {row["source"]["path"] for row in generated["source_groups"]} >= {
         "counter.py",
@@ -197,41 +124,6 @@ if mode == "composition":
         "observer.py",
         "Top.py",
     }
-executable = scratch / f"composition-{target}.exe"
-if target == "cpp":
-    runtime = Path(emitter).parent.parent / "runtime/libpyc6_runtime.a"
-    if not runtime.is_file():
-        runtime = Path(emitter).parent.parent / "lib/libpyc6_runtime.a"
-    run(
-        [
-            cxx,
-            "-std=c++20",
-            "-pthread",
-            f"-I{repo / 'include'}",
-            f"-I{bundle}",
-            *(
-                bundle / row["path"]
-                for row in generated["files"]
-                if row["path"].endswith(".cpp")
-            ),
-            runtime,
-            "-o",
-            executable,
-        ]
-    )
-else:
-    run(
-        [
-            sys.executable,
-            repo / "cmake/verify_example.py",
-            "--compile-system",
-            bundle,
-            "--output",
-            executable,
-            "--include",
-            repo / "include",
-        ]
-    )
 
 
 def observations(result):

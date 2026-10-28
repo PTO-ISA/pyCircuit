@@ -4,7 +4,7 @@
 
 审查日期：2026-10-17。范围为 [#319](https://github.com/PTO-ISA/pyCircuit/issues/319) 和 [#307](https://github.com/PTO-ISA/pyCircuit/issues/307)，不含误写的 #309。本文件是当前交接清单，不是新的语义批准，也不表示两个 issue 已完成。
 
-配套文件：[逐例清单](issue-307-319-examples.md)、[执行 agent prompt](issue-307-319-agent-prompt.md)。作者规范以 [frontend guide](agent-frontend-guide.md)、[language](../reference/language.md)、[examples standard](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/STANDARD.md) 为入口；历史条目与用户最新要求冲突时，按设计归并表处理。
+配套文件：[逐例清单](issue-307-319-examples.md)。作者规范以 [frontend guide](agent-frontend-guide.md)、[language](../reference/language.md)、[examples standard](https://github.com/PTO-ISA/pyCircuit/blob/main/examples/STANDARD.md) 为入口；历史条目与用户最新要求冲突时，按设计归并表处理。
 
 ## 历史审查结论和候选
 

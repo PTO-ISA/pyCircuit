@@ -21,3 +21,10 @@ The CMake source list explicitly compiles each unit before linking the closed
 System. Both generated targets consume the same verified artifact. The focused
 resource-composition regression compares every observation epoch with an
 independent old-occupancy model, including the delayed-consumer interval.
+
+With an installed toolchain:
+
+```sh
+pycircuit run examples/resource_composition
+pycircuit run examples/resource_composition --target verilog
+```

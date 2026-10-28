@@ -1,6 +1,7 @@
 #include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/IR/Verifier.h"
+#include "mlir/IR/Builders.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
@@ -121,6 +122,7 @@ private:
   unsigned instance = 0;
   SmallVector<TransactionalInvocationPlan> invocation;
   unsigned nextStep = 0;
+  SmallVector<TransactionalPathTerm> path;
   llvm::DenseMap<unsigned, TransactionalStep *> producers;
   llvm::DenseMap<unsigned, bool> closedCache;
   unsigned nextClosedValue = 0;
@@ -217,10 +219,14 @@ private:
       auto &resource = p.resources_[resourceID];
       if (resource.isQueue())
         continue;
-      if (resource.allocation.getInitial().empty())
-        return resource.allocation.emitError(
-            "transactional execution currently requires an explicit State "
-            "initial value");
+      if (resource.allocation.getInitial().empty()) {
+        auto initial = unknown(resource.getPayload(), resource.allocation,
+                               environment, p.instances_[id].comb);
+        if (failed(initial))
+          return failure();
+        resource.initial = *initial;
+        continue;
+      }
       auto initial = payload(resource.allocation.getInitial()[0], environment,
                              resource.allocation);
       if (failed(initial) || !closed(*initial))
@@ -229,6 +235,82 @@ private:
       resource.initial = *initial;
     }
     return success();
+  }
+  FailureOr<unsigned> unknown(Type type, Operation *site, Environment &env,
+                              TransactionalSequence &sequence) {
+    // Own execution defaults separately: omitted source initializers remain
+    // omitted in the immutable source package and its saved certificate.
+    if (!p.initializers_)
+      p.initializers_ = mlir::ModuleOp::create(site->getLoc());
+    OpBuilder builder(p.package_.getContext());
+    builder.setInsertionPointToEnd(p.initializers_->getBody());
+    auto create = [&](StringRef name, ValueRange operands, TypeRange types,
+                      ArrayRef<NamedAttribute> attrs = {}) -> Operation * {
+      OperationState state(site->getLoc(), name);
+      state.addOperands(operands);
+      state.addTypes(types);
+      state.addAttributes(attrs);
+      return builder.create(state);
+    };
+    auto carrier = [&](unsigned width) {
+      auto integer = builder.getDictionaryAttr({
+          builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+          builder.getNamedAttr("value", MathIntAttr::get(builder.getContext(),
+              llvm::APSInt(llvm::APInt(64, width), true)))});
+      auto index = builder.getDictionaryAttr({
+          builder.getNamedAttr("kind", builder.getStringAttr("index")),
+          builder.getNamedAttr("value", builder.getI64IntegerAttr(0))});
+      auto source = builder.getDictionaryAttr({
+          builder.getNamedAttr("definition", FlatSymbolRefAttr::get(
+              builder.getContext(), p.getTop().getSymName())),
+          builder.getNamedAttr("ast_path", builder.getArrayAttr({index}))});
+      auto origin = builder.getDictionaryAttr({
+          builder.getNamedAttr("site", source),
+          builder.getNamedAttr("expansion", builder.getArrayAttr({}))});
+      auto location = builder.getDictionaryAttr({
+          builder.getNamedAttr("path", builder.getStringAttr("__transactional__.py")),
+          builder.getNamedAttr("line", builder.getI64IntegerAttr(1)),
+          builder.getNamedAttr("column", builder.getI64IntegerAttr(1)),
+          builder.getNamedAttr("end_line", builder.getI64IntegerAttr(1)),
+          builder.getNamedAttr("end_column", builder.getI64IntegerAttr(2))});
+      return BitsType::get(builder.getContext(), StaticExprAttr::get(
+          builder.getContext(), builder.getDictionaryAttr({
+              builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+              builder.getNamedAttr("value", integer),
+              builder.getNamedAttr("origin", origin),
+              builder.getNamedAttr("location", location)})));
+    };
+    Operation *op;
+    if (auto record = dyn_cast<StructType>(type)) {
+      auto declaration = hardware.lookupStruct(record);
+      SmallVector<Value> fields;
+      for (auto raw : declaration.getFields()) {
+        auto field = cast<DictionaryAttr>(raw);
+        auto id = unknown(field.getAs<TypeAttr>("type").getValue(), site, env,
+                          sequence);
+        if (failed(id))
+          return failure();
+        fields.push_back(producers.lookup(*id)->operation->getResult(0));
+      }
+      op = create(StructCreateOp::getOperationName(), fields, TypeRange{type});
+    } else {
+      auto width = p.getPayloadWidth(type);
+      if (failed(width) || failed(charge(*width, site)))
+        return failure();
+      Type bits = isa<BitsType>(type) ? type : Type(carrier(*width));
+      op = create(BitsConstant4Op::getOperationName(), {}, TypeRange{bits},
+                  {builder.getNamedAttr("pattern", builder.getStringAttr(
+                      std::string(*width, 'x')))});
+      if (type != bits) {
+        if (failed(operation(op, env, sequence, TransactionalNoID, true)))
+          return failure();
+        op = create(EnumFromBitsOp::getOperationName(), op->getResult(0),
+                    TypeRange{type, carrier(1)});
+      }
+    }
+    if (failed(operation(op, env, sequence, TransactionalNoID, true)))
+      return failure();
+    return payload(op->getResult(0), env, site);
   }
   LogicalResult registerRules(unsigned id) {
     instance = id;
@@ -352,6 +434,30 @@ private:
     if (failed(charge(32 + op->getNumOperands() * 4 + op->getNumResults() * 8,
                       op)))
       return failure();
+    if (isa<SourcePredicateOp, scf::YieldOp>(op))
+      return success();
+    if (auto branch = dyn_cast<scf::IfOp>(op)) {
+      auto predicate = branch.getCondition().getDefiningOp<SourcePredicateOp>();
+      if (!predicate || branch.getNumResults())
+        return branch.emitError("transactional branches require a source predicate and no merged values");
+      auto condition = payload(predicate->getOperand(0), env, branch);
+      if (failed(condition))
+        return failure();
+      p.rules_[rule].controls.push_back({*condition, path});
+      for (auto [index, region] : llvm::enumerate(branch->getRegions())) {
+        if (region.empty())
+          continue;
+        if (!region.hasOneBlock() || region.front().getNumArguments())
+          return branch.emitError("transactional branch requires one argument-free block");
+        Environment local = env;
+        path.push_back({*condition, index == 0});
+        auto restore = llvm::scope_exit([&] { path.pop_back(); });
+        for (Operation &nested : region.front())
+          if (failed(operation(&nested, local, sequence, rule, pure)))
+            return failure();
+      }
+      return success();
+    }
     if (auto reference = dyn_cast<InstanceRefOp>(op)) {
       unsigned target = instance;
       for (Attribute segment : reference.getInstancePath()) {
@@ -409,6 +515,7 @@ private:
     step.instance = instance;
     step.invocation = invocation;
     step.id = nextStep++;
+    step.path = path;
     if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
       auto receiver = lookup(call.getReceiver(), env, op);
       if (failed(receiver) || receiver->kind != Binding::Resource)
@@ -536,7 +643,8 @@ private:
     if (failed(region(definition.getGuard(), args, guard, rule, true)) ||
         failed(region(definition.getBody(), args, body, rule, pure)))
       return failure();
-    llvm::append_range(p.rules_[rule].requirements, guard.yields);
+    for (unsigned value : guard.yields)
+      p.rules_[rule].requirements.push_back({value, path});
     for (auto &step : guard.steps)
       sequence.steps.push_back(std::move(step));
     for (auto &step : body.steps)
@@ -547,15 +655,19 @@ private:
   }
 
   LogicalResult availability() {
-    // Follow actual SSA, including Module computations captured by a Rule.
-    // A cached head is a nonconsuming observation, but every transaction that
-    // uses it must still wait for the old Queue to be readable.
+    // Values retain the Queue observations on which they depend. Admission
+    // applies those observations only on the path that evaluates the use.
     std::vector<SmallVector<unsigned>> dependencies(p.values_.size());
     auto append = [](SmallVector<unsigned> &to, ArrayRef<unsigned> from) {
-      llvm::DenseSet<unsigned> seen(to.begin(), to.end());
       for (unsigned resource : from)
-        if (seen.insert(resource).second)
+        if (!llvm::is_contained(to, resource))
           to.push_back(resource);
+    };
+    auto require = [](SmallVector<TransactionalRequirement> &to,
+                      ArrayRef<unsigned> resources,
+                      ArrayRef<TransactionalPathTerm> path) {
+      for (unsigned resource : resources)
+        to.push_back({resource, {path.begin(), path.end()}});
     };
     auto sequence = [&](const TransactionalSequence &seq,
                         TransactionalRulePlan *rule) -> LogicalResult {
@@ -575,9 +687,14 @@ private:
         for (unsigned result : step->results)
           dependencies[result] = reads;
         if (rule) {
-          append(rule->queueReads, reads);
+          require(rule->queueReads, reads, step->path);
           if (step->kind == TransactionalStepKind::QueuePush)
-            append(rule->queueWrites, {step->resource});
+            require(rule->queueWrites, {step->resource}, step->path);
+          // Reaching a nested condition needs its payload under the parent
+          // path, before deciding which arm to evaluate.
+          for (unsigned i = 0; i < step->path.size(); ++i)
+            require(rule->queueReads, dependencies[step->path[i].value],
+                    ArrayRef(step->path).take_front(i));
         }
       }
       return success();
@@ -587,12 +704,14 @@ private:
         return failure();
     for (auto &rule : p.rules_) {
       for (auto term : rule.path)
-        append(rule.queueReads, dependencies[term.value]);
+        require(rule.queueReads, dependencies[term.value], {});
       if (failed(sequence(rule.guard, &rule)) ||
           failed(sequence(rule.body, &rule)))
         return failure();
-      for (unsigned requirement : rule.requirements)
-        append(rule.queueReads, dependencies[requirement]);
+      for (auto requirement : rule.requirements)
+        require(rule.queueReads, dependencies[requirement.value], requirement.path);
+      for (auto control : rule.controls)
+        require(rule.queueReads, dependencies[control.value], control.path);
     }
     return success();
   }
@@ -711,6 +830,10 @@ private:
             constrain(step->resource, values[step->operands.front()]);
     } while (changed);
     for (auto &rule : p.rules_) {
+      for (auto control : rule.controls)
+        if (!allKnown(values[control.value]))
+          return rule.registration.emitError(
+              "transactional backend admission cannot resolve X/Z branch control");
       for (auto term : rule.path)
         if (!allKnown(values[term.value]))
           return rule.registration.emitError(
@@ -721,8 +844,8 @@ private:
         return rule.registration.emitError(
             "transactional backend admission cannot resolve X/Z Rule control; "
             "four-state payloads remain supported");
-      for (unsigned requirement : rule.requirements)
-        if (!allKnown(values[requirement]))
+      for (auto requirement : rule.requirements)
+        if (!allKnown(values[requirement.value]))
           return rule.registration.emitError(
               "transactional backend admission cannot resolve X/Z Method "
               "control; four-state payloads remain supported");
@@ -903,8 +1026,9 @@ private:
       if (!rule.guard.yields.empty() &&
           failed(facts(rule.guard.yields.front(), true, conditions)))
         return failure();
-      for (unsigned requirement : rule.requirements)
-        if (failed(facts(requirement, true, conditions)))
+      for (auto requirement : rule.requirements)
+        if (requirement.path.empty() &&
+            failed(facts(requirement.value, true, conditions)))
           return failure();
       bool impossible = false;
       for (const auto &a : conditions) {
@@ -922,7 +1046,13 @@ private:
         if (step->kind == TransactionalStepKind::StateWrite ||
             step->kind == TransactionalStepKind::QueuePush ||
             step->kind == TransactionalStepKind::QueuePop)
-          writes.push_back({step.get(), conditions});
+          {
+            auto selected = conditions;
+            for (auto term : step->path)
+              if (failed(facts(term.value, term.positive, selected)))
+                return failure();
+            writes.push_back({step.get(), std::move(selected)});
+          }
     }
     for (unsigned i = 0; i < writes.size(); ++i)
       for (unsigned j = i + 1; j < writes.size(); ++j) {

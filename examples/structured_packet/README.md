@@ -20,3 +20,10 @@ compare the old-state Work observations during reset and the complete replay
 after reset commits. Sources compile separately using provider interfaces without provider bodies. A distinct
 record with identical layout must be rejected at the nominal interface boundary.
 This new example does not claim migration of historical structured examples.
+
+With an installed toolchain:
+
+```sh
+pycircuit run examples/structured_packet
+pycircuit run examples/structured_packet --target verilog
+```

@@ -27,7 +27,8 @@ resolveTransactionalMethodConstraints(mlir::ModuleOp package,
 mlir::LogicalResult
 solveTransactionalPayloadConstraints(mlir::ModuleOp package,
                                      bool requireClosed = false);
-// Close resource identities after instance and Rule occurrences are bound.
+// Specialize Rule registrations and close resource identities after instance
+// occurrences are bound.
 // Modules are in root-first occurrence order; input structure is verified by
 // the linking boundary. Allocates default queues and rewrites bound interfaces.
 mlir::LogicalResult resolveTransactionalResourceConnections(

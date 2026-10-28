@@ -9,6 +9,7 @@
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/Pass.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/JSON.h"
 #include "llvm/Support/FileSystem.h"
@@ -507,7 +508,8 @@ FailureOr<json::Object> manifest(const Files &files, ac::detail::EmitError emitE
                      "configuration_identity", "content_identity", "files", "definitions", "sources", "producer"}) ||
       object->getString("kind") != "pycircuit-anchor" ||
       !((object->getInteger("schema") == 1 && object->getInteger("routed_contract") == 2) ||
-        (object->getInteger("schema") == 2 && object->getInteger("routed_contract") == 3)))
+        (object->getInteger("schema") == 2 && object->getInteger("routed_contract") == 3) ||
+        (object->getInteger("schema") == 3 && object->getInteger("routed_contract") == 4)))
     return emitError() << "unsupported anchor schema/contract; regenerate from source units";
   auto owner = object->getObject("owner");
   auto producer = object->getObject("producer");
@@ -634,6 +636,8 @@ std::string anchorSha256(StringRef bytes) {
 LogicalResult writeAnchorArtifacts(
     mlir::ModuleOp routed, ArrayRef<AnchorSourceProvenance> sources,
     StringRef privateDirectory, ac::detail::EmitError emitError) {
+  auto contract = routed->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  bool transactional = contract && contract.getInt() == 4;
   uint64_t interfaceBytes = 0;
   if (sources.size() >= AnchorFormatLimits::payloadFiles)
     return emitError() << "anchor source count exceeds format limit";
@@ -646,7 +650,7 @@ LogicalResult writeAnchorArtifacts(
   if (failed(ac::verifyRoutedPackage(routed))) return failure();
   SmallVector<SourceLinkUnit> units;
   for (const auto &source : sources) units.push_back(source.unit);
-  if (failed(admitSourceLinkUnits(units, emitError))) return failure();
+  if (!transactional && failed(admitSourceLinkUnits(units, emitError))) return failure();
   auto systems = routed.getOps<ac::SystemOp>();
   if (!llvm::hasSingleElement(systems)) return emitError() << "anchor requires one selected root";
   auto system = *systems.begin();
@@ -667,6 +671,10 @@ LogicalResult writeAnchorArtifacts(
   // refinement, even before logical state has a physical callee reference.
   for (auto imported : routed.getOps<ac::ModuleImportOp>())
     if (imported.getPrimitiveKindAttr()) pending.push_back(symbol(imported.getSymName()));
+  if (transactional)
+    for (Operation &operation : routed.getBody()->getOperations())
+      if (isa<ac::EnumOp, ac::StructOp>(operation))
+        pending.push_back(symbol(SymbolTable::getSymbolName(&operation).getValue()));
   while (!pending.empty()) {
     auto name = std::move(pending.back()); pending.pop_back();
     if (!closure.insert(name).second) continue;
@@ -687,10 +695,15 @@ LogicalResult writeAnchorArtifacts(
   };
   OwningOpRef<mlir::ModuleOp> graph(mlir::ModuleOp::create(routed.getLoc()));
   graph->getOperation()->setAttrs(routed->getAttrs());
+  // Transactional replay authenticates nominal declarations in source order.
+  for (Operation &operation : routed.getBody()->getOperations())
+    if (!isa<ac::ModuleOp, ac::SystemOp>(operation) &&
+        closure.contains(symbol(SymbolTable::getSymbolName(&operation).getValue())))
+      graph->getBody()->push_back(operation.clone());
   for (const auto &name : closure) {
     auto *declaration = declarations.at(name);
     auto definition = dyn_cast<ac::ModuleOp>(declaration);
-    if (!definition) { graph->getBody()->push_back(declaration->clone()); continue; }
+    if (!definition) continue;
     uint64_t remaining = AnchorFormatLimits::totalBytes - payloadBytes;
     std::string specText = print(spec(definition), std::min(AnchorFormatLimits::fileBytes, remaining));
     std::string bodyText = print(declaration, std::min(AnchorFormatLimits::fileBytes, remaining - specText.size()));
@@ -709,6 +722,7 @@ LogicalResult writeAnchorArtifacts(
   if (failed(add("graph.ac", print(*graph)))) return failure();
   std::map<std::string, const AnchorSourceProvenance *> ordered;
   for (const auto &source : sources) {
+    if (transactional) continue; // Linked source provenance is retained by routed replay.
     auto owner = source.unit.header->getAttrOfType<DictionaryAttr>("ac.source_owner");
     auto key = canonicalObject(ownerJSON(owner));
     if (!hexID(source.bodySha256) || source.interfaceText.size() > AnchorFormatLimits::fileBytes ||
@@ -750,7 +764,7 @@ LogicalResult writeAnchorArtifacts(
         StringRef(path).ends_with("/spec.ac") ? "spec" : "body";
     inventory.push_back(json::Object{{"path", path}, {"role", role}, {"sha256", anchorSha256(text)}});
   }
-  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", boundary ? 2 : 1}, {"routed_contract", boundary ? 3 : 2},
+  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", transactional ? 3 : boundary ? 2 : 1}, {"routed_contract", transactional ? 4 : boundary ? 3 : 2},
     {"owner", json::Object{{"kind", "anchor"}, {"source", json::Object(*rootSource)}, {"definition", root}}},
     {"root", root}, {"configuration", json::Object(*config)}, {"configuration_identity", identity(*config)},
     {"files", std::move(inventory)}, {"definitions", std::move(definitions)}, {"sources", std::move(provenance)},
@@ -772,8 +786,9 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   auto &document = *parsed;
   auto config = document.getObject("configuration");
   bool boundary = document.getInteger("schema") == 2;
+  bool transactional = document.getInteger("schema") == 3;
   auto definitions = document.getArray("definitions"), sources = document.getArray("sources");
-  if (!definitions || definitions->empty() || !sources || sources->empty() ||
+  if (!definitions || definitions->empty() || !sources || (transactional ? !sources->empty() : sources->empty()) ||
       !(boundary ? keys(config, {"root", "implementation_root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})
                   : keys(config, {"root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})) ||
       !keys(config->getObject("root"), {"source", "definition", "variant_id"}) ||
@@ -886,6 +901,17 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
     return emitError() << "anchor configuration definition index is not exact";
   auto graph = fragment(files.at("graph.ac"), context);
   if (!graph) return emitError() << "cannot parse native anchor graph fragment";
+  if (transactional) {
+    auto owners = (*graph)->getAttrOfType<ArrayAttr>("ac.source_units");
+    if (!owners || owners.empty())
+      return emitError() << "transactional anchor requires source owners";
+    for (Attribute raw : owners) {
+      auto owner = dyn_cast<DictionaryAttr>(raw);
+      if (!owner || failed(ac::detail::verifySourceOwner(owner, emitError)) ||
+          !sourceOwners.insert(canonicalObject(ownerJSON(owner))).second)
+        return emitError() << "transactional anchor source owner inventory is invalid";
+    }
+  }
   std::map<std::string, Operation *> graphDeclarations;
   for (Operation &operation : graph->getBody()->getOperations()) {
     if (isa<ac::SystemOp>(operation)) continue;
@@ -902,6 +928,10 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
     if (auto imported = dyn_cast<ac::ModuleImportOp>(declaration);
         imported && imported->getAttrOfType<StringAttr>("primitive_kind"))
       pending.push_back(name);
+  if (transactional)
+    for (const auto &[name, declaration] : graphDeclarations)
+      if (isa<ac::EnumOp, ac::StructOp>(declaration))
+        pending.push_back(name);
   while (!pending.empty()) {
     auto name = std::move(pending.back()); pending.pop_back();
     if (loaded.contains(name) || neededGraph.contains(name)) continue;
@@ -943,7 +973,7 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   // until the complete assembled package has passed bounded native admission.
   if (failed(ac::verifyRoutedPackage(*graph))) return failure();
   auto contract = (*graph)->getAttrOfType<IntegerAttr>("ac.routed_contract");
-  if (!contract || contract.getInt() != (boundary ? 3 : 2))
+  if (!contract || contract.getInt() != (transactional ? 4 : boundary ? 3 : 2))
     return emitError() << "anchor schema and native routed contract differ";
 
   for (const auto &raw : *sources) {
@@ -981,9 +1011,18 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> refineVerifiedAnchor(
   ac::HardwareSourceCheckLimits limits;
   if (ac::detail::findUnloweredTransaction((*anchor.package).getOperation())) limits.maxWorkUnits = 1024 * 1024;
   ac::detail::SourceCheckBudget budget(limits);
-  auto candidate = acir::detail::materializeHardwareState(*anchor.package, budget);
-  if (failed(candidate) || failed(acir::detail::verifyHardwareStateMaterialization(
-          *anchor.package, **candidate, budget))) return failure();
+  auto contract = (*anchor.package)->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  FailureOr<OwningOpRef<mlir::ModuleOp>> candidate = failure();
+  if (contract && contract.getInt() == 4) {
+    candidate = OwningOpRef<mlir::ModuleOp>(cast<mlir::ModuleOp>((*anchor.package)->clone()));
+    PassManager lowering((*anchor.package).getContext());
+    lowering.addPass(acir::createLowerTransactionsPass());
+    if (failed(lowering.run(**candidate))) return failure();
+  } else {
+    candidate = acir::detail::materializeHardwareState(*anchor.package, budget);
+    if (failed(candidate) || failed(acir::detail::verifyHardwareStateMaterialization(
+            *anchor.package, **candidate, budget))) return failure();
+  }
   Builder builder((*anchor.package).getContext());
   (**candidate)->setAttr("ac.anchor_provenance", builder.getDictionaryAttr({
       builder.getNamedAttr("content_identity", builder.getStringAttr(anchor.contentIdentity)),

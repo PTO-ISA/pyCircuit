@@ -23,4 +23,14 @@ while compiling the consumer, removes all source files before linking, checks
 storage ownership, and compares generated C++ workers 1/2 and RTL to this oracle.
 A test adapter also drives reset after the blocked cycle and checks that all
 parent and child States return to their initial values and resume the same trace.
-Queue admission and pipeline behavior belong to the next replacement slice.
+For Queue timing and backpressure, see [scalar Queue pipeline](../scalar_queue_pipeline/README.md).
+
+With an installed toolchain:
+
+```sh
+pycircuit run examples/parent_state_interfaces --cycles 4
+pycircuit run examples/parent_state_interfaces --target verilog --cycles 4
+```
+
+The shared example verifier checks the per-cycle trace in [expected.json](expected.json),
+including both low and high sampling epochs, against these independent expectations.

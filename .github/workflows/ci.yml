@@ -149,7 +149,7 @@ jobs:
       - name: Run transactional dual backend regressions
         run: |
           lit -sv .pycircuit_out/toolchain/build/tests/compiler/lit \
-            --filter='(IR/transactional-|CodeGen/transactional-(constraints|state-interfaces|queue-pipeline|queue-timing|resource-composition|structured-packet|state|failure|source|methods|sibling-methods)\.test$)'
+            --filter='(IR/transactional-|CodeGen/transactional-(constraints|state-interfaces|queue-pipeline|queue-timing|resource-composition|structured-packet|state|failure|source|methods|sibling-methods|issue361|conditional-methods|uninitialized)\.test$)'
       - name: Upload transactional stage evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

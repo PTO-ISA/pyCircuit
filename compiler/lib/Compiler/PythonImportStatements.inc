@@ -29,7 +29,7 @@ FailureOr<SmallVector<Value>>
 Importer::instantiate(Declaration *decl, Operation *imported,
                       StringRef instanceName, const AstNode &call, Scope &scope,
                       ArrayRef<Value> destinations) {
-  if (!scope.module)
+  if (!scope.module || scope.conditionalDepth)
     return (void)fail(call ? call : scope.owner->node,
                       "Module instances require direct Module wiring"),
            failure();
@@ -232,6 +232,15 @@ Importer::registerRule(Callable &call, const AstNode &registration,
   for (unsigned i = 0; i < call.results.size(); ++i) {
     Value target = i < destinations.size() ? destinations[i] : Value();
     if (!target) {
+      // Output resources are static Module wiring. Only registration carries
+      // the enclosing branch predicate.
+      OpBuilder::InsertionGuard save(b);
+      if (scope.conditionalDepth) {
+        Operation *anchor = b.getInsertionBlock()->getParentOp();
+        while (anchor->getParentOp() != scope.owner->operation)
+          anchor = anchor->getParentOp();
+        b.setInsertionPoint(anchor);
+      }
       auto *connection = op(
           registration, "ac.resource.connection", {},
           resource(payload(call.results[i])),
@@ -345,6 +354,8 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
                  payload(found->second.type())))
         return fail(target,
                     "Module resource connection requires matching payloads");
+      if (scope.conditionalDepth)
+        return fail(target, "conditional binding cannot select a different resource");
       op(target, "ac.resource.connection",
          ValueRange{found->second.value, values.front()}, found->second.type(),
          {b.getNamedAttr("instance_name",
@@ -471,9 +482,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
       AstNode initial = node.child("value");
       if (!type)
         return failure();
-      if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(type) || !initial)
-        return fail(node,
-                    "State requires an initialized Bits, Enum or Struct variable");
+      if (!isa<ac::BitsType, ac::EnumType, ac::StructType>(type))
+        return fail(node, "State requires a Bits, Enum or Struct variable");
       auto value = allocate(type, name, node, scope, initial);
       if (failed(value))
         return failure();
@@ -566,7 +576,7 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
   }
   if (node.kind() == "Return") {
     if (scope.conditionalDepth)
-      return fail(node, "Module branch returns await result merging");
+      return fail(node, "branch returns await result merging");
     auto expressionNode = node.child("value");
     SmallVector<Value> values;
     if (expressionNode &&
@@ -740,15 +750,13 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     return success();
   }
   if (node.kind() == "If") {
-    if (!scope.module)
-      return fail(node,
-                  "Rule body control flow awaits transactional migration");
     auto condition = scalar(node.child("test"), scope, bits(1, node));
     if (failed(condition))
       return failure();
     auto selected = op(node, "ac.source.predicate", *condition, b.getI1Type())
                         ->getResult(0);
     auto *branch = op(node, "scf.if", selected, {}, {}, 2);
+    std::map<std::string, Binding> branchResources;
     for (unsigned arm = 0; arm < 2; ++arm) {
       auto *block = new Block;
       branch->getRegion(arm).push_back(block);
@@ -764,8 +772,16 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
         if (inner.bindings.at(name).value != binding.value)
           return fail(node,
                       "cross-branch local assignments await result merging");
+      if (scope.module)
+        for (const auto &[name, binding] : inner.bindings)
+          if (!scope.bindings.count(name) && isResource(binding.type())) {
+            if (!branchResources.emplace(name, binding).second)
+              return fail(node, "branch outputs require distinct names or an "
+                                "explicitly declared common destination");
+          }
       op(node, "scf.yield", {}, {});
     }
+    scope.bindings.insert(branchResources.begin(), branchResources.end());
     return success();
   }
   return fail(node, "unsupported statement in transactional native frontend");

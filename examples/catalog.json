@@ -64,6 +64,22 @@
       "system_scope": "Nested Struct and Enum packets through Queue, Method and State with old-Q observations and atomic backpressure; independent C++ workers 1/2 and RTL traces."
     },
     {
+      "name": "transactional_cumulative",
+      "folder": "examples/transactional_cumulative",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 22,
+      "system_scope": "Issue #361 cumulative pipeline: four atomic samples, fifth blocked and independent backpressure trace."
+    },
+    {
+      "name": "transactional_batch",
+      "folder": "examples/transactional_batch",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 34,
+      "system_scope": "Issue #361 four-sample batch: static branch output, Method guard and retained batch under backpressure."
+    },
+    {
       "name": "multi_outputs",
       "folder": "examples/multi_outputs",
       "source": "multi_outputs.py",

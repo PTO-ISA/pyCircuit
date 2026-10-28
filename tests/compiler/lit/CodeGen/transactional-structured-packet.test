@@ -5,3 +5,5 @@
 # RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.reset.rtl verilog reset
 # RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.xz.rtl verilog four-state
 # RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.xz.cpp cpp four-state
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.linked.cpp cpp known linked
+# RUN: %python %inputs/transactional-structured-packet.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.linked.rtl verilog known linked

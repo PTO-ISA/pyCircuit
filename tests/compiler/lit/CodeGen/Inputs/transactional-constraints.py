@@ -1,69 +1,17 @@
 """Source-unit type constraints with independent System execution oracles."""
 
 import json
-import os
 import shutil
-import subprocess
 import sys
 from collections import Counter
-from pathlib import Path
 
-repo, compiler, linker, emitter, cxx, opt, scratch, target = sys.argv[1:]
-repo, scratch = Path(repo), Path(scratch)
-if scratch.exists():
-    shutil.rmtree(scratch)
-sources = scratch / "sources"
-sources.mkdir(parents=True)
-env = dict(
-    os.environ,
-    PYTHONPATH=str(repo / "python"),
-    PYCIRCUIT_SOURCE_COMPILER=compiler,
-    PYCIRCUIT_LINKER=linker,
-    PYCIRCUIT_EMITTER=emitter,
-)
-sequence = 0
+from transactional_test_support import SourceTest
 
-
-def run(command, *, fails=False):
-    global sequence
-    sequence += 1
-    command = [str(arg) for arg in command]
-    result = subprocess.run(
-        command, env=env, capture_output=True, text=True, timeout=240
-    )
-    prefix = scratch / f"{sequence:02d}"
-    for suffix, content in (
-        ("command.json", json.dumps(command)),
-        ("stdout", result.stdout),
-        ("stderr", result.stderr),
-        ("status", str(result.returncode) + "\n"),
-    ):
-        prefix.with_suffix("." + suffix).write_text(content)
-    assert (result.returncode != 0) == fails, (command, result.stdout, result.stderr)
-    return result
-
-
-def cli(*args, fails=False):
-    return run([sys.executable, "-m", "pycircuit.cli", *args], fails=fails)
-
-
-def compile_source(name, *interfaces, replace=False, fails=False):
-    args = [
-        "compile",
-        "-c",
-        sources / f"{name}.py",
-        "--source-root",
-        sources,
-        "--package-prefix",
-        "constraints",
-        "-o",
-        scratch / name,
-    ]
-    for interface in interfaces:
-        args.extend(("-I", scratch / interface))
-    if replace:
-        args.append("--replace")
-    return cli(*args, fails=fails)
+fixture = SourceTest(sys.argv[1:], None, "constraints")
+repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
+opt = fixture.opt
+target = sys.argv[-1]
+run, cli, compile_source = fixture.run, fixture.cli, fixture.compile_source
 
 
 # Resource annotations constrain their initializer without creating storage.
@@ -267,45 +215,7 @@ cli(
 )
 reparsed = scratch / "reparsed.ac"
 run([opt, final, "--ac-verify-hardware", "-o", reparsed])
-bundle = scratch / target
-cli("emit", reparsed, "--target", target, "-o", bundle)
-executable = scratch / f"constraints-{target}"
-if target == "cpp":
-    generated = json.loads((bundle / "generated.json").read_text())
-    implementations = [
-        bundle / row["path"]
-        for row in generated["files"]
-        if row["path"].endswith(".cpp")
-    ]
-    runtime = Path(emitter).parent.parent / "runtime/libpyc6_runtime.a"
-    if not runtime.is_file():
-        runtime = Path(emitter).parent.parent / "lib/libpyc6_runtime.a"
-    run(
-        [
-            cxx,
-            "-std=c++20",
-            "-pthread",
-            f"-I{repo / 'include'}",
-            f"-I{bundle}",
-            *implementations,
-            runtime,
-            "-o",
-            executable,
-        ]
-    )
-else:
-    run(
-        [
-            sys.executable,
-            repo / "cmake/verify_example.py",
-            "--compile-system",
-            bundle,
-            "--output",
-            executable,
-            "--include",
-            repo / "include",
-        ]
-    )
+executable, generated = fixture.build_system(reparsed, target)
 
 
 def observations(result):

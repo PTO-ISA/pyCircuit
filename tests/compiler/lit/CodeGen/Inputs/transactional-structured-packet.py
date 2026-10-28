@@ -8,6 +8,10 @@ from collections import Counter, deque
 from transactional_queue_replay import verify_stages
 from transactional_test_support import SourceTest
 
+saved_linked = sys.argv[-1] == "linked"
+if saved_linked:
+    sys.argv.pop()
+
 fixture = SourceTest(sys.argv[1:], "structured_packet", "example_structured_packet")
 repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
 opt = fixture.opt
@@ -51,14 +55,27 @@ if mode == "known" and target == "cpp":
 
 shutil.rmtree(sources)
 final = scratch / "pipeline.ac"
-fixture.cli(
-    "link",
-    *(scratch / unit for unit in ("types", "processor", "Top")),
-    "--top",
-    "example_structured_packet.Top.Top",
-    "-o",
-    final,
-)
+if saved_linked:
+    linked = fixture.link_saved(
+        ("types", "processor", "Top"),
+        "example_structured_packet.Top.Top",
+        final,
+        retained=("ac.method @", "ac.method.call"),
+    )
+    fixture.run([opt, final, "--ac-verify-hardware"])
+    anchor = scratch / "anchor"
+    fixture.cli("link", "--from-linked", linked, "--target", "anchor", "-o", anchor)
+    final = scratch / "anchored.ac"
+    fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", final)
+else:
+    fixture.cli(
+        "link",
+        *(scratch / unit for unit in ("types", "processor", "Top")),
+        "--top",
+        "example_structured_packet.Top.Top",
+        "-o",
+        final,
+    )
 fixture.run([opt, final, "--ac-verify-hardware"])
 verify_stages(final, opt, fixture.run, mutations=False)
 if mode == "known" and target == "cpp":

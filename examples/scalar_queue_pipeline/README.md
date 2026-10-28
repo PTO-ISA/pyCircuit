@@ -19,3 +19,10 @@ blocked cycles; the expected sequence comes from the arithmetic above.
 
 `queue_rule_pipeline` remains the historical structured-payload example. This
 scalar example does not establish migration of its Struct-specific behavior.
+
+With an installed toolchain:
+
+```sh
+pycircuit run examples/scalar_queue_pipeline
+pycircuit run examples/scalar_queue_pipeline --target verilog
+```

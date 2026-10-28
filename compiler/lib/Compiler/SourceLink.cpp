@@ -8,6 +8,7 @@
 #include "mlir/Pass/Pass.h"
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
+#include "pycircuit/Dialect/ACIR/TransactionalAnalysis.h"
 #include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/DenseMap.h"
@@ -125,52 +126,6 @@ class ReferenceLinker {
     return failure();
   }
 
-  LogicalResult specializeResources() {
-    // Each registration specializes its template independently, including
-    // source-global Rules shared by differently bound instances.
-    unsigned ruleIndex = 0;
-    for (auto &occurrence : instances) {
-      auto module = occurrence.linked;
-      llvm::DenseSet<Operation *> specialized;
-      SmallVector<ac::TransactionRuleCallOp> calls;
-      module.walk(
-          [&](ac::TransactionRuleCallOp call) { calls.push_back(call); });
-      for (auto call : calls) {
-        Operation *target =
-            SymbolTable::lookupSymbolIn(module, call.getCallee());
-        if (!target)
-          target = lookup(call.getCallee());
-        auto rule = dyn_cast_or_null<ac::TransactionRuleOp>(target);
-        if (!rule)
-          return call.emitOpError(
-              "Rule registration requires its provider body");
-        auto clone = cast<ac::TransactionRuleOp>(rule->clone());
-        std::string name;
-        do {
-          name = "__bound_rule_" + std::to_string(ruleIndex++);
-        } while (SymbolTable::lookupSymbolIn(module, name));
-        specialized.insert(clone);
-        clone->setAttr("sym_name", StringAttr::get(package.getContext(), name));
-        module.getBody().front().getOperations().insert(
-            module.getBody().front().getTerminator()->getIterator(), clone);
-        call->setAttr("callee",
-                      FlatSymbolRefAttr::get(package.getContext(), name));
-      }
-      for (auto rule : llvm::make_early_inc_range(
-               module.getBody().front().getOps<ac::TransactionRuleOp>()))
-        if (!specialized.contains(rule))
-          rule.erase();
-    }
-    for (auto rule :
-         llvm::make_early_inc_range(package.getOps<ac::TransactionRuleOp>()))
-      rule.erase();
-
-    SmallVector<ac::ModuleOp> modules;
-    for (auto &occurrence : instances)
-      modules.push_back(occurrence.linked);
-    return ac::resolveTransactionalResourceConnections(package, modules);
-  }
-
 public:
   explicit ReferenceLinker(ModuleOp package) : package(package) {}
   LogicalResult run(ac::ModuleOp root) {
@@ -231,7 +186,10 @@ public:
                   .take_front(originalSignature.getNumInputs()),
               originalSignature.getResults())));
     }
-    if (failed(specializeResources()))
+    SmallVector<ac::ModuleOp> modules;
+    for (auto &occurrence : instances)
+      modules.push_back(occurrence.linked);
+    if (failed(ac::resolveTransactionalResourceConnections(package, modules)))
       return failure();
     for (unsigned index = 0; index < instances.size(); ++index) {
       auto module = instances[index].original;
@@ -529,34 +487,63 @@ linkSourceUnits(ArrayRef<SourceLinkUnit> units, StringRef top,
   if (failed(ac::resolveTransactionalMethodConstraints(*linked, true)) ||
       failed(ac::solveTransactionalPayloadConstraints(*linked, true)))
     return failure();
-  if (target == SourceLinkTarget::Linked) {
-    if (failed(verify(*linked)) ||
-        failed(ac::verifyTransactionalPackage(*linked)))
-      return failure();
-    return std::move(linked);
-  }
-  // Routing's public analysis entry verifies this same, unmodified linked IR.
+  return continueLinkedSource(*linked, emitError, target, retainedStages);
+}
 
+FailureOr<OwningOpRef<ModuleOp>>
+continueLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
+                     SourceLinkTarget target, SourceLinkStages *retainedStages) {
+  if (failed(verify(source)))
+    return failure();
+  auto owners = source->getAttrOfType<ArrayAttr>("ac.source_units");
+  if (!owners || owners.empty())
+    return emitError() << "linked artifact requires source owners";
+  llvm::DenseSet<Attribute> sourceOwners;
+  for (Attribute raw : owners) {
+    auto owner = dyn_cast<DictionaryAttr>(raw);
+    if (!owner || failed(ac::detail::verifySourceOwner(owner, emitError)) ||
+        !sourceOwners.insert(owner).second)
+      return emitError() << "linked artifact source owner inventory is invalid";
+  }
+  for (Operation &operation : source.getBody()->getOperations())
+    if (!isa<ac::SystemOp>(operation)) {
+      auto owner = operation.getAttrOfType<DictionaryAttr>("source_owner");
+      if (!owner)
+        owner = operation.getAttrOfType<DictionaryAttr>("ac.source_owner");
+      if (!owner || !sourceOwners.contains(owner))
+        return operation.emitOpError("source owner is absent from linked inventory");
+    }
+  auto systems = source.getOps<ac::SystemOp>();
+  if (!llvm::hasSingleElement(systems))
+    return emitError() << "linked artifact requires one System entry";
+  auto top = (*systems.begin()).getEntry().getAs<FlatSymbolRefAttr>("callee");
+  if (!top)
+    return emitError() << "linked artifact requires a selected root";
+  ac::HardwareSourceCheckLimits limits;
+  limits.maxWorkUnits = 1024 * 1024;
+  ac::detail::SourceCheckBudget budget(limits);
+  auto debit = [&](uint64_t units, Operation *site) {
+    return budget.debit(units, site);
+  };
+  if (target == SourceLinkTarget::Linked) {
+    if (failed(ac::TransactionalAnalysis::create(source, top.getValue(), debit)))
+      return failure();
+    return OwningOpRef<ModuleOp>(cast<ModuleOp>(source->clone()));
+  }
   SourceLinkStages stages;
   auto capture = [](ModuleOp module, std::string &text) {
     llvm::raw_string_ostream output(text);
     module->print(output, OpPrintingFlags().enableDebugInfo());
     output << '\n';
   };
-  capture(*linked, stages.beforeTransactions);
-  ac::HardwareSourceCheckLimits limits;
-  limits.maxWorkUnits = 1024 * 1024;
-  ac::detail::SourceCheckBudget budget(limits);
-  auto routed = ac::routeTransactionalPackage(
-      *linked, top, [&](uint64_t units, Operation *site) {
-        return budget.debit(units, site);
-      });
+  capture(source, stages.beforeTransactions);
+  auto routed = ac::routeTransactionalPackage(source, top.getValue(), debit);
   if (failed(routed))
     return failure();
-  linked = std::move(*routed);
+  auto linked = std::move(*routed);
   capture(*linked, stages.routedTransactions);
   if (target == SourceLinkTarget::Hardware) {
-    PassManager lowering(context);
+    PassManager lowering(source.getContext());
     lowering.addPass(acir::createLowerTransactionsPass());
     if (failed(lowering.run(*linked)))
       return failure();

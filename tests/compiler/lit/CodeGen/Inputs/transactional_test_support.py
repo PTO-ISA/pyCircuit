@@ -11,7 +11,7 @@ from pathlib import Path
 
 class SourceTest:
     def __init__(self, arguments, example, package):
-        repo, compiler, linker, emitter, cxx, opt, scratch, target, mode = arguments
+        repo, compiler, linker, emitter, cxx, opt, scratch = arguments[:7]
         self.repo, self.scratch = Path(repo).resolve(), Path(scratch).resolve()
         self.emitter, self.cxx, self.opt = emitter, cxx, opt
         self.package = package
@@ -20,7 +20,10 @@ class SourceTest:
             shutil.rmtree(self.scratch)
         self.scratch.mkdir(parents=True)
         self.sources = self.scratch / "sources"
-        shutil.copytree(self.repo / "examples" / example, self.sources)
+        if example is None:
+            self.sources.mkdir()
+        else:
+            shutil.copytree(self.repo / "examples" / example, self.sources)
         self.env = dict(
             os.environ,
             PYTHONPATH=str(self.repo / "python"),
@@ -53,7 +56,9 @@ class SourceTest:
             [sys.executable, "-m", "pycircuit.cli", *arguments], fails=fails
         )
 
-    def compile_source(self, name, *interfaces, output=None, fails=False):
+    def compile_source(
+        self, name, *interfaces, output=None, replace=False, fails=False
+    ):
         arguments = [
             "compile",
             "-c",
@@ -67,11 +72,38 @@ class SourceTest:
         ]
         for interface in interfaces:
             arguments.extend(("-I", self.scratch / interface))
+        if replace:
+            arguments.append("--replace")
         return self.cli(*arguments, fails=fails)
 
     def artifact(self, unit, kind):
         receipt = json.loads((self.scratch / unit / "unit.json").read_text())
         return self.scratch / unit / receipt["files"][kind]
+
+    def link_saved(self, units, top, final, *, retained=()):
+        """Resume a portable Linked artifact with no source-unit inputs left."""
+        linked = final.with_suffix(".linked.ac")
+        self.cli(
+            "link",
+            *(self.scratch / unit for unit in units),
+            "--top",
+            top,
+            "--target",
+            "linked",
+            "-o",
+            linked,
+        )
+        text = linked.read_text()
+        for operation in ('ac.stage = "linked"', "ac.rule @", "guard {", *retained):
+            assert operation in text, operation
+        if self.sources.exists():
+            shutil.rmtree(self.sources)
+        for unit in units:
+            shutil.rmtree(self.scratch / unit)
+        portable = final.with_suffix(".portable.ac")
+        shutil.copyfile(linked, portable)
+        self.cli("link", "--from-linked", portable, "-o", final)
+        return portable
 
     @contextmanager
     def interfaces_only(self, *units):
@@ -87,8 +119,8 @@ class SourceTest:
             for body, saved in hidden:
                 saved.rename(body)
 
-    def build_system(self, final, target, *, reset_cycle=None):
-        bundle = self.scratch / target
+    def build_system(self, final, target, *, reset_cycle=None, name=None):
+        bundle = self.scratch / (name or target)
         self.cli("emit", final, "--target", target, "-o", bundle)
         generated = json.loads((bundle / "generated.json").read_text())
         # Reset-only test adapter: change physical input stimulus, retaining
@@ -107,7 +139,7 @@ class SourceTest:
             text = harness.read_text()
             assert text.count(before) == 1
             harness.write_text(text.replace(before, after))
-        executable = self.scratch / f"system-{target}.exe"
+        executable = self.scratch / f"system-{name or target}.exe"
         if target == "cpp":
             runtime = Path(self.emitter).parent.parent / "runtime/libpyc6_runtime.a"
             if not runtime.is_file():

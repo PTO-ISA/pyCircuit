@@ -24,3 +24,6 @@ No authored C++ driver, RTL testbench or runtime config is required. Each cycle
 has a low and high sampling epoch; the current-value log is therefore
 `0, 0, 1, 1, 2, 2, 3, 3, 4, 4` for five cycles. Logs are source observations;
 independent framework oracles are separate tests.
+
+The shared example verifier checks the per-cycle trace in [expected.json](expected.json),
+including both low and high sampling epochs, against these independent expectations.

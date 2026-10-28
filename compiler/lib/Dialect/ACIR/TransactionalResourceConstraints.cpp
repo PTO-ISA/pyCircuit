@@ -2,6 +2,7 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/SymbolTable.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
 using namespace mlir;
@@ -10,8 +11,44 @@ namespace acir::ac {
 
 // Close resource identity constraints after every instance occurrence is bound.
 // Allocation is deliberately later than both alias and payload validation.
-LogicalResult resolveTransactionalResourceConnections(mlir::ModuleOp package,
-                                         ArrayRef<ac::ModuleOp> modules) {
+LogicalResult
+resolveTransactionalResourceConnections(mlir::ModuleOp package,
+                                        ArrayRef<ac::ModuleOp> modules) {
+  // Each registration specializes its template independently, including
+  // source-global Rules shared by differently bound instances.
+  unsigned ruleIndex = 0;
+  for (auto module : modules) {
+    llvm::DenseSet<Operation *> specialized;
+    SmallVector<ac::TransactionRuleCallOp> calls;
+    module.walk([&](ac::TransactionRuleCallOp call) { calls.push_back(call); });
+    for (auto call : calls) {
+      Operation *target = SymbolTable::lookupSymbolIn(module, call.getCallee());
+      if (!target)
+        target = SymbolTable::lookupSymbolIn(package, call.getCallee());
+      auto rule = dyn_cast_or_null<ac::TransactionRuleOp>(target);
+      if (!rule)
+        return call.emitOpError("Rule registration requires its provider body");
+      auto clone = cast<ac::TransactionRuleOp>(rule->clone());
+      std::string name;
+      do {
+        name = "__bound_rule_" + std::to_string(ruleIndex++);
+      } while (SymbolTable::lookupSymbolIn(module, name));
+      specialized.insert(clone);
+      clone->setAttr("sym_name", StringAttr::get(package.getContext(), name));
+      module.getBody().front().getOperations().insert(
+          module.getBody().front().getTerminator()->getIterator(), clone);
+      call->setAttr("callee",
+                    FlatSymbolRefAttr::get(package.getContext(), name));
+    }
+    for (auto rule : llvm::make_early_inc_range(
+             module.getBody().front().getOps<ac::TransactionRuleOp>()))
+      if (!specialized.contains(rule))
+        rule.erase();
+  }
+  for (auto rule :
+       llvm::make_early_inc_range(package.getOps<ac::TransactionRuleOp>()))
+    rule.erase();
+
   auto lookup = [&](StringRef name) {
     return SymbolTable::lookupSymbolIn(package, name);
   };

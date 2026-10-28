@@ -238,7 +238,8 @@ Operation *methodTarget(TransactionMethodCallOp call) {
               : nullptr;
 }
 bool readOnly(Operation *op, llvm::DenseSet<Operation *> &active) {
-  if (purePayload(op) || isa<YieldOp>(op))
+  if (purePayload(op) ||
+      isa<YieldOp, SourcePredicateOp, scf::IfOp, scf::YieldOp>(op))
     return true;
   if (auto pending = dyn_cast<TransactionMethodPendingOp>(op))
     return pending.getReadOnly() && !isLinkedTransactionalPackage(op);
@@ -293,10 +294,18 @@ ModuleOp controlOwner(Operation *op) {
     parent = parent->getParentOp();
   return dyn_cast_or_null<ModuleOp>(parent);
 }
+bool inCallableBody(Operation *op) {
+  Operation *child = op;
+  while (isa_and_nonnull<scf::IfOp>(child->getParentOp()))
+    child = child->getParentOp();
+  auto *owner = child->getParentOp();
+  return isa_and_nonnull<TransactionRuleOp, TransactionMethodOp>(owner) &&
+         child->getParentRegion() == &owner->getRegion(1);
+}
 LogicalResult verifyModuleControl(Operation *op) {
-  if (!controlOwner(op))
+  if (!controlOwner(op) && !inCallableBody(op))
     return op->emitOpError(
-        "transactional SCF control requires Module placement");
+        "transactional SCF control requires Module or Rule/Method body placement");
   if (auto branch = dyn_cast<scf::IfOp>(op)) {
     if (branch.getNumResults() ||
         !branch.getCondition().getDefiningOp<SourcePredicateOp>())
@@ -316,7 +325,7 @@ LogicalResult verifyModuleControl(Operation *op) {
   } else if (isa<scf::YieldOp>(op)) {
     if (!isa<scf::IfOp>(op->getParentOp()) || op->getNumOperands())
       return op->emitOpError(
-          "transactional scf.yield must end a result-free Module branch");
+          "transactional scf.yield must end a result-free branch");
   }
   return success();
 }
@@ -951,12 +960,10 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
   if (isa<scf::IfOp, scf::YieldOp, SourcePredicateOp>(op))
     return verifyModuleControl(op);
   if (auto observe = dyn_cast<SourceObserveOp>(op)) {
-    auto *owner = op->getParentOp();
-    if (!isa_and_nonnull<TransactionRuleOp, TransactionMethodOp>(owner) ||
-        op->getParentRegion() != &owner->getRegion(1) ||
+    if (!inCallableBody(op) ||
         observe.getKind() != "log" || op->hasAttr("ac.observation_id"))
       return op->emitOpError(
-          "transactional log requires direct Rule/Method body "
+          "transactional log requires Rule/Method body "
           "placement and no final identity");
     HardwareAnalysis analysis(packageOf(op));
     auto width = analysis.getPackedWidth(observe.getPath().getType(), {}, op);
@@ -983,13 +990,11 @@ LogicalResult verifyTransactionalOperation(Operation *op) {
         [&] { return op->emitOpError(); });
   }
   if (auto expect = dyn_cast<SourceExpectOp>(op)) {
-    auto *owner = op->getParentOp();
-    if (!isa_and_nonnull<TransactionRuleOp, TransactionMethodOp>(owner) ||
-        op->getParentRegion() != &owner->getRegion(1) ||
+    if (!inCallableBody(op) ||
         expect.getKind() != "assert" || !expect.getSampling().empty() ||
         op->hasAttr("ac.check_id") || op->hasAttr("ac.observation_id"))
       return op->emitOpError(
-          "transactional assertion requires direct Rule/Method body placement, "
+          "transactional assertion requires Rule/Method body placement, "
           "assert kind, no sampling and no check identity");
     HardwareAnalysis analysis(packageOf(op));
     for (Value value : {expect.getCondition(), expect.getPath()}) {
@@ -1471,7 +1476,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
         return WalkResult::interrupt();
     if (isa_and_nonnull<scf::IfOp>(op->getParentOp())) {
       llvm::DenseSet<Operation *> active;
-      if (!isa<scf::IfOp, scf::YieldOp, SourcePredicateOp,
+      if (controlOwner(op) &&
+          !isa<scf::IfOp, scf::YieldOp, SourcePredicateOp,
                TransactionRuleCallOp>(op) &&
           !readOnly(op, active)) {
         op->emitOpError("Module branches admit only registration, pure "
@@ -1479,7 +1485,7 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
         return WalkResult::interrupt();
       }
       if (isa<YieldOp>(op)) {
-        op->emitOpError("Module branches terminate with scf.yield");
+        op->emitOpError("branches terminate with scf.yield");
         return WalkResult::interrupt();
       }
       for (Value value : op->getOperands()) {

@@ -30,7 +30,10 @@ from ._publication import (
     _PublicationResult,
     _publish_directory,
     _publish_file,
+    _read_journal,
     _require_initialized_control,
+    _validate_control,
+    _validate_owner,
 )
 from ._publication_fs import _PublicationFileSystemError
 from ._source_capture import _read_stable_file_bytes
@@ -180,6 +183,40 @@ def _validate_published_program(path: Path, owner: Mapping[str, object]) -> None
         raise _PublicationError("published program owner does not match")
 
 
+def _linked_bytes(path: Path, fs: _PublicationFileSystem) -> bytes:
+    from ._anchor_files import _TOTAL_LIMIT, _read_bounded
+
+    return _read_bounded(path, _TOTAL_LIMIT, fs)
+
+
+def _linked_owner(path: Path, fs: _PublicationFileSystem) -> dict[str, object]:
+    with tempfile.TemporaryDirectory(prefix="pycircuit-linked-verify-") as scratch:
+        snapshot = Path(scratch) / "linked.ac"
+        snapshot.write_bytes(_linked_bytes(path, fs))
+        return _native_verify.verify_program_owner(snapshot, linked=True)
+
+
+def _validate_linked(path: Path, owner: Mapping[str, object]) -> None:
+    if _linked_owner(path, _PublicationFileSystem()) != dict(owner):
+        raise _PublicationError("linked artifact owner does not match")
+
+
+def _discover_linked_owner(path: Path, fs: _PublicationFileSystem) -> tuple[dict, bool]:
+    paths = _paths_for(path, fs)
+    if fs.kind(paths.control) is None:
+        return _linked_owner(path, fs), False
+    _require_initialized_control(paths, fs)
+    with fs.lock(paths.lock, shared=True):
+        _validate_control(paths, fs, cleanup_temporary=False)
+        journal = _read_journal(paths, fs, cleanup_temporary=False)
+        if journal is not None:
+            owner = _validate_owner(journal["owner"])
+            if owner["kind"] != "linked":
+                raise _PublicationError("managed linked artifact has a different owner")
+            return owner, True
+        return _linked_owner(path, fs), True
+
+
 def link_command(
     *,
     units: Sequence[str | Path] = (),
@@ -189,6 +226,7 @@ def link_command(
     reset_semantics: str | None = None,
     target: str | None = None,
     from_anchor: str | Path | None = None,
+    from_linked: str | Path | None = None,
     verify_only: bool = False,
     replace: bool = False,
     filesystem: _PublicationFileSystem | None = None,
@@ -199,6 +237,8 @@ def link_command(
     exactly as the private per-source entry already allows.
     """
 
+    if from_anchor is not None and from_linked is not None:
+        raise _DriverError("--from-anchor and --from-linked are mutually exclusive")
     if from_anchor is not None:
         if (
             units
@@ -227,11 +267,21 @@ def link_command(
         )
     if verify_only:
         raise _DriverError("--verify-only requires --from-anchor")
-    if top is None or output is None:
+    if from_linked is not None:
+        if (
+            units
+            or top is not None
+            or parameters is not None
+            or reset_semantics is not None
+        ):
+            raise _DriverError("--from-linked forbids source and rebinding options")
+        if target not in (None, "final", "anchor"):
+            raise _DriverError("--from-linked target must be final or anchor")
+    if (top is None and from_linked is None) or output is None:
         raise _DriverError("source link requires --top and -o")
     target = target or "final"
-    if target not in ("final", "anchor"):
-        raise _DriverError("link target must be final or anchor")
+    if target not in ("final", "anchor", "linked"):
+        raise _DriverError("link target must be final, anchor or linked")
     reset_semantics = reset_semantics or "strict"
     if reset_semantics not in ("strict", "if_one"):
         raise _DriverError("reset semantics must be strict or if_one")
@@ -242,7 +292,9 @@ def link_command(
     from ._anchor_files import _capture_anchor, _validate_anchor
 
     validate_output = (
-        _validate_anchor if target == "anchor" else _validate_published_program
+        _validate_anchor
+        if target == "anchor"
+        else _validate_linked if target == "linked" else _validate_published_program
     )
 
     # Discovery reads declared owners only to name the expected inputs; the lock
@@ -271,7 +323,29 @@ def link_command(
                 recovery_validate=_validate_full_source_unit,
             )
         )
-    if not inputs:
+    linked_source = None
+    if from_linked is not None:
+        linked_source = fs.absolute(from_linked)
+        linked_owner, managed = _discover_linked_owner(linked_source, fs)
+        for left in (
+            _paths_for(linked_source, fs).destination,
+            _paths_for(linked_source, fs).control,
+        ):
+            for right in (
+                _paths_for(destination, fs).destination,
+                _paths_for(destination, fs).control,
+            ):
+                if _paths_conflict(left, right):
+                    raise _PublicationError(
+                        "linked input and publication output overlap"
+                    )
+        if managed:
+            inputs.append(
+                _PublicationInput(
+                    linked_source, linked_owner, _validate_linked, _validate_linked
+                )
+            )
+    elif not inputs:
         raise _DriverError("link requires at least one explicitly listed unit")
 
     if replace and (destination.exists() or destination.is_symlink()):
@@ -308,7 +382,29 @@ def link_command(
             ],
             filesystem=fs,
         ) as locks:
-            command = [str(harness), "--reset-semantics", reset_semantics]
+            command = [str(harness)]
+            if linked_source is not None:
+                snapshot = scratch / "linked.ac"
+                if managed:
+                    data = locks.snapshot(
+                        linked_source, lambda path: _linked_bytes(path, fs)
+                    )
+                else:
+                    control = _paths_for(linked_source, fs).control
+                    if fs.kind(control) is not None:
+                        raise _PublicationError(
+                            "linked controls appeared before snapshot"
+                        )
+                    data = _linked_bytes(linked_source, fs)
+                    if fs.kind(control) is not None:
+                        raise _PublicationError(
+                            "linked controls appeared while capturing"
+                        )
+                snapshot.write_bytes(data)
+                _validate_linked(snapshot, linked_owner)
+                command += ["--from-linked", str(snapshot)]
+            else:
+                command += ["--reset-semantics", reset_semantics, "--top", top]
             if parameter_bindings:
                 command += ["--parameters", str(parameter_snapshot)]
             for index, key in enumerate(sorted(directories)):
@@ -328,8 +424,6 @@ def link_command(
             program = scratch / ("anchor" if target == "anchor" else "design_top.ac")
             report = scratch / "entry-owner.json"
             command += [
-                "--top",
-                top,
                 "--target",
                 target,
                 "--output",
@@ -346,6 +440,15 @@ def link_command(
             if not report.is_file() or (target == "final" and not program.is_file()):
                 raise _DriverError("native link produced no program or owner report")
             owner = _program_owner_from_report(_read_entry_owner_report(report))
+            if linked_source is not None and owner != {
+                **linked_owner,
+                "kind": "program",
+            }:
+                raise _PublicationError(
+                    "continued program owner differs from linked artifact"
+                )
+            if target == "linked":
+                owner["kind"] = "linked"
             if target == "anchor":
                 owner["kind"] = "anchor"
                 manifest = _capture_anchor(program)
@@ -373,7 +476,7 @@ def link_command(
                 destination,
                 owner=owner,
                 build=build,
-                validate=_validate_published_program,
+                validate=validate_output,
                 replace=replace,
                 filesystem=fs,
                 locks=locks,

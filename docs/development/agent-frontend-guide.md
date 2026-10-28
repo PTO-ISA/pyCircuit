@@ -8,7 +8,7 @@ an explicit unit closure and produces linked transactional ACIR before common
 analysis, Routed verification and storage lowering. Regenerate older units from
 source; there is no legacy selector or failure fallback.
 
-The current slice supports closed Bits-state Modules and default-clock Systems,
+The current slice supports closed Bits/Enum/Struct-state Modules and default-clock Systems,
 explicit ordinary Rule registration, once-only autorule normalization and
 Module `if/elif/else` preserved as SCF. Reads always observe old Q. Registration
 paths and Rule guards jointly enable updates, assertions and logs; failed global
@@ -17,8 +17,8 @@ while four-state payloads remain supported.
 
 See the [current language profile](../reference/language.md#transactional-frontend-replacement)
 for exact admission and the [replacement status](transactional-frontend-status.md)
-for actual validation. Local Methods support nested calls, payload arguments
-and results, and read-only calls in guards. All guards in the call chain gate
+for migration accounting and evidence policy. Local Methods support nested calls, payload arguments
+and results, and read-only calls in guards. All guards on selected call paths gate
 the entire outer Rule, including earlier updates and logs. Return computed SSA
 values explicitly; state reads still observe old Q and parameters are by value.
 Module combination cannot call Methods. Existing sibling instances can be passed
@@ -28,8 +28,9 @@ Compilation records required Method signatures; link checks the actual provider.
 The compiler preserves state ownership and supplies cross-instance controls.
 Generic call arguments need declared types; a first value-return use needs a typed
 result context. Bits Queue connections use old occupancy and share final fire
-with State and Method effects. See `examples/scalar_queue_pipeline`. Rule-body control flow
-and cross-branch local merging remain implementation gaps. Retained legacy
+with State and Method effects. See `examples/scalar_queue_pipeline`. Rule/Method bodies admit finite nested conditionals with branch-local values;
+unselected calls and Queue operations do not block admission or produce effects.
+Cross-branch ordinary local merging remains an implementation gap. Retained legacy
 examples and oracles do not establish support in the replacement.
 
 Use one active route: Python capture → independently compiled source units →
@@ -202,13 +203,23 @@ handshake wrappers or a payload validity field solely to represent noncommit.
 Rule results write their connected State or Queue resource. Queue inputs consume
 once and Queue outputs enqueue only on the final transaction fire. `peek()` and
 `head()` observe without consuming and require a nonempty Queue when used.
-Rule-body control flow and richer interfaces retain
-their migration requirements, but are not admitted by this slice.
+Rule/Method `if/elif/else` retains one outer transaction: selected Method guards
+and Queue requirements determine final fire for all selected effects. Keep
+branch-local computations within the branch; early returns and ordinary local
+merges remain unsupported.
 
 Rules and allocations must be defined directly in the Module, outside runtime
 branches. Branch-local pure computations and read-only State observations may
-support nested conditions and registrations. Branch-local values do not merge
-into outer locals. Normalized ACIR retains `scf.if`, `scf.yield` and the original
+support nested conditions and registrations. Rule output resources are static
+connections and may be referenced or returned outside a branch. Declare a common
+destination before the branches when several registrations write it. First
+binding the same output name in multiple arms or selecting different resource
+identities is rejected. Ordinary branch-local values do not merge into outer
+locals. Module instances cannot be created inside runtime branches.
+
+A typed Module State declaration may omit initialization: `out: ac.u16` starts
+and resets to all X. Enum/Struct storage leaves follow the same rule. Binding a
+Rule output to it preserves that State, not a new default Queue. Normalized ACIR retains `scf.if`, `scf.yield` and the original
 Bits predicate bridge; execution requires a proof that controls are known.
 
 ## Retained authoring migration references

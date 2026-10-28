@@ -49,6 +49,14 @@ struct TransactionalInvocationPlan {
   mlir::Operation *call = nullptr;
   unsigned instance = 0;
 };
+struct TransactionalPathTerm {
+  TransactionalValueID value;
+  bool positive;
+};
+struct TransactionalRequirement {
+  unsigned value;
+  llvm::SmallVector<TransactionalPathTerm> path;
+};
 struct TransactionalStep {
   TransactionalStepKind kind = TransactionalStepKind::Pure;
   mlir::Operation *operation = nullptr;
@@ -57,6 +65,7 @@ struct TransactionalStep {
   unsigned resource = TransactionalNoID;
   unsigned rule = TransactionalNoID;
   unsigned activation = TransactionalNoID;
+  llvm::SmallVector<TransactionalPathTerm> path;
   llvm::SmallVector<TransactionalValueID> operands, results;
   llvm::SmallVector<TransactionalInvocationPlan> invocation;
 };
@@ -77,10 +86,6 @@ struct TransactionalInstancePlan {
   TransactionalSequence comb;
   llvm::SmallVector<unsigned> resources, rules;
 };
-struct TransactionalPathTerm {
-  TransactionalValueID value;
-  bool positive;
-};
 struct TransactionalRulePlan {
   TransactionRuleCallOp registration;
   TransactionRuleOp definition;
@@ -90,10 +95,11 @@ struct TransactionalRulePlan {
   // Every actually invoked Method contributes its guard to the outer Rule.
   // These values may depend on earlier body computations, so effects execute
   // only after both sequences have supplied the complete admission predicate.
-  llvm::SmallVector<TransactionalValueID> requirements;
+  llvm::SmallVector<TransactionalRequirement> requirements;
+  llvm::SmallVector<TransactionalRequirement> controls;
   // Old occupancy requirements, including nonconsuming observations used by
   // this transaction. Consumption remains a distinct QueuePop effect.
-  llvm::SmallVector<unsigned> queueReads, queueWrites;
+  llvm::SmallVector<TransactionalRequirement> queueReads, queueWrites;
 };
 class TransactionalAnalysis final {
 public:
@@ -118,6 +124,7 @@ private:
   friend class TransactionalPlanBuilder;
   explicit TransactionalAnalysis(mlir::ModuleOp package) : package_(package) {}
   mlir::ModuleOp package_;
+  mlir::OwningOpRef<mlir::ModuleOp> initializers_;
   std::vector<TransactionalInstancePlan> instances_;
   std::vector<TransactionalResourcePlan> resources_;
   std::vector<TransactionalRulePlan> rules_;

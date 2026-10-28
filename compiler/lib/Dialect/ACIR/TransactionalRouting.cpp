@@ -383,7 +383,22 @@ private:
     return make(b, loc, StructCreateOp::getOperationName(), fields,
                 TypeRange{type})->getResult(0);
   }
-  LogicalResult sequence(const TransactionalSequence &seq, Value guard,
+  Value selectedPath(Value guard, ArrayRef<TransactionalPathTerm> path) {
+    for (auto term : path) {
+      Value condition = values[term.value];
+      if (!term.positive)
+        condition = binary("xor", condition, one);
+      guard = binary("and", guard, condition);
+    }
+    return guard;
+  }
+  Value requirement(Value value, ArrayRef<TransactionalPathTerm> path) {
+    if (path.empty())
+      return value;
+    Value selected = selectedPath(one, path);
+    return binary("or", binary("xor", selected, one), value);
+  }
+  LogicalResult sequence(const TransactionalSequence &seq, Value outerGuard,
                 bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
@@ -392,6 +407,7 @@ private:
                      step.kind == Kind::QueuePop;
       if (payload == effects && step.kind != Kind::QueuePop)
         continue;
+      Value guard = effects ? selectedPath(outerGuard, step.path) : outerGuard;
       if (step.kind == Kind::Pure) {
         IRMapping map;
         for (auto [operand, id] :
@@ -591,12 +607,12 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
         condition = binary("xor", condition, one);
       guard = binary("and", guard, condition);
     }
-    for (unsigned requirement : rule.requirements)
-      guard = binary("and", guard, values[requirement]);
-    for (unsigned id : rule.queueReads)
-      guard = binary("and", guard, valid[id]);
-    for (unsigned id : rule.queueWrites)
-      guard = binary("and", guard, ready[id]);
+    for (const auto &item : rule.requirements)
+      guard = binary("and", guard, requirement(values[item.value], item.path));
+    for (const auto &item : rule.queueReads)
+      guard = binary("and", guard, requirement(valid[item.value], item.path));
+    for (const auto &item : rule.queueWrites)
+      guard = binary("and", guard, requirement(ready[item.value], item.path));
     if (failed(sequence(rule.body, guard, true)))
       return failure();
   }
@@ -985,7 +1001,36 @@ private:
       return failure();
     return *no;
   }
-  LogicalResult sequence(const TransactionalSequence &seq, Value guard,
+  Value findBinary(Block *block, StringRef opcode, Value lhs, Value rhs) {
+    if (!lhs || !rhs)
+      return {};
+    for (Operation &op : *block) {
+      if (failed(debit(4, &op)))
+        return {};
+      if (op.getNumResults() == 1 && !claimed.contains(&op) &&
+          binary(op.getResult(0), opcode, lhs, rhs))
+        return op.getResult(0);
+    }
+    return {};
+  }
+  Value selectedPath(Block *block, Value guard,
+                     ArrayRef<TransactionalPathTerm> path) {
+    for (auto term : path) {
+      Value condition = values[term.value];
+      if (!term.positive)
+        condition = findBinary(block, "xor", condition, one);
+      guard = findBinary(block, "and", guard, condition);
+    }
+    return guard;
+  }
+  Value requirement(Block *block, Value value,
+                    ArrayRef<TransactionalPathTerm> path) {
+    if (path.empty())
+      return value;
+    Value selected = selectedPath(block, one, path);
+    return findBinary(block, "or", findBinary(block, "xor", selected, one), value);
+  }
+  LogicalResult sequence(const TransactionalSequence &seq, Value outerGuard,
                          Block *block, bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
@@ -994,6 +1039,10 @@ private:
                      step.kind == Kind::QueuePop;
       if (payload == effects && step.kind != Kind::QueuePop)
         continue;
+      Value guard = effects ? selectedPath(block, outerGuard, step.path)
+                            : outerGuard;
+      if (effects && !guard)
+        return reject("transactional effect path differs");
       if (failed(debit(8 + step.operands.size(), step.operation)))
         return failure();
       if (step.kind == Kind::Pure) {
@@ -1426,38 +1475,31 @@ LogicalResult Replay::run() {
       return failure();
     Value guard =
         rule.guard.yields.empty() ? one : values[rule.guard.yields.front()];
-    auto findBinary = [&](StringRef opcode, Value lhs, Value rhs) -> Value {
-      for (Operation &op : work) {
-        if (failed(debit(4, &op)))
-          return {};
-        if (op.getNumResults() == 1 && !claimed.contains(&op) &&
-            binary(op.getResult(0), opcode, lhs, rhs))
-          return op.getResult(0);
-      }
-      return {};
-    };
     for (auto term : rule.path) {
       Value condition = values[term.value];
       if (!term.positive)
-        condition = findBinary("xor", condition, one);
+        condition = findBinary(&work, "xor", condition, one);
       if (!condition)
         return reject("Module branch polarity differs");
-      guard = findBinary("and", guard, condition);
+      guard = findBinary(&work, "and", guard, condition);
       if (!guard)
         return reject("Module registration path differs");
     }
-    for (unsigned requirement : rule.requirements) {
-      guard = findBinary("and", guard, values[requirement]);
+    for (const auto &item : rule.requirements) {
+      guard = findBinary(&work, "and", guard,
+                         requirement(&work, values[item.value], item.path));
       if (!guard)
         return reject("Method admission guard differs");
     }
-    for (unsigned id : rule.queueReads) {
-      guard = findBinary("and", guard, valid[id]);
+    for (const auto &item : rule.queueReads) {
+      guard = findBinary(&work, "and", guard,
+                         requirement(&work, valid[item.value], item.path));
       if (!guard)
         return reject("Queue read admission differs");
     }
-    for (unsigned id : rule.queueWrites) {
-      guard = findBinary("and", guard, ready[id]);
+    for (const auto &item : rule.queueWrites) {
+      guard = findBinary(&work, "and", guard,
+                         requirement(&work, ready[item.value], item.path));
       if (!guard)
         return reject("Queue write admission differs");
     }

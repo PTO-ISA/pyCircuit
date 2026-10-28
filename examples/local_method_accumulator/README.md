@@ -28,3 +28,6 @@ With an installed toolchain:
 pycircuit run examples/local_method_accumulator --cycles 8
 pycircuit run examples/local_method_accumulator --target verilog --cycles 8
 ```
+
+The shared example verifier checks the per-cycle trace in [expected.json](expected.json),
+including both low and high sampling epochs, against these independent expectations.

@@ -1,0 +1,3 @@
+# REQUIRES: verilator
+# RUN: %python %inputs/transactional-conditional-methods.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp
+# RUN: %python %inputs/transactional-conditional-methods.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.verilog verilog

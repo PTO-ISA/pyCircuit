@@ -384,6 +384,47 @@ def system_records(*, observations: bool = True) -> list[dict]:
     return [*trace, {"kind": "result", "status": "TERMINATED", "epoch_time": 4}]
 
 
+def test_expected_history_checks_values_and_event_multiplicity(helper):
+    history = {"sample": [[[7], [7]]]}
+    trace = [
+        {
+            "kind": "log",
+            "evaluation_epoch": epoch,
+            "spec": {"event": "sample"},
+            "values": [{"kind": "integer", "value": 7}],
+        }
+        for epoch in (0, 1, 0, 1)
+    ]
+    helper.verify_expected_observations(history, trace, 2)
+    with pytest.raises(ValueError):
+        helper.verify_expected_observations(history, trace[:-1], 2)
+    trace[0]["values"] = [{"kind": "integer", "value": 8}]
+    with pytest.raises(ValueError):
+        helper.verify_expected_observations(history, trace, 2)
+
+
+def test_expected_history_preserves_instance_identity(helper):
+    history = {"sample": {"root/active": [[[7]]], "root/idle": [[[5]]]}}
+    trace = [
+        {
+            "kind": "log",
+            "instance": instance,
+            "evaluation_epoch": epoch,
+            "spec": {"event": "sample"},
+            "values": [{"kind": "integer", "value": value}],
+        }
+        for epoch in (0, 1)
+        for instance, value in (("root/active", 7), ("root/idle", 5))
+    ]
+    helper.verify_expected_observations(history, trace, 2)
+    for row in trace:
+        row["instance"] = (
+            "root/idle" if row["instance"] == "root/active" else "root/active"
+        )
+    with pytest.raises(ValueError):
+        helper.verify_expected_observations(history, trace, 2)
+
+
 def system_runs(helper, monkeypatch, outputs, on_run=None):
     calls = []
 

@@ -1,7 +1,7 @@
 # Examples navigation
 
 Examples use the single Python → MLIR → C++/Verilog → runner flow.
-The current catalog inventories **21** registered designs and **25** API-owned coverage cases.
+The current catalog inventories **30** registered designs and **25** API-owned coverage cases.
 
 - [Recommended examples and learning path](GUIDE.md)
 - [Writing and verification standard](STANDARD.md)
@@ -14,6 +14,15 @@ The current catalog inventories **21** registered designs and **25** API-owned c
 | Design | Source | System run | Native oracle | RTL oracle | Generated output |
 | --- | --- | --- | --- | --- | --- |
 | [hello_counter](hello_counter/README.md) | [Python](hello_counter/hello_counter.py) | [HelloCounter](hello_counter/hello_counter.py) | compiler-generated | compiler-generated | — |
+| [module_control_state_machine](module_control_state_machine/README.md) | [Python](module_control_state_machine/module_control_state_machine.py) | [ModuleControlStateMachine](module_control_state_machine/module_control_state_machine.py) | compiler-generated | compiler-generated | — |
+| [local_method_accumulator](local_method_accumulator/README.md) | [Python](local_method_accumulator/local_method_accumulator.py) | [LocalMethodAccumulator](local_method_accumulator/local_method_accumulator.py) | compiler-generated | compiler-generated | — |
+| [sibling_method_calls](sibling_method_calls/README.md) | [Python](sibling_method_calls/Top.py) | [Top](sibling_method_calls/Top.py) | compiler-generated | compiler-generated | — |
+| [parent_state_interfaces](parent_state_interfaces/README.md) | [Python](parent_state_interfaces/top.py) | [Top](parent_state_interfaces/top.py) | compiler-generated | compiler-generated | — |
+| [scalar_queue_pipeline](scalar_queue_pipeline/README.md) | [Python](scalar_queue_pipeline/Top.py) | [Top](scalar_queue_pipeline/Top.py) | compiler-generated | compiler-generated | — |
+| [resource_composition](resource_composition/README.md) | [Python](resource_composition/Top.py) | [Top](resource_composition/Top.py) | compiler-generated | compiler-generated | — |
+| [structured_packet](structured_packet/README.md) | [Python](structured_packet/Top.py) | [Top](structured_packet/Top.py) | compiler-generated | compiler-generated | — |
+| [transactional_cumulative](transactional_cumulative/README.md) | [Python](transactional_cumulative/design.py) | [Top](transactional_cumulative/Top.py) | compiler-generated | compiler-generated | — |
+| [transactional_batch](transactional_batch/README.md) | [Python](transactional_batch/design.py) | [Top](transactional_batch/Top.py) | compiler-generated | compiler-generated | — |
 | [multi_outputs](multi_outputs/README.md) | [Python](multi_outputs/multi_outputs.py) | [MultiOutputsSystem](multi_outputs/bench.py) | compiler-generated | compiler-generated | — |
 | [sibling_calls](sibling_calls/README.md) | [Python](sibling_calls/sibling_calls.py) | [SiblingCalls](sibling_calls/sibling_calls.py) | compiler-generated | compiler-generated | — |
 | [sibling_atomic](sibling_atomic/README.md) | [Python](sibling_atomic/sibling_atomic.py) | [SiblingAtomic](sibling_atomic/bench.py) | compiler-generated | compiler-generated | — |

@@ -117,24 +117,22 @@ Runtime/source diagnostic coverage remains in gate.
 
 Long coverage, differential/reference-model and mutation matrices run when
 nightly is requested or scheduled. Ordinary authoring/review does not require
-running them immediately. The current examples selection contains 22 designs. The 54 superseded wrappers
-are retained under `tests/fixtures/historical_examples/`, outside the example
-selection. Their retirement is not a pass or a claim that every old scenario has
-an equivalent API test. Active API/package fixtures still reference their
-archived inputs explicitly. Current complete-design Module oracles retain their
-independent checks; short teaching Systems have their own documented scenarios. Record each actual result and
-remaining NOT-RUN case; focused passes do not establish a full nightly result.
+running them immediately. `examples/CMakeLists.txt` defines the current example
+selection; the catalog describes each design's purpose and owner. Historical
+fixtures outside that selection remain only where their capability or active
+consumer needs them. Retirement is not a pass or proof of equivalent coverage.
+Record each actual result and remaining NOT RUN case; focused passes do not
+establish a full nightly result.
 
 ## Contract under validation
 
-The current public workflow is one source per `pycircuit compile`, explicit
-unit closure through `pycircuit link`, and `pycircuit emit` to either backend
-from the verified final artifact. The source profile includes typed structural
-modules and the bounded behavioral variable/struct/table slice with multiple
-same-source state-writing rule calls on disjoint declarations or Struct fields. Both lower to the same standard storage
-leaves. The typed C++ DUT and host-driven runner use Work/Xfer sampling epochs.
-Required boundaries include negative tests for unsupported sources and no
-fallback dispatch. The language reference records the current source surface.
+The public workflow is one source per `pycircuit compile`, explicit unit
+closure through `pycircuit link`, and `pycircuit emit` to either backend from
+the verified final artifact. The [transactional language profile](../reference/language.md#transactional-frontend-replacement)
+defines current admission. Tests for retained legacy capabilities remain migration
+requirements until revalidated; their registration alone is not a support claim.
+Typed C++ DUTs and host-driven runners use Work/Xfer sampling epochs. Unsupported
+sources must reject without fallback dispatch.
 
 ## Focused validation map
 
@@ -148,6 +146,14 @@ fallback dispatch. The language reference records the current source surface.
 | Runtime/package | Runtime-only install without LLVM discovery; CompilerDev install with LLVM/MLIR 22.1.8; exported target and external consumer smoke |
 | Hard break | Source, CLI, CMake, package and installed-payload scans show no active retired frontend/compiler/fallback |
 | Documentation | Active docs agree on profile, command path, unsupported contracts and current test selection |
+
+## Retained verification responsibilities
+
+The owners below describe the behavioral and IR obligations of existing tests,
+including legacy cases awaiting migration. They do not extend the current
+transactional admission profile or establish passing execution on a new candidate.
+Preserve independent expectations when migrating these cases; obsolete internal
+mechanism checks may be removed with explicit coverage accounting.
 
 Source interface extraction has a standalone MLIR boundary:
 `pycircuit-opt --ac-extract-source-interface`. Its direct tests cover

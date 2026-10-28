@@ -1,71 +1,20 @@
 """Independent Queue occupancy and cross-owner transaction oracle."""
 
 import json
-import os
 import re
 import shutil
-import subprocess
 import sys
 from collections import Counter
 from pathlib import Path
 
-repo, source_compiler, linker, emitter, cxx, opt, scratch, target, mode = sys.argv[1:]
-repo, scratch = Path(repo), Path(scratch)
-if scratch.exists():
-    shutil.rmtree(scratch)
-scratch.mkdir(parents=True)
-sources = scratch / "sources"
-sources.mkdir()
-env = dict(
-    os.environ,
-    PYTHONPATH=str(repo / "python"),
-    PYCIRCUIT_SOURCE_COMPILER=source_compiler,
-    PYCIRCUIT_LINKER=linker,
-    PYCIRCUIT_EMITTER=emitter,
-)
-sequence = 0
+from transactional_test_support import SourceTest
 
-
-def run(command, *, fails=False):
-    global sequence
-    sequence += 1
-    command = [str(arg) for arg in command]
-    result = subprocess.run(
-        command, env=env, capture_output=True, text=True, timeout=240
-    )
-    prefix = scratch / f"{sequence:02d}"
-    prefix.with_suffix(".command.json").write_text(json.dumps(command))
-    prefix.with_suffix(".stdout").write_text(result.stdout)
-    prefix.with_suffix(".stderr").write_text(result.stderr)
-    prefix.with_suffix(".status").write_text(str(result.returncode) + "\n")
-    assert (result.returncode != 0) == fails, (
-        command,
-        result.returncode,
-        result.stdout,
-        result.stderr,
-    )
-    return result
-
-
-def cli(*arguments, fails=False):
-    return run([sys.executable, "-m", "pycircuit.cli", *arguments], fails=fails)
-
-
-def compile_source(name, *interfaces, output=None, fails=False):
-    arguments = [
-        "compile",
-        "-c",
-        sources / f"{name}.py",
-        "--source-root",
-        sources,
-        "--package-prefix",
-        "queue_timing",
-        "-o",
-        scratch / (output or name),
-    ]
-    for interface in interfaces:
-        arguments.extend(("-I", scratch / interface))
-    return cli(*arguments, fails=fails)
+fixture = SourceTest(sys.argv[1:], None, "queue_timing")
+repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
+opt = fixture.opt
+target, mode = sys.argv[-2:]
+run, cli, compile_source = fixture.run, fixture.cli, fixture.compile_source
+emitter, cxx = fixture.emitter, fixture.cxx
 
 
 source = """import pycircuit as ac

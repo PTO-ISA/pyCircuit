@@ -12,8 +12,8 @@ language reference and execution evidence determine supported features.
 
 ## Describe the program, not register pins
 
-- Express calculation with ordinary typed `def`, local assignments, `if` and
-  supported bounded `for`. Use `@module` calls for hierarchy and distinct state
+- Express calculation with ordinary typed `def`, local assignments and `if`.
+  Loops remain a migration gap in the transactional frontend. Use `@module` calls for hierarchy and distinct state
   ownership. Do not execute design functions in Python.
 - Declare persistent variables in their owning Module. Inside Rules, write the
   algorithm in statement order using meaningful names such as `total`, `saved`,
@@ -21,18 +21,30 @@ language reference and execution evidence determine supported features.
 - Do not expose `clk`, reset, register `q`/`d`, DFF/DFFE binding, proposal wires or
   commit controls in ordinary author-facing sources, including benchmark ports.
   ACIR analysis/lowering chooses storage and generates its control connections.
-- Directly nested Rules automatically register once per Module instance and
-  may capture Module inputs, local state and child outputs. Their names denote
-  results at Module wiring sites; do not add activation calls. Local formal
-  parameters require explicit default binding expressions. Source-global Rule
-  templates use explicit actual arguments and cannot capture caller locals.
-- Use one cohesive Rule for operations that must commit together. Separate
-  independent functions into separate Rules. Method and source-global template
-  calls retain the outer transaction; they do not create another commit or cycle.
-  Callable component operations use Methods, independently of parameter count.
-- Statements inside a Rule see earlier assignments. A saved local is a snapshot.
-  Independent autonomous Rules always observe committed current values. `after`
-  is retired; declaration order cannot expose another Rule's candidate updates.
+- Ordinary nested `@rule` definitions require explicit registration at a Module
+  wiring site, including conditional registration. Only `@autorule` registers
+  automatically once per Module instance. Source-global Rule templates take
+  explicit resource arguments; callable component operations use Methods.
+- Use one cohesive Rule for effects that must commit together. Separate
+  independent functions into separate Rules. Nested Method calls share the
+  caller's final admission and commit; Method parameters are values, not implicit
+  writable references. Calls to ordinary Rules inside transactions remain a gap.
+- Every State read observes committed old-Q, including reads after assignments
+  in the same Rule or nested Method. Compute a new value in an ordinary local
+  and return or reuse that local when the algorithm needs the proposed value.
+  No declaration order or `after` exposes another Rule's candidate updates.
+- Module branches select Rule registration, not resource identity. A Rule output
+  is a static resource usable after the branch. Declare a common destination
+  explicitly when multiple branches write it; do not define the same output name
+  for the first time in several branches or select between different resources.
+- Transaction branches keep selected effects in one atomic Rule. Leave Method
+  guards and Queue admission to common analysis; an unselected call must not
+  block the Rule. Branch-local computations stay in their branch. Early returns,
+  ordinary local merges, conditional instance creation and dynamic X/Z control
+  remain unsupported; consult current execution evidence before claiming support.
+- A typed Module State declaration may omit its initializer. Its initial and
+  reset payload is unknown (all X in storage leaves), never implicit zero.
+  Binding it to an output preserves State identity; it is not a default Queue.
 
 ## Keep interfaces small
 
@@ -51,13 +63,10 @@ Signal declaration/set/get APIs.
 
 ## Memory and sample timing
 
-Use named Memory allocations and Rule operations, following the
-[Memory contract](../../../docs/reference/language.md#memory-operations).
-Synchronous `request` proposes a read; `result` is a nonconsuming committed
-snapshot with the existing expiry, not an implicit wait. Separate producer and
-consumer phases; save results in Module state when longer retention is needed.
-For byte memory, read once into a local, compute, then write. Compiler-owned
-availability and port checks must not become frontend ready/valid plumbing.
+Memory migration remains unfinished in the transactional frontend. Preserve
+existing Memory oracles and consult the
+[language reference](../../../docs/reference/language.md) before using it;
+legacy request/result support is not evidence of current admission.
 
 When authoring System scenarios, derive state changes from successful rising
 edges and observations from Work samples. Use fixed `ac.uN` for wrapping

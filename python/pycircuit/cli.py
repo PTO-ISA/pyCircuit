@@ -84,6 +84,7 @@ def _cmd_link(args: argparse.Namespace) -> int:
             replace=args.replace,
             target=args.target,
             from_anchor=args.from_anchor,
+            from_linked=args.from_linked,
             verify_only=args.verify_only,
         )
     except (
@@ -198,10 +199,13 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Republish the target under the same owner and definition",
     )
-    link_program.add_argument("--target", choices=("final", "anchor"), default=None)
+    link_program.add_argument(
+        "--target", choices=("final", "anchor", "linked"), default=None
+    )
     link_program.add_argument(
         "--from-anchor", help="Reload a self-contained saved anchor"
     )
+    link_program.add_argument("--from-linked", help="Continue from saved Linked ACIR")
     link_program.add_argument("--verify-only", action="store_true")
     link_program.set_defaults(fn=_cmd_link)
 
@@ -227,7 +231,9 @@ def main(argv: list[str] | None = None) -> int:
     run.set_defaults(fn=_cmd_run)
     args = p.parse_args(argv)
     if args.cmd == "link":
-        if args.from_anchor is None:
+        if args.from_anchor is not None and args.from_linked is not None:
+            link_program.error("--from-anchor and --from-linked are mutually exclusive")
+        if args.from_anchor is None and args.from_linked is None:
             missing = []
             if not args.units:
                 missing.append("units")
@@ -246,7 +252,7 @@ def main(argv: list[str] | None = None) -> int:
             or args.reset_semantics is not None
         ):
             link_program.error(
-                "--from-anchor forbids units, --top, --parameters and --reset-semantics"
+                "artifact reload forbids units, --top, --parameters and --reset-semantics"
             )
         if args.verify_only:
             if (
