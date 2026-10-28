@@ -25,7 +25,6 @@ def AtomicTop():
         left.advance()
         right.advance()
 
-    step()
 
 
 @module

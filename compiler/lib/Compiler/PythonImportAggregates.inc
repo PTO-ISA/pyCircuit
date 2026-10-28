@@ -9,6 +9,8 @@ std::optional<Import> Importer::lookupBinding(const AstNode &node) const {
     if (found != names.end() && queryBound(name))
       return std::nullopt;
     if (found != names.end() && lexicallyShadowed(node, name)) {
+      if (found->second.category == BindingCategory::Constant)
+        return std::nullopt;
       error() << "source binding is shadowed in its lexical scope: '" << name
               << "'";
       return std::nullopt;
@@ -25,10 +27,13 @@ std::optional<Import> Importer::lookupBinding(const AstNode &node) const {
     auto symbol = headers.lookupExport(parent->importedModule, node.string("attr"));
     Operation *declaration = symbol ? headers.lookupDeclaration(symbol) : nullptr;
     if (!declaration) return std::nullopt;
+    if (auto constant = dyn_cast<ac::ConstantOp>(declaration))
+      if (!literalConstantValue(constant)) return std::nullopt;
     parent->symbol = symbol;
     parent->declaration = declaration;
     parent->remote = node.string("attr").str();
-    parent->category = isa<func::FuncOp>(declaration) ? BindingCategory::Helper
+    parent->category = isa<ac::ConstantOp>(declaration) ? BindingCategory::Constant
+                       : isa<func::FuncOp>(declaration) ? BindingCategory::Helper
                        : isa<ac::StructOp>(declaration) ? BindingCategory::Struct
                        : isa<ac::EnumOp>(declaration) ? BindingCategory::Enum
                        : BindingCategory::Module;
@@ -750,8 +755,9 @@ LogicalResult Importer::scanStructs() {
       bool tableAnnotation = annotation.kind() == "Subscript" &&
                              intrinsic(annotation.child("value"), "table");
       if (!fixedAnnotation(annotation) && !nominalAnnotation(annotation) &&
+          annotationKind(annotation) != ac::detail::ValueKind::Boolean &&
           !tableAnnotation)
-        return error() << "struct fields require explicitly unsigned bits or "
+        return error() << "struct fields require bool, explicitly unsigned bits or "
                           "nominal structs/enums or finite tables";
       auto type = portType(annotation, symbol);
       if (failed(type))
@@ -769,9 +775,17 @@ LogicalResult Importer::scanStructs() {
                             "one-dimensional shape";
       }
       defaults.push_back(field.child("value"));
-      fields.push_back(
-          b.getDictionaryAttr({b.getNamedAttr("name", b.getStringAttr(name)),
-                               b.getNamedAttr("type", TypeAttr::get(*type))}));
+      SmallVector<NamedAttribute> descriptor{
+          b.getNamedAttr("name", b.getStringAttr(name)),
+          b.getNamedAttr("type", TypeAttr::get(*type))};
+      if (annotationKind(annotation) == ac::detail::ValueKind::Boolean) {
+        auto constraint = sourceConstraint(
+            {name.str(), *type, annotation, ac::detail::ValueKind::Boolean});
+        if (failed(constraint))
+          return failure();
+        descriptor.push_back(b.getNamedAttr("source_constraint", *constraint));
+      }
+      fields.push_back(b.getDictionaryAttr(descriptor));
     }
     structFields[item.first()] = b.getArrayAttr(fields);
     structDefaults[item.first()] = std::move(defaults);
@@ -859,8 +873,7 @@ FailureOr<Value> Importer::constant(Type type, unsigned value,
   SmallVector<Value> fields;
   for (Attribute raw : declaration.getFields()) {
     auto field = cast<DictionaryAttr>(raw);
-    auto zero =
-        constant(field.getAs<TypeAttr>("type").getValue(), 0, node, at, symbol);
+    auto zero = structFieldZero(field, node, at, symbol);
     if (failed(zero))
       return failure();
     fields.push_back(*zero);
@@ -909,9 +922,12 @@ FailureOr<Value> Importer::select(Value guard, Value yes, Value no,
       auto type = field.getAs<TypeAttr>("type").getValue();
       auto name = field.getAs<StringAttr>("name");
       auto project = [&](Value value) {
-        return createOp(at, loc, ac::StructGetOp::getOperationName(), {value},
-                        TypeRange{type}, {at.getNamedAttr("field", name)})
-            ->getResult(0);
+        auto projected =
+            createOp(at, loc, ac::StructGetOp::getOperationName(), {value},
+                     TypeRange{type}, {at.getNamedAttr("field", name)})
+                ->getResult(0);
+        rememberStructField(projected, field, node);
+        return projected;
       };
       auto value = select(guard, project(yes), project(no), node, at, symbol);
       if (failed(value))
@@ -985,17 +1001,37 @@ LogicalResult Importer::proveIndexExtent(Value index, uint64_t extent,
            << indexedKind << " index complete width is not proven in range";
   return success();
 }
-LogicalResult Importer::proveIndex(Value table, Value index,
+FailureOr<SourceIndexAdmission> Importer::proveIndex(Value table, Value index,
                                    const AstNode &node) {
   ac::HardwareAnalysis analysis(*body);
+  auto type = cast<ac::TableType>(table.getType());
+  if (!analysis.isStaticEvaluable(type.getShape(), {})) {
+    Operation *site = table.getDefiningOp() ? table.getDefiningOp()
+        : cast<BlockArgument>(table).getOwner()->getParentOp();
+    ac::HardwareBindings lexical;
+    lexical.owner = isa<ac::ModuleOp>(site) ? site : site->getParentOfType<ac::ModuleOp>().getOperation();
+    if (failed(ac::detail::verifySourceTemplateType(analysis, type, lexical, site)))
+      return failure();
+    auto info = valueInfo(index);
+    bool nonnegative = fixedValues.contains(index) ||
+        info.sourceKind == ac::detail::ValueKind::Boolean ||
+        (info.sourceKind == ac::detail::ValueKind::Integer && info.interval &&
+         !info.interval->lower.isNegative());
+    if (!nonnegative || !isa<ac::BitsType>(index.getType()))
+      return mlir::emitError(node.location(b.getContext(), source.path))
+          << "table index requires proven nonnegative unsigned provenance";
+    if (!queryArguments.empty())
+      return mlir::emitError(node.location(b.getContext(), source.path))
+          << "deferred checked Table reads are unsupported in query callbacks";
+    return SourceIndexAdmission::Deferred;
+  }
   auto size = analysis.getTableSize(
-      cast<ac::TableType>(table.getType()), {},
-      table.getDefiningOp()
-          ? table.getDefiningOp()
+      type, {}, table.getDefiningOp() ? table.getDefiningOp()
           : cast<BlockArgument>(table).getOwner()->getParentOp());
   if (failed(size))
     return failure();
-  return proveIndexExtent(index, *size, node, "table");
+  if (failed(proveIndexExtent(index, *size, node, "table"))) return failure();
+  return SourceIndexAdmission::Proved;
 }
 FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                                        Value replacement,
@@ -1003,8 +1039,11 @@ FailureOr<Value> Importer::tableUpdate(Value table, Value index,
                                        const AstNode &node, OpBuilder &at,
                                        FlatSymbolRefAttr symbol,
                                        std::optional<size_t> domainSlot) {
-  if (failed(proveIndex(table, index, node)))
-    return failure();
+  auto admission = proveIndex(table, index, node);
+  if (failed(admission)) return failure();
+  if (*admission == SourceIndexAdmission::Deferred)
+    return mlir::emitError(node.location(b.getContext(), source.path))
+        << "deferred local Table reconstruction is unsupported; use an indexed state write";
   auto type = cast<ac::TableType>(table.getType());
   SmallVector<Type> resultTypes{type};
   if (domainSlot) {
@@ -1138,11 +1177,21 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
       !fixedValues.contains(value)) {
     auto closed = dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant);
     ac::HardwareAnalysis analysis(*body);
-    bool contextualSymbolicConstant =
-        *equivalent && value.getDefiningOp<ac::BitsConstantOp>() && closed &&
-        !llvm::APSInt(closed.getCanonicalValue()).isNegative() &&
-        !analysis.isStaticEvaluable(targetBits.getWidth(), {});
-    if (!contextualSymbolicConstant) {
+    auto constant = value.getDefiningOp<ac::BitsConstantOp>();
+    ac::HardwareBindings lexical;
+    auto *parent = at.getBlock()->getParentOp();
+    lexical.owner = isa<ac::ModuleOp>(parent) ? parent
+        : parent->getParentOfType<ac::ModuleOp>().getOperation();
+    bool contextualStaticConstant = *equivalent && constant &&
+        (!closed || !llvm::APSInt(closed.getCanonicalValue()).isNegative()) &&
+        (!analysis.isStaticEvaluable(targetBits.getWidth(), lexical) ||
+         !analysis.isStaticEvaluable(constant.getValue(), lexical));
+    if (contextualStaticConstant &&
+        (failed(ac::StaticExprAttr::verify([&] { return constant.emitOpError(); },
+                                           constant.getValue().getTree())) ||
+         failed(ac::detail::verifyHardwareAttributeScope(constant.getValue(), lexical.owner))))
+      return failure();
+    if (!contextualStaticConstant) {
       if (*equivalent &&
           !ac::areEquivalentHardwareTypes(value.getType(), target)) {
         value = boundaryBitsIdentity(value, target, node, at, symbol);
@@ -1154,8 +1203,8 @@ FailureOr<Value> Importer::unsignedBoundary(Value value, Type target,
         return failure();
       value = *converted;
     }
-    // A contextual constant already has the symbolic destination type. Its
-    // existing bound constant verifier checks fit for every actual width; do
+    // A contextual static constant already has its declared destination type.
+    // The bound constant verifier checks its value and fit for every actual; do
     // not treat a parameter default as that proof. The fresh boundary below
     // still leaves the original Integer producer and its aliases unchanged.
   } else if (*equivalent && targetBits && isa<ac::BitsType>(value.getType()) &&

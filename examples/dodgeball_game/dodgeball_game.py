@@ -232,4 +232,4 @@ def DodgeballGame(  # noqa: N802
             ob3_y = 0
         return result
 
-    return advance_game()
+    return advance_game

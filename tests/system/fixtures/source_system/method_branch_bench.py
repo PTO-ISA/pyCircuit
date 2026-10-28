@@ -20,7 +20,3 @@ def ExerciseMethodBranches():
     @ac.rule
     def observe_after() -> None:
         ac.log("info", "reader after", owner.read())
-
-    observe_before()
-    drive()
-    observe_after()

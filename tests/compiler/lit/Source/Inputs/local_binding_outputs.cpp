@@ -60,6 +60,10 @@ int main(int argc, char **argv) {
     pyc_dut::Inputs in;
     in.clk = wire<1>(r.inputs[0]);
     in.rst = wire<1>(r.inputs[1]);
+    // Autonomous Rules use the compiler domain; raw primitive pins retain the
+    // same original vector. No second clock or sampling epoch is introduced.
+    in.pyc_7079635f636c6b = in.clk;
+    in.pyc_7079635f727374 = in.rst;
     in.a = wire<8>(r.inputs[2]);
     in.b = wire<8>(r.inputs[3]);
     in.wide = wire<65>(r.inputs[4]);

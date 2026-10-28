@@ -204,6 +204,10 @@ def ACIR_BitsResizeOp : ACIR_Op<"bits.resize", [Pure]> {
 def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
   let summary = "Declare a source-owned hardware module or standard leaf";
   let description = [{
+    In a transactional version-2 package this is an explicit unlinked resource
+    interface: semantic_kind is resources, output_kinds covers all results, and
+    neither legacy dependency nor transaction summaries are permitted.
+
     Publishes the same signature as ac.module without copying its body.
     function_type owns the input/result types and direction; input_names and
     output_names name those positions. Integer parameters and type_parameters
@@ -267,7 +271,8 @@ def ACIR_ModuleImportOp : ACIR_Op<"module.import", [Symbol]> {
       StrArrayAttr:$output_names, StrAttr:$semantic_kind,
       OptionalAttr<DictArrayAttr>:$dependency_summary,
       OptionalAttr<DictionaryAttr>:$transaction_summary,
-      OptionalAttr<StrAttr>:$primitive_kind);
+      OptionalAttr<StrAttr>:$primitive_kind,
+      OptionalAttr<StrArrayAttr>:$output_kinds);
   let hasVerifier = 1;
 }
 
@@ -276,7 +281,14 @@ def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
     HasOnlyGraphRegion]> {
   let summary = "Define reusable hardware structure and its Work rules";
   let description = [{
-    Defines a reusable hardware graph. Block arguments are input wires and
+    With ac.transactional = 2, output_kinds explicitly classifies each resource
+    result as bound or export. Body arguments are signature inputs followed by
+    bound output resources. The final yield covers every result and each bound
+    position must yield its original block argument. Exporting a reference does
+    not allocate storage or transfer ownership. This structural contract does
+    not establish executable transaction semantics.
+
+    Outside that contract, defines a reusable hardware graph. Block arguments are input wires and
     the final ac.yield binds output wires. function_type is the sole owner
     of their types and direction. input_names and output_names match the
     corresponding positions exactly; names are nonempty and unique across
@@ -314,7 +326,7 @@ def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
   let arguments = (ins StrAttr:$sym_name, DictionaryAttr:$source_owner,
       DictArrayAttr:$parameters, StrArrayAttr:$type_parameters,
       TypeAttrOf<FunctionType>:$function_type, StrArrayAttr:$input_names,
-      StrArrayAttr:$output_names);
+      StrArrayAttr:$output_names, OptionalAttr<StrArrayAttr>:$output_kinds);
   let regions = (region AnyRegion:$body);
   let hasVerifier = 1;
   let hasRegionVerifier = 1;
@@ -577,7 +589,14 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [
     DeclareOpInterfaceMethods<SymbolUserOpInterface>]> {
   let summary = "Instantiate one module with typed SSA input and output wires";
   let description = [{
-    callee resolves to ac.module or ac.module.import. Input operands bind
+    In transactional version 2, operands bind callee inputs followed by bound
+    output resources; results cover the complete signature. Bound results alias
+    their supplied resource, and export results alias the child's existing
+    resource. Normal printing displays inputs(...) and bound(...) separately.
+    The optional bound_count records the parsed grouping and is checked against
+    the callee signature; it is not ownership or type inference authority.
+
+    In the hardware contract, callee resolves to ac.module or ac.module.import. Input operands bind
     the callee's input positions; results are its output wires. After static
     and type substitution, arity and payload types must match exactly.
     Whole structs connect directly, preserving their field layout and X/Z.
@@ -594,15 +613,16 @@ def ACIR_InstanceOp : ACIR_Op<"instance", [
     parent; occurrence records source identity, not admission criteria.
     Ordinary and storage leaf modules use this same operation.
   }];
-  let arguments = (ins Variadic<ACIR_HardwareType>:$inputs, StrAttr:$instance_name,
+  let arguments = (ins Variadic<ACIR_StructuralValueType>:$inputs, StrAttr:$instance_name,
       FlatSymbolRefAttr:$callee,
       TypedArrayAttrBase<ACIR_StaticExprAttr,
           "ordered static integer arguments">:$parameters,
       TypedArrayAttrBase<TypeAttrOf<ACIR_HardwareType>,
           "ordered hardware type arguments">:$type_arguments,
-      DictionaryAttr:$occurrence);
-  let results = (outs Variadic<ACIR_HardwareType>:$outputs);
+      DictionaryAttr:$occurrence, OptionalAttr<I64Attr>:$bound_count);
+  let results = (outs Variadic<ACIR_StructuralValueType>:$outputs);
   let hasVerifier = 1;
+  let hasCustomAssemblyFormat = 1;
 }
 
 def ACIR_YieldOp : ACIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
@@ -612,7 +632,24 @@ def ACIR_YieldOp : ACIR_Op<"yield", [Terminator, MemoryEffects<[]>]> {
     enclosing module or rule results, including aggregate types. Yield is
     an output connection, not a clock boundary or a copy into storage.
   }];
-  let arguments = (ins Variadic<ACIR_HardwareType>:$values);
+  let arguments = (ins Variadic<ACIR_StructuralValueType>:$values);
+  let hasVerifier = 1;
+}
+
+def ACIR_ResourceAllocOp : ACIR_Op<"resource.alloc", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let summary = "Allocate one instance-owned resource, retaining distinct identity";
+  let arguments = (ins Variadic<ACIR_HardwareType>:$initial,
+      StrAttr:$instance_name, OptionalAttr<I64Attr>:$depth);
+  let results = (outs ACIR_ResourceReferenceType:$resource);
+  let assemblyFormat = "$instance_name (`initial` `(` $initial^ `:` type($initial) `)`)? (`depth` $depth^)? attr-dict `:` type($resource)";
+  let hasVerifier = 1;
+}
+def ACIR_InstanceRefOp : ACIR_Op<"instance.ref", [Pure]> {
+  let summary = "Reference an existing instance path without allocation";
+  let arguments = (ins StrArrayAttr:$instance_path);
+  let results = (outs ACIR_ModuleRefType:$reference);
+  let assemblyFormat = "$instance_path attr-dict `:` type($reference)";
   let hasVerifier = 1;
 }
 
@@ -680,6 +717,18 @@ def ACIR_TableIndexOp : ACIR_Op<"table.index", [Pure]> {
   let results = (outs ACIR_BitsType:$result);
   let hasVerifier = 1;
 }
+def ACIR_TableReadOp : ACIR_Op<"table.read", [Pure]> {
+  let summary = "Read one statically checked source Table element";
+  let description = [{
+    The index's complete admitted unsigned range must fit the bound rank-one
+    Table extent. This obligation is intrinsic and survives routing and reload.
+    Static admission does not grant knownness: payload selection retains the
+    same full-width four-state behavior as table.get's payload result.
+  }];
+  let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
+  let results = (outs ACIR_ScalarHardwareType:$value);
+  let hasVerifier = 1;
+}
 def ACIR_TableGetOp : ACIR_Op<"table.get", [Pure]> {
   let arguments = (ins ACIR_TableType:$input, ACIR_BitsType:$index);
   let results = (outs ACIR_ScalarHardwareType:$value, ACIR_BitsType:$in_range);
@@ -707,10 +756,10 @@ def ACIR_TableFoldOp : ACIR_Op<"table.fold", [Pure]> {
 }
 def ACIR_ValueMergeOp : ACIR_Op<"value.merge", [Pure,
     AttrSizedOperandSegments]> {
-  let arguments = (ins ACIR_ScalarHardwareType:$base,
+  let arguments = (ins ACIR_HardwareType:$base,
       Variadic<ACIR_BitsType>:$guards,
       Variadic<ACIR_HardwareType>:$values, ArrayAttr:$paths);
-  let results = (outs ACIR_ScalarHardwareType:$next, ACIR_BitsType:$en);
+  let results = (outs ACIR_HardwareType:$next, ACIR_BitsType:$en);
   let hasVerifier = 1;
 }
 
@@ -757,10 +806,14 @@ def ACIR_EnumFromBitsOp : ACIR_Op<"enum.from_bits", [Pure]> {
 def ACIR_StructOp : ACIR_Op<"struct", [Symbol]> {
   let summary = "Declare the ordered fields of a packed hardware struct";
   let description = [{
-    Each fields entry is exactly {name: StringAttr, type: TypeAttr}. Names
-    are nonempty and unique. Field types resolve to finite bits, enums or other
-    declared structs; recursive layouts and unresolved type parameters are
-    invalid. The array preserves declaration order. There are no field
+    Each fields entry contains name: StringAttr and type: TypeAttr. Names
+    are nonempty and unique. An optional source_constraint contains the existing
+    hardware Boolean constraint, with an equivalent exactly one-bit physical
+    type and Boolean domain. No other field properties or source kinds are
+    admitted. Without the constraint, the original field interpretation applies.
+    Field types resolve to finite bits, enums, tables or other declared structs;
+    recursive layouts and unresolved type parameters are invalid. The array
+    preserves declaration order. There are no field
     directions, initialization values, storage handles or source constructors.
 
     The first field occupies the most significant bits. Later fields follow

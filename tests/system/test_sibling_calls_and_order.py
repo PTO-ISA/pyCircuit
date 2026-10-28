@@ -45,7 +45,7 @@ def _units(
             "@ac.module\ndef Reader(counter: Counter) -> ac.u8:\n"
             "    @ac.rule\n    def read() -> ac.u8:\n"
             "        return counter.old()\n"
-            "    return read()\n"
+            "    return read\n"
         )
         (source / "bench.py").write_text(
             "import pycircuit as ac\nfrom checks.counter import Counter\n"
@@ -54,27 +54,120 @@ def _units(
             "    counter = Counter()\n    value = Reader(counter)\n"
             "    @ac.rule\n    def observe() -> None:\n"
             '        ac.log("info", "total returned", value)\n'
-            "    observe()\n"
+            ""
+        )
+    elif scenario == "mixed-nominal":
+        (source / "counter.py").write_text(
+            """import pycircuit as ac
+
+@ac.module
+def Counter():
+    count: ac.u8 = 5
+
+    @ac.method
+    def increment() -> None:
+        count = count + 1
+
+    @ac.method
+    def bridge() -> None:
+        pass
+
+    @ac.method
+    def read() -> ac.u8:
+        return count
+
+    @ac.method
+    def old() -> ac.u8:
+        return count
+
+    @ac.method(guard=lambda allow: allow)
+    def require(allow: ac.u1) -> None:
+        pass
+"""
+        )
+        (source / "clients.py").write_text(
+            """import pycircuit as ac
+from checks.counter import Counter
+
+@ac.module
+def Mixed(counter: Counter, allow: ac.u1) -> ac.u8:
+    relative = counter
+    alias = relative
+    progress: ac.u8 = 0
+
+    @ac.rule
+    def act() -> ac.u8:
+        saved = counter.old()
+        alias.increment()
+        forwarded = counter.read()
+        progress = progress + 1
+        alias.require(allow)
+        assert forwarded == saved + 1, "mixed receiver candidate"
+        ac.log("info", "mixed candidate", saved, forwarded, progress)
+        return forwarded
+
+    result = act
+
+    @ac.rule
+    def observe_progress() -> None:
+        ac.log("info", "mixed progress", progress)
+
+    return result
+"""
+        )
+        (source / "bench.py").write_text(
+            """import pycircuit as ac
+from checks.counter import Counter
+from checks.clients import Mixed
+
+@ac.module
+def Parent(allow: ac.u1):
+    counter = Counter()
+    value = Mixed(counter, allow)
+
+    @ac.rule
+    def observe_returned() -> None:
+        ac.log("info", "mixed returned", value)
+
+    @ac.rule
+    def observe_state() -> None:
+        entry = counter.old()
+        ordered = counter.read()
+        ac.log("info", "mixed state", entry, ordered)
+
+
+@ac.system
+def ExerciseSiblings():
+    phase: ac.u4 = 0
+    left = Parent(phase != 1)
+    right = Parent(phase == 1)
+
+    @ac.rule
+    def advance() -> None:
+        assert phase < 4, "mixed system limit"
+        phase = phase + 1
+
+"""
         )
     elif scenario == "methods":
+        # Reverse independent callable declaration order without changing calls.
         path = source / "counter.py"
-        text = path.read_text().replace("@ac.rule(", "@ac.method(")
-        assert "@ac.rule(" not in text
-        path.write_text(text)
+        text = path.read_text()
+        first = text.index("    @ac.method(guard=lambda: count < 7)")
+        second = text.index("    @ac.method\n    def read()", first)
+        end = text.index("    @ac.method(guard=lambda: count == 6)", second)
+        path.write_text(
+            text[:first] + text[second:end] + text[first:second] + text[end:]
+        )
     elif scenario in ("transitive", "pass-through"):
         path = source / "counter.py"
         text = path.read_text()
         text = text.replace(
-            "    @ac.rule(after=(increment,))\n    def read()",
-            "    @ac.rule(after=(increment,))\n"
-            + (
-                "    def bridge() -> ac.u8:\n        return count\n\n"
-                if scenario == "pass-through"
-                else "    def bridge() -> None:\n        pass\n\n"
-            )
-            + "    @ac.rule(after=(bridge,))\n    def read()",
+            "    @ac.method\n    def read() -> ac.u8:\n        return count",
+            "    @ac.method\n    def bridge() -> ac.u8:\n        return count\n\n"
+            "    @ac.method\n    def read() -> ac.u8:\n        return bridge()",
         )
-        assert "def bridge()" in text and "after=(bridge,)" in text
+        assert "return bridge()" in text
         path.write_text(text)
         if scenario == "pass-through":
             path = source / "clients.py"
@@ -83,7 +176,6 @@ def _units(
                 "    @ac.rule\n    def observe() -> None:\n"
                 "        value = counter.bridge()\n"
                 '        ac.log("info", "middle visible", value)\n'
-                "    observe()\n"
             )
             path = source / "bench.py"
             path.write_text(
@@ -105,7 +197,9 @@ def _units(
             '        ac.log("info", "sibling written", alias.old())',
             '        ac.log("info", "sibling written", alias.old())\n        return alias.old()',
         )
-        text = text.replace("    write()\n", "    return write()\n")
+        text = text.replace(
+            "\n\n@ac.module\ndef Reader", "\n    return write\n\n@ac.module\ndef Reader"
+        )
         text = text.replace(
             "def Reader(counter: Counter, ledger: Ledger):",
             "def Reader(counter: Counter, ledger: Ledger) -> ac.u8:",
@@ -116,8 +210,8 @@ def _units(
             '        ac.log("info", "sibling visible", value, balance, marker)\n        return value',
         )
         text = text.replace(
-            "    observe()\n    observe_six()\n    observe_balance()",
-            "    observe_six()\n    observe_balance()\n    return observe()",
+            "\n\n@ac.module\ndef Relay",
+            "\n    return observe\n\n@ac.module\ndef Relay",
         )
         text = text.replace(
             "def Relay(counter: Counter, ledger: Ledger):",
@@ -138,7 +232,7 @@ def _units(
         text += '        ac.log("info", "sibling returned writer", written)\n'
         text += "\n    @ac.rule\n    def publish_visible() -> None:\n"
         text += '        ac.log("info", "sibling returned reader", visible)\n'
-        text += "\n    publish_written()\n    publish_visible()\n"
+
         path.write_text(text)
     elif scenario == "repeated":
         path = source / "clients.py"
@@ -258,43 +352,48 @@ def _values(rows, name):
 
 
 def _expected(scenario):
-    if scenario == "returned":
-        return {
-            **_expected("ordinary"),
-            "sibling returned writer": [(6,), (7,)],
-            "sibling returned reader": [(6,), (6,), (7,), (7,)],
-        }
-    if scenario == "repeated":
-        return {
-            "sibling visible": [(7, 50, 91)] * 4,
-            "sibling six": [],
-            "sibling old": [(5, 40, 90, 5)] + [(7, 50, 91, 5)] * 3,
-            "sibling written": [(7,)],
-            "sibling fifty": [(7, 91)] * 4,
-            "repeated snapshots": [(6, 7)],
-        }
-    if scenario == "pass-through":
-        return {**_expected("ordinary"), "middle visible": [(6,), (6,), (7,), (7,)]}
-    if scenario == "conditional":
-        return {
-            "sibling visible": [(6, 50, 91), (6, 60, 91), (6, 70, 91), (6, 80, 91)],
-            "sibling six": [(6, 50, 91), (6, 60, 91), (6, 70, 91), (6, 80, 91)],
-            "sibling old": [
-                (5, 40, 90, 5),
-                (6, 50, 91, 5),
-                (6, 60, 91, 5),
-                (6, 70, 91, 5),
-            ],
-            "sibling written": [(6,), (6,), (6,), (6,)],
-            "sibling fifty": [(6, 91)],
-        }
-    return {
-        "sibling visible": [(6, 50, 91), (6, 50, 91), (7, 60, 91), (7, 60, 91)],
-        "sibling six": [(6, 50, 91), (6, 50, 91)],
-        "sibling old": [(5, 40, 90, 5), (6, 50, 91, 5), (6, 50, 91, 5), (7, 60, 91, 5)],
-        "sibling written": [(6,), (7,)],
-        "sibling fifty": [(6, 91), (6, 91)],
+    count, balance, marker = 5, 40, 90
+    events = {
+        name: []
+        for name in (
+            "sibling visible",
+            "sibling six",
+            "sibling old",
+            "sibling written",
+            "sibling fifty",
+        )
     }
+    if scenario == "returned":
+        events.update({"sibling returned writer": [], "sibling returned reader": []})
+    if scenario == "repeated":
+        events["repeated snapshots"] = []
+    if scenario == "pass-through":
+        events["middle visible"] = []
+    for phase in range(4):
+        events["sibling visible"].append((count, balance, marker))
+        events["sibling old"].append((count, balance, marker, 5))
+        if count == 6:
+            events["sibling six"].append((count, balance, marker))
+        if balance == 50:
+            events["sibling fifty"].append((count, marker))
+        if scenario == "returned":
+            events["sibling returned reader"].append((count,))
+        if scenario == "pass-through":
+            events["middle visible"].append((count,))
+        changes_count = scenario != "conditional" or phase == 0
+        repetitions = 2 if scenario == "repeated" else 1
+        allowed = scenario == "conditional" or phase != 1
+        if allowed and (not changes_count or count + repetitions - 1 < 7):
+            before = count
+            count += repetitions if changes_count else 0
+            balance += 10
+            marker += phase == 0
+            events["sibling written"].append((count,))
+            if scenario == "returned":
+                events["sibling returned writer"].append((count,))
+            if scenario == "repeated":
+                events["repeated snapshots"].append((before + 1, count))
+    return events
 
 
 @pytest.mark.parametrize(
@@ -314,17 +413,17 @@ def _expected(scenario):
     ids=[
         "direct",
         "portable-anchor",
-        "absent-transitive-call",
-        "unreached-static-edge",
+        "transitive-method-read",
+        "conditional-writer-current-read",
         "distinct-same-type-actuals",
         "repeated-call-one-transaction",
         "nonwriting-middle-transaction",
         "public-return-availability",
         "saved-return-availability",
-        "method-declaration-after",
+        "independent-method-declaration-order",
     ],
 )
-def test_sibling_calls_forward_atomic_candidates_and_keep_instance_identity(
+def test_sibling_calls_keep_atomic_candidates_and_independent_current_reads(
     tmp_path,
     saved,
     scenario,
@@ -387,6 +486,85 @@ def test_sibling_calls_forward_atomic_candidates_and_keep_instance_identity(
     assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
 
 
+def test_mixed_formal_alias_receivers_keep_candidates_guards_returns_and_instances(
+    tmp_path,
+):
+    # _final hides provider bodies during consumer compile, removes source and
+    # units, relocates the saved anchor, then reloads the same complete closure.
+    final = _final(tmp_path, saved=True, scenario="mixed-nominal")
+    original = final.read_bytes()
+    # Each cycle has low/high evaluations, then one rising-edge commit. The late
+    # require disables the complete act, including progress.
+    # Left accepts phases 0/2/3; right accepts only phase 1. Both Parent instances
+    # share declarations while retaining their own Counter and Mixed state.
+    # Each autonomous state observer reads committed current state; only the
+    # sequential Method calls inside act observe its candidate updates.
+    expected = {
+        "left": {
+            "mixed state": [(5, 5), (6, 6), (6, 6), (7, 7)],
+            "mixed progress": [(0,), (1,), (1,), (2,)],
+            "mixed candidate": [(5, 6, 1), (6, 7, 2), (7, 8, 3)],
+            "mixed returned": [(6,), (7,), (8,)],
+        },
+        "right": {
+            "mixed state": [(5, 5), (5, 5), (6, 6), (6, 6)],
+            "mixed progress": [(0,), (0,), (1,), (1,)],
+            "mixed candidate": [(5, 6, 1)],
+            "mixed returned": [(6,)],
+        },
+    }
+    active_epochs = {"left": [0, 1, 4, 5, 6, 7], "right": [2, 3]}
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        root = tmp_path / target
+        root.mkdir()
+        binary = _bundle(final, root, target)
+        if target == "verilog":
+            cache = (root / "build-verilog/CMakeCache.txt").read_text()
+            assert "iverilog" in cache.lower()
+        for workers in (1, 2) if target == "cpp" else (1,):
+            arguments = (
+                ["--cycles", "4", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=4"]
+            )
+            rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+            for side, events in expected.items():
+                branch = [row for row in rows if side in row.get("instance", "")]
+                for event, values in events.items():
+                    assert _values(branch, event) == [
+                        value for value in values for _ in range(2)
+                    ], (target, workers, side, event, rows)
+                    epochs = (
+                        active_epochs[side]
+                        if event in ("mixed candidate", "mixed returned")
+                        else list(range(8))
+                    )
+                    assert [
+                        int(row["evaluation_epoch"]) for row in _events(branch, event)
+                    ] == epochs
+            transcript = [row for row in rows if row["kind"] != "result"]
+            assert len([row for row in rows if row["kind"] == "log"]) == 48
+            transcripts.append(transcript)
+            arguments = (
+                ["--cycles", "5", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=5"]
+            )
+            failed = _run([str(binary), *arguments], timeout=30)
+            assert failed.returncode != 0, failed.stdout + failed.stderr
+            failed_rows = _records(failed.stdout)
+            assert [row for row in failed_rows if row["kind"] != "result"] == transcript
+            terminal = [row for row in failed_rows if row["kind"] == "result"]
+            if terminal:
+                assert len(terminal) == 1 and terminal[0]["status"] == "FAILED"
+                assert int(terminal[0]["epoch_time"]) == 8
+            else:
+                assert "check failed at epoch 8" in failed.stdout + failed.stderr
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert final.read_bytes() == original
+
+
 def test_total_lifted_return_survives_saved_reload_without_dynamic_availability(
     tmp_path,
 ):
@@ -416,7 +594,9 @@ def test_total_lifted_return_survives_saved_reload_without_dynamic_availability(
 
 
 @pytest.mark.parametrize("case", ["reversed", "same-method", "cycle"])
-def test_illegal_callable_order_rejects_without_replacing_program(tmp_path, case):
+def test_retired_callable_order_and_conflicting_writers_preserve_program(
+    tmp_path, case
+):
     source = tmp_path / "source"
     source.mkdir()
     counter = (FIXTURE / "counter.py").read_text()
@@ -427,16 +607,19 @@ def test_illegal_callable_order_rejects_without_replacing_program(tmp_path, case
     }[case]
     if case == "cycle":
         counter = counter.replace(
-            "@ac.rule(guard=lambda: count < 7)",
-            "@ac.rule(after=(read,), guard=lambda: count < 7)",
+            "@ac.method(guard=lambda: count < 7)",
+            "@ac.method(after=(read,), guard=lambda: count < 7)",
+        )
+    if case == "reversed":
+        counter = counter.replace(
+            "@ac.method\n    def read", "@ac.method(after=(increment,))\n    def read"
         )
     top = (
         "\n@ac.system\ndef Bad():\n    counter = Counter()\n    @ac.rule\n    def first() -> None:\n"
         + body
-        + "    first()\n"
     )
     if case == "same-method":
-        top += "    @ac.rule\n    def second() -> None:\n        counter.increment()\n    second()\n"
+        top += "    @ac.rule\n    def second() -> None:\n        counter.increment()\n"
     path = source / "bad.py"
     # Publish a valid program first to bind the protection oracle.
     path.write_text(
@@ -465,9 +648,9 @@ def test_illegal_callable_order_rejects_without_replacing_program(tmp_path, case
     assert rejected.returncode != 0, rejected.stdout + rejected.stderr
     assert final.read_bytes() == before
     reasons = {
-        "reversed": ("order", "reversed", "predecessor"),
+        "reversed": ("after", "retired"),
         "same-method": ("conflict", "writer"),
-        "cycle": ("cycl",),
+        "cycle": ("after", "retired"),
     }
     assert any(
         word in rejected.stderr.lower() for word in reasons[case]
@@ -510,7 +693,9 @@ def test_four_state_sibling_candidates_survive_held_and_falling_samples(tmp_path
                 "known": "c",
                 "z": "1",
             }
-            assert all(row["values"][0] == expected for row in forwarded)
+            assert [row["values"][0] for row in forwarded] == [
+                row["values"][0] for row in old
+            ]
             assert all(row["values"][0] == expected for row in old[2:])
             assert (
                 old[0]["values"][0]
@@ -766,7 +951,9 @@ endmodule
     assert _records(stdout) == []
 
 
-@pytest.mark.parametrize("case", ["wrong-nominal", "dynamic", "missing", "rebound"])
+@pytest.mark.parametrize(
+    "case", ["wrong-nominal", "dynamic", "missing", "rebound", "ancestor-reference"]
+)
 def test_module_reference_admission_rejects_and_preserves_unit(tmp_path, case):
     source = tmp_path / "source"
     source.mkdir()
@@ -795,7 +982,6 @@ def Writer(counter: Counter):
     @ac.rule
     def write() -> None:
         counter.increment()
-    write()
 @ac.module
 def Bad(flag: ac.u1):
     left = Counter()
@@ -807,6 +993,10 @@ def Bad(flag: ac.u1):
         "dynamic": "    selected = left if flag else right\n    Writer(selected)\n",
         "missing": "    Writer()\n",
         "rebound": "    selected = left\n    selected = right\n    Writer(selected)\n",
+        "ancestor-reference": (
+            '    selected = ac.instance_ref(Counter, "..", "counter")\n'
+            "    @ac.rule\n    def invoke() -> None:\n        selected.increment()\n"
+        ),
     }[case]
     path.write_text(declarations + bad)
     rejected = _cli(
@@ -861,7 +1051,12 @@ def test_native_pair_verifier_rejects_forged_reference_and_order_interface(
     shutil.copytree(FIXTURE, source)
     provider = tmp_path / "counter-unit"
     _ok(_compile(source, "counter.py", provider))
-    if metadata == "reference-formals":
+    if metadata in (
+        "reference-formals",
+        "schema-missing",
+        "schema-invalid",
+        "callable-after",
+    ):
         unit = tmp_path / "clients-unit"
         _ok(_compile(source, "clients.py", unit, [provider]))
         key = "ac.reference_parameters"
@@ -895,6 +1090,10 @@ def test_native_pair_verifier_rejects_forged_reference_and_order_interface(
         assert count == 1
     elif metadata == "schema-invalid":
         changed = original.replace("schema = 2 : i64", "schema = 1 : i64", 1)
+    elif metadata == "callable-after":
+        changed = original.replace(
+            "schema = 2 : i64", "after = [], schema = 2 : i64", 1
+        )
     else:
         changed = _empty_array(original, key)
     tampered.write_text(changed)
@@ -941,7 +1140,9 @@ def _attribute_range(text, key, opening, closing, start=0):
 
 def _mutate_routed_identity(text, mutation):
     if mutation == "order":
-        return _empty_array(text, "ac.after")
+        return text.replace(
+            "ac.transaction_returns = ", "ac.after = [], ac.transaction_returns = ", 1
+        )
     if mutation in ("target-instance", "registration"):
         key, opening, closing = (
             ("ac.registration_path", "[", "]")
@@ -1035,7 +1236,9 @@ def test_native_final_rederives_lifted_identity_order_and_return_fire(
 @pytest.mark.parametrize(
     "case", ["combinational-result-cycle", "cross-resource-static-cycle"]
 )
-def test_lifted_cycles_reject_without_replacing_final(tmp_path, case):
+def test_retired_cross_module_order_dependencies_reject_without_replacing_final(
+    tmp_path, case
+):
     source = tmp_path / "source"
     source.mkdir()
     path = source / "cycle.py"
@@ -1063,13 +1266,12 @@ def Writer(counter: Counter, allow: ac.u1):
     @ac.rule
     def write() -> None:
         counter.increment(allow)
-    write()
 @ac.module
 def Reader(counter: Counter) -> ac.u8:
     @ac.rule
     def read() -> ac.u8:
         return counter.read()
-    return read()
+    return read
 @ac.system
 def Bad():
     counter = Counter()
@@ -1078,7 +1280,12 @@ def Bad():
 """
     else:
         text = (
-            (FIXTURE / "counter.py").read_text()
+            (FIXTURE / "counter.py")
+            .read_text()
+            .replace(
+                "@ac.method\n    def read",
+                "@ac.method(after=(increment,))\n    def read",
+            )
             + """
 @ac.module
 def First(left: Counter, right: Counter, choose: ac.u1):
@@ -1089,7 +1296,6 @@ def First(left: Counter, right: Counter, choose: ac.u1):
         else:
             value = right.read()
             ac.log("info", "right", value)
-    act()
 @ac.module
 def Second(left: Counter, right: Counter, choose: ac.u1):
     @ac.rule
@@ -1099,7 +1305,6 @@ def Second(left: Counter, right: Counter, choose: ac.u1):
         else:
             value = left.read()
             ac.log("info", "left", value)
-    act()
 @ac.system
 def Bad():
     choose: ac.u1 = 0
@@ -1126,9 +1331,7 @@ def Bad():
     assert rejected.returncode != 0, rejected.stdout + rejected.stderr
     # The source filename is cycle.py; it must not satisfy the diagnostic oracle.
     diagnostic = rejected.stderr.rsplit("error:", 1)[-1].lower()
-    assert any(
-        word in diagnostic for word in ("cycle", "cyclic", "dependency")
-    ), rejected.stderr
+    assert any(word in diagnostic for word in ("after", "retired")), rejected.stderr
     assert final.read_bytes() == before
 
 
@@ -1146,7 +1349,6 @@ def Closed():
     @ac.rule
     def observe() -> None:
         ac.log("info", "closed old", counter.old())
-    observe()
 """
     )
     units = []

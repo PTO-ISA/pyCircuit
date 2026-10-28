@@ -38,5 +38,3 @@ def ExerciseWhileControls():
         release_depth()
         ac.log("info", "while controls", nested, sequential)
         phase = phase + 1
-
-    advance()

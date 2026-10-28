@@ -53,4 +53,3 @@ def ExerciseMultiOutput():
         )
 
     advance_phase(phase)
-    drive()

@@ -62,7 +62,7 @@ receipt = json.loads(receipt_path.read_text())
 final_path = main_build / "multi_input_rule_pipeline.ac"
 final_text = final_path.read_text()
 assert '"ac.queue"(' not in final_text
-instances = [line for line in final_text.splitlines() if '"ac.instance"(' in line]
+instances = [line for line in final_text.splitlines() if 'ac.instance(' in line]
 queue_lines = [
     line for line in instances if "callee = @pycircuit.__builtins__.fifo_" in line
 ]

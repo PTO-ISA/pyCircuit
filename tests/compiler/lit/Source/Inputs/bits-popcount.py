@@ -175,7 +175,7 @@ def observation(expression, base="ac.u5", extra=""):
         + f'@ac.module\ndef Top(value: {base}{extra}) -> {{"out": ac.u5}}:\n'
         + "    alias = value\n    @rule\n    def observe():\n"
         + f'        report("popcount", {expression})\n'
-        + '    observe()\n    return {"out": 0}\n'
+        + '    return {"out": 0}\n'
     )
 
 
@@ -452,7 +452,7 @@ def Top(value: ac.u5) -> Result:
     @ac.rule
     def bind() -> Result:
         return Child(ac.popcount(alias))
-    return bind()
+    return bind
 """,
     }
     control_paths = []
@@ -737,7 +737,7 @@ def Top(value: ac.u5) -> Result:
             PREFIX
             + "from popcount_probe.provider import Logical\n"
             + f'@ac.module\ndef Top(value: {base}, flag: bool) -> {{"out": ac.bits[80]}}:\n'
-            + "    child = Logical()\n    @ac.rule\n    def bind():\n        child(value=value, flag=flag)\n    bind()\n"
+            + "    child = Logical()\n    child(value=value, flag=flag)\n"
             + f'    return {{"out": ac.popcount(child.{field})}}\n'
         )
         if field == "boolean":

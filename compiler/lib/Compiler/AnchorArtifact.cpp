@@ -505,8 +505,9 @@ FailureOr<json::Object> manifest(const Files &files, ac::detail::EmitError emitE
   auto object = parsed->getAsObject();
   if (!keys(object, {"kind", "schema", "routed_contract", "owner", "root", "configuration",
                      "configuration_identity", "content_identity", "files", "definitions", "sources", "producer"}) ||
-      object->getString("kind") != "pycircuit-anchor" || object->getInteger("schema") != 1 ||
-      object->getInteger("routed_contract") != 2)
+      object->getString("kind") != "pycircuit-anchor" ||
+      !((object->getInteger("schema") == 1 && object->getInteger("routed_contract") == 2) ||
+        (object->getInteger("schema") == 2 && object->getInteger("routed_contract") == 3)))
     return emitError() << "unsupported anchor schema/contract; regenerate from source units";
   auto owner = object->getObject("owner");
   auto producer = object->getObject("producer");
@@ -553,22 +554,24 @@ FailureOr<json::Object> configuration(mlir::ModuleOp package, const json::Array 
   auto systems = package.getOps<ac::SystemOp>();
   if (!llvm::hasSingleElement(systems)) return emitError() << "anchor requires exactly one System selection";
   auto system = *systems.begin();
-  auto entry = system.getEntry();
-  auto root = dyn_cast_or_null<ac::ModuleOp>(SymbolTable::lookupSymbolIn(package, entry.getAs<FlatSymbolRefAttr>("callee")));
-  if (!root) return emitError() << "anchor root is not an indexed module definition";
-  const json::Object *rootRow = nullptr;
+  ac::HardwareAnalysis analysis(package);
+  auto bindings = ac::detail::resolveHardwareLogicalRootBindings(analysis);
+  if (failed(bindings)) return failure();
+  auto root = cast<ac::ModuleOp>(bindings->owner);
+  auto physical = ac::detail::resolveHardwareRootBindings(analysis);
+  if (failed(physical)) return failure();
+  auto implementation = cast<ac::ModuleOp>(physical->owner);
+  const json::Object *rootRow = nullptr, *implementationRow = nullptr;
   json::Array variants;
   for (const auto &raw : definitions) {
     const auto &row = *raw.getAsObject();
     if (row.getString("definition") == symbol(root.getSymName())) rootRow = &row;
+    if (row.getString("definition") == symbol(implementation.getSymName())) implementationRow = &row;
     variants.push_back(json::Object{{"definition", string(row, "definition")},
         {"variant_id", string(row, "variant_id")}, {"spec_sha256", string(row, "spec_sha256")},
         {"body_sha256", string(row, "body_sha256")}});
   }
-  if (!rootRow) return emitError() << "anchor root definition is absent from its index";
-  ac::HardwareAnalysis analysis(package);
-  auto bindings = ac::detail::resolveHardwareRootBindings(analysis);
-  if (failed(bindings)) return failure();
+  if (!rootRow || !implementationRow) return emitError() << "anchor root definition is absent from its index";
   json::Array integers, types;
   for (Attribute raw : root.getParameters()) {
     StringRef name = cast<DictionaryAttr>(raw).getAs<StringAttr>("name").getValue();
@@ -585,11 +588,15 @@ FailureOr<json::Object> configuration(mlir::ModuleOp package, const json::Array 
   }
   auto reset = ac::getHardwareResetSemantics(package);
   if (failed(reset)) return failure();
-  return json::Object{{"root", json::Object{{"source", ownerJSON(root.getSourceOwner())},
+  json::Object result{{"root", json::Object{{"source", ownerJSON(root.getSourceOwner())},
        {"definition", symbol(root.getSymName())}, {"variant_id", string(*rootRow, "variant_id")}}},
       {"integer_arguments", std::move(integers)}, {"type_arguments", std::move(types)},
       {"domain", system.getDomain()}, {"reset_semantics", *reset == ac::HardwareResetSemantics::Strict ? "strict" : "if_one"},
       {"graph_sha256", graphHash.str()}, {"definitions", std::move(variants)}};
+  if (system->hasAttr("ac.entry_boundary"))
+    result["implementation_root"] = json::Object{{"source", ownerJSON(implementation.getSourceOwner())},
+        {"definition", symbol(implementation.getSymName())}, {"variant_id", string(*implementationRow, "variant_id")}};
+  return result;
 }
 
 LogicalResult writePrivate(StringRef directory, const Files &files, ac::detail::EmitError emitError) {
@@ -643,14 +650,19 @@ LogicalResult writeAnchorArtifacts(
   auto systems = routed.getOps<ac::SystemOp>();
   if (!llvm::hasSingleElement(systems)) return emitError() << "anchor requires one selected root";
   auto system = *systems.begin();
-  std::string root = symbol(system.getEntry().getAs<FlatSymbolRefAttr>("callee").getValue());
+  std::string implementationRoot = symbol(system.getEntry().getAs<FlatSymbolRefAttr>("callee").getValue());
+  ac::HardwareAnalysis rootAnalysis(routed);
+  auto logicalBindings = ac::detail::resolveHardwareLogicalRootBindings(rootAnalysis);
+  if (failed(logicalBindings)) return failure();
+  std::string root = symbol(cast<ac::ModuleOp>(logicalBindings->owner).getSymName());
+  bool boundary = system->hasAttr("ac.entry_boundary");
   std::map<std::string, Operation *> declarations;
   for (Operation &operation : routed.getBody()->getOperations())
     if (auto name = operation.getAttrOfType<StringAttr>("sym_name"))
       if (!declarations.emplace(symbol(name.getValue()), &operation).second)
         return emitError() << "duplicate anchor declaration";
   std::set<std::string> closure;
-  std::vector<std::string> pending{root};
+  std::vector<std::string> pending{implementationRoot};
   // Canonical physical leaf declarations are retained for subsequent state
   // refinement, even before logical state has a physical callee reference.
   for (auto imported : routed.getOps<ac::ModuleImportOp>())
@@ -738,7 +750,7 @@ LogicalResult writeAnchorArtifacts(
         StringRef(path).ends_with("/spec.ac") ? "spec" : "body";
     inventory.push_back(json::Object{{"path", path}, {"role", role}, {"sha256", anchorSha256(text)}});
   }
-  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", 1}, {"routed_contract", 2},
+  json::Object output{{"kind", "pycircuit-anchor"}, {"schema", boundary ? 2 : 1}, {"routed_contract", boundary ? 3 : 2},
     {"owner", json::Object{{"kind", "anchor"}, {"source", json::Object(*rootSource)}, {"definition", root}}},
     {"root", root}, {"configuration", json::Object(*config)}, {"configuration_identity", identity(*config)},
     {"files", std::move(inventory)}, {"definitions", std::move(definitions)}, {"sources", std::move(provenance)},
@@ -759,9 +771,11 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   if (failed(parsed)) return failure();
   auto &document = *parsed;
   auto config = document.getObject("configuration");
+  bool boundary = document.getInteger("schema") == 2;
   auto definitions = document.getArray("definitions"), sources = document.getArray("sources");
   if (!definitions || definitions->empty() || !sources || sources->empty() ||
-      !keys(config, {"root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"}) ||
+      !(boundary ? keys(config, {"root", "implementation_root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})
+                  : keys(config, {"root", "integer_arguments", "type_arguments", "domain", "reset_semantics", "graph_sha256", "definitions"})) ||
       !keys(config->getObject("root"), {"source", "definition", "variant_id"}) ||
       !ownerShape(config->getObject("root")->getObject("source")) ||
       !config->getObject("root")->getString("definition") ||
@@ -772,6 +786,13 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
       (config->getString("reset_semantics") != "strict" && config->getString("reset_semantics") != "if_one") ||
       identity(*config) != string(document, "configuration_identity"))
     return emitError() << "anchor configuration schema/identity is invalid";
+  if (boundary) {
+    auto implementation = config->getObject("implementation_root");
+    if (!keys(implementation, {"source", "definition", "variant_id"}) ||
+        !ownerShape(implementation->getObject("source")) ||
+        !implementation->getString("definition") || !hexID(string(*implementation, "variant_id")))
+      return emitError() << "anchor implementation_root schema is invalid";
+  }
   std::set<std::string> arguments;
   for (const auto &raw : *config->getArray("integer_arguments")) {
     auto row = raw.getAsObject();
@@ -844,6 +865,16 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
       *configRoot->getObject("source") != *rootRow.getObject("source") ||
       *configRoot->getObject("source") != *document.getObject("owner")->getObject("source"))
     return emitError() << "anchor root/configuration/source identity mismatch";
+  std::string implementationRoot = root;
+  if (boundary) {
+    auto implementation = config->getObject("implementation_root");
+    implementationRoot = string(*implementation, "definition");
+    if (!index.contains(implementationRoot)) return emitError() << "anchor implementation root is absent from its index";
+    auto expected = index.at(implementationRoot);
+    if (implementation->getString("variant_id") != expected->getString("variant_id") ||
+        *implementation->getObject("source") != *expected->getObject("source"))
+      return emitError() << "anchor implementation root identity mismatch";
+  }
   json::Array expectedVariants;
   for (const auto &raw : *definitions) {
     const auto &row = *raw.getAsObject();
@@ -866,7 +897,7 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
       return emitError() << "duplicate/conflicting anchor graph declaration";
   }
   std::set<std::string> loaded, neededGraph;
-  std::vector<std::string> pending{root};
+  std::vector<std::string> pending{implementationRoot};
   for (const auto &[name, declaration] : graphDeclarations)
     if (auto imported = dyn_cast<ac::ModuleImportOp>(declaration);
         imported && imported->getAttrOfType<StringAttr>("primitive_kind"))
@@ -911,6 +942,10 @@ FailureOr<LoadedAnchor> loadVerifiedAnchor(StringRef directory, MLIRContext &con
   // Do not call a binder, packed-layout evaluator or configuration analysis
   // until the complete assembled package has passed bounded native admission.
   if (failed(ac::verifyRoutedPackage(*graph))) return failure();
+  auto contract = (*graph)->getAttrOfType<IntegerAttr>("ac.routed_contract");
+  if (!contract || contract.getInt() != (boundary ? 3 : 2))
+    return emitError() << "anchor schema and native routed contract differ";
+
   for (const auto &raw : *sources) {
     const auto &row = *raw.getAsObject();
     auto interface = fragment(files.at(string(row, "interface")), context);

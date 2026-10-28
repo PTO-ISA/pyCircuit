@@ -138,29 +138,35 @@ private:
   bool exhausted = false;
 };
 
-// Old readers require exactly the three legacy top-level fields. Adding this
-// mandatory version field makes new reference/order semantics fail closed there.
-FailureOr<bool> needsReferenceOrderSchema(Operation *module, Attribute value,
+// Old readers require exactly the three legacy top-level fields. Version only
+// summaries that use newer semantics, including relative calls nested in arms.
+FailureOr<unsigned> requiredTransactionSchema(Operation *module, Attribute value,
                                           PublicationBudget &budget,
                                           unsigned depth = 0) {
   if (!budget.depth(depth)) return failure();
-  if (module->hasAttr("ac.reference_parameters")) return true;
-  bool needed = false;
+  unsigned needed = module->hasAttr("ac.reference_parameters") ? 2 : 0;
+  if (auto row = dyn_cast_or_null<DictionaryAttr>(value)) {
+    auto kind = row.getAs<StringAttr>("kind");
+    auto receiver = row.getAs<DictionaryAttr>("receiver");
+    if (kind && kind.getValue() == "call" && receiver &&
+        (receiver.get("receiver_kind") || receiver.get("ancestor_depth")))
+      needed = 3;
+  }
   if (auto row = dyn_cast_or_null<DictionaryAttr>(value))
     for (NamedAttribute field : row) {
       if (!budget.charge()) return failure();
       StringRef name = field.getName().getValue();
-      if (name == "callable_after" || name == "reference_bindings" || name == "reference")
-        needed = true;
-      auto child = needsReferenceOrderSchema(module, field.getValue(), budget, depth + 1);
+      if (name == "reference_bindings" || name == "reference")
+        needed = std::max(needed, 2u);
+      auto child = requiredTransactionSchema(module, field.getValue(), budget, depth + 1);
       if (failed(child)) return failure();
-      needed |= *child;
+      needed = std::max(needed, *child);
     }
   if (auto values = dyn_cast_or_null<ArrayAttr>(value))
     for (Attribute childValue : values) {
-      auto child = needsReferenceOrderSchema(module, childValue, budget, depth + 1);
+      auto child = requiredTransactionSchema(module, childValue, budget, depth + 1);
       if (failed(child)) return failure();
-      needed |= *child;
+      needed = std::max(needed, *child);
     }
   return needed;
 }
@@ -299,11 +305,11 @@ public:
                          {"methods", array(methods)},
                          {"autonomous", array(autonomous)}});
     if (!summary || invalid || !budget.ok()) return failure();
-    auto newSemantics = needsReferenceOrderSchema(definition, summary, budget);
+    auto newSemantics = requiredTransactionSchema(definition, summary, budget);
     if (failed(newSemantics)) return failure();
     if (*newSemantics) {
       NamedAttrList versioned(summary);
-      versioned.append("schema", builder.getI64IntegerAttr(2));
+      versioned.append("schema", builder.getI64IntegerAttr(*newSemantics));
       summary = versioned.getDictionary(builder.getContext());
     }
     if (!summary || invalid || !budget.ok() ||
@@ -933,6 +939,8 @@ private:
     return rows ? FailureOr<ArrayAttr>(rows) : FailureOr<ArrayAttr>(failure());
   }
   FailureOr<DictionaryAttr> callable(Operation *operation) {
+    if (operation->hasAttr("ac.after") || operation->hasAttr("ac.callable_after"))
+      return operation->emitOpError() << "source after ordering is retired; independent Rules read current state";
     std::optional<SourceRegistrationEntryView> entry;
     if (auto transaction = dyn_cast<SourceTransactionOp>(operation)) {
       auto checked = getSourceRegistrationEntry(transaction);
@@ -978,8 +986,6 @@ private:
       for (StringRef key :
            {"ac.parameters", "ac.result_constraints", "ac.return_form"})
         row.append(key, method->getAttr(key));
-      if (auto after = method->getAttr("ac.callable_after"))
-        row.append("callable_after", after);
       if (auto proposals = method->getAttr("ac.formal_proposals"))
         row.append("ac.formal_proposals", proposals);
       if (auto visibility = method->getAttr("sym_visibility"))
@@ -994,8 +1000,6 @@ private:
       row.append("registration", transaction.getOccurrence());
       if (entry)
         row.append("registration_entry", entry->call.getCalleeAttr());
-      if (auto after = transaction->getAttrOfType<ArrayAttr>("ac.after");
-          after && !after.empty()) row.append("after", after);
       row.append("domain", *domain);
       auto resultTypes = types(transaction.getResultTypes());
       if (!resultTypes)
@@ -1047,16 +1051,18 @@ public:
     if (failed(exact(legacy.getDictionary(declaration->getContext()),
                      {"owners", "methods", "autonomous"})))
       return failure();
-    auto newSemantics = needsReferenceOrderSchema(declaration, summary, budget);
+    auto newSemantics = requiredTransactionSchema(declaration, summary, budget);
     if (failed(newSemantics)) return failure();
     auto schema = summary.getAs<IntegerAttr>("schema");
     if ((*newSemantics && !schema) ||
-        (summary.get("schema") && (!schema || !schema.getType().isSignlessInteger(64) ||
-                                  schema.getInt() != 2)))
-      return error("reference and callable order semantics require schema = 2 : i64");
+        (summary.get("schema") &&
+         (!schema || !schema.getType().isSignlessInteger(64) ||
+          schema.getInt() != (*newSemantics == 3 ? 3 : 2))))
+      return error(*newSemantics == 3
+          ? "relative receiver calls require schema = 3 : i64"
+          : "reference semantics require schema = 2 : i64");
     auto owners = summary.getAs<ArrayAttr>("owners");
     auto methods = summary.getAs<ArrayAttr>("methods");
-    methodDeclarations = methods;
     auto autonomous = summary.getAs<ArrayAttr>("autonomous");
     if (!owners || !methods || !autonomous)
       return error("top rows must be arrays");
@@ -1085,7 +1091,8 @@ public:
         if (Attribute constraint = row.get("payload_constraint"))
           if (failed(detail::verifySourceCallHardwareConstraint(
                   constraint, row.getAs<TypeAttr>("type").getValue(), hardware,
-                  declaration, declaration, "transaction summary state payload")))
+                  declaration, declaration, "transaction summary state payload",
+                  detail::SourceCallWidthMode::SymbolicFixedBits)))
             return failure();
         identity = state.getAs<DictionaryAttr>("declaration");
         stateRows[state] = row.getAs<TypeAttr>("type").getValue();
@@ -1251,53 +1258,24 @@ public:
       previousMethod = name;
       methodRows[name] = row;
     }
-    llvm::DenseMap<Attribute, ArrayAttr> callableEdges;
-    for (Attribute raw : methods) {
-      auto row = cast<DictionaryAttr>(raw);
-      if (auto after = row.getAs<ArrayAttr>("callable_after"))
-        callableEdges[row.get("declaration")] = after;
+    // Identify internal autonomous bodies from real declaration registration,
+    // before checking any helper's calls into those bodies.
+    for (Attribute raw : autonomous) {
+      auto row = dyn_cast<DictionaryAttr>(raw);
+      if (row && row.get("registration") == row.get("declaration") &&
+          row.get("registration_entry"))
+        autonomousBodies.insert(row.get("registration_entry"));
     }
-    llvm::DenseMap<Attribute, unsigned> callableColors;
-    SmallVector<Attribute, 0> callableStack;
-    if (!budget.storage(methods.size(),
-                        sizeof(Attribute) * 4 + sizeof(unsigned)))
-      return failure();
-    std::function<LogicalResult(Attribute, unsigned)> visitCallable =
-        [&](Attribute declaration, unsigned depth) -> LogicalResult {
-      if (depth > 128 || !budget.charge()) return error("callable_after graph depth exceeded");
-      if (callableColors.lookup(declaration) == 1) {
-        auto diagnostic = this->declaration->emitOpError()
-            << "transaction summary callable_after graph is cyclic";
-        for (Attribute participant : callableStack) {
-          if (!budget.charge()) return failure();
-          diagnostic.attachNote(this->declaration->getLoc())
-              << "participating callable declaration occurrence=" << participant;
-        }
-        return failure();
-      }
-      if (callableColors.lookup(declaration) == 2) return success();
-      callableColors[declaration] = 1;
-      callableStack.push_back(declaration);
-      if (auto edges = callableEdges.lookup(declaration))
-        for (Attribute target : edges)
-          if (failed(visitCallable(target, depth + 1))) return failure();
-      callableStack.pop_back();
-      callableColors[declaration] = 2;
-      return success();
-    };
-    for (Attribute raw : methods)
-      if (failed(visitCallable(cast<DictionaryAttr>(raw).get("declaration"), 0)))
-        return failure();
     for (Attribute raw : methods)
       if (failed(callable(cast<DictionaryAttr>(raw), true)))
         return failure();
     DictionaryAttr previousRegistration;
-    llvm::DenseMap<Attribute, DictionaryAttr> registrations;
     for (Attribute raw : autonomous) {
       auto row = dyn_cast<DictionaryAttr>(raw);
       NamedAttrList core;
       if (row) core.assign(row.getValue());
-      core.erase("after");
+      if (row && row.get("after"))
+        return error("after ordering is retired; independent Rules read current state");
       core.erase("registration_entry");
       if (failed(exact(core.getDictionary(declaration->getContext()),
                        {"name", "declaration", "registration", "domain",
@@ -1314,48 +1292,17 @@ public:
         return error(
             "autonomous registrations must be unique and canonically ordered");
       previousRegistration = registration;
-      registrations.try_emplace(registration, row);
-      if (Attribute rawAfter = row.get("after")) {
-        auto after = dyn_cast<ArrayAttr>(rawAfter);
-        if (!after || after.empty())
-          return error("after requires a nonempty registration array");
-        llvm::DenseSet<Attribute> seen;
-        for (Attribute predecessor : after)
-          if (failed(occurrence(dyn_cast<DictionaryAttr>(predecessor))) ||
-              !seen.insert(predecessor).second || predecessor == registration)
-            return error("after requires distinct other local registrations");
-      }
       if (failed(callable(row, false)))
         return failure();
       if (failed(registrationEntry(row)))
         return failure();
     }
-    llvm::DenseMap<Attribute, unsigned> colors;
-    std::function<LogicalResult(Attribute, unsigned)> visit =
-        [&](Attribute registration, unsigned depth) -> LogicalResult {
-      if (depth > 128 || !budget.charge()) return error("after graph depth exceeded");
-      if (colors.lookup(registration) == 1) return error("after graph is cyclic");
-      if (colors.lookup(registration) == 2) return success();
-      colors[registration] = 1;
-      auto row = registrations.lookup(registration);
-      if (!row) return error("after target is not a local outer registration");
-      if (auto after = row.getAs<ArrayAttr>("after"))
-        for (Attribute predecessor : after) {
-          auto target = registrations.lookup(predecessor);
-          if (!target || target.get("domain") != row.get("domain"))
-            return error("after target must have the same local domain");
-          if (failed(visit(predecessor, depth + 1))) return failure();
-        }
-      colors[registration] = 2;
-      return success();
-    };
-    for (auto row : registrations)
-      if (failed(visit(row.first, 0))) return failure();
     return success(budget.ok());
   }
 
 private:
-  ArrayAttr methodDeclarations;
+  llvm::DenseSet<Attribute> autonomousBodies;
+  DictionaryAttr activeCallable;
   LogicalResult error(StringRef message) {
     return declaration->emitOpError() << "transaction summary " << message;
   }
@@ -1455,13 +1402,7 @@ private:
       return failure();
     HardwareBindings bindings;
     bindings.owner = declaration;
-    auto width =
-        hardware.getPackedWidth(attr.getValue(), bindings, declaration);
-    if (failed(width))
-      return failure();
-    if (!*width)
-      return error("hardware type requires a positive resolved packed width");
-    return success();
+    return detail::verifySourceTemplateType(hardware, attr.getValue(), bindings, declaration);
   }
   bool oneBit(Type type) {
     auto bits = dyn_cast_or_null<BitsType>(type);
@@ -1594,23 +1535,8 @@ private:
     NamedAttrList core(row);
     core.erase("ac.formal_proposals");
     core.erase("visibility");
-    core.erase("callable_after");
-    if (Attribute raw = row.get("callable_after")) {
-      auto after = dyn_cast<ArrayAttr>(raw);
-      if (!after || after.empty())
-        return error("callable_after requires a nonempty declaration array");
-      llvm::DenseSet<Attribute> seen;
-      for (Attribute predecessor : after) {
-        auto target = dyn_cast<DictionaryAttr>(predecessor);
-        if (!target || failed(occurrence(target)) ||
-            target == row.get("declaration") || !seen.insert(target).second)
-          return error("callable_after requires distinct other local declarations");
-        bool found = false;
-        for (Attribute rawMethod : methodDeclarations)
-          found |= cast<DictionaryAttr>(rawMethod).get("declaration") == target;
-        if (!found) return error("callable_after target must be a local callable declaration");
-      }
-    }
+    if (row.get("callable_after") || row.get("after"))
+      return error("after ordering is retired; independent Rules read current state");
     if (Attribute raw = row.get("visibility")) {
       auto visibility = dyn_cast<StringAttr>(raw);
       if (!visibility || visibility.getValue() != "private")
@@ -1650,14 +1576,14 @@ private:
       auto parameter = cast<DictionaryAttr>(parameters[index]);
       if (failed(detail::verifySourceCallHardwareConstraint(
               parameter.get("constraint"), function.getInput(index), hardware,
-              declaration, declaration, "transaction summary method")))
+              declaration, declaration, "transaction summary method", detail::SourceCallWidthMode::SymbolicFixedBits)))
         return failure();
     }
     for (auto [index, raw] : llvm::enumerate(constraints)) {
       if (failed(type(TypeAttr::get(function.getResult(index)))) ||
           failed(detail::verifySourceCallHardwareConstraint(
               raw, function.getResult(index), hardware, declaration,
-              declaration, "transaction summary method")))
+              declaration, "transaction summary method", detail::SourceCallWidthMode::SymbolicFixedBits)))
         return failure();
     }
     SourceMethodView contract{declaration, {}, row};
@@ -1682,6 +1608,11 @@ private:
     if (found == methodRows.end())
       return error("registration_entry must name a local Method row");
     auto method = found->second;
+    if (row.get("registration") == row.get("declaration")) {
+      auto visibility = method.getAs<StringAttr>("visibility");
+      if (!visibility || visibility.getValue() != "private")
+        return error("autonomous Rule declaration requires a private registration body");
+    }
     if (method.get("declaration") != row.get("declaration") ||
         method.get("guard_location") != row.get("guard_location"))
       return error("registration_entry Method declaration/guard must agree");
@@ -1702,6 +1633,8 @@ private:
     if (!kind || kind.getValue() != "call" || call.get("callee") != symbol ||
         call.get("occurrence") != row.get("registration") ||
         call.get("ac.formal_owner_bindings") || !receiver ||
+        receiver.get("reference") || receiver.get("receiver_kind") ||
+        receiver.get("ancestor_depth") ||
         !receiver.getAs<ArrayAttr>("instance_path").empty() ||
         !pathKind || pathKind.getValue() != "constant" || !pathValue ||
         !pathValue.getValue())
@@ -1729,6 +1662,7 @@ private:
     return success();
   }
   LogicalResult callable(DictionaryAttr row, bool method) {
+    activeCallable = row;
     if (failed(detail::verifySourceGuardLocation(
             row.getAs<DictionaryAttr>("guard_location"),
             declaration->getAttrOfType<DictionaryAttr>("source_owner"),
@@ -1840,7 +1774,7 @@ private:
           return failure();
         }
         if (failed(hardware.getPackedWidth(index, bindings, declaration)) ||
-            failed(hardware.getTableShape(table, bindings, declaration)) ||
+            failed(detail::verifySourceTemplateType(hardware, table, bindings, declaration)) ||
             failed(value(selector.get("index"), scope, index)))
           return failure();
         current =
@@ -1894,11 +1828,15 @@ private:
     NamedAttrList concreteReceiver(receiver);
     concreteReceiver.erase("reference");
     auto reference = receiver ? receiver.getAs<StringAttr>("reference") : StringAttr();
+    bool relative = receiver &&
+        (receiver.get("receiver_kind") || receiver.get("ancestor_depth"));
     if (!callee || callee.getRootReference().getValue().empty() ||
         callee.getNestedReferences().size() != 1 || !actuals ||
         (receiver && receiver.get("reference") && !reference) ||
-        failed(detail::verifyOwnerRef(
-            concreteReceiver.getDictionary(declaration->getContext()), [&] { return declaration->emitOpError(); })))
+        (relative ? failed(verifySourceRelativeReceiver(receiver, declaration))
+                  : failed(detail::verifyOwnerRef(
+                        concreteReceiver.getDictionary(declaration->getContext()),
+                        [&] { return declaration->emitOpError(); }))))
       return error("call requires a qualified Module::Method, OwnerRef and "
                    "argument array");
     if (nativeQueue &&
@@ -1908,8 +1846,27 @@ private:
             [&] { return declaration->emitOpError(); })))
       return failure();
     auto path = receiver.getAs<ArrayAttr>("instance_path");
+    if (path.size() > 1 || (reference && !path.empty()))
+      return error("Method receiver requires lexical self, a direct child or a declared reference interface");
+    if (autonomousBodies.contains(callee)) {
+      auto registration = activeCallable.getAs<DictionaryAttr>("registration");
+      if (!registration || registration != activeCallable.get("declaration") ||
+          activeCallable.get("registration_entry") != callee ||
+          row.get("occurrence") != registration ||
+          !activeCallable.getAs<ArrayAttr>("guard_effects").empty() ||
+          activeCallable.getAs<ArrayAttr>("body_effects").size() != 1 ||
+          activeCallable.getAs<ArrayAttr>("body_effects")[0] != row)
+        return error("autonomous Rule body is private to its declaration registration");
+    }
     std::optional<ArrayAttr> proposals;
-    if (reference) {
+    if (relative) {
+      // A selector is declaration authority only. Actual occurrence selection,
+      // nominal provider and complete signature are checked by link closure.
+      if (nativeQueue)
+        return error("relative Method target requires an ordinary Module provider");
+      for (Attribute actual : actuals)
+        if (failed(value(actual, scope))) return failure();
+    } else if (reference) {
       auto target = resolveSourceReferenceReceiver(declaration, receiver,
           [&](FlatSymbolRefAttr symbol) { return hardware.lookupDefinition(symbol.getValue()); }, declaration);
       if (failed(target) || SymbolTable::getSymbolName(*target) != callee.getRootReference())

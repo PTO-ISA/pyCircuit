@@ -548,6 +548,35 @@ FailureOr<bool> Importer::bindModuleResults(
   }
   return true;
 }
+LogicalResult Importer::registerDirectModuleHandle(
+    StringRef name, const AstNode &assignment, const CallableDecl &contract,
+    OpBuilder &at, FlatSymbolRefAttr symbol,
+    SmallVectorImpl<Instance> &storage,
+    llvm::StringMap<Instance *> &instances) {
+  auto call = assignment.child("value");
+  auto site = directCallSites.find(sourceOccurrence(at, symbol, call));
+  if (site == directCallSites.end() || !site->second.bound)
+    return error() << "named Module instance lacks its actual allocation";
+  auto binding = lookupBinding(call.child("func"));
+  Operation *op = site->second.op;
+  // Both callers reserve their complete module-body allocation inventory
+  // before publishing pointers into this existing instance store.
+  if (storage.size() == storage.capacity())
+    return error() << "named Module instance exceeds its reserved inventory";
+  op->setAttr("instance_name", at.getStringAttr(name));
+  storage.push_back({name.str(), assignment, contract.symbol,
+                     binding ? binding->declaration : nullptr});
+  Instance &instance = storage.back();
+  instance.op = op;
+  instance.bound = true;
+  instance.valueHandle = true;
+  instance.returnShape = contract.returnShape;
+  instance.inputs = contract.inputs;
+  instance.outputs = contract.results;
+  instances[name] = &instance;
+  return success();
+}
+
 FailureOr<Value> Importer::directModuleCall(
     const AstNode &call, OpBuilder &at, FlatSymbolRefAttr symbol,
     llvm::StringMap<Value> &values, llvm::StringMap<Instance *> &instances) {
@@ -618,14 +647,10 @@ FailureOr<Value> Importer::stateInitializer(
     OpBuilder &at, FlatSymbolRefAttr symbol, llvm::StringMap<Value> &values,
     llvm::StringMap<Instance *> &instances, bool allowCapturedConstants) {
   ac::HardwareAnalysis analysis(*body);
-  if (auto table = dyn_cast<ac::TableType>(contract.type)) {
-    if (failed(analysis.getTableSize(table, {},
-                                     at.getInsertionBlock()->getParentOp())) ||
-        failed(analysis.getPackedWidth(table.getElementType(), {},
-                                       at.getInsertionBlock()->getParentOp())))
-      return failure();
-  } else if (failed(analysis.getPackedWidth(
-                 contract.type, {}, at.getInsertionBlock()->getParentOp())))
+  ac::HardwareBindings bindings;
+  bindings.owner = at.getInsertionBlock()->getParentOp();
+  if (failed(ac::detail::verifySourceTemplateType(
+          analysis, contract.type, bindings, bindings.owner)))
     return failure();
   // Typed states additionally admit closed captured constants; SourceStateOp
   // verifies the complete actual initializer SSA before publication.
@@ -691,6 +716,20 @@ Importer::lowerReturn(const ModuleDecl &decl, const AstNode &node,
       return failure();
     outputs.push_back(*converted);
     return outputs;
+  }
+  if (node.kind() == "Name") {
+    if (auto *binding = nestedRuleBinding(node.string("id"))) {
+      if (failed(requireNestedRuleDataVisible(node.string("id"), node))) return failure();
+      if (binding->results.size() != decl.outputs.size())
+        return error() << "Rule result arity differs from Module output signature";
+      for (auto [result, output] : llvm::zip(binding->results, decl.outputs)) {
+        auto converted = applyBindingBoundary(result, BindingBoundary{output, true},
+                                               node, at, decl.symbol);
+        if (failed(converted)) return failure();
+        outputs.push_back(*converted);
+      }
+      return outputs;
+    }
   }
   bool tuple = decl.returnShape == ReturnShape::Tuple;
   if (tuple) {
@@ -780,11 +819,13 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
         auto declaration =
             record ? analysis.lookupStruct(record) : ac::StructOp();
         Type selected;
+        DictionaryAttr selectedField;
         if (declaration)
           for (Attribute raw : declaration.getFields()) {
             auto field = cast<DictionaryAttr>(raw);
             if (field.getAs<StringAttr>("name") == name) {
               selected = field.getAs<TypeAttr>("type").getValue();
+              selectedField = field;
               break;
             }
           }
@@ -795,6 +836,7 @@ LogicalResult Importer::bindProposals(ArrayRef<StateOwner> states,
             createOp(builder, loc, ac::StructGetOp::getOperationName(), {value},
                      TypeRange{selected}, {builder.getNamedAttr("field", name)})
                 ->getResult(0);
+        rememberStructField(value, selectedField, state.node);
       }
       return value;
     };

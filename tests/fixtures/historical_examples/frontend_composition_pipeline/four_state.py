@@ -72,10 +72,10 @@ assert '"ac.queue"(' not in final_text
 queue_lines = [
     line
     for line in final_text.splitlines()
-    if '"ac.instance"(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
+    if 'ac.instance(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
 ]
 assert len(queue_lines) == 2
-assert final_text.count('"ac.instance"(') == len(queue_lines), (
+assert final_text.count('ac.instance(') == len(queue_lines), (
     "unexpected added instance"
 )
 for line in queue_lines:

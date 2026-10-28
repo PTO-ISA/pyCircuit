@@ -88,9 +88,11 @@
                                                     plan.frames[caller].bindings, call);
             auto formalType = hardware.resolveType(method.getFunctionType().getInput(ordinal),
                                                     binding.bindings, call);
-            if (failed(actualType) || failed(formalType) ||
+            auto ownerType = hardware.resolveType(plan.owners[*physical].payloadType,
+                                                    plan.instances[0].bindings, call);
+            if (failed(actualType) || failed(formalType) || failed(ownerType) ||
                 !ac::areEquivalentHardwareTypes(*actualType, *formalType) ||
-                !ac::areEquivalentHardwareTypes(*actualType, plan.owners[*physical].payloadType) ||
+                !ac::areEquivalentHardwareTypes(*actualType, *ownerType) ||
                 plan.owners[*physical].domain != plan.domain)
               return reject("original writable owner physical type/domain differs");
           }

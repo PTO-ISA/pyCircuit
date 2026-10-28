@@ -5,6 +5,8 @@
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
+#include "llvm/ADT/ScopeExit.h"
+#include <functional>
 using namespace mlir;
 namespace acir::ac {
 FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
@@ -178,11 +180,10 @@ FailureOr<ModulePortLayout> getModulePortLayout(Operation *declaration) {
       return error() << "ac.internal_ports root inputs require finite payloads "
                         "and i64 zero defaults, except declared availability "
                         "companions which require one";
-    auto width = analysis.getPackedWidth(type, bindings, declaration);
-    if (failed(width))
+    // Suffix payloads belong to the shared declaration. Their selected root
+    // occurrence is checked again with actuals by the bound-definition walk.
+    if (failed(detail::verifySourceTemplateType(analysis, type, bindings, declaration)))
       return failure();
-    if (!*width)
-      return error() << "ac.internal_ports root input width must be positive";
   }
   return layout;
 }
@@ -262,6 +263,74 @@ LogicalResult verifyModuleImportSummarySelection(ModuleImportOp imported) {
   return success();
 }
 
+LogicalResult verifySourceTemplateType(
+    const HardwareAnalysis &analysis, Type type,
+    const HardwareBindings &bindings, Operation *site, bool *concrete) {
+  if (!bindings.owner || failed(verifyHardwareTypeScope(type, bindings.owner)))
+    return failure();
+  bool closed = true;
+  llvm::DenseSet<Type> active;
+  std::function<LogicalResult(Type, unsigned)> check;
+  std::function<LogicalResult(StaticExprAttr, unsigned)> expression =
+      [&](StaticExprAttr value, unsigned depth) -> LogicalResult {
+    // The source type grammar/scope is checked first. Only declared Integer
+    // dependencies may defer evaluation; closed subexpressions still diagnose
+    // invalid computation before a provider is published.
+    if (depth > 128) return site->emitOpError() << "excessive static layout expression";
+    if (analysis.isStaticEvaluable(value, bindings))
+      return success(succeeded(analysis.evaluateStatic(value, bindings, site)));
+    auto tree = value.getTree();
+    if (auto type = tree.getAs<TypeAttr>("type"))
+      if (failed(check(type.getValue(), depth + 1))) return failure();
+    for (NamedAttribute field : tree)
+      if (auto child = dyn_cast<StaticExprAttr>(field.getValue()))
+        if (failed(expression(child, depth + 1))) return failure();
+    return success();
+  };
+  check = [&](Type original, unsigned depth) -> LogicalResult {
+    if (depth > 128 || !active.insert(original).second)
+      return site->emitOpError() << "recursive or excessive template layout";
+    llvm::scope_exit cleanup([&] { active.erase(original); });
+    auto error = [&] { return site->emitOpError(); };
+    if (auto bits = dyn_cast<BitsType>(original)) {
+      if (failed(BitsType::verify(error, bits.getWidth())) ||
+          failed(expression(bits.getWidth(), depth + 1))) return failure();
+    } else if (auto table = dyn_cast<TableType>(original)) {
+      if (failed(TableType::verify(error, table.getShape(), table.getElementType()))) return failure();
+      for (Attribute raw : table.getShape())
+        if (failed(expression(cast<StaticExprAttr>(raw), depth + 1))) return failure();
+    }
+    auto resolved = analysis.resolveType(original, bindings, site);
+    if (failed(resolved)) return failure();
+    Type value = *resolved;
+    if (auto bits = dyn_cast<BitsType>(value)) {
+      if (!analysis.isStaticEvaluable(bits.getWidth(), bindings)) {
+        closed = false;
+        return success();
+      }
+    } else if (auto table = dyn_cast<TableType>(value)) {
+      // ResolveType checks closed axes even when another axis is symbolic.
+      if (!analysis.isStaticEvaluable(table.getShape(), bindings)) closed = false;
+      if (failed(check(table.getElementType(), depth + 1))) return failure();
+      if (!analysis.isStaticEvaluable(table.getShape(), bindings)) return success();
+      if (failed(analysis.getTableSize(table, bindings, site))) return failure();
+      // An unresolved element makes the aggregate a declaration-only type.
+      if (!closed) return success();
+    } else if (auto record = dyn_cast<StructType>(value)) {
+      auto declaration = analysis.lookupStruct(record);
+      if (!declaration) return failure();
+      for (Attribute raw : declaration.getFields())
+        if (failed(check(cast<DictionaryAttr>(raw).getAs<TypeAttr>("type").getValue(), depth + 1)))
+          return failure();
+      if (!closed) return success();
+    }
+    return success(succeeded(analysis.getPackedWidth(value, bindings, site)));
+  };
+  if (failed(check(type, 0))) return failure();
+  if (concrete) *concrete = closed;
+  return success();
+}
+
 LogicalResult verifySourceCallHardwareConstraint(
     Attribute raw, Type physical, const HardwareAnalysis &analysis,
     Operation *lexicalModule, Operation *diagnosticOperation,
@@ -310,9 +379,8 @@ LogicalResult verifySourceCallHardwareConstraint(
   // actual instance supplies parameters. Closed widths still take the normal
   // positive-width check, including malformed closed expressions.
   if (widthMode == SourceCallWidthMode::SymbolicFixedBits &&
-      source == "fixed_bits" &&
-      !analysis.isStaticEvaluable(cast<BitsType>(physical).getWidth(), bindings))
-    return success();
+      (source == "fixed_bits" || source == "table"))
+    return verifySourceTemplateType(analysis, physical, bindings, diagnosticOperation);
   // Reuse canonical nominal resolution, static widths and checked layout.
   auto width = analysis.getPackedWidth(physical, bindings, diagnosticOperation);
   if (failed(width))
@@ -345,6 +413,32 @@ LogicalResult verifySourceCallHardwareConstraint(
       uint64_t(upper.getActiveBits() - 1) != *width)
     return error() << description << " Integer domain must be [0, 2**W)";
   return success();
+}
+
+LogicalResult verifyNominalStructField(
+    Attribute raw, const HardwareAnalysis &analysis, Operation *lexicalModule,
+    Operation *diagnosticOperation) {
+  auto field = dyn_cast<DictionaryAttr>(raw);
+  auto name = field ? field.getAs<StringAttr>("name") : StringAttr();
+  auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
+  Attribute constraint = field ? field.get("source_constraint") : Attribute();
+  if (!field || field.size() != (constraint ? 3 : 2) || !name ||
+      name.getValue().empty() || !type ||
+      !isa<BitsType, StructType, EnumType, TableType>(type.getValue()))
+    return diagnosticOperation->emitOpError()
+           << "fields require unique names and finite bits/struct/enum/table "
+              "types, with optional Boolean source_constraint";
+  if (!constraint)
+    return success();
+  auto descriptor = dyn_cast<DictionaryAttr>(constraint);
+  auto kind = descriptor ? descriptor.getAs<StringAttr>("source_kind")
+                         : StringAttr();
+  if (!kind || kind.getValue() != "boolean")
+    return diagnosticOperation->emitOpError()
+           << "Struct field source_constraint requires Boolean source kind";
+  return verifySourceCallHardwareConstraint(
+      constraint, type.getValue(), analysis, lexicalModule, diagnosticOperation,
+      "Struct field");
 }
 
 LogicalResult verifyRequiredSourceParameter(Attribute raw,

@@ -352,7 +352,7 @@ def _assert_increment_inventory(text: str) -> None:
 def _assert_fixture_inventory(text: str, *, pipeline: bool) -> None:
     assert 'ac.root_kind = "system"' in text
     assert text.count('"ac.reg"') == 4
-    assert text.count('"ac.instance"') == 1
+    assert text.count("ac.instance(") == 1
     assert text.count('"ac.rule"') == 1
     checks = _operation_lines(text, "ac.expect")
     assert sum('kind = "assert"' in check for check in checks) == 5
@@ -542,7 +542,7 @@ def test_approved_sources_publish_hierarchy_without_relay_registers(
     assert system.process.returncode == 0, system.process.stderr
     pipeline_text = pipeline.body.read_text(encoding="utf-8")
     assert pipeline_text.count('"ac.reg"') == 1
-    assert pipeline_text.count('"ac.instance"') == 2
+    assert pipeline_text.count("ac.instance(") == 2
     assert pipeline_text.count("callee = @control_flow.increment.Increment") == 2
     assert 'name = "middle"' in pipeline_text
     assert 'parameter = "enabled"' in pipeline_text

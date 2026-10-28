@@ -428,6 +428,11 @@ struct Engine {
       out.push_back({view.getInput(), endpoint.path});
       return out;
     }
+    if (auto read = dyn_cast<TableReadOp>(op)) {
+      out.push_back({read.getInput(), endpoint.path});
+      out.push_back({read.getIndex(), {}});
+      return out;
+    }
     if (auto get = dyn_cast<TableGetOp>(op)) {
       if (cast<OpResult>(value).getResultNumber() == 0)
         out.push_back({get.getInput(), endpoint.path});

@@ -265,5 +265,4 @@ def ExerciseDodgeballGame():  # noqa: N802
         log("info", "dodgeball_game.dbg_ob3_x", dut.dbg_ob3_x)
         log("info", "dodgeball_game.dbg_ob3_y", dut.dbg_ob3_y)
 
-    check_and_advance()
     advance(phase)

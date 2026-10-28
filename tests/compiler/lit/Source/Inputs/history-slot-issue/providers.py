@@ -43,34 +43,37 @@ def explicit_mailbox(
     return result
 
 
+@struct
+class NestedMailboxPorts:
+    incoming_take: u1
+    outgoing_valid: u1
+    outgoing_data: Event
+
+
 @module
 def nested_mailbox(
     incoming_available: u1,
     incoming_head: Event,
     outgoing_space: u1,
-) -> {"incoming_take": u1, "outgoing_valid": u1, "outgoing_data": Event}:
-    slot_valid = valid_cell()
-    slot_payload = payload_cell()
-    capture = (slot_valid.q == 0) & (incoming_available != 0)
-    release = (slot_valid.q != 0) & (outgoing_space != 0)
+) -> NestedMailboxPorts:
+    slot_valid = valid_cell(
+        en=((slot_valid == 0) & (incoming_available != 0))
+           | ((slot_valid != 0) & (outgoing_space != 0)),
+        d=(slot_valid == 0) & (incoming_available != 0),
+    )
+    capture = (slot_valid == 0) & (incoming_available != 0)
+    release = (slot_valid != 0) & (outgoing_space != 0)
     saved_incoming = incoming_head
-    saved_payload = slot_payload.q
+    slot_payload = payload_cell(en=capture, d=incoming_head)
+    saved_payload = slot_payload
 
-    @rule
-    def consume_captured():
-        slot_valid(en=capture | release, d=capture)
 
-    @rule
-    def capture_payload():
-        slot_payload(en=capture, d=saved_incoming)
 
-    consume_captured()
-    capture_payload()
-    return {
-        "incoming_take": capture,
-        "outgoing_valid": release,
-        "outgoing_data": saved_payload,
-    }
+    return NestedMailboxPorts(
+        incoming_take=capture,
+        outgoing_valid=release,
+        outgoing_data=saved_payload
+    )
 
 
 @struct
@@ -232,6 +235,26 @@ def issue_core(
     )
 
 
+@struct
+class IssuePorts:
+    allocation_ready: u1
+    allocation_available: u1
+    allocation_head: Entry
+    wakeup_ready: u1
+    wakeup_available: u1
+    wakeup_head: Wakeup
+    issued_ready: u1
+    issued_available: u1
+    issued_head: Entry
+    allocation_capture: u1
+    wakeup_capture: u1
+    allocation_install: u1
+    wakeup_release: u1
+    selected: u1
+    publish: u1
+    publish_data: Entry
+
+
 @module
 def issue(
     allocation_valid: u1,
@@ -239,24 +262,7 @@ def issue(
     wakeup_valid: u1,
     wakeup_data: Wakeup,
     issued_take: u1,
-) -> {
-    "allocation_ready": u1,
-    "allocation_available": u1,
-    "allocation_head": Entry,
-    "wakeup_ready": u1,
-    "wakeup_available": u1,
-    "wakeup_head": Wakeup,
-    "issued_ready": u1,
-    "issued_available": u1,
-    "issued_head": Entry,
-    "allocation_capture": u1,
-    "wakeup_capture": u1,
-    "allocation_install": u1,
-    "wakeup_release": u1,
-    "selected": u1,
-    "publish": u1,
-    "publish_data": Entry,
-}:
+) -> IssuePorts:
     allocation_ready, allocation_available, allocation_head = queue[Entry](
         allocation_valid,
         allocation_data,
@@ -288,21 +294,21 @@ def issue(
         wakeup_head,
         issued_ready,
     )
-    return {
-        "allocation_ready": allocation_ready,
-        "allocation_available": allocation_available,
-        "allocation_head": allocation_head,
-        "wakeup_ready": wakeup_ready,
-        "wakeup_available": wakeup_available,
-        "wakeup_head": wakeup_head,
-        "issued_ready": issued_ready,
-        "issued_available": issued_available,
-        "issued_head": issued_head,
-        "allocation_capture": core.allocation_take,
-        "wakeup_capture": core.wakeup_take,
-        "allocation_install": core.install,
-        "wakeup_release": core.wakeup_release,
-        "selected": core.selected,
-        "publish": core.issued_valid & issued_ready,
-        "publish_data": core.issued_data,
-    }
+    return IssuePorts(
+        allocation_ready=allocation_ready,
+        allocation_available=allocation_available,
+        allocation_head=allocation_head,
+        wakeup_ready=wakeup_ready,
+        wakeup_available=wakeup_available,
+        wakeup_head=wakeup_head,
+        issued_ready=issued_ready,
+        issued_available=issued_available,
+        issued_head=issued_head,
+        allocation_capture=core.allocation_take,
+        wakeup_capture=core.wakeup_take,
+        allocation_install=core.install,
+        wakeup_release=core.wakeup_release,
+        selected=core.selected,
+        publish=core.issued_valid & issued_ready,
+        publish_data=core.issued_data
+    )

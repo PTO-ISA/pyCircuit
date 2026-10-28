@@ -478,6 +478,11 @@ def execute(
         if item["path"].endswith(".cpp")
     ]
     defines = ["-DCASE_STATEMENTS_STATE"] if state else []
+    if (
+        "pyc_5f5f7079635f76616c69645f6f75745f30"
+        in (output / "verilog/design_top.sv").read_text()
+    ):
+        defines.append("-DCASE_STATEMENTS_AVAILABILITY")
     if latent:
         defines.append("-DCASE_STATEMENTS_LATENT")
     runner = output / "runner"
@@ -1045,7 +1050,6 @@ for name, body in [
     ("return", "            return Result(value=1)"),
     ("allocation", "            local: ac.u2 = 0"),
     ("module-call", "            child = Child(payload)"),
-    ("rule-call", "            other(payload)"),
     ("external-effect", "            print(payload)"),
 ]:
     text = scalar(body=body)
@@ -1065,6 +1069,39 @@ for name, body in [
         "scalar",
         "existing branch statement subset remains bounded",
     )
+# A source-global Rule template remains inside the outer Rule transaction.
+branch_template = scalar(body="            value = other(payload).value").replace(
+    "@ac.rule\ndef evaluate",
+    "@ac.rule\ndef other(payload: ac.u2) -> Result:\n    return Result(value=payload)\n@ac.rule\ndef evaluate",
+)
+branch_rows = [
+    {"subject": str(subject), "payload": format(payload, "02b")}
+    for subject in (0, 1)
+    for payload in range(4)
+]
+branch_gold = [
+    {"value": row["payload"] if row["subject"] == "0" else "00"} for row in branch_rows
+]
+execute(
+    "arm_global_template",
+    branch_template,
+    "Top",
+    {"subject": 1, "payload": 2},
+    {"value": 2},
+    branch_rows,
+    branch_gold,
+)
+# Local autonomous Rules cannot be called from an arm.
+add(
+    "arm-local-rule-call",
+    scalar(body="            other(payload)").replace(
+        "    value: ac.u2 = 0",
+        "    @ac.rule\n    def other(value=payload):\n        return value\n    value: ac.u2 = 0",
+    ),
+    "scalar",
+    "autonomous Rule declarations cannot be nested in a Rule",
+)
+
 # Exhaustive known coverage cannot create a fresh name under X/Z.
 partial = (
     scalar()
@@ -1242,7 +1279,7 @@ SOURCE_GUARDS = {
     "arm-return": "return in a Method/Rule branch is unsupported",
     "arm-allocation": "unsupported hardware expression 'Call'",
     "arm-module-call": "direct module calls are only admitted at module scope",
-    "arm-rule-call": "Rule/Method expression requires a direct Method call",
+    "arm-local-rule-call": "nested Rule/Method declaration is unsupported",
     "arm-external-effect": "Rule/Method expression requires a direct Method call",
     "partial-known-exhaustive": "unknown hardware value 'value'",
     "partial-arm": "unknown hardware value 'value'",
@@ -1360,7 +1397,7 @@ for name, case in cases.items():
         # Overlapping outer writers are admitted at capture and rejected by the
         # lowered transaction proof at link time.
         compile_unit(control["filename"], absent, source_imports)
-        link_diagnostic = "multiple outer writers require a declared transaction order"
+        link_diagnostic = "multiple outer writers require proved disjoint write domains or mutually exclusive controls"
         cli(
             "link",
             absent,

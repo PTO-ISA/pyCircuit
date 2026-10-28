@@ -139,11 +139,35 @@ related outputs and effects that must succeed together. Use separate Rules for
 independent functions. Nesting a Rule or Method call keeps its state proposals,
 guards and body effects within the caller's outer atomic transaction.
 
-Defining a Rule does not execute it. Each static Module-scope Rule call registers
-one outer transaction; repeated calls are distinct registrations. Inside a Rule,
-a Rule or Method call invokes the existing callable body in that same transaction.
-A Method is callable-only and cannot be registered in Module scope. These forms
-share one Python capture, common verified IR and C++/Verilog route.
+A directly nested `@rule` declares one autonomous computation in each actual
+Module or System instance. The compiler schedules it during Work; do not write a
+trailing activation call. A Rule's name denotes its scalar, Struct or tuple result
+in Module wiring expressions: use `return transform`, `child = Child(transform)`
+or `a, b = transform`. Repeated references fan out the same results. Void Rules
+cannot be values, and autonomous Rule identifiers cannot be rebound or called.
+
+Rules read their Module inputs, child outputs and committed local state (which
+lowers to child storage). They drive child interfaces, local next-state proposals
+and Module outputs. Pure aliases and helpers do not grant access to another local
+Rule's results or a foreign owner's private state. Declared nominal Module
+references retain their explicit interfaces; ancestor/sibling bypasses reject.
+
+Inputs can be captured or explicitly bound by local default expressions:
+
+```python
+@ac.module
+def Stage(data: ac.u8) -> ac.u8:
+    @ac.rule
+    def transform(value=data) -> ac.u8:
+        return value + 1
+    return transform
+```
+
+These defaults describe hardware bindings evaluated from current values, not
+Python execution or a first-epoch snapshot. Every local formal needs a binding;
+annotations constrain its type, and otherwise actual SSA supplies the type.
+Methods are callable operations, not autonomous registrations. Modules may expose
+both Methods and ordinary data outputs through their existing interface.
 
 Use explicit finite input and result annotations for published callable
 interfaces. A result can be one admitted scalar or nominal payload, `None`, or a
@@ -167,10 +191,11 @@ def Accumulator(incoming: ac.u8) -> ac.u8:
     return add_to(total, incoming)
 ```
 
-Rule definitions can be source-global, as above, or nested in a Module to capture
-locals. Definition location does not establish instance ownership: calls and
-registration bind the actual Module state. An external Rule receives explicit
-parameters; it does not implicitly capture the caller's local variables.
+A source-global Rule is a reusable template. A complete Module-scope template
+call, as above, binds one autonomous transaction; a template call within a Rule
+participates in that outer transaction. A global declaration alone activates
+nothing and captures no caller locals. Nested Rule declarations instead establish
+their Module ownership directly.
 
 Existing unannotated executable Rules remain supported. Their finite argument
 contracts come from actual SSA values and declared owners, preserving Boolean,
@@ -178,8 +203,9 @@ Integer, fixed-bit and nominal distinctions. Different actual contracts use
 separate private specializations. A direct Module-return call keeps its enclosing
 declared result context; unannotated assigned or nested calls infer their scalar
 or tuple result from the returned SSA. Closed actual constants can supply an
-admitted static loop bound. This does not treat defaults as actuals, invent a
-public ABI from the first registration, or admit arbitrary Python execution.
+admitted static loop bound. This does not invent a public ABI from a first registration or execute Python.
+Local autonomous defaults supply explicit bindings; global templates retain their
+explicit-actual interface.
 Callable-only external interfaces without an unambiguous published contract need
 explicit annotations. A source-global Rule receives its explicit arguments; it
 does not capture unrelated locals or state from a calling Module.
@@ -203,12 +229,12 @@ def Counter() -> Update:
     count: ac.u8 = 5
 
     @ac.rule
-    def bump(target: ac.u8) -> Update:
+    def bump(target: ac.u8 = count) -> Update:
         before = target
         target = target + 1
         return Update(before=before, after=target)
 
-    return bump(count)
+    return bump
 ```
 
 Here `before` is the old candidate and `after` is the updated candidate. Passing a
@@ -224,6 +250,33 @@ Aliases share state; separate calls constructing child Modules own separate
 state. Calls route typed arguments, results and proposals through the existing
 hierarchy, including independently compiled providers. Authors do not add
 forwarding ports, writeback wires or handshake wrappers.
+
+Static Integer parameters can size owned Bits state and rank-one Tables within
+the admitted transaction profile. Preserve the parameters on the provider and
+pass actuals at ordinary Module calls; do not freeze state at the default width
+or generate separate source definitions. For example:
+
+```python
+@ac.module
+def Bank(enable: ac.u1, *, N: int = 4, W: int = 8) -> ac.table[N, ac.bits[W]]:
+    entries: ac.table[N, ac.bits[W]] = 3
+
+    @ac.rule
+    def increment():
+        last: ac.u64 = N - 1
+        if enable:
+            entries[last] = entries[last] + 1
+
+    return entries
+```
+
+The initializer must fit the selected W, and N must be positive. Each instance
+owns all N rows. A root may use the existing `--parameters` link option; imports,
+forwarded parameters and saved anchors retain the actual bindings. The compiler
+checks each occurrence, including nondefault sizes, and owns entry wiring when
+the selected definition is also instantiated elsewhere. See the
+[language reference](../reference/language.md#rule-authoring-requirements-and-current-admission)
+for the remaining parameterization limits.
 
 A Module-typed parameter such as `counter: Counter` binds an existing static
 instance. Passing that handle to `Writer(counter)` or through another Module
@@ -243,32 +296,15 @@ an unavailable operand prevents admission. Valid payload X/Z bits remain data.
 Authors do not add `valid` fields solely to represent this availability. Authored
 protocol `valid`/`ready` signals retain their own interface meaning.
 
-Within one transaction, reads observe sequential candidates and saved SSA values
-keep their earlier snapshots. Independent outer transactions observe committed
-state unless ordered. Both `@ac.rule(after=(earlier,))` and
-`@ac.method(after=(earlier,))` retain an interface contract between callable
-declarations, including declarations with no autonomous registration. For each
-actual receiver instance, MLIR closes the declaration order transitively and
-propagates it to outer transactions containing those calls. An uncalled middle
-declaration does not break transitivity. All possible conditional calls take
-part in this static conservative analysis. An internal call sequence that
-reverses the declared order rejects, as do order or combinational dependency
-cycles. Calls on two distinct instances do not acquire a relationship merely
-from using the same definition.
+Within one callback, assignments and Method/template calls share sequential
+candidates; saved values remain snapshots. Independent callbacks always start
+from the same committed current state. Declaration order supplies no visibility
+or priority. `after`, native `ac.after` and `ac.callable_after` contracts are retired
+and rejected, including imported summaries and saved artifacts. To preserve one
+sequential state transition, place its steps in one Rule and use local Methods
+or helpers. Unproved conflicting writers and combinational cycles reject.
 
-The successor's guards and body use the same ordered entry state. A predecessor
-forwards a state's candidate only when its whole transaction fires and that
-state has write intent. This covers the predecessor's other state owners too,
-and continues through intermediate transactions that do not write that state.
-A blocked predecessor does not block the successor or expose partial updates.
-Two outer transactions calling the same method receive no implicit priority;
-unproved write conflicts still reject. Local explicit registration ordering is
-merged into this graph. An explicit native `ac.after` registration edge must
-resolve uniquely; a Python declaration contract applies to all of its callers.
-The [EHR design reference](https://csg.csail.mit.edu/pubs/memos/Memo-479/memo479.pdf)
-explains why forwarding visibility and the final storage choice must agree.
-
-Whole-owner updates from ancestor and descendant Rule registrations may share
+Whole-owner updates through declared child or reference interfaces may share
 one state owner when the compiler proves their grants mutually exclusive from
 the actual instance wiring and SSA values. Each Rule keeps its own atomic
 boundary. The compiler combines incoming and local proposals before storage;
@@ -281,11 +317,9 @@ mutually exclusive write paths. An ancestor partial lane is composed with its
 captured old Q by its own domains before it crosses a hierarchy port; selectors
 and masks are not new ports. The receiving definition composes its local
 domains over that complete lane. Each proof layer re-derives the lane and
-footprint independently. Callable `after` can order independent outer
-transactions across ordinary hierarchy in one clock/reset domain. Calls within
-one outer Rule remain one atomic transaction and preserve sequential snapshots.
-Mixed ordered/unordered groups on one owner also remain unsupported. Existing
-local ordered and disjoint field/index behavior keeps its documented bounds.
+footprint independently. Independent callbacks retain separate atomic boundaries
+and current reads; calls within one callback share sequential candidates.
+Disjoint/exclusive proposal composition supplies no hidden writer priority.
 
 Keep algorithmic conditions explicit. General queue/resource admission and its
 full conflict, capacity and four-state matrix remain implementation and runtime
@@ -309,11 +343,11 @@ def Increment():
     ingress = ac.queue[ac.u16](depth=2, latency=1)
     egress = ac.queue[ac.u16](depth=2, latency=1)
 
-    @ac.rule
+    @ac.method
     def put(value: ac.u16) -> None:
         ingress.push(value)
 
-    @ac.rule
+    @ac.method
     def get() -> ac.u16:
         return egress.pop()
 
@@ -322,10 +356,9 @@ def Increment():
         value = ingress.pop()
         egress.push(value + 1)
 
-    transfer()
 ```
 
-`put` and `get` are callable interfaces; only `transfer()` is registered here
+`put` and `get` are callable interfaces; `transfer` is automatically registered
 as autonomous work. A caller Rule can use `destination.put(source.get())` so
 both queue operations share its atomic boundary. A denied required operation
 stalls that whole Rule. Rule-local values remain combinational SSA.
@@ -337,9 +370,8 @@ of the committed head. Separate Queue constructions remain separate instances;
 an alias keeps the original instance identity.
 
 The runnable example at `examples/queue_rule_pipeline/README.md`
-combines this pattern with a stateful child Module, a finite loop, local
-`after` ordering and an ordinary Rule result consumed without an authored valid
-field. Use this small complete System as the starting example for current Rule
+combines this pattern with a stateful child Module, a finite loop, current-state
+progress observations and packet checking in the consumer callback. Use this small complete System as the starting example for current Rule
 and Queue authoring. Its output-backpressure checks require the Queue operations
 and both parent/child state proposals to commit together or all hold.
 

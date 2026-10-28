@@ -8,6 +8,7 @@ add_acir_library(ACIRDialect SOURCES
   ACIRNumericProofOps.cpp
   ACIRModuleContracts.cpp
   ACIRModuleOps.cpp
+  TransactionalContracts.cpp
   ACIRBitsOps.cpp
   ACIRCollectionOps.cpp
   ACIRQueueOps.cpp
@@ -34,6 +35,7 @@ add_acir_library(ACIRDialect SOURCES
   SourceSyntaxSiteContracts.cpp
   SourceUnitValidation.cpp
   FinalSourceUnitValidation.cpp
+  EntryBoundary.cpp
   SourceNamespaceValidation.cpp
   HardwareAnalysis.cpp
   HardwareAnalysisDependencies.cpp
@@ -55,6 +57,7 @@ add_dependencies(ACIRDialect
   ACIROpsIncGen
 )
 target_link_libraries(ACIRDialect PUBLIC
+  LLVMCore
   MLIRArithDialect
   MLIRFuncDialect
   MLIRSCFDialect

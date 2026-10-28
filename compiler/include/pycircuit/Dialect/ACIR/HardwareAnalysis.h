@@ -268,6 +268,9 @@ public:
   mlir::FailureOr<mlir::Attribute>
   evaluateStatic(StaticExprAttr expression, const HardwareBindings &bindings,
                  mlir::Operation *site) const;
+  /// Substitute static actuals without changing immutable source provenance.
+  mlir::Attribute substituteAttribute(mlir::Attribute attribute,
+                                      const HardwareBindings &bindings) const;
   bool isStaticEvaluable(mlir::Attribute expression,
                          const HardwareBindings &bindings) const;
   mlir::FailureOr<mlir::Type> resolveType(mlir::Type type,
@@ -305,6 +308,10 @@ public:
       const HardwareBindings &bindings = {},
       const std::function<mlir::LogicalResult(uint64_t, mlir::Operation *)>
           &debit = {}) const;
+  /// Discharge retained source Table index obligations using bound layout and
+  /// original SSA. Raw TableGet membership semantics do not use this query.
+  mlir::LogicalResult verifySourceIndex(mlir::Value index, TableType table,
+      const HardwareBindings &bindings, mlir::Operation *site) const;
   mlir::LogicalResult
   verifyResolvedOperation(mlir::Operation *operation,
                           const HardwareBindings &bindings) const;

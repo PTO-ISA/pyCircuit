@@ -47,4 +47,4 @@ def DigitalFilter(x_in: ac.u16, x_valid: ac.u1) -> FilterResult:  # noqa: N802
         y_valid = x_valid
         return result
 
-    return filter_sample()
+    return filter_sample

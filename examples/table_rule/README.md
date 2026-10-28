@@ -1,11 +1,12 @@
 # Atomic table replacement
 
 `TableRule` owns two `Entry` records and two queues. Its `transfer` Rule pops a
-request, calls the local `install` Rule, and pushes the old entry as the response.
+request, calls the local `install` Method, and pushes the old entry as the response.
 The table update and both Queue operations commit together. A blocked response
 holds the entire transaction; the frontend does not repeat Queue readiness checks.
 
-`install` captures the Module's table directly. Its `old` local is a value
+`transfer` activates from its declaration. `install` is callable and captures
+the Module's table directly, alongside the Module's ordinary output result. Its `old` local is a value
 snapshot, so writing the selected entry does not change the returned old value.
 The ordinary Python call adds no extra cycle.
 

@@ -123,5 +123,4 @@ def ExerciseStructTransform():  # noqa: N802
         log("info", "struct_transform.word", dut.word)
         log("info", "struct_transform.valid", dut.valid)
 
-    check_and_advance()
     advance(phase)

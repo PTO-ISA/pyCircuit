@@ -13,5 +13,4 @@ def Top(path: bool, condition: bool) -> {"value": bool}:
     @rule
     def inspect():
         assert implication(path, condition), "matrix"
-    inspect()
     return {"value": condition}

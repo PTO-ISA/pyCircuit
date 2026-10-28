@@ -9,5 +9,3 @@ def ReadCounter():
     @ac.rule
     def observe() -> None:
         ac.log("info", "anchor read", owner.read())
-
-    observe()

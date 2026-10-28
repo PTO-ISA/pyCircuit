@@ -41,7 +41,3 @@ def ExerciseNominalMethods():
         pending = held.advance(1, 1)
         denied = held.guarded(0)
         ac.log("info", "nominal suppressed", pending.packet.left.data, denied.left.data)
-
-    drive()
-    observe()
-    suppressed()

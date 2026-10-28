@@ -17,12 +17,18 @@ The public commands separate source publication, linking and emission. Each
 stage checks its input before publishing outputs; neither backend recaptures
 Python or infers a different hardware meaning.
 
+The separately versioned [transactional resource IR](transactional-resource-ir.md)
+currently supports structural verification through `pycircuit-opt` only. Its
+`unlinked`/`linked` stages are not source units or executable hardware; the
+existing publication, link, saved-anchor and emit boundaries reject them.
+
 | Stage | Existing owner | Responsibility |
 | --- | --- | --- |
 | Capture | `_source_capture.py`, `_source_transport.py` | Read a stable source snapshot, parse Python syntax and serialize the existing private AST transport. Design functions are never executed. |
 | Compile and publish | `_source_compile.py`, `SourceUnit.cpp` | Invoke native source lowering, verify the resulting body/interface pair and atomically publish the unit, interfaces and dependency metadata. |
 | Resolve and lower | `AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` | Resolve actual providers and bindings; infer hardware types, storage ownership, effects and rule dependencies; lower to existing common operations. |
 | Inspect typed calls | `SourceMethodSummariesAnalysis`, `AnalyzeSourceMethods` | Check the complete Method call closure and recursion, then prove conservative total admission for reachable guards and effect-branch selections. These IR-only facts live in ACIRDialect; the pass lives in ACIRTransforms. |
+| Normalize reused entries with parameterized state | `SourceEntryBoundary`, `EntryBoundary` | Establish one stateless bound root instance and independently prove its public interface, actuals and provenance before transaction planning. Preserve ordinary retained-definition checks and logical top identity. |
 | Inspect transaction state | `SourceTransactionStateAnalysis`, `AnalyzeTransactionStateSSA` | Build a read-only plan of whole-Bits candidate data/write-intent pairs, bounded branch joins, scalar and admitted nominal local joins, invocation snapshots, source-path availability and ordered guard/selection controls. Link uses this before lowering packages containing source transaction operations. |
 | Route transactions | `ac-route-transactions` | Normalize source calls/candidates into typed hierarchy routes, logical state/update pairs and sampled/effect metadata. Authenticate against original source, then independently verify the routed anchor before atomic replacement. |
 | Refine storage | `ac-lower-transactions` | Convert verified logical state to physical storage; independently check SSA/pin correspondence and strict hardware final legality before atomic replacement. Hardware-only graphs retain their normal verification limits. |
@@ -210,17 +216,20 @@ proof. Contexts do not survive IR mutation or cross analysis/proof invocations.
 
 Static Module reference formals publish their nominal callee and authored
 argument position separately from physical data inputs. Instance bindings retain
-canonical allocation occurrences or a forwarded reference formal; Method
-receivers can name that formal plus a static path suffix. Callable declaration
-`after` edges publish even without autonomous registrations. Summaries using
-any of these semantics require `schema = 2 : i64`; removing the marker or
-altering the body/interface pair rejects. Earlier consumers reject the new
-summary field rather than silently dropping its semantics. Unused reference
-formals still require this transaction interface contract.
+canonical allocation occurrences or a forwarded reference formal. Calls through
+that declared interface do not grant access to private descendants. Reference
+semantics retain their existing schema marker and exact body/interface checks.
+Unused reference formals still require this transaction interface contract.
+
+Local autonomous registrations use their real FunctionDef occurrence; explicit
+global-template bindings use their real Call occurrence. The private transparent
+entry retains exact capture forwarding and public-result authentication. Source
+ordering metadata is rejected rather than republished: neither native attributes
+nor a loaded anchor can restore cross-Rule candidate forwarding.
 
 A definition with unbound reference formals remains an authenticated source
 template until an ordinary Module actually allocates it. Link validates all
-supplied source contracts, including callable declaration order, then excludes
+supplied source contracts, including lexical reference authority, then excludes
 only reference templates with no allocation path from any closed ordinary
 Module definition. The input source units and their published interfaces remain
 unchanged. Unused ordinary definitions retain their existing checks. Selecting
@@ -272,10 +281,9 @@ Collections. Candidate D values come from isolated pure Rules. All
 staged hardware checks succeed before the package becomes final.
 
 The explicit `pycircuit-opt --ac-analyze-transaction-state-ssa` pass preserves
-its input IR. Each unordered outer transaction starts from old Q; ordered entry
-state selects earlier candidates using whole-transaction fire and per-state
-write intent. Transitive callable order is resolved per actual instance and
-merged with explicit registration order before routing. Nested Method calls
+its input IR. Every independent outer transaction starts from old Q. Registration
+order does not expose another transaction's candidates, and `after` metadata is
+rejected. Nested Method and source-global template calls
 share that transaction's candidate versions while keeping ordinary SSA values
 as snapshots. A bounded branch forks the same incoming data/raw-intent pair into
 both arms and joins both components with the original four-state selector.

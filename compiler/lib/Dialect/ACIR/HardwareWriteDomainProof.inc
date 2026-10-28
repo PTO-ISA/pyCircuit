@@ -99,6 +99,8 @@
 
   LogicalResult proveWriteDomainsDisjoint(size_t stateIndex) {
     auto &state = states[stateIndex];
+    if (failed(budget.debit(1, state.storage))) return failure();
+    if (state.writeDomainsProven) return success();
     using Core = HardwareGrantProof; using Node = Core::Node;
     struct NodeEntry { std::optional<HardwareIdentityEndpoint> endpoint; Core::NodeView view; };
     SmallVector<NodeEntry, 0> nodes;
@@ -258,6 +260,7 @@
         if (failed(separated)) return state.storage->emitOpError() << "write-domain grant proof failed: " << proof.failureReason();
         if (!*separated) return state.storage->emitOpError() << "unordered writers have a possible field/address collision";
       }
+    state.writeDomainsProven = true;
     return success();
   }
   FailureOr<SmallVector<DomainUse, 0>> domainFieldUses(
@@ -315,6 +318,11 @@
       return normal(get.getValue(), base->scope);
     }
     if (isa<TableType>(type)) {
+      if (uses.size() == 1 && uses.front().path.empty() && isa<BitsType>(uses.front().mask.resolvedType)) {
+        auto merge = actual.value.getDefiningOp<ValueMergeOp>();
+        if (!merge) return valueSite(actual.value)->emitOpError() << "whole-Table domain requires value.merge";
+        return normal(merge.getBase(), actual.scope);
+      }
       auto map = actual.value.getDefiningOp<TableMapOp>();
       if (!map || map.getTables().empty())
         return valueSite(actual.value)->emitOpError() << "write-domain Table composition differs";
@@ -351,7 +359,9 @@
       }
       return success();
     }
-    if (auto table = dyn_cast<TableType>(type)) {
+    bool wholeTable = isa<TableType>(type) && uses.size() == 1 &&
+        uses.front().path.empty() && isa<BitsType>(uses.front().mask.resolvedType);
+    if (auto table = dyn_cast<TableType>(type); table && !wholeTable) {
       auto map = actual.value.getDefiningOp<TableMapOp>();
       if (!map || map->getNumResults() != 1 || !map.getCaptures().empty() ||
           map.getTables().size() != uses.size() + 3 || !map.getBody().hasOneBlock() ||
@@ -398,7 +408,7 @@
       return domainComposition(*result, table.getElementType(), *oldElement, *nextElement,
                                *active, nested, {}, state, depth + 1);
     }
-    if (!isa<BitsType, EnumType>(type)) return failure();
+    if (!isa<BitsType, EnumType>(type) && !wholeTable) return failure();
     auto merge = actual.value.getDefiningOp<ValueMergeOp>();
     if (!merge || actual.value != merge.getNext() || merge.getGuards().size() != 1 ||
         merge.getValues().size() != 1 || merge.getPaths().size() != 1 ||
@@ -468,6 +478,19 @@
           type = *member; leaf = *child; continue;
         }
         if (isa<TableType>(type)) {
+          if (auto merge = leaf.value.getDefiningOp<ValueMergeOp>()) {
+            if (merge.getGuards().size() != 1 || merge.getValues().size() != 1 ||
+                merge.getPaths().size() != 1 || !cast<ArrayAttr>(merge.getPaths()[0]).empty())
+              return merge.emitOpError() << "whole-Table composition requires one exact empty path";
+            auto guard = merge.getGuards()[0].getDefiningOp<BitsBinaryOp>();
+            if (!guard || guard.getOpcode() != "and") return failure();
+            auto mask = normal(guard.getRhs(), leaf.scope);
+            if (failed(mask)) return failure();
+            auto known = literal(*mask, analysis, budget);
+            if (failed(known) || !known->has_value() || !**known)
+              return merge.emitOpError() << "whole-Table composition requires a known-one mask";
+            uses.push_back({{}, *mask}); break;
+          }
           auto map = leaf.value.getDefiningOp<TableMapOp>();
           if (!map || map.getTables().size() != 4)
             return valueSite(leaf.value)->emitOpError()
@@ -647,29 +670,6 @@
       if (failed(zero) || !zero->has_value() || **zero)
         return entry.module->emitOpError() << "empty transaction prefix requires old Q or known-zero data";
       return success();
-    }
-    if (!*incoming && !state.unordered.value_or(false)) {
-      // The producer starts an ordered local group with its exact first
-      // candidate, then folds later candidates using selection and enable OR.
-      // A descendant incoming closure must preserve this ancestor prefix; it
-      // does not turn that group into disjoint unordered domain writers.
-      for (size_t i = local.size(); i > 1; --i) {
-        const auto &candidate = *local[i - 1];
-        auto prior = peelSelection(data, candidate.enable, candidate.data,
-                                   stateIndex);
-        auto earlier = peelEnableOr(enable, candidate.enable, stateIndex);
-        if (failed(prior) || failed(earlier) ||
-            failed(privateRoute(data.value, data.scope, stateIndex,
-                                PrivateRoute::Data)) ||
-            failed(privateRoute(enable.value, enable.scope, stateIndex,
-                                PrivateRoute::Enable))) return failure();
-        data = *prior;
-        enable = *earlier;
-      }
-      // The first ancestor partial lane is already composed with physical
-      // old Q before routing. Authenticate its masks/base independently rather
-      // than requiring the raw Rule result used by a same-scope writer.
-      return proveSingleCandidate(data, enable, stateIndex, *local.front());
     }
     for (size_t i = local.size(); i > 0; --i) {
       const auto &candidate = *local[i - 1];

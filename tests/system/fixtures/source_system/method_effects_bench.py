@@ -19,6 +19,3 @@ def ExerciseMethodEffects():
     @ac.rule
     def suppress() -> None:
         suppressed_owner.suppressed()
-
-    drive()
-    suppress()

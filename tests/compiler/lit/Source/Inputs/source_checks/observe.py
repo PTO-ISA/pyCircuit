@@ -5,5 +5,4 @@ def Top(ok: bool) -> {"value": bool}:
     @rule
     def inspect():
         log("info", "observation", ok)
-    inspect()
     return {"value": ok}

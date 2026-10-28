@@ -447,12 +447,12 @@ def test_module_facade_preserves_canonical_child_definition(tmp_path: Path) -> N
     assert facade_exports["Channel"] == "demo.provider.Pass"
     assert consumer_imports["Channel"] == "demo.provider.Pass"
     body_text = consumer.body.read_text(encoding="utf-8")
-    instances = [line for line in body_text.splitlines() if '"ac.instance"' in line]
+    instances = [line for line in body_text.splitlines() if "ac.instance(" in line]
     assert len(instances) == 2
     assert all("callee = @demo.provider.Pass" in line for line in instances)
     assert 'name = "left"' in instances[0]
     assert 'name = "right"' in instances[1]
-    handles = [re.search(r'"ac.instance"\(([^)]*)\)', line) for line in instances]
+    handles = [re.search(r"ac\.instance\(([^)]*)\)", line) for line in instances]
     assert all(handle is not None for handle in handles)
     assert handles[0].group(1) != handles[1].group(1)
 

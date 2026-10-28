@@ -95,7 +95,7 @@ LogicalResult scalarRegion(Operation *op, TypeRange args, TypeRange results) {
              BitsResizeOp, StructCreateOp, StructGetOp, EnumCreateOp,
              EnumToBitsOp, EnumFromBitsOp, ValueMergeOp>(nested) &&
         !(isa<TableMapOp>(op) &&
-          isa<TableCreateOp, TableSplatOp, TableGetOp, TableMapOp>(nested)))
+          isa<TableCreateOp, TableSplatOp, TableReadOp, TableGetOp, TableMapOp>(nested)))
       return nested.emitOpError()
              << "table region accepts only closed pure scalar operations";
   return success();
@@ -636,6 +636,19 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
           failed(width(index.getResult().getType(), countWidth(product(*s)))))
         return failure();
     }
+  } else if (auto read = dyn_cast<TableReadOp>(op)) {
+    auto input = read.getInput().getType();
+    if (input.getShape().size() != 1 ||
+        !isa<BitsType, StructType, EnumType>(input.getElementType()))
+      return error() << "checked Table read requires a rank-one Table of finite elements";
+    if (failed(equal(input.getElementType(), read.getValue().getType())) ||
+        failed(detail::verifySourceTemplateType(*this, input, bindings, op)) ||
+        failed(detail::verifySourceTemplateType(*this, read.getIndex().getType(), bindings, op)))
+      return failure();
+    if (requireResolved ||
+        (isStaticEvaluable(input.getShape(), bindings) &&
+         isStaticEvaluable(read.getIndex().getType().getWidth(), bindings)))
+      return verifySourceIndex(read.getIndex(), input, bindings, op);
   } else if (auto get = dyn_cast<TableGetOp>(op)) {
     if (failed(equal(get.getInput().getType().getElementType(),
                      get.getValue().getType())) ||
@@ -689,6 +702,12 @@ HardwareAnalysis::verifyCollectionOperation(Operation *op,
     if (failed(equal(merge.getBase().getType(), merge.getNext().getType())) ||
         failed(width(merge.getEn().getType(), 1)))
       return failure();
+    if (isa<TableType>(merge.getBase().getType()))
+      for (Attribute raw : merge.getPaths()) {
+        auto path = dyn_cast<ArrayAttr>(raw);
+        if (!path || !path.empty())
+          return error() << "whole-Table merge requires empty value paths";
+      }
     SmallVector<ArrayAttr> paths;
     for (auto [i, raw] : llvm::enumerate(merge.getPaths())) {
       auto path = dyn_cast<ArrayAttr>(raw);
@@ -748,6 +767,7 @@ LogicalResult TableSplatOp::verify() { return verifyCommon(*this); }
 LogicalResult TableMapOp::verify() { return verifyCommon(*this); }
 LogicalResult TableViewOp::verify() { return verifyCommon(*this); }
 LogicalResult TableIndexOp::verify() { return verifyCommon(*this); }
+LogicalResult TableReadOp::verify() { return verifyCommon(*this); }
 LogicalResult TableGetOp::verify() { return verifyCommon(*this); }
 LogicalResult TableMatchOp::verify() { return verifyCommon(*this); }
 LogicalResult TableChooseOp::verify() { return verifyCommon(*this); }

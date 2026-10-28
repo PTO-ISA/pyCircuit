@@ -6,11 +6,11 @@ import pycircuit as ac
 def Counter():  # noqa: N802
     count: ac.u8 = 10
 
-    @ac.rule
+    @ac.method
     def increment() -> None:
         count = count + 3
 
-    @ac.rule(after=(increment,))
+    @ac.method
     def read() -> ac.u8:
         return count
 
@@ -23,7 +23,7 @@ def Counter():  # noqa: N802
 def Ledger():  # noqa: N802
     total: ac.u8 = 100
 
-    @ac.rule(guard=lambda allow: allow)
+    @ac.method(guard=lambda allow: allow)
     def record(allow: ac.u1) -> None:
         total = total + 10
 
@@ -39,8 +39,6 @@ def Writer(counter: Counter, ledger: Ledger, allow: ac.u1):  # noqa: N802
         counter.increment()
         ledger.record(allow)
 
-    transfer()
-
 
 @ac.module
 def Reader(counter: Counter, ledger: Ledger):  # noqa: N802
@@ -49,5 +47,3 @@ def Reader(counter: Counter, ledger: Ledger):  # noqa: N802
         count = counter.read()
         total = ledger.read()
         ac.log("info", "atomic visible", count, total)
-
-    observe()

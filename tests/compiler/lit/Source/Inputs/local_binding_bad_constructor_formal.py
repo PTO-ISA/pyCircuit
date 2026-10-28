@@ -8,9 +8,6 @@ from locals.local_binding_child import Word
 def Bad(Word: Annotated[int, range(1 << 8)]) -> {"result": Annotated[int, range(1 << 8)]}:
     child = Word()
 
-    @rule
-    def bind_child():
-        child(a=Word)
+    child(a=Word)
 
-    bind_child()
     return {"result": child.q}

@@ -188,5 +188,3 @@ def ExerciseDma():  # noqa: N802
             dut.check_valid,
         )
         phase = phase + 1
-
-    check()

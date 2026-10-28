@@ -1,4 +1,4 @@
-from pycircuit import dffe, module, rule
+from pycircuit import dffe, module
 
 
 @module
@@ -9,9 +9,6 @@ def Child(  # noqa: N802 - hardware module definition
     # dynamic initialization remain bound to one canonical storage instance.
     state = dffe(T=bool)
 
-    @rule
-    def bind_state():
-        state(clk=clk, rst=rst, en=en, d=state.q ^ data, init=init)
-
-    bind_state()
+    # Primitive pin wiring is Module structure, not an executable callback.
+    state(clk=clk, rst=rst, en=en, d=state.q ^ data, init=init)
     return state.q

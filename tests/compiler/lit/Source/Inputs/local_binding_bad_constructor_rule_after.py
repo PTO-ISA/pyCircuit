@@ -12,10 +12,7 @@ def Bad(a: Annotated[int, range(1 << 8)], flag: bool) -> {"result": Annotated[in
     def Word():
         assert flag
 
-    @rule
-    def bind_child():
-        child(a=a)
+    child(a=a)
 
     Word()
-    bind_child()
     return {"result": child.q}

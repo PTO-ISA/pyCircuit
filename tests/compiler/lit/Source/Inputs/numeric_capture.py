@@ -1,5 +1,5 @@
 from typing import Annotated
-from pycircuit import dff, dffe, module, rule
+from pycircuit import dff, dffe, module
 
 
 @module
@@ -11,14 +11,8 @@ def Capture(clk: bool, rst: bool, en: bool,
     state = dff(T=Annotated[int, range(1 << 8)])
     hold = dffe(T=Annotated[int, range(1 << 8)])
 
-    @rule
-    def bind_state():
-        state(clk=clk, rst=rst, d=(a + b) & 255, init=0)
+    state(clk=clk, rst=rst, d=(a + b) & 255, init=0)
 
-    @rule
-    def bind_hold():
-        hold(clk=clk, rst=rst, en=en, d=(a * b) & 255, init=0)
+    hold(clk=clk, rst=rst, en=en, d=(a * b) & 255, init=0)
 
-    bind_state()
-    bind_hold()
     return {"q": state.q, "held": hold.q}

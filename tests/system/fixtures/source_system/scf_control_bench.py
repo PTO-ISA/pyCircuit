@@ -39,6 +39,3 @@ def ExerciseScfControl():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    advance()
-    tick()

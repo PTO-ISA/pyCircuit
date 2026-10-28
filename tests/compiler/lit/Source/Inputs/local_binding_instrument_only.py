@@ -16,5 +16,4 @@ def Instrument(clk: bool, rst: bool, a: Annotated[int, range(1 << 8)], b: Annota
             raw if condition else 256)
         report("integer_kind", integer + 0)
 
-    observe()
     return {"result": a}

@@ -9,14 +9,8 @@ def Bad(a: Annotated[int, range(1 << 8)]) -> {"result": Annotated[int, range(1 <
     Word = Word()
     other = Word()
 
-    @rule
-    def bind_first():
-        Word(a=a)
+    Word(a=a)
 
-    @rule
-    def bind_second():
-        other(a=a)
+    other(a=a)
 
-    bind_first()
-    bind_second()
     return {"result": other.q}

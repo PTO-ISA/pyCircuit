@@ -75,6 +75,9 @@ struct TransactionLexicalInstance {
   InstanceOp allocation;
   mlir::ArrayAttr occurrencePath;
   HardwareBindings bindings;
+  /// Declaration-relative substitution into the routing ancestor. Unlike the
+  /// occurrence bindings above, this never substitutes that ancestor's actuals.
+  HardwareBindings logicalBindings;
 };
 
 /// An original SSA value in a particular instance and invocation. Pure payload
@@ -473,12 +476,6 @@ struct TransactionStatePlan {
   LexicalInstanceId lexicalAnchor = 0;
   uint64_t ordinal = 0;
   TransactionDomain domain;
-  /// Lexical source registrations in dependency order, retained for source API
-  /// clients. predecessorIndices supplies full allocated occurrence identity.
-  llvm::SmallVector<SourceTransactionOp, 0> predecessors;
-  /// Occurrence-aware identities; ordinals index getPlans(), including repeated
-  /// instantiations of the same lexical registration.
-  llvm::SmallVector<uint64_t, 0> predecessorIndices;
   InvocationFrameId rootFrame = 0;
   GuardBoundaryId guard = 0;
   llvm::SmallVector<TransactionLexicalInstance, 0> instances;
@@ -533,6 +530,15 @@ mlir::FailureOr<bool> memoryReadCoveredBy(
 class SourceTransactionStateAnalysis {
 public:
   explicit SourceTransactionStateAnalysis(mlir::Operation *package);
+  /// Independently verify the complete source occurrence inventory and routing
+  /// identities. Fresh native admission and receiver/lifting checks always run;
+  /// lexical-only packages need no state/effect plan reconstruction. Lifted
+  /// packages retain complete canonical plan construction. This query publishes
+  /// no plans and returns its bounded verification work on success.
+  static mlir::FailureOr<uint64_t> verifyOccurrences(
+      mlir::Operation *package,
+      llvm::ArrayRef<const TransactionStatePlan *> expected);
+
   bool isValid() const { return valid; }
   uint64_t getAnalysisWork() const { return analysisWork; }
   const TransactionStatePlan *lookup(SourceTransactionOp transaction) const;

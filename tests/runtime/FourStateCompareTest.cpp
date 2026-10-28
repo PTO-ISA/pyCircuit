@@ -77,4 +77,43 @@ TEST(FourStateCompareTest, OrdinaryEqualityRetainsUnknownSemantics) {
   EXPECT_EQ(knownMismatch.value(), Bit{0});
 }
 
+TEST(FourStateCompareTest, AvailabilityNormalizationPreservesThreeOutcomes) {
+  auto outcome = [](const State &value) {
+    return value.isFullyKnown() ? (value.value().toBool() ? 1 : 0) : 2;
+  };
+  constexpr std::array symbols{'0', '1', 'x', 'z'};
+  const auto zero = symbol('0'), one = symbol('1');
+  for (char raw : symbols) {
+    SCOPED_TRACE(raw);
+    const auto value = symbol(raw);
+    EXPECT_EQ(outcome(gfsim::bit_and(value, one)), outcome(value));
+    EXPECT_EQ(outcome(gfsim::bit_and(value, value)), outcome(value));
+    EXPECT_EQ(outcome(gfsim::select(value, one, zero)), outcome(value));
+    for (unsigned extent : {1u, 3u, 5u}) {
+      auto folded = one;
+      for (unsigned row = 0; row < extent; ++row)
+        folded = gfsim::bit_and(folded, value);
+      EXPECT_EQ(outcome(folded), outcome(value));
+    }
+    // A reached zero blocks, a reached unknown faults, and an unreached use
+    // bypasses either. Keeping only an "is one" classification would lose this.
+    EXPECT_EQ(outcome(gfsim::select(one, value, one)), outcome(value));
+    EXPECT_EQ(outcome(gfsim::select(zero, value, one)), 1);
+    for (char other : symbols) {
+      auto canonical = [](char c) { return symbol(c == 'z' ? 'x' : c); };
+      EXPECT_EQ(outcome(gfsim::bit_and(value, symbol(other))),
+                outcome(gfsim::bit_and(canonical(raw), canonical(other))));
+      for (char fallback : symbols)
+        EXPECT_EQ(outcome(gfsim::select(value, symbol(other), symbol(fallback))),
+                  outcome(gfsim::select(canonical(raw), canonical(other),
+                                        canonical(fallback))));
+    }
+  }
+  // Proof equivalence does not license replacing the emitted raw operations:
+  // both results are X, while their original operand is Z.
+  EXPECT_EQ(gfsim::bit_and(symbol('z'), symbol('z')).zMask(), Bit{0});
+  EXPECT_EQ(gfsim::select(symbol('z'), one, zero).zMask(), Bit{0});
+  EXPECT_EQ(symbol('z').zMask(), Bit{1});
+}
+
 } // namespace

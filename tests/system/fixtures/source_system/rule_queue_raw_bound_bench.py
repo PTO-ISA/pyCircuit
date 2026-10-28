@@ -22,7 +22,3 @@ def ExerciseRawBoundQueue():
     @ac.rule
     def tick() -> None:
         phase = phase + 1  # noqa: F841 - captured hardware state or child instance.
-
-    produce()
-    observe()
-    tick()

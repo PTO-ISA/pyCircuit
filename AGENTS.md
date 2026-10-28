@@ -20,6 +20,43 @@ Read affected specifications and exact semantic approvals under
 not implementation or execution evidence. Preserve frozen technical records;
 update active behavior docs when implementation changes.
 
+## Simplify before every PR
+
+Before submitting or updating any PR, simplify its implementation, tests,
+examples and documentation. Remove duplication, incidental abstractions and
+changes that do not help deliver or explain the core intent. Review the final
+diff for unnecessary size and scope before committing and publishing it.
+
+Tests and examples should demonstrate the intended capability and its core
+observable behavior. Do not freeze the current implementation's structure,
+temporary limitations, workarounds, exact diagnostics or incidental printing
+as requirements. A passing implementation-specific test is not a reason to
+retain a poor design or block a better implementation; revise or remove such
+tests as the design improves, keeping expectations grounded in the intended
+behavior rather than DUT output.
+
+Avoid adding peripheral safety, malformed-input, negative and combinatorial
+test matrices by default. Retain only a small representative rejection case
+when it directly establishes a core contract boundary, or broader coverage
+when the user explicitly requests it. Prefer a few readable end-to-end cases
+over many narrowly targeted fixtures. Record removed coverage honestly; fewer
+tests are not evidence that the removed cases passed.
+
+## Python checks before submission
+
+Before submitting or updating a PR, run the changed-file pre-commit checks
+used by `.github/workflows/ci.yml`, including Ruff and Black for affected Python
+files. Use the versions and exclusions in `.pre-commit-config.yaml` and
+`pyproject.toml`; preserve source-span-sensitive fixture exclusions instead of
+formatting the whole repository. Run `pre-commit run --files <changed files>`
+with the CI's configured environment and hook selection.
+
+Black changing a file is a failed check, even when the code parses and its
+functional tests pass. Review formatter edits, include the intended changes,
+and rerun the checks until they pass before publishing. Syntax checks, AST
+comparisons and API/example gates do not substitute for these style checks.
+When documentation changes, also run the CI's `mkdocs build --strict` check.
+
 ## Pythonic authoring contract
 
 The user requests Astra (`gpt-6-astra`) for delegated pyCircuit source authoring
@@ -27,8 +64,10 @@ and authoring-contract review. Keep compiler-only implementation routing separat
 
 For source authoring, first read [.codex/skills/pycircuit-authoring/SKILL.md](.codex/skills/pycircuit-authoring/SKILL.md).
 Write function calls, ordinary local computations and sequential Rule assignments.
-Rule definitions can be source-global or nested; definition location is not
-Module ownership. External Rules receive explicit arguments.
+Directly nested Rules register automatically once per Module instance. Their
+names denote results at Module wiring sites; do not call them explicitly.
+Source-global Rule templates receive explicit arguments. Callable component
+operations use Methods, independently of their parameter count.
 Module variables own persistent state; ACIR supplies storage and its controls.
 Ordinary example/benchmark frontend sources must not expose clk/reset, register
 q/d interfaces, DFF/DFFE bindings or proposal/commit plumbing. Original RTL names
@@ -80,7 +119,7 @@ names, delete necessary checks before equivalent lowering exists, or claim
 unsupported Rule syntax works. Record such gaps under issue #319; the authoring
 requirement does not establish implementation support.
 
-Cross-Module Rule calls target an existing Module instance. MLIR owns the
+Cross-Module Method calls target an existing Module instance. MLIR owns the
 additional ports and hierarchy wiring needed for arguments, results and atomic
 control; authors must not hand-build forwarding/handshake wrappers. Preserve the
 callee's state identity and include its proposals in the caller's transaction.

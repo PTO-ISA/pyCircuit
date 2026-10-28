@@ -8,7 +8,7 @@ def Top():
     saved: ac.u8 = 0
     output = ac.queue[ac.u8](depth=1, latency=1)
 
-    @ac.rule(guard=lambda enabled: enabled)
+    @ac.method(guard=lambda enabled: enabled)
     def guarded(enabled: ac.u1) -> ac.u8:
         return 7
 
@@ -22,6 +22,3 @@ def Top():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    drive()
-    tick()

@@ -6,15 +6,15 @@ import pycircuit as ac
 def Counter():  # noqa: N802
     count: ac.u8 = 5
 
-    @ac.rule(guard=lambda: count < 7)
+    @ac.method(guard=lambda: count < 7)
     def increment() -> None:
         count = count + 1
 
-    @ac.rule(after=(increment,))
+    @ac.method
     def read() -> ac.u8:
         return count
 
-    @ac.method(after=(increment,), guard=lambda: count == 6)
+    @ac.method(guard=lambda: count == 6)
     def at_six() -> ac.u8:
         return count
 

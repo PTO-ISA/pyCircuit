@@ -1,0 +1,9 @@
+# Structurally valid resource IR is not yet executable by either backend.
+# RUN: %pycircuit_opt %S/transactional-v2-resources.mlir -o %t.input.mlir
+# RUN: not %pycircuit_emit %t.input.mlir --target cpp > %t.cpp 2> %t.cpp.err
+# RUN: %FileCheck %s < %t.cpp.err
+# RUN: test ! -s %t.cpp
+# RUN: not %pycircuit_emit %t.input.mlir --target verilog > %t.sv 2> %t.sv.err
+# RUN: %FileCheck %s < %t.sv.err
+# RUN: test ! -s %t.sv
+# CHECK: transactional

@@ -9,7 +9,7 @@ def Top():
     right = ac.queue[ac.u8](depth=1, latency=1)
     output = ac.queue[ac.u8](depth=1, latency=1)
 
-    @ac.rule(guard=lambda selector, enabled: enabled)
+    @ac.method(guard=lambda selector, enabled: enabled)
     def consume(selector: ac.u1, enabled: ac.u1) -> ac.u8:
         if selector:
             value = left.pop()
@@ -30,6 +30,3 @@ def Top():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    drive()
-    tick()

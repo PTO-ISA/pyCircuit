@@ -179,13 +179,12 @@ class Packet:
 @ac.module
 def Top(seed: ac.u8) -> Packet:
     count: ac.u8 = 0
-    check = Packet(value=seed)
-    saved = check
-    field = check.value
+    packet = Packet(value=seed)
+    saved = packet
+    field = packet.value
     @ac.rule
-    def check(value):
+    def check(value=count):
         value = value + field
-    check(count)
     return saved
 )py");
   ASSERT_TRUE(captured);
@@ -195,7 +194,7 @@ def Top(seed: ac.u8) -> Packet:
   ASSERT_EQ(module.string("name"), "Top");
   auto data = module.item("body", 1).child("value");
   auto declaration = module.item("body", 4);
-  auto registration = module.item("body", 5).child("value");
+  auto registration = declaration;
   ASSERT_EQ(declaration.string("name"), "check");
   source::SourceRuleWritesAnalysis writes(captured->getOperation());
   ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
@@ -208,7 +207,7 @@ def Top(seed: ac.u8) -> Packet:
   auto *plan = *located;
   ASSERT_NE(plan, nullptr);
   EXPECT_EQ(plan->module.value, module.value);
-  EXPECT_EQ(plan->call.value, registration.value);
+  EXPECT_EQ(plan->occurrence.value, registration.value);
   EXPECT_EQ(plan->rule.value, declaration.value);
   ASSERT_EQ(plan->writes.size(), 1u);
   EXPECT_EQ(plan->writes[0].formal, "value");
@@ -226,12 +225,11 @@ class Packet:
     value: ac.u8
 @ac.module
 def Top(seed: ac.u8) -> Packet:
-    check = Packet(value=seed)
-    saved = check
+    packet = Packet(value=seed)
+    saved = packet
     @ac.rule
     def check():
         pass
-    check()
     return saved
 )py");
   ASSERT_TRUE(captured);
@@ -239,7 +237,7 @@ def Top(seed: ac.u8) -> Packet:
   ASSERT_TRUE(succeeded(tree));
   auto module = tree->module.item("body", 2);
   auto data = module.item("body", 0).child("value");
-  auto registration = module.item("body", 3).child("value");
+  auto registration = module.item("body", 2);
   source::SourceRuleWritesAnalysis writes(captured->getOperation());
   ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
   for (auto use : {data, registration}) {
@@ -272,21 +270,21 @@ def Top(seed: ac.u8) -> Packet:
 }
 
 TEST_F(SourceMemoryBindingsTest,
-       OrderedRuleRegistrationsRemainDistinctAfterEarlierData) {
+       GlobalTemplateRegistrationsRemainDistinctAfterEarlierData) {
   for (StringRef calls :
-       {StringRef(""), StringRef("    check(count)\n    check(count)\n")}) {
+       {StringRef(""), StringRef("    put(count)\n    put(count)\n")}) {
     auto captured =
         capture("ordered_counts.py", std::string(R"py(import pycircuit as ac
 @ac.struct
 class Packet:
     value: ac.u8
+@ac.rule
+def put(value):
+    value = value + 1
 @ac.module
 def Top(seed: ac.u8) -> Packet:
     count: ac.u8 = 0
-    check = Packet(value=seed)
-    @ac.rule
-    def check(value):
-        value = value + 1
+    packet = Packet(value=seed)
 )py") + calls.str() + "    return Packet(value=count)\n");
     ASSERT_TRUE(captured);
     diagnostics.clear();
@@ -322,23 +320,21 @@ class Packet:
 def Top(seed: ac.u8) -> Packet:
     count: ac.u8 = 0
     other_count: ac.u8 = 0
-    check = Packet(value=seed)
-    saved = check
+    packet = Packet(value=seed)
+    saved = packet
     @ac.rule
-    def check(value):
+    def check(value=count):
         value = value + saved.value
     @ac.rule
-    def other(value):
+    def other(value=other_count):
         value = value + 1
-    check(count)
-    other(other_count)
     return Packet(value=count)
 )py");
     ASSERT_TRUE(captured);
     auto tree = source::readSingleCapture(*captured, error());
     ASSERT_TRUE(succeeded(tree));
     auto module = tree->module.item("body", 2);
-    auto registration = module.item("body", 6).child("value");
+    auto registration = module.item("body", 4);
     source::SourceRuleWritesAnalysis writes(captured->getOperation());
     ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
     auto located =
@@ -365,6 +361,110 @@ def Top(seed: ac.u8) -> Packet:
                   failed(bindings.lower(owner("ordered_plan.py"), *headers)));
       EXPECT_FALSE(diagnostics.empty());
     }
+  }
+}
+
+
+TEST_F(SourceMemoryBindingsTest,
+       AutonomousPlanUsesRealDeclarationAndExactDefaultExpressionSites) {
+  auto captured = capture("automatic_plan.py", R"py(import pycircuit as ac
+@ac.module
+def Top(delta: ac.u8) -> tuple[ac.u8, ac.u8]:
+    count: ac.u8 = 5
+    saved = count
+    @ac.rule
+    def update(target=count, amount=delta) -> ac.u8:
+        target = target + amount
+        return target
+    @ac.rule
+    def snapshot(value=saved) -> ac.u8:
+        value = value + 2
+        return value
+    return update, snapshot
+)py");
+  ASSERT_TRUE(captured);
+  auto tree = source::readSingleCapture(*captured, error());
+  ASSERT_TRUE(succeeded(tree));
+  auto module = tree->module.item("body", 1);
+  auto declaration = module.item("body", 2);
+  auto snapshot = module.item("body", 3);
+  ASSERT_EQ(declaration.kind(), "FunctionDef");
+  source::SourceRuleWritesAnalysis writes(captured->getOperation());
+  ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+  auto located = writes.lookup(module, declaration, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(located));
+  ASSERT_NE(*located, nullptr);
+  const auto &plan = **located;
+  EXPECT_EQ(plan.kind, source::SourceRuleCallPlan::Kind::LocalDeclaration);
+  EXPECT_EQ(plan.module.value, module.value);
+  EXPECT_EQ(plan.occurrence.value, declaration.value);
+  EXPECT_EQ(plan.rule.value, declaration.value);
+  EXPECT_EQ(plan.statement.value, declaration.value);
+  ASSERT_EQ(plan.bindings.size(), 2u);
+  for (unsigned ordinal = 0; ordinal != 2; ++ordinal) {
+    EXPECT_EQ(plan.bindings[ordinal].ordinal, ordinal);
+    EXPECT_EQ(plan.bindings[ordinal].expression.value,
+              declaration.child("args").item("defaults", ordinal).value);
+    EXPECT_EQ(plan.bindings[ordinal].expression.kind(), "Name");
+  }
+  ASSERT_EQ(plan.writes.size(), 1u);
+  EXPECT_EQ(plan.writes[0].formal, "target");
+  EXPECT_EQ(plan.writes[0].owner.value, module.item("body", 0).value);
+  auto saved = writes.lookup(module, snapshot, [](uint64_t) { return true; });
+  ASSERT_TRUE(succeeded(saved));
+  ASSERT_NE(*saved, nullptr);
+  ASSERT_EQ((*saved)->bindings.size(), 1u);
+  EXPECT_EQ((*saved)->bindings[0].expression.value,
+            snapshot.child("args").item("defaults", 0).value);
+  EXPECT_TRUE((*saved)->writes.empty());
+  EXPECT_TRUE(writes.pendingPairs().empty());
+}
+
+TEST_F(SourceMemoryBindingsTest,
+       AutonomousPreparedPlanCannotSubstituteDeclarationOrDefaultBinding) {
+  for (unsigned mutation = 0; mutation != 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto captured = capture("automatic_plan_mutation.py", R"py(import pycircuit as ac
+@ac.module
+def Top(delta: ac.u8) -> ac.u8:
+    count: ac.u8 = 5
+    other: ac.u8 = 11
+    @ac.rule
+    def update(target=count, amount=delta) -> ac.u8:
+        target = target + amount
+        return target
+    @ac.rule
+    def inspect(value=other) -> None:
+        ac.log("info", "other", value)
+    return update
+)py");
+    ASSERT_TRUE(captured);
+    auto tree = source::readSingleCapture(*captured, error());
+    ASSERT_TRUE(succeeded(tree));
+    auto module = tree->module.item("body", 1);
+    auto declaration = module.item("body", 2);
+    auto other = module.item("body", 3);
+    source::SourceRuleWritesAnalysis writes(captured->getOperation());
+    ASSERT_TRUE(writes.isPlanValid()) << diagnostics;
+    auto located = writes.lookup(module, declaration, [](uint64_t) { return true; });
+    ASSERT_TRUE(succeeded(located));
+    ASSERT_NE(*located, nullptr);
+    auto *plan = const_cast<source::SourceRuleCallPlan *>(*located);
+    ASSERT_EQ(plan->bindings.size(), 2u);
+    if (mutation == 0) plan->rule = other;
+    if (mutation == 1) plan->occurrence = other;
+    if (mutation == 2)
+      plan->bindings[0].expression = other.child("args").item("defaults", 0);
+    if (mutation == 3) plan->bindings[0].ordinal = 1;
+    auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
+    ASSERT_TRUE(succeeded(headers));
+    source::SourceMemoryBindingsAnalysis bindings(captured->getOperation());
+    diagnostics.clear();
+    auto initialized = bindings.initialize(
+        owner("automatic_plan_mutation.py"), *headers, writes);
+    EXPECT_TRUE(failed(initialized) || failed(bindings.lower(
+        owner("automatic_plan_mutation.py"), *headers)));
+    EXPECT_FALSE(diagnostics.empty());
   }
 }
 
@@ -1274,10 +1374,7 @@ protected:
             "def Holder(clk: bool, rst: bool, d: " + typeText.str() +
             ") -> {\"q\": " + typeText.str() + "}:\n"
             "    state = dff(T=" + typeText.str() + ")\n"
-            "    @ac.rule\n"
-            "    def bind():\n"
-            "        state(clk=clk, rst=rst, d=d, init=0)\n"
-            "    bind()\n"
+            "    state(clk=clk, rst=rst, d=d, init=0)\n"
             "    return {\"q\": d}\n");
   }
 };
@@ -1310,10 +1407,7 @@ TEST_F(SourceDependentWidthTest, DependentWidthMismatchStillRejects) {
                       "d: Annotated[int, range(1 << 9)]) -> "
                       "{\"q\": Annotated[int, range(1 << 9)]}:\n"
                       "    state = dff(T=Annotated[int, range(1 << 8)])\n"
-                      "    @ac.rule\n"
-                      "    def bind():\n"
-                      "        state(clk=clk, rst=rst, d=d, init=0)\n"
-                      "    bind()\n"
+                      "    state(clk=clk, rst=rst, d=d, init=0)\n"
                       "    return {\"q\": d}\n");
   diagnostics.clear();
   EXPECT_FALSE(lower("mismatch.py", text));
@@ -1341,10 +1435,7 @@ TEST_F(SourceDependentWidthTest, NominalAndBooleanIdentitySurvivesResolution) {
                          "def Holder(clk: bool, rst: bool, d: bool) -> "
                          "{\"q\": Annotated[int, range(1 << 1)]}:\n"
                          "    state = dff(T=Annotated[int, range(1 << 1)])\n"
-                         "    @ac.rule\n"
-                         "    def bind():\n"
-                         "        state(clk=clk, rst=rst, d=d, init=0)\n"
-                         "    bind()\n"
+                         "    state(clk=clk, rst=rst, d=d, init=0)\n"
                          "    return {\"q\": d}\n");
   diagnostics.clear();
   EXPECT_FALSE(lower("boolean.py", boolean));
@@ -1373,10 +1464,7 @@ std::string leafWidthSource(StringRef leafWidth, StringRef payload,
           "def Holder(clk: bool, rst: bool, d: " + payload.str() +
           ") -> {\"q\": " + payload.str() + "}:\n"
           "    state = dff(T=" + leafWidth.str() + ")\n"
-          "    @ac.rule\n"
-          "    def bind():\n"
-          "        state(clk=clk, rst=rst, d=d, init=0)\n"
-          "    bind()\n"
+          "    state(clk=clk, rst=rst, d=d, init=0)\n"
           "    return {\"q\": " + returned.str() + "}\n");
 }
 } // namespace
@@ -1391,10 +1479,7 @@ TEST_F(SourceDependentWidthTest, MissingActualOnDependentWidthPortRejects) {
                       "d: Annotated[int, range(1 << (4 + 4))]) -> "
                       "{\"q\": Annotated[int, range(1 << (4 + 4))]}:\n"
                       "    state = dff(T=Annotated[int, range(1 << (4 + 4))])\n"
-                      "    @ac.rule\n"
-                      "    def bind():\n"
-                      "        state(clk=clk, rst=rst, init=0)\n"
-                      "    bind()\n"
+                      "    state(clk=clk, rst=rst, init=0)\n"
                       "    return {\"q\": d}\n");
   diagnostics.clear();
   EXPECT_FALSE(lower("missing-actual.py", text));
@@ -1433,14 +1518,8 @@ TEST_F(SourceDependentWidthTest, TypeArgumentSelectsItsOwnResolvedWidth) {
        "\"r\": Annotated[int, range(1 << 12)]}:\n"
        "    narrow = dff(T=Annotated[int, range(1 << (4 + 4))])\n"
        "    wide = dff(T=Annotated[int, range(1 << 12)])\n"
-       "    @ac.rule\n"
-       "    def bindnarrow():\n"
-       "        narrow(clk=clk, rst=rst, d=d, init=0)\n"
-       "    @ac.rule\n"
-       "    def bindwide():\n"
-       "        wide(clk=clk, rst=rst, d=e, init=0)\n"
-       "    bindnarrow()\n"
-       "    bindwide()\n"
+       "    narrow(clk=clk, rst=rst, d=d, init=0)\n"
+       "    wide(clk=clk, rst=rst, d=e, init=0)\n"
        "    return {\"q\": d, \"r\": e}\n");
   auto module = lowered("type-arguments.py", text);
   ASSERT_TRUE(module) << diagnostics;
@@ -1461,10 +1540,7 @@ TEST_F(SourceDependentWidthTest, WrongActualForTypeArgumentWidthRejects) {
                       "d: Annotated[int, range(1 << 12)]) -> "
                       "{\"q\": Annotated[int, range(1 << 12)]}:\n"
                       "    narrow = dff(T=Annotated[int, range(1 << (4 + 4))])\n"
-                      "    @ac.rule\n"
-                      "    def bindnarrow():\n"
-                      "        narrow(clk=clk, rst=rst, d=d, init=0)\n"
-                      "    bindnarrow()\n"
+                      "    narrow(clk=clk, rst=rst, d=d, init=0)\n"
                       "    return {\"q\": d}\n");
   diagnostics.clear();
   EXPECT_FALSE(lower("type-argument-mismatch.py", text));
@@ -1522,10 +1598,7 @@ TEST_F(SourceDependentWidthTest, NominalAndBooleanKindSurviveCrossBinding) {
                        "def Holder(clk: bool, rst: bool, r: Right) -> "
                        "{\"q\": Left}:\n"
                        "    state = dff(T=Left)\n"
-                       "    @ac.rule\n"
-                       "    def bind():\n"
-                       "        state(clk=clk, rst=rst, d=r, init=0)\n"
-                       "    bind()\n"
+                       "    state(clk=clk, rst=rst, d=r, init=0)\n"
                        "    return {\"q\": state.q}\n");
   diagnostics.clear();
   EXPECT_FALSE(lower("nominal-cross.py", cross));
@@ -1541,10 +1614,7 @@ TEST_F(SourceDependentWidthTest, NominalAndBooleanKindSurviveCrossBinding) {
                       "def Holder(clk: bool, rst: bool, l: Left) -> "
                       "{\"q\": Left}:\n"
                       "    state = dff(T=Left)\n"
-                      "    @ac.rule\n"
-                      "    def bind():\n"
-                      "        state(clk=clk, rst=rst, d=l, init=0)\n"
-                      "    bind()\n"
+                      "    state(clk=clk, rst=rst, d=l, init=0)\n"
                       "    return {\"q\": state.q}\n");
   diagnostics.clear();
   EXPECT_TRUE(lower("nominal-same.py", same)) << diagnostics;
@@ -1558,10 +1628,7 @@ TEST_F(SourceDependentWidthTest, NominalAndBooleanKindSurviveCrossBinding) {
        "def Holder(clk: bool, rst: bool, d: bool) -> "
        "{\"q\": Annotated[int, range(1 << (2 - 1))]}:\n"
        "    state = dff(T=Annotated[int, range(1 << (2 - 1))])\n"
-       "    @ac.rule\n"
-       "    def bind():\n"
-       "        state(clk=clk, rst=rst, d=d, init=0)\n"
-       "    bind()\n"
+       "    state(clk=clk, rst=rst, d=d, init=0)\n"
        "    return {\"q\": state.q}\n");
   diagnostics.clear();
   EXPECT_FALSE(lower("boolean-computed.py", booleanComputed));

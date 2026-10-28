@@ -12,8 +12,10 @@ namespace acir::ac {
 namespace {
 
 struct StaticVerification {
-  llvm::DenseMap<DictionaryAttr, bool> completed;
-  llvm::DenseSet<DictionaryAttr> active;
+  llvm::SmallDenseMap<DictionaryAttr, bool,
+                      detail::staticGrammarInlineBuckets> completed;
+  llvm::SmallDenseSet<DictionaryAttr,
+                      detail::staticGrammarInlineBuckets> active;
 };
 
 LogicalResult verifyTree(DictionaryAttr tree, detail::EmitError error,
@@ -261,6 +263,8 @@ StaticExprAttr::verify(llvm::function_ref<InFlightDiagnostic()> emitError,
                        DictionaryAttr tree) {
   // Completed facts are intrinsic to this immutable grammar dictionary. The
   // success memo has context lifetime; owning-source checks use their own context.
+  if (tree && detail::isVerifiedStaticExpressionGrammar(tree))
+    return success();
   StaticVerification verification;
   return verifyTree(tree, emitError, verification);
 }

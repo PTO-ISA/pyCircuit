@@ -64,6 +64,7 @@ def _valid_transcript() -> bytes:
             _runtime_row("stop_reason", "gauge", 1),
         ],
         "error": None,
+        "reset_semantics": "strict",
     }
     return (
         json.dumps(event, separators=(",", ":"))
@@ -106,6 +107,7 @@ def test_oracle_rejects_truncated_missing_duplicate_or_misordered_records(
     [
         (b'"evaluation_epoch":"0"', b'"evaluation_epoch":"00"'),
         (b'"status":"TERMINATED"', b'"status":"COMPLETED"'),
+        (b'"reset_semantics":"strict"', b'"reset_semantics":"ignored"'),
         (b'"name":"cycles"', b'"name":"cycle"'),
     ],
 )

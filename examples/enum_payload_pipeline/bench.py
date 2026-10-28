@@ -271,4 +271,3 @@ def EnumPayloadPipelineSystem():  # noqa: N802
         log("info", "matched", dut.data.matched)
 
     advance(phase)
-    check()

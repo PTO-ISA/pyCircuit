@@ -3044,5 +3044,420 @@ TEST_F(TransactionStateSSATest,
   EXPECT_NE(plan->queueAccesses[0].frame, plan->queueAccesses[1].frame);
 }
 
+TEST_F(TransactionStateSSATest,
+       RelativeDepthZeroPreservesAllocationAndAliasOwnerIdentity) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root");
+  auto run = transaction(*file);
+  auto calls = run.getBody().front().getOps<SourceMethodCallOp>();
+  auto firstCall = *calls.begin();
+  auto relayCall = *std::next(calls.begin());
+  auto rightCall = *std::next(calls.begin(), 2);
+  // The first call retains direct transport. A relative call to the same
+  // allocation and a relative self-call within it must share its owner.
+  for (auto call :
+       {relayCall, rightCall,
+        first<SourceMethodCallOp>(method(*file, "relay").getBody())}) {
+    call->setAttr("receiver_kind", builder.getStringAttr("reference"));
+    call->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+  }
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  auto *plan = analysis->lookup(run);
+  ASSERT_NE(plan, nullptr);
+  ASSERT_EQ(plan->owners.size(), 3u);
+  std::vector<const TransactionCallBinding *> bumps;
+  for (const auto &call : plan->calls)
+    if (plan->frames[call.callee].method == method(*file))
+      bumps.push_back(&call);
+  ASSERT_EQ(bumps.size(), 3u);
+  auto left = plan->frames[bumps[0]->callee].anchor;
+  auto right = plan->frames[bumps[2]->callee].anchor;
+  EXPECT_EQ(left, plan->frames[bumps[1]->callee].anchor);
+  EXPECT_NE(left, right);
+  EXPECT_EQ(plan->instances[left].allocation,
+            *root.getBody().front().getOps<InstanceOp>().begin());
+  EXPECT_EQ(plan->instances[right].allocation,
+            *std::next(root.getBody().front().getOps<InstanceOp>().begin()));
+  EXPECT_EQ(plan->instances[left].bindings.owner, module(*file, "Child"));
+  EXPECT_EQ(plan->instances[right].bindings.owner, module(*file, "Child"));
+  auto leftReads = reads(*plan, bumps[1]->callee);
+  auto rightReads = reads(*plan, bumps[2]->callee);
+  ASSERT_FALSE(leftReads.empty());
+  ASSERT_FALSE(rightReads.empty());
+  EXPECT_EQ(ordinal(*plan, leftReads[0]->version), 1u);
+  EXPECT_EQ(ordinal(*plan, rightReads[0]->version), 0u);
+  EXPECT_NE(leftReads[0]->owner, rightReads[0]->owner);
+  for (const auto &frame : plan->frames) {
+    EXPECT_FALSE(frame.receiver && frame.receiver.get("receiver_kind"));
+    EXPECT_FALSE(frame.receiver && frame.receiver.get("ancestor_depth"));
+  }
+  EXPECT_EQ(firstCall->getAttr("receiver_kind"), mlir::Attribute{});
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeSiblingBypassRejectsBeforeCandidateBinding) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto nested = first<SourceMethodCallOp>(method(*file, "relay").getBody());
+  nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  nested->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+  nested->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("right")}));
+  auto before = print(file->getOperation());
+  auto operations = identities(*file);
+  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+  EXPECT_NE(diagnostics.find("static instance reference cannot bypass lexical scope"),
+            std::string::npos) << diagnostics;
+  EXPECT_EQ(before, print(file->getOperation()));
+  EXPECT_EQ(operations, identities(*file));
+  auto analysis = analyze(*file);
+  EXPECT_FALSE(analysis->isValid()) << diagnostics;
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeAncestorVoidBypassRejectsBeforeReceiverDomainBinding) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root");
+  auto *ancestor = method(*file, "noop")->clone();
+  ancestor->setOperands(first<BitsConstantOp>(root.getBody())->getResults());
+  ancestor->setAttr("sym_name", builder.getStringAttr("ancestor"));
+  ancestor->setAttr("occurrence", occurrence("Root", 20));
+  root.getBody().front().getOperations().insert(
+      transaction(*file)->getIterator(), ancestor);
+  auto relay = method(*file, "relay");
+  auto old = first<SourceMethodCallOp>(relay.getBody());
+  old.getResult(0).replaceAllUsesWith(relay.getBody().front().getArgument(0));
+  builder.setInsertionPoint(old);
+  mlir::OperationState state(old.getLoc(),
+                             SourceMethodCallOp::getOperationName());
+  state.addOperands(old.getPath());
+  state.addAttribute("callee",
+                     mlir::SymbolRefAttr::get(
+                         &context, "Root",
+                         {mlir::FlatSymbolRefAttr::get(&context, "ancestor")}));
+  state.addAttribute("instance_path", builder.getArrayAttr({}));
+  state.addAttribute("receiver_kind", builder.getStringAttr("reference"));
+  state.addAttribute("ancestor_depth", builder.getI64IntegerAttr(1));
+  state.addAttribute("occurrence", old.getOccurrence());
+  auto nested = mlir::cast<SourceMethodCallOp>(builder.create(state));
+  old.erase();
+  auto before = print(file->getOperation());
+  auto operations = identities(*file);
+  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+  EXPECT_NE(diagnostics.find("static instance reference cannot bypass lexical scope"),
+            std::string::npos) << diagnostics;
+  EXPECT_EQ(before, print(file->getOperation()));
+  EXPECT_EQ(operations, identities(*file));
+  auto analysis = analyze(*file);
+  EXPECT_FALSE(analysis->isValid()) << diagnostics;
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeAscendThenReturnRejectsDespiteSameFinalAllocation) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto original = transaction(*file, "watch");
+  auto local = mlir::cast<SourceTransactionOp>(original->clone());
+  local->setAttr("name", builder.getStringAttr("local_watch"));
+  local->setAttr("declaration", occurrence("Child", 20));
+  local->setAttr("occurrence", occurrence("Child", 21));
+  local->setOperands({child.getBody().front().getArgument(2),
+                      child.getBody().front().getArgument(3),
+                      first<BitsConstantOp>(child.getBody()).getResult(),
+                      first<SourceStateOp>(child.getBody()).getQ()});
+  child.getBody().front().getOperations().insert(
+      child.getBody().front().getTerminator()->getIterator(), local);
+  auto read = first<SourceStateReadOp>(local.getBody());
+  read->setAttr("state", builder.getStringAttr("count"));
+  read->setAttr("occurrence", occurrence("Child", 22));
+  auto call = first<SourceMethodCallOp>(local.getBody());
+  call->setAttr("occurrence", occurrence("Child", 23));
+  call->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  call->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+  call->setAttr("instance_path",
+                builder.getArrayAttr({builder.getStringAttr("left")}));
+  auto before = print(file->getOperation());
+  auto operations = identities(*file);
+  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+  EXPECT_NE(diagnostics.find("static instance reference cannot bypass lexical scope"),
+            std::string::npos) << diagnostics;
+  EXPECT_EQ(before, print(file->getOperation()));
+  EXPECT_EQ(operations, identities(*file));
+  auto analysis = analyze(*file);
+  EXPECT_FALSE(analysis->isValid()) << diagnostics;
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeInvalidActualsRejectAtLexicalReceiverBoundary) {
+  for (unsigned mutation = 0; mutation != 3; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto nested = first<SourceMethodCallOp>(method(*file, "relay").getBody());
+    nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+    nested->setAttr("ancestor_depth",
+                    builder.getI64IntegerAttr(mutation == 0 ? 2 : 1));
+    nested->setAttr("instance_path",
+                    builder.getArrayAttr({builder.getStringAttr(
+                        mutation == 1 ? "missing" : "right")}));
+    if (mutation == 2) {
+      // A real allocation with the expected physical signature but a distinct
+      // nominal provider cannot satisfy Child::bump's declaration contract.
+      auto child = module(*file, "Child"), root = module(*file, "Root");
+      mlir::OperationState state(child.getLoc(), ModuleOp::getOperationName());
+      state.addAttributes(child->getAttrs());
+      state.attributes.set("sym_name", builder.getStringAttr("Other"));
+      state.addRegion();
+      builder.setInsertionPoint(root);
+      auto other = mlir::cast<ModuleOp>(builder.create(state));
+      auto *block = new mlir::Block;
+      other.getBody().push_back(block);
+      for (auto type : child.getFunctionType().getInputs())
+        block->addArgument(type, other.getLoc());
+      builder.setInsertionPointToEnd(block);
+      mlir::OperationState yield(other.getLoc(), YieldOp::getOperationName());
+      yield.addOperands(block->getArgument(0));
+      builder.create(yield);
+      auto right =
+          *std::next(root.getBody().front().getOps<InstanceOp>().begin());
+      right->setAttr("callee", mlir::FlatSymbolRefAttr::get(&context, "Other"));
+      auto directRight = *std::next(transaction(*file)
+                                        .getBody()
+                                        .front()
+                                        .getOps<SourceMethodCallOp>()
+                                        .begin(),
+                                    2);
+      directRight->setAttr(
+          "instance_path",
+          builder.getArrayAttr({builder.getStringAttr("left")}));
+    }
+    auto before = print(file->getOperation());
+    auto operations = identities(*file);
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+    EXPECT_NE(diagnostics.find("static instance reference cannot bypass lexical scope"),
+              std::string::npos) << diagnostics;
+    EXPECT_EQ(before, print(file->getOperation()));
+    EXPECT_EQ(operations, identities(*file));
+    auto analysis = analyze(*file);
+    EXPECT_FALSE(analysis->isValid()) << diagnostics;
+  }
+}
+
+TEST_F(TransactionStateSSATest,
+       RelativeBypassInUncalledMethodDeclarationRejects) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto unused = mlir::cast<SourceMethodOp>(method(*file, "relay")->clone());
+  unused->setAttr("sym_name", builder.getStringAttr("uncalled"));
+  unused->setAttr("occurrence", occurrence("Child", 20));
+  auto parameters = unused->getAttrOfType<mlir::ArrayAttr>("ac.parameters");
+  mlir::NamedAttrList parameter(
+      mlir::cast<mlir::DictionaryAttr>(parameters[0]));
+  parameter.set("origin", occurrence("Child", 20));
+  unused->setAttr("ac.parameters",
+                  builder.getArrayAttr({parameter.getDictionary(&context)}));
+  child.getBody().front().getOperations().insert(
+      child.getBody().front().getTerminator()->getIterator(), unused);
+  auto nested = first<SourceMethodCallOp>(unused.getBody());
+  nested->setAttr("occurrence", occurrence("Child", 21));
+  nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  nested->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+  nested->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("missing")}));
+  auto before = print(file->getOperation());
+  auto operations = identities(*file);
+  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+  EXPECT_NE(diagnostics.find("static instance reference cannot bypass lexical scope"),
+            std::string::npos) << diagnostics;
+  EXPECT_EQ(before, print(file->getOperation()));
+  EXPECT_EQ(operations, identities(*file));
+  auto analysis = analyze(*file);
+  EXPECT_FALSE(analysis->isValid()) << diagnostics;
+}
+
+TEST_F(TransactionStateSSATest,
+       OccurrenceVerifierPreservesCompletePlansAndSelectsCostFromFreshTopology) {
+  for (bool relative : {false, true}) {
+    SCOPED_TRACE(relative);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    if (relative) {
+      auto nested = first<SourceMethodCallOp>(method(*file, "relay").getBody());
+      nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+      nested->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+    }
+    auto analysis = analyze(*file);
+    ASSERT_TRUE(analysis->isValid()) << diagnostics;
+    ASSERT_EQ(analysis->getPlans().size(), 2u);
+    auto *run = analysis->lookup(transaction(*file));
+    ASSERT_NE(run, nullptr);
+    // The public constructor always builds the full state/effect plan, even
+    // for the lexical topology eligible for lighter occurrence verification.
+    EXPECT_EQ(run->owners.size(), 3u);
+    EXPECT_EQ(run->writes.size(), 4u);
+    EXPECT_EQ(run->calls.size(), 6u);
+    EXPECT_EQ(run->versions.size(), 7u);
+    EXPECT_FALSE(run->values.empty());
+    EXPECT_FALSE(run->events.empty());
+    llvm::SmallVector<const TransactionStatePlan *, 0> expected;
+    for (const auto &plan : analysis->getPlans()) expected.push_back(&plan);
+    auto sourceText = print(file->getOperation());
+    auto sourceObjects = identities(*file);
+    auto planText = dump(*analysis);
+    auto verified = capture([&] {
+      return SourceTransactionStateAnalysis::verifyOccurrences(
+          file->getOperation(), expected);
+    });
+    ASSERT_TRUE(mlir::succeeded(verified)) << diagnostics;
+    EXPECT_GT(*verified, 0u);
+    if (relative) {
+      // The current relative topology requires canonical occurrence expansion;
+      // lexical-looking expected plans cannot choose the cheaper path.
+      EXPECT_GE(*verified, analysis->getAnalysisWork());
+    } else {
+      EXPECT_LT(*verified, analysis->getAnalysisWork());
+    }
+    EXPECT_EQ(sourceText, print(file->getOperation()));
+    EXPECT_EQ(sourceObjects, identities(*file));
+    EXPECT_EQ(planText, dump(*analysis));
+    EXPECT_EQ(analysis->lookup(transaction(*file)), run);
+  }
+}
+
+TEST_F(TransactionStateSSATest,
+       OccurrenceVerifierRejectsInventoryAndEveryLexicalRoutingIdentityMutation) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto analysis = analyze(*file);
+  ASSERT_TRUE(analysis->isValid()) << diagnostics;
+  ASSERT_EQ(analysis->getPlans().size(), 2u);
+  auto sourceText = print(file->getOperation());
+  auto sourceObjects = identities(*file);
+  auto planText = dump(*analysis);
+  for (unsigned mutation = 0; mutation != 12; ++mutation) {
+    SCOPED_TRACE(mutation);
+    llvm::SmallVector<const TransactionStatePlan *, 0> expected;
+    for (const auto &plan : analysis->getPlans()) expected.push_back(&plan);
+    TransactionStatePlan forged = *expected[0];
+    expected[0] = &forged;
+    switch (mutation) {
+    case 0: expected.pop_back(); break;
+    case 1: expected.push_back(expected.back()); break;
+    case 2: std::swap(expected[0], expected[1]); break;
+    case 3: expected[0] = nullptr; break;
+    case 4: expected[1] = expected[0]; break;
+    case 5: forged.transaction = transaction(*file, "watch"); break;
+    case 6: forged.lexicalModule = module(*file, "Child"); break;
+    case 7: forged.routingModule = module(*file, "Child"); break;
+    case 8: forged.registrationPath = mlir::ArrayAttr(); break;
+    case 9:
+      forged.registrationPath = builder.getArrayAttr({occurrence("Root", 1)});
+      break;
+    case 10: forged.lexicalAnchor = 1; break;
+    case 11: forged.ordinal = 1; break;
+    }
+    auto forgedIdentity = std::make_tuple(
+        forged.transaction, forged.lexicalModule, forged.routingModule,
+        forged.registrationPath, forged.lexicalAnchor, forged.ordinal);
+    auto verified = capture([&] {
+      return SourceTransactionStateAnalysis::verifyOccurrences(
+          file->getOperation(), expected);
+    });
+    EXPECT_TRUE(mlir::failed(verified));
+    EXPECT_NE(diagnostics.find(mutation < 2 ? "transaction occurrence inventory differs"
+                                           : "transaction occurrence routing differs"),
+              std::string::npos) << diagnostics;
+    EXPECT_EQ(forgedIdentity, std::make_tuple(
+        forged.transaction, forged.lexicalModule, forged.routingModule,
+        forged.registrationPath, forged.lexicalAnchor, forged.ordinal));
+    EXPECT_EQ(sourceText, print(file->getOperation()));
+    EXPECT_EQ(sourceObjects, identities(*file));
+    EXPECT_EQ(planText, dump(*analysis));
+  }
+}
+
+TEST_F(TransactionStateSSATest,
+       OccurrenceVerifierRevalidatesUncalledMethodsAndActualReceiverInventory) {
+  for (unsigned mutation = 0; mutation != 4; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    auto unused = mlir::cast<SourceMethodOp>(method(*file, "relay")->clone());
+    unused->setAttr("sym_name", builder.getStringAttr("uncalled"));
+    unused->setAttr("occurrence", occurrence("Child", 20));
+    auto parameters = unused->getAttrOfType<mlir::ArrayAttr>("ac.parameters");
+    mlir::NamedAttrList parameter(
+        mlir::cast<mlir::DictionaryAttr>(parameters[0]));
+    parameter.set("origin", occurrence("Child", 20));
+    unused->setAttr("ac.parameters",
+                    builder.getArrayAttr({parameter.getDictionary(&context)}));
+    child.getBody().front().getOperations().insert(
+        child.getBody().front().getTerminator()->getIterator(), unused);
+    auto nested = first<SourceMethodCallOp>(unused.getBody());
+    nested->setAttr("occurrence", occurrence("Child", 21));
+    auto analysis = analyze(*file);
+    ASSERT_TRUE(analysis->isValid()) << diagnostics;
+    llvm::SmallVector<const TransactionStatePlan *, 0> expected;
+    for (const auto &plan : analysis->getPlans()) expected.push_back(&plan);
+    ASSERT_EQ(expected.size(), 2u);
+    auto valid = capture([&] {
+      return SourceTransactionStateAnalysis::verifyOccurrences(
+          file->getOperation(), expected);
+    });
+    ASSERT_TRUE(mlir::succeeded(valid)) << diagnostics;
+    llvm::StringRef category;
+    switch (mutation) {
+    case 0:
+      unused->setAttr("ac.after", builder.getArrayAttr({}));
+      category = "after ordering is retired";
+      break;
+    case 1:
+      nested->setAttr("callee", mlir::SymbolRefAttr::get(
+          &context, "Child", {mlir::FlatSymbolRefAttr::get(&context, "uncalled")}));
+      category = "recursive Method call graph";
+      break;
+    case 2:
+      nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+      nested->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+      nested->setAttr("instance_path",
+                      builder.getArrayAttr({builder.getStringAttr("right")}));
+      category = "static instance reference cannot bypass lexical scope";
+      break;
+    case 3: {
+      // A fresh, legal relative self-call changes topology discovery. Even
+      // this uncalled declaration cannot hide a duplicated actual allocation.
+      nested->setAttr("receiver_kind", builder.getStringAttr("reference"));
+      nested->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+      auto instances = module(*file, "Root").getBody().front().getOps<InstanceOp>();
+      auto left = *instances.begin();
+      auto right = *std::next(instances.begin());
+      right->setAttr("occurrence", left.getOccurrence());
+      category = "distinct names and occurrence identities";
+      break;
+    }
+    }
+    auto sourceText = print(file->getOperation());
+    auto sourceObjects = identities(*file);
+    auto planText = dump(*analysis);
+    auto rejected = capture([&] {
+      return SourceTransactionStateAnalysis::verifyOccurrences(
+          file->getOperation(), expected);
+    });
+    EXPECT_TRUE(mlir::failed(rejected));
+    EXPECT_NE(diagnostics.find(category.str()), std::string::npos) << diagnostics;
+    EXPECT_EQ(sourceText, print(file->getOperation()));
+    EXPECT_EQ(sourceObjects, identities(*file));
+    EXPECT_EQ(planText, dump(*analysis));
+  }
+}
+
 } // namespace
 } // namespace acir::ac

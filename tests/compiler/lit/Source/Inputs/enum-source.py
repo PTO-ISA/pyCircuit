@@ -599,7 +599,7 @@ shadow_diagnostics = {
     "class-enum-shadow": "nominal declaration shadows an existing binding",
     "parameter-nominal-shadow": "module input shadows a source declaration or namespace",
     "parameter-namespace-shadow": "module input shadows a source declaration or namespace",
-    "local-nominal-shadow": "assignment shadows a source declaration",
+    "local-nominal-shadow": "Module ordinary assignment cannot write a persistent owner, input, imported binding, instance or physical domain",
 }
 SHADOWS = [(name, text, shadow_diagnostics[name]) for name, text in SHADOWS]
 for category, target in (
@@ -611,7 +611,7 @@ for category, target in (
         (
             "constructor-" + category + "-shadow",
             CONSTRUCTOR_CONTROL.replace("child", target),
-            "shadows a source",
+            "Module call result cannot replace a protected binding or instance",
         )
     )
 sentinel = build / "source-executed"
@@ -1992,7 +1992,7 @@ S3C = {
             "guard_intention": "owner identity is independent of writes/overlap: reject tuple target even when actual duplicates a read-only formal",
         },
         "nonlocal-target": {
-            "source": 'import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass LeafOut:\n    out: ac.bits[2]\n@ac.module\ndef Leaf(data: ac.bits[2]) -> LeafOut:\n    return LeafOut(out=data)\n@ac.module\ndef Top(raw: ac.bits[2]) -> {"out_raw": ac.bits[2], "out_member": bool}:\n    decoded, member = decode[State](raw)\n    child = Leaf(data=ac.enum_to_bits(decoded))\n    @ac.rule\n    def inspect():\n        nonlocal decoded\n        decoded, rule_member = ac.enum_from_bits[State](raw)\n    inspect()\n    return {"out_raw": child.out, "out_member": member}\n',
+            "source": 'import pycircuit as ac\nfrom pycircuit import enum_from_bits as decode\nfrom enums.facade2 import Exported as State\nfrom enums.types import Singleton, Sparse, Wide, Huge\nfrom enums.peer import State as Peer\n@ac.struct\nclass LeafOut:\n    out: ac.bits[2]\n@ac.module\ndef Leaf(data: ac.bits[2]) -> LeafOut:\n    return LeafOut(out=data)\n@ac.module\ndef Top(raw: ac.bits[2]) -> {"out_raw": ac.bits[2], "out_member": bool}:\n    decoded, member = decode[State](raw)\n    child = Leaf(data=ac.enum_to_bits(decoded))\n    @ac.rule\n    def inspect():\n        nonlocal decoded\n        decoded, rule_member = ac.enum_from_bits[State](raw)\n    return {"out_raw": child.out, "out_member": member}\n',
             "control": "nested-rule-control",
             "guard_intention": "retired nonlocal ownership proposal is forbidden; structural rule-local assignment stays bounded",
         },

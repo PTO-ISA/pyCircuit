@@ -56,6 +56,3 @@ def LocalOwner():
     @rule
     def inspect() -> None:
         old_seen = read()
-
-    step()
-    inspect()

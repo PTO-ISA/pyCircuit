@@ -112,4 +112,3 @@ def AtomicSiblingFault():
         assert False, "queue_atomic_rejection"
 
     AdvanceEpoch(epoch)
-    reject()

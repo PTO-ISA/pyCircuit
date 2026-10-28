@@ -26,7 +26,7 @@
         if (!prepayAppend(budget, access.operation, prepared.externalPops)) return failure();
         resource.externalPop = prepared.externalPops.size();
         prepared.externalPops.push_back({access.owner,
-            prepared.liveIns.size() + 2 * prepared.forwarding.size() + prepared.externalPops.size()});
+            prepared.liveIns.size() + prepared.externalPops.size()});
       } else resource.externalPop = std::distance(prepared.externalPops.begin(), external);
     }
     if (!prepayAppend(budget, access.operation, prepared.resources) ||

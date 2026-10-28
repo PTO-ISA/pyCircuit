@@ -2,8 +2,8 @@ from pycircuit import bits, log, module, rule, system, u8
 
 
 @module
-def LocalIdentity(value: bits[width], *, width: int = 17) -> {"result": bits[width]}:
-    return {"result": value}
+def LocalIdentity(value: bits[width], *, width: int = 17) -> bits[width]:
+    return value
 
 
 @rule
@@ -29,17 +29,12 @@ def advance(incoming, phase):
 def LocalDefaultSystem():
     phase: u8 = 0
     incoming: bits[17] = 0
-    dut = LocalIdentity()
+    dut = LocalIdentity(value=incoming)
 
-    @rule
-    def drive():
-        dut(value=incoming)
 
     @rule
     def inspect():
-        assert dut.result == incoming, "local17-bit identity"
-        log("info", "identity", dut.result)
+        assert dut == incoming, "local17-bit identity"
+        log("info", "identity", dut)
 
-    drive()
-    inspect()
     advance(incoming, phase)

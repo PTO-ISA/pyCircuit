@@ -27,6 +27,3 @@ def LoopElseFailure():
     def sibling() -> None:
         peer = peer + 1
         ac.log("info", "loop sibling", peer)
-
-    update()
-    sibling()

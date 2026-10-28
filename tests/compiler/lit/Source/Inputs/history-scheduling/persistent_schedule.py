@@ -187,5 +187,4 @@ def PersistentSchedule(
             seen[head.sequence] = 1
         epoch = epoch + 1  # noqa: F841 - captured hardware state or child instance.
 
-    advance()
     return Result(ready=ready, available=completed_valid, head=completed_head)

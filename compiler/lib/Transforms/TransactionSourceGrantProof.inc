@@ -10,19 +10,8 @@ class SourceWriteGrantProof {
     SmallVector<ac::InstanceOp> scope, prefix;
     std::optional<Core::NodeView> synthetic;
   };
-  struct Key {
-    const void *scope, *plan, *value;
-    uint64_t bound;
-  };
-  struct Less {
-    bool operator()(const Key &a, const Key &b) const {
-      std::less<const void *> less;
-      for (auto pair : {std::pair(a.scope, b.scope), std::pair(a.plan, b.plan), std::pair(a.value, b.value)}) {
-        if (pair.first != pair.second) return less(pair.first, pair.second);
-      }
-      return a.bound < b.bound;
-    }
-  };
+  using Key = std::pair<std::pair<const void *, const void *>,
+                        std::pair<const void *, uint64_t>>;
 public:
   SourceWriteGrantProof(ac::ModuleOp root, const ac::HardwareAnalysis &hardware,
                         SourceCheckBudget &budget)
@@ -59,11 +48,6 @@ public:
   }
   StringRef failureReason() const { return core.failureReason(); }
 private:
-  uint64_t lookupCost() const {
-    uint64_t comparisons = 1;
-    for (uint64_t n = index.size() + 1; n > 1; n = n / 2 + n % 2) comparisons += 2;
-    return 4 * comparisons;
-  }
   FailureOr<Node> save(Endpoint endpoint) {
     if (!product(budget, root, endpoint.scope.size() + endpoint.prefix.size(),
                  SourceCheckBudget::bytes(sizeof(ac::InstanceOp)) + 1)) return failure();
@@ -71,15 +55,37 @@ private:
       if (!prepayAppend(budget, root, endpoints)) return failure();
       Node id = endpoints.size(); endpoints.push_back(std::move(endpoint)); return id;
     }
-    if (!charge(budget, root, lookupCost() + endpoint.scope.size())) return failure();
+    if (!charge(budget, root, 4 + endpoint.scope.size())) return failure();
     auto scope = routePath(root->getContext(), endpoint.scope);
-    Key key{scope.getAsOpaquePointer(), endpoint.plan, endpoint.value.getAsOpaquePointer(),
-            endpoint.bound.value_or(0)};
-    auto position = index.lower_bound(key);
-    if (position != index.end() && !Less{}(key, position->first)) return position->second;
-    if (!charge(budget, root, 4 + SourceCheckBudget::bytes(sizeof(decltype(index)::value_type) + 4 * sizeof(void *))) ||
-        !prepayAppend(budget, root, endpoints)) return failure();
-    Node id = endpoints.size(); endpoints.push_back(std::move(endpoint)); index.emplace_hint(position, key, id); return id;
+    Key key{{scope.getAsOpaquePointer(), endpoint.plan},
+            {endpoint.value.getAsOpaquePointer(), endpoint.bound.value_or(0)}};
+    auto position = index.find(key);
+    if (position != index.end()) return position->second;
+    // The index never erases. Prepay actual bucket growth and all retained
+    // bucket visits before reserve, using the pinned strict 3/4 load policy.
+    using Bucket = decltype(index)::value_type;
+    uint64_t count = SourceCheckBudget::add(index.size(), 1);
+    uint64_t oldCapacity = index.getMemorySize() / sizeof(Bucket);
+    uint64_t capacity = std::max(uint64_t(64), oldCapacity);
+    while (SourceCheckBudget::multiply(count, 4) >=
+           SourceCheckBudget::multiply(capacity, 3)) {
+      if (!charge(budget, root)) return failure();
+      capacity = SourceCheckBudget::multiply(capacity, 2);
+    }
+    if (count > std::numeric_limits<unsigned>::max())
+      return root.emitOpError() << "source grant endpoint index capacity exceeded";
+    uint64_t work = 4;
+    if (capacity > oldCapacity)
+      work = SourceCheckBudget::add(work, SourceCheckBudget::add(oldCapacity,
+          SourceCheckBudget::bytes(SourceCheckBudget::multiply(
+              capacity - oldCapacity, sizeof(Bucket)))));
+    if (!charge(budget, root, work) || !prepayAppend(budget, root, endpoints))
+      return failure();
+    index.reserve(count);
+    Node id = endpoints.size();
+    endpoints.push_back(std::move(endpoint));
+    index.try_emplace(key, id);
+    return id;
   }
   FailureOr<Node> bind(const ac::TransactionStatePlan &plan,
                        ArrayRef<ac::InstanceOp> prefix, ac::BoundValueId id) {
@@ -194,9 +200,8 @@ private:
           if (!charge(budget, root)) return failure();
           if (read.result != *endpoint.bound) continue;
           const auto &version = plan.versions[read.version];
-          // Explicit predecessors replace an owner's entry with its EHR
-          // candidate. Such reads must not alias another registration's Q0.
-          if (version.kind == ac::StateVersionKind::OldQ && plan.predecessors.empty()) {
+          // Every independent registration starts from committed Q.
+          if (version.kind == ac::StateVersionKind::OldQ) {
             auto actual = bind(plan, endpoint.prefix, plan.owners[read.owner].oldQ);
             if (failed(actual)) return failure(); next = *actual;
           }
@@ -309,6 +314,6 @@ private:
   const ac::HardwareAnalysis &hardware;
   SourceCheckBudget &budget;
   SmallVector<Endpoint, 0> endpoints;
-  std::map<Key, Node, Less> index;
+  llvm::DenseMap<Key, Node> index;
   Core core;
 };

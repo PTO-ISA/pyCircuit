@@ -94,4 +94,4 @@ def DigitalClock(  # noqa: N802
         blink = ~blink_q if tick_1hz else blink_q
         return result
 
-    return advance_clock()
+    return advance_clock

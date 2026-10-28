@@ -6,6 +6,8 @@
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSet.h"
+#include "llvm/ADT/StringSwitch.h"
+#include "llvm/IR/ConstantRange.h"
 #include <algorithm>
 #include <limits>
 #include <optional>
@@ -437,6 +439,10 @@ HardwareAnalysis::evaluateStatic(StaticExprAttr expression,
   return detail::evaluateValue(*opcode, operands,
                                [&] { return site->emitOpError(); });
 }
+Attribute HardwareAnalysis::substituteAttribute(
+    Attribute attribute, const HardwareBindings &bindings) const {
+  return substitute(attribute, bindings);
+}
 FailureOr<Type> HardwareAnalysis::resolveType(Type type,
                                               const HardwareBindings &bindings,
                                               Operation *site) const {
@@ -741,19 +747,338 @@ LogicalResult verifyRoutedPackage(mlir::ModuleOp package,
 }
 } // namespace acir::ac
 namespace acir::ac {
+LogicalResult HardwareAnalysis::verifySourceIndex(
+    Value index, TableType table, const HardwareBindings &bindings,
+    Operation *site) const {
+  using Range = llvm::ConstantRange;
+  using Pred = llvm::CmpInst::Predicate;
+  auto extent = getTableSize(table, bindings, site);
+  if (failed(extent) || table.getShape().size() != 1 || !isa<BitsType>(index.getType()))
+    return failure();
+  detail::SourceCheckBudget budget(HardwareSourceCheckLimits{});
+  budget.setPhase("checked Table index ranges");
+  SmallVector<std::unique_ptr<HardwareBindings>, 4> contexts;
+  auto context = [&](const HardwareBindings &actual) -> FailureOr<unsigned> {
+    for (auto [ordinal, prior] : llvm::enumerate(contexts)) {
+      if (failed(budget.debit(detail::SourceCheckBudget::bindings(actual), site))) return failure();
+      if (detail::sameHardwareBindings(*prior, actual)) return unsigned(ordinal);
+    }
+    if (failed(budget.debit(detail::SourceCheckBudget::add(
+            detail::SourceCheckBudget::bindings(actual),
+            detail::SourceCheckBudget::bytes(sizeof(HardwareBindings))), site))) return failure();
+    contexts.push_back(std::make_unique<HardwareBindings>(actual));
+    return unsigned(contexts.size() - 1);
+  };
+  struct Node { Value value; unsigned context; };
+  auto validate = [&](Operation *operation, unsigned scope) -> LogicalResult {
+    if (failed(budget.debit(16 + operation->getNumOperands() + operation->getNumResults(), site))) return failure();
+    return verifyResolvedOperation(operation, *contexts[scope]);
+  };
+  // Only value-preserving routes are identities. In particular Module inputs
+  // never follow caller samples, and ordinary Method formals are not captures.
+  auto alias = [&](Node node) -> FailureOr<std::optional<Node>> {
+    Value value = node.value, next;
+    unsigned scope = node.context, nextScope = scope;
+    auto &actual = *contexts[scope];
+    if (auto extract = value.getDefiningOp<BitsExtractOp>()) {
+      if (failed(extract.verifyInvariantsImpl()) || failed(extract.verify()) || failed(validate(extract, scope))) return failure();
+      auto low = evaluateStatic(extract.getLow(), actual, site);
+      auto input = getPackedWidth(extract.getInput().getType(), actual, site);
+      auto output = getPackedWidth(value.getType(), actual, site);
+      auto integer = succeeded(low) ? dyn_cast<MathIntAttr>(*low) : MathIntAttr();
+      if (failed(input) || failed(output) || !integer) return failure();
+      if (integer.getCanonicalValue() == "0" && *input == *output) next = extract.getInput();
+    } else if (auto resize = value.getDefiningOp<BitsResizeOp>(); resize && resize.getMode() == "zext") {
+      if (failed(resize.verifyInvariantsImpl()) || failed(resize.verify()) || failed(validate(resize, scope))) return failure();
+      next = resize.getInput();
+    } else if (auto argument = dyn_cast<BlockArgument>(value)) {
+      Operation *owner = argument.getOwner()->getParentOp();
+      unsigned ordinal = argument.getArgNumber();
+      if (auto rule = dyn_cast<RuleOp>(owner)) {
+        if (argument.getOwner()->getNumArguments() != rule.getCaptures().size() || ordinal >= rule.getCaptures().size()) return failure();
+        next = rule.getCaptures()[ordinal];
+      } else if (auto transaction = dyn_cast<SourceTransactionOp>(owner)) {
+        if (argument.getOwner()->getNumArguments() != transaction.getCaptures().size() || ordinal >= transaction.getCaptures().size()) return failure();
+        next = transaction.getCaptures()[ordinal];
+      } else if (auto method = dyn_cast<SourceMethodOp>(owner)) {
+        auto signature = method.getFunctionType();
+        if (argument.getOwner()->getNumArguments() != signature.getNumInputs() + method.getCaptures().size()) return failure();
+        if (ordinal >= signature.getNumInputs()) next = method.getCaptures()[ordinal - signature.getNumInputs()];
+        else {
+          auto module = method->getParentOfType<ModuleOp>();
+          for (auto transaction : module.getBody().front().getOps<SourceTransactionOp>()) {
+            if (failed(budget.debit(1, site))) return failure();
+            if (transaction.getOccurrence() != transaction.getDeclaration() || transaction.getDeclaration() != method.getOccurrence()) continue;
+            auto entry = getSourceRegistrationEntry(transaction);
+            if (failed(entry) || !*entry || (**entry).method != method || ordinal >= (**entry).argumentCaptureOrdinals.size()) return failure();
+            unsigned capture = (**entry).argumentCaptureOrdinals[ordinal];
+            if (next || capture >= transaction.getCaptures().size()) return failure();
+            next = transaction.getCaptures()[capture];
+          }
+        }
+      }
+      if (next) {
+        auto formal = resolveType(value.getType(), actual, site), supplied = resolveType(next.getType(), actual, site);
+        if (failed(formal) || failed(supplied) || !areEquivalentHardwareTypes(*formal, *supplied)) return failure();
+      }
+    } else if (auto result = dyn_cast<OpResult>(value)) {
+      if (auto rule = dyn_cast<RuleOp>(result.getOwner())) {
+        if (!rule.getBody().hasOneBlock() || rule.getBody().front().empty()) return failure();
+        auto yield = dyn_cast<YieldOp>(rule.getBody().front().back());
+        if (!yield || result.getResultNumber() >= yield.getNumOperands()) return failure();
+        next = yield.getOperand(result.getResultNumber());
+      } else if (auto instance = dyn_cast<InstanceOp>(result.getOwner())) {
+        auto child = dyn_cast_or_null<ModuleOp>(resolveCallee(instance));
+        if (child && getPrimitiveKind(child).empty()) {
+          auto bound = bindInstance(instance, actual);
+          if (failed(bound) || !child.getBody().hasOneBlock() || child.getBody().front().empty()) return failure();
+          auto yield = dyn_cast<YieldOp>(child.getBody().front().back());
+          if (!yield || result.getResultNumber() >= yield.getNumOperands()) return failure();
+          next = yield.getOperand(result.getResultNumber());
+          auto formal = resolveType(value.getType(), actual, site), supplied = resolveType(next.getType(), *bound, site);
+          if (failed(formal) || failed(supplied) || !areEquivalentHardwareTypes(*formal, *supplied)) return failure();
+          auto id = context(*bound); if (failed(id)) return failure(); nextScope = *id;
+        }
+      }
+    }
+    if (!next) return std::optional<Node>();
+    return std::optional<Node>(Node{next, nextScope});
+  };
+  auto canonical = [&](Node node) -> FailureOr<Node> {
+    for (unsigned depth = 0; depth < 128; ++depth) {
+      if (failed(budget.debit(1, site))) return failure();
+      auto next = alias(node); if (failed(next)) return failure();
+      if (!*next) return node;
+      node = **next;
+    }
+    return site->emitOpError() << "checked index identity depth exceeded";
+  };
+  auto predicate = [](StringRef spelling) -> std::optional<Pred> {
+    return llvm::StringSwitch<std::optional<Pred>>(spelling)
+      .Case("eq", llvm::CmpInst::ICMP_EQ).Case("case_eq", llvm::CmpInst::ICMP_EQ)
+      .Case("ne", llvm::CmpInst::ICMP_NE).Case("ult", llvm::CmpInst::ICMP_ULT)
+      .Case("ule", llvm::CmpInst::ICMP_ULE).Case("ugt", llvm::CmpInst::ICMP_UGT)
+      .Case("uge", llvm::CmpInst::ICMP_UGE).Case("slt", llvm::CmpInst::ICMP_SLT)
+      .Case("sle", llvm::CmpInst::ICMP_SLE).Case("sgt", llvm::CmpInst::ICMP_SGT)
+      .Case("sge", llvm::CmpInst::ICMP_SGE).Default(std::nullopt);
+  };
+  using Key = std::pair<Value, std::pair<unsigned, uint64_t>>;
+  struct Memo { bool complete = false; std::optional<Range> range; };
+  llvm::DenseMap<Key, Memo> memo;
+  std::function<FailureOr<Range>(Node, unsigned)> infer;
+  // Branch refinement is local. Cached ranges are unconditional, so a narrow
+  // arm fact can never be reused for a broader value/refinement context.
+  auto refine = [&](Node arm, Node condition, bool whenTrue, Range range, unsigned depth) -> FailureOr<Range> {
+    auto control = canonical(condition); if (failed(control)) return failure();
+    auto compare = control->value.getDefiningOp<BitsCompareOp>();
+    if (!compare) return range;
+    auto pred = predicate(compare.getPredicate()); if (!pred) return range;
+    if (!whenTrue) *pred = llvm::CmpInst::getInversePredicate(*pred);
+    auto target = canonical(arm); if (failed(target)) return failure();
+    for (unsigned side = 0; side < 2; ++side) {
+      auto variable = canonical(Node{compare->getOperand(side), control->context});
+      if (failed(variable)) return failure();
+      if (target->value != variable->value || target->context != variable->context) continue;
+      auto other = infer(Node{compare->getOperand(1 - side), control->context}, depth + 1);
+      if (failed(other)) return failure();
+      if (!other->isSingleElement()) continue;
+      auto selected = side ? llvm::CmpInst::getSwappedPredicate(*pred) : *pred;
+      Range allowed = Range::makeExactICmpRegion(selected, *other->getSingleElement());
+      return range.intersectWith(allowed.zextOrTrunc(range.getBitWidth()));
+    }
+    return range;
+  };
+  // Prove the unsigned quotient relation from actual arithmetic SSA. No
+  // importer recipe tag or claimed interval participates in this proof.
+  auto remainder = [&](BitsBinaryOp subtract, unsigned scope, unsigned depth) -> FailureOr<std::optional<Range>> {
+    if (subtract.getOpcode() != "sub") return std::optional<Range>();
+    auto scaled = subtract.getRhs().getDefiningOp<BitsBinaryOp>();
+    if (!scaled || scaled.getOpcode() != "mul") return std::optional<Range>();
+    for (unsigned side = 0; side < 2; ++side) {
+      auto quotient = scaled->getOperand(side).getDefiningOp<BitsExtractOp>();
+      if (!quotient) continue;
+      auto product = quotient.getInput().getDefiningOp<BitsBinaryOp>();
+      if (!product || product.getOpcode() != "mul") continue;
+      auto divisorRange = infer(Node{scaled->getOperand(1 - side), scope}, depth + 1);
+      if (failed(divisorRange)) return failure();
+      auto divisor = divisorRange->getSingleElement();
+      if (!divisor || divisor->isZero()) continue;
+      for (unsigned factor = 0; factor < 2; ++factor) {
+        auto wide = product->getOperand(factor).getDefiningOp<BitsResizeOp>();
+        if (!wide || wide.getMode() != "zext" || wide.getInput() != subtract.getLhs()) continue;
+        auto multiplierRange = infer(Node{product->getOperand(1 - factor), scope}, depth + 1);
+        if (failed(multiplierRange)) return failure();
+        auto multiplier = multiplierRange->getSingleElement();
+        if (!multiplier || multiplier->isZero()) continue;
+        auto &actual = *contexts[scope];
+        for (Operation *operation : {scaled.getOperation(), quotient.getOperation(), product.getOperation(), wide.getOperation()})
+          if (failed(validate(operation, scope))) return failure();
+        auto sourceWidth = getPackedWidth(subtract.getLhs().getType(), actual, site);
+        auto productWidth = getPackedWidth(product.getResult().getType(), actual, site);
+        auto lowValue = evaluateStatic(quotient.getLow(), actual, site);
+        auto low = succeeded(lowValue) ? dyn_cast<MathIntAttr>(*lowValue) : MathIntAttr();
+        if (failed(sourceWidth) || failed(productWidth) || !low) return failure();
+        llvm::APSInt shiftValue(low.getCanonicalValue());
+        if (shiftValue.isNegative() || shiftValue.getActiveBits() > 32) continue;
+        uint64_t shift = shiftValue.getZExtValue();
+        uint64_t precision = std::max({*productWidth + 2, shift + 2,
+            *sourceWidth + multiplier->getActiveBits() + divisor->getActiveBits() + 4});
+        if (precision > std::numeric_limits<unsigned>::max() ||
+            failed(budget.debit(detail::SourceCheckBudget::multiply(
+                16, detail::SourceCheckBudget::bytes((precision + 7) / 8)), site))) return failure();
+        unsigned bits = unsigned(precision), width = unsigned(*sourceWidth);
+        llvm::APInt power(bits, 0), modulus(bits, 0);
+        power.setBit(unsigned(shift)); modulus.setBit(unsigned(*productWidth));
+        auto d = divisor->zextOrTrunc(bits), m = multiplier->zextOrTrunc(bits);
+        auto maximum = llvm::APInt::getLowBitsSet(bits, width);
+        auto scaledPower = m * d;
+        if (scaledPower.ult(power) || (scaledPower - power).uge(d) || (maximum * m).uge(modulus)) continue;
+        auto error = scaledPower - power, q = maximum.udiv(d), r = maximum.urem(d);
+        auto tail = q * error + r * m;
+        auto full = q.isZero() ? llvm::APInt(bits, 0) : (q - 1) * error + (d - 1) * m;
+        if (tail.uge(power) || full.uge(power)) continue;
+        return std::optional<Range>(Range(llvm::APInt(width, 0), divisor->zextOrTrunc(width)));
+      }
+    }
+    return std::optional<Range>();
+  };
+  infer = [&](Node node, unsigned depth) -> FailureOr<Range> {
+    if (depth > 128) return site->emitOpError() << "checked index range depth exceeded";
+    if (failed(budget.debit(16, site))) return failure();
+    auto &actual = *contexts[node.context];
+    auto boundWidth = getPackedWidth(node.value.getType(), actual, site);
+    if (failed(boundWidth) || !isa<BitsType>(node.value.getType()) ||
+        *boundWidth > std::numeric_limits<unsigned>::max()) return failure();
+    unsigned width = unsigned(*boundWidth);
+    uint64_t words = (uint64_t(width) + 63) / 64;
+    // Cache hits copy arbitrary-precision interval endpoints too.
+    if (failed(budget.debit(detail::SourceCheckBudget::multiply(4, words), site))) return failure();
+    Key key{node.value, {node.context, *boundWidth}};
+    if (auto found = memo.find(key); found != memo.end()) {
+      if (!found->second.complete) return site->emitOpError() << "cyclic checked index range";
+      return *found->second.range;
+    }
+    if (failed(budget.debit(detail::SourceCheckBudget::add(64,
+        detail::SourceCheckBudget::multiply(16, words)), site))) return failure();
+    memo.try_emplace(key);
+    auto compute = [&]() -> FailureOr<Range> {
+      auto next = alias(node); if (failed(next)) return failure();
+      if (*next) {
+        auto range = infer(**next, depth + 1);
+        if (failed(range)) return failure();
+        return range->zextOrTrunc(width);
+      }
+      auto *operation = node.value.getDefiningOp();
+      if (auto constant = dyn_cast_or_null<BitsConstantOp>(operation)) {
+        if (failed(constant.verifyInvariantsImpl()) || failed(constant.verify()) || failed(validate(constant, node.context))) return failure();
+        auto evaluated = evaluateStatic(constant.getValue(), actual, site);
+        auto integer = succeeded(evaluated) ? dyn_cast<MathIntAttr>(*evaluated) : MathIntAttr();
+        if (!integer) return failure();
+        llvm::APSInt number(integer.getCanonicalValue());
+        if (number.isNegative() || number.getActiveBits() > width) return failure();
+        return Range(number.zextOrTrunc(width));
+      }
+      if (auto extract = dyn_cast_or_null<BitsExtractOp>(operation)) {
+        auto input = infer(Node{extract.getInput(), node.context}, depth + 1);
+        auto low = evaluateStatic(extract.getLow(), actual, site);
+        auto integer = succeeded(low) ? dyn_cast<MathIntAttr>(*low) : MathIntAttr();
+        if (failed(input) || !integer || failed(validate(extract, node.context))) return failure();
+        llvm::APSInt amount(integer.getCanonicalValue());
+        if (amount.isNegative() || amount.getActiveBits() > 32) return failure();
+        return input->lshr(Range(llvm::APInt(input->getBitWidth(), amount.getZExtValue()))).zextOrTrunc(width);
+      }
+      if (auto resize = dyn_cast_or_null<BitsResizeOp>(operation)) {
+        auto input = infer(Node{resize.getInput(), node.context}, depth + 1);
+        if (failed(input) || failed(validate(resize, node.context))) return failure();
+        return resize.getMode() == "sext" ? input->sextOrTrunc(width) : input->zextOrTrunc(width);
+      }
+      auto selectRange = [&](Value condition, Value yes, Value no) -> FailureOr<Range> {
+        auto a = infer(Node{yes, node.context}, depth + 1), b = infer(Node{no, node.context}, depth + 1);
+        if (failed(a) || failed(b)) return failure();
+        auto left = refine(Node{yes, node.context}, Node{condition, node.context}, true, *a, depth + 1);
+        auto right = refine(Node{no, node.context}, Node{condition, node.context}, false, *b, depth + 1);
+        if (failed(left) || failed(right)) return failure();
+        return left->unionWith(*right);
+      };
+      if (auto select = dyn_cast_or_null<BitsSelectOp>(operation)) {
+        if (failed(select.verifyInvariantsImpl()) || failed(select.verify()) || failed(validate(select, node.context))) return failure();
+        return selectRange(select.getCondition(), select.getTrueValue(), select.getFalseValue());
+      }
+      if (auto branch = dyn_cast_or_null<SourceBranchOp>(operation)) {
+        if (!branch.getThenRegion().hasOneBlock() || !branch.getElseRegion().hasOneBlock() ||
+            branch.getThenRegion().front().empty() || branch.getElseRegion().front().empty()) return failure();
+        auto yes = dyn_cast<YieldOp>(branch.getThenRegion().front().back()), no = dyn_cast<YieldOp>(branch.getElseRegion().front().back());
+        unsigned ordinal = cast<OpResult>(node.value).getResultNumber();
+        if (!yes || !no || ordinal >= yes.getNumOperands() || ordinal >= no.getNumOperands()) return failure();
+        return selectRange(branch.getCondition(), yes.getOperand(ordinal), no.getOperand(ordinal));
+      }
+      if (auto binary = dyn_cast_or_null<BitsBinaryOp>(operation)) {
+        if (failed(binary.verifyInvariantsImpl()) || failed(binary.verify()) || failed(validate(binary, node.context))) return failure();
+        auto residual = remainder(binary, node.context, depth + 1);
+        if (failed(residual)) return failure();
+        if (*residual) return **residual;
+        auto lhs = infer(Node{binary.getLhs(), node.context}, depth + 1), rhs = infer(Node{binary.getRhs(), node.context}, depth + 1);
+        if (failed(lhs) || failed(rhs)) return failure();
+        StringRef op = binary.getOpcode();
+        if ((op == "udiv" || op == "urem") && rhs->contains(llvm::APInt(width, 0))) return Range::getFull(width);
+        if ((op == "shl" || op == "lshr" || op == "ashr") && rhs->getUnsignedMax().uge(width)) return Range::getFull(width);
+        auto opcode = llvm::StringSwitch<std::optional<llvm::Instruction::BinaryOps>>(op)
+            .Case("add", llvm::Instruction::Add).Case("sub", llvm::Instruction::Sub).Case("mul", llvm::Instruction::Mul)
+            .Case("and", llvm::Instruction::And).Case("or", llvm::Instruction::Or).Case("xor", llvm::Instruction::Xor)
+            .Case("udiv", llvm::Instruction::UDiv).Case("urem", llvm::Instruction::URem)
+            .Case("shl", llvm::Instruction::Shl).Case("lshr", llvm::Instruction::LShr).Case("ashr", llvm::Instruction::AShr)
+            .Default(std::nullopt);
+        if (opcode) return lhs->binaryOp(*opcode, *rhs);
+      }
+      if (auto constant = dyn_cast_or_null<BitsConstant4Op>(operation))
+        if (failed(constant.verifyInvariantsImpl()) || failed(constant.verify()) || failed(validate(constant, node.context))) return failure();
+      return Range::getFull(width);
+    };
+    auto result = compute();
+    if (failed(result)) return failure();
+    auto &entry = memo.find(key)->second;
+    entry.complete = true; entry.range = *result;
+    return *result;
+  };
+  auto root = context(bindings); if (failed(root)) return failure();
+  auto result = infer(Node{index, *root}, 0);
+  if (failed(result)) return failure();
+  if (result->isEmptySet()) return site->emitOpError() << "checked Table index has no admitted unsigned value";
+  auto maximum = result->getUnsignedMax();
+  if (maximum.getActiveBits() <= 64 && maximum.getZExtValue() < *extent) return success();
+  return site->emitOpError() << "checked Table index complete unsigned range is not proven within bound extent";
+}
+
 LogicalResult HardwareAnalysis::verifyResolvedOperation(
     Operation *op, const HardwareBindings &bindings) const {
   if (isa<QueueOp>(op))
     return op->emitOpError() << "ac.queue is retired; use a canonical FIFO instance";
+  if (auto read = dyn_cast<TableReadOp>(op)) {
+    if (op->getNumOperands() != 2 || op->getNumResults() != 1 || op->getNumRegions() ||
+        failed(read.verifyInvariantsImpl()))
+      return op->emitOpError() << "checked Table read has malformed operands or results";
+  }
   if (auto instance = dyn_cast<InstanceOp>(op); isQueueInstance(instance))
     return verifyQueueOperation(instance, bindings, true);
   if (isa<EnumCreateOp, EnumToBitsOp, EnumFromBitsOp>(op))
     return verifyEnumValueOperation(op, bindings, true);
   if (isa<CollectionOp, TableCreateOp, TableSplatOp, TableMapOp, TableViewOp,
-          TableIndexOp, TableGetOp, TableMatchOp, TableChooseOp, TableFoldOp,
+          TableIndexOp, TableReadOp, TableGetOp, TableMatchOp, TableChooseOp, TableFoldOp,
           ValueMergeOp>(op) &&
       failed(verifyCollectionOperation(op, bindings, true)))
     return failure();
+  if (auto write = dyn_cast<SourceStateWriteOp>(op); write && !write.getIndices().empty()) {
+    auto owner = write->getParentOfType<ModuleOp>();
+    SourceStateOp state;
+    for (auto candidate : owner.getBody().front().getOps<SourceStateOp>())
+      if (candidate.getInstanceNameAttr() == write.getStateAttr()) state = candidate;
+    auto table = state ? dyn_cast<TableType>(state.getQ().getType()) : TableType();
+    if (table) {
+      if (write.getIndices().size() != 1 ||
+          failed(verifySourceIndex(write.getIndices().front(), table, bindings, write)))
+        return failure();
+    }
+  }
   SmallVector<uint64_t> inputs, outputs;
   for (Type type : op->getOperandTypes()) {
     auto width = getPackedWidth(type, bindings, op);

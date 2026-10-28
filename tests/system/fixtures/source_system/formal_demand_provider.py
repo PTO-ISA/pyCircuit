@@ -3,14 +3,9 @@ import pycircuit as ac
 
 
 @ac.module
-def FormalDemandProvider():
+def FormalDemandProvider() -> ac.u8:
     @ac.rule(guard=lambda: False)
     def denied() -> ac.u8:
         return 99
 
-    unavailable = denied()
-
-    @ac.rule
-    def overwrite(value: ac.u8) -> None:
-        value = unavailable
-        value = 37
+    return denied

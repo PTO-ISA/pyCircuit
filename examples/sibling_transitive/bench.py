@@ -15,6 +15,3 @@ def SiblingTransitive():  # noqa: N802
     @ac.rule
     def observe_committed() -> None:
         ac.log("info", "transitive committed", counter.committed())
-
-    observe()
-    observe_committed()

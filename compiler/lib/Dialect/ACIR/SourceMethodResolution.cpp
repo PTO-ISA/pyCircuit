@@ -5,6 +5,7 @@
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringSet.h"
+#include <functional>
 
 using namespace mlir;
 namespace acir::ac {
@@ -61,6 +62,8 @@ FailureOr<Operation *> resolveReferenceReceiver(
   auto reference = receiver ? receiver.getAs<StringAttr>("reference") : StringAttr();
   if (!receiver || !path || receiver.size() != (reference ? 2u : 1u) || path.size() > 128)
     return site->emitOpError() << "invalid Module reference receiver";
+  if ((!reference && path.size() != 1) || (reference && !path.empty()))
+    return site->emitOpError() << "Module reference binding requires a direct child or a declared reference interface; descendant access is private";
   Operation *target = module;
   if (reference) {
     if (!formalsVerified && failed(verifySourceReferenceParameters(module))) return failure();
@@ -856,6 +859,74 @@ LogicalResult admitDependency(Operation *caller, Operation *target,
                                   "caller source ac.interfaces closure";
   return success();
 }
+// Relative declarations cannot rely on a provider's default parameter values.
+// Walk the complete payload/constraint contract under the existing finite limits.
+LogicalResult concreteRelativeMethod(const SourceMethodView &method,
+                                     Operation *site,
+                                     const SourceReceiverProofFees *fees) {
+  if (!method.module || method.isNativeTerminal() ||
+      method.module->hasAttr("primitive_kind") ||
+      method.module->hasAttr("ac.root_kind"))
+    return site->emitOpError() << "relative Method target requires an ordinary Module provider";
+  HardwareAnalysis hardware(method.module->getParentOfType<mlir::ModuleOp>());
+  HardwareBindings bindings;
+  bindings.owner = method.module;
+  uint64_t work = 0;
+  auto enter = [&](unsigned depth) -> LogicalResult {
+    if (depth > 128 || ++work > 1024 * 1024)
+      return site->emitOpError() << "relative Method contract work/depth budget exceeded";
+    return fees ? fees->workStorage(site, 1, sizeof(Attribute) + sizeof(Type))
+                : success();
+  };
+  std::function<LogicalResult(Attribute, unsigned)> attribute;
+  std::function<LogicalResult(Type, unsigned)> type;
+  type = [&](Type value, unsigned depth) -> LogicalResult {
+    if (failed(enter(depth))) return failure();
+    if (isa<TypeParamType>(value))
+      return site->emitOpError() << "relative Method signature requires a concrete type without provider defaults";
+    if (auto bits = dyn_cast<BitsType>(value)) {
+      if (failed(attribute(bits.getWidth(), depth + 1))) return failure();
+    } else if (auto table = dyn_cast<TableType>(value)) {
+      if (failed(attribute(table.getShape(), depth + 1)) ||
+          failed(type(table.getElementType(), depth + 1))) return failure();
+    } else if (auto record = dyn_cast<StructType>(value)) {
+      auto declaration = hardware.lookupStruct(record);
+      if (!declaration || failed(attribute(declaration.getFields(), depth + 1)))
+        return failure();
+    } else if (!isa<EnumType>(value))
+      return site->emitOpError() << "relative Method requires an admitted finite payload type";
+    auto width = hardware.getPackedWidth(value, bindings, site);
+    return success(succeeded(width) && *width != 0);
+  };
+  attribute = [&](Attribute value, unsigned depth) -> LogicalResult {
+    if (failed(enter(depth))) return failure();
+    if (auto expression = dyn_cast_or_null<StaticExprAttr>(value))
+      return attribute(expression.getTree(), depth + 1);
+    if (auto payload = dyn_cast_or_null<TypeAttr>(value))
+      return type(payload.getValue(), depth + 1);
+    if (auto domain = dyn_cast_or_null<SourceDomainAttr>(value))
+      return attribute(domain.getValue(), depth + 1);
+    if (auto row = dyn_cast_or_null<DictionaryAttr>(value)) {
+      auto kind = row.getAs<StringAttr>("kind");
+      if (kind && kind.getValue() == "reference")
+        return site->emitOpError() << "relative Method signature must be concrete without contextual Module parameters or provider defaults";
+      for (NamedAttribute field : row)
+        if (failed(attribute(field.getValue(), depth + 1))) return failure();
+    } else if (auto values = dyn_cast_or_null<ArrayAttr>(value))
+      for (Attribute child : values)
+        if (failed(attribute(child, depth + 1))) return failure();
+    return success();
+  };
+  auto signature = method.getFunctionType();
+  for (Type value : signature.getInputs())
+    if (failed(type(value, 0))) return failure();
+  for (Type value : signature.getResults())
+    if (failed(type(value, 0))) return failure();
+  if (failed(attribute(method.getParameters(), 0)) ||
+      failed(attribute(method.getResultConstraints(), 0)) ||
+      failed(attribute(method.getFormalProposals(), 0))) return failure();
+  return success();
+}
 FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
                                         ArrayAttr path, bool names,
                                         const HardwareBindings &parent,
@@ -872,8 +943,8 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
   if (!caller || !symbol || symbol.getNestedReferences().size() != 1 || !path)
     return site->emitOpError()
            << "Method call requires a qualified callee and receiver path";
-  if (path.size() > 128)
-    return site->emitOpError() << "Method receiver depth budget exceeded";
+  if (path.size() > 1 || (reference && !path.empty()))
+    return site->emitOpError() << "Method receiver requires lexical self, a direct child or a declared reference interface";
   if (failed(header(caller)))
     return failure();
   auto package = caller->getParentOfType<mlir::ModuleOp>();
@@ -1160,9 +1231,30 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
   }
   if (auto visibility = method.getVisibility();
       visibility && visibility.getValue() == "private" &&
-      (owner != caller || !path.empty()))
+      (owner != caller || reference || !path.empty()))
     return site->emitOpError()
            << "private Method requires a local lexical self call";
+  // Declaration-based registration owns its transparent body exclusively.
+  // A source-global template registration has a distinct Call occurrence and
+  // remains callable from an enclosing transaction.
+  if (auto body = dyn_cast<ModuleOp>(owner)) {
+    for (auto transaction : body.getBody().front().getOps<SourceTransactionOp>()) {
+      if (++work > 1024 * 1024)
+        return site->emitOpError() << "autonomous Rule registration work budget exceeded";
+      if (context && failed(fees->workStorage(site, 1, 0))) return failure();
+      if (transaction.getOccurrence() != transaction.getDeclaration() ||
+          transaction.getDeclaration() != method.getDeclaration()) continue;
+      if (context && failed(fees->workStorage(site,
+            8 + transaction.getCaptures().size() +
+                method.getFunctionType().getNumInputs() +
+                method.getFunctionType().getNumResults(), 0))) return failure();
+      auto entry = getSourceRegistrationEntry(transaction);
+      if (failed(entry)) return failure();
+      if (!*entry || (**entry).method != method.definition ||
+          (**entry).call.getOperation() != site)
+        return site->emitOpError() << "autonomous Rule body is private to its declaration registration";
+    }
+  }
   auto receiver = DictionaryAttr::get(
       site->getContext(),
       {NamedAttribute(StringAttr::get(site->getContext(), "instance_path"),
@@ -1174,6 +1266,98 @@ FailureOr<ResolvedSourceMethod> resolve(Operation *caller, SymbolRefAttr symbol,
   return ResolvedSourceMethod{method, bindings, receiver};
 }
 } // namespace
+LogicalResult verifySourceRelativeReceiver(DictionaryAttr receiver,
+                                          Operation *site,
+                                          const SourceReceiverProofFees *fees) {
+  auto kind = receiver ? receiver.getAs<StringAttr>("receiver_kind") : StringAttr();
+  auto depth = receiver ? receiver.getAs<IntegerAttr>("ancestor_depth") : IntegerAttr();
+  auto path = receiver ? receiver.getAs<ArrayAttr>("instance_path") : ArrayAttr();
+  if (!receiver || receiver.size() != 3 || !kind ||
+      kind.getValue() != "reference" || !depth ||
+      !depth.getType().isSignlessInteger(64) || depth.getInt() < 0 ||
+      depth.getInt() > 128 || !path || path.size() > 128 ||
+      path.size() + static_cast<uint64_t>(depth.getInt()) > 128)
+    return site->emitOpError() << "relative receiver requires exactly receiver_kind = reference, nonnegative i64 ancestor_depth and a bounded child-name instance_path";
+  if (depth.getInt() != 0 || path.size() > 1)
+    return site->emitOpError() << "static instance reference cannot bypass lexical scope through ancestors, siblings or descendants";
+  if (fees && failed(fees->workStorage(site, 3 + path.size(), 0))) return failure();
+  for (Attribute raw : path) {
+    auto name = dyn_cast<StringAttr>(raw);
+    if (!name)
+      return site->emitOpError() << "relative receiver child path requires Python identifiers";
+    if (fees && failed(fees->workStorage(site, name.getValue().size(), 0))) return failure();
+    if (failed(detail::verifyPythonAstIdentifier(
+            name.getValue(), true, [&] { return site->emitOpError(); })))
+      return failure();
+  }
+  return success();
+}
+FailureOr<ResolvedSourceMethod> resolveSourceRelativeMethodContract(
+    Operation *caller, SymbolRefAttr callee, DictionaryAttr receiver,
+    SourceModuleLookup lookup, Operation *site,
+    SourceReceiverProofContext *context, const SourceReceiverProofFees *fees) {
+  if (failed(verifySourceRelativeReceiver(receiver, site, fees))) return failure();
+  if (!caller || !callee || callee.getNestedReferences().size() != 1 ||
+      (context && !fees))
+    return site->emitOpError() << "relative Method requires a qualified Module::Method declaration";
+  auto target = lookup(FlatSymbolRefAttr::get(callee.getRootReference()));
+  if (context) {
+    if (failed(context->prepare(target, site, *fees))) return failure();
+  } else if (failed(receiverHeader(target, site))) return failure();
+  if (failed(admitDependency(caller, target, site))) return failure();
+  if (target->hasAttr("primitive_kind") || target->hasAttr("ac.root_kind"))
+    return site->emitOpError() << "relative Method target requires an ordinary Module provider";
+  auto method = context
+      ? context->method(target, callee.getNestedReferences().front().getValue(), site, *fees)
+      : lookupSourceMethod(target, callee.getNestedReferences().front().getValue(), site);
+  if (failed(method)) return failure();
+  auto visibility = method->getVisibility();
+  if (visibility && visibility.getValue() == "private")
+    return site->emitOpError() << "relative target requires a public Method";
+  if (failed(concreteRelativeMethod(*method, site, fees)) ||
+      failed(verifySourceMethodFormalProposals(*method, site))) return failure();
+  HardwareBindings bindings;
+  bindings.owner = target;
+  return ResolvedSourceMethod{*method, bindings, receiver};
+}
+LogicalResult verifySourceRelativeMethodBinding(
+    const ResolvedSourceMethod &expected, const SourceMethodView &actual,
+    const HardwareBindings &actualBindings, Operation *site,
+    const SourceReceiverProofFees *fees) {
+  if (failed(verifySourceRelativeReceiver(expected.receiver, site, fees)) ||
+      failed(concreteRelativeMethod(actual, site, fees))) return failure();
+  if (fees && failed(fees->workStorage(site, 16, 0))) return failure();
+  const auto &declaration = expected.method;
+  if (actual.getSymbol() != declaration.getSymbol() ||
+      actual.getParameters() != declaration.getParameters() ||
+      actual.getResultConstraints() != declaration.getResultConstraints() ||
+      actual.getArgumentNames() != declaration.getArgumentNames() ||
+      actual.getFormalProposals() != declaration.getFormalProposals() ||
+      actual.getReturnForm() != declaration.getReturnForm() ||
+      actual.getVisibility() != declaration.getVisibility() ||
+      actual.getDeclaration() != declaration.getDeclaration() ||
+      actual.getGuardLocation() != declaration.getGuardLocation() ||
+      actual.getNumPublicResults() != declaration.getNumPublicResults())
+    return site->emitOpError() << "actual relative Method contract differs from the compiled declaration";
+  auto a = actual.getFunctionType(), e = declaration.getFunctionType();
+  if (a.getNumInputs() != e.getNumInputs() || a.getNumResults() != e.getNumResults())
+    return site->emitOpError() << "actual relative Method signature arity differs";
+  HardwareAnalysis hardware(site->getParentOfType<mlir::ModuleOp>());
+  auto compare = [&](TypeRange actualTypes, TypeRange expectedTypes) -> LogicalResult {
+    for (auto [at, et] : llvm::zip(actualTypes, expectedTypes)) {
+      if (fees && failed(fees->workStorage(site, 2, 0))) return failure();
+      auto bound = hardware.resolveType(at, actualBindings, site);
+      auto compiled = hardware.resolveType(et, expected.bindings, site);
+      if (failed(bound) || failed(compiled)) return failure();
+      if (!areEquivalentHardwareTypes(*bound, *compiled))
+        return site->emitOpError() << "actual relative Method bound payload contract differs";
+    }
+    return success();
+  };
+  if (failed(compare(a.getInputs(), e.getInputs())) ||
+      failed(compare(a.getResults(), e.getResults()))) return failure();
+  return success();
+}
 FailureOr<ResolvedSourceMethod>
 resolveSourceMethodCall(SourceMethodCallOp call) {
   auto caller = call->getParentOfType<ModuleOp>();
@@ -1196,17 +1380,31 @@ resolveSourceMethodCall(SourceMethodCallOp call,
   if (!caller || parent.owner != caller.getOperation())
     return call.emitOpError()
            << "Method call parent bindings must belong to its lexical module";
+  if (call->hasAttr("receiver_kind") || call->hasAttr("ancestor_depth")) {
+    if (call->hasAttr("ac.reference"))
+      return call.emitOpError() << "relative and formal receivers cannot be mixed";
+    NamedAttrList selector;
+    for (StringRef name : {"receiver_kind", "ancestor_depth", "instance_path"})
+      if (auto value = call->getAttr(name)) selector.append(name, value);
+    return resolveSourceRelativeMethodContract(caller, call.getCalleeAttr(),
+        selector.getDictionary(call.getContext()), lookup, call, context, fees);
+  }
   return resolve(caller, call.getCalleeAttr(), call.getInstancePath(), true,
                  parent, lookup, call, context, fees, call->getAttrOfType<StringAttr>("ac.reference"));
 }
 FailureOr<ResolvedSourceMethod>
 resolveSourceMethodCall(Operation *caller, DictionaryAttr row,
                         const HardwareBindings &parent,
-                        SourceModuleLookup lookup, Operation *site) {
+                        SourceModuleLookup lookup, Operation *site,
+                        const SourceReceiverProofFees *fees) {
   if (!row)
     return site->emitOpError() << "Method call requires a summary call row";
   auto receiver = row.getAs<DictionaryAttr>("receiver");
-  auto resolved = resolve(caller, row.getAs<SymbolRefAttr>("callee"),
+  bool relative = receiver && (receiver.get("receiver_kind") || receiver.get("ancestor_depth"));
+  auto resolved = relative
+      ? resolveSourceRelativeMethodContract(caller, row.getAs<SymbolRefAttr>("callee"),
+                                            receiver, lookup, site, nullptr, fees)
+      : resolve(caller, row.getAs<SymbolRefAttr>("callee"),
                           receiver ? receiver.getAs<ArrayAttr>("instance_path")
                                    : ArrayAttr(),
                           false, parent, lookup, site, nullptr, nullptr,

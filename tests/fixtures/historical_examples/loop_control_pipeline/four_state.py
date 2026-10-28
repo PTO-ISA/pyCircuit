@@ -94,10 +94,10 @@ assert '"ac.reg"(' not in final_text and '"ac.memory"(' not in final_text
 queue_lines = [
     line
     for line in final_text.splitlines()
-    if '"ac.instance"(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
+    if 'ac.instance(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
 ]
 assert len(queue_lines) == 3
-assert final_text.count('"ac.instance"(') == len(queue_lines), (
+assert final_text.count('ac.instance(') == len(queue_lines), (
     "nested step adds no child owner"
 )
 queue_depths = []

@@ -1,5 +1,5 @@
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module
 from selects.select_parameter import Parameter
 
 
@@ -16,21 +16,12 @@ def Parameters(a: Annotated[int, range(1 << 8)],
     override = Parameter(VALUE=15)
     wide = Parameter(WIDTH=12, VALUE=1023)
 
-    @rule
-    def bind_default():
-        default(a=a, flag=flag)
+    default(a=a, flag=flag)
 
-    @rule
-    def bind_override():
-        override(a=a, flag=flag)
+    override(a=a, flag=flag)
 
-    @rule
-    def bind_wide():
-        wide(a=b, flag=flag)
+    wide(a=b, flag=flag)
 
-    bind_default()
-    bind_override()
-    bind_wide()
     return {"default_right": default.right, "default_left": default.left,
             "override_right": override.right, "override_left": override.left,
             "wide_right": wide.right, "wide_left": wide.left}

@@ -27,9 +27,6 @@ def TwoCheckedChildren():
     def drive_right():
         log("info", "right", right)
 
-    drive_left()
-    drive_right()
-
 
 @rule
 def unrelated_advance(count):

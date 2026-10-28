@@ -168,7 +168,7 @@ def observation(expression, base="ac.u5", extra=""):
         + f'@ac.module\ndef Top(value: {base}{extra}) -> {{"out": ac.u5}}:\n'
         + "    alias = value\n    @rule\n    def observe():\n"
         + f'        report("concat", {expression})\n'
-        + '    observe()\n    return {"out": 0}\n'
+        + '    return {"out": 0}\n'
     )
 
 
@@ -584,7 +584,7 @@ def Top(value: ac.u5) -> {"out": ac.u7}:
             PREFIX
             + "from concat_probe.provider import Logical\n"
             + f'@ac.module\ndef Top(value: {base}, flag: bool) -> {{"out": ac.bits[80]}}:\n'
-            + "    child = Logical()\n    @ac.rule\n    def bind():\n        child(value=value, flag=flag)\n    bind()\n"
+            + "    child = Logical()\n    child(value=value, flag=flag)\n"
             + f'    return {{"out": ac.concat(child.{field})}}\n'
         )
         if field == "boolean":

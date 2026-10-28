@@ -19,7 +19,14 @@ _EVENT_FIELDS = {
     "spec",
     "values",
 }
-_RESULT_FIELDS = {"kind", "status", "epoch_time", "statistics", "error"}
+_RESULT_FIELDS = {
+    "kind",
+    "status",
+    "epoch_time",
+    "statistics",
+    "error",
+    "reset_semantics",
+}
 _STAT_FIELDS = {
     "buckets",
     "count",
@@ -164,6 +171,11 @@ def parse_jsonl(payload: bytes) -> tuple[list[dict[str, object]], dict[str, obje
         raise ValueError("Result record fields are not closed")
     if result["status"] not in {"TERMINATED", "QUIESCENT", "FAILED"}:
         raise ValueError("Result status is invalid")
+    if type(result["reset_semantics"]) is not str or result["reset_semantics"] not in {
+        "strict",
+        "if_one",
+    }:
+        raise ValueError("Result reset semantics is invalid")
     _u64_string(result["epoch_time"])
     if type(result["statistics"]) is not list:
         raise ValueError("Result statistics must be an array")

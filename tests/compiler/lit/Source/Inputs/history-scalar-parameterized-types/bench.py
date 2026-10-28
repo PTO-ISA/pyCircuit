@@ -27,17 +27,12 @@ def advance(incoming, phase):
 def ScalarParameterizedTypesSystem():
     phase: u8 = 0
     incoming: bits[17] = 0
-    dut = scalar_parameterized_types()
+    dut = scalar_parameterized_types(value=incoming)
 
-    @rule
-    def drive():
-        dut(value=incoming)
 
     @rule
     def inspect():
-        assert dut.result == incoming, "17-bit identity"
-        log("info", "identity", dut.result)
+        assert dut == incoming, "17-bit identity"
+        log("info", "identity", dut)
 
-    drive()
-    inspect()
     advance(incoming, phase)

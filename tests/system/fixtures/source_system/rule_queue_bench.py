@@ -23,9 +23,6 @@ def ExerciseRuleQueue():
     def tick() -> None:
         phase = phase + 1
 
-    drive()
-    tick()
-
 
 @ac.system
 def ExerciseAtomicQueuePaths():
@@ -57,6 +54,3 @@ def ExerciseAtomicQueuePaths():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    drive()
-    tick()

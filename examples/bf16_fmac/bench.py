@@ -138,5 +138,4 @@ def ExerciseBF16Fmac():  # noqa: N802
         log("info", "bf16_fmac.result", dut.result)
         log("info", "bf16_fmac.result_valid", dut.result_valid)
 
-    check_and_advance()
     advance(phase)

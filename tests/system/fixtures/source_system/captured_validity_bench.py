@@ -23,7 +23,3 @@ def ExerciseCapturedValidity():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    invoke()
-    inspect()
-    tick()

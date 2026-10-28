@@ -4,8 +4,8 @@ from pycircuit import bits, log, module, rule, system, u8
 @module
 def DifferentIdentity(
     value: bits[width], *, width: int = 32
-) -> {"result": bits[width]}:
-    return {"result": value}
+) -> bits[width]:
+    return value
 
 
 @rule
@@ -31,17 +31,12 @@ def advance(incoming, phase):
 def DifferentDefaultSystem():
     phase: u8 = 0
     incoming: bits[32] = 0
-    dut = DifferentIdentity()
+    dut = DifferentIdentity(value=incoming)
 
-    @rule
-    def drive():
-        dut(value=incoming)
 
     @rule
     def inspect():
-        assert dut.result == incoming, "different32-bit identity"
-        log("info", "identity", dut.result)
+        assert dut == incoming, "different32-bit identity"
+        log("info", "identity", dut)
 
-    drive()
-    inspect()
     advance(incoming, phase)

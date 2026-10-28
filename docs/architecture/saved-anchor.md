@@ -61,12 +61,26 @@ replace refinement or hardware verification.
 
 ## Identity and format
 
-Format version 1 uses `kind="pycircuit-anchor"`, `schema=1` and
-`routed_contract=2`. Version 1 and unknown versions require regeneration from source units.
+Ordinary anchors use `kind="pycircuit-anchor"`, `schema=1` and
+`routed_contract=2`. Anchors with a compiler-owned
+[selected entry boundary](entry-boundary.md) use `schema=2` and
+`routed_contract=3`. Only these two schema/contract pairs are admitted;
+unsupported or mismatched versions require regeneration from source units.
 The manifest has closed fields for owner, root, configuration and its identity,
 complete content identity, file inventory, definition index, retained sources
 and producer provenance. Duplicate fields, definitions, source owners, paths and
 identities are rejected.
+
+Schema 2 adds exactly `implementation_root` to the configuration object. Its
+`{source, definition, variant_id}` row identifies the canonical entry adapter;
+the existing manifest root, owner and configuration root identify the logical
+Module selected by the user. Both rows must match indexed definitions and source
+owners. Closure traversal starts at the implementation root, which reaches the
+logical root through its single bound instance. Logical Integer arguments remain
+in the existing configuration fields. Reload rederives both identities and
+bindings after native admission; it cannot swap roots or substitute actuals.
+An unrelated closed caller may be pruned from the saved closure without making
+this entry boundary invalid.
 
 Canonical JSON uses literal UTF-8, sorted object keys, compact separators and
 only required escapes. It has no floats or nonfinite numbers. Hardware integer

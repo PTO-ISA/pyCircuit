@@ -12,8 +12,5 @@ def Wire(a: Annotated[int, range(1 << 8)]) -> {"q": Annotated[int, range(1 << 8)
 def Bad() -> {"result": Annotated[int, range(1 << 8)]}:
     child = Wire()
     alias = child.q
-    @rule
-    def bind():
-        child(a=alias)
-    bind()
+    child(a=alias)
     return {"result": alias}

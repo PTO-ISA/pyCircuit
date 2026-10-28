@@ -7,5 +7,4 @@ def Checked(ok: bool) -> {"value": bool}:
     def inspect():
         assert ok, "local binding publication"
 
-    inspect()
     return {"value": ok}

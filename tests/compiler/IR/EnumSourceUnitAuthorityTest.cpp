@@ -54,10 +54,7 @@ from pycircuit import module, rule
 @module
 def Parent(value: bool) -> {"out": bool}:
     child = Child()
-    @rule
-    def bind():
-        child(value=value)
-    bind()
+    child(value=value)
     return {"out": child.out}
 )py";
 

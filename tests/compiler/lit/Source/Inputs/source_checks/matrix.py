@@ -8,5 +8,4 @@ def Top(path: bool, condition: bool) -> {"value": bool}:
             assert condition, "matrix"
         else:
             pass
-    inspect()
     return {"value": condition}

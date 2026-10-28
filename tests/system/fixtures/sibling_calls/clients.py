@@ -15,8 +15,6 @@ def Writer(  # noqa: N802
         alias.require(allow)
         ac.log("info", "sibling written", alias.old())
 
-    write()
-
 
 @ac.module
 def Reader(counter: Counter, ledger: Ledger):  # noqa: N802
@@ -39,10 +37,6 @@ def Reader(counter: Counter, ledger: Ledger):  # noqa: N802
         value = alias.read()
         marker = ledger.at_fifty()
         ac.log("info", "sibling fifty", value, marker)
-
-    observe()
-    observe_six()
-    observe_balance()
 
 
 @ac.module

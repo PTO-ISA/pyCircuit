@@ -434,3 +434,117 @@ else:
         timeout=5,
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+def _entry_artifact(root: Path):
+    """Schema2 transport only: these bytes deliberately are not native ACIR."""
+    manifest = _artifact(root)
+    original = manifest["definitions"][0]
+    symbol = '@"pycircuit.__link_entry__"'
+    spec, body = b"entry spec transport\n", b"entry body transport\n"
+    identity = {
+        "source": original["source"],
+        "definition": symbol,
+        "spec_sha256": _hash(spec),
+        "body_sha256": _hash(body),
+    }
+    variant = _hash(_json(identity))
+    adapter = {
+        **identity,
+        "variant_id": variant,
+        "spec": f"definitions/{variant}/spec.ac",
+        "body": f"definitions/{variant}/body.ac",
+        "dependencies": [original["definition"]],
+    }
+    for role, data in (("spec", spec), ("body", body)):
+        path = root / adapter[role]
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        manifest["files"].append(
+            {"path": adapter[role], "role": role, "sha256": _hash(data)}
+        )
+    manifest["files"].sort(key=lambda row: row["path"])
+    manifest["definitions"].append(adapter)
+    manifest["definitions"].sort(key=lambda row: row["definition"])
+    manifest["schema"], manifest["routed_contract"] = 2, 3
+    config = manifest["configuration"]
+    config["implementation_root"] = {
+        "source": adapter["source"],
+        "definition": symbol,
+        "variant_id": variant,
+    }
+    config["definitions"] = [
+        {
+            key: row[key]
+            for key in ("definition", "variant_id", "spec_sha256", "body_sha256")
+        }
+        for row in manifest["definitions"]
+    ]
+    _save(root, manifest)
+    return manifest
+
+
+def test_schema2_transport_snapshot_keeps_distinct_logical_and_implementation_roots(
+    tmp_path,
+):
+    source, target = tmp_path / "source", tmp_path / "snapshot"
+    manifest = _entry_artifact(source)
+    before = {
+        str(p.relative_to(source)): p.read_bytes()
+        for p in source.rglob("*")
+        if p.is_file()
+    }
+    assert anchor._capture_anchor(source) == manifest
+    target.mkdir()
+    assert anchor._capture_anchor(source, target) == manifest
+    assert {
+        str(p.relative_to(target)): p.read_bytes()
+        for p in target.rglob("*")
+        if p.is_file()
+    } == before
+    assert anchor._discover_anchor_owner(source) == (manifest["owner"], False)
+    assert (
+        manifest["configuration"]["root"]
+        != manifest["configuration"]["implementation_root"]
+    )
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        "missing",
+        "extra",
+        "wrong-pair",
+        "wrong-variant",
+        "swap-roots",
+        "wrong-source",
+        "noncanonical-adapter",
+    ],
+)
+def test_schema2_transport_rejects_malformed_implementation_root(tmp_path, damage):
+    source = tmp_path / "source"
+    manifest = _entry_artifact(source)
+    config = manifest["configuration"]
+    if damage == "missing":
+        del config["implementation_root"]
+    elif damage == "extra":
+        config["implementation_root"]["trusted"] = True
+    elif damage == "wrong-pair":
+        manifest["routed_contract"] = 2
+    elif damage == "wrong-variant":
+        config["implementation_root"]["variant_id"] = config["root"]["variant_id"]
+    elif damage == "swap-roots":
+        config["implementation_root"], config["root"] = (
+            config["root"],
+            config["implementation_root"],
+        )
+    elif damage == "wrong-source":
+        config["implementation_root"]["source"] = {
+            "package": "demo",
+            "path": "other.py",
+        }
+    else:
+        config["implementation_root"]["definition"] = '@"demo.counter.Counter"'
+    _save(source, manifest)
+    with pytest.raises(_PublicationError):
+        anchor._capture_anchor(source)

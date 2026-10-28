@@ -6,11 +6,11 @@ import pycircuit as ac
 def TableCell(selector: ac.u1):
     state = ac.table[2, ac.u8](init=7)
 
-    @ac.rule
+    @ac.method
     def update(first: ac.u8, second: ac.u8) -> None:
         state = (state[0] + first, state[1] + second)
 
-    @ac.rule
+    @ac.method
     def value() -> ac.table[2, ac.u8]:
         return state
 
@@ -18,5 +18,3 @@ def TableCell(selector: ac.u1):
     def local_update() -> None:
         if not selector:
             state = (state[0] + 2, state[1] + 4)
-
-    local_update()

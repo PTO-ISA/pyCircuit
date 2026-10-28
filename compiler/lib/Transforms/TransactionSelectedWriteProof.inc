@@ -6,6 +6,16 @@
     const auto &plan = *preparation.plan;
     const auto &write = plan.writes[id];
     auto site = write.operation;
+    const auto &owner = plan.owners[write.owner];
+    auto declaration = owner.declaration;
+    auto originalTable = dyn_cast<ac::TableType>(declaration.getQ().getType());
+    if (originalTable && !write.indices.empty()) {
+      auto original = dyn_cast<ac::SourceStateWriteOp>(site);
+      if (original && (original.getIndices().size() != 1 ||
+          !charge(budget, site, 32) ||
+          failed(hardware.verifySourceIndex(original.getIndices().front(), originalTable,
+              plan.instances[owner.anchor].bindings, site)))) return failure();
+    }
     auto declared = llvm::find_if(preparation.writeDomains,
         [&](const auto &domain) { return domain.write == id; });
     if (declared == preparation.writeDomains.end()) return success();
@@ -27,7 +37,7 @@
           auto item = cast<DictionaryAttr>(rawField);
           if (item.getAs<StringAttr>("name") == field) {
             auto resolved = hardware.resolveType(item.getAs<TypeAttr>("type").getValue(),
-                                                  plan.frames[write.frame].bindings, site);
+                                                  plan.instances[0].bindings, site);
             if (failed(resolved)) return failure();
             next = *resolved; break;
           }
@@ -125,7 +135,7 @@
             auto item = cast<DictionaryAttr>(rawField);
             if (item.getAs<StringAttr>("name") == field) {
               auto resolved = hardware.resolveType(item.getAs<TypeAttr>("type").getValue(),
-                                                    plan.frames[write.frame].bindings, site);
+                                                    plan.instances[0].bindings, site);
               if (failed(resolved)) return failure();
               fieldType = *resolved; break;
             }
@@ -147,7 +157,7 @@
         auto map = take(ac::TableMapOp::getOperationName(), inputs, {table, maskType},
             b.getDictionaryAttr({b.getNamedAttr("shape", table.getShape()),
               b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({4, 0}))}), parent, 1);
-        auto count = hardware.getTableSize(table, plan.frames[write.frame].bindings, site);
+        auto count = hardware.getTableSize(table, plan.instances[0].bindings, site);
         if (failed(map) || failed(count) || !(*map)->getRegion(0).hasOneBlock()) return failure();
         auto &body = (*map)->getRegion(0).front();
         unsigned ordinalWidth = std::max(1u, llvm::Log2_64_Ceil(*count));
@@ -155,7 +165,7 @@
         SmallVector<Type> arguments{ordinalType, table.getElementType(), index.getType(), payload.getType(), rawPath.getType()};
         if (!llvm::equal(body.getArgumentTypes(), arguments)) return reject("original selected Table block bindings differ");
         Value ordinal = body.getArgument(0), actualIndex = body.getArgument(2);
-        auto width = hardware.getPackedWidth(index.getType(), plan.frames[write.frame].bindings, site);
+        auto width = hardware.getPackedWidth(index.getType(), plan.instances[0].bindings, site);
         if (failed(width)) return failure();
         if (*width == ordinalWidth && !ac::areEquivalentHardwareTypes(actualIndex.getType(), ordinalType)) {
           auto adapted = take(ac::BitsExtractOp::getOperationName(), {actualIndex}, {ordinalType},

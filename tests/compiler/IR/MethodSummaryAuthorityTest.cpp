@@ -1814,12 +1814,34 @@ TEST_F(MethodSummaryAuthorityTest,
   auto tablePacket = StructType::get(
       &context, builder.getStringAttr(
                     "Packet")); // Existing declaration contains a Table.
-  structureRejects(
-      child,
-      dict(replace(published,
-                   {std::string("methods"), 0u, std::string("body_effects"),
-                    static_cast<unsigned>(ordinal), std::string("results"), 0u},
-                   changed(result, "type", mlir::TypeAttr::get(tablePacket)))));
+  auto tableSummary = dict(replace(
+      published,
+      {std::string("methods"), 0u, std::string("body_effects"),
+       static_cast<unsigned>(ordinal), std::string("results"), 0u},
+      changed(result, "type", mlir::TypeAttr::get(tablePacket))));
+  // A finite Table field is a legal structural payload, but substituting its
+  // nominal root still cannot alter the provider body's authoritative type.
+  bodyRejects(child, tableSummary, analysis);
+
+  StructOp tableDeclaration;
+  file->walk([&](StructOp declaration) {
+    if (declaration->getAttrOfType<mlir::StringAttr>("sym_name").getValue() ==
+        "Packet")
+      tableDeclaration = declaration;
+  });
+  ASSERT_TRUE(tableDeclaration);
+  auto originalFields = tableDeclaration.getFields();
+  auto field = dict(originalFields[0]);
+  auto lanes = mlir::cast<TableType>(field.getAs<mlir::TypeAttr>("type").getValue());
+  auto missing = StructType::get(&context, builder.getStringAttr("MissingCell"));
+  auto invalidLanes = TableType::get(&context, lanes.getShape(), missing);
+  // Accepting Tables must continue resolving their nominal cell declarations;
+  // an unknown foreign cell cannot hide behind a known Table-containing root.
+  tableDeclaration->setAttr("fields", builder.getArrayAttr({changed(
+      field, "type", mlir::TypeAttr::get(invalidLanes))}));
+  structureRejects(child, tableSummary);
+  tableDeclaration->setAttr("fields", originalFields);
+  structureAccepts(child, tableSummary);
 }
 
 TEST_F(MethodSummaryAuthorityTest,
@@ -3337,6 +3359,218 @@ TEST_F(MethodSummaryAuthorityTest,
       [&] { return lookupSourceMethod(imported, "proposal", imported); });
   ASSERT_TRUE(mlir::succeeded(found));
   EXPECT_EQ(found->getVisibility(), builder.getStringAttr("private"));
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       RelativeReceiverSchemaIsConditionalAndAdmitsAllThreeClosedArms) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto root = module(*file, "Root");
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid());
+  auto baseline = summary(analysis, root);
+  ASSERT_TRUE(baseline);
+  EXPECT_FALSE(baseline.get("schema"));
+  structureAccepts(root, baseline);
+  structureAccepts(root,
+                   changed(baseline, "schema", builder.getI64IntegerAttr(2)));
+  structureRejects(root,
+                   changed(baseline, "schema", builder.getI64IntegerAttr(3)));
+
+  // Add a genuine Module-reference declaration after deriving the legacy
+  // baseline. Schema 3 must retain its formal arm as well as direct owners.
+  auto act = named<SourceMethodOp>(module(*file, "Child"), "act");
+  auto sourceParameter =
+      dict(act->getAttrOfType<mlir::ArrayAttr>("ac.parameters")[0]);
+  auto byteParameter =
+      dict(act->getAttrOfType<mlir::ArrayAttr>("ac.parameters")[1]);
+  llvm::SmallVector<mlir::Attribute> parameters;
+  for (auto [index, raw] : llvm::enumerate(root.getInputNames())) {
+    auto parameter = index < 3 ? sourceParameter : byteParameter;
+    parameter = changed(parameter, "name", raw);
+    parameter = changed(parameter, "origin", occurrence("Root", 0));
+    parameters.push_back(parameter);
+  }
+  root->setAttr("ac.parameters", builder.getArrayAttr(parameters));
+  root->setAttr("ac.result_constraints", act->getAttr("ac.result_constraints"));
+  root->setAttr("ac.return_form", builder.getStringAttr("single"));
+  root->setAttr("ac.domain_inputs", builder.getDictionaryAttr({}));
+  root->setAttr(
+      "ac.reference_parameters",
+      builder.getArrayAttr({builder.getDictionaryAttr(
+          {builder.getNamedAttr("name", builder.getStringAttr("peer")),
+           builder.getNamedAttr(
+               "callee", mlir::FlatSymbolRefAttr::get(&context, "Child")),
+           builder.getNamedAttr("position", builder.getI64IntegerAttr(5))})}));
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return verifySourceReferenceParameters(root);
+  }))) << diagnostics;
+
+  auto effectsPath =
+      Path{std::string("autonomous"), 0u, std::string("body_effects")};
+  auto effects = mlir::cast<mlir::ArrayAttr>(at(baseline, effectsPath));
+  ASSERT_EQ(effects.size(), 3u);
+  auto relative = builder.getDictionaryAttr(
+      {builder.getNamedAttr("receiver_kind",
+                            builder.getStringAttr("reference")),
+       builder.getNamedAttr("ancestor_depth", builder.getI64IntegerAttr(0)),
+       builder.getNamedAttr(
+           "instance_path",
+           builder.getArrayAttr({builder.getStringAttr("right")}))});
+  auto formal = builder.getDictionaryAttr(
+      {builder.getNamedAttr("reference", builder.getStringAttr("peer")),
+       builder.getNamedAttr("instance_path", builder.getArrayAttr({}))});
+  auto withReceivers = [&](mlir::DictionaryAttr selected) {
+    return changed(
+        dict(replace(
+            baseline, effectsPath,
+            builder.getArrayAttr(
+                {effects[0], changed(dict(effects[1]), "receiver", formal),
+                 changed(dict(effects[2]), "receiver", selected)}))),
+        "schema", builder.getI64IntegerAttr(3));
+  };
+  auto published = withReceivers(relative);
+  structureAccepts(root, published);
+  for (mlir::Attribute invalidVersion :
+       {mlir::Attribute{}, mlir::Attribute(builder.getI64IntegerAttr(2)),
+        mlir::Attribute(builder.getI64IntegerAttr(4)),
+        mlir::Attribute(builder.getI32IntegerAttr(3)),
+        mlir::Attribute(builder.getStringAttr("3")),
+        mlir::Attribute(builder.getIntegerAttr(
+            mlir::IntegerType::get(&context, 64, mlir::IntegerType::Unsigned),
+            3))}) {
+    std::string spelling;
+    llvm::raw_string_ostream stream(spelling);
+    if (invalidVersion)
+      invalidVersion.print(stream);
+    else
+      stream << "absent";
+    SCOPED_TRACE("schema: " + spelling);
+    structureRejects(root, changed(published, "schema", invalidVersion));
+  }
+  // Removing the only relative row downgrades the contract to schema 2 even
+  // though its independent Module-reference metadata remains present.
+  auto formalOnly = withReceivers(dict(dict(effects[2]).get("receiver")));
+  structureRejects(root, formalOnly);
+  structureAccepts(root,
+                   changed(formalOnly, "schema", builder.getI64IntegerAttr(2)));
+  structureRejects(root, changed(formalOnly, "schema", {}));
+
+  for (auto invalid :
+       {changed(relative, "receiver_kind", {}),
+        changed(relative, "ancestor_depth", {}),
+        changed(relative, "receiver_kind", builder.getStringAttr("direct")),
+        changed(relative, "receiver_kind", builder.getI64IntegerAttr(0)),
+        changed(relative, "ancestor_depth", builder.getI32IntegerAttr(0)),
+        changed(relative, "ancestor_depth", builder.getI64IntegerAttr(-1)),
+        changed(relative, "ancestor_depth", builder.getI64IntegerAttr(129)),
+        changed(relative, "reference", builder.getStringAttr("peer")),
+        changed(relative, "extra", builder.getUnitAttr()),
+        changed(relative, "instance_path",
+                builder.getArrayAttr({occurrence("Root", 2)})),
+        changed(relative, "instance_path",
+                builder.getArrayAttr({builder.getStringAttr("not.a.child")})),
+        changed(relative, "instance_path",
+                builder.getArrayAttr({builder.getStringAttr("__debug__")})),
+        changed(relative, "instance_path", builder.getStringAttr("right"))}) {
+    std::string spelling;
+    llvm::raw_string_ostream stream(spelling);
+    invalid.print(stream);
+    SCOPED_TRACE("receiver: " + spelling);
+    structureRejects(root, withReceivers(invalid));
+  }
+  llvm::SmallVector<mlir::Attribute> tooLong(129,
+                                             builder.getStringAttr("child"));
+  structureRejects(root, withReceivers(changed(relative, "instance_path",
+                                               builder.getArrayAttr(tooLong))));
+  // Occurrence paths remain closed too: adding a selector tag does not turn a
+  // direct/formal OwnerRef into a valid union member.
+  for (auto mixed :
+       {changed(dict(dict(effects[0]).get("receiver")), "receiver_kind",
+                builder.getStringAttr("reference")),
+        changed(formal, "ancestor_depth", builder.getI64IntegerAttr(0))}) {
+    std::string spelling;
+    llvm::raw_string_ostream stream(spelling);
+    mixed.print(stream);
+    SCOPED_TRACE("mixed receiver: " + spelling);
+    structureRejects(root, withReceivers(mixed));
+  }
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       NestedRelativeCallRequiresSchemaThreeAndCanonicalPublication) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto child = module(*file, "Child");
+  auto act = named<SourceMethodOp>(child, "act");
+  auto &body = act.getBody().front();
+  auto call = *body.getOps<SourceMethodCallOp>().begin();
+  auto split =
+      branch(act, body.getTerminator()->getIterator(), body.getArgument(4),
+             body.getArgument(1), body.getArgument(1), 19);
+  // The call is unused. Moving it introduces no hidden result forwarding.
+  call->moveBefore(split.getThenRegion().front().getTerminator());
+  call->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  call->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
+  SourceMethodSummariesAnalysis analysis(file->getOperation());
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  auto published = summary(analysis, child);
+  ASSERT_TRUE(published);
+  EXPECT_EQ(published.get("schema"), builder.getI64IntegerAttr(3));
+  structureAccepts(child, published);
+  structureRejects(child, changed(published, "schema", {}));
+  structureRejects(child,
+                   changed(published, "schema", builder.getI64IntegerAttr(2)));
+  auto methodRow = namedRow(published, "methods", "act");
+  auto branchRow = dict(array(methodRow, "body_effects").getValue().back());
+  ASSERT_EQ(kind(branchRow), "branch");
+  auto nested = row(branchRow, "then_effects");
+  EXPECT_EQ(
+      dict(nested.get("receiver")),
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("receiver_kind",
+                                builder.getStringAttr("reference")),
+           builder.getNamedAttr("ancestor_depth", builder.getI64IntegerAttr(0)),
+           builder.getNamedAttr("instance_path", builder.getArrayAttr({}))}));
+  EXPECT_TRUE(mlir::succeeded(capture([&] {
+    return verifyPublishedTransactionSummary(child, published, analysis);
+  }))) << diagnostics;
+}
+
+TEST_F(MethodSummaryAuthorityTest,
+       SourceRelativeCallTransportRejectsPartialAndMixedSelectors) {
+  for (unsigned mutation = 0; mutation != 7; ++mutation) {
+    SCOPED_TRACE(mutation);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto child = module(*file, "Child");
+    auto call = *named<SourceMethodOp>(child, "act")
+                     .getBody()
+                     .front()
+                     .getOps<SourceMethodCallOp>()
+                     .begin();
+    call->setAttr("receiver_kind", builder.getStringAttr("reference"));
+    call->setAttr("ancestor_depth", builder.getI64IntegerAttr(0));
+    if (mutation == 0)
+      call->removeAttr("receiver_kind");
+    if (mutation == 1)
+      call->removeAttr("ancestor_depth");
+    if (mutation == 2)
+      call->setAttr("receiver_kind", builder.getStringAttr("direct"));
+    if (mutation == 3)
+      call->setAttr("ancestor_depth", builder.getI32IntegerAttr(0));
+    if (mutation == 4)
+      call->setAttr("ac.reference", builder.getStringAttr("peer"));
+    if (mutation == 5)
+      call->setAttr("ancestor_depth", builder.getI64IntegerAttr(-1));
+    if (mutation == 6)
+      call->setAttr("receiver_kind", builder.getUnitAttr());
+    EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    EXPECT_FALSE(diagnostics.empty());
+  }
 }
 
 } // namespace

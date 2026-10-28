@@ -607,7 +607,7 @@ def payload_bits(structs, name):
 def artifact_structure(design_ac, rtl_dir, cpp_dir):
     text = design_ac.read_text()
     fifo_instances = re.findall(
-        r'"ac\.instance"\([^\n]*callee = @pycircuit\.__builtins__\.fifo_local',
+        r"ac\.instance\([^\n]*callee = @pycircuit\.__builtins__\.fifo_local",
         text,
     )
     counts = {op: text.count(f'"{op}"') for op in ("ac.rule", "ac.reorder")}

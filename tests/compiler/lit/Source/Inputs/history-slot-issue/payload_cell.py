@@ -12,7 +12,7 @@ def update(q, en, d):
 
 
 @module
-def payload_cell(en: u1, d: Event) -> {"q": Event}:
+def payload_cell(en: u1, d: Event) -> Event:
     q: Event = 0
     update(q, en, d)
-    return {"q": q}
+    return q

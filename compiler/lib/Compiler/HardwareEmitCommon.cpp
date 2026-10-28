@@ -1294,31 +1294,7 @@ FailureOr<std::string> HardwareEmitContext::cppWireExpression(
 } // namespace acir::compiler
 namespace acir::compiler {
 FailureOr<ac::HardwareBindings> HardwareEmitContext::rootBindings() const {
-  auto rootPackage = package;
-  auto system = *rootPackage.getOps<ac::SystemOp>().begin();
-  auto entry = system.getEntry();
-  auto *root = analysis.lookupDefinition(
-      entry.getAs<FlatSymbolRefAttr>("callee").getValue());
-  ac::HardwareBindings bindings;
-  bindings.owner = root;
-  auto types = entry.getAs<ArrayAttr>("type_arguments");
-  for (auto [name, actual] :
-       llvm::zip(root->getAttrOfType<ArrayAttr>("type_parameters"), types))
-    bindings.types[cast<StringAttr>(name).getValue()] =
-        cast<TypeAttr>(actual).getValue();
-  auto actuals = entry.getAs<ArrayAttr>("parameters");
-  for (auto [index, raw] :
-       llvm::enumerate(root->getAttrOfType<ArrayAttr>("parameters"))) {
-    auto formal = cast<DictionaryAttr>(raw);
-    auto expression = index < actuals.size()
-                          ? cast<ac::StaticExprAttr>(actuals[index])
-                          : formal.getAs<ac::StaticExprAttr>("default");
-    auto value = analysis.evaluateStatic(expression, bindings, system);
-    if (failed(value))
-      return failure();
-    bindings.integers[formal.getAs<StringAttr>("name").getValue()] = *value;
-  }
-  return bindings;
+  return ac::detail::resolveHardwareRootBindings(analysis);
 }
 FailureOr<std::string> HardwareEmitContext::rootPortMap(bool rtl) {
   auto system = *package.getOps<ac::SystemOp>().begin();

@@ -410,4 +410,3 @@ def IssueQueue2PickerSystem():  # noqa: N802
         log("info", "out1_data", dut.out1_data)
 
     advance(phase)
-    exercise()

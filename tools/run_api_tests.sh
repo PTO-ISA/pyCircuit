@@ -27,10 +27,14 @@ nightly_python_tests=(
   tests/system/test_runtime_install.py
   tests/system/test_public_emit.py
   tests/system/test_scalar_generic_modules.py
+  tests/system/test_stateful_static_parameters.py
   tests/system/test_physical_rtl_export.py
   tests/system/test_physical_projection_rejections.py
   tests/system/test_source_system_execution.py
+  tests/system/test_boolean_record_fields.py
+  tests/system/test_source_literal_constants.py
   tests/system/test_sibling_calls_and_order.py
+  tests/system/test_auto_rule_dataflow.py
   tests/system/test_four_state_frontend_system.py
   tests/system/test_four_state_runtime_unknown.py
   tests/system/test_module_statement_parity.py
@@ -48,6 +52,7 @@ nightly_python_tests=(
   tests/system/test_hierarchical_state_rules.py
   tests/system/test_queue_rule_pipeline_example.py
   tests/system/test_module_scalar_outputs.py
+  tests/system/test_void_module_results.py
   tests/system/test_source_captured_validity.py
   tests/system/test_unannotated_rule_execution.py
   tests/system/test_source_map.py

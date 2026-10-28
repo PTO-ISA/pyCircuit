@@ -1,9 +1,13 @@
+#include "NativeFormalOwnerFixture.h"
 // Independent final-IR tests start from the existing production-captured
 // address-grant fixture. No generated candidate supplies a numerical oracle.
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
+#include "Dialect/ACIR/HardwareSampledAdmission.h"
+#include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
+#include "mlir/IR/IRMapping.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -54,7 +58,9 @@ protected:
   auto error() {
     return [&] { return emitError(attrs.getUnknownLoc()); };
   }
-  OwningOpRef<ModuleOp> compileCaptured(StringRef sourceName, StringRef top) {
+  OwningOpRef<ModuleOp> compileCaptured(StringRef sourceName, StringRef top,
+                                      bool accepted = true,
+                                      bool nativeFormalOwners = false) {
     auto captured = parseSourceFile<ModuleOp>(path("capture.mlir"), &context);
     if (!captured)
       return {};
@@ -67,9 +73,31 @@ protected:
          attrs.getNamedAttr("path", attrs.getStringAttr(sourceName))});
     auto unit =
         compiler::compilePythonSourceUnit(*captured, owner, *headers, error());
+    if (!accepted) {
+      EXPECT_TRUE(failed(unit)) << diagnostics;
+      return {};
+    }
     EXPECT_TRUE(succeeded(unit)) << diagnostics;
     if (failed(unit))
       return {};
+    if (nativeFormalOwners) {
+      // Python supplies a genuine generic/by-value template. Native owner
+      // binding exercises the common-IR proposal route, independently of
+      // Python's deliberate same-source state specialization.
+      unsigned bound = 0;
+      bool valid = true;
+      unit->body->walk([&](ac::SourceMethodCallOp call) {
+        if (call.getCalleeAttr().getLeafReference().getValue() != "put")
+          return;
+        valid &= succeeded(acir::test::bindNativeFormalOwners(call, {"first", "", ""}));
+        ++bound;
+      });
+      EXPECT_EQ(bound, 4u);
+      EXPECT_TRUE(valid) << diagnostics;
+      if (!valid || bound != 4 ||
+          failed(acir::test::publishNativeFormalOwnerFixture(*unit, context)))
+        return {};
+    }
     auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                              top, error());
     EXPECT_TRUE(succeeded(final)) << diagnostics;
@@ -122,49 +150,253 @@ sys.path.insert(0, str(repo / "python"))
 from pycircuit._source_capture import _capture_source_file
 from pycircuit._source_transport import _emit_source_transport
 text = (repo / "tests/system/fixtures/source_system/hierarchical_state_provider.py").read_text()
-text += '''
-
+if sys.argv[3] == "ordered":
+    text += '''
+@ac.module
+def Top(selector: ac.u1):
+    ordered = OrderedStateCell()
+    @ac.rule
+    def first() -> None:
+        before, after = ordered.update(3)
+        assert after == before + 3
+    @ac.rule(after=(first,))
+    def second() -> None:
+        before, after = ordered.update(5)
+        assert after == before + 5
+'''
+else:
+    text += '''
 @ac.module
 def Top(selector: ac.u1):
     direct = StateCell(selector)
     relayed = PayloadRelay(selector)
     standalone = PayloadRelay(not selector)
-
     @ac.rule
     def drive() -> None:
         if selector:
             before, after = direct.update(9)
             relayed.update(11)
             assert after == before + 9
-
-    drive()
 '''
-if sys.argv[3] == "ordered":
-    text = text.replace(
-        "    direct = StateCell(selector)",
-        "    ordered = OrderedStateCell()\n    direct = StateCell(selector)",
-    ).replace("    drive()\n", '''
-    @ac.rule
-    def first() -> None:
-        before, after = ordered.update(3)
-        assert after == before + 3
-
-    @ac.rule(after=(first,))
-    def second() -> None:
-        before, after = ordered.update(5)
-        assert after == before + 5
-
-    first()
-    second()
-    drive()
-''')
 source = output.with_name("hierarchy.py")
 source.write_text(text)
 output.write_text(_emit_source_transport(_capture_source_file(source, source_root=source.parent)), encoding="utf-8")
 )py";
     if (!capture(script, orderedParent ? "ordered" : "unordered"))
       return {};
-    return compileCaptured("hierarchy.py", "execution.hierarchy.Top");
+    return compileCaptured("hierarchy.py", "execution.hierarchy.Top",
+                           !orderedParent);
+  }
+  OwningOpRef<ModuleOp> indexedRequirementsFixture(bool formal = false,
+                                                   bool total = false) {
+    static constexpr llvm::StringLiteral script = R"py(
+import sys
+from pathlib import Path
+repo, output = map(Path, sys.argv[1:3])
+formal, total = sys.argv[3].split(":")
+sys.path.insert(0, str(repo / "python"))
+from pycircuit._source_capture import _capture_source_file
+from pycircuit._source_transport import _emit_source_transport
+text = '''import pycircuit as ac
+@ac.rule
+def put(target: ac.table[4, ac.u8], slot: ac.u2, value: ac.u8) -> None:
+    target[slot] = value
+@ac.module
+def Producer(valid: ac.u1, data: ac.u8) -> ac.u8:
+    @ac.rule(guard=lambda: valid)
+    def guarded() -> ac.u8:
+        return data
+    return guarded
+@ac.module
+def Top(outer: ac.u1, inner: ac.u1, index: ac.u2, other: ac.u2, data: ac.u8):
+    first = ac.table[4, ac.u8](init=0)
+    second = ac.table[4, ac.u8](init=0)
+    value = Producer(outer, data)
+    @ac.rule
+    def run() -> None:
+        if outer:
+            first[index] = value
+            second[index] = value + 1
+            first[index] = value + 2
+            if inner:
+                first[other] = value + 3
+            else:
+                second[other] = value + 4
+        else:
+            first[index] = value + 5
+'''
+if formal == "formal":
+    # Keep all calls by value in captured Python, so the generic template's
+    # formal proposal signature survives. C++ constructs native owner edges
+    # and republishes the interface before linking.
+    text = text.replace("other: ac.u2, data: ac.u8):", "other: ac.u2, data: ac.u8, input_table: ac.table[4, ac.u8]):")
+    text = text.replace("first[index] = value\n", "put(input_table, index, value)\n")
+    text = text.replace("first[index] = value + 2\n", "put(input_table, index, value + 2)\n")
+    text = text.replace("first[other] = value + 3\n", "put(input_table, other, value + 3)\n")
+    text = text.replace("first[index] = value + 5\n", "put(input_table, index, value + 5)\n")
+if total == "total":
+    text = text.replace("value = Producer(outer, data)", "value = data")
+    begin = text.index("@ac.module\ndef Producer")
+    end = text.index("@ac.module\ndef Top", begin)
+    text = text[:begin] + text[end:]
+source = output.with_name("indexed_requirements.py")
+source.write_text(text)
+output.write_text(_emit_source_transport(_capture_source_file(source, source_root=source.parent)), encoding="utf-8")
+)py";
+    std::string option = formal ? "formal:" : "ordinary:";
+    option += total ? "total" : "tracked";
+    if (!capture(script, option))
+      return {};
+    return compileCaptured("indexed_requirements.py",
+                           "execution.indexed_requirements.Top", true, formal);
+  }
+  struct IndexWitness {
+    ac::RuleOp rule;
+    ac::ValueRequireOp operation;
+    std::string kind;
+    uint64_t control = 0;
+  };
+  SmallVector<IndexWitness> indexWitnesses(ModuleOp file) {
+    ac::HardwareAnalysis hardware(file);
+    ac::detail::SourceCheckBudget budget({});
+    SmallVector<IndexWitness> result;
+    file.walk([&](ac::RuleOp rule) {
+      if (!rule->hasAttr("ac.sampled_admission"))
+        return;
+      ac::HardwareBindings bindings;
+      bindings.owner = rule->getParentOfType<ac::ModuleOp>();
+      auto admission =
+          ac::detail::parseSampledAdmission(rule, hardware, bindings, budget);
+      EXPECT_TRUE(succeeded(admission)) << diagnostics;
+      if (failed(admission))
+        return;
+      for (const auto &requirement : admission->requirements) {
+        auto kind = requirement.kind.getValue();
+        if ((kind == "state_write" && requirement.operand == 2) ||
+            (kind == "formal_write" && requirement.operand == 3))
+          result.push_back(
+              {rule, requirement.operation, kind.str(), requirement.control});
+      }
+    });
+    return result;
+  }
+  SmallVector<DictionaryAttr> indexedRows(ac::RuleOp rule) {
+    SmallVector<DictionaryAttr> result;
+    auto admission =
+        rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+    auto domains = admission.getAs<ArrayAttr>("write_domains");
+    if (!domains)
+      return result;
+    for (Attribute raw : domains) {
+      auto row = cast<DictionaryAttr>(raw);
+      if (llvm::any_of(row.getAs<ArrayAttr>("selectors"), [](Attribute value) {
+            return bool(cast<DictionaryAttr>(value).get("index"));
+          }))
+        result.push_back(row);
+    }
+    return result;
+  }
+  Value normalizedInput(Value value, ac::RuleOp rule) {
+    auto module = rule->getParentOfType<ac::ModuleOp>();
+    ac::HardwareAnalysis hardware(module->getParentOfType<ModuleOp>());
+    ac::HardwareBindings bindings;
+    bindings.owner = module;
+    ac::detail::HardwareIdentityScope scope{module, bindings, {}};
+    ac::detail::SourceCheckBudget budget({});
+    auto endpoint =
+        ac::detail::makeIdentityEndpoint(value, scope, hardware, budget);
+    EXPECT_TRUE(succeeded(endpoint)) << diagnostics;
+    if (failed(endpoint))
+      return {};
+    auto normalized = ac::detail::normalizeIdentityEndpoint(
+        *endpoint, {ac::detail::HardwareIdentityTraversal::DefinitionLocal, {}},
+        hardware, budget);
+    EXPECT_TRUE(succeeded(normalized)) << diagnostics;
+    return succeeded(normalized) ? normalized->value : Value{};
+  }
+  void rawPathFactors(Value path, SmallVectorImpl<Value> &result) {
+    // Source conversion can retain whole-width identity extracts around the
+    // generated ancestry. Baseline final verification has checked their bounds.
+    while (auto extract = path.getDefiningOp<ac::BitsExtractOp>()) {
+      if (!ac::areEquivalentHardwareTypes(extract.getInput().getType(),
+                                          path.getType()))
+        break;
+      path = extract.getInput();
+    }
+    if (auto binary = path.getDefiningOp<ac::BitsBinaryOp>();
+        binary && binary.getOpcode() == "and") {
+      rawPathFactors(binary.getLhs(), result);
+      rawPathFactors(binary.getRhs(), result);
+    } else if (!path.getDefiningOp<ac::BitsConstantOp>()) {
+      result.push_back(path);
+    }
+  }
+  std::string witnessSelectionDetails(ArrayRef<IndexWitness> witnesses) {
+    std::string result;
+    llvm::raw_string_ostream stream(result);
+    for (auto witness : witnesses) {
+      stream << witness.kind << " control=" << witness.control << " ";
+      witness.operation->print(stream);
+      if (auto *path = witness.operation.getPath().getDefiningOp()) {
+        stream << " path producer: ";
+        path->print(stream);
+      }
+      stream << "\n";
+    }
+    return result;
+  }
+  Value binary(OpBuilder &b, Value left, Value right, StringRef opcode) {
+    OperationState state(b.getUnknownLoc(),
+                         ac::BitsBinaryOp::getOperationName());
+    state.addOperands({left, right});
+    state.addTypes(left.getType());
+    state.addAttribute("opcode", attrs.getStringAttr(opcode));
+    return b.create(state)->getResult(0);
+  }
+  Value inverted(OpBuilder &b, Value input) {
+    OperationState state(b.getUnknownLoc(),
+                         ac::BitsUnaryOp::getOperationName());
+    state.addOperands(input);
+    state.addTypes(input.getType());
+    state.addAttribute("opcode", attrs.getStringAttr("not"));
+    return b.create(state)->getResult(0);
+  }
+  Value copyPathBefore(Value value, Operation *before, IRMapping &mapping) {
+    if (auto mapped = mapping.lookupOrNull(value)) return mapped;
+    auto *definition = value.getDefiningOp();
+    if (!definition || definition->getBlock() != before->getBlock() ||
+        definition->isBeforeInBlock(before)) return value;
+    if (!isa<ac::BitsBinaryOp, ac::BitsUnaryOp, ac::BitsExtractOp,
+             ac::BitsConstantOp>(definition)) {
+      ADD_FAILURE() << "unexpected operation in required-use path mutation";
+      return {};
+    }
+    for (Value operand : definition->getOperands()) {
+      auto copied = copyPathBefore(operand, before, mapping);
+      if (!copied) return {};
+      mapping.map(operand, copied);
+    }
+    OpBuilder builder(before);
+    builder.clone(*definition, mapping);
+    return mapping.lookup(value);
+  }
+  LogicalResult verifyIndexedRequirements(ModuleOp file) {
+    ac::HardwareAnalysis hardware(file);
+    auto plan = hardware.getSourceCheckPlan();
+    if (failed(plan))
+      return failure();
+    EXPECT_FALSE(plan->commits.empty());
+    return hardware.verifySourceCheckPlan(*plan);
+  }
+  void rejectsIndexWitness(ModuleOp file) {
+    diagnostics.clear();
+    ASSERT_TRUE(succeeded(verify(file))) << diagnostics;
+    diagnostics.clear();
+    EXPECT_TRUE(failed(verifyIndexedRequirements(file)));
+    EXPECT_NE(diagnostics.find("indexed write required-use address or raw path "
+                               "differs from actual selected write"),
+              std::string::npos)
+        << diagnostics;
   }
   LogicalResult verifyFinal(ModuleOp file) {
     ac::HardwareAnalysis analysis(file);
@@ -327,10 +559,11 @@ TEST_F(HardwareWriteDomainsTest,
 }
 
 TEST_F(HardwareWriteDomainsTest,
-       HierarchicalIncomingFromOrderedParentHasVerifiedNonemptyPlan) {
+       HierarchicalOrderedParentRejectsRetiredAfterBeforeRouting) {
   auto file = hierarchyFixture(true);
-  ASSERT_TRUE(file) << diagnostics;
-  EXPECT_TRUE(succeeded(verifyFinal(*file))) << diagnostics;
+  EXPECT_FALSE(file);
+  EXPECT_NE(diagnostics.find("source after is retired"), std::string::npos)
+      << diagnostics;
 }
 
 TEST_F(HardwareWriteDomainsTest,
@@ -710,4 +943,148 @@ TEST_F(HardwareWriteDomainsTest, PrivateMaskCannotGainAnUnrelatedPayloadUse) {
   b.create(state);
   rejects(*file, "private write-domain mask");
 }
+
+TEST_F(HardwareWriteDomainsTest,
+       IndexedRequiredUsesKeepInterleavedOwnerOrderAndOverwrittenWrites) {
+  for (bool formal : {false, true}) {
+    SCOPED_TRACE(formal);
+    auto file = indexedRequirementsFixture(formal);
+    ASSERT_TRUE(file) << diagnostics;
+    ASSERT_TRUE(succeeded(verifyIndexedRequirements(*file))) << diagnostics;
+    auto witnesses = indexWitnesses(*file);
+    // Six authored indexed assignments include the overwritten first[index]
+    // and all three outer/inner branch arms. Same values do not merge uses.
+    ASSERT_EQ(witnesses.size(), 6u);
+    auto rows = indexedRows(witnesses[0].rule);
+    ASSERT_EQ(rows.size(), 6u);
+    EXPECT_EQ(rows[0].get("candidate"), rows[2].get("candidate"));
+    EXPECT_NE(rows[0].get("candidate"), rows[1].get("candidate"));
+    unsigned formalCount = 0;
+    for (const auto &witness : witnesses) {
+      EXPECT_EQ(witness.rule, witnesses[0].rule);
+      formalCount += witness.kind == "formal_write";
+    }
+    EXPECT_EQ(formalCount, formal ? 4u : 0u);
+    // These source-use counts and ordering oracles follow the six statements,
+    // independently of the generated domain and requirement inventories.
+  }
+}
+
+TEST_F(HardwareWriteDomainsTest,
+       IndexedRequiredUseRejectsConstantMissingAncestryAndFlippedPaths) {
+  for (bool formal : {false, true}) {
+    auto original = indexedRequirementsFixture(formal);
+    ASSERT_TRUE(original) << diagnostics;
+    ASSERT_TRUE(succeeded(verifyIndexedRequirements(*original))) << diagnostics;
+    for (unsigned mutation = 0; mutation != 4; ++mutation) {
+      SCOPED_TRACE(formal);
+      SCOPED_TRACE(mutation);
+      OwningOpRef<ModuleOp> file(cast<ModuleOp>(original->clone()));
+      auto witnesses = indexWitnesses(*file);
+      ac::ValueRequireOp selected;
+      SmallVector<Value> factors;
+      for (auto witness : witnesses) {
+        if (witness.kind != (formal ? "formal_write" : "state_write"))
+          continue;
+        SmallVector<Value> candidate;
+        rawPathFactors(witness.operation.getPath(), candidate);
+        if (candidate.size() >= 2) {
+          selected = witness.operation;
+          factors = std::move(candidate);
+          break;
+        }
+      }
+      ASSERT_TRUE(selected) << witnessSelectionDetails(witnesses);
+      OpBuilder b(selected);
+      Value replacement;
+      if (mutation < 2)
+        replacement = constant(b, selected.getPath().getType(), mutation);
+      if (mutation == 2)
+        replacement = factors[0]; // Drop a real nested ancestor.
+      if (mutation == 3) {
+        replacement = inverted(b, factors[0]);
+        for (Value factor : ArrayRef<Value>(factors).drop_front())
+          replacement = binary(b, replacement, factor, "and");
+      }
+      ASSERT_NE(replacement, selected.getPath());
+      selected->setOperand(2, replacement);
+      rejectsIndexWitness(*file);
+    }
+  }
+}
+
+TEST_F(HardwareWriteDomainsTest,
+       IndexedRequiredUsesCannotSwapEqualAddressPathsOrReuseOneWitness) {
+  for (bool formal : {false, true}) {
+    auto original = indexedRequirementsFixture(formal);
+    ASSERT_TRUE(original) << diagnostics;
+    ASSERT_TRUE(succeeded(verifyIndexedRequirements(*original))) << diagnostics;
+    for (unsigned mutation = 0; mutation != 3; ++mutation) {
+      SCOPED_TRACE(formal);
+      SCOPED_TRACE(mutation);
+      OwningOpRef<ModuleOp> file(cast<ModuleOp>(original->clone()));
+      auto witnesses = indexWitnesses(*file);
+      ac::ValueRequireOp first, distinctPath, distinctIndex;
+      for (auto witness : witnesses) {
+        if (witness.kind != (formal ? "formal_write" : "state_write"))
+          continue;
+        auto current = witness.operation;
+        if (!first) {
+          first = current;
+          continue;
+        }
+        auto actual = normalizedInput(current.getPayload(), witness.rule);
+        auto expected = normalizedInput(first.getPayload(), witness.rule);
+        if (actual == expected && current.getPath() != first.getPath())
+          distinctPath = current;
+        if (actual != expected &&
+            ac::areEquivalentHardwareTypes(current.getPayload().getType(),
+                                           first.getPayload().getType()))
+          distinctIndex = current;
+      }
+      ASSERT_TRUE(first && distinctPath && distinctIndex)
+          << "first=" << bool(first) << " distinctPath=" << bool(distinctPath)
+          << " distinctIndex=" << bool(distinctIndex) << "\n"
+          << witnessSelectionDetails(witnesses);
+      if (mutation == 0) {
+        // Change the address together with its real companion, so an unrelated
+        // availability mismatch cannot stand in for indexed-use verification.
+        IRMapping mapping;
+        auto payload = copyPathBefore(distinctIndex.getPayload(), first, mapping);
+        auto available = copyPathBefore(distinctIndex.getAvailability(), first, mapping);
+        ASSERT_TRUE(payload && available);
+        first->setOperand(0, payload);
+        first->setOperand(1, available);
+      } else if (mutation == 1) {
+        distinctPath->setOperand(2, first.getPath());
+      } else {
+        IRMapping mapping;
+        Value left = first.getPath();
+        Value right = copyPathBefore(distinctPath.getPath(), first, mapping);
+        ASSERT_TRUE(right);
+        first->setOperand(2, right);
+        distinctPath->setOperand(2, left);
+      }
+      rejectsIndexWitness(*file);
+    }
+  }
+}
+
+TEST_F(HardwareWriteDomainsTest,
+       TotalIndexedWritesRetainNoRequirementWitnessFastPath) {
+  for (bool formal : {false, true}) {
+    SCOPED_TRACE(formal);
+    auto file = indexedRequirementsFixture(formal, true);
+    ASSERT_TRUE(file) << diagnostics;
+    EXPECT_TRUE(succeeded(verifyIndexedRequirements(*file))) << diagnostics;
+    EXPECT_TRUE(indexWitnesses(*file).empty());
+    unsigned domains = 0;
+    file->walk([&](ac::RuleOp rule) {
+      if (rule->hasAttr("ac.sampled_admission"))
+        domains += indexedRows(rule).size();
+    });
+    EXPECT_EQ(domains, 6u);
+  }
+}
+
 } // namespace

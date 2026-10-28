@@ -346,6 +346,11 @@ def scalar(expression, base="ac.u13", extra=""):
     )
 
 
+# Fixed Bits scalar indexing is admitted; retain both constant and dynamic
+# controls and an out-of-range rejection with the same publication checks.
+fact_controls["scalar-index"] = scalar("value[3]")
+fact_controls["dynamic-scalar-index"] = scalar("value[index]", extra=", index: ac.u3")
+
 huge = "1" + "0" * 200
 cases = {
     "negative-lower": scalar("value[(0 - 1):4]"),
@@ -378,7 +383,7 @@ cases = {
         base="ac.u1",
         extra=", choose: ac.u1",
     ),
-    "scalar-index": scalar("value[3]"),
+    "scalar-index-out-of-range": scalar("value[13]"),
     "implicit-narrowing": scalar("value"),
     "slice-write": PREFIX
     + """@ac.rule
@@ -436,7 +441,7 @@ diagnostics["runtime-boolean-fixed-peer-base"] = (
 )
 diagnostics.update(
     {
-        "scalar-index": "subscript requires a table",
+        "scalar-index-out-of-range": "bit index complete width is not proven in range",
         "implicit-narrowing": "unsigned boundary implicit narrowing is unsupported",
         "slice-write": "indexed assignment requires a table",
         "table-index-complete-width": "table index complete width is not proven in range",

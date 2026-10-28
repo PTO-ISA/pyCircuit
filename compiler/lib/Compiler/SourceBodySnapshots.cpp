@@ -99,8 +99,8 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
         operation.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     auto snapshotOwner = ac::detail::declarationSourceOwner(&operation);
     bool localDefinition =
-        isa<ac::StructOp, ac::EnumOp, func::FuncOp>(operation) && role &&
-        role.getValue() == "definition" && snapshotOwner == owner;
+        isa<ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp>(operation) &&
+        role && role.getValue() == "definition" && snapshotOwner == owner;
     if (!role || (role.getValue() != "import_snapshot" && !localDefinition) ||
         !symbol || !snapshotOwner)
       return emitError() << "source body contains an unverified declaration";
@@ -118,12 +118,13 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
     return emitError() << "implementation body must own at least one module";
 
   // Every published definition must still have its actual owning body.
-  // A retained snapshot cannot replace a deleted module, nominal or helper
-  // definition.
+  // A retained snapshot cannot replace a deleted module, nominal, constant
+  // or helper definition.
   for (Operation &declaration : owningHeader.getBody()->getOperations()) {
     auto role = declaration.getAttrOfType<StringAttr>("ac.declaration_role");
-    if (!isa<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, func::FuncOp>(
-            declaration) || !role ||
+    if (!isa<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, ac::ConstantOp,
+             func::FuncOp>(declaration) ||
+        !role ||
         role.getValue() != "definition" ||
         ac::detail::declarationSourceOwner(&declaration) != owner)
       continue;

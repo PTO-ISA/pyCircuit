@@ -2,6 +2,7 @@
 // source. Serialized admission rows never supply the expected demand graph.
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
+#include "Transforms/LowerTransactions.h"
 #include "Dialect/ACIR/HardwareSampledAdmission.h"
 #include "Dialect/ACIR/HardwareQueueResources.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
@@ -11,6 +12,7 @@
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/SourceTransactionStateAnalysis.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Pass/Pass.h"
@@ -62,7 +64,8 @@ protected:
   }
   OwningOpRef<ModuleOp> fixture(bool pureState = false, bool localPath = false,
                                bool prospective = false, bool rawBound = false,
-                               unsigned wrapper = 0) {
+                               unsigned wrapper = 0,
+                               compiler::SourceLinkStages *stages = nullptr) {
     std::string fixtureName = wrapper ? "resource_demand_wrapper.py"
         : rawBound ? "resource_demand_raw_bound_bits1.py"
         : prospective ? "resource_demand_prospective.py"
@@ -156,9 +159,85 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
                   : prospective ? "execution.resource_demand_prospective.ExerciseQueueHierarchy"
                   : localPath ? "execution.resource_demand_local_path.Top"
                   : pureState ? "execution.resource_demand_pure_state.Top"
-                              : "execution.resource_demand.Top", error());
+                              : "execution.resource_demand.Top", error(),
+                                 compiler::SourceLinkTarget::Hardware, stages);
     EXPECT_TRUE(succeeded(final)) << diagnostics;
     return succeeded(final) ? std::move(*final) : OwningOpRef<ModuleOp>{};
+  }
+  struct StagedQueue {
+    OwningOpRef<ModuleOp> original;
+    std::unique_ptr<ac::SourceTransactionStateAnalysis> analysis;
+    acir::detail::PreparedTransactionLowering prepared;
+    acir::detail::MaterializedTransactionLowering candidate;
+  };
+  std::unique_ptr<StagedQueue> stageQueue(bool prospective, bool rawBound) {
+    compiler::SourceLinkStages stages;
+    auto linked = fixture(false, false, prospective, rawBound, 0, &stages);
+    if (!linked) return {};
+    // Re-enter the existing native seam from the actual retained source stage;
+    // no separately authored queue graph supplies the expected product.
+    auto original = parseSourceString<ModuleOp>(stages.beforeTransactions, &context);
+    if (!original) return {};
+    auto analysis = std::make_unique<ac::SourceTransactionStateAnalysis>(
+        original->getOperation());
+    EXPECT_TRUE(analysis->isValid()) << diagnostics;
+    if (!analysis->isValid()) return {};
+    ac::HardwareSourceCheckLimits limits;
+    ac::detail::SourceCheckBudget preparationBudget(limits);
+    auto prepared = acir::detail::prepareTransactionLowering(
+        *original, *analysis, preparationBudget);
+    EXPECT_TRUE(succeeded(prepared)) << diagnostics;
+    if (failed(prepared)) return {};
+    ac::detail::SourceCheckBudget materializationBudget(limits);
+    auto candidate = acir::detail::materializeTransactionLowering(
+        *prepared, materializationBudget);
+    EXPECT_TRUE(succeeded(candidate)) << diagnostics;
+    if (failed(candidate)) return {};
+    auto staged = std::make_unique<StagedQueue>();
+    staged->original = std::move(original);
+    staged->analysis = std::move(analysis);
+    staged->prepared = std::move(*prepared);
+    staged->candidate = std::move(*candidate);
+    return staged;
+  }
+  LogicalResult verifyDirect(StagedQueue &staged) {
+    ac::detail::SourceCheckBudget budget(ac::HardwareSourceCheckLimits{});
+    diagnostics.clear();
+    return acir::detail::verifyTransactionMaterialization(
+        staged.prepared, staged.candidate, budget);
+  }
+  std::string ir(ModuleOp file) {
+    std::string text;
+    llvm::raw_string_ostream output(text);
+    file.print(output);
+    return text;
+  }
+  std::vector<Operation *> objects(ModuleOp file) {
+    std::vector<Operation *> result;
+    file.walk([&](Operation *operation) { result.push_back(operation); });
+    return result;
+  }
+  void directRejectsWithoutMutation(StagedQueue &staged) {
+    auto file = staged.candidate.module.get();
+    ac::HardwareAnalysis analysis(file);
+    bool parsed = true;
+    file.walk([&](ac::RuleOp rule) {
+      if (!rule->hasAttr("ac.sampled_admission")) return;
+      ac::HardwareBindings bindings;
+      bindings.owner = rule->getParentOp();
+      ac::detail::SourceCheckBudget budget(ac::HardwareSourceCheckLimits{});
+      parsed &= succeeded(ac::detail::parseSampledAdmission(
+          rule, analysis, bindings, budget));
+    });
+    ASSERT_TRUE(parsed) << diagnostics;
+    auto sourceText = ir(*staged.original), candidateText = ir(file);
+    auto sourceObjects = objects(*staged.original), candidateObjects = objects(file);
+    EXPECT_TRUE(failed(verifyDirect(staged)));
+    EXPECT_FALSE(diagnostics.empty());
+    EXPECT_EQ(sourceText, ir(*staged.original));
+    EXPECT_EQ(candidateText, ir(file));
+    EXPECT_EQ(sourceObjects, objects(*staged.original));
+    EXPECT_EQ(candidateObjects, objects(file));
   }
   LogicalResult verifyFinal(ModuleOp file) {
     ac::HardwareAnalysis analysis(file);
@@ -938,4 +1017,89 @@ TEST_F(HardwareResourceDemandTest, ChildPopSuffixStillRequiresParentQueueWiring)
   ASSERT_TRUE(changed);
   rejects(*file);
 }
+TEST_F(HardwareResourceDemandTest,
+       DirectMaterializationRejectsPrivateQueueEscapeAndEqualWidthPayloadAlias) {
+  for (bool payloadAlias : {false, true}) {
+    SCOPED_TRACE(payloadAlias);
+    auto staged = stageQueue(false, true);
+    ASSERT_TRUE(staged) << diagnostics;
+    ASSERT_TRUE(succeeded(verifyDirect(*staged))) << diagnostics;
+    bool changed = false;
+    staged->candidate.module->walk([&](ac::RuleOp rule) {
+      if (changed) return;
+      auto admission = rule->getAttrOfType<DictionaryAttr>("ac.sampled_admission");
+      auto proposals = admission ? admission.getAs<ArrayAttr>("queue_proposals")
+                                 : ArrayAttr();
+      if (!proposals) return;
+      auto yield = cast<ac::YieldOp>(rule.getBody().front().getTerminator());
+      for (Attribute raw : proposals) {
+        auto proposal = cast<DictionaryAttr>(raw);
+        auto data = proposal.getAs<IntegerAttr>("data");
+        auto path = proposal.getAs<IntegerAttr>("path");
+        if (!data || !path) continue;
+        auto payload = yield.getOperand(data.getInt());
+        auto enable = yield.getOperand(path.getInt());
+        ASSERT_TRUE(ac::areEquivalentHardwareTypes(payload.getType(), enable.getType()));
+        ASSERT_NE(payload, enable);
+        if (payloadAlias) {
+          // Both are Bits1, but a private enable is not authored payload.
+          yield->setOperand(data.getInt(), enable);
+        } else {
+          OpBuilder b(rule->getBlock()->getTerminator());
+          OperationState leak(rule.getLoc(), ac::BitsUnaryOp::getOperationName());
+          leak.addOperands(rule.getResult(path.getInt()));
+          leak.addTypes(enable.getType());
+          leak.addAttribute("opcode", attrs.getStringAttr("not"));
+          b.create(leak);
+        }
+        changed = true;
+        break;
+      }
+    });
+    ASSERT_TRUE(changed);
+    directRejectsWithoutMutation(*staged);
+  }
+}
+
+TEST_F(HardwareResourceDemandTest,
+       DirectMaterializationRejectsProspectiveCorruptionInSelectedAndUnselectedDefinitions) {
+  for (bool unselected : {false, true}) {
+    SCOPED_TRACE(unselected);
+    auto staged = stageQueue(true, false);
+    ASSERT_TRUE(staged) << diagnostics;
+    ASSERT_TRUE(succeeded(verifyDirect(*staged))) << diagnostics;
+    ac::HardwareAnalysis analysis(*staged->candidate.module);
+    bool changed = false;
+    for (auto module : staged->candidate.module->getOps<ac::ModuleOp>()) {
+      if (!module.getSymName().contains(unselected ? "UnselectedQueueHierarchy"
+                                                 : "ExerciseQueueHierarchy"))
+        continue;
+      for (auto rule : module.getBody().front().getOps<ac::RuleOp>()) {
+        if (!rule->hasAttr("ac.sampled_admission")) continue;
+        ac::HardwareBindings bindings;
+        bindings.owner = module;
+        ac::detail::SourceCheckBudget budget(ac::HardwareSourceCheckLimits{});
+        auto view = ac::detail::parseSampledAdmission(rule, analysis, bindings, budget);
+        ASSERT_TRUE(succeeded(view)) << diagnostics;
+        for (const auto &resource : view->resources) {
+          if (!resource.prospective) continue;
+          auto decision = view->controls[resource.control].raw
+                              .getDefiningOp<ac::BitsSelectOp>();
+          ASSERT_TRUE(decision);
+          ASSERT_NE(decision.getTrueValue(), decision.getFalseValue());
+          // Preserve the schema and raw path, but bypass the genuine capacity/
+          // committed-valid/pop-credit predicate with its own bypass value.
+          decision->setOperand(1, decision.getFalseValue());
+          changed = true;
+          break;
+        }
+        if (changed) break;
+      }
+      if (changed) break;
+    }
+    ASSERT_TRUE(changed);
+    directRejectsWithoutMutation(*staged);
+  }
+}
+
 } // namespace

@@ -15,7 +15,7 @@
           auto item = cast<DictionaryAttr>(rawField);
           if (item.getAs<StringAttr>("name") == field) {
             auto resolved = hardware.resolveType(item.getAs<TypeAttr>("type").getValue(),
-                                                  plan.frames[frame].bindings, site);
+                                                  plan.instances[0].bindings, site);
             if (failed(resolved)) return failure();
             selected = *resolved;
             break;
@@ -30,9 +30,9 @@
           return site->emitOpError() << "selected write requires sequential actual Table indices";
         auto indexType = payloadType(indices[nextIndex], site);
         auto indexWidth = failed(indexType) ? FailureOr<uint64_t>(failure())
-            : hardware.getPackedWidth(*indexType, plan.frames[frame].bindings, site);
+            : hardware.getPackedWidth(*indexType, plan.instances[0].bindings, site);
         if (failed(indexType) || !isa<BitsType>(*indexType) || failed(indexWidth)) return failure();
-        auto shape = hardware.getTableShape(table, plan.frames[frame].bindings, site);
+        auto shape = hardware.getTableShape(table, plan.instances[0].bindings, site);
         if (failed(shape) || shape->empty()) return failure();
         current = table.getShape().size() == 1 ? table.getElementType()
             : Type(TableType::get(package.getContext(),

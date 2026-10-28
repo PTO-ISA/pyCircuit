@@ -125,12 +125,12 @@ Record unsupported syntax and implicit-guard gaps in #319 and the example's
 migration notes. Documentation changes are not migration or execution evidence.
 
 For ordinary queued Module interfaces, agents should use typed `put`/`get`
-Rules (or meaningful domain names) and Queue `push`/`pop`, following the
+Methods (or meaningful domain names) and Queue `push`/`pop`, following the
 [Queue-facing interface pattern](../docs/development/agent-frontend-guide.md#queue-facing-interfaces).
 Do not expose FIFO readiness or wrap payloads in a new valid/ready protocol
 merely to connect two source Modules. Keep required external protocol signals
-at boundary adapters. A callable Rule is not automatically registered as
-independent work; register only the intended autonomous Rules.
+at boundary adapters. Directly nested Rules automatically register independent
+work; Methods execute only when called within an outer transaction.
 
 Ordinary Rule output availability is compiler generated. Do not add an authored
 commit-valid field, a replacement zero or a holding register for a rejected Rule.

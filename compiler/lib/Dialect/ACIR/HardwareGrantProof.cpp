@@ -113,7 +113,10 @@ struct HardwareGrantProof::Impl {
       fail("address proof requires typed Bits indices");
       return failure();
     }
-    if (*leftConstant && *rightConstant) return !equalConstants(**leftConstant, **rightConstant);
+    // Different known addresses cannot collide. Equal addresses still permit
+    // disjoint writers when their actual enables are mutually exclusive.
+    if (*leftConstant && *rightConstant &&
+        !equalConstants(**leftConstant, **rightConstant)) return true;
     if (!*leftConstant && !*rightConstant && **leftWidth != **rightWidth) return false;
     collision = std::pair<Node, Node>{*left, *right};
     auto result = disjoint(first, second);

@@ -34,5 +34,4 @@ def LoopReg(enable: bool, feedback: bool) -> bool:  # noqa: N802
     def read() -> bool:
         return value
 
-    advance()
-    return read()
+    return read

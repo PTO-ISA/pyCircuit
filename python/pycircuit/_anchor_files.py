@@ -31,6 +31,7 @@ _DIRECTORY_LIMIT = 8192
 _DEPTH_LIMIT = 32
 _PATH_LIMIT = 1024
 _HEX = r"[0-9a-f]{64}"
+_ENTRY_BOUNDARY_SYMBOL = '@"pycircuit.__link_entry__"'
 _PATHS = {
     "graph": r"graph\.ac",
     "spec": rf"definitions/{_HEX}/spec\.ac",
@@ -184,13 +185,13 @@ def _validate_manifest(value: object) -> None:
     if (
         manifest["kind"] != "pycircuit-anchor"
         or type(manifest["schema"]) is not int
-        or manifest["schema"] != 1
         or type(manifest["routed_contract"]) is not int
-        or manifest["routed_contract"] != 2
+        or (manifest["schema"], manifest["routed_contract"]) not in ((1, 2), (2, 3))
     ):
         raise _PublicationError(
             "unsupported anchor format/contract; regenerate from source units"
         )
+    entry_boundary = manifest["schema"] == 2
     owner = _validate_owner(manifest["owner"])
     if owner["kind"] != "anchor" or _symbol(manifest["root"]) != owner["definition"]:
         raise _PublicationError("anchor root and owner disagree")
@@ -333,7 +334,8 @@ def _validate_manifest(value: object) -> None:
             "reset_semantics",
             "graph_sha256",
             "definitions",
-        },
+        }
+        | ({"implementation_root"} if entry_boundary else set()),
         "configuration",
     )
     config_root = _object(
@@ -347,6 +349,25 @@ def _validate_manifest(value: object) -> None:
         "variant_id": root["variant_id"],
     }:
         raise _PublicationError("anchor configuration root disagrees")
+    if entry_boundary:
+        implementation = _object(
+            configuration["implementation_root"],
+            {"source", "definition", "variant_id"},
+            "implementation root",
+        )
+        adapter = definitions.get(_ENTRY_BOUNDARY_SYMBOL)
+        if (
+            adapter is None
+            or manifest["root"] == _ENTRY_BOUNDARY_SYMBOL
+            or adapter["source"] != owner["source"]
+            or implementation
+            != {
+                "source": owner["source"],
+                "definition": _ENTRY_BOUNDARY_SYMBOL,
+                "variant_id": adapter["variant_id"],
+            }
+        ):
+            raise _PublicationError("anchor implementation root disagrees")
     names = set()
     for argument in _array(configuration["integer_arguments"], "integer arguments"):
         argument = _object(argument, {"name", "value"}, "integer argument")

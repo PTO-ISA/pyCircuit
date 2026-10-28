@@ -2504,24 +2504,14 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
         binding = declared;
     }
     if (target.kind() == "Attribute") {
-      Type targetType;
-      if (indexedFieldTarget(target)) {
-        auto type = expressionType(target, values, instances, symbol);
-        if (failed(type))
-          return failure();
-        targetType = *type;
-      } else {
-        auto current = expression(target, at, symbol, values, instances);
-        if (failed(current))
-          return failure();
-        targetType = current->getType();
-      }
-      binding = BindingBoundary{{assignmentRoot(target).str(),
-                                 targetType,
-                                 target,
-                                 {},
-                                 isa<ac::BitsType>(targetType)},
-                                true};
+      DictionaryAttr selectedField;
+      auto targetType = expressionType(target, values, instances, symbol,
+                                       &selectedField);
+      if (failed(targetType))
+        return failure();
+      if (!selectedField)
+        return error() << "field assignment requires a declared Struct field";
+      binding = BindingBoundary{structFieldPort(selectedField, target), true};
     }
     if (target.kind() == "Subscript") {
       if (target.child("value").kind() != "Name" ||
@@ -2570,6 +2560,169 @@ LogicalResult Importer::statements(const AstNode &parent, StringRef field,
         return failure();
       writes[name] = *normalized;
     }
+  }
+  return success();
+}
+
+LogicalResult Importer::predeclareStructuralInstances(
+    ModuleDecl &decl, OpBuilder &at, SmallVectorImpl<Instance> &structuralStorage,
+    llvm::StringMap<Instance *> &structuralInstances) {
+  size_t capacity = decl.references ? decl.references.size() : 0;
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto stmt = decl.node.item("body", i);
+    if (stmt.kind() == "Assign" && stmt.array("targets").size() == 1 &&
+        stmt.child("value").kind() == "Call")
+      ++capacity;
+  }
+  structuralStorage.reserve(capacity);
+  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
+    auto stmt = decl.node.item("body", i);
+    if (stmt.kind() != "Assign" || stmt.array("targets").size() != 1 ||
+        stmt.item("targets", 0).kind() != "Name")
+      continue;
+    auto call = stmt.child("value");
+    if (!moduleCall(call))
+      continue;
+    auto binding = lookupBinding(call.child("func"));
+    if (!binding || binding->category != BindingCategory::Module)
+      continue;
+    auto primitive = dyn_cast_or_null<ac::ModuleImportOp>(binding->declaration);
+    auto primitiveKind =
+        primitive ? primitive.getPrimitiveKindAttr() : StringAttr();
+    // Canonical storage leaves keep their raw structural constructor and
+    // explicit pin binding, including inside ordinary typed Modules.
+    bool trustedStorageLeaf = binding->builtin &&
+                              headers.isTrustedBuiltin(primitive) &&
+                              primitiveKind &&
+                              (primitiveKind.getValue() == "dff" ||
+                               primitiveKind.getValue() == "dffe" ||
+                               primitiveKind.getValue() == "sync_mem" ||
+                               primitiveKind.getValue() == "sync_mem_dp" ||
+                               primitiveKind.getValue() == "byte_mem");
+    if (!decl.system && !trustedStorageLeaf)
+      continue;
+    bool callable = false;
+    if (auto found = local.find(call.child("func").string("id"));
+        found != local.end())
+      callable = llvm::any_of(modules[found->second].sourceCallAttrs,
+                              [](NamedAttribute attr) {
+                                return attr.getName() == "ac.return_form";
+                              });
+    else {
+      auto view = headers.lookupModule(binding->symbol);
+      callable = view && view.hasSourceCallContract();
+    }
+    if (callable)
+      continue;
+    if (decl.system &&
+        (!call.array("args").empty() || !call.array("keywords").empty()))
+      return error() << "structural module declaration requires an empty "
+                        "constructor; bind authored inputs in a rule";
+    DictionaryAttr calleeAttrs = binding->declaration
+                                     ? binding->declaration->getAttrDictionary()
+                                     : DictionaryAttr();
+    if (!calleeAttrs) {
+      auto found = local.find(call.child("func").string("id"));
+      if (found == local.end())
+        return error() << "structural module declaration has no provider";
+      auto attrs = moduleSignatureAttrs(modules[found->second]);
+      if (failed(attrs))
+        return failure();
+      calleeAttrs = *attrs;
+    }
+    if (calleeAttrs.getAs<StringAttr>("ac.root_kind"))
+      return error() << "@system is root-only and cannot be instantiated as "
+                        "a child";
+    auto signature = dyn_cast<FunctionType>(
+        calleeAttrs.getAs<TypeAttr>("function_type").getValue());
+    auto inputNames = calleeAttrs.getAs<ArrayAttr>("input_names");
+    auto outputNames = calleeAttrs.getAs<ArrayAttr>("output_names");
+    if (!signature || !inputNames || !outputNames ||
+        inputNames.size() != signature.getNumInputs() ||
+        outputNames.size() != signature.getNumResults())
+      return error() << "structural module declaration has invalid signature";
+    Instance instance;
+    instance.name = stmt.item("targets", 0).string("id").str();
+    if (nestedRuleBinding(instance.name))
+      return error() << "module instance conflicts with nested Rule";
+    instance.node = stmt;
+    instance.callee = binding->symbol;
+    instance.declaration = binding->declaration;
+    auto parameters = bindParameters(calleeAttrs, call, decl.symbol);
+    auto typeArguments = bindTypeArguments(calleeAttrs, call, decl.symbol);
+    if (failed(parameters) || failed(typeArguments))
+      return failure();
+    instance.parameters = std::move(*parameters);
+    instance.typeArguments = std::move(*typeArguments);
+    auto appendPorts = [&](ArrayAttr names, TypeRange types,
+                           SmallVectorImpl<Port> &ports) -> LogicalResult {
+      for (auto [name, formalType] : llvm::zip(names, types)) {
+        auto type = substitute(formalType, calleeAttrs, instance.parameters,
+                               instance.typeArguments);
+        if (failed(type))
+          return failure();
+        std::optional<ac::detail::ValueKind> kind;
+        bool fixed = false;
+        if (auto formal = dyn_cast<ac::TypeParamType>(formalType)) {
+          for (size_t i = 0; i < call.array("keywords").size(); ++i) {
+            auto keyword = call.item("keywords", i);
+            auto actualName = dyn_cast_or_null<StringAttr>(keyword.get("arg"));
+            if (actualName == formal.getName()) {
+              kind = annotationKind(keyword.child("value"));
+              fixed = fixedAnnotation(keyword.child("value"));
+            }
+          }
+        } else if (!decl.system) {
+          // The authenticated primitive contract distinguishes controls from
+          // address/strobe bit vectors, independently of their actual widths.
+          StringRef port = cast<StringAttr>(name).getValue();
+          bool control = primitiveKind.getValue() == "dff" ||
+                         primitiveKind.getValue() == "dffe" ||
+                         llvm::is_contained(ArrayRef<StringRef>{
+                             "clk", "rst", "ren", "ren0", "ren1", "wvalid",
+                             "rlive", "rlive0", "rlive1"}, port);
+          if (control) kind = ac::detail::ValueKind::Boolean;
+          else fixed = true;
+        }
+        ports.push_back(
+            {cast<StringAttr>(name).getValue().str(), *type, stmt, kind, fixed});
+      }
+      return success();
+    };
+    if (failed(
+            appendPorts(inputNames, signature.getInputs(), instance.inputs)) ||
+        failed(
+            appendPorts(outputNames, signature.getResults(), instance.outputs)))
+      return failure();
+    if (auto domain = calleeAttrs.getAs<DictionaryAttr>("ac.domain_inputs")) {
+      instance.clockInput =
+          domain.getAs<IntegerAttr>("clock").getValue().getZExtValue();
+      instance.resetInput =
+          domain.getAs<IntegerAttr>("reset").getValue().getZExtValue();
+    }
+    SmallVector<Type> resultTypes;
+    for (const Port &output : instance.outputs)
+      resultTypes.push_back(output.type);
+    instance.op = createOp(
+        at, stmt.location(b.getContext(), source.path),
+        ac::InstanceOp::getOperationName(), {}, resultTypes,
+        {at.getNamedAttr("instance_name", at.getStringAttr(instance.name)),
+         at.getNamedAttr("callee", instance.callee),
+         at.getNamedAttr("parameters", at.getArrayAttr(instance.parameters)),
+         at.getNamedAttr("type_arguments",
+                         at.getArrayAttr(instance.typeArguments)),
+         at.getNamedAttr("occurrence",
+                         sourceOccurrence(at, decl.symbol, stmt))});
+    if (!decl.system)
+      for (auto [output, port] :
+           llvm::zip(instance.op->getResults(), instance.outputs)) {
+        remember(output, port.sourceKind);
+        if (port.fixedBits) fixedValues.insert(output);
+      }
+    structuralCallSites.insert(sourceOccurrence(at, decl.symbol, call));
+    structuralStorage.push_back(std::move(instance));
+    structuralInstances[structuralStorage.back().name] =
+        &structuralStorage.back();
   }
   return success();
 }
@@ -2648,158 +2801,14 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
   llvm::StringMap<Instance *> structuralInstances;
   llvm::StringMap<AstNode> structuralRules;
   SmallVector<AstNode> structuralRegistrations;
-  size_t capacity = 0;
   for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
     auto stmt = decl.node.item("body", i);
-    if (stmt.kind() == "Assign" && stmt.array("targets").size() == 1 &&
-        stmt.child("value").kind() == "Call")
-      ++capacity;
-  }
-  structuralStorage.reserve(capacity);
-  for (size_t i = 0; i < decl.node.array("body").size(); ++i) {
-    auto stmt = decl.node.item("body", i);
-    if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule")) {
+    if (stmt.kind() == "FunctionDef" && hasDecorator(stmt, "rule"))
       structuralRules[stmt.string("name")] = stmt;
-      continue;
-    }
-    if (stmt.kind() != "Assign" || stmt.array("targets").size() != 1 ||
-        stmt.item("targets", 0).kind() != "Name")
-      continue;
-    auto call = stmt.child("value");
-    if (!moduleCall(call))
-      continue;
-    auto binding = lookupBinding(call.child("func"));
-    if (!binding || binding->category != BindingCategory::Module)
-      continue;
-    auto primitive = dyn_cast_or_null<ac::ModuleImportOp>(binding->declaration);
-    auto primitiveKind =
-        primitive ? primitive.getPrimitiveKindAttr() : StringAttr();
-    // A typed return selects this behavioral emitter, but it does not turn a
-    // canonical storage leaf into a direct value call. Keep this exception
-    // closed to the registry-authenticated DFF/DFFE declarations.
-    bool trustedStorageLeaf = binding->builtin &&
-                              headers.isTrustedBuiltin(primitive) &&
-                              primitiveKind &&
-                              (primitiveKind.getValue() == "dff" ||
-                               primitiveKind.getValue() == "dffe");
-    if (!decl.system && !trustedStorageLeaf)
-      continue;
-    bool callable = false;
-    if (auto found = local.find(call.child("func").string("id"));
-        found != local.end())
-      callable = llvm::any_of(modules[found->second].sourceCallAttrs,
-                              [](NamedAttribute attr) {
-                                return attr.getName() == "ac.return_form";
-                              });
-    else {
-      auto view = headers.lookupModule(binding->symbol);
-      callable = view && view.hasSourceCallContract();
-    }
-    if (callable)
-      continue;
-    if (decl.system &&
-        (!call.array("args").empty() || !call.array("keywords").empty()))
-      return error() << "structural module declaration requires an empty "
-                        "constructor; bind authored inputs in a rule";
-    DictionaryAttr calleeAttrs = binding->declaration
-                                     ? binding->declaration->getAttrDictionary()
-                                     : DictionaryAttr();
-    if (!calleeAttrs) {
-      auto found = local.find(call.child("func").string("id"));
-      if (found == local.end())
-        return error() << "structural module declaration has no provider";
-      auto attrs = moduleSignatureAttrs(modules[found->second]);
-      if (failed(attrs))
-        return failure();
-      calleeAttrs = *attrs;
-    }
-    if (calleeAttrs.getAs<StringAttr>("ac.root_kind"))
-      return error() << "@system is root-only and cannot be instantiated as "
-                        "a child";
-    auto signature = dyn_cast<FunctionType>(
-        calleeAttrs.getAs<TypeAttr>("function_type").getValue());
-    auto inputNames = calleeAttrs.getAs<ArrayAttr>("input_names");
-    auto outputNames = calleeAttrs.getAs<ArrayAttr>("output_names");
-    if (!signature || !inputNames || !outputNames ||
-        inputNames.size() != signature.getNumInputs() ||
-        outputNames.size() != signature.getNumResults())
-      return error() << "structural module declaration has invalid signature";
-    Instance instance;
-    instance.name = stmt.item("targets", 0).string("id").str();
-    if (nestedRuleBinding(instance.name))
-      return error() << "module instance conflicts with nested Rule";
-    instance.node = stmt;
-    instance.callee = binding->symbol;
-    instance.declaration = binding->declaration;
-    auto parameters = bindParameters(calleeAttrs, call, decl.symbol);
-    auto typeArguments = bindTypeArguments(calleeAttrs, call, decl.symbol);
-    if (failed(parameters) || failed(typeArguments))
-      return failure();
-    instance.parameters = std::move(*parameters);
-    instance.typeArguments = std::move(*typeArguments);
-    auto appendPorts = [&](ArrayAttr names, TypeRange types,
-                           SmallVectorImpl<Port> &ports) -> LogicalResult {
-      for (auto [name, formalType] : llvm::zip(names, types)) {
-        auto type = substitute(formalType, calleeAttrs, instance.parameters,
-                               instance.typeArguments);
-        if (failed(type))
-          return failure();
-        std::optional<ac::detail::ValueKind> kind;
-        bool fixed = false;
-        if (auto formal = dyn_cast<ac::TypeParamType>(formalType)) {
-          for (size_t i = 0; i < call.array("keywords").size(); ++i) {
-            auto keyword = call.item("keywords", i);
-            auto actualName = dyn_cast_or_null<StringAttr>(keyword.get("arg"));
-            if (actualName == formal.getName()) {
-              kind = annotationKind(keyword.child("value"));
-              fixed = fixedAnnotation(keyword.child("value"));
-            }
-          }
-        } else if (!decl.system) {
-          // Canonical DFF/DFFE controls are Boolean; this follows the trusted
-          // leaf declaration rather than inferring from a fixture width.
-          kind = ac::detail::ValueKind::Boolean;
-        }
-        ports.push_back(
-            {cast<StringAttr>(name).getValue().str(), *type, stmt, kind, fixed});
-      }
-      return success();
-    };
-    if (failed(
-            appendPorts(inputNames, signature.getInputs(), instance.inputs)) ||
-        failed(
-            appendPorts(outputNames, signature.getResults(), instance.outputs)))
-      return failure();
-    if (auto domain = calleeAttrs.getAs<DictionaryAttr>("ac.domain_inputs")) {
-      instance.clockInput =
-          domain.getAs<IntegerAttr>("clock").getValue().getZExtValue();
-      instance.resetInput =
-          domain.getAs<IntegerAttr>("reset").getValue().getZExtValue();
-    }
-    SmallVector<Type> resultTypes;
-    for (const Port &output : instance.outputs)
-      resultTypes.push_back(output.type);
-    instance.op = createOp(
-        at, stmt.location(b.getContext(), source.path),
-        ac::InstanceOp::getOperationName(), {}, resultTypes,
-        {at.getNamedAttr("instance_name", at.getStringAttr(instance.name)),
-         at.getNamedAttr("callee", instance.callee),
-         at.getNamedAttr("parameters", at.getArrayAttr(instance.parameters)),
-         at.getNamedAttr("type_arguments",
-                         at.getArrayAttr(instance.typeArguments)),
-         at.getNamedAttr("occurrence",
-                         sourceOccurrence(at, decl.symbol, stmt))});
-    if (!decl.system)
-      for (auto [output, port] :
-           llvm::zip(instance.op->getResults(), instance.outputs)) {
-        remember(output, port.sourceKind);
-        if (port.fixedBits) fixedValues.insert(output);
-      }
-    structuralCallSites.insert(sourceOccurrence(at, decl.symbol, call));
-    structuralStorage.push_back(std::move(instance));
-    structuralInstances[structuralStorage.back().name] =
-        &structuralStorage.back();
   }
+  if (failed(predeclareStructuralInstances(decl, at, structuralStorage,
+                                          structuralInstances)))
+    return failure();
   SmallVector<std::string> computationalRules;
   for (const auto &entry : structuralRules) {
     bool structural = true;
@@ -2861,6 +2870,8 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       return error() << "declaration after module return is unsupported";
     if (stmt.kind() == "FunctionDef") {
       if (stmt.array("decorator_list").empty()) {
+        if (structuralInstances.contains(stmt.string("name")))
+          return error() << "pure helper cannot replace an instance binding";
         if (failed(declareValueHelper(stmt, decl.symbol, values))) return failure();
       } else if (!hasDecorator(stmt, "rule"))
         return error() << "nested callable requires Rule or ordinary typed helper";
@@ -2873,6 +2884,18 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       continue;
     if (stmt.kind() == "Expr") {
       auto call = stmt.child("value");
+      auto bound = moduleInstanceBinding(call, at, decl.symbol, values,
+                                         structuralInstances);
+      if (failed(bound)) return failure();
+      if (*bound) continue;
+      if (moduleCall(call)) {
+        auto results = directModuleResults(call, at, decl.symbol, values,
+                                           structuralInstances);
+        if (failed(results)) return failure();
+        if (!results->empty())
+          return error() << "Module value results require an explicit binding";
+        continue;
+      }
       if (call.kind() == "Call") {
         auto helper = resolveValueHelper(call.child("func"), decl.symbol);
         if (failed(helper)) return failure();
@@ -3004,6 +3027,22 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
                           "binding or instance";
       if (failed(requireNestedRuleDataTarget(name, stmt)))
         return failure();
+      if (moduleCall(call)) {
+        auto contract = callable(call.child("func"));
+        if (failed(contract)) return failure();
+        if (contract->returnShape == ReturnShape::None) {
+          if (values.contains(name) || nestedRuleBinding(name) ||
+              behavioralRules.contains(name))
+            return error() << "Module instance binding requires a fresh ordinary Name";
+          auto results = directModuleResults(call, at, decl.symbol, values,
+                                             structuralInstances);
+          if (failed(results) ||
+              failed(registerDirectModuleHandle(name, stmt, *contract, at,
+                         decl.symbol, structuralStorage, structuralInstances)))
+            return failure();
+          continue;
+        }
+      }
       auto value =
           expression(call, at, decl.symbol, values, structuralInstances);
       if (failed(value))
@@ -3049,6 +3088,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
     if (target.kind() != "Name" || !initializer ||
         values.contains(target.string("id")) ||
         names.contains(target.string("id")) ||
+        structuralInstances.contains(target.string("id")) ||
         structs.contains(target.string("id")) ||
         behavioralRules.contains(target.string("id")))
       return error()
@@ -3220,7 +3260,7 @@ LogicalResult Importer::emitBehavioral(ModuleDecl &decl) {
       return error() << "unbound instance '" << instance.name << "'";
   if (decl.system && returned && returned.child("value"))
     return error() << "@system cannot return a value";
-  if (!returned && !decl.system)
+  if (!returned && !decl.system && decl.returnShape != ReturnShape::None)
     return error() << "behavioral module requires a return";
   SmallVector<Value> outputs;
   auto node = returned ? returned.child("value") : AstNode();

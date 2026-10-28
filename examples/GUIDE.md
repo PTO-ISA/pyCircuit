@@ -11,23 +11,28 @@ outside the current example catalog.
 | --- | --- |
 | [hello_counter](hello_counter/README.md) | A small System, persistent state and a nested Rule. |
 | [multi_outputs](multi_outputs/README.md) | Direct Module calls; Struct connections and independent tuple results. |
-| [sibling_calls](sibling_calls/README.md) | Existing Module references and callable order propagated between sibling transactions. |
+| [sibling_calls](sibling_calls/README.md) | Existing Module references and independent callbacks reading committed state. |
 | [sibling_atomic](sibling_atomic/README.md) | A late sibling guard holds the whole transaction while the reader continues. |
 | [sibling_aliases](sibling_aliases/README.md) | Aliases and reference passthrough share state; separate allocations stay independent. |
-| [sibling_transitive](sibling_transitive/README.md) | Transitive callable order through an uncalled middle Rule. |
+| [sibling_transitive](sibling_transitive/README.md) | Guarded Method results and compiler-propagated output availability. |
 | [struct_transform](struct_transform/README.md) | Structured payloads, combinational locals and registered state. |
 | [enum_payload_pipeline](enum_payload_pipeline/README.md) | Nominal Enum fields, structured updates and saved value snapshots. |
-| [queue_rule_pipeline](queue_rule_pipeline/README.md) | Typed cross-Module Rule calls, atomic Queue transfer, ordinary `for`, and local `after` ordering. |
+| [queue_rule_pipeline](queue_rule_pipeline/README.md) | Typed cross-Module Method calls, atomic Queue transfer, ordinary `for`, and committed snapshots. |
 | [table_rule](table_rule/README.md) | Persistent Table entries and nested calls in one transaction. |
 | [calculator](calculator/README.md) | A complete control function with sequential local calculations and state updates. |
 
-Rule definitions may be source-global like ordinary functions, or nested to
-capture Module locals. Definition location and Module ownership are separate.
-Use separate Rules for independent functions. A Rule's statements and nested
-calls form one transaction. Register Rules in their Module; use `after` on
-callable declarations when their callers require ordered visibility. The order
-propagates through calls to the same actual instance. Plain source order alone
-does not establish that relationship.
+A directly nested Rule is one autonomous computation per Module or System
+instance. Its declaration activates it; do not add a trailing call. At Module
+wiring, its bare name supplies its scalar, Struct or tuple results. Captures
+supply inputs; any Rule formal requires an explicit default binding. Source-global
+Rule templates retain explicit actual calls, such as `advance(phase)` in the
+benches.
+
+Use separate Rules for independent functions: each reads committed state.
+Sequential assignments and Method calls within one Rule share its candidate
+state and atomic commit. Put dependent operations in that one callback, as in
+ROB. Callable component operations use Methods, including zero-argument reads;
+local autonomous Rules are not callable. `after` ordering is retired.
 
 Each static Module call creates a distinct child instance. Bind the result once
 and reuse it to fan out existing outputs. Pass fields that travel together as one
@@ -40,7 +45,7 @@ ordinary Module expressions remain combinational values.
 
 | Example | Distinct design purpose |
 | --- | --- |
-| [rob](rob/README.md) | Ordered Rules, state visibility, retirement and flush. |
+| [rob](rob/README.md) | One atomic callback, sequential Methods, retirement and flush. |
 | [issue_queue_2picker](issue_queue_2picker/README.md) | Two dependent selections and atomic queue-state transitions. |
 | [digital_filter](digital_filter/README.md) | FIR history and a finite-width datapath. |
 | [bf16_fmac](bf16_fmac/README.md) | Four registered datapath stages. Its README defines the supported arithmetic; this is not a complete IEEE FMA. |
@@ -66,9 +71,9 @@ stress belong in API tests. Queue protocol recipes may share a tutorial, while
 retaining distinct atomicity and backpressure regressions in their test owners.
 Do not combine all variants into one giant demonstration module.
 
-There is no Signal declaration/set/get API. Use typed Module and Rule values for
-connections, compiler-propagated Rule output availability, and state or Queue
-when a value must survive across cycles.
+There is no Signal declaration/set/get API. Use typed Module and autonomous Rule
+results for connections, compiler-propagated Rule output availability, and state
+or Queue when a value must survive across cycles.
 
 Prefer a short System scenario and generated C++/RTL execution. Add handwritten
 host or RTL tests only for a specific boundary the System cannot exercise.

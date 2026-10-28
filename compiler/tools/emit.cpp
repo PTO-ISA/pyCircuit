@@ -1,3 +1,4 @@
+#include "Dialect/ACIR/HardwareSourceChecks.h"
 // Emit source-owned modules from verified final ACIR. Publication is
 // transactional in the Python driver; this transport writes nothing before
 // complete success.
@@ -99,15 +100,19 @@ int main(int argc, char **argv) {
   auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
   auto root =
       cast<acir::ac::ModuleOp>(analysis.lookupDefinition(callee.getValue()));
+  auto logicalEntry = system.getEntry();
+  if (auto boundary = system->getAttrOfType<DictionaryAttr>("ac.entry_boundary"))
+    logicalEntry = boundary.getAs<DictionaryAttr>("logical_entry");
+  auto logicalCallee = logicalEntry.getAs<FlatSymbolRefAttr>("callee");
   llvm::json::Array arguments;
   for (StringRef kind : {StringRef("parameters"), StringRef("type_arguments")})
-    if (auto values = system.getEntry().getAs<ArrayAttr>(kind))
+    if (auto values = logicalEntry.getAs<ArrayAttr>(kind))
       for (Attribute value : values)
         arguments.emplace_back(llvm::json::Object{
             {"kind", kind}, {"value", attributeText(value)}});
   llvm::json::Object result{
       {"entry", llvm::json::Object{{"definition",
-                                    "@\"" + callee.getValue().str() + "\""},
+                                    "@\"" + logicalCallee.getValue().str() + "\""},
                                    {"arguments", std::move(arguments)}}},
       {"entry_source", sourceOwner(root.getSourceOwner())}};
   auto resetPolicy = acir::ac::getHardwareResetSemantics(*package);

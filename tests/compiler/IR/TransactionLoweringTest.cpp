@@ -1,6 +1,7 @@
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
+#include "Dialect/ACIR/HardwareValueAvailability.h"
 #include "Dialect/ACIR/SourceTransactionSummary.h"
 #include "Transforms/LowerTransactions.h"
 #include "mlir/AsmParser/AsmParser.h"
@@ -359,6 +360,48 @@ protected:
     state.addAttribute("occurrence", occurrence(lexical.getSymName(), index));
     return mlir::cast<SourceMethodCallOp>(builder.create(state));
   }
+  // Every hierarchy hop crosses its immediate child's public Method boundary.
+  // The wrapper keeps the provider's scalar contract and adds one real frame.
+  SourceMethodOp forwardingMethod(ModuleOp lexical, SourceMethodOp contract,
+                                  ModuleOp child, llvm::StringRef receiver,
+                                  llvm::StringRef name, unsigned index) {
+    auto *copy = contract->clone();
+    auto wrapper = mlir::cast<SourceMethodOp>(copy);
+    wrapper->setAttr("sym_name", builder.getStringAttr(name));
+    wrapper->setAttr("occurrence", occurrence(lexical.getSymName(), index));
+    llvm::SmallVector<mlir::Attribute> parameters;
+    for (auto raw : wrapper->getAttrOfType<mlir::ArrayAttr>("ac.parameters")) {
+      mlir::NamedAttrList fields(mlir::cast<mlir::DictionaryAttr>(raw));
+      fields.set("origin", occurrence(lexical.getSymName(), index));
+      parameters.push_back(fields.getDictionary(&context));
+    }
+    wrapper->setAttr("ac.parameters", builder.getArrayAttr(parameters));
+    auto *yes = contract.getCaptures()[0].getDefiningOp()->clone();
+    auto &body = lexical.getBody().front();
+    auto where = body.empty() || !body.back().hasTrait<mlir::OpTrait::IsTerminator>()
+                     ? body.end() : std::prev(body.end());
+    body.getOperations().insert(where, yes);
+    wrapper->setOperands(yes->getResults());
+    for (auto &region : wrapper->getRegions()) {
+      region.getBlocks().clear();
+      auto *local = new mlir::Block;
+      region.push_back(local);
+      for (auto type : wrapper.getFunctionType().getInputs())
+        local->addArgument(type, wrapper.getLoc());
+      auto path = local->addArgument(yes->getResult(0).getType(), wrapper.getLoc());
+      builder.setInsertionPointToEnd(local);
+      if (&region == &wrapper.getGuard())
+        yield(path, wrapper.getLoc());
+      else {
+        auto nested = call(path, local->getArguments().drop_back(), lexical,
+                           child.getSymName(), contract.getSymName(), receiver,
+                           wrapper.getFunctionType().getResults(), index + 1);
+        yield(nested->getResults(), wrapper.getLoc());
+      }
+    }
+    body.getOperations().insert(where, copy);
+    return wrapper;
+  }
   // A provider seed is a lexical ordinary value, deliberately different from
   // the caller's delta. The same definition receives different seeds at its
   // two occurrences. No test oracle depends on generated port names/order.
@@ -438,6 +481,7 @@ protected:
       }
     }
     relayBody.push_back(methodCopy);
+    forwardingMethod(relay, peek, provider, "counter", "peek", 20);
     builder.setInsertionPointToEnd(&relayBody);
     yield(counter->getResults(), relay.getLoc());
 
@@ -488,11 +532,7 @@ protected:
         } else {
           auto secondCall = call(path, firstCall->getResults(), root, "Relay",
                                  "forward", "left", {byte}, 5);
-          auto old = call(path, {}, root, "Owner", "peek", "left", {byte}, 6);
-          old->setAttr(
-              "instance_path",
-              builder.getArrayAttr({builder.getStringAttr("left"),
-                                    builder.getStringAttr("counter")}));
+          auto old = call(path, {}, root, "Relay", "peek", "left", {byte}, 6);
           yield({firstCall->getResult(0), secondCall->getResult(0),
                  old->getResult(0)},
                 root.getLoc());
@@ -666,6 +706,13 @@ protected:
         auto selected = enabled ? merge.getValues()[0] : merge.getBase();
         return evaluate(file, selected, scope, seed) & mask(value.getType());
       }
+      if (auto required = mlir::dyn_cast<ValueRequireOp>(op)) {
+        // This two-state oracle evaluates the requirement, never its payload:
+        // an unreached use succeeds; a reached use requires availability.
+        return evaluate(file, required.getPath(), scope, seed)
+                   ? evaluate(file, required.getAvailability(), scope, seed)
+                   : 1;
+      }
       if (auto binary = mlir::dyn_cast<BitsBinaryOp>(op)) {
         auto left = evaluate(file, binary->getOperand(0), scope, seed);
         auto right = evaluate(file, binary->getOperand(1), scope, seed);
@@ -718,8 +765,14 @@ protected:
             next, seed);
       }
     }
-    ADD_FAILURE() << "unsupported oracle input "
-                  << print(value.getParentBlock()->getParentOp());
+    if (auto *operation = value.getDefiningOp())
+      ADD_FAILURE() << "unsupported oracle operation "
+                    << operation->getName().getStringRef().str()
+                    << " result " << mlir::cast<mlir::OpResult>(value).getResultNumber()
+                    << ": " << print(operation);
+    else
+      ADD_FAILURE() << "unsupported oracle block argument "
+                    << mlir::cast<mlir::BlockArgument>(value).getArgNumber();
     return 0;
   }
   mlir::DictionaryAttr occurrence(llvm::StringRef ownerName, unsigned index) {
@@ -858,6 +911,75 @@ protected:
       builder.setInsertionPointToEnd(arm);
       yield(value, run.getLoc());
     }
+    return split;
+  }
+  // Shape-only variants share the nominal fixture's source provenance. Widen
+  // repeated siblings independently of wrapping depth, then optionally put the
+  // complete record in a Table. These are IR conformance fixtures, not source
+  // authoring examples.
+  SourceBranchOp addBranchShape(mlir::ModuleOp file, unsigned siblings,
+                               unsigned wrappers, bool table) {
+    auto split = addNominalBranch(file);
+    auto *packet = mlir::SymbolTable::lookupSymbolIn(file, "Packet");
+    auto fields = packet->getAttrOfType<mlir::ArrayAttr>("fields");
+    auto inner = mlir::cast<mlir::DictionaryAttr>(fields[0])
+                     .getAs<mlir::TypeAttr>("type");
+    llvm::SmallVector<mlir::Attribute> wideFields;
+    for (unsigned i = 0; i < siblings; ++i)
+      wideFields.push_back(builder.getDictionaryAttr(
+          {builder.getNamedAttr("name", builder.getStringAttr(
+                                            "lane" + std::to_string(i))),
+           builder.getNamedAttr("type", inner)}));
+    packet->setAttr("fields", builder.getArrayAttr(wideFields));
+    std::array<mlir::Value, 2> values;
+    for (unsigned arm = 0; arm < 2; ++arm) {
+      values[arm] = split->getRegion(arm).front().getTerminator()->getOperand(0);
+      auto *create = values[arm].getDefiningOp();
+      auto first = create->getOperand(0), second = create->getOperand(1);
+      llvm::SmallVector<mlir::Value> operands;
+      for (unsigned i = 0; i < siblings; ++i)
+        operands.push_back(i % 2 ? second : first);
+      create->setOperands(operands);
+    }
+    auto make = [&](llvm::StringRef name, mlir::Value input, mlir::Type type) {
+      builder.setInsertionPoint(split);
+      mlir::OperationState state(split.getLoc(), name);
+      state.addOperands(input);
+      state.addTypes(type);
+      return builder.create(state)->getResult(0);
+    };
+    for (unsigned depth = 0; depth < wrappers; ++depth) {
+      auto name = "BranchLevel" + std::to_string(depth);
+      builder.setInsertionPointToStart(file.getBody());
+      mlir::OperationState declaration(split.getLoc(),
+                                       StructOp::getOperationName());
+      declaration.addAttribute("sym_name", builder.getStringAttr(name));
+      declaration.addAttribute(
+          "fields",
+          builder.getArrayAttr({builder.getDictionaryAttr(
+              {builder.getNamedAttr("name", builder.getStringAttr("child")),
+               builder.getNamedAttr(
+                   "type", mlir::TypeAttr::get(values[0].getType()))})}));
+      builder.create(declaration);
+      auto type = StructType::get(&context, builder.getStringAttr(name));
+      for (auto &value : values)
+        value = make(StructCreateOp::getOperationName(), value, type);
+    }
+    if (table) {
+      auto width = mlir::cast<BitsType>(
+                       named<SourceTransactionOp>(file, "run")
+                           .getBody().front().getArgument(1).getType())
+                       .getWidth();
+      auto type = TableType::get(&context, builder.getArrayAttr({width}),
+                                 values[0].getType());
+      for (auto &value : values) {
+        value = make(TableSplatOp::getOperationName(), value, type);
+        value.getDefiningOp()->setAttr("shape", type.getShape());
+      }
+    }
+    split.getResult(0).setType(values[0].getType());
+    for (unsigned arm = 0; arm < 2; ++arm)
+      split->getRegion(arm).front().getTerminator()->setOperand(0, values[arm]);
     return split;
   }
   SourceBranchOp addBranchScenario(mlir::ModuleOp file) {
@@ -1038,7 +1160,7 @@ TEST_F(TransactionLoweringTest,
 TEST_F(TransactionLoweringTest,
        NominalBranchResultsHaveCanonicalOrderedGraphAndIndependentSourceProof) {
   for (bool directEnum : {false, true}) {
-    for (unsigned mutation = 0; mutation != 15; ++mutation) {
+    for (unsigned mutation = 0; mutation != 17; ++mutation) {
       SCOPED_TRACE(directEnum);
       SCOPED_TRACE(mutation);
       auto file = parse();
@@ -1073,7 +1195,7 @@ TEST_F(TransactionLoweringTest,
       auto &transaction = candidate->transactions[index];
       ASSERT_EQ(transaction.branchResults.size(), 1u);
       auto &record = transaction.branchResults[0];
-      ASSERT_EQ(record.generated.size(), directEnum ? 4u : 25u);
+      ASSERT_EQ(record.generated.size(), 1u);
       ASSERT_EQ(record.value, record.generated.back()->getResult(0));
       ASSERT_EQ(record.value.getType(), split.getResult(0).getType());
       for (auto *op : record.generated) {
@@ -1085,93 +1207,73 @@ TEST_F(TransactionLoweringTest,
         return acir::detail::verifyTransactionMaterialization(
             *prepared, *candidate, initialProof);
       }))) << diagnostics;
-      auto *last = record.generated.back();
-      auto enumFrom = llvm::find_if(record.generated, [](auto *op) {
-        return mlir::isa<EnumFromBitsOp>(op);
-      });
-      ASSERT_NE(enumFrom, record.generated.end());
+      auto *last = record.generated.front();
+      auto merge = mlir::dyn_cast<ValueMergeOp>(last);
+      ASSERT_TRUE(merge);
+      ASSERT_EQ(merge.getPaths(),
+                builder.getArrayAttr({builder.getArrayAttr({})}));
+      ASSERT_EQ(merge->getAttr("operandSegmentSizes"),
+                builder.getDenseI32ArrayAttr({1, 1, 1}));
+      ASSERT_EQ(merge.getGuards().size(), 1u);
+      ASSERT_EQ(merge.getValues().size(), 1u);
+      ASSERT_TRUE(merge.getEn().use_empty());
+      ASSERT_EQ(merge.getEn().getType(), merge.getGuards()[0].getType());
+      ASSERT_NE(merge.getBase(), merge.getValues()[0]);
       if (mutation == 0) {
         unchanged(*file, before);
         continue;
       }
       if (mutation == 1)
-        record.generated[0]->setAttr("forged", builder.getUnitAttr());
-      if (mutation == 2)
-        std::swap(record.generated[0], record.generated[1]);
+        last->setAttr("forged", builder.getUnitAttr());
+      if (mutation == 2) {
+        auto base = last->getOperand(0);
+        last->setOperand(0, last->getOperand(2));
+        last->setOperand(2, base);
+      }
       if (mutation == 3)
-        record.generated[1] = record.generated[0];
+        record.generated.push_back(
+            last); // duplicate identity, not a second proof
       if (mutation == 4)
-        record.generated.pop_back();
+        record.generated.clear();
       if (mutation == 5)
-        record.value = transaction.rule.getBody().front().getArgument(0);
+        record.value = merge.getEn(); // wrong result ordinal
       if (mutation == 6)
-        record.value = split.getResult(0); // live only in original package.
+        record.value =
+            split.getResult(0); // original-package SSA is not candidate SSA
       if (mutation == 7) {
-        builder.setInsertionPoint(last);
+        builder.setInsertionPointAfter(last);
         mlir::OperationState dead(last->getLoc(),
                                   BitsBinaryOp::getOperationName());
-        dead.addOperands(
-            {(*enumFrom)->getResult(1), (*enumFrom)->getResult(1)});
-        dead.addTypes((*enumFrom)->getResult(1).getType());
+        dead.addOperands({merge.getEn(), merge.getEn()});
+        dead.addTypes(merge.getEn().getType());
         dead.addAttribute("opcode", builder.getStringAttr("and"));
-        builder.create(
-            dead); // unused consumer still violates membership isolation.
+        builder.create(dead); // even a dead en consumer violates the contract
       }
-      if (mutation == 8) {
-        auto *erased = record.generated.back();
-        record.value = erased->getResult(0);
-        erased->erase(); // stale locator and final value must be rejected
-                         // before dereference.
-      }
-      if (mutation == 9) {
-        auto selected = llvm::find_if(record.generated, [](auto *op) {
-          return mlir::isa<BitsSelectOp>(op);
-        });
-        ASSERT_NE(selected, record.generated.end());
-        (*selected)->setOperand(0, (*enumFrom)->getResult(1));
-      }
-      if (mutation == 10) {
-        if (directEnum)
-          (*enumFrom)->getResult(1).setType(
-              (*enumFrom)->getOperand(0).getType());
-        else
-          record.generated[0]->setAttr("field", builder.getStringAttr("right"));
-      }
+      if (mutation == 8)
+        last->erase(); // stale locators must be rejected before dereference
+      if (mutation == 9)
+        last->setOperand(1, transaction.rule.getBody().front().getArgument(1));
+      if (mutation == 10)
+        last->setAttr("paths", builder.getArrayAttr({builder.getArrayAttr(
+                                   {builder.getStringAttr("left")})}));
       if (mutation == 11)
-        record.generated[0]->setLoc(
-            mlir::FileLineColLoc::get(&context, "forged.py", 9, 1));
-      if (mutation == 12) {
-        auto conversion = llvm::find_if(record.generated, [](auto *op) {
-          return mlir::isa<EnumToBitsOp>(op);
-        });
-        ASSERT_NE(conversion, record.generated.end());
-        // Same width, independently authored provenance: the branch owns the
-        // carrier type.
-        (*conversion)
-            ->getResult(0)
-            .setType(split->getParentOfType<SourceTransactionOp>()
-                         .getBody()
-                         .front()
-                         .getArgument(1)
-                         .getType());
+        last->setLoc(mlir::FileLineColLoc::get(&context, "forged.py", 9, 1));
+      if (mutation == 12)
+        last->setAttr("operandSegmentSizes",
+                      builder.getDenseI32ArrayAttr({1, 0, 2}));
+      if (mutation == 13)
+        last->getResult(0).setType(merge.getEn().getType());
+      if (mutation == 14)
+        last->setOperand(2, last->getOperand(0));
+      if (mutation == 15) {
+        auto *extra = last->clone();
+        last->getBlock()->getOperations().insert(last->getIterator(), extra);
+        record.generated.push_back(extra);
       }
-      if (mutation == 13) {
-        auto selected = llvm::find_if(record.generated, [](auto *op) {
-          return mlir::isa<BitsSelectOp>(op);
-        });
-        ASSERT_NE(selected, record.generated.end());
-        (*selected)->getResult(0).setType((*enumFrom)->getResult(1).getType());
-      }
-      if (mutation == 14) {
-        if (directEnum) {
-          auto *conversion = record.generated[0];
-          conversion->setOperand(0, record.generated[1]->getOperand(0));
-        } else {
-          auto left = last->getOperand(0);
-          last->setOperand(0, last->getOperand(1));
-          last->setOperand(1, left);
-        }
-      }
+      if (mutation == 16)
+        last->moveBefore(transaction.rule);
+      auto candidateBefore = identities(*candidate->module);
+      auto candidateText = print(candidate->module->getOperation());
       detail::SourceCheckBudget proofBudget(limits);
       EXPECT_TRUE(mlir::failed(capture([&] {
         return acir::detail::verifyTransactionMaterialization(
@@ -1179,8 +1281,467 @@ TEST_F(TransactionLoweringTest,
       })));
       EXPECT_FALSE(diagnostics.empty());
       unchanged(*file, before);
+      unchanged(*candidate->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(candidate->module->getOperation()));
     }
   }
+}
+
+TEST_F(TransactionLoweringTest,
+       SourceReplayBranchShapesRetainIndependentProofAndFailureAtomicity) {
+  // Scalar and Enum roots, broad repeated nominal siblings, Table-of-Struct,
+  // and a deeper legal chain exercise different reconstruction stack shapes.
+  for (unsigned shape = 0; shape < 5; ++shape) {
+    SCOPED_TRACE(shape);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto split = shape == 0   ? addBranchScenario(*file)
+                 : shape == 1 ? addNominalBranch(*file, true)
+                              : addBranchShape(*file, shape == 2 ? 16 : 2,
+                                               shape == 4 ? 12 : 0, shape == 3);
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    SourceTransactionStateAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid());
+    HardwareSourceCheckLimits limits;
+    detail::SourceCheckBudget preparationBudget(limits);
+    auto prepared = capture([&] {
+      return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                      preparationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+    detail::SourceCheckBudget materializationBudget(limits);
+    auto candidate = capture([&] {
+      return acir::detail::materializeTransactionLowering(
+          *prepared, materializationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(candidate)) << diagnostics;
+    auto selected =
+        llvm::find_if(prepared->transactions, [&](const auto &entry) {
+          return entry.plan->transaction ==
+                 split->getParentOfType<SourceTransactionOp>();
+        });
+    ASSERT_NE(selected, prepared->transactions.end());
+    auto &transaction = candidate->transactions[std::distance(
+        prepared->transactions.begin(), selected)];
+    ASSERT_EQ(transaction.branchResults.size(), 1u);
+    auto &record = transaction.branchResults[0];
+    ASSERT_EQ(record.value.getType(), split.getResult(0).getType());
+    auto originalBefore = identities(*file);
+    auto originalText = print(file->getOperation());
+    detail::SourceCheckBudget initialProof(limits);
+    ASSERT_TRUE(mlir::succeeded(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *candidate, initialProof);
+    }))) << diagnostics;
+    auto selectedLeaf = llvm::find_if(record.generated, [](auto *op) {
+      return mlir::isa<BitsSelectOp, ValueMergeOp>(op);
+    });
+    ASSERT_NE(selectedLeaf, record.generated.end());
+    auto *leaf = *selectedLeaf;
+    unsigned trueIndex = mlir::isa<ValueMergeOp>(leaf) ? 2 : 1;
+    unsigned falseIndex = mlir::isa<ValueMergeOp>(leaf) ? 0 : 2;
+    if (shape != 0) {
+      ASSERT_EQ(record.generated.size(), 1u);
+      ASSERT_TRUE(mlir::isa<ValueMergeOp>(leaf));
+    }
+    auto trueOperand = leaf->getOperand(trueIndex);
+    ASSERT_NE(trueOperand, leaf->getOperand(falseIndex));
+    // Each mutation starts from the same successfully authenticated candidate.
+    for (unsigned mutation = 0; mutation < 3; ++mutation) {
+      SCOPED_TRACE(mutation);
+      auto inventory = record.generated;
+      if (mutation == 0)
+        leaf->setAttr("forged", builder.getUnitAttr());
+      else if (mutation == 1)
+        leaf->setOperand(trueIndex, leaf->getOperand(falseIndex));
+      else
+        record.generated.pop_back();
+      auto candidateBefore = identities(*candidate->module);
+      auto candidateText = print(candidate->module->getOperation());
+      detail::SourceCheckBudget proofBudget(limits);
+      EXPECT_TRUE(mlir::failed(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *candidate, proofBudget);
+      })));
+      EXPECT_FALSE(diagnostics.empty());
+      unchanged(*file, originalBefore);
+      EXPECT_EQ(originalText, print(file->getOperation()));
+      unchanged(*candidate->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(candidate->module->getOperation()));
+      leaf->removeAttr("forged");
+      leaf->setOperand(trueIndex, trueOperand);
+      record.generated = inventory;
+    }
+    detail::SourceCheckBudget restoredProof(limits);
+    EXPECT_TRUE(mlir::succeeded(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *candidate, restoredProof);
+    }))) << diagnostics;
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       TableContainingNominalsKeepExpandedBranchProofAndRollback) {
+  // Both shapes use the existing rank-one Table-field admission. In particular,
+  // a closed outer shape must not hide a Table below its Struct element.
+  for (bool outerTable : {false, true}) {
+    SCOPED_TRACE(outerTable);
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto split = addBranchShape(*file, 2, 0, outerTable);
+    auto *inner = mlir::SymbolTable::lookupSymbolIn(*file, "Inner");
+    auto fields = inner->getAttrOfType<mlir::ArrayAttr>("fields");
+    auto dataField = mlir::cast<mlir::DictionaryAttr>(fields[0]);
+    auto byte = dataField.getAs<mlir::TypeAttr>("type").getValue();
+    auto shape = builder.getArrayAttr({mlir::cast<BitsType>(byte).getWidth()});
+    auto table = TableType::get(&context, shape, byte);
+    mlir::NamedAttrList changed(dataField);
+    changed.set("type", mlir::TypeAttr::get(table));
+    inner->setAttr("fields", builder.getArrayAttr(
+        {changed.getDictionary(&context), fields[1]}));
+    llvm::SmallVector<StructCreateOp> creates;
+    file->walk([&](StructCreateOp create) {
+      if (create.getResult().getType() ==
+          StructType::get(&context, builder.getStringAttr("Inner")))
+        creates.push_back(create);
+    });
+    ASSERT_FALSE(creates.empty());
+    for (auto create : creates) {
+      builder.setInsertionPoint(create);
+      mlir::OperationState splat(create.getLoc(), TableSplatOp::getOperationName());
+      splat.addOperands(create->getOperand(0));
+      splat.addTypes(table);
+      splat.addAttribute("shape", shape);
+      create->setOperand(0, builder.create(splat)->getResult(0));
+    }
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    auto sourceBefore = identities(*file);
+    auto sourceText = print(file->getOperation());
+    SourceTransactionStateAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid());
+    HardwareSourceCheckLimits limits;
+    detail::SourceCheckBudget preparationBudget(limits);
+    auto prepared = capture([&] {
+      return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                     preparationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+    detail::SourceCheckBudget materializationBudget(limits);
+    auto candidate = capture([&] {
+      return acir::detail::materializeTransactionLowering(
+          *prepared, materializationBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(candidate)) << diagnostics;
+    auto selected = llvm::find_if(prepared->transactions, [&](const auto &entry) {
+      return entry.plan->transaction ==
+             split->getParentOfType<SourceTransactionOp>();
+    });
+    ASSERT_NE(selected, prepared->transactions.end());
+    auto &transaction = candidate->transactions[
+        std::distance(prepared->transactions.begin(), selected)];
+    ASSERT_EQ(transaction.branchResults.size(), 1u);
+    auto &record = transaction.branchResults[0];
+    EXPECT_GT(record.generated.size(), 1u);
+    EXPECT_TRUE(llvm::none_of(record.generated, [](auto *operation) {
+      return mlir::isa<ValueMergeOp>(operation);
+    }));
+    EXPECT_TRUE(llvm::any_of(record.generated, [](auto *operation) {
+      return mlir::isa<BitsSelectOp>(operation);
+    }));
+    detail::SourceCheckBudget proofBudget(limits);
+    ASSERT_TRUE(mlir::succeeded(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *candidate, proofBudget);
+    }))) << diagnostics;
+    record.generated.front()->setAttr("forged", builder.getUnitAttr());
+    auto candidateBefore = identities(*candidate->module);
+    auto candidateText = print(candidate->module->getOperation());
+    detail::SourceCheckBudget forgedBudget(limits);
+    EXPECT_TRUE(mlir::failed(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *candidate, forgedBudget);
+    })));
+    unchanged(*file, sourceBefore);
+    EXPECT_EQ(sourceText, print(file->getOperation()));
+    unchanged(*candidate->module, candidateBefore);
+    EXPECT_EQ(candidateText, print(candidate->module->getOperation()));
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       SelectedPartialMapMergeAuthenticatesGeneratedCompanionGet) {
+  for (unsigned mutation = 0; mutation < 10; ++mutation) {
+    SCOPED_TRACE(mutation);
+    const bool uniformZero = mutation == 6 || mutation == 7;
+    const bool sampledTable = mutation >= 8;
+    auto file = parse();
+    ASSERT_TRUE(file);
+    auto definition = owner(*file);
+    auto &body = definition.getBody().front();
+    auto run = named<SourceTransactionOp>(*file, "run");
+    auto bit = body.getArgument(1).getType();
+    auto byte = body.getArgument(0).getType();
+    auto exemplar = *body.getOps<BitsConstantOp>().begin();
+    auto literal = [&](unsigned value) {
+      mlir::NamedAttrList tree(exemplar.getValue().getTree());
+      tree.set("value", builder.getDictionaryAttr({
+          builder.getNamedAttr("kind", builder.getStringAttr("integer")),
+          builder.getNamedAttr("value", MathIntAttr::get(&context,
+              llvm::APSInt(llvm::APInt(64, value), true)))}));
+      return StaticExprAttr::get(&context, tree.getDictionary(&context));
+    };
+    auto make = [&](llvm::StringRef name, mlir::ValueRange inputs,
+                    mlir::TypeRange outputs,
+                    llvm::ArrayRef<mlir::NamedAttribute> attrs = {}) {
+      mlir::OperationState state(run.getLoc(), name);
+      state.addOperands(inputs);
+      state.addTypes(outputs);
+      state.addAttributes(attrs);
+      return builder.create(state);
+    };
+    auto number = [&](unsigned value, mlir::Type type) {
+      return make(BitsConstantOp::getOperationName(), {}, {type},
+          {builder.getNamedAttr("value", literal(value))})->getResult(0);
+    };
+    // Keep the body effect path proven true. The separate runtime guard makes
+    // run's returned payload partial through normal compiler-owned admission.
+    builder.setInsertionPoint(run);
+    mlir::Value sourceGuard = uniformZero ? mlir::Value(number(0, bit))
+                                        : mlir::Value(body.getArgument(2));
+    run->insertOperands(run->getNumOperands(), sourceGuard);
+    for (auto &region : run->getRegions()) {
+      auto gate = region.front().addArgument(bit, run.getLoc());
+      if (&region == &run.getGuard())
+        region.front().getTerminator()->setOperand(0, gate);
+    }
+    definition->setAttr("ac.result_availability",
+                        builder.getStrArrayAttr({"compiler", "compiler",
+                                                 "compiler", "compiler"}));
+    builder.setInsertionPoint(body.getTerminator());
+    auto shape = builder.getArrayAttr({literal(2)});
+    auto table = TableType::get(&context, shape, byte);
+    auto seven = number(7, byte), nine = number(9, byte);
+    mlir::Value base = make(TableCreateOp::getOperationName(), {seven, nine},
+                            {table})->getResult(0);
+    mlir::OperationState mapState(run.getLoc(), TableMapOp::getOperationName());
+    mapState.addOperands({base, run->getResult(0), body.getArgument(2)});
+    mapState.addTypes(table);
+    mapState.addAttribute("shape", shape);
+    mapState.addAttribute("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 2}));
+    mapState.addRegion();
+    auto map = mlir::cast<TableMapOp>(builder.create(mapState));
+    auto *row = new mlir::Block;
+    map.getBody().push_back(row);
+    for (auto type : {bit, byte, byte, bit})
+      row->addArgument(type, run.getLoc());
+    builder.setInsertionPointToEnd(row);
+    auto zero = number(0, bit);
+    auto firstRow = make(BitsCompareOp::getOperationName(),
+        {row->getArgument(0), zero}, {bit},
+        {builder.getNamedAttr("predicate", builder.getStringAttr("eq"))})->getResult(0);
+    auto selected = make(BitsBinaryOp::getOperationName(),
+        {firstRow, row->getArgument(3)}, {bit},
+        {builder.getNamedAttr("opcode", builder.getStringAttr("and"))})->getResult(0);
+    auto value = make(BitsSelectOp::getOperationName(),
+        {selected, row->getArgument(2), row->getArgument(1)}, {byte})->getResult(0);
+    yield(value, run.getLoc());
+    builder.setInsertionPoint(body.getTerminator());
+    mlir::Value candidateValue = map.getResult(0);
+    mlir::Type mergedType = table;
+    mlir::Value mergeGuard = exemplar.getResult();
+    if (uniformZero) {
+      // A real lowered Rule with known-false guard supplies U=0. Wrap it in
+      // nested Tables so confusing proven zero with not-proven cannot fall
+      // back to the Table-free leaf route and silently pass this control.
+      auto nestedRecord = StructType::get(&context, builder.getStringAttr("UniformZero"));
+      {
+        mlir::OpBuilder::InsertionGuard insertion(builder);
+        builder.setInsertionPointToStart(file->getBody());
+        make(StructOp::getOperationName(), {}, {},
+            {builder.getNamedAttr("sym_name", builder.getStringAttr("UniformZero")),
+             builder.getNamedAttr("fields", builder.getArrayAttr({builder.getDictionaryAttr(
+                 {builder.getNamedAttr("name", builder.getStringAttr("t")),
+                  builder.getNamedAttr("type", mlir::TypeAttr::get(table))})}))});
+      }
+      auto inside = make(TableSplatOp::getOperationName(), {run->getResult(0)},
+          {table}, {builder.getNamedAttr("shape", shape)})->getResult(0);
+      auto record = make(StructCreateOp::getOperationName(), {inside},
+                         {nestedRecord})->getResult(0);
+      mergedType = TableType::get(&context, shape, nestedRecord);
+      candidateValue = make(TableSplatOp::getOperationName(), {record},
+          {mergedType}, {builder.getNamedAttr("shape", shape)})->getResult(0);
+      base = candidateValue;
+      mergeGuard = body.getArgument(2);
+    }
+    if (sampledTable) {
+      // Return the complete total Table from a genuinely guarded transaction.
+      // Its scalar fire applies to every row even though its body is total.
+      mlir::OperationState state(run.getLoc(), SourceTransactionOp::getOperationName());
+      state.addOperands({body.getArgument(1), body.getArgument(2),
+                         exemplar.getResult(), body.getArgument(2)});
+      state.addTypes(table);
+      state.addAttribute("name", builder.getStringAttr("tableProducer"));
+      state.addAttribute("declaration", occurrence("Owner", 28));
+      state.addAttribute("occurrence", occurrence("Owner", 29));
+      state.addAttribute("ac.guard_location", span(28));
+      state.addRegion();
+      state.addRegion();
+      auto producer = mlir::cast<SourceTransactionOp>(builder.create(state));
+      for (unsigned region = 0; region < 2; ++region) {
+        auto *block = new mlir::Block;
+        producer->getRegion(region).push_back(block);
+        block->addArgument(bit, run.getLoc());
+        auto gate = block->addArgument(bit, run.getLoc());
+        builder.setInsertionPointToEnd(block);
+        if (region == 0) {
+          yield(gate, run.getLoc());
+        } else {
+          auto total = make(TableCreateOp::getOperationName(),
+                            {number(7, byte), number(9, byte)}, {table});
+          yield(total->getResults(), run.getLoc());
+        }
+      }
+      builder.setInsertionPoint(body.getTerminator());
+      // This base is deliberately not row-uniform. A whole-arm fold or loss
+      // of the sampled producer fire must not prove the selected row formula.
+      base = make(TableCreateOp::getOperationName(), {run->getResult(0), nine},
+                  {table})->getResult(0);
+      candidateValue = producer.getResult(0);
+      mergeGuard = body.getArgument(2);
+    }
+    auto merged = make(ValueMergeOp::getOperationName(),
+        {base, mergeGuard, candidateValue}, {mergedType, bit},
+        {builder.getNamedAttr("paths", builder.getArrayAttr({builder.getArrayAttr({})})),
+         builder.getNamedAttr("operandSegmentSizes", builder.getDenseI32ArrayAttr({1, 1, 1}))});
+    auto readType = mlir::cast<TableType>(mergedType).getElementType();
+    auto read = make(TableGetOp::getOperationName(),
+        {merged->getResult(0), number(0, bit)}, {readType, bit});
+    mlir::Value result = read->getResult(0);
+    if (uniformZero) {
+      auto inner = make(StructGetOp::getOperationName(), {result}, {table},
+          {builder.getNamedAttr("field", builder.getStringAttr("t"))})->getResult(0);
+      result = make(TableGetOp::getOperationName(), {inner, number(0, bit)},
+                    {byte, bit})->getResult(0);
+    }
+    if (sampledTable) {
+      result = merged->getResult(0);
+      llvm::SmallVector<mlir::Type> results(definition.getFunctionType().getResults());
+      results[3] = table;
+      definition->setAttr("function_type", mlir::TypeAttr::get(builder.getFunctionType(
+          definition.getFunctionType().getInputs(), results)));
+    }
+    body.getTerminator()->setOperand(3, result);
+    ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+        << diagnostics;
+    auto sourceBefore = identities(*file);
+    SourceTransactionStateAnalysis analysis(file->getOperation());
+    ASSERT_TRUE(analysis.isValid());
+    HardwareSourceCheckLimits limits;
+    detail::SourceCheckBudget prepareBudget(limits);
+    auto prepared = capture([&] {
+      return acir::detail::prepareTransactionLowering(*file, analysis, prepareBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+    ASSERT_TRUE(prepared->valueAvailability);
+    detail::SourceCheckBudget materializeBudget(limits);
+    auto candidate = capture([&] {
+      return acir::detail::materializeTransactionLowering(*prepared, materializeBudget);
+    });
+    ASSERT_TRUE(mlir::succeeded(candidate)) << diagnostics;
+    TableGetOp companion;
+    for (auto *operation : candidate->availabilityOperations)
+      if (auto get = mlir::dyn_cast<TableGetOp>(operation);
+          get && get.getInput().getDefiningOp<TableMapOp>()) {
+        ASSERT_FALSE(companion);
+        companion = get;
+      }
+    if (!uniformZero && !sampledTable) {
+      ASSERT_TRUE(companion);
+      EXPECT_TRUE(companion.getInRange().use_empty());
+    }
+    detail::SourceCheckBudget initialProof(limits);
+    ASSERT_TRUE(mlir::succeeded(capture([&] {
+      return acir::detail::verifyTransactionMaterialization(
+          *prepared, *candidate, initialProof);
+    }))) << diagnostics;
+    if (uniformZero) {
+      auto candidateOwner = owner(*candidate->module);
+      auto layout = getModulePortLayout(candidateOwner);
+      ASSERT_TRUE(mlir::succeeded(layout));
+      ASSERT_GE(layout->outputValidity[3], 0);
+      auto availableValue = candidateOwner.getBody().front().getTerminator()
+          ->getOperand(layout->outputValidity[3]);
+      auto scope = std::make_shared<EvaluationScope>();
+      scope->definition = candidateOwner;
+      EXPECT_EQ(evaluate(*candidate->module, availableValue, scope), 0u);
+    }
+    if (mutation && mutation != 6 && mutation != 8) {
+      auto candidateOwner = owner(*candidate->module);
+      if (mutation == 9) {
+        auto producer = named<RuleOp>(*candidate->module, "tableProducer");
+        auto admission = producer->getAttrOfType<mlir::DictionaryAttr>("ac.sampled_admission");
+        ASSERT_TRUE(admission);
+        auto fireIndex = admission.getAs<mlir::IntegerAttr>("fire_result");
+        ASSERT_TRUE(fireIndex);
+        auto fire = producer->getResult(fireIndex.getInt());
+        builder.setInsertionPoint(producer);
+        auto total = number(1, bit);
+        unsigned replaced = 0;
+        for (auto *operation : candidate->availabilityOperations)
+          for (auto &operand : operation->getOpOperands())
+            if (operand.get() == fire) {
+              operand.set(total);
+              ++replaced;
+            }
+        ASSERT_GT(replaced, 0u);
+        EXPECT_TRUE(mlir::failed(capture([&] {
+          return detail::verifyHardwareValueAvailability(HardwareAnalysis(*candidate->module));
+        })));
+        EXPECT_NE(diagnostics.find("availability differs from actual payload SSA"),
+                  std::string::npos) << diagnostics;
+      } else if (mutation == 7) {
+        auto layout = getModulePortLayout(candidateOwner);
+        ASSERT_TRUE(mlir::succeeded(layout));
+        auto *output = candidateOwner.getBody().front().getTerminator();
+        builder.setInsertionPoint(output);
+        output->setOperand(layout->outputValidity[3], number(1, bit));
+      } else if (mutation == 1 || mutation == 2) {
+        builder.setInsertionPoint(companion);
+        auto indexType = mutation == 1 ? bit : mlir::Type(BitsType::get(&context, literal(2)));
+        companion->setOperand(1, number(mutation, indexType));
+      } else if (mutation == 3) {
+        companion->setOperand(1, candidateOwner.getBody().front().getArgument(2));
+      } else {
+        builder.setInsertionPointAfter(companion);
+        auto escaped = mutation == 4 ? companion.getInRange() : companion.getValue();
+        auto data = make(BitsResizeOp::getOperationName(), {escaped}, {byte},
+            {builder.getNamedAttr("mode", builder.getStringAttr("zext"))})->getResult(0);
+        candidateOwner.getBody().front().getTerminator()->setOperand(0, data);
+      }
+      auto candidateBefore = identities(*candidate->module);
+      auto candidateText = print(candidate->module->getOperation());
+      detail::SourceCheckBudget proof(limits);
+      EXPECT_TRUE(mlir::failed(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(*prepared, *candidate, proof);
+      })));
+      unchanged(*candidate->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(candidate->module->getOperation()));
+    }
+    unchanged(*file, sourceBefore);
+  }
+}
+
+TEST_F(TransactionLoweringTest,
+       SourceReplayOverDeepNominalBranchRejectsBeforeReplacement) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  addBranchShape(*file, 2, 129, false);
+  // Metadata admission rejects before localBranchProof's private stack guard.
+  // This asserts that earlier boundary and preserves the original package.
+  rejects(*file, "source branch result metadata depth exceeded");
+  RecordProperty("rejection_diagnostic", diagnostics);
 }
 
 TEST_F(TransactionLoweringTest,
@@ -1753,109 +2314,111 @@ TEST_F(TransactionLoweringTest,
 }
 
 TEST_F(TransactionLoweringTest,
-       OriginalSourceProofAuthenticatesDiamondAfterClosureInPostorder) {
+       RetiredDiamondAfterRejectsWithoutPublishingHardware) {
   auto file = parse();
   ASSERT_TRUE(file);
   auto a = addEmptyTransaction(*file, "after_a", 100);
   auto b = addEmptyTransaction(*file, "after_b", 102);
   auto c = addEmptyTransaction(*file, "after_c", 104);
   auto d = addEmptyTransaction(*file, "after_d", 106);
+  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+      << diagnostics;
   b->setAttr("ac.after", builder.getArrayAttr({a.getOccurrence()}));
   c->setAttr("ac.after", builder.getArrayAttr({a.getOccurrence()}));
   d->setAttr("ac.after",
              builder.getArrayAttr({b.getOccurrence(), c.getOccurrence()}));
-  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
-      << diagnostics;
-
-  SourceTransactionStateAnalysis analysis(file->getOperation());
-  ASSERT_TRUE(analysis.isValid()) << diagnostics;
-  auto *bPlan = analysis.lookup(b);
-  auto *cPlan = analysis.lookup(c);
-  auto *dPlan = analysis.lookup(d);
-  ASSERT_NE(bPlan, nullptr);
-  ASSERT_NE(cPlan, nullptr);
-  ASSERT_NE(dPlan, nullptr);
-  ASSERT_EQ(bPlan->predecessors.size(), 1u);
-  EXPECT_EQ(bPlan->predecessors[0], a);
-  ASSERT_EQ(cPlan->predecessors.size(), 1u);
-  EXPECT_EQ(cPlan->predecessors[0], a);
-  ASSERT_EQ(dPlan->predecessors.size(), 3u);
-  EXPECT_EQ(dPlan->predecessors[0], a);
-  EXPECT_EQ(dPlan->predecessors[1], b);
-  EXPECT_EQ(dPlan->predecessors[2], c);
-
   auto before = identities(*file);
+  auto text = print(file->getOperation());
+  EXPECT_TRUE(mlir::failed(capture([&] { return mlir::verify(*file); })));
+  EXPECT_NE(diagnostics.find("after ordering is retired"), std::string::npos)
+      << diagnostics;
+  unchanged(*file, before);
+  EXPECT_EQ(text, print(file->getOperation()));
+
+  auto analysis = capture([&] {
+    return std::make_unique<SourceTransactionStateAnalysis>(file->getOperation());
+  });
+  ASSERT_FALSE(analysis->isValid());
+  EXPECT_NE(diagnostics.find("after ordering is retired"), std::string::npos)
+      << diagnostics;
   HardwareSourceCheckLimits limits;
   detail::SourceCheckBudget preparationBudget(limits);
   auto prepared = capture([&] {
-    return acir::detail::prepareTransactionLowering(*file, analysis,
+    return acir::detail::prepareTransactionLowering(*file, *analysis,
                                                     preparationBudget);
   });
-  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
-  detail::SourceCheckBudget materializationBudget(limits);
-  auto materialized = capture([&] {
-    return acir::detail::materializeTransactionLowering(*prepared,
-                                                        materializationBudget);
-  });
-  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
-  detail::SourceCheckBudget proofBudget(limits);
-  EXPECT_TRUE(mlir::succeeded(capture([&] {
-    return acir::detail::verifyTransactionMaterialization(
-        *prepared, *materialized, proofBudget);
-  }))) << diagnostics;
+  EXPECT_TRUE(mlir::failed(prepared));
   unchanged(*file, before);
+  EXPECT_EQ(text, print(file->getOperation()));
+  // The registered route/lower pipeline must reject the same diamond rather
+  // than silently dropping predecessor metadata and publishing new hardware.
+  rejects(*file, "after ordering is retired");
 }
 
 TEST_F(TransactionLoweringTest,
-       OriginalSourceProofDoesNotReuseAfterClosureAcrossInvocations) {
-  auto file = parse();
-  ASSERT_TRUE(file);
-  auto predecessor = addEmptyTransaction(*file, "cache_predecessor", 120);
-  auto dependent = addEmptyTransaction(*file, "cache_dependent", 122);
-  dependent->setAttr("ac.after",
-                     builder.getArrayAttr({predecessor.getOccurrence()}));
-  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
-      << diagnostics;
+       OriginalSourceProofRejectsAfterAddedSinceAnEarlierSuccessfulProof) {
+  for (bool callable : {false, true}) {
+    for (bool empty : {false, true}) {
+      SCOPED_TRACE(callable);
+      SCOPED_TRACE(empty);
+      auto file = parse();
+      ASSERT_TRUE(file);
+      auto predecessor = addEmptyTransaction(*file, "cache_predecessor", 120);
+      auto dependent = addEmptyTransaction(*file, "cache_dependent", 122);
+      ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+          << diagnostics;
+      SourceTransactionStateAnalysis analysis(file->getOperation());
+      ASSERT_TRUE(analysis.isValid()) << diagnostics;
+      HardwareSourceCheckLimits limits;
+      detail::SourceCheckBudget preparationBudget(limits);
+      auto prepared = capture([&] {
+        return acir::detail::prepareTransactionLowering(*file, analysis,
+                                                        preparationBudget);
+      });
+      ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
+      detail::SourceCheckBudget materializationBudget(limits);
+      auto materialized = capture([&] {
+        return acir::detail::materializeTransactionLowering(
+            *prepared, materializationBudget);
+      });
+      ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
+      detail::SourceCheckBudget firstProofBudget(limits);
+      ASSERT_TRUE(mlir::succeeded(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *materialized, firstProofBudget);
+      }))) << diagnostics;
 
-  SourceTransactionStateAnalysis analysis(file->getOperation());
-  ASSERT_TRUE(analysis.isValid()) << diagnostics;
-  auto *plan = analysis.lookup(dependent);
-  ASSERT_NE(plan, nullptr);
-  ASSERT_EQ(plan->predecessors.size(), 1u);
-  EXPECT_EQ(plan->predecessors[0], predecessor);
-  HardwareSourceCheckLimits limits;
-  detail::SourceCheckBudget preparationBudget(limits);
-  auto prepared = capture([&] {
-    return acir::detail::prepareTransactionLowering(*file, analysis,
-                                                    preparationBudget);
-  });
-  ASSERT_TRUE(mlir::succeeded(prepared)) << diagnostics;
-  detail::SourceCheckBudget materializationBudget(limits);
-  auto materialized = capture([&] {
-    return acir::detail::materializeTransactionLowering(*prepared,
-                                                        materializationBudget);
-  });
-  ASSERT_TRUE(mlir::succeeded(materialized)) << diagnostics;
-  detail::SourceCheckBudget firstProofBudget(limits);
-  ASSERT_TRUE(mlir::succeeded(capture([&] {
-    return acir::detail::verifyTransactionMaterialization(
-        *prepared, *materialized, firstProofBudget);
-  }))) << diagnostics;
-
-  auto candidateBefore = print(materialized->module->getOperation());
-  dependent->setAttr("ac.after", builder.getArrayAttr({}));
-  ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
-      << diagnostics;
-  detail::SourceCheckBudget secondProofBudget(limits);
-  EXPECT_TRUE(mlir::failed(capture([&] {
-    return acir::detail::verifyTransactionMaterialization(
-        *prepared, *materialized, secondProofBudget);
-  })));
-  EXPECT_NE(diagnostics.find("original predecessor closure differs"),
-            std::string::npos)
-      << diagnostics;
-  EXPECT_EQ(print(materialized->module->getOperation()), candidateBefore);
-  EXPECT_TRUE(dependent->getAttrOfType<mlir::ArrayAttr>("ac.after").empty());
+      mlir::Operation *changed = dependent;
+      mlir::Attribute target = predecessor.getOccurrence();
+      if (callable) {
+        changed = named<SourceMethodOp>(*file, "relay");
+        target = named<SourceMethodOp>(*file, "bump").getOccurrence();
+      }
+      changed->setAttr(callable ? "ac.callable_after" : "ac.after",
+                       empty ? builder.getArrayAttr({})
+                             : builder.getArrayAttr({target}));
+      auto sourceBefore = identities(*file);
+      auto sourceText = print(file->getOperation());
+      auto candidateBefore = identities(*materialized->module);
+      auto candidateText = print(materialized->module->getOperation());
+      detail::SourceCheckBudget secondProofBudget(limits);
+      EXPECT_TRUE(mlir::failed(capture([&] {
+        return acir::detail::verifyTransactionMaterialization(
+            *prepared, *materialized, secondProofBudget);
+      })));
+      EXPECT_NE(diagnostics.find("after ordering is retired"), std::string::npos)
+          << diagnostics;
+      unchanged(*file, sourceBefore);
+      EXPECT_EQ(sourceText, print(file->getOperation()));
+      unchanged(*materialized->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(materialized->module->getOperation()));
+      // A prepared-plan cache and an already authenticated candidate do not
+      // grant authority to newly attached ordering metadata, even when empty.
+      rejects(*file, "after ordering is retired");
+      unchanged(*materialized->module, candidateBefore);
+      EXPECT_EQ(candidateText, print(materialized->module->getOperation()));
+    }
+  }
 }
 
 TEST_F(TransactionLoweringTest,
@@ -2325,12 +2888,9 @@ TEST_F(TransactionLoweringTest,
   call(forward.getBody().front().getArgument(1),
        forward.getBody().front().getArgument(0), relay, "Owner", "bump",
        "alpha", {provider.getFunctionType().getResult(0)}, 3);
-  root.walk([&](SourceMethodCallOp op) {
-    if (op.getInstancePath().size() == 2)
-      op->setAttr("instance_path",
-                  builder.getArrayAttr({builder.getStringAttr("left"),
-                                        builder.getStringAttr("zeta")}));
-  });
+  first<SourceMethodCallOp>(named<SourceMethodOp>(relay, "peek").getBody())
+      ->setAttr("instance_path",
+                builder.getArrayAttr({builder.getStringAttr("zeta")}));
   ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
       << diagnostics;
   auto analysis = capture([&] {
@@ -2920,6 +3480,10 @@ TEST_F(TransactionLoweringTest,
                              provider.getFunctionType().getResults());
     auto allocation = addInstance(layer, child, "node",
                                   layer.getBody().front().getArguments(), 0);
+    auto forward = named<SourceMethodOp>(child, i ? "forward" : "bump");
+    forwardingMethod(layer, forward, child, "node", "forward", 10);
+    forwardingMethod(layer, named<SourceMethodOp>(child, "peek"), child,
+                     "node", "peek", 20);
     builder.setInsertionPointToEnd(&layer.getBody().front());
     yield(allocation->getResults(), layer.getLoc());
     child = layer;
@@ -2928,8 +3492,6 @@ TEST_F(TransactionLoweringTest,
   instance(root, "left")
       ->setAttr("callee",
                 mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
-  llvm::SmallVector<mlir::Attribute> path{builder.getStringAttr("left")};
-  path.append(depth, builder.getStringAttr("node"));
   for (auto call : named<SourceTransactionOp>(root, "run")
                        .getBody()
                        .front()
@@ -2937,10 +3499,11 @@ TEST_F(TransactionLoweringTest,
     auto method = call.getCallee().getNestedReferences().back().getValue();
     call->setAttr("callee",
                   mlir::SymbolRefAttr::get(
-                      &context, "Owner",
+                      &context, child.getSymName(),
                       {mlir::FlatSymbolRefAttr::get(
-                          &context, method == "peek" ? "peek" : "bump")}));
-    call->setAttr("instance_path", builder.getArrayAttr(path));
+                          &context, method == "peek" ? "peek" : "forward")}));
+    call->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("left")}));
   }
   rejects(*file);
   EXPECT_TRUE(diagnostics.find("budget") != std::string::npos ||
@@ -2980,6 +3543,10 @@ TEST_F(TransactionLoweringTest,
                              child.getFunctionType().getResults());
     auto allocation = addInstance(layer, child, "node",
                                   layer.getBody().front().getArguments(), 0);
+    auto forward = named<SourceMethodOp>(child, "forward");
+    forwardingMethod(layer, forward, child, "node", "forward", 10);
+    forwardingMethod(layer, named<SourceMethodOp>(child, "peek"), child,
+                     "node", "peek", 20);
     builder.setInsertionPointToEnd(&layer.getBody().front());
     yield(allocation->getResults(), layer.getLoc());
     child = layer;
@@ -2989,9 +3556,6 @@ TEST_F(TransactionLoweringTest,
   instance(root, "left")
       ->setAttr("callee",
                 mlir::FlatSymbolRefAttr::get(&context, child.getSymName()));
-  llvm::SmallVector<mlir::Attribute> path{builder.getStringAttr("left")};
-  path.append(depth, builder.getStringAttr("node"));
-  path.push_back(builder.getStringAttr("counter"));
   auto run = named<SourceTransactionOp>(root, "run");
   llvm::SmallVector<SourceMethodCallOp> calls;
   llvm::append_range(calls, run.getBody().front().getOps<SourceMethodCallOp>());
@@ -3000,8 +3564,10 @@ TEST_F(TransactionLoweringTest,
   active->setAttr(
       "callee",
       mlir::SymbolRefAttr::get(
-          &context, "Owner", {mlir::FlatSymbolRefAttr::get(&context, "bump")}));
-  active->setAttr("instance_path", builder.getArrayAttr(path));
+          &context, child.getSymName(),
+          {mlir::FlatSymbolRefAttr::get(&context, "forward")}));
+  active->setAttr("instance_path",
+                  builder.getArrayAttr({builder.getStringAttr("left")}));
   run.getBody().front().getTerminator()->setOperands(
       {active.getResult(0), active.getResult(0), active.getResult(0)});
   for (unsigned i = 1; i < calls.size(); ++i)

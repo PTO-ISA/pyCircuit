@@ -1084,7 +1084,6 @@ def _branch_probe_program(tmp_path, mode):
         "    @ac.rule\n"
         "    def drive() -> None:\n"
         f"        {calls[mode]}\n\n"
-        "    drive()\n"
     )
     consumer = tmp_path / f"branch {mode} consumer unit"
     _ok(_compile(source, probe.name, consumer, [provider]))
@@ -1411,13 +1410,9 @@ def _method_expected_identities():
         return ("index", value)
 
     owner = _source_occurrence(bench, field("body"), index(2), field("body"), index(0))
+    # Autonomous registration is anchored at the declaration, not a call site.
     registration = _source_occurrence(
-        bench,
-        field("body"),
-        index(2),
-        field("body"),
-        index(4),
-        field("value"),
+        bench, field("body"), index(2), field("body"), index(2)
     )
 
     def called(call_index, ordinal, site):
@@ -2868,14 +2863,22 @@ def test_nested_cross_module_rules_preserve_outer_atomicity_and_instance_identit
     assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
 
 
-def test_ehr_predecessor_visibility_excludes_unordered_writes_and_denied_proposals(
-    tmp_path,
-):
+def test_retired_ehr_order_rejects_without_replacing_published_unit(tmp_path):
     source = tmp_path / "ehr sources"
     source.mkdir()
-    shutil.copy2(FIXTURE / "ehr_bench.py", source)
+    design = source / "ehr_bench.py"
+    design.write_text(
+        """import pycircuit as ac
+@ac.system
+def ExerciseEhrOrder():
+    count: ac.u8 = 5
+    @ac.rule
+    def advance():
+        count = count + 1
+"""
+    )
     unit = tmp_path / "ehr unit"
-    _ok(_compile(source, "ehr_bench.py", unit))
+    _ok(_compile(source, design.name, unit))
     final = tmp_path / "ehr-system.ac"
     _ok(
         _cli(
@@ -2887,47 +2890,36 @@ def test_ehr_predecessor_visibility_excludes_unordered_writes_and_denied_proposa
             str(final),
         )
     )
-    digest = hashlib.sha256(final.read_bytes()).hexdigest()
-    transcripts = []
-    for target in ("cpp", "verilog"):
-        target_root = tmp_path / ("ehr-" + target)
-        target_root.mkdir()
-        binary = _bundle(final, target_root, target)
-        for workers in (1, 2) if target == "cpp" else (1,):
-            arguments = (
-                ["--cycles", "4", "--workers", str(workers)]
-                if target == "cpp"
-                else ["+cycles=4"]
-            )
-            records = _records(_ok(_run([str(binary), *arguments], timeout=30)))
-            # first is denied in cycle 1, second is denied in cycles 1..3.
-            # middle has only first as predecessor even though its registration
-            # follows second: it must observe 6, not second's candidate 12.
-            expected = {
-                "ehr middle": [(5, 6), (12, 12), (12, 13), (13, 14)],
-                "ehr final": [(5, 12), (12, 12), (12, 13), (13, 14)],
-            }
-            for name, values in expected.items():
-                events = [
-                    row
-                    for row in records
-                    if row["kind"] == "log" and row["spec"]["event"] == name
-                ]
-                assert [
-                    tuple(int(value["value"]) for value in row["values"])
-                    for row in events
-                ] == [value for value in values for _ in range(2)]
-                assert [int(row["evaluation_epoch"]) for row in events] == list(
-                    range(8)
-                )
-                assert all(
-                    int(row["commit_epoch"]) == int(row["evaluation_epoch"]) + 1
-                    for row in events
-                )
-            _assert_closed_observation_identities(records)
-            transcripts.append([row for row in records if row["kind"] != "result"])
-    assert transcripts[0] == transcripts[1] == transcripts[2]
-    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+    before = {
+        str(path.relative_to(unit)): path.read_bytes()
+        for path in unit.rglob("*")
+        if path.is_file()
+    }
+    final_before = final.read_bytes()
+    # The historical two-writer scenario requires retired predecessor visibility.
+    # It must reject rather than acquire implicit ordering or a new oracle.
+    shutil.copy2(FIXTURE / "ehr_bench.py", design)
+    rejected = _cli(
+        "compile",
+        "-c",
+        str(design),
+        "--source-root",
+        str(source),
+        "--package-prefix",
+        "checks",
+        "-o",
+        str(unit),
+        "--replace",
+    )
+    assert rejected.returncode != 0
+    assert "after" in rejected.stderr
+    assert "retired" in rejected.stderr
+    assert {
+        str(path.relative_to(unit)): path.read_bytes()
+        for path in unit.rglob("*")
+        if path.is_file()
+    } == before
+    assert final.read_bytes() == final_before
 
 
 def test_compiler_output_validity_gates_only_reached_consumers(tmp_path):
@@ -3503,19 +3495,17 @@ def test_conditional_report_conflict_rejects_and_preserves_final_artifact(tmp_pa
     source = tmp_path / "conditional reports"
     source.mkdir()
     design = source / "reports.py"
-    valid = (
-        "import pycircuit as ac\n"
-        "@ac.system\n"
-        "def ConditionalReports():\n"
-        "    selector: ac.u1 = 0\n"
-        "    @ac.rule\n"
-        "    def observe() -> None:\n"
-        "        if selector:\n"
-        "            ac.report('left', selector)\n"
-        "        else:\n"
-        "            ac.report('right', selector)\n"
-        "    observe()\n"
-    )
+    valid = """import pycircuit as ac
+@ac.system
+def ConditionalReports():
+    selector: ac.u1 = 0
+    @ac.rule
+    def observe() -> None:
+        if selector:
+            ac.report('left', selector)
+        else:
+            ac.report('right', selector)
+"""
     design.write_text(valid)
     valid_unit = tmp_path / "conditional reports unit"
     _ok(_compile(source, design.name, valid_unit))
@@ -3598,11 +3588,10 @@ def OrderedBindings():
     check = Packet(value=phase + 7)
     child = Echo(check)
     @ac.rule
-    def check():
+    def verify_payload():
         assert saved.value == phase
         assert child.value == phase + 7
         ac.log("info", "ordered payload", saved.value, field, snapshot(), child.value)
-    check()
     advance(phase)
 """
     )

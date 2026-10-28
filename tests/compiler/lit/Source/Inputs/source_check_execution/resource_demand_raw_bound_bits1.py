@@ -6,7 +6,7 @@ import pycircuit as ac
 def SharedRawBound(x: ac.u1):
     tokens = ac.queue[ac.u1](depth=1, latency=1, out_ready=x)
 
-    @ac.rule
+    @ac.method
     def send() -> None:
         # x is independently authored public payload and raw-bound take.
         tokens.push(x)
@@ -24,6 +24,3 @@ def Top():
     @ac.rule
     def tick() -> None:
         x = ~x  # noqa: F841 - captured hardware state or child instance.
-
-    send()
-    tick()

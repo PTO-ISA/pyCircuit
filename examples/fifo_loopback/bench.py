@@ -397,4 +397,3 @@ def FifoLoopbackSystem():  # noqa: N802
         log("info", "out_data", dut.out_data)
 
     advance(phase)
-    exercise()

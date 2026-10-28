@@ -1,5 +1,5 @@
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module
 from bindings.child import OneLatch, WordLatch, ZeroLatch
 
 
@@ -12,19 +12,10 @@ def Top(clk: bool, rst: bool, en: bool, bit_data: bool,
     one = OneLatch()
     word = WordLatch(WIDTH=WIDTH)
 
-    @rule
-    def bind_zero():
-        zero(clk=clk, rst=rst, en=en, data=bit_data)
+    zero(clk=clk, rst=rst, en=en, data=bit_data)
 
-    @rule
-    def bind_one():
-        one(clk=clk, rst=rst, en=en, data=bit_data)
+    one(clk=clk, rst=rst, en=en, data=bit_data)
 
-    @rule
-    def bind_word():
-        word(clk=clk, rst=rst, en=en, data=word_data)
+    word(clk=clk, rst=rst, en=en, data=word_data)
 
-    bind_zero()
-    bind_one()
-    bind_word()
     return {"zero": zero.q, "one": one.q, "word": word.q}

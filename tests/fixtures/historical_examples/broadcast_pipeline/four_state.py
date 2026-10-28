@@ -65,7 +65,7 @@ assert '"ac.queue"(' not in final_text
 queue_lines = [
     line
     for line in final_text.splitlines()
-    if '"ac.instance"(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
+    if 'ac.instance(' in line and "callee = @pycircuit.__builtins__.fifo_" in line
 ]
 assert len(queue_lines) == 6
 # Inspect actual physical owners separately from compiler-generated stateless
@@ -97,7 +97,7 @@ assert modules, "final physical module inventory is empty"
 assert '"ac.collection"(' not in final_text, "unexpected collection storage owner"
 state_owners, queue_owners, stateless_instances = [], [], []
 for line in final_text.splitlines():
-    if '"ac.instance"(' not in line:
+    if 'ac.instance(' not in line:
         continue
     target = re.search(r"callee = @([^,]+)", line)
     instance = re.search(r'instance_name = "([^"]+)"', line)
@@ -118,7 +118,7 @@ for line in final_text.splitlines():
             "Rule instance must remain stateless"
         )
         for operation in body.splitlines():
-            if '"ac.instance"(' in operation:
+            if 'ac.instance(' in operation:
                 callee = re.search(r"callee = @([^,]+)", operation)
                 assert callee and callee[1] not in primitive_kinds, operation
         stateless_instances.append({"name": instance[1], "callee": target[1]})

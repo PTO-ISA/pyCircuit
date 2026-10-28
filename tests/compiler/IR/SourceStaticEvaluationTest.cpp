@@ -320,6 +320,68 @@ TEST_F(SourceStaticEvaluationTest,
 }
 
 TEST_F(SourceStaticEvaluationTest,
+       GrammarVerificationPreservesColdAndRepeatedExpressionResults) {
+  auto verifyGrammar = [&](StaticExprAttr value) {
+    diagnostics.clear();
+    mlir::ScopedDiagnosticHandler capture(&context, [&](mlir::Diagnostic &d) {
+      llvm::raw_string_ostream stream(diagnostics);
+      d.print(stream);
+      return mlir::success();
+    });
+    return StaticExprAttr::verify(
+        [&] { return mlir::emitError(mlir::UnknownLoc::get(&context)); },
+        value.getTree());
+  };
+  auto literal = integer("101");
+  EXPECT_TRUE(mlir::succeeded(verifyGrammar(literal))) << diagnostics;
+  EXPECT_TRUE(mlir::succeeded(verifyGrammar(literal))) << diagnostics;
+  expectInteger(literal, "101");
+
+  // Distinct immutable expressions exercise small and larger grammar walks.
+  // Negation leaves the node count independent of the numeric magnitude.
+  for (unsigned count : {11u, 12u, 47u, 48u}) {
+    SCOPED_TRACE(count);
+    auto value = integer(std::to_string(1000 + count));
+    for (unsigned node = 1; node < count; ++node)
+      value = unary("neg", value);
+    EXPECT_TRUE(mlir::succeeded(verifyGrammar(value))) << diagnostics;
+    EXPECT_TRUE(mlir::succeeded(verifyGrammar(value))) << diagnostics;
+    int expected = (count % 2 == 0 ? -1 : 1) * int(1000 + count);
+    expectInteger(value, std::to_string(expected));
+  }
+
+  auto shared = binary("add", integer("3"), integer("4"));
+  auto wide = integer("0");
+  for (unsigned index = 1; index <= 48; ++index)
+    wide = binary("add", wide,
+                  binary("add", integer(std::to_string(index)), shared));
+  EXPECT_TRUE(mlir::succeeded(verifyGrammar(wide))) << diagnostics;
+  EXPECT_TRUE(mlir::succeeded(verifyGrammar(wide))) << diagnostics;
+  // Each independent term contributes its index and the same shared seven.
+  expectInteger(wide, "1512"); // 48 * 49 / 2 + 48 * 7.
+
+  mlir::NamedAttrList malformed(wide.getTree());
+  malformed.set("operator", builder.getStringAttr("unknown"));
+  auto malformedTree = malformed.getDictionary(&context);
+  for (unsigned attempt = 0; attempt < 2; ++attempt) {
+    diagnostics.clear();
+    mlir::ScopedDiagnosticHandler capture(&context, [&](mlir::Diagnostic &d) {
+      llvm::raw_string_ostream stream(diagnostics);
+      d.print(stream);
+      return mlir::success();
+    });
+    EXPECT_TRUE(mlir::failed(StaticExprAttr::verify(
+        [&] { return mlir::emitError(mlir::UnknownLoc::get(&context)); },
+        malformedTree)));
+    EXPECT_NE(diagnostics.find("binary StaticExpr operator or fields are invalid"),
+              std::string::npos);
+  }
+  // Failed grammar verification must not disturb the successful shared graph.
+  EXPECT_TRUE(mlir::succeeded(verifyGrammar(wide))) << diagnostics;
+  expectInteger(wide, "1512");
+}
+
+TEST_F(SourceStaticEvaluationTest,
        SharedExpressionDagsAndRebuiltLeavesHaveFreshPerCallResults) {
   auto dag = [&](StaticExprAttr leaf, unsigned depth) {
     for (unsigned index = 0; index < depth; ++index)

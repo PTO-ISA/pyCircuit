@@ -99,12 +99,13 @@ def ast_paths(node, path=()):
 
 def operands(line):
     return re.findall(
-        r"%[\w]+(?:#\d+)?", re.search(r'"ac\.[\w.]+"\(([^)]*)\)', line)[1]
+        r"%[\w]+(?:#\d+)?",
+        re.search(r'(?:"ac\.[\w.]+"|ac\.instance)\(([^)]*)\)', line)[1],
     )
 
 
 def results(line):
-    left = line.split('"ac.', 1)[0].strip().rstrip("= ")
+    left = re.split(r'"ac\.|ac\.instance\(', line, maxsplit=1)[0].strip().rstrip("= ")
     grouped = re.fullmatch(r"(%\w+):(\d+)", left)
     if grouped:
         return [grouped[1] + "#" + str(i) for i in range(int(grouped[2]))]
@@ -141,8 +142,10 @@ def parse_ir(text):
         elif stack and line.lstrip().startswith("})"):
             stack[-1]["text"] += "\n" + line
             stack.pop()
-        elif stack and re.search(r'"ac\.[\w.]+"\(', line):
-            name = re.search(r'"(ac\.[\w.]+)"', line)[1]
+        elif stack and (
+            operation := re.search(r'(?:"(ac\.[\w.]+)"|(ac\.instance))\(', line)
+        ):
+            name = operation[1] or operation[2]
             if name == "ac.yield":
                 stack[-1]["yield"] = operands(line)
             elif name == "ac.expect":
@@ -193,13 +196,19 @@ def check_source_ir(text, path):
                 registration[0] == re.search(r'sym_name = "([^"]+)"', module["text"])[1]
             )
             assert registration[0].startswith("checks." + path.stem + ".")
-            assert any(
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id == name
-                and site == registration[1]
-                for node, site in nodes
-            ), registration
+            if source_rule in syntax.body:
+                assert any(
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Name)
+                    and node.func.id == name
+                    and site == registration[1]
+                    for node, site in nodes
+                ), registration
+            else:
+                assert any(
+                    node is source_rule and site == registration[1]
+                    for node, site in nodes
+                ), registration
             required = attribute(rule["text"], "ac.required_checks", "[", "]")
             entries, offset = [], 1
             while offset < len(required) - 1:
@@ -1019,9 +1028,7 @@ def main():
     _, registration_path = next(
         (node, path)
         for node, path in nodes
-        if isinstance(node, ast.Call)
-        and isinstance(node.func, ast.Name)
-        and node.func.id == "inspect"
+        if isinstance(node, ast.FunctionDef) and node.name == "inspect"
     )
 
     def source_occurrence(path):

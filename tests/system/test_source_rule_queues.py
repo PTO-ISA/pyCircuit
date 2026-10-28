@@ -130,7 +130,7 @@ def _assert_feedback_observation_identities(rows):
     expected = {
         "queue feedback visited": (
             "root/owner",
-            _source_occurrence(bench, *body(2), *body(7), ("field", "value")),
+            _source_occurrence(bench, *body(2), *body(3)),
             {
                 "site": _source_occurrence(provider, *body(2), *body(4), *body(2)),
                 "ordinal": 0,
@@ -146,7 +146,7 @@ def _assert_feedback_observation_identities(rows):
         ),
         "queue feedback retired": (
             "root",
-            _source_occurrence(bench, *body(2), *body(8), ("field", "value")),
+            _source_occurrence(bench, *body(2), *body(4)),
             {
                 "site": _source_occurrence(bench, *body(2), *body(4), *body(1)),
                 "ordinal": 0,
@@ -204,10 +204,9 @@ def test_rule_queue_same_physical_port_conflicts_reject(
     body = (
         f"    @ac.rule\n    def first() -> None:\n        {effect}\n"
         f"    @ac.rule\n    def second() -> None:\n        {effect}\n"
-        "    first()\n    second()\n"
         if separate_rules
         else f"    @ac.rule\n    def repeated() -> None:\n        {effect}\n"
-        f"        {effect}\n    repeated()\n"
+        f"        {effect}\n"
     )
     (source / "conflict.py").write_text(
         "import pycircuit as ac\n@ac.system\ndef QueueConflict():\n"
@@ -379,12 +378,12 @@ def _assert_hierarchy_observation_identities(rows):
         )
 
     expected = set()
-    for side, callable_index, registration_index in (("left", 4, 8), ("right", 5, 9)):
+    for side, callable_index in (("left", 4), ("right", 5)):
         expected.add(
             signature(
                 "queue hierarchy local",
                 f"root/{side}/child",
-                _source_occurrence(provider, *body(1), *body(8), ("field", "value")),
+                _source_occurrence(provider, *body(1), *body(6)),
                 {
                     "site": _source_occurrence(
                         provider, *body(1), *body(6), *body(0), *body(1)
@@ -398,9 +397,7 @@ def _assert_hierarchy_observation_identities(rows):
             signature(
                 "queue hierarchy parent",
                 "root",
-                _source_occurrence(
-                    bench, *body(2), *body(registration_index), ("field", "value")
-                ),
+                _source_occurrence(bench, *body(2), *body(callable_index)),
                 {
                     "site": _source_occurrence(
                         bench, *body(2), *body(callable_index), *body(1), *body(1)
@@ -494,7 +491,7 @@ def _assert_conditional_exchange_identities(rows):
     def body(index):
         return (("field", "body"), ("index", index))
 
-    registration = _source_occurrence(bench, *body(2), *body(5), ("field", "value"))
+    registration = _source_occurrence(bench, *body(2), *body(3))
     invocation = [
         {
             "call": _source_occurrence(

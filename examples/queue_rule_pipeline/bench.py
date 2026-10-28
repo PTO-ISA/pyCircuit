@@ -19,19 +19,14 @@ def QueueRulePipelineSystem():  # noqa: N802
             sent = sent + 1
 
     @ac.rule(guard=lambda: cycle >= 6)
-    def consume() -> Packet:
+    def consume() -> None:
         packet = pipeline.get()
+        ordinal = received
         received = received + 1
-        return packet
-
-    @ac.rule
-    def check(packet: Packet) -> None:
         expected: ac.u8 = (
-            12
-            if received == 0
-            else 25 if received == 1 else 39 if received == 2 else 54
+            12 if ordinal == 0 else 25 if ordinal == 1 else 39 if ordinal == 2 else 54
         )
-        assert packet.tag == received, "queue pipeline: packet order"
+        assert packet.tag == ordinal, "queue pipeline: packet order"
         assert packet.value == expected, "queue pipeline: accumulated payload"
         ac.log("info", "queue received", cycle, packet.tag, packet.value)
 
@@ -53,9 +48,3 @@ def QueueRulePipelineSystem():  # noqa: N802
     @ac.rule
     def tick() -> None:
         cycle = cycle + 1
-
-    produce()
-    packet = consume()
-    check(packet)
-    inspect()
-    tick()

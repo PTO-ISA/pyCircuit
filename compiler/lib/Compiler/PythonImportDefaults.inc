@@ -7,7 +7,7 @@ bool Importer::staticInitializer(const AstNode &node) const {
     return true;
   if (node.kind() == "Call" && intrinsic(node.child("func"), "four_state"))
     return true;
-  if (node.kind() == "Constant")
+  if (node.kind() == "Constant" || sourceConstant(node))
     return true;
   if (node.kind() == "Tuple" || node.kind() == "List") {
     for (size_t i = 0; i < node.array("elts").size(); ++i)
@@ -88,10 +88,12 @@ FailureOr<Value> Importer::constructStruct(
                          FlatSymbolRefAttr::get(b.getContext(), qualify(name)),
                          noValues, noInstances, fieldType);
     } else
-      value = constant(fieldType, 0, node, at, symbol);
+      value = structFieldZero(field, node, at, symbol);
     if (failed(value))
       return failure();
-    auto converted = unsignedBoundary(*value, fieldType, valueSite, at, symbol);
+    auto converted = applyBindingBoundary(
+        *value, BindingBoundary(structFieldPort(field, valueSite), true),
+        valueSite, at, symbol);
     if (failed(converted))
       return failure();
     operands.push_back(*converted);
@@ -117,12 +119,13 @@ LogicalResult Importer::validateDefaults() {
         status = failure();
         break;
       }
-      Type type = cast<DictionaryAttr>(structFields[item.first()][index])
-                      .getAs<TypeAttr>("type")
-                      .getValue();
+      auto descriptor = cast<DictionaryAttr>(structFields[item.first()][index]);
+      Type type = descriptor.getAs<TypeAttr>("type").getValue();
       auto value = expression(node, at, symbol, values, instances, type);
       if (failed(value) ||
-          failed(unsignedBoundary(*value, type, node, at, symbol))) {
+          failed(applyBindingBoundary(
+              *value, BindingBoundary(structFieldPort(descriptor, node), true),
+              node, at, symbol))) {
         auto field = cast<DictionaryAttr>(structFields[item.first()][index])
                          .getAs<StringAttr>("name");
         mlir::emitError(node.location(b.getContext(), source.path))

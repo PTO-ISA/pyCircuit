@@ -28,7 +28,3 @@ def ExerciseScfRules():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    drive()
-    inspect()
-    tick()

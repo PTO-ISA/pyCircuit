@@ -1,6 +1,7 @@
 # Hello counter
 
 The increment Rule is nested in the System and captures its counter directly.
+The declaration activates it once per sampling epoch, without a trailing call.
 Its local values are combinational; only the annotated System variable owns storage.
 
 This source system owns an eight-bit counter and logs its current value.

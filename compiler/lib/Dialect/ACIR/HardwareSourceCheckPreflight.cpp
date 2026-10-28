@@ -7,6 +7,7 @@
 #include "llvm/ADT/ScopeExit.h"
 #include <algorithm>
 #include <memory>
+#include <map>
 
 using namespace mlir;
 namespace acir::ac::detail {
@@ -394,6 +395,20 @@ private:
   // Exact native payAttribute mirror. Raw traversal pays its own work before
   // visiting metadata or allocating its explicit handle stack.
   FailureOr<uint64_t> sampledAttributeCost(Attribute attribute, Operation *site) {
+    // Attributes are immutable for this build. Cache only the completed
+    // measurement; callers still receive its full downstream reservation.
+    bool retain = isa_and_nonnull<ArrayAttr, DictionaryAttr>(attribute);
+    uint64_t lookupCost = 0;
+    const void *key = attribute.getAsOpaquePointer();
+    if (retain) {
+      auto allowance = checkComparisonAllowance(
+          Budget::add(sampledAttributeCosts.size(), 1), site);
+      if (failed(allowance) || failed(budget.debit(*allowance, site)))
+        return failure();
+      lookupCost = *allowance;
+      auto found = sampledAttributeCosts.find(key);
+      if (found != sampledAttributeCosts.end()) return found->second;
+    }
     uint64_t cost = 0;
     auto pay = [&](uint64_t units) -> LogicalResult {
       if (failed(budget.debit(units, site)))
@@ -443,6 +458,13 @@ private:
     while (!pending.empty())
       if (failed(children(pending.pop_back_val())))
         return failure();
+    if (retain) {
+      if (failed(budget.debit(Budget::add(lookupCost,
+              Budget::bytes(sizeof(decltype(sampledAttributeCosts)::value_type) +
+                            4 * sizeof(void *))), site)))
+        return failure();
+      sampledAttributeCosts.emplace(key, cost);
+    }
     return cost;
   }
   FailureOr<uint64_t> sampledSchemaCost(Attribute attribute, Operation *site) {
@@ -451,7 +473,9 @@ private:
     auto checks = sampled ? sampled.getAs<ArrayAttr>("body_checks") : ArrayAttr();
     auto observations =
         sampled ? sampled.getAs<ArrayAttr>("observations") : ArrayAttr();
-    auto ehr = sampled ? sampled.getAs<ArrayAttr>("ehr_entries") : ArrayAttr();
+    if ((sampled && sampled.get("ehr_entries")) || site->hasAttr("ac.after") ||
+        site->hasAttr("ac.callable_after"))
+      return site->emitOpError() << "after ordering and EHR entry forwarding are retired";
     auto requirements = sampled ? sampled.getAs<ArrayAttr>("requirements") : ArrayAttr();
     auto resources = sampled ? sampled.getAs<ArrayAttr>("resources") : ArrayAttr();
     auto proposals = sampled ? sampled.getAs<ArrayAttr>("queue_proposals") : ArrayAttr();
@@ -477,7 +501,7 @@ private:
     auto clock = rawIndex(sampled, "clock_capture"),
          reset = rawIndex(sampled, "reset_capture"),
          fire = rawIndex(sampled, "fire_result");
-    if (!sampled || sampled.size() != (6 + bool(ehr) + bool(requirements) + bool(resources) + bool(proposals) + bool(memoryProposals) + bool(domains)) || !controls || controls.empty() ||
+    if (!sampled || sampled.size() != (6 + bool(requirements) + bool(resources) + bool(proposals) + bool(memoryProposals) + bool(domains)) || !controls || controls.empty() ||
         !checks || !observations || !clock || !reset || !fire ||
         *clock >= site->getNumOperands() || *reset >= site->getNumOperands())
       return fail();
@@ -672,7 +696,7 @@ private:
       }
     }
     uint64_t legacyTotal = add(checkBase, multiply(2, add(g, a)));
-    uint64_t total = add(legacyTotal, ehr ? ehr.size() : 0);
+    uint64_t total = legacyTotal;
     if (requirements) {
       if (requirements.empty()) return fail();
       cost = add(cost, multiply(requirements.size(), schemaRecordCost<SampledValueRequirement>()));
@@ -682,26 +706,6 @@ private:
         if (!row || row.size() != 5 || !control || *control >= g || !operand ||
             !row.getAs<StringAttr>("kind") || !row.getAs<DictionaryAttr>("occurrence") ||
             !row.getAs<DictionaryAttr>("location")) return fail();
-      }
-    }
-    if (ehr) {
-      if (ehr.empty()) return fail();
-      cost = add(cost, multiply(ehr.size(), schemaRecordCost<SampledEhrEntry>()));
-      for (auto [ordinal, raw] : llvm::enumerate(ehr)) {
-        auto row = dyn_cast<DictionaryAttr>(raw);
-        auto oldQ = rawIndex(row, "old_q_capture"), output = rawIndex(row, "result");
-        auto predecessors = row ? row.getAs<ArrayAttr>("predecessors") : ArrayAttr();
-        if (!row || row.size() != 4 || !row.getAs<DictionaryAttr>("state") || !oldQ ||
-            *oldQ >= site->getNumOperands() || !output || *output != add(legacyTotal, ordinal) ||
-            !predecessors || predecessors.empty()) return fail();
-        cost = add(cost, multiply(predecessors.size(), schemaRecordCost<SampledEhrPredecessor>()));
-        for (Attribute prior : predecessors) {
-          auto entry = dyn_cast<DictionaryAttr>(prior);
-          auto data = rawIndex(entry, "data_capture"), enable = rawIndex(entry, "enable_capture");
-          if (!entry || entry.size() != 3 || !entry.getAs<DictionaryAttr>("registration") ||
-              !data || !enable || *enable != add(*data, 1) || *enable >= site->getNumOperands())
-            return fail();
-        }
       }
     }
     if (resources) {
@@ -1771,6 +1775,7 @@ private:
   llvm::DenseMap<Operation *, SmallVector<uint64_t>> localSamplingIndices;
   NativeSourceCheckScope::Definitions nativeChecks;
   llvm::DenseMap<Operation *, uint64_t> localValidationCost;
+  std::map<const void *, uint64_t> sampledAttributeCosts;
   llvm::DenseSet<Operation *> active;
   SmallVector<std::unique_ptr<BoundDefinition>> nodes;
   SmallVector<std::pair<ModuleOp, HardwareBindings>> catalogScopes;

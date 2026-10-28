@@ -23,7 +23,3 @@ def ExternalPopProbe():
     @ac.rule
     def tick() -> None:
         count = count + 1
-
-    produce()
-    consume()
-    tick()

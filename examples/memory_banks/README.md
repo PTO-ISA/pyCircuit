@@ -19,11 +19,12 @@ latency, or publish the completed response. These phases are mutually exclusive
 from committed state and preserve the release-edge bubble without multiple
 ordered Rules for one FSM.
 
-`route_request` pops the root request and calls exactly one child `enqueue` Rule
+`route_request` pops the root request and calls exactly one child `enqueue` Method
 in the same transaction. `merge_response` calls the first available child
-`dequeue` Rule and pushes the merged response atomically. Queue availability is
+`dequeue` Method and pushes the merged response atomically. Queue availability is
 compiler owned; the explicit child-valid conditions define only the authored
-priority policy.
+priority policy. The service and routing Rules activate from their declarations;
+callable enqueue/dequeue operations do not activate autonomously.
 
 A write returns the previous memory value. Each controller saves the old RAM
 output before backpressure can outlive the primitive's read lifetime. Responses

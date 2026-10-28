@@ -24,5 +24,3 @@ def ExerciseAnchorCollection():
             rows[3],
         )
         position = position + 1
-
-    update()

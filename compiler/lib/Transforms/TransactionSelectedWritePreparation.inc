@@ -4,7 +4,7 @@
           return !write.selectors.empty();
         })) return success();
     auto predicateType = hardware.resolveType(plan.values[plan.clockValue].value.getType(),
-                                               plan.frames[plan.rootFrame].bindings,
+                                               plan.instances[0].bindings,
                                                plan.transaction);
     if (failed(predicateType)) return failure();
     Builder b(plan.transaction->getContext());
@@ -30,7 +30,7 @@
             auto item = cast<DictionaryAttr>(rawField);
             if (item.getAs<StringAttr>("name") == field) {
               auto resolved = hardware.resolveType(item.getAs<TypeAttr>("type").getValue(),
-                                                    plan.frames[write.frame].bindings,
+                                                    plan.instances[0].bindings,
                                                     write.operation);
               if (failed(resolved)) return failure();
               next = *resolved;

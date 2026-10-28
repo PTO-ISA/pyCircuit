@@ -23,12 +23,24 @@ namespace acir::ac::detail {
 
 using EmitError = llvm::function_ref<mlir::InFlightDiagnostic()>;
 
+// Implementation storage for common small static-expression grammars, not an
+// admission limit. The source closure preflight accounts for this same storage.
+inline constexpr unsigned staticGrammarInlineBuckets = 16;
+
 // Typed effects are verified intermediate IR, not published or final hardware.
 // Inspect operation kinds without recursively traversing raw attribute/type
 // graphs or imposing transaction-analysis limits on ordinary hardware.
 mlir::Operation *findUnloweredTransaction(mlir::Operation *root);
 mlir::LogicalResult verifyNoUnloweredTransactions(mlir::Operation *root);
 bool isCombinationalHardwareOperation(mlir::Operation *operation);
+// Validate every closed layout constraint while retaining only well-scoped
+// Integer-formal dependencies until occurrence binding. Reports concreteness
+// separately so a template declaration cannot establish executable validity.
+mlir::LogicalResult verifySourceTemplateType(
+    const HardwareAnalysis &analysis, mlir::Type type,
+    const HardwareBindings &bindings, mlir::Operation *site,
+    bool *concrete = nullptr);
+
 // Existing source-state initializer grammar, also used to prove physical
 // elaboration initialization under each actual storage binding.
 mlir::LogicalResult verifyClosedStateInitializer(
@@ -48,6 +60,11 @@ mlir::LogicalResult verifySourceCallHardwareConstraint(
     mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation,
     llvm::StringRef description,
     SourceCallWidthMode widthMode = SourceCallWidthMode::Concrete);
+// Shared nominal field schema. Only Boolean fields extend the legacy physical
+// descriptor with an authoritative source constraint.
+mlir::LogicalResult verifyNominalStructField(
+    mlir::Attribute raw, const HardwareAnalysis &analysis,
+    mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation);
 mlir::LogicalResult verifyRequiredSourceParameter(
     mlir::Attribute raw, mlir::StringAttr expectedName,
     mlir::DictionaryAttr sourceOwner, mlir::FlatSymbolRefAttr definition,

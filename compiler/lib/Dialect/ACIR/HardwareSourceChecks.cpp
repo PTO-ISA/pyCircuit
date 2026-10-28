@@ -255,7 +255,7 @@ LogicalResult verifyObserverUses(const HardwareAnalysis &analysis,
         continue;
       }
       // Index/admission/resource/call operands remain functional boundaries.
-      if ((isa<TableGetOp>(user) && index != 0) || isa<TableIndexOp>(user))
+      if ((isa<TableReadOp, TableGetOp>(user) && index != 0) || isa<TableIndexOp>(user))
         return reject(user);
       if (detail::isCombinationalHardwareOperation(user)) {
         if (failed(propagate(user, endpoint)))
@@ -888,7 +888,7 @@ detail::definitionSourceChecks(const HardwareAnalysis &analysis,
       return error()
              << "source check suffix requires two results per obligation";
     uint64_t first = rule.getNumResults() - 2 * required.size();
-    // Sampled Rules may append private state-entry witnesses after checks.
+    // Sampled Rules may append resource proposal witnesses after checks.
     // The authenticated inventory, rather than the total result count, owns
     // the check base in that case.
     if (auto sampled = sampledRules.find(rule); sampled != sampledRules.end())
@@ -1194,7 +1194,29 @@ resolveHardwareRootBindings(const HardwareAnalysis &analysis) {
     return package.emitOpError()
            << "executable hardware package requires exactly one ac.system";
   auto system = *systems.begin();
-  auto entry = system.getEntry();
+  return resolveHardwareEntryBindings(analysis, system.getEntry());
+}
+FailureOr<HardwareBindings> resolveHardwareLogicalRootBindings(
+    const HardwareAnalysis &analysis) {
+  auto systems = analysis.getPackage().getOps<SystemOp>();
+  if (!llvm::hasSingleElement(systems))
+    return analysis.getPackage().emitOpError("executable package requires one ac.system");
+  auto system = *systems.begin();
+  auto boundary = system->getAttrOfType<DictionaryAttr>("ac.entry_boundary");
+  return resolveHardwareEntryBindings(analysis, boundary
+      ? boundary.getAs<DictionaryAttr>("logical_entry") : system.getEntry());
+}
+FailureOr<HardwareBindings> resolveHardwareEntryBindings(
+    const HardwareAnalysis &analysis, DictionaryAttr entry) {
+  auto package = analysis.getPackage();
+  auto systems = package.getOps<SystemOp>();
+  if (!llvm::hasSingleElement(systems))
+    return package.emitOpError("executable package requires one ac.system");
+  auto system = *systems.begin();
+  if (!entry || entry.size() != 3 ||
+      !entry.getAs<ArrayAttr>("parameters") ||
+      !entry.getAs<ArrayAttr>("type_arguments"))
+    return system.emitOpError("entry requires exact callee, parameters and type_arguments");
   auto callee = entry.getAs<FlatSymbolRefAttr>("callee");
   auto root = callee ? dyn_cast_or_null<ModuleOp>(
                            analysis.lookupDefinition(callee.getValue()))

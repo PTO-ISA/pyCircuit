@@ -1,5 +1,5 @@
 from typing import Annotated
-from pycircuit import module, rule
+from pycircuit import module
 from computed.computed_child import Child
 
 
@@ -16,11 +16,8 @@ def Top(a13: Annotated[int, range(1 << 13)],
               "zero13": Annotated[int, range(1 << 13)]}:
     child = Child()
 
-    @rule
-    def bind():
-        child(x13=b13, x37=b37)
+    child(x13=b13, x37=b37)
 
-    bind()
     return {"masked13": a13 & b13, "xor37": a37 ^ b37,
             "mixed13": a13 | child.t13,
             "pick37": child.t37 if choose else a37,

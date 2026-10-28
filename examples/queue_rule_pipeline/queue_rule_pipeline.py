@@ -14,7 +14,7 @@ class Packet:
 def Accumulator():  # noqa: N802
     total: ac.u8 = 0
 
-    @ac.rule
+    @ac.method
     def add(packet: Packet) -> Packet:
         value = packet.value
         for _step in range(2):
@@ -22,7 +22,7 @@ def Accumulator():  # noqa: N802
         total = total + value
         return Packet(tag=packet.tag, value=total)
 
-    @ac.rule
+    @ac.method
     def snapshot() -> ac.u8:
         return total
 
@@ -34,15 +34,15 @@ def QueueRulePipeline():  # noqa: N802
     accumulator = Accumulator()
     transferred: ac.u8 = 0
 
-    @ac.rule
+    @ac.method
     def put(packet: Packet) -> None:
         ingress.push(packet)
 
-    @ac.rule
+    @ac.method
     def get() -> Packet:
         return egress.pop()
 
-    @ac.rule
+    @ac.method
     def snapshot() -> tuple[ac.u8, ac.u8]:
         return accumulator.snapshot(), transferred
 
@@ -53,9 +53,6 @@ def QueueRulePipeline():  # noqa: N802
         transferred = transferred + 1
         egress.push(result)
 
-    @ac.rule(after=(transfer,))
+    @ac.rule
     def progress() -> None:
         ac.log("info", "queue progress", transferred)
-
-    transfer()
-    progress()

@@ -98,6 +98,8 @@ def admission_cases():
             )
         if name == "map-qualified-callback-decorator":
             categories = ("rule is only a complete module/system registration",)
+        elif name == "map-shadow-namespace":
+            categories = ("source binding is shadowed in its lexical scope: 'ac'",)
         elif name == "map-non-rule-callback":
             categories = ("pure helper callable binding is shadowed by a local value",)
         else:

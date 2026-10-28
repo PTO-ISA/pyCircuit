@@ -713,8 +713,13 @@ bookkeeping_body += "    return value"
 negative_cases = {
     "boolean-bound": minimal("    for index in range(True):\n        pass\n    return value"),
     "negative-bound": minimal("    for index in range(-1):\n        pass\n    return value"),
-    "named-bound": minimal("    count = 3\n    for index in range(count):\n        pass\n    return value"),
-    "arithmetic-bound": minimal("    for index in range(1 + 2):\n        pass\n    return value"),
+    "named-bound": minimal("    saved = value\n    count = 3\n    for index in range(count):\n        value = value + 1\n    assert value == saved + 3, 'closed named bound'\n    return value"),
+    "arithmetic-bound": minimal("    saved = value\n    for index in range(1 + 2):\n        value = value + 1\n    assert value == saved + 3, 'closed arithmetic bound'\n    return value"),
+    "dynamic-bound": minimal("    for index in range(value):\n        pass\n    return value"),
+    "fixed-bits-bound": minimal("    count: ac.u2 = 3\n    for index in range(count):\n        pass\n    return value"),
+    "named-boolean-bound": minimal("    count = True\n    for index in range(count):\n        pass\n    return value"),
+    "plain-helper-named-bound": plain_helper("    count = 3\n    for index in range(count):\n        pass\n    return value"),
+    "plain-helper-arithmetic-bound": plain_helper("    for index in range(1 + 2):\n        pass\n    return value"),
     "start-stop": minimal("    for index in range(0, 3):\n        pass\n    return value"),
     "keyword-bound": minimal("    for index in range(stop=3):\n        pass\n    return value"),
     "starred-bound": minimal("    bounds = (3,)\n    for index in range(*bounds):\n        pass\n    return value"),
@@ -816,8 +821,10 @@ def write(owner):
     owner = owner + 1
 @rule
 def evaluate(owner):
+    saved = owner
     for index in range(3):
         write(owner)
+    assert owner == saved + 3, "three sequential template updates"
 @module
 def Top() -> Out:
     owner: ac.u8 = 0
@@ -848,16 +855,20 @@ rejections = {}
 ACCEPTED_LOOP_FORMS = {
     # Current loop lowering supports these forms; they are compatibility
     # controls rather than historical rejections.
-    "assert-body", "bookkeeping-resource", "break-body", "continue-body",
+    "named-bound", "arithmetic-bound", "assert-body", "bookkeeping-resource", "break-body", "continue-body",
     "division-expression", "log-body", "persistent-write", "shift-expression",
     "table-method", "zero-log-body", "zero-persistent-write",
-    "zero-transitive-helper-write", "zero-unary-expression",
+    "transitive-helper-write", "zero-transitive-helper-write", "zero-unary-expression",
     "zero-unary-plus-expression",
 }
 for name, invalid in negative_cases.items():
     design.write_text(invalid)
     if name in ACCEPTED_LOOP_FORMS:
-        compile_source(build / ("accepted-" + name), accepted=True)
+        accepted_unit = build / ("accepted-" + name)
+        compile_source(accepted_unit, accepted=True)
+        if name in {"transitive-helper-write", "named-bound", "arithmetic-bound"}:
+            cli("link", accepted_unit, "--top", "bounded_for.design.Top", "-o",
+                build / ("accepted-" + name + ".ac"))
         continue
     rejected = compile_source(unit, accepted=False, replace=True)
     assert rejected.stderr.strip(), name
@@ -872,6 +883,68 @@ for name, invalid in negative_cases.items():
         assert any(word in rejected.stderr.lower() for word in ("branch", "join"))
     rejections[name] = rejected.stderr
 design.write_text(original)
+
+# Two closed actuals specialize the same template independently; a local
+# default takes the same path. The independent expected values are 42+2/4/3.
+bounds_source = source / "closed_bounds.py"
+bounds_source.write_text("""import pycircuit as ac
+@ac.rule
+def accumulate(value: ac.u8, count) -> ac.u8:
+    for index in range(count):
+        value = value + 1
+    return value
+@ac.module
+def Two() -> ac.u8:
+    return accumulate(42, 2)
+@ac.module
+def Four() -> ac.u8:
+    return accumulate(42, 4)
+@ac.module
+def Local() -> ac.u8:
+    @ac.rule
+    def add(count=3) -> ac.u8:
+        value: ac.u8 = 42
+        for index in range(count):
+            value = value + 1
+        return value
+    return add
+@ac.system
+def Top():
+    two = Two()
+    four = Four()
+    local = Local()
+    @ac.rule
+    def check():
+        assert two == 44, "two closed iterations"
+        assert four == 46, "four closed iterations"
+        assert local == 45, "local default bound"
+""")
+bounds_unit = build / "closed-bounds-unit"
+cli("compile", "-c", bounds_source, "--source-root", source,
+    "--package-prefix", "bounded_for", "-o", bounds_unit)
+bounds_final = build / "closed-bounds.ac"
+cli("link", bounds_unit, "--top", "bounded_for.closed_bounds.Top", "-o", bounds_final)
+for target in ("cpp", "verilog"):
+    generated = build / ("closed-bounds-" + target)
+    cli("emit", bounds_final, "--target", target, "-o", generated)
+    binary = build / ("closed-bounds-" + target + "-runner")
+    if target == "cpp":
+        manifest = json.loads((generated / "generated.json").read_text())
+        run([args.cxx, "-std=c++20", "-pthread", "-I" + str(repo / "include"),
+             "-I" + str(generated),
+             *[generated / item["path"] for item in manifest["files"]
+               if item["path"].endswith(".cpp")], runtime, "-o", binary])
+    else:
+        run([sys.executable, repo / "cmake/verify_example.py", "--compile-system",
+             generated, "--output", binary, "--include", repo / "include",
+             "--verilator", args.verilator])
+    for workers in ((1, 2) if target == "cpp" else (1,)):
+        result = run([binary, "--cycles", "2", "--workers", str(workers)]
+                     if target == "cpp" else [binary, "+cycles=2"])
+        terminal = [json.loads(line) for line in result.stdout.splitlines()
+                    if line.startswith("{") and json.loads(line).get("kind") == "result"]
+        assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED", terminal
+        assert int(terminal[0]["epoch_time"]) == 4, terminal
 
 # Loop values may feed a supported assertion outside the loop. This fixture
 # proves the failed step and absence of observations; the existing system-

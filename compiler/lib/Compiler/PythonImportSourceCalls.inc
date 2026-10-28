@@ -200,6 +200,36 @@ Port Importer::sourceCallPort(DictionaryAttr constraint, StringRef name,
           sourceKind, kind == "fixed_bits"};
 }
 
+Port Importer::structFieldPort(DictionaryAttr field, const AstNode &site) const {
+  StringRef name = field.getAs<StringAttr>("name").getValue();
+  if (auto constraint = field.getAs<DictionaryAttr>("source_constraint"))
+    return sourceCallPort(constraint, name, site);
+  Type type = field.getAs<TypeAttr>("type").getValue();
+  return {name.str(), type, site, std::nullopt, isa<ac::BitsType>(type)};
+}
+
+void Importer::rememberStructField(Value value, DictionaryAttr field,
+                                   const AstNode &site) {
+  Port port = structFieldPort(field, site);
+  remember(value, port.sourceKind);
+  if (port.fixedBits)
+    fixedValues.insert(value);
+  else
+    fixedValues.erase(value);
+}
+
+FailureOr<Value> Importer::structFieldZero(DictionaryAttr field,
+                                          const AstNode &site, OpBuilder &at,
+                                          FlatSymbolRefAttr symbol) {
+  auto value = constant(field.getAs<TypeAttr>("type").getValue(), 0, site, at,
+                        symbol);
+  if (succeeded(value) && field.get("source_constraint")) {
+    fixedValues.erase(*value);
+    remember(*value, ac::detail::ValueKind::Boolean, {}, b.getBoolAttr(false));
+  }
+  return value;
+}
+
 bool Importer::methodOwner(const AstNode &function) const {
   if (function.kind() == "Name" &&
       methodOwnerNames.contains(function.string("id")) &&

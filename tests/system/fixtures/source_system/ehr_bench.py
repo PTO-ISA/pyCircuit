@@ -27,9 +27,3 @@ def ExerciseEhrOrder():
     @ac.rule
     def tick() -> None:
         phase = phase + 1
-
-    first()
-    second()
-    middle()
-    final()
-    tick()

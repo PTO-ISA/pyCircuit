@@ -213,7 +213,7 @@ def observation(expression, base="ac.u5", extra=""):
         + f'@ac.module\ndef Top(value: {base}{extra}) -> {{"out": ac.u5}}:\n'
         + "    alias = value\n    @rule\n    def observe():\n"
         + f'        report("count_leading_zeros", {expression})\n'
-        + '    observe()\n    return {"out": 0}\n'
+        + '    return {"out": 0}\n'
     )
 
 
@@ -532,7 +532,7 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
      @ac.rule
      def bind() -> Result:
          return Child({call}(alias))
-     return bind()
+     return bind
 """.replace(
                     "\n ", "\n"
                 ),
@@ -857,7 +857,7 @@ with tempfile.TemporaryDirectory(prefix="count-zeros-", dir=scratch) as temporar
             PREFIX
             + "from count_zero_probe.provider import Logical\n"
             + f'@ac.module\ndef Top(value: {base}, flag: bool) -> {{"out": ac.bits[80]}}:\n'
-            + "    child = Logical()\n    @ac.rule\n    def bind():\n        child(value=value, flag=flag)\n    bind()\n"
+            + "    child = Logical()\n    child(value=value, flag=flag)\n"
             + f'    return {{"out": ac.count_leading_zeros(child.{field})}}\n'
         )
         if field == "boolean":

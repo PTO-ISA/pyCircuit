@@ -12,5 +12,4 @@ def Bad(a: Annotated[int, range(1 << 8)], flag: bool, *, COUNT: int = 1) -> {"re
     def observe():
         state(clk=flag, rst=False, d=a, init=0)
         log("info", "invalid", condition + 1)
-    observe()
     return {"result": a}

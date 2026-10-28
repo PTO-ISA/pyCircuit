@@ -700,10 +700,7 @@ with tempfile.TemporaryDirectory(prefix="fixed-shifts-", dir=scratch) as tempora
             "@ac.module\n"
             f'def Top(a: ac.bits[{width}]) -> {{"result": ac.bits[{width}]}}:\n'
             f"    child = SetLow(W={width})\n"
-            "    @ac.rule\n"
-            "    def bind():\n"
-            "        child(a=a)\n"
-            "    bind()\n"
+            "    child(a=a)\n"
             '    return {"result": child.result}\n'
         )
 

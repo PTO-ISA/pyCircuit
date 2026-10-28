@@ -77,15 +77,18 @@ def Dram(
     memory = ac.sync_mem[ac.u16](depth=16)
     eligible = busy & (remaining == 1)
 
-    @ac.rule
-    def current_response() -> DmaRequest:
+    @ac.method
+    def response_value() -> DmaRequest:
         # The public response includes the RAM snapshot before reader_valid.
         response = state.request
         if state.capture_old:
             response.data = memory.result()
         return response
 
-    response = current_response()
+    @ac.rule
+    def current_response() -> DmaRequest:
+        return response_value()
+
     writer_responses = ac.queue[DmaRequest](
         depth=2, ready_policy="local_occupancy", out_ready=take_seed
     )
@@ -97,14 +100,14 @@ def Dram(
             state.capture_old = 0
         state.remaining = state.remaining - 1
 
-    @ac.rule(guard=lambda: eligible & reader)
+    @ac.method(guard=lambda: eligible & reader)
     def finish_read() -> DmaRequest:
         state.busy = 0
-        return response
+        return response_value()
 
     @ac.rule(guard=lambda: eligible & ~reader)
     def finish_write() -> None:
-        writer_responses.push(response)
+        writer_responses.push(response_value())
         state.busy = 0
 
     @ac.rule(guard=lambda: accepted)
@@ -119,9 +122,6 @@ def Dram(
         state.capture_old = 1
         state.remaining = 3
 
-    advance_latency()
-    finish_write()
-    accept_request()
     return MemoryResult(
         reader_ready=reader_ready,
         writer_ready=writer_ready,
@@ -132,7 +132,7 @@ def Dram(
             eligible & ~state.reader & writer_responses.ready,
             eligible & state.reader,
         ),
-        reader_response=response,
+        reader_response=current_response,
         writer_response=writer_responses.data,
     )
 
@@ -165,7 +165,7 @@ def Sram(
         depth=2, ready_policy="local_occupancy", out_ready=take_copy
     )
 
-    @ac.rule
+    @ac.method
     def enqueue_copy(request: DmaRequest) -> None:
         copy_requests.push(request)
 
@@ -200,10 +200,6 @@ def Sram(
         state.capture_old = 1
         state.remaining = 2
 
-    advance_latency()
-    finish_read()
-    finish_write()
-    accept_request()
     return MemoryResult(
         reader_ready=reader_ready,
         writer_ready=writer_ready,
@@ -267,7 +263,6 @@ def Dma(
     def forward_copy() -> None:
         sram.enqueue_copy(dram.finish_read())
 
-    forward_copy()
     return DmaResult(
         seed_ready=seed_requests.ready,
         copy_ready=copy_requests.ready,

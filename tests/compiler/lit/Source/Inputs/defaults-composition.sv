@@ -3,6 +3,9 @@ module tb;
   logic left_enable=0, right_enable=0, index=0;
   logic [4:0] value=0;
   wire [331:0] result;
+  logic [2:0] pyc_phase=0;
+  logic pyc_root_commit_ok=0;
+  wire pyc_check_complete, pyc_sampling_error, pyc_local_error;
   pyc_root dut(.*);
   int owner[2], payload[2][2], ready[2][2], expected[25], actual[25];
   logic [23:0] box_words[2];
@@ -19,8 +22,20 @@ module tb;
       10:return int'(child[4:0]); default:return -1;
     endcase
   endfunction
+  task automatic work_sample;
+    #1; pyc_phase=1; #1;
+    if(pyc_check_complete !== 1'b1 || pyc_sampling_error !== 1'b0 ||
+       pyc_local_error !== 1'b0)
+      $fatal(1,"defaults Work/check failed before observation");
+  endtask
+  task automatic commit_sample;
+    pyc_root_commit_ok=(pyc_check_complete===1'b1 &&
+                       pyc_sampling_error===1'b0 && pyc_local_error===1'b0);
+    if(pyc_root_commit_ok !== 1'b1)$fatal(1,"defaults commit without successful checks");
+    pyc_phase=2; #1; pyc_phase=0; pyc_root_commit_ok=0; #1;
+  endtask
   task sample_row(input bit clk,rst,left,right,idx,input int data);
-    left_enable=left;right_enable=right;index=idx;value=5'(data);pyc_7079635f727374=rst;
+    left_enable=left;right_enable=right;index=idx;value=5'(data);pyc_7079635f727374=rst;pyc_7079635f636c6b=clk;
     for(int side=0;side<2;side++)begin
       expected[side*11]=owner[side];
       expected[side*11+1]=(side ? right : left) ? data : owner[side];
@@ -31,7 +46,7 @@ module tb;
     end
     expected[22]=(expected[1]+3)%32;expected[23]=(expected[1]+6)%32;
     expected[24]=(expected[12]+6)%32;
-    #1;
+    work_sample();
     for(int f=0;f<11;f++)begin
       actual[f]=field(result[331:286],f);actual[f+11]=field(result[285:240],f);
     end
@@ -52,7 +67,7 @@ module tb;
       $fatal(1,"whole Table entry proposal");
     if(result[24:0] !== {box_words[idx ^ 1],box_flags[idx ^ 1]}) $fatal(1,"untouched Table entry");
     $write("WORK");for(int f=0;f<25;f++)$write(" %0d",actual[f]);$write("\n");
-    pyc_7079635f636c6b=clk;#1;
+    commit_sample();
     if(clk && !prior_clock)begin
       if(rst)begin for(int side=0;side<2;side++)begin owner[side]=0;box_words[side]=24'h192a3c;box_flags[side]=1;
         for(int item=0;item<2;item++)begin payload[side][item]=7;ready[side][item]=1;end end end
@@ -66,7 +81,10 @@ module tb;
   initial begin
     for(int side=0;side<2;side++)begin owner[side]=0;box_words[side]=24'h192a3c;box_flags[side]=1;
       for(int item=0;item<2;item++)begin payload[side][item]=7;ready[side][item]=1;end end
-    #1;pyc_7079635f636c6b=1;#1;pyc_7079635f636c6b=0;pyc_7079635f727374=0;#1;
+    // Match native Reset/Xfer before the unchanged 72 Work vectors.
+    pyc_phase=4;pyc_root_commit_ok=1;#1;
+    pyc_phase=2;#1;pyc_phase=0;pyc_root_commit_ok=0;
+    pyc_7079635f727374=0;#1;
     for(int n=0;n<64;n++)sample_row(1'(n%2),n==31,n%3!=0,n%5<2,1'((n/2)%2),(n*7+13)%32);
     sample_row(1,0,1,0,0,17);sample_row(1,0,0,1,1,29);
     sample_row(0,0,1,1,0,11);sample_row(0,0,0,1,1,19);

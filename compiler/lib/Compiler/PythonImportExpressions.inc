@@ -147,7 +147,7 @@ if (auto producer = fixedResultCall(node); !producer.empty())
          << producer
          << " produces fixed results; unpack first into ordinary "
             "local Names";
-if (node.kind() == "Constant" && expected && isa<ac::EnumType>(*expected))
+if ((node.kind() == "Constant" || sourceLiteral) && expected && isa<ac::EnumType>(*expected))
   return error() << "source Integer/Boolean literals cannot be implicitly "
                     "converted to Enum";
 // Aggregate and unsigned expressions use the same expression recursion.
@@ -183,14 +183,14 @@ if (node.kind() == "Tuple" || node.kind() == "List") {
                   TypeRange{table}, {})
       ->getResult(0);
 }
-if (node.kind() == "Constant" && expected && !isa<ac::BitsType>(*expected)) {
-  auto encoded = dyn_cast_or_null<DictionaryAttr>(node.get("value"));
-  auto spelling = encoded ? encoded.getAs<StringAttr>("integer") : StringAttr();
-  if (!spelling || spelling.getValue() != "0")
+if ((node.kind() == "Constant" || sourceLiteral) && expected && !isa<ac::BitsType>(*expected)) {
+  auto literalValue = sourceLiteral ? sourceLiteral : staticValue(b, node.get("value"), error);
+  auto integer = literalValue ? literalValue.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr();
+  if (!integer || integer.getCanonicalValue() != "0")
     return error() << "aggregate literal requires contextual zero";
   return constant(*expected, 0, node, at, ownerSymbol);
 }
-if (node.kind() == "Attribute" &&
+if (node.kind() == "Attribute" && !sourceLiteral &&
     !(node.child("value").kind() == "Name" &&
       !queryBound(node.child("value").string("id")) &&
       instances.contains(node.child("value").string("id")) &&
@@ -213,8 +213,7 @@ if (node.kind() == "Attribute" &&
                    TypeRange{field.getAs<TypeAttr>("type").getValue()},
                    {at.getNamedAttr("field", field.getAs<StringAttr>("name"))})
               ->getResult(0);
-      if (isa<ac::BitsType>(result.getType()))
-        fixedValues.insert(result);
+      rememberStructField(result, field, node);
       return result;
     }
   }
@@ -365,12 +364,15 @@ if (node.kind() == "Subscript") {
   auto type = dyn_cast<ac::TableType>(base->getType());
   if (!type)
     return error() << "subscript requires fixed bits or a table";
-  if (failed(proveIndex(*base, *index, node)))
-    return failure();
+  auto admission = proveIndex(*base, *index, node);
+  if (failed(admission)) return failure();
+  SmallVector<Type> results{type.getElementType()};
+  bool deferred = *admission == SourceIndexAdmission::Deferred;
+  if (!deferred) results.push_back(internalBits(1, node, ownerSymbol));
   auto result =
       createOp(at, node.location(b.getContext(), source.path),
-               ac::TableGetOp::getOperationName(), {*base, *index},
-               TypeRange{type.getElementType(), internalBits(1, node, ownerSymbol)}, {})
+               deferred ? ac::TableReadOp::getOperationName() : ac::TableGetOp::getOperationName(),
+               {*base, *index}, results, {})
           ->getResult(0);
   if (isa<ac::BitsType>(result.getType()))
     fixedValues.insert(result);

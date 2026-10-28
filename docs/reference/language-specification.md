@@ -36,7 +36,8 @@ Verilog emitter 中另建一套设计语义编译器。
 - `@ac.struct` 声明名义记录类型。
 - `@ac.encoding(...)` 配合 Python Enum 声明名义编码值。
 - `@ac.module` 声明硬件定义；静态调用 occurrence 创建实例。
-- `@ac.rule` 声明模块作用域中注册的计算/事务；定义本身不执行。
+- Module/System 内的 `@ac.rule` 声明自动参与 Work 的计算/事务，无需调用激活；Module 接线中以 Rule 名引用结果。全局 Rule 是需要显式实参绑定的模板。
+- 独立 Rule 读取同一份 current；禁止 `after` 引入跨 Rule 候选状态可见性。局部绑定默认参数由 MLIR 解析，捕获阶段不执行 Python。
 - 普通局部表达式产生组合 SSA 值，不能因赋值自动增加寄存器。
 - 模块作用域的受支持注解变量声明持久状态；rule 内同类注解描述局部值。
 
@@ -127,7 +128,8 @@ known0的可能地址集合必须不相交。源码可以显式写
 `gb = req_b & (~ga | (i != j))` 或等价select，框架不自动选winner。
 不同动态宽度的额外等价推导、算术/范围独立性、隐式查询provenance、内部字段条件
 排斥仍不作证明。整Table替换需owner互斥；带索引的整元素替换可以使用地址证明。
-Table-of-Table、Table-in-Struct和第二层索引仍未实现。
+Table-of-Table 和第二层索引仍未实现；Struct 内固定一维 Table 的整值操作
+遵循前面的聚合合同。
 
 Table 查询使用 `index, valid = entries.first(where=lambda entry: ...)` 或
 `entries.argmin(where=lambda entry: ..., key=lambda entry: ...)`。receiver 必须是
@@ -322,9 +324,10 @@ rule 内构造的输出可能是组合计算结果；返回持久变量表示旧
 
 ## 检查、观测与当前缺口
 
-源码 assert/observe 的 capture 和部分内部分析/执行能力存在，但完整公开
-双后端 instrumentation 尚未闭环；当前公开 emission 对未实现能力必须诊断。
-不能引用内部测试 emitter 的通过来宣称公开产品已经支持完整 @system/EXPECT。
+已支持闭合 System 内的源码 assert、log/report 及其 C++/RTL 执行和失败零提交。
+普通 Module 的断言需要受管 RTL 生命周期；普通 Module 观测等未支持形式仍须
+明确拒绝。具体支持域及当前候选证据见语言参考与测试记录，不能从单一内部
+emitter 的通过推断所有 instrumentation 和时钟域组合均已实现。
 
 | 尚未完整实现 | 不得采用的替代验收 |
 | --- | --- |

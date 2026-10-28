@@ -387,7 +387,7 @@ public:
       return *source;
     }
     if (isa<ac::TableCreateOp, ac::TableSplatOp, ac::TableMapOp,
-            ac::TableViewOp, ac::TableIndexOp, ac::TableGetOp, ac::TableMatchOp,
+            ac::TableViewOp, ac::TableIndexOp, ac::TableReadOp, ac::TableGetOp, ac::TableMatchOp,
             ac::TableChooseOp, ac::TableFoldOp, ac::ValueMergeOp>(op)) {
       if (failed(tableOperation(op)))
         return failure();
@@ -687,20 +687,20 @@ public:
           << *n << ");\n";
       return success();
     }
-    if (auto get = dyn_cast<ac::TableGetOp>(op)) {
-      auto type = cast<ac::TableType>(get.getInput().getType());
-      auto n = count(type), k = width(get.getIndex().getType());
-      if (failed(n) || failed(k))
-        return failure();
+    if (isa<ac::TableReadOp, ac::TableGetOp>(op)) {
+      auto type = cast<ac::TableType>(op->getOperand(0).getType());
+      auto n = count(type), k = width(op->getOperand(1).getType());
+      if (failed(n) || failed(k)) return failure();
       auto b = "$clog2(64'(" + *n + ") + 64'd1)";
       auto w = "((" + *k + ") > (" + b + ") ? (" + *k + ") : (" + b + "))";
-      auto selected =
-          element(operands[0], "$unsigned(" + operands[1] + ")", type);
-      if (failed(selected))
-        return failure();
-      out << "  assign " << resultName(1) << " = (" << w << ")'($unsigned("
-          << operands[1] << ")) < (" << w << ")'(" << *n << ");\n"
-          << "  assign " << resultName() << " = " << resultName(1) << " ? "
+      auto selected = element(operands[0], "$unsigned(" + operands[1] + ")", type);
+      if (failed(selected)) return failure();
+      std::string range = "(" + w + ")'($unsigned(" + operands[1] + ")) < (" + w + ")'(" + *n + ")";
+      if (isa<ac::TableGetOp>(op)) {
+        out << "  assign " << resultName(1) << " = " << range << ";\n";
+        range = resultName(1);
+      }
+      out << "  assign " << resultName() << " = (" << range << ") ? "
           << *selected << " : 'x;\n";
       return success();
     }
@@ -853,6 +853,7 @@ public:
                                                    bindings, op);
       if (failed(leaves))
         return failure();
+      // Empty-path whole-Table merge selects the complete packed value.
       // Dependency paths descend Table element records, but RTL Tables are
       // packed vectors. Preserve such a field as one complete packed value.
       SmallVector<ac::FieldPath> packedPaths;

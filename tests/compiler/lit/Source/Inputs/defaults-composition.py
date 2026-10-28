@@ -116,7 +116,11 @@ with tempfile.TemporaryDirectory(
     unit_receipt = json.loads((unit / "unit.json").read_text())
     unit_text = (unit / unit_receipt["files"]["body"]).read_text()
     contracts = [
-        line for line in unit_text.splitlines() if 'ac.return_form = "single"' in line
+        line
+        for line in unit_text.splitlines()
+        if line.startswith("  })")
+        and 'ac.declaration_role = "definition"' in line
+        and 'ac.return_form = "single"' in line
     ]
     assert contracts, "typed-result modules must publish source-call contracts"
     for contract in contracts:
@@ -145,7 +149,7 @@ with tempfile.TemporaryDirectory(
     def source_calls(text, owner):
         calls = []
         for line in text.splitlines():
-            if '"ac.instance"' not in line:
+            if "ac.instance(" not in line:
                 continue
             match = re.search(r"callee = @defaults_probe\.design\.(\w+)", line)
             occurrence = line.split("parameters =")[0]

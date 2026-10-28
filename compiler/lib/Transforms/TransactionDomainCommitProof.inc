@@ -51,6 +51,18 @@
                  ArrayRef<Use> domains, Block *block, unsigned depth) -> FailureOr<Value> {
       if (depth > 128 || !charge(budget, source, 4)) return failure();
       if (domains.empty()) return base;
+      // Rederive whole-value admission from the original domain paths, never
+      // from the generated merge or its claimed Table layout.
+      if (isa<ac::TableType>(type) && domains.size() == 1 && domains.front().path.empty() &&
+          isa<ac::BitsType>(domains.front().mask.getType())) {
+        auto guard = binary(enable, domains.front().mask, "and", block);
+        if (failed(guard)) return failure();
+        auto merge = take(ac::ValueMergeOp::getOperationName(), {base, *guard, candidateValue}, {type, guard->getType()},
+            b.getDictionaryAttr({b.getNamedAttr("paths", b.getArrayAttr({b.getArrayAttr({})})),
+              b.getNamedAttr("operandSegmentSizes", b.getDenseI32ArrayAttr({1, 1, 1}))}), block);
+        if (failed(merge) || !(*merge)->getResult(1).use_empty()) return failure();
+        return (*merge)->getResult(0);
+      }
       if (auto structure = dyn_cast<ac::StructType>(type)) {
         auto declaration = hardware.lookupStruct(structure);
         if (!declaration) return failure();
@@ -167,7 +179,7 @@
     }
     auto source = plan.transaction;
     return domainCommitProof(source, source.getOccurrence(),
-        owner.payloadType, plan.frames[plan.rootFrame].bindings,
+        owner.payloadType, plan.instances[0].bindings,
         record.rule->getResult(output.dataResult), record.rule->getResult(output.enableResult),
         domains, commit.data, previous, parent, last);
   }

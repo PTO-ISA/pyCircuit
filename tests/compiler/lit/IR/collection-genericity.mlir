@@ -72,4 +72,4 @@ module {
 // CHECK-COUNT-2: "ac.value.merge"
 // CHECK: "ac.table.map"
 // CHECK: "ac.collection"
-// CHECK-COUNT-3: "ac.instance"
+// CHECK-COUNT-3: ac.instance

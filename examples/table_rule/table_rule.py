@@ -30,7 +30,7 @@ def TableRule(valid: ac.u1, data: Entry, take: ac.u1) -> Result:  # noqa: N802
         depth=1, latency=1, ready_policy="downstream_pop", out_ready=take
     )
 
-    @ac.rule
+    @ac.method
     def install(entry: Entry) -> Entry:
         old = entries[entry.index]
         entries[entry.index] = entry
@@ -42,5 +42,4 @@ def TableRule(valid: ac.u1, data: Entry, take: ac.u1) -> Result:  # noqa: N802
         old = install(incoming)
         egress.push(old)
 
-    transfer()
     return Result(ready=ingress.ready, valid=egress.valid, data=egress.data)

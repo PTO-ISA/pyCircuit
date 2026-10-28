@@ -1,5 +1,7 @@
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "mlir/IR/BuiltinOps.h"
+#include "EntryBoundary.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 
 #include "pycircuit/Dialect/ACIR/ACIRDialect.cpp.inc"
@@ -11,6 +13,19 @@ namespace acir::ac {
 LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
                                                     NamedAttribute attribute) {
   StringRef name = attribute.getName().getValue();
+  if (name == "ac.transactional") {
+    auto package = dyn_cast<mlir::ModuleOp>(operation);
+    if (!package) return operation->emitOpError("ac.transactional belongs only to a package");
+    return verifyTransactionalPackage(package);
+  }
+  if (name == "ac.stage") {
+    auto stage = dyn_cast<StringAttr>(attribute.getValue());
+    if (stage && (stage.getValue() == "unlinked" || stage.getValue() == "linked") &&
+        !operation->hasAttr("ac.transactional"))
+      return operation->emitOpError("unlinked/linked stage requires transactional version 2");
+  }
+  if (name == "ac.entry_boundary")
+    return detail::verifyEntryBoundaryAttribute(operation, attribute.getValue());
   if (name == "ac.anchor_provenance") {
     auto package = dyn_cast<mlir::ModuleOp>(operation);
     auto stage = package ? package->getAttrOfType<StringAttr>("ac.stage")
@@ -49,10 +64,27 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
         package->hasAttr("ac.unit_kind") || !stage ||
         (stage.getValue() != "routed" && stage.getValue() != "final") ||
         !version || !version.getType().isSignlessInteger(64) ||
-        version.getValue() != 2)
+        (version.getValue() != 2 && version.getValue() != 3))
       return operation->emitOpError()
-             << "ac.routed_contract requires version 2 : i64 on the top-level "
+             << "ac.routed_contract requires version 2 or 3 : i64 on the top-level "
                 "routed or final package; regenerate unsupported artifacts";
+    // Pair presence is a structural schema rule, including during ordinary
+    // native verification. Do not bind entries or recurse into package
+    // verification from this callback; bounded semantic admission remains at
+    // the independent package owner.
+    unsigned selections = 0, boundaries = 0;
+    for (Region &region : package->getRegions())
+      for (Block &block : region)
+        for (Operation &child : block)
+          if (isa<SystemOp>(child)) {
+            ++selections;
+            boundaries += child.hasAttr("ac.entry_boundary");
+          }
+    if ((version.getInt() == 3 && (selections != 1 || boundaries != 1)) ||
+        (version.getInt() == 2 && boundaries))
+      return operation->emitOpError()
+             << "ac.routed_contract 3 requires ac.entry_boundary on the sole "
+                "System; contract 2 forbids ac.entry_boundary";
     return success();
   }
   if (name == "ac.external_contract") {

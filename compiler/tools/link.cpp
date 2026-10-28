@@ -1,4 +1,5 @@
 #include "Compiler/SourceLink.h"
+#include "Dialect/ACIR/HardwareSourceChecks.h"
 #include "Compiler/AnchorArtifact.h"
 #include "Compiler/SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -647,11 +648,10 @@ mlir::LogicalResult runVerify(const Options &options,
       return emitError() << "artifact failed native verification";
     if (mlir::failed(acir::ac::verifyHardwarePackage(*input)))
       return mlir::failure();
-    auto systems = (*input).getOps<acir::ac::SystemOp>();
-    auto entry =
-        (*systems.begin()).getEntry().getAs<mlir::FlatSymbolRefAttr>("callee");
-    auto root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(
-        mlir::SymbolTable::lookupSymbolIn(*input, entry.getValue()));
+    acir::ac::HardwareAnalysis hardware(*input);
+    auto logical = acir::ac::detail::resolveHardwareLogicalRootBindings(hardware);
+    if (mlir::failed(logical)) return mlir::failure();
+    auto root = llvm::dyn_cast_or_null<acir::ac::ModuleOp>(logical->owner);
     if (!root)
       return emitError() << "verified artifact has no selected module";
     if (options.entryOwnerOutput &&

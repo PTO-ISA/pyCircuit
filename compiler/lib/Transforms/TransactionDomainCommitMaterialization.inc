@@ -11,8 +11,7 @@ FailureOr<bool> unorderedOwnerGroup(const PreparedTransactionLowering &prepared,
       if (!charge(budget, plan.transaction)) return failure();
       const auto &other = peer.plan->owners[output.binding.owner];
       if (routingKey(anchorPath(*peer.plan, other.anchor), other.declaration->getResult(0)) != target) continue;
-      if (!llvm::is_contained(plan.predecessorIndices, peer.plan->ordinal) &&
-          !llvm::is_contained(peer.plan->predecessorIndices, plan.ordinal)) return true;
+      return true;
     }
   }
   return false;
@@ -65,6 +64,18 @@ FailureOr<MaterializedBranchResult> materializeDomainCommit(
                 ArrayRef<Use> domains, OpBuilder &at, unsigned depth) -> FailureOr<Value> {
     if (depth > 128 || !charge(budget, source, 4)) return failure();
     if (domains.empty()) return base;
+    // One undivided domain selects the aggregate directly. No Table ordinal
+    // layout is needed in the shared declaration for an incoming whole value.
+    if (isa<ac::TableType>(type) && domains.size() == 1 && domains.front().path.empty() &&
+        isa<ac::BitsType>(domains.front().mask.getType())) {
+      auto guard = binary(at, enable, domains.front().mask, "and");
+      if (failed(guard)) return failure();
+      auto merged = make(at, ac::ValueMergeOp::getOperationName(), {base, *guard, candidateValue},
+          {type, guard->getType()}, {at.getNamedAttr("paths", at.getArrayAttr({at.getArrayAttr({})})),
+           at.getNamedAttr("operandSegmentSizes", at.getDenseI32ArrayAttr({1, 1, 1}))});
+      if (failed(merged)) return failure();
+      return (*merged)->getResult(0);
+    }
     if (auto structure = dyn_cast<ac::StructType>(type)) {
       auto declaration = hardware.lookupStruct(structure);
       if (!declaration) return failure();

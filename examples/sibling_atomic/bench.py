@@ -15,5 +15,3 @@ def SiblingAtomic():  # noqa: N802
     def advance() -> None:
         ac.log("info", "atomic committed", counter.committed(), ledger.read())
         phase = phase + 1
-
-    advance()

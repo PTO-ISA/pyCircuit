@@ -438,7 +438,7 @@ def observation(statements, expression):
         + "from pycircuit import report\n"
         + "@ac.module\ndef Top(value: ac.u5) -> {'out': ac.u5}:\n"
         + statements
-        + f"    @ac.rule\n    def observe():\n        report('encoding', {expression})\n    observe()\n    return {{'out': 0}}\n"
+        + f"    @ac.rule\n    def observe():\n        report('encoding', {expression})\n    return {{'out': 0}}\n"
     )
 
 
@@ -592,7 +592,7 @@ for helper in HELPERS:
             + "from pycircuit import report\n"
             + "@ac.module\ndef Top(value: ac.u5) -> {'out': ac.u3}:\n"
             + bind
-            + f"    alias = {flag}\n    @ac.rule\n    def inspect():\n        report('flag', ac.popcount(alias))\n    inspect()\n    return {{'out': index}}\n"
+            + f"    alias = {flag}\n    @ac.rule\n    def inspect():\n        report('flag', ac.popcount(alias))\n    return {{'out': index}}\n"
         )
     controls[helper + "-captured"] = (
         PREFIX
@@ -602,10 +602,7 @@ def Child(value: ac.u3, flag: bool) -> {{"out": ac.u3}}:
 @ac.module
 def Top(value: ac.u5) -> {{"out": ac.u3}}:
 {bind}    child = Child()
-    @ac.rule
-    def bind_child():
-        child(value=index, flag=valid)
-    bind_child()
+    child(value=index, flag=valid)
     return {{"out": child.out}}
 """
     )
@@ -1231,10 +1228,7 @@ for helper in HELPERS:
             + f"""@ac.module
 def Top(value: Annotated[int, range(1 << 5)], flag: bool) -> {{"out": ac.u3}}:
     child = Logical()
-    @ac.rule
-    def bind_child():
-        child(value=value, flag=flag)
-    bind_child()
+    child(value=value, flag=flag)
     {names} = ac.{helper}(child.{field})
     return {{"out": index}}
 """

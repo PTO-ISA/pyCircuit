@@ -1,3 +1,4 @@
+#include "NativeFormalOwnerFixture.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceUnit.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
@@ -29,9 +30,9 @@ using namespace mlir;
 namespace ac = acir::ac;
 namespace compiler = acir::compiler;
 
-// Independent ownership tests start from production capture and source link.
-// The generated source is test input; no compiler-generated numerical result
-// supplies the ownership oracle.
+// Generic callable bodies come from production Python capture. Owning formal
+// edges are then explicit native common-IR fixtures, with freshly published
+// interfaces. A separate test covers Python owner specialization itself.
 class SourceFormalOwnerBindingTest : public ::testing::Test {
 protected:
   MLIRContext context;
@@ -57,39 +58,48 @@ protected:
     llvm::sys::path::append(result, name);
     return result.str().str();
   }
-  OwningOpRef<ModuleOp> fixture() {
+  OwningOpRef<ModuleOp> fixture(bool nativeOwners = true) {
     std::error_code ec;
     {
       llvm::raw_fd_ostream stream(path("formal.py"), ec);
       EXPECT_FALSE(ec);
       if (ec) return {};
       stream << R"py(import pycircuit as ac
-@ac.module
-def Calculator():
-    @ac.rule
-    def alter(value: ac.u8) -> None:
-        value = value + 3
-    @ac.rule
-    def forward(value: ac.u8) -> None:
-        value = value + 2
-        alter(value)
-    @ac.rule
-    def pair(left: ac.u8, right: ac.u8) -> None:
-        left = left + 1
-        right = right + 2
-@ac.module
-def Top():
+@ac.rule
+def alter(value: ac.u8) -> None:
+    value = value + 3
+@ac.rule
+def forward(value: ac.u8) -> None:
+    value = value + 2
+    alter(value)
+@ac.rule
+def pair(left: ac.u8, right: ac.u8) -> None:
+    left = left + 1
+    right = right + 2
+)py";
+      // Only the by-value form supplies generic proposal signatures. The
+      // native fixture below binds selected calls to physical owners.
+      stream << (nativeOwners ? R"py(@ac.module
+def Top(input_left: ac.u8, input_right: ac.u8):
     left: ac.u8 = 11
     right: ac.u8 = 29
-    child = Calculator()
     @ac.rule
     def run() -> None:
         snapshot = left
-        child.forward(snapshot)
-        child.forward(left)
-        child.pair(left, right)
-    run()
-)py";
+        forward(snapshot)
+        forward(input_left)
+        pair(input_left, input_right)
+)py" : R"py(@ac.module
+def Top():
+    left: ac.u8 = 11
+    right: ac.u8 = 29
+    @ac.rule
+    def run() -> None:
+        snapshot = left
+        forward(snapshot)
+        forward(left)
+        pair(left, right)
+)py");
     }
     static constexpr llvm::StringLiteral script = R"py(
 import sys
@@ -122,6 +132,25 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     auto unit = compiler::compilePythonSourceUnit(*captured, owner, *headers, error());
     EXPECT_TRUE(succeeded(unit)) << diagnostics;
     if (failed(unit)) return {};
+    if (nativeOwners) {
+      unsigned forwards = 0, bound = 0;
+      bool valid = true;
+      unit->body->walk([&](ac::SourceMethodCallOp call) {
+        auto name = call.getCalleeAttr().getLeafReference().getValue();
+        if (name == "forward" && ++forwards == 2) {
+          valid &= succeeded(acir::test::bindNativeFormalOwners(call, {"left"}));
+          ++bound;
+        } else if (name == "pair") {
+          valid &= succeeded(acir::test::bindNativeFormalOwners(call, {"left", "right"}));
+          ++bound;
+        }
+      });
+      EXPECT_EQ(bound, 2u);
+      EXPECT_TRUE(valid) << diagnostics;
+      if (!valid || bound != 2 ||
+          failed(acir::test::publishNativeFormalOwnerFixture(*unit, context)))
+        return {};
+    }
     compiler::SourceLinkStages stages;
     auto final = compiler::linkSourceUnits({{*unit->body, *unit->interface}},
                                              "formal.Top", error(), compiler::SourceLinkTarget::Hardware, &stages);
@@ -148,32 +177,28 @@ class Cell:
 class Box:
     inner: Cell
     tail: ac.u4
+@ac.rule
+def edit(left: TYPE, right: TYPE, index: INDEX, rhs: ac.u4) -> None:
+    leftSELECTED = rhs
+    leftSELECTED = rhs + 1
+    rightSELECTED = rhs + 2
+@ac.rule
+def relay(left: TYPE, right: TYPE, index: INDEX, rhs: ac.u4) -> None:
+    edit(left, right, index, rhs)
+@ac.rule
+def replace(left: TYPE, right: TYPE) -> None:
+    left = right
 @ac.module
-def Calculator():
-    @ac.rule
-    def edit(left: TYPE, right: TYPE, index: INDEX, rhs: ac.u4) -> None:
-        leftSELECTED = rhs
-        leftSELECTED = rhs + 1
-        rightSELECTED = rhs + 2
-    @ac.rule
-    def relay(left: TYPE, right: TYPE, index: INDEX, rhs: ac.u4) -> None:
-        edit(left, right, index, rhs)
-    @ac.rule
-    def replace(left: TYPE, right: TYPE) -> None:
-        left = right
-@ac.module
-def Top(index: INDEX, rhs: ac.u4):
+def Top(index: INDEX, rhs: ac.u4, input_left: TYPE, input_right: TYPE):
     left: TYPE = INITIAL
     right: TYPE = INITIAL
-    child = Calculator()
     @ac.rule
     def run() -> None:
         saved = left
-        child.relay(saved, right, index, rhs)
-        child.relay(left, right, index, rhs)
-        child.relay(left, right, index, rhs)
-        child.replace(left, right)
-    run()
+        relay(saved, input_right, index, rhs)
+        relay(input_left, input_right, index, rhs)
+        relay(input_left, input_right, index, rhs)
+        replace(input_left, input_right)
 )py";
     auto substitute = [&](StringRef key, StringRef value) {
       size_t at = 0;
@@ -224,6 +249,24 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     auto unit = compiler::compilePythonSourceUnit(*captured, owner, *headers, error());
     EXPECT_TRUE(succeeded(unit)) << diagnostics;
     if (failed(unit)) return {};
+    unsigned relays = 0, bound = 0;
+    bool valid = true;
+    unit->body->walk([&](ac::SourceMethodCallOp call) {
+      auto name = call.getCalleeAttr().getLeafReference().getValue();
+      if (name == "relay") {
+        valid &= succeeded(acir::test::bindNativeFormalOwners(
+            call, {relays++ ? "left" : "", "right", "", ""}));
+        ++bound;
+      } else if (name == "replace") {
+        valid &= succeeded(acir::test::bindNativeFormalOwners(call, {"left", "right"}));
+        ++bound;
+      }
+    });
+    EXPECT_EQ(bound, 4u);
+    EXPECT_TRUE(valid) << diagnostics;
+    if (!valid || bound != 4 ||
+        failed(acir::test::publishNativeFormalOwnerFixture(*unit, context)))
+      return {};
     return std::move(unit->body);
   }
   SmallVector<ac::SourceFormalWriteOp> selectedWrites(ModuleOp file) {
@@ -275,6 +318,29 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
     EXPECT_FALSE(diagnostics.empty());
   }
 };
+
+TEST_F(SourceFormalOwnerBindingTest, PythonOwnerCallsSpecializeWithoutNativeOwnerEdges) {
+  auto file = fixture(false);
+  ASSERT_TRUE(file) << diagnostics;
+  ac::SourceTransactionStateAnalysis analysis(*file);
+  ASSERT_TRUE(analysis.isValid()) << diagnostics;
+  unsigned directWrites = 0, physicalBindings = 0;
+  file->walk([&](ac::SourceStateWriteOp) { ++directWrites; });
+  file->walk([&](ac::SourceMethodCallOp call) {
+    if (auto bindings = call->getAttrOfType<ArrayAttr>("ac.formal_owner_bindings"))
+      for (auto raw : bindings)
+        physicalBindings += bool(cast<DictionaryAttr>(raw).get("state"));
+  });
+  EXPECT_GE(directWrites, 2u);
+  EXPECT_EQ(physicalBindings, 0u);
+  bool owningStateHistory = false;
+  for (auto transaction : all<ac::SourceTransactionOp>(*file)) {
+    auto *plan = analysis.lookup(transaction);
+    ASSERT_TRUE(plan);
+    owningStateHistory |= !plan->writes.empty();
+  }
+  EXPECT_TRUE(owningStateHistory);
+}
 
 TEST_F(SourceFormalOwnerBindingTest, ActualSSAAndPhysicalOwnerAuthenticateBindings) {
   auto original = fixture();

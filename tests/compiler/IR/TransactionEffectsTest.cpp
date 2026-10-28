@@ -445,7 +445,7 @@ TEST_F(TransactionEffectsTest,
   EXPECT_EQ(copy->getAttr("declaration"), transaction->getAttr("declaration"));
   EXPECT_NE(copy->getAttr("occurrence"), transaction->getAttr("occurrence"));
   // This verifies declaration/call identity, not simultaneous writer admission.
-  // State conflict and EHR scheduling remain obligations of their analyses.
+  // State conflicts remain an obligation of the transaction analysis.
   EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
       << diagnostics;
 }
@@ -1130,6 +1130,42 @@ TEST_F(TransactionEffectsTest,
     EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
         << diagnostics;
   }
+}
+
+TEST_F(TransactionEffectsTest,
+       RetiredAfterAttributesRejectAtEveryNativeCallableEntry) {
+  for (llvm::StringRef operation : {"ac.method", "ac.transaction"}) {
+    for (llvm::StringRef field : {"ac.after", "ac.callable_after"}) {
+      for (unsigned shape = 0; shape != 3; ++shape) {
+        SCOPED_TRACE(operation.str() + "/" + field.str());
+        SCOPED_TRACE(shape);
+        auto file = parse();
+        ASSERT_TRUE(file);
+        ASSERT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
+            << diagnostics;
+        auto *target = find(*file, operation);
+        auto occurrence = target->getAttr("occurrence");
+        target->setAttr(field, shape == 0 ? mlir::Attribute(builder.getArrayAttr({}))
+                              : shape == 1 ? mlir::Attribute(builder.getArrayAttr({occurrence}))
+                                           : mlir::Attribute(builder.getUnitAttr()));
+        reject(*file, "after ordering is retired");
+      }
+    }
+  }
+}
+
+TEST_F(TransactionEffectsTest,
+       NativeReceiverCannotAcquireAncestorAuthorityFromPhysicalReachability) {
+  auto file = parse();
+  ASSERT_TRUE(file);
+  auto *call = find(*file, "ac.method.call");
+  call->setAttr("receiver_kind", builder.getStringAttr("reference"));
+  call->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
+  call->setAttr("instance_path",
+                builder.getArrayAttr({builder.getStringAttr("right")}));
+  // Both actual Counter instances have Root as their parent, and Root owns
+  // right: Counter. That physical route does not grant lexical sibling access.
+  rejectsContract(*file);
 }
 
 } // namespace

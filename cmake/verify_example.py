@@ -580,9 +580,9 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
             bind_artifact(path)
     if source.name == "sibling_calls":
         # Test-owned arithmetic oracle: the shared Counter starts at five,
-        # increments while below seven, and read observes that cycle's candidate.
+        # increments while below seven; the independent reader observes current.
         expected = [
-            (epoch, [{"kind": "integer", "value": str(min(6 + epoch // 2, 7))}])
+            (epoch, [{"kind": "integer", "value": str(min(5 + epoch // 2, 7))}])
             for epoch in range(expected_epochs)
         ]
         for trace in traces:
@@ -593,11 +593,11 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
             ]
             if observed != expected or len(trace) != expected_epochs:
                 raise ValueError(
-                    "sibling_calls differs from independent 6, 7, 7, 7 count oracle"
+                    "sibling_calls differs from independent 5, 6, 7, 7 current-state oracle"
                 )
     sibling_scenarios = {
         "sibling_atomic": {
-            "atomic visible": [(13, 110), (13, 110), (16, 120), (19, 130)],
+            "atomic visible": [(10, 100), (13, 110), (13, 110), (16, 120)],
             "atomic committed": [(10, 100), (13, 110), (13, 110), (16, 120)],
         },
         "sibling_aliases": {
@@ -605,14 +605,14 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
             "independent count": [(2,), (2,), (2,), (2,)],
         },
         "sibling_transitive": {
-            "transitive visible": [(3,), (5,), None, None],
+            "transitive visible": [(1,), (3,), (5,), None],
             "transitive committed": [(1,), (3,), (5,), (7,)],
         },
     }
     if source.name in sibling_scenarios:
         # Test-owned histories, independent of DUT/generated expressions:
         # atomic: skip both updates at cycle 1; aliases: two sequential adds;
-        # transitive: read the +2 candidate only while it is at most five.
+        # transitive: read current only while it is at most five.
         if expected_epochs != 8:
             raise ValueError("small sibling scenarios require four complete cycles")
         expected = sorted(

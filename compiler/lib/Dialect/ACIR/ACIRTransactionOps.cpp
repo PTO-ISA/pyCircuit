@@ -10,6 +10,8 @@
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/PointerUnion.h"
 #include <limits>
+#include <functional>
+#include "llvm/ADT/APSInt.h"
 #include <type_traits>
 
 using namespace mlir;
@@ -245,8 +247,7 @@ FailureOr<Type> selectedPayloadType(Operation *operation, Type root,
     if (!isa<BitsType>(indices[nextIndex].getType()) || failed(indexWidth))
       return operation->emitOpError() << "state index must have resolved Bits "
                                          "type";
-    auto shape = analysis.getTableShape(table, bindings, operation);
-    if (failed(shape))
+    if (failed(detail::verifySourceTemplateType(analysis, table, bindings, operation)))
       return failure();
     ++nextIndex;
     if (table.getShape().size() == 1)
@@ -313,8 +314,52 @@ LogicalResult staticInitializer(const HardwareAnalysis &analysis, Value initial,
     if (!active.insert(operation).second)
       return state->emitOpError()
              << "state initializer constructor DAG is cyclic";
-    if (failed(mlir::verify(operation)) ||
-        failed(analysis.verifyResolvedOperation(operation, bindings)))
+    if (failed(mlir::verify(operation))) return failure();
+    bool concrete = true;
+    for (TypeRange types : {TypeRange(operation->getOperandTypes()), TypeRange(operation->getResultTypes())})
+      for (Type type : types) {
+        bool closed = false;
+        if (failed(detail::verifySourceTemplateType(analysis, type, bindings, operation, &closed)))
+          return failure();
+        concrete &= closed;
+      }
+    for (NamedAttribute attr : operation->getAttrs())
+      if (failed(detail::verifyHardwareAttributeScope(attr.getValue(), bindings.owner)))
+        return failure();
+    // Independently closed attributes remain checked even when some operand
+    // or result width depends on a formal. Only width-relative fit may defer.
+    std::function<LogicalResult(Attribute, unsigned)> checkAttribute =
+        [&](Attribute attribute, unsigned depth) -> LogicalResult {
+      if (depth > 128) return state->emitOpError() << "initializer expression depth exceeded";
+      if (auto expression = dyn_cast<StaticExprAttr>(attribute)) {
+        if (analysis.isStaticEvaluable(expression, bindings))
+          return success(succeeded(analysis.evaluateStatic(expression, bindings, operation)));
+        return checkAttribute(expression.getTree(), depth + 1);
+      }
+      if (auto array = dyn_cast<ArrayAttr>(attribute))
+        for (Attribute child : array)
+          if (failed(checkAttribute(child, depth + 1))) return failure();
+      if (auto dictionary = dyn_cast<DictionaryAttr>(attribute))
+        for (NamedAttribute field : dictionary)
+          if (field.getName() != "origin" && field.getName() != "location" &&
+              failed(checkAttribute(field.getValue(), depth + 1))) return failure();
+      return success();
+    };
+    for (NamedAttribute attr : operation->getAttrs())
+      if (failed(checkAttribute(attr.getValue(), 0))) return failure();
+    auto nonnegative = [&](StaticExprAttr expression, StringRef description) -> LogicalResult {
+      if (!analysis.isStaticEvaluable(expression, bindings)) return success();
+      auto value = analysis.evaluateStatic(expression, bindings, operation);
+      auto integer = succeeded(value) ? dyn_cast<MathIntAttr>(*value) : MathIntAttr();
+      if (!integer || llvm::APSInt(integer.getCanonicalValue()).isNegative())
+        return operation->emitOpError() << description << " requires a nonnegative Integer";
+      return success();
+    };
+    if (auto constant = dyn_cast<BitsConstantOp>(operation))
+      if (failed(nonnegative(constant.getValue(), "state initializer constant"))) return failure();
+    if (auto extract = dyn_cast<BitsExtractOp>(operation))
+      if (failed(nonnegative(extract.getLow(), "state initializer extract low"))) return failure();
+    if (concrete && failed(analysis.verifyResolvedOperation(operation, bindings)))
       return failure();
     stack.push_back({operation});
     return success();
@@ -382,7 +427,7 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
   uint64_t integerBytes = 0;
   uint64_t enumMembers = 0, enumTextBytes = 0, enumOccurrences = 0;
   uint64_t enumParseBytes = 0;
-  uint64_t bitsCalls = 0, fieldPathSlots = 0, shapeSlots = 0, shapeArrays = 0;
+  uint64_t coldGrammarCalls = 0, fieldPathSlots = 0, shapeSlots = 0, shapeArrays = 0;
   unsigned metadataDepth = 0, nominalDepth = 0;
   auto add = [](uint64_t a, uint64_t c) {
     return c > std::numeric_limits<uint64_t>::max() - a
@@ -476,8 +521,29 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
           integerBytes = add(integerBytes, integer.getCanonicalValue().size());
         if (failed(pay(1 + bytes))) return failure();
         if (auto expression = dyn_cast<StaticExprAttr>(a)) {
+          auto tree = expression.getTree();
+          auto kind = tree.getAs<StringAttr>("kind");
+          // Match HardwareAnalysis::substitute: literal/type-width trees are
+          // borrowed intact. Computational trees can be rebuilt; a reference
+          // creates a literal only for an explicit non-expression binding.
+          bool rebuild = kind && (kind.getValue() == "unary" ||
+                                  kind.getValue() == "binary" ||
+                                  kind.getValue() == "select");
+          if (kind && kind.getValue() == "reference") {
+            auto reference = tree.getAs<DictionaryAttr>("ref");
+            auto owner = reference
+                             ? reference.getAs<FlatSymbolRefAttr>("owner")
+                             : FlatSymbolRefAttr();
+            auto name = reference ? reference.getAs<StringAttr>("name")
+                                  : StringAttr();
+            if (owner && name && owner.getValue() == ownerName.getValue()) {
+              auto binding = lexicalBindings.integers.find(name.getValue());
+              rebuild = binding != lexicalBindings.integers.end() &&
+                        !isa<StaticExprAttr>(binding->second);
+            }
+          }
           if (failed(appendRaw(Node(expression.getTree()), entry.depth + 1,
-                               true, true))) valid = false;
+                               rebuild, true))) valid = false;
         } else a.walkImmediateSubElements(attr, type);
       } else {
         if (failed(pay(1))) return failure();
@@ -587,11 +653,11 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
           if (!frame.fields || frame.fields.empty() || declaration->hasAttr("constructor"))
             return error() << "invalid source branch Struct declaration";
           for (auto [i, raw] : llvm::enumerate(frame.fields)) {
-            auto field = dyn_cast<DictionaryAttr>(raw);
-            auto key = field ? field.getAs<StringAttr>("name") : StringAttr();
-            auto type = field ? field.getAs<TypeAttr>("type") : TypeAttr();
-            if (!field || field.size() != 2 || !key || key.getValue().empty() || !type)
-              return error() << "source branch Struct fields require name and type";
+            if (failed(verifyNominalStructField(
+                    raw, analysis, declaration, diagnosticSite)))
+              return failure();
+            auto field = cast<DictionaryAttr>(raw);
+            auto key = field.getAs<StringAttr>("name");
             if (failed(pay(i + key.getValue().size()))) return failure();
             for (Attribute previous : frame.fields.getValue().take_front(i))
               if (cast<DictionaryAttr>(previous).getAs<StringAttr>("name") == key)
@@ -621,24 +687,37 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
     if (frame.fields && frame.next < frame.fields.size()) {
       Type child = cast<DictionaryAttr>(frame.fields[frame.next++])
                        .getAs<TypeAttr>("type").getValue();
-      // Table roots carry existing scalar element layouts. A Table inside a
-      // nominal Struct is still outside the current declared Struct contract.
-      if (isa<TableType>(child))
-        return error() << "source branch Struct fields cannot contain Tables";
+      // Fixed Table-valued Struct fields use the existing packed layout path.
+      // It resolves positive, closed dimensions after the complete closure is
+      // paid below; this does not admit multidimensional or Table-of-Table
+      // source fields.
+      if (auto table = dyn_cast<TableType>(child))
+        if (table.getShape().size() != 1 ||
+            !isa<BitsType, EnumType, StructType>(table.getElementType()))
+          return error() << "source branch Struct Table fields require one "
+                            "dimension and Bits, Enum or Struct elements";
       fieldPathSlots = add(fieldPathSlots, stack.size());
       if (failed(push(child))) return failure();
       continue;
     }
     if (failed(pay(1)) || failed(reserveOne(validated))) return failure();
-    bitsCalls += isa<BitsType>(frame.type);
+    if (auto bits = dyn_cast<BitsType>(frame.type)) {
+      if (failed(pay(1))) return failure();
+      auto width = bits.getWidth();
+      auto tree = width ? width.getTree() : DictionaryAttr();
+      coldGrammarCalls += !tree || !detail::isVerifiedStaticExpressionGrammar(tree);
+    }
     validated.push_back(frame.type);
     stack.pop_back();
   }
-  // Grammar validation owns one completed DenseMap and active DenseSet per
-  // Bits width. LLVM starts at 64 buckets and doubles before 3/4 occupancy;
-  // twice the final bound covers every allocation over that invocation.
-  uint64_t grammarBuckets = multiply(2, add(multiply(64, bitsCalls),
-                                            multiply(4, expressions)));
+  // Grammar validation uses inline buckets for small widths. Per container,
+  // 2*inline + 8*insertions covers inline/temporary storage and cumulative heap
+  // growth, including the first 64-bucket spill and active-set tombstone rebuilds.
+  // A warm exact grammar key returns before those local containers exist.
+  // It does not replace the owner/scope, binding or layout checks below.
+  uint64_t grammarBuckets = coldGrammarCalls ? multiply(2, add(
+      multiply(detail::staticGrammarInlineBuckets, coldGrammarCalls),
+      multiply(4, expressions))) : 0;
   uint64_t grammarBytes = multiply(grammarBuckets,
       sizeof(std::pair<DictionaryAttr, bool>) + sizeof(DictionaryAttr));
   // Native substitution visits computational expression children and borrows
@@ -717,10 +796,8 @@ FailureOr<Type> detail::resolveSourceBranchResultType(
     }
     if (failed(detail::verifyHardwareTypeScope(type, owner))) return failure();
   }
-  if (!isa<BitsType>(actualType)) {
-    auto width = analysis.getPackedWidth(actualType, lexicalBindings, diagnosticSite);
-    if (failed(width) || !*width) return failure();
-  }
+  if (failed(detail::verifySourceTemplateType(
+          analysis, actualType, lexicalBindings, diagnosticSite))) return failure();
   return analysis.resolveType(actualType, lexicalBindings, diagnosticSite);
 }
 
@@ -762,7 +839,7 @@ LogicalResult SourceStateOp::verify() {
   if (Attribute constraint = (*this)->getAttr("ac.payload_constraint"))
     if (failed(detail::verifySourceCallHardwareConstraint(
             constraint, getQ().getType(), analysis, owner, *this,
-            "state payload")))
+            "state payload", detail::SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   if (stage && stage.getValue() == "routed") {
     StateUpdateOp pairedUpdate;
@@ -801,9 +878,9 @@ LogicalResult StateUpdateOp::verify() {
                       : IntegerAttr();
   if (!owner || !package || !stage || stage.getValue() != "routed" ||
       package->hasAttr("ac.unit_kind") || !contract ||
-      !contract.getType().isSignlessInteger(64) || contract.getValue() != 2)
+      !contract.getType().isSignlessInteger(64) || (contract.getValue() != 2 && contract.getValue() != 3))
     return emitOpError()
-           << "requires direct module graph placement in a routed contract-2 "
+           << "requires direct module graph placement in a versioned routed "
               "package";
   if (!(*this)->getAttrs().empty())
     return emitOpError() << "state update does not accept attributes";
@@ -848,6 +925,18 @@ LogicalResult SourceStateWriteOp::verify() {
   if (!areEquivalentHardwareTypes(*selected, getValue().getType()))
     return emitOpError()
            << "state write value must match selected payload type";
+  if (!getIndices().empty()) {
+    auto owner = (*this)->getParentOfType<ModuleOp>();
+    auto bindings = scope(*this);
+    for (auto state : owner.getBody().front().getOps<SourceStateOp>()) {
+      if (state.getInstanceNameAttr() != getStateAttr()) continue;
+      auto table = dyn_cast<TableType>(state.getQ().getType());
+      if (table && analysis.isStaticEvaluable(table.getShape(), bindings) &&
+          (getIndices().size() != 1 ||
+           failed(analysis.verifySourceIndex(getIndices().front(), table, bindings, *this))))
+        return failure();
+    }
+  }
   return success();
 }
 
@@ -968,25 +1057,8 @@ LogicalResult SourceMethodOp::verify() {
       return emitOpError()
              << "source Method visibility must be absent or private";
   }
-  if (Attribute raw = (*this)->getAttr("ac.callable_after")) {
-    auto after = dyn_cast<ArrayAttr>(raw);
-    if (!after || after.empty())
-      return emitOpError() << "ac.callable_after requires a nonempty declaration array";
-    llvm::DenseSet<Attribute> seen;
-    auto module = (*this)->getParentOfType<ModuleOp>();
-    for (Attribute predecessor : after) {
-      auto occurrence = dyn_cast<DictionaryAttr>(predecessor);
-      if (!occurrence ||
-          failed(detail::verifyOccurrence(occurrence, [&] { return emitOpError(); })) ||
-          occurrence == getOccurrence() || !seen.insert(occurrence).second)
-        return emitOpError() << "ac.callable_after requires distinct other local callable declarations";
-      bool found = false;
-      for (auto method : module.getBody().front().getOps<SourceMethodOp>())
-        found |= method.getOccurrence() == occurrence;
-      if (!found)
-        return emitOpError() << "ac.callable_after target must identify a local callable declaration";
-    }
-  }
+  if ((*this)->hasAttr("ac.callable_after") || (*this)->hasAttr("ac.after"))
+    return emitOpError() << "source after ordering is retired; independent Rules read current state";
   auto signature = getFunctionType();
   if (getArgumentNames().size() != signature.getNumInputs())
     return emitOpError() << "argument name count must match method signature";
@@ -1034,13 +1106,13 @@ LogicalResult SourceMethodOp::verify() {
     auto parameter = cast<DictionaryAttr>(raw);
     if (failed(detail::verifySourceCallHardwareConstraint(
             parameter.get("constraint"), signature.getInput(index), analysis,
-            lexicalModule, *this, "source method")))
+            lexicalModule, *this, "source method", detail::SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   }
   for (auto [index, raw] : llvm::enumerate(results))
     if (failed(detail::verifySourceCallHardwareConstraint(
             raw, signature.getResult(index), analysis, lexicalModule, *this,
-            "source method")))
+            "source method", detail::SourceCallWidthMode::SymbolicFixedBits)))
       return failure();
   SourceMethodView contract{lexicalModule, *this, {}};
   if (failed(verifySourceMethodFormalProposals(contract, *this)))
@@ -1063,6 +1135,15 @@ LogicalResult SourceMethodOp::verifyRegions() {
 }
 
 LogicalResult SourceMethodCallOp::verify() {
+  if ((*this)->hasAttr("receiver_kind") || (*this)->hasAttr("ancestor_depth")) {
+    if ((*this)->hasAttr("ac.reference"))
+      return emitOpError() << "relative Method receiver cannot also name a Module reference formal";
+    NamedAttrList receiver;
+    for (StringRef name : {"receiver_kind", "ancestor_depth", "instance_path"})
+      if (Attribute value = (*this)->getAttr(name)) receiver.append(name, value);
+    if (failed(verifySourceRelativeReceiver(receiver.getDictionary(getContext()), *this)))
+      return failure();
+  }
   if (failed(transactionPlacement(*this, false, true)))
     return failure();
   if (Attribute raw = (*this)->getAttr("ac.reference")) {
@@ -1099,8 +1180,8 @@ LogicalResult SourceMethodCallOp::verify() {
   if (callee.getNestedReferences().size() != 1)
     return emitOpError() << "method callee must be @Module::@method";
   for (Attribute raw : getInstancePath()) {
-    auto name = cast<StringAttr>(raw);
-    if (name.getValue().empty() || name.getValue().contains('\0'))
+    auto name = dyn_cast<StringAttr>(raw);
+    if (!name || name.getValue().empty() || name.getValue().contains('\0'))
       return emitOpError() << "method instance path requires nonempty names";
   }
   return success();
@@ -1178,27 +1259,8 @@ LogicalResult SourceTransactionOp::verify() {
                                              other.getOccurrence()) == 0)
       return emitOpError() << "transaction registration occurrence must be unique";
   }
-  if (Attribute raw = (*this)->getAttr("ac.after")) {
-    auto after = dyn_cast<ArrayAttr>(raw);
-    if (!after) return emitOpError() << "ac.after requires a registration array";
-    llvm::DenseSet<Attribute> seen;
-    for (Attribute entry : after) {
-      auto predecessor = dyn_cast<DictionaryAttr>(entry);
-      if (failed(moduleOccurrence(*this, predecessor, "transaction predecessor")) ||
-          !seen.insert(entry).second)
-        return emitOpError() << "ac.after requires distinct local registrations";
-      unsigned matches = 0;
-      for (auto candidate : owner.getBody().front().getOps<SourceTransactionOp>())
-        if (detail::compareClosedSourceStructure(predecessor,
-                                                 candidate.getOccurrence()) == 0) {
-          if (candidate == *this)
-            return emitOpError() << "ac.after cannot reference its own registration";
-          ++matches;
-        }
-      if (matches != 1)
-        return emitOpError() << "ac.after requires exactly one local outer registration";
-    }
-  }
+  if ((*this)->hasAttr("ac.after") || (*this)->hasAttr("ac.callable_after"))
+    return emitOpError() << "source after ordering is retired; independent Rules read current state";
   HardwareAnalysis analysis((*this)->getParentOfType<mlir::ModuleOp>());
   auto bindings = scope(*this);
   if (failed(predicate(analysis, getClk(), bindings, *this,

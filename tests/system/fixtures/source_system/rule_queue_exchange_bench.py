@@ -20,6 +20,3 @@ def ExerciseConditionalQueueExchange():
     def tick() -> None:
         cycle = cycle + 1
         selected = ~selected
-
-    run()
-    tick()

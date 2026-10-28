@@ -21,4 +21,3 @@ def ExerciseAccumulator():
         report("progress", phase)
 
     advance(phase)
-    drive_left()
