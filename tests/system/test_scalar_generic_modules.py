@@ -12,7 +12,15 @@ import os
 from pathlib import Path
 
 import pytest
-from test_source_system_execution import _cli, _compile, _install, _ok, _run
+from test_source_system_execution import (
+    _bundle,
+    _cli,
+    _compile,
+    _install,
+    _ok,
+    _records,
+    _run,
+)
 
 pytestmark = pytest.mark.system
 
@@ -658,3 +666,248 @@ $display("SCALAR_GENERIC_RTL_OK");$finish;end endmodule
         )
     )
     assert "SCALAR_GENERIC_RTL_OK" in _ok(_run(["vvp", str(binary)]))
+
+
+METHOD_PROVIDER = """import pycircuit as ac
+@ac.module
+def Exchange(*, W: int):
+    @ac.method
+    def flip(value: ac.bits[W]) -> ac.bits[W]:
+        return value ^ 1
+@ac.module
+def Reader(value: ac.bits[W], *, W: int = 7) -> ac.bits[W]:
+    @ac.method
+    def read() -> ac.bits[W]:
+        return value
+    return value
+"""
+
+
+@pytest.mark.parametrize("imported", [False, True], ids=["same-source", "imported"])
+def test_method_generic_receivers_bind_each_instance(tmp_path: Path, imported: bool):
+    source = tmp_path / "source"
+    source.mkdir()
+    units = []
+    prefix = METHOD_PROVIDER
+    if imported:
+        provider_source = _write(source, "provider.py", METHOD_PROVIDER)
+        provider = tmp_path / "provider"
+        _ok(_compile(source, "provider.py", provider))
+        provider_source.rename(tmp_path / "unavailable-provider.py")
+        receipt = json.loads((provider / "unit.json").read_text())
+        body = provider / receipt["files"]["body"]
+        hidden = tmp_path / "unavailable-provider.ac"
+        body.rename(hidden)
+        units.append(provider)
+        prefix = (
+            "import pycircuit as ac\nfrom checks.provider import Exchange, Reader\n"
+        )
+    _write(
+        source,
+        "consumer.py",
+        prefix
+        + """
+@ac.module
+def Top(a: ac.bits[W], b: ac.bits[69], *, W: int = 7):
+    small = Exchange(W=W)
+    wide = Exchange(W=69)
+    reader = Reader(b[0:7])
+    @ac.rule
+    def check() -> None:
+        assert small.flip(a) == (a ^ 1)
+        assert wide.flip(b) == (b ^ 1)
+        assert reader == b[0:7]
+        assert reader.read() == b[0:7]
+""",
+    )
+    consumer = tmp_path / "consumer"
+    try:
+        _ok(_compile(source, "consumer.py", consumer, units))
+    finally:
+        if imported:
+            hidden.rename(body)
+    units.append(consumer)
+    for width in (7, 11):
+        final = tmp_path / f"width-{width}.ac"
+        parameters = (
+            _parameters(tmp_path / "parameters.json", W=width) if width != 7 else None
+        )
+        _ok(_link(units, "checks.consumer.Top", final, parameters))
+        for target in ("cpp", "verilog"):
+            output = tmp_path / f"width-{width}-{target}"
+            _ok(_cli("emit", str(final), "--target", target, "-o", str(output)))
+            ports = json.loads((output / "ports.json").read_text())
+            widths = {port["name"]: port["width"] for port in ports["inputs"]}
+            assert (widths["a"], widths["b"]) == (width, 69)
+
+
+def test_method_generic_closed_expression_matches_scalar_binding(tmp_path: Path):
+    source = tmp_path / "source"
+    source.mkdir()
+    cases = {
+        "scalar": """import pycircuit as ac
+@ac.module
+def Flip(value: ac.bits[W], *, W: int) -> ac.bits[W]:
+    return value ^ 1
+@ac.module
+def Top(value: ac.bits[7 + 1]) -> ac.bits[7 + 1]:
+    return Flip(value, W=7 + 1)
+""",
+        "method": METHOD_PROVIDER
+        + """
+@ac.module
+def Top(value: ac.bits[7 + 1]):
+    owner = Exchange(W=7 + 1)
+    @ac.rule
+    def check() -> None:
+        assert owner.flip(value) == (value ^ 1)
+""",
+    }
+    for name, text in cases.items():
+        _write(source, name + ".py", text)
+        unit = tmp_path / (name + "-unit")
+        _ok(_compile(source, name + ".py", unit))
+        final = tmp_path / (name + ".ac")
+        _ok(_link([unit], "checks." + name + ".Top", final))
+        for target in ("cpp", "verilog"):
+            output = tmp_path / (name + "-" + target)
+            _ok(_cli("emit", str(final), "--target", target, "-o", str(output)))
+            ports = json.loads((output / "ports.json").read_text())
+            assert (
+                next(p for p in ports["inputs"] if p["name"] == "value")["width"] == 8
+            )
+
+
+def test_method_generic_uncalled_body_checks_actuals_before_replacing_output(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    owner_source = _write(
+        source,
+        "owner.py",
+        """import pycircuit as ac
+@ac.module
+def Owner(*, W: int = 7):
+    @ac.method
+    def unused(value: ac.bits[W]) -> ac.bits[W]:
+        return value | 64
+""",
+    )
+    unit = tmp_path / "unit"
+    _ok(_compile(source, "owner.py", unit))
+    final = tmp_path / "final.ac"
+    _ok(_link([unit], "checks.owner.Owner", final))
+    original = final.read_bytes()
+    result = _link(
+        [unit],
+        "checks.owner.Owner",
+        final,
+        _parameters(tmp_path / "parameters.json", W=6),
+        replace=True,
+    )
+    assert result.returncode != 0, "64 must not fit a six-bit Method operand"
+    assert final.read_bytes() == original
+
+    # Unselected concrete definitions are retained too. Their instances must
+    # satisfy the same bound Method contract as the selected entry hierarchy.
+    _write(
+        source,
+        "retained.py",
+        owner_source.read_text()
+        + """
+@ac.module
+def Wrapper() -> None:
+    child = Owner(W=6)
+@ac.module
+def Top(value: ac.u7) -> ac.u7:
+    return value
+""",
+    )
+    retained = tmp_path / "retained"
+    _ok(_compile(source, "retained.py", retained))
+    result = _link([retained], "checks.retained.Top", final, replace=True)
+    assert result.returncode != 0, "retained instances need actual-bound validation"
+    assert final.read_bytes() == original
+
+
+def test_method_generic_system_preserves_state_and_four_state_payloads(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _write(
+        source,
+        "counter.py",
+        """import pycircuit as ac
+@ac.module
+def Counter(*, W: int = 7):
+    count: ac.bits[W] = 0
+    @ac.method
+    def exchange(value: ac.bits[W]) -> tuple[ac.bits[W], ac.bits[W]]:
+        before = count
+        count = count + 1
+        return value, before
+    @ac.method
+    def read() -> ac.bits[W]:
+        return count
+""",
+    )
+    small_pattern = "10xz010"
+    wide_pattern = "1" + "0" * 64 + "xz01"
+    _write(
+        source,
+        "bench.py",
+        f"""import pycircuit as ac
+from checks.counter import Counter
+@ac.system
+def Exercise():
+    small = Counter(W=7)
+    wide = Counter(W=69)
+    @ac.rule
+    def update() -> None:
+        old_small = small.read()
+        old_wide = wide.read()
+        a, first = small.exchange(ac.four_state({small_pattern!r}))
+        b, large = wide.exchange(ac.four_state({wide_pattern!r}))
+        c, second = small.exchange(ac.four_state('1100101'))
+        assert ac.case_eq(a, ac.four_state({small_pattern!r}))
+        assert ac.case_eq(b, ac.four_state({wide_pattern!r}))
+        assert ac.case_eq(c, ac.four_state('1100101'))
+        ac.log("info", "states", old_small, old_wide, first, second, large,
+               small.read(), wide.read())
+""",
+    )
+    provider, bench = tmp_path / "provider", tmp_path / "bench"
+    _ok(_compile(source, "counter.py", provider))
+    (source / "counter.py").rename(tmp_path / "unavailable-counter-source.py")
+    _ok(_compile(source, "bench.py", bench, [provider]))
+    final = tmp_path / "system.ac"
+    _ok(_link([provider, bench], "checks.bench.Exercise", final))
+    original = final.read_bytes()
+    # One transaction increments the small instance twice and the wide once.
+    # Reads before/within/after those calls distinguish old Q and candidates.
+    expected = [
+        (2 * cycle, cycle, 2 * cycle, 2 * cycle + 1, cycle, 2 * cycle + 2, cycle + 1)
+        for cycle in range(3)
+        for _ in range(2)
+    ]
+    transcripts = []
+    for target in ("cpp", "verilog"):
+        directory = tmp_path / ("system-" + target)
+        directory.mkdir()
+        binary = _bundle(final, directory, target)
+        for workers in (1, 2) if target == "cpp" else (1,):
+            args = (
+                ["--cycles", "3", "--workers", str(workers)]
+                if target == "cpp"
+                else ["+cycles=3"]
+            )
+            rows = _records(_ok(_run([str(binary), *args], timeout=30)))
+            logs = [row for row in rows if row["kind"] == "log"]
+            assert [row["spec"]["event"] for row in logs] == ["states"] * 6
+            assert [
+                tuple(int(v["value"]) for v in row["values"]) for row in logs
+            ] == expected
+            assert [int(row["evaluation_epoch"]) for row in logs] == list(range(6))
+            terminal = [row for row in rows if row["kind"] == "result"]
+            assert len(terminal) == 1 and terminal[0]["status"] == "TERMINATED"
+            transcripts.append([row for row in rows if row["kind"] != "result"])
+    assert transcripts[0] == transcripts[1] == transcripts[2]
+    assert final.read_bytes() == original
