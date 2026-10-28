@@ -57,6 +57,19 @@ struct TransactionalRequirement {
   unsigned value;
   llvm::SmallVector<TransactionalPathTerm> path;
 };
+// A call-site-specialized Method invocation. Step ranges preserve evaluation
+// order, while ownership distinguishes nested calls from their caller's work.
+struct TransactionalMethodInvocation {
+  TransactionMethodCallOp call;
+  TransactionMethodOp definition;
+  unsigned instance = 0, rule = TransactionalNoID;
+  unsigned parent = TransactionalNoID;
+  bool inGuard = false;
+  unsigned beginStep = 0, guardEndStep = 0, endStep = 0;
+  llvm::SmallVector<TransactionalValueID> arguments, results, guardYields;
+  llvm::SmallVector<TransactionalPathTerm> path;
+  llvm::SmallVector<unsigned> guardSteps, bodySteps;
+};
 struct TransactionalStep {
   TransactionalStepKind kind = TransactionalStepKind::Pure;
   mlir::Operation *operation = nullptr;
@@ -65,6 +78,7 @@ struct TransactionalStep {
   unsigned resource = TransactionalNoID;
   unsigned rule = TransactionalNoID;
   unsigned activation = TransactionalNoID;
+  unsigned methodInvocation = TransactionalNoID;
   llvm::SmallVector<TransactionalPathTerm> path;
   llvm::SmallVector<TransactionalValueID> operands, results;
   llvm::SmallVector<TransactionalInvocationPlan> invocation;
@@ -115,6 +129,9 @@ public:
   }
   llvm::ArrayRef<TransactionalRulePlan> getRules() const { return rules_; }
   llvm::ArrayRef<TransactionalValuePlan> getValues() const { return values_; }
+  llvm::ArrayRef<TransactionalMethodInvocation> getMethodInvocations() const {
+    return methodInvocations_;
+  }
   // Ordered resource IDs parallel the selected Module's output names/types;
   // repetitions preserve exported aliases.
   llvm::ArrayRef<unsigned> getExports() const { return exports_; }
@@ -129,6 +146,7 @@ private:
   std::vector<TransactionalResourcePlan> resources_;
   std::vector<TransactionalRulePlan> rules_;
   std::vector<TransactionalValuePlan> values_;
+  std::vector<TransactionalMethodInvocation> methodInvocations_;
   llvm::SmallVector<unsigned> exports_;
 };
 } // namespace acir::ac

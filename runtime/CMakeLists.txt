@@ -2,6 +2,7 @@ add_library(pyc6_runtime STATIC
   model_input.cpp
   sim_executor.cpp
   system_runner.cpp
+  transactional_gfsim.cpp
 )
 add_library(pycircuit::pyc6_runtime ALIAS pyc6_runtime)
 find_package(Threads REQUIRED)
@@ -54,3 +55,7 @@ install(FILES
   "${PROJECT_SOURCE_DIR}/include/CODING_STYLE.md"
   "${PROJECT_SOURCE_DIR}/include/MODULE_TEMPLATE.md"
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
+
+install(FILES
+  "${PROJECT_SOURCE_DIR}/include/pycircuit/gfsim/runtime.h"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/pycircuit/gfsim")

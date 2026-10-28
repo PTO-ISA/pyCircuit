@@ -23,6 +23,7 @@ target_link_libraries(pycircuit-link PRIVATE
 # Native source-owned emitter used by the public publication driver.
 add_executable(pycircuit-emit emit.cpp)
 target_link_libraries(pycircuit-emit PRIVATE
+  ACIRSourceCompiler
   pycircuit_project_options
   ACIRDialect
   ACIRCodegen

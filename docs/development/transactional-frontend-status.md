@@ -23,7 +23,8 @@ batch examples preserve their component algorithms; their tests check complete
 state/consumption traces, fifth-input blocking and output backpressure. Separate
 conditional-Method and four-state reset cases cover path admission and X defaults.
 Loops, dynamic instance/resource selection, ordinary local merges and dynamic
-unknown control remain gaps. Direct transactional gfsim remains unfinished.
+unknown control remain gaps. Direct transactional gfsim supports the bounded Bits State profile described
+in the source-unit workflow; Queue and nominal payload generation remain gaps.
 Their independent expectations remain in test-owned models and source
 assertions. Example introductions describe their own behavior; they do not
 certify the migration of a larger historical design.
@@ -34,7 +35,7 @@ certify the migration of a larger historical design.
 | `SourceMemoryBindingsTest.cpp` plan-class cases and entry-wrapper snapshots | Migration inputs; previous NOT RUN records do not establish current results. |
 | Old TableQuery write-plan-internals case | Retired implementation-specific coverage, not a passing test. |
 | Original `queue_rule_pipeline`, structured examples and full multi-output designs | Preserve original behavioral expectations; scalar/packet teaching examples do not replace their full coverage. |
-| Direct transactional gfsim | Remaining implementation work; no alternate production frontend. |
+| Direct transactional gfsim | Linked emission supports closed single-clock Bits State Systems, Rules and Methods with one worker. Queue, nominal payloads and unknown clock/reset samples remain gaps. |
 
 ## Validation and evidence
 

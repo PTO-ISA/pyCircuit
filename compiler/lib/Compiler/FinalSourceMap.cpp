@@ -8,6 +8,7 @@
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/Support/JSON.h"
@@ -343,17 +344,13 @@ LogicalResult validateFinalSourceMapText(StringRef text, MLIRContext &context,
   return validateMapText(text, context, emitError, canonicalPath);
 }
 
+namespace {
 FailureOr<SmallVector<FinalSourceMap>>
-emitFinalSourceMaps(ModuleOp package,
-                    ArrayRef<FinalSourceMembership> membership,
-                    ac::detail::EmitError emitError) {
-  if (!package || failed(ac::verifyHardwarePackage(package)))
-    return emitError() << "final source maps require verified hardware IR";
-  auto units = ac::collectFinalSourceUnits(package, emitError);
-  if (failed(units))
-    return failure();
+emitSourceMaps(ArrayRef<ac::FinalSourceUnitView> units,
+               ArrayRef<FinalSourceMembership> membership,
+               ac::detail::EmitError emitError) {
   llvm::DenseMap<Attribute, unsigned> unitIndices;
-  for (auto [index, unit] : llvm::enumerate(*units))
+  for (auto [index, unit] : llvm::enumerate(units))
     unitIndices.try_emplace(unit.owner, index);
 
   llvm::DenseMap<Attribute, SmallVector<std::string>> filesByOwner;
@@ -374,12 +371,12 @@ emitFinalSourceMaps(ModuleOp package,
       return emitError() << "native source membership repeats a generated file";
     filesByOwner[group.sourceOwner] = std::move(files);
   }
-  if (filesByOwner.size() != units->size())
+  if (filesByOwner.size() != units.size())
     return emitError() << "native source membership omits a final SourceOwner";
 
   SmallVector<FinalSourceMap> maps;
   std::set<std::string> paths;
-  for (const ac::FinalSourceUnitView &unit : *units) {
+  for (const ac::FinalSourceUnitView &unit : units) {
     DictionaryAttr owner = unit.owner;
     auto origins = collectOrigins(unit.declarations, emitError);
     auto path = sourceMapPath(owner, emitError);
@@ -395,6 +392,53 @@ emitFinalSourceMaps(ModuleOp package,
         {owner, std::move(*path), std::move(*text), std::move(files)});
   }
   return maps;
+}
+
+} // namespace
+
+FailureOr<SmallVector<FinalSourceMap>>
+emitFinalSourceMaps(ModuleOp package,
+                    ArrayRef<FinalSourceMembership> membership,
+                    ac::detail::EmitError emitError) {
+  if (!package || failed(ac::verifyHardwarePackage(package)))
+    return emitError() << "final source maps require verified hardware IR";
+  auto units = ac::collectFinalSourceUnits(package, emitError);
+  if (failed(units))
+    return failure();
+  return emitSourceMaps(*units, membership, emitError);
+}
+
+FailureOr<SmallVector<FinalSourceMap>>
+emitLinkedSourceMaps(ModuleOp package,
+                     ArrayRef<FinalSourceMembership> membership,
+                     ac::detail::EmitError emitError) {
+  if (!package || !ac::isLinkedTransactionalPackage(package) ||
+      failed(ac::verifyTransactionalPackage(package)))
+    return emitError() << "linked source maps require verified linked ACIR";
+  auto owners = package->getAttrOfType<ArrayAttr>("ac.source_units");
+  if (!owners || owners.empty())
+    return emitError() << "linked source maps require source owners";
+  SmallVector<ac::FinalSourceUnitView> units;
+  llvm::DenseMap<Attribute, unsigned> indices;
+  for (Attribute raw : owners) {
+    auto owner = dyn_cast<DictionaryAttr>(raw);
+    if (!owner || failed(ac::detail::verifySourceOwner(owner, emitError)) ||
+        !indices.try_emplace(owner, units.size()).second)
+      return emitError() << "linked source owner inventory is invalid";
+    units.push_back({owner, {}});
+  }
+  for (Operation &operation : package.getBody()->getOperations()) {
+    if (isa<ac::SystemOp>(operation))
+      continue;
+    auto owner = operation.getAttrOfType<DictionaryAttr>("source_owner");
+    if (!owner)
+      owner = operation.getAttrOfType<DictionaryAttr>("ac.source_owner");
+    auto found = indices.find(owner);
+    if (!owner || found == indices.end())
+      return operation.emitError("declaration owner absent from linked inventory");
+    units[found->second].declarations.push_back(&operation);
+  }
+  return emitSourceMaps(units, membership, emitError);
 }
 
 } // namespace acir::compiler

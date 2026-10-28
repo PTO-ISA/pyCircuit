@@ -121,6 +121,8 @@ private:
   std::vector<Environment> environments;
   unsigned instance = 0;
   SmallVector<TransactionalInvocationPlan> invocation;
+  unsigned methodInvocation = TransactionalNoID;
+  bool inGuard = false;
   unsigned nextStep = 0;
   SmallVector<TransactionalPathTerm> path;
   llvm::DenseMap<unsigned, TransactionalStep *> producers;
@@ -361,9 +363,12 @@ private:
       invocation.clear();
       if (id != 0)
         invocation.push_back({call, id});
+      inGuard = true;
       if (failed(region(definition.getGuard(), args, p.rules_[rule].guard, rule,
-                        true)) ||
-          failed(region(definition.getBody(), args, p.rules_[rule].body, rule,
+                        true)))
+        return failure();
+      inGuard = false;
+      if (failed(region(definition.getBody(), args, p.rules_[rule].body, rule,
                         false)))
         return failure();
     }
@@ -514,6 +519,7 @@ private:
     step.rule = rule;
     step.instance = instance;
     step.invocation = invocation;
+    step.methodInvocation = methodInvocation;
     step.id = nextStep++;
     step.path = path;
     if (auto call = dyn_cast<TransactionMethodCallOp>(op)) {
@@ -633,16 +639,48 @@ private:
       args.push_back(*item);
     }
     unsigned caller = instance;
+    unsigned parentInvocation = methodInvocation;
+    bool callerGuard = inGuard;
+    unsigned invocationID = p.methodInvocations_.size();
+    TransactionalMethodInvocation record;
+    record.call = call;
+    record.definition = definition;
+    record.instance = receiver.id;
+    record.rule = rule;
+    record.parent = parentInvocation;
+    record.inGuard = callerGuard;
+    record.beginStep = nextStep;
+    record.path = path;
+    for (auto item : ArrayRef<Binding>(args).take_front(call.getArguments().size()))
+      record.arguments.push_back(item.id);
+    p.methodInvocations_.push_back(std::move(record));
+    methodInvocation = invocationID;
     instance = receiver.id;
     invocation.push_back({call, receiver.id});
     auto restore = llvm::scope_exit([&] {
       instance = caller;
+      methodInvocation = parentInvocation;
+      inGuard = callerGuard;
       invocation.pop_back();
     });
     TransactionalSequence guard, body;
-    if (failed(region(definition.getGuard(), args, guard, rule, true)) ||
-        failed(region(definition.getBody(), args, body, rule, pure)))
+    inGuard = true;
+    if (failed(region(definition.getGuard(), args, guard, rule, true)))
       return failure();
+    p.methodInvocations_[invocationID].guardEndStep = nextStep;
+    inGuard = false;
+    if (failed(region(definition.getBody(), args, body, rule, pure)))
+      return failure();
+    auto &completed = p.methodInvocations_[invocationID];
+    completed.endStep = nextStep;
+    completed.results = body.yields;
+    completed.guardYields = guard.yields;
+    for (const auto &step : guard.steps)
+      if (step->methodInvocation == invocationID)
+        completed.guardSteps.push_back(step->id);
+    for (const auto &step : body.steps)
+      if (step->methodInvocation == invocationID)
+        completed.bodySteps.push_back(step->id);
     for (unsigned value : guard.yields)
       p.rules_[rule].requirements.push_back({value, path});
     for (auto &step : guard.steps)

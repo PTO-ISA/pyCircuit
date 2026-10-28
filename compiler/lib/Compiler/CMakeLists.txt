@@ -32,6 +32,7 @@ target_include_directories(ACIRSourceCompiler PUBLIC
 )
 
 add_acir_library(ACIRCodegen SOURCES
+  TransactionalEmitGfsim.cpp
   FinalCppNames.cpp
   FinalEmitCpp.cpp
   FinalEmitVerilog.cpp

@@ -148,6 +148,8 @@ add_gfsim_test(ACIRRegRuntimeTests "${_runtime_tests}/RegRuntimeTest.cpp"
 add_gfsim_test(ACIRCollectionRuntimeTests "${_runtime_tests}/CollectionRuntimeTest.cpp")
 add_gfsim_test(ACIRFifoRuntimeTests "${_runtime_tests}/FifoRuntimeTest.cpp")
 add_gfsim_test(ACIRSystemLifecycleTests "${_runtime_tests}/SystemLifecycleTest.cpp")
+add_gfsim_test(ACIRTransactionalGfsimTests "${_runtime_tests}/TransactionalGfsimTest.cpp"
+  "${PYCIRCUIT_REPO_ROOT}/runtime/transactional_gfsim.cpp")
 add_gfsim_test(ACIRWorkExecutorTests "${_runtime_tests}/WorkExecutorTest.cpp")
 add_gfsim_test(ACIRObservationTests "${_runtime_tests}/ObservationTest.cpp")
 add_gfsim_test(ACIRSimExecutorTests "${_runtime_tests}/SimExecutorTest.cpp"
@@ -172,7 +174,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../lit/lit.site.cfg.py.in"
   "${_lit_binary}/lit.site.cfg.py" @ONLY)
 # Complementary filters preserve the complete lit inventory without duplicates.
 # Fast verifier/pass tests plus source diagnostics and publication protection.
-set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission|transactional-state|transactional-failure|transactional-source|transactional-methods|transactional-sibling-methods|transactional-state-interfaces|transactional-constraints|transactional-structured-packet|transactional-issue361|transactional-conditional-methods|transactional-uninitialized)\\.test)")
+set(_lit_gate_filter "(IR/|Transforms/|Source/(source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission|transactional-state|transactional-failure|transactional-source|transactional-methods|transactional-sibling-methods|transactional-state-interfaces|transactional-constraints|transactional-structured-packet|transactional-issue361|transactional-conditional-methods|transactional-uninitialized|transactional-gfsim)\\.test)")
 add_test(NAME ACIRLitGateTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
   --filter "${_lit_gate_filter}" "${_lit_binary}")
 add_test(NAME ACIRLitNightlyTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
@@ -201,7 +203,7 @@ add_custom_target(check-pycircuit
     ACIREnumHardwareAnalysisTests
     ACIRFinalSourceUnitsTests ACIREnumSourceUnitAuthorityTests
     ACIRRegRuntimeTests ACIRCollectionRuntimeTests ACIRFifoRuntimeTests ACIRSystemLifecycleTests ACIRObservationTests ACIRSimExecutorTests
-    ACIRWorkExecutorTests
+    ACIRWorkExecutorTests ACIRTransactionalGfsimTests
     ACIRWorkPartitionTests
   USES_TERMINAL VERBATIM)
 if(TARGET pyc6_runtime)

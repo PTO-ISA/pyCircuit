@@ -29,6 +29,12 @@ emitFinalSourceMaps(mlir::ModuleOp package,
                     llvm::ArrayRef<FinalSourceMembership> membership,
                     ac::detail::EmitError emitError);
 
+// Derive the same provenance inventories directly from verified Linked ACIR.
+mlir::FailureOr<llvm::SmallVector<FinalSourceMap>>
+emitLinkedSourceMaps(mlir::ModuleOp package,
+                     llvm::ArrayRef<FinalSourceMembership> membership,
+                     ac::detail::EmitError emitError);
+
 // Validate a saved map's exact native schema and canonical MLIR payloads.
 // Historical source authenticity and external file ownership are out of scope.
 mlir::LogicalResult

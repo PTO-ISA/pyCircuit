@@ -455,9 +455,28 @@ printer omits debug locations. The published artifact retains them, and
 to save the Routed boundary before physical storage refinement. It forbids
 source units, `--top`, parameters and reset overrides: the artifact already
 selects its root and execution policy. Both direct link and reload use the same
-routing and lowering implementation. Emission continues to consume Final ACIR.
+routing and lowering implementation. The cpp/verilog targets consume Final ACIR.
 Linked and Final files have distinct publication owners; `--replace` uses the
 existing ownership and failed-output protection protocol.
+
+The direct transaction simulator consumes the saved Linked artifact:
+
+```bash
+pycircuit emit .pycircuit_out/linked.ac --target gfsim -o .pycircuit_out/gfsim
+cmake -S .pycircuit_out/gfsim -B .pycircuit_out/gfsim-build \
+  -DCMAKE_PREFIX_PATH=/path/to/installed/pycircuit
+cmake --build .pycircuit_out/gfsim-build
+.pycircuit_out/gfsim-build/bin/pycircuit_sim --cycles 10 --workers 1
+```
+
+This target supports closed single-clock Systems with Bits State, Rules and
+local or cross-instance Methods. Common transaction analysis supplies admission,
+paths and effects. Generated instance objects own State and expose combination,
+Rule and Method functions. Whole-system checks precede commit and successful
+log publication. The initial direct target publishes logs; other observation
+forms, Queue and nominal payload generation remain follow-up work;
+unknown clock/reset sample rows and unsupported direct inputs reject. The generated build uses only the installed
+Runtime component. Only one worker is supported.
 
 A saved [anchor](../architecture/saved-anchor.md) remains a directory containing
 a versioned graph and separate exact definition specs/bodies. Transactional

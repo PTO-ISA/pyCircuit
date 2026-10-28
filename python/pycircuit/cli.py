@@ -209,9 +209,11 @@ def main(argv: list[str] | None = None) -> int:
     link_program.add_argument("--verify-only", action="store_true")
     link_program.set_defaults(fn=_cmd_link)
 
-    emit = sub.add_parser("emit", help="Emit C++ or Verilog from a saved final design.")
+    emit = sub.add_parser(
+        "emit", help="Emit cpp/verilog from Final ACIR or gfsim from Linked ACIR."
+    )
     emit.add_argument("final")
-    emit.add_argument("--target", choices=("cpp", "verilog"), required=True)
+    emit.add_argument("--target", choices=("cpp", "verilog", "gfsim"), required=True)
     emit.add_argument("--rtl-mode", choices=("managed", "physical"), default="managed")
     emit.add_argument("-o", dest="output", required=True)
     emit.add_argument("--replace", action="store_true")
