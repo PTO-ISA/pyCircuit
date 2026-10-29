@@ -100,8 +100,10 @@ source-proof mutations. The existing external-pop nightly owner retains the
 complete one/two-instance allocation-pool reproducer: 16 state rows, two argmin
 queries and five queues. It independently publishes the source units and checks
 C++ workers 1/2 and RTL observations without reducing the pool or raising analysis
-limits. Generic Integer-state and nested-Table compatibility remain separate
-regressions; a compact join does not imply new source type admission.
+limits. This retained source workload still requires transactional frontend
+migration; its registration is not a passing result. Generic Integer-state and
+nested-Table compatibility remain separate regressions; a compact join does not
+imply new source type admission.
 
 Each executed entry point records its selected CTest names and count under
 `docs/gates/logs/<run-id>/`, with distinct category/tier summary filenames.

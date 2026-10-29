@@ -39,6 +39,36 @@ certify the migration of a larger historical design.
 | Original `queue_rule_pipeline`, structured examples and full multi-output designs | Preserve original behavioral expectations; scalar/packet teaching examples do not replace their full coverage. |
 | t-gfsim (transactional-gfsim) | Linked emission supports closed single-clock Bits State/Queue Systems, Rules and Methods with one worker. Nominal payloads and unknown clock/reset samples remain gaps. |
 
+## Main integration migration accounting
+
+The local integration of `main@3d37651a` into `issue361@7410b48d` preserves
+explicit ordinary Rule registration, autorules, old-Q reads, resource Module
+interfaces, payload Method interfaces and old-occupancy Queue admission. It
+retains the evolved normalized contracts and Linked continuation; the four
+removed importer files and the superseded v2 boundary/rejection fixtures stay
+removed. No fallback or new public API is introduced.
+
+| Main input | Current disposition and remaining work |
+| --- | --- |
+| #363 normalized resource contracts | Reconciled with the later #361 implementation. Duplicate structural/rejection fixtures remain retired; retirement is not PASS. |
+| #364/#366 void Modules | Migrated to `CodeGen/transactional-void-modules.test` and four public export cases in `test_void_module_results.py`. Aliases, independent state, discarded child work, explicit registration, all three None-return forms, interface-only compilation and Linked continuation use independent histories. Printer formatting is not an oracle. |
+| #364 legacy coverage removed | The added native instance-shape test, duplicate execution combinations and negative/immutability/publication matrices were replaced or removed. Legacy mapping/value-input cases are not verified by the replacements. Pure void exports still have compiler-owned clock/reset ports; the previous no-domain expectation is an implementation gap, not a passing case. |
+| #365 aggregate availability and Queue proposals | Common hardware fixes and native tests retained. Current Enum/Struct branch and Queue scenarios execute through transactional analysis, routing and final shared availability verification. Compact selections in the retained legacy transaction lowerer do not establish new-frontend Table support. |
+| #365 complete allocation pool | `allocation_repro/{contracts,pool,one,two}.py` and `test_published_allocation_pool_preserves_replay_and_instance_isolation` retain their original workload and oracle. Table state, queries and associated authoring remain pending migration; no reduced pool or raised budget substitutes for them. |
+| #367 widths and publication isolation | Common Bits width checks and the scoped fstat test override retained. Resolved transactional operations and physical verification continue to check actual widths. |
+| #367 static Method parameters | All five `method_generic` cases in `test_scalar_generic_modules.py` are retained, pending migration. Bind signatures to each actual receiver, forward parameters and validate unused Methods at actual widths. The old system oracle's candidate forwarding must be rederived from old-Q and write-conflict semantics before migration; it is not a new-path expectation. |
+
+The System example build uses the emitted CMake inventory. Declaration-only
+units and source-global Rule units need not generate a `.cpp`; the example
+helper must not invent one from each Python basename.
+
+The full API/example registries retain additional migration failures beyond
+static parameters and Table: legacy automatic registration/value interfaces,
+ordinary helpers, Struct defaults and retained anchor/source fixtures. These
+remain required work in their existing owners. A smaller passing transactional
+selection does not close those gaps. Do not reduce the registries or restore
+old semantics to obtain a passing gate.
+
 ## Validation and evidence
 
 Run the existing API and examples gates described in

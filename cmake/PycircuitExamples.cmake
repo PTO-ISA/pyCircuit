@@ -92,6 +92,10 @@ function(pycircuit_add_example name)
   if(NOT EX_RUNNER)
     set(EX_RUNNER pycircuit_${name})
   endif()
+  set(_authored_driver TRUE)
+  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${EX_DRIVER}" AND NOT IS_ABSOLUTE "${EX_DRIVER}")
+    set(_authored_driver FALSE)
+  endif()
   string(REPLACE "." "/" _package_path "${EX_PACKAGE}")
   # SOURCES is the explicit dependency order. Each listed file owns modules;
   # dependency manifests still record only the interfaces actually consumed.
@@ -157,23 +161,29 @@ function(pycircuit_add_example name)
     DEPENDS ${_link_inputs} ${_helpers} VERBATIM)
   foreach(_target cpp verilog)
     set(_byproducts "${CMAKE_CURRENT_BINARY_DIR}/${_target}/CMakeLists.txt")
-    foreach(_stem IN LISTS _source_stems)
-      list(APPEND _byproducts
-        "${CMAKE_CURRENT_BINARY_DIR}/${_target}/sources/${_package_path}/${_stem}.source-map.json")
-    endforeach()
+    if(_authored_driver)
+      foreach(_stem IN LISTS _source_stems)
+        list(APPEND _byproducts
+          "${CMAKE_CURRENT_BINARY_DIR}/${_target}/sources/${_package_path}/${_stem}.source-map.json")
+      endforeach()
+    endif()
     if(_target STREQUAL "cpp")
       list(APPEND _byproducts "${CMAKE_CURRENT_BINARY_DIR}/cpp/pycircuit_system.hpp"
         "${CMAKE_CURRENT_BINARY_DIR}/cpp/pycircuit_support.hpp")
-      foreach(_stem IN LISTS _source_stems)
-        list(APPEND _byproducts "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_package_path}/${_stem}.hpp"
-          "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_package_path}/${_stem}.cpp")
-      endforeach()
+      if(_authored_driver)
+        foreach(_stem IN LISTS _source_stems)
+          list(APPEND _byproducts "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_package_path}/${_stem}.hpp"
+            "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_package_path}/${_stem}.cpp")
+        endforeach()
+      endif()
     else()
       list(APPEND _byproducts "${CMAKE_CURRENT_BINARY_DIR}/verilog/design_top.sv")
-      foreach(_stem IN LISTS _source_stems)
-        list(APPEND _byproducts
-          "${CMAKE_CURRENT_BINARY_DIR}/verilog/sources/${_package_path}/${_stem}.v")
-      endforeach()
+      if(_authored_driver)
+        foreach(_stem IN LISTS _source_stems)
+          list(APPEND _byproducts
+            "${CMAKE_CURRENT_BINARY_DIR}/verilog/sources/${_package_path}/${_stem}.v")
+        endforeach()
+      endif()
     endif()
     add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${_target}/generated.json"
       BYPRODUCTS ${_byproducts}
@@ -191,27 +201,34 @@ function(pycircuit_add_example name)
     endif()
     add_custom_target(pycircuit_simulation_artifacts DEPENDS ${name}_${PYC_EXAMPLE_RUN_TARGET}_artifacts)
   endif()
+  if(NOT _authored_driver)
+    # The emitted project owns its exact source inventory. A published unit
+    # containing only types or Rule templates need not emit a translation unit.
+    add_custom_target(${EX_RUNNER} ALL
+      COMMAND "${CMAKE_COMMAND}" -S "${CMAKE_CURRENT_BINARY_DIR}/cpp"
+        -B "${CMAKE_CURRENT_BINARY_DIR}/cpp-build" -G Ninja
+        "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}"
+        "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
+        "-DCMAKE_PREFIX_PATH=${PYCIRCUIT_TOOLCHAIN_ROOT}"
+      COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_CURRENT_BINARY_DIR}/cpp-build"
+        --target pycircuit_sim --parallel 2
+      DEPENDS ${name}_cpp_artifacts VERBATIM)
+    if(PYC_EXAMPLE_VERIFY)
+      pycircuit_add_system_verification(${name} "${EX_CYCLES}" "${EX_SYSTEM_TIMEOUT_SECONDS}")
+    endif()
+    return()
+  endif()
   set(_sources)
   foreach(_stem IN LISTS _source_stems)
     list(APPEND _sources "${CMAKE_CURRENT_BINARY_DIR}/cpp/sources/${_package_path}/${_stem}.cpp")
   endforeach()
   set_source_files_properties(${_sources} PROPERTIES GENERATED TRUE)
-  set(_authored_driver TRUE)
-  if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/${EX_DRIVER}" AND NOT IS_ABSOLUTE "${EX_DRIVER}")
-    set(_authored_driver FALSE)
-    set(EX_DRIVER "${CMAKE_CURRENT_BINARY_DIR}/cpp/simulation_main.cpp")
-    set_source_files_properties("${EX_DRIVER}" PROPERTIES GENERATED TRUE)
-  endif()
   add_executable(${EX_RUNNER} "${EX_DRIVER}" ${_sources})
   add_dependencies(${EX_RUNNER} ${name}_cpp_artifacts)
   target_compile_features(${EX_RUNNER} PRIVATE cxx_std_20)
   target_include_directories(${EX_RUNNER} PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/cpp")
   target_link_libraries(${EX_RUNNER} PRIVATE pycircuit::pyc6_runtime)
   if(NOT PYC_EXAMPLE_VERIFY)
-    return()
-  endif()
-  if(NOT _authored_driver)
-    pycircuit_add_system_verification(${name} "${EX_CYCLES}" "${EX_SYSTEM_TIMEOUT_SECONDS}")
     return()
   endif()
   find_program(VERILATOR_EXECUTABLE verilator REQUIRED)
