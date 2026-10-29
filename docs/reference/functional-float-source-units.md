@@ -149,7 +149,9 @@ compiles, links and emits every published top; emission alone is not numerical
 execution coverage of every provider.
 
 The exp polynomial is an approximation, not correctly-rounded transcendental
-certification. Other arithmetic rounding modes, exhaustive IEEE inputs,
+certification. Its inexact flag accumulates rounding from range reduction,
+every Horner operation and final scaling; it does not certify the polynomial's
+error relative to the mathematical exponential. Other arithmetic rounding modes, exhaustive IEEE inputs,
 a complete ISA are outside this example's claim. The
 SSM release ledger (476 fixed inputs, including 439 historical PASS and 37
 original FAIL) is consumer evidence and remains separate from these numerical

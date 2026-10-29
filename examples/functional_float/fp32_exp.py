@@ -112,4 +112,22 @@ def FP32Exp(value: ac.u32, request_valid: ac.u1) -> FP32Response:  # noqa: N802
     powers = scale_powers(integer.exponent)
     intermediate = FP32Product(s5.result, powers.residual, request_valid)
     final = FP32Product(intermediate.result, powers.primary, request_valid)
-    return finish_exp(value, final, scaled.inexact | reduced.inexact, request_valid)
+    inexact = (
+        scaled.inexact
+        | reduced_product.inexact
+        | reduced.inexact
+        | p0.inexact
+        | s0.inexact
+        | p1.inexact
+        | s1.inexact
+        | p2.inexact
+        | s2.inexact
+        | p3.inexact
+        | s3.inexact
+        | p4.inexact
+        | s4.inexact
+        | p5.inexact
+        | s5.inexact
+        | intermediate.inexact
+    )
+    return finish_exp(value, final, inexact, request_valid)

@@ -236,14 +236,25 @@ int main() {
     )
     subprocess.run([str(quotient_binary)], check=True)
 
+    # 1/4 has exact range reduction but rounds within the Horner chain.
+    # Zero exercises the exact path: exp(0) = 1 with no inexact event.
+    exp_vectors = [
+        (0x3E800000, 0x3FA45AF2, 1),
+        (0, 0x3F800000, 0),
+        (0x3F000000, 0x3FD3094C, 1),
+        (0x3F800000, 0x402DF854, 1),
+        (0xBF800000, 0x3EBC5AB2, 1),
+    ]
+    exp_rows = ",\n".join(
+        "{" + ",".join(str(value) + "u" for value in row) + "}" for row in exp_vectors
+    )
     exp_driver = tmp_path / "exponential.cpp"
     exp_driver.write_text(
         """
 #include "sources/functional_float/fp32_exp.hpp"
 #include <cstdint>
 int main() {
-    const uint32_t rows[][2] = {{0x3f000000,0x3fd3094c},
-        {0x3f800000,0x402df854},{0xbf800000,0x3ebc5ab2}};
+    const uint32_t rows[][3] = {EXP_ROWS};
     for (const auto& row : rows) {
         functional_float::fp32_exp::FP32Exp dut("exponential");
         dut.value = decltype(dut.value)::known(gfsim::Bits<32>{row[0]});
@@ -252,9 +263,12 @@ int main() {
         if (!dut.result.isFullyKnown()) return 1;
         const auto out = dut.result.value();
         if (out.result.value() != row[1] || !out.valid.toBool()) return 2;
+        if (out.inexact.toBool() != bool(row[2])) return 3;
     }
 }
-""",
+""".replace(
+            "EXP_ROWS", exp_rows
+        ),
         encoding="utf-8",
     )
     exp_binary = tmp_path / "exponential"
@@ -380,3 +394,42 @@ int main() {
         capture_output=True,
     )
     subprocess.run(["vvp", str(rtl_binary)], check=True, capture_output=True)
+
+    exp_rtl = tmp_path / "verilog_exp"
+    exp_ports = json.loads((exp_rtl / "ports.json").read_text())
+    exp_output = exp_ports["outputs"][0]
+    exp_fields = {field["path"][0]: field for field in exp_output["fields"]}
+    exp_samples = []
+    for value, expected, inexact in exp_vectors:
+        exp_samples.append(
+            f"value=32'h{value:08x}; #1; "
+            f"if (result[{exp_fields['result']['low']} +: 32] !== "
+            f"32'h{expected:08x} || "
+            f"result[{exp_fields['valid']['low']}] !== 1'b1 || "
+            f"result[{exp_fields['inexact']['low']}] !== 1'b{inexact}) "
+            f'$fatal(1, "exp result/inexact for {value:08x}");'
+        )
+    exp_tb = tmp_path / "exp_tb.sv"
+    exp_tb.write_text(
+        "module tb; reg [31:0] value; "
+        f"wire [{exp_output['width'] - 1}:0] result; "
+        "pyc_root dut(.value(value),.request_valid(1'b1),.result(result)); "
+        "initial begin " + "\n".join(exp_samples) + " $finish; end endmodule\n"
+    )
+    exp_rtl_binary = tmp_path / "exp_rtl"
+    subprocess.run(
+        [
+            "iverilog",
+            "-g2012",
+            "-s",
+            "tb",
+            "-o",
+            str(exp_rtl_binary),
+            str(exp_rtl / "design_top.sv"),
+            *(str(path) for path in sorted((exp_rtl / "sources").rglob("*.v"))),
+            str(exp_tb),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["vvp", str(exp_rtl_binary)], check=True, capture_output=True)
