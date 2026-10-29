@@ -1,8 +1,8 @@
 """Reading views preserve source-generated resource and transaction structure."""
 
-import ast
 import hashlib
 import json
+import shutil
 import sys
 from pathlib import Path
 
@@ -77,21 +77,10 @@ assert digest(linked) == before_full
 fixture.run([fixture.opt, full, "-o", fixture.scratch / "reparsed.ac"])
 
 # Reuse the existing branch-bearing source, keeping this a printer contract test.
-conditional_fixture = (
-    fixture.repo
-    / "tests/compiler/lit/CodeGen/Inputs/transactional-conditional-methods.py"
+shutil.copyfile(
+    Path(__file__).with_name("transactional-control-flow-design.py"),
+    fixture.sources / "conditional.py",
 )
-tree = ast.parse(conditional_fixture.read_text())
-design = next(
-    ast.literal_eval(node.args[0])
-    for node in ast.walk(tree)
-    if isinstance(node, ast.Call)
-    and isinstance(node.func, ast.Attribute)
-    and node.func.attr == "write_text"
-    and node.args
-    and isinstance(node.args[0], ast.Constant)
-)
-(fixture.sources / "conditional.py").write_text(design)
 fixture.compile_source("conditional")
 branch_linked = fixture.scratch / "conditional.linked.ac"
 fixture.cli(

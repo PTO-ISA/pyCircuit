@@ -1,5 +1,4 @@
 # REQUIRES: verilator
 # RUN: %python %inputs/transactional-sibling-methods.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp
 # RUN: %python %inputs/transactional-sibling-methods.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.rtl verilog
-# RUN: %python %inputs/transactional-sibling-methods.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.linked.cpp cpp linked
-# RUN: %python %inputs/transactional-sibling-methods.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.linked.rtl verilog linked
+# RUN: %python %inputs/transactional-sibling-methods.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.direct t-gfsim

@@ -174,7 +174,7 @@ configure_file("${CMAKE_CURRENT_LIST_DIR}/../lit/lit.site.cfg.py.in"
   "${_lit_binary}/lit.site.cfg.py" @ONLY)
 # Complementary filters preserve the complete lit inventory without duplicates.
 # Fast verifier/pass tests plus source diagnostics and publication protection.
-set(_lit_gate_filter "(IR/|Transforms/|Source/(acir-display|source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission|transactional-state|transactional-failure|transactional-source|transactional-methods|transactional-sibling-methods|transactional-state-interfaces|transactional-constraints|transactional-structured-packet|transactional-issue361|transactional-conditional-methods|transactional-branch-results|transactional-early-returns|transactional-uninitialized|transactional-gfsim)\\.test)")
+set(_lit_gate_filter "(IR/|Transforms/|Source/(acir-display|source-interface-extraction(-invalid)?|source-checks|source-observation-behavioral|serial-method-public)\\.test|CodeGen/(transactional-[^/]+|output-preservation|two-leaves|constant-field-planes|bits-case-equality|sampled-admission)\\.test$)")
 add_test(NAME ACIRLitGateTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
   --filter "${_lit_gate_filter}" "${_lit_binary}")
 add_test(NAME ACIRLitNightlyTests COMMAND "${LLVM_EXTERNAL_LIT}" -sv
@@ -210,15 +210,3 @@ if(TARGET pyc6_runtime)
   # Source gates link generated DUTs against the Runtime archive from this build.
   add_dependencies(check-pycircuit pyc6_runtime)
 endif()
-
-add_acir_api_test(ACIRSourceResourceBindingTests SourceResourceBindingTest.cpp)
-target_link_libraries(ACIRSourceResourceBindingTests PRIVATE ACIRSourceCompiler ACIRTransforms MLIRPass)
-target_compile_definitions(ACIRSourceResourceBindingTests PRIVATE
-  ACIR_TEST_PYTHON="${Python3_EXECUTABLE}"
-  ACIR_TEST_REPO_ROOT="${PYCIRCUIT_REPO_ROOT}"
-  ACIR_TEST_SOURCE_UNIT_HARNESS="$<TARGET_FILE:pycircuit-source-unit>")
-add_dependencies(ACIRSourceResourceBindingTests pycircuit-source-unit)
-add_dependencies(check-pycircuit ACIRSourceResourceBindingTests)
-
-add_acir_api_test(ACIRTransactionalMethodConstraintsTests TransactionalMethodConstraintsTest.cpp)
-add_dependencies(check-pycircuit ACIRTransactionalMethodConstraintsTests)

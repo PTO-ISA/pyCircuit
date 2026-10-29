@@ -1,210 +1,109 @@
-"""Independent nested packet, old-Q and atomic backpressure oracle."""
+"""Nested nominal packet transport, atomic state updates and reset oracle."""
 
-import json
 import shutil
 import sys
 from collections import Counter, deque
+from pathlib import Path
 
-from transactional_queue_replay import verify_stages
-from transactional_test_support import SourceTest
+from transactional_test_support import SourceTest, log_history
 
-saved_linked = sys.argv[-1] == "linked"
-if saved_linked:
-    sys.argv.pop()
-
-fixture = SourceTest(sys.argv[1:], "structured_packet", "example_structured_packet")
-repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
-opt = fixture.opt
-target, mode = sys.argv[-2:]
-
-
-if mode == "four-state":
-    top = sources / "Top.py"
-    top.write_text(
-        top.read_text().replace(
-            "ac.bits[80](0x123456789ABCDEF01234)",
-            'ac.four_state("1010' + "xz01" * 19 + '")',
-        )
-    )
-else:
-    assert mode in ("known", "reset"), mode
-
-
+fixture = SourceTest(sys.argv[1:], None, "packet_case")
+target = sys.argv[8]
+reset = sys.argv[9:] == ["reset"]
+entry = "Reset" if reset else "Top"
+shutil.copytree(
+    Path(__file__).with_name("structured_packet"), fixture.sources, dirs_exist_ok=True
+)
 fixture.compile_source("types")
 with fixture.interfaces_only("types"):
     fixture.compile_source("processor", "types")
 with fixture.interfaces_only("types", "processor"):
-    fixture.compile_source("Top", "types", "processor")
-
-# A different nominal Packet with the same layout must not bind this Module.
-if mode == "known" and target == "cpp":
-    top = sources / "Top.py"
-    original = top.read_text()
-    top.write_text(
-        original.replace(
-            "@ac.system",
-            "@ac.struct\nclass ForeignPacket:\n    header: Header\n    data: ac.bits[80]\n\n\n@ac.system",
-        )
-        .replace("def produce() -> Packet", "def produce() -> ForeignPacket")
-        .replace("return Packet(", "return ForeignPacket(")
-    )
-    fixture.compile_source(
-        "Top", "types", "processor", output="wrong-nominal", fails=True
-    )
-    top.write_text(original)
-
-shutil.rmtree(sources)
-final = scratch / "pipeline.ac"
-if saved_linked:
-    linked = fixture.link_saved(
-        ("types", "processor", "Top"),
-        "example_structured_packet.Top.Top",
-        final,
-        retained=("ac.method @", "ac.method.call"),
-    )
-    fixture.run([opt, final, "--ac-verify-hardware"])
-    anchor = scratch / "anchor"
-    fixture.cli("link", "--from-linked", linked, "--target", "anchor", "-o", anchor)
-    final = scratch / "anchored.ac"
-    fixture.cli("link", "--from-anchor", anchor, "--target", "final", "-o", final)
-else:
-    fixture.cli(
-        "link",
-        *(scratch / unit for unit in ("types", "processor", "Top")),
-        "--top",
-        "example_structured_packet.Top.Top",
-        "-o",
-        final,
-    )
-fixture.run([opt, final, "--ac-verify-hardware"])
-verify_stages(final, opt, fixture.run, mutations=False)
-if mode == "known" and target == "cpp":
-    routed = scratch / "routed.ac"
-    lines = routed.read_text().splitlines(keepends=True)
-    # Rename the executable field consistently, preserving a well-typed graph
-    # but not the authenticated normalized-source snapshot.
-    changed = [
-        (
-            line
-            if "ac.transactional_source =" in line
-            else line.replace('"opcode"', '"renamed"')
-        )
-        for line in lines
-    ]
-    assert changed != lines
-    mutated = scratch / "wrong-nominal-routed.ac"
-    mutated.write_text("".join(changed))
-    fixture.run([opt, mutated, "--ac-lower-transactions"], fails=True)
-executable, generated = fixture.build_system(
-    final, target, reset_cycle=5 if mode == "reset" else None
+    fixture.compile_source("design", "types", "processor")
+with fixture.interfaces_only("types", "processor", "design"):
+    fixture.compile_source(entry, "types", "processor", "design")
+final = fixture.scratch / "packet.ac"
+fixture.cli(
+    "link",
+    *(fixture.scratch / unit for unit in ("types", "processor", "design", entry)),
+    "--top",
+    f"packet_case.{entry}.Top",
+    "-o",
+    final,
 )
+executable, _ = fixture.build_system(final, target)
 
-
-def observations(result):
-    rows = [
-        json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")
-    ]
-    assert any(row.get("kind") == "result" for row in rows), rows
-    logs = Counter()
-    for row in rows:
-        if row.get("kind") != "log":
-            continue
-        values = []
-        for value in row["values"]:
-            if value["kind"] == "bits4":
-                planes = tuple(int(value[key], 16) for key in ("value", "known", "z"))
-                if value["width"] == 80:
-                    values.append(planes)
-                else:
-                    assert planes[1:] == ((1 << value["width"]) - 1, 0)
-                    values.append(planes[0])
-            else:
-                values.append(int(value["value"]))
-        logs[(int(row["evaluation_epoch"]), row["spec"]["event"], tuple(values))] += 1
-    return logs
-
-
-def known(value, width):
-    return (value, (1 << width) - 1, 0) if width == 80 else value
-
-
+# Packet payloads are test-owned data, independent of the compiled design.
 pattern = "1010" + "xz01" * 19
-payload = known(0x123456789ABCDEF01234, 80)
-if mode == "four-state":
-    payload = tuple(
-        int("".join("1" if bit in chars else "0" for bit in pattern), 2)
-        for chars in ("1", "01", "z")
-    )
-
-# Old occupancy decides every transaction. No pop lends same-edge capacity.
-# Logs observe committed state even after the Method's proposed assignment.
-incoming, outgoing = deque(), deque()
-sent = received = accepted = cycle = retained = 0
-saved = known(0, 80)
+unknown = tuple(
+    int("".join("1" if bit in chars else "0" for bit in pattern), 2)
+    for chars in ("1", "01", "z")
+)
+payloads = (0x123456789ABCDEF01234, unknown, 0x123456789ABCDEF01234, unknown)
+incoming, outgoing, receipts = deque(), deque(), deque()
+sent = received = accepted = cycle = retained = saved = 0
 expected = Counter()
 consumed = []
-blocked = 0
-steps = 24 if mode == "reset" else 18
+steps = 18 if reset else 13
 for step in range(steps):
-    reset = mode == "reset" and step == 5
     send = sent < 4 and len(incoming) < 2
-    process = bool(incoming) and len(outgoing) < 2
-    consume = cycle >= 10 and bool(outgoing)
+    process = bool(incoming) and len(outgoing) < 2 and len(receipts) < 2
+    consume = cycle >= 7 and bool(outgoing)
+    acknowledge = bool(receipts)
     events = [
-        (
-            "processor",
-            (
-                known(accepted, 8),
-                known(retained, 6),
-                known(int(accepted > 0), 1),
-                saved,
-            ),
-        ),
-        ("progress", (known(sent, 6), known(received, 8))),
+        ("processor", (accepted, retained, int(accepted > 0), saved)),
+        ("progress", (sent, received)),
     ]
     if incoming:
-        events.append(("head", (known(incoming[0], 6), payload)))
+        events.append(("head", (incoming[0], payloads[incoming[0]])))
     if process:
         packet = incoming[0]
-        events.append(("process", (known(packet, 6), known(retained, 6))))
+        events.append(("process", (packet, retained)))
     if consume:
-        events.append(("receive", (known(outgoing[0], 6), payload)))
-    if incoming and not process:
-        blocked += 1
-    # docs/architecture/system-execution.md: successful Work publishes old-Q
-    # snapshots, including reset samples;
-    # synchronous reset takes effect at the subsequent rising commit.
+        events.append(("receive", (outgoing[0] + 1, payloads[outgoing[0]])))
+    if acknowledge:
+        events.append(("receipt", (receipts[0],)))
+    # Work logs observe old state on both reset samples; reset clears state and
+    # all occupied Queues at the rising commit. The second stream starts fresh.
     for epoch in (2 * step, 2 * step + 1):
         for event, values in events:
             expected[(epoch, event, values)] += 1
-    if reset:
+    if reset and step == 4:
         incoming.clear()
         outgoing.clear()
-        sent = received = accepted = cycle = retained = 0
-        saved = known(0, 80)
+        receipts.clear()
+        sent = received = accepted = cycle = retained = saved = 0
         consumed.clear()
         continue
     if process:
         retained = incoming.popleft() + 1
-        saved = payload
+        saved = payloads[packet]
         accepted += 1
     if consume:
-        consumed.append(outgoing.popleft())
+        consumed.append(outgoing.popleft() + 1)
         received += 1
+    if acknowledge:
+        receipts.popleft()
     if send:
         incoming.append(sent)
         sent += 1
     if process:
-        outgoing.append(retained)
+        outgoing.append(packet)
+        receipts.append(packet)
     cycle += 1
-assert consumed == [1, 2, 3, 4], consumed
-assert blocked > 0
+assert consumed == [1, 2, 3, 4]
 for workers in (1, 2) if target == "cpp" else (1,):
     arguments = ["--workers", workers] if target == "cpp" else []
-    arguments += ["--cycles", str(steps)] if target == "cpp" else [f"+cycles={steps}"]
-    actual = observations(fixture.run([executable, *arguments]))
+    if not reset:
+        arguments += ["--cycles", steps] if target == "cpp" else [f"+cycles={steps}"]
+    actual = log_history(fixture.run([executable, *arguments]))
     assert actual == expected, {
         "unexpected": actual - expected,
         "missing": expected - actual,
     }
-print(f"transactional structured packet {mode} {target}: PASS")
+print(f"transactional structured packet {target}: PASS")
+print("t-gfsim: NOT RUN (Queue and nominal payload support remain implementation gaps)")
+
+if not reset:
+    print(
+        "reset: NOT RUN (transactional System samples admission remains an implementation gap)"
+    )

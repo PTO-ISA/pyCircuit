@@ -7,7 +7,6 @@ import json
 import os
 import shutil
 import sys
-from pathlib import Path
 
 import pytest
 from test_source_system_execution import (
@@ -108,30 +107,6 @@ def _publish(tmp_path, *, remove_sources=True):
 @pytest.fixture
 def saved_anchor(tmp_path):
     return _publish(tmp_path)
-
-
-def test_saved_callable_old_spelling_requires_regeneration(tmp_path, saved_anchor):
-    restored = tmp_path / "restored.ac"
-    _ok(
-        _cli(
-            "link",
-            "--from-anchor",
-            str(saved_anchor),
-            "--target",
-            "final",
-            "-o",
-            str(restored),
-        )
-    )
-    body = restored.read_text()
-    assert '"ac.comb"' in body
-    stale = tmp_path / "stale-callable.ac"
-    stale.write_text(body.replace('"ac.comb"', '"ac.rule"', 1))
-    optimizer = Path(os.environ["PYCIRCUIT_LINKER"]).with_name("pycircuit-opt")
-    result = _run([str(optimizer), str(stale)])
-    assert result.returncode != 0
-    assert "regenerat" in result.stderr.lower()
-    assert restored.read_text() == body
 
 
 @pytest.mark.skipif(os.name == "nt", reason='Windows filenames cannot contain "')

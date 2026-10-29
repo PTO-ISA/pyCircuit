@@ -7,23 +7,19 @@ A command, test file or historical acceptance entry is not a passing result.
 
 ## Short native CI
 
-`G1: Native Transactional Gates` builds and installs the native compiler, runs
-`ACIRTransactionalMethodConstraintsTests` and `ACIRSourceResourceBindingTests`,
-and executes the transactional constraint, State/interface, failure, source,
-Method and sibling-Method lit regressions. t-gfsim coverage reloads saved
-Linked ACIR, compares complete example-owned traces across all three targets,
-checks reset and failure publication, and builds the generated program against
-installed Runtime with LLVM/MLIR discovery disabled. The constraint case checks independent
-compile/link, saved IR, SSA snapshots, natural Bits overflow and ignored returned
-values through C++ workers 1/2 and RTL. Queue gates additionally execute old-occupancy timing, backpressure, resource
-conflicts, reset, failure atomicity and four-state payloads. Saved Routed/Final
-FIFO configuration and proposal mutations must be rejected. The resource
-composition gate adds multilayer instance references, independent tuple outputs,
-mixed State/Queue binding, alias identity and separate Rule admission under
-backpressure, with independent per-epoch C++ workers 1/2 and RTL oracles.
-Long oracle matrices stay in the existing nightly entrypoints. The desired
-required-check list includes G1; applying branch protection on GitHub is a
-separate repository-management action.
+`G1: Native Transactional Gates` builds and installs the compiler, runs the
+native transactional runtime foundation and the readable `transactional-*`
+end-to-end scenarios. Physical C++ workers 1/2 and RTL compare against independent
+histories; t-gfsim reuses supported State/control/call designs. Saved Linked and
+Routed continuation and a Runtime-only generated consumer remain covered.
+
+See [transactional test scenarios](transactional-test-scenarios.md) for the six
+groups, positive supplements, backend support and coverage migration. Issue #361
+rejection, malformed-IR and implementation-structure tests are deliberately
+removed; their removal does not mean those cases passed. Public System reset
+schedule admission and post-failure generated storage observation remain explicit
+gaps. The desired required-check list includes G1; applying branch protection on
+GitHub is a separate repository-management action.
 
 ## API tests and examples are separate
 

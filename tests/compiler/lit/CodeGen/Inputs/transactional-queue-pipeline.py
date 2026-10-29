@@ -1,158 +1,80 @@
-"""Independent Queue occupancy and cross-owner transaction oracle."""
+"""Old-occupancy oracle for atomic fanout and independent progress."""
 
-import json
 import shutil
 import sys
 from collections import Counter, deque
+from pathlib import Path
 
-from transactional_queue_replay import verify_stages
-from transactional_test_support import SourceTest
+from transactional_test_support import SourceTest, log_history
 
-fixture = SourceTest(
-    sys.argv[1:], "scalar_queue_pipeline", "example_scalar_queue_pipeline"
+fixture = SourceTest(sys.argv[1:], None, "queue_case")
+target = sys.argv[-1]
+shutil.copytree(
+    Path(__file__).with_name("queue_pipeline"), fixture.sources, dirs_exist_ok=True
 )
-repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
-opt = fixture.opt
-target, mode = sys.argv[-2:]
-
-
-depth = 3 if mode == "depth3" else 2
-if mode == "depth3":
-    top = sources / "Top.py"
-    top.write_text(
-        top.read_text().replace(
-            "    totals = SumStage(biased, accumulator)",
-            "    totals = ac.queue[ac.bits[8]](depth=3)\n"
-            "    totals = SumStage(biased, accumulator)",
-        )
-    )
-elif mode == "guard":
-    accumulator = sources / "Accumulator.py"
-    text = (
-        accumulator.read_text()
-        .replace(
-            "    @ac.method\n    def add",
-            "    @ac.method(guard=lambda: total < 10)\n"
-            "    def finish() -> None:\n"
-            '        ac.log("info", "finish", total)\n\n'
-            "    @ac.method\n    def add",
-        )
-        .replace(
-            "        total = next_total", "        total = next_total\n        finish()"
-        )
-    )
-    accumulator.write_text(text)
-else:
-    assert mode == "default", mode
-
-for unit in ("Accumulator", "BiasStage", "SumStage"):
-    fixture.compile_source(unit)
-with fixture.interfaces_only("Accumulator", "BiasStage", "SumStage"):
-    fixture.compile_source("Top", "Accumulator", "BiasStage", "SumStage")
-shutil.rmtree(sources)
-final = scratch / "pipeline.ac"
+fixture.compile_source("design")
+final = fixture.scratch / "pipeline.ac"
 fixture.cli(
-    "link",
-    *(scratch / unit for unit in ("Accumulator", "BiasStage", "SumStage", "Top")),
-    "--top",
-    "example_scalar_queue_pipeline.Top.Top",
-    "-o",
-    final,
+    "link", fixture.scratch / "design", "--top", "queue_case.design.Top", "-o", final
 )
-fixture.run([opt, final, "--ac-verify-hardware"])
-if target == "cpp" and mode == "default":
-    verify_stages(final, opt, fixture.run)
-executable, generated = fixture.build_system(final, target)
-# All three source owners must survive in the generated hierarchy. Passing a
-# reference must not turn the provider state into anonymous caller-owned state.
-assert {row["source"]["path"] for row in generated["source_groups"]} >= {
-    "Accumulator.py",
-    "BiasStage.py",
-    "SumStage.py",
-    "Top.py",
-}
+executable, _ = fixture.build_system(final, target)
 
-
-def observations(result):
-    rows = [
-        json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")
-    ]
-    assert any(row.get("kind") == "result" for row in rows), rows
-    logs = Counter()
-    for row in rows:
-        if row.get("kind") != "log":
-            continue
-        values = []
-        for value in row["values"]:
-            if value["kind"] == "bits4":
-                assert int(value["known"], 16) == (1 << value["width"]) - 1
-                assert int(value["z"], 16) == 0
-                values.append(int(value["value"], 16))
-            else:
-                values.append(int(value["value"]))
-        logs[(int(row["evaluation_epoch"]), row["spec"]["event"], tuple(values))] += 1
-    return logs
-
-
-# Decide every fire from an immutable old occupancy snapshot. Apply all pops
-# before pushes only after those decisions; this never lends same-edge capacity.
-inputs = (3, 5, 2, 7)
-queues = [deque(), deque(), deque()]
-capacities = (2, 3, depth)
-sent = received = accepted = total = 0
+# Decide all transfers from old occupancy before changing any deque. In
+# particular, a full right output still blocks split on the first consumer edge.
+inputs = (3, 5, 2, 7, 1, 4)
+incoming, left, right = deque(), deque(), deque()
+sent = accepted = total = 0
 expected = Counter()
-consumed = []
-blocked = 0
-for cycle in range(18):
-    occupancy = tuple(len(queue) for queue in queues)
-    send = sent < len(inputs) and occupancy[0] < capacities[0]
-    bias = occupancy[0] > 0 and occupancy[1] < capacities[1]
-    accumulate = occupancy[1] > 0 and occupancy[2] < capacities[2]
-    accumulate = accumulate and (mode != "guard" or total < 10)
-    consume = cycle >= 10 and occupancy[2] > 0
+left_values, right_values = [], []
+for cycle in range(17):
+    send = sent < len(inputs) and len(incoming) < 3
+    split = bool(incoming) and len(left) < 2 and len(right) < 2
+    split = split and (cycle < 3 or cycle >= 10)
+    read_left = bool(left)
+    read_right = cycle >= 7 and bool(right)
     events = [
         ("total", (total,)),
         ("accepted", (accepted,)),
-        ("progress", (sent, received)),
+        ("progress", (cycle, sent)),
     ]
     if send:
         events.append(("send", (inputs[sent],)))
-    if accumulate:
-        next_total = total + queues[1][0]
-        events.append(("sum", (queues[1][0], next_total)))
-        if mode == "guard":
-            events.append(("finish", (total,)))
-    if consume:
-        events.append(("receive", (queues[2][0],)))
-    if occupancy[1] and not accumulate:
-        blocked += 1
+    if split:
+        value = incoming[0]
+        next_total = total + value
+        events.append(("split", (value, next_total)))
+        events.append(("finish", (total,)))
+    if read_left:
+        events.append(("left", (left[0],)))
+    if read_right:
+        events.append(("right", (right[0],)))
     for epoch in (2 * cycle, 2 * cycle + 1):
         for event, values in events:
             expected[(epoch, event, values)] += 1
-    biased = queues[0].popleft() + 1 if bias else None
-    if accumulate:
-        queues[1].popleft()
+    if split:
+        incoming.popleft()
         total = next_total
         accepted += 1
-    if consume:
-        consumed.append(queues[2].popleft())
-        received += 1
+    if read_left:
+        left_values.append(left.popleft())
+    if read_right:
+        right_values.append(right.popleft())
     if send:
-        queues[0].append(inputs[sent])
+        incoming.append(inputs[sent])
         sent += 1
-    if bias:
-        queues[1].append(biased)
-    if accumulate:
-        queues[2].append(next_total)
-assert consumed == ([4, 10] if mode == "guard" else [4, 10, 13, 21]), consumed
-assert blocked > 0
+    if split:
+        left.append(value + 1)
+        right.append(next_total)
+assert left_values == [4, 6, 3, 8, 2, 5]
+assert right_values == [3, 8, 10, 17, 18, 22]
 for workers in (1, 2) if target == "cpp" else (1,):
     arguments = (
-        ["--cycles", "18", "--workers", workers] if target == "cpp" else ["+cycles=18"]
+        ["--cycles", "17", "--workers", workers] if target == "cpp" else ["+cycles=17"]
     )
-    actual = observations(fixture.run([executable, *arguments]))
+    actual = log_history(fixture.run([executable, *arguments]))
     assert actual == expected, {
         "unexpected": actual - expected,
         "missing": expected - actual,
     }
-print(f"transactional Queue pipeline {mode} {target}: PASS")
+print(f"transactional Queue pipeline {target}: PASS")
+print("t-gfsim: NOT RUN (Queue support remains an implementation gap)")

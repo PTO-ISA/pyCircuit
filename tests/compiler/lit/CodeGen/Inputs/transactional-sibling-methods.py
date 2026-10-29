@@ -1,178 +1,89 @@
-"""Independent sibling-instance, source-unit and cross-Module atomicity oracles."""
+"""Two callers share one accumulator; another instance progresses independently."""
 
-import json
-import re
 import shutil
 import sys
 from collections import Counter
+from pathlib import Path
 
-from transactional_test_support import SourceTest
+from transactional_test_support import SourceTest, log_history
 
-saved_linked = sys.argv[-1] == "linked"
-if saved_linked:
-    sys.argv.pop()
-
-fixture = SourceTest(
-    sys.argv[1:], "sibling_method_calls", "example_sibling_method_calls"
+fixture = SourceTest(sys.argv[1:], None, "call_test")
+shutil.copytree(
+    Path(__file__).with_name("transactional-calls"), fixture.sources, dirs_exist_ok=True
 )
-repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
-opt = fixture.opt
+# The generic caller compiles before its provider exists. Top sees interfaces only.
+fixture.compile_source("Callers")
+fixture.compile_source("Accumulator")
+with fixture.interfaces_only("Callers", "Accumulator"):
+    fixture.compile_source("Top", "Callers", "Accumulator")
+final = fixture.scratch / "calls.ac"
+linked = fixture.link_saved(
+    ("Callers", "Accumulator", "Top"), "call_test.Top.Top", final
+)
 target = sys.argv[-1]
-run, cli, compile_source = fixture.run, fixture.cli, fixture.compile_source
-artifact, interfaces_only = fixture.artifact, fixture.interfaces_only
+executable, _ = fixture.build_system(linked if target == "t-gfsim" else final, target)
 
-
-# Sender infers its generic peer requirement without any Receiver source unit.
-compile_source("Sender")
-compile_source("Receiver")
-for unit in ("Sender", "Receiver"):
-    interface = artifact(unit, "interface").read_text()
-    assert "ac.methods" in interface and 'name = "accept"' in interface, interface
-with interfaces_only("Sender", "Receiver"):
-    compile_source("Top", "Sender", "Receiver")
-
-# A narrower actual Method input cannot accept Sender's eight-bit argument.
-# Source compilation publishes the requirement; explicit link checks its actual
-# binding against the provider's Method definition.
-receiver_source = (sources / "Receiver.py").read_text()
-(sources / "Receiver.py").write_text(
-    receiver_source.replace("amount: ac.bits[8]", "amount: ac.bits[4]").replace(
-        "count = count + amount", "count = count + 1"
-    )
-)
-compile_source("Receiver", output="WrongReceiver")
-with interfaces_only("Sender", "WrongReceiver"):
-    compile_source("Top", "Sender", "WrongReceiver", output="WrongTop")
-cli(
-    "link",
-    scratch / "Sender",
-    scratch / "WrongReceiver",
-    scratch / "WrongTop",
-    "--top",
-    "example_sibling_method_calls.Top.Top",
-    "-o",
-    scratch / "wrong.ac",
-    fails=True,
-)
-assert not (scratch / "wrong.ac").exists()
-
-# No original Python or provider body reads are available to substitute for link.
-shutil.rmtree(sources)
-final = scratch / "siblings.ac"
-if saved_linked:
-    fixture.link_saved(
-        ("Sender", "Receiver", "Top"),
-        "example_sibling_method_calls.Top.Top",
-        final,
-        retained=("ac.method @", "ac.method.call"),
-    )
-else:
-    cli(
-        "link",
-        scratch / "Sender",
-        scratch / "Receiver",
-        scratch / "Top",
-        "--top",
-        "example_sibling_method_calls.Top.Top",
-        "-o",
-        final,
-    )
-run([opt, final, "--ac-verify-hardware"])
-
-
-def check_storage_owners():
-    # Inspect actual final Module/instance edges, excluding the serialized source
-    # provenance attribute. Symbols may specialize; their spelling is immaterial.
-    modules = {}
-    storage = set()
-    current = None
-    for line in final.read_text().splitlines():
-        if line.startswith('  "ac.module.import"'):
-            current = None
-            if re.search(r'primitive_kind = "dffe?"', line):
-                storage.add(re.search(r'sym_name = "([^"]+)"', line)[1])
-        elif line.startswith('  "ac.module"'):
-            symbol = re.search(r'sym_name = "([^"]+)"', line)[1]
-            owner = re.search(r'source_owner = \{[^}]*path = "([^"]+)"', line)[1]
-            current = {"owner": owner, "children": {}}
-            modules[symbol] = current
-        elif current is not None and "ac.instance(" in line:
-            name = re.search(r'instance_name = "([^"]+)"', line)[1]
-            callee = re.search(r'callee = @(?:(?:"([^"]+)")|([\w.$-]+))', line)
-            current["children"][name] = callee[1] or callee[2]
-    top = modules["example_sibling_method_calls.Top.Top"]
-    assert top["owner"] == "Top.py"
-    assert set(top["children"]) == {"receiver", "unused", "sender"}, top
-    for name, owner in (
-        ("receiver", "Receiver.py"),
-        ("unused", "Receiver.py"),
-        ("sender", "Sender.py"),
-    ):
-        child = modules[top["children"][name]]
-        assert child["owner"] == owner, (name, child)
-        assert set(child["children"]) == {"count"}, (name, child)
-        assert child["children"]["count"] in storage, (name, child)
-
-
-check_storage_owners()
-executable, generated = fixture.build_system(final, target)
-# All three source owners must survive in the generated hierarchy. Passing a
-# reference must not turn the provider state into anonymous caller-owned state.
-assert {row["source"]["path"] for row in generated["source_groups"]} >= {
-    "Receiver.py",
-    "Sender.py",
-    "Top.py",
-}
-
-
-def observations(result):
-    rows = [
-        json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")
-    ]
-    assert any(row.get("kind") == "result" for row in rows), rows
-    logs = Counter()
-    receiver_owners = {}
-    for row in rows:
-        if row.get("kind") != "log":
-            continue
-        values = []
-        for value in row["values"]:
-            if value["kind"] == "bits4":
-                assert int(value["known"], 16) == (1 << value["width"]) - 1
-                assert int(value["z"], 16) == 0
-                values.append(int(value["value"], 16))
-            else:
-                values.append(int(value["value"]))
-        epoch = int(row["evaluation_epoch"])
-        event = row["spec"]["event"]
-        logs[(epoch, event, tuple(values))] += 1
-        if event == "receiver":
-            owners = receiver_owners.setdefault(epoch, {})
-            assert row["instance"] not in owners, (epoch, owners, row)
-            owners[row["instance"]] = tuple(values)
-    assert set(receiver_owners) == set(range(8)), receiver_owners
-    identities = set(receiver_owners[0])
-    assert len(identities) == 2, receiver_owners
-    for owners in receiver_owners.values():
-        assert set(owners) == identities, receiver_owners
-    return logs
-
-
-# Both states advance together twice; the unrelated Receiver never changes.
-# Compare cardinalities per epoch, allowing independent Rules any print order.
+# Hand recurrence: +3, +5, late guard rejects, +5, then callee guard rejects.
+# The separate instance adds one every cycle; caller guards stop after cycle 5.
 expected = Counter()
-for cycle, (sender, receiver) in enumerate(((0, 5), (1, 6), (2, 7), (2, 7))):
-    for epoch in (cycle * 2, cycle * 2 + 1):
-        expected[(epoch, "sender", (sender,))] += 1
-        expected[(epoch, "receiver", (receiver,))] += 1
-        expected[(epoch, "receiver", (5,))] += 1
-        if cycle < 2:
-            expected[(epoch, "send", (sender,))] += 1
-            expected[(epoch, "accept", (receiver, 1))] += 1
-for workers in (1, 2) if target == "cpp" else (1,):
-    arguments = (
-        ["--cycles", "4", "--workers", workers] if target == "cpp" else ["+cycles=4"]
+for cycle, (total, first, second) in enumerate(
+    (
+        (0, 0, 0),
+        (3, 1, 0),
+        (8, 1, 1),
+        (8, 1, 1),
+        (13, 1, 2),
+        (13, 1, 2),
+        (13, 1, 2),
+        (13, 1, 2),
     )
-    actual = observations(run([executable, *arguments]))
-    assert actual == expected, (actual, expected)
-print(f"transactional sibling Methods {target}: PASS")
+):
+    for epoch in (2 * cycle, 2 * cycle + 1):
+        expected[(epoch, "total", (total,))] += 1
+        expected[(epoch, "total", (cycle,))] += 1
+        expected[(epoch, "progress", (cycle, first, second))] += 1
+        if cycle == 0:
+            expected[(epoch, "first", (2, 3, 3))] += 1
+        if cycle in (1, 3):
+            expected[(epoch, "second", (total,))] += 1
+
+for workers in (1, 2) if target == "cpp" else (1,):
+    args = (
+        ["+cycles=8"] if target == "verilog" else ["--cycles", 8, "--workers", workers]
+    )
+    result = fixture.run([executable, *args])
+    actual = log_history(result)
+    assert actual == expected, {
+        "unexpected": actual - expected,
+        "missing": expected - actual,
+    }
+print(f"cross-module transactions {target}: PASS")
+
+if target == "t-gfsim":
+    # Unique packaging check: a generated consumer builds with Runtime alone.
+    import os
+
+    portable = fixture.scratch / "portable-generated"
+    shutil.copytree(fixture.scratch / target, portable)
+    build = fixture.scratch / "runtime-only-build"
+    fixture.run(
+        [
+            "cmake",
+            "-S",
+            portable,
+            "-B",
+            build,
+            f"-DCMAKE_PREFIX_PATH={os.environ['PYC_TOOLCHAIN_ROOT']}",
+            "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
+            "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
+            f"-DCMAKE_CXX_COMPILER={fixture.cxx}",
+        ]
+    )
+    fixture.run(
+        ["cmake", "--build", build, "--target", "pycircuit_sim", "--parallel", 2]
+    )
+    actual = log_history(fixture.run([build / "bin/pycircuit_sim", "--cycles", 8]))
+    assert actual == expected, {
+        "unexpected": actual - expected,
+        "missing": expected - actual,
+    }

@@ -1,5 +1,0 @@
-# REQUIRES: verilator
-# RUN: %python %inputs/transactional-issue361.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cumulative.cpp cpp cumulative
-# RUN: %python %inputs/transactional-issue361.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cumulative.verilog verilog cumulative
-# RUN: %python %inputs/transactional-issue361.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.batch.cpp cpp batch
-# RUN: %python %inputs/transactional-issue361.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.batch.verilog verilog batch

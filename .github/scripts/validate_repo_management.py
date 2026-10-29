@@ -72,7 +72,7 @@ def validate_release_graph(document: object) -> list[str]:
             errors.append(f"release publication job {name} bypasses accept-candidate")
 
     rebuild_markers = (
-        "ACIRSourceResourceBindingTests",
+        "ACIRTransactionalGfsimTests",
         "cmake --build",
         "python3 -m build",
         "create_wheel.py",
@@ -218,8 +218,8 @@ def main() -> int:
         require(command in ci, f"CI is missing required gate: {command}", errors)
     for command in (
         "G1: Native Transactional Gates",
-        "ACIRSourceResourceBindingTests",
-        "transactional-(constraints",
+        "ACIRTransactionalGfsimTests",
+        "CodeGen/transactional-[^/]+[.]test$",
     ):
         require(command in ci, f"CI is missing short native gate: {command}", errors)
     for forbidden in ("run_examples.sh", "run_api_tests.sh"):

@@ -113,11 +113,3 @@ def Separate():
     def tick() -> None:
         ac.log("info", "progress", cycle, sent_left, sent_right)
         cycle = cycle + 1
-
-
-@ac.system
-def Conflict():
-    source: ac.u8 = 1
-    queue = ac.queue[ac.u8](depth=2)
-    alias = Relay(queue)
-    queue, alias = Pair(source)

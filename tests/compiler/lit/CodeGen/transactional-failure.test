@@ -1,20 +1,5 @@
-# REQUIRES: iverilog, vvp
-# RUN: %pycircuit_opt %inputs/transactional-failure.mlir --ac-route-transactions="top=Failure" -o %t.routed.mlir
-# Native save/reload must reauthenticate before storage refinement.
-# RUN: %pycircuit_opt %t.routed.mlir --ac-route-transactions --ac-lower-transactions --ac-verify-hardware -o %t.final.mlir
-# RUN: %pycircuit_opt %t.final.mlir --ac-verify-hardware -o %t.reload.mlir
-# RUN: %pycircuit_emit %t.reload.mlir --target cpp > %t.json
-# RUN: %python %inputs/unpack_bundle.py %t.json %t.dir
-# RUN: RTLIB="$(dirname %pycircuit_emit)/../runtime/libpyc6_runtime.a"; if test ! -f "$RTLIB"; then RTLIB="$(dirname %pycircuit_emit)/../lib/libpyc6_runtime.a"; fi; test -f "$RTLIB"; %cxx -std=c++20 -pthread -DFAILURE -I%include -I%t.dir %inputs/transactional-state.cpp @%t.dir/sources.rsp "$RTLIB" -o %t.exe
-# RUN: %t.exe > %t.cpp
-# RUN: %pycircuit_emit %t.reload.mlir --target verilog --format source > %t.sv
-# RUN: %iverilog -g2012 -DFAILURE -s tb -o %t.vvp %t.sv %include/verilog/dff.v %include/verilog/dffe.v %inputs/transactional-state.sv
-# RUN: %vvp %t.vvp > %t.rtl
-# RUN: diff -u %t.cpp %t.rtl
-# RUN: %FileCheck %s < %t.cpp
-# CHECK: 2 5
-# CHECK-NEXT: 3 6
-# CHECK-NEXT: 3 6
-# CHECK-NEXT: 3 6
-# CHECK-NEXT: 2 5
-# CHECK-NEXT: 3 6
+# REQUIRES: verilator
+# RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.source.cpp cpp
+# RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.source.rtl verilog
+# Queue runtime is not yet supported by t-gfsim; its supported call behavior is
+# exercised by transactional-sibling-methods with the same independent oracle.

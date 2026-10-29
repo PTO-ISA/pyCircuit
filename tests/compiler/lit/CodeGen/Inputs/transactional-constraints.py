@@ -1,242 +1,29 @@
-"""Source-unit type constraints with independent System execution oracles."""
+"""Supplement: independent natural-width, shift and SSA snapshot oracles."""
 
-import json
 import shutil
 import sys
 from collections import Counter
+from pathlib import Path
 
-from transactional_test_support import SourceTest
+from transactional_test_support import SourceTest, log_history
 
 fixture = SourceTest(sys.argv[1:], None, "constraints")
-repo, scratch, sources = fixture.repo, fixture.scratch, fixture.sources
-opt = fixture.opt
+scratch, sources = fixture.scratch, fixture.sources
 target = sys.argv[-1]
-run, cli, compile_source = fixture.run, fixture.cli, fixture.compile_source
-
-
-# Resource annotations constrain their initializer without creating storage.
-queue_source = """import pycircuit as ac
-
-@ac.module
-def QueueDeclaration() -> ac.u8:
-    storage: ac.queue[ac.u8] = ac.queue[ac.u8](depth=2)
-    return storage
-"""
-(sources / "queue_declaration.py").write_text(queue_source)
-compile_source("queue_declaration")
-(sources / "queue_mismatch.py").write_text(
-    queue_source.replace("storage: ac.queue[ac.u8]", "storage: ac.queue[ac.u16]")
+run = fixture.run
+shutil.copytree(
+    Path(__file__).with_name("transactional_cases") / "constraints",
+    sources,
+    dirs_exist_ok=True,
 )
-compile_source("queue_mismatch", fails=True)
-
-
-(sources / "provider.py").write_text(
-    """import pycircuit as ac
-
-@ac.module
-def Provider():
-    count: ac.u8 = 250
-
-    @ac.method
-    def peek() -> ac.u8:
-        return count
-
-    @ac.method
-    def advance() -> ac.u8:
-        count = count + 1
-        return count
-
-    @ac.autorule
-    def observe() -> None:
-        ac.log("info", "count", count)
-"""
-)
-
-# Each order has its own instance, so one ignored ActionValue call advances
-# each counter exactly once per cycle. Read-only calls share its old-Q snapshot.
-consumer = """import pycircuit as ac
-
-@ac.module
-def {module}(peer: ac.module):
-    @ac.rule
-    def step() -> None:
-{calls}
-        alias1 = value
-        alias2 = alias1
-        alias3 = alias2
-        alias4 = alias3
-        alias5 = alias4
-        snapshot: ac.u8 = alias5
-        value = 7
-        replacement: ac.u16 = value
-        pair_first, pair_second = (peer.peek(), peer.peek())
-        peer.advance()
-        ac.log("info", "sample", snapshot, replacement, pair_first, pair_second)
-    step()
-"""
-for name, module, calls in (
-    (
-        "ignored_first",
-        "IgnoredFirst",
-        "        peer.peek()\n        value = peer.peek()",
-    ),
-    ("typed_first", "TypedFirst", "        value = peer.peek()\n        peer.peek()"),
-):
-    (sources / f"{name}.py").write_text(consumer.format(calls=calls, module=module))
-    compile_source(name)
-
-(sources / "top.py").write_text(
-    """import pycircuit as ac
-from enum import Enum
-from constraints.provider import Provider
-from constraints.ignored_first import IgnoredFirst
-from constraints.typed_first import TypedFirst
-
-@ac.encoding(width=3)
-class Mode(Enum):
-    IDLE = 0
-    ACTIVE = 5
-
-@ac.system
-def Top():
-    first: Provider
-    second: Provider
-    ignored: IgnoredFirst
-    typed: TypedFirst
-    ignored(first)
-    typed(second)
-    left: ac.u8 = 250
-    right: ac.u8 = 10
-    captured_a = 254
-    captured_b = captured_a + 1
-
-    @ac.method
-    def wrap(a: ac.u8, b: ac.u8) -> ac.u16:
-        return a + b
-
-    @ac.method
-    def shift(a: ac.u8, amount: ac.u16) -> ac.u16:
-        return a << amount
-
-    @ac.method
-    def binding_wrap() -> ac.u16:
-        a = 255
-        narrow: ac.u8 = a
-        b = a + 1
-        return b
-
-    @ac.method
-    def sibling_wrap() -> ac.u16:
-        a = 255
-        unused = a + ac.u8(0)
-        b = a + 1
-        return b
-
-    @ac.method
-    def capture_wrap() -> ac.u16:
-        c: ac.u16 = captured_b + 1
-        t0 = -captured_a
-        t1 = -t0
-        t2 = -t1
-        t3 = -t2
-        t4 = -t3
-        t5 = -t4
-        t6 = -t5
-        t7 = -t6
-        t8 = -t7
-        t9 = -t8
-        narrow: ac.u8 = t9
-        return c
-
-    @ac.autorule
-    def observe() -> None:
-        wide = wrap(left, right)
-        bound = binding_wrap()
-        sibling = sibling_wrap()
-        captured = capture_wrap()
-        ac.log("info", "wide", wide, bound, sibling, captured)
-        shifted = shift(ac.u8(129), ac.u16(1))
-        exhausted = shift(ac.u8(129), ac.u16(256))
-        rightward: ac.u16 = ac.u8(129) >> ac.u16(1)
-        mode = Mode.ACTIVE
-        matched = mode == Mode.ACTIVE
-        different = mode == Mode.IDLE
-        ac.log("info", "types", shifted, exhausted, rightward, matched, different)
-"""
-)
-compile_source("provider")
-# Consumers compile without provider knowledge; Top reads only published
-# interfaces. Restore bodies solely for the subsequent explicit link closure.
-hidden = []
-for name in ("provider", "ignored_first", "typed_first"):
-    receipt = json.loads((scratch / name / "unit.json").read_text())
-    body = scratch / name / receipt["files"]["body"]
-    saved = scratch / f"{name}.hidden"
-    body.rename(saved)
-    hidden.append((body, saved))
-try:
-    compile_source("top", "provider", "ignored_first", "typed_first")
-finally:
-    for body, saved in hidden:
-        saved.rename(body)
-
-# A literal outside its explicitly requested Bits range must fail without
-# replacing an already published unit. Widening result bindings remain valid.
-published = scratch / "ignored_first"
-
-
-def published_bytes():
-    return {
-        p.relative_to(published): p.read_bytes()
-        for p in published.rglob("*")
-        if p.is_file()
-    }
-
-
-before = published_bytes()
-source = sources / "ignored_first.py"
-source.write_text(
-    source.read_text().replace(
-        "        alias1 = value",
-        "        conflict = ac.u8(300)\n        alias1 = value",
-    )
-)
-compile_source("ignored_first", replace=True, fails=True)
-assert published_bytes() == before
-shutil.rmtree(sources)
+units = ("provider", "ignored_first", "typed_first", "top")
+for unit in units[:-1]:
+    fixture.compile_source(unit)
+with fixture.interfaces_only(*units[:-1]):
+    fixture.compile_source("top", *units[:-1])
 final = scratch / "constraints.ac"
-cli(
-    "link",
-    *(scratch / name for name in ("provider", "ignored_first", "typed_first", "top")),
-    "--top",
-    "constraints.top.Top",
-    "-o",
-    final,
-)
-reparsed = scratch / "reparsed.ac"
-run([opt, final, "--ac-verify-hardware", "-o", reparsed])
-executable, generated = fixture.build_system(reparsed, target)
-
-
-def observations(result):
-    rows = [
-        json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")
-    ]
-    assert any(row.get("kind") == "result" for row in rows), rows
-    logs = Counter()
-    for row in rows:
-        if row.get("kind") != "log":
-            continue
-        values = []
-        for value in row["values"]:
-            if value["kind"] == "bits4":
-                assert int(value["known"], 16) == (1 << value["width"]) - 1
-                assert int(value["z"], 16) == 0
-                values.append(int(value["value"], 16))
-            else:
-                values.append(int(value["value"]))
-        logs[(int(row["evaluation_epoch"]), row["spec"]["event"], tuple(values))] += 1
-    return logs
+fixture.link_saved(units, "constraints.top.Top", final)
+executable, _ = fixture.build_system(final, target)
 
 
 # Natural eight-bit addition wraps to four before the u16 result binding.
@@ -254,6 +41,6 @@ for cycle in range(3):
         expected[(epoch, "types", (2, 0, 64, 1, 0))] = 1
 for workers in (1, 2) if target == "cpp" else (1,):
     args = ["--cycles", "3", "--workers", workers] if target == "cpp" else ["+cycles=3"]
-    actual = observations(run([executable, *args]))
+    actual = log_history(run([executable, *args]))
     assert actual == expected, (actual, expected)
 print(f"transactional constraints {target}: PASS")

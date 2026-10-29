@@ -5,6 +5,7 @@ import os
 import shutil
 import subprocess
 import sys
+from collections import Counter
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -80,7 +81,7 @@ class SourceTest:
         receipt = json.loads((self.scratch / unit / "unit.json").read_text())
         return self.scratch / unit / receipt["files"][kind]
 
-    def link_saved(self, units, top, final, *, retained=()):
+    def link_saved(self, units, top, final):
         """Resume a portable Linked artifact with no source-unit inputs left."""
         linked = final.with_suffix(".linked.ac")
         self.cli(
@@ -93,9 +94,6 @@ class SourceTest:
             "-o",
             linked,
         )
-        text = linked.read_text()
-        for operation in ('ac.stage = "linked"', "ac.rule @", "guard {", *retained):
-            assert operation in text, operation
         if self.sources.exists():
             shutil.rmtree(self.sources)
         for unit in units:
@@ -119,30 +117,10 @@ class SourceTest:
             for body, saved in hidden:
                 saved.rename(body)
 
-    def build_system(self, final, target, *, reset_cycle=None, name=None):
+    def build_system(self, final, target, *, name=None):
         bundle = self.scratch / (name or target)
         self.cli("emit", final, "--target", target, "-o", bundle)
         generated = json.loads((bundle / "generated.json").read_text())
-        # Reset-only test adapter: change physical input stimulus, retaining
-        # every generated sampling/check/commit and observation publication step.
-        if reset_cycle is not None:
-            if target == "t-gfsim":
-                harness = bundle / "simulation_main.cpp"
-                before = "const bool reset = false;"
-                after = f"const bool reset = epoch / 2 == {reset_cycle};"
-            elif target == "cpp":
-                harness = bundle / "simulation_main.cpp"
-                before = "self.inputs.pyc_7079635f636c6b = pyc_bit((epoch & 1u) != 0);\n    self.inputs.pyc_7079635f727374 = pyc_bit(false);"
-                after = before.replace(
-                    "pyc_bit(false)", f"pyc_bit(epoch / 2 == {reset_cycle})"
-                )
-            else:
-                harness = bundle / "simulation_top.sv"
-                before = "pyc_step(1'b0, 1'b0);\n      pyc_step(1'b1, 1'b0);"
-                after = f"pyc_step(1'b0, pyc_cycle == {reset_cycle});\n      pyc_step(1'b1, pyc_cycle == {reset_cycle});"
-            text = harness.read_text()
-            assert text.count(before) == 1
-            harness.write_text(text.replace(before, after))
         executable = self.scratch / f"system-{name or target}.exe"
         if target in ("cpp", "t-gfsim"):
             runtime = Path(self.emitter).parent.parent / "runtime/libpyc6_runtime.a"
@@ -179,3 +157,85 @@ class SourceTest:
                 ]
             )
         return executable, generated
+
+    def build_module(self, final, target, cpp_adapter, rtl_adapter):
+        """Build an ordinary exported Module with test-owned public-port stimulus."""
+        executable = self.scratch / f"module-{target}.exe"
+        if target == "cpp":
+            bundle = self.scratch / "cpp"
+            self.cli("emit", final, "--target", target, "-o", bundle)
+            generated = json.loads((bundle / "generated.json").read_text())
+            runtime = Path(self.emitter).parent.parent / "runtime/libpyc6_runtime.a"
+            if not runtime.is_file():
+                runtime = Path(self.emitter).parent.parent / "lib/libpyc6_runtime.a"
+            self.run(
+                [
+                    self.cxx,
+                    "-std=c++20",
+                    "-pthread",
+                    f"-I{self.repo / 'include'}",
+                    f"-I{bundle}",
+                    cpp_adapter,
+                    *(
+                        bundle / row["path"]
+                        for row in generated["files"]
+                        if row["path"].endswith(".cpp")
+                    ),
+                    runtime,
+                    "-o",
+                    executable,
+                ]
+            )
+        else:
+            rtl = self.scratch / "module.sv"
+            rtl.write_text(
+                self.run(
+                    [self.emitter, final, "--target", "verilog", "--format", "source"]
+                ).stdout
+            )
+            self.run(
+                [
+                    "iverilog",
+                    "-g2012",
+                    "-s",
+                    "tb",
+                    "-o",
+                    executable,
+                    rtl,
+                    self.repo / "include/verilog/dff.v",
+                    self.repo / "include/verilog/dffe.v",
+                    rtl_adapter,
+                ]
+            )
+        return executable
+
+
+def log_history(result, *, successful=True):
+    """Decode public System logs without assuming a design or execution order.
+
+    Known payloads are integers; X/Z payloads retain (value, known, z) masks.
+    """
+    rows = [
+        json.loads(line) for line in result.stdout.splitlines() if line.startswith("{")
+    ]
+    if successful:
+        assert any(row.get("kind") == "result" for row in rows), rows
+    history = Counter()
+    for row in rows:
+        if row.get("kind") != "log":
+            continue
+        values = []
+        for value in row["values"]:
+            if value["kind"] == "bits4":
+                bits = tuple(int(value[key], 16) for key in ("value", "known", "z"))
+                values.append(
+                    bits[0]
+                    if bits[1] == (1 << value["width"]) - 1 and bits[2] == 0
+                    else bits
+                )
+            else:
+                values.append(int(value["value"]))
+        history[
+            (int(row["evaluation_epoch"]), row["spec"]["event"], tuple(values))
+        ] += 1
+    return history

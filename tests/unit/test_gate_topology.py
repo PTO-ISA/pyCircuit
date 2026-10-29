@@ -35,8 +35,7 @@ def test_pull_request_ci_runs_bounded_gates_and_deduplicates_api_hygiene() -> No
 
     # Full matrices belong to nightly; PR CI includes the bounded native lane.
     assert all(script not in ci for script in FULL_CLOSURE_SCRIPTS)
-    assert "ACIRTransactionalMethodConstraintsTests" in ci
-    assert "ACIRSourceResourceBindingTests" in ci
+    assert "ACIRTransactionalGfsimTests" in ci
     assert "CodeGen/transactional-" in ci
 
 

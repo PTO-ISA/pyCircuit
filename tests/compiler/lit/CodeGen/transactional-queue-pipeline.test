@@ -1,7 +1,3 @@
 # REQUIRES: verilator
-# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.default.cpp cpp default
-# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.default.verilog verilog default
-# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.depth3.cpp cpp depth3
-# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.depth3.verilog verilog depth3
-# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.guard.cpp cpp guard
-# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.guard.verilog verilog guard
+# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp
+# RUN: %python %inputs/transactional-queue-pipeline.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.rtl verilog

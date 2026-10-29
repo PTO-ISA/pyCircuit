@@ -1,4 +1,0 @@
-# REQUIRES: verilator
-# RUN: %python %inputs/transactional-early-returns.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp
-# RUN: %python %inputs/transactional-early-returns.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.verilog verilog
-# RUN: %python %inputs/transactional-early-returns.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.t-gfsim t-gfsim

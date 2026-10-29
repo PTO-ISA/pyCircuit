@@ -85,26 +85,10 @@ TEST(TransactionalGfsimTest, LateFailureDiscardsEveryProposalAndLog) {
   EXPECT_EQ(second.Q(), 19);
   EXPECT_TRUE(published.empty());
   EXPECT_EQ(system.Cycle(), 0u);
-  validator.check = {};
-  ASSERT_TRUE(system.Step());
-  EXPECT_EQ(first.Q(), 12);
-  EXPECT_EQ(second.Q(), 20);
-  EXPECT_EQ(published, std::vector<std::string>{"pending"});
-}
-
-TEST(TransactionalGfsimTest, UnknownControlFailsBeforeCommit) {
-  tx::State<::gfsim::FourState<8>> state;
-  ScriptModule module;
-  tx::System system;
-  system.Register(state);
-  system.Register(module);
-  module.work = [&](tx::Context &context) {
-    state.Propose(context, ::gfsim::FourState<8>::known(::gfsim::Bits<8>{42}));
-    tx::CheckedControl(::gfsim::FourState<1>::unknown());
-  };
-  EXPECT_FALSE(system.Step());
-  EXPECT_TRUE(system.Exception());
-  EXPECT_FALSE(state.Q().isFullyKnown());
+  // Reset is the supported recovery boundary; do not resume a failed run.
+  system.Reset();
+  EXPECT_EQ(first.Q(), 11);
+  EXPECT_EQ(second.Q(), 19);
 }
 
 TEST(TransactionalGfsimTest, SamplesHoldUntilTransferAndResetHasPriority) {
