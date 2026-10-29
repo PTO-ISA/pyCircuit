@@ -307,10 +307,12 @@ LogicalResult verifyModuleControl(Operation *op) {
     return op->emitOpError(
         "transactional SCF control requires Module or Rule/Method body placement");
   if (auto branch = dyn_cast<scf::IfOp>(op)) {
-    if (branch.getNumResults() ||
-        !branch.getCondition().getDefiningOp<SourcePredicateOp>())
-      return op->emitOpError("transactional scf.if requires no results and an "
-                             "original Bits predicate bridge");
+    if (!branch.getCondition().getDefiningOp<SourcePredicateOp>())
+      return op->emitOpError("transactional scf.if requires an original Bits "
+                             "predicate bridge");
+    for (Type type : branch.getResultTypes())
+      if (!isa<BitsType, EnumType, StructType, InferType>(type))
+        return op->emitOpError("transactional branch results require payloads");
     for (Region &region : branch->getRegions()) {
       if (region.empty())
         continue;
@@ -319,13 +321,21 @@ LogicalResult verifyModuleControl(Operation *op) {
         return op->emitOpError(
             "transactional branches require one argument-free "
             "block ending in scf.yield");
+      auto yield = cast<scf::YieldOp>(region.front().back());
+      if (yield.getOperandTypes() != branch.getResultTypes())
+        return op->emitOpError(
+            "transactional branch yield types must match results");
     }
     if (branch.getThenRegion().empty())
       return op->emitOpError("transactional scf.if requires a then region");
-  } else if (isa<scf::YieldOp>(op)) {
-    if (!isa<scf::IfOp>(op->getParentOp()) || op->getNumOperands())
+    if (branch.getNumResults() && branch.getElseRegion().empty())
       return op->emitOpError(
-          "transactional scf.yield must end a result-free branch");
+          "transactional payload branch requires an else region");
+  } else if (isa<scf::YieldOp>(op)) {
+    auto branch = dyn_cast<scf::IfOp>(op->getParentOp());
+    if (!branch || op->getOperandTypes() != branch.getResultTypes())
+      return op->emitOpError(
+          "transactional scf.yield must match its branch results");
   }
   return success();
 }

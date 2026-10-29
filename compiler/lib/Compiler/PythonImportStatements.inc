@@ -187,8 +187,12 @@ LogicalResult Importer::defineRule(Callable &call, Scope &scope) {
     } else {
       if (failed(statements(call.node, "body", inner)))
         return failure();
-      if (!inner.terminated)
-        yield(call.node);
+      if (!inner.terminated && !call.results.empty())
+        return fail(call.node, "Rule must return every declared output payload");
+      for (auto [output, value] : llvm::zip(inner.outputs, inner.returned))
+        if (failed(write(output, value, call.node, inner)))
+          return failure();
+      yield(call.node);
     }
   }
   call.defined = true;
@@ -317,8 +321,8 @@ LogicalResult Importer::emitMethod(Callable &call, Scope &scope) {
         if (!call.results.empty())
           return fail(call.node,
                       "Method must return every declared SSA result");
-        yield(call.node);
       }
+      yield(call.node, inner.returned);
     }
   }
   return success();
@@ -387,18 +391,47 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
 }
 
 LogicalResult Importer::statements(const AstNode &node, StringRef field,
+                                   Scope &scope,
+                                   ArrayRef<StatementRange> continuation) {
+  return statements(StatementRange{node, field, 0, scope.sourceDepth}, scope,
+                    continuation);
+}
+
+LogicalResult Importer::statements(ArrayRef<StatementRange> ranges,
                                    Scope &scope) {
-  for (size_t i = 0; i < node.array(field).size(); ++i) {
-    auto child = node.item(field, i);
-    if (scope.terminated)
-      return fail(child, "statement after unconditional return is unreachable");
-    if (failed(statement(child, scope)))
+  for (size_t i = 0; i < ranges.size(); ++i) {
+    if (failed(statements(ranges[i], scope, ranges.drop_front(i + 1))))
       return failure();
+    if (scope.terminated)
+      break;
   }
   return success();
 }
 
-LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
+LogicalResult Importer::statements(const StatementRange &range, Scope &scope,
+                                   ArrayRef<StatementRange> continuation) {
+  scope.sourceDepth = range.sourceDepth;
+  for (size_t i = range.begin; i < range.owner.array(range.field).size(); ++i) {
+    auto child = range.owner.item(range.field, i);
+    if (scope.terminated)
+      return fail(child, "statement after unconditional return is unreachable");
+    SmallVector<StatementRange> tail;
+    if (child.kind() == "If") {
+      if (i + 1 < range.owner.array(range.field).size())
+        tail.push_back({range.owner, range.field, i + 1, range.sourceDepth});
+      tail.append(continuation.begin(), continuation.end());
+    }
+    if (failed(statement(child, scope, tail)))
+      return failure();
+    // A normalized branch already consumed its continuation on each live arm.
+    if (child.kind() == "If" && scope.terminated)
+      return success();
+  }
+  return success();
+}
+
+LogicalResult Importer::statement(const AstNode &node, Scope &scope,
+                                  ArrayRef<StatementRange> continuation) {
   if (!charge(node))
     return failure();
   if (node.kind() == "Pass")
@@ -575,7 +608,7 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
     return bind(target, ArrayRef<Value>(value), scope);
   }
   if (node.kind() == "Return") {
-    if (scope.conditionalDepth)
+    if (scope.sourceDepth)
       return fail(node, "branch returns await result merging");
     auto expressionNode = node.child("value");
     SmallVector<Value> values;
@@ -653,12 +686,7 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
         body.eraseArgument(index);
       }
     }
-    if (scope.callable && scope.callable->kind != "method") {
-      for (size_t i = 0; i < values.size(); ++i)
-        if (failed(write(scope.outputs[i], values[i], node, scope)))
-          return failure();
-      yield(node);
-    } else
+    if (scope.module)
       yield(node, values);
     scope.returned = values;
     scope.terminated = true;
@@ -757,21 +785,18 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
                         ->getResult(0);
     auto *branch = op(node, "scf.if", selected, {}, {}, 2);
     std::map<std::string, Binding> branchResources;
+    Scope arms[2] = {scope, scope};
     for (unsigned arm = 0; arm < 2; ++arm) {
       auto *block = new Block;
       branch->getRegion(arm).push_back(block);
       OpBuilder::InsertionGuard save(b);
       b.setInsertionPointToEnd(block);
-      Scope inner = scope;
+      Scope &inner = arms[arm];
       ++inner.conditionalDepth;
-      if (failed(statements(node, arm == 0 ? "body" : "orelse", inner)))
+      ++inner.sourceDepth;
+      if (failed(statements(node, arm == 0 ? "body" : "orelse", inner,
+                            continuation)))
         return failure();
-      // Results are deliberately absent in this stage. Do not silently retain
-      // the old value of a Python local assigned only along one branch.
-      for (const auto &[name, binding] : scope.bindings)
-        if (inner.bindings.at(name).value != binding.value)
-          return fail(node,
-                      "cross-branch local assignments await result merging");
       if (scope.module)
         for (const auto &[name, binding] : inner.bindings)
           if (!scope.bindings.count(name) && isResource(binding.type())) {
@@ -779,7 +804,74 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope) {
               return fail(node, "branch outputs require distinct names or an "
                                 "explicitly declared common destination");
           }
-      op(node, "scf.yield", {}, {});
+    }
+    SmallVector<std::string> mergedNames;
+    SmallVector<Value> values[2];
+    bool complete = arms[0].terminated || arms[1].terminated;
+    for (const auto &[name, binding] : scope.bindings)
+      if (binding.parameter && isResource(binding.type()))
+        for (const auto &arm : arms) {
+          const auto &after = arm.bindings.at(name);
+          complete |= after.value != binding.value ||
+                      after.cachedRead != binding.cachedRead;
+        }
+    if (complete) {
+      // A partially read Rule parameter has no payload on its unread arm.
+      // Keep the continuation in the original arm scopes so its first demand
+      // stays conditional and each executed path consumes the binding once.
+      // Re-emitted statements remain charged by statement()/expression().
+      for (unsigned arm = 0; arm < 2; ++arm) {
+        b.setInsertionPointToEnd(&branch->getRegion(arm).front());
+        if (!arms[arm].terminated &&
+            failed(statements(continuation, arms[arm])))
+          return failure();
+        if (!arms[arm].terminated && !scope.resultTypes.empty())
+          return fail(node, "callable path must return every declared payload");
+        values[arm] = arms[arm].returned;
+      }
+    } else {
+      for (const auto &[name, left] : arms[0].bindings) {
+        auto right = arms[1].bindings.find(name);
+        if (right == arms[1].bindings.end())
+          continue;
+        const auto &other = right->second;
+        if (left.value == other.value) {
+          if (!scope.bindings.count(name))
+            scope.bindings[name] = left;
+          continue;
+        }
+        Value incoming[2] = {left.value, other.value};
+        if (!incoming[0] || !incoming[1] ||
+            isResource(incoming[0].getType()) ||
+            isResource(incoming[1].getType()) || isa<ac::ModuleRefType>(left.type()) ||
+            isa<ac::ModuleRefType>(other.type()))
+          return fail(node, "conditional binding cannot select a different resource");
+        mergedNames.push_back(name);
+        values[0].push_back(incoming[0]);
+        values[1].push_back(incoming[1]);
+      }
+    }
+    // Result types are solved from both yields and their use contexts by the
+    // common payload analysis, just like ordinary conditional expressions.
+    b.setInsertionPoint(branch);
+    SmallVector<Type> types =
+        complete ? scope.resultTypes
+                 : SmallVector<Type>(mergedNames.size(),
+                                     ac::InferType::get(b.getContext()));
+    auto *merged = op(node, "scf.if", selected, types, {}, 2);
+    for (unsigned arm = 0; arm < 2; ++arm) {
+      merged->getRegion(arm).takeBody(branch->getRegion(arm));
+      b.setInsertionPointToEnd(&merged->getRegion(arm).front());
+      op(node, "scf.yield", values[arm], {});
+    }
+    branch->erase();
+    b.setInsertionPointAfter(merged);
+    for (auto [name, value] : llvm::zip(mergedNames, merged->getResults()))
+      scope.bindings[name] = Binding{value, {}, {}, nullptr};
+    if (complete) {
+      scope.returned.assign(merged->getResults().begin(),
+                            merged->getResults().end());
+      scope.terminated = true;
     }
     scope.bindings.insert(branchResources.begin(), branchResources.end());
     return success();

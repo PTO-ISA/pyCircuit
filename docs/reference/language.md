@@ -16,7 +16,7 @@ A directly nested, parameterless `@ac.autorule` with no results registers once a
 its definition; calling it again is rejected. It normalizes to the same ordinary
 Rule plus registration, with no separate backend mechanism.
 
-Module `if/elif/else` selects registrations through result-free `scf.if` in
+Module `if/elif/else` selects registrations and merges ordinary payload values through `scf.if` in
 transactional ACIR. Branches may compute pure values and observe State, while
 Rule definitions and resource allocations remain directly Module-owned. `elif`
 is nested in the else region. A selected Rule whose guard is false does not
@@ -24,8 +24,8 @@ select the else arm, and independent `if` statements have no implied priority.
 A Rule result first bound in one branch is a static resource, available for
 reference or return after that branch. Its connection is Module-owned; only the
 registration is conditional. Multiple first definitions of the same name across
-arms, conditional binding to different resources, ordinary local merges and
-branch-local Module instantiation are rejected. To write one destination from
+arms, conditional binding to different resources and branch-local Module
+instantiation are rejected. To write one destination from
 several branches, declare it before the branches and bind each Rule to it.
 
 Every state read observes committed old Q, including reads after writes in the
@@ -54,8 +54,12 @@ paths contribute Method guards and Queue availability/capacity to admission.
 All selected effects share the outer Rule's final fire, including effects before
 a later guard failure. Unselected paths neither consume nor update nor publish
 logs/assertions. Conflicts include path predicates and require proven exclusion;
-there is no implicit priority. Early returns and cross-branch ordinary local
-merges remain unsupported. Controls must still be provably known.
+there is no implicit priority. Early returns remain unsupported.
+Module, Rule and Method branches merge ordinary Bits, Enum and Struct locals.
+An existing local retains its entry value on an arm without assignment; a new
+local is usable afterward only when both arms define it. Branch results may feed
+subsequent computation, field access and independent tuple results. Resource
+identities never enter payload joins. Controls must still be provably known.
 Module combination cannot call Methods in this slice.
 
 An existing Module instance may be passed through an `ac.module` parameter.
@@ -139,8 +143,8 @@ rejected. Routing retains and authenticates the complete nominal declarations,
 including field order and types. Equal packed widths do not make different
 record declarations interchangeable. See `examples/structured_packet`.
 
-Field assignment, constructor defaults, ordinary helpers, loops,
-cross-branch local merging and remaining advanced payloads are
+Field assignment, constructor defaults, ordinary helpers, loops
+and remaining advanced payloads are
 implementation gaps. Retained tests
 and independent oracles for these capabilities are not passing evidence for the
 replacement. See the [replacement status](../development/transactional-frontend-status.md)

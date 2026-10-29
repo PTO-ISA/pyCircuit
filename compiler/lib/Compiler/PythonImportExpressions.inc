@@ -187,6 +187,13 @@ Importer::expression(const AstNode &node, Scope &scope, Type expected,
     auto base = scalar(node.child("value"), scope);
     if (failed(base))
       return failure();
+    if (isa<ac::InferType>(base->getType()))
+      return SmallVector<Value>{
+          op(node, "ac.payload.pending", *base,
+             ac::InferType::get(b.getContext()),
+             {b.getNamedAttr("kind", b.getStringAttr("field")),
+              b.getNamedAttr("opcode", b.getStringAttr(node.string("attr")))})
+              ->getResult(0)};
     auto structure = dyn_cast<ac::StructType>(base->getType());
     Type type;
     if (structure) {

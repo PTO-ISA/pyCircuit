@@ -30,7 +30,7 @@ Generic call arguments need declared types; a first value-return use needs a typ
 result context. Bits Queue connections use old occupancy and share final fire
 with State and Method effects. See `examples/scalar_queue_pipeline`. Rule/Method bodies admit finite nested conditionals with branch-local values;
 unselected calls and Queue operations do not block admission or produce effects.
-Cross-branch ordinary local merging remains an implementation gap. Retained legacy
+Module, Rule and Method branches merge ordinary payload locals. Retained legacy
 examples and oracles do not establish support in the replacement.
 
 Use one active route: Python capture → independently compiled source units →
@@ -205,8 +205,9 @@ once and Queue outputs enqueue only on the final transaction fire. `peek()` and
 `head()` observe without consuming and require a nonempty Queue when used.
 Rule/Method `if/elif/else` retains one outer transaction: selected Method guards
 and Queue requirements determine final fire for all selected effects. Keep
-branch-local computations within the branch; early returns and ordinary local
-merges remain unsupported.
+temporary computations within the branch. Rebound locals merge afterward; an
+unassigned arm inherits the entry value, and new locals require definitions on
+both arms. Early returns remain unsupported.
 
 Rules and allocations must be defined directly in the Module, outside runtime
 branches. Branch-local pure computations and read-only State observations may
@@ -214,8 +215,8 @@ support nested conditions and registrations. Rule output resources are static
 connections and may be referenced or returned outside a branch. Declare a common
 destination before the branches when several registrations write it. First
 binding the same output name in multiple arms or selecting different resource
-identities is rejected. Ordinary branch-local values do not merge into outer
-locals. Module instances cannot be created inside runtime branches.
+identities is rejected. Payload joins preserve Bits widths and nominal Enum/Struct
+types. Module instances cannot be created inside runtime branches.
 
 A typed Module State declaration may omit initialization: `out: ac.u16` starts
 and resets to all X. Enum/Struct storage leaves follow the same rule. Binding a

@@ -339,10 +339,12 @@ private:
                 {b.getNamedAttr("opcode", b.getStringAttr(code))})
         ->getResult(0);
   }
-  FailureOr<Value> selection(Value guard, Value yes, Value no) {
+  FailureOr<Value> selection(Value guard, Value yes, Value no, Type type = {}) {
     // Keep the storage carrier provenance; equivalent Bits payloads may have
-    // been declared at a different source site.
-    Type type = no.getType();
+    // been declared at a different source site. SSA merges instead preserve
+    // their declared result type, even when an arm maps directly to storage Q.
+    if (!type)
+      type = no.getType();
     if (failed(debit(16, p.getTop())))
       return failure();
     if (isa<BitsType>(type))
@@ -402,13 +404,23 @@ private:
                 bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
-      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead ||
+      bool payload = step.kind == Kind::Pure || step.kind == Kind::Merge ||
+                     step.kind == Kind::StateRead ||
                      step.kind == Kind::QueueHead ||
                      step.kind == Kind::QueuePop;
       if (payload == effects && step.kind != Kind::QueuePop)
         continue;
       Value guard = effects ? selectedPath(outerGuard, step.path) : outerGuard;
-      if (step.kind == Kind::Pure) {
+      if (step.kind == Kind::Merge) {
+        auto merged = selection(values[step.operands[0]],
+                                values[step.operands[1]],
+                                values[step.operands[2]],
+                                p.getValues()[step.results.front()].type);
+        if (failed(merged))
+          return failure();
+        merged->getDefiningOp()->setAttr(stepKey, b.getI64IntegerAttr(step.id));
+        values[step.results.front()] = *merged;
+      } else if (step.kind == Kind::Pure) {
         IRMapping map;
         for (auto [operand, id] :
              llvm::zip(step.operation->getOperands(), step.operands))
@@ -934,13 +946,17 @@ private:
   // Authenticate every leaf selection and recover its common previous payload.
   // Projection chains must refer to the actual proposed payload and one old root.
   FailureOr<Value> selection(Value actual, Value guard, Value payload,
-                             Type type, FieldPath path = {}) {
+                             Type type, FieldPath path = {},
+                             unsigned locator = TransactionalNoID) {
     if (actual.getType() != type || failed(debit(16, p.getTop())))
       return failure();
+    SmallVector<NamedAttribute> rootAttrs;
+    if (locator != TransactionalNoID)
+      rootAttrs.push_back(b.getNamedAttr(stepKey, b.getI64IntegerAttr(locator)));
     if (auto record = dyn_cast<StructType>(type)) {
       auto create = actual.getDefiningOp<StructCreateOp>();
       auto declaration = HardwareAnalysis(p.getPackage()).lookupStruct(record);
-      if (!create || !attrs(create, {}) ||
+      if (!create || !attrs(create, rootAttrs) ||
           create.getValues().size() != declaration.getFields().size() ||
           failed(claim(create)))
         return failure();
@@ -967,14 +983,16 @@ private:
         return failure();
       carrier = predicateType(b, top, *width);
       auto from = actual.getDefiningOp<EnumFromBitsOp>();
-      if (!from || !attrs(from, {}) || from->getNumResults() != 2 ||
+      if (!from || !attrs(from, rootAttrs) || from->getNumResults() != 2 ||
           from->getResult(1).getType() != bit ||
           !from->getResult(1).use_empty() || failed(claim(from)))
         return failure();
       actual = from->getOperand(0);
     }
     auto select = actual.getDefiningOp<BitsSelectOp>();
-    if (!select || !attrs(select, {}) || actual.getType() != carrier ||
+    if (!select || !attrs(select, enumeration ? ArrayRef<NamedAttribute>()
+                                            : ArrayRef(rootAttrs)) ||
+        actual.getType() != carrier ||
         select->getOperand(0) != guard || failed(claim(select)))
       return failure();
     auto root = [&](Value value) -> FailureOr<Value> {
@@ -1034,7 +1052,8 @@ private:
                          Block *block, bool effects = false) {
     for (const auto &owned : seq.steps) {
       const auto &step = *owned;
-      bool payload = step.kind == Kind::Pure || step.kind == Kind::StateRead ||
+      bool payload = step.kind == Kind::Pure || step.kind == Kind::Merge ||
+                     step.kind == Kind::StateRead ||
                      step.kind == Kind::QueueHead ||
                      step.kind == Kind::QueuePop;
       if (payload == effects && step.kind != Kind::QueuePop)
@@ -1045,7 +1064,20 @@ private:
         return reject("transactional effect path differs");
       if (failed(debit(8 + step.operands.size(), step.operation)))
         return failure();
-      if (step.kind == Kind::Pure) {
+      if (step.kind == Kind::Merge) {
+        auto found = pure.find(step.id);
+        if (found == pure.end() || found->second->getBlock() != block ||
+            found->second->getNumResults() == 0)
+          return reject("missing branch result selection");
+        Value actual = found->second->getResult(0);
+        auto previous = selection(actual, values[step.operands[0]],
+                                  values[step.operands[1]],
+                                  p.getValues()[step.results.front()].type,
+                                  {}, step.id);
+        if (failed(previous) || *previous != values[step.operands[2]])
+          return reject("branch result differs from its selected source arms");
+        values[step.results.front()] = actual;
+      } else if (step.kind == Kind::Pure) {
         auto found = pure.find(step.id);
         if (found == pure.end())
           return reject("missing pure source operation");

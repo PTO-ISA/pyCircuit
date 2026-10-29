@@ -60,6 +60,13 @@ struct Binding {
   Value cachedRead;
   Type type() const { return value ? value.getType() : Type(); }
 };
+// Immutable source ranges describe a continuation without copying AST bodies.
+struct StatementRange {
+  AstNode owner;
+  StringRef field;
+  size_t begin = 0;
+  unsigned sourceDepth = 0;
+};
 struct Scope {
   Declaration *owner = nullptr;
   Callable *callable = nullptr;
@@ -70,6 +77,7 @@ struct Scope {
   SmallVector<Type> resultTypes;
   SmallVector<Value> returned;
   unsigned conditionalDepth = 0;
+  unsigned sourceDepth = 0;
   bool pure = false, module = false, terminated = false, globalRule = false;
 };
 struct ImportedName {
@@ -339,8 +347,13 @@ private:
   LogicalResult nominals();
   LogicalResult signature(Callable &call, StringRef ownerSymbol);
   LogicalResult lower(Declaration &decl);
-  LogicalResult statements(const AstNode &node, StringRef field, Scope &scope);
-  LogicalResult statement(const AstNode &node, Scope &scope);
+  LogicalResult statements(const AstNode &node, StringRef field, Scope &scope,
+                           ArrayRef<StatementRange> continuation = {});
+  LogicalResult statements(const StatementRange &range, Scope &scope,
+                           ArrayRef<StatementRange> continuation);
+  LogicalResult statements(ArrayRef<StatementRange> ranges, Scope &scope);
+  LogicalResult statement(const AstNode &node, Scope &scope,
+                          ArrayRef<StatementRange> continuation = {});
   FailureOr<SmallVector<Value>> expression(const AstNode &node, Scope &scope,
                                            Type expected = {},
                                            ArrayRef<Value> destinations = {});

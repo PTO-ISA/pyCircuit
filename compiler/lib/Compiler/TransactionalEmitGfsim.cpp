@@ -102,7 +102,8 @@ private:
                                     ArrayRef<std::string>);
   FailureOr<std::string> initial(unsigned value) {
     auto found = producers.find(value);
-    if (found == producers.end() || found->second->kind != Kind::Pure)
+    if (found == producers.end() ||
+        (found->second->kind != Kind::Pure && found->second->kind != Kind::Merge))
       return failure();
     auto &step = *found->second;
     SmallVector<std::string> args;
@@ -136,6 +137,8 @@ FailureOr<std::string> Emitter::expression(const Step &step, unsigned result,
                                            ArrayRef<std::string> args) {
   Operation *op = step.operation;
   unsigned w = width(p.getValues()[step.results[result]].type);
+  if (step.kind == Kind::Merge)
+    return "::gfsim::select(" + args[0] + ", " + args[1] + ", " + args[2] + ")";
   if (auto constant = dyn_cast<ac::BitsConstantOp>(op)) {
     auto value = literal(constant.getValue());
     if (value)
@@ -215,6 +218,18 @@ FailureOr<std::string> Emitter::expression(const Step &step, unsigned result,
 }
 
 LogicalResult Emitter::prepare(const Step &step) {
+  if (step.kind == Kind::Merge) {
+    auto condition = slot(step.operands[0]);
+    line("if (" + path(step.path) + " && " + condition + ") {");
+    indentation += 2;
+    // Copy only the selected optional: the inactive branch need not have run.
+    line(slot(step.results.front()) +
+         " = ::pycircuit::transactional_gfsim::CheckedControl(*" + condition +
+         ") ? " + slot(step.operands[1]) + " : " + slot(step.operands[2]) + ";");
+    indentation -= 2;
+    line("}");
+    return success();
+  }
   if (step.kind != Kind::Pure && step.kind != Kind::StateRead)
     return success();
   line("if (" + path(step.path) + " && " + available(step.operands) + ") {");
@@ -237,7 +252,8 @@ LogicalResult Emitter::prepare(const Step &step) {
   return success();
 }
 LogicalResult Emitter::execute(const Step &step) {
-  if (step.kind == Kind::Pure || step.kind == Kind::StateRead)
+  if (step.kind == Kind::Pure || step.kind == Kind::Merge ||
+      step.kind == Kind::StateRead)
     return success();
   std::string condition = path(step.path) + " && " + available(step.operands);
   if (step.activation != NoID)

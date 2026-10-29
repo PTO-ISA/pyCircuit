@@ -22,8 +22,9 @@ transaction paths and omitted State initialization. The cumulative and four-samp
 batch examples preserve their component algorithms; their tests check complete
 state/consumption traces, fifth-input blocking and output backpressure. Separate
 conditional-Method and four-state reset cases cover path admission and X defaults.
-Loops, dynamic instance/resource selection, ordinary local merges and dynamic
-unknown control remain gaps. t-gfsim (transactional-gfsim) supports the bounded Bits State profile described
+Module, Rule and Method payload local joins execute through common branch analysis.
+Loops, early returns, dynamic instance/resource selection and dynamic unknown
+control remain gaps. t-gfsim (transactional-gfsim) supports the bounded Bits State profile described
 in the source-unit workflow; Queue and nominal payload generation remain gaps.
 Their independent expectations remain in test-owned models and source
 assertions. Example introductions describe their own behavior; they do not

@@ -125,6 +125,8 @@ private:
   bool inGuard = false;
   unsigned nextStep = 0;
   SmallVector<TransactionalPathTerm> path;
+  std::map<std::pair<unsigned, Operation *>, Environment> registrationEnvironments;
+  SmallVector<std::pair<Operation *, unsigned>> combControls;
   llvm::DenseMap<unsigned, TransactionalStep *> producers;
   llvm::DenseMap<unsigned, bool> closedCache;
   unsigned nextClosedValue = 0;
@@ -191,8 +193,10 @@ private:
       if (isa<TransactionRuleOp, TransactionMethodOp>(op))
         return WalkResult::skip();
       if (!isa<ResourceAllocOp, TransactionRuleCallOp, YieldOp,
-               SourcePredicateOp, scf::IfOp, scf::YieldOp>(op))
+               SourcePredicateOp, scf::YieldOp>(op))
         pending.push_back(op);
+      if (isa<scf::IfOp>(op))
+        return WalkResult::skip();
       return WalkResult::advance();
     });
     while (!pending.empty()) {
@@ -202,9 +206,18 @@ private:
           continue;
         if (failed(charge(4 + op->getNumOperands(), op)))
           return failure();
-        if (!llvm::all_of(op->getOperands(), [&](Value value) {
-              return environment.contains(value);
-            }))
+        bool ready = true;
+        op->walk([&](Operation *nested) {
+          for (Value value : nested->getOperands()) {
+            if (auto predicate = value.getDefiningOp<SourcePredicateOp>())
+              value = predicate->getOperand(0);
+            Operation *owner = value.getParentBlock()->getParentOp();
+            if (!environment.contains(value) && owner != op &&
+                !op->isProperAncestor(owner))
+              ready = false;
+          }
+        });
+        if (!ready)
           continue;
         if (failed(operation(op, environment, p.instances_[id].comb,
                              TransactionalNoID, true)))
@@ -317,10 +330,13 @@ private:
   LogicalResult registerRules(unsigned id) {
     instance = id;
     auto module = p.instances_[id].definition;
-    auto &environment = environments[id];
     SmallVector<TransactionRuleCallOp> registrations;
     module.walk([&](TransactionRuleCallOp call) { registrations.push_back(call); });
     for (auto call : registrations) {
+      auto captured = registrationEnvironments.find({id, call});
+      auto &environment = captured == registrationEnvironments.end()
+                              ? environments[id]
+                              : captured->second;
       auto *target = named(module, call.getCallee());
       if (!target)
         target = named(p.package_, call.getCallee());
@@ -400,7 +416,8 @@ private:
     for (; nextClosedValue <= id; ++nextClosedValue) {
       unsigned current = nextClosedValue;
       auto *step = producers.lookup(current);
-      bool value = step && step->kind == TransactionalStepKind::Pure;
+      bool value = step && (step->kind == TransactionalStepKind::Pure ||
+                            step->kind == TransactionalStepKind::Merge);
       if (step)
         for (unsigned operand : step->operands)
           value &= closedCache.lookup(operand);
@@ -441,14 +458,22 @@ private:
       return failure();
     if (isa<SourcePredicateOp, scf::YieldOp>(op))
       return success();
+    if (isa<TransactionRuleCallOp>(op) && rule == TransactionalNoID) {
+      registrationEnvironments[{instance, op}] = env;
+      return success();
+    }
     if (auto branch = dyn_cast<scf::IfOp>(op)) {
       auto predicate = branch.getCondition().getDefiningOp<SourcePredicateOp>();
-      if (!predicate || branch.getNumResults())
-        return branch.emitError("transactional branches require a source predicate and no merged values");
+      if (!predicate)
+        return branch.emitError("transactional branches require a source predicate");
       auto condition = payload(predicate->getOperand(0), env, branch);
       if (failed(condition))
         return failure();
-      p.rules_[rule].controls.push_back({*condition, path});
+      if (rule == TransactionalNoID)
+        combControls.push_back({branch, *condition});
+      else
+        p.rules_[rule].controls.push_back({*condition, path});
+      SmallVector<unsigned> arms[2];
       for (auto [index, region] : llvm::enumerate(branch->getRegions())) {
         if (region.empty())
           continue;
@@ -457,9 +482,38 @@ private:
         Environment local = env;
         path.push_back({*condition, index == 0});
         auto restore = llvm::scope_exit([&] { path.pop_back(); });
-        for (Operation &nested : region.front())
-          if (failed(operation(&nested, local, sequence, rule, pure)))
+        for (Operation &nested : region.front()) {
+          if (auto yield = dyn_cast<scf::YieldOp>(nested)) {
+            for (Value value : yield.getOperands()) {
+              auto id = payload(value, local, yield);
+              if (failed(id))
+                return failure();
+              arms[index].push_back(*id);
+            }
+          } else if (failed(operation(&nested, local, sequence, rule, pure)))
             return failure();
+        }
+      }
+      for (auto [index, result] : llvm::enumerate(branch.getResults())) {
+        if (index >= arms[0].size() || index >= arms[1].size())
+          return branch.emitError("branch result requires a payload from both arms");
+        auto owned = std::make_unique<TransactionalStep>();
+        auto &step = *owned;
+        step.kind = TransactionalStepKind::Merge;
+        step.operation = branch;
+        step.id = nextStep++;
+        step.instance = instance;
+        step.rule = rule;
+        step.methodInvocation = methodInvocation;
+        step.invocation = invocation;
+        step.path = path;
+        step.operands = {*condition, arms[0][index], arms[1][index]};
+        unsigned id = p.values_.size();
+        p.values_.push_back({result.getType(), instance, rule});
+        step.results.push_back(id);
+        producers[id] = &step;
+        env[result] = {Binding::Payload, id};
+        sequence.steps.push_back(std::move(owned));
       }
       return success();
     }
@@ -693,47 +747,80 @@ private:
   }
 
   LogicalResult availability() {
-    // Values retain the Queue observations on which they depend. Admission
-    // applies those observations only on the path that evaluates the use.
-    std::vector<SmallVector<unsigned>> dependencies(p.values_.size());
-    auto append = [](SmallVector<unsigned> &to, ArrayRef<unsigned> from) {
-      for (unsigned resource : from)
-        if (!llvm::is_contained(to, resource))
-          to.push_back(resource);
-    };
-    auto require = [](SmallVector<TransactionalRequirement> &to,
-                      ArrayRef<unsigned> resources,
-                      ArrayRef<TransactionalPathTerm> path) {
-      for (unsigned resource : resources)
-        to.push_back({resource, {path.begin(), path.end()}});
+    // Each observation carries the branch path that actually selects it. A
+    // merge must not require an unselected Queue simply because its payload
+    // was one of the source operands.
+    using Requirements = SmallVector<TransactionalRequirement>;
+    std::vector<Requirements> dependencies(p.values_.size());
+    auto append = [&](Requirements &to, ArrayRef<TransactionalRequirement> from,
+                      ArrayRef<TransactionalPathTerm> prefix) -> LogicalResult {
+      for (const auto &item : from) {
+        if (failed(charge(8 + prefix.size() + item.path.size(), p.getTop())))
+          return failure();
+        TransactionalRequirement next{item.value, {prefix.begin(), prefix.end()}};
+        bool impossible = false;
+        for (auto term : item.path) {
+          auto same = llvm::find_if(next.path, [&](auto prior) {
+            return prior.value == term.value;
+          });
+          if (same == next.path.end())
+            next.path.push_back(term);
+          else if (same->positive != term.positive)
+            impossible = true;
+        }
+        if (impossible)
+          continue;
+        bool duplicate = llvm::any_of(to, [&](const auto &prior) {
+          return prior.value == next.value &&
+                 prior.path.size() == next.path.size() &&
+                 llvm::equal(prior.path, next.path, [](auto a, auto b) {
+                   return a.value == b.value && a.positive == b.positive;
+                 });
+        });
+        if (!duplicate)
+          to.push_back(std::move(next));
+      }
+      return success();
     };
     auto sequence = [&](const TransactionalSequence &seq,
                         TransactionalRulePlan *rule) -> LogicalResult {
       for (const auto &step : seq.steps) {
-        if (failed(charge(8 + p.resources_.size() *
-                                  (step->operands.size() + step->results.size() + 1),
-                          step->operation)))
+        Requirements reads;
+        if (step->kind == TransactionalStepKind::Merge) {
+          unsigned condition = step->operands[0];
+          if (failed(append(reads, dependencies[condition], {})))
+            return failure();
+          for (unsigned arm = 1; arm <= 2; ++arm) {
+            TransactionalPathTerm selected{condition, arm == 1};
+            if (failed(append(reads, dependencies[step->operands[arm]],
+                              ArrayRef(selected))))
+              return failure();
+          }
+        } else {
+          for (unsigned operand : step->operands)
+            if (failed(append(reads, dependencies[operand], {})))
+              return failure();
+        }
+        if (step->activation != TransactionalNoID &&
+            failed(append(reads, dependencies[step->activation], {})))
           return failure();
-        SmallVector<unsigned> reads;
-        for (unsigned operand : step->operands)
-          append(reads, dependencies[operand]);
-        if (step->activation != TransactionalNoID)
-          append(reads, dependencies[step->activation]);
         if (step->kind == TransactionalStepKind::QueueHead ||
             step->kind == TransactionalStepKind::QueuePop)
-          append(reads, {step->resource});
+          reads.push_back({step->resource, {}});
         for (unsigned result : step->results)
           dependencies[result] = reads;
-        if (rule) {
-          require(rule->queueReads, reads, step->path);
-          if (step->kind == TransactionalStepKind::QueuePush)
-            require(rule->queueWrites, {step->resource}, step->path);
-          // Reaching a nested condition needs its payload under the parent
-          // path, before deciding which arm to evaluate.
-          for (unsigned i = 0; i < step->path.size(); ++i)
-            require(rule->queueReads, dependencies[step->path[i].value],
-                    ArrayRef(step->path).take_front(i));
-        }
+        if (!rule)
+          continue;
+        if (failed(append(rule->queueReads, reads, step->path)))
+          return failure();
+        if (step->kind == TransactionalStepKind::QueuePush)
+          rule->queueWrites.push_back({step->resource, step->path});
+        // A nested condition needs its observations before selecting its arm.
+        for (unsigned i = 0; i < step->path.size(); ++i)
+          if (failed(append(rule->queueReads,
+                            dependencies[step->path[i].value],
+                            ArrayRef(step->path).take_front(i))))
+            return failure();
       }
       return success();
     };
@@ -741,15 +828,21 @@ private:
       if (failed(sequence(owner.comb, nullptr)))
         return failure();
     for (auto &rule : p.rules_) {
-      for (auto term : rule.path)
-        require(rule.queueReads, dependencies[term.value], {});
+      for (unsigned i = 0; i < rule.path.size(); ++i)
+        if (failed(append(rule.queueReads, dependencies[rule.path[i].value],
+                          ArrayRef(rule.path).take_front(i))))
+          return failure();
       if (failed(sequence(rule.guard, &rule)) ||
           failed(sequence(rule.body, &rule)))
         return failure();
-      for (auto requirement : rule.requirements)
-        require(rule.queueReads, dependencies[requirement.value], requirement.path);
-      for (auto control : rule.controls)
-        require(rule.queueReads, dependencies[control.value], control.path);
+      for (const auto &requirement : rule.requirements)
+        if (failed(append(rule.queueReads, dependencies[requirement.value],
+                          requirement.path)))
+          return failure();
+      for (const auto &control : rule.controls)
+        if (failed(append(rule.queueReads, dependencies[control.value],
+                          control.path)))
+          return failure();
     }
     return success();
   }
@@ -805,6 +898,12 @@ private:
             step.kind == TransactionalStepKind::QueueHead ||
             step.kind == TransactionalStepKind::QueuePop)
           fields = resources[step.resource];
+        if (step.kind == TransactionalStepKind::Merge) {
+          fields = values[step.operands[1]];
+          bool condition = allKnown(values[step.operands[0]]);
+          for (unsigned i = 0; i < fields.size(); ++i)
+            fields[i] = condition && fields[i] && values[step.operands[2]][i];
+        }
         if (step.kind == TransactionalStepKind::Pure) {
           known = true;
           for (unsigned operand : step.operands)
@@ -867,6 +966,11 @@ private:
               step->kind == TransactionalStepKind::QueuePush)
             constrain(step->resource, values[step->operands.front()]);
     } while (changed);
+    for (auto [site, value] : combControls)
+      if (!allKnown(values[value]))
+        return site->emitError(
+            "transactional backend admission cannot resolve X/Z Module control; "
+            "four-state payloads remain supported");
     for (auto &rule : p.rules_) {
       for (auto control : rule.controls)
         if (!allKnown(values[control.value]))

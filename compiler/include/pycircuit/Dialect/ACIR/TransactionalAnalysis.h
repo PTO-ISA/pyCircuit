@@ -37,6 +37,9 @@ struct TransactionalResourcePlan {
 };
 enum class TransactionalStepKind {
   Pure,
+  // A structured branch result. Operands are predicate, then value, else
+  // value; availability follows only the selected arm.
+  Merge,
   StateRead,
   StateWrite,
   QueueHead,

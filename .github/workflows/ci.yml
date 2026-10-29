@@ -139,7 +139,7 @@ jobs:
             -DLLVM_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/llvm \
             -DMLIR_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/mlir
           cmake --build .pycircuit_out/toolchain/build --parallel 4 --target \
-            pycircuit-source-unit pycircuit-link pycircuit-opt pycircuit-emit \
+            pycircuit-source-unit pycircuit-link pycircuit-opt pycircuit-emit pycircuit-print \
             pyc6_runtime ACIRTransactionalMethodConstraintsTests ACIRSourceResourceBindingTests
           cmake --install .pycircuit_out/toolchain/build \
             --prefix "$PWD/.pycircuit_out/toolchain/install"
@@ -152,7 +152,7 @@ jobs:
           PYC_TOOLCHAIN_ROOT: ${{ github.workspace }}/.pycircuit_out/toolchain/install
         run: |
           lit -sv .pycircuit_out/toolchain/build/tests/compiler/lit \
-            --filter='(IR/transactional-|Source/acir-display[.]test$|CodeGen/transactional-(constraints|state-interfaces|queue-pipeline|queue-timing|resource-composition|structured-packet|state|failure|source|methods|sibling-methods|issue361|conditional-methods|uninitialized|gfsim)\.test$)'
+            --filter='(IR/transactional-|Source/acir-display[.]test$|CodeGen/transactional-(constraints|state-interfaces|queue-pipeline|queue-timing|resource-composition|structured-packet|state|failure|source|methods|sibling-methods|issue361|conditional-methods|branch-results|uninitialized|gfsim)\.test$)'
       - name: Upload transactional stage evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

@@ -1,3 +1,4 @@
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Builders.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
 #include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
@@ -29,24 +30,22 @@ OperationRule operationRule(PendingExprOp expr) {
           comparison};
 }
 
-BitsType constantWidth(Builder &builder, unsigned width,
-                       StaticExprAttr provenance) {
+StaticExprAttr constantNumber(Builder &builder, unsigned value,
+                              StaticExprAttr provenance) {
   auto tree = provenance.getTree();
   auto number = builder.getDictionaryAttr(
       {builder.getNamedAttr("kind", builder.getStringAttr("integer")),
        builder.getNamedAttr(
            "value",
            MathIntAttr::get(builder.getContext(),
-                            llvm::APSInt(llvm::APInt(64, width), true)))});
-  return BitsType::get(
+                            llvm::APSInt(llvm::APInt(64, value), true)))});
+  return StaticExprAttr::get(
       builder.getContext(),
-      StaticExprAttr::get(
-          builder.getContext(),
-          builder.getDictionaryAttr(
-              {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
-               builder.getNamedAttr("value", number),
-               builder.getNamedAttr("origin", tree.get("origin")),
-               builder.getNamedAttr("location", tree.get("location"))})));
+      builder.getDictionaryAttr(
+          {builder.getNamedAttr("kind", builder.getStringAttr("literal")),
+           builder.getNamedAttr("value", number),
+           builder.getNamedAttr("origin", tree.get("origin")),
+           builder.getNamedAttr("location", tree.get("location"))}));
 }
 
 // Facts belong to Values. Requests describe conversion contexts, not equality
@@ -65,6 +64,10 @@ class PayloadConstraints {
   llvm::DenseMap<Value, SmallVector<Value>> aliases;
   std::deque<Value> work;
   SmallVector<PendingExprOp> expressions;
+  SmallVector<scf::IfOp> branches;
+  llvm::DenseMap<Value, SmallVector<Value, 2>> joins;
+  llvm::DenseMap<Value, SmallVector<Value, 2>> joinConversions;
+  llvm::DenseMap<Value, SmallVector<Value>> joinedUses;
   // Rewrite consumes this solved plan; it never chooses operation types.
   struct OperationTypes {
     Type execution;
@@ -107,19 +110,35 @@ class PayloadConstraints {
       return value.getType();
     return facts.lookup(value);
   }
+  Type fieldType(Type type, PendingExprOp expr) {
+    if (!type)
+      return {};
+    if (auto structure = dyn_cast<StructType>(type))
+      if (auto declaration = hardware.lookupStruct(structure))
+        for (Attribute raw : declaration.getFields()) {
+          auto field = cast<DictionaryAttr>(raw);
+          if (field.getAs<StringAttr>("name") == expr.getOpcodeAttr())
+            return field.getAs<TypeAttr>("type").getValue();
+        }
+    expr.emitOpError("field access requires a declared Struct field");
+    invalid = true;
+    return {};
+  }
   Type anchor(Value value) {
     if (auto type = fact(value))
       return type;
     if (!anchoring.insert(value).second)
       return {};
-    auto relation = value.getDefiningOp<PendingExprOp>();
+    Operation *relation = value.getDefiningOp<PendingExprOp>();
+    if (joins.contains(value))
+      relation = value.getDefiningOp();
     bool inserted = relation && excludedRelations.insert(relation).second;
     auto restoreExclusion = llvm::scope_exit([&] {
       if (inserted)
         excludedRelations.erase(relation);
     });
     Type result;
-    if (auto expr = relation) {
+    if (auto expr = dyn_cast_or_null<PendingExprOp>(relation)) {
       auto kind = expr.getKind();
       if (kind == "binary" || kind == "select") {
         auto rule = operationRule(expr);
@@ -129,7 +148,12 @@ class PayloadConstraints {
           result = common(result, anchor(expr.getOperand(start + 1)), expr);
       } else if (kind == "unary")
         result = anchor(expr.getOperand(0));
+      else if (kind == "field")
+        result = fieldType(anchor(expr.getOperand(0)), expr);
     }
+    if (auto found = joins.find(value); found != joins.end())
+      for (Value arm : found->second)
+        result = common(result, anchor(arm), relation);
     // Capture aliases supply conversion bounds, never a wider replacement for
     // the producer's natural operation type.
     if (!result)
@@ -160,6 +184,10 @@ class PayloadConstraints {
       for (Value operand : expr.getInputs())
         if (waiting(operand, active))
           return true;
+    if (auto found = joins.find(value); found != joins.end())
+      for (Value arm : found->second)
+        if (waiting(arm, active))
+          return true;
     for (Value other : aliases[value])
       if (waiting(other, active))
         return true;
@@ -180,6 +208,30 @@ class PayloadConstraints {
   void connect(Value a, Value b) {
     aliases[a].push_back(b);
     aliases[b].push_back(a);
+  }
+  void propagateJoin(Value result, Type context = {}) {
+    auto found = joins.find(result);
+    if (found == joins.end())
+      return;
+    Operation *branch = result.getDefiningOp();
+    bool inserted = excludedRelations.insert(branch).second;
+    auto restore = llvm::scope_exit([&] {
+      if (inserted)
+        excludedRelations.erase(branch);
+    });
+    llvm::DenseSet<Value> active;
+    for (Value arm : found->second)
+      if (waiting(arm, active))
+        return;
+    Type type;
+    for (Value arm : found->second)
+      type = common(type, anchor(arm), branch);
+    if (!type)
+      type = context;
+    for (Value arm : found->second) {
+      request(arm, type, branch);
+      request(arm, context, branch);
+    }
   }
   void propagate(PendingExprOp expr, Type context = {}) {
     auto kind = expr.getKind();
@@ -236,6 +288,10 @@ class PayloadConstraints {
     for (Value input : expr.getInputs())
       if (!fact(input))
         return success();
+    if (kind == "field") {
+      Type type = fieldType(fact(expr.getOperand(0)), expr);
+      return invalid ? failure() : setFact(expr.getResult(), type);
+    }
     auto rule = operationRule(expr);
     Type execution = fact(expr.getOperand(rule.start));
     if (rule.paired)
@@ -249,20 +305,47 @@ class PayloadConstraints {
     operationTypes[expr] = {execution, result};
     return setFact(expr.getResult(), result);
   }
+  LogicalResult inferJoin(Value result) {
+    auto found = joins.find(result);
+    if (found == joins.end())
+      return success();
+    Type type;
+    for (Value arm : found->second) {
+      if (!fact(arm))
+        return success();
+      type = common(type, fact(arm), result.getDefiningOp());
+    }
+    if (invalid)
+      return failure();
+    if (failed(setFact(result, type)))
+      return failure();
+    for (Value conversion : joinConversions[result])
+      if (failed(setFact(conversion, type)))
+        return failure();
+    return success();
+  }
 
-  Value resize(OpBuilder &builder, Value value, Type type) {
-    if (transactionalTypesEqual(value.getType(), type))
+  Value resize(OpBuilder &builder, Value value, Type type, bool exact = false) {
+    if (exact ? value.getType() == type
+              : transactionalTypesEqual(value.getType(), type))
       return value;
     OperationState state(value.getLoc(), "ac.bits.resize");
     state.addOperands(value);
     state.addTypes(type);
-    state.addAttribute("mode",
-                       builder.getStringAttr(
-                           width(type, value.getParentBlock()->getParentOp()) <
-                                   width(value.getType(),
-                                         value.getParentBlock()->getParentOp())
-                               ? "trunc"
-                               : "zext"));
+    unsigned inputWidth =
+        width(value.getType(), value.getParentBlock()->getParentOp());
+    unsigned resultWidth = width(type, value.getParentBlock()->getParentOp());
+    if (inputWidth == resultWidth) {
+      // SCF requires exact types, including source provenance. A full-width
+      // extraction retains the payload while carrying the chosen result type.
+      state.name = OperationName("ac.bits.extract", package.getContext());
+      state.addAttribute(
+          "low", constantNumber(builder, 0, cast<BitsType>(type).getWidth()));
+      return builder.create(state)->getResult(0);
+    }
+    state.addAttribute(
+        "mode",
+        builder.getStringAttr(resultWidth < inputWidth ? "trunc" : "zext"));
     return builder.create(state)->getResult(0);
   }
   LogicalResult rewrite(PendingExprOp expr) {
@@ -280,7 +363,10 @@ class PayloadConstraints {
     if (auto origin = expr->getAttr("ac.origin"))
       attrs.set("ac.origin", origin);
     Type output = result;
-    if (kind == "literal") {
+    if (kind == "field") {
+      state.name = OperationName("ac.struct.get", package.getContext());
+      attrs.set("field", expr.getOpcodeAttr());
+    } else if (kind == "literal") {
       auto number = llvm::APSInt(
           cast<MathIntAttr>(expr.getNumberAttr()).getCanonicalValue());
       unsigned size = width(result, expr);
@@ -327,8 +413,10 @@ class PayloadConstraints {
         for (Value &input : inputs) {
           OperationState castState(expr.getLoc(), "ac.enum.to_bits");
           castState.addOperands(input);
-          auto bits = constantWidth(builder, *carrier,
-                                    cast<BitsType>(result).getWidth());
+          auto bits = BitsType::get(
+              builder.getContext(),
+              constantNumber(builder, *carrier,
+                             cast<BitsType>(result).getWidth()));
           castState.addTypes(bits);
           input = builder.create(castState)->getResult(0);
         }
@@ -375,6 +463,40 @@ public:
       : package(package), hardware(package) {}
   LogicalResult run(bool requireClosed) {
     package.walk([&](PendingExprOp expr) { expressions.push_back(expr); });
+    auto collected = package.walk([&](scf::IfOp branch) {
+      if (!branch.getNumResults())
+        return WalkResult::advance();
+      for (Region &region : branch->getRegions()) {
+        if (!region.hasOneBlock() || region.front().empty()) {
+          branch.emitOpError("payload branch requires both yield arms");
+          return WalkResult::interrupt();
+        }
+        auto yield = dyn_cast<scf::YieldOp>(region.front().back());
+        if (!yield || yield.getNumOperands() != branch.getNumResults()) {
+          branch.emitOpError("payload branch yield arity differs");
+          return WalkResult::interrupt();
+        }
+        for (auto [result, arm] :
+             llvm::zip(branch.getResults(), yield.getOperands())) {
+          // Unlinked generic calls may leave one arm unresolved. Its temporary
+          // conversion keeps SCF's exact yield types without choosing the join
+          // type before the provider is bound.
+          Value source = arm;
+          if (auto conversion = arm.getDefiningOp<PendingExprOp>();
+              conversion && conversion.getKind() == "convert" &&
+              unknown(arm.getType())) {
+            source = conversion.getOperand(0);
+            joinConversions[result].push_back(arm);
+          }
+          joins[result].push_back(source);
+          joinedUses[source].push_back(result);
+        }
+      }
+      branches.push_back(branch);
+      return WalkResult::advance();
+    });
+    if (collected.wasInterrupted())
+      return failure();
     package.walk([&](Operation *op) {
       if (!isa<TransactionRuleOp, TransactionMethodOp>(op))
         return;
@@ -394,6 +516,8 @@ public:
         work.push_back(value);
     for (auto expr : expressions)
       propagate(expr);
+    for (const auto &[result, arms] : joins)
+      propagateJoin(result);
     // Context facts are collected before choosing literal representations. The
     // dependency queue terminates when no new constraint is added.
     while (!work.empty()) {
@@ -407,11 +531,13 @@ public:
       auto contexts = requests[value];
       if (auto expr = value.getDefiningOp<PendingExprOp>())
         propagate(expr);
+      propagateJoin(value);
       for (const auto &context : contexts) {
         for (Value other : aliases[value])
           request(other, context.type, context.source);
         if (auto expr = value.getDefiningOp<PendingExprOp>())
           propagate(expr, context.type);
+        propagateJoin(value, context.type);
       }
       Type current = anchor(value);
       Type prior = observedAnchors.lookup(value);
@@ -419,6 +545,8 @@ public:
         observedAnchors[value] = current;
         for (Value other : aliases[value])
           work.push_back(other);
+        for (Value result : joinedUses[value])
+          work.push_back(result);
         for (Operation *user : value.getUsers())
           if (auto expr = dyn_cast<PendingExprOp>(user))
             work.push_back(expr.getResult());
@@ -446,6 +574,9 @@ public:
     for (auto expr : expressions)
       if (failed(infer(expr)))
         return failure();
+    for (const auto &[result, arms] : joins)
+      if (failed(inferJoin(result)))
+        return failure();
     while (!work.empty()) {
       if (!budget--)
         return package.emitOpError("payload analysis budget exhausted");
@@ -453,6 +584,9 @@ public:
       work.pop_front();
       for (Value other : aliases[value])
         if (failed(setFact(other, fact(value))))
+          return failure();
+      for (Value result : joinedUses[value])
+        if (failed(inferJoin(result)))
           return failure();
       for (Operation *user : value.getUsers())
         if (auto expr = dyn_cast<PendingExprOp>(user))
@@ -465,6 +599,29 @@ public:
     for (auto expr : expressions)
       if (failed(rewrite(expr)))
         return failure();
+    for (auto branch : branches)
+      for (Region &region : branch->getRegions()) {
+        auto yield = cast<scf::YieldOp>(region.front().getTerminator());
+        OpBuilder builder(yield);
+        for (auto [index, result] : llvm::enumerate(branch.getResults())) {
+          Value arm = yield.getOperand(index);
+          if (arm.getType() == result.getType())
+            continue;
+          if (unknown(result.getType()) || unknown(arm.getType())) {
+            OperationState state(yield.getLoc(), "ac.payload.pending");
+            state.addOperands(arm);
+            state.addTypes(result.getType());
+            state.addAttribute("kind", builder.getStringAttr("convert"));
+            yield.setOperand(index, builder.create(state)->getResult(0));
+            continue;
+          }
+          if (!isa<BitsType>(arm.getType()) ||
+              !isa<BitsType>(result.getType()))
+            return branch.emitOpError(
+                "nominal branch payloads require exact types");
+          yield.setOperand(index, resize(builder, arm, result.getType(), true));
+        }
+      }
     if (requireClosed) {
       bool unresolved = false;
       package.walk([&](Operation *op) {
@@ -487,14 +644,15 @@ LogicalResult PendingExprOp::verify() {
     return emitOpError(
         "pending payload expressions require unlinked transactional ACIR");
   auto kind = getKind();
-  unsigned count = kind == "literal"                       ? 0
-                   : kind == "convert" || kind == "unary"  ? 1
-                   : kind == "binary" || kind == "compare" ? 2
-                   : kind == "select"                      ? 3
-                                                           : ~0u;
+  unsigned count = kind == "literal"                                         ? 0
+                   : kind == "convert" || kind == "unary" || kind == "field" ? 1
+                   : kind == "binary" || kind == "compare"                   ? 2
+                   : kind == "select" ? 3
+                                      : ~0u;
   if (getNumOperands() != count ||
       (kind == "literal" && !isa_and_nonnull<MathIntAttr>(getNumberAttr())) ||
-      ((kind == "binary" || kind == "compare" || kind == "unary") &&
+      ((kind == "binary" || kind == "compare" || kind == "unary" ||
+        kind == "field") &&
        !getOpcodeAttr()))
     return emitOpError("malformed SSA payload constraint");
   return success();
