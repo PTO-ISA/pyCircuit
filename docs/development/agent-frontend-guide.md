@@ -207,7 +207,13 @@ Rule/Method `if/elif/else` retains one outer transaction: selected Method guards
 and Queue requirements determine final fire for all selected effects. Keep
 temporary computations within the branch. Rebound locals merge afterward; an
 unassigned arm inherits the entry value, and new locals require definitions on
-both arms. Early returns remain unsupported.
+every continuing path. Rule/Method early returns skip subsequent operations
+without committing early. Each reachable return must supply the declared number
+of results; valued callables cannot fall through. Void callables may end
+naturally. Modules still return their static resources at the end.
+The frontend retains immutable statement ranges for continuations. When returned
+paths or Rule input caches prevent a common continuation, it emits the live
+path suffixes separately, charging each operation to the existing import budget.
 
 Rules and allocations must be defined directly in the Module, outside runtime
 branches. Branch-local pure computations and read-only State observations may

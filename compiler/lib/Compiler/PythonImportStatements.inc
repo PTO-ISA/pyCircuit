@@ -393,7 +393,7 @@ LogicalResult Importer::bind(const AstNode &target, ArrayRef<Value> values,
 LogicalResult Importer::statements(const AstNode &node, StringRef field,
                                    Scope &scope,
                                    ArrayRef<StatementRange> continuation) {
-  return statements(StatementRange{node, field, 0, scope.sourceDepth}, scope,
+  return statements(StatementRange{node, field, 0}, scope,
                     continuation);
 }
 
@@ -410,7 +410,6 @@ LogicalResult Importer::statements(ArrayRef<StatementRange> ranges,
 
 LogicalResult Importer::statements(const StatementRange &range, Scope &scope,
                                    ArrayRef<StatementRange> continuation) {
-  scope.sourceDepth = range.sourceDepth;
   for (size_t i = range.begin; i < range.owner.array(range.field).size(); ++i) {
     auto child = range.owner.item(range.field, i);
     if (scope.terminated)
@@ -418,13 +417,14 @@ LogicalResult Importer::statements(const StatementRange &range, Scope &scope,
     SmallVector<StatementRange> tail;
     if (child.kind() == "If") {
       if (i + 1 < range.owner.array(range.field).size())
-        tail.push_back({range.owner, range.field, i + 1, range.sourceDepth});
+        tail.push_back({range.owner, range.field, i + 1});
       tail.append(continuation.begin(), continuation.end());
     }
     if (failed(statement(child, scope, tail)))
       return failure();
-    // A normalized branch already consumed its continuation on each live arm.
-    if (child.kind() == "If" && scope.terminated)
+    // Return ends this callable path, including its unreachable source tail.
+    // A normalized branch has already consumed each live continuation.
+    if (!scope.module && scope.terminated)
       return success();
   }
   return success();
@@ -608,8 +608,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     return bind(target, ArrayRef<Value>(value), scope);
   }
   if (node.kind() == "Return") {
-    if (scope.sourceDepth)
-      return fail(node, "branch returns await result merging");
+    if (scope.module && scope.conditionalDepth)
+      return fail(node, "Module resource exports require a terminal return");
     auto expressionNode = node.child("value");
     SmallVector<Value> values;
     if (expressionNode &&
@@ -781,6 +781,10 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
     auto condition = scalar(node.child("test"), scope, bits(1, node));
     if (failed(condition))
       return failure();
+    if (!scope.module)
+      if (auto known = constantPredicate(*condition, node))
+        return statements(node, *known ? "body" : "orelse", scope,
+                          continuation);
     auto selected = op(node, "ac.source.predicate", *condition, b.getI1Type())
                         ->getResult(0);
     auto *branch = op(node, "scf.if", selected, {}, {}, 2);
@@ -793,7 +797,6 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
       b.setInsertionPointToEnd(block);
       Scope &inner = arms[arm];
       ++inner.conditionalDepth;
-      ++inner.sourceDepth;
       if (failed(statements(node, arm == 0 ? "body" : "orelse", inner,
                             continuation)))
         return failure();
@@ -816,9 +819,8 @@ LogicalResult Importer::statement(const AstNode &node, Scope &scope,
                       after.cachedRead != binding.cachedRead;
         }
     if (complete) {
-      // A partially read Rule parameter has no payload on its unread arm.
-      // Keep the continuation in the original arm scopes so its first demand
-      // stays conditional and each executed path consumes the binding once.
+      // Returned arms bypass the continuation; live arms retain their local
+      // bindings and once-read parameter caches until their own return.
       // Re-emitted statements remain charged by statement()/expression().
       for (unsigned arm = 0; arm < 2; ++arm) {
         b.setInsertionPointToEnd(&branch->getRegion(arm).front());

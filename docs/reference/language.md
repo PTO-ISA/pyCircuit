@@ -54,12 +54,23 @@ paths contribute Method guards and Queue availability/capacity to admission.
 All selected effects share the outer Rule's final fire, including effects before
 a later guard failure. Unselected paths neither consume nor update nor publish
 logs/assertions. Conflicts include path predicates and require proven exclusion;
-there is no implicit priority. Early returns remain unsupported.
+there is no implicit priority.
 Module, Rule and Method branches merge ordinary Bits, Enum and Struct locals.
 An existing local retains its entry value on an arm without assignment; a new
-local is usable afterward only when both arms define it. Branch results may feed
+local is usable afterward only when every continuing path defines it. Branch results may feed
 subsequent computation, field access and independent tuple results. Resource
 identities never enter payload joins. Controls must still be provably known.
+Rule and Method bodies may return early, including inside nested branches.
+Every reachable return must match the declared result count and payload types;
+a valued callable cannot fall through without its complete result. Literal
+conditions and their aliases can eliminate unreachable arms; other conditions
+retain both structural paths for this completeness check. A void callable may return without a value or end naturally. Return ends only the
+current callable: earlier calls, resource consumption and updates still share
+the outer Rule's final fire. Skipped statements add no effects, guards or Queue
+requirements. Frontend normalization merges return payloads at one callable
+endpoint; it does not fill missing results with zero or add holding state.
+Modules retain a terminal return of their static output resources.
+
 Module combination cannot call Methods in this slice.
 
 An existing Module instance may be passed through an `ac.module` parameter.

@@ -65,7 +65,6 @@ struct StatementRange {
   AstNode owner;
   StringRef field;
   size_t begin = 0;
-  unsigned sourceDepth = 0;
 };
 struct Scope {
   Declaration *owner = nullptr;
@@ -77,7 +76,6 @@ struct Scope {
   SmallVector<Type> resultTypes;
   SmallVector<Value> returned;
   unsigned conditionalDepth = 0;
-  unsigned sourceDepth = 0;
   bool pure = false, module = false, terminated = false, globalRule = false;
 };
 struct ImportedName {
@@ -214,6 +212,33 @@ private:
   }
   bool equal(Type a, Type c) {
     return a && c && ac::transactionalTypesEqual(a, c);
+  }
+  std::optional<bool> constantPredicate(Value value, const AstNode &node) {
+    // A literal remains an ordinary typed SSA producer. This only establishes
+    // reachability; payload solving still validates its conversions and width.
+    while (auto expression = value.getDefiningOp<ac::PendingExprOp>()) {
+      if (!charge(node))
+        return std::nullopt;
+      if (expression.getKind() == "convert") {
+        value = expression.getInputs().front();
+        continue;
+      }
+      if (expression.getKind() == "literal") {
+        auto number = expression->getAttrOfType<ac::MathIntAttr>("number");
+        if (number && number.getCanonicalValue() == "0")
+          return false;
+        if (number && number.getCanonicalValue() == "1")
+          return true;
+      }
+      return std::nullopt;
+    }
+    if (auto literal = value.getDefiningOp<ac::BitsConstant4Op>()) {
+      if (literal.getPattern() == "0")
+        return false;
+      if (literal.getPattern() == "1")
+        return true;
+    }
+    return std::nullopt;
   }
   std::optional<llvm::APSInt> integer(const AstNode &node) {
     if (auto binding = resolve(node))

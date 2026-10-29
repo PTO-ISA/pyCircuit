@@ -9,7 +9,7 @@ inventory; execution outcomes belong to candidate-bound gate reports.
 
 | Capability | Current scope | Independent verification entry |
 | --- | --- | --- |
-| State and control | Bits, Enum and finite Struct State (omitted initializer means X); old-Q reads; explicit Rule registration; Module registration branches, payload local joins, conditional Rule/Method bodies and parameterless autorules | `CodeGen/transactional-source.test`, `transactional-state-interfaces.test` |
+| State and control | Bits, Enum and finite Struct State (omitted initializer means X); old-Q reads; explicit Rule registration; Module registration branches, payload local joins, conditional Rule/Method bodies, early callable returns and parameterless autorules | `CodeGen/transactional-source.test`, `transactional-state-interfaces.test`, `transactional-branch-results.test`, `transactional-early-returns.test` |
 | Methods | Local and existing-instance calls, by-value arguments/results, nested guard chains and atomic effects | `CodeGen/transactional-methods.test`, `transactional-sibling-methods.test` |
 | Resource connections | Parent-owned default depth-2 Queues, explicit depth, State/Queue binding, aliases, multilevel references and independent outputs | `CodeGen/transactional-resource-composition.test`, `transactional-queue-pipeline.test` |
 | Queue behavior | Old-occupancy admission, backpressure, reset, nonconsuming observation and atomic State/Queue effects | `CodeGen/transactional-queue-timing.test` |
@@ -26,7 +26,7 @@ selection, commands and reporting.
 
 | Area | Remaining work and retained obligation |
 | --- | --- |
-| Source expressions and effects | Field assignment, constructor defaults, ordinary helpers, loops, branch-local returns require migration. Retain their source fixtures and independent oracles. |
+| Source expressions and effects | Field assignment, constructor defaults, ordinary helpers and loops require migration. Retain their source fixtures and independent oracles. |
 | Control knownness | Current execution admission requires provably known controls. Unknown payload support does not establish dynamic X/Z guard semantics; unresolved choices remain in the replacement plan. |
 | External Queue interfaces | A root Queue cannot be exported as an external payload-only interface. Nested exports preserve resource identity; a System can consume them internally. |
 | Memory, Table and collections | Existing storage/runtime foundations and historical scenarios remain requirements. Their transactional timing, partial-write and family-call migration is not established by Bits/Struct Queue support. Preserve approved timing decisions and resolve only genuinely unspecified semantics. |

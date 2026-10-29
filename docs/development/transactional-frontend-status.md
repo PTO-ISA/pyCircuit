@@ -23,7 +23,8 @@ batch examples preserve their component algorithms; their tests check complete
 state/consumption traces, fifth-input blocking and output backpressure. Separate
 conditional-Method and four-state reset cases cover path admission and X defaults.
 Module, Rule and Method payload local joins execute through common branch analysis.
-Loops, early returns, dynamic instance/resource selection and dynamic unknown
+Rule/Method early returns normalize to the same structured branch results and
+whole-transaction commit. Loops, dynamic instance/resource selection and dynamic unknown
 control remain gaps. t-gfsim (transactional-gfsim) supports the bounded Bits State profile described
 in the source-unit workflow; Queue and nominal payload generation remain gaps.
 Their independent expectations remain in test-owned models and source
