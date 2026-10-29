@@ -23,11 +23,11 @@ int main(int argc, char **argv) {
     require(system.state() == gfsim::SimSystemState::Ready);
     require(system.cycle() == 0 && dut.observations().Events().empty());
     std::vector<gfsim::CommittedEventSlot> lastEvents;
-    for (unsigned epoch = 0; epoch != 8; ++epoch) {
+    for (unsigned epoch = 0; epoch != 7; ++epoch) {
       inputs.pyc_7079635f636c6b = bit(epoch & 1);
       dut.drive(inputs);
       const auto result = system.Step();
-      if (epoch != 7) {
+      if (epoch != 6) {
         require(result == gfsim::SimStepResult::Running);
         require(system.cycle() == epoch + 1);
         const auto events = dut.observations().Events();
@@ -35,7 +35,7 @@ int main(int argc, char **argv) {
       } else {
         require(result == gfsim::SimStepResult::Failed);
         require(system.state() == gfsim::SimSystemState::Failed);
-        require(system.cycle() == 7);
+        require(system.cycle() == 6);
         require(system.failureInfo().phase == gfsim::SimFailurePhase::Check);
         // Failed epochs do not publish even unrelated pending observations.
         const auto events = dut.observations().Events();

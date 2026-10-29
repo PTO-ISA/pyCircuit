@@ -112,6 +112,7 @@ nav:
       - Review and Merge: development/review-and-merge.md
       - Known Limitations: development/known-limitations.md
       - Replacement Scope: development/transactional-frontend-status.md
+      - Main Capability Migration: development/main-capability-migration.md
       - Project Governance: development/project-governance.md
       - Extension Specifications:
           - Boolean Record Fields: rfcs/boolean-record-fields.md

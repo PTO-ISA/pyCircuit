@@ -3842,6 +3842,7 @@ TEST_F(SourceTransactionCaptureTest,
           if (declaration.getSymName().ends_with("Owner")) provider = declaration;
         ASSERT_TRUE(provider);
         auto contract = provider.getTransactionSummaryAttr();
+        ASSERT_TRUE(contract);
         unsigned index = rowIndex(contract, "methods", methodName);
         auto row = cast<DictionaryAttr>(contract.getAs<ArrayAttr>("methods")[index]);
         row = mutation == 1
@@ -4543,6 +4544,7 @@ TEST_F(SourceTransactionCaptureTest,
           client = declaration;
       ASSERT_TRUE(client);
       auto summary = client.getTransactionSummaryAttr();
+      ASSERT_TRUE(summary);
       unsigned index = rowIndex(summary, "methods", "run");
       auto method =
           cast<DictionaryAttr>(summary.getAs<ArrayAttr>("methods")[index]);
@@ -4921,9 +4923,7 @@ TEST_F(SourceTransactionCaptureTest,
   }
 }
 
-TEST_F(SourceTransactionCaptureTest,
-       PublishedSummariesRejectRetiredAfterEvenWithAuthenticTargets) {
-  auto captured = capture("automatic_summary.py", R"py(import pycircuit as ac
+constexpr const char *publishedOwnerSource = R"py(import pycircuit as ac
 @ac.module
 def Owner() -> ac.u8:
     count: ac.u8 = 5
@@ -4937,53 +4937,40 @@ def Owner() -> ac.u8:
     def inspect() -> None:
         ac.log("info", "current", count)
     return count
-)py");
+)py";
+
+TEST_F(SourceTransactionCaptureTest,
+       PublishedMethodsRetainSignatureWithoutLegacySummary) {
+  auto captured = capture("automatic_summary.py", publishedOwnerSource);
   ASSERT_TRUE(captured);
   auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
   ASSERT_TRUE(succeeded(headers));
   auto compiled = compiler::compilePythonSourceUnit(
       *captured, owner("automatic_summary.py"), *headers, error());
   ASSERT_TRUE(succeeded(compiled)) << diagnostics;
-  for (StringRef section : {"autonomous", "methods"}) {
-    for (StringRef field : {"after", "callable_after"}) {
-      for (bool empty : {false, true}) {
-        SCOPED_TRACE(section.str() + "/" + field.str());
-        OwningOpRef<ModuleOp> header(
-            cast<ModuleOp>((*compiled->interface)->clone()));
-        ac::ModuleImportOp provider;
-        for (auto candidate : header->getOps<ac::ModuleImportOp>())
-          if (candidate.getSymName().ends_with("Owner")) provider = candidate;
-        ASSERT_TRUE(provider);
-        diagnostics.clear();
-        ASSERT_TRUE(succeeded(mlir::verify(*header))) << diagnostics;
-        auto summary = provider.getTransactionSummaryAttr();
-        auto rows = summary.getAs<ArrayAttr>(section);
-        ASSERT_FALSE(rows.empty());
-        auto row = cast<DictionaryAttr>(rows[0]);
-        auto target = cast<DictionaryAttr>(rows[rows.size() - 1]);
-        auto predecessor = target.get(section == "methods" ? "declaration"
-                                                          : "registration");
-        ASSERT_TRUE(predecessor);
-        Builder builder(&context);
-        auto ordering = empty ? builder.getArrayAttr({})
-                              : builder.getArrayAttr({predecessor});
-        ASSERT_FALSE(row.get(field));
-        auto forged = changedRow(summary, section, 0, changed(row, field, ordering));
-        ASSERT_NE(forged, summary);
-        provider->setAttr("transaction_summary", forged);
-        diagnostics.clear();
-        EXPECT_TRUE(failed(mlir::verify(*header)));
-        // callable_after was never an autonomous-row field. Its closed schema
-        // rejects that extra key before the retired-ordering semantic check.
-        StringRef category = section == "autonomous" && field == "callable_after"
-            ? "transaction summary has missing or extra fields"
-            : "after ordering is retired";
-        EXPECT_NE(diagnostics.find(category.str()), std::string::npos)
-            << diagnostics;
-        EXPECT_EQ(provider.getTransactionSummaryAttr(), forged);
-      }
-    }
-  }
+  ac::ModuleImportOp provider;
+  for (auto candidate : compiled->interface->getOps<ac::ModuleImportOp>())
+    if (candidate.getSymName().ends_with("Owner"))
+      provider = candidate;
+  ASSERT_TRUE(provider);
+  EXPECT_EQ(provider.getSemanticKind(), "resources");
+  EXPECT_FALSE(provider.getTransactionSummaryAttr());
+  auto methods = provider->getAttrOfType<ArrayAttr>("ac.methods");
+  ASSERT_TRUE(methods);
+  ASSERT_EQ(methods.size(), 1u);
+  auto method = cast<DictionaryAttr>(methods[0]);
+  EXPECT_EQ(method.getAs<StringAttr>("name").getValue(), "read");
+  auto signature = method.getAs<TypeAttr>("function_type");
+  ASSERT_TRUE(signature);
+  auto function = dyn_cast<FunctionType>(signature.getValue());
+  ASSERT_TRUE(function);
+  EXPECT_EQ(function.getNumInputs(), 0u);
+  ASSERT_EQ(function.getNumResults(), 1u);
+  EXPECT_TRUE(isa<ac::BitsType>(function.getResult(0)));
+  auto readOnly = method.getAs<BoolAttr>("read_only");
+  ASSERT_TRUE(readOnly);
+  EXPECT_TRUE(readOnly.getValue());
+  EXPECT_TRUE(succeeded(mlir::verify(*compiled->interface))) << diagnostics;
 }
 
 TEST_F(SourceTransactionCaptureTest,

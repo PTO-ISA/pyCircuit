@@ -1310,23 +1310,8 @@ private:
   LogicalResult catalogSampling(ModuleOp definition,
                                 const HardwareBindings &bindings,
                                 SmallVector<HardwareCheckBinding> &checks) {
-    auto contract = analysis.getPackage()->getAttrOfType<IntegerAttr>("ac.routed_contract");
-    if (contract && contract.getInt() == 4 && !checks.empty()) {
-      // Contract 4's independent source replay authenticates this closed root,
-      // its domain pins and the complete assertion inventory before admission.
-      auto &body = definition.getBody().front();
-      if (body.getNumArguments() != 2)
-        return definition.emitOpError("transactional checks require compiler clock/reset pins");
-      if (failed(budget.debit(Budget::add(
-              Budget::bytes(sizeof(HardwareCheckSamplingBinding)), checks.size()), definition)))
-        return failure();
-      uint64_t index = plan.samplingBindings.size();
-      plan.samplingBindings.push_back({definition, body.getArgument(0),
-                                       body.getArgument(1), 0});
-      localSamplingIndices[definition].push_back(index);
-      for (auto &check : checks) check.samplingBindingIndex = index;
-      return success();
-    }
+    // Body assertions are checked on every Work evaluation with ordinary reset
+    // masking. Only guard-known checks acquire an edge sampling binding.
     if (!llvm::any_of(checks, [](const auto &check) {
           return check.kind.getValue() == "guard_known";
         }))

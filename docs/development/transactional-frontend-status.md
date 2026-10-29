@@ -41,6 +41,17 @@ certify the migration of a larger historical design.
 
 ## Main integration migration accounting
 
+The [main capability migration inventory](main-capability-migration.md) assigns
+retained capabilities and their verification owners to the ten follow-up batches.
+It records implementation obligations; execution results remain candidate-bound.
+
+Body assertions use ordinary reset masking on every Work evaluation, including
+low, held and falling clock epochs. Only guard-known checks receive edge sampling.
+The saved-anchor regression preserves an independent low-epoch failure oracle
+through physical C++ workers 1/2 and RTL; the transactional failure scenario
+checks the same boundary in t-gfsim. Dedicated transactional anchor fixtures do
+not replace the retained nominal/report migration oracle.
+
 The local integration of `main@3d37651a` into `issue361@7410b48d` preserves
 explicit ordinary Rule registration, autorules, old-Q reads, resource Module
 interfaces, payload Method interfaces and old-occupancy Queue admission. It

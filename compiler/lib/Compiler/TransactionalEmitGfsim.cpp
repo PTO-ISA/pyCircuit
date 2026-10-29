@@ -626,7 +626,7 @@ int main(int argc, char **argv) {
            "reset = false;\n";
   out << R"cpp(      const bool rising = !previousClock && clock;
       model.epoch = epoch;
-      model.checkAssertions = rising && !reset;
+      model.checkAssertions = !reset;
       if (!model.system.Sample(rising, reset)) {
         std::cerr << "sample " << epoch << " failed with zero commit: " << model.system.Failure() << '\n';
         publish("{\"kind\":\"result\",\"status\":\"FAILED\",\"epoch_time\":\"" + std::to_string(epoch) + "\",\"statistics\":{},\"error\":{\"code\":\"transaction_failed\",\"message\":\"transactional sample failed\",\"phase\":\"check\",\"instance\":null,\"source\":null,\"check_id\":null},\"reset_semantics\":\")cpp"

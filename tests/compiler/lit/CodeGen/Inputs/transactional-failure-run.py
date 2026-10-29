@@ -19,7 +19,7 @@ executable, generated = fixture.build_system(
     linked if target == "t-gfsim" else final, target
 )
 expected = Counter()
-for epoch in range(7):
+for epoch in range(6):
     cycle = epoch // 2
     accepted = max(cycle - 1, 0)
     expected[(epoch, "total", (accepted,))] += 1
