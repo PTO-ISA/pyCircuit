@@ -283,6 +283,7 @@ private:
          {"module", "system", "rule", "autorule", "method", "struct"})
       if (marker(target, name)) {
         if (dec.kind() == "Call") {
+          bool samples = false;
           if (!dec.array("args").empty()) {
             (void)fail(dec, "decorators accept named options only");
             return {};
@@ -328,6 +329,9 @@ private:
               }
               if (guard)
                 *guard = lambda.child("body");
+            } else if (name == "system" && kw.string("arg") == "samples" &&
+                       !samples) {
+              samples = true;
             } else {
               (void)fail(
                   kw,
@@ -341,6 +345,7 @@ private:
     return {};
   }
   Type annotation(const AstNode &node, StringRef definition);
+  LogicalResult systemSamples(Declaration &decl);
   LogicalResult resultTypes(const AstNode &node, StringRef definition,
                             SmallVectorImpl<Type> &types);
   LogicalResult scan();

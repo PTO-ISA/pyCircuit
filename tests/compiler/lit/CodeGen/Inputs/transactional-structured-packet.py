@@ -22,13 +22,8 @@ with fixture.interfaces_only("types", "processor"):
 with fixture.interfaces_only("types", "processor", "design"):
     fixture.compile_source(entry, "types", "processor", "design")
 final = fixture.scratch / "packet.ac"
-fixture.cli(
-    "link",
-    *(fixture.scratch / unit for unit in ("types", "processor", "design", entry)),
-    "--top",
-    f"packet_case.{entry}.Top",
-    "-o",
-    final,
+fixture.link_saved(
+    ("types", "processor", "design", entry), f"packet_case.{entry}.Top", final
 )
 executable, _ = fixture.build_system(final, target)
 
@@ -102,8 +97,3 @@ for workers in (1, 2) if target == "cpp" else (1,):
     }
 print(f"transactional structured packet {target}: PASS")
 print("t-gfsim: NOT RUN (Queue and nominal payload support remain implementation gaps)")
-
-if not reset:
-    print(
-        "reset: NOT RUN (transactional System samples admission remains an implementation gap)"
-    )

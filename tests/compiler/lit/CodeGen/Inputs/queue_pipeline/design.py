@@ -8,7 +8,7 @@ import pycircuit as ac
 def Accumulator():  # noqa: N802
     total: ac.u8 = 0
 
-    @ac.method(guard=lambda phase: (phase < 3) | (phase >= 10))
+    @ac.method(guard=lambda phase: phase != 2)
     def finish(phase: ac.u8) -> None:
         ac.log("info", "finish", total)
 

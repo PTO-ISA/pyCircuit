@@ -196,7 +196,11 @@ compile/link flow. See [nominal enums](spec-enums.md) for exact boundaries.
 
 The [four-state/System supplement](../rfcs/four-state-system.md) defines explicit
 X/Z literals, verification predicates, a shared root reset policy and generated
-finite stimuli. The source and execution boundaries are described below.
+finite stimuli. Transactional Systems admit static `samples=((clock, reset), ...)`
+sequences of 0/1 or one-bit `ac.four_state` values. Samples survive independent
+unit publication, linking and saved-anchor reload; generated runners execute
+these epochs without a cycles option. The source and execution boundaries are
+described below.
 
 The [Rule authoring contract](../development/agent-frontend-guide.md#rule-authoring-contract)
 requires simple, cohesive, stateless Rules, Module-style typed inputs and

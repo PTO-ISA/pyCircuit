@@ -1,5 +1,5 @@
 # ruff: noqa: N802 -- Captured System.
-"""Retained reset scenario: NOT RUN until transactional System samples compile.
+"""Finite System schedule resetting all state-machine storage.
 
 Each pair observes committed state at both edges. Cycles 0..4 match the state
 machine oracle; reset at cycle 5 still observes old state and rising reset

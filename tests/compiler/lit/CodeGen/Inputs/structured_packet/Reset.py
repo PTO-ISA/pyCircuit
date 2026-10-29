@@ -1,4 +1,4 @@
-"""Retained reset scenario: transactional samples admission is an open gap."""
+"""Reset occupied packet Queues and structured State before restarting."""
 
 import pycircuit as ac
 from packet_case.design import PacketStream

@@ -996,7 +996,67 @@ LogicalResult Importer::lower(Declaration &decl) {
   decl.operation->setAttr("function_type",
                           TypeAttr::get(b.getFunctionType(inputs, outputs)));
   decl.phase = 2;
-  if (decl.system)
+  if (decl.system) {
     decl.operation->setAttr("ac.root_kind", b.getStringAttr("system"));
+    if (failed(systemSamples(decl)))
+      return failure();
+  }
+  return success();
+}
+
+LogicalResult Importer::systemSamples(Declaration &decl) {
+  auto decorator = decl.node.item("decorator_list", 0);
+  if (decorator.kind() != "Call")
+    return success();
+  for (size_t i = 0; i < decorator.array("keywords").size(); ++i) {
+    auto sequence = decorator.item("keywords", i).child("value");
+    auto isSequence = [](const AstNode &node) {
+      return node.kind() == "Tuple" || node.kind() == "List";
+    };
+    if (!isSequence(sequence) || sequence.array("elts").empty() ||
+        sequence.array("elts").size() >
+            ac::HardwareSourceCheckLimits{}.maxWorkUnits)
+      return fail(sequence,
+                  "System samples require a bounded nonempty sequence");
+    SmallVector<Attribute> rows;
+    for (size_t rowIndex = 0; rowIndex < sequence.array("elts").size();
+         ++rowIndex) {
+      auto row = sequence.item("elts", rowIndex);
+      if (!charge(row))
+        return failure();
+      if (!isSequence(row) || row.array("elts").size() != 2)
+        return fail(row, "System sample requires (clock, reset)");
+      std::string pattern;
+      for (size_t column = 0; column < 2; ++column) {
+        auto value = row.item("elts", column);
+        if (auto number = integer(value);
+            number && (*number == 0 || *number == 1)) {
+          pattern += *number == 0 ? '0' : '1';
+          continue;
+        }
+        if (value.kind() != "Call" ||
+            !marker(value.child("func"), "four_state") ||
+            value.array("args").size() != 1 || !value.array("keywords").empty())
+          return fail(value,
+                      "System sample requires 0, 1 or one-bit four_state");
+        auto text =
+            dyn_cast_or_null<StringAttr>(value.item("args", 0).get("value"));
+        auto bit = text ? text.getValue().lower() : std::string();
+        if (bit.size() != 1 ||
+            StringRef("01xz").find(bit[0]) == StringRef::npos)
+          return fail(value,
+                      "System sample requires a one-bit 0/1/x/z pattern");
+        pattern += bit;
+      }
+      rows.push_back(b.getStringAttr(pattern));
+    }
+    decl.operation->setAttr(
+        "ac.system_samples",
+        b.getDictionaryAttr(
+            {b.getNamedAttr("rows", b.getArrayAttr(rows)),
+             b.getNamedAttr("origin", origin(sequence, decl.symbol)),
+             b.getNamedAttr("location",
+                            detail::sourceSpan(b, source.path, sequence))}));
+  }
   return success();
 }

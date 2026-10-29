@@ -34,9 +34,7 @@ executable, _ = fixture.build_system(linked if target == "t-gfsim" else final, t
 
 # Receive pauses when permit is zero. Each selected action observes its entry
 # stage, including after assignment; it never executes the next stage early.
-# The separate reset System fixture retains the currently unsupported sample
-# schedule. --reset-samples retains its executable oracle but is NOT RUN in lit
-# until the transactional frontend admits that public decorator option.
+# The reset schedule repeats the initial transitions after restoring all State.
 states = (
     (0, 0, 0, 3, 6, 250),
     (0, 1, 0, 3, 7, 4),

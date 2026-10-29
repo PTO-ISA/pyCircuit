@@ -16,10 +16,11 @@ Routed continuation and a Runtime-only generated consumer remain covered.
 See [transactional test scenarios](transactional-test-scenarios.md) for the six
 groups, positive supplements, backend support and coverage migration. Issue #361
 rejection, malformed-IR and implementation-structure tests are deliberately
-removed; their removal does not mean those cases passed. Public System reset
-schedule admission and post-failure generated storage observation remain explicit
-gaps. The desired required-check list includes G1; applying branch protection on
-GitHub is a separate repository-management action.
+removed; their removal does not mean those cases passed. Finite System reset
+schedules run in the State and Data groups; post-failure generated storage
+observation remains an explicit gap. The desired required-check list includes
+G1; applying branch protection on GitHub is a separate repository-management
+action.
 
 ## API tests and examples are separate
 

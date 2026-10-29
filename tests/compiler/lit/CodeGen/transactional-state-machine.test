@@ -1,4 +1,4 @@
 # REQUIRES: verilator
-# RUN: %python %inputs/transactional-state-machine.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp
-# RUN: %python %inputs/transactional-state-machine.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.verilog verilog
-# RUN: %python %inputs/transactional-state-machine.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.t-gfsim t-gfsim
+# RUN: %python %inputs/transactional-state-machine.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp --reset-samples
+# RUN: %python %inputs/transactional-state-machine.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.verilog verilog --reset-samples
+# RUN: %python %inputs/transactional-state-machine.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.t-gfsim t-gfsim --reset-samples

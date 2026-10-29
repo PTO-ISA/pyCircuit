@@ -489,7 +489,7 @@ FailureOr<OwningOpRef<mlir::ModuleOp>> Router::run() {
                            b.getNamedAttr("reset", b.getI64IntegerAttr(1))}))});
   moduleState.addRegion()->push_back(new Block());
   auto module = cast<ModuleOp>(b.create(moduleState));
-  for (StringRef key : {"ac.root_kind", "ac.origin"})
+  for (StringRef key : {"ac.root_kind", "ac.origin", "ac.system_samples"})
     if (auto attr = p.getTop()->getAttr(key))
       module->setAttr(key, attr);
   auto &body = module.getBody().front();
@@ -885,7 +885,7 @@ private:
   bool attrs(Operation *op, ArrayRef<NamedAttribute> expected) {
     NamedAttrList fields(expected);
     if (isa<ModuleOp>(op))
-      for (StringRef key : {"ac.root_kind", "ac.origin"})
+      for (StringRef key : {"ac.root_kind", "ac.origin", "ac.system_samples"})
         if (auto attr = p.getTop()->getAttr(key))
           fields.set(key, attr);
     if (isa<SystemOp>(op))

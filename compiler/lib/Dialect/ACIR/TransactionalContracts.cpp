@@ -1476,7 +1476,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
                TransactionRuleOp>(op) &&
            (name == "ac.source_owner" || name == "ac.origin" ||
             name == "ac.declaration_role")) ||
-          (isa<ModuleOp, ModuleImportOp>(op) && name == "ac.root_kind") ||
+          (isa<ModuleOp, ModuleImportOp>(op) &&
+           (name == "ac.root_kind" || name == "ac.system_samples")) ||
           (isa<TransactionRuleOp>(op) && name == "input_names") ||
           (isa<TransactionMethodCallOp>(op) && name == "ac.parameter_join") ||
           (name == "ac.join_transport" &&
@@ -1503,6 +1504,8 @@ LogicalResult verifyTransactionalPackage(mlir::ModuleOp package) {
     }
     if (root)
       return WalkResult::advance();
+    if (op->hasAttr("ac.system_samples") && failed(getSystemSamples(op)))
+      return WalkResult::interrupt();
     if (op->hasAttr("ac.join_transport")) {
       auto pending = dyn_cast<PendingExprOp>(op);
       bool conversion = isa<BitsResizeOp, BitsExtractOp>(op) ||
