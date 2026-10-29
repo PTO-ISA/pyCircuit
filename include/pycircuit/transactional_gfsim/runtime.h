@@ -3,9 +3,12 @@
 
 #include "gfsim/four_state.h"
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <exception>
 #include <functional>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -186,6 +189,78 @@ private:
   T next_;
   bool pending_ = false;
   bool conflict_ = false;
+};
+
+// Readiness and payload queries observe committed occupancy only. In
+// particular, proposals never provide empty bypass or space in a full Queue.
+template <typename T, std::size_t Depth> class Queue final : public Resource {
+public:
+  static_assert(Depth > 0);
+  static_assert(std::is_nothrow_copy_assignable_v<T>,
+                "Queue payload assignment must not throw");
+  static_assert(std::is_nothrow_copy_constructible_v<T>);
+  static_assert(std::is_nothrow_destructible_v<T>);
+
+  bool CanPop() const noexcept { return size_ != 0; }
+  bool CanPush() const noexcept { return size_ != Depth; }
+  std::size_t Size() const noexcept { return size_; }
+  const T &Head() const {
+    if (!CanPop())
+      throw std::logic_error("empty Queue head is unavailable");
+    return *data_[read_];
+  }
+  bool ProposePop(Context &context) {
+    RequireWork(context);
+    if (pop_) {
+      context.Fail("multiple pops from one Queue");
+      return false;
+    }
+    pop_ = true;
+    return true;
+  }
+  bool ProposePush(Context &context, const T &value) {
+    RequireWork(context);
+    if (next_) {
+      context.Fail("multiple pushes to one Queue");
+      return false;
+    }
+    next_ = value;
+    return true;
+  }
+  void Begin() noexcept override { Discard(); }
+  void Check(Context &context) override {
+    if ((pop_ && !CanPop()) || (next_ && !CanPush()))
+      context.Fail("Queue proposal exceeds committed occupancy");
+  }
+  void Xfer() noexcept override {
+    if (pop_) {
+      data_[read_].reset();
+      read_ = (read_ + 1) % Depth;
+      --size_;
+    }
+    if (next_) {
+      data_[write_] = next_;
+      write_ = (write_ + 1) % Depth;
+      ++size_;
+    }
+    Discard();
+  }
+  void Discard() noexcept override {
+    pop_ = false;
+    next_.reset();
+  }
+  void Reset() noexcept override {
+    for (auto &slot : data_)
+      slot.reset();
+    read_ = write_ = size_ = 0;
+    Discard();
+  }
+
+private:
+  std::array<std::optional<T>, Depth> data_{};
+  std::optional<T> next_;
+  std::size_t read_ = 0, write_ = 0, size_ = 0;
+  bool pop_ = false;
 };
 
 } // namespace pycircuit::transactional_gfsim

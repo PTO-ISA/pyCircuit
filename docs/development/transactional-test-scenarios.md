@@ -17,11 +17,11 @@ The printer's own display tests remain printer tests.
 | Group / lit entry | Design and independent observations | Physical C++ | RTL | t-gfsim |
 | --- | --- | --- | --- | --- |
 | State: `transactional-state-machine` | Paused stages, explicit/unregistered Rules, autorule, old Q, saved snapshots, narrow/wide wrapping and mid-run System reset | workers 1/2 | Verilator | worker 1 |
-| Control: `transactional-control-flow` | Module/Rule/Method branches, local joins, early return and selected guard cancellation | workers 1/2 | Verilator; Icarus for X/Z companion | scalar design only |
+| Control: `transactional-control-flow` | Module/Rule/Method branches, local joins, early return and selected guard cancellation | workers 1/2 | Verilator; Icarus for X/Z companion | Bits designs, worker 1 |
 | Calls: `transactional-sibling-methods` | Two callers share state; separate instance, scalar/tuple/ignored results, nested calls, guard cancellation and independent progress | workers 1/2 | Verilator | worker 1 |
-| Queue: `transactional-queue-pipeline` | Finite stream, atomic two-output fanout, blocked consumer, cross-owner effects, exactly-once ordering | workers 1/2 | Verilator | NOT RUN: Queue unsupported |
-| Data: `transactional-structured-packet` | Enum/nested Struct, 80-bit payload, independent tuple outputs, stored payload, X/Z transport and occupied-Queue reset | workers 1/2 | Icarus | NOT RUN: Queue/nominal payload unsupported |
-| Failure: `transactional-failure` | One legal source assertion fails after successful commits; multi-owner/Queue proposals and pending logs, public failure/reset lifecycle | workers 1/2 | Verilator | NOT RUN: Queue unsupported |
+| Queue: `transactional-queue-pipeline` | Finite stream, atomic two-output fanout, blocked consumer, cross-owner effects, exactly-once ordering | workers 1/2 | Verilator | worker 1 |
+| Data: `transactional-structured-packet` | Enum/nested Struct, 80-bit payload, independent tuple outputs, stored payload, X/Z transport and occupied-Queue reset | workers 1/2 | Icarus | NOT RUN: nominal payload unsupported |
+| Failure: `transactional-failure` | One legal source assertion fails after successful commits; multi-owner/Queue proposals and pending logs, public failure/reset lifecycle | workers 1/2 | Verilator | worker 1 |
 
 Selections are explicit, before compilation. A compile failure is a failure,
 never an automatic skip or an expected-rejection success. The API gate and G1
@@ -40,13 +40,12 @@ supported sources and oracle as the physical targets.
 | `transactional-constraints` | Natural-width arithmetic before widening, wide shift counts, literal constraint propagation, SSA snapshots and ignored Method results |
 | `transactional-state-interfaces` | Parent-owned State output binding, global Rule templates, aliases, hold and public Module-port reset adapter |
 | `transactional-uninitialized` | Omitted Bits/Enum/Struct initialization is X; typed public outputs verify write, hold and reset |
-| `transactional-queue-timing` | Same-Queue pop/push at middle occupancy, empty no-bypass and full no-borrowing |
+| `transactional-queue-timing` | Same-Queue pop/push at middle occupancy, empty no-bypass, full no-borrowing, ring wrap, X/Z payload and occupied-Queue reset |
 | `transactional-resource-composition` | Multilayer Module references, mixed State/Queue tuple bindings and separately admitted Rules; existing independent oracle retained |
 | `transactional-linked` | Saved Linked → Routed anchor → Final continuation, followed by numerical execution |
 
-The Calls case also builds its generated t-gfsim program against installed
-Runtime with LLVM/MLIR discovery disabled. It reuses that case's design and
-expected history. Cumulative/batch and other complete examples retain their own
+The Calls and Queue cases also build their generated t-gfsim programs against installed
+Runtime with LLVM/MLIR discovery disabled. They reuse the same designs and expected histories. Cumulative/batch and other complete examples retain their own
 example registrations and functionality; duplicate API instrumentation is removed.
 
 ## Remaining verification gaps
@@ -75,14 +74,16 @@ checks the failure state, epoch, prior successful numerical history, withheld
 logs and clean Reset/restart. Direct post-failure generated State/Queue storage
 inspection remains **unverified**. The existing native t-gfsim runtime assertion
 oracle is retained as a bounded supplement because public `State::Q()` can
-verify discarded proposals there; it uses Reset rather than retry after failure.
-That runtime oracle does not establish generated Queue rollback.
+verify discarded proposals there. It now includes a pending pop/push on an
+occupied Queue and checks its unchanged head and occupancy along with both State
+values and withheld logs. It uses Reset rather than retry after failure.
+That runtime oracle does not establish direct inspection of generated Queue rollback.
 
 These are implementation/observation gaps, not permission to weaken the
 behavioral contract. This follow-up restores finite System stimulus admission and propagation; reset
 and transaction semantics are unchanged.
 
-## Follow-up validation (2026-10-29)
+## Predecessor validation (2026-10-29)
 
 Local work packages A (backpressure) and B (System samples) are implemented; no
 PR has been published. Excluding shared documentation, A changes two existing
@@ -107,6 +108,20 @@ raw logs and statuses. The initial bare-System compiler regression was fixed
 before the successful full run. Multi-file Black hung and was interrupted;
 individual changed-file invocations of the same pre-commit hooks passed.
 
+## Bits Queue direct target validation
+
+PR-13b builds on predecessor `7ac85a56`. The same pipeline, Bits control
+companions, Queue timing/reset and assertion-failure histories now select
+t-gfsim as well as physical C++ and RTL. Queue payload tests retain all three
+value/known/Z planes; the RTL supplement uses Icarus. The Queue pipeline also
+builds its generated program against installed Runtime with LLVM/MLIR discovery
+disabled. Enum/Struct direct generation remains deferred to PR-13c.
+
+Current execution results and remaining NOT RUN cases are recorded with commands
+and candidate content under `docs/gates/logs/20261029-pr13b/`; the predecessor
+results above are separate evidence. No rejected-input or combinatorial matrix
+is added, and no existing behavioral oracle is removed.
+
 ## Coverage migration
 
 “Removed” is never reported as PASS. Rejection and structural checks below are
@@ -123,11 +138,11 @@ removed from both gate and nightly, together with orphan fixtures and targets.
 | `constraints` | External positive sources and independent numerical oracle | Mismatched Queue type, malformed literal, failed-publication byte checks | Annotated Queue declaration executes in Queue pipeline |
 | `state-interfaces`, `uninitialized` | External designs, public output/reset adapters | Mismatched binding rejection, allocation counts, generated source-group inventory | No added type matrix |
 | `linked`, `correspondence` | Saved-anchor numerical supplement; Calls saved closure | Source-unit tampering, byte equality, op strings, duplicated direct/resumed execution | None claimed beyond successful continuation |
-| `gfsim` | State/Control/Calls sources, Runtime-only build and native runtime foundation | Unsupported-backend rejection, generated harness substitution, duplicate examples/failure modes | Queue/nominal direct target remains unsupported |
+| `gfsim` | State/Control/Calls sources, Runtime-only build and native runtime foundation | Unsupported-backend rejection, generated harness substitution, duplicate examples/failure modes | Nominal direct target remains unsupported |
 | `IR/transactional-*` | Behavior in the six groups and supplements | All nine new rejection/structural/CSE/roundtrip fixtures | Printer functionality stays in `acir-display` |
 | `SourceResourceBindingTests`, `TransactionalMethodConstraintsTests` | Calls, parent State, resource composition and type arithmetic histories | New native op counts, attributes, deferred-op shape, mutation and standalone targets | No compiler diagnostic/shape coverage claimed |
 | New stale-callable test in `test_saved_anchor.py` | Existing successful saved-anchor tests remain | Old-spelling IR mutation and exact regeneration diagnostic | Historical anchor tests unchanged |
-| `TransactionalGfsimTest` | Old-Q/log publication/reset lifecycle and public State rollback oracle | Additional unknown-control failure case and retry-after-failure sequence | Generated Queue rollback remains unverified |
+| `TransactionalGfsimTest` | Old-Q/log publication/reset lifecycle and public State/Queue rollback oracle | Additional unknown-control failure case and retry-after-failure sequence | Generated Queue rollback remains unverified |
 
 The cleanup does not remove compiler checks, move removed tests to nightly,
 rewrite frozen approvals, or reduce the functionality of complete examples.

@@ -13,9 +13,11 @@ shutil.copyfile(
 )
 fixture.compile_source("failure")
 final = fixture.scratch / "failure.ac"
-fixture.link_saved(("failure",), "failure_test.failure.Failure", final)
+linked = fixture.link_saved(("failure",), "failure_test.failure.Failure", final)
 target = sys.argv[-1]
-executable, generated = fixture.build_system(final, target)
+executable, generated = fixture.build_system(
+    linked if target == "t-gfsim" else final, target
+)
 expected = Counter()
 for epoch in range(7):
     cycle = epoch // 2

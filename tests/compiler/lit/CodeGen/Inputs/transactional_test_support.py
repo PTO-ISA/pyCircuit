@@ -209,6 +209,29 @@ class SourceTest:
             )
         return executable
 
+    def build_runtime_consumer(self, target):
+        """Build an emitted bundle against the installed Runtime without LLVM."""
+        portable = self.scratch / "portable-generated"
+        shutil.copytree(self.scratch / target, portable)
+        build = self.scratch / "runtime-only-build"
+        self.run(
+            [
+                "cmake",
+                "-S",
+                portable,
+                "-B",
+                build,
+                f"-DCMAKE_PREFIX_PATH={os.environ['PYC_TOOLCHAIN_ROOT']}",
+                "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
+                "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
+                f"-DCMAKE_CXX_COMPILER={self.cxx}",
+            ]
+        )
+        self.run(
+            ["cmake", "--build", build, "--target", "pycircuit_sim", "--parallel", 2]
+        )
+        return build / "bin/pycircuit_sim"
+
 
 def log_history(result, *, successful=True):
     """Decode public System logs without assuming a design or execution order.

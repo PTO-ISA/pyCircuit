@@ -5,6 +5,7 @@
 #include "llvm/ADT/StringSwitch.h"
 #include "llvm/Support/FormatVariadic.h"
 #include "llvm/Support/JSON.h"
+#include <map>
 #include <set>
 using namespace mlir;
 namespace acir::compiler {
@@ -230,12 +231,20 @@ LogicalResult Emitter::prepare(const Step &step) {
     line("}");
     return success();
   }
-  if (step.kind != Kind::Pure && step.kind != Kind::StateRead)
+  bool queueRead = step.kind == Kind::QueueHead || step.kind == Kind::QueuePop;
+  if (step.kind != Kind::Pure && step.kind != Kind::StateRead && !queueRead)
     return success();
-  line("if (" + path(step.path) + " && " + available(step.operands) + ") {");
+  if (step.results.empty())
+    return success();
+  std::string condition = path(step.path) + " && " + available(step.operands);
+  if (queueRead)
+    condition += " && " + resource(step.resource) + ".CanPop()";
+  line("if (" + condition + ") {");
   indentation += 2;
   if (step.kind == Kind::StateRead)
     line(slot(step.results[0]) + " = " + resource(step.resource) + ".Q();");
+  else if (queueRead)
+    line(slot(step.results[0]) + " = " + resource(step.resource) + ".Head();");
   else {
     SmallVector<std::string> args;
     for (unsigned operand : step.operands)
@@ -253,7 +262,8 @@ LogicalResult Emitter::prepare(const Step &step) {
 }
 LogicalResult Emitter::execute(const Step &step) {
   if (step.kind == Kind::Pure || step.kind == Kind::Merge ||
-      step.kind == Kind::StateRead)
+      step.kind == Kind::StateRead || step.kind == Kind::QueueHead ||
+      (step.kind == Kind::QueuePop && step.ruleParameter != NoID))
     return success();
   std::string condition = path(step.path) + " && " + available(step.operands);
   if (step.activation != NoID)
@@ -265,6 +275,12 @@ LogicalResult Emitter::execute(const Step &step) {
   if (step.kind == Kind::StateWrite)
     line("static_cast<void>(" + resource(step.resource) +
          ".Propose(context, *" + slot(step.operands[0]) + "));");
+  else if (step.kind == Kind::QueuePush)
+    line("static_cast<void>(" + resource(step.resource) +
+         ".ProposePush(context, *" + slot(step.operands[0]) + "));");
+  else if (step.kind == Kind::QueuePop)
+    line("static_cast<void>(" + resource(step.resource) +
+         ".ProposePop(context));");
   else if (step.kind == Kind::Assert)
     line("if (model.checkAssertions) context.Assert(*" +
          slot(step.operands[0]) + ", \"transactional assertion failed\");");
@@ -338,9 +354,9 @@ LogicalResult Emitter::schedule(ArrayRef<const Step *> sequence, unsigned owner,
 }
 LogicalResult Emitter::run() {
   for (const auto &resource : p.getResources())
-    if (resource.isQueue() || !isa<ac::BitsType>(resource.getPayload()))
+    if (!isa<ac::BitsType>(resource.getPayload()))
       return resource.allocation->emitError(
-          "t-gfsim currently supports Bits State only");
+          "t-gfsim currently supports Bits State and Queue only");
   for (const auto &value : p.getValues())
     if (!isa<ac::BitsType>(value.type))
       return p.getTop().emitError(
@@ -401,6 +417,12 @@ LogicalResult Emitter::run() {
     line("} c;");
     for (unsigned resourceID : instance.resources) {
       const auto &r = p.getResources()[resourceID];
+      if (r.isQueue()) {
+        line("::pycircuit::transactional_gfsim::Queue<::gfsim::FourState<" +
+             Twine(width(r.getPayload())) + ">, " + Twine(r.depth) + "> r" +
+             Twine(resourceID) + ";");
+        continue;
+      }
       auto init = initial(r.initial);
       if (failed(init))
         return r.allocation->emitError("unsupported direct State initializer");
@@ -483,10 +505,29 @@ LogicalResult Emitter::run() {
         line("if (" + path(control.path) + ") { if (!" + slot(control.value) +
              ") return; (void)::pycircuit::transactional_gfsim::CheckedControl(*" +
              slot(control.value) + "); }");
+      for (bool reads : {true, false})
+        for (const auto &requirement : reads ? rule.queueReads : rule.queueWrites)
+          fire += " && (!(" + path(requirement.path) + ") || " +
+                  resource(requirement.value) +
+                  (reads ? ".CanPop())" : ".CanPush())");
       line("if (" + fire + ") {");
       indentation += 2;
       if (failed(schedule(sequence(rule.body), NoID, true)))
         return failure();
+      // Common analysis gives repeated formal reads one logical access.
+      // Union their selected paths here, leaving explicit pops distinct and
+      // the Runtime's duplicate-proposal checks intact.
+      std::map<unsigned, SmallVector<const Step *>> consumptions;
+      for (const auto &step : rule.body.steps)
+        if (step->kind == Kind::QueuePop && step->ruleParameter != NoID)
+          consumptions[step->ruleParameter].push_back(step.get());
+      for (const auto &[parameter, demands] : consumptions) {
+        std::string selected = "false";
+        for (const auto *demand : demands)
+          selected += " || (" + path(demand->path) + ")";
+        line("if (" + selected + ") static_cast<void>(" +
+             resource(demands.front()->resource) + ".ProposePop(context));");
+      }
       indentation -= 2;
       line("}");
       indentation -= 2;

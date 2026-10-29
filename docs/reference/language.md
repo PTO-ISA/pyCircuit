@@ -134,6 +134,9 @@ resource double-push or double-pop requires proven mutual exclusion; there is no
 implicit arbitration. FIFO storage stays in its actual owner and reset empties it.
 Four-state payloads are preserved; empty head data cannot activate blocked checks.
 See `examples/scalar_queue_pipeline` for parent-owned connections and backpressure.
+Direct t-gfsim also supports Bits State/Queue combinations from saved Linked
+ACIR, using the same common analysis for selected paths and final fire.
+Enum/Struct payload generation remains a t-gfsim implementation gap.
 Root Queue exports to an external payload-only interface remain unsupported;
 consume these resources inside a System instead. Nested resource exports retain
 their identity.

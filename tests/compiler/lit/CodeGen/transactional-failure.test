@@ -1,5 +1,4 @@
 # REQUIRES: verilator
 # RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.source.cpp cpp
 # RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.source.rtl verilog
-# Queue runtime is not yet supported by t-gfsim; its supported call behavior is
-# exercised by transactional-sibling-methods with the same independent oracle.
+# RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.t-gfsim t-gfsim

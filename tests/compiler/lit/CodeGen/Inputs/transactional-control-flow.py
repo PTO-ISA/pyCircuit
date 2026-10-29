@@ -80,14 +80,14 @@ unused_history = [
 
 arguments = sys.argv[1:]
 target = arguments[-1]
-cases = [("flow", scalar_history)]
+cases = [
+    ("flow", scalar_history),
+    ("inputs", input_history),
+    ("guarded", guarded_history),
+    ("unused", unused_history),
+]
 if target != "t-gfsim":
-    cases += [
-        ("inputs", input_history),
-        ("guarded", guarded_history),
-        ("nominal", nominal_history),
-        ("unused", unused_history),
-    ]
+    cases.append(("nominal", nominal_history))
 for name, history in cases:
     case_arguments = list(arguments)
     case_arguments[6] = str(Path(arguments[6]) / name)

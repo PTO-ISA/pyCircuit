@@ -25,8 +25,8 @@ conditional-Method and four-state reset cases cover path admission and X default
 Module, Rule and Method payload local joins execute through common branch analysis.
 Rule/Method early returns normalize to the same structured branch results and
 whole-transaction commit. Loops, dynamic instance/resource selection and dynamic unknown
-control remain gaps. t-gfsim (transactional-gfsim) supports the bounded Bits State profile described
-in the source-unit workflow; Queue and nominal payload generation remain gaps.
+control remain gaps. t-gfsim (transactional-gfsim) supports the bounded Bits State/Queue profile described
+in the source-unit workflow; Nominal payload generation remains a gap.
 Their independent expectations remain in test-owned models and source
 assertions. Example introductions describe their own behavior; they do not
 certify the migration of a larger historical design.
@@ -37,7 +37,7 @@ certify the migration of a larger historical design.
 | `SourceMemoryBindingsTest.cpp` plan-class cases and entry-wrapper snapshots | Migration inputs; previous NOT RUN records do not establish current results. |
 | Old TableQuery write-plan-internals case | Retired implementation-specific coverage, not a passing test. |
 | Original `queue_rule_pipeline`, structured examples and full multi-output designs | Preserve original behavioral expectations; scalar/packet teaching examples do not replace their full coverage. |
-| t-gfsim (transactional-gfsim) | Linked emission supports closed single-clock Bits State Systems, Rules and Methods with one worker. Queue, nominal payloads and unknown clock/reset samples remain gaps. |
+| t-gfsim (transactional-gfsim) | Linked emission supports closed single-clock Bits State/Queue Systems, Rules and Methods with one worker. Nominal payloads and unknown clock/reset samples remain gaps. |
 
 ## Validation and evidence
 

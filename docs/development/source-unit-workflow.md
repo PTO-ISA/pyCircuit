@@ -38,8 +38,8 @@ Source import → unlinked constraints → link bindings → Linked ACIR
 
 `t-gfsim` consumes the verified linked transaction plan directly. It is distinct
 from the physical `gfsim` target and need not pass through the physical anchor.
-Its current profile admits Bits State and Bits payloads; Queue and nominal
-Enum/Struct payloads remain unsupported. Four-state hardware payload verification
+Its current profile admits Bits State and Queue; nominal Enum/Struct payloads
+remain unsupported. Four-state hardware payload verification
 uses the existing Icarus path. C++ and Verilog share the verified Hardware final
 artifact, including storage refinement. See the
 [language profile](../reference/language.md#transactional-frontend-replacement)
@@ -507,14 +507,17 @@ cmake --build .pycircuit_out/t-gfsim-build
 .pycircuit_out/t-gfsim-build/bin/pycircuit_sim --cycles 10 --workers 1
 ```
 
-This target supports closed single-clock Systems with Bits State, Rules and
-local or cross-instance Methods. Common transaction analysis supplies admission,
-paths and effects. Generated instance objects own State and expose combination,
+This target supports closed single-clock Systems with Bits State and Queue, Rules and local or cross-instance Methods. Common transaction analysis supplies admission,
+paths and effects. Generated instance objects own each State or Queue once and expose combination,
 Rule and Method functions. Whole-system checks precede commit and successful
 log publication. The initial direct target publishes logs; other observation
-forms, Queue and nominal payload generation remain follow-up work;
+forms and nominal payload generation remain follow-up work;
 unknown clock/reset sample rows and unsupported direct inputs reject. The generated build uses only the installed
-Runtime component. Only one worker is supported.
+Runtime component. Only one worker is supported. Queue readiness uses committed
+occupancy: empty has no bypass and full cannot borrow a simultaneous pop.
+Selected-path Queue admission and Method guards gate every effect of the Rule.
+Non-transfer samples discard proposals; reset empties Queues. Four-state
+payload masks survive enqueue/dequeue unchanged.
 
 A saved [anchor](../architecture/saved-anchor.md) remains a directory containing
 a versioned graph and separate exact definition specs/bodies. Transactional

@@ -4,14 +4,15 @@
 import pycircuit as ac
 
 
-@ac.system
-def Top():  # noqa: N802
+@ac.module
+def Timing():  # noqa: N802
     phase: ac.u8 = 0
     produced: ac.u8 = 0
     swapped: ac.u8 = 0
     consumed: ac.u8 = 0
     last: ac.u8 = 0
     queue = ac.queue[ac.u8](depth=2)
+    payload = ac.queue[ac.u8](depth=1)
     replacing = (phase == 1) | (phase == 3) | (phase == 5) | (phase == 7)
 
     @ac.rule(guard=lambda: (phase == 0) | (phase == 2) | (phase == 4) | (phase == 8))
@@ -30,6 +31,17 @@ def Top():  # noqa: N802
         consumed = consumed + 1
         last = value
 
+    @ac.rule(guard=lambda: phase == 0)
+    def produce_payload() -> ac.u8:
+        return ac.four_state("10xz0011")
+
+    @ac.rule
+    def consume_payload(value: ac.u8) -> None:
+        ac.log("info", "payload", value)
+
+    payload = produce_payload()
+    consume_payload(payload)
+
     if replacing:
         queue = swap(queue)
     else:
@@ -40,3 +52,8 @@ def Top():  # noqa: N802
     def tick() -> None:
         ac.log("info", "state", phase, produced, swapped, consumed, last)
         phase = phase + 1
+
+
+@ac.system
+def Top():  # noqa: N802
+    Timing()

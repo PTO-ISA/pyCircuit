@@ -14,10 +14,8 @@ shutil.copytree(
 )
 fixture.compile_source("design")
 final = fixture.scratch / "pipeline.ac"
-fixture.cli(
-    "link", fixture.scratch / "design", "--top", "queue_case.design.Top", "-o", final
-)
-executable, _ = fixture.build_system(final, target)
+linked = fixture.link_saved(("design",), "queue_case.design.Top", final)
+executable, _ = fixture.build_system(linked if target == "t-gfsim" else final, target)
 
 # Decide all transfers from old occupancy before changing any deque. In
 # particular, a full right output still blocks split on the first consumer edge.
@@ -92,7 +90,9 @@ assert left_values == [4, 6, 3, 8, 2, 5]
 assert right_values == [3, 8, 10, 17, 18, 22]
 for workers in (1, 2) if target == "cpp" else (1,):
     arguments = (
-        ["--cycles", "17", "--workers", workers] if target == "cpp" else ["+cycles=17"]
+        ["--cycles", "17", "--workers", workers]
+        if target != "verilog"
+        else ["+cycles=17"]
     )
     actual = log_history(fixture.run([executable, *arguments]))
     assert actual == expected, {
@@ -100,4 +100,12 @@ for workers in (1, 2) if target == "cpp" else (1,):
         "missing": expected - actual,
     }
 print(f"transactional Queue pipeline {target}: PASS")
-print("t-gfsim: NOT RUN (Queue support remains an implementation gap)")
+
+if target == "t-gfsim":
+    executable = fixture.build_runtime_consumer(target)
+    actual = log_history(fixture.run([executable, "--cycles", 17]))
+    assert actual == expected, {
+        "unexpected": actual - expected,
+        "missing": expected - actual,
+    }
+    print("Queue Runtime-only consumer: PASS")

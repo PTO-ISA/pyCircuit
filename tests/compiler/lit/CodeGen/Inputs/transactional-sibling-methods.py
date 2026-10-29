@@ -60,29 +60,8 @@ for workers in (1, 2) if target == "cpp" else (1,):
 print(f"cross-module transactions {target}: PASS")
 
 if target == "t-gfsim":
-    # Unique packaging check: a generated consumer builds with Runtime alone.
-    import os
-
-    portable = fixture.scratch / "portable-generated"
-    shutil.copytree(fixture.scratch / target, portable)
-    build = fixture.scratch / "runtime-only-build"
-    fixture.run(
-        [
-            "cmake",
-            "-S",
-            portable,
-            "-B",
-            build,
-            f"-DCMAKE_PREFIX_PATH={os.environ['PYC_TOOLCHAIN_ROOT']}",
-            "-DCMAKE_DISABLE_FIND_PACKAGE_LLVM=TRUE",
-            "-DCMAKE_DISABLE_FIND_PACKAGE_MLIR=TRUE",
-            f"-DCMAKE_CXX_COMPILER={fixture.cxx}",
-        ]
-    )
-    fixture.run(
-        ["cmake", "--build", build, "--target", "pycircuit_sim", "--parallel", 2]
-    )
-    actual = log_history(fixture.run([build / "bin/pycircuit_sim", "--cycles", 8]))
+    executable = fixture.build_runtime_consumer(target)
+    actual = log_history(fixture.run([executable, "--cycles", 8]))
     assert actual == expected, {
         "unexpected": actual - expected,
         "missing": expected - actual,
