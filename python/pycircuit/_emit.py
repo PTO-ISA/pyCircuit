@@ -101,7 +101,7 @@ add_custom_command(OUTPUT "${PYCIRCUIT_SIM}"
 add_custom_target(pycircuit_sim DEPENDS "${PYCIRCUIT_SIM}")
 """
         )
-    if target == "gfsim":
+    if target == "t-gfsim":
         return """cmake_minimum_required(VERSION 3.25)
 project(PycircuitTransactionalSimulation LANGUAGES CXX)
 find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
@@ -165,7 +165,7 @@ def _target_files(payload: dict, target: str):
             groups[key] = {"source": owner, "files": []}
         return groups[key]["files"]
 
-    if target == "gfsim":
+    if target == "t-gfsim":
         add("pycircuit_model.hpp", payload["model_header"], "header")
         group(payload["entry_source"]).append("pycircuit_model.hpp")
     elif target == "cpp":
@@ -197,7 +197,7 @@ def _target_files(payload: dict, target: str):
         )
     simulation = bool(
         payload.get("simulation_main")
-        if target in {"cpp", "gfsim"}
+        if target in {"cpp", "t-gfsim"}
         else payload.get("simulation_top")
     )
     if simulation:
@@ -220,7 +220,7 @@ def _target_files(payload: dict, target: str):
             + "\n",
             "runtime-glue",
         )
-        if target in {"cpp", "gfsim"}:
+        if target in {"cpp", "t-gfsim"}:
             add("simulation_main.cpp", payload["simulation_main"], "runtime-glue")
             add("simulation_config.json", payload["simulation_config"], "runtime-glue")
         else:
@@ -268,8 +268,8 @@ def emit_command(
     replace: bool = False,
     rtl_mode: str = "managed",
 ):
-    if target not in {"cpp", "verilog", "gfsim"}:
-        raise _DriverError("emit target must be cpp, verilog or gfsim")
+    if target not in {"cpp", "verilog", "t-gfsim"}:
+        raise _DriverError("emit target must be cpp, verilog or t-gfsim")
     if rtl_mode not in {"managed", "physical"}:
         raise _DriverError("RTL mode must be managed or physical")
     if target != "verilog" and rtl_mode != "managed":
@@ -290,10 +290,10 @@ def emit_command(
             inputs = []
             snapshot = None
             if fs.kind(control) is not None:
-                owner = _managed_owner(source, fs, linked=target == "gfsim")
+                owner = _managed_owner(source, fs, linked=target == "t-gfsim")
                 validate_input = (
                     _validate_linked
-                    if target == "gfsim"
+                    if target == "t-gfsim"
                     else _validate_published_program
                 )
                 inputs.append(

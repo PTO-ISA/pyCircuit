@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace pycircuit::gfsim {
+namespace pycircuit::transactional_gfsim {
 
 class Context;
 class System;
@@ -188,4 +188,4 @@ private:
   bool conflict_ = false;
 };
 
-} // namespace pycircuit::gfsim
+} // namespace pycircuit::transactional_gfsim

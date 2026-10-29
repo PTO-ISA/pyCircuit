@@ -23,7 +23,7 @@ def logs(result):
         if line.startswith("{")
         for row in [json.loads(line)]
     ]
-    if target == "gfsim":
+    if target == "t-gfsim":
         results = [row for row in rows if row.get("kind") == "result"]
         assert len(results) == 1, rows
         assert results[0]["status"] == ("FAILED" if result.returncode else "TERMINATED")
@@ -54,7 +54,9 @@ for example, units, top in (
         fixture.compile_source(unit, *units[:2] if unit == "Top" else ())
     final = fixture.scratch / "final.ac"
     linked = fixture.link_saved(units, f"{package}.{top}", final)
-    executable, _ = fixture.build_system(linked if target == "gfsim" else final, target)
+    executable, _ = fixture.build_system(
+        linked if target == "t-gfsim" else final, target
+    )
     args = (
         ["+cycles=" + str(cycles)]
         if target == "verilog"
@@ -63,11 +65,11 @@ for example, units, top in (
     verify_expected_observations(
         history, logs(fixture.run([executable, *args])), cycles * 2
     )
-    if target == "gfsim" and example == "hello_counter":
+    if target == "t-gfsim" and example == "hello_counter":
         fixture.run([executable, "--workers", 2], fails=True)
     if example == "hello_counter":
         reset_executable, _ = fixture.build_system(
-            linked if target == "gfsim" else final,
+            linked if target == "t-gfsim" else final,
             target,
             reset_cycle=2,
             name="reset",
@@ -78,7 +80,7 @@ for example, units, top in (
         verify_expected_observations(
             reset_history, logs(fixture.run([reset_executable, *args])), 10
         )
-        if target == "gfsim":
+        if target == "t-gfsim":
             # The portable generated consumer requires Runtime alone. LLVM
             # discovery is disabled, and sources/units were removed above.
             portable = fixture.scratch / "portable-generated"
@@ -122,7 +124,7 @@ shutil.copyfile(
 fixture.compile_source("conditional")
 final = fixture.scratch / "final.ac"
 linked = fixture.link_saved(("conditional",), "conditional_test.conditional.Top", final)
-executable, _ = fixture.build_system(linked if target == "gfsim" else final, target)
+executable, _ = fixture.build_system(linked if target == "t-gfsim" else final, target)
 args = ["+cycles=5"] if target == "verilog" else ["--cycles", 5, "--workers", 1]
 history = {"total": [], "progress": [], "consume": []}
 for cycle, (total, accepted) in enumerate(((0, 0), (3, 1), (8, 2), (8, 2), (13, 3))):
@@ -153,7 +155,7 @@ source = source.replace(
 fixture.compile_source("failure")
 final = fixture.scratch / "final.ac"
 linked = fixture.link_saved(("failure",), "failure_test.failure.FailureSystem", final)
-executable, _ = fixture.build_system(linked if target == "gfsim" else final, target)
+executable, _ = fixture.build_system(linked if target == "t-gfsim" else final, target)
 args = ["+cycles=8"] if target == "verilog" else ["--cycles", 8, "--workers", 1]
 actual = Counter()
 for row in logs(fixture.run([executable, *args], fails=True)):

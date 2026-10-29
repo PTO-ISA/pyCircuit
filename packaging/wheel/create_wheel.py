@@ -29,6 +29,7 @@ PRIVATE_HELPERS = (
     "pycircuit-link",
     "pycircuit-emit",
     "pycircuit-opt",
+    "pycircuit-print",
 )
 RUNTIME_HEADERS = (
     "gfsim/model_api.h",

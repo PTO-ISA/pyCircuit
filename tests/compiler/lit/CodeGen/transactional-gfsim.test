@@ -1,4 +1,4 @@
 # REQUIRES: verilator, iverilog, vvp
-# RUN: %python %inputs/transactional-gfsim.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.gfsim gfsim
+# RUN: %python %inputs/transactional-gfsim.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.t-gfsim t-gfsim
 # RUN: %python %inputs/transactional-gfsim.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp
 # RUN: %python %inputs/transactional-gfsim.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.rtl verilog

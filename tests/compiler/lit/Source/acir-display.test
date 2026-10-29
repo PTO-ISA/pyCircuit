@@ -1,0 +1,1 @@
+# RUN: %python %inputs/acir-display.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t

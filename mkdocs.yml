@@ -84,6 +84,7 @@ nav:
   - Language:
       - Overview: reference/index.md
       - Python Source: reference/language.md
+      - Reading ACIR: reference/acir-display.md
       - Language and Execution: reference/language-specification.md
       - Diagnostics: reference/diagnostics.md
       - Names and Source Ownership: reference/name-mangling.md

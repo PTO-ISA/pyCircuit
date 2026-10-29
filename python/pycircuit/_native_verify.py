@@ -22,6 +22,7 @@ _HELPERS: dict[str, tuple[str, str]] = {
     "source-unit": ("pycircuit-source-unit", "PYCIRCUIT_SOURCE_COMPILER"),
     "design": ("pycircuit-link", "PYCIRCUIT_LINKER"),
     "emit": ("pycircuit-emit", "PYCIRCUIT_EMITTER"),
+    "print": ("pycircuit-print", "PYCIRCUIT_PRINTER"),
 }
 # Private pycircuit-link status; not exposed as a pycircuit CLI exit code.
 _SOURCE_UNIT_OWNER_MISMATCH_EXIT = 3

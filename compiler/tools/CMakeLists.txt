@@ -34,6 +34,17 @@ target_link_libraries(pycircuit-emit PRIVATE
   MLIRSupport
 )
 
+add_executable(pycircuit-print print.cpp)
+target_link_libraries(pycircuit-print PRIVATE
+  pycircuit_project_options
+  ACIRDialect
+  MLIRArithDialect
+  MLIRFuncDialect
+  MLIRSCFDialect
+  MLIRParser
+  MLIRSupport
+)
+
 add_executable(pycircuit-opt opt.cpp)
 target_link_libraries(pycircuit-opt PRIVATE
   pycircuit_project_options

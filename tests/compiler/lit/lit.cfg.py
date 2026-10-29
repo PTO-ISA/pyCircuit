@@ -35,6 +35,9 @@ config.environment["PATH"] = (
     os.path.dirname(config.filecheck) + os.pathsep + os.environ.get("PATH", "")
 )
 config.environment["PYTHONDONTWRITEBYTECODE"] = "1"
+# Installed Runtime discovery for the portable transactional simulator consumer.
+if "PYC_TOOLCHAIN_ROOT" in os.environ:
+    config.environment["PYC_TOOLCHAIN_ROOT"] = os.environ["PYC_TOOLCHAIN_ROOT"]
 for name in ("verilator", "iverilog", "vvp"):
     path = shutil.which(name)
     if path:

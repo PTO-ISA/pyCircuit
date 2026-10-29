@@ -520,7 +520,7 @@ continueLinkedSource(ModuleOp source, ac::detail::EmitError emitError,
   if (!top)
     return emitError() << "linked artifact requires a selected root";
   ac::HardwareSourceCheckLimits limits;
-  limits.maxWorkUnits = 1024 * 1024;
+  limits.maxWorkUnits = 16 * 1024 * 1024;
   ac::detail::SourceCheckBudget budget(limits);
   auto debit = [&](uint64_t units, Operation *site) {
     return budget.debit(units, site);

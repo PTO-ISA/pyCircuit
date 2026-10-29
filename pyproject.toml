@@ -63,7 +63,7 @@ include = ["pycircuit", "pycircuit.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-pycircuit = ["**/*.py", "**/*.md"]
+pycircuit = ["**/*.py", "**/*.md", "acir_display.json"]
 
 [tool.black]
 line-length = 88

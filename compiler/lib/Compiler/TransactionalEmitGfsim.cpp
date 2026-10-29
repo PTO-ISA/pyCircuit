@@ -80,7 +80,7 @@ private:
     std::string result = "true";
     for (auto term : terms)
       result += " && " + slot(term.value) +
-                " && (::pycircuit::gfsim::CheckedControl(*" + slot(term.value) +
+                " && (::pycircuit::transactional_gfsim::CheckedControl(*" + slot(term.value) +
                 ") == " + (term.positive ? "true" : "false") + ")";
     return result;
   }
@@ -140,7 +140,7 @@ FailureOr<std::string> Emitter::expression(const Step &step, unsigned result,
     auto value = literal(constant.getValue());
     if (value)
       return known(*value, w);
-    op->emitError("gfsim requires closed literal constant values");
+    op->emitError("t-gfsim requires closed literal constant values");
     return failure();
   }
   if (auto constant = dyn_cast<ac::BitsConstant4Op>(op)) {
@@ -195,7 +195,7 @@ FailureOr<std::string> Emitter::expression(const Step &step, unsigned result,
   if (auto extract = dyn_cast<ac::BitsExtractOp>(op)) {
     auto low = literal(extract.getLow());
     if (!low || low->isNegative() || low->getActiveBits() > 32) {
-      op->emitError("gfsim requires a closed finite slice offset");
+      op->emitError("t-gfsim requires a closed finite slice offset");
       return failure();
     }
     return "::gfsim::extract<" + std::to_string(w) + ">(" + args[0] + ", " +
@@ -210,7 +210,7 @@ FailureOr<std::string> Emitter::expression(const Step &step, unsigned result,
     return "::gfsim::" + mode.str() + "<" + std::to_string(w) + ">(" + args[0] +
            ")";
   }
-  op->emitError("unsupported pure operation in transactional gfsim emitter");
+  op->emitError("unsupported pure operation in t-gfsim emitter");
   return failure();
 }
 
@@ -242,7 +242,7 @@ LogicalResult Emitter::execute(const Step &step) {
   std::string condition = path(step.path) + " && " + available(step.operands);
   if (step.activation != NoID)
     condition += " && " + slot(step.activation) +
-                 " && ::pycircuit::gfsim::CheckedControl(*" +
+                 " && ::pycircuit::transactional_gfsim::CheckedControl(*" +
                  slot(step.activation) + ")";
   line("if (" + condition + ") {");
   indentation += 2;
@@ -256,7 +256,7 @@ LogicalResult Emitter::execute(const Step &step) {
     auto observe = cast<ac::SourceObserveOp>(step.operation);
     if (observe.getKind() != "log")
       return observe.emitError(
-          "direct gfsim currently supports log observations only");
+          "t-gfsim currently supports log observations only");
     auto spec = emissionMetadataJson(observe.getSpec(), observe);
     auto registration = emissionMetadataJson(
         p.getRules()[step.rule].registration->getAttr("ac.origin"), observe);
@@ -294,7 +294,7 @@ LogicalResult Emitter::execute(const Step &step) {
     }
     line("context.Log(" + text + " + \"]}\");");
   } else
-    return step.operation->emitError("unsupported direct gfsim effect");
+    return step.operation->emitError("unsupported t-gfsim effect");
   indentation -= 2;
   line("}");
   return success();
@@ -324,14 +324,14 @@ LogicalResult Emitter::run() {
   for (const auto &resource : p.getResources())
     if (resource.isQueue() || !isa<ac::BitsType>(resource.getPayload()))
       return resource.allocation->emitError(
-          "direct gfsim currently supports Bits State only");
+          "t-gfsim currently supports Bits State only");
   for (const auto &value : p.getValues())
     if (!isa<ac::BitsType>(value.type))
       return p.getTop().emitError(
-          "direct gfsim currently supports Bits payloads only");
+          "t-gfsim currently supports Bits payloads only");
   if (!p.getExports().empty())
     return p.getTop().emitError(
-        "direct gfsim requires a closed System without exported resources");
+        "t-gfsim requires a closed System without exported resources");
   for (const auto &instance : p.getInstances())
     for (const auto &step : instance.comb.steps)
       steps.push_back(step.get());
@@ -346,7 +346,7 @@ LogicalResult Emitter::run() {
       producers[result] = step;
   llvm::sort(steps, [](const Step *a, const Step *b) { return a->id < b->id; });
   line("// Generated directly from verified Linked transactional ACIR.");
-  line("#pragma once\n#include <pycircuit/gfsim/runtime.h>\n#include "
+  line("#pragma once\n#include <pycircuit/transactional_gfsim/runtime.h>\n#include "
        "<optional>\n#include <string>");
   line("namespace pycircuit_generated {");
   indentation = 2;
@@ -375,7 +375,7 @@ LogicalResult Emitter::run() {
   }
   for (auto [id, instance] : llvm::enumerate(p.getInstances())) {
     line("struct Module_" + Twine(id) +
-         " final : ::pycircuit::gfsim::Module {");
+         " final : ::pycircuit::transactional_gfsim::Module {");
     indentation += 2;
     line("Model &model;");
     line("struct CombFrame {");
@@ -388,25 +388,25 @@ LogicalResult Emitter::run() {
       auto init = initial(r.initial);
       if (failed(init))
         return r.allocation->emitError("unsupported direct State initializer");
-      line("::pycircuit::gfsim::State<::gfsim::FourState<" +
+      line("::pycircuit::transactional_gfsim::State<::gfsim::FourState<" +
            Twine(width(r.getPayload())) + ">> r" + Twine(resourceID) + "{" +
            *init + "};");
     }
     line("explicit Module_" + Twine(id) + "(Model &owner) : model(owner) {}");
-    line("void CombWork(::pycircuit::gfsim::Context &) override;");
-    line("void Work(::pycircuit::gfsim::Context &) override;");
+    line("void CombWork(::pycircuit::transactional_gfsim::Context &) override;");
+    line("void Work(::pycircuit::transactional_gfsim::Context &) override;");
     for (auto [methodID, method] : llvm::enumerate(p.getMethodInvocations()))
       if (method.instance == id) {
         line("void Method_" + Twine(methodID) +
-             "(::pycircuit::gfsim::Context &, Frame_" + Twine(method.rule) +
+             "(::pycircuit::transactional_gfsim::Context &, Frame_" + Twine(method.rule) +
              " &);");
         line("void Effect_" + Twine(methodID) +
-             "(::pycircuit::gfsim::Context &, Frame_" + Twine(method.rule) +
+             "(::pycircuit::transactional_gfsim::Context &, Frame_" + Twine(method.rule) +
              " &);");
       }
     line("private:");
     for (unsigned rule : instance.rules)
-      line("void Rule_" + Twine(rule) + "(::pycircuit::gfsim::Context &);");
+      line("void Rule_" + Twine(rule) + "(::pycircuit::transactional_gfsim::Context &);");
     indentation -= 2;
     line("};");
   }
@@ -414,7 +414,7 @@ LogicalResult Emitter::run() {
   indentation += 2;
   for (auto [id, instance] : llvm::enumerate(p.getInstances()))
     line("Module_" + Twine(id) + " m" + Twine(id) + "{*this};");
-  line("::pycircuit::gfsim::System system;");
+  line("::pycircuit::transactional_gfsim::System system;");
   line("std::uint64_t epoch = 0; bool checkAssertions = true;");
   line("Model() {");
   indentation += 2;
@@ -430,7 +430,7 @@ LogicalResult Emitter::run() {
   line("};");
   for (auto [id, instance] : llvm::enumerate(p.getInstances())) {
     line("inline void Module_" + Twine(id) +
-         "::CombWork(::pycircuit::gfsim::Context &context) {");
+         "::CombWork(::pycircuit::transactional_gfsim::Context &context) {");
     indentation += 2;
     line("(void)context; c = {}; auto &f = c; (void)f;");
     if (failed(schedule(sequence(instance.comb), NoID, false)))
@@ -438,7 +438,7 @@ LogicalResult Emitter::run() {
     indentation -= 2;
     line("}");
     line("inline void Module_" + Twine(id) +
-         "::Work(::pycircuit::gfsim::Context &context) {");
+         "::Work(::pycircuit::transactional_gfsim::Context &context) {");
     indentation += 2;
     line("(void)context;");
     for (unsigned rule : instance.rules)
@@ -448,7 +448,7 @@ LogicalResult Emitter::run() {
     for (unsigned ruleID : instance.rules) {
       const auto &rule = p.getRules()[ruleID];
       line("inline void Module_" + Twine(id) + "::Rule_" + Twine(ruleID) +
-           "(::pycircuit::gfsim::Context &context) {");
+           "(::pycircuit::transactional_gfsim::Context &context) {");
       indentation += 2;
       line("(void)context; Frame_" + Twine(ruleID) + " f;");
       if (failed(schedule(sequence(rule.guard), NoID, false)) ||
@@ -457,15 +457,15 @@ LogicalResult Emitter::run() {
       std::string fire = path(rule.path);
       for (unsigned guard : rule.guard.yields)
         fire += " && " + slot(guard) +
-                " && ::pycircuit::gfsim::CheckedControl(*" + slot(guard) + ")";
+                " && ::pycircuit::transactional_gfsim::CheckedControl(*" + slot(guard) + ")";
       for (const auto &requirement : rule.requirements)
         fire += " && (!(" + path(requirement.path) + ") || (" +
                 slot(requirement.value) +
-                " && ::pycircuit::gfsim::CheckedControl(*" +
+                " && ::pycircuit::transactional_gfsim::CheckedControl(*" +
                 slot(requirement.value) + ")))";
       for (const auto &control : rule.controls)
         line("if (" + path(control.path) + ") { if (!" + slot(control.value) +
-             ") return; (void)::pycircuit::gfsim::CheckedControl(*" +
+             ") return; (void)::pycircuit::transactional_gfsim::CheckedControl(*" +
              slot(control.value) + "); }");
       line("if (" + fire + ") {");
       indentation += 2;
@@ -485,7 +485,7 @@ LogicalResult Emitter::run() {
     for (bool effects : {false, true}) {
       line("inline void Module_" + Twine(method.instance) +
            (effects ? "::Effect_" : "::Method_") + Twine(id) +
-           "(::pycircuit::gfsim::Context &context, Frame_" +
+           "(::pycircuit::transactional_gfsim::Context &context, Frame_" +
            Twine(method.rule) + " &f) {");
       indentation += 2;
       line("(void)context; (void)f;");

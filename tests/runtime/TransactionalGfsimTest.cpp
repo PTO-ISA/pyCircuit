@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: BSD-3-Clause
-#include "pycircuit/gfsim/runtime.h"
+#include "pycircuit/transactional_gfsim/runtime.h"
 #include "gtest/gtest.h"
 
 #include <functional>
@@ -7,7 +7,7 @@
 #include <vector>
 
 namespace {
-namespace tx = pycircuit::gfsim;
+namespace tx = pycircuit::transactional_gfsim;
 
 struct ScriptModule final : tx::Module {
   std::function<void(tx::Context &)> comb, work, check;

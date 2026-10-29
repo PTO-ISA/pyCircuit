@@ -57,5 +57,5 @@ install(FILES
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}")
 
 install(FILES
-  "${PROJECT_SOURCE_DIR}/include/pycircuit/gfsim/runtime.h"
-  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/pycircuit/gfsim")
+  "${PROJECT_SOURCE_DIR}/include/pycircuit/transactional_gfsim/runtime.h"
+  DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/pycircuit/transactional_gfsim")

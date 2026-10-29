@@ -129,9 +129,32 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_print(args: argparse.Namespace) -> int:
+    from ._display import print_command
+    from ._publication import _PublicationError
+
+    try:
+        print_command(
+            args.source, profile=args.profile, config=args.config, output=args.output
+        )
+    except (OSError, ValueError, _PublicationError) as error:
+        print(f"pycircuit print: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pycircuit", allow_abbrev=False)
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    display = sub.add_parser("print", help="Display Unlinked or Linked ACIR.")
+    display.add_argument("source", help="ACIR file to read")
+    display.add_argument(
+        "--profile", choices=("readable", "debug", "full"), default="readable"
+    )
+    display.add_argument("--config", help="JSON display option overrides")
+    display.add_argument("-o", dest="output", help="Write the display to this file")
+    display.set_defaults(fn=_cmd_print)
 
     compile_units = sub.add_parser(
         "compile",
@@ -210,10 +233,10 @@ def main(argv: list[str] | None = None) -> int:
     link_program.set_defaults(fn=_cmd_link)
 
     emit = sub.add_parser(
-        "emit", help="Emit cpp/verilog from Final ACIR or gfsim from Linked ACIR."
+        "emit", help="Emit cpp/verilog from Final ACIR or t-gfsim from Linked ACIR."
     )
     emit.add_argument("final")
-    emit.add_argument("--target", choices=("cpp", "verilog", "gfsim"), required=True)
+    emit.add_argument("--target", choices=("cpp", "verilog", "t-gfsim"), required=True)
     emit.add_argument("--rtl-mode", choices=("managed", "physical"), default="managed")
     emit.add_argument("-o", dest="output", required=True)
     emit.add_argument("--replace", action="store_true")

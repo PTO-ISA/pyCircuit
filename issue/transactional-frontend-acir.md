@@ -1,4 +1,4 @@
-# [IR] 统一 Module/Rule/Method 前端、事务级 ACIR 与 gfsim/RTL 编译语义
+# [IR] 统一 Module/Rule/Method 前端、事务级 ACIR 与 t-gfsim/RTL 编译语义
 
 | 项目 | 内容 |
 | --- | --- |
@@ -12,7 +12,7 @@
 
 Module、Rule、Method、组合逻辑和资源连接需要一套统一且容易阅读的定义，ACIR 需要保留这些概念，使前端表达、事务分析和后端生成可以逐层对应。
 
-**本 issue 优先打通没有同拍依赖或执行顺序问题的简单场景。** 当前编译器虽已声称实现部分相关功能，其实际语义和 lowering 结果仍可能偏离设计预期，需要按本文逐项核对。首要目标是在这些简单场景下规范化 ACIR，使其人类可读、能直接对应前端语义；理想情况下，可以直接从这份规范化的 ACIR 生成事务级 gfsim，再逐步扩展同拍依赖与顺序处理能力。
+**本 issue 优先打通没有同拍依赖或执行顺序问题的简单场景。** 当前编译器虽已声称实现部分相关功能，其实际语义和 lowering 结果仍可能偏离设计预期，需要按本文逐项核对。首要目标是在这些简单场景下规范化 ACIR，使其人类可读、能直接对应前端语义；理想情况下，可以直接从这份规范化的 ACIR 生成事务级 t-gfsim，再逐步扩展同拍依赖与顺序处理能力。
 
 核心范式为：**Module 管结构、持久状态和组合计算；Rule 管原子事务；Method 提供同拍调用接口。** AC 是 Architecture Concept 的缩写，ACIR 的主要表达层级是事务。
 
@@ -24,14 +24,14 @@ Python 薄捕获
   → link：绑定、具体化，闭合静态实例与资源连接图
   → 已链接事务级 ACIR【本 issue 的目标，位于现有锚点之前】
   → 公共依赖、fire、更新与冲突分析
-      ├─ 直接生成事务级 gfsim
+      ├─ 直接生成事务级 t-gfsim
       └─ 路由/降低并适配现有 Routed ACIR 锚点
           → Hardware final → 已有 C++ / RTL 后端
 ```
 
-Python 只捕获语法，不执行设计函数。语义、类型、依赖和资源身份由 MLIR 处理。已链接 ACIR 仍保留事务和 Method 调用，不要求先展开为物理引脚才能生成新 gfsim。
+Python 只捕获语法，不执行设计函数。语义、类型、依赖和资源身份由 MLIR 处理。已链接 ACIR 仍保留事务和 Method 调用，不要求先展开为物理引脚才能生成新 t-gfsim。
 
-**本 issue 讨论的 ACIR 是现有 Routed ACIR 锚点之前的事务级 IR。** 现有锚点已经展开 Method 调用和事务效果，主要保留归一化后的计算、逻辑状态更新及路由连线；本文希望在更靠前的位置保留 Module、Rule、Method、guard 和调用结构，规范化为人类可读的表示，并直接生成事务级 gfsim。旧后端可继续通过适配后的路由/降低进入现有锚点与 Hardware final；新 gfsim 不以经过该锚点为前提。
+**本 issue 讨论的 ACIR 是现有 Routed ACIR 锚点之前的事务级 IR。** 现有锚点已经展开 Method 调用和事务效果，主要保留归一化后的计算、逻辑状态更新及路由连线；本文希望在更靠前的位置保留 Module、Rule、Method、guard 和调用结构，规范化为人类可读的表示，并直接生成事务级 t-gfsim。旧后端可继续通过适配后的路由/降低进入现有锚点与 Hardware final；新 t-gfsim 不以经过该锚点为前提。
 
 本文的 Python、MLIR、C++ 和 RTL 都是设计示意。它们说明目标语义，不限定最终 assembler 或 Runtime ABI，也不以当前实现的限制反向修改目标。
 
@@ -282,7 +282,7 @@ def BatchPipeline(inp: ac.u8) -> ac.u16:
 
 `else` 由旧 accepted 决定：收集阶段输入为空时，不能转去执行 emit。输出 Queue 始终存在，分支只决定是否向它写入。
 
-以下 ACIR、gfsim 和 RTL 以第一个例子为主，第二个只补充控制流差异。autorule、State 输出绑定等保留第 2 节的规则，不额外塞进主例子。
+以下 ACIR、t-gfsim 和 RTL 以第一个例子为主，第二个只补充控制流差异。autorule、State 输出绑定等保留第 2 节的规则，不额外塞进主例子。
 
 ## 4. 事务级 ACIR
 
@@ -402,7 +402,7 @@ scf.if %collecting {
 
 这里 scf.if 示意条件注册，实际 lowering 仍保留四态与可用性检查。组合 SSA 可供本地 Rule/Method 读取；条件不取决于另一个事务是否成功。
 
-## 5. gfsim：先准备组合结果，再执行事务
+## 5. t-gfsim（transactional-gfsim）：先准备组合结果，再执行事务
 
 每个 Module 保留自己的 Work/Xfer；Rule 生成 private 函数，Method 生成 public 函数。全系统每轮按以下阶段执行：
 
@@ -538,7 +538,7 @@ module SumStage (
 endmodule
 ```
 
-Pipeline 内的连接片段如下。middle_* 属于 intermediate Queue，output_* 属于外层输出 Queue；没有额外转发寄存器。
+Pipeline 内的连接片段如下。`middle_*` 属于 intermediate Queue，`output_*` 属于外层输出 Queue；没有额外转发寄存器。
 
 ```systemverilog
 logic [7:0] add_x;
@@ -587,7 +587,6 @@ clock/reset 属于后端接口；以上片段省略系统检查。实际目标�
 
 这些是目标语义推演，不是编译器已运行通过的证据。
 
-
 ## 8. 实现拆分、兼容处理与验收
 
 ### 实现拆分
@@ -596,12 +595,12 @@ clock/reset 属于后端接口；以上片段省略系统检查。实际目标�
 | --- | --- | --- |
 | 1 | 确立资源、Module、Rule、Method、guard 与调用的 ACIR 表示 | 可读性、解析/打印、纯度、所有权与签名检查 |
 | 2 | 公共实例身份、路径、fire、旧状态和多写分析 | 跨模块原子性、互斥判断、别名与不可用路径 |
-| 3 | 已链接手写 ACIR → 新 gfsim | 函数结构、全局阶段、四态、保持与失败零提交 |
+| 3 | 已链接手写 ACIR → 新 t-gfsim | 函数结构、全局阶段、四态、保持与失败零提交 |
 | 4 | 独立 compile/link 和资源具体化 | 分开编译、模块引用、Queue/State 绑定、导出不复制 |
 | 5 | Python lowering、autorule、组合控制流与 System | 完整例子走同一条产品路径 |
 | 6 | 旧 C++/RTL 后端适配和清理 | 同一公共语义、相同提交边界、旧用例状态记录 |
 
-基础类型和四态运算、布局、独立编译和发布机制可按实际适用性复用。旧后端先尝试适配；出现具体困难后再调整、裁剪或重写，不能未经尝试整体弃用。物理 lowering 不能成为新 gfsim 的必经步骤。
+基础类型和四态运算、布局、独立编译和发布机制可按实际适用性复用。旧后端先尝试适配；出现具体困难后再调整、裁剪或重写，不能未经尝试整体弃用。物理 lowering 不能成为新 t-gfsim 的必经步骤。
 
 不强行保留与新语义冲突的旧功能，也不要求所有旧测试和 example 继续通过。每个受影响的旧用例都要标记基线/修改后结果、原因、处理方式及证据；预期不兼容仍然是 FAIL，删除、跳过和未运行不能计作 PASS。
 
@@ -616,7 +615,7 @@ clock/reset 属于后端接口；以上片段省略系统检查。实际目标�
 - [ ] 写后读取旧值、显式返回新 SSA 值、多写冲突拒绝及互斥写接受。
 - [ ] 四态数据、Enum/Struct、状态保持、初始化/复位和全局检查失败零提交。
 - [ ] 分开编译后 link 具体化；缺失/不匹配的方法、未闭合引用与错误绑定拒绝。
-- [ ] Python → ACIR → 新 gfsim 的完整例子；成功适配的旧 C++/RTL 与独立预期一致。
+- [ ] Python → ACIR → 新 t-gfsim 的完整例子；成功适配的旧 C++/RTL 与独立预期一致。
 - [ ] 所有旧测试/example 的失败、退役和 NOT RUN 状态可追溯。
 
 以上是待取得的验收证据，本 issue 的代码和时序推演不等于通过记录。
@@ -633,4 +632,4 @@ clock/reset 属于后端接口；以上片段省略系统检查。实际目标�
 - [#320：架构层 IR 与高层仿真能力](https://github.com/PTO-ISA/pyCircuit/issues/320)：保留高层语义与执行表示的背景。
 - [#327：周期精确的高层 C++ profile](https://github.com/PTO-ISA/pyCircuit/issues/327)：相关后端工作，其历史复用约束与本方案需要分别核对。
 
-本 issue 先在没有同拍依赖或执行顺序问题的简单场景下核对设计语义、规范化可读 ACIR，并打通事务级 gfsim。上述 issue 是相关背景，不表示其全部历史范围都是本次首阶段的前置任务，也不表示这些工作已由本 issue 完成或关闭。
+本 issue 先在没有同拍依赖或执行顺序问题的简单场景下核对设计语义、规范化可读 ACIR，并打通事务级 t-gfsim。上述 issue 是相关背景，不表示其全部历史范围都是本次首阶段的前置任务，也不表示这些工作已由本 issue 完成或关闭。

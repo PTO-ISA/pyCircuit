@@ -447,9 +447,11 @@ common transaction analysis, including admission and conflict checks. Reload
 revalidates the IR and rebuilds that analysis; analysis objects and borrowed IR
 pointers are never serialized. Original Python files and source-unit directories
 are not required. Saved source locations remain diagnostic provenance, not
-files to reopen. For a compact display, use `pycircuit-opt linked.ac`; its default
-printer omits debug locations. The published artifact retains them, and
-`pycircuit-opt linked.ac --mlir-print-debuginfo` includes them when inspecting IR.
+files to reopen. For a compact reading view, use `pycircuit print linked.ac`.
+Use `--profile debug` for recursive source metadata and locations, or
+`--profile full` for complete, parseable MLIR. The published artifact retains
+all information. See [Reading ACIR](../reference/acir-display.md) for JSON
+display configuration and Unlinked inspection.
 
 `--from-linked` defaults to `--target final`; it also accepts `--target anchor`
 to save the Routed boundary before physical storage refinement. It forbids
@@ -459,14 +461,19 @@ routing and lowering implementation. The cpp/verilog targets consume Final ACIR.
 Linked and Final files have distinct publication owners; `--replace` uses the
 existing ownership and failed-output protection protocol.
 
-The direct transaction simulator consumes the saved Linked artifact:
+The direct transaction simulator is named **t-gfsim** (transactional-gfsim).
+It consumes saved Linked ACIR and uses the `pycircuit::transactional_gfsim`
+runtime in `<pycircuit/transactional_gfsim/runtime.h>`. The lower-level physical
+simulator retains the gfsim name and `gfsim` namespace.
+
+Generate t-gfsim from the saved Linked artifact:
 
 ```bash
-pycircuit emit .pycircuit_out/linked.ac --target gfsim -o .pycircuit_out/gfsim
-cmake -S .pycircuit_out/gfsim -B .pycircuit_out/gfsim-build \
+pycircuit emit .pycircuit_out/linked.ac --target t-gfsim -o .pycircuit_out/t-gfsim
+cmake -S .pycircuit_out/t-gfsim -B .pycircuit_out/t-gfsim-build \
   -DCMAKE_PREFIX_PATH=/path/to/installed/pycircuit
-cmake --build .pycircuit_out/gfsim-build
-.pycircuit_out/gfsim-build/bin/pycircuit_sim --cycles 10 --workers 1
+cmake --build .pycircuit_out/t-gfsim-build
+.pycircuit_out/t-gfsim-build/bin/pycircuit_sim --cycles 10 --workers 1
 ```
 
 This target supports closed single-clock Systems with Bits State, Rules and

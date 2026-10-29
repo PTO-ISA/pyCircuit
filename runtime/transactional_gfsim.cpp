@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: BSD-3-Clause
-#include "pycircuit/gfsim/runtime.h"
+#include "pycircuit/transactional_gfsim/runtime.h"
 
 #include <limits>
 
-namespace pycircuit::gfsim {
+namespace pycircuit::transactional_gfsim {
 
 void Resource::RequireWork(const Context &context) const {
   if (context.phase_ != Context::Phase::Work || owner_ != &context.owner_)
@@ -161,4 +161,4 @@ void System::Reset() {
   cycle_ = 0;
 }
 
-} // namespace pycircuit::gfsim
+} // namespace pycircuit::transactional_gfsim

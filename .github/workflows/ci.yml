@@ -92,6 +92,7 @@ jobs:
       - name: Run bounded source capture and publication tests
         run: >-
           pytest -q
+          tests/unit/test_acir_display.py
           tests/unit/test_source_capture.py
           tests/unit/test_source_compile.py
           tests/unit/test_source_transport.py
@@ -147,9 +148,11 @@ jobs:
           ctest --test-dir .pycircuit_out/toolchain/build --output-on-failure \
             --no-tests=error -R 'ACIR(TransactionalMethodConstraints|SourceResourceBinding)Tests'
       - name: Run transactional dual backend regressions
+        env:
+          PYC_TOOLCHAIN_ROOT: ${{ github.workspace }}/.pycircuit_out/toolchain/install
         run: |
           lit -sv .pycircuit_out/toolchain/build/tests/compiler/lit \
-            --filter='(IR/transactional-|CodeGen/transactional-(constraints|state-interfaces|queue-pipeline|queue-timing|resource-composition|structured-packet|state|failure|source|methods|sibling-methods|issue361|conditional-methods|uninitialized|gfsim)\.test$)'
+            --filter='(IR/transactional-|Source/acir-display[.]test$|CodeGen/transactional-(constraints|state-interfaces|queue-pipeline|queue-timing|resource-composition|structured-packet|state|failure|source|methods|sibling-methods|issue361|conditional-methods|uninitialized|gfsim)\.test$)'
       - name: Upload transactional stage evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7

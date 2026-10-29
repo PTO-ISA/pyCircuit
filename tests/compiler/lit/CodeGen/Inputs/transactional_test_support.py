@@ -126,7 +126,7 @@ class SourceTest:
         # Reset-only test adapter: change physical input stimulus, retaining
         # every generated sampling/check/commit and observation publication step.
         if reset_cycle is not None:
-            if target == "gfsim":
+            if target == "t-gfsim":
                 harness = bundle / "simulation_main.cpp"
                 before = "const bool reset = false;"
                 after = f"const bool reset = epoch / 2 == {reset_cycle};"
@@ -144,7 +144,7 @@ class SourceTest:
             assert text.count(before) == 1
             harness.write_text(text.replace(before, after))
         executable = self.scratch / f"system-{name or target}.exe"
-        if target in ("cpp", "gfsim"):
+        if target in ("cpp", "t-gfsim"):
             runtime = Path(self.emitter).parent.parent / "runtime/libpyc6_runtime.a"
             if not runtime.is_file():
                 runtime = Path(self.emitter).parent.parent / "lib/libpyc6_runtime.a"

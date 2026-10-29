@@ -10,7 +10,7 @@ A command, test file or historical acceptance entry is not a passing result.
 `G1: Native Transactional Gates` builds and installs the native compiler, runs
 `ACIRTransactionalMethodConstraintsTests` and `ACIRSourceResourceBindingTests`,
 and executes the transactional constraint, State/interface, failure, source,
-Method and sibling-Method lit regressions. Direct gfsim coverage reloads saved
+Method and sibling-Method lit regressions. t-gfsim coverage reloads saved
 Linked ACIR, compares complete example-owned traces across all three targets,
 checks reset and failure publication, and builds the generated program against
 installed Runtime with LLVM/MLIR discovery disabled. The constraint case checks independent

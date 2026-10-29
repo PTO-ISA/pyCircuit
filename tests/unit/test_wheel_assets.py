@@ -103,6 +103,7 @@ def _runtime_prefix(tmp_path: Path) -> Path:
         "pycircuit-link",
         "pycircuit-emit",
         "pycircuit-opt",
+        "pycircuit-print",
     ):
         helper = prefix / "bin" / (name + suffix)
         helper.write_bytes(b"executable fixture\n")

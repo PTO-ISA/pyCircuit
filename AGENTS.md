@@ -74,7 +74,9 @@ adaptation, examples, tests and removal of the superseded path. Review and reuse
 do not add a third frontend or fall back after new compilation fails. Reuse
 backend capabilities where they fit the new contract. Both backend paths must
 derive semantics from the same verified transactional ACIR/common analysis;
-direct transactional gfsim need not pass through the physical anchor.
+the direct transactional target is named `t-gfsim` (transactional-gfsim), distinct
+from the lower-level physical `gfsim`; t-gfsim need not pass through the physical
+anchor.
 
 The prototype already establishes bounded feasibility; proceed with incremental
 production replacement, not another prerequisite experiment. Deliver each

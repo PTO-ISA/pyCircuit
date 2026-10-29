@@ -71,11 +71,11 @@ int main(int argc, char **argv) {
     else
       optionsValid = false;
   }
-  if (!optionsValid || (target != "cpp" && target != "verilog" && target != "gfsim") ||
+  if (!optionsValid || (target != "cpp" && target != "verilog" && target != "t-gfsim") ||
       (format != "json" && format != "source") ||
       (rtlMode != "managed" && rtlMode != "physical") ||
       (target != "verilog" && rtlMode != "managed")) {
-    llvm::errs() << "usage: pycircuit-emit FINAL.ac --target cpp|verilog|gfsim "
+    llvm::errs() << "usage: pycircuit-emit FINAL.ac --target cpp|verilog|t-gfsim "
                     "[--format json|source] [--rtl-mode managed|physical]\n";
     return 2;
   }
@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
   auto package = parseSourceFile<ModuleOp>(argv[1], &context);
   if (!package || failed(mlir::verify(*package)))
     return 1;
-  if (target == "gfsim") {
+  if (target == "t-gfsim") {
     auto checked = acir::compiler::continueLinkedSource(
         *package, emitError, acir::compiler::SourceLinkTarget::Linked);
     if (failed(checked))
@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
     auto root = (*plan)->getTop();
     auto kind = root->getAttrOfType<StringAttr>("ac.root_kind");
     if (!kind || kind.getValue() != "system") {
-      root.emitError("direct gfsim requires a closed System root");
+      root.emitError("t-gfsim requires a closed System root");
       return 1;
     }
     auto samples = acir::ac::getSystemSamples(root);
@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
       auto row = cast<StringAttr>(raw).getValue();
       if (row.contains('x') || row.contains('z')) {
         root.emitError(
-            "direct gfsim currently requires known clock/reset samples");
+            "t-gfsim currently requires known clock/reset samples");
         return 1;
       }
       sampleRows.emplace_back(row);
