@@ -17,6 +17,8 @@ exclude_docs: |
   work-items/
   reviews/
   rfcs/contracts/
+  development/issue-307-319-*.md
+  development/compiler-benchmark-delivery.md
 
 # Theme
 theme:
@@ -82,6 +84,7 @@ nav:
   - Language:
       - Overview: reference/index.md
       - Python Source: reference/language.md
+      - Reading ACIR: reference/acir-display.md
       - Language and Execution: reference/language-specification.md
       - Diagnostics: reference/diagnostics.md
       - Names and Source Ownership: reference/name-mangling.md
@@ -103,18 +106,13 @@ nav:
       - Source Authoring: development/agent-frontend-guide.md
       - Source-unit Workflow: development/source-unit-workflow.md
       - Physical RTL Export: development/physical-rtl-export.md
-      - Compiler Benchmark Delivery: development/compiler-benchmark-delivery.md
       - Implementation Guide: development/implementation-guide.md
       - Contributing: development/contributing-workflow.md
       - Testing: development/testing-and-gates.md
       - Review and Merge: development/review-and-merge.md
       - Known Limitations: development/known-limitations.md
-      - Issue 307 and 319 Handoff:
-          - Review Checklist: development/issue-307-319-review-checklist.md
-          - Example Inventory: development/issue-307-319-examples.md
-          - Decisions and Bounds: development/issue-307-319-decisions.md
-          - Execution Status: development/issue-307-319-execution-status.md
-          - Execution Prompt: development/issue-307-319-agent-prompt.md
+      - Replacement Scope: development/transactional-frontend-status.md
+      - Main Capability Migration: development/main-capability-migration.md
       - Project Governance: development/project-governance.md
       - Extension Specifications:
           - Boolean Record Fields: rfcs/boolean-record-fields.md

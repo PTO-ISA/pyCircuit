@@ -2,6 +2,7 @@
 #include "HardwareSourceCheckPreflight.h"
 #include "ACIRSourceContracts.h"
 #include "HardwareSampledAdmission.h"
+#include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
 #include "mlir/IR/Verifier.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -111,13 +112,20 @@ public:
     if (failed(verifyQueueResourceWiring(analysis, scopes, budget)))
       return failure();
     budget.setPhase("transaction wiring");
-    if (failed(verifyTransactionWiring(analysis, scopes, validation, budget)))
+    auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
+    if (failed(contract && contract.getInt() == 4
+                   ? verifyTransactionalRouting(
+                         package, [&](uint64_t units, Operation *site) {
+                           return budget.debit(units, site);
+                         })
+                   : verifyTransactionWiring(analysis, scopes, validation, budget)))
       return failure();
     // A closed system needs the complete managed commit tree even without
     // source assertions: generated reset/prepare/commit must reach every leaf.
     // Reusable modules without checks still avoid hypothetical expansion.
     auto role = root->owner->getAttrOfType<StringAttr>("ac.root_kind");
-    if (!nodes[*rootIndex]->hasChecks && (!role || role.getValue() != "system"))
+    if (!nodes[*rootIndex]->hasChecks && (!role || role.getValue() != "system") &&
+        (!contract || contract.getInt() != 4))
       return std::move(plan);
     budget.setPhase("occurrence summary");
     auto expansion = summarize(*rootIndex);
@@ -1302,6 +1310,8 @@ private:
   LogicalResult catalogSampling(ModuleOp definition,
                                 const HardwareBindings &bindings,
                                 SmallVector<HardwareCheckBinding> &checks) {
+    // Body assertions are checked on every Work evaluation with ordinary reset
+    // masking. Only guard-known checks acquire an edge sampling binding.
     if (!llvm::any_of(checks, [](const auto &check) {
           return check.kind.getValue() == "guard_known";
         }))

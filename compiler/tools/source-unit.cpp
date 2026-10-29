@@ -3,6 +3,7 @@
 
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Diagnostics.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
@@ -241,7 +242,7 @@ int main(int argc, char **argv) {
                                     "isolated pyCircuit source-unit harness\n");
   mlir::DialectRegistry dialects;
   dialects.insert<acir::ac::ACIRDialect, mlir::arith::ArithDialect,
-                  mlir::func::FuncDialect>();
+                  mlir::func::FuncDialect, mlir::scf::SCFDialect>();
   mlir::MLIRContext context(dialects);
   mlir::ScopedDiagnosticHandler nonfatalDiagnostics(
       &context, [](mlir::Diagnostic &diagnostic) {

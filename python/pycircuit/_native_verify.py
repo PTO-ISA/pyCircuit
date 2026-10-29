@@ -22,6 +22,7 @@ _HELPERS: dict[str, tuple[str, str]] = {
     "source-unit": ("pycircuit-source-unit", "PYCIRCUIT_SOURCE_COMPILER"),
     "design": ("pycircuit-link", "PYCIRCUIT_LINKER"),
     "emit": ("pycircuit-emit", "PYCIRCUIT_EMITTER"),
+    "print": ("pycircuit-print", "PYCIRCUIT_PRINTER"),
 }
 # Private pycircuit-link status; not exposed as a pycircuit CLI exit code.
 _SOURCE_UNIT_OWNER_MISMATCH_EXIT = 3
@@ -84,7 +85,7 @@ def _run(
         raise _PublicationError(f"{what} failed native verification: {detail}")
 
 
-def verify_program_owner(path: Path) -> dict[str, object]:
+def verify_program_owner(path: Path, *, linked: bool = False) -> dict[str, object]:
     """Return the publication owner of a natively verified program artifact."""
 
     helper = native_helper("design")
@@ -94,7 +95,7 @@ def verify_program_owner(path: Path) -> dict[str, object]:
         _run(
             [
                 str(helper),
-                "--design",
+                "--from-linked" if linked else "--design",
                 str(path),
                 "--verify-only",
                 "--entry-owner-out",
@@ -118,7 +119,7 @@ def verify_program_owner(path: Path) -> dict[str, object]:
     if type(definition) is not str:
         raise _PublicationError("published program owner report is not textual")
     return {
-        "kind": "program",
+        "kind": "linked" if linked else "program",
         "source": {"package": source["package"], "path": source["path"]},
         "definition": definition,
     }

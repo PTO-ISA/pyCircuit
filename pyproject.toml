@@ -63,7 +63,7 @@ include = ["pycircuit", "pycircuit.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-pycircuit = ["**/*.py", "**/*.md"]
+pycircuit = ["**/*.py", "**/*.md", "acir_display.json"]
 
 [tool.black]
 line-length = 88
@@ -108,6 +108,8 @@ ignore = ["E501"]
 "tests/compiler/lit/Source/Inputs/numeric_bad*.py" = ["F401"]
 "tests/compiler/lit/lit.cfg.py" = ["F821"] # lit injects config.
 "tests/compiler/lit/CodeGen/Inputs/*.py" = ["T201"] # Standalone lit helpers.
+# Captured design fixture: module-owned state and static instance declarations.
+"tests/compiler/lit/CodeGen/Inputs/transactional-gfsim-conditional.py" = ["N802", "F821", "F823", "F841"]
 "tests/integration/source-unit-build/src/*.py" = ["N802", "F841"]
 "tests/integration/source-unit-build/prepare_unit_output.py" = ["T201"]
 "tests/system/fixtures/source_system/*.py" = ["N802", "F821"]

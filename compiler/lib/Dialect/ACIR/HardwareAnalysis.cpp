@@ -4,6 +4,7 @@
 #include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/IR/Verifier.h"
+#include "mlir/IR/AttrTypeSubElements.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -443,6 +444,14 @@ Attribute HardwareAnalysis::substituteAttribute(
     Attribute attribute, const HardwareBindings &bindings) const {
   return substitute(attribute, bindings);
 }
+Type HardwareAnalysis::substituteType(
+    Type type, const HardwareBindings &bindings) const {
+  AttrTypeReplacer replacer;
+  replacer.addReplacement([&](StaticExprAttr expression) -> Attribute {
+    return substitute(expression, bindings);
+  });
+  return replacer.replace(type);
+}
 FailureOr<Type> HardwareAnalysis::resolveType(Type type,
                                               const HardwareBindings &bindings,
                                               Operation *site) const {
@@ -605,6 +614,26 @@ FailureOr<HardwareBindings> HardwareAnalysis::bindCallee(
   if (callee->getAttrOfType<StringAttr>("ac.root_kind"))
     return site->emitOpError()
            << "source system is root-only and cannot be an instance callee";
+  return bindParameters(callee, actualParameters, actualTypes, parent, site);
+}
+FailureOr<HardwareBindings> HardwareAnalysis::bindRoot(
+    ModuleOp root, DictionaryAttr overrides) const {
+  Builder builder(root.getContext());
+  for (auto override : overrides) {
+    if (!isa<MathIntAttr>(override.getValue()) ||
+        !llvm::any_of(root.getParameters(), [&](Attribute raw) {
+          return cast<DictionaryAttr>(raw).getAs<StringAttr>("name") ==
+                 override.getName();
+        }))
+      return root.emitOpError("invalid named root integer parameter binding");
+  }
+  return bindParameters(root, builder.getArrayAttr({}), builder.getArrayAttr({}),
+                        {}, root, overrides);
+}
+FailureOr<HardwareBindings> HardwareAnalysis::bindParameters(
+    Operation *callee, ArrayAttr actualParameters, ArrayAttr actualTypes,
+    const HardwareBindings &parent, Operation *site,
+    DictionaryAttr overrides) const {
   auto parameters = callee->getAttrOfType<ArrayAttr>("parameters");
   auto names = callee->getAttrOfType<ArrayAttr>("type_parameters");
   if (!actualParameters || !actualTypes || !parameters || !names ||
@@ -626,6 +655,12 @@ FailureOr<HardwareBindings> HardwareAnalysis::bindCallee(
     auto parameter = dyn_cast<DictionaryAttr>(raw);
     if (!parameter || !parameter.getAs<StringAttr>("name"))
       return site->emitOpError() << "invalid instance static parameter declaration";
+    auto name = parameter.getAs<StringAttr>("name");
+    if (overrides)
+      if (auto value = overrides.get(name)) {
+        result.integers[name.getValue()] = value;
+        continue;
+      }
     StaticExprAttr expr;
     bool supplied = index < actualParameters.size();
     expr = supplied ? dyn_cast<StaticExprAttr>(actualParameters[index])

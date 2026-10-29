@@ -71,7 +71,7 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
     %saved = "ac.state"(%clk, %rst, %zero) {instance_name = "saved", occurrence = #o1} : (!b1, !b1, !b8) -> !b8
     %seen = "ac.state"(%clk, %rst, %zero) {instance_name = "seen", occurrence = #o2} : (!b1, !b1, !b8) -> !b8
     %hold = "ac.state"(%clk, %rst, %bias) {instance_name = "hold", occurrence = #o3} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%yes, %bias) ({
+    "ac.legacy.method"(%yes, %bias) ({
     ^bb0(%delta: !b8, %path: !b1, %lexical_bias: !b8):
       %guard_read = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #o5} : (!b1) -> !b8
       "ac.yield"(%path) : (!b1) -> ()
@@ -83,15 +83,15 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
       "ac.state.write"(%path, %next) {state = "count", selectors = [], occurrence = #o7} : (!b1, !b8) -> ()
       "ac.yield"(%next) : (!b8) -> ()
     }) {sym_name = "bump", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #o4, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #o4} : (!b1, !b8) -> ()
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%delta: !b8, %path: !b1):
-      %nested = "ac.method.call"(%path, %delta) {callee = @Owner::@bump, instance_path = [], occurrence = #o9} : (!b1, !b8) -> !b8
+      %nested = "ac.legacy.method.call"(%path, %delta) {callee = @Owner::@bump, instance_path = [], occurrence = #o9} : (!b1, !b8) -> !b8
       "ac.yield"(%nested) : (!b8) -> ()
     }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte, default = {present = false}, origin = #o8, location = #span}], ac.result_constraints = [#byte], ac.return_form = "single", ac.guard_location = #span, occurrence = #o8} : (!b1) -> ()
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%admit: !b1):
       "ac.yield"(%admit) : (!b1) -> ()
     }, {
@@ -103,8 +103,8 @@ module attributes {ac.source_units = [{package = "", path = "lower.py"}]} {
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1, %caller_bias: !b8):
-      %first = "ac.method.call"(%path, %caller_bias) {callee = @Owner::@bump, instance_path = [], occurrence = #o13} : (!b1, !b8) -> !b8
-      %last = "ac.method.call"(%path, %first) {callee = @Owner::@relay, instance_path = [], occurrence = #o14} : (!b1, !b8) -> !b8
+      %first = "ac.legacy.method.call"(%path, %caller_bias) {callee = @Owner::@bump, instance_path = [], occurrence = #o13} : (!b1, !b8) -> !b8
+      %last = "ac.legacy.method.call"(%path, %first) {callee = @Owner::@relay, instance_path = [], occurrence = #o14} : (!b1, !b8) -> !b8
       "ac.state.write"(%path, %first) {state = "saved", selectors = [], occurrence = #o15} : (!b1, !b8) -> ()
       "ac.yield"(%first, %last) : (!b8, !b8) -> ()
     }) {name = "run", declaration = #o11, occurrence = #o12, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> (!b8, !b8)

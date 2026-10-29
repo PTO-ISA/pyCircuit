@@ -188,7 +188,7 @@ def Counter():
 TEST_F(RegContractsTest, V08_RegUsesModuleClockResetAndRuleYieldsDEPair) {
   auto *module = findOnly(*body, "ac.module");
   auto *reg = findOnly(*body, "ac.reg");
-  auto *rule = findOnly(*body, "ac.rule");
+  auto *rule = findOnly(*body, "ac.comb");
   ASSERT_NE(module, nullptr);
   ASSERT_NE(reg, nullptr);
   ASSERT_NE(rule, nullptr);
@@ -225,7 +225,7 @@ TEST_F(RegContractsTest, V08_RejectsForgedClockAndWrongProposalArity) {
   EXPECT_TRUE(mlir::failed(mlir::verify(*forged)));
 
   auto wrongArity = cloneBody();
-  auto *rule = findOnly(*wrongArity, "ac.rule");
+  auto *rule = findOnly(*wrongArity, "ac.comb");
   rule->getRegion(0).front().back().eraseOperand(1);
   EXPECT_TRUE(mlir::failed(mlir::verify(*wrongArity)));
 }
@@ -247,13 +247,13 @@ TEST_F(RegContractsTest, V08_RetiredDffSchemasDoNotParse) {
 
 TEST_F(RegContractsTest, V08_RuleSourceOwnerMustMatchItsModuleAuthority) {
   auto missing = cloneBody();
-  auto *rule = findOnly(*missing, "ac.rule");
+  auto *rule = findOnly(*missing, "ac.comb");
   ASSERT_NE(rule, nullptr);
   rule->removeAttr("ac.source_owner");
   EXPECT_TRUE(mlir::failed(mlir::verify(*missing)));
 
   auto foreign = cloneBody();
-  rule = findOnly(*foreign, "ac.rule");
+  rule = findOnly(*foreign, "ac.comb");
   mlir::Builder builder(&context);
   rule->setAttr(
       "ac.source_owner",
@@ -266,7 +266,7 @@ TEST_F(RegContractsTest, V08_RuleSourceOwnerMustMatchItsModuleAuthority) {
 
 TEST_F(RegContractsTest, V09_RejectsSameWidthButDifferentLogicalType) {
   auto mutated = cloneBody();
-  auto *rule = findOnly(*mutated, "ac.rule");
+  auto *rule = findOnly(*mutated, "ac.comb");
   mlir::Builder builder(&context);
   auto inputTypes = rule->getAttrOfType<mlir::ArrayAttr>("ac.input_types");
   ASSERT_EQ(inputTypes.size(), 1u);

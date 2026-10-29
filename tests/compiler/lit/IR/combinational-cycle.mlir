@@ -21,7 +21,7 @@ module {
   ^bb0(%a: !b8):
     %x = ac.struct.create(%a, %feedback) : (!b8, !b8) -> !ac.struct<"Pair">
     %y = "ac.instance"(%x) {instance_name = "nested", callee = @child, parameters = [], type_arguments = [], occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!ac.struct<"Pair">) -> !ac.struct<"Pair">
-    %feedback = "ac.rule"(%y) ({
+    %feedback = "ac.comb"(%y) ({
     ^bb0(%pair: !ac.struct<"Pair">):
       %first = ac.struct.get %pair["b"] : (!ac.struct<"Pair">) -> !b8
       %not = "ac.bits.unary"(%first) {opcode = "not"} : (!b8) -> !b8

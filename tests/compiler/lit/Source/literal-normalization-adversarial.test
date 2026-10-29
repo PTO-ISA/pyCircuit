@@ -4,7 +4,7 @@
 # private scratch directory.  It asserts that a matching computed/dependent
 # width still binds, that every real width, kind and nominal disagreement is
 # still rejected, that an unclosed width never compares equal to a concrete one,
-# and - by reading the emitted ac.rule operation - that a rule which binds an
+# and - by reading the emitted ac.comb operation - that a rule which binds an
 # instance and carries source checks keeps the condition/path suffix positions,
 # counts and carrier types.
 #

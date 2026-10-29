@@ -24,7 +24,7 @@ module {
     %initial_packet = "ac.struct.create"(%initial_lanes) : (!lanes) -> !ac.struct<"Packet">
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #count_state} : (!b1, !b1, !b8) -> !b8
     %packet_q = "ac.state"(%clk, %rst, %initial_packet) {instance_name = "packet", occurrence = #packet_state} : (!b1, !b1, !ac.struct<"Packet">) -> !ac.struct<"Packet">
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%delta: !b8, %path: !b1):
       %current = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
       "ac.yield"(%path) : (!b1) -> ()
@@ -43,12 +43,12 @@ module {
       "ac.state.write"(%path, %lane, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b8, !b1) -> ()
       "ac.yield"(%old) : (!b8) -> ()
     }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%delta: !b8, %path: !b1):
-      %result = "ac.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
+      %result = "ac.legacy.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
       "ac.yield"(%result) : (!b8) -> ()
     }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
@@ -62,9 +62,9 @@ module {
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1, %value: !b8):
-      %a = "ac.method.call"(%path, %value) {callee = @Counter::@relay, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
-      %again = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
-      %b = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["right"], occurrence = #root} : (!b1, !b8) -> !b8
+      %a = "ac.legacy.method.call"(%path, %value) {callee = @Counter::@relay, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
+      %again = "ac.legacy.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
+      %b = "ac.legacy.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["right"], occurrence = #root} : (!b1, !b8) -> !b8
       "ac.yield"(%b) : (!b8) -> ()
     }) {name = "step", declaration = #root, occurrence = #root, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> !b8
     "ac.yield"(%answer) : (!b8) -> ()
@@ -74,7 +74,7 @@ module {
 
 // CHECK: "ac.state"
 // CHECK-SAME: instance_name = "count"
-// CHECK: "ac.method"
+// CHECK: "ac.legacy.method"
 // CHECK: selectors = [{field = "lanes"}, {index = 0 : i64}]
 // CHECK: instance_path = []
 // CHECK: instance_name = "left"

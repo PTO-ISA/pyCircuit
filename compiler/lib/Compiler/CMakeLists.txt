@@ -11,12 +11,9 @@ add_acir_library(ACIRSourceCompiler SOURCES
   SourceHeaderHelpers.cpp
   SourceBodySnapshots.cpp
   SourceDependencies.cpp
-  SourceDeclarationContext.cpp
   SourceEntryBoundary.cpp
   SourceLink.cpp
   SourceNamespace.cpp
-  SourceMemoryBindings.cpp
-  SourceRuleWrites.cpp
   SourceUnit.cpp
   TableQueryLowering.cpp
   TableQueryStages.cpp
@@ -35,6 +32,7 @@ target_include_directories(ACIRSourceCompiler PUBLIC
 )
 
 add_acir_library(ACIRCodegen SOURCES
+  TransactionalEmitGfsim.cpp
   FinalCppNames.cpp
   FinalEmitCpp.cpp
   FinalEmitVerilog.cpp

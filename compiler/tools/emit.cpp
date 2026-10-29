@@ -2,10 +2,13 @@
 // Emit source-owned modules from verified final ACIR. Publication is
 // transactional in the Python driver; this transport writes nothing before
 // complete success.
+#include "Compiler/TransactionalEmitGfsim.h"
+#include "Compiler/SourceLink.h"
 #include "Compiler/FinalCppNames.h"
 #include "Compiler/FinalCppSourceParts.h"
 #include "Compiler/FinalSourceMap.h"
 #include "Compiler/FinalVerilogSourceParts.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "mlir/IR/Verifier.h"
 #include "mlir/Parser/Parser.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
@@ -37,7 +40,7 @@ std::string attributeText(Attribute attr) {
 
 int main(int argc, char **argv) {
   DialectRegistry dialects;
-  dialects.insert<acir::ac::ACIRDialect>();
+  dialects.insert<acir::ac::ACIRDialect, mlir::scf::SCFDialect>();
   MLIRContext context(dialects);
   context.loadAllAvailableDialects();
   auto emitError = [&] { return mlir::emitError(UnknownLoc::get(&context)); };
@@ -68,11 +71,11 @@ int main(int argc, char **argv) {
     else
       optionsValid = false;
   }
-  if (!optionsValid || (target != "cpp" && target != "verilog") ||
+  if (!optionsValid || (target != "cpp" && target != "verilog" && target != "t-gfsim") ||
       (format != "json" && format != "source") ||
       (rtlMode != "managed" && rtlMode != "physical") ||
       (target != "verilog" && rtlMode != "managed")) {
-    llvm::errs() << "usage: pycircuit-emit FINAL.ac --target cpp|verilog "
+    llvm::errs() << "usage: pycircuit-emit FINAL.ac --target cpp|verilog|t-gfsim "
                     "[--format json|source] [--rtl-mode managed|physical]\n";
     return 2;
   }
@@ -80,6 +83,95 @@ int main(int argc, char **argv) {
   auto package = parseSourceFile<ModuleOp>(argv[1], &context);
   if (!package || failed(mlir::verify(*package)))
     return 1;
+  if (target == "t-gfsim") {
+    auto checked = acir::compiler::continueLinkedSource(
+        *package, emitError, acir::compiler::SourceLinkTarget::Linked);
+    if (failed(checked))
+      return 1;
+    auto system = *(*checked)->getOps<acir::ac::SystemOp>().begin();
+    auto callee = system.getEntry().getAs<FlatSymbolRefAttr>("callee");
+    auto plan = acir::ac::TransactionalAnalysis::create(
+        **checked, callee.getValue(),
+        [](uint64_t, Operation *) { return success(); });
+    if (failed(plan))
+      return 1;
+    auto root = (*plan)->getTop();
+    auto kind = root->getAttrOfType<StringAttr>("ac.root_kind");
+    if (!kind || kind.getValue() != "system") {
+      root.emitError("t-gfsim requires a closed System root");
+      return 1;
+    }
+    auto samples = acir::ac::getSystemSamples(root);
+    auto reset = acir::ac::getHardwareResetSemantics(**checked);
+    if (failed(samples) || failed(reset))
+      return 1;
+    llvm::json::Array sampleRows;
+    for (Attribute raw : *samples) {
+      auto row = cast<StringAttr>(raw).getValue();
+      if (row.contains('x') || row.contains('z')) {
+        root.emitError(
+            "t-gfsim currently requires known clock/reset samples");
+        return 1;
+      }
+      sampleRows.emplace_back(row);
+    }
+    std::string header, main;
+    llvm::raw_string_ostream headerStream(header), mainStream(main);
+    if (failed(acir::compiler::emitTransactionalGfsim(**plan, headerStream)))
+      return 1;
+    acir::compiler::emitTransactionalGfsimMain(
+        mainStream, *samples,
+        *reset == acir::ac::HardwareResetSemantics::IfOne);
+    if (format == "source") {
+      llvm::outs() << header;
+      return 0;
+    }
+    llvm::SmallVector<acir::compiler::FinalSourceMembership> memberships;
+    for (Attribute owner :
+         (**checked)->getAttrOfType<ArrayAttr>("ac.source_units")) {
+      auto dictionary = cast<DictionaryAttr>(owner);
+      memberships.push_back(
+          {dictionary,
+           dictionary == root.getSourceOwner()
+               ? llvm::SmallVector<std::string>{"pycircuit_model.hpp"}
+               : llvm::SmallVector<std::string>{}});
+    }
+    auto maps =
+        acir::compiler::emitLinkedSourceMaps(**checked, memberships, emitError);
+    if (failed(maps))
+      return 1;
+    llvm::json::Array rows;
+    for (const auto &map : *maps)
+      rows.emplace_back(
+          llvm::json::Object{{"source", sourceOwner(map.sourceOwner)},
+                             {"path", map.path},
+                             {"text", map.text}});
+    unsigned checks = 0;
+    for (const auto &rule : (*plan)->getRules())
+      for (const auto &step : rule.body.steps)
+        checks += step->kind == acir::ac::TransactionalStepKind::Assert;
+    llvm::json::Object result{
+        {"entry", llvm::json::Object{{"definition",
+                                      "@\"" + callee.getValue().str() + "\""},
+                                     {"arguments", llvm::json::Array{}}}},
+        {"entry_source", sourceOwner(root.getSourceOwner())},
+        {"model_header", header},
+        {"simulation_main", main},
+        {"simulation_config",
+         "{\"deadlock_window\":null,\"max_domain_cycles\":{},\"max_ticks\":"
+         "9223372036854775807,\"schema\":\"pycircuit-model-config\","
+         "\"version\":\"1\"}\n"},
+        {"system_samples", std::move(sampleRows)},
+        {"needs_four_state", true},
+        {"reset_semantics", *reset == acir::ac::HardwareResetSemantics::IfOne
+                                ? "if_one"
+                                : "strict"},
+        {"source_check_count", checks},
+        {"source_maps", std::move(rows)}};
+    llvm::outs() << llvm::formatv("{0:2}\n",
+                                  llvm::json::Value(std::move(result)));
+    return 0;
+  }
   acir::ac::HardwareAnalysis analysis(*package);
   if (failed(analysis.verify()))
     return 1;

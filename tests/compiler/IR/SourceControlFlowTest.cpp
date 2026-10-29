@@ -216,7 +216,7 @@ static std::string runtimeWhileFixture() {
   ^bb0(%input_bound: !b2, %clk: !b1, %rst: !b1):
     %yes = "ac.bits.constant"() {value = #w1} : () -> !b1
     %zero = "ac.bits.constant"() {value = #w0} : () -> !b2
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -236,7 +236,7 @@ static std::string runtimeWhileFixture() {
         "scf.condition"(%condition, %counter, %bound) : (i1, !b2, !b2) -> ()
       }, {
       ^bb0(%counter: !b2, %bound: !b2):
-        "ac.method.call"(%path) {callee = @Owner::@noop, instance_path = [], occurrence = #o5} : (!b1) -> ()
+        "ac.legacy.method.call"(%path) {callee = @Owner::@noop, instance_path = [], occurrence = #o5} : (!b1) -> ()
         "ac.expect"(%path, %path) {kind = "assert", location = #span, occurrence = #o3} : (!b1, !b1) -> ()
         %next = "ac.bits.binary"(%counter, %one) {opcode = "add"} : (!b2, !b2) -> !b2
         "scf.yield"(%next, %bound) : (!b2, !b2) -> ()
@@ -333,7 +333,7 @@ TEST_F(SourceControlFlowTest, FiniteForClonesDistinctCallAndAssertionSites) {
 TEST_F(SourceControlFlowTest, PureRuntimeContinuationRetainsItsSamplingMarker) {
   auto text = runtimeWhileFixture();
   for (StringRef operation :
-       {"        \"ac.method.call\"", "        \"ac.expect\""}) {
+       {"        \"ac.legacy.method.call\"", "        \"ac.expect\""}) {
     auto start = text.find(operation.str());
     ASSERT_NE(start, std::string::npos);
     text.erase(start, text.find('\n', start) - start + 1);

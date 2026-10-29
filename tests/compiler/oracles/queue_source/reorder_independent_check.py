@@ -610,10 +610,10 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
         r"ac\.instance\([^\n]*callee = @pycircuit\.__builtins__\.fifo_local",
         text,
     )
-    counts = {op: text.count(f'"{op}"') for op in ("ac.rule", "ac.reorder")}
+    counts = {op: text.count(f'"{op}"') for op in ("ac.comb", "ac.reorder")}
     assert len(fifo_instances) == 2, len(fifo_instances)
     assert '"ac.queue"' not in text
-    assert counts["ac.rule"] == 1, counts
+    assert counts["ac.comb"] == 1, counts
     assert counts["ac.reorder"] == 0, counts
     assert (
         "#ac.math_int<16>" in text
@@ -624,7 +624,7 @@ def artifact_structure(design_ac, rtl_dir, cpp_dir):
     assert "table<" in text, "no ac.table in the design"
     ok(
         "V1-design",
-        "design.ac: 2 canonical fifo_local instances, 1 ac.rule, "
+        "design.ac: 2 canonical fifo_local instances, 1 ac.comb, "
         "0 ac.reorder, table extent 16, depths 8/4",
     )
 

@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 
@@ -20,7 +21,8 @@ from test_source_system_execution import (
 )
 
 pytestmark = pytest.mark.system
-TOP = "checks.method_nominal_bench.ExerciseNominalMethods"
+TOP = "checks.saved_anchor_bench.ExerciseSavedAnchor"
+LEGACY_TOP = "checks.method_nominal_bench.ExerciseNominalMethods"
 
 
 def _tree(directory):
@@ -49,21 +51,23 @@ def _save_manifest(directory, manifest):
     (directory / "anchor.json").write_bytes(_json(manifest) + b"\n")
 
 
-def _publish(tmp_path, *, remove_sources=True):
+def _publish(tmp_path, *, remove_sources=True, legacy=False):
     source = tmp_path / "source"
     source.mkdir()
-    for filename in ("method_nominal_provider.py", "method_nominal_bench.py"):
+    prefix = "method_nominal" if legacy else "saved_anchor"
+    provider_file, consumer_file = f"{prefix}_provider.py", f"{prefix}_bench.py"
+    for filename in (provider_file, consumer_file):
         shutil.copy2(FIXTURE / filename, source)
     provider, consumer = tmp_path / "provider", tmp_path / "consumer"
-    _ok(_compile(source, "method_nominal_provider.py", provider))
+    _ok(_compile(source, provider_file, provider))
     # Consumer capture receives only the admitted interface, never provider code.
-    (source / "method_nominal_provider.py").unlink()
+    (source / provider_file).unlink()
     receipt = json.loads((provider / "unit.json").read_text())
     body = provider / receipt["files"]["body"]
     hidden = tmp_path / "hidden-body.ac"
     body.rename(hidden)
     try:
-        _ok(_compile(source, "method_nominal_bench.py", consumer, [provider]))
+        _ok(_compile(source, consumer_file, consumer, [provider]))
     finally:
         hidden.rename(body)
     unit_bytes = (_tree(provider), _tree(consumer))
@@ -77,7 +81,7 @@ def _publish(tmp_path, *, remove_sources=True):
                 "link",
                 *(str(unit) for unit in units),
                 "--top",
-                TOP,
+                LEGACY_TOP if legacy else TOP,
                 "--target",
                 "anchor",
                 "-o",
@@ -109,6 +113,13 @@ def saved_anchor(tmp_path):
     return _publish(tmp_path)
 
 
+@pytest.fixture
+def legacy_saved_anchor(tmp_path):
+    # Retained nominal/candidate-forwarding migration oracle; not replaced by
+    # the bounded transactional counter scenario.
+    return _publish(tmp_path, legacy=True)
+
+
 @pytest.mark.skipif(os.name == "nt", reason='Windows filenames cannot contain "')
 def test_saved_anchor_roundtrip_with_escaped_source_owner_paths(tmp_path):
     _publish(tmp_path, remove_sources=False)
@@ -135,13 +146,29 @@ def test_saved_anchor_roundtrip_with_escaped_source_owner_paths(tmp_path):
         )
     )
     manifest = json.loads((directory / "anchor.json").read_text())
-    paths = [row["source"]["path"] for row in manifest["sources"]]
-    assert paths == [
-        "a-.py",
-        'a".py',
-        "method_nominal_bench.py",
-        "method_nominal_provider.py",
+    # Transactional anchors retain source owners in the authenticated Linked
+    # snapshot rather than a separate source-interface inventory.
+    assert manifest["schema"] == 3
+    assert manifest["sources"] == []
+    graph = (directory / "graph.ac").read_text()
+    snapshot = re.search(
+        r'ac.transactional_source = "((?:\\[0-9A-Fa-f]{2}|\\\\|[^"\\])*)"', graph
+    )
+    assert snapshot is not None
+    linked = re.sub(
+        r"\\([0-9A-Fa-f]{2}|\\)",
+        lambda match: "\\" if match[1] == "\\" else chr(int(match[1], 16)),
+        snapshot[1],
+    )
+    owners = re.search(r"ac.source_units = \[(.*?)\]", linked)
+    assert owners is not None
+    paths = [
+        re.sub(r"\\([0-9A-Fa-f]{2})", lambda match: chr(int(match[1], 16)), path)
+        for path in re.findall(r'path = "((?:\\[0-9A-Fa-f]{2}|[^"\\])*)"', owners[1])
     ]
+    assert sorted(paths) == sorted(
+        ["a-.py", 'a".py', "saved_anchor_bench.py", "saved_anchor_provider.py"]
+    )
     before = _tree(directory)
     for path in (source, *units):
         shutil.rmtree(path)
@@ -173,12 +200,90 @@ def test_saved_anchor_roundtrip_with_escaped_source_owner_paths(tmp_path):
     assert _tree(directory) == before
 
 
-def test_portable_anchor_refines_and_executes_with_original_rollback_oracle(
-    tmp_path, saved_anchor
+@pytest.mark.parametrize("target,workers", [("cpp", 1), ("cpp", 2), ("verilog", 1)])
+def test_transactional_anchor_continues_after_source_removal(
+    tmp_path, saved_anchor, target, workers
 ):
     relocated = tmp_path / "relocated" / "portable"
     shutil.copytree(saved_anchor, relocated)
     shutil.rmtree(saved_anchor)
+    original = _tree(relocated)
+    parent_before = sorted(relocated.parent.iterdir())
+    _ok(_cli("link", "--from-anchor", str(relocated), "--verify-only"))
+    assert sorted(relocated.parent.iterdir()) == parent_before
+    final = tmp_path / "from-anchor.ac"
+    _ok(
+        _cli(
+            "link",
+            "--from-anchor",
+            str(relocated),
+            "--target",
+            "final",
+            "-o",
+            str(final),
+        )
+    )
+    assert _tree(relocated) == original
+    assert 'ac.stage = "final"' in final.read_text()
+    assert "ac.anchor_provenance" in final.read_text()
+    digest = hashlib.sha256(final.read_bytes()).hexdigest()
+    # Old-Q is read even after advance; one rising edge adds three. The
+    # denied transaction never changes held. These values follow the source
+    # recurrence, independently of either backend or the saved representation.
+    expected = {
+        "anchor advance": [(5, 8), (8, 11), (11, 14)],
+        "anchor old": [(5, 5), (8, 5), (11, 5)],
+    }
+    root = tmp_path / target
+    root.mkdir()
+    binary = _bundle(final, root, target)
+    arguments = (
+        ["--cycles", "3", "--workers", str(workers)]
+        if target == "cpp"
+        else ["+cycles=3"]
+    )
+    rows = _records(_ok(_run([str(binary), *arguments], timeout=30)))
+    for event, values in expected.items():
+        selected = [
+            row
+            for row in rows
+            if row["kind"] == "log" and row["spec"]["event"] == event
+        ]
+        assert [
+            tuple(int(value["value"]) for value in row["values"]) for row in selected
+        ] == [value for value in values for _ in range(2)]
+        assert [
+            (int(row["evaluation_epoch"]), int(row["commit_epoch"])) for row in selected
+        ] == [(epoch, epoch + 1) for epoch in range(6)]
+    transcript = [row for row in rows if row["kind"] != "result"]
+    assert not any(
+        row.get("spec", {}).get("event") == "anchor suppressed" for row in rows
+    )
+    arguments = (
+        ["--cycles", "4", "--workers", str(workers)]
+        if target == "cpp"
+        else ["+cycles=4"]
+    )
+    failure = _run([str(binary), *arguments], timeout=30)
+    assert failure.returncode != 0
+    failed_rows = _records(failure.stdout)
+    assert [row for row in failed_rows if row["kind"] != "result"] == transcript
+    terminal = [row for row in failed_rows if row["kind"] == "result"]
+    if terminal:
+        assert len(terminal) == 1 and terminal[0]["status"] == "FAILED"
+        assert int(terminal[0]["epoch_time"]) == 6
+    else:
+        assert "check failed at epoch 6" in failure.stdout + failure.stderr
+    assert hashlib.sha256(final.read_bytes()).hexdigest() == digest
+    assert _tree(relocated) == original
+
+
+def test_portable_anchor_refines_and_executes_with_original_rollback_oracle(
+    tmp_path, legacy_saved_anchor
+):
+    relocated = tmp_path / "relocated" / "portable"
+    shutil.copytree(legacy_saved_anchor, relocated)
+    shutil.rmtree(legacy_saved_anchor)
     original = _tree(relocated)
     parent_before = sorted(relocated.parent.iterdir())
     _ok(_cli("link", "--from-anchor", str(relocated), "--verify-only"))

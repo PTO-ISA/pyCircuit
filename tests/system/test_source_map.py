@@ -75,7 +75,7 @@ def _expected_origins(filename):
                     declaration = statement
                     expected.append(
                         (
-                            "ac.rule",
+                            "ac.comb",
                             _origin(symbol, nested),
                             f'loc("{filename}":{declaration.lineno}:{declaration.col_offset + 1})',
                         )

@@ -66,7 +66,7 @@ def check_text(design_ac, rtl_dir, cpp_dir):
         "V08-1",
         f"design.ac carries {text.count('@pycircuit.__builtins__.fifo_local')} "
         f"canonical fifo_local instances and "
-        f"{text.count(chr(34) + 'ac.rule' + chr(34))} ac.rule ops",
+        f"{text.count(chr(34) + 'ac.comb' + chr(34))} ac.comb ops",
     )
 
     rtl = sorted(rtl_dir.rglob("*.v")) + sorted(rtl_dir.rglob("*.sv"))

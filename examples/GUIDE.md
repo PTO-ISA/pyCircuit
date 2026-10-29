@@ -1,45 +1,39 @@
 # Recommended examples
 
-Start with these 21 current designs. Each teaches a distinct pattern. Superseded
-wrappers and their original oracles are preserved as 54 source directories in
-[the historical fixture archive](../tests/fixtures/historical_examples/README.md),
-outside the current example catalog.
+Start with the transactional examples below. Their READMEs describe independent
+expectations and identify focused test owners; the presence of a generated
+System or matching backend traces alone does not prove correctness. Consult
+[current capabilities and gaps](../docs/development/known-limitations.md) before
+using a retained design as an authoring template.
 
 ## Learning path
 
 | Example | What to learn |
 | --- | --- |
-| [hello_counter](hello_counter/README.md) | A small System, persistent state and a nested Rule. |
-| [multi_outputs](multi_outputs/README.md) | Direct Module calls; Struct connections and independent tuple results. |
-| [sibling_calls](sibling_calls/README.md) | Existing Module references and independent callbacks reading committed state. |
-| [sibling_atomic](sibling_atomic/README.md) | A late sibling guard holds the whole transaction while the reader continues. |
-| [sibling_aliases](sibling_aliases/README.md) | Aliases and reference passthrough share state; separate allocations stay independent. |
-| [sibling_transitive](sibling_transitive/README.md) | Guarded Method results and compiler-propagated output availability. |
-| [struct_transform](struct_transform/README.md) | Structured payloads, combinational locals and registered state. |
-| [enum_payload_pipeline](enum_payload_pipeline/README.md) | Nominal Enum fields, structured updates and saved value snapshots. |
-| [queue_rule_pipeline](queue_rule_pipeline/README.md) | Typed cross-Module Method calls, atomic Queue transfer, ordinary `for`, and committed snapshots. |
-| [table_rule](table_rule/README.md) | Persistent Table entries and nested calls in one transaction. |
-| [calculator](calculator/README.md) | A complete control function with sequential local calculations and state updates. |
+| [hello_counter](hello_counter/README.md) | Persistent state and explicit Rule registration. |
+| [module_control_state_machine](module_control_state_machine/README.md) | Module branches, guards, autorules and old-Q observations. |
+| [local_method_accumulator](local_method_accumulator/README.md) | By-value Methods and rollback of a complete call chain. |
+| [sibling_calls](sibling_calls/README.md) | Existing Module references and independent committed-state observations. |
+| [sibling_method_calls](sibling_method_calls/README.md) | Calls on an existing independently compiled Module instance. |
+| [parent_state_interfaces](parent_state_interfaces/README.md) | Parent-owned State, external Rules and resource aliases. |
+| [scalar_queue_pipeline](scalar_queue_pipeline/README.md) | Parent-owned Queues and atomic backpressure. |
+| [resource_composition](resource_composition/README.md) | Multilevel references and independent scalar outputs. |
+| [structured_packet](structured_packet/README.md) | Nested nominal payloads, whole-record State and Queue transport. |
+| [transactional_cumulative](transactional_cumulative/README.md) | Cross-module accumulation, four-sample guard and backpressure. |
+| [transactional_batch](transactional_batch/README.md) | Module combinational values, guarded Methods and static branch output. |
 
-A directly nested Rule is one autonomous computation per Module or System
-instance. Its declaration activates it; do not add a trailing call. At Module
-wiring, its bare name supplies its scalar, Struct or tuple results. Captures
-supply inputs; any Rule formal requires an explicit default binding. Source-global
-Rule templates retain explicit actual calls, such as `advance(phase)` in the
-benches.
+Follow the [frontend guide](../docs/development/agent-frontend-guide.md) for
+interfaces and Rule authoring, and the [example standard](STANDARD.md) for
+scenario and oracle ownership.
 
-Use separate Rules for independent functions: each reads committed state.
-Sequential assignments and Method calls within one Rule share its candidate
-state and atomic commit. Put dependent operations in that one callback, as in
-ROB. Callable component operations use Methods, including zero-argument reads;
-local autonomous Rules are not callable. `after` ordering is retired.
+## Retained migration inputs
 
-Each static Module call creates a distinct child instance. Bind the result once
-and reuse it to fan out existing outputs. Pass fields that travel together as one
-named Struct connection; return a tuple only for independent destinations.
-One value remains a scalar, without a one-field Struct or singleton tuple.
-Module-scope annotated declarations are persistent state, while Rule locals and
-ordinary Module expressions remain combinational values.
+`multi_outputs`, `sibling_atomic`, `sibling_aliases`,
+`sibling_transitive`, `struct_transform`, `enum_payload_pipeline`,
+`queue_rule_pipeline`, `table_rule` and `calculator` retain distinct behaviors
+and original oracles. Their broader source forms require migration; old
+candidate-state forwarding must be replaced with explicit SSA values, without
+silently changing the design's functional goal.
 
 ## Design references
 
@@ -56,26 +50,12 @@ ordinary Module expressions remain combinational values.
 | [fifo_loopback](fifo_loopback/README.md) | An explicit external FIFO protocol boundary. |
 | [multiclock_domain_isolation](multiclock_domain_isolation/README.md) | Compiler conformance reference for independent physical domains; not a frontend wiring template. |
 
-The previous set of 17 designs passed the 34-test examples nightly on 2026-10-18.
-That historical run predates the sibling-calls example.
-DMA, memory banks and Table use readable 42-, 26- and 16-cycle System scenarios;
-their independent Module oracles remain. Earlier long-form benches are preserved
-in the historical fixture archive and were not revalidated by these shorter
-scenarios. The full 100,000,001-cycle digital-clock System also passed.
-Long clock rollover and exhaustive four-state runs belong to the nightly tier.
+The design references are retained requirements, not current execution claims.
+Short DMA, memory-bank and Table Systems do not validate their original long
+Module benches. Long clock rollover and exhaustive four-state scenarios remain
+in their existing nightly owners. The historical fixture archive preserves
+comparison assets; retirement or archival is not a pass.
 
-## Keeping the set useful
-
-Operator variants, malformed IR, type-admission matrices and resource-limit
-stress belong in API tests. Queue protocol recipes may share a tutorial, while
-retaining distinct atomicity and backpressure regressions in their test owners.
-Do not combine all variants into one giant demonstration module.
-
-There is no Signal declaration/set/get API. Use typed Module and autonomous Rule
-results for connections, compiler-propagated Rule output availability, and state
-or Queue when a value must survive across cycles.
-
-Prefer a short System scenario and generated C++/RTL execution. Add handwritten
-host or RTL tests only for a specific boundary the System cannot exercise.
-See the [authoring standard](STANDARD.md) and
-[frontend guide](../docs/development/agent-frontend-guide.md).
+Operator matrices, malformed IR and analysis limits belong to API tests. Reuse
+existing build and verification helpers without combining unrelated behaviors
+into a single large example or adding a second execution route.

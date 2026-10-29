@@ -1,7 +1,6 @@
 // Independent AST/scope and private-budget invariants; public query execution
 // belongs to the existing source-interface and Enum/collection owners.
 #include "Compiler/PythonImportAST.h"
-#include "Compiler/SourceRuleWrites.h"
 #include "Compiler/TableQueryLowering.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/Diagnostics.h"
@@ -489,46 +488,10 @@ TEST_F(TableQuerySourceBoundary, CaptureReplacementKeepsBindingAnswersIndependen
   }
 }
 
-TEST_F(TableQuerySourceBoundary, CallbackPureHelperIsNotAnAutonomousRegistration) {
-  auto import = node("Import", {field("names", b.getArrayAttr({node("alias", {
-      field("name", b.getStringAttr("pycircuit")), field("asname", b.getStringAttr("ac"))})}))});
-  auto write = function("Write", arguments({argument("state")}), {
-      node("Assign", {field("targets", b.getArrayAttr({name("state")})),
-                       field("value", integer("1"))})}, "rule");
-  auto parameter = change(argument("value"), "annotation", attribute("ac", "u8"));
-  auto predicate = function("predicate", arguments({parameter}),
-      {node("Return", {field("value", name("value"))})}, "rule");
-  predicate = change(predicate, "decorator_list", b.getArrayAttr({}));
-  predicate = change(predicate, "returns", attribute("ac", "u8"));
-  auto nestedCall = call(name("predicate"), {name("state")});
-  auto callback = lambda(arguments({argument("row")}), nestedCall);
-  auto query = call(attribute("entries", "first"), {}, {node("keyword", {
-      field("arg", b.getStringAttr("where")), field("value", callback)})});
-  auto registration = call(name("Write"), {name("state")});
-  auto top = function("Top", arguments(), {
-      node("AnnAssign", {field("target", name("state")),
-          field("annotation", attribute("ac", "u8")), field("value", integer("0")),
-          field("simple", b.getDictionaryAttr({field("integer", b.getStringAttr("1"))}))}),
-      node("Expr", {field("value", query)}),
-      node("Expr", {field("value", registration)})}, "module");
-  auto input = transport({import, write, predicate, top});
-  auto source = capture(*input);
-  ASSERT_TRUE(succeeded(source));
-  detail::SourceRuleWritesAnalysis analysis(input->getOperation());
-  ASSERT_TRUE(analysis.isPlanValid());
-  auto module = source->module.item("body", 3);
-  auto nested = module.item("body", 1).child("value").item("keywords", 0).child("value").child("body");
-  auto actual = module.item("body", 2).child("value");
-  auto nestedPlan = analysis.lookup(module, nested, [](uint64_t) { return true; });
-  ASSERT_TRUE(succeeded(nestedPlan));
-  EXPECT_EQ(*nestedPlan, nullptr);
-  auto actualPlan = analysis.lookup(module, actual, [](uint64_t) { return true; });
-  ASSERT_TRUE(succeeded(actualPlan));
-  ASSERT_NE(*actualPlan, nullptr);
-  EXPECT_TRUE(analysis.pendingPairs().empty());
-  // This is registration-boundary evidence only. Callback type/purity and
-  // helper admission remain the owning public query gate's responsibility.
-}
+// Retired: CallbackPureHelperIsNotAnAutonomousRegistration inspected the
+// removed RuleWrites plan. Callback purity and query execution remain in the
+// Table query capability tests; explicit Rule registration is covered by the
+// transactional source-unit tests.
 
 std::array<uint64_t, 7> counters(const Budget &budget) {
   std::array<uint64_t, 7> result;

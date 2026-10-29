@@ -357,7 +357,7 @@ for control in controls:
     registration_counts = {}
     for field, operation, artifact in (
         ("expected_source_transactions", "ac.transaction", payload(unit, "body")),
-        ("expected_final_rules", "ac.rule", final),
+        ("expected_final_rules", "ac.comb", final),
     ):
         if field in control:
             count = len(re.findall(r'"' + re.escape(operation) + r'"\(', artifact.read_text()))

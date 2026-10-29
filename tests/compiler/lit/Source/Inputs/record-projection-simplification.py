@@ -367,7 +367,7 @@ assert replay.read_bytes() == final.read_bytes() == transaction_output.read_byte
 before_text = transaction_input.read_text()
 after_text = transaction_output.read_text()
 assert '"ac.transaction"' in before_text and '"ac.transaction"' not in after_text
-assert '"ac.rule"' in after_text
+assert '"ac.comb"' in after_text
 assert "ac.struct.create" in before_text and "ac.struct.get" in before_text
 # Equivalent Table shapes with different source provenance cannot be replaced
 # directly in SSA. The verified final projection stays as the representation bridge.

@@ -10,6 +10,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections import Counter
 from pathlib import Path
 
 
@@ -350,6 +351,49 @@ def compile_system(
         )
 
 
+def verify_expected_observations(history, trace, expected_epochs):
+    """Compare example-owned finite histories, sampled at both cycle edges."""
+    expected = Counter()
+    for event, entries in history.items():
+        instances = entries if isinstance(entries, dict) else {None: entries}
+        for instance, cycles in instances.items():
+            if len(cycles) * 2 != expected_epochs:
+                raise ValueError("expected history must cover every complete cycle")
+            for cycle, observations in enumerate(cycles):
+                for values in observations:
+                    for edge in (0, 1):
+                        expected[
+                            (cycle * 2 + edge, event, instance, tuple(values))
+                        ] += 1
+    observed = Counter()
+    for row in trace:
+        if row["kind"] != "log":
+            raise ValueError("expected history covers log observations only")
+        values = []
+        for value in row["values"]:
+            if value["kind"] == "bits4":
+                if (
+                    int(value["known"], 16) != (1 << value["width"]) - 1
+                    or int(value["z"], 16) != 0
+                ):
+                    raise ValueError("numeric history requires fully known values")
+                values.append(int(value["value"], 16))
+            else:
+                values.append(int(value["value"]))
+        event = row["spec"].get("event", "")
+        instance = row["instance"] if isinstance(history.get(event), dict) else None
+        observed[
+            (
+                epoch_number(row["evaluation_epoch"]),
+                event,
+                instance,
+                tuple(values),
+            )
+        ] += 1
+    if observed != expected:
+        raise ValueError("source observations differ from independent expected history")
+
+
 def verify_system(source, build, driver, include, toolchain, cycles, timeout):
     """Reuse public run and compare complete source observations on both targets.
 
@@ -375,7 +419,8 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
         bound = {}
         for path in sorted(source.rglob("*")):
             if path.is_file() and (
-                path.suffix in {".py", ".cmake"} or path.name == "CMakeLists.txt"
+                path.suffix in {".py", ".cmake"}
+                or path.name in {"CMakeLists.txt", "expected.json"}
             ):
                 bound["source/" + path.relative_to(source).as_posix()] = digest(path)
         for path in sorted((include / "verilog").glob("*.v")):
@@ -578,69 +623,11 @@ def verify_system(source, build, driver, include, toolchain, cycles, timeout):
                 raise ValueError("generated receipt contains an unsafe path")
             path = bundle / relative
             bind_artifact(path)
-    if source.name == "sibling_calls":
-        # Test-owned arithmetic oracle: the shared Counter starts at five,
-        # increments while below seven; the independent reader observes current.
-        expected = [
-            (epoch, [{"kind": "integer", "value": str(min(5 + epoch // 2, 7))}])
-            for epoch in range(expected_epochs)
-        ]
+    expected_path = source / "expected.json"
+    if expected_path.is_file():
+        history = json.loads(expected_path.read_text())
         for trace in traces:
-            observed = [
-                (epoch_number(row["evaluation_epoch"]), row["values"])
-                for row in trace
-                if row["kind"] == "log" and row["spec"].get("event") == "count"
-            ]
-            if observed != expected or len(trace) != expected_epochs:
-                raise ValueError(
-                    "sibling_calls differs from independent 5, 6, 7, 7 current-state oracle"
-                )
-    sibling_scenarios = {
-        "sibling_atomic": {
-            "atomic visible": [(10, 100), (13, 110), (13, 110), (16, 120)],
-            "atomic committed": [(10, 100), (13, 110), (13, 110), (16, 120)],
-        },
-        "sibling_aliases": {
-            "alias snapshots": [(3, 4, 4), (5, 6, 6), (7, 8, 8), (9, 10, 10)],
-            "independent count": [(2,), (2,), (2,), (2,)],
-        },
-        "sibling_transitive": {
-            "transitive visible": [(1,), (3,), (5,), None],
-            "transitive committed": [(1,), (3,), (5,), (7,)],
-        },
-    }
-    if source.name in sibling_scenarios:
-        # Test-owned histories, independent of DUT/generated expressions:
-        # atomic: skip both updates at cycle 1; aliases: two sequential adds;
-        # transitive: read current only while it is at most five.
-        if expected_epochs != 8:
-            raise ValueError("small sibling scenarios require four complete cycles")
-        expected = sorted(
-            (
-                cycle * 2 + edge,
-                event,
-                [{"kind": "integer", "value": str(value)} for value in values],
-            )
-            for event, cycles in sibling_scenarios[source.name].items()
-            for cycle, values in enumerate(cycles)
-            if values is not None
-            for edge in (0, 1)
-        )
-        for trace in traces:
-            observed = [
-                (
-                    epoch_number(row["evaluation_epoch"]),
-                    row["spec"].get("event", ""),
-                    row["values"],
-                )
-                for row in trace
-                if row["kind"] == "log"
-            ]
-            observed.sort(key=lambda row: row[:2])
-            if observed != expected or len(trace) != len(expected):
-                raise ValueError(
-                    f"{source.name} differs from its independent four-cycle oracle"
-                )
+            verify_expected_observations(history, trace, expected_epochs)
     if traces[0] != traces[1] or traces[0] != traces[2]:
         raise ValueError("system source observations disagree across workers/backends")
     if not final_ir[0] or final_ir[0] != final_ir[1] or final_ir[0] != final_ir[2]:

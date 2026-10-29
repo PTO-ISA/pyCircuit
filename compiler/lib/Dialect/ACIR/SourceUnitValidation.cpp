@@ -1,10 +1,11 @@
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
-#include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 #include "ACIRSourceContracts.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/SymbolTable.h"
 #include "mlir/IR/Verifier.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
+#include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 
@@ -40,16 +41,21 @@ FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
                                          detail::EmitError emitError) {
   if (!unit)
     return emitError() << "source unit is required";
-  if (unit->hasAttr("ac.transactional"))
-    return emitError()
-           << "transactional resource packages cannot enter legacy source units";
+  auto version = unit->getAttrOfType<IntegerAttr>("ac.transactional");
+  if (!version || !version.getType().isSignlessInteger(64) ||
+      version.getInt() != 2)
+    return emitError() << "source units require transactional version 2; "
+                          "regenerate this artifact";
+  auto contract = unit->getAttrOfType<IntegerAttr>("ac.source_contract");
+  if (!contract || !contract.getType().isSignlessInteger(64) || contract.getInt() != 4)
+    return emitError() << "source constraint contract 4 is required; regenerate this artifact";
   auto owner = unit->getAttrOfType<DictionaryAttr>("ac.source_owner");
   auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
   auto stage = unit->getAttrOfType<StringAttr>("ac.stage");
   auto interfaces = unit->getAttrOfType<ArrayAttr>("ac.interfaces");
   if (failed(detail::verifySourceOwner(owner, emitError)) || !kind ||
       kind.getValue() != expectedKind || !stage ||
-      stage.getValue() != "source" || !interfaces || interfaces.empty())
+      stage.getValue() != "unlinked" || !interfaces || interfaces.empty())
     return emitError() << "source " << expectedKind
                        << " unit envelope is incomplete";
   if (!unit->getAttrOfType<ArrayAttr>("ac.exports"))
@@ -81,7 +87,7 @@ FailureOr<DictionaryAttr> verifyEnvelope(mlir::ModuleOp unit,
 
 bool retainedDeclaration(Operation *operation) {
   return isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleImportOp,
-             func::FuncOp>(operation);
+             func::FuncOp, TransactionRuleOp>(operation);
 }
 
 LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
@@ -104,7 +110,8 @@ LogicalResult verifyDeclaration(Operation *operation, DictionaryAttr owner,
   if (role.getValue() == "definition") {
     if (declarationOwner != owner)
       return emitError() << "source definition has a foreign SourceOwner";
-    if (body ? !isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp>(operation)
+    if (body ? (!isa<ModuleOp, StructOp, EnumOp, ConstantOp, func::FuncOp, TransactionRuleOp>(operation) &&
+                !isTransactionalReferenceRequirement(operation))
              : !retainedDeclaration(operation))
       return emitError() << "unsupported source definition category";
   } else if (role.getValue() == "import_snapshot") {
@@ -151,11 +158,12 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
       }
     }
     for (StringRef name :
-         {"ac.transactional", "ac.internal_ports", "ac.input_validity", "ac.output_validity",
+         {"ac.internal_ports", "ac.input_validity", "ac.output_validity",
           "ac.routed_output_validity", "ac.sampled_admission",
           "ac.execution_policy", "ac.transaction_wiring", "ac.queue_wiring",
-          "ac.routed_contract", "ac.registration_path", "ac.lexical_registration",
-          "ac.registration_owner", "ac.transaction_returns", "ac.entry_boundary"}) {
+          "ac.routed_contract", "ac.registration_path",
+          "ac.lexical_registration", "ac.registration_owner",
+          "ac.transaction_returns", "ac.entry_boundary"}) {
       if (!operation->hasAttr(name))
         continue;
       operation->emitOpError()
@@ -166,7 +174,7 @@ FailureOr<SourceUnitStructure> verifyStructure(mlir::ModuleOp unit, bool body,
   });
   if (forged.wasInterrupted())
     return failure();
-  if (failed(mlir::verify(unit)))
+  if (failed(mlir::verify(unit)) || failed(verifyTransactionalPackage(unit)))
     return failure();
   auto kind = unit->getAttrOfType<StringAttr>("ac.unit_kind");
   if (body && (!kind || (kind.getValue() != "implementation" &&
@@ -241,8 +249,12 @@ bool hasQualifiedDeclarationIdentityForOwner(Operation *operation,
     return false;
   StringRef local =
       module.empty() ? symbol : symbol.drop_front(module.size() + 1);
-  if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp>(
-          operation))
+  if (isTransactionalReferenceRequirement(operation)) {
+    auto [parent, leaf] = local.split('.');
+    return !parent.empty() && !leaf.empty() && !leaf.contains('.');
+  }
+  if (isa<TypeAliasOp, ConstantOp, StructOp, EnumOp, ModuleOp, ModuleImportOp,
+          TransactionRuleOp>(operation))
     return !local.empty() && !local.contains('.');
   if (auto helper = dyn_cast<func::FuncOp>(operation)) {
     auto lexical = helper->getAttrOfType<FlatSymbolRefAttr>("ac.lexical_owner");

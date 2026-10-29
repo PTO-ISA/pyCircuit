@@ -1,447 +1,768 @@
-if (node.kind() == "Call" && intrinsic(node.child("func"), "four_state")) {
-  auto pattern = fourStatePattern(node);
-  if (failed(pattern))
-    return failure();
-  auto result =
-      createOp(at, node.location(b.getContext(), source.path),
-               ac::BitsConstant4Op::getOperationName(), {},
-               TypeRange{internalBits(pattern->size(), node, ownerSymbol)},
-               {at.getNamedAttr("pattern", at.getStringAttr(pattern->lower()))})
-          ->getResult(0);
-  remember(result, std::nullopt);
-  fixedValues.insert(result);
-  return result;
-}
-if (node.kind() == "Call" && (intrinsic(node.child("func"), "case_eq") ||
-                              intrinsic(node.child("func"), "is_known"))) {
-  bool known = intrinsic(node.child("func"), "is_known");
-  if (node.array("args").size() != (known ? 1u : 2u) ||
-      !node.array("keywords").empty())
-    return error() << "four-state observer requires exactly "
-                   << (known ? "one" : "two") << " positional Bits operands";
-  auto lhs = expression(node.item("args", 0), at, ownerSymbol, values,
-                        instances, {}, captures);
-  if (failed(lhs))
-    return failure();
-  FailureOr<Value> rhs = known
-                             ? lhs
-                             : expression(node.item("args", 1), at, ownerSymbol,
-                                          values, instances, {}, captures);
-  if (failed(rhs))
-    return failure();
-  if (!isa<ac::BitsType>(lhs->getType()) ||
-      !isa<ac::BitsType>(rhs->getType()) || !fixedValues.contains(*lhs) ||
-      !fixedValues.contains(*rhs) ||
-      !ac::areEquivalentHardwareTypes(lhs->getType(), rhs->getType()))
-    return error()
-           << "four-state observer requires equal-width fixed Bits operands";
-  auto bit = internalBits(1, node, ownerSymbol);
-  auto compare = [&](Value left, Value right, StringRef predicate) {
-    return createOp(at, node.location(b.getContext(), source.path),
-                    ac::BitsCompareOp::getOperationName(), {left, right},
-                    TypeRange{bit},
-                    {at.getNamedAttr("predicate", at.getStringAttr(predicate))})
-        ->getResult(0);
-  };
-  Value result;
-  if (known) {
-    auto equal = compare(*lhs, *lhs, "eq");
-    auto one = constant(bit, 1, node, at, ownerSymbol);
-    if (failed(one))
-      return failure();
-    result = compare(equal, *one, "case_eq");
-  } else
-    result = compare(*lhs, *rhs, "case_eq");
-  result.getDefiningOp()->setAttr(
-      "ac.verification_observer",
-      at.getStringAttr(known ? "is_known" : "case_eq"));
-  result.getDefiningOp()->setAttr("ac.origin",
-                                  sourceOccurrence(at, ownerSymbol, node));
-  remember(result, ValueKind::Boolean);
-  return result;
-}
-// Memory handles are static identities; all data accesses are Rule operations.
-AstNode memoryBase = node.kind() == "Attribute" ? node.child("value") : node;
-if (memoryBase.kind() == "Name") {
-  auto found = instances.find(memoryBase.string("id"));
-  if (found != instances.end() && memoryInstance(found->second) &&
-      !values.contains(memoryBase.string("id")))
-    return error() << "Memory handle is a static allocation identity, not a payload value";
-}
-// Queue construction produces an ordinary immutable instance handle. Its three
-// public raw views are ordinary instance outputs.
-auto queueRaw = queueRawExpression(node, at, ownerSymbol, values, instances);
-if (failed(queueRaw)) return failure();
-if (*queueRaw) return **queueRaw;
-if (activeSourceEffects &&
-    (node.kind() == "Name" || node.kind() == "Call")) {
-  auto effect = sourceEffectExpression(node, at, ownerSymbol, values, instances);
-  if (failed(effect))
-    return failure();
-  if (*effect)
-    return **effect;
-}
-if (node.kind() == "Call" && node.child("func").kind() == "Attribute" &&
-    llvm::is_contained(
-        ArrayRef<StringRef>{"map", "fold", "all", "any", "count"},
-        node.child("func").string("attr")))
-  return tableValueCall(node, at, ownerSymbol, values, instances);
-auto member = resolveEnumMember(node);
-if (failed(member))
-  return failure();
-if (*member)
-  return createOp(at, node.location(b.getContext(), source.path),
-                  ac::EnumCreateOp::getOperationName(), {},
-                  TypeRange{(*member)->type},
-                  {at.getNamedAttr("member", (*member)->member)})
+// Native expressions over explicit resources and ordinary SSA values.
+FailureOr<Value> Importer::constant(const AstNode &node, Type type,
+                                    const llvm::APSInt &number) {
+  return op(node, "ac.payload.pending", {}, type,
+            {b.getNamedAttr("kind", b.getStringAttr("literal")),
+             b.getNamedAttr("number",
+                            ac::MathIntAttr::get(b.getContext(), number))})
       ->getResult(0);
-if (auto name = fixedCountCall(node); !name.empty()) {
-  if (failed(validateFixedCountCall(node, name)))
-    return failure();
-  auto input = expression(node.item("args", 0), at, ownerSymbol, values,
-                          instances, {}, captures);
-  if (failed(input))
-    return failure();
-  return lowerFixedCount(*input, node, at, ownerSymbol, name);
 }
-if (concatCall(node)) {
-  if (failed(validateConcatCall(node)))
-    return failure();
-  SmallVector<Value> operands;
-  SmallVector<Type> types;
-  for (size_t i = 0; i < node.array("args").size(); ++i) {
-    auto operand = node.item("args", i);
-    auto value = expression(operand, at, ownerSymbol, values, instances, {},
-                            captures);
-    if (failed(value))
+
+FailureOr<Value> Importer::convert(Value value, Type target,
+                                   const AstNode &node) {
+  if (equal(value.getType(), target))
+    return value;
+  return op(node, "ac.payload.pending", value, target,
+            {b.getNamedAttr("kind", b.getStringAttr("convert"))})
+      ->getResult(0);
+}
+
+FailureOr<Value> Importer::read(Value handle, const AstNode &node,
+                                Scope &scope) {
+  if (!isResource(handle.getType())) {
+    // An authored evaluation must survive identity conversions and aliases.
+    // Branch-yield transport does not call read(), so it remains deferred.
+    if (!scope.module && !isa<ac::ModuleRefType>(handle.getType()) &&
+        !op(node, "ac.payload.use", handle, {}))
       return failure();
-    if (!isa<ac::BitsType>(value->getType()) || !fixedValues.contains(*value))
-      return mlir::emitError(operand.location(b.getContext(), source.path))
-             << "concat operand " << i + 1
-             << " requires explicitly unsigned fixed bits";
-    operands.push_back(*value);
-    types.push_back(value->getType());
+    return handle;
   }
-  auto type = resolveConcatType(node, types, ownerSymbol);
-  if (failed(type))
-    return failure();
-  auto result =
-      createOp(at, node.location(b.getContext(), source.path),
-               ac::BitsConcatOp::getOperationName(), operands, TypeRange{*type},
-               {})
-          ->getResult(0);
-  fixedValues.insert(result);
-  return result;
+  auto data = payload(handle.getType());
+  auto *created =
+      op(node, "ac.method.call", ValueRange{handle}, data,
+         {b.getNamedAttr("callee", symbol("read")),
+          b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))});
+  // Preserve the formal identity rather than caching the first SSA load in a
+  // lexical scope. Common analysis groups uses per registration and formal.
+  if (created)
+    if (auto argument = dyn_cast<BlockArgument>(handle))
+      if (auto rule = dyn_cast<ac::TransactionRuleOp>(
+              argument.getOwner()->getParentOp());
+          rule && argument.getArgNumber() < rule.getFunctionType().getNumInputs())
+        created->setAttr("rule_parameter",
+                         b.getI64IntegerAttr(argument.getArgNumber()));
+  return created ? FailureOr<Value>(created->getResult(0))
+                 : FailureOr<Value>(failure());
 }
-if (node.kind() == "Call" && intrinsic(node.child("func"), "enum_to_bits")) {
-  if (node.array("args").size() != 1 || !node.array("keywords").empty())
-    return error() << "enum_to_bits requires exactly one positional Enum value";
-  auto input = expression(node.item("args", 0), at, ownerSymbol, values,
-                          instances, {}, captures);
-  if (failed(input))
+
+LogicalResult Importer::write(Value handle, Value value, const AstNode &node,
+                              Scope &scope) {
+  if (scope.pure || scope.module)
+    return fail(node, "resource updates require a Rule or Method body");
+  if (!isResource(handle.getType()))
+    return fail(node, "assignment target is not a resource");
+  auto converted = convert(value, payload(handle.getType()), node);
+  if (failed(converted))
     return failure();
-  return enumToBits(*input, node, at, ownerSymbol);
+  auto *created =
+      op(node, "ac.method.call", ValueRange{handle, *converted}, {},
+         {b.getNamedAttr("callee", symbol("write")),
+          b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))});
+  return success(created != nullptr);
 }
-if (auto producer = fixedResultCall(node); !producer.empty())
-  return mlir::emitError(node.location(b.getContext(), source.path))
-         << producer
-         << " produces fixed results; unpack first into ordinary "
-            "local Names";
-if ((node.kind() == "Constant" || sourceLiteral) && expected && isa<ac::EnumType>(*expected))
-  return error() << "source Integer/Boolean literals cannot be implicitly "
-                    "converted to Enum";
-// Aggregate and unsigned expressions use the same expression recursion.
-if (node.kind() == "Tuple" || node.kind() == "List") {
-  auto table = expected ? dyn_cast<ac::TableType>(*expected) : ac::TableType();
-  if (!table)
-    return error() << "tuple/list literal requires an expected Table type";
-  ac::HardwareAnalysis analysis(*body);
-  auto shape = analysis.getTableShape(table, {}, body->getOperation());
-  if (failed(shape))
+
+FailureOr<Value> Importer::scalar(const AstNode &node, Scope &scope,
+                                  Type expected) {
+  auto savedRequirement = scope.pendingResultRequirement;
+  auto savedArity = scope.pendingResultArity;
+  scope.pendingResultRequirement = "scalar";
+  scope.pendingResultArity = 1;
+  auto restoreDemand = llvm::scope_exit([&] {
+    scope.pendingResultRequirement = savedRequirement;
+    scope.pendingResultArity = savedArity;
+  });
+  auto values = expression(node, scope, expected);
+  if (failed(values))
     return failure();
-  if (shape->size() != 1 ||
-      !isa<ac::BitsType, ac::EnumType, ac::StructType>(table.getElementType()))
-    return error() << "Table literal requires a positive closed "
-                      "one-dimensional Table of bits, enum or struct";
-  if (node.array("elts").size() != shape->front())
-    return error() << "Table literal element count disagrees with extent";
-  SmallVector<Value> elements;
-  for (size_t i = 0; i < node.array("elts").size(); ++i) {
-    auto element = node.item("elts", i);
-    auto value = expression(element, at, ownerSymbol, values, instances,
-                            table.getElementType(), captures);
+  if (values->size() != 1) {
+    (void)fail(node, "expression requires exactly one same-cycle payload");
+    return failure();
+  }
+  Value value = values->front();
+  if (isResource(value.getType()) || !scope.module) {
+    auto loaded = read(value, node, scope);
+    if (failed(loaded))
+      return failure();
+    value = *loaded;
+  }
+  if (isa<ac::ModuleRefType>(value.getType())) {
+    (void)fail(node, "instance references are not data payloads");
+    return failure();
+  }
+  return expected ? convert(value, expected, node) : FailureOr<Value>(value);
+}
+
+FailureOr<SmallVector<Value>>
+Importer::expression(const AstNode &node, Scope &scope, Type expected,
+                     ArrayRef<Value> destinations) {
+  if (!charge(node))
+    return failure();
+  auto staticParameter = [&](auto &&self, const AstNode &syntax) -> bool {
+    if (integer(syntax))
+      return true;
+    if (syntax.kind() == "Name")
+      return !scope.bindings.count(syntax.string("id").str()) &&
+             llvm::any_of(scope.owner->parameters, [&](Attribute raw) {
+               return cast<DictionaryAttr>(raw)
+                          .getAs<StringAttr>("name")
+                          .getValue() == syntax.string("id");
+             });
+    return syntax.kind() == "BinOp" && self(self, syntax.child("left")) &&
+           self(self, syntax.child("right"));
+  };
+  if ((!expected || isa<ac::BitsType>(expected)) && !integer(node) &&
+      staticParameter(staticParameter, node)) {
+    auto value = staticExpr(node, scope.owner->symbol);
     if (failed(value))
       return failure();
-    auto converted = unsignedBoundary(*value, table.getElementType(), element,
-                                      at, ownerSymbol);
+    if (expected)
+      return SmallVector<Value>{op(node, "ac.bits.constant", {}, expected,
+                                   {b.getNamedAttr("value", *value)})
+                                    ->getResult(0)};
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending", {}, ac::InferType::get(b.getContext()),
+           {b.getNamedAttr("kind", b.getStringAttr("literal")),
+            b.getNamedAttr("number", *value)})
+            ->getResult(0)};
+  }
+  if (auto number = integer(node)) {
+    if (expected) {
+      auto value = constant(node, expected, *number);
+      if (failed(value))
+        return failure();
+      return SmallVector<Value>{*value};
+    }
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending", {}, ac::InferType::get(b.getContext()),
+           {b.getNamedAttr("kind", b.getStringAttr("literal")),
+            b.getNamedAttr("number",
+                           ac::MathIntAttr::get(b.getContext(), *number))})
+            ->getResult(0)};
+  }
+  if (node.kind() == "Name") {
+    auto found = scope.bindings.find(node.string("id").str());
+    if (found == scope.bindings.end()) {
+      (void)fail(node, "unbound transactional local");
+      return failure();
+    }
+    if (found->second.pending && !found->second.value) {
+      auto pending = found->second.pending;
+      if (!pending->inputs.empty()) {
+        (void)fail(
+            node,
+            "instance must be connected before it is used as a reference");
+        return failure();
+      }
+      auto values = instantiate(pending, nullptr, found->second.instanceName,
+                                found->second.declaration, scope);
+      if (failed(values))
+        return failure();
+      auto refType =
+          ac::ModuleRefType::get(b.getContext(), symbol(pending->symbol));
+      auto *ref = op(
+          node, "ac.instance.ref", {}, refType,
+          {b.getNamedAttr("instance_path", b.getArrayAttr({b.getStringAttr(
+                                               found->second.instanceName)}))});
+      found->second.value = ref->getResult(0);
+      found->second.pending = nullptr;
+    }
+    if (found->second.pendingImport) {
+      auto *definition = found->second.pendingImport;
+      auto values = instantiate(nullptr, definition, found->second.instanceName,
+                                found->second.declaration, scope);
+      if (failed(values))
+        return failure();
+      auto type = ac::ModuleRefType::get(b.getContext(),
+                                         symbol(found->second.instanceTarget));
+      found->second.value =
+          op(node, "ac.instance.ref", {}, type,
+             {b.getNamedAttr("instance_path",
+                             b.getArrayAttr({b.getStringAttr(
+                                 found->second.instanceName)}))})
+              ->getResult(0);
+      found->second.pendingImport = nullptr;
+    }
+    if (!found->second.value)
+      return failure();
+    return SmallVector<Value>{found->second.value};
+  }
+  if (node.kind() == "Tuple") {
+    auto savedRequirement = scope.pendingResultRequirement;
+    auto savedArity = scope.pendingResultArity;
+    scope.pendingResultRequirement = "scalar";
+    scope.pendingResultArity = 1;
+    auto restoreDemand = llvm::scope_exit([&] {
+      scope.pendingResultRequirement = savedRequirement;
+      scope.pendingResultArity = savedArity;
+    });
+
+    SmallVector<Value> values;
+    for (size_t i = 0; i < node.array("elts").size(); ++i) {
+      auto item = expression(node.item("elts", i), scope);
+      if (failed(item) || item->size() != 1) {
+        (void)fail(node, "tuple elements must be scalar");
+        return failure();
+      }
+      values.push_back(item->front());
+    }
+    return values;
+  }
+  if (node.kind() == "Attribute") {
+    auto binding = resolve(node.child("value"));
+    if (binding && isa_and_nonnull<ac::EnumOp>(binding->declaration)) {
+      auto type = ac::EnumType::get(
+          b.getContext(), b.getStringAttr(binding->symbol.getValue()));
+      return SmallVector<Value>{
+          op(node, "ac.enum.create", {}, type,
+             {b.getNamedAttr("member", b.getStringAttr(node.string("attr")))})
+              ->getResult(0)};
+    }
+    auto base = scalar(node.child("value"), scope);
+    if (failed(base))
+      return failure();
+    if (isa<ac::InferType>(base->getType()))
+      return SmallVector<Value>{
+          op(node, "ac.payload.pending", *base,
+             ac::InferType::get(b.getContext()),
+             {b.getNamedAttr("kind", b.getStringAttr("field")),
+              b.getNamedAttr("opcode", b.getStringAttr(node.string("attr")))})
+              ->getResult(0)};
+    auto structure = dyn_cast<ac::StructType>(base->getType());
+    Type type;
+    if (structure) {
+      auto *definition =
+          SymbolTable::lookupSymbolIn(*result, structure.getName().getValue());
+      if (definition)
+        for (auto raw : definition->getAttrOfType<ArrayAttr>("fields")) {
+          auto field = cast<DictionaryAttr>(raw);
+          if (field.getAs<StringAttr>("name").getValue() == node.string("attr"))
+            type = field.getAs<TypeAttr>("type").getValue();
+        }
+    }
+    if (!structure || !type) {
+      (void)fail(node, "field access requires a declared Struct field");
+      return failure();
+    }
+    return SmallVector<Value>{
+        op(node, "ac.struct.get", *base, type,
+           {b.getNamedAttr("field", b.getStringAttr(node.string("attr")))})
+            ->getResult(0)};
+  }
+  if (node.kind() == "Subscript") {
+    auto value = scalar(node.child("value"), scope);
+    if (failed(value))
+      return failure();
+    auto input = dyn_cast<ac::BitsType>(value->getType());
+    if (!input)
+      return (void)fail(node, "static indexing requires a Bits value"),
+             failure();
+    auto slice = node.child("slice");
+    ac::StaticExprAttr low;
+    Type output = bits(1, node);
+    if (slice.kind() == "Slice") {
+      if (slice.child("step"))
+        return (void)fail(slice, "static slices require unit stride"),
+               failure();
+      low = staticLiteral(llvm::APSInt(llvm::APInt(1, 0), true), node,
+                          scope.owner->symbol);
+      if (auto lower = slice.child("lower")) {
+        auto expression = staticExpr(lower, scope.owner->symbol);
+        if (failed(expression))
+          return failure();
+        low = *expression;
+      }
+      auto high = input.getWidth();
+      if (auto upper = slice.child("upper")) {
+        auto expression = staticExpr(upper, scope.owner->symbol);
+        if (failed(expression))
+          return failure();
+        high = *expression;
+      }
+      auto width = ac::StaticExprAttr::get(
+          b.getContext(),
+          b.getDictionaryAttr(
+              {b.getNamedAttr("kind", b.getStringAttr("binary")),
+               b.getNamedAttr("operator", b.getStringAttr("sub")),
+               b.getNamedAttr("lhs", high), b.getNamedAttr("rhs", low),
+               b.getNamedAttr("origin", origin(node, scope.owner->symbol)),
+               b.getNamedAttr("location",
+                              detail::sourceSpan(b, source.path, node))}));
+      output = ac::BitsType::get(b.getContext(), width);
+    } else {
+      auto expression = staticExpr(slice, scope.owner->symbol);
+      if (failed(expression))
+        return failure();
+      low = *expression;
+    }
+    return SmallVector<Value>{op(node, "ac.bits.extract", *value, output,
+                                 {b.getNamedAttr("low", low)})
+                                  ->getResult(0)};
+  }
+  if (node.kind() == "Call")
+    return invoke(node, scope, expected, destinations);
+  if (node.kind() == "BinOp" || node.kind() == "Compare") {
+    bool compare = node.kind() == "Compare";
+    if (compare && (node.array("ops").size() != 1 ||
+                    node.array("comparators").size() != 1)) {
+      (void)fail(node,
+                 "chained comparisons require explicit Boolean expressions");
+      return failure();
+    }
+    AstNode left = node.child("left"),
+            right = compare ? node.item("comparators", 0) : node.child("right");
+    auto lhs = scalar(left, scope), rhs = scalar(right, scope);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    StringRef operation =
+        compare ? node.item("ops", 0).kind() : node.child("op").kind();
+    std::string opcode;
+    for (auto item : {std::pair<StringRef, StringRef>{"Add", "add"},
+                      {"Sub", "sub"},
+                      {"Mult", "mul"},
+                      {"BitAnd", "and"},
+                      {"BitOr", "or"},
+                      {"BitXor", "xor"},
+                      {"LShift", "shl"},
+                      {"RShift", "lshr"},
+                      {"Eq", "eq"},
+                      {"NotEq", "ne"},
+                      {"Lt", "ult"},
+                      {"LtE", "ule"},
+                      {"Gt", "ugt"},
+                      {"GtE", "uge"}})
+      if (item.first == operation)
+        opcode = item.second.str();
+    if (opcode.empty()) {
+      (void)fail(node, "unsupported transactional binary operation");
+      return failure();
+    }
+    Type output =
+        compare ? bits(1, node) : Type(ac::InferType::get(b.getContext()));
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending", ValueRange{*lhs, *rhs}, output,
+           {b.getNamedAttr("kind",
+                           b.getStringAttr(compare ? "compare" : "binary")),
+            b.getNamedAttr("opcode", b.getStringAttr(opcode))})
+            ->getResult(0)};
+  }
+  if (node.kind() == "UnaryOp") {
+    StringRef kind = node.child("op").kind();
+    auto value = scalar(node.child("operand"), scope,
+                        kind == "Not" ? bits(1, node) : Type());
+    if (failed(value))
+      return failure();
+    if (kind != "Not" && kind != "Invert" && kind != "USub") {
+      (void)fail(node, "unsupported unary operation");
+      return failure();
+    }
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending", *value,
+           ac::InferType::get(b.getContext()),
+           {b.getNamedAttr("kind", b.getStringAttr("unary")),
+            b.getNamedAttr("opcode",
+                           b.getStringAttr(kind == "USub" ? "neg" : "not"))})
+            ->getResult(0)};
+  }
+  if (node.kind() == "BoolOp") {
+    auto items = node.array("values");
+    if (items.size() < 2)
+      return failure();
+    auto first = scalar(node.item("values", 0), scope, bits(1, node));
+    if (failed(first))
+      return failure();
+    Value value = *first;
+    // Source Boolean short circuiting is a real branch, preserving required
+    // control reachedness and dependency availability.
+    for (size_t i = 1; i < items.size(); ++i) {
+      bool conjunction = node.child("op").kind() == "And";
+      auto *branch = op(
+          node, "ac.branch", value, bits(1, node),
+          {b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))}, 2);
+      for (unsigned arm = 0; arm < 2; ++arm) {
+        auto *block = new Block;
+        branch->getRegion(arm).push_back(block);
+        OpBuilder::InsertionGuard save(b);
+        b.setInsertionPointToEnd(block);
+        if ((arm == 0) == conjunction) {
+          auto next = scalar(node.item("values", i), scope, bits(1, node));
+          if (failed(next))
+            return failure();
+          yield(node, *next);
+        } else
+          yield(node, truth(node, !conjunction));
+      }
+      value = branch->getResult(0);
+    }
+    return SmallVector<Value>{value};
+  }
+  if (node.kind() == "IfExp") {
+    auto condition = scalar(node.child("test"), scope, bits(1, node));
+    if (failed(condition))
+      return failure();
+    Scope pure = scope;
+    pure.pure = true;
+    auto selected = scalar(node.child("body"), pure);
+    auto alternative = scalar(node.child("orelse"), pure);
+    if (failed(selected) || failed(alternative))
+      return failure();
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending",
+           ValueRange{*condition, *selected, *alternative},
+           ac::InferType::get(b.getContext()),
+           {b.getNamedAttr("kind", b.getStringAttr("select"))})
+            ->getResult(0)};
+  }
+  (void)fail(node, "unsupported expression in transactional native frontend");
+  return failure();
+}
+
+FailureOr<SmallVector<Value>> Importer::invoke(const AstNode &node,
+                                               Scope &scope, Type expected,
+                                               ArrayRef<Value> destinations) {
+  AstNode func = node.child("func");
+  auto resolved = resolve(func);
+  if (func.kind() == "Subscript" && marker(func.child("value"), "queue")) {
+    auto data = annotation(func.child("slice"), scope.owner->symbol);
+    if (!data || !node.array("args").empty())
+      return failure();
+    Attribute depth;
+    for (size_t i = 0; i < node.array("keywords").size(); ++i) {
+      auto keyword = node.item("keywords", i);
+      if (keyword.string("arg") != "depth" || depth)
+        return (void)fail(keyword, "Queue requires one static depth"),
+               failure();
+      auto expression = staticExpr(keyword.child("value"), scope.owner->symbol);
+      if (failed(expression))
+        return failure();
+      depth = *expression;
+    }
+    if (!depth)
+      return (void)fail(node, "Queue allocation requires a positive depth"),
+             failure();
+    auto value = allocate(data, "$queue" + std::to_string(unique++), node,
+                          scope, {}, depth);
+    if (failed(value))
+      return failure();
+    return SmallVector<Value>{*value};
+  }
+  if (resolved &&
+      isa_and_nonnull<ac::TransactionRuleOp>(resolved->declaration)) {
+    auto *definition = resolved->declaration;
+    Callable call;
+    call.kind = "rule";
+    call.name = resolved->symbol.getValue().str();
+    call.global = call.defined = true;
+    auto type = cast<FunctionType>(
+        definition->getAttrOfType<TypeAttr>("function_type").getValue());
+    auto names = definition->getAttrOfType<ArrayAttr>("input_names");
+    if (!names || names.size() != type.getNumInputs() ||
+        !llvm::all_of(names,
+                      [](Attribute name) { return isa<StringAttr>(name); }))
+      return (void)fail(node, "published Rule requires its parameter names"),
+             failure();
+    for (unsigned i = 0; i < type.getNumInputs(); ++i)
+      call.inputs.push_back(
+          {cast<StringAttr>(names[i]).getValue().str(), type.getInput(i), {}});
+    call.results.append(type.getResults().begin(), type.getResults().end());
+    return registerRule(call, node, scope, destinations);
+  }
+  // Payload constructors are ordinary combinational values.
+  bool bitsConstructor =
+      (resolved && resolved->module == "pycircuit" &&
+       detail::fixedBitsAliasWidth(resolved->module, resolved->remote)
+           .has_value()) ||
+      (func.kind() == "Subscript" && marker(func.child("value"), "bits"));
+  if (bitsConstructor) {
+    auto type = annotation(func, scope.owner->symbol);
+    if (!type || node.array("args").size() != 1 ||
+        !node.array("keywords").empty()) {
+      (void)fail(node, "Bits construction requires one payload");
+      return failure();
+    }
+    auto argument = node.item("args", 0);
+    if (auto number = integer(argument)) {
+      auto value = constant(argument, type, *number);
+      if (failed(value))
+        return failure();
+      return SmallVector<Value>{*value};
+    }
+    auto value = scalar(argument, scope);
+    if (failed(value))
+      return failure();
+    auto converted = convert(*value, type, node);
     if (failed(converted))
       return failure();
-    elements.push_back(*converted);
+    return SmallVector<Value>{*converted};
   }
-  return createOp(at, node.location(b.getContext(), source.path),
-                  ac::TableCreateOp::getOperationName(), elements,
-                  TypeRange{table}, {})
-      ->getResult(0);
-}
-if ((node.kind() == "Constant" || sourceLiteral) && expected && !isa<ac::BitsType>(*expected)) {
-  auto literalValue = sourceLiteral ? sourceLiteral : staticValue(b, node.get("value"), error);
-  auto integer = literalValue ? literalValue.getAs<ac::MathIntAttr>("value") : ac::MathIntAttr();
-  if (!integer || integer.getCanonicalValue() != "0")
-    return error() << "aggregate literal requires contextual zero";
-  return constant(*expected, 0, node, at, ownerSymbol);
-}
-if (node.kind() == "Attribute" && !sourceLiteral &&
-    !(node.child("value").kind() == "Name" &&
-      !queryBound(node.child("value").string("id")) &&
-      instances.contains(node.child("value").string("id")) &&
-      !values.contains(node.child("value").string("id")))) {
-  auto base = expression(node.child("value"), at, ownerSymbol, values,
-                         instances, {}, captures);
-  if (failed(base))
-    return failure();
-  auto record = dyn_cast<ac::StructType>(base->getType());
-  ac::HardwareAnalysis analysis(*body);
-  auto declaration = record ? analysis.lookupStruct(record) : ac::StructOp();
-  if (!declaration)
-    return error() << "field projection requires a struct";
-  for (Attribute raw : declaration.getFields()) {
-    auto field = cast<DictionaryAttr>(raw);
-    if (field.getAs<StringAttr>("name").getValue() == node.string("attr")) {
-      auto result =
-          createOp(at, node.location(b.getContext(), source.path),
-                   ac::StructGetOp::getOperationName(), {*base},
-                   TypeRange{field.getAs<TypeAttr>("type").getValue()},
-                   {at.getNamedAttr("field", field.getAs<StringAttr>("name"))})
-              ->getResult(0);
-      rememberStructField(result, field, node);
-      return result;
-    }
-  }
-  return error() << "unknown struct field";
-}
-if (node.kind() == "Call") {
-  auto constructor = lookupBinding(node.child("func"));
-  if (constructor && constructor->category == BindingCategory::Struct)
-    return constructStruct(node, at, ownerSymbol, values, instances, expected,
-                           captures);
-}
-if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
-    activeNestedRuleScope &&
-    nestedRuleBinding(node.child("func").string("id")) &&
-    values.contains(node.child("func").string("id")) &&
-    behavioralRules.contains(node.child("func").string("id"))) {
-  {
-    auto checked = checkedRuleRegistration(node, behavioralRules[node.child("func").string("id")]);
-    if (failed(checked)) return failure();
-    if (activeValueHelper || !activeBehavioralDecl || !activeStates ||
-        !isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
-      return error() << "Rule calls are only complete Module/System registrations";
-    auto results = behavioralCall(*activeBehavioralDecl, node, at, values, *activeStates);
-    if (failed(results)) return failure();
-    if (results->size() != 1) return error() << "Rule value registration requires one ordinary result";
-    return results->front();
-  }
-}
-if (node.kind() == "Call") {
-  auto helper = resolveValueHelper(node.child("func"), ownerSymbol, &values);
-  if (failed(helper)) return failure();
-  if (*helper) {
-    auto results = valueHelperCall(node, at, ownerSymbol, values, instances);
-    if (failed(results)) return failure();
-    if (results->size() != 1)
-      return error() << "None pure helper is admitted only as a statement";
-    return results->front();
-  }
-}
-if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
-    behavioralRules.contains(node.child("func").string("id"))) {
-  if (activeValueHelper || !activeBehavioralDecl || !activeStates ||
-      !isa<ac::ModuleOp>(at.getInsertionBlock()->getParentOp()))
-    return error() << "Rule calls are only complete Module/System registrations";
-  auto results = behavioralCall(*activeBehavioralDecl, node, at, values, *activeStates);
-  if (failed(results)) return failure();
-  if (results->size() != 1)
-    return error() << "Rule value registration requires one ordinary result";
-  return results->front();
-}
-if (node.kind() == "Call" && node.child("func").kind() == "Name" &&
-    local.contains(node.child("func").string("id"))) {
-  if (activeValueHelper)
-    return error() << "pure helper cannot instantiate a module";
-  else
-    return directModuleCall(node, at, ownerSymbol, values, instances);
-}
-if (node.kind() == "Subscript") {
-  auto base = expression(node.child("value"), at, ownerSymbol, values,
-                         instances, {}, captures);
-  if (failed(base))
-    return failure();
-  if (node.child("slice").kind() == "Slice") {
-    if (!isa<ac::BitsType>(base->getType()) || !fixedValues.contains(*base))
-      return error() << "slice requires explicitly unsigned fixed bits";
-    auto shape =
-        resolveSlice(node.child("slice"), base->getType(), ownerSymbol);
-    if (failed(shape))
+  if (resolved && isa_and_nonnull<ac::StructOp>(resolved->declaration)) {
+    auto fields = resolved->declaration->getAttrOfType<ArrayAttr>("fields");
+    SmallVector<StringRef> formals;
+    for (auto attr : fields)
+      formals.push_back(
+          cast<DictionaryAttr>(attr).getAs<StringAttr>("name").getValue());
+    auto args = detail::normalizeCallArguments(node, formals, error);
+    if (failed(args))
       return failure();
-    auto result =
-        createOp(at, node.location(b.getContext(), source.path),
-                 ac::BitsExtractOp::getOperationName(), {*base},
-                 TypeRange{shape->type}, {at.getNamedAttr("low", shape->low)})
-            ->getResult(0);
-    ac::HardwareAnalysis analysis(*body);
-    // A symbolic slice still has fixed-bit authority. Range/value facts need
-    // concrete widths and remain absent until actual binding proves them.
-    if (!analysis.isStaticEvaluable(cast<ac::BitsType>(shape->type).getWidth(), {}) ||
-        !analysis.isStaticEvaluable(shape->low, {})) {
-      remember(result, std::nullopt);
-      fixedValues.insert(result);
-      return result;
-    }
-    auto low = analysis.evaluateStatic(shape->low, {}, result.getDefiningOp());
-    auto width = analysis.getPackedWidth(shape->type, {}, result.getDefiningOp());
-    if (failed(low) || failed(width))
-      return failure();
-    auto info = valueInfo(*base);
-    std::optional<IntegerInterval> interval;
-    Attribute closed;
-    if (llvm::APSInt(cast<ac::MathIntAttr>(*low).getCanonicalValue()).isZero()) {
-      // A low slice preserves a bound only when every possible value fits.
-      if (info.interval && !info.interval->lower.isNegative() &&
-          !info.interval->upper.isNegative()) {
-        const auto &upper = info.interval->upper;
-        // U <= 2**width, without allocating an integer of the carrier's width.
-        if (upper.getActiveBits() <= *width ||
-            (upper.isPowerOf2() && upper.getActiveBits() - 1 <= *width))
-          interval = info.interval;
-      }
-      if (auto integer =
-              dyn_cast_or_null<ac::MathIntAttr>(info.closedSourceConstant)) {
-        llvm::APSInt value(integer.getCanonicalValue());
-        if (!value.isNegative() && value.getActiveBits() <= *width)
-          closed = integer;
-      } else if (isa_and_nonnull<BoolAttr>(info.closedSourceConstant))
-        closed = info.closedSourceConstant;
-    }
-    remember(result, std::nullopt, std::move(interval), closed);
-    fixedValues.insert(result);
-    return result;
-  }
-  auto index = expression(node.child("slice"), at, ownerSymbol, values,
-                          instances, {}, captures);
-  if (failed(index))
-    return failure();
-  if (isa<ac::BitsType>(base->getType())) {
-    if (!fixedValues.contains(*base))
-      return error() << "bit index requires authoritative fixed bits, not a "
-                        "Boolean or Integer carrier";
-    ac::HardwareAnalysis analysis(*body);
-    auto width = analysis.getPackedWidth(base->getType(), {},
-                                         at.getInsertionBlock()->getParentOp());
-    if (failed(width) || failed(proveIndexExtent(*index, *width, node, "bit")))
-      return failure();
-    // Keep the complete index carrier, including high X/Z bits. A logical
-    // Boolean/Integer index crosses an explicit fresh fixed-Bits boundary;
-    // aliases of the original source value retain their source-kind facts.
-    auto count = unsignedBoundary(*index, index->getType(), node.child("slice"),
-                                  at, ownerSymbol);
-    if (failed(count))
-      return failure();
-    auto shifted =
-        fixedUnsignedShift(*base, *count, "lshr", node, node.child("value"),
-                           node.child("slice"), at, ownerSymbol);
-    if (failed(shifted))
-      return failure();
-    auto result =
-        createOp(at, node.location(b.getContext(), source.path),
-                 ac::BitsExtractOp::getOperationName(), {*shifted},
-                 TypeRange{internalBits(1, node, ownerSymbol)},
-                 {at.getNamedAttr("low", literal(0, node, ownerSymbol))})
-            ->getResult(0);
-    remember(result, std::nullopt);
-    fixedValues.insert(result);
-    return result;
-  }
-  auto type = dyn_cast<ac::TableType>(base->getType());
-  if (!type)
-    return error() << "subscript requires fixed bits or a table";
-  auto admission = proveIndex(*base, *index, node);
-  if (failed(admission)) return failure();
-  SmallVector<Type> results{type.getElementType()};
-  bool deferred = *admission == SourceIndexAdmission::Deferred;
-  if (!deferred) results.push_back(internalBits(1, node, ownerSymbol));
-  auto result =
-      createOp(at, node.location(b.getContext(), source.path),
-               deferred ? ac::TableReadOp::getOperationName() : ac::TableGetOp::getOperationName(),
-               {*base, *index}, results, {})
-          ->getResult(0);
-  if (isa<ac::BitsType>(result.getType()))
-    fixedValues.insert(result);
-  return result;
-}
-if (node.kind() == "BoolOp") {
-  if (node.array("values").size() < 2)
-    return error() << "Boolean operator requires at least two operands";
-  FailureOr<Value> result = expression(node.item("values", 0), at, ownerSymbol,
-                                       values, instances, {}, captures);
-  if (failed(result))
-    return failure();
-  if (failed(predicateView(*result, node.item("values", 0), ownerSymbol)))
-    return failure();
-  bool anyFixed = fixedValues.contains(*result);
-  for (size_t i = 1; i < node.array("values").size(); ++i) {
-    auto next = expression(node.item("values", i), at, ownerSymbol, values,
-                           instances, {}, captures);
-    if (failed(next))
-      return failure();
-    if (failed(predicateView(*next, node.item("values", i), ownerSymbol)))
-      return failure();
-    bool nextFixed = fixedValues.contains(*next);
-    Value previous = *result;
-    result =
-        binary(node.child("op").kind() == "And" ? "and" : "or", *result, *next);
-    anyFixed |= nextFixed;
-    if (anyFixed)
-      fixedValues.insert(*result);
-    else {
-      remember(*result, ValueKind::Boolean);
-      if (failed(propagateClosed(*result,
-                                 node.child("op").kind() == "And"
-                                     ? ValueOpcode::AndBool
-                                     : ValueOpcode::OrBool,
-                                 {previous, *next}, node)))
+    SmallVector<Value> values;
+    for (size_t i = 0; i < args->size(); ++i) {
+      auto value = scalar(
+          (*args)[i], scope,
+          cast<DictionaryAttr>(fields[i]).getAs<TypeAttr>("type").getValue());
+      if (failed(value))
         return failure();
+      values.push_back(*value);
     }
+    auto type = ac::StructType::get(
+        b.getContext(), b.getStringAttr(resolved->symbol.getValue()));
+    return SmallVector<Value>{
+        op(node, "ac.struct.create", values, type)->getResult(0)};
   }
-  return *result;
-}
-if (node.kind() == "UnaryOp" &&
-    (node.child("op").kind() == "Not" || node.child("op").kind() == "Invert")) {
-  auto value = expression(node.child("operand"), at, ownerSymbol, values,
-                          instances, expected, captures);
-  if (failed(value))
-    return failure();
-  if (isa<ac::EnumType>(value->getType()))
-    return error() << "Enum unary operations require explicit enum_to_bits";
-  bool logical = node.child("op").kind() == "Not";
-  if (logical && failed(predicateView(*value, node, ownerSymbol)))
-    return failure();
-  if (!logical && !fixedValues.contains(*value) &&
-      valueInfo(*value).sourceKind == ValueKind::Integer)
-    return error() << "Integer unary inversion is unsupported; use explicitly "
-                      "typed bits";
-  auto result = createOp(at, node.location(b.getContext(), source.path),
-                         ac::BitsUnaryOp::getOperationName(), {*value},
-                         TypeRange{value->getType()},
-                         {at.getNamedAttr("opcode", at.getStringAttr("not"))})
-                    ->getResult(0);
-  if (fixedValues.contains(*value))
-    fixedValues.insert(result);
-  else if (valueInfo(*value).sourceKind == ValueKind::Boolean) {
-    remember(result, ValueKind::Boolean);
-    // Both spellings invert a one-bit Boolean here; Integer Invert has a
-    // different evaluator contract and must not reinterpret this value.
-    if (failed(propagateClosed(result, ValueOpcode::Not, {*value}, node)))
+  if (marker(func, "four_state")) {
+    if (node.array("args").size() != 1 || !node.array("keywords").empty()) {
+      (void)fail(node, "four_state requires one literal pattern");
       return failure();
+    }
+    auto pattern = node.item("args", 0).get("value");
+    auto text = dyn_cast_or_null<StringAttr>(pattern);
+    if (!text || text.getValue().empty() || text.getValue().size() > MaxWidth) {
+      (void)fail(node, "four_state requires a finite literal pattern");
+      return failure();
+    }
+    return SmallVector<Value>{op(node, "ac.bits.constant4", {},
+                                 bits(text.getValue().size(), node),
+                                 {b.getNamedAttr("pattern", text)})
+                                  ->getResult(0)};
   }
-  return result;
+  if (marker(func, "case_eq")) {
+    if (node.array("args").size() != 2 || !node.array("keywords").empty()) {
+      (void)fail(node, "case_eq requires two payloads");
+      return failure();
+    }
+    auto lhs = scalar(node.item("args", 0), scope),
+         rhs = scalar(node.item("args", 1), scope);
+    if (failed(lhs) || failed(rhs))
+      return failure();
+    return SmallVector<Value>{
+        op(node, "ac.payload.pending", ValueRange{*lhs, *rhs}, bits(1, node),
+           {b.getNamedAttr("kind", b.getStringAttr("compare")),
+            b.getNamedAttr("opcode", b.getStringAttr("case_eq"))})
+            ->getResult(0)};
+  }
+  if (func.kind() == "Attribute") {
+    auto base = func.child("value");
+    if (base.kind() == "Name") {
+      auto binding = scope.bindings.find(base.string("id").str());
+      if (binding != scope.bindings.end() &&
+          isResource(binding->second.type())) {
+        auto resourcePayload = payload(binding->second.type());
+        auto method = func.string("attr");
+        if (method == "read" || method == "head" || method == "peek" || method == "pop") {
+          if (!node.array("args").empty() || !node.array("keywords").empty()) {
+            (void)fail(node, "resource read takes no arguments");
+            return failure();
+          }
+          if (scope.pure && method == "pop") {
+            (void)fail(node, "pure region cannot consume a Queue");
+            return failure();
+          }
+          Scope access = scope;
+          access.pure = scope.pure || method == "peek" || method == "head";
+          auto *accessOp =
+              op(node, "ac.method.call", ValueRange{binding->second.value},
+                 resourcePayload,
+                 {b.getNamedAttr("callee", symbol(method)),
+                  b.getNamedAttr("occurrence",
+                                 origin(node, scope.owner->symbol))});
+          if (!accessOp)
+            return failure();
+          return SmallVector<Value>{accessOp->getResult(0)};
+        }
+        if (method == "write" || method == "push") {
+          if (node.array("args").size() != 1 ||
+              !node.array("keywords").empty()) {
+            (void)fail(node, "resource update requires one payload");
+            return failure();
+          }
+          auto value = scalar(node.item("args", 0), scope, resourcePayload);
+          if (failed(value))
+            return failure();
+          if (scope.pure || scope.module)
+            return (void)fail(node,
+                              "resource updates require a Rule or Method body"),
+                   failure();
+          if (!op(node, "ac.method.call",
+                  ValueRange{binding->second.value, *value}, {},
+                  {b.getNamedAttr("callee", symbol(method)),
+                   b.getNamedAttr("occurrence",
+                                  origin(node, scope.owner->symbol))}))
+            return failure();
+          return SmallVector<Value>{};
+        }
+      }
+    }
+    return referenceCall(node, scope, expected);
+  }
+  if (func.kind() == "Name") {
+    auto name = func.string("id").str();
+    auto binding = scope.bindings.find(name);
+    if (binding != scope.bindings.end() && binding->second.pendingImport) {
+      auto values =
+          instantiate(nullptr, binding->second.pendingImport,
+                      binding->second.instanceName, node, scope, destinations);
+      if (failed(values))
+        return failure();
+      auto type = ac::ModuleRefType::get(
+          b.getContext(), symbol(binding->second.instanceTarget));
+      auto *ref = op(node, "ac.instance.ref", {}, type,
+                     {b.getNamedAttr("instance_path",
+                                     b.getArrayAttr({b.getStringAttr(
+                                         binding->second.instanceName)}))});
+      binding->second.value = ref->getResult(0);
+      binding->second.pendingImport = nullptr;
+      return values;
+    }
+    if (binding != scope.bindings.end() && binding->second.pending) {
+      auto *decl = binding->second.pending;
+      auto values = instantiate(decl, nullptr, binding->second.instanceName,
+                                node, scope, destinations);
+      if (failed(values))
+        return failure();
+      auto type = ac::ModuleRefType::get(b.getContext(), symbol(decl->symbol));
+      auto *ref = op(node, "ac.instance.ref", {}, type,
+                     {b.getNamedAttr("instance_path",
+                                     b.getArrayAttr({b.getStringAttr(
+                                         binding->second.instanceName)}))});
+      binding->second.value = ref->getResult(0);
+      binding->second.pending = nullptr;
+      return values;
+    }
+    if (binding != scope.bindings.end()) {
+      (void)fail(
+          node,
+          "bound local is not callable, or this instance is already connected");
+      return failure();
+    }
+    auto nested = scope.owner->callables.find(name);
+    if (!scope.globalRule && nested != scope.owner->callables.end()) {
+      if (nested->second.kind == "method")
+        return methodCall(nested->second, node, scope);
+      if (nested->second.autonomous) {
+        (void)fail(node, "autorule cannot be explicitly registered again");
+        return failure();
+      }
+      return registerRule(nested->second, node, scope, destinations);
+    }
+    auto external = globalRules.find(name);
+    if (external != globalRules.end())
+      return registerRule(external->second, node, scope, destinations);
+    auto decl = declarations.find(name);
+    if (decl != declarations.end())
+      return instantiate(decl->second.get(), nullptr,
+                         "instance_" + std::to_string(unique++), node, scope,
+                         destinations);
+  }
+  if (resolved && isa_and_nonnull<ac::ModuleImportOp>(resolved->declaration))
+    return instantiate(nullptr, resolved->declaration,
+                       "instance_" + std::to_string(unique++), node, scope,
+                       destinations);
+  (void)fail(node, "unsupported callable in transactional source");
+  return failure();
+}
+
+FailureOr<SmallVector<Value>>
+Importer::methodCall(Callable &call, const AstNode &node, Scope &scope) {
+  if (scope.module)
+    return (void)fail(node, "Module combination cannot call a Method"),
+           failure();
+  SmallVector<StringRef> names;
+  for (const auto &input : call.inputs)
+    names.push_back(input.name);
+  auto actuals = detail::normalizeCallArguments(node, names, error);
+  if (failed(actuals))
+    return failure();
+  SmallVector<Value> operands{scope.bindings.at("$self").value};
+  for (auto [actual, formal] : llvm::zip(*actuals, call.inputs)) {
+    auto value = scalar(actual, scope, formal.type);
+    if (failed(value))
+      return failure();
+    operands.push_back(*value);
+  }
+  auto *invoke =
+      op(node, "ac.method.call", operands, call.results,
+         {b.getNamedAttr("callee", symbol(call.name)),
+          b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))});
+  return SmallVector<Value>(invoke->getResults());
+}
+
+FailureOr<SmallVector<Value>>
+Importer::referenceCall(const AstNode &node, Scope &scope, Type expected) {
+  if (scope.module || !node.array("keywords").empty())
+    return (void)fail(
+               node,
+               "reference Methods require transactional positional calls"),
+           failure();
+  auto func = node.child("func");
+  auto values = expression(func.child("value"), scope);
+  if (failed(values) || values->size() != 1)
+    return failure();
+  auto receiver = values->front();
+  auto ref = dyn_cast<ac::ModuleRefType>(receiver.getType());
+  if (!ref)
+    return (void)fail(node, "Method receiver requires a Module reference"),
+           failure();
+  Operation *target = nullptr;
+  for (Operation &decl : *result->getBody())
+    if (decl.getAttrOfType<StringAttr>("sym_name") &&
+        decl.getAttrOfType<StringAttr>("sym_name").getValue() ==
+            ref.getModule().getValue())
+      target = &decl;
+  if (!target)
+    return (void)fail(node, "missing Module reference declaration"), failure();
+  auto name = func.string("attr");
+  auto methods = ac::getTransactionalMethodInterfaces(target);
+  DictionaryAttr prior;
+  for (auto attr : methods) {
+    auto item = cast<DictionaryAttr>(attr);
+    if (item.getAs<StringAttr>("name").getValue() == name)
+      prior = item;
+  }
+  bool requirement = ac::isTransactionalReferenceRequirement(target);
+  if (!prior && !requirement)
+    return (void)fail(node, "receiver does not publish requested Method"),
+           failure();
+  FunctionType signature;
+  auto parameters = target->getAttrOfType<ArrayAttr>("parameters");
+  bool generic = parameters && !parameters.empty();
+  if (prior && !requirement && !generic)
+    signature =
+        cast<FunctionType>(prior.getAs<TypeAttr>("function_type").getValue());
+  if (signature && signature.getNumInputs() != node.array("args").size())
+    return (void)fail(node, "Method argument arity differs"), failure();
+  SmallVector<Value> operands{receiver};
+  SmallVector<Type> outputs;
+  for (size_t i = 0; i < node.array("args").size(); ++i) {
+    auto value = scalar(node.item("args", i), scope,
+                        signature ? signature.getInput(i) : Type());
+    if (failed(value))
+      return failure();
+    operands.push_back(*value);
+  }
+  SmallVector<NamedAttribute> attrs{
+      b.getNamedAttr("callee", symbol(name)),
+      b.getNamedAttr("occurrence", origin(node, scope.owner->symbol))};
+  if (signature)
+    llvm::append_range(outputs, signature.getResults());
+  else {
+    if (scope.pendingResultRequirement != "ignored")
+      for (unsigned i = 0; i < scope.pendingResultArity; ++i)
+        outputs.push_back(ac::InferType::get(b.getContext()));
+    attrs.push_back(b.getNamedAttr(
+        "result_requirement", b.getStringAttr(scope.pendingResultRequirement)));
+    attrs.push_back(b.getNamedAttr("read_only", b.getBoolAttr(scope.pure)));
+  }
+  auto *call = op(node, signature ? "ac.method.call" : "ac.method.pending",
+                  operands, outputs, attrs);
+  if (scope.pendingResultRequirement == "ignored")
+    return SmallVector<Value>{};
+  return SmallVector<Value>(call->getResults());
 }

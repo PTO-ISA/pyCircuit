@@ -408,6 +408,15 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
             << ", " << *id << "};\n        return false;\n      }\n    }\n";
         continue;
       }
+      if (check.samplingOccurrenceIndex) {
+        auto samplingLocal = samplingIndex(context, *check.samplingOccurrenceIndex);
+        const auto &sampling = plan.samplingOccurrences[*check.samplingOccurrenceIndex];
+        auto samplingOwner = address(context, sampling.ownerOccurrence);
+        if (failed(samplingLocal) || failed(samplingOwner)) return failure();
+        out << "    if (const auto &pyc_sample = " << samplingOwner->object
+            << "->pyc_get_sampling_evaluation_" << *samplingLocal << "("
+            << samplingOwner->lane << "); pyc_sample.rising && !pyc_sample.resetActive) {\n";
+      }
       std::string reset = "gfsim::FourState<1>::known(gfsim::Bits<1>{0})";
       if (check.reset.kind == ac::HardwareCheckResetKind::PhysicalReset) {
         auto resetOwner = address(context, *check.reset.ownerOccurrence);
@@ -430,6 +439,7 @@ LogicalResult emitCppRootCheckValidator(HardwareEmitContext &context,
           << viewLiteral("source_check_failed") << ", " << viewLiteral(message)
           << ", pyc_check_instances_[" << check.ordinal << "], " << *location
           << ", " << *id << "};\n        return false;\n      }\n    }\n";
+      if (check.samplingOccurrenceIndex) out << "    }\n";
     }
   }
   out << "    return true;\n  }\n";

@@ -72,7 +72,7 @@ def validate_release_graph(document: object) -> list[str]:
             errors.append(f"release publication job {name} bypasses accept-candidate")
 
     rebuild_markers = (
-        "tools/pyc build",
+        "ACIRTransactionalGfsimTests",
         "cmake --build",
         "python3 -m build",
         "create_wheel.py",
@@ -151,6 +151,7 @@ def main() -> int:
         == [
             "G0: Capture and Publication Unit Gates",
             "G0: Python Checks",
+            "G1: Native Transactional Gates",
             "PR description completeness",
         ]
         and protection.get("strict_status_checks") is True
@@ -215,16 +216,16 @@ def main() -> int:
         "Capture and Publication Unit Gates",
     ):
         require(command in ci, f"CI is missing required gate: {command}", errors)
-    for forbidden in (
-        "llvm.sh",
-        "tools/pyc build",
-        "setup-verilator",
-        "run_examples.sh",
-        "run_api_tests.sh",
+    for command in (
+        "G1: Native Transactional Gates",
+        "ACIRTransactionalGfsimTests",
+        "CodeGen/transactional-[^/]+[.]test$",
     ):
+        require(command in ci, f"CI is missing short native gate: {command}", errors)
+    for forbidden in ("run_examples.sh", "run_api_tests.sh"):
         require(
             forbidden not in ci,
-            f"lightweight PR CI must not contain release gate: {forbidden}",
+            f"PR CI must keep full release matrices in nightly: {forbidden}",
             errors,
         )
 

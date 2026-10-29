@@ -1,5 +1,5 @@
 set(_pyc_execs)
-foreach(helper pycircuit-source-unit pycircuit-link pycircuit-emit pycircuit-opt)
+foreach(helper pycircuit-source-unit pycircuit-link pycircuit-emit pycircuit-opt pycircuit-print)
   list(APPEND _pyc_execs "${CMAKE_INSTALL_PREFIX}/@CMAKE_INSTALL_BINDIR@/${helper}@CMAKE_EXECUTABLE_SUFFIX@")
 endforeach()
 

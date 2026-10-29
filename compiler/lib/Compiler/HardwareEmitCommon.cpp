@@ -564,8 +564,10 @@ const ac::HardwareSourceCheckPlan &HardwareEmitContext::sourceChecks() const {
   return *sourceChecks_;
 }
 bool HardwareEmitContext::managesChecks() {
+  auto contract = package->getAttrOfType<IntegerAttr>("ac.routed_contract");
   return !physical_ &&
-         (isSystem() || (sourceChecks_ && !sourceChecks_->checks.empty()));
+         ((contract && contract.getInt() == 4) || isSystem() ||
+          (sourceChecks_ && !sourceChecks_->checks.empty()));
 }
 bool HardwareEmitContext::resetIfOne() const {
   return sourceChecks().resetSemantics == ac::HardwareResetSemantics::IfOne;

@@ -46,7 +46,7 @@ module {
     %initial_packet = "ac.struct.create"(%initial_lanes) : (!lanes) -> !ac.struct<"Packet">
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #count_state} : (!b1, !b1, !b8) -> !b8
     %packet_q = "ac.state"(%clk, %rst, %initial_packet) {instance_name = "packet", occurrence = #packet_state} : (!b1, !b1, !ac.struct<"Packet">) -> !ac.struct<"Packet">
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%delta: !b8, %path: !b1):
       %current = "ac.state.read"(%path) {state = "count", selectors = [], occurrence = #counter} : (!b1) -> !b8
       "ac.yield"(%path) : (!b1) -> ()
@@ -65,12 +65,12 @@ module {
       "ac.state.write"(%path, %lane, %path) {state = "packet", selectors = [{field = "lanes"}, {index = 0 : i64}], occurrence = #counter} : (!b1, !b8, !b1) -> ()
       "ac.yield"(%old) : (!b8) -> ()
     }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%delta: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%delta: !b8, %path: !b1):
-      %result = "ac.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
+      %result = "ac.legacy.method.call"(%path, %delta) {callee = @Counter::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
       "ac.yield"(%result) : (!b8) -> ()
     }) {sym_name = "relay", function_type = (!b8) -> !b8, argument_names = ["delta"], ac.parameters = [{name = "delta", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()
@@ -84,9 +84,9 @@ module {
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1, %value: !b8):
-      %a = "ac.method.call"(%path, %value) {callee = @Counter::@relay, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
-      %again = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
-      %b = "ac.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["right"], occurrence = #root} : (!b1, !b8) -> !b8
+      %a = "ac.legacy.method.call"(%path, %value) {callee = @Counter::@relay, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
+      %again = "ac.legacy.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["left"], occurrence = #root} : (!b1, !b8) -> !b8
+      %b = "ac.legacy.method.call"(%path, %value) {callee = @Counter::@add, instance_path = ["right"], occurrence = #root} : (!b1, !b8) -> !b8
       "ac.yield"(%b) : (!b8) -> ()
     }) {name = "step", declaration = #root, occurrence = #root, ac.guard_location = #span} : (!b1, !b1, !b1, !b8) -> !b8
     "ac.yield"(%answer) : (!b8) -> ()
@@ -209,12 +209,12 @@ TEST_F(TransactionEffectsTest,
   ASSERT_TRUE(file);
   EXPECT_TRUE(mlir::succeeded(capture([&] { return mlir::verify(*file); })))
       << diagnostics;
-  auto local = find(*file, "ac.method.call");
+  auto local = find(*file, "ac.legacy.method.call");
   EXPECT_TRUE(local->getAttrOfType<mlir::ArrayAttr>("instance_path").empty());
-  auto left = find(*file, "ac.method.call", 1);
-  auto again = find(*file, "ac.method.call", 2);
+  auto left = find(*file, "ac.legacy.method.call", 1);
+  auto again = find(*file, "ac.legacy.method.call", 2);
   EXPECT_EQ(left->getAttr("instance_path"), again->getAttr("instance_path"));
-  auto right = find(*file, "ac.method.call", 3);
+  auto right = find(*file, "ac.legacy.method.call", 3);
   EXPECT_NE(left->getAttr("instance_path"), right->getAttr("instance_path"));
   EXPECT_EQ(left->getOperand(1).getType(), right->getOperand(1).getType());
   EXPECT_NE(find(*file, "ac.instance")->getAttr("occurrence"),
@@ -246,7 +246,7 @@ TEST_F(TransactionEffectsTest, StateEffectsAreDistinctFromCheckEffects) {
 TEST_F(TransactionEffectsTest, CallsAndTransactionsRetainConservativeEffects) {
   auto file = parse();
   ASSERT_TRUE(file);
-  for (llvm::StringRef name : {"ac.method.call", "ac.transaction"}) {
+  for (llvm::StringRef name : {"ac.legacy.method.call", "ac.transaction"}) {
     auto *op = find(*file, name);
     EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Read>(op, "source.state")));
     EXPECT_TRUE((hasEffect<mlir::MemoryEffects::Write>(op, "source.state")));
@@ -255,10 +255,10 @@ TEST_F(TransactionEffectsTest, CallsAndTransactionsRetainConservativeEffects) {
         (hasEffect<mlir::MemoryEffects::Write>(op, "source.observation")));
     retained(op);
   }
-  auto *call = find(*file, "ac.method.call", 1);
+  auto *call = find(*file, "ac.legacy.method.call", 1);
   ASSERT_TRUE(call->use_empty());
   retained(call);
-  retained(find(*file, "ac.method"));
+  retained(find(*file, "ac.legacy.method"));
 }
 
 TEST_F(TransactionEffectsTest,
@@ -300,14 +300,14 @@ TEST_F(TransactionEffectsTest, ReceiverMustResolveToTheDeclaredMethodOwner) {
   for (llvm::StringRef path : {"missing", "left", "left/missing"}) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *call = find(*file, "ac.method.call");
+    auto *call = find(*file, "ac.legacy.method.call");
     call->setAttr("instance_path",
                   builder.getArrayAttr({builder.getStringAttr(path)}));
     reject(*file, "instance");
   }
   auto file = parse();
   ASSERT_TRUE(file);
-  find(*file, "ac.method.call")
+  find(*file, "ac.legacy.method.call")
       ->setAttr("callee",
                 mlir::SymbolRefAttr::get(
                     &context, "Root",
@@ -339,7 +339,7 @@ TEST_F(TransactionEffectsTest, RegionsRespectCaptureAndReturnTypes) {
   for (unsigned region : {0u, 1u}) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *method = find(*file, "ac.method");
+    auto *method = find(*file, "ac.legacy.method");
     method->getRegion(region).front().addArgument(
         method->getOperand(0).getType(), method->getLoc());
     reject(*file, "argument");
@@ -353,10 +353,10 @@ TEST_F(TransactionEffectsTest, RegionsRespectCaptureAndReturnTypes) {
 }
 
 TEST_F(TransactionEffectsTest, GuardCannotPerformWritesOrMethodCalls) {
-  for (llvm::StringRef effect : {"ac.state.write", "ac.method.call"}) {
+  for (llvm::StringRef effect : {"ac.state.write", "ac.legacy.method.call"}) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *method = find(*file, "ac.method", effect == "ac.method.call" ? 1 : 0);
+    auto *method = find(*file, "ac.legacy.method", effect == "ac.legacy.method.call" ? 1 : 0);
     auto *op = find(*file, effect);
     auto *copy = op->clone();
     copy->setOperand(0, method->getRegion(0).front().getArgument(1));
@@ -369,8 +369,8 @@ TEST_F(TransactionEffectsTest, GuardCannotPerformWritesOrMethodCalls) {
 
 TEST_F(TransactionEffectsTest, DeclarationAndOccurrenceMetadataAreVerified) {
   for (llvm::StringRef name :
-       {"ac.state", "ac.state.read", "ac.state.write", "ac.method",
-        "ac.method.call", "ac.transaction"}) {
+       {"ac.state", "ac.state.read", "ac.state.write", "ac.legacy.method",
+        "ac.legacy.method.call", "ac.transaction"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     find(*file, name)->setAttr("occurrence", builder.getDictionaryAttr({}));
@@ -385,7 +385,7 @@ TEST_F(TransactionEffectsTest, DeclarationAndOccurrenceMetadataAreVerified) {
 
 TEST_F(TransactionEffectsTest,
        GuardLocationsAreMandatoryClosedSpansOwnedByTheLexicalSource) {
-  for (llvm::StringRef operation : {"ac.method", "ac.transaction"}) {
+  for (llvm::StringRef operation : {"ac.legacy.method", "ac.transaction"}) {
     for (unsigned mutation = 0; mutation != 4; ++mutation) {
       SCOPED_TRACE(operation.str());
       SCOPED_TRACE(mutation);
@@ -453,7 +453,7 @@ TEST_F(TransactionEffectsTest,
 TEST_F(TransactionEffectsTest, PureFinalRuleRejectsTypedStateAccess) {
   auto file = parse();
   ASSERT_TRUE(file);
-  auto *method = find(*file, "ac.method");
+  auto *method = find(*file, "ac.legacy.method");
   mlir::OperationState rule(method->getLoc(), RuleOp::getOperationName());
   rule.addOperands(method->getOperands());
   rule.addTypes(method->getOperand(0).getType());
@@ -513,7 +513,7 @@ TEST_F(TransactionEffectsTest, InitializersRequireStaticAcyclicConstructors) {
 
 TEST_F(TransactionEffectsTest, ControlWidthsAndStatePayloadCannotBeInferred) {
   for (llvm::StringRef name : {"ac.state", "ac.state.read", "ac.state.write",
-                               "ac.method.call", "ac.transaction"}) {
+                               "ac.legacy.method.call", "ac.transaction"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     auto *op = find(*file, name);
@@ -534,18 +534,18 @@ TEST_F(TransactionEffectsTest, CallsAndOrdinaryReturnsKeepExactSignature) {
   for (bool arity : {false, true}) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *call = find(*file, "ac.method.call");
+    auto *call = find(*file, "ac.legacy.method.call");
     if (arity)
       call->eraseOperand(1);
     else
       call->setOperand(1, call->getOperand(0));
     reject(*file, arity ? "arity" : "payload type");
   }
-  for (llvm::StringRef name : {"ac.method", "ac.transaction"}) {
+  for (llvm::StringRef name : {"ac.legacy.method", "ac.transaction"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     auto &body = find(*file, name)->getRegion(1).front();
-    auto path = body.getArgument(name == "ac.method" ? 1 : 0);
+    auto path = body.getArgument(name == "ac.legacy.method" ? 1 : 0);
     body.getTerminator()->setOperand(0, path);
     reject(*file, "body yield types");
   }
@@ -557,7 +557,7 @@ TEST_F(TransactionEffectsTest,
     auto file = parse();
     ASSERT_TRUE(file);
     context.allowUnregisteredDialects();
-    auto *method = find(*file, "ac.method");
+    auto *method = find(*file, "ac.legacy.method");
     auto &body = method->getRegion(1).front();
     builder.setInsertionPoint(body.getTerminator());
     mlir::OperationState effect(method->getLoc(), name);
@@ -571,7 +571,7 @@ TEST_F(TransactionEffectsTest,
        SourceChecksAndObservationsAreOrderedBodyEffects) {
   auto file = parse();
   ASSERT_TRUE(file);
-  auto *method = find(*file, "ac.method");
+  auto *method = find(*file, "ac.legacy.method");
   auto &body = method->getRegion(1).front();
   auto path = body.getArgument(1);
   auto occurrence = method->getAttr("occurrence");
@@ -611,7 +611,7 @@ TEST_F(TransactionEffectsTest,
                                    "check-kind", "observation-kind"}) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *method = find(*file, "ac.method");
+    auto *method = find(*file, "ac.legacy.method");
     auto &region = method->getRegion(mutation == "guard" ? 0 : 1).front();
     auto path = region.getArgument(1);
     auto occurrence = method->getAttr("occurrence");
@@ -651,7 +651,7 @@ TEST_F(TransactionEffectsTest,
        {"sampling", "path-type", "foreign-location", "missing-occurrence"}) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *method = find(*file, "ac.method");
+    auto *method = find(*file, "ac.legacy.method");
     auto &body = method->getRegion(1).front();
     auto path = body.getArgument(1);
     mlir::OperationState effect(method->getLoc(), "ac.expect");
@@ -677,17 +677,17 @@ TEST_F(TransactionEffectsTest,
 
 TEST_F(TransactionEffectsTest,
        NestedDeclarationsCannotCreateAnotherOwnerScope) {
-  for (llvm::StringRef name : {"ac.state", "ac.method", "ac.transaction"}) {
+  for (llvm::StringRef name : {"ac.state", "ac.legacy.method", "ac.transaction"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     auto *nested = find(*file, name)->clone();
-    auto *method = find(*file, "ac.method");
+    auto *method = find(*file, "ac.legacy.method");
     auto &body = method->getRegion(1).front();
     if (name == "ac.state") {
       nested->setOperand(0, body.getArgument(1));
       nested->setOperand(1, body.getArgument(1));
       nested->setOperand(2, body.getArgument(0));
-    } else if (name == "ac.method") {
+    } else if (name == "ac.legacy.method") {
       nested->setOperand(0, body.getArgument(1));
     } else {
       nested->setOperand(0, body.getArgument(1));
@@ -697,7 +697,7 @@ TEST_F(TransactionEffectsTest,
     }
     body.getOperations().insert(body.getTerminator()->getIterator(), nested);
     reject(*file,
-           name == "ac.method" ? "SymbolTable" : "direct module placement");
+           name == "ac.legacy.method" ? "SymbolTable" : "direct module placement");
   }
 }
 
@@ -762,7 +762,7 @@ TEST_F(TransactionEffectsTest, ReceiverOccurrenceMustNameItsActualParent) {
 }
 
 TEST_F(TransactionEffectsTest, SourceIdentityMustNameItsActualModuleOwner) {
-  for (llvm::StringRef name : {"ac.state", "ac.method", "ac.transaction"}) {
+  for (llvm::StringRef name : {"ac.state", "ac.legacy.method", "ac.transaction"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     auto *op = find(*file, name);
@@ -783,8 +783,8 @@ TEST_F(TransactionEffectsTest,
   for (unsigned mutation = 0; mutation != 12; ++mutation) {
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *call = find(*file, "ac.method.call", 1);
-    auto *method = find(*file, "ac.method", 1);
+    auto *call = find(*file, "ac.legacy.method.call", 1);
+    auto *method = find(*file, "ac.legacy.method", 1);
     auto *instance = find(*file, "ac.instance");
     switch (mutation) {
     case 0:
@@ -849,7 +849,7 @@ TEST_F(TransactionEffectsTest, MethodCallAuthorityIsMandatoryAndTyped) {
       SCOPED_TRACE(name.str() + (missing ? " missing" : " wrong type"));
       auto file = parse();
       ASSERT_TRUE(file);
-      auto *method = find(*file, "ac.method");
+      auto *method = find(*file, "ac.legacy.method");
       if (missing)
         method->removeAttr(name);
       else
@@ -859,7 +859,7 @@ TEST_F(TransactionEffectsTest, MethodCallAuthorityIsMandatoryAndTyped) {
   }
   auto file = parse();
   ASSERT_TRUE(file);
-  auto *method = find(*file, "ac.method");
+  auto *method = find(*file, "ac.legacy.method");
   method->removeAttr("ac.parameters");
   method->removeAttr("ac.result_constraints");
   method->removeAttr("ac.return_form");
@@ -873,7 +873,7 @@ TEST_F(TransactionEffectsTest, MethodParameterRowsHaveAnExactClosedSchema) {
       SCOPED_TRACE(name.str() + (missing ? " missing" : " wrong type"));
       auto file = parse();
       ASSERT_TRUE(file);
-      auto *method = find(*file, "ac.method");
+      auto *method = find(*file, "ac.legacy.method");
       setParameter(method, changed(parameter(method), name,
                                    missing ? mlir::Attribute()
                                            : builder.getI64IntegerAttr(0)));
@@ -882,7 +882,7 @@ TEST_F(TransactionEffectsTest, MethodParameterRowsHaveAnExactClosedSchema) {
   }
   auto file = parse();
   ASSERT_TRUE(file);
-  auto *method = find(*file, "ac.method");
+  auto *method = find(*file, "ac.legacy.method");
   setParameter(method,
                changed(parameter(method), "extra", builder.getUnitAttr()));
   rejectsContract(*file);
@@ -908,7 +908,7 @@ TEST_F(TransactionEffectsTest,
     SCOPED_TRACE(spelling);
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *method = find(*file, "ac.method");
+    auto *method = find(*file, "ac.legacy.method");
     auto value = mlir::parseAttribute(spelling, &context);
     ASSERT_TRUE(value);
     setParameter(method, changed(parameter(method), name, value));
@@ -921,7 +921,7 @@ TEST_F(TransactionEffectsTest, MethodMetadataArityAndReturnFormAreExact) {
     SCOPED_TRACE(mutation);
     auto file = parse();
     ASSERT_TRUE(file);
-    auto *method = find(*file, "ac.method");
+    auto *method = find(*file, "ac.legacy.method");
     auto row = parameter(method);
     switch (mutation) {
     case 0:
@@ -977,7 +977,7 @@ TEST_F(TransactionEffectsTest, MethodConstraintsCannotInventLogicalAuthority) {
       SCOPED_TRACE(result ? "result" : "parameter");
       auto file = parse();
       ASSERT_TRUE(file);
-      auto *method = find(*file, "ac.method");
+      auto *method = find(*file, "ac.legacy.method");
       std::string type;
       llvm::raw_string_ostream stream(type);
       mlir::cast<mlir::FunctionType>(
@@ -1006,13 +1006,13 @@ TEST_F(TransactionEffectsTest, MalformedCalleeMetadataRejectsDuringSymbolUse) {
       SCOPED_TRACE(name.str());
       auto file = parse();
       ASSERT_TRUE(file);
-      auto *method = find(*file, "ac.method");
+      auto *method = find(*file, "ac.legacy.method");
       if (missing)
         method->removeAttr(name);
       else
         method->setAttr(name, builder.getUnitAttr());
       mlir::SymbolTableCollection symbols;
-      auto call = mlir::cast<SourceMethodCallOp>(find(*file, "ac.method.call"));
+      auto call = mlir::cast<SourceMethodCallOp>(find(*file, "ac.legacy.method.call"));
       EXPECT_TRUE(mlir::failed(
           capture([&] { return call.verifySymbolUses(symbols); })));
       EXPECT_FALSE(diagnostics.empty());
@@ -1091,7 +1091,7 @@ TEST_F(TransactionEffectsTest,
 
 TEST_F(TransactionEffectsTest,
        BranchArmsRetainCallsChecksAndObservations) {
-  for (llvm::StringRef effect : {"ac.method.call", "ac.expect", "ac.observe"}) {
+  for (llvm::StringRef effect : {"ac.legacy.method.call", "ac.expect", "ac.observe"}) {
     auto file = parse();
     ASSERT_TRUE(file);
     auto transaction =
@@ -1100,7 +1100,7 @@ TEST_F(TransactionEffectsTest,
     auto split = branch(body, body.begin(), body.getArgument(0));
     auto &arm = split.getThenRegion().front();
     builder.setInsertionPoint(arm.getTerminator());
-    if (effect == "ac.method.call") {
+    if (effect == "ac.legacy.method.call") {
       auto *copy = (*body.getOps<SourceMethodCallOp>().begin())->clone();
       arm.getOperations().insert(arm.getTerminator()->getIterator(), copy);
     } else if (effect == "ac.expect") {
@@ -1134,7 +1134,7 @@ TEST_F(TransactionEffectsTest,
 
 TEST_F(TransactionEffectsTest,
        RetiredAfterAttributesRejectAtEveryNativeCallableEntry) {
-  for (llvm::StringRef operation : {"ac.method", "ac.transaction"}) {
+  for (llvm::StringRef operation : {"ac.legacy.method", "ac.transaction"}) {
     for (llvm::StringRef field : {"ac.after", "ac.callable_after"}) {
       for (unsigned shape = 0; shape != 3; ++shape) {
         SCOPED_TRACE(operation.str() + "/" + field.str());
@@ -1158,7 +1158,7 @@ TEST_F(TransactionEffectsTest,
        NativeReceiverCannotAcquireAncestorAuthorityFromPhysicalReachability) {
   auto file = parse();
   ASSERT_TRUE(file);
-  auto *call = find(*file, "ac.method.call");
+  auto *call = find(*file, "ac.legacy.method.call");
   call->setAttr("receiver_kind", builder.getStringAttr("reference"));
   call->setAttr("ancestor_depth", builder.getI64IntegerAttr(1));
   call->setAttr("instance_path",

@@ -6,6 +6,7 @@
     "required_status_checks": [
       "G0: Capture and Publication Unit Gates",
       "G0: Python Checks",
+      "G1: Native Transactional Gates",
       "PR description completeness"
     ],
     "strict_status_checks": true,

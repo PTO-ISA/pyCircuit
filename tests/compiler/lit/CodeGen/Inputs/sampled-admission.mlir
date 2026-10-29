@@ -43,7 +43,7 @@ module attributes {ac.stage = "final", ac.source_units = [{package = "", path = 
   ^bb0(%guard_first: !b1, %guard_second: !b1, %clk: !b1, %rst: !b1):
     %zero = "ac.bits.constant"() {value = #w0} : () -> !b1
     %q = "ac.instance"(%clk, %rst, %transaction#1, %transaction#0, %zero) {instance_name = "state", callee = @storage, parameters = [], type_arguments = [!b1], occurrence = #state} : (!b1, !b1, !b1, !b1, !b1) -> !b1
-    %transaction:7 = "ac.rule"(%clk, %rst, %guard_first, %guard_second, %q) ({
+    %transaction:7 = "ac.comb"(%clk, %rst, %guard_first, %guard_second, %q) ({
     ^bb0(%rule_clk: !b1, %rule_rst: !b1, %first: !b1, %second: !b1, %old_q: !b1):
       %rule_one = "ac.bits.constant"() {value = #w1} : () -> !b1
       %rule_zero = "ac.bits.constant"() {value = #w0} : () -> !b1
@@ -62,7 +62,7 @@ module attributes {ac.stage = "final", ac.source_units = [{package = "", path = 
 
   "ac.module"() ({
   ^bb0(%guard: !b1, %clk: !b1, %rst: !b1):
-    %top_transaction:3 = "ac.rule"(%clk, %rst, %guard) ({
+    %top_transaction:3 = "ac.comb"(%clk, %rst, %guard) ({
     ^bb0(%rule_clk: !b1, %rule_rst: !b1, %rule_guard: !b1):
       %rule_one = "ac.bits.constant"() {value = #w1} : () -> !b1
       %fire = "ac.bits.compare"(%rule_guard, %rule_one) {predicate = "case_eq"} : (!b1, !b1) -> !b1
@@ -76,7 +76,7 @@ module attributes {ac.stage = "final", ac.source_units = [{package = "", path = 
   ^bb0(%selector: !b1, %then_guard: !b1, %else_guard: !b1, %asserted: !b1, %clk: !b1, %rst: !b1):
     %initial = "ac.bits.constant"() {value = #w0} : () -> !b1
     %q = "ac.instance"(%clk, %rst, %transaction#1, %transaction#0, %initial) {instance_name = "state", callee = @storage, parameters = [], type_arguments = [!b1], occurrence = #conditional_state} : (!b1, !b1, !b1, !b1, !b1) -> !b1
-    %transaction:15 = "ac.rule"(%clk, %rst, %selector, %then_guard, %else_guard, %asserted, %q) ({
+    %transaction:15 = "ac.comb"(%clk, %rst, %selector, %then_guard, %else_guard, %asserted, %q) ({
     ^bb0(%rule_clk: !b1, %rule_rst: !b1, %raw_selector: !b1, %raw_then: !b1, %raw_else: !b1, %raw_assert: !b1, %old_q: !b1):
       %one = "ac.bits.constant"() {value = #w1} : () -> !b1
       %zero = "ac.bits.constant"() {value = #w0} : () -> !b1

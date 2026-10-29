@@ -1,20 +1,108 @@
 # Source-unit workflow
 
+## Transactional frontend replacement
+
+The production `compile` and `link` entries now use transactional ACIR v2.
+Compilation publishes an **unlinked** body/interface pair; linking authenticates
+an explicit unit closure and produces linked transactional ACIR before common
+analysis, Routed verification and storage lowering. Regenerate older units from
+source; there is no legacy selector or failure fallback. Source body/interface
+pairs carry `ac.source_contract = 4 : i64`, preserving SSA payload constraints,
+pending Method uses, deferred resource connections and explicit Rule formal-read
+identity across publication.
+
+See the [language profile](../reference/language.md#transactional-frontend-replacement)
+for source semantics and [current capabilities and gaps](known-limitations.md)
+for admission boundaries. The [replacement scope](transactional-frontend-status.md)
+records migration and evidence policy; retained legacy examples and oracles are
+not current passing evidence.
+
 pyCircuit captures ordinary Python hardware descriptions, resolves and lowers
 hardware semantics in MLIR, and emits C++ and Verilog from the same verified
 final artifact. There is one public compile/link/emit route. Capture never
 executes design functions.
 
-## Ownership through the compiler
+## Compilation paths
+
+```text
+Source import → unlinked constraints → link bindings → Linked ACIR
+                                                          ↓
+                                               common transaction analysis
+                                                   ↙             ↘
+                                               t-gfsim          Routed
+                                                                  ↓
+                                                           Hardware final
+                                                                  ↓
+                                                           C++ / Verilog
+```
+
+`t-gfsim` consumes the verified linked transaction plan directly. It is distinct
+from the physical `gfsim` target and need not pass through the physical anchor.
+Its current profile admits Bits State and Queue; nominal Enum/Struct payloads
+remain unsupported. Four-state hardware payload verification
+uses the existing Icarus path. C++ and Verilog share the verified Hardware final
+artifact, including storage refinement. See the
+[language profile](../reference/language.md#transactional-frontend-replacement)
+for each target's current admission boundaries.
+
+## Current compiler ownership
+
+| Stage | Owner | Responsibility |
+| --- | --- | --- |
+| Capture | `_source_capture.py`, `_source_transport.py` | Parse and transport syntax without executing design functions. |
+| Compile | `PythonImportRecords.cpp`, `SourceUnit.cpp` | Import transactional v2 ACIR and publish authenticated unlinked body/interface units. |
+| Link | `SourceLink` | Authenticate provider closure, specialize instances, and invoke ACIR constraint closure. |
+| Constraint closure | `TransactionalResourceConstraints`, `TransactionalMethodConstraints`, `TransactionalPayloadConstraints` | Specialize Rule registrations, unify resource identities, allocate default storage, rewrite interfaces and close Method/payload requirements. |
+| Common analysis | `TransactionalAnalysis` | Recover SCF paths, formal-read identities and old-Q resources; prove access exclusivity and known control admission. |
+| Route and authenticate | `TransactionalRouting` | Build Routed updates/checks/observations and replay correspondence against actual normalized source. |
+| Refine and emit | `ac-lower-transactions`, C++/Verilog emitters | Verify storage refinement and consume the same final artifact. |
+
+`SourceUnit.cpp` imports declarations, solves local payload and Method constraints,
+publishes unresolved provider requirements, and verifies the unlinked unit.
+`SourceLink.cpp` binds the provider/instance closure, invokes resource, Method
+and payload closure in that order, then enters common transaction analysis.
+Unlinked requirements may remain unknown; linked analysis requires closure.
+Routing and storage lowering produce the same final IR for both emitters.
+
+Linked-only output is verified at the link boundary. For routing, the public
+transaction analysis entry performs that verification on the unchanged linked
+IR; link does not repeat it before calling analysis. Verification after IR
+transformations and validation at independently callable entries remain intact.
+
+Module combination dependencies are collected once per operation or complete
+structured branch. Stable source-order ready processing publishes bindings and
+notifies only their waiting users. Unclosed or cyclic dependencies still reject.
+Ordinary branch locals join through branch results; only early returns carry a
+continuation into live arms. These control-flow operations do not decide resource
+consumption.
+
+The bridge and SCF remain in normalized unlinked/linked ACIR. Routing combines
+path polarity with Rule guards; saved Routed/final provenance is reparsed and
+reanalyzed to check actual endpoints. Metadata alone is never proof.
+
+## Retained legacy lowering reference
+
+The following detailed lowering descriptions through the next `Compile and
+link` section document the superseded frontend and retained migration goals.
+`AnalyzeRuleWrites`, `InferSourceBindings`, `LowerPythonSource` and candidate-state
+SSA are not the production Python import route. Automatic local registration
+and intra-transaction candidate forwarding described here are superseded.
+Native Routed/final printing and rereading work for the transactional slice;
+public saved-anchor manifest publication remains a separate implementation gap.
+
+### Previous compiler ownership
 
 The public commands separate source publication, linking and emission. Each
 stage checks its input before publishing outputs; neither backend recaptures
 Python or infers a different hardware meaning.
 
 The separately versioned [transactional resource IR](transactional-resource-ir.md)
-currently supports structural verification through `pycircuit-opt` only. Its
-`unlinked`/`linked` stages are not source units or executable hardware; the
-existing publication, link, saved-anchor and emit boundaries reject them.
+supports structural verification and a bounded native State/registered-Rule
+route through `pycircuit-opt --ac-route-transactions='top=Name'`, followed by
+`--ac-lower-transactions`. Its `unlinked`/`linked` stages are not source units or
+executable hardware. Contract 4 Routed/final artifacts retain independently
+verified source correspondence and use the existing backends. Python publication,
+link integration and public saved-anchor manifests remain unchanged.
 
 | Stage | Existing owner | Responsibility |
 | --- | --- | --- |
@@ -68,12 +156,17 @@ extra fields, unknown names and noncanonical decimals fail before publication.
 The driver snapshots the input once and forwards only that snapshot to the
 native linker; final IR records the selected actual bindings.
 
-Method argument/result contracts are instantiated using the receiver's Module
-bindings, including independently compiled providers and forwarded parameters.
-The existing Method-closure analysis checks each distinct actual binding before
-transaction routing can erase unused Methods. Provider defaults do not justify
-constant-fit or width legality for a different instance. This includes retained
-non-generic definitions emitted alongside the selected root.
+The transactional route specializes each executable occurrence before common
+analysis. Saved Linked files retain the resulting types, constants and resource
+identities. Preserving the original named root Integer argument table in saved
+anchor configuration remains a publication migration obligation; bound execution
+does not establish that metadata coverage.
+
+Unlinked Queue allocations may carry an existing static expression as their
+`depth` attribute. Link resolves it to a positive i64 before transaction analysis.
+The normalized spelling is `depth(attribute)`; regenerate source units or Linked
+files emitted with the earlier bare-depth spelling. Reload never falls back to
+another frontend or substitutes provider sources.
 
 `pycircuit link --reset-semantics strict|if_one` selects one root policy in the
 final artifact. Default `strict` rejects X/Z reset on a rising sample. `if_one`
@@ -381,16 +474,71 @@ pycircuit emit .pycircuit_out/design_top.ac --target verilog \
   -o .pycircuit_out/verilog
 ```
 
-To preserve the routed boundary before physical refinement, use the same explicit
-unit closure with `--target anchor -o ANCHOR_DIR`. The resulting
-[saved anchor](../architecture/saved-anchor.md) contains a versioned graph,
-separate exact definition specs/bodies and retained source interfaces. After the
-original sources and units are removed, `pycircuit link --from-anchor ANCHOR_DIR
---verify-only` checks it without routing or refinement. `pycircuit link
---from-anchor ANCHOR_DIR --target final -o FINAL.ac` explicitly refines that
-verified graph. Reload cannot override its root, parameters or reset policy.
-It reuses the existing publisher for outputs and accepts portable artifact-only
-copies through a bounded stable snapshot.
+To save the normalized transactional boundary, select `--target linked`:
+
+```bash
+pycircuit link .pycircuit_out/units/child .pycircuit_out/units/top \
+  --top demo.top.Top --target linked -o .pycircuit_out/linked.ac
+pycircuit link --from-linked .pycircuit_out/linked.ac \
+  -o .pycircuit_out/design_top.ac
+```
+
+Linked ACIR is a self-contained textual artifact. It retains Module, Rule,
+Method, guard, call and `scf.if` structure, concrete instance/resource bindings,
+nominal types, System configuration and source provenance. Publication completes
+common transaction analysis, including admission and conflict checks. Reload
+revalidates the IR and rebuilds that analysis; analysis objects and borrowed IR
+pointers are never serialized. Original Python files and source-unit directories
+are not required. Saved source locations remain diagnostic provenance, not
+files to reopen. For a compact reading view, use `pycircuit print linked.ac`.
+Use `--profile debug` for recursive source metadata and locations, or
+`--profile full` for complete, parseable MLIR. The published artifact retains
+all information. See [Reading ACIR](../reference/acir-display.md) for JSON
+display configuration and Unlinked inspection.
+
+`--from-linked` defaults to `--target final`; it also accepts `--target anchor`
+to save the Routed boundary before physical storage refinement. It forbids
+source units, `--top`, parameters and reset overrides: the artifact already
+selects its root and execution policy. Both direct link and reload use the same
+routing and lowering implementation. The cpp/verilog targets consume Final ACIR.
+Linked and Final files have distinct publication owners; `--replace` uses the
+existing ownership and failed-output protection protocol.
+
+The direct transaction simulator is named **t-gfsim** (transactional-gfsim).
+It consumes saved Linked ACIR and uses the `pycircuit::transactional_gfsim`
+runtime in `<pycircuit/transactional_gfsim/runtime.h>`. The lower-level physical
+simulator retains the gfsim name and `gfsim` namespace.
+
+Generate t-gfsim from the saved Linked artifact:
+
+```bash
+pycircuit emit .pycircuit_out/linked.ac --target t-gfsim -o .pycircuit_out/t-gfsim
+cmake -S .pycircuit_out/t-gfsim -B .pycircuit_out/t-gfsim-build \
+  -DCMAKE_PREFIX_PATH=/path/to/installed/pycircuit
+cmake --build .pycircuit_out/t-gfsim-build
+.pycircuit_out/t-gfsim-build/bin/pycircuit_sim --cycles 10 --workers 1
+```
+
+This target supports closed single-clock Systems with Bits State and Queue, Rules and local or cross-instance Methods. Common transaction analysis supplies admission,
+paths and effects. Generated instance objects own each State or Queue once and expose combination,
+Rule and Method functions. Whole-system checks precede commit and successful
+log publication. The initial direct target publishes logs; other observation
+forms and nominal payload generation remain follow-up work;
+unknown clock/reset sample rows and unsupported direct inputs reject. The generated build uses only the installed
+Runtime component. Only one worker is supported. Queue readiness uses committed
+occupancy: empty has no bypass and full cannot borrow a simultaneous pop.
+Selected-path Queue admission and Method guards gate every effect of the Rule.
+Non-transfer samples discard proposals; reset empties Queues. Four-state
+payload masks survive enqueue/dequeue unchanged.
+
+A saved [anchor](../architecture/saved-anchor.md) remains a directory containing
+a versioned graph and separate exact definition specs/bodies. Transactional
+anchors use schema 3 / routed contract 4 and retain provenance in their embedded
+Linked source snapshot; they do not require source-unit interface files.
+`pycircuit link --from-anchor ANCHOR_DIR --verify-only` validates the saved
+Routed artifact. `pycircuit link --from-anchor ANCHOR_DIR --target final -o
+FINAL.ac` refines it. Portable copies of Linked files and anchor directories can
+be used independently of their original publication control directories.
 
 Generated CMake builds source-owned `pycircuit_modules` against the Runtime
 component. Host drivers use the typed `pyc_dut` and shared SystemRunner, supply

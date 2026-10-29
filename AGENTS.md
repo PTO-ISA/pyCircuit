@@ -57,6 +57,48 @@ and rerun the checks until they pass before publishing. Syntax checks, AST
 comparisons and API/example gates do not substitute for these style checks.
 When documentation changes, also run the CI's `mkdocs build --strict` check.
 
+## Transactional frontend replacement
+
+For the replacement tracked by [issue #361](issue/transactional-frontend-acir.md),
+follow the [replacement plan](docs/development/transactional-frontend-replacement-plan.md).
+The user's new semantics govern migrated code. Within this replacement, this
+section takes precedence over conflicting legacy semantic or pipeline guidance
+below or in skills; unchanged invariants still apply. In particular,
+do not restore automatic ordinary Rule registration, candidate-state forwarding,
+value-only Module interfaces or implicit writable Method parameters to keep old
+examples passing. This scoped precedence is not a claim of implemented support.
+
+Replace one capability end to end: normalized ACIR, common analysis, backend
+adaptation, examples, tests and removal of the superseded path. Review and reuse
+`feat/transactional-acir-gfsim` as a prototype, not as the semantic authority;
+do not add a third frontend or fall back after new compilation fails. Reuse
+backend capabilities where they fit the new contract. Both backend paths must
+derive semantics from the same verified transactional ACIR/common analysis;
+the direct transactional target is named `t-gfsim` (transactional-gfsim), distinct
+from the lower-level physical `gfsim`; t-gfsim need not pass through the physical
+anchor.
+
+The prototype already establishes bounded feasibility; proceed with incremental
+production replacement, not another prerequisite experiment. Deliver each
+bounded replacement step as a separate PR with dependencies, focused validation,
+example/test migration and deletion scope. Revalidate integrated changes without
+reimplementing proven prototype work. A plan does not authorize automatic merge.
+
+Rewrite affected examples for the new programming model. Retain independent
+oracles for unchanged behavior; derive changed expectations from the new contract,
+never from DUT output. Changed or removed semantics may legitimately break or
+retire old tests. Record actual PASS/FAIL/NOT RUN separately from migration or
+retirement status; remaining required capabilities are implementation gaps, not
+excuses to weaken tests. Resolve genuinely unspecified semantics with the user.
+
+Omission from the new design does not cancel an existing capability. Preserve
+compatible foundations and migrate features whose meaning is already clear.
+If migration requires a new semantic choice, record the old behavior, affected
+users/tests, options and recommendation, then discuss it with the user. Mark it
+as awaiting semantic clarification, retain its tests/oracles, and pause only
+dependent work. Do not silently delete it or invent compatibility semantics;
+known semantics with missing support are implementation work, not a new decision.
+
 ## Pythonic authoring contract
 
 The user requests Astra (`gpt-6-astra`) for delegated pyCircuit source authoring

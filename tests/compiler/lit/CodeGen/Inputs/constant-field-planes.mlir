@@ -98,7 +98,7 @@ module {
     ^bb0(%ordinal: !b2, %entry: !b8):
       "ac.yield"(%entry) : (!b8) -> ()
     }) {shape = [#w3], operandSegmentSizes = array<i32: 1, 0>} : (!mixed) -> !mixed
-    %forwarded = "ac.rule"(%c1) ({
+    %forwarded = "ac.comb"(%c1) ({
     ^bb0(%arg: !b8):
       "ac.yield"(%arg) : (!b8) -> ()
     }) {name = "forward", occurrence = {site = {definition = @ExcludedNegative, ast_path = []}, expansion = []}} : (!b8) -> !b8

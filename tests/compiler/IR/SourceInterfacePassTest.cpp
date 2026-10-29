@@ -203,7 +203,7 @@ TEST_F(SourceInterfacePassTest,
        RuleCaptureFanoutRetainsDistinctRealDependencies) {
   auto unit = parse(
       module("Fanout", R"mlir(^bb0(%a: !b8, %b: !b8, %unused: !b8):
-    %both = "ac.rule"(%a, %b) ({
+    %both = "ac.comb"(%a, %b) ({
     ^bb0(%x: !b8, %y: !b8):
       %value = "ac.bits.binary"(%x, %y) {opcode = "xor"} : (!b8, !b8) -> !b8
       "ac.yield"(%value) : (!b8) -> ()

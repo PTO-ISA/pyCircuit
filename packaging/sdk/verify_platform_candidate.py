@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_EXPORTS = {
     "module",
     "rule",
+    "autorule",
     "method",
     "struct",
     "bits",

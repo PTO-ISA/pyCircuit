@@ -43,11 +43,13 @@ def ACIR_SourceIndexOp : ACIR_Op<"source.index", [Pure]> {
 }
 
 def ACIR_SourcePredicateOp : ACIR_Op<"source.predicate", [Pure]> {
-  let summary = "Transport original four-state control into transient source SCF";
+  let summary = "Associate original four-state control with SCF";
   let description = [{
     This is not a two-state conversion. Its only consumers are source scf.if
-    and scf.condition controls. Normalization recovers the original Bits input
-    and preserves it in ac.branch; no backend may execute the i1 result.
+    and scf.condition controls. Transactional v2 ACIR retains this bridge and
+    scf.if; common analysis recovers the original Bits input and branch polarity.
+    The i1 result does not establish knownness, and no backend may execute it as
+    a two-state conversion. Legacy source normalization may use ac.branch.
   }];
   let arguments = (ins ACIR_BitsType:$input);
   let results = (outs I1:$result);
@@ -332,7 +334,7 @@ def ACIR_ModuleOp : ACIR_Op<"module", [Symbol, SymbolTable,
   let hasRegionVerifier = 1;
 }
 
-def ACIR_RuleOp : ACIR_Op<"rule", [IsolatedFromAbove, SingleBlock, Pure]> {
+def ACIR_RuleOp : ACIR_Op<"comb", [IsolatedFromAbove, SingleBlock, Pure]> {
   let summary = "Define a combinational calculation within module Work";
   let description = [{
     Captures and results are hardware wires, including whole structs. The
@@ -412,7 +414,7 @@ def ACIR_SourceStateWriteOp : ACIR_Op<"state.write", [
 }
 
 // Retired spellings parse for diagnostics but fail verification. Native FIFO
-// methods use ordinary instance receivers and ac.method.call.
+// methods use ordinary instance receivers and ac.legacy.method.call.
 def ACIR_SourceQueuePopOp : ACIR_Op<"queue.pop", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Retired Queue pop spelling";
@@ -460,7 +462,66 @@ def ACIR_SourceBranchOp : ACIR_Op<"branch", [SingleBlock,
   }];
 }
 
-def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
+// Expressions awaiting common SSA payload constraint analysis.
+def ACIR_PendingExprOp : ACIR_Op<"payload.pending", [Pure]> {
+  let arguments = (ins Variadic<AnyType>:$inputs, StrAttr:$kind,
+      OptionalAttr<StrAttr>:$opcode, OptionalAttr<AnyAttr>:$number);
+  let results = (outs AnyType:$result);
+  let hasVerifier = 1;
+}
+
+// Preserve an authored payload evaluation through identity conversions and
+// aliases. Common analysis owns any deferred resource demand; backends need
+// no instruction for this source event.
+def ACIR_PayloadUseOp : ACIR_Op<"payload.use", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let arguments = (ins AnyType:$value);
+  let assemblyFormat = "$value attr-dict `:` type($value)";
+  let hasVerifier = 1;
+}
+
+// Transactional callable definitions own isolated, explicit capture regions.
+def ACIR_TransactionRuleOp : ACIR_Op<"rule", [Symbol, IsolatedFromAbove]> {
+  let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type);
+  let regions = (region AnyRegion:$guard, AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+def ACIR_TransactionMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove]> {
+  let arguments = (ins Variadic<AnyType>:$captures, SymbolNameAttr:$sym_name,
+      TypeAttrOf<FunctionType>:$function_type);
+  let regions = (region AnyRegion:$guard, AnyRegion:$body);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+  let hasRegionVerifier = 1;
+}
+def ACIR_TransactionRuleCallOp : ACIR_Op<"rule.call", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let arguments = (ins Variadic<AnyType>:$interfaces, FlatSymbolRefAttr:$callee,
+      I64Attr:$input_count);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+def ACIR_TransactionMethodCallOp : ACIR_Op<"method.call", [
+    DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
+  let arguments = (ins AnyType:$receiver, Variadic<AnyType>:$arguments,
+      SymbolRefAttr:$callee, OptionalAttr<I64Attr>:$rule_parameter);
+  let results = (outs Variadic<AnyType>:$results);
+  let hasCustomAssemblyFormat = 1;
+  let hasVerifier = 1;
+}
+
+// Open Method use; provider binding supplies the complete result signature.
+def ACIR_TransactionMethodPendingOp : ACIR_Op<"method.pending"> {
+  let arguments = (ins AnyType:$receiver, Variadic<AnyType>:$arguments,
+      SymbolRefAttr:$callee, StrAttr:$result_requirement, BoolAttr:$read_only);
+  let results = (outs Variadic<AnyType>:$results);
+  let hasVerifier = 1;
+}
+
+def ACIR_SourceMethodOp : ACIR_Op<"legacy.method", [Symbol, IsolatedFromAbove,
     SingleBlock, RecursiveMemoryEffects]> {
   let summary = "Define an instance operation with entry guard and ordered body";
   let description = [{
@@ -483,7 +544,7 @@ def ACIR_SourceMethodOp : ACIR_Op<"method", [Symbol, IsolatedFromAbove,
   let hasRegionVerifier = 1;
 }
 
-def ACIR_SourceMethodCallOp : ACIR_Op<"method.call", [
+def ACIR_SourceMethodCallOp : ACIR_Op<"legacy.method.call", [
     DeclareOpInterfaceMethods<SymbolUserOpInterface>,
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Invoke a Method on a statically identified instance path";
@@ -539,8 +600,8 @@ def ACIR_SourceTransactionOp : ACIR_Op<"transaction", [
     Both regions take captures. The guard yields one four-state predicate and
     the body yields ordinary results. declaration identifies the source Rule;
     occurrence identifies its unique registration in the owning module.
-    Admission and state SSA must be resolved before lowering to pure ac.rule.
-    Mandatory ac.guard_location has the same SourceSpan contract as ac.method;
+    Admission and state SSA must be resolved before lowering to pure ac.comb.
+    Mandatory ac.guard_location has the same SourceSpan contract as ac.legacy.method;
     it refers to the declaration's guard, never the registration call site.
   }];
   let arguments = (ins ACIR_BitsType:$clk, ACIR_BitsType:$rst,
@@ -640,9 +701,10 @@ def ACIR_ResourceAllocOp : ACIR_Op<"resource.alloc", [
     DeclareOpInterfaceMethods<MemoryEffectsOpInterface>]> {
   let summary = "Allocate one instance-owned resource, retaining distinct identity";
   let arguments = (ins Variadic<ACIR_HardwareType>:$initial,
-      StrAttr:$instance_name, OptionalAttr<I64Attr>:$depth);
+      StrAttr:$instance_name,
+      OptionalAttr<AnyAttrOf<[I64Attr, ACIR_StaticExprAttr]>>:$depth);
   let results = (outs ACIR_ResourceReferenceType:$resource);
-  let assemblyFormat = "$instance_name (`initial` `(` $initial^ `:` type($initial) `)`)? (`depth` $depth^)? attr-dict `:` type($resource)";
+  let assemblyFormat = "$instance_name (`initial` `(` $initial^ `:` type($initial) `)`)? (`depth` `(` $depth^ `)`)? attr-dict `:` type($resource)";
   let hasVerifier = 1;
 }
 def ACIR_InstanceRefOp : ACIR_Op<"instance.ref", [Pure]> {
@@ -670,7 +732,7 @@ def ACIR_QueueOp : ACIR_Op<"queue"> {
   let summary = "Retired FIFO operation, retained only for migration diagnostics";
   let description = [{
     Verification rejects this operation. FIFO ownership uses ac.instance with
-    a canonical native FIFO callee; callable operations use ac.method.call.
+    a canonical native FIFO callee; callable operations use ac.legacy.method.call.
   }];
   let arguments = (ins
       ACIR_BitsType:$clk, ACIR_BitsType:$rst,
@@ -855,6 +917,16 @@ def ACIR_StructGetOp : ACIR_Op<"struct.get", [Pure]> {
   let hasVerifier = 1;
   let assemblyFormat =
       "$value `[` $field `]` attr-dict `:` functional-type(operands, results)";
+}
+
+// Unlinked identity constraints; SourceLink resolves storage after full binding.
+def ACIR_ResourceConnectionOp : ACIR_Op<"resource.connection"> {
+  let summary = "Defer a resource endpoint and its identity connections";
+  let arguments = (ins Variadic<ACIR_ResourceReferenceType>:$connections,
+      StrAttr:$instance_name);
+  let results = (outs ACIR_ResourceReferenceType:$resource);
+  let assemblyFormat = "$instance_name `(` $connections `)` attr-dict `:` functional-type($connections, $resource)";
+  let hasVerifier = 1;
 }
 
 #endif // ACIR_DIALECT_ACIR_ACIROPS_TD

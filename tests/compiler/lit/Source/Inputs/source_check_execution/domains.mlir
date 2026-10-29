@@ -10,7 +10,7 @@ module {
   ^bb0(%allow: !b1):
     %one = "ac.bits.constant"() {value = #w1} : () -> !b1
     %output = ac.struct.create(%allow) : (!b1) -> !result
-    %check:2 = "ac.rule"(%allow, %one) ({
+    %check:2 = "ac.comb"(%allow, %one) ({
     ^bb0(%c: !b1, %p: !b1):
       "ac.yield"(%c, %p) : (!b1, !b1) -> ()
     }) {name = "inspect", occurrence = {site = {definition = @execution.domains.Pure, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, ac.required_checks = [{id = {registration = {site = {definition = @execution.domains.Pure, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, check = {site = {definition = @execution.domains.Pure, ast_path = [{kind = "index", value = 13 : i64}]}, expansion = []}, obligation = 0 : i64}, kind = "assert", location = {path = "domains.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}]} : (!b1, !b1) -> (!b1, !b1)
@@ -24,7 +24,7 @@ module {
     %q = "ac.instance"(%clk, %rst, %one, %data, %zero) {callee = @native.dffe, instance_name = "state", parameters = [], type_arguments = [!b1], occurrence = {site = {definition = @execution.domains.Cell, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}} : (!b1, !b1, !b1, !b1, !b1) -> !b1
     %child = "ac.instance"(%allow) {callee = @execution.domains.Pure, instance_name = "pure", parameters = [], type_arguments = [], occurrence = {site = {definition = @execution.domains.Cell, ast_path = [{kind = "index", value = 3 : i64}]}, expansion = []}} : (!b1) -> !result
     %output = ac.struct.create(%q) : (!b1) -> !result
-    %check:2 = "ac.rule"(%allow, %one) ({
+    %check:2 = "ac.comb"(%allow, %one) ({
     ^bb0(%c: !b1, %p: !b1):
       "ac.yield"(%c, %p) : (!b1, !b1) -> ()
     }) {name = "inspect", occurrence = {site = {definition = @execution.domains.Cell, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, ac.required_checks = [{id = {registration = {site = {definition = @execution.domains.Cell, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, check = {site = {definition = @execution.domains.Cell, ast_path = [{kind = "index", value = 13 : i64}]}, expansion = []}, obligation = 0 : i64}, kind = "assert", location = {path = "domains.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}]} : (!b1, !b1) -> (!b1, !b1)

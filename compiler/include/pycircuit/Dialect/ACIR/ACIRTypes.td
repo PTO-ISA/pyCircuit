@@ -15,6 +15,12 @@ def ACIR_MathIntType : ACIR_Type<"MathInt", "math_int"> {
   let hasCustomAssemblyFormat = 1;
 }
 
+// Unlinked payload variable. Identity belongs to its SSA value, not its type.
+def ACIR_InferType : ACIR_Type<"Infer", "infer"> {
+  let summary = "Unresolved unlinked transactional payload";
+  let assemblyFormat = "";
+}
+
 def ACIR_BitsType : ACIR_Type<"Bits", "bits"> {
   let summary = "Parameter-width four-state hardware bit vector";
   let description = [{

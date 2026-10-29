@@ -1,12 +1,11 @@
-#include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
-#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
+#include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 #include "pycircuit/Transforms/Passes.h"
 
 #include "mlir/IR/Builders.h"
 #include "mlir/Pass/Pass.h"
 #include "llvm/ADT/STLExtras.h"
-#include "llvm/ADT/StringMap.h"
 
 using namespace mlir;
 
@@ -21,7 +20,7 @@ public:
     return "ac-extract-source-interface";
   }
   StringRef getDescription() const final {
-    return "Extract source interfaces from open module SSA dependencies";
+    return "Extract authenticated transactional resource interfaces";
   }
   void runOnOperation() final {
     mlir::ModuleOp input = getOperation();
@@ -29,46 +28,6 @@ public:
     if (failed(ac::verifySourceBodyStructure(input, emitError))) {
       signalPassFailure();
       return;
-    }
-
-    // All analysis resolves the intact definitions. Replacing even one early
-    // would turn a same-source callee into an import and change later results.
-    auto &analysis = getAnalysis<ac::HardwareAnalysis>();
-    ac::SourceMethodSummariesAnalysis methods(input);
-    if (!methods.isValid()) {
-      signalPassFailure();
-      return;
-    }
-    struct Publication {
-      bool transactions;
-      Attribute summary;
-    };
-    llvm::StringMap<Publication> summaries;
-    for (ac::ModuleOp definition : analysis.getDefinitions()) {
-      auto transactions = methods.requiresTransactionPublication(definition);
-      if (failed(transactions)) {
-        signalPassFailure();
-        return;
-      }
-      if (*transactions) {
-        auto facts = methods.getPublicationSummary(definition);
-        if (failed(facts)) {
-          signalPassFailure();
-          return;
-        }
-        summaries[definition.getSymName()] = {true, *facts};
-      } else {
-        ac::HardwareBindings bindings;
-        bindings.owner = definition;
-        auto facts = analysis.analyzeModule(definition, bindings);
-        if (failed(facts)) {
-          signalPassFailure();
-          return;
-        }
-        summaries[definition.getSymName()] = {
-            false, ac::serializeOutputDependencies(input.getContext(),
-                                                   facts->dependencies)};
-      }
     }
 
     // The detached clone is disposable until both native and source-local
@@ -82,15 +41,12 @@ public:
       OperationState state(definition.getLoc(),
                            ac::ModuleImportOp::getOperationName());
       NamedAttrList attributes(definition->getAttrs());
-      const Publication &publication =
-          summaries.find(definition.getSymName())->second;
       attributes.erase("dependency_summary");
       attributes.erase("transaction_summary");
-      attributes.set("semantic_kind", builder.getStringAttr(
-          publication.transactions ? "transactions" : "hardware"));
-      attributes.set(publication.transactions ? "transaction_summary"
-                                             : "dependency_summary",
-                     publication.summary);
+      attributes.set("semantic_kind", builder.getStringAttr("resources"));
+      auto methods = ac::getTransactionalMethodInterfaces(definition);
+      if (!methods.empty())
+        attributes.set("ac.methods", methods);
       state.addAttributes(attributes);
       Operation *declaration = Operation::create(state);
       definition->getBlock()->getOperations().insert(definition->getIterator(),

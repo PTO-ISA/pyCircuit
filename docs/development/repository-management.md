@@ -89,7 +89,7 @@ stays NOT RUN. Independent review and ordinary branch protection still apply.
 
 This is the required intake and review flow for subsequent pyCircuit issues and
 PRs, including submissions made through agents or the CLI. `PR description
-completeness` is a required main-branch status check alongside the two G0 checks
+completeness` is a required main-branch status check alongside the two G0 checks and the short native G1 check
 in `.github/repository-governance.json`. Issue titles are enforced by labeling;
 GitHub does not block issue creation on this check. Existing PRs may need their
 descriptions updated when edited or synchronized after rollout. Apply the

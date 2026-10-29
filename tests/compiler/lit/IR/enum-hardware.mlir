@@ -34,7 +34,7 @@ module {
   "ac.module.import"() {semantic_kind = "hardware", sym_name = "storage", source_owner = {package = "gfsim", path = "dffe.py"}, parameters = [], type_parameters = ["T"], function_type = (!b1, !b1, !b1, !ac.type_param<@storage, "T">, !ac.type_param<@storage, "T">) -> !ac.type_param<@storage, "T">, input_names = ["clk", "rst", "en", "d", "init"], output_names = ["q"], primitive_kind = "dffe", dependency_summary = [{output = {port = 0 : i64, path = []}, inputs = []}]} : () -> ()
   "ac.module"() ({
   ^bb0(%value: !ac.type_param<@forward, "T">):
-    %copy = "ac.rule"(%value) ({
+    %copy = "ac.comb"(%value) ({
     ^bb0(%capture: !ac.type_param<@forward, "T">):
       "ac.yield"(%capture) : (!ac.type_param<@forward, "T">) -> ()
     }) {name = "forward", occurrence = {site = {definition = @forward, ast_path = []}, expansion = []}} : (!ac.type_param<@forward, "T">) -> !ac.type_param<@forward, "T">
@@ -45,7 +45,7 @@ module {
     %init = "ac.enum.create"() {member = "ZERO"} : () -> !a
     %merged, %merge_en = "ac.value.merge"(%data, %en, %candidate) {paths = [[]], operandSegmentSizes = array<i32: 1, 1, 1>} : (!a, !b1, !a) -> (!a, !b1)
     %q = "ac.instance"(%clk, %rst, %merge_en, %merged, %init) {instance_name = "state", callee = @storage, parameters = [], type_arguments = [!a], occurrence = {site = {definition = @top, ast_path = [{kind = "field", name = "body"}, {kind = "index", value = 2 : i64}]}, expansion = []}} : (!b1, !b1, !b1, !a, !a) -> !a
-    %rule_value = "ac.rule"(%q) ({
+    %rule_value = "ac.comb"(%q) ({
     ^bb0(%entry: !a):
       %literal = "ac.enum.create"() {member = "ZERO"} : () -> !a
       %raw = "ac.enum.to_bits"(%entry) : (!a) -> !b65

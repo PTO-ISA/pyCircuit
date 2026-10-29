@@ -9,6 +9,7 @@
 #include "mlir/Pass/PassManager.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
+#include "pycircuit/Dialect/ACIR/TransactionalRouting.h"
 #include "pycircuit/Transforms/Passes.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/StringExtras.h"
@@ -359,12 +360,86 @@ protected:
       return loadVerifiedAnchor(directory.string(), context, error());
     });
   }
+  mlir::FailureOr<mlir::OwningOpRef<mlir::ModuleOp>> resourcePackage() {
+    // Native normalized Linked IR: the State is a resource, and its exported
+    // identity is converted to physical storage only by common routing.
+    const char *text = R"ir(
+#owner = {package = "δοκιμή", path = "模块.py"}
+#root = {site = {definition = @"δοκιμή.模块.Root", ast_path = []}, expansion = []}
+#span = {path = "模块.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}
+#w2 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<2>}, origin = #root, location = #span}>
+#w7 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<7>}, origin = #root, location = #span}>
+!b7 = !ac.bits<#w7>
+module attributes {ac.transactional = 2 : i64, ac.stage = "linked", ac.source_units = [#owner]} {
+  "ac.module"() ({
+    %initial = "ac.bits.constant"() {value = #w2} : () -> !b7
+    %held = ac.resource.alloc "held" initial(%initial : !b7) : !ac.state<!b7>
+    "ac.yield"(%held) : (!ac.state<!b7>) -> ()
+  }) {sym_name = "δοκιμή.模块.Root", source_owner = #owner, parameters = [], type_parameters = [], function_type = () -> !ac.state<!b7>, input_names = [], output_names = ["held"], output_kinds = ["export"], ac.origin = #root} : () -> ()
+}
+)ir";
+    auto source = mlir::parseSourceString<mlir::ModuleOp>(text, &context);
+    if (!source)
+      return mlir::failure();
+    return capture([&] {
+      return ac::routeTransactionalPackage(
+          *source, "δοκιμή.模块.Root",
+          [](uint64_t, mlir::Operation *) { return mlir::success(); });
+    });
+  }
   void reject(const fs::path &directory, llvm::StringRef reason) {
     auto loaded = load(directory);
     EXPECT_TRUE(mlir::failed(loaded));
     EXPECT_NE(diagnostics.find(reason.str()), std::string::npos) << diagnostics;
   }
 };
+
+TEST_F(AnchorArtifactTest, ResourceAnchorRetainsVerifiedProvenanceAfterReload) {
+  auto package = resourcePackage();
+  ASSERT_TRUE(mlir::succeeded(package)) << diagnostics;
+  auto original = print((*package)->getOperation());
+  auto source = (*package)->getOperation()->getAttr("ac.transactional_source");
+  auto directory = temporary / "resource-anchor";
+  fs::create_directory(directory);
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return writeAnchorArtifacts(**package, {}, directory.string(), error());
+  }))) << diagnostics;
+  auto object = manifest(directory);
+  EXPECT_EQ(object.getInteger("schema"), 3);
+  EXPECT_EQ(object.getInteger("routed_contract"), 4);
+  EXPECT_EQ(print((*package)->getOperation()), original);
+  package->release()->erase();
+  auto loaded = load(directory);
+  ASSERT_TRUE(mlir::succeeded(loaded)) << diagnostics;
+  EXPECT_EQ(loaded->package->getOperation()->getAttr("ac.transactional_source"),
+            source);
+  auto held = print(loaded->package->getOperation());
+  auto final = capture([&] { return refineVerifiedAnchor(*loaded, error()); });
+  ASSERT_TRUE(mlir::succeeded(final)) << diagnostics;
+  EXPECT_TRUE(mlir::succeeded(ac::verifyHardwarePackage(**final)));
+  auto provenance = (*final)->getOperation()->getAttrOfType<mlir::DictionaryAttr>(
+      "ac.anchor_provenance");
+  ASSERT_TRUE(provenance);
+  EXPECT_EQ(provenance.getAs<mlir::StringAttr>("content_identity").getValue(),
+            loaded->contentIdentity);
+  EXPECT_EQ(provenance.getAs<mlir::StringAttr>("configuration_identity").getValue(),
+            loaded->configurationIdentity);
+  EXPECT_EQ(print(loaded->package->getOperation()), held);
+}
+
+TEST_F(AnchorArtifactTest, ResourceAnchorRejectsChangedAuthenticatedPayload) {
+  auto package = resourcePackage();
+  ASSERT_TRUE(mlir::succeeded(package)) << diagnostics;
+  auto directory = temporary / "resource-anchor";
+  fs::create_directory(directory);
+  ASSERT_TRUE(mlir::succeeded(capture([&] {
+    return writeAnchorArtifacts(**package, {}, directory.string(), error());
+  }))) << diagnostics;
+  auto graph = directory / "graph.ac";
+  write(graph, read(graph) + "\n");
+  EXPECT_TRUE(mlir::failed(load(directory)));
+  EXPECT_FALSE(diagnostics.empty());
+}
 
 TEST_F(AnchorArtifactTest,
        TransactionalResourceStageCannotPublishAnAnchor) {

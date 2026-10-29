@@ -284,9 +284,11 @@ producer = re.match(r"\s*(%\w+) =", producer_lines[0]).group(1)
 rule_line = next(
     line
     for line in ir.splitlines()
-    if '"ac.method"(' in line and 'sym_name = "update"' in line
+    if '"ac.legacy.method"(' in line and 'sym_name = "update"' in line
 )
-assert producer in re.search(r'"ac.method"\(([^)]*)\)', rule_line).group(1).split(", ")
+assert producer in re.search(r'"ac.legacy.method"\(([^)]*)\)', rule_line).group(
+    1
+).split(", ")
 outer_yield = next(
     line for line in ir.splitlines() if line.startswith('    "ac.yield"(')
 )

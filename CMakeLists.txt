@@ -34,7 +34,7 @@ if(PYC_BUILD_COMPILER_DEV)
     EXPORT pycircuitCompilerTargets
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}")
-  install(TARGETS pycircuit-source-unit pycircuit-link pycircuit-emit pycircuit-opt
+  install(TARGETS pycircuit-source-unit pycircuit-link pycircuit-emit pycircuit-opt pycircuit-print
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
   install(DIRECTORY compiler/include/pycircuit
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
@@ -58,13 +58,10 @@ if(PYC_BUILD_COMPILER_DEV)
     PythonImportEnumSyntax.h
     PythonImportRecords.h
     SourceHeaderHelpers.h
-    SourceDeclarationContext.h
-    SourceMemoryBindings.h
     SourceIdentifierUnicodeData.h
     SourceLink.h
     AnchorArtifact.h
     SourceNamespace.h
-    SourceRuleWrites.h
     SourceUnit.h
     SourceIdentifierUnicodeData.LICENSE.txt)
   list(TRANSFORM _pyc_compiler_headers PREPEND "compiler/lib/Compiler/")

@@ -1,0 +1,142 @@
+{
+  "globals": {
+    "locations": false,
+    "source_info": false,
+    "empty_attributes": false,
+    "compact_types": true,
+    "metadata_fields": [
+      "location",
+      "origin",
+      "occurrence",
+      "source_owner",
+      "source",
+      "source_span",
+      "ast_path",
+      "ac.source",
+      "ac.source_owner",
+      "ac.source_span",
+      "ac.origin",
+      "ac.occurrence",
+      "ac.location",
+      "ac.guard_location",
+      "ac.condition_location",
+      "ac.source_file",
+      "ac.source_location"
+    ]
+  },
+  "ops": {
+    "ac.module": {
+      "fields": [
+        "sym_name",
+        "function_type",
+        "input_names",
+        "output_names",
+        "output_kinds",
+        "parameters",
+        "type_parameters",
+        "*"
+      ],
+      "omit_empty": [
+        "parameters",
+        "type_parameters"
+      ]
+    },
+    "ac.module.import": {
+      "fields": [
+        "sym_name",
+        "function_type",
+        "input_names",
+        "output_names",
+        "output_kinds",
+        "parameters",
+        "type_parameters",
+        "*"
+      ],
+      "omit_empty": [
+        "parameters",
+        "type_parameters"
+      ]
+    },
+    "ac.rule": {
+      "fields": [
+        "sym_name",
+        "function_type",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.method": {
+      "fields": [
+        "sym_name",
+        "function_type",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.instance": {
+      "fields": [
+        "instance_name",
+        "callee",
+        "parameters",
+        "type_arguments",
+        "*"
+      ],
+      "omit_empty": [
+        "parameters",
+        "type_arguments"
+      ]
+    },
+    "ac.rule.call": {
+      "fields": [
+        "callee",
+        "input_count",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.method.call": {
+      "fields": [
+        "callee",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.method.pending": {
+      "fields": [
+        "callee",
+        "result_requirement",
+        "read_only",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.state": {
+      "fields": [
+        "instance_name",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "scf.if": {
+      "fields": [
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.resource.alloc": {
+      "fields": [
+        "instance_name",
+        "depth",
+        "*"
+      ],
+      "omit_empty": []
+    },
+    "ac.instance.ref": {
+      "fields": [
+        "instance_path",
+        "*"
+      ],
+      "omit_empty": []
+    }
+  }
+}

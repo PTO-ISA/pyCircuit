@@ -12,7 +12,7 @@ module {
   ^bb0(%condition: !b1, %clk: !b1, %rst: !b1):
     %one = "ac.bits.constant"() {value = #w1} : () -> !b1
     %output = ac.struct.create(%condition) : (!b1) -> !result
-    %check:2 = "ac.rule"(%condition, %one) ({
+    %check:2 = "ac.comb"(%condition, %one) ({
     ^bb0(%c: !b1, %p: !b1):
       "ac.yield"(%c, %p) : (!b1, !b1) -> ()
     }) {name = "inspect", occurrence = {site = {definition = @execution.collections.Child, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, ac.required_checks = [{id = {registration = {site = {definition = @execution.collections.Child, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, check = {site = {definition = @execution.collections.Child, ast_path = [{kind = "index", value = 13 : i64}]}, expansion = []}, obligation = 0 : i64}, kind = "assert", location = {path = "collections.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}]} : (!b1, !b1) -> (!b1, !b1)
@@ -22,7 +22,7 @@ module {
   "ac.module"() ({
   ^bb0(%condition: !b1):
     %one = "ac.bits.constant"() {value = #w1} : () -> !b1
-    %check:4 = "ac.rule"(%condition, %one) ({
+    %check:4 = "ac.comb"(%condition, %one) ({
     ^bb0(%c: !b1, %p: !b1):
       "ac.yield"(%c, %p, %c, %p) : (!b1, !b1, !b1, !b1) -> ()
     }) {name = "inspect", occurrence = {site = {definition = @execution.collections.Ordinary, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, ac.required_checks = [{id = {registration = {site = {definition = @execution.collections.Ordinary, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, check = {site = {definition = @execution.collections.Ordinary, ast_path = [{kind = "index", value = 13 : i64}]}, expansion = [{kind = "iteration", site = {definition = @execution.collections.Ordinary, ast_path = [{kind = "index", value = 19 : i64}]}, ordinal = 4 : i32, value = {kind = "integer", value = #ac.math_int<-170141183460469231731687303715884105733>}}]}, obligation = 3 : i64}, kind = "assert", location = {path = "collections.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}, {id = {registration = {site = {definition = @execution.collections.Ordinary, ast_path = [{kind = "index", value = 7 : i64}]}, expansion = []}, check = {site = {definition = @execution.collections.Ordinary, ast_path = [{kind = "index", value = 13 : i64}]}, expansion = [{kind = "iteration", site = {definition = @execution.collections.Ordinary, ast_path = [{kind = "index", value = 19 : i64}]}, ordinal = 4 : i32, value = {kind = "integer", value = #ac.math_int<-170141183460469231731687303715884105733>}}]}, obligation = 11 : i64}, kind = "assert", location = {path = "collections.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}]} : (!b1, !b1) -> (!b1, !b1, !b1, !b1)

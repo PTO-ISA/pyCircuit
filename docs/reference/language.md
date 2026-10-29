@@ -1,5 +1,211 @@
 # Python source language reference
 
+## Transactional frontend replacement
+
+The production `compile` and `link` entries now use transactional ACIR v2.
+Compilation publishes an **unlinked** body/interface pair; linking authenticates
+an explicit unit closure and produces linked transactional ACIR before common
+analysis, Routed verification and storage lowering. Regenerate older units from
+source; there is no legacy selector or failure fallback.
+
+The current replacement slice admits closed Modules and default-clock Systems,
+Bits/Enum/Struct state, pure payload computation, nested Rules, guards,
+assertions, logs and imported literal constants. Modules export existing State
+identities. Ordinary `@ac.rule` declarations require explicit registration calls.
+A directly nested, parameterless `@ac.autorule` with no results registers once at
+its definition; calling it again is rejected. It normalizes to the same ordinary
+Rule plus registration, with no separate backend mechanism.
+
+Module `if/elif/else` selects registrations and merges ordinary payload values through `scf.if` in
+transactional ACIR. Branches may compute pure values and observe State, while
+Rule definitions and resource allocations remain directly Module-owned. `elif`
+is nested in the else region. A selected Rule whose guard is false does not
+select the else arm, and independent `if` statements have no implied priority.
+A Rule result first bound in one branch is a static resource, available for
+reference or return after that branch. Its connection is Module-owned; only the
+registration is conditional. Multiple first definitions of the same name across
+arms, conditional binding to different resources and branch-local Module
+instantiation are rejected. To write one destination from
+several branches, declare it before the branches and bind each Rule to it.
+
+Every state read observes committed old Q, including reads after writes in the
+same Rule. Use ordinary local SSA values to carry newly computed values.
+Registration paths and Rule guards jointly enable updates, assertions and logs.
+Logs publish only after successful global checks; generated Systems retain
+low/high sampling epochs.
+
+Control knownness is a separate execution requirement: ACIR can represent an
+unknown Bits condition, but the current backend admission rejects controls it
+cannot prove known. The predicate bridge's `i1` is not a knownness proof or an
+X/Z-to-false conversion. Four-state payloads remain supported.
+
+Local `@ac.method` definitions retain separate guards and bodies in ACIR.
+Rules may call Methods, Methods may call Methods, and guards may call read-only
+Methods. Arguments and results are same-cycle payload values; rebinding an
+argument never changes the caller. Method state reads observe old Q, so return
+an explicitly computed value when the caller needs the proposed new result.
+Common analysis combines the complete call chain's guards with the outer Rule's
+admission before enabling any update, assertion or log. A later false guard
+cancels earlier proposals and logs; independent Rules can still execute.
+Potentially overlapping writes reject without call-order arbitration.
+Rule and Method bodies admit finite nested `if/elif/else` with branch-local
+computations, State updates, Queue operations and Method calls. Only selected
+paths contribute Method guards and Queue availability/capacity to admission.
+All selected effects share the outer Rule's final fire, including effects before
+a later guard failure. Unselected paths neither consume nor update nor publish
+logs/assertions. Conflicts include path predicates and require proven exclusion;
+there is no implicit priority.
+Module, Rule and Method branches merge ordinary Bits, Enum and Struct locals.
+An existing local retains its entry value on an arm without assignment; a new
+local is usable afterward only when every continuing path defines it. Branch results may feed
+subsequent computation, field access and independent tuple results. Resource
+identities never enter payload joins. Controls must still be provably known.
+Rule and Method bodies may return early, including inside nested branches.
+Every reachable return must match the declared result count and payload types;
+a valued callable cannot fall through without its complete result. Literal
+conditions and their aliases can eliminate unreachable arms; other conditions
+retain both structural paths for this completeness check. A void callable may return without a value or end naturally. Return ends only the
+current callable: earlier calls, resource consumption and updates still share
+the outer Rule's final fire. Skipped statements add no effects, guards or Queue
+requirements. Frontend normalization merges return payloads at one callable
+endpoint; it does not fill missing results with zero or add holding state.
+Modules retain a terminal return of their static output resources.
+
+An explicit Module `-> None` declares zero data results. Its body may fall
+through, use a bare `return`, or return `None`. A named zero-result call binds
+an immutable instance reference; aliases preserve that allocation without a
+dummy payload or result port. Discarding a call still retains the child and its
+registered Rules or autorules. Physical exports currently retain the standard
+clock/reset domain even for pure zero-result roots.
+
+Module combination cannot call Methods in this slice.
+
+An existing Module instance may be passed through an `ac.module` parameter.
+For example, a parent declares `receiver: Receiver` and `sender: Sender`, then
+connects `sender(receiver)`. A Rule inside Sender calls `peer.accept(amount)`.
+The reference allocates no new Receiver. Independent compilation publishes the
+required Method payload signature and read-only constraints; explicit link checks
+the supplied implementation and binds the actual instance. All caller/callee
+updates share the outer Rule fire. Each instance keeps its own State and physical
+child hierarchy; compiler-generated ports carry Q and update controls.
+
+Generic reference calls use positional payload arguments. All calls on one
+reference publish their argument constraints, result-use arity and conversion
+contexts. Ignoring a result leaves the return signature unspecified; it does not
+require an Action. Scalar and tuple uses retain SSA result slots until link binds
+the actual provider. Link emits one complete Method call, including unused
+results, and checks payload conversions without changing intermediate arithmetic.
+See `examples/sibling_method_calls` for the split-source pattern.
+
+Local assignments bind SSA values. Aliases retain their original values and
+types across later reassignment. Literal values remain exact until declared
+contexts or actual bindings determine their representation. Common IR analysis
+solves these constraints; return widening does not widen an already typed Bits
+operation. Published source units use `ac.source_contract = 4 : i64` and older
+source artifacts require regeneration.
+
+Module and Rule payload annotations constrain resource payloads; actual bindings
+select State or Queue. Rule parameters read their bound resources and Rule
+results write the outputs bound at registration. Methods continue to exchange
+same-cycle payload values. Source-global Rules require explicit arguments.
+
+An existing State or Queue used as an output target retains its identity. A new
+unspecified connection defaults to a depth-2 Queue in the connecting parent;
+`ac.queue[T](depth=N)` specifies a positive depth. Binding propagation precedes
+default allocation. Module returns export or forward resources without copying
+storage. Link specializes each instance and Rule registration independently.
+State output writes share the Rule's final fire with its other updates.
+
+A typed Module declaration such as `out: ac.u16` creates State even without an
+initializer. Its initial value and reset value are all X, recursively over the
+existing Enum/Struct storage layout. Unlinked ACIR preserves the omission; common
+analysis supplies the execution initializer shared by both backends. A successful
+write replaces that value, and no write holds it. Unknown payloads may travel as
+data; they do not bypass control-knownness admission. No validity flag is added.
+
+Bits, Enum and Struct Queues execute through the same common transaction analysis and verified
+C++/Verilog route as State. Admission uses old occupancy: empty cannot bypass a
+concurrent push; full cannot borrow capacity from a concurrent pop. Intermediate
+occupancy permits one push and one pop together. Input reads consume once per
+Rule registration and formal parameter position across all reached uses,
+including repeated reads inside and after a branch. An unselected use adds no
+consumption. Guard uses observe old head and require nonempty occupancy without
+consuming; body consumption commits only with the outer Rule's final fire.
+Distinct formals bound to the same Queue retain distinct access identities;
+reusing a resulting local value does not consume again. Explicit `pop()` calls are separate accesses. `peek()` and `head()` do not
+consume, but transactions using their values still require a nonempty Queue.
+
+Queue admission, registration paths and the complete Method guard chain form one
+final fire for consumption, enqueue, State updates, assertions and logs. Same
+resource double-push or double-pop requires proven mutual exclusion; there is no
+implicit arbitration. FIFO storage stays in its actual owner and reset empties it.
+Four-state payloads are preserved; empty head data cannot activate blocked checks.
+See `examples/scalar_queue_pipeline` for parent-owned connections and backpressure.
+Direct t-gfsim also supports Bits State/Queue combinations from saved Linked
+ACIR, using the same common analysis for selected paths and final fire.
+Enum/Struct payload generation remains a t-gfsim implementation gap.
+Root Queue exports to an external payload-only interface remain unsupported;
+consume these resources inside a System instead. Nested resource exports retain
+their identity.
+
+Independent Module/Rule outputs use `-> tuple[T0, T1, ...]`, ordered returns
+and direct unpacking. Each position binds separately to an existing State,
+explicit Queue or parent-owned default Queue. Forwarding through Modules and
+local aliases preserves the actual resource; an `ac.module` parameter can likewise
+pass through an intermediate Module without allocating another instance. One
+Rule's outputs and Method effects share admission, while separately registered
+Rules remain independent. Aliasing two output positions to one Queue still
+requests two pushes and is rejected when they overlap. See
+`examples/resource_composition` for the bounded Bits/System case.
+
+Finite nominal Structs containing Bits, Enum and nested Struct fields retain
+logical types through resource interfaces and by-value Method arguments/results.
+Construct every field explicitly; read fields or reuse whole local snapshots,
+and update State with a complete record. Reset restores its initial
+record (unknown when omitted) and empties Queues. Common analysis tracks knownness per packed leaf, so
+X/Z data does not taint a separate known control field; unknown controls remain
+rejected. Routing retains and authenticates the complete nominal declarations,
+including field order and types. Equal packed widths do not make different
+record declarations interchangeable. See `examples/structured_packet`.
+
+Modules and Systems admit keyword-only static Integer parameters, including
+required arguments, defaults depending on earlier parameters, forwarding and
+root `--parameters` overrides. For example, `def Counter(*, W: int = 5,
+INIT: int = W - 2)` may declare `count: ac.bits[W] = INIT`. Static parameters
+may also supply ordinary arithmetic operands and explicit Queue depths.
+Unlinked units publish symbolic declarations and call constraints; Link binds
+each actual instance using the common static evaluator before closing payload
+constraints. Method signatures and unused bodies use that receiver's actual
+binding. Instances retain independent resources; aliases retain their identity.
+Saved Linked artifacts contain the bound executable types and values and need
+neither provider sources nor a binding cache to continue generation.
+
+Known closed defaults are checked even when overridden or unused. Closed
+default-bound definitions and their internal instances retain validation
+occurrences without registering another System. Required static arguments and
+external resources still need real bindings. This does not admit Table storage,
+static loops, type parameters or external root Queue interfaces. See
+`tests/system/test_stateful_static_parameters.py` and the parameterized shared
+Counter in `examples/resource_composition`.
+
+Field assignment, constructor defaults, ordinary helpers, loops
+and remaining advanced payloads are
+implementation gaps. Retained tests
+and independent oracles for these capabilities are not passing evidence for the
+replacement. See the [replacement status](../development/transactional-frontend-status.md)
+for migration accounting and evidence policy.
+
+## Retained legacy language reference
+
+The sections below preserve the previous frontend's capability inventory and
+migration references. They are **not current transactional admission or authoring
+instructions**. In particular, automatic ordinary Rule registration, candidate
+state forwarding, implicit writable Method parameters and value-only Module
+interfaces are superseded. Use the transactional profile above and the current
+[Rule authoring contract](../development/agent-frontend-guide.md#rule-authoring-contract).
+Retaining these descriptions does not restore a retired production route or
+cancel capabilities awaiting migration.
+
 The [complete language and execution specification](language-specification.md)
 connects these source details to MLIR, codegen, Runtime and independent acceptance.
 
@@ -20,7 +226,11 @@ compile/link flow. See [nominal enums](spec-enums.md) for exact boundaries.
 
 The [four-state/System supplement](../rfcs/four-state-system.md) defines explicit
 X/Z literals, verification predicates, a shared root reset policy and generated
-finite stimuli. The source and execution boundaries are described below.
+finite stimuli. Transactional Systems admit static `samples=((clock, reset), ...)`
+sequences of 0/1 or one-bit `ac.four_state` values. Samples survive independent
+unit publication, linking and saved-anchor reload; generated runners execute
+these epochs without a cycles option. The source and execution boundaries are
+described below.
 
 The [Rule authoring contract](../development/agent-frontend-guide.md#rule-authoring-contract)
 requires simple, cohesive, stateless Rules, Module-style typed inputs and
@@ -44,14 +254,6 @@ Module and Rule connections use typed parameters and returned values. There is
 no separate Signal resource or set/get interface in the language design. The
 compiler owns value availability and dependency checks; persistent state and
 Queue provide cross-cycle storage.
-
-An explicit Module `-> None` declares zero results, including for ordinary
-Modules without transaction effects. Its body may fall through, use a bare
-`return`, or return `None`; an ordinary returned payload is rejected. Named
-zero-result calls bind immutable instance handles, with no dummy data value or
-port. Aliases retain that allocation, and stateful children keep their own
-autonomous behavior. Unannotated ordinary Modules retain their existing
-return-annotation requirements.
 
 Modules may declare keyword-only static Integer parameters, for example
 `def Identity(value: ac.bits[W], *, W: int = 8) -> ac.bits[W]`.

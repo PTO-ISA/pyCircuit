@@ -103,13 +103,23 @@ int compareImportBinding(const ImportBinding &left,
 
 } // namespace
 
+int compareSourceImportBindings(DictionaryAttr left, DictionaryAttr right) {
+  auto binding = [](DictionaryAttr record) {
+    return ImportBinding{record.getAs<DictionaryAttr>("source"),
+                         record.getAs<StringAttr>("name"),
+                         record.getAs<FlatSymbolRefAttr>("target"),
+                         record.getAs<DictionaryAttr>("site")};
+  };
+  return compareImportBinding(binding(left), binding(right));
+}
+
 LogicalResult verifyNamespaceTargetCategory(Operation *declaration,
                                             FlatSymbolRefAttr target,
                                             ac::detail::EmitError emitError) {
   if (!declaration || !target)
     return emitError() << "namespace target has no declaration: " << target;
   if (isa<ac::TypeAliasOp, ac::ConstantOp, ac::StructOp, ac::EnumOp,
-          ac::ModuleOp, ac::ModuleImportOp>(declaration))
+          ac::ModuleOp, ac::ModuleImportOp, ac::TransactionRuleOp>(declaration))
     return success();
   if (auto helper = dyn_cast<func::FuncOp>(declaration)) {
     auto kind = helper->getAttrOfType<StringAttr>("ac.helper_kind");
@@ -117,7 +127,8 @@ LogicalResult verifyNamespaceTargetCategory(Operation *declaration,
       auto visibility = helper->getAttrOfType<StringAttr>("sym_visibility");
       if (helper->hasAttr("ac.lexical_owner") ||
           (visibility && visibility.getValue() == "private"))
-        return emitError() << "private lexical helpers cannot be namespace exports";
+        return emitError()
+               << "private lexical helpers cannot be namespace exports";
       return success();
     }
     if (kind && kind.getValue() == "record_constructor")

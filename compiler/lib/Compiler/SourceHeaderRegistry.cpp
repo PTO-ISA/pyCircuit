@@ -2,7 +2,6 @@
 #include "SourceNamespace.h"
 #include "SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
-#include "pycircuit/Dialect/ACIR/SourceMethodAnalysis.h"
 #include "pycircuit/Dialect/ACIR/SourceHelperAnalysis.h"
 
 #include "mlir/IR/Builders.h"
@@ -410,7 +409,7 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
       registry.authorities_.try_emplace(flat, &operation);
       if (auto alias = dyn_cast<ac::TypeAliasOp>(operation))
         registry.aliases_.try_emplace(flat, alias);
-      else if (isa<ac::ConstantOp, ac::EnumOp>(operation))
+      else if (isa<ac::ConstantOp, ac::EnumOp, ac::TransactionRuleOp>(operation))
         continue;
       else if (auto record = dyn_cast<ac::StructOp>(operation))
         registry.records_.try_emplace(flat, record);
@@ -570,19 +569,6 @@ SourceHeaderRegistry::create(MLIRContext *context, ArrayRef<ModuleOp> headers,
   for (ModuleOp header : registry.headers_)
     if (failed(detail::verifyNamespaceImports(header, registry, emitError)))
       return failure();
-  SmallVector<Operation *> moduleDeclarations;
-  for (const auto &entry : registry.modules_)
-    moduleDeclarations.push_back(entry.second);
-  llvm::sort(moduleDeclarations, [](Operation *left, Operation *right) {
-    return symbolName(left) < symbolName(right);
-  });
-  auto lookupModule = [&](FlatSymbolRefAttr symbol) -> Operation * {
-    return registry.lookupDeclaration(symbol);
-  };
-  ac::SourceMethodSummariesAnalysis methodClosure(moduleDeclarations,
-                                                 lookupModule);
-  if (!methodClosure.isValid())
-    return emitError() << "source Method interface closure is invalid";
   return registry;
 }
 

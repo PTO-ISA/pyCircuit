@@ -271,6 +271,8 @@ public:
   /// Substitute static actuals without changing immutable source provenance.
   mlir::Attribute substituteAttribute(mlir::Attribute attribute,
                                       const HardwareBindings &bindings) const;
+  mlir::Type substituteType(mlir::Type type,
+                            const HardwareBindings &bindings) const;
   bool isStaticEvaluable(mlir::Attribute expression,
                          const HardwareBindings &bindings) const;
   mlir::FailureOr<mlir::Type> resolveType(mlir::Type type,
@@ -300,6 +302,10 @@ public:
              mlir::ArrayAttr actualTypeArguments,
              const HardwareBindings &parent,
              mlir::Operation *diagnosticSite) const;
+  /// Bind named integer root overrides and declaration defaults without
+  /// admitting a root-only System as an instance callee.
+  mlir::FailureOr<HardwareBindings>
+  bindRoot(ModuleOp root, mlir::DictionaryAttr overrides) const;
   mlir::FailureOr<ModuleAnalysis>
   analyzeModule(ModuleOp definition,
                 const HardwareBindings &bindings = {}) const;
@@ -355,6 +361,11 @@ public:
   mlir::LogicalResult verify() const;
 
 private:
+  mlir::FailureOr<HardwareBindings>
+  bindParameters(mlir::Operation *callee, mlir::ArrayAttr actualParameters,
+                 mlir::ArrayAttr actualTypes, const HardwareBindings &parent,
+                 mlir::Operation *site,
+                 mlir::DictionaryAttr overrides = {}) const;
   mlir::FailureOr<HardwareBindings>
   bindOccurrence(mlir::Operation *operation,
                  const HardwareBindings &parent) const;

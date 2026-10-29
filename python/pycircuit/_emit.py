@@ -8,7 +8,7 @@ import tempfile
 from collections.abc import Mapping
 from pathlib import Path
 
-from ._driver import _DriverError, _validate_published_program
+from ._driver import _DriverError, _validate_linked, _validate_published_program
 from ._generated_bundle import _execution_metadata, _relative_file_path
 from ._native_verify import native_helper, verify_program_owner
 from ._publication import (
@@ -28,15 +28,19 @@ from ._source_capture import _read_stable_file_bytes
 from ._source_map import _validate_emitted_bundle
 
 
-def _managed_owner(path: Path, fs: _PublicationFileSystem) -> Mapping[str, object]:
+def _managed_owner(
+    path: Path, fs: _PublicationFileSystem, *, linked: bool = False
+) -> Mapping[str, object]:
     paths = _paths_for(path, fs)
     _require_initialized_control(paths, fs)
     with fs.lock(paths.lock, shared=True):
         _validate_control(paths, fs, cleanup_temporary=False)
         journal = _read_journal(paths, fs, cleanup_temporary=False)
-        owner = journal["owner"] if journal else verify_program_owner(path)
-    if owner["kind"] != "program":
-        raise _DriverError("emit input is not a final design")
+        owner = (
+            journal["owner"] if journal else verify_program_owner(path, linked=linked)
+        )
+    if owner["kind"] != ("linked" if linked else "program"):
+        raise _DriverError("emit input has the wrong artifact kind for this target")
     return owner
 
 
@@ -97,6 +101,15 @@ add_custom_command(OUTPUT "${PYCIRCUIT_SIM}"
 add_custom_target(pycircuit_sim DEPENDS "${PYCIRCUIT_SIM}")
 """
         )
+    if target == "t-gfsim":
+        return """cmake_minimum_required(VERSION 3.25)
+project(PycircuitTransactionalSimulation LANGUAGES CXX)
+find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
+add_executable(pycircuit_sim simulation_main.cpp)
+target_compile_features(pycircuit_sim PRIVATE cxx_std_20)
+set_target_properties(pycircuit_sim PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/bin")
+target_link_libraries(pycircuit_sim PRIVATE pycircuit::pyc6_runtime)
+"""
     text = """cmake_minimum_required(VERSION 3.25)
 project(PycircuitModules LANGUAGES C CXX)
 find_package(pycircuit CONFIG REQUIRED COMPONENTS Runtime)
@@ -152,7 +165,10 @@ def _target_files(payload: dict, target: str):
             groups[key] = {"source": owner, "files": []}
         return groups[key]["files"]
 
-    if target == "cpp":
+    if target == "t-gfsim":
+        add("pycircuit_model.hpp", payload["model_header"], "header")
+        group(payload["entry_source"]).append("pycircuit_model.hpp")
+    elif target == "cpp":
         add("pycircuit_support.hpp", payload["support_header"], "runtime-glue")
         add("pycircuit_system.hpp", payload["system_header"], "runtime-glue")
         for row in payload["source_groups"]:
@@ -181,7 +197,7 @@ def _target_files(payload: dict, target: str):
         )
     simulation = bool(
         payload.get("simulation_main")
-        if target == "cpp"
+        if target in {"cpp", "t-gfsim"}
         else payload.get("simulation_top")
     )
     if simulation:
@@ -204,7 +220,7 @@ def _target_files(payload: dict, target: str):
             + "\n",
             "runtime-glue",
         )
-        if target == "cpp":
+        if target in {"cpp", "t-gfsim"}:
             add("simulation_main.cpp", payload["simulation_main"], "runtime-glue")
             add("simulation_config.json", payload["simulation_config"], "runtime-glue")
         else:
@@ -252,8 +268,8 @@ def emit_command(
     replace: bool = False,
     rtl_mode: str = "managed",
 ):
-    if target not in {"cpp", "verilog"}:
-        raise _DriverError("emit target must be cpp or verilog")
+    if target not in {"cpp", "verilog", "t-gfsim"}:
+        raise _DriverError("emit target must be cpp, verilog or t-gfsim")
     if rtl_mode not in {"managed", "physical"}:
         raise _DriverError("RTL mode must be managed or physical")
     if target != "verilog" and rtl_mode != "managed":
@@ -274,13 +290,18 @@ def emit_command(
             inputs = []
             snapshot = None
             if fs.kind(control) is not None:
-                owner = _managed_owner(source, fs)
+                owner = _managed_owner(source, fs, linked=target == "t-gfsim")
+                validate_input = (
+                    _validate_linked
+                    if target == "t-gfsim"
+                    else _validate_published_program
+                )
                 inputs.append(
                     _PublicationInput(
                         source,
                         owner,
-                        _validate_published_program,
-                        _validate_published_program,
+                        validate_input,
+                        validate_input,
                     )
                 )
             else:

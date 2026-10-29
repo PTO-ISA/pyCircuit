@@ -186,7 +186,8 @@ def _validate_manifest(value: object) -> None:
         manifest["kind"] != "pycircuit-anchor"
         or type(manifest["schema"]) is not int
         or type(manifest["routed_contract"]) is not int
-        or (manifest["schema"], manifest["routed_contract"]) not in ((1, 2), (2, 3))
+        or (manifest["schema"], manifest["routed_contract"])
+        not in ((1, 2), (2, 3), (3, 4))
     ):
         raise _PublicationError(
             "unsupported anchor format/contract; regenerate from source units"
@@ -317,7 +318,9 @@ def _validate_manifest(value: object) -> None:
         referenced.add(path)
     if source_order != sorted(source_order):
         raise _PublicationError("anchor source owners must be sorted")
-    if any(
+    if manifest["schema"] == 3 and sources:
+        raise _PublicationError("transactional anchor provenance belongs to its graph")
+    if manifest["schema"] != 3 and any(
         (row["source"]["package"], row["source"]["path"]) not in sources
         for row in definitions.values()
     ):

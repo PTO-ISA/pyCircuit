@@ -1,8 +1,6 @@
 #include "Compiler/PythonImportRecords.h"
 #include "Compiler/SourceLink.h"
 #include "Compiler/SourceEntryBoundary.h"
-#include "Compiler/SourceMemoryBindings.h"
-#include "Compiler/SourceRuleWrites.h"
 #include "Compiler/SourceUnit.h"
 #include "Dialect/ACIR/HardwareSourceCheckPreflight.h"
 #include "Dialect/ACIR/HardwareSourceChecks.h"
@@ -15,6 +13,7 @@
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Parser/Parser.h"
 #include "mlir/Pass/PassManager.h"
+#include "mlir/Pass/Pass.h"
 #include "pycircuit/Dialect/ACIR/ACIRDialect.h"
 #include "pycircuit/Dialect/ACIR/ACIROps.h"
 #include "pycircuit/Dialect/ACIR/HardwareAnalysis.h"
@@ -41,7 +40,6 @@
 namespace {
 using namespace mlir;
 namespace compiler = acir::compiler;
-namespace source = acir::compiler::detail;
 namespace ac = acir::ac;
 
 // These tests cover capture, typed effects, and source publication authority.
@@ -131,16 +129,10 @@ output.write_text(_emit_source_transport(_capture_source_file(source, source_roo
         compiler::SourceHeaderRegistry::create(&context, {}, error());
     if (failed(headers))
       return failure();
-    PassManager pipeline(&context);
-    pipeline.addPass(source::createAnalyzeRuleWritesPass());
-    pipeline.addPass(
-        source::createInferSourceBindingsPass(owner(filename), *headers));
-    pipeline.addPass(
-        source::createLowerPythonSourcePass(owner(filename), *headers));
-    if (runSummaries)
-      pipeline.addPass(acir::createAnalyzeSourceMethodSummariesPass());
-    if (failed(pipeline.run(captured)))
-      return failure();
+    auto unit = compiler::compilePythonSourceUnit(captured, owner(filename), *headers, error());
+    if (failed(unit)) return failure();
+    captured->setAttrs(unit->body->getOperation()->getAttrs());
+    captured.getBodyRegion().takeBody(unit->body->getBodyRegion());
     return mlir::verify(captured);
   }
   OwningOpRef<ModuleOp> typed(StringRef text,
@@ -3850,6 +3842,7 @@ TEST_F(SourceTransactionCaptureTest,
           if (declaration.getSymName().ends_with("Owner")) provider = declaration;
         ASSERT_TRUE(provider);
         auto contract = provider.getTransactionSummaryAttr();
+        ASSERT_TRUE(contract);
         unsigned index = rowIndex(contract, "methods", methodName);
         auto row = cast<DictionaryAttr>(contract.getAs<ArrayAttr>("methods")[index]);
         row = mutation == 1
@@ -4551,6 +4544,7 @@ TEST_F(SourceTransactionCaptureTest,
           client = declaration;
       ASSERT_TRUE(client);
       auto summary = client.getTransactionSummaryAttr();
+      ASSERT_TRUE(summary);
       unsigned index = rowIndex(summary, "methods", "run");
       auto method =
           cast<DictionaryAttr>(summary.getAs<ArrayAttr>("methods")[index]);
@@ -4929,9 +4923,7 @@ TEST_F(SourceTransactionCaptureTest,
   }
 }
 
-TEST_F(SourceTransactionCaptureTest,
-       PublishedSummariesRejectRetiredAfterEvenWithAuthenticTargets) {
-  auto captured = capture("automatic_summary.py", R"py(import pycircuit as ac
+constexpr const char *publishedOwnerSource = R"py(import pycircuit as ac
 @ac.module
 def Owner() -> ac.u8:
     count: ac.u8 = 5
@@ -4945,53 +4937,40 @@ def Owner() -> ac.u8:
     def inspect() -> None:
         ac.log("info", "current", count)
     return count
-)py");
+)py";
+
+TEST_F(SourceTransactionCaptureTest,
+       PublishedMethodsRetainSignatureWithoutLegacySummary) {
+  auto captured = capture("automatic_summary.py", publishedOwnerSource);
   ASSERT_TRUE(captured);
   auto headers = compiler::SourceHeaderRegistry::create(&context, {}, error());
   ASSERT_TRUE(succeeded(headers));
   auto compiled = compiler::compilePythonSourceUnit(
       *captured, owner("automatic_summary.py"), *headers, error());
   ASSERT_TRUE(succeeded(compiled)) << diagnostics;
-  for (StringRef section : {"autonomous", "methods"}) {
-    for (StringRef field : {"after", "callable_after"}) {
-      for (bool empty : {false, true}) {
-        SCOPED_TRACE(section.str() + "/" + field.str());
-        OwningOpRef<ModuleOp> header(
-            cast<ModuleOp>((*compiled->interface)->clone()));
-        ac::ModuleImportOp provider;
-        for (auto candidate : header->getOps<ac::ModuleImportOp>())
-          if (candidate.getSymName().ends_with("Owner")) provider = candidate;
-        ASSERT_TRUE(provider);
-        diagnostics.clear();
-        ASSERT_TRUE(succeeded(mlir::verify(*header))) << diagnostics;
-        auto summary = provider.getTransactionSummaryAttr();
-        auto rows = summary.getAs<ArrayAttr>(section);
-        ASSERT_FALSE(rows.empty());
-        auto row = cast<DictionaryAttr>(rows[0]);
-        auto target = cast<DictionaryAttr>(rows[rows.size() - 1]);
-        auto predecessor = target.get(section == "methods" ? "declaration"
-                                                          : "registration");
-        ASSERT_TRUE(predecessor);
-        Builder builder(&context);
-        auto ordering = empty ? builder.getArrayAttr({})
-                              : builder.getArrayAttr({predecessor});
-        ASSERT_FALSE(row.get(field));
-        auto forged = changedRow(summary, section, 0, changed(row, field, ordering));
-        ASSERT_NE(forged, summary);
-        provider->setAttr("transaction_summary", forged);
-        diagnostics.clear();
-        EXPECT_TRUE(failed(mlir::verify(*header)));
-        // callable_after was never an autonomous-row field. Its closed schema
-        // rejects that extra key before the retired-ordering semantic check.
-        StringRef category = section == "autonomous" && field == "callable_after"
-            ? "transaction summary has missing or extra fields"
-            : "after ordering is retired";
-        EXPECT_NE(diagnostics.find(category.str()), std::string::npos)
-            << diagnostics;
-        EXPECT_EQ(provider.getTransactionSummaryAttr(), forged);
-      }
-    }
-  }
+  ac::ModuleImportOp provider;
+  for (auto candidate : compiled->interface->getOps<ac::ModuleImportOp>())
+    if (candidate.getSymName().ends_with("Owner"))
+      provider = candidate;
+  ASSERT_TRUE(provider);
+  EXPECT_EQ(provider.getSemanticKind(), "resources");
+  EXPECT_FALSE(provider.getTransactionSummaryAttr());
+  auto methods = provider->getAttrOfType<ArrayAttr>("ac.methods");
+  ASSERT_TRUE(methods);
+  ASSERT_EQ(methods.size(), 1u);
+  auto method = cast<DictionaryAttr>(methods[0]);
+  EXPECT_EQ(method.getAs<StringAttr>("name").getValue(), "read");
+  auto signature = method.getAs<TypeAttr>("function_type");
+  ASSERT_TRUE(signature);
+  auto function = dyn_cast<FunctionType>(signature.getValue());
+  ASSERT_TRUE(function);
+  EXPECT_EQ(function.getNumInputs(), 0u);
+  ASSERT_EQ(function.getNumResults(), 1u);
+  EXPECT_TRUE(isa<ac::BitsType>(function.getResult(0)));
+  auto readOnly = method.getAs<BoolAttr>("read_only");
+  ASSERT_TRUE(readOnly);
+  EXPECT_TRUE(readOnly.getValue());
+  EXPECT_TRUE(succeeded(mlir::verify(*compiled->interface))) << diagnostics;
 }
 
 TEST_F(SourceTransactionCaptureTest,
@@ -5375,6 +5354,10 @@ def Fixed(enable: ac.u1) -> ac.table[3, ac.u8]:
   EXPECT_TRUE(failed(publication.run(*file)));
 }
 
+// NOT RUN: legacy entry-wrapper normalization mechanism was removed from
+// production link. Preserve this oracle as migration input for generic roots;
+// the PR04 closed root path has no entry-wrapper normalization stage.
+#if 0
 TEST_F(SourceTransactionCaptureTest,
        RetainedClosedWrapperCannotSuppressSelectedGenericRootOccurrence) {
   compiler::SourceLinkStages stages;
@@ -5438,6 +5421,12 @@ TEST_F(SourceTransactionCaptureTest,
   EXPECT_TRUE(direct<ac::SourceStateOp>(adapter.getBody()).empty());
 }
 
+#endif
+
+// NOT RUN: legacy entry-wrapper normalization mechanism was removed from
+// production link. Preserve this oracle as migration input for generic roots;
+// the PR04 closed root path has no entry-wrapper normalization stage.
+#if 0
 TEST_F(SourceTransactionCaptureTest,
        EntryBoundaryNormalizationAuthenticatesCanonicalScaffoldAndOriginal) {
   compiler::SourceLinkStages stages;
@@ -5549,6 +5538,8 @@ TEST_F(SourceTransactionCaptureTest,
     EXPECT_EQ(before, after);
   }
 }
+
+#endif
 
 TEST_F(SourceTransactionCaptureTest,
        EntryBoundaryLoadedStagesRejectDeletionDowngradeAndChildChanges) {
@@ -5706,6 +5697,10 @@ TEST_F(SourceTransactionCaptureTest,
 }
 
 
+// NOT RUN: legacy entry-wrapper normalization mechanism was removed from
+// production link. Preserve this oracle as migration input for generic roots;
+// the PR04 closed root path has no entry-wrapper normalization stage.
+#if 0
 TEST_F(SourceTransactionCaptureTest,
        InapplicableEntryNormalizationPreservesOperationIdentityAndSnapshots) {
   for (unsigned profile = 0; profile != 3; ++profile) {
@@ -5782,5 +5777,7 @@ def Root(data: ac.bits[W], *, W: int = 8) -> ac.bits[W]:
     EXPECT_EQ(preserved.afterTransactions, "after-transactions");
   }
 }
+
+#endif
 
 } // namespace

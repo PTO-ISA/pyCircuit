@@ -8,6 +8,78 @@
       "system": "HelloCounter"
     },
     {
+      "name": "module_control_state_machine",
+      "folder": "examples/module_control_state_machine",
+      "source": "module_control_state_machine.py",
+      "system": "ModuleControlStateMachine",
+      "system_cycles": 5,
+      "system_scope": "Module if/elif/else and autorules read old state; a false Rule guard holds the selected branch. Independent C++ workers 1/2 and RTL traces."
+    },
+    {
+      "name": "local_method_accumulator",
+      "folder": "examples/local_method_accumulator",
+      "source": "local_method_accumulator.py",
+      "system": "LocalMethodAccumulator",
+      "system_cycles": 8,
+      "system_scope": "Nested Value, Action and ActionValue Methods with old-Q reads, by-value parameters and whole-Rule admission; independent C++ workers 1/2 and RTL traces."
+    },
+    {
+      "name": "sibling_method_calls",
+      "folder": "examples/sibling_method_calls",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 4,
+      "system_scope": "Separately compiled sibling Method calls, two distinct Receiver instances, transitive guard rollback and C++ workers 1/2 versus RTL."
+    },
+    {
+      "name": "parent_state_interfaces",
+      "folder": "examples/parent_state_interfaces",
+      "source": "top.py",
+      "system": "Top",
+      "system_cycles": 4,
+      "system_scope": "Parent-owned State binding, external and nested Rule interfaces, two independent template instances and identity-preserving export; C++ workers 1/2 and RTL."
+    },
+    {
+      "name": "scalar_queue_pipeline",
+      "folder": "examples/scalar_queue_pipeline",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 18,
+      "system_scope": "Bits Queue pipeline with old-occupancy admission, delayed consumption, cross-owner atomic accumulation and independent C++ workers 1/2 and RTL traces."
+    },
+    {
+      "name": "resource_composition",
+      "folder": "examples/resource_composition",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 20,
+      "system_scope": "Multilevel existing-instance references and independent resource outputs, delayed consumption and joint Queue/Counter admission; independent C++ workers 1/2 and RTL traces."
+    },
+    {
+      "name": "structured_packet",
+      "folder": "examples/structured_packet",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 18,
+      "system_scope": "Nested Struct and Enum packets through Queue, Method and State with old-Q observations and atomic backpressure; independent C++ workers 1/2 and RTL traces."
+    },
+    {
+      "name": "transactional_cumulative",
+      "folder": "examples/transactional_cumulative",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 22,
+      "system_scope": "Issue #361 cumulative pipeline: four atomic samples, fifth blocked and independent backpressure trace."
+    },
+    {
+      "name": "transactional_batch",
+      "folder": "examples/transactional_batch",
+      "source": "Top.py",
+      "system": "Top",
+      "system_cycles": 34,
+      "system_scope": "Issue #361 four-sample batch: static branch output, Method guard and retained batch under backpressure."
+    },
+    {
       "name": "multi_outputs",
       "folder": "examples/multi_outputs",
       "source": "multi_outputs.py",

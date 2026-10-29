@@ -84,6 +84,7 @@ def _cmd_link(args: argparse.Namespace) -> int:
             replace=args.replace,
             target=args.target,
             from_anchor=args.from_anchor,
+            from_linked=args.from_linked,
             verify_only=args.verify_only,
         )
     except (
@@ -128,9 +129,32 @@ def _cmd_run(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_print(args: argparse.Namespace) -> int:
+    from ._display import print_command
+    from ._publication import _PublicationError
+
+    try:
+        print_command(
+            args.source, profile=args.profile, config=args.config, output=args.output
+        )
+    except (OSError, ValueError, _PublicationError) as error:
+        print(f"pycircuit print: {error}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="pycircuit", allow_abbrev=False)
     sub = p.add_subparsers(dest="cmd", required=True)
+
+    display = sub.add_parser("print", help="Display Unlinked or Linked ACIR.")
+    display.add_argument("source", help="ACIR file to read")
+    display.add_argument(
+        "--profile", choices=("readable", "debug", "full"), default="readable"
+    )
+    display.add_argument("--config", help="JSON display option overrides")
+    display.add_argument("-o", dest="output", help="Write the display to this file")
+    display.set_defaults(fn=_cmd_print)
 
     compile_units = sub.add_parser(
         "compile",
@@ -198,16 +222,21 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Republish the target under the same owner and definition",
     )
-    link_program.add_argument("--target", choices=("final", "anchor"), default=None)
+    link_program.add_argument(
+        "--target", choices=("final", "anchor", "linked"), default=None
+    )
     link_program.add_argument(
         "--from-anchor", help="Reload a self-contained saved anchor"
     )
+    link_program.add_argument("--from-linked", help="Continue from saved Linked ACIR")
     link_program.add_argument("--verify-only", action="store_true")
     link_program.set_defaults(fn=_cmd_link)
 
-    emit = sub.add_parser("emit", help="Emit C++ or Verilog from a saved final design.")
+    emit = sub.add_parser(
+        "emit", help="Emit cpp/verilog from Final ACIR or t-gfsim from Linked ACIR."
+    )
     emit.add_argument("final")
-    emit.add_argument("--target", choices=("cpp", "verilog"), required=True)
+    emit.add_argument("--target", choices=("cpp", "verilog", "t-gfsim"), required=True)
     emit.add_argument("--rtl-mode", choices=("managed", "physical"), default="managed")
     emit.add_argument("-o", dest="output", required=True)
     emit.add_argument("--replace", action="store_true")
@@ -227,7 +256,9 @@ def main(argv: list[str] | None = None) -> int:
     run.set_defaults(fn=_cmd_run)
     args = p.parse_args(argv)
     if args.cmd == "link":
-        if args.from_anchor is None:
+        if args.from_anchor is not None and args.from_linked is not None:
+            link_program.error("--from-anchor and --from-linked are mutually exclusive")
+        if args.from_anchor is None and args.from_linked is None:
             missing = []
             if not args.units:
                 missing.append("units")
@@ -246,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
             or args.reset_semantics is not None
         ):
             link_program.error(
-                "--from-anchor forbids units, --top, --parameters and --reset-semantics"
+                "artifact reload forbids units, --top, --parameters and --reset-semantics"
             )
         if args.verify_only:
             if (

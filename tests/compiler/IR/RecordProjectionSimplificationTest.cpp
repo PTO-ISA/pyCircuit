@@ -459,12 +459,12 @@ TEST_F(RecordProjectionSimplificationTest, OriginalUnusedScalarsExtractsRulesAnd
   auto unit = parse(parcel() + module("Retain", R"mlir(^bb0(%a: !b8, %b: !b3, %on: !b1):
     %unused = "ac.bits.unary"(%a) {opcode = "not"} : (!b8) -> !b8
     %boundary = "ac.bits.extract"(%a) {low = #w0} : (!b8) -> !b8
-    %unused_rule = "ac.rule"(%a) ({
+    %unused_rule = "ac.comb"(%a) ({
     ^bb0(%x: !b8):
       %not = "ac.bits.unary"(%x) {opcode = "not"} : (!b8) -> !b8
       "ac.yield"(%not) : (!b8) -> ()
     }) {name = "still_checked", occurrence = {site = {definition = @unit.Retain, ast_path = []}, expansion = []}} : (!b8) -> !b8
-    %check:2 = "ac.rule"(%on) ({
+    %check:2 = "ac.comb"(%on) ({
     ^bb0(%predicate: !b1):
       "ac.yield"(%predicate, %predicate) : (!b1, !b1) -> ()
     }) {name = "actual_check", occurrence = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}, ac.required_checks = [{id = {registration = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 1 : i64}]}, expansion = []}, check = {site = {definition = @unit.Retain, ast_path = [{kind = "index", value = 2 : i64}]}, expansion = []}, obligation = 0 : i64}, kind = "assert", location = {path = "unit.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}]} : (!b1) -> (!b1, !b1)
@@ -561,7 +561,7 @@ TEST_F(RecordProjectionSimplificationTest, ExtractionReuseStaysInsideIsolatedRul
   std::string body = "^bb0(%a: !other):\n";
   for (unsigned i = 0; i < 2; ++i) {
     const auto n = std::to_string(i);
-    body += "%r" + n + ":2 = \"ac.rule\"(%a) ({\n"
+    body += "%r" + n + ":2 = \"ac.comb\"(%a) ({\n"
             "^bb0(%x: !other):\n"
             "%record = ac.struct.create(%x) : (!other) -> !ac.struct<\"unit.One\">\n"
             "%first = ac.struct.get %record[\"value\"] : (!ac.struct<\"unit.One\">) -> !b8\n"

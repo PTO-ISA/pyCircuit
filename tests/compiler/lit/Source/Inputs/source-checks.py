@@ -127,7 +127,7 @@ def parse_ir(text):
             item = {"text": line, "rules": [], "expects": [], "ops": {}, "args": []}
             modules.append(item)
             stack.append(item)
-        elif '"ac.rule"(' in line:
+        elif '"ac.comb"(' in line:
             item = {
                 "text": line,
                 "ops": {},

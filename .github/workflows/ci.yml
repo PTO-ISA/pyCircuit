@@ -92,6 +92,7 @@ jobs:
       - name: Run bounded source capture and publication tests
         run: >-
           pytest -q
+          tests/unit/test_acir_display.py
           tests/unit/test_source_capture.py
           tests/unit/test_source_compile.py
           tests/unit/test_source_transport.py
@@ -100,3 +101,65 @@ jobs:
           tests/unit/test_publication_fs.py
           tests/unit/test_driver_commands.py
           tests/unit/test_anchor_files.py
+
+  native-transactional-gates:
+    name: "G1: Native Transactional Gates"
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      LLVM_VERSION: "22"
+      VERILATOR_VERSION: "5.048"
+      CMAKE_BUILD_PARALLEL_LEVEL: "4"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: "3.11"
+      - name: Install LLVM and native dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget gnupg software-properties-common cmake ninja-build clang libgtest-dev
+          wget --https-only https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh ${LLVM_VERSION}
+          sudo apt-get install -y llvm-${LLVM_VERSION}-dev mlir-${LLVM_VERSION}-tools libmlir-${LLVM_VERSION}-dev
+          echo "/usr/lib/llvm-${LLVM_VERSION}/bin" >> "$GITHUB_PATH"
+      - name: Setup native test tools
+        uses: ./.github/actions/setup-native-test-tools
+      - name: Setup Verilator
+        uses: ./.github/actions/setup-verilator
+        with:
+          version: ${{ env.VERILATOR_VERSION }}
+      - name: Build and install compiler
+        run: |
+          cmake -S . -B .pycircuit_out/toolchain/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DPYC_BUILD_TESTING=ON \
+            -DLLVM_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/llvm \
+            -DMLIR_DIR=/usr/lib/llvm-${LLVM_VERSION}/lib/cmake/mlir
+          cmake --build .pycircuit_out/toolchain/build --parallel 4 --target \
+            pycircuit-source-unit pycircuit-link pycircuit-opt pycircuit-emit pycircuit-print \
+            pyc6_runtime ACIRTransactionalGfsimTests
+          cmake --install .pycircuit_out/toolchain/build \
+            --prefix "$PWD/.pycircuit_out/toolchain/install"
+      - name: Run native transaction runtime tests
+        run: |
+          ctest --test-dir .pycircuit_out/toolchain/build --output-on-failure \
+            --no-tests=error -R '^ACIRTransactionalGfsimTests$'
+      - name: Run transactional dual backend regressions
+        env:
+          PYC_TOOLCHAIN_ROOT: ${{ github.workspace }}/.pycircuit_out/toolchain/install
+        run: |
+          lit -sv .pycircuit_out/toolchain/build/tests/compiler/lit \
+            --filter='(Source/acir-display[.]test$|CodeGen/transactional-[^/]+[.]test$)'
+      - name: Upload transactional stage evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: native-transactional-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            .pycircuit_out/toolchain/build/Testing/Temporary/LastTest.log
+            .pycircuit_out/toolchain/build/tests/compiler/lit/CodeGen/Output/transactional-*
+          if-no-files-found: warn
+          retention-days: 14

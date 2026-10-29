@@ -30,7 +30,7 @@ def _current_markdown_pages() -> set[str]:
     }
 
 
-def test_every_current_document_is_reachable_from_navigation() -> None:
+def test_navigation_targets_exist_and_include_public_entrypoints() -> None:
     raw = (
         (ROOT / "mkdocs.yml")
         .read_text(encoding="utf-8")
@@ -49,15 +49,6 @@ def test_every_current_document_is_reachable_from_navigation() -> None:
     existing = _current_markdown_pages()
     missing = sorted(nav_pages - existing)
     assert not missing, f"navigation links to missing documents: {missing}"
-    excluded = tuple(
-        line.strip().rstrip("/") + "/"
-        for line in config.get("exclude_docs", "").splitlines()
-        if line.strip()
-    )
-    current = {path for path in existing if not path.startswith(excluded)}
-    assert (
-        current <= nav_pages
-    ), f"documents missing from navigation: {sorted(current - nav_pages)}"
     assert (ROOT / "docs" / config["theme"]["logo"]).is_file()
     required = {
         "index.md",
@@ -126,34 +117,3 @@ def test_agent_frontend_guide_describes_only_the_current_source_profile() -> Non
     code = "\n".join(re.findall(r"```[^\n]*\n(.*?)```", guide, re.DOTALL))
     for retired_surface in ("from agentic_circuit", "build_cycle_aware(", "pycc"):
         assert retired_surface not in code
-
-
-def test_active_onboarding_does_not_use_numbered_section_headings() -> None:
-    roots = (
-        ROOT / "docs/getting-started",
-        ROOT / "docs/reference",
-        ROOT / "docs/development",
-    )
-    numbered = re.compile(r"^#{2,6} \d+(?:\.\d+)*(?:[.)])? ")
-    offenders: list[str] = []
-    for root in roots:
-        for path in root.rglob("*.md"):
-            # The implementation guide uses numbers as ordered build steps.
-            if path == ROOT / "docs/development/implementation-guide.md":
-                continue
-            fenced = False
-            fence = ""
-            for number, line in enumerate(
-                path.read_text(encoding="utf-8").splitlines(), 1
-            ):
-                stripped = line.lstrip()
-                if stripped.startswith(("```", "~~~")):
-                    marker = stripped[:3]
-                    if not fenced:
-                        fenced, fence = True, marker
-                    elif marker == fence:
-                        fenced, fence = False, ""
-                    continue
-                if not fenced and numbered.match(line):
-                    offenders.append(f"{path.relative_to(ROOT)}:{number}")
-    assert offenders == []

@@ -29,7 +29,7 @@ module {
   "ac.module"() ({
   ^bb0(%seed: !b8, %clk: !b1, %rst: !b1):
     %yes = "ac.bits.constant"() {value = #w1} : () -> !b1
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%left: !b8, %right: !b8, %guard: !b1):
       "ac.yield"(%guard) : (!b1) -> ()
     }, {
@@ -43,7 +43,7 @@ module {
     }, {
     ^bb0(%left: !b8, %right: !b8):
       %path_true = "ac.bits.constant"() {value = #w1} : () -> !b1
-      %a, %b = "ac.method.call"(%path_true, %left, %right) {callee = @Owner::@shared, instance_path = [], occurrence = #reg} : (!b1, !b8, !b8) -> (!b8, !b8)
+      %a, %b = "ac.legacy.method.call"(%path_true, %left, %right) {callee = @Owner::@shared, instance_path = [], occurrence = #reg} : (!b1, !b8, !b8) -> (!b8, !b8)
       "ac.yield"(%a, %b) : (!b8, !b8) -> ()
     }) {name = "run", declaration = #decl, occurrence = #reg, ac.guard_location = #span, ac.registration_entry} : (!b1, !b1, !b8, !b8) -> (!b8, !b8)
     "ac.yield"(%a, %b) : (!b8, !b8) -> ()

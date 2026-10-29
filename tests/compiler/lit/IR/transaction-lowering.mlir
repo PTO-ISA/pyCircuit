@@ -5,15 +5,15 @@
 // Native schema-valid lowering; canonical public authority belongs to SourceLink.
 // CHECK: ac.stage = "final"
 // CHECK-NOT: "ac.state"
-// CHECK-NOT: "ac.method"
+// CHECK-NOT: "ac.legacy.method"
 // CHECK-NOT: "ac.transaction"
 // CHECK: ac.instance
 // CHECK: instance_name = "count"
-// CHECK: "ac.rule"
+// CHECK: "ac.comb"
 // CHECK-NOT: ac.guard_location
 // CHECK-NOT: "ac.state.read"
 // CHECK-NOT: "ac.state.write"
-// CHECK-NOT: "ac.method.call"
+// CHECK-NOT: "ac.legacy.method.call"
 #w0 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<0>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "state.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w1 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<1>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "state.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
 #w8 = #ac.static_expr<{kind = "literal", value = {kind = "integer", value = #ac.math_int<8>}, origin = {site = {definition = @Counter, ast_path = []}, expansion = []}, location = {path = "state.py", line = 1 : i64, column = 1 : i64, end_line = 1 : i64, end_column = 2 : i64}}>
@@ -36,7 +36,7 @@ module attributes {ac.source_units = [{package = "", path = "state.py"}]} {
     %effect = "ac.bits.constant"() {value = #w1} : () -> !b1 // EFFECT
     %initial = "ac.bits.constant"() {value = #w0} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #state} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%yes) ({
+    "ac.legacy.method"(%yes) ({
     ^bb0(%amount: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -51,8 +51,8 @@ module attributes {ac.source_units = [{package = "", path = "state.py"}]} {
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%path: !b1, %amount: !b8, %effect_path: !b1):
-      %first = "ac.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call1} : (!b1, !b8) -> !b8
-      %second = "ac.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call2} : (!b1, !b8) -> !b8
+      %first = "ac.legacy.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call1} : (!b1, !b8) -> !b8
+      %second = "ac.legacy.method.call"(%effect_path, %amount) {callee = @Counter::@add, instance_path = [], occurrence = #call2} : (!b1, !b8) -> !b8
       "ac.yield"() : () -> ()
     }) {name = "step", declaration = #rule, occurrence = #rule, ac.guard_location = #span} : (!b1, !b1, !b1, !b8, !b1) -> ()
     "ac.yield"(%q) : (!b8) -> ()

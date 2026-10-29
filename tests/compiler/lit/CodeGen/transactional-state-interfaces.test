@@ -1,0 +1,5 @@
+# REQUIRES: verilator, iverilog, vvp
+# RUN: %python %inputs/transactional-state-interfaces.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.cpp cpp
+# RUN: %python %inputs/transactional-state-interfaces.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.rtl verilog
+# RUN: %python %inputs/transactional-state-interfaces.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.reset.cpp cpp reset
+# RUN: %python %inputs/transactional-state-interfaces.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.reset.rtl verilog reset

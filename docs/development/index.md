@@ -15,7 +15,7 @@ migration completion.
 - [Language reference](../reference/language.md): typed modules, ordinary
   variables, rules, structs/tables, Enum, branches and rejection boundaries.
 - [Current limitations](known-limitations.md):
-  post-Enum/match priorities across Python, MLIR, codegen, runner and examples.
+  transactional capabilities, retained requirements and implementation gaps.
 - [Contributing workflow](contributing-workflow.md): change process and scope.
 - [Testing and gates](testing-and-gates.md): candidate-bound validation.
 - [Review and merge](review-and-merge.md): semantic and evidence review.

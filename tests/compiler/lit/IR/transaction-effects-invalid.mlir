@@ -16,7 +16,7 @@ module {
   ^bb0(%clk: !b1, %rst: !b1, %data: !b8):
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #counter} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -48,7 +48,7 @@ module {
   ^bb0(%clk: !b1, %rst: !b1, %data: !b8):
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #counter} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -80,7 +80,7 @@ module {
   ^bb0(%clk: !b1, %rst: !b1, %data: !b8):
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #counter} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -113,7 +113,7 @@ module {
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
 // expected-error @+1 {{state initializer requires a closed static literal/constructor DAG}}
     %q = "ac.state"(%clk, %rst, %data) {instance_name = "count", occurrence = #counter} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -145,7 +145,7 @@ module {
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
 // expected-error @+1 {{Occurrence must contain exactly 2 fields}}
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = {}} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -177,7 +177,7 @@ module {
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
 // expected-error @+1 {{state clock requires width-one Bits}}
     %q = "ac.state"(%data, %rst, %initial) {instance_name = "count", occurrence = #counter} : (!b8, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -208,7 +208,7 @@ module {
   ^bb0(%clk: !b1, %rst: !b1, %data: !b8):
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #counter} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
 // expected-error @+1 {{state writes and method calls are forbidden in guards}}
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
@@ -241,7 +241,7 @@ module {
   ^bb0(%clk: !b1, %rst: !b1, %data: !b8):
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #counter} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
@@ -273,13 +273,13 @@ module {
   ^bb0(%clk: !b1, %rst: !b1, %data: !b8):
     %initial = "ac.bits.constant"() {value = #w1} : () -> !b8
     %q = "ac.state"(%clk, %rst, %initial) {instance_name = "count", occurrence = #counter} : (!b1, !b1, !b8) -> !b8
-    "ac.method"(%rst) ({
+    "ac.legacy.method"(%rst) ({
     ^bb0(%value: !b8, %path: !b1):
       "ac.yield"(%path) : (!b1) -> ()
     }, {
     ^bb0(%value: !b8, %path: !b1):
 // expected-error @+1 {{callee module must match resolved receiver module}}
-      %old = "ac.method.call"(%path, %value) {callee = @Other::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
+      %old = "ac.legacy.method.call"(%path, %value) {callee = @Other::@add, instance_path = [], occurrence = #counter} : (!b1, !b8) -> !b8
       "ac.state.write"(%path, %value) {state = "count", selectors = [], occurrence = #counter} : (!b1, !b8) -> ()
       "ac.yield"(%old) : (!b8) -> ()
     }) {sym_name = "add", function_type = (!b8) -> !b8, argument_names = ["value"], ac.parameters = [{name = "value", binding = "positional_or_keyword", constraint = #byte_constraint, default = {present = false}, origin = #counter, location = #span}], ac.result_constraints = [#byte_constraint], ac.return_form = "single", ac.guard_location = #span, occurrence = #counter} : (!b1) -> ()

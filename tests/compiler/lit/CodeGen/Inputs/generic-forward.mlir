@@ -10,7 +10,7 @@ module {
   ac.struct "Packet" fields [{name = "tag", type = !b5}, {name = "data", type = !b70}]
   "ac.module"() ({
   ^bb0(%x: !ac.type_param<@identity, "T">):
-    %y = "ac.rule"(%x) ({
+    %y = "ac.comb"(%x) ({
     ^bb0(%capture: !ac.type_param<@identity, "T">):
       "ac.yield"(%capture) : (!ac.type_param<@identity, "T">) -> ()
     }) {name = "forward", occurrence = {site = {definition = @top, ast_path = []}, expansion = []}} : (!ac.type_param<@identity, "T">) -> !ac.type_param<@identity, "T">

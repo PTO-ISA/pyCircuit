@@ -36,10 +36,11 @@ bool isCombinationalHardwareOperation(mlir::Operation *operation);
 // Validate every closed layout constraint while retaining only well-scoped
 // Integer-formal dependencies until occurrence binding. Reports concreteness
 // separately so a template declaration cannot establish executable validity.
-mlir::LogicalResult verifySourceTemplateType(
-    const HardwareAnalysis &analysis, mlir::Type type,
-    const HardwareBindings &bindings, mlir::Operation *site,
-    bool *concrete = nullptr);
+mlir::LogicalResult verifySourceTemplateType(const HardwareAnalysis &analysis,
+                                             mlir::Type type,
+                                             const HardwareBindings &bindings,
+                                             mlir::Operation *site,
+                                             bool *concrete = nullptr);
 
 // Existing source-state initializer grammar, also used to prove physical
 // elaboration initialization under each actual storage binding.
@@ -62,9 +63,10 @@ mlir::LogicalResult verifySourceCallHardwareConstraint(
     SourceCallWidthMode widthMode = SourceCallWidthMode::Concrete);
 // Shared nominal field schema. Only Boolean fields extend the legacy physical
 // descriptor with an authoritative source constraint.
-mlir::LogicalResult verifyNominalStructField(
-    mlir::Attribute raw, const HardwareAnalysis &analysis,
-    mlir::Operation *lexicalModule, mlir::Operation *diagnosticOperation);
+mlir::LogicalResult
+verifyNominalStructField(mlir::Attribute raw, const HardwareAnalysis &analysis,
+                         mlir::Operation *lexicalModule,
+                         mlir::Operation *diagnosticOperation);
 mlir::LogicalResult verifyRequiredSourceParameter(
     mlir::Attribute raw, mlir::StringAttr expectedName,
     mlir::DictionaryAttr sourceOwner, mlir::FlatSymbolRefAttr definition,
@@ -212,6 +214,9 @@ mlir::LogicalResult verifyStateRef(mlir::DictionaryAttr value,
 
 // Total structural order for attributes admitted by closed source identity
 // schemas. Callers must verify the enclosing Occurrence or StateRef first.
+// Canonical order shared by source capture and namespace validation.
+int compareSourceImportBindings(mlir::DictionaryAttr left,
+                                mlir::DictionaryAttr right);
 int compareClosedSourceStructure(mlir::Attribute left, mlir::Attribute right);
 
 } // namespace acir::ac::detail

@@ -1,6 +1,7 @@
 #include "SourceHeaderHelpers.h"
 #include "SourceUnit.h"
 #include "pycircuit/Dialect/ACIR/SourceUnitValidation.h"
+#include "pycircuit/Dialect/ACIR/TransactionalContracts.h"
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/OperationSupport.h"
@@ -28,12 +29,16 @@ LogicalResult verifyPublishedModule(ac::ModuleOp module,
   for (StringRef name :
        {"ac.root_kind", "ac.system_samples", "ac.return_form", "ac.parameters",
         "ac.result_constraints", "ac.domain_inputs", "ac.result_availability",
-        "ac.reference_parameters"})
+        "ac.reference_parameters", "output_kinds"})
     if (module->getAttr(name) != declaration->getAttr(name))
       return emitError()
              << "source module call contract differs from its published "
                 "interface: @"
              << module.getSymName();
+  if (ac::getTransactionalMethodInterfaces(module) !=
+      ac::getTransactionalMethodInterfaces(declaration))
+    return emitError() << "source Method interfaces differ from actual definitions: @"
+                       << module.getSymName();
   return verifyPublishedDependencies(module, declaration, emitError);
 }
 
@@ -53,14 +58,15 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
   auto bodyOwner = body->getAttrOfType<DictionaryAttr>("ac.source_owner");
   auto bodyKind = body->getAttrOfType<StringAttr>("ac.unit_kind");
   auto stage = body->getAttrOfType<StringAttr>("ac.stage");
-  if (!owner || bodyOwner != owner || !stage || stage.getValue() != "source" ||
-      !bodyKind ||
+  if (!owner || bodyOwner != owner || !stage ||
+      stage.getValue() != "unlinked" || !bodyKind ||
       (bodyKind.getValue() != "implementation" &&
        bodyKind.getValue() != "declarations"))
     return emitError()
            << "source body envelope does not match its owning header";
 
-  for (StringRef name : {"ac.interfaces", "ac.exports", "ac.import_bindings"})
+  for (StringRef name : {"ac.transactional", "ac.source_contract", "ac.interfaces", "ac.exports",
+                         "ac.import_bindings"})
     if (!body->getAttr(name) ||
         body->getAttr(name) != owningHeader->getAttr(name))
       return emitError() << "source body/header metadata differs for " << name;
@@ -99,7 +105,8 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
         operation.getAttrOfType<StringAttr>(SymbolTable::getSymbolAttrName());
     auto snapshotOwner = ac::detail::declarationSourceOwner(&operation);
     bool localDefinition =
-        isa<ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp>(operation) &&
+        (isa<ac::StructOp, ac::EnumOp, ac::ConstantOp, func::FuncOp, ac::TransactionRuleOp>(operation) ||
+         ac::isTransactionalReferenceRequirement(&operation)) &&
         role && role.getValue() == "definition" && snapshotOwner == owner;
     if (!role || (role.getValue() != "import_snapshot" && !localDefinition) ||
         !symbol || !snapshotOwner)
@@ -123,7 +130,7 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
   for (Operation &declaration : owningHeader.getBody()->getOperations()) {
     auto role = declaration.getAttrOfType<StringAttr>("ac.declaration_role");
     if (!isa<ac::ModuleImportOp, ac::StructOp, ac::EnumOp, ac::ConstantOp,
-             func::FuncOp>(declaration) ||
+             func::FuncOp, ac::TransactionRuleOp>(declaration) ||
         !role ||
         role.getValue() != "definition" ||
         ac::detail::declarationSourceOwner(&declaration) != owner)
@@ -136,7 +143,8 @@ verifyBodySnapshotsAgainstAuthority(ModuleOp body, ModuleOp owningHeader,
             : StringAttr();
     if (!definition || !bodyRole || bodyRole.getValue() != "definition" ||
         ac::detail::declarationSourceOwner(definition) != owner ||
-        (isa<ac::ModuleImportOp>(declaration)
+        (isa<ac::ModuleImportOp>(declaration) &&
+                 !ac::isTransactionalReferenceRequirement(&declaration)
              ? !isa<ac::ModuleOp>(definition)
              : !detail::sameDeclaration(&declaration, definition)))
       return emitError()
@@ -165,14 +173,15 @@ LogicalResult verifyIntrinsicSourceUnitPair(ModuleOp body, ModuleOp interface,
       owner != bodyOwner)
     return emitError() << "source body/interface SourceOwner mismatch";
   if (!interfaceKind || interfaceKind.getValue() != "interface" ||
-      !interfaceStage || interfaceStage.getValue() != "source")
+      !interfaceStage || interfaceStage.getValue() != "unlinked")
     return emitError() << "source interface stage/unit_kind is invalid";
   if (!bodyKind ||
       (bodyKind.getValue() != "implementation" &&
        bodyKind.getValue() != "declarations") ||
-      !bodyStage || bodyStage.getValue() != "source")
+      !bodyStage || bodyStage.getValue() != "unlinked")
     return emitError() << "source body stage/unit_kind is invalid";
-  for (StringRef name : {"ac.interfaces", "ac.exports", "ac.import_bindings"})
+  for (StringRef name : {"ac.transactional", "ac.source_contract", "ac.interfaces", "ac.exports",
+                         "ac.import_bindings"})
     if (!interface->getAttr(name) ||
         interface->getAttr(name) != body->getAttr(name))
       return emitError() << "source body/interface metadata differs for "
@@ -206,12 +215,12 @@ verifyIntrinsicSourceUnitOwnerPair(ModuleOp body, ModuleOp interface,
   auto bodyKind = body->getAttrOfType<StringAttr>("ac.unit_kind");
   auto bodyStage = body->getAttrOfType<StringAttr>("ac.stage");
   if (!interfaceKind || interfaceKind.getValue() != "interface" ||
-      !interfaceStage || interfaceStage.getValue() != "source")
+      !interfaceStage || interfaceStage.getValue() != "unlinked")
     return emitError() << "source interface stage/unit_kind is invalid";
   if (!bodyKind ||
       (bodyKind.getValue() != "implementation" &&
        bodyKind.getValue() != "declarations") ||
-      !bodyStage || bodyStage.getValue() != "source")
+      !bodyStage || bodyStage.getValue() != "unlinked")
     return emitError() << "source body stage/unit_kind is invalid";
 
   auto owner = interface->getAttrOfType<DictionaryAttr>("ac.source_owner");

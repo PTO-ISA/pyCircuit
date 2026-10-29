@@ -1,0 +1,4 @@
+# REQUIRES: verilator
+# RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.source.cpp cpp
+# RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.source.rtl verilog
+# RUN: %python %inputs/transactional-failure-run.py %src %pycircuit_source_unit %pycircuit_link %pycircuit_emit %cxx %pycircuit_opt %t.t-gfsim t-gfsim

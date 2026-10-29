@@ -5,6 +5,23 @@ Record raw outcomes and candidate identity under the ignored local directory
 `docs/gates/logs/<run-id>/`; CI uploads these files as workflow artifacts.
 A command, test file or historical acceptance entry is not a passing result.
 
+## Short native CI
+
+`G1: Native Transactional Gates` builds and installs the compiler, runs the
+native transactional runtime foundation and the readable `transactional-*`
+end-to-end scenarios. Physical C++ workers 1/2 and RTL compare against independent
+histories; t-gfsim reuses supported State/control/call designs. Saved Linked and
+Routed continuation and a Runtime-only generated consumer remain covered.
+
+See [transactional test scenarios](transactional-test-scenarios.md) for the six
+groups, positive supplements, backend support and coverage migration. Issue #361
+rejection, malformed-IR and implementation-structure tests are deliberately
+removed; their removal does not mean those cases passed. Finite System reset
+schedules run in the State and Data groups; post-failure generated storage
+observation remains an explicit gap. The desired required-check list includes
+G1; applying branch protection on GitHub is a separate repository-management
+action.
+
 ## API tests and examples are separate
 
 Foundational reliability covers declared types and widths, combinational
@@ -52,9 +69,9 @@ package tests and receipts. No new native executable is needed for this split.
 | Entry point | Gate | Additional nightly coverage |
 | --- | --- | --- |
 | API/framework | Native API/runtime GTests; IR/pass lit; source interface/check diagnostics and output protection | Remaining source/codegen matrices, native source-check execution, Runtime/CompilerDev install, public emit/source maps, incremental builds, relocation, publication recovery and presets |
-| Examples | `hello_counter`, `multi_outputs`, `struct_transform`, `enum_payload_pipeline`, `rob`, `table_rule`, `queue_rule_pipeline`, each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
+| Examples | The explicit `_gate_examples` list in `examples/CMakeLists.txt`, including `resource_composition`; each compile/link/dual emit and workers 1/2/RTL | Every registered example, including full-duration `digital_clock` and BF16 checks |
 
-The example registry is explicit. Gate configures only its seven smoke designs,
+The example registry is explicit. Gate configures only its selected smoke designs,
 so it does not compile the full nightly set first. Direct aggregate CMake builds
 default to the full `nightly` registry. Standalone example builds remain supported.
 Examples demonstrate complete designs; API fixtures test compiler/runtime
@@ -83,8 +100,10 @@ source-proof mutations. The existing external-pop nightly owner retains the
 complete one/two-instance allocation-pool reproducer: 16 state rows, two argmin
 queries and five queues. It independently publishes the source units and checks
 C++ workers 1/2 and RTL observations without reducing the pool or raising analysis
-limits. Generic Integer-state and nested-Table compatibility remain separate
-regressions; a compact join does not imply new source type admission.
+limits. This retained source workload still requires transactional frontend
+migration; its registration is not a passing result. Generic Integer-state and
+nested-Table compatibility remain separate regressions; a compact join does not
+imply new source type admission.
 
 Each executed entry point records its selected CTest names and count under
 `docs/gates/logs/<run-id>/`, with distinct category/tier summary filenames.
@@ -109,24 +128,22 @@ Runtime/source diagnostic coverage remains in gate.
 
 Long coverage, differential/reference-model and mutation matrices run when
 nightly is requested or scheduled. Ordinary authoring/review does not require
-running them immediately. The current examples selection contains 21 designs. The 54 superseded wrappers
-are retained under `tests/fixtures/historical_examples/`, outside the example
-selection. Their retirement is not a pass or a claim that every old scenario has
-an equivalent API test. Active API/package fixtures still reference their
-archived inputs explicitly. Current complete-design Module oracles retain their
-independent checks; short teaching Systems have their own documented scenarios. Record each actual result and
-remaining NOT-RUN case; focused passes do not establish a full nightly result.
+running them immediately. `examples/CMakeLists.txt` defines the current example
+selection; the catalog describes each design's purpose and owner. Historical
+fixtures outside that selection remain only where their capability or active
+consumer needs them. Retirement is not a pass or proof of equivalent coverage.
+Record each actual result and remaining NOT RUN case; focused passes do not
+establish a full nightly result.
 
 ## Contract under validation
 
-The current public workflow is one source per `pycircuit compile`, explicit
-unit closure through `pycircuit link`, and `pycircuit emit` to either backend
-from the verified final artifact. The source profile includes typed structural
-modules and the bounded behavioral variable/struct/table slice with multiple
-same-source state-writing rule calls on disjoint declarations or Struct fields. Both lower to the same standard storage
-leaves. The typed C++ DUT and host-driven runner use Work/Xfer sampling epochs.
-Required boundaries include negative tests for unsupported sources and no
-fallback dispatch. The language reference records the current source surface.
+The public workflow is one source per `pycircuit compile`, explicit unit
+closure through `pycircuit link`, and `pycircuit emit` to either backend from
+the verified final artifact. The [transactional language profile](../reference/language.md#transactional-frontend-replacement)
+defines current admission. Tests for retained legacy capabilities remain migration
+requirements until revalidated; their registration alone is not a support claim.
+Typed C++ DUTs and host-driven runners use Work/Xfer sampling epochs. Unsupported
+sources must reject without fallback dispatch.
 
 ## Focused validation map
 
@@ -140,6 +157,14 @@ fallback dispatch. The language reference records the current source surface.
 | Runtime/package | Runtime-only install without LLVM discovery; CompilerDev install with LLVM/MLIR 22.1.8; exported target and external consumer smoke |
 | Hard break | Source, CLI, CMake, package and installed-payload scans show no active retired frontend/compiler/fallback |
 | Documentation | Active docs agree on profile, command path, unsupported contracts and current test selection |
+
+## Retained verification responsibilities
+
+The owners below describe the behavioral and IR obligations of existing tests,
+including legacy cases awaiting migration. They do not extend the current
+transactional admission profile or establish passing execution on a new candidate.
+Preserve independent expectations when migrating these cases; obsolete internal
+mechanism checks may be removed with explicit coverage accounting.
 
 Source interface extraction has a standalone MLIR boundary:
 `pycircuit-opt --ac-extract-source-interface`. Its direct tests cover

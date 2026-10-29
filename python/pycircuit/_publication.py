@@ -27,7 +27,7 @@ _PHASES = {
     "rollback_cleanup",
     "committed",
 }
-_ARTIFACT_KINDS = {"source-unit", "generated", "program", "anchor"}
+_ARTIFACT_KINDS = {"source-unit", "generated", "program", "anchor", "linked"}
 
 
 class _PublicationError(RuntimeError):
@@ -301,7 +301,7 @@ def _publish_directory(
     """Build and atomically publish one owned directory."""
 
     expected_owner = _validate_owner(owner)
-    if expected_owner["kind"] == "program":
+    if expected_owner["kind"] in {"program", "linked"}:
         raise _PublicationError("program publication requires a single file")
     return _publish_artifact(
         destination,
@@ -329,7 +329,7 @@ def _publish_file(
     """Build and atomically publish one owned ``design_top.ac`` file."""
 
     expected_owner = _validate_owner(owner)
-    if expected_owner["kind"] != "program":
+    if expected_owner["kind"] not in {"program", "linked"}:
         raise _PublicationError("single-file publication requires a program owner")
     return _publish_artifact(
         destination,
@@ -714,6 +714,7 @@ def _validate_owner(value: object) -> _Owner:
         "generated": {"kind", "source", "definition", "target"},
         "program": {"kind", "source", "definition"},
         "anchor": {"kind", "source", "definition"},
+        "linked": {"kind", "source", "definition"},
     }
     if type(kind) is not str or kind not in fields or set(value) != fields[kind]:
         raise _PublicationError("publication owner fields are not closed")
@@ -727,7 +728,7 @@ def _validate_owner(value: object) -> _Owner:
     _validate_package(package)
     _validate_source_path(path)
     result: _Owner = {"kind": kind, "source": dict(source)}
-    if kind in {"generated", "program", "anchor"}:
+    if kind in {"generated", "program", "anchor", "linked"}:
         definition = value["definition"]
         if type(definition) is not str:
             raise _PublicationError("publication definition is invalid")
@@ -735,7 +736,7 @@ def _validate_owner(value: object) -> _Owner:
         result["definition"] = definition
     if kind == "generated":
         target = value["target"]
-        if type(target) is not str or target not in {"cpp", "verilog"}:
+        if type(target) is not str or target not in {"cpp", "verilog", "t-gfsim"}:
             raise _PublicationError("publication target is invalid")
         result["target"] = target
     return result
@@ -832,7 +833,7 @@ def _validate_stable_state(
 
 
 def _artifact_kind(owner: Mapping[str, object]) -> str:
-    return "file" if owner["kind"] == "program" else "directory"
+    return "file" if owner["kind"] in {"program", "linked"} else "directory"
 
 
 def _artifact_exists(

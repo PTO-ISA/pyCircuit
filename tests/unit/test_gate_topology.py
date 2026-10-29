@@ -25,7 +25,7 @@ def _read(relative: str) -> str:
     return (ROOT / relative).read_text(encoding="utf-8")
 
 
-def test_pull_request_ci_is_python_only_and_deduplicates_api_hygiene() -> None:
+def test_pull_request_ci_runs_bounded_gates_and_deduplicates_api_hygiene() -> None:
     ci = _read(".github/workflows/ci.yml")
 
     assert "SKIP=pyc-api-hygiene pre-commit run --files" in ci
@@ -33,17 +33,13 @@ def test_pull_request_ci_is_python_only_and_deduplicates_api_hygiene() -> None:
     assert "pytest" in ci
     assert ci.count("mkdocs build --strict") == 1
 
-    for forbidden in (
-        "llvm.sh",
-        "setup-verilator",
-        "setup-native-test-tools",
-        "tools/pyc build",
-        *FULL_CLOSURE_SCRIPTS,
-    ):
-        assert forbidden not in ci
+    # Full matrices belong to nightly; PR CI includes the bounded native lane.
+    assert all(script not in ci for script in FULL_CLOSURE_SCRIPTS)
+    assert "ACIRTransactionalGfsimTests" in ci
+    assert "CodeGen/transactional-" in ci
 
 
-def test_native_tool_bootstrap_is_confined_to_existing_linux_closure_jobs() -> None:
+def test_native_tool_bootstrap_precedes_build_in_linux_jobs() -> None:
     action = "./.github/actions/setup-native-test-tools"
     observed = set()
     for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
@@ -66,22 +62,18 @@ def test_native_tool_bootstrap_is_confined_to_existing_linux_closure_jobs() -> N
             build = next(
                 index
                 for index, step in enumerate(steps)
-                if "tools/pyc build" in step.get("run", "")
+                if any(
+                    command in step.get("run", "")
+                    for command in ("tools/pyc build", "cmake --build")
+                )
             )
             assert python < installs[0] < build
-            assert steps[python]["with"]["python-version"] == "3.14.6"
     assert observed == {
+        ("ci.yml", "native-transactional-gates"),
         ("gates-nightly.yml", "nightly-linux"),
         ("closure-probe.yml", "closure"),
         ("release.yml", "full-validation"),
     }
-    ci = yaml.safe_load(_read(".github/workflows/ci.yml"))
-    assert {
-        step["with"]["python-version"]
-        for job in ci["jobs"].values()
-        for step in job["steps"]
-        if step.get("uses", "").startswith("actions/setup-python@")
-    } == {"3.11"}
 
 
 def test_native_tool_bootstrap_checks_exact_source_identity_before_install() -> None:

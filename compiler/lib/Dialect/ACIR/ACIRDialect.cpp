@@ -19,6 +19,17 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
     return verifyTransactionalPackage(package);
   }
   if (name == "ac.stage") {
+    if (!operation->hasAttr("ac.transactional")) {
+      auto stale = operation->walk([](Operation *nested) {
+        if (isa<TransactionRuleOp, TransactionMethodOp,
+                TransactionRuleCallOp, TransactionMethodCallOp>(nested)) {
+          nested->emitOpError("transactional callable requires contract 2; regenerate this artifact");
+          return WalkResult::interrupt();
+        }
+        return WalkResult::advance();
+      });
+      if (stale.wasInterrupted()) return failure();
+    }
     auto stage = dyn_cast<StringAttr>(attribute.getValue());
     if (stage && (stage.getValue() == "unlinked" || stage.getValue() == "linked") &&
         !operation->hasAttr("ac.transactional"))
@@ -64,9 +75,9 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
         package->hasAttr("ac.unit_kind") || !stage ||
         (stage.getValue() != "routed" && stage.getValue() != "final") ||
         !version || !version.getType().isSignlessInteger(64) ||
-        (version.getValue() != 2 && version.getValue() != 3))
+        (version.getValue() != 2 && version.getValue() != 3 && version.getValue() != 4))
       return operation->emitOpError()
-             << "ac.routed_contract requires version 2 or 3 : i64 on the top-level "
+             << "ac.routed_contract requires version 2, 3 or 4 : i64 on the top-level "
                 "routed or final package; regenerate unsupported artifacts";
     // Pair presence is a structural schema rule, including during ordinary
     // native verification. Do not bind entries or recurse into package
@@ -81,7 +92,7 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
             boundaries += child.hasAttr("ac.entry_boundary");
           }
     if ((version.getInt() == 3 && (selections != 1 || boundaries != 1)) ||
-        (version.getInt() == 2 && boundaries))
+        ((version.getInt() == 2 || version.getInt() == 4) && boundaries))
       return operation->emitOpError()
              << "ac.routed_contract 3 requires ac.entry_boundary on the sole "
                 "System; contract 2 forbids ac.entry_boundary";
@@ -117,7 +128,9 @@ LogicalResult ACIRDialect::verifyOperationAttribute(Operation *operation,
     auto stage =
         package ? package->getAttrOfType<StringAttr>("ac.stage") : StringAttr();
     if (!isa<SystemOp>(operation) || !package ||
-        (stage && stage.getValue() != "final" && stage.getValue() != "routed") ||
+        (stage && stage.getValue() != "final" && stage.getValue() != "routed" &&
+         !(stage.getValue() == "linked" &&
+           package->hasAttr("ac.transactional"))) ||
         package->hasAttr("ac.unit_kind"))
       return operation->emitOpError()
              << "ac.execution_policy is permitted only on the root ac.system "
